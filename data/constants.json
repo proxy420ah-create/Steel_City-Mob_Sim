@@ -1,0 +1,59 @@
+{
+  "_comment": "Steel City: Mob Sim — Constants. All global tuning values. Derived from original game's Constants.xtx.",
+  "version": "0.0.1",
+  "city": {
+    "civilians": 2000,
+    "police": 400,
+    "fbi": 100,
+    "judges": 12,
+    "attorneys": 12
+  },
+  "gang_start": {
+    "hoods": 5,
+    "explosives": 3,
+    "businesses": 1,
+    "vehicles": 1,
+    "money": 6000
+  },
+  "fear_base": {
+    "business_owner": {"base": 100, "modifier": -20},
+    "civilian": {"base": 100, "modifier": -20},
+    "hood": {"base": 128, "modifier": 0},
+    "police": {"base": 128, "modifier": 0},
+    "fbi": {"base": 128, "modifier": 0},
+    "judge": {"base": 128, "modifier": 0},
+    "mayor": {"base": 128, "modifier": 0}
+  },
+  "squeal": {
+    "business_owner": 125,
+    "civilian": 100,
+    "hood": 100,
+    "police": 200,
+    "police_chief": 250,
+    "fbi": 250,
+    "judge": 200,
+    "mayor": 250
+  },
+  "bribe_prices": {
+    "business_owner": {"base": 500, "multiplier": 500},
+    "snitch": {"base": 500, "multiplier": 4},
+    "attorney": {"base": 5000, "multiplier": 3000},
+    "judge": {"base": 10000, "multiplier": 20000},
+    "mayor": {"base": 10000, "multiplier": 10000},
+    "police": {"base": 2000, "multiplier": 3000},
+    "police_chief": {"base": 10000, "multiplier": 10000}
+  },
+  "fbi_suspicion": {
+    "base_illegal_income_threshold": 5000,
+    "accountant_skill_divisor": 16,
+    "suspicion_multiplier": 2
+  },
+  "elections": {
+    "min_blocks_to_enter": 100,
+    "cost_divisor": 4
+  },
+  "gang_splitting": {
+    "loyalty_threshold": 192,
+    "hostility_fear_threshold": 64
+  }
+}

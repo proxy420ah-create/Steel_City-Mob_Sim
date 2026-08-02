@@ -1,0 +1,40 @@
+# ───────────────────────────────────────────────────────────────
+# Steel City: Mob Sim — .gitignore
+# ───────────────────────────────────────────────────────────────
+
+# ── Python ─────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# ── Build output ───────────────────────────────────────────────
+build/
+dist/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# ── Save games / runtime state ─────────────────────────────────
+saves/
+*.save
+*.sav
+
+# ── Decoded source game data (not our IP) ──────────────────────
+gangsters_decoded/
+
+# ── OS / editor cruft ──────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vs/
+*.swp
+*~

@@ -1,0 +1,27 @@
+{
+  "_comment": "Steel City: Mob Sim — Crime definitions. Derived from original game's Crime.xtx.",
+  "version": "0.0.1",
+  "crimes": [
+    {"id": "gototype", "name": "Goto Order", "time": 12000, "manpower_min": 1, "manpower_max": 4, "suspicion": 0, "sentence": 0, "investigation": 0, "risk_public": 0, "risk_private": 0, "ai_priority": 10},
+    {"id": "guardbusiness", "name": "Guard Business", "time": 12000, "manpower_min": 1, "manpower_max": 4, "suspicion": 0, "sentence": 0, "investigation": 0, "risk_public": 0, "risk_private": 0, "ai_priority": 4},
+    {"id": "ownbusiness", "name": "Own Business", "time": 12000, "manpower_min": 1, "manpower_max": 2, "suspicion": 0, "sentence": 0, "investigation": 0, "risk_public": 0, "risk_private": 0, "ai_priority": 5},
+    {"id": "collectprotection", "name": "Collect Protection", "time": 166, "manpower_min": 1, "manpower_max": 10, "suspicion": 0, "sentence": 0, "investigation": 0, "risk_public": 0, "risk_private": 0, "ai_priority": 0},
+    {"id": "explore", "name": "Explore", "time": 83, "manpower_min": 1, "manpower_max": 10, "suspicion": 0, "sentence": 0, "investigation": 0, "risk_public": 0, "risk_private": 0, "ai_priority": 6},
+    {"id": "recruit", "name": "Recruit", "time": 166, "manpower_min": 1, "manpower_max": 10, "suspicion": 0, "sentence": 0, "investigation": 0, "risk_public": 0, "risk_private": 0, "ai_priority": 7},
+    {"id": "lielow", "name": "Lie Low", "time": 12000, "manpower_min": 1, "manpower_max": 1, "suspicion": 0, "sentence": 0, "investigation": 0, "risk_public": 0, "risk_private": 0, "ai_priority": 10},
+    {"id": "patrol", "name": "Patrol", "time": 12000, "manpower_min": 1, "manpower_max": 4, "suspicion": 0, "sentence": 0, "investigation": 0, "risk_public": 0, "risk_private": 0, "ai_priority": 4},
+    {"id": "bribe", "name": "Bribe", "newspaper": "bribery", "time": 500, "manpower_min": 1, "manpower_max": 4, "suspicion": 20, "sentence": 2, "investigation": 8, "risk_public": 0, "risk_private": 0, "ai_priority": 9},
+    {"id": "extort", "name": "Extort", "newspaper": "extortion", "time": 166, "manpower_min": 1, "manpower_max": 10, "suspicion": 20, "sentence": 3, "investigation": 2, "risk_public": 2, "risk_private": 2, "ai_priority": 1},
+    {"id": "intimidate", "name": "Intimidate", "newspaper": "intimidation", "time": 333, "manpower_min": 1, "manpower_max": 10, "suspicion": 20, "sentence": 1, "investigation": 2, "risk_public": 2, "risk_private": 2, "ai_priority": 8},
+    {"id": "kidnap", "name": "Kidnap", "newspaper": "kidnapping", "time": 6000, "manpower_min": 1, "manpower_max": 4, "suspicion": 60, "sentence": 6, "investigation": 6, "risk_public": 2, "risk_private": 2, "ai_priority": 9},
+    {"id": "raid", "name": "Raid", "newspaper": "robbery", "time": 500, "manpower_min": 1, "manpower_max": 4, "suspicion": 40, "sentence": 2, "investigation": 8, "risk_public": 4, "risk_private": 4, "ai_priority": 1},
+    {"id": "ambush", "name": "Ambush", "newspaper": "murder", "time": 12000, "manpower_min": 1, "manpower_max": 4, "suspicion": 100, "sentence": 10, "investigation": 8, "risk_public": 8, "risk_private": 4, "ai_priority": 9},
+    {"id": "assault", "name": "Assault", "newspaper": "assault", "time": 6000, "manpower_min": 1, "manpower_max": 4, "suspicion": 40, "sentence": 5, "investigation": 2, "risk_public": 6, "risk_private": 4, "ai_priority": 9},
+    {"id": "bomb", "name": "Bomb", "newspaper": "bombing", "time": 333, "manpower_min": 1, "manpower_max": 4, "suspicion": 80, "sentence": 8, "investigation": 8, "risk_public": 8, "risk_private": 6, "ai_priority": 3},
+    {"id": "kill", "name": "Kill", "newspaper": "murder", "time": 6000, "manpower_min": 1, "manpower_max": 4, "suspicion": 100, "sentence": 10, "investigation": 8, "risk_public": 8, "risk_private": 4, "ai_priority": 10},
+    {"id": "smashup", "name": "Smash Up", "newspaper": "vandalism", "time": 333, "manpower_min": 1, "manpower_max": 4, "suspicion": 60, "sentence": 4, "investigation": 6, "risk_public": 6, "risk_private": 4, "ai_priority": 3},
+    {"id": "torch", "name": "Torch", "newspaper": "arson", "time": 333, "manpower_min": 1, "manpower_max": 4, "suspicion": 80, "sentence": 7, "investigation": 6, "risk_public": 8, "risk_private": 4, "ai_priority": 3},
+    {"id": "evadetax", "name": "Evade Tax", "newspaper": "tax evasion", "time": 12000, "manpower_min": 1, "manpower_max": 1, "suspicion": 10, "sentence": 10, "investigation": 10, "risk_public": 0, "risk_private": 0, "ai_priority": 10},
+    {"id": "bribeofficials", "name": "Bribe Officials", "newspaper": "corruption", "time": 12000, "manpower_min": 1, "manpower_max": 1, "suspicion": 20, "sentence": 8, "investigation": 10, "risk_public": 0, "risk_private": 0, "ai_priority": 10}
+  ]
+}
