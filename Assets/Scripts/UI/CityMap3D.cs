@@ -717,31 +717,40 @@ namespace SteelCity.Sim
             var charParent = new GameObject("Characters");
             charParent.transform.SetParent(mapRoot, false);
 
-            // Apartment block is block_2 at row=0, col=1
-            float blockRow = 0f;
-            float blockCol = 1f;
+            // Barber shop is block_4 at row=1, col=0
+            float blockRow = 1f;
+            float blockCol = 0f;
             float bx = (blockCol - centerCol) * spacing;
             float bz = -(blockRow - centerRow) * spacing;
 
-            // Apartment front wall faces -Z (south). Sidewalk is south edge of block.
-            // Building is 96v = 9.6 world units, ground tile = 11.6
-            // Building half = 4.8, sidewalk outer edge = 5.8
-            // Sidewalk midpoint = 5.3 from block center
-            float sidewalkZ = bz - 5.3f;
+            // Barber building is 32v×20v×34v (X×Y×Z) at voxelSize=0.1
+            // Building footprint: 3.2 × 3.4 world units
+            // Building half-width X = 1.6, half-depth Z = 1.7
+            // Ground tile = 11.6, outer edge = 5.8
+            // Sidewalk band: from building edge to ground tile edge
+            // South sidewalk midpoint Z: building half (1.7) + sidewalk half (0.5) = 2.2 from center
+            // East sidewalk midpoint X: building half (1.6) + sidewalk half (0.5) = 2.1 from center
+            float bHalfX = 1.6f;
+            float bHalfZ = 1.7f;
+            float sidewalkHalf = sidewalkWidth * 0.5f;
 
-            // Line up NPCs along the sidewalk in front of apartment, evenly spaced
-            float npcSpacing = 1.6f;
-            int npcCount = 6;
-            float startX = bx - (npcCount - 1) * npcSpacing * 0.5f;
+            // Place characters around the barber shop on sidewalks on 3 sides
+            // South side (front), East side, West side — leave north (back) empty
+            var spawns = new (string asset, float dx, float dz, float rotY)[]
+            {
+                // South sidewalk (front of barber) — facing north toward building
+                ("character_hoodlum_0.stasset",  0f,                bHalfZ + sidewalkHalf, 0f),
+                ("character_hoodlum_0.stasset",  1.2f,              bHalfZ + sidewalkHalf, 0f),
+                ("character_civilian_0.stasset", -1.2f,             bHalfZ + sidewalkHalf, 0f),
+                // East sidewalk — facing west toward building
+                ("character_civilian_0.stasset", bHalfX + sidewalkHalf,  0.5f, 270f),
+                // West sidewalk — facing east toward building
+                ("character_hoodlum_overcoat_0.stasset", -(bHalfX + sidewalkHalf),  0.5f, 90f),
+                // South sidewalk corner — police on patrol
+                ("character_police_0.stasset",   bHalfX + sidewalkHalf, bHalfZ + sidewalkHalf, 315f),
+            };
 
-            var spawns = new (string asset, float dx, float dz, float rotY)[npcCount];
-            spawns[0] = ("character_hoodlum_0.stasset", 0f, 0f, 0f);
-            spawns[1] = ("character_hoodlum_0.stasset", npcSpacing, 0f, 0f);
-            spawns[2] = ("character_hoodlum_0.stasset", -npcSpacing, 0f, 0f);
-            spawns[3] = ("character_civilian_0.stasset", npcSpacing * 2f, 0f, 0f);
-            spawns[4] = ("character_civilian_0.stasset", -npcSpacing * 2f, 0f, 0f);
-            spawns[5] = ("character_police_0.stasset", npcSpacing * 3f, 0f, 0f);
-
+            int placed = 0;
             for (int i = 0; i < spawns.Length; i++)
             {
                 var (asset, dx, dz, rotY) = spawns[i];
@@ -764,14 +773,15 @@ namespace SteelCity.Sim
                     ?? Shader.Find("Standard");
                 rend.material = new Material(shader);
 
-                // Position: line up along sidewalk, facing the building (+Z = north)
-                float px = startX + dx;
-                float pz = sidewalkZ + dz;
+                // Position relative to barber block center
+                float px = bx + dx;
+                float pz = bz + dz;
                 go.transform.localPosition = new Vector3(px, 0.02f, pz);
                 go.transform.rotation = Quaternion.Euler(0f, rotY, 0f);
+                placed++;
             }
 
-            Debug.Log($"[CityMap3D] Spawned {npcCount} NPCs lined up on apartment sidewalk at Z={sidewalkZ:F2}");
+            Debug.Log($"[CityMap3D] Spawned {placed} characters on sidewalks around barber shop at ({bx:F1}, {bz:F1})");
         }
 
         private void BuildRaymarchBlock(Transform root, string blockId, Block block,
