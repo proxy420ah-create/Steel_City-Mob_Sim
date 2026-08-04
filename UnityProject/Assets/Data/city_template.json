@@ -1,0 +1,20 @@
+{
+  "_comment": "Steel City: Mob Sim — 9-block vertical slice city template.",
+  "version": "0.0.1",
+  "grid": {"rows": 3, "cols": 3},
+  "blocks": [
+    {"id": "block_1", "name": "NW Block", "row": 0, "col": 0, "land_value": 5, "businesses": [{"type": "apartments", "count": 2}], "population": 18},
+    {"id": "block_2", "name": "North Block", "row": 0, "col": 1, "land_value": 7, "businesses": [{"type": "butcher", "count": 1}, {"type": "apartments", "count": 1}], "population": 15},
+    {"id": "block_3", "name": "NE Block", "row": 0, "col": 2, "land_value": 8, "businesses": [{"type": "bakery", "count": 1}, {"type": "apartments", "count": 1}], "population": 15, "rival_hq": true},
+    {"id": "block_4", "name": "West Block", "row": 1, "col": 0, "land_value": 4, "businesses": [{"type": "barber", "count": 1}, {"type": "apartments", "count": 1}], "population": 12},
+    {"id": "block_5", "name": "Center Block", "row": 1, "col": 1, "land_value": 6, "businesses": [{"type": "empty_land", "count": 1}], "population": 5, "police_station": true},
+    {"id": "block_6", "name": "East Block", "row": 1, "col": 2, "land_value": 9, "businesses": [{"type": "casino", "count": 1, "illegal": true}], "population": 10},
+    {"id": "block_7", "name": "SW Block", "row": 2, "col": 0, "land_value": 3, "businesses": [{"type": "diner", "count": 1}, {"type": "apartments", "count": 1}], "population": 14, "player_hq": true},
+    {"id": "block_8", "name": "South Block", "row": 2, "col": 1, "land_value": 5, "businesses": [{"type": "garage", "count": 1}, {"type": "apartments", "count": 1}], "population": 13},
+    {"id": "block_9", "name": "SE Block", "row": 2, "col": 2, "land_value": 6, "businesses": [{"type": "apartments", "count": 2}], "population": 16}
+  ],
+  "police_beats": [
+    {"officer_id": "officer_001", "name": "Patrolman O'Brien", "beat": ["block_1", "block_2", "block_4", "block_5", "block_7"], "bribe_cost": 300},
+    {"officer_id": "officer_002", "name": "Patrolman Kelly", "beat": ["block_3", "block_6", "block_8", "block_9", "block_5"], "bribe_cost": 350}
+  ]
+}

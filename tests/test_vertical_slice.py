@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 from data.loader import load_all
 from sim.engine import GameEngine
+from ui.visualizer import SnapshotCollector
 
 
 def run_test():
@@ -29,6 +30,11 @@ def run_test():
     print(f"    City: {len(engine.blocks)} blocks, {len(engine.businesses)} businesses, {len(engine.npcs)} NPCs")
     print(f"    Police: {len(engine.police)} officers")
     print(f"    Player hoods: {[(h.name, h.skill_summary) for h in player.hoods]}")
+
+    # Snapshot collector for combined HTML output
+    collector = SnapshotCollector()
+    collector.collect(engine, label="Initial Setup")
+    print(f"    📸 Initial snapshot collected")
 
     # Get hood IDs and available blocks
     hoods = player.hoods
@@ -85,6 +91,10 @@ def run_test():
         stream = engine.run_working_week()
         print(stream.get_text_report())
 
+        # Collect snapshot for combined output
+        collector.collect(engine)
+        print(f"    📸 Snapshot collected for week {week_num}")
+
         # Status summary
         print(f"\n  --- STATUS AFTER WEEK {week_num} ---")
         print(f"    Treasury: ${player.money}")
@@ -108,6 +118,9 @@ def run_test():
     print(f"  Rival territory: {len([b for b in engine.blocks.values() if b.owner_gang == 'rival'])} blocks")
     print(f"  Total investigations: {len(engine.investigations)}")
     print(f"  Arrests: {len([h for h in player.hoods if h.status == 'arrested'])}")
+    # Generate combined HTML with all weeks
+    report_path = collector.generate_combined()
+    print(f"\n  📊 Combined report: {report_path}")
     print(f"{'='*60}\n")
 
 

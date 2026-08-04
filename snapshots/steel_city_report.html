@@ -1,0 +1,3508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Steel City: Mob Sim — Full Report</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0d0f14; --bg2: #141720; --bg3: #1c2030;
+  --border: #2a2f45; --accent: #4f8ef7; --accent2: #7c5cfc;
+  --green: #2ecc71; --red: #e74c3c; --yellow: #f39c12;
+  --orange: #ff7a45; --pink: #f5389d; --purple: #8b5cf6;
+  --text: #e8ecf4; --muted: #7a8199; --card: #181c27;
+  --radius: 8px; --font: 'Inter', 'Segoe UI', system-ui, sans-serif;
+}
+html, body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; }
+body { padding: 0; }
+
+.nav-bar {
+  position: sticky; top: 0; z-index: 100;
+  background: rgba(13,15,20,0.95); backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 20px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+}
+.nav-bar .title {
+  font-size: 18px; font-weight: 700;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  white-space: nowrap;
+}
+.nav-controls { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.nav-btn {
+  padding: 6px 16px; background: var(--bg3); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text); cursor: pointer; font-size: 13px;
+  transition: all 0.2s; user-select: none;
+}
+.nav-btn:hover { background: var(--accent); border-color: var(--accent); }
+.nav-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.nav-btn:disabled:hover { background: var(--bg3); border-color: var(--border); }
+.nav-counter { font-size: 13px; color: var(--muted); min-width: 80px; text-align: center; }
+.nav-dots {
+  display: flex; gap: 4px; padding: 0 12px; flex-wrap: wrap;
+  border-left: 1px solid var(--border); border-right: 1px solid var(--border);
+}
+.nav-dot {
+  padding: 4px 10px; background: transparent; border: 1px solid var(--border);
+  border-radius: 4px; color: var(--muted); cursor: pointer; font-size: 11px;
+  transition: all 0.2s;
+}
+.nav-dot:hover { color: var(--text); border-color: var(--accent); }
+.nav-dot.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+.slides-container { position: relative; }
+.slide {
+  display: none; padding: 20px; max-width: 1400px; margin: 0 auto;
+  animation: fadeIn 0.3s ease;
+}
+.slide.active { display: block; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+.slide-header {
+  text-align: center; margin-bottom: 24px; padding: 20px;
+  background: linear-gradient(135deg, var(--bg2), var(--bg3));
+  border-radius: var(--radius); border: 1px solid var(--border);
+}
+.slide-header h1 {
+  font-size: 28px; background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.slide-header .subtitle { color: var(--muted); margin-top: 8px; }
+
+.stats-strip { display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap; }
+.stat-box {
+  flex: 1; min-width: 140px; padding: 16px; background: var(--card);
+  border-radius: var(--radius); border: 1px solid var(--border); text-align: center;
+}
+.stat-box .label { color: var(--muted); font-size: 12px; text-transform: uppercase; }
+.stat-box .value { font-size: 24px; font-weight: 700; margin-top: 4px; }
+.stat-box.player .value { color: var(--accent); }
+.stat-box.rival .value { color: var(--red); }
+.stat-box.money .value { color: var(--green); }
+.stat-box.territory .value { color: var(--orange); }
+
+.section {
+  margin-bottom: 24px; background: var(--bg2); border-radius: var(--radius);
+  border: 1px solid var(--border); overflow: hidden;
+}
+.section-header {
+  padding: 12px 20px; background: var(--bg3); font-size: 16px; font-weight: 600;
+  border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px;
+}
+.section-body { padding: 20px; }
+
+.grid-row { display: flex; gap: 12px; margin-bottom: 12px; }
+.block-card {
+  flex: 1; min-width: 200px; padding: 16px; background: var(--card);
+  border-radius: var(--radius); border: 2px solid var(--border);
+  transition: transform 0.2s; position: relative;
+}
+.block-card:hover { transform: translateY(-2px); }
+.block-card.empty { background: transparent; border: 1px dashed var(--border); min-height: 60px; }
+.block-card.player { border-color: var(--accent); box-shadow: 0 0 12px rgba(79,142,247,0.15); }
+.block-card.rival { border-color: var(--red); box-shadow: 0 0 12px rgba(231,76,60,0.15); }
+
+.block-name { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+.block-owner {
+  display: inline-block; padding: 2px 8px; border-radius: 4px;
+  font-size: 11px; font-weight: 600; text-transform: uppercase; margin-bottom: 8px;
+}
+.block-owner.player { background: rgba(79,142,247,0.2); color: var(--accent); }
+.block-owner.rival { background: rgba(231,76,60,0.2); color: var(--red); }
+.block-owner.unowned { background: rgba(122,129,153,0.2); color: var(--muted); }
+
+.strength-bar-container { height: 6px; background: var(--bg); border-radius: 3px; margin: 8px 0; overflow: hidden; }
+.strength-bar { height: 100%; border-radius: 3px; }
+.strength-bar.high { background: var(--green); }
+.strength-bar.mid { background: var(--yellow); }
+.strength-bar.low { background: var(--orange); }
+
+.block-meta { font-size: 12px; color: var(--muted); display: flex; gap: 12px; flex-wrap: wrap; }
+.block-biz { margin-top: 8px; font-size: 12px; }
+.biz-item { padding: 2px 6px; background: var(--bg3); border-radius: 3px; margin: 2px 0; }
+.biz-item.owned { color: var(--green); }
+.biz-item.illegal { color: var(--pink); }
+
+.info-tier {
+  position: absolute; top: 8px; right: 8px; padding: 2px 6px;
+  border-radius: 3px; font-size: 10px; font-weight: 600; text-transform: uppercase;
+}
+.info-tier.blind { background: rgba(122,129,153,0.2); color: var(--muted); }
+.info-tier.aware { background: rgba(243,156,18,0.2); color: var(--yellow); }
+.info-tier.informed { background: rgba(79,142,247,0.2); color: var(--accent); }
+.info-tier.connected { background: rgba(46,204,113,0.2); color: var(--green); }
+
+.hq-badge {
+  position: absolute; top: 8px; left: 8px; padding: 2px 6px;
+  background: var(--purple); color: white; border-radius: 3px; font-size: 10px; font-weight: 600;
+}
+
+.hood-grid { display: flex; gap: 12px; flex-wrap: wrap; }
+.hood-card {
+  flex: 1; min-width: 280px; padding: 16px; background: var(--card);
+  border-radius: var(--radius); border: 1px solid var(--border);
+}
+.hood-card.rival { border-color: rgba(231,76,60,0.3); }
+.hood-name { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+.hood-int { color: var(--accent2); font-size: 12px; margin-bottom: 12px; }
+.hood-status {
+  display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px;
+  margin-bottom: 12px; text-transform: uppercase; font-weight: 600;
+}
+.hood-status.available { background: rgba(46,204,113,0.2); color: var(--green); }
+.hood-status.assigned { background: rgba(79,142,247,0.2); color: var(--accent); }
+.hood-status.arrested { background: rgba(231,76,60,0.2); color: var(--red); }
+.hood-status.dead { background: rgba(122,129,153,0.2); color: var(--muted); }
+
+.skill-bar { margin-bottom: 4px; }
+.skill-bar .skill-label { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 2px; }
+.skill-bar .skill-track { height: 4px; background: var(--bg); border-radius: 2px; overflow: hidden; }
+.skill-bar .skill-fill { height: 100%; border-radius: 2px; }
+
+.inv-card { padding: 12px; background: var(--card); border-radius: var(--radius); margin-bottom: 8px; border: 1px solid var(--border); }
+.inv-header { font-weight: 600; margin-bottom: 8px; }
+.inv-bar-container { height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; margin-bottom: 4px; }
+.inv-bar { height: 100%; background: var(--red); border-radius: 4px; }
+.inv-meta { font-size: 12px; color: var(--muted); }
+
+.police-grid { display: flex; gap: 12px; flex-wrap: wrap; }
+.police-card {
+  flex: 1; min-width: 200px; padding: 16px; background: var(--card);
+  border-radius: var(--radius); border: 1px solid var(--border);
+}
+.police-card.bribed { border-color: var(--green); box-shadow: 0 0 8px rgba(46,204,113,0.1); }
+.police-name { font-weight: 600; margin-bottom: 4px; }
+.police-status { font-size: 12px; margin-bottom: 4px; }
+.police-card.bribed .police-status { color: var(--green); }
+.police-beat { font-size: 11px; color: var(--muted); }
+.police-cost { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+.finance-card { padding: 16px; background: var(--card); border-radius: var(--radius); }
+.finance-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 14px; }
+.finance-row.income { color: var(--green); }
+.finance-row.expense { color: var(--orange); }
+.finance-row.net.positive { color: var(--green); font-weight: 600; }
+.finance-row.net.negative { color: var(--red); font-weight: 600; }
+.finance-row.balance { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 8px; font-size: 16px; }
+.breakdown { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.breakdown-item { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); padding: 2px 0; }
+
+.event-log { max-height: 400px; overflow-y: auto; font-family: 'Consolas', monospace; font-size: 12px; }
+.event-line { padding: 4px 0; border-bottom: 1px solid rgba(42,47,69,0.5); }
+.event-line .time { color: var(--muted); margin-right: 8px; }
+.event-line.squeal { color: var(--yellow); }
+.event-line.investigation { color: var(--orange); }
+.event-line.arrest { color: var(--red); font-weight: 600; }
+.event-line.economy { color: var(--green); }
+.event-line.territory { color: var(--accent); }
+.event-line.rival { color: var(--pink); }
+.event-line.notification-red { color: var(--red); }
+.event-line.notification-yellow { color: var(--yellow); }
+.event-line.notification-green { color: var(--green); }
+
+.empty-state { text-align: center; color: var(--muted); padding: 24px; }
+.two-col { display: flex; gap: 24px; }
+.two-col > div { flex: 1; }
+
+.two-col-main { display: flex; gap: 20px; align-items: flex-start; }
+.col-left { flex: 1.2; min-width: 0; }
+.col-right { flex: 1; min-width: 0; }
+.col-right .event-log { max-height: 500px; }
+
+.footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 24px; padding: 16px; }
+</style>
+</head>
+<body>
+
+<div class="nav-bar">
+  <div class="title">Steel City: Mob Sim</div>
+  <div class="nav-dots">
+<button class="nav-dot active" data-slide="0" onclick="goToSlide(0)">Initial Setup</button>
+<button class="nav-dot " data-slide="1" onclick="goToSlide(1)">Week 2</button>
+<button class="nav-dot " data-slide="2" onclick="goToSlide(2)">Week 3</button>
+<button class="nav-dot " data-slide="3" onclick="goToSlide(3)">Week 4</button>
+<button class="nav-dot " data-slide="4" onclick="goToSlide(4)">Week 5</button>
+<button class="nav-dot " data-slide="5" onclick="goToSlide(5)">Week 6</button>
+
+  </div>
+  <div class="nav-controls">
+    <button class="nav-btn" id="prevBtn" onclick="prevSlide()">◀ Prev</button>
+    <span class="nav-counter" id="slideCounter">1 / 6</span>
+    <button class="nav-btn" id="nextBtn" onclick="nextSlide()">Next ▶</button>
+  </div>
+</div>
+
+<div class="slides-container" id="slidesContainer">
+<div class="slide active" data-slide="0">
+
+<div class="slide-header">
+  <h1>Initial Setup</h1>
+  <div class="subtitle">Moretti Family vs Falcone Syndicate</div>
+</div>
+
+<div class="stats-strip">
+  <div class="stat-box money"><div class="label">Treasury</div><div class="value">$3000</div></div>
+  <div class="stat-box player"><div class="label">Player Territory</div><div class="value">1</div></div>
+  <div class="stat-box rival"><div class="label">Rival Territory</div><div class="value">1</div></div>
+  <div class="stat-box territory"><div class="label">Unowned</div><div class="value">7</div></div>
+  <div class="stat-box"><div class="label">Investigations</div><div class="value">0</div></div>
+</div>
+
+<div class="two-col-main">
+
+  <!-- LEFT COLUMN: Map + Hoods + Rival -->
+  <div class="col-left">
+    <div class="section">
+      <div class="section-header">🏙️ City Map</div>
+      <div class="section-body"><div class="grid-row">
+<div class="block-card unowned">
+  
+  <div class="info-tier blind">blind</div>
+  <div class="block-name">NW Block</div>
+  <div class="block-owner unowned">UNOWNED</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 0%"></div></div>
+  <div class="block-meta">
+    <span>👥 18</span>
+    <span>🏢 2</span>
+    <span>📊 LV5</span>
+    <span>💪 0%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Apartment Building</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+<div class="block-card unowned">
+  
+  <div class="info-tier blind">blind</div>
+  <div class="block-name">North Block</div>
+  <div class="block-owner unowned">UNOWNED</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 0%"></div></div>
+  <div class="block-meta">
+    <span>👥 15</span>
+    <span>🏢 2</span>
+    <span>📊 LV7</span>
+    <span>💪 0%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Butcher Shop</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+<div class="block-card rival">
+  <div class="hq-badge" style="background:var(--red)">RIVAL HQ</div>
+  <div class="info-tier informed">informed</div>
+  <div class="block-name">NE Block</div>
+  <div class="block-owner rival">RIVAL</div>
+  <div class="strength-bar-container"><div class="strength-bar mid" style="width: 50%"></div></div>
+  <div class="block-meta">
+    <span>👥 15</span>
+    <span>🏢 2</span>
+    <span>📊 LV8</span>
+    <span>💪 50%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Bakery</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+</div>
+<div class="grid-row">
+<div class="block-card unowned">
+  
+  <div class="info-tier blind">blind</div>
+  <div class="block-name">West Block</div>
+  <div class="block-owner unowned">UNOWNED</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 0%"></div></div>
+  <div class="block-meta">
+    <span>👥 12</span>
+    <span>🏢 2</span>
+    <span>📊 LV4</span>
+    <span>💪 0%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Barbershop</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+<div class="block-card unowned">
+  <div class="hq-badge" style="background:var(--yellow);color:#000">POLICE</div>
+  <div class="info-tier blind">blind</div>
+  <div class="block-name">Center Block</div>
+  <div class="block-owner unowned">UNOWNED</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 0%"></div></div>
+  <div class="block-meta">
+    <span>👥 5</span>
+    <span>🏢 1</span>
+    <span>📊 LV6</span>
+    <span>💪 0%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Empty Land</div>
+</div>
+</div>
+<div class="block-card unowned">
+  
+  <div class="info-tier blind">blind</div>
+  <div class="block-name">East Block</div>
+  <div class="block-owner unowned">UNOWNED</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 0%"></div></div>
+  <div class="block-meta">
+    <span>👥 10</span>
+    <span>🏢 1</span>
+    <span>📊 LV9</span>
+    <span>💪 0%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  illegal">Casino</div>
+</div>
+</div>
+</div>
+<div class="grid-row">
+<div class="block-card player">
+  <div class="hq-badge">YOUR HQ</div>
+  <div class="info-tier informed">informed</div>
+  <div class="block-name">SW Block</div>
+  <div class="block-owner player">YOURS</div>
+  <div class="strength-bar-container"><div class="strength-bar mid" style="width: 50%"></div></div>
+  <div class="block-meta">
+    <span>👥 14</span>
+    <span>🏢 2</span>
+    <span>📊 LV3</span>
+    <span>💪 50%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item owned ">Diner (YOURS)</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+<div class="block-card unowned">
+  
+  <div class="info-tier blind">blind</div>
+  <div class="block-name">South Block</div>
+  <div class="block-owner unowned">UNOWNED</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 0%"></div></div>
+  <div class="block-meta">
+    <span>👥 13</span>
+    <span>🏢 2</span>
+    <span>📊 LV5</span>
+    <span>💪 0%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Garage</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+<div class="block-card unowned">
+  
+  <div class="info-tier blind">blind</div>
+  <div class="block-name">SE Block</div>
+  <div class="block-owner unowned">UNOWNED</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 0%"></div></div>
+  <div class="block-meta">
+    <span>👥 16</span>
+    <span>🏢 2</span>
+    <span>📊 LV6</span>
+    <span>💪 0%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Apartment Building</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+</div>
+</div>
+    </div>
+    <div class="section">
+      <div class="section-header">🎭 Your Hoods</div>
+      <div class="section-body"><div class="hood-grid"><div class="hood-card ">
+  <div class="hood-name">Vinny Moretti</div>
+  <div class="hood-int">INT: 73/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>39/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 62%; background: #8b5cf6"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>31/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 49%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>29/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 46%; background: #ff7a45"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>29/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 46%; background: #00d4ff"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>17/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 27%; background: #e74c3c"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>8/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 13%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>7/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 11%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>5/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 8%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>3/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 5%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>1/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 2%; background: #f39c12"></div></div>
+        </div>
+</div>
+<div class="hood-card ">
+  <div class="hood-name">Joey Marino</div>
+  <div class="hood-int">INT: 83/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>46/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 73%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>37/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 59%; background: #f39c12"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>26/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 41%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>25/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 40%; background: #e74c3c"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>20/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 32%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>20/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 32%; background: #ff7a45"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>15/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 24%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>14/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 22%; background: #8b5cf6"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>11/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 17%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>11/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 17%; background: #00d4ff"></div></div>
+        </div>
+</div>
+<div class="hood-card ">
+  <div class="hood-name">Joey Marino</div>
+  <div class="hood-int">INT: 177/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>46/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 73%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>39/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 62%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>36/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 57%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>28/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 44%; background: #e74c3c"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>25/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 40%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>18/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 29%; background: #f39c12"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>15/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 24%; background: #00d4ff"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>3/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 5%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>1/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 2%; background: #8b5cf6"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>0/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 0%; background: #ff7a45"></div></div>
+        </div>
+</div>
+</div></div>
+    </div>
+    <div class="section">
+      <div class="section-header">⚔️ Rival Gang: Falcone Syndicate ($3000)</div>
+      <div class="section-body"><div class="hood-grid"><div class="hood-card rival">
+  <div class="hood-name">Sal Bianchi</div>
+  <div class="hood-int">INT: 79/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>58/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 92%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>40/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 63%; background: #ff7a45"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>29/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 46%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>28/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 44%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>25/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 40%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>22/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 35%; background: #00d4ff"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>12/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 19%; background: #e74c3c"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>5/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 8%; background: #8b5cf6"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>4/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 6%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>4/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 6%; background: #f39c12"></div></div>
+        </div>
+</div>
+<div class="hood-card rival">
+  <div class="hood-name">Carmine Romano</div>
+  <div class="hood-int">INT: 109/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>40/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 63%; background: #ff7a45"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>38/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 60%; background: #00d4ff"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>29/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 46%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>24/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 38%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>11/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 17%; background: #e74c3c"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>10/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 16%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>7/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 11%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>7/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 11%; background: #f39c12"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>3/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 5%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>2/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 3%; background: #8b5cf6"></div></div>
+        </div>
+</div>
+<div class="hood-card rival">
+  <div class="hood-name">Luigi Esposito</div>
+  <div class="hood-int">INT: 69/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>38/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 60%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>33/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 52%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>31/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 49%; background: #f39c12"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>30/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 48%; background: #00d4ff"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>25/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 40%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>22/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 35%; background: #ff7a45"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>21/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 33%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>20/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 32%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>7/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 11%; background: #8b5cf6"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>0/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 0%; background: #e74c3c"></div></div>
+        </div>
+</div>
+</div></div>
+    </div>
+  </div>
+
+  <!-- RIGHT COLUMN: Event Log + Investigations + Police + Finances -->
+  <div class="col-right">
+    <div class="section">
+      <div class="section-header">� Event Log — Initial Setup</div>
+      <div class="section-body"><div class="event-log"><div class="empty-state">No events</div></div></div>
+    </div>
+    <div class="section">
+      <div class="section-header">🔍 Active Investigations</div>
+      <div class="section-body"><div class="empty-state">No active investigations</div></div>
+    </div>
+    <div class="section">
+      <div class="section-header">� Finances</div>
+      <div class="section-body"><div class="empty-state">No economy data</div></div>
+    </div>
+    <div class="section">
+      <div class="section-header">👮 Police & Corruption</div>
+      <div class="section-body"><div class="police-grid">
+        <div class="police-card clean">
+            <div class="police-name">👮 Patrolman O&#x27;Brien</div>
+            <div class="police-status">Not bribed</div>
+            <div class="police-beat">Beat: block_1, block_2, block_4, block_5, block_7</div>
+            <div class="police-cost">Bribe: $300/week</div>
+        </div>
+        <div class="police-card clean">
+            <div class="police-name">👮 Patrolman Kelly</div>
+            <div class="police-status">Not bribed</div>
+            <div class="police-beat">Beat: block_3, block_6, block_8, block_9, block_5</div>
+            <div class="police-cost">Bribe: $350/week</div>
+        </div></div></div>
+    </div>
+  </div>
+
+</div>
+
+</div>
+<div class="slide " data-slide="1">
+
+<div class="slide-header">
+  <h1>Week 2</h1>
+  <div class="subtitle">Moretti Family vs Falcone Syndicate</div>
+</div>
+
+<div class="stats-strip">
+  <div class="stat-box money"><div class="label">Treasury</div><div class="value">$2521</div></div>
+  <div class="stat-box player"><div class="label">Player Territory</div><div class="value">3</div></div>
+  <div class="stat-box rival"><div class="label">Rival Territory</div><div class="value">3</div></div>
+  <div class="stat-box territory"><div class="label">Unowned</div><div class="value">3</div></div>
+  <div class="stat-box"><div class="label">Investigations</div><div class="value">3</div></div>
+</div>
+
+<div class="two-col-main">
+
+  <!-- LEFT COLUMN: Map + Hoods + Rival -->
+  <div class="col-left">
+    <div class="section">
+      <div class="section-header">🏙️ City Map</div>
+      <div class="section-body"><div class="grid-row">
+<div class="block-card unowned">
+  
+  <div class="info-tier blind">blind</div>
+  <div class="block-name">NW Block</div>
+  <div class="block-owner unowned">UNOWNED</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 0%"></div></div>
+  <div class="block-meta">
+    <span>👥 18</span>
+    <span>🏢 2</span>
+    <span>📊 LV5</span>
+    <span>💪 0%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Apartment Building</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+<div class="block-card rival">
+  
+  <div class="info-tier aware">aware</div>
+  <div class="block-name">North Block</div>
+  <div class="block-owner rival">RIVAL</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 20%"></div></div>
+  <div class="block-meta">
+    <span>👥 15</span>
+    <span>🏢 2</span>
+    <span>📊 LV7</span>
+    <span>💪 20%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Butcher Shop</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+<div class="block-card rival">
+  <div class="hq-badge" style="background:var(--red)">RIVAL HQ</div>
+  <div class="info-tier informed">informed</div>
+  <div class="block-name">NE Block</div>
+  <div class="block-owner rival">RIVAL</div>
+  <div class="strength-bar-container"><div class="strength-bar mid" style="width: 53%"></div></div>
+  <div class="block-meta">
+    <span>👥 15</span>
+    <span>🏢 2</span>
+    <span>📊 LV8</span>
+    <span>💪 53%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Bakery</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+</div>
+<div class="grid-row">
+<div class="block-card player">
+  
+  <div class="info-tier aware">aware</div>
+  <div class="block-name">West Block</div>
+  <div class="block-owner player">YOURS</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 20%"></div></div>
+  <div class="block-meta">
+    <span>👥 12</span>
+    <span>🏢 2</span>
+    <span>📊 LV4</span>
+    <span>💪 20%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Barbershop</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+<div class="block-card unowned">
+  <div class="hq-badge" style="background:var(--yellow);color:#000">POLICE</div>
+  <div class="info-tier blind">blind</div>
+  <div class="block-name">Center Block</div>
+  <div class="block-owner unowned">UNOWNED</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 0%"></div></div>
+  <div class="block-meta">
+    <span>👥 5</span>
+    <span>🏢 1</span>
+    <span>📊 LV6</span>
+    <span>💪 0%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Empty Land</div>
+</div>
+</div>
+<div class="block-card rival">
+  
+  <div class="info-tier aware">aware</div>
+  <div class="block-name">East Block</div>
+  <div class="block-owner rival">RIVAL</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 20%"></div></div>
+  <div class="block-meta">
+    <span>👥 10</span>
+    <span>🏢 1</span>
+    <span>📊 LV9</span>
+    <span>💪 20%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  illegal">Casino</div>
+</div>
+</div>
+</div>
+<div class="grid-row">
+<div class="block-card player">
+  <div class="hq-badge">YOUR HQ</div>
+  <div class="info-tier informed">informed</div>
+  <div class="block-name">SW Block</div>
+  <div class="block-owner player">YOURS</div>
+  <div class="strength-bar-container"><div class="strength-bar mid" style="width: 60%"></div></div>
+  <div class="block-meta">
+    <span>👥 14</span>
+    <span>🏢 2</span>
+    <span>📊 LV3</span>
+    <span>💪 60%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item owned ">Diner (YOURS)</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+<div class="block-card player">
+  
+  <div class="info-tier aware">aware</div>
+  <div class="block-name">South Block</div>
+  <div class="block-owner player">YOURS</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 20%"></div></div>
+  <div class="block-meta">
+    <span>👥 13</span>
+    <span>🏢 2</span>
+    <span>📊 LV5</span>
+    <span>💪 20%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Garage</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+<div class="block-card unowned">
+  
+  <div class="info-tier blind">blind</div>
+  <div class="block-name">SE Block</div>
+  <div class="block-owner unowned">UNOWNED</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 0%"></div></div>
+  <div class="block-meta">
+    <span>👥 16</span>
+    <span>🏢 2</span>
+    <span>📊 LV6</span>
+    <span>💪 0%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Apartment Building</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+</div>
+</div>
+    </div>
+    <div class="section">
+      <div class="section-header">🎭 Your Hoods</div>
+      <div class="section-body"><div class="hood-grid"><div class="hood-card ">
+  <div class="hood-name">Vinny Moretti</div>
+  <div class="hood-int">INT: 73/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>39/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 62%; background: #8b5cf6"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>31/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 49%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>29/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 46%; background: #ff7a45"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>29/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 46%; background: #00d4ff"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>17/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 27%; background: #e74c3c"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>8/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 13%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>7/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 11%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>5/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 8%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>3/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 5%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>1/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 2%; background: #f39c12"></div></div>
+        </div>
+</div>
+<div class="hood-card ">
+  <div class="hood-name">Joey Marino</div>
+  <div class="hood-int">INT: 83/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>46/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 73%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>37/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 59%; background: #f39c12"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>26/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 41%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>25/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 40%; background: #e74c3c"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>20/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 32%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>20/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 32%; background: #ff7a45"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>15/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 24%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>14/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 22%; background: #8b5cf6"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>11/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 17%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>11/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 17%; background: #00d4ff"></div></div>
+        </div>
+</div>
+<div class="hood-card ">
+  <div class="hood-name">Joey Marino</div>
+  <div class="hood-int">INT: 177/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>46/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 73%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>39/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 62%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>36/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 57%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>28/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 44%; background: #e74c3c"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>25/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 40%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>18/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 29%; background: #f39c12"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>15/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 24%; background: #00d4ff"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>3/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 5%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>1/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 2%; background: #8b5cf6"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>0/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 0%; background: #ff7a45"></div></div>
+        </div>
+</div>
+</div></div>
+    </div>
+    <div class="section">
+      <div class="section-header">⚔️ Rival Gang: Falcone Syndicate ($3159)</div>
+      <div class="section-body"><div class="hood-grid"><div class="hood-card rival">
+  <div class="hood-name">Sal Bianchi</div>
+  <div class="hood-int">INT: 79/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>58/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 92%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>40/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 63%; background: #ff7a45"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>29/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 46%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>28/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 44%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>25/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 40%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>22/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 35%; background: #00d4ff"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>12/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 19%; background: #e74c3c"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>5/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 8%; background: #8b5cf6"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>4/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 6%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>4/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 6%; background: #f39c12"></div></div>
+        </div>
+</div>
+<div class="hood-card rival">
+  <div class="hood-name">Carmine Romano</div>
+  <div class="hood-int">INT: 109/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>40/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 63%; background: #ff7a45"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>38/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 60%; background: #00d4ff"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>29/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 46%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>24/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 38%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>11/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 17%; background: #e74c3c"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>10/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 16%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>7/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 11%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>7/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 11%; background: #f39c12"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>3/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 5%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>2/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 3%; background: #8b5cf6"></div></div>
+        </div>
+</div>
+<div class="hood-card rival">
+  <div class="hood-name">Luigi Esposito</div>
+  <div class="hood-int">INT: 69/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>38/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 60%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>33/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 52%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>31/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 49%; background: #f39c12"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>30/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 48%; background: #00d4ff"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>25/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 40%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>22/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 35%; background: #ff7a45"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>21/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 33%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>20/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 32%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>7/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 11%; background: #8b5cf6"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>0/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 0%; background: #e74c3c"></div></div>
+        </div>
+</div>
+</div></div>
+    </div>
+  </div>
+
+  <!-- RIGHT COLUMN: Event Log + Investigations + Police + Finances -->
+  <div class="col-right">
+    <div class="section">
+      <div class="section-header">� Event Log — Week 2</div>
+      <div class="section-body"><div class="event-log"><div class="event-line territory"><span class="time">[0.0]</span>🏴 West Block now controlled by player (strength: 20%)</div>
+<div class="event-line"><span class="time">[0.1]</span>Vinny Moretti → extort on West Block: <strong>success</strong> — Old Man Patterson paid up without trouble (fear 80 &gt; hostility 55).</div>
+<div class="event-line territory"><span class="time">[1.0]</span>🏴 South Block now controlled by player (strength: 20%)</div>
+<div class="event-line"><span class="time">[1.1]</span>Joey Marino → extort on South Block: <strong>success</strong> — Mrs. O&#x27;Sullivan paid up without trouble (fear 97 &gt; hostility 36).</div>
+<div class="event-line"><span class="time">[2.1]</span>Joey Marino → extort on SW Block: <strong>success</strong> — Old Man Patterson paid up without trouble (fear 96 &gt; hostility 66).</div>
+<div class="event-line territory"><span class="time">[3.0]</span>🏴 East Block now controlled by rival (strength: 20%)</div>
+<div class="event-line"><span class="time">[3.1]</span>Sal Bianchi → extort on East Block: <strong>success</strong> — Katherine Doyle paid up without trouble (fear 91 &gt; hostility 51).</div>
+<div class="event-line rival"><span class="time">[3.0]</span>[RIVAL] Sal Bianchi → extort on East Block: success</div>
+<div class="event-line territory"><span class="time">[4.0]</span>🏴 North Block now controlled by rival (strength: 20%)</div>
+<div class="event-line"><span class="time">[4.1]</span>Carmine Romano → extort on North Block: <strong>success</strong> — Tony the Butcher paid up without trouble (fear 80 &gt; hostility 47).</div>
+<div class="event-line rival"><span class="time">[4.0]</span>[RIVAL] Carmine Romano → extort on North Block: success</div>
+<div class="event-line"><span class="time">[5.0]</span>Luigi Esposito → patrol on NE Block: <strong>success</strong> — Patrolled. Strength now 53.</div>
+<div class="event-line squeal"><span class="time">[6.0]</span>⚠ SQUEAL: Pat Flanagan talked to police about South Block</div>
+<div class="event-line investigation"><span class="time">[6.0]</span>🔍 INVESTIGATION: South Block — Leads: 20/100</div>
+<div class="event-line notification-yellow"><span class="time">[6.0]</span>[YELLOW] Someone on South Block squealed to the police about extort.</div>
+<div class="event-line squeal"><span class="time">[6.0]</span>⚠ SQUEAL: Katherine Doyle talked to police about East Block</div>
+<div class="event-line investigation"><span class="time">[6.0]</span>🔍 INVESTIGATION: East Block — Leads: 20/100</div>
+<div class="event-line notification-red"><span class="time">[6.0]</span>[RED] Police are investigating activity on East Block. You don&#x27;t know who talked.</div>
+<div class="event-line squeal"><span class="time">[6.0]</span>⚠ SQUEAL: Tony the Butcher talked to police about North Block</div>
+<div class="event-line investigation"><span class="time">[6.0]</span>🔍 INVESTIGATION: North Block — Leads: 20/100</div>
+<div class="event-line notification-red"><span class="time">[6.0]</span>[RED] Police are investigating activity on North Block. You don&#x27;t know who talked.</div>
+<div class="event-line economy"><span class="time">[6.0]</span>💰 Income $455 | Expenses $634 | Net $-179 | Balance $2521</div>
+</div></div>
+    </div>
+    <div class="section">
+      <div class="section-header">🔍 Active Investigations</div>
+      <div class="section-body">
+            <div class="inv-card">
+                <div class="inv-header">🔍 South Block — invest_0001</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 15%"></div></div>
+                <div class="inv-meta">Leads: 15/100 | Status: active</div>
+            </div>
+            <div class="inv-card">
+                <div class="inv-header">🔍 East Block — invest_0002</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 15%"></div></div>
+                <div class="inv-meta">Leads: 15/100 | Status: active</div>
+            </div>
+            <div class="inv-card">
+                <div class="inv-header">🔍 North Block — invest_0003</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 15%"></div></div>
+                <div class="inv-meta">Leads: 15/100 | Status: active</div>
+            </div></div>
+    </div>
+    <div class="section">
+      <div class="section-header">� Finances</div>
+      <div class="section-body">
+            <div class="finance-card">
+                <div class="finance-row income">Income: <strong>$455</strong></div>
+                <div class="finance-row expense">Expenses: <strong>$634</strong></div>
+                <div class="finance-row net negative">Net: <strong>$-179</strong></div>
+                <div class="finance-row balance">Treasury: <strong>$2521</strong></div>
+                <div class="breakdown"><div class='breakdown-item'><span>Business Income</span><span>$400</span></div><div class='breakdown-item'><span>Protection Income</span><span>$55</span></div><div class='breakdown-item'><span>Payroll</span><span>$150</span></div><div class='breakdown-item'><span>Running Costs</span><span>$184</span></div><div class='breakdown-item'><span>Bribes</span><span>$300</span></div></div>
+            </div></div>
+    </div>
+    <div class="section">
+      <div class="section-header">👮 Police & Corruption</div>
+      <div class="section-body"><div class="police-grid">
+        <div class="police-card bribed">
+            <div class="police-name">👮 Patrolman O&#x27;Brien</div>
+            <div class="police-status">ON PAYROLL (player)</div>
+            <div class="police-beat">Beat: block_1, block_2, block_4, block_5, block_7</div>
+            <div class="police-cost">Bribe: $300/week</div>
+        </div>
+        <div class="police-card clean">
+            <div class="police-name">👮 Patrolman Kelly</div>
+            <div class="police-status">Not bribed</div>
+            <div class="police-beat">Beat: block_3, block_6, block_8, block_9, block_5</div>
+            <div class="police-cost">Bribe: $350/week</div>
+        </div></div></div>
+    </div>
+  </div>
+
+</div>
+
+</div>
+<div class="slide " data-slide="2">
+
+<div class="slide-header">
+  <h1>Week 3</h1>
+  <div class="subtitle">Moretti Family vs Falcone Syndicate</div>
+</div>
+
+<div class="stats-strip">
+  <div class="stat-box money"><div class="label">Treasury</div><div class="value">$2322</div></div>
+  <div class="stat-box player"><div class="label">Player Territory</div><div class="value">3</div></div>
+  <div class="stat-box rival"><div class="label">Rival Territory</div><div class="value">6</div></div>
+  <div class="stat-box territory"><div class="label">Unowned</div><div class="value">0</div></div>
+  <div class="stat-box"><div class="label">Investigations</div><div class="value">7</div></div>
+</div>
+
+<div class="two-col-main">
+
+  <!-- LEFT COLUMN: Map + Hoods + Rival -->
+  <div class="col-left">
+    <div class="section">
+      <div class="section-header">🏙️ City Map</div>
+      <div class="section-body"><div class="grid-row">
+<div class="block-card rival">
+  
+  <div class="info-tier aware">aware</div>
+  <div class="block-name">NW Block</div>
+  <div class="block-owner rival">RIVAL</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 20%"></div></div>
+  <div class="block-meta">
+    <span>👥 18</span>
+    <span>🏢 2</span>
+    <span>📊 LV5</span>
+    <span>💪 20%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Apartment Building</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+<div class="block-card rival">
+  
+  <div class="info-tier aware">aware</div>
+  <div class="block-name">North Block</div>
+  <div class="block-owner rival">RIVAL</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 20%"></div></div>
+  <div class="block-meta">
+    <span>👥 15</span>
+    <span>🏢 2</span>
+    <span>📊 LV7</span>
+    <span>💪 20%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Butcher Shop</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+<div class="block-card rival">
+  <div class="hq-badge" style="background:var(--red)">RIVAL HQ</div>
+  <div class="info-tier informed">informed</div>
+  <div class="block-name">NE Block</div>
+  <div class="block-owner rival">RIVAL</div>
+  <div class="strength-bar-container"><div class="strength-bar mid" style="width: 53%"></div></div>
+  <div class="block-meta">
+    <span>👥 15</span>
+    <span>🏢 2</span>
+    <span>📊 LV8</span>
+    <span>💪 53%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Bakery</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+</div>
+<div class="grid-row">
+<div class="block-card player">
+  
+  <div class="info-tier aware">aware</div>
+  <div class="block-name">West Block</div>
+  <div class="block-owner player">YOURS</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 20%"></div></div>
+  <div class="block-meta">
+    <span>👥 12</span>
+    <span>🏢 2</span>
+    <span>📊 LV4</span>
+    <span>💪 20%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Barbershop</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+<div class="block-card rival">
+  <div class="hq-badge" style="background:var(--yellow);color:#000">POLICE</div>
+  <div class="info-tier aware">aware</div>
+  <div class="block-name">Center Block</div>
+  <div class="block-owner rival">RIVAL</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 20%"></div></div>
+  <div class="block-meta">
+    <span>👥 5</span>
+    <span>🏢 1</span>
+    <span>📊 LV6</span>
+    <span>💪 20%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Empty Land</div>
+</div>
+</div>
+<div class="block-card rival">
+  
+  <div class="info-tier aware">aware</div>
+  <div class="block-name">East Block</div>
+  <div class="block-owner rival">RIVAL</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 20%"></div></div>
+  <div class="block-meta">
+    <span>👥 10</span>
+    <span>🏢 1</span>
+    <span>📊 LV9</span>
+    <span>💪 20%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  illegal">Casino</div>
+</div>
+</div>
+</div>
+<div class="grid-row">
+<div class="block-card player">
+  <div class="hq-badge">YOUR HQ</div>
+  <div class="info-tier connected">connected</div>
+  <div class="block-name">SW Block</div>
+  <div class="block-owner player">YOURS</div>
+  <div class="strength-bar-container"><div class="strength-bar high" style="width: 70%"></div></div>
+  <div class="block-meta">
+    <span>👥 14</span>
+    <span>🏢 2</span>
+    <span>📊 LV3</span>
+    <span>💪 70%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item owned ">Diner (YOURS)</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+<div class="block-card player">
+  
+  <div class="info-tier aware">aware</div>
+  <div class="block-name">South Block</div>
+  <div class="block-owner player">YOURS</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 20%"></div></div>
+  <div class="block-meta">
+    <span>👥 13</span>
+    <span>🏢 2</span>
+    <span>📊 LV5</span>
+    <span>💪 20%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Garage</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+<div class="block-card rival">
+  
+  <div class="info-tier aware">aware</div>
+  <div class="block-name">SE Block</div>
+  <div class="block-owner rival">RIVAL</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 20%"></div></div>
+  <div class="block-meta">
+    <span>👥 16</span>
+    <span>🏢 2</span>
+    <span>📊 LV6</span>
+    <span>💪 20%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Apartment Building</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+</div>
+</div>
+    </div>
+    <div class="section">
+      <div class="section-header">🎭 Your Hoods</div>
+      <div class="section-body"><div class="hood-grid"><div class="hood-card ">
+  <div class="hood-name">Vinny Moretti</div>
+  <div class="hood-int">INT: 73/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>39/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 62%; background: #8b5cf6"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>31/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 49%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>29/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 46%; background: #ff7a45"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>29/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 46%; background: #00d4ff"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>17/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 27%; background: #e74c3c"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>8/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 13%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>7/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 11%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>5/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 8%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>3/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 5%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>1/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 2%; background: #f39c12"></div></div>
+        </div>
+</div>
+<div class="hood-card ">
+  <div class="hood-name">Joey Marino</div>
+  <div class="hood-int">INT: 83/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>46/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 73%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>37/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 59%; background: #f39c12"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>26/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 41%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>25/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 40%; background: #e74c3c"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>20/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 32%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>20/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 32%; background: #ff7a45"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>15/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 24%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>14/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 22%; background: #8b5cf6"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>11/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 17%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>11/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 17%; background: #00d4ff"></div></div>
+        </div>
+</div>
+<div class="hood-card ">
+  <div class="hood-name">Joey Marino</div>
+  <div class="hood-int">INT: 177/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>46/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 73%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>39/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 62%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>36/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 57%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>28/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 44%; background: #e74c3c"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>25/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 40%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>18/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 29%; background: #f39c12"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>15/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 24%; background: #00d4ff"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>3/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 5%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>1/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 2%; background: #8b5cf6"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>0/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 0%; background: #ff7a45"></div></div>
+        </div>
+</div>
+</div></div>
+    </div>
+    <div class="section">
+      <div class="section-header">⚔️ Rival Gang: Falcone Syndicate ($3238)</div>
+      <div class="section-body"><div class="hood-grid"><div class="hood-card rival">
+  <div class="hood-name">Sal Bianchi</div>
+  <div class="hood-int">INT: 79/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>58/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 92%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>40/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 63%; background: #ff7a45"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>29/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 46%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>28/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 44%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>25/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 40%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>22/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 35%; background: #00d4ff"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>12/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 19%; background: #e74c3c"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>5/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 8%; background: #8b5cf6"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>4/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 6%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>4/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 6%; background: #f39c12"></div></div>
+        </div>
+</div>
+<div class="hood-card rival">
+  <div class="hood-name">Carmine Romano</div>
+  <div class="hood-int">INT: 109/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>40/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 63%; background: #ff7a45"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>38/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 60%; background: #00d4ff"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>29/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 46%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>24/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 38%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>11/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 17%; background: #e74c3c"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>10/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 16%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>7/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 11%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>7/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 11%; background: #f39c12"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>3/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 5%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>2/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 3%; background: #8b5cf6"></div></div>
+        </div>
+</div>
+<div class="hood-card rival">
+  <div class="hood-name">Luigi Esposito</div>
+  <div class="hood-int">INT: 69/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>38/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 60%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>33/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 52%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>31/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 49%; background: #f39c12"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>30/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 48%; background: #00d4ff"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>25/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 40%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>22/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 35%; background: #ff7a45"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>21/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 33%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>20/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 32%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>7/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 11%; background: #8b5cf6"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>0/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 0%; background: #e74c3c"></div></div>
+        </div>
+</div>
+</div></div>
+    </div>
+  </div>
+
+  <!-- RIGHT COLUMN: Event Log + Investigations + Police + Finances -->
+  <div class="col-right">
+    <div class="section">
+      <div class="section-header">� Event Log — Week 3</div>
+      <div class="section-body"><div class="event-log"><div class="event-line territory"><span class="time">[0.0]</span>🏴 West Block now controlled by player (strength: 20%)</div>
+<div class="event-line"><span class="time">[0.1]</span>Vinny Moretti → extort on West Block: <strong>success</strong> — Angie Morretti paid up without trouble (fear 76 &gt; hostility 39).</div>
+<div class="event-line territory"><span class="time">[1.0]</span>🏴 South Block now controlled by player (strength: 20%)</div>
+<div class="event-line"><span class="time">[1.1]</span>Joey Marino → extort on South Block: <strong>success</strong> — Mrs. O&#x27;Sullivan paid up without trouble (fear 102 &gt; hostility 36).</div>
+<div class="event-line"><span class="time">[2.1]</span>Joey Marino → extort on SW Block: <strong>success</strong> — Old Man Patterson paid up without trouble (fear 101 &gt; hostility 66).</div>
+<div class="event-line territory"><span class="time">[3.0]</span>🏴 Center Block now controlled by rival (strength: 20%)</div>
+<div class="event-line"><span class="time">[3.1]</span>Sal Bianchi → extort on Center Block: <strong>success</strong> — Mrs. O&#x27;Sullivan paid up without trouble (fear 105 &gt; hostility 41).</div>
+<div class="event-line rival"><span class="time">[3.0]</span>[RIVAL] Sal Bianchi → extort on Center Block: success</div>
+<div class="event-line territory"><span class="time">[4.0]</span>🏴 NW Block now controlled by rival (strength: 20%)</div>
+<div class="event-line"><span class="time">[4.1]</span>Carmine Romano → extort on NW Block: <strong>success</strong> — Tony the Butcher paid up without trouble (fear 99 &gt; hostility 67).</div>
+<div class="event-line rival"><span class="time">[4.0]</span>[RIVAL] Carmine Romano → extort on NW Block: success</div>
+<div class="event-line territory"><span class="time">[5.0]</span>🏴 SE Block now controlled by rival (strength: 20%)</div>
+<div class="event-line"><span class="time">[5.1]</span>Luigi Esposito → extort on SE Block: <strong>success</strong> — Katherine Doyle paid up without trouble (fear 96 &gt; hostility 45).</div>
+<div class="event-line rival"><span class="time">[5.0]</span>[RIVAL] Luigi Esposito → extort on SE Block: success</div>
+<div class="event-line squeal"><span class="time">[6.0]</span>⚠ SQUEAL: Pat Flanagan talked to police about South Block</div>
+<div class="event-line investigation"><span class="time">[6.0]</span>🔍 INVESTIGATION: South Block — Leads: 20/100</div>
+<div class="event-line notification-yellow"><span class="time">[6.0]</span>[YELLOW] Someone on South Block squealed to the police about extort.</div>
+<div class="event-line squeal"><span class="time">[6.0]</span>⚠ SQUEAL: Pat Flanagan talked to police about Center Block</div>
+<div class="event-line investigation"><span class="time">[6.0]</span>🔍 INVESTIGATION: Center Block — Leads: 20/100</div>
+<div class="event-line notification-red"><span class="time">[6.0]</span>[RED] Police are investigating activity on Center Block. You don&#x27;t know who talked.</div>
+<div class="event-line squeal"><span class="time">[6.0]</span>⚠ SQUEAL: Tony the Butcher talked to police about NW Block</div>
+<div class="event-line investigation"><span class="time">[6.0]</span>🔍 INVESTIGATION: NW Block — Leads: 20/100</div>
+<div class="event-line notification-red"><span class="time">[6.0]</span>[RED] Police are investigating activity on NW Block. You don&#x27;t know who talked.</div>
+<div class="event-line squeal"><span class="time">[6.0]</span>⚠ SQUEAL: Katherine Doyle talked to police about SE Block</div>
+<div class="event-line investigation"><span class="time">[6.0]</span>🔍 INVESTIGATION: SE Block — Leads: 20/100</div>
+<div class="event-line notification-red"><span class="time">[6.0]</span>[RED] Police are investigating activity on SE Block. You don&#x27;t know who talked.</div>
+<div class="event-line economy"><span class="time">[6.0]</span>💰 Income $435 | Expenses $634 | Net $-199 | Balance $2322</div>
+</div></div>
+    </div>
+    <div class="section">
+      <div class="section-header">🔍 Active Investigations</div>
+      <div class="section-body">
+            <div class="inv-card">
+                <div class="inv-header">🔍 South Block — invest_0001</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 10%"></div></div>
+                <div class="inv-meta">Leads: 10/100 | Status: active</div>
+            </div>
+            <div class="inv-card">
+                <div class="inv-header">🔍 East Block — invest_0002</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 10%"></div></div>
+                <div class="inv-meta">Leads: 10/100 | Status: active</div>
+            </div>
+            <div class="inv-card">
+                <div class="inv-header">🔍 North Block — invest_0003</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 10%"></div></div>
+                <div class="inv-meta">Leads: 10/100 | Status: active</div>
+            </div>
+            <div class="inv-card">
+                <div class="inv-header">🔍 South Block — invest_0004</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 15%"></div></div>
+                <div class="inv-meta">Leads: 15/100 | Status: active</div>
+            </div>
+            <div class="inv-card">
+                <div class="inv-header">🔍 Center Block — invest_0005</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 15%"></div></div>
+                <div class="inv-meta">Leads: 15/100 | Status: active</div>
+            </div>
+            <div class="inv-card">
+                <div class="inv-header">🔍 NW Block — invest_0006</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 15%"></div></div>
+                <div class="inv-meta">Leads: 15/100 | Status: active</div>
+            </div>
+            <div class="inv-card">
+                <div class="inv-header">🔍 SE Block — invest_0007</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 15%"></div></div>
+                <div class="inv-meta">Leads: 15/100 | Status: active</div>
+            </div></div>
+    </div>
+    <div class="section">
+      <div class="section-header">� Finances</div>
+      <div class="section-body">
+            <div class="finance-card">
+                <div class="finance-row income">Income: <strong>$435</strong></div>
+                <div class="finance-row expense">Expenses: <strong>$634</strong></div>
+                <div class="finance-row net negative">Net: <strong>$-199</strong></div>
+                <div class="finance-row balance">Treasury: <strong>$2322</strong></div>
+                <div class="breakdown"><div class='breakdown-item'><span>Business Income</span><span>$374</span></div><div class='breakdown-item'><span>Protection Income</span><span>$61</span></div><div class='breakdown-item'><span>Payroll</span><span>$150</span></div><div class='breakdown-item'><span>Running Costs</span><span>$184</span></div><div class='breakdown-item'><span>Bribes</span><span>$300</span></div></div>
+            </div></div>
+    </div>
+    <div class="section">
+      <div class="section-header">👮 Police & Corruption</div>
+      <div class="section-body"><div class="police-grid">
+        <div class="police-card bribed">
+            <div class="police-name">👮 Patrolman O&#x27;Brien</div>
+            <div class="police-status">ON PAYROLL (player)</div>
+            <div class="police-beat">Beat: block_1, block_2, block_4, block_5, block_7</div>
+            <div class="police-cost">Bribe: $300/week</div>
+        </div>
+        <div class="police-card clean">
+            <div class="police-name">👮 Patrolman Kelly</div>
+            <div class="police-status">Not bribed</div>
+            <div class="police-beat">Beat: block_3, block_6, block_8, block_9, block_5</div>
+            <div class="police-cost">Bribe: $350/week</div>
+        </div></div></div>
+    </div>
+  </div>
+
+</div>
+
+</div>
+<div class="slide " data-slide="3">
+
+<div class="slide-header">
+  <h1>Week 4</h1>
+  <div class="subtitle">Moretti Family vs Falcone Syndicate</div>
+</div>
+
+<div class="stats-strip">
+  <div class="stat-box money"><div class="label">Treasury</div><div class="value">$2182</div></div>
+  <div class="stat-box player"><div class="label">Player Territory</div><div class="value">3</div></div>
+  <div class="stat-box rival"><div class="label">Rival Territory</div><div class="value">6</div></div>
+  <div class="stat-box territory"><div class="label">Unowned</div><div class="value">0</div></div>
+  <div class="stat-box"><div class="label">Investigations</div><div class="value">8</div></div>
+</div>
+
+<div class="two-col-main">
+
+  <!-- LEFT COLUMN: Map + Hoods + Rival -->
+  <div class="col-left">
+    <div class="section">
+      <div class="section-header">🏙️ City Map</div>
+      <div class="section-body"><div class="grid-row">
+<div class="block-card rival">
+  
+  <div class="info-tier aware">aware</div>
+  <div class="block-name">NW Block</div>
+  <div class="block-owner rival">RIVAL</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 20%"></div></div>
+  <div class="block-meta">
+    <span>👥 18</span>
+    <span>🏢 2</span>
+    <span>📊 LV5</span>
+    <span>💪 20%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Apartment Building</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+<div class="block-card rival">
+  
+  <div class="info-tier aware">aware</div>
+  <div class="block-name">North Block</div>
+  <div class="block-owner rival">RIVAL</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 23%"></div></div>
+  <div class="block-meta">
+    <span>👥 15</span>
+    <span>🏢 2</span>
+    <span>📊 LV7</span>
+    <span>💪 23%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Butcher Shop</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+<div class="block-card rival">
+  <div class="hq-badge" style="background:var(--red)">RIVAL HQ</div>
+  <div class="info-tier informed">informed</div>
+  <div class="block-name">NE Block</div>
+  <div class="block-owner rival">RIVAL</div>
+  <div class="strength-bar-container"><div class="strength-bar mid" style="width: 53%"></div></div>
+  <div class="block-meta">
+    <span>👥 15</span>
+    <span>🏢 2</span>
+    <span>📊 LV8</span>
+    <span>💪 53%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Bakery</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+</div>
+<div class="grid-row">
+<div class="block-card player">
+  
+  <div class="info-tier aware">aware</div>
+  <div class="block-name">West Block</div>
+  <div class="block-owner player">YOURS</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 20%"></div></div>
+  <div class="block-meta">
+    <span>👥 12</span>
+    <span>🏢 2</span>
+    <span>📊 LV4</span>
+    <span>💪 20%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Barbershop</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+<div class="block-card rival">
+  <div class="hq-badge" style="background:var(--yellow);color:#000">POLICE</div>
+  <div class="info-tier aware">aware</div>
+  <div class="block-name">Center Block</div>
+  <div class="block-owner rival">RIVAL</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 23%"></div></div>
+  <div class="block-meta">
+    <span>👥 5</span>
+    <span>🏢 1</span>
+    <span>📊 LV6</span>
+    <span>💪 23%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Empty Land</div>
+</div>
+</div>
+<div class="block-card rival">
+  
+  <div class="info-tier aware">aware</div>
+  <div class="block-name">East Block</div>
+  <div class="block-owner rival">RIVAL</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 23%"></div></div>
+  <div class="block-meta">
+    <span>👥 10</span>
+    <span>🏢 1</span>
+    <span>📊 LV9</span>
+    <span>💪 23%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  illegal">Casino</div>
+</div>
+</div>
+</div>
+<div class="grid-row">
+<div class="block-card player">
+  <div class="hq-badge">YOUR HQ</div>
+  <div class="info-tier connected">connected</div>
+  <div class="block-name">SW Block</div>
+  <div class="block-owner player">YOURS</div>
+  <div class="strength-bar-container"><div class="strength-bar high" style="width: 75%"></div></div>
+  <div class="block-meta">
+    <span>👥 14</span>
+    <span>🏢 2</span>
+    <span>📊 LV3</span>
+    <span>💪 75%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item owned ">Diner (YOURS)</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+<div class="block-card player">
+  
+  <div class="info-tier aware">aware</div>
+  <div class="block-name">South Block</div>
+  <div class="block-owner player">YOURS</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 20%"></div></div>
+  <div class="block-meta">
+    <span>👥 13</span>
+    <span>🏢 2</span>
+    <span>📊 LV5</span>
+    <span>💪 20%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Garage</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+<div class="block-card rival">
+  
+  <div class="info-tier aware">aware</div>
+  <div class="block-name">SE Block</div>
+  <div class="block-owner rival">RIVAL</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 20%"></div></div>
+  <div class="block-meta">
+    <span>👥 16</span>
+    <span>🏢 2</span>
+    <span>📊 LV6</span>
+    <span>💪 20%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Apartment Building</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+</div>
+</div>
+    </div>
+    <div class="section">
+      <div class="section-header">🎭 Your Hoods</div>
+      <div class="section-body"><div class="hood-grid"><div class="hood-card ">
+  <div class="hood-name">Vinny Moretti</div>
+  <div class="hood-int">INT: 73/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>39/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 62%; background: #8b5cf6"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>31/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 49%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>29/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 46%; background: #ff7a45"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>29/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 46%; background: #00d4ff"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>17/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 27%; background: #e74c3c"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>8/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 13%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>7/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 11%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>5/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 8%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>3/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 5%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>1/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 2%; background: #f39c12"></div></div>
+        </div>
+</div>
+<div class="hood-card ">
+  <div class="hood-name">Joey Marino</div>
+  <div class="hood-int">INT: 83/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>46/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 73%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>37/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 59%; background: #f39c12"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>26/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 41%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>25/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 40%; background: #e74c3c"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>20/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 32%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>20/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 32%; background: #ff7a45"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>15/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 24%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>14/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 22%; background: #8b5cf6"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>11/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 17%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>11/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 17%; background: #00d4ff"></div></div>
+        </div>
+</div>
+<div class="hood-card ">
+  <div class="hood-name">Joey Marino</div>
+  <div class="hood-int">INT: 177/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>46/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 73%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>39/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 62%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>36/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 57%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>28/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 44%; background: #e74c3c"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>25/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 40%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>18/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 29%; background: #f39c12"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>15/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 24%; background: #00d4ff"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>3/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 5%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>1/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 2%; background: #8b5cf6"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>0/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 0%; background: #ff7a45"></div></div>
+        </div>
+</div>
+</div></div>
+    </div>
+    <div class="section">
+      <div class="section-header">⚔️ Rival Gang: Falcone Syndicate ($3421)</div>
+      <div class="section-body"><div class="hood-grid"><div class="hood-card rival">
+  <div class="hood-name">Sal Bianchi</div>
+  <div class="hood-int">INT: 79/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>58/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 92%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>40/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 63%; background: #ff7a45"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>29/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 46%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>28/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 44%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>25/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 40%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>22/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 35%; background: #00d4ff"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>12/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 19%; background: #e74c3c"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>5/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 8%; background: #8b5cf6"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>4/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 6%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>4/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 6%; background: #f39c12"></div></div>
+        </div>
+</div>
+<div class="hood-card rival">
+  <div class="hood-name">Carmine Romano</div>
+  <div class="hood-int">INT: 109/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>40/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 63%; background: #ff7a45"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>38/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 60%; background: #00d4ff"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>29/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 46%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>24/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 38%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>11/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 17%; background: #e74c3c"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>10/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 16%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>7/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 11%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>7/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 11%; background: #f39c12"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>3/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 5%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>2/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 3%; background: #8b5cf6"></div></div>
+        </div>
+</div>
+<div class="hood-card rival">
+  <div class="hood-name">Luigi Esposito</div>
+  <div class="hood-int">INT: 69/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>38/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 60%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>33/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 52%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>31/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 49%; background: #f39c12"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>30/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 48%; background: #00d4ff"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>25/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 40%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>22/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 35%; background: #ff7a45"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>21/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 33%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>20/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 32%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>7/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 11%; background: #8b5cf6"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>0/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 0%; background: #e74c3c"></div></div>
+        </div>
+</div>
+</div></div>
+    </div>
+  </div>
+
+  <!-- RIGHT COLUMN: Event Log + Investigations + Police + Finances -->
+  <div class="col-right">
+    <div class="section">
+      <div class="section-header">� Event Log — Week 4</div>
+      <div class="section-body"><div class="event-log"><div class="event-line"><span class="time">[0.0]</span>Vinny Moretti → collect_protection on SW Block: <strong>success</strong> — Collected protection. Strength now 75.</div>
+<div class="event-line territory"><span class="time">[1.0]</span>🏴 West Block now controlled by player (strength: 20%)</div>
+<div class="event-line"><span class="time">[1.1]</span>Joey Marino → extort on West Block: <strong>success</strong> — Old Man Patterson paid up without trouble (fear 85 &gt; hostility 55).</div>
+<div class="event-line territory"><span class="time">[2.0]</span>🏴 South Block now controlled by player (strength: 20%)</div>
+<div class="event-line"><span class="time">[2.1]</span>Joey Marino → extort on South Block: <strong>success</strong> — Mrs. O&#x27;Sullivan paid up without trouble (fear 107 &gt; hostility 36).</div>
+<div class="event-line"><span class="time">[3.0]</span>Sal Bianchi → patrol on North Block: <strong>success</strong> — Patrolled. Strength now 23.</div>
+<div class="event-line"><span class="time">[4.0]</span>Carmine Romano → patrol on East Block: <strong>success</strong> — Patrolled. Strength now 23.</div>
+<div class="event-line"><span class="time">[5.0]</span>Luigi Esposito → patrol on Center Block: <strong>success</strong> — Patrolled. Strength now 23.</div>
+<div class="event-line squeal"><span class="time">[6.0]</span>⚠ SQUEAL: Pat Flanagan talked to police about South Block</div>
+<div class="event-line investigation"><span class="time">[6.0]</span>🔍 INVESTIGATION: South Block — Leads: 20/100</div>
+<div class="event-line notification-yellow"><span class="time">[6.0]</span>[YELLOW] Someone on South Block squealed to the police about extort.</div>
+<div class="event-line economy"><span class="time">[6.0]</span>💰 Income $494 | Expenses $634 | Net $-140 | Balance $2182</div>
+</div></div>
+    </div>
+    <div class="section">
+      <div class="section-header">🔍 Active Investigations</div>
+      <div class="section-body">
+            <div class="inv-card">
+                <div class="inv-header">🔍 South Block — invest_0001</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 5%"></div></div>
+                <div class="inv-meta">Leads: 5/100 | Status: active</div>
+            </div>
+            <div class="inv-card">
+                <div class="inv-header">🔍 East Block — invest_0002</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 5%"></div></div>
+                <div class="inv-meta">Leads: 5/100 | Status: active</div>
+            </div>
+            <div class="inv-card">
+                <div class="inv-header">🔍 North Block — invest_0003</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 5%"></div></div>
+                <div class="inv-meta">Leads: 5/100 | Status: active</div>
+            </div>
+            <div class="inv-card">
+                <div class="inv-header">🔍 South Block — invest_0004</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 10%"></div></div>
+                <div class="inv-meta">Leads: 10/100 | Status: active</div>
+            </div>
+            <div class="inv-card">
+                <div class="inv-header">🔍 Center Block — invest_0005</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 10%"></div></div>
+                <div class="inv-meta">Leads: 10/100 | Status: active</div>
+            </div>
+            <div class="inv-card">
+                <div class="inv-header">🔍 NW Block — invest_0006</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 10%"></div></div>
+                <div class="inv-meta">Leads: 10/100 | Status: active</div>
+            </div>
+            <div class="inv-card">
+                <div class="inv-header">🔍 SE Block — invest_0007</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 10%"></div></div>
+                <div class="inv-meta">Leads: 10/100 | Status: active</div>
+            </div>
+            <div class="inv-card">
+                <div class="inv-header">🔍 South Block — invest_0008</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 15%"></div></div>
+                <div class="inv-meta">Leads: 15/100 | Status: active</div>
+            </div></div>
+    </div>
+    <div class="section">
+      <div class="section-header">� Finances</div>
+      <div class="section-body">
+            <div class="finance-card">
+                <div class="finance-row income">Income: <strong>$494</strong></div>
+                <div class="finance-row expense">Expenses: <strong>$634</strong></div>
+                <div class="finance-row net negative">Net: <strong>$-140</strong></div>
+                <div class="finance-row balance">Treasury: <strong>$2182</strong></div>
+                <div class="breakdown"><div class='breakdown-item'><span>Business Income</span><span>$430</span></div><div class='breakdown-item'><span>Protection Income</span><span>$64</span></div><div class='breakdown-item'><span>Payroll</span><span>$150</span></div><div class='breakdown-item'><span>Running Costs</span><span>$184</span></div><div class='breakdown-item'><span>Bribes</span><span>$300</span></div></div>
+            </div></div>
+    </div>
+    <div class="section">
+      <div class="section-header">👮 Police & Corruption</div>
+      <div class="section-body"><div class="police-grid">
+        <div class="police-card bribed">
+            <div class="police-name">👮 Patrolman O&#x27;Brien</div>
+            <div class="police-status">ON PAYROLL (player)</div>
+            <div class="police-beat">Beat: block_1, block_2, block_4, block_5, block_7</div>
+            <div class="police-cost">Bribe: $300/week</div>
+        </div>
+        <div class="police-card clean">
+            <div class="police-name">👮 Patrolman Kelly</div>
+            <div class="police-status">Not bribed</div>
+            <div class="police-beat">Beat: block_3, block_6, block_8, block_9, block_5</div>
+            <div class="police-cost">Bribe: $350/week</div>
+        </div></div></div>
+    </div>
+  </div>
+
+</div>
+
+</div>
+<div class="slide " data-slide="4">
+
+<div class="slide-header">
+  <h1>Week 5</h1>
+  <div class="subtitle">Moretti Family vs Falcone Syndicate</div>
+</div>
+
+<div class="stats-strip">
+  <div class="stat-box money"><div class="label">Treasury</div><div class="value">$2005</div></div>
+  <div class="stat-box player"><div class="label">Player Territory</div><div class="value">3</div></div>
+  <div class="stat-box rival"><div class="label">Rival Territory</div><div class="value">6</div></div>
+  <div class="stat-box territory"><div class="label">Unowned</div><div class="value">0</div></div>
+  <div class="stat-box"><div class="label">Investigations</div><div class="value">8</div></div>
+</div>
+
+<div class="two-col-main">
+
+  <!-- LEFT COLUMN: Map + Hoods + Rival -->
+  <div class="col-left">
+    <div class="section">
+      <div class="section-header">🏙️ City Map</div>
+      <div class="section-body"><div class="grid-row">
+<div class="block-card rival">
+  
+  <div class="info-tier aware">aware</div>
+  <div class="block-name">NW Block</div>
+  <div class="block-owner rival">RIVAL</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 20%"></div></div>
+  <div class="block-meta">
+    <span>👥 18</span>
+    <span>🏢 2</span>
+    <span>📊 LV5</span>
+    <span>💪 20%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Apartment Building</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+<div class="block-card rival">
+  
+  <div class="info-tier aware">aware</div>
+  <div class="block-name">North Block</div>
+  <div class="block-owner rival">RIVAL</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 23%"></div></div>
+  <div class="block-meta">
+    <span>👥 15</span>
+    <span>🏢 2</span>
+    <span>📊 LV7</span>
+    <span>💪 23%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Butcher Shop</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+<div class="block-card rival">
+  <div class="hq-badge" style="background:var(--red)">RIVAL HQ</div>
+  <div class="info-tier informed">informed</div>
+  <div class="block-name">NE Block</div>
+  <div class="block-owner rival">RIVAL</div>
+  <div class="strength-bar-container"><div class="strength-bar mid" style="width: 53%"></div></div>
+  <div class="block-meta">
+    <span>👥 15</span>
+    <span>🏢 2</span>
+    <span>📊 LV8</span>
+    <span>💪 53%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Bakery</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+</div>
+<div class="grid-row">
+<div class="block-card player">
+  
+  <div class="info-tier aware">aware</div>
+  <div class="block-name">West Block</div>
+  <div class="block-owner player">YOURS</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 23%"></div></div>
+  <div class="block-meta">
+    <span>👥 12</span>
+    <span>🏢 2</span>
+    <span>📊 LV4</span>
+    <span>💪 23%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Barbershop</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+<div class="block-card rival">
+  <div class="hq-badge" style="background:var(--yellow);color:#000">POLICE</div>
+  <div class="info-tier aware">aware</div>
+  <div class="block-name">Center Block</div>
+  <div class="block-owner rival">RIVAL</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 26%"></div></div>
+  <div class="block-meta">
+    <span>👥 5</span>
+    <span>🏢 1</span>
+    <span>📊 LV6</span>
+    <span>💪 26%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Empty Land</div>
+</div>
+</div>
+<div class="block-card rival">
+  
+  <div class="info-tier aware">aware</div>
+  <div class="block-name">East Block</div>
+  <div class="block-owner rival">RIVAL</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 26%"></div></div>
+  <div class="block-meta">
+    <span>👥 10</span>
+    <span>🏢 1</span>
+    <span>📊 LV9</span>
+    <span>💪 26%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  illegal">Casino</div>
+</div>
+</div>
+</div>
+<div class="grid-row">
+<div class="block-card player">
+  <div class="hq-badge">YOUR HQ</div>
+  <div class="info-tier connected">connected</div>
+  <div class="block-name">SW Block</div>
+  <div class="block-owner player">YOURS</div>
+  <div class="strength-bar-container"><div class="strength-bar high" style="width: 80%"></div></div>
+  <div class="block-meta">
+    <span>👥 14</span>
+    <span>🏢 2</span>
+    <span>📊 LV3</span>
+    <span>💪 80%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item owned ">Diner (YOURS)</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+<div class="block-card player">
+  
+  <div class="info-tier aware">aware</div>
+  <div class="block-name">South Block</div>
+  <div class="block-owner player">YOURS</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 25%"></div></div>
+  <div class="block-meta">
+    <span>👥 13</span>
+    <span>🏢 2</span>
+    <span>📊 LV5</span>
+    <span>💪 25%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Garage</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+<div class="block-card rival">
+  
+  <div class="info-tier aware">aware</div>
+  <div class="block-name">SE Block</div>
+  <div class="block-owner rival">RIVAL</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 23%"></div></div>
+  <div class="block-meta">
+    <span>👥 16</span>
+    <span>🏢 2</span>
+    <span>📊 LV6</span>
+    <span>💪 23%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Apartment Building</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+</div>
+</div>
+    </div>
+    <div class="section">
+      <div class="section-header">🎭 Your Hoods</div>
+      <div class="section-body"><div class="hood-grid"><div class="hood-card ">
+  <div class="hood-name">Vinny Moretti</div>
+  <div class="hood-int">INT: 73/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>39/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 62%; background: #8b5cf6"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>31/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 49%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>29/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 46%; background: #ff7a45"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>29/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 46%; background: #00d4ff"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>17/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 27%; background: #e74c3c"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>8/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 13%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>7/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 11%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>5/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 8%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>3/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 5%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>1/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 2%; background: #f39c12"></div></div>
+        </div>
+</div>
+<div class="hood-card ">
+  <div class="hood-name">Joey Marino</div>
+  <div class="hood-int">INT: 83/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>46/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 73%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>37/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 59%; background: #f39c12"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>26/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 41%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>25/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 40%; background: #e74c3c"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>20/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 32%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>20/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 32%; background: #ff7a45"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>15/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 24%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>14/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 22%; background: #8b5cf6"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>11/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 17%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>11/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 17%; background: #00d4ff"></div></div>
+        </div>
+</div>
+<div class="hood-card ">
+  <div class="hood-name">Joey Marino</div>
+  <div class="hood-int">INT: 177/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>46/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 73%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>39/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 62%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>36/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 57%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>28/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 44%; background: #e74c3c"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>25/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 40%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>18/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 29%; background: #f39c12"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>15/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 24%; background: #00d4ff"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>3/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 5%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>1/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 2%; background: #8b5cf6"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>0/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 0%; background: #ff7a45"></div></div>
+        </div>
+</div>
+</div></div>
+    </div>
+    <div class="section">
+      <div class="section-header">⚔️ Rival Gang: Falcone Syndicate ($3503)</div>
+      <div class="section-body"><div class="hood-grid"><div class="hood-card rival">
+  <div class="hood-name">Sal Bianchi</div>
+  <div class="hood-int">INT: 79/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>58/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 92%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>40/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 63%; background: #ff7a45"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>29/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 46%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>28/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 44%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>25/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 40%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>22/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 35%; background: #00d4ff"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>12/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 19%; background: #e74c3c"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>5/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 8%; background: #8b5cf6"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>4/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 6%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>4/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 6%; background: #f39c12"></div></div>
+        </div>
+</div>
+<div class="hood-card rival">
+  <div class="hood-name">Carmine Romano</div>
+  <div class="hood-int">INT: 109/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>40/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 63%; background: #ff7a45"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>38/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 60%; background: #00d4ff"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>29/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 46%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>24/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 38%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>11/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 17%; background: #e74c3c"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>10/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 16%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>7/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 11%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>7/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 11%; background: #f39c12"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>3/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 5%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>2/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 3%; background: #8b5cf6"></div></div>
+        </div>
+</div>
+<div class="hood-card rival">
+  <div class="hood-name">Luigi Esposito</div>
+  <div class="hood-int">INT: 69/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>38/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 60%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>33/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 52%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>31/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 49%; background: #f39c12"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>30/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 48%; background: #00d4ff"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>25/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 40%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>22/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 35%; background: #ff7a45"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>21/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 33%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>20/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 32%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>7/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 11%; background: #8b5cf6"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>0/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 0%; background: #e74c3c"></div></div>
+        </div>
+</div>
+</div></div>
+    </div>
+  </div>
+
+  <!-- RIGHT COLUMN: Event Log + Investigations + Police + Finances -->
+  <div class="col-right">
+    <div class="section">
+      <div class="section-header">� Event Log — Week 5</div>
+      <div class="section-body"><div class="event-log"><div class="event-line"><span class="time">[0.0]</span>Vinny Moretti → collect_protection on SW Block: <strong>success</strong> — Collected protection. Strength now 80.</div>
+<div class="event-line"><span class="time">[1.0]</span>Joey Marino → patrol on West Block: <strong>success</strong> — Patrolled. Strength now 23.</div>
+<div class="event-line"><span class="time">[2.0]</span>Joey Marino → collect_protection on South Block: <strong>success</strong> — Collected protection. Strength now 25.</div>
+<div class="event-line"><span class="time">[3.0]</span>Sal Bianchi → patrol on East Block: <strong>success</strong> — Patrolled. Strength now 26.</div>
+<div class="event-line"><span class="time">[4.0]</span>Carmine Romano → patrol on SE Block: <strong>success</strong> — Patrolled. Strength now 23.</div>
+<div class="event-line"><span class="time">[5.0]</span>Luigi Esposito → patrol on Center Block: <strong>success</strong> — Patrolled. Strength now 26.</div>
+<div class="event-line economy"><span class="time">[6.0]</span>💰 Income $457 | Expenses $634 | Net $-177 | Balance $2005</div>
+</div></div>
+    </div>
+    <div class="section">
+      <div class="section-header">🔍 Active Investigations</div>
+      <div class="section-body">
+            <div class="inv-card">
+                <div class="inv-header">🔍 South Block — invest_0001</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 0%"></div></div>
+                <div class="inv-meta">Leads: 0/100 | Status: active</div>
+            </div>
+            <div class="inv-card">
+                <div class="inv-header">🔍 East Block — invest_0002</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 0%"></div></div>
+                <div class="inv-meta">Leads: 0/100 | Status: active</div>
+            </div>
+            <div class="inv-card">
+                <div class="inv-header">🔍 North Block — invest_0003</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 0%"></div></div>
+                <div class="inv-meta">Leads: 0/100 | Status: active</div>
+            </div>
+            <div class="inv-card">
+                <div class="inv-header">🔍 South Block — invest_0004</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 5%"></div></div>
+                <div class="inv-meta">Leads: 5/100 | Status: active</div>
+            </div>
+            <div class="inv-card">
+                <div class="inv-header">🔍 Center Block — invest_0005</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 5%"></div></div>
+                <div class="inv-meta">Leads: 5/100 | Status: active</div>
+            </div>
+            <div class="inv-card">
+                <div class="inv-header">🔍 NW Block — invest_0006</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 5%"></div></div>
+                <div class="inv-meta">Leads: 5/100 | Status: active</div>
+            </div>
+            <div class="inv-card">
+                <div class="inv-header">🔍 SE Block — invest_0007</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 5%"></div></div>
+                <div class="inv-meta">Leads: 5/100 | Status: active</div>
+            </div>
+            <div class="inv-card">
+                <div class="inv-header">🔍 South Block — invest_0008</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 10%"></div></div>
+                <div class="inv-meta">Leads: 10/100 | Status: active</div>
+            </div></div>
+    </div>
+    <div class="section">
+      <div class="section-header">� Finances</div>
+      <div class="section-body">
+            <div class="finance-card">
+                <div class="finance-row income">Income: <strong>$457</strong></div>
+                <div class="finance-row expense">Expenses: <strong>$634</strong></div>
+                <div class="finance-row net negative">Net: <strong>$-177</strong></div>
+                <div class="finance-row balance">Treasury: <strong>$2005</strong></div>
+                <div class="breakdown"><div class='breakdown-item'><span>Business Income</span><span>$386</span></div><div class='breakdown-item'><span>Protection Income</span><span>$71</span></div><div class='breakdown-item'><span>Payroll</span><span>$150</span></div><div class='breakdown-item'><span>Running Costs</span><span>$184</span></div><div class='breakdown-item'><span>Bribes</span><span>$300</span></div></div>
+            </div></div>
+    </div>
+    <div class="section">
+      <div class="section-header">👮 Police & Corruption</div>
+      <div class="section-body"><div class="police-grid">
+        <div class="police-card bribed">
+            <div class="police-name">👮 Patrolman O&#x27;Brien</div>
+            <div class="police-status">ON PAYROLL (player)</div>
+            <div class="police-beat">Beat: block_1, block_2, block_4, block_5, block_7</div>
+            <div class="police-cost">Bribe: $300/week</div>
+        </div>
+        <div class="police-card clean">
+            <div class="police-name">👮 Patrolman Kelly</div>
+            <div class="police-status">Not bribed</div>
+            <div class="police-beat">Beat: block_3, block_6, block_8, block_9, block_5</div>
+            <div class="police-cost">Bribe: $350/week</div>
+        </div></div></div>
+    </div>
+  </div>
+
+</div>
+
+</div>
+<div class="slide " data-slide="5">
+
+<div class="slide-header">
+  <h1>Week 6</h1>
+  <div class="subtitle">Moretti Family vs Falcone Syndicate</div>
+</div>
+
+<div class="stats-strip">
+  <div class="stat-box money"><div class="label">Treasury</div><div class="value">$1831</div></div>
+  <div class="stat-box player"><div class="label">Player Territory</div><div class="value">3</div></div>
+  <div class="stat-box rival"><div class="label">Rival Territory</div><div class="value">6</div></div>
+  <div class="stat-box territory"><div class="label">Unowned</div><div class="value">0</div></div>
+  <div class="stat-box"><div class="label">Investigations</div><div class="value">8</div></div>
+</div>
+
+<div class="two-col-main">
+
+  <!-- LEFT COLUMN: Map + Hoods + Rival -->
+  <div class="col-left">
+    <div class="section">
+      <div class="section-header">🏙️ City Map</div>
+      <div class="section-body"><div class="grid-row">
+<div class="block-card rival">
+  
+  <div class="info-tier aware">aware</div>
+  <div class="block-name">NW Block</div>
+  <div class="block-owner rival">RIVAL</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 20%"></div></div>
+  <div class="block-meta">
+    <span>👥 18</span>
+    <span>🏢 2</span>
+    <span>📊 LV5</span>
+    <span>💪 20%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Apartment Building</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+<div class="block-card rival">
+  
+  <div class="info-tier aware">aware</div>
+  <div class="block-name">North Block</div>
+  <div class="block-owner rival">RIVAL</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 26%"></div></div>
+  <div class="block-meta">
+    <span>👥 15</span>
+    <span>🏢 2</span>
+    <span>📊 LV7</span>
+    <span>💪 26%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Butcher Shop</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+<div class="block-card rival">
+  <div class="hq-badge" style="background:var(--red)">RIVAL HQ</div>
+  <div class="info-tier informed">informed</div>
+  <div class="block-name">NE Block</div>
+  <div class="block-owner rival">RIVAL</div>
+  <div class="strength-bar-container"><div class="strength-bar mid" style="width: 59%"></div></div>
+  <div class="block-meta">
+    <span>👥 15</span>
+    <span>🏢 2</span>
+    <span>📊 LV8</span>
+    <span>💪 59%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Bakery</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+</div>
+<div class="grid-row">
+<div class="block-card player">
+  
+  <div class="info-tier aware">aware</div>
+  <div class="block-name">West Block</div>
+  <div class="block-owner player">YOURS</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 26%"></div></div>
+  <div class="block-meta">
+    <span>👥 12</span>
+    <span>🏢 2</span>
+    <span>📊 LV4</span>
+    <span>💪 26%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Barbershop</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+<div class="block-card rival">
+  <div class="hq-badge" style="background:var(--yellow);color:#000">POLICE</div>
+  <div class="info-tier aware">aware</div>
+  <div class="block-name">Center Block</div>
+  <div class="block-owner rival">RIVAL</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 26%"></div></div>
+  <div class="block-meta">
+    <span>👥 5</span>
+    <span>🏢 1</span>
+    <span>📊 LV6</span>
+    <span>💪 26%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Empty Land</div>
+</div>
+</div>
+<div class="block-card rival">
+  
+  <div class="info-tier aware">aware</div>
+  <div class="block-name">East Block</div>
+  <div class="block-owner rival">RIVAL</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 26%"></div></div>
+  <div class="block-meta">
+    <span>👥 10</span>
+    <span>🏢 1</span>
+    <span>📊 LV9</span>
+    <span>💪 26%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  illegal">Casino</div>
+</div>
+</div>
+</div>
+<div class="grid-row">
+<div class="block-card player">
+  <div class="hq-badge">YOUR HQ</div>
+  <div class="info-tier connected">connected</div>
+  <div class="block-name">SW Block</div>
+  <div class="block-owner player">YOURS</div>
+  <div class="strength-bar-container"><div class="strength-bar high" style="width: 85%"></div></div>
+  <div class="block-meta">
+    <span>👥 14</span>
+    <span>🏢 2</span>
+    <span>📊 LV3</span>
+    <span>💪 85%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item owned ">Diner (YOURS)</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+<div class="block-card player">
+  
+  <div class="info-tier aware">aware</div>
+  <div class="block-name">South Block</div>
+  <div class="block-owner player">YOURS</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 30%"></div></div>
+  <div class="block-meta">
+    <span>👥 13</span>
+    <span>🏢 2</span>
+    <span>📊 LV5</span>
+    <span>💪 30%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Garage</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+<div class="block-card rival">
+  
+  <div class="info-tier aware">aware</div>
+  <div class="block-name">SE Block</div>
+  <div class="block-owner rival">RIVAL</div>
+  <div class="strength-bar-container"><div class="strength-bar low" style="width: 23%"></div></div>
+  <div class="block-meta">
+    <span>👥 16</span>
+    <span>🏢 2</span>
+    <span>📊 LV6</span>
+    <span>💪 23%</span>
+  </div>
+  <div class="block-biz"><div class="biz-item  ">Apartment Building</div>
+<div class="biz-item  ">Apartment Building</div>
+</div>
+</div>
+</div>
+</div>
+    </div>
+    <div class="section">
+      <div class="section-header">🎭 Your Hoods</div>
+      <div class="section-body"><div class="hood-grid"><div class="hood-card ">
+  <div class="hood-name">Vinny Moretti</div>
+  <div class="hood-int">INT: 73/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>39/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 62%; background: #8b5cf6"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>31/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 49%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>29/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 46%; background: #ff7a45"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>29/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 46%; background: #00d4ff"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>17/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 27%; background: #e74c3c"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>8/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 13%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>7/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 11%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>5/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 8%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>3/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 5%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>1/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 2%; background: #f39c12"></div></div>
+        </div>
+</div>
+<div class="hood-card ">
+  <div class="hood-name">Joey Marino</div>
+  <div class="hood-int">INT: 83/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>46/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 73%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>37/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 59%; background: #f39c12"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>26/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 41%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>25/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 40%; background: #e74c3c"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>20/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 32%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>20/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 32%; background: #ff7a45"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>15/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 24%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>14/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 22%; background: #8b5cf6"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>11/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 17%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>11/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 17%; background: #00d4ff"></div></div>
+        </div>
+</div>
+<div class="hood-card ">
+  <div class="hood-name">Joey Marino</div>
+  <div class="hood-int">INT: 177/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>46/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 73%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>39/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 62%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>36/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 57%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>28/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 44%; background: #e74c3c"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>25/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 40%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>18/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 29%; background: #f39c12"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>15/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 24%; background: #00d4ff"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>3/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 5%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>1/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 2%; background: #8b5cf6"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>0/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 0%; background: #ff7a45"></div></div>
+        </div>
+</div>
+</div></div>
+    </div>
+    <div class="section">
+      <div class="section-header">⚔️ Rival Gang: Falcone Syndicate ($3709)</div>
+      <div class="section-body"><div class="hood-grid"><div class="hood-card rival">
+  <div class="hood-name">Sal Bianchi</div>
+  <div class="hood-int">INT: 79/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>58/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 92%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>40/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 63%; background: #ff7a45"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>29/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 46%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>28/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 44%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>25/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 40%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>22/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 35%; background: #00d4ff"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>12/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 19%; background: #e74c3c"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>5/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 8%; background: #8b5cf6"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>4/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 6%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>4/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 6%; background: #f39c12"></div></div>
+        </div>
+</div>
+<div class="hood-card rival">
+  <div class="hood-name">Carmine Romano</div>
+  <div class="hood-int">INT: 109/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>40/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 63%; background: #ff7a45"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>38/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 60%; background: #00d4ff"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>29/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 46%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>24/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 38%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>11/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 17%; background: #e74c3c"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>10/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 16%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>7/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 11%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>7/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 11%; background: #f39c12"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>3/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 5%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>2/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 3%; background: #8b5cf6"></div></div>
+        </div>
+</div>
+<div class="hood-card rival">
+  <div class="hood-name">Luigi Esposito</div>
+  <div class="hood-int">INT: 69/255 | Loyalty: 200</div>
+  <div class="hood-status available">available</div>
+  
+        <div class="skill-bar">
+          <div class="skill-label"><span>Stealth</span><span>38/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 60%; background: #7c5cfc"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Organisation</span><span>33/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 52%; background: #4f8ef7"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Knives</span><span>31/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 49%; background: #f39c12"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Driving</span><span>30/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 48%; background: #00d4ff"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Arson</span><span>25/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 40%; background: #ff6b35"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Fists</span><span>22/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 35%; background: #ff7a45"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Explosives</span><span>21/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 33%; background: #f5389d"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Business</span><span>20/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 32%; background: #2ecc71"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Intimidation</span><span>7/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 11%; background: #8b5cf6"></div></div>
+        </div>
+        <div class="skill-bar">
+          <div class="skill-label"><span>Firearms</span><span>0/63</span></div>
+          <div class="skill-track"><div class="skill-fill" style="width: 0%; background: #e74c3c"></div></div>
+        </div>
+</div>
+</div></div>
+    </div>
+  </div>
+
+  <!-- RIGHT COLUMN: Event Log + Investigations + Police + Finances -->
+  <div class="col-right">
+    <div class="section">
+      <div class="section-header">� Event Log — Week 6</div>
+      <div class="section-body"><div class="event-log"><div class="event-line"><span class="time">[0.0]</span>Vinny Moretti → collect_protection on SW Block: <strong>success</strong> — Collected protection. Strength now 85.</div>
+<div class="event-line"><span class="time">[1.0]</span>Joey Marino → patrol on West Block: <strong>success</strong> — Patrolled. Strength now 26.</div>
+<div class="event-line"><span class="time">[2.0]</span>Joey Marino → collect_protection on South Block: <strong>success</strong> — Collected protection. Strength now 30.</div>
+<div class="event-line"><span class="time">[3.0]</span>Sal Bianchi → patrol on NE Block: <strong>success</strong> — Patrolled. Strength now 56.</div>
+<div class="event-line"><span class="time">[4.0]</span>Carmine Romano → patrol on North Block: <strong>success</strong> — Patrolled. Strength now 26.</div>
+<div class="event-line"><span class="time">[5.0]</span>Luigi Esposito → patrol on NE Block: <strong>success</strong> — Patrolled. Strength now 59.</div>
+<div class="event-line economy"><span class="time">[6.0]</span>💰 Income $460 | Expenses $634 | Net $-174 | Balance $1831</div>
+</div></div>
+    </div>
+    <div class="section">
+      <div class="section-header">🔍 Active Investigations</div>
+      <div class="section-body">
+            <div class="inv-card">
+                <div class="inv-header">🔍 South Block — invest_0001</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 0%"></div></div>
+                <div class="inv-meta">Leads: 0/100 | Status: active</div>
+            </div>
+            <div class="inv-card">
+                <div class="inv-header">🔍 East Block — invest_0002</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 0%"></div></div>
+                <div class="inv-meta">Leads: 0/100 | Status: active</div>
+            </div>
+            <div class="inv-card">
+                <div class="inv-header">🔍 North Block — invest_0003</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 0%"></div></div>
+                <div class="inv-meta">Leads: 0/100 | Status: active</div>
+            </div>
+            <div class="inv-card">
+                <div class="inv-header">🔍 South Block — invest_0004</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 0%"></div></div>
+                <div class="inv-meta">Leads: 0/100 | Status: active</div>
+            </div>
+            <div class="inv-card">
+                <div class="inv-header">🔍 Center Block — invest_0005</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 0%"></div></div>
+                <div class="inv-meta">Leads: 0/100 | Status: active</div>
+            </div>
+            <div class="inv-card">
+                <div class="inv-header">🔍 NW Block — invest_0006</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 0%"></div></div>
+                <div class="inv-meta">Leads: 0/100 | Status: active</div>
+            </div>
+            <div class="inv-card">
+                <div class="inv-header">🔍 SE Block — invest_0007</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 0%"></div></div>
+                <div class="inv-meta">Leads: 0/100 | Status: active</div>
+            </div>
+            <div class="inv-card">
+                <div class="inv-header">🔍 South Block — invest_0008</div>
+                <div class="inv-bar-container"><div class="inv-bar" style="width: 5%"></div></div>
+                <div class="inv-meta">Leads: 5/100 | Status: active</div>
+            </div></div>
+    </div>
+    <div class="section">
+      <div class="section-header">� Finances</div>
+      <div class="section-body">
+            <div class="finance-card">
+                <div class="finance-row income">Income: <strong>$460</strong></div>
+                <div class="finance-row expense">Expenses: <strong>$634</strong></div>
+                <div class="finance-row net negative">Net: <strong>$-174</strong></div>
+                <div class="finance-row balance">Treasury: <strong>$1831</strong></div>
+                <div class="breakdown"><div class='breakdown-item'><span>Business Income</span><span>$382</span></div><div class='breakdown-item'><span>Protection Income</span><span>$78</span></div><div class='breakdown-item'><span>Payroll</span><span>$150</span></div><div class='breakdown-item'><span>Running Costs</span><span>$184</span></div><div class='breakdown-item'><span>Bribes</span><span>$300</span></div></div>
+            </div></div>
+    </div>
+    <div class="section">
+      <div class="section-header">👮 Police & Corruption</div>
+      <div class="section-body"><div class="police-grid">
+        <div class="police-card bribed">
+            <div class="police-name">👮 Patrolman O&#x27;Brien</div>
+            <div class="police-status">ON PAYROLL (player)</div>
+            <div class="police-beat">Beat: block_1, block_2, block_4, block_5, block_7</div>
+            <div class="police-cost">Bribe: $300/week</div>
+        </div>
+        <div class="police-card clean">
+            <div class="police-name">👮 Patrolman Kelly</div>
+            <div class="police-status">Not bribed</div>
+            <div class="police-beat">Beat: block_3, block_6, block_8, block_9, block_5</div>
+            <div class="police-cost">Bribe: $350/week</div>
+        </div></div></div>
+    </div>
+  </div>
+
+</div>
+
+</div>
+
+</div>
+
+<div class="footer">
+  Steel City: Mob Sim — Vertical Slice Report | 6 snapshots | Generated 2026-08-02 05:21
+</div>
+
+<script>
+let currentSlide = 0;
+const totalSlides = 6;
+
+function showSlide(index) {
+  if (index < 0 || index >= totalSlides) return;
+  currentSlide = index;
+  document.querySelectorAll('.slide').forEach((s, i) => {
+    s.classList.toggle('active', i === index);
+  });
+  document.querySelectorAll('.nav-dot').forEach((d, i) => {
+    d.classList.toggle('active', i === index);
+  });
+  document.getElementById('slideCounter').textContent = (index + 1) + ' / ' + totalSlides;
+  document.getElementById('prevBtn').disabled = index === 0;
+  document.getElementById('nextBtn').disabled = index === totalSlides - 1;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function nextSlide() { showSlide(currentSlide + 1); }
+function prevSlide() { showSlide(currentSlide - 1); }
+function goToSlide(i) { showSlide(i); }
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowLeft') prevSlide();
+  if (e.key === 'ArrowRight') nextSlide();
+});
+
+showSlide(0);
+</script>
+
+</body>
+</html>
