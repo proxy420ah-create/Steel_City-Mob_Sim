@@ -1,8 +1,9 @@
 # Steel City: Mob Sim
 
-**Version**: 0.0.1-pre-production
+**Version**: 0.1.0-alpha
 **Created**: August 2, 2026
-**Status**: 📐 DESIGN & CONCEPTUALIZATION
+**Last Updated**: August 4, 2026
+**Status**: � ALPHA — Vertical Slice Playable
 
 ---
 
@@ -64,33 +65,47 @@ storylines.
 ```
 SteelCityMobSim/
 ├── README.md                  — This file
-├── DOCUMENTATION_INDEX.md     — Central doc hub (READ FIRST)
+├── DOCUMENTATION_INDEX.md     — Python prototype doc hub
 ├── RECENT_CHANGES.md          — Change log
 ├── .gitignore
-├── docs/
+├── Assets/                    — Unity project (Unity 6, URP)
+│   ├── Resources/Shaders/     — MobSimVoxelRaymarch.compute
+│   ├── Scripts/
+│   │   ├── Sim/               — GameEngine, City, NPC, CrimeSystem, EconomySystem, RivalAI
+│   │   ├── UI/                — CityMap3D, GameUIController, VoxelChunkManager, VoxelSun
+│   │   └── GameBootstrap.cs   — MonoBehaviour entry point
+│   ├── StreamingAssets/       — city_layout.json, voxel_buildings/*.stasset
+│   ├── Data/                  — Source JSON (constants, archetypes, crimes, weapons)
+│   └── docs/                  — Unity-side documentation index
+├── VoxelAssetStudio/          — Python voxel editor + asset generators
+│   ├── procedural_mob_buildings.py
+│   ├── generate_city_assets.py
+│   ├── mob_materials.py
+│   └── stasset_io.py
+├── docs/                      — Python prototype design docs
 │   ├── core/                  — Design philosophy, source analysis
 │   ├── systems/               — System design documents
 │   └── data/                  — Data schema and reference docs
-├── data/                      — Game data files (JSON/TOML, moddable)
-├── src/                       — Game source code
-├── scripts/                   — Utility scripts (codegen, converters)
-└── assets/                    — Art, audio, UI assets
+├── data/                      — Game data files (JSON, moddable)
+├── src/                       — Python simulation prototype
+├── scripts/                   — Utility scripts
+└── tests/                     — Python prototype tests
 ```
 
 ---
 
 ## Technology Stack
 
-**TBD** — To be decided during prototyping phase.
+- **Engine**: Unity 6 (6000.3.18f1) with Universal Render Pipeline (URP)
+- **Rendering**: Custom GPU voxel raymarching compute shader (`MobSimVoxelRaymarch.compute`)
+- **Lighting**: Custom half-Lambert + fill + ambient + camera light model with soft shadows
+- **Asset Generation**: Python (VoxelAssetStudio — PyQt6 + OpenGL)
+- **Simulation**: C# (ported from Python prototype, runs in Unity)
+- **Data**: JSON files (constants, archetypes, crimes, weapons, businesses)
 
-Candidates:
-- **Python + Pygame/SDL2** — Fast prototyping, data-driven friendly
-- **Godot Engine** — Open source, good 2D, data-driven, GDScript
-- **Custom engine (C++)** — Maximum control, maximum effort
-
-The original game was built in C++ with isometric 2D graphics. A modern
-successor should match the original's visual style (isometric city view)
-with cleaner UI and higher resolution, not chase photorealism.
+The original game was built in C++ with isometric 2D graphics. This project
+uses 3D voxel raymarching for a modern visual style while preserving the
+original's strategic gameplay loop.
 
 ---
 

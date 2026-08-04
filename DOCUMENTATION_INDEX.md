@@ -2,8 +2,9 @@
 
 **Purpose**: Central hub for all project documentation — helps coding agents find information fast and efficiently.
 
-**Last Updated**: August 2, 2026
+**Last Updated**: August 4, 2026
 **Project**: Steel City: Mob Sim — Organized Crime Simulation
+**Status**: 🔄 ALPHA — Vertical Slice Playable (Unity 6)
 
 ---
 
@@ -11,10 +12,13 @@
 
 | Category | Documents | Status |
 |----------|-----------|--------|
-| **Core Design** | 2 docs | 📐 In Progress |
-| **Systems Design** | 8 docs | 📐 In Progress |
-| **Data Reference** | 1 doc | 📐 In Progress |
+| **Core Design** | 2 docs | ✅ Complete |
+| **Systems Design** | 8 docs | ✅ Complete |
+| **Data Reference** | 1 doc | ✅ Complete |
 | **Source Analysis** | 1 doc | ✅ Complete |
+| **Unity Project** | 12 docs | ✅ Complete |
+| **VoxelAssetStudio** | 20+ docs | ✅ Complete |
+| **Vertical Slice** | 1 doc | ✅ Complete |
 
 ---
 
@@ -136,3 +140,24 @@
 - **Gangsters Data Codex**: `gangsters_decoded/index.html` — Visual HTML viewer of all decoded game data
 - **Decode Scripts**: `scripts/crack_xtx.py`, `scripts/decode_all_xtx.py` — Tools used to decode original game files
 - **Codex Generator**: `scripts/generate_codex.py` — Generates the HTML codex from decoded data
+
+---
+
+## 🎮 Unity Project Documentation
+
+All Unity-side documentation lives in `Assets/docs/`. See `Assets/docs/DOCUMENTATION_INDEX.md` for the full index.
+
+### Key Unity Docs
+- **`Assets/docs/GAME_DESIGN_SKELETON.md`** — Core game design (mechanics, phases, systems, data schema, dev sequence)
+- **`Assets/docs/VOXEL_LIGHTING_AND_SHADOWS.md`** — Raymarch lighting pipeline (hybrid normals, shadow debug, lighting toggles)
+- **`Assets/docs/VOXEL_BUILDING_METHODOLOGY.md`** — Voxel building generation pipeline
+- **`Assets/docs/MOB_SIM_SCALE_STANDARD.md`** — Scale system (voxel sizes, door sizes, reference objects)
+- **`Assets/docs/PORTING_NOTES.md`** — Python → C# porting gotchas and verification
+
+### VoxelAssetStudio Roadmaps
+- **`VoxelAssetStudio/IMPROVEMENT_ROADMAP.md`** — V2.0 improvement plan (undo/redo, layers, selection tools)
+- **`VoxelAssetStudio/PHASE2_IMPLEMENTATION_PLAN.md`** — Skeleton rigging system plan
+- **`VoxelAssetStudio/INTERACTIVE_JOINTS_ROADMAP.md`** — Interactive joint manipulation
+
+### Vertical Slice
+- **`docs/VERTICAL_SLICE_DESIGN.md`** — End-to-end test design (9 blocks, 2 factions, 5-10 weeks)

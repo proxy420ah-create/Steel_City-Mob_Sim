@@ -611,7 +611,7 @@ OnRunWeek()
 ### 13.1 Current
 
 ```
-Steel_City-Mob_Sim/
+SteelCityMobSim/                     # Repo root = Unity project root
 ├── Assets/
 │   ├── Data/                      # Source JSON (reference)
 │   │   ├── city_template.json
@@ -620,99 +620,101 @@ Steel_City-Mob_Sim/
 │   │   ├── archetypes.json
 │   │   ├── crimes.json
 │   │   └── weapons.json
-│   ├── StreamingAssets/           # Runtime JSON (loaded by DataLoader)
-│   │   └── (same files as Data/)
+│   ├── Resources/Shaders/        # Compute shader
+│   │   └── MobSimVoxelRaymarch.compute
+│   ├── StreamingAssets/           # Runtime JSON + voxel assets
+│   │   ├── city_layout.json
+│   │   ├── city_template.json
+│   │   └── voxel_buildings/*.stasset
 │   ├── Scripts/
+│   │   ├── GameBootstrap.cs       # MonoBehaviour entry point
 │   │   ├── Sim/                   # Game logic
 │   │   │   ├── GameEngine.cs
-│   │   │   ├── City.cs            # Block, Business, CityGen
-│   │   │   ├── NPC.cs             # Hood, NPC, CharacterGen
+│   │   │   ├── City.cs
+│   │   │   ├── NPC.cs
+│   │   │   ├── Hood.cs
 │   │   │   ├── CrimeSystem.cs
 │   │   │   ├── EconomySystem.cs
 │   │   │   ├── RivalAI.cs
 │   │   │   ├── EventStream.cs
-│   │   │   ├── DataLoader.cs
-│   │   │   ├── DataModels.cs
-│   │   │   └── JSONParser.cs
-│   │   ├── UI/                    # Runtime UI
-│   │   │   ├── GameUIController.cs
-│   │   │   └── CityMap3D.cs
-│   │   └── Editor/                # Editor tools
-│   │       └── GameUIAutoBuilder.cs
-│   └── docs/                      # Documentation
-│       ├── UI_TABBED_LAYOUT.md
-│       ├── UI_LAYOUT_GOTCHAS.md
-│       ├── UI_SETUP_GUIDE.md
-│       ├── PORTING_NOTES.md
-│       └── GAME_DESIGN_SKELETON.md  (this file)
+│   │   │   ├── StAssetReader.cs
+│   │   │   └── VoxelBuildingMeshifier.cs
+│   │   ├── UI/                    # Runtime UI + rendering
+│   │   │   ├── CityMap3D.cs        # Camera, raymarch proxy, city loading
+│   │   │   ├── GameUIController.cs # Tabbed UI, debug controls
+│   │   │   ├── VoxelChunkManager.cs # Compute shader dispatch
+│   │   │   ├── VoxelSun.cs         # Day/night, lighting presets
+│   │   │   ├── VoxelRenderBridge.cs
+│   │   │   └── VoxelTerrainBuilder.cs
+│   │   └── Editor/
+│   └── docs/                      # Unity-side documentation
+├── VoxelAssetStudio/              # Python voxel editor + generators
+│   ├── procedural_mob_buildings.py
+│   ├── generate_city_assets.py
+│   ├── mob_materials.py
+│   └── stasset_io.py
+├── docs/                          # Python prototype design docs
+├── src/                           # Python simulation prototype
+└── data/                          # Game data files (JSON)
 ```
 
 ### 13.2 Phase 1 Target (additions)
 
-```
-Steel_City-Mob_Sim/
-├── Assets/
-│   ├── StreamingAssets/
-│   │   └── city/                   # NEW — generated city assets
-│   │       ├── city_layout.json
-│   │       ├── buildings/
-│   │       │   ├── restaurant_01.stasset
-│   │       │   ├── speakeasy_01.stasset
-│   │       │   ├── casino_01.stasset
-│   │       │   └── ... (per business type)
-│   │       └── tiles/
-│   │           ├── road_straight.stasset
-│   │           ├── road_corner.stasset
-│   │           └── sidewalk.stasset
-│   ├── Scripts/
-│   │   ├── Sim/
-│   │   │   └── StAssetReader.cs    # NEW — reads .stasset at runtime
-│   │   └── UI/
-│   │       └── CityMap3D.cs        # MODIFIED — loads buildings from .stasset
-│   └── docs/
-│       └── GAME_DESIGN_SKELETON.md
+The current vertical slice already has:
+- StAssetReader.cs reading .stasset files at runtime ✅
+- CityMap3D.cs loading buildings from .stasset via raymarch ✅
+- VoxelAssetStudio with procedural_mob_buildings.py ✅
+- generate_city_assets.py generating city_layout.json + .stasset files ✅
 
-VoxelAssetStudio/
-├── procedural_mob_buildings.py     # NEW — 1920s building generators
-├── procedural_city_gen.py          # NEW — city layout generator
-├── mob_materials.py                # NEW — 1920s material palette
-└── (existing files unchanged)
-```
+Phase 1 additions needed:
+- More building generators (restaurant, hotel, nightclub, etc.)
+- Full 3×3 business sub-grid per block (currently 1-2 per block)
+- Road tile .stasset files (currently roads are generated in-code)
+- Animated Run Week coroutine (currently instant)
 
 ---
 
 ## 14. Development Sequence
 
-### Step 1: Asset Pipeline
-1. Create `mob_materials.py` with 1920s material palette
-2. Write `procedural_mob_buildings.py` with generators for each business type
-3. Write `procedural_city_gen.py` to generate city layout + export .stasset files
-4. Generate test buildings, verify .stasset files load in Unity
+### Step 1: Asset Pipeline ✅ COMPLETE
+1. ✅ Create `mob_materials.py` with 1920s material palette
+2. ✅ Write `procedural_mob_buildings.py` with generators for each business type
+3. ✅ Write `generate_city_assets.py` to generate city layout + export .stasset files
+4. ✅ Generate test buildings, verify .stasset files load in Unity
 
-### Step 2: City Rendering
-1. Write `StAssetReader.cs` to load .stasset files at runtime
-2. Modify `CityMap3D.cs` to load and render individual buildings
-3. Add per-business click detection (raycast on building colliders)
-4. Add visual indicators (owner color, selection highlight)
+### Step 2: City Rendering ✅ COMPLETE
+1. ✅ Write `StAssetReader.cs` to load .stasset files at runtime
+2. ✅ `CityMap3D.cs` loads and renders buildings via GPU raymarch compute shader
+3. ✅ Per-business click detection (raycast on colliders)
+4. ⚠️ Visual indicators (owner color tint, selection highlight) — partially implemented
 
-### Step 3: Camera Controls
-1. Add pan (drag) to camera
-2. Add zoom (scroll wheel)
-3. Add focus (double-click to center on business)
-4. Clamp camera to city bounds
+### Step 3: Camera Controls ✅ COMPLETE
+1. ✅ Pan (RMB drag) to camera
+2. ✅ Zoom (scroll wheel)
+3. ✅ Focus (LMB click to center on business)
+4. ✅ Camera clamping to city bounds
+5. ✅ Smooth rotator (LerpAngle interpolation)
 
-### Step 4: UI Polish
-1. Update Block tab to show all 9 businesses in selected block
-2. Update Orders tab to select business within block
-3. Update Hoods tab to show current assignment
-4. Add business selection state to GameUIController
+### Step 4: UI Polish 🔄 IN PROGRESS
+1. ⚠️ Block tab shows block info but not all 9 businesses in sub-grid
+2. ⚠️ Orders tab needs business-within-block selection
+3. ⚠️ Hoods tab needs current assignment display
+4. ⚠️ Business selection state needs wiring to GameUIController
+5. ✅ Lighting/shadow debug controls (toggles + sliders) added
 
-### Step 5: Animated Run Week
-1. Refactor `OnRunWeek()` into coroutine
-2. Implement step-by-step playback (extortion → police → rival → economy)
-3. Add camera auto-pan to events
-4. Add animation primitives (floating $, hood icons, territory color changes)
-5. Add speed controls (normal/fast/skip)
+### Step 5: Animated Run Week ⚠️ PENDING
+1. ⚠️ Refactor `OnRunWeek()` into coroutine (currently instant)
+2. ⚠️ Implement step-by-step playback (extortion → police → rival → economy)
+3. ⚠️ Add camera auto-pan to events
+4. ⚠️ Add animation primitives (floating $, hood icons, territory color changes)
+5. ⚠️ Add speed controls (normal/fast/skip)
+
+### Step 6: Phase 1 Content Expansion ⚠️ PENDING
+1. ⚠️ More building generators (restaurant, hotel, nightclub, pharmacy, etc.)
+2. ⚠️ Full 3×3 business sub-grid per block (currently 1-2 per block)
+3. ⚠️ Road tile .stasset files
+4. ⚠️ Character models (hoods, NPCs walking the streets)
+5. ⚠️ Win/loss conditions
 
 ---
 

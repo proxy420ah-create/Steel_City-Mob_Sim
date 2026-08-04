@@ -1,7 +1,7 @@
 # 📚 Steel City: Mob Sim — Documentation Index
 
 **Purpose**: Central hub for all Mob Sim project documentation
-**Last Updated**: August 3, 2026
+**Last Updated**: August 4, 2026
 **Project**: Steel City — Mob Sim (Unity)
 
 ---
@@ -14,6 +14,7 @@
 | **UI System** | 3 docs | ✅ Complete |
 | **Voxel Buildings** | 3 docs | ✅ Complete |
 | **Voxel Rendering** | 4 docs | ✅ Complete |
+| **Lighting Debug** | 1 doc | ✅ Complete |
 | **Scale Standard** | 1 doc | ✅ Complete |
 | **Porting Notes** | 1 doc | ✅ Complete |
 
@@ -81,10 +82,13 @@
 - **`VOXEL_LIGHTING_AND_SHADOWS.md`** — Voxel raymarch lighting pipeline
   - Shader uniforms and lighting model
   - Smooth normals (gradient-based) to eliminate face-normal jitter
+  - **Hybrid normals (Option B)**: DDA face normal for top/bottom surfaces (uniform flat ground), SmoothNormal blend for side faces (soft wall shading)
   - Half-Lambert wrap lighting for soft transitions
   - Soft shadow penumbra (perpendicular distance-based)
   - Self-shadowing fix (normal-offset origin + skip steps)
   - Shadow ambient composition
+  - **Debug controls**: shadow enable toggle, normal nudge, light nudge, skip steps, max steps
+  - **Lighting component toggles**: sun light, ambient, fill light, camera light (independently toggleable)
 
 - **`VOXEL_BLEED_THROUGH_FIX.md`** — Multi-chunk depth buffer fix
   - Root cause: `tMax = sideDist` (volume-relative) instead of `tStart + sideDist` (camera-relative)
@@ -195,12 +199,17 @@
 - [x] GPU raymarch compute shader pipeline
 - [x] Dynamic lighting via VoxelSun (day/night cycle)
 - [x] Smooth normals (gradient-based) for consistent shading
+- [x] **Hybrid normals (Option B)** — DDA face normal for top/bottom, SmoothNormal blend for sides
 - [x] Half-Lambert wrap lighting
 - [x] Soft shadow penumbra
 - [x] Self-shadowing fix (checkerboard on flat surfaces)
 - [x] Multi-chunk depth buffer fix (bleed-through)
 - [x] Mouse camera controls (LMB/MMB/RMB/wheel)
 - [x] Smooth camera rotator
+- [x] **Shadow debug controls** — enable toggle, normal nudge, light nudge, skip/max steps
+- [x] **Lighting component toggles** — sun, ambient, fill, camera light independently toggleable
+- [x] **Raymarch-only rendering** — all mesh-based rendering removed, raymarch always active
+- [x] **Rubble decorations** — scattered stone clusters on empty land plots
 
 ---
 
@@ -242,16 +251,19 @@
 
 ### Key File Locations
 ```
-Unity scripts:  Steel_City-Mob_Sim/Assets/Scripts/
-  UI:           Assets/Scripts/UI/CityMap3D.cs, GameUIController.cs
-  Sim:          Assets/Scripts/Sim/VoxelBuildingMeshifier.cs, StAssetReader.cs
-Voxel studio:   SteelTide/VoxelAssetStudio/
+Unity scripts:  Assets/Scripts/
+  UI:           Assets/Scripts/UI/CityMap3D.cs, GameUIController.cs, VoxelChunkManager.cs, VoxelSun.cs
+  Sim:          Assets/Scripts/Sim/StAssetReader.cs, VoxelBuildingMeshifier.cs, GameEngine.cs
+  Bootstrap:    Assets/Scripts/GameBootstrap.cs
+Compute shader: Assets/Resources/Shaders/MobSimVoxelRaymarch.compute
+Voxel studio:   VoxelAssetStudio/
   Buildings:    procedural_mob_buildings.py
   Characters:   procedural_mob_characters.py
   Materials:    mob_materials.py
   I/O:          stasset_io.py
-City layout:    Steel_City-Mob_Sim/Assets/StreamingAssets/city_layout.json
-Voxel assets:   Steel_City-Mob_Sim/Assets/StreamingAssets/voxel_buildings/
+  City gen:     generate_city_assets.py
+City layout:    Assets/StreamingAssets/city_layout.json
+Voxel assets:   Assets/StreamingAssets/voxel_buildings/
 ```
 
 ### Key Values
@@ -281,6 +293,6 @@ Voxel assets:   Steel_City-Mob_Sim/Assets/StreamingAssets/voxel_buildings/
 
 ---
 
-**Last Updated**: August 3, 2026
-**Version**: 1.0.0
+**Last Updated**: August 4, 2026
+**Version**: 1.1.0
 **Maintainer**: Development Team
