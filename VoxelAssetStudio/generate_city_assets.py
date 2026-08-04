@@ -27,11 +27,8 @@ def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     voxel_studio_dir = script_dir  # This script lives in VoxelAssetStudio/
 
-    # Path to the Steel City Mob Sim Unity project
-    steel_city_dir = os.path.join(
-        os.path.dirname(voxel_studio_dir),
-        "UnityProject"
-    )
+    # Path to the Steel City Mob Sim Unity project (repo root)
+    steel_city_dir = os.path.dirname(voxel_studio_dir)
     streaming_assets = os.path.join(steel_city_dir, "Assets", "StreamingAssets")
     city_template_path = os.path.join(streaming_assets, "city_template.json")
     output_dir = os.path.join(streaming_assets, "voxel_buildings")
