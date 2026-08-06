@@ -1,7 +1,8 @@
 # Intelligence System — Steel City: Mob Sim
 
 **Created**: August 2, 2026
-**Status**: 📐 In Progress
+**Updated**: August 6, 2026
+**Status**: 📐 In Progress (refined with playtesting insights)
 
 ---
 
@@ -48,6 +49,26 @@ When a crime generates a squealer:
 | Informed | "Someone talked to the cops about the raid." | No, but you know it happened |
 | Connected | "The baker on Baker St. squealed. He's in apartment 3C." | Yes |
 | Networked | "The baker is talking to police. Detective coming tomorrow." | Yes + time window |
+
+### Information Infrastructure Requirements (Playtesting Insight)
+
+The original game gates squealer identification behind **recruiting a Lawyer**:
+
+| Infrastructure | What Player Sees |
+|----------------|-----------------|
+| No Lawyer | Blind to squealers. Only indirect signals: police activity, arrest risk spikes, Bomb order target highlighting (by elimination) |
+| Lawyer recruited | Squealers report — direct list with map locations. Also: Crimes report, Legal Proceedings, Elections |
+| DA bribed (active trial only) | Witness/juror lists for trial defense (NOT squealer identification) |
+
+**Conditional reports**: The Squealers report only appears when someone has actually squealed — same pattern as Elections (only during elections) and Legal Proceedings (only when hoods arrested). No squealers = no report button.
+
+**Indirect detection without Lawyer**:
+- Bomb order target highlighting includes squealer-occupied buildings (by elimination — not labeled as squealers)
+- Clipboard → Business Owners has a squealer sub-filter (no map highlight)
+- Sudden "risk of arrest" spike on Crimes report → someone talked about that crime
+- Increased police patrol in an area → someone squealed there
+
+The game gives you **consequences before causes**. You see the police response and work backward. This is intentional information asymmetry, not a UI limitation.
 
 4. **Player response options** (if identity known):
    - **Intimidate the block** — raise fear, lower future squeal. Doesn't stop current investigation.

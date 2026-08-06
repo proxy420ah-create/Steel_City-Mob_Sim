@@ -199,21 +199,22 @@ void CSRaymarch(uint3 id : SV_DispatchThreadID)
     if (_IsOrthographic)
     {
         // Orthographic: rays are parallel, origin varies per pixel on near plane
+        // Unity projection uses -Z forward in view space, so near plane = -1 in NDC
         float4 clipNear = float4(ndc.x, ndc.y, -1.0, 1.0);
         float4 viewNear = mul(_InvProjection, clipNear);
         viewNear /= viewNear.w;
         float3 worldNear = mul(_CameraToWorld, float4(viewNear.xyz, 1.0)).xyz;
 
         ro = worldNear;
-        // Direction = camera forward (same for all pixels)
-        // Direction = camera forward (same for all pixels). Using +Z here restores previous behavior.
-        rd = normalize(mul((float3x3)_CameraToWorld, float3(0, 0, 1)));
+        // Direction = camera forward in world space (view space -Z, transformed by cameraToWorldMatrix)
+        rd = normalize(mul((float3x3)_CameraToWorld, float3(0, 0, -1)));
     }
     else
     {
         // Perspective: origin = camera position, direction varies per pixel
-        float4 clipNear = float4(ndc.x, ndc.y, 0.0, 1.0);
-        float4 clipFar  = float4(ndc.x, ndc.y, 1.0, 1.0);
+        // Unity projection: near plane at NDC z=-1, far at z=+1, view space -Z forward
+        float4 clipNear = float4(ndc.x, ndc.y, -1.0, 1.0);
+        float4 clipFar  = float4(ndc.x, ndc.y,  1.0, 1.0);
 
         float4 viewNear = mul(_InvProjection, clipNear);
         float4 viewFar  = mul(_InvProjection, clipFar);

@@ -1,7 +1,8 @@
 # Crime & Squeal — Steel City: Mob Sim
 
 **Created**: August 2, 2026
-**Status**: 📐 In Progress
+**Updated**: August 6, 2026
+**Status**: 📐 In Progress (refined with playtesting insights)
 
 ---
 
@@ -119,6 +120,45 @@ High Fear + Low Hostility = complies AND stays quiet
 - Corrupt cop suppresses any squeal that does occur
 - Result: compliant block, minimal heat, steady income
 
+### The Fear Trap (Playtesting Insight)
+
+**High fear INCREASES squealing.** Terrified people talk more — they go to police seeking protection FROM you. Fear helps with **compliance** (paying protection) but hurts with **silence** (not squealing).
+
+The sweet spot is NOT maximum fear:
+- High enough fear → they pay protection
+- Low enough hostility → they don't resist or hate you
+- Corrupt cop on payroll → catches any squeal that slips through despite fear
+
+This creates a natural tension — you can't just max out fear and forget about it. Over-intimidating is as dangerous as under-intimidating.
+
+### Information Tiers for Squealer Identification (Playtesting Insight)
+
+The original game intentionally gates squealer knowledge:
+
+| Infrastructure | What Player Sees |
+|----------------|-----------------|
+| Nothing | Blind. See consequences (arrests, patrols) but not causes. Deduction required. |
+| Lawyer recruited | Squealers report — direct list with map locations |
+| DA bribed (active trial) | Witness/juror lists for trial defense |
+
+Without a Lawyer, squealers can only be detected indirectly:
+- Bomb order target highlighting includes squealer-occupied buildings (by elimination)
+- Clipboard → Business Owners has a squealer sub-filter (no map highlight)
+- Sudden "risk of arrest" spike on Crimes report → someone talked
+- Increased police patrol in an area → someone squealed there
+
+The Squealers report only appears when someone has actually squealed (conditional, like Elections report).
+
+### Legal System Chain (Playtesting Insight)
+
+Post-arrest pipeline:
+1. Hood arrested (walking hoods vulnerable, driving hoods immune)
+2. Legal Proceedings report appears (requires Lawyer)
+3. Lawyer auto-defends in court
+4. Player can influence: bribe Judge (case dismissed), bribe DA (witness/juror lists), intimidate witnesses ("forget"), intimidate jurors ("not guilty")
+
+See `PLAYTESTING_INSIGHTS.md` for full details.
+
 ### What We Preserve
 
 - Crime table structure (suspicion, sentence, investigation per crime)
@@ -132,6 +172,9 @@ High Fear + Low Hostility = complies AND stays quiet
 - **Make investigations visible**: Show lead count, threshold, target hoods, estimated time to warrant
 - **Make NPC state visible**: Show fear/hostility/squeal per NPC so player can make informed decisions
 - **Cascading consequences**: A raid that uncovers illegal books → tax evasion charge → audit → money laundering uncovered. One thing leads to another.
+- **Fear diminishing returns**: High fear should increase squeal willingness, not decrease it. This prevents the "max fear = safe" exploit.
+- **Conditional reports**: Squealer report only appears when squealers exist (like original game's Elections/Legal Proceedings pattern)
+- **Indirect detection**: Preserve deduction-based squealer identification for players without Lawyer infrastructure
 
 ---
 

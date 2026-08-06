@@ -1,0 +1,71 @@
+================================================================================
+MOVEMENT SETUP TRACE - Finding the real walk/drive decision
+================================================================================
+
+################################################################################
+# PART 1: RESOLVE AND DECOMPILE thunk_FUN_0048a750
+################################################################################
+
+Bytes at 0048a750: 53 33 D2 8A 54 24 0C 56 55 33 DB 8A 5C 24 10 8B 
+Direct function: FUN_0048a750
+Function: FUN_0048a750 at 0048a750
+Size: 90 bytes
+
+
+uint __thiscall FUN_0048a750(int param_1,byte param_2,byte param_3)
+
+{
+  ushort uVar1;
+  short *psVar2;
+  uint uVar3;
+  uint uVar4;
+  int iVar5;
+  
+  uVar4 = (uint)param_3;
+  uVar1 = *(ushort *)(param_1 + 4 + (uint)param_2 * 0x66 + uVar4 * 2);
+  uVar3 = (uint)uVar1;
+  if (uVar1 == 0xffff) {
+    iVar5 = 0;
+    psVar2 = (short *)(param_1 + 4 + uVar4 * 2);
+    do {
+      if (*psVar2 != -1) {
+        iVar5 = iVar5 * 0x33 + uVar4;
+        return CONCAT31((int3)((uint)iVar5 >> 8),*(undefined1 *)(param_1 + 4 + iVar5 * 2));
+      }
+      psVar2 = psVar2 + 0x33;
+      iVar5 = iVar5 + 1;
+    } while (iVar5 < 0xd);
+    uVar3 = (uint)psVar2 & 0xffffff00;
+  }
+  return uVar3;
+}
+
+
+
+################################################################################
+# PART 2: SEARCH FOR VTABLE OFFSET 0x6c AND 0x98 REFERENCES IN CODE
+################################################################################
+
+--- Searching for call [reg+0x6c] (walk vtable) ---
+
+Found 0 walk calls, 0 drive calls
+
+################################################################################
+# PART 3: SEARCH FOR VTABLE[0x80] CALLS (target selector)
+################################################################################
+
+
+Found 0 vtable[0x80] calls
+
+################################################################################
+# PART 4: SEARCH FOR VTABLE[0xa0] CALLS (vehicle/tail AI)
+################################################################################
+
+
+Found 0 vtable[0xa0] calls
+
+################################################################################
+# PART 5: DECOMPILE FUNCTIONS CALLING WALK/DRIVE VTABLE ENTRIES
+################################################################################
+
+=== END ===

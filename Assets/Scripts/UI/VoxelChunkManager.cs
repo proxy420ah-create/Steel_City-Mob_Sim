@@ -47,6 +47,7 @@ namespace SteelCity.Sim
             public ComputeBuffer tintBuffer;     // float4[] per-material tint (per-chunk)
             public VoxelInt3 dims;               // voxel dimensions
             public Vector3 worldOffset;          // cached world-space position
+            public float voxelSize;              // per-chunk voxel size (buildings=0.1, characters=0.015)
             public bool active;
         }
 
@@ -286,6 +287,15 @@ namespace SteelCity.Sim
         /// </summary>
         public void LoadChunk(string name, string stassetPath, Vector3 worldPos)
         {
+            LoadChunk(name, stassetPath, worldPos, voxelSize);
+        }
+
+        /// <summary>
+        /// Load a .stasset file as a voxel chunk with a custom voxel size.
+        /// Used for character models which use a smaller voxel size than buildings.
+        /// </summary>
+        public void LoadChunk(string name, string stassetPath, Vector3 worldPos, float customVoxelSize)
+        {
             if (!File.Exists(stassetPath))
             {
                 Debug.LogWarning($"[VoxelChunkManager] Chunk file not found: {stassetPath}");
@@ -321,7 +331,7 @@ namespace SteelCity.Sim
             var hostObj = new GameObject($"VoxelChunk_{name}");
             hostObj.transform.SetParent(transform, false);
             hostObj.transform.position = worldPos;
-            hostObj.AddComponent<VoxelChunkGizmo>().Initialize(w, h, d, voxelSize);
+            hostObj.AddComponent<VoxelChunkGizmo>().Initialize(w, h, d, customVoxelSize);
 
             var chunk = new VoxelChunk
             {
@@ -329,6 +339,7 @@ namespace SteelCity.Sim
                 hostObject = hostObj,
                 dims = new VoxelInt3(w, h, d),
                 worldOffset = worldPos,
+                voxelSize = customVoxelSize,
                 active = true
             };
 
@@ -340,7 +351,7 @@ namespace SteelCity.Sim
             chunks.Add(chunk);
             chunkLookup[name] = chunk;
 
-            Debug.Log($"[VoxelChunkManager] Loaded chunk '{name}': {w}x{h}x{d} voxels at {worldPos} (GameObject: {hostObj.name})");
+            Debug.Log($"[VoxelChunkManager] Loaded chunk '{name}': {w}x{h}x{d} voxels at {worldPos} (voxelSize={customVoxelSize})");
         }
 
         /// <summary>
@@ -350,6 +361,15 @@ namespace SteelCity.Sim
         /// Returns the building's world-space footprint (center + size).
         /// </summary>
         public BuildingFootprint LoadChunkCentered(string name, string filepath, Vector3 centerPos)
+        {
+            return LoadChunkCentered(name, filepath, centerPos, voxelSize);
+        }
+
+        /// <summary>
+        /// Load a building chunk centered on the given world position with a custom voxel size.
+        /// Used for character models which use a smaller voxel size than buildings.
+        /// </summary>
+        public BuildingFootprint LoadChunkCentered(string name, string filepath, Vector3 centerPos, float customVoxelSize)
         {
             var voxels = StAssetReader.LoadVoxels(filepath);
             if (voxels == null) return null;
@@ -368,14 +388,14 @@ namespace SteelCity.Sim
                         packedData[idx++] = (uint)voxels[x, y, z];
 
             // Offset so the CENTER of the voxel volume sits at centerPos
-            Vector3 cornerPos = centerPos - new Vector3(w * voxelSize * 0.5f, 0f, d * voxelSize * 0.5f);
+            Vector3 cornerPos = centerPos - new Vector3(w * customVoxelSize * 0.5f, 0f, d * customVoxelSize * 0.5f);
 
-            LoadChunkFromData(name, packedData, w, h, d, cornerPos);
+            LoadChunkFromData(name, packedData, w, h, d, cornerPos, customVoxelSize);
 
             return new BuildingFootprint
             {
                 center = centerPos,
-                size = new Vector3(w * voxelSize, h * voxelSize, d * voxelSize),
+                size = new Vector3(w * customVoxelSize, h * customVoxelSize, d * customVoxelSize),
                 dims = new VoxelInt3(w, h, d)
             };
         }
@@ -396,6 +416,14 @@ namespace SteelCity.Sim
         /// </summary>
         public void LoadChunkFromData(string name, uint[] packedData, int w, int h, int d, Vector3 worldPos)
         {
+            LoadChunkFromData(name, packedData, w, h, d, worldPos, voxelSize);
+        }
+
+        /// <summary>
+        /// Load a chunk from raw uint[] voxel data with a custom voxel size.
+        /// </summary>
+        public void LoadChunkFromData(string name, uint[] packedData, int w, int h, int d, Vector3 worldPos, float customVoxelSize)
+        {
             RemoveChunk(name);
 
             int voxelCount = w * h * d;
@@ -408,7 +436,7 @@ namespace SteelCity.Sim
             var hostObj = new GameObject($"VoxelChunk_{name}");
             hostObj.transform.SetParent(transform, false);
             hostObj.transform.position = worldPos;
-            hostObj.AddComponent<VoxelChunkGizmo>().Initialize(w, h, d, voxelSize);
+            hostObj.AddComponent<VoxelChunkGizmo>().Initialize(w, h, d, customVoxelSize);
 
             var chunk = new VoxelChunk
             {
@@ -416,6 +444,7 @@ namespace SteelCity.Sim
                 hostObject = hostObj,
                 dims = new VoxelInt3(w, h, d),
                 worldOffset = worldPos,
+                voxelSize = customVoxelSize,
                 active = true
             };
 
@@ -427,7 +456,7 @@ namespace SteelCity.Sim
             chunks.Add(chunk);
             chunkLookup[name] = chunk;
 
-            Debug.Log($"[VoxelChunkManager] Loaded procedural chunk '{name}': {w}x{h}x{d} at {worldPos}");
+            Debug.Log($"[VoxelChunkManager] Loaded procedural chunk '{name}': {w}x{h}x{d} at {worldPos} (voxelSize={customVoxelSize})");
         }
 
         /// <summary>
@@ -456,6 +485,54 @@ namespace SteelCity.Sim
                 if (chunk.hostObject != null)
                     chunk.hostObject.transform.position = worldPos;
             }
+        }
+
+        /// <summary>
+        /// Register an externally-managed voxel volume for rendering.
+        /// The caller owns the ComputeBuffer and GameObject; VoxelChunkManager
+        /// just renders it each frame. Similar to SteelTide's VoxelRenderer.RegisterVolume.
+        /// </summary>
+        public void RegisterVolume(string name, GameObject host, ComputeBuffer buffer,
+            int dimsX, int dimsY, int dimsZ, float customVoxelSize)
+        {
+            RemoveChunk(name);
+
+            // Ensure shared buffers are initialized (in case RegisterVolume is called
+            // before Awake completes on this component)
+            if (sharedMaterialBuffer == null)
+            {
+                Debug.LogWarning("[VoxelChunkManager] RegisterVolume called before Awake — initializing shared buffers now");
+                CreateSharedMaterialBuffer();
+            }
+
+            var chunk = new VoxelChunk
+            {
+                name = name,
+                hostObject = host,
+                voxelBuffer = buffer,
+                materialBuffer = sharedMaterialBuffer,
+                tintBuffer = defaultTintBuffer,
+                dims = new VoxelInt3(dimsX, dimsY, dimsZ),
+                worldOffset = host.transform.position,
+                voxelSize = customVoxelSize,
+                active = true
+            };
+
+            chunks.Add(chunk);
+            chunkLookup[name] = chunk;
+
+            Debug.Log($"[VoxelChunkManager] Registered external volume '{name}': {dimsX}x{dimsY}x{dimsZ} at {host.transform.position} (voxelSize={customVoxelSize})");
+        }
+
+        /// <summary>
+        /// Unregister an externally-managed volume (does NOT release the buffer or destroy the GameObject).
+        /// </summary>
+        public void UnregisterVolume(string name)
+        {
+            if (!chunkLookup.TryGetValue(name, out var chunk)) return;
+            chunks.Remove(chunk);
+            chunkLookup.Remove(name);
+            Debug.Log($"[VoxelChunkManager] Unregistered external volume '{name}'");
         }
 
         /// <summary>
@@ -604,7 +681,6 @@ namespace SteelCity.Sim
 
             // Set per-dispatch constants
             raymarchShader.SetInt(propMaterialCount, MaxMaterials);
-            raymarchShader.SetFloat(propVoxelSize, voxelSize);
             raymarchShader.SetInt(propMaxSteps, maxSteps);
             raymarchShader.SetVector(propBackgroundColor, backgroundColor);
             raymarchShader.SetInt(propIsOrthographic, renderCamera.orthographic ? 1 : 0);
@@ -624,9 +700,9 @@ namespace SteelCity.Sim
             raymarchShader.SetInt(propCamLightEnabled, camLightEnabled);
             raymarchShader.SetInts(propScreenSize, new int[] { renderWidth, renderHeight });
 
-            // Camera matrices
+            // Camera matrices — use cameraToWorldMatrix (view space -Z forward) not TRS (transform +Z forward)
             var camTransform = renderCamera.transform;
-            var cameraToWorld = Matrix4x4.TRS(camTransform.position, camTransform.rotation, Vector3.one);
+            var cameraToWorld = renderCamera.cameraToWorldMatrix;
             var worldToCamera = cameraToWorld.inverse;
             var invProj = renderCamera.projectionMatrix.inverse;
 
@@ -651,18 +727,22 @@ namespace SteelCity.Sim
                     ? chunk.hostObject.transform.position
                     : chunk.worldOffset;
 
+                // Per-chunk voxel size (buildings=0.1, characters=0.015)
+                float chunkVoxelSize = chunk.voxelSize;
+
                 // Frustum cull: skip chunks behind camera or outside view
                 Vector3 chunkCenter = chunkWorldPos + new Vector3(
-                    chunk.dims.x * voxelSize * 0.5f,
-                    chunk.dims.y * voxelSize * 0.5f,
-                    chunk.dims.z * voxelSize * 0.5f);
+                    chunk.dims.x * chunkVoxelSize * 0.5f,
+                    chunk.dims.y * chunkVoxelSize * 0.5f,
+                    chunk.dims.z * chunkVoxelSize * 0.5f);
                 Vector3 toCenter = chunkCenter - camTransform.position;
-                if (Vector3.Dot(toCenter, camTransform.forward) < -chunk.dims.x * voxelSize)
+                if (Vector3.Dot(toCenter, camTransform.forward) < -chunk.dims.x * chunkVoxelSize)
                     continue; // Behind camera
 
                 // Set per-chunk parameters
                 raymarchShader.SetInts(propVolumeDims, new int[] { chunk.dims.x, chunk.dims.y, chunk.dims.z });
                 raymarchShader.SetVector(propVolumeOffset, chunkWorldPos);
+                raymarchShader.SetFloat(propVoxelSize, chunkVoxelSize);
                 raymarchShader.SetBuffer(kernelCSRaymarch, propVoxelData, chunk.voxelBuffer);
                 raymarchShader.SetBuffer(kernelCSRaymarch, propChunkTints, chunk.tintBuffer ?? defaultTintBuffer);
 
@@ -705,7 +785,7 @@ namespace SteelCity.Sim
             foreach (var chunk in chunks)
             {
                 if (chunk.voxelBuffer == null) continue;
-                var size = new Vector3(chunk.dims.x, chunk.dims.y, chunk.dims.z) * voxelSize;
+                var size = new Vector3(chunk.dims.x, chunk.dims.y, chunk.dims.z) * chunk.voxelSize;
                 var center = chunk.worldOffset + size * 0.5f;
                 Gizmos.color = new Color(0f, 1f, 0f, 0.3f);
                 Gizmos.DrawWireCube(center, size);

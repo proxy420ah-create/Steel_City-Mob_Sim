@@ -43,9 +43,11 @@ namespace SteelCity.Sim
                 out blocks, out businesses, out npcs, out police
             );
 
-            // Player gang
+            // Player gang — single hood: Vinny
             var player = new Gang { id = "player", name = "Moretti Family", money = 3000, isPlayer = true };
-            player.hoods = CharacterGen.GenerateStartingHoods("player", 3, data.archetypes);
+            player.hoods = CharacterGen.GenerateStartingHoods("player", 1, data.archetypes);
+            if (player.hoods.Count > 0)
+                player.hoods[0].name = "Vinny Moretti";
             gangs["player"] = player;
 
             // Assign player HQ
@@ -66,9 +68,9 @@ namespace SteelCity.Sim
                 }
             }
 
-            // Rival gang
+            // Rival gang — single hood for simplified test
             var rival = new Gang { id = "rival", name = "Falcone Syndicate", money = 3000 };
-            rival.hoods = CharacterGen.GenerateStartingHoods("rival", 3, data.archetypes);
+            rival.hoods = CharacterGen.GenerateStartingHoods("rival", 1, data.archetypes);
             gangs["rival"] = rival;
 
             // Assign rival HQ

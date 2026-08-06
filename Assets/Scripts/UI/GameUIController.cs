@@ -88,6 +88,13 @@ namespace SteelCity.Sim
         private string selectedBlockId;
         private bool cityEditorBuilt;
 
+        // --- Simulation (decoupled: SimulationManager produces events, EventPlayer renders) ---
+        private WaypointGraph waypointGraph;
+        private SimulationManager simManager;
+        private EventPlayer eventPlayer;
+        private FollowCamera followCam;
+        private TickHUD tickHUD;
+
         private readonly Dictionary<string, GameObject> hoodCards = new();
         private readonly List<(string text, Color color)> eventLogBuffer = new();
         private Dictionary<string, Button> orderButtons;
@@ -277,8 +284,8 @@ namespace SteelCity.Sim
 
         private void BuildCityEditorPanel(Transform parent)
         {
-            // Clear any existing children (old order buttons, etc.)
-            ClearChildren(parent);
+            // Don't clear existing children — the order button row (Extort, Collect, etc.)
+            // lives here too and must be preserved.
 
             // Scrollable container
             var scrollObj = new GameObject("CityEditorScroll");
@@ -291,6 +298,8 @@ namespace SteelCity.Sim
             scrollRT.anchorMax = Vector2.one;
             scrollRT.offsetMin = Vector2.zero;
             scrollRT.offsetMax = Vector2.zero;
+            var scrollLE = scrollObj.AddComponent<LayoutElement>();
+            scrollLE.flexibleHeight = 1;
 
             // Content container
             var contentObj = new GameObject("Content");
@@ -700,27 +709,230 @@ namespace SteelCity.Sim
         {
             if (phase != GamePhase.Planning) return;
 
+            if (engine.pendingOrders.Count == 0)
+            {
+                var hood = engine.gangs["player"].hoods[0];
+                string autoBlockId = null;
+                foreach (var (bid, blk) in engine.blocks)
+                {
+                    if (!blk.isPlayerHq) { autoBlockId = bid; break; }
+                }
+                if (autoBlockId != null)
+                {
+                    engine.AssignOrder(hood.id, autoBlockId, "stand", "player");
+                    AddEventLogEntry($"[AUTO] Auto-assigned {hood.name} to STAND at {engine.blocks[autoBlockId].name}", yellowColor);
+                }
+                else
+                {
+                    AddEventLogEntry("[ERROR] No target block found for auto-assign!", redColor);
+                    return;
+                }
+            }
+
+            Debug.Log($"[GameUIController] === PLANNING -> WORKING WEEK transition ===");
+            Debug.Log($"[GameUIController] Pending orders: {engine.pendingOrders.Count}");
+            Debug.Log($"[GameUIController] Player hoods: {engine.gangs["player"].hoods.Count} (name={engine.gangs["player"].hoods[0].name})");
+
             phase = GamePhase.Execution;
             if (phaseText != null) { phaseText.text = "EXECUTION"; phaseText.color = redColor; }
             if (runWeekButton != null) runWeekButton.interactable = false;
 
             AddEventLogEntry($"=== WEEK {engine.week} BEGIN ===", goldColor);
 
-            var stream = engine.RunWorkingWeek();
-            foreach (var ev in stream.events)
-                AddEventLogEntry(FormatEvent(ev), GetEventColor(ev.type, ev.data));
+            StartTickSimulation();
+        }
 
-            AddEventLogEntry($"=== WEEK {engine.week - 1} COMPLETE ===", goldColor);
+        private void StartTickSimulation()
+        {
+            // Build waypoint graph from city layout
+            if (waypointGraph == null)
+            {
+                waypointGraph = new WaypointGraph();
+                var layout = cityMap.CachedLayout;
+                if (layout == null)
+                {
+                    AddEventLogEntry("[ERROR] No city layout loaded!", redColor);
+                    EndExecution();
+                    return;
+                }
+                waypointGraph.GenerateFromLayout(
+                    layout,
+                    cityMap.Spacing,
+                    cityMap.GroundTile,
+                    cityMap.SidewalkW,
+                    cityMap.MapRoot.position);
+            }
 
+            // Get the first pending order (PoC: single hood)
+            var order = engine.pendingOrders[0];
+            var hood = engine.FindHood(order.hoodId);
+            var targetBlock = engine.blocks[order.blockId];
+
+            // Find start block (player HQ = barber shop = block_4)
+            string startBlockId = null;
+            foreach (var (bid, blk) in engine.blocks)
+            {
+                if (blk.isPlayerHq) { startBlockId = bid; break; }
+            }
+            if (startBlockId == null)
+            {
+                AddEventLogEntry("[ERROR] No player HQ found!", redColor);
+                EndExecution();
+                return;
+            }
+
+            // Get character position
+            var character = cityMap.SpawnedCharacter;
+            if (character == null)
+            {
+                AddEventLogEntry("[ERROR] No spawned character found!", redColor);
+                EndExecution();
+                return;
+            }
+
+            // Compute start and target local positions
+            Vector3 startLocalPos = character.centerPosition;
+            Vector3 targetLocalPos = ComputeBlockCenterLocal(targetBlock);
+
+            Debug.Log($"[GameUIController] Character start pos: {startLocalPos}");
+            Debug.Log($"[GameUIController] Target block pos: {targetLocalPos} (block={targetBlock.id})");
+
+            // Create SimulationManager (pure logic, no rendering)
+            simManager = new SimulationManager(waypointGraph, engine);
+            Debug.Log("[GameUIController] SimulationManager created");
+
+            // Create EventPlayer (MonoBehaviour, drives VoxelCharacter)
+            if (eventPlayer != null)
+                Destroy(eventPlayer);
+            eventPlayer = gameObject.AddComponent<EventPlayer>();
+            eventPlayer.Initialize(simManager, character, cityMap.MapRoot);
+            Debug.Log("[GameUIController] EventPlayer created and initialized");
+
+            // Create follow camera
+            Debug.Log("[GameUIController] Setting up follow camera...");
+            if (followCam == null)
+            {
+                var camObj = new GameObject("FollowCamera");
+                followCam = camObj.AddComponent<FollowCamera>();
+                Debug.Log("[GameUIController] FollowCamera GameObject created");
+            }
+            followCam.Initialize(character.transform, cityMap.MapCamera, character);
+            Debug.Log("[GameUIController] FollowCamera initialized — camera transition complete");
+
+            // Create HUD
+            if (tickHUD == null)
+            {
+                var hudObj = new GameObject("TickHUD");
+                tickHUD = hudObj.AddComponent<TickHUD>();
+                tickHUD.Initialize();
+            }
+            tickHUD.ClearLog();
+            tickHUD.Show();
+            tickHUD.UpdateOrder(order.orderType, targetBlock.name);
+            tickHUD.UpdatePhase("Walking to target", 0, SimulationManager.TickBudget);
+
+            // Wire up EventPlayer callbacks
+            eventPlayer.OnLog = (msg) =>
+            {
+                Color c = textBright;
+                if (msg.Contains("SUCCESS")) c = greenColor;
+                else if (msg.Contains("FAILED") || msg.Contains("ERROR")) c = redColor;
+                else if (msg.Contains("Wander") || msg.Contains("Traffic")) c = mutedColor;
+                tickHUD.AddLogEntry(msg, c);
+            };
+            eventPlayer.OnStateChanged = (s, elapsed, remaining) =>
+            {
+                tickHUD.UpdatePhase(s.ToString(), elapsed, remaining);
+            };
+            eventPlayer.OnComplete = () =>
+            {
+                OnTickSimulationComplete();
+            };
+
+            // Start simulation!
+            simManager.StartSimulation(order, startBlockId, startLocalPos, order.blockId, targetLocalPos);
+            AddEventLogEntry($"[SIM] {hood.name} begins mission: {order.orderType} on {targetBlock.name}", goldColor);
+        }
+
+        private Vector3 ComputeBlockCenterLocal(Block block)
+        {
+            var layout = cityMap.CachedLayout;
+            if (layout == null) return Vector3.zero;
+
+            int minRow = int.MaxValue, maxRow = int.MinValue, minCol = int.MaxValue, maxCol = int.MinValue;
+            foreach (var b in layout.blocks)
+            {
+                if (b.row < minRow) minRow = b.row;
+                if (b.row > maxRow) maxRow = b.row;
+                if (b.col < minCol) minCol = b.col;
+                if (b.col > maxCol) maxCol = b.col;
+            }
+            float centerRow = (minRow + maxRow) * 0.5f;
+            float centerCol = (minCol + maxCol) * 0.5f;
+            float spacing = cityMap.Spacing;
+
+            return new Vector3(
+                (block.col - centerCol) * spacing,
+                0f,
+                -(block.row - centerRow) * spacing);
+        }
+
+        private void OnTickSimulationComplete()
+        {
+            Debug.Log("[GameUIController] === WORKING WEEK -> PLANNING transition ===");
+
+            // Shut down follow camera
+            if (followCam != null)
+            {
+                followCam.Shutdown();
+                Debug.Log("[GameUIController] FollowCamera shutdown complete");
+            }
+
+            // Shut down event player
+            if (eventPlayer != null)
+            {
+                eventPlayer.Shutdown();
+                Debug.Log("[GameUIController] EventPlayer shutdown complete");
+            }
+
+            // Keep HUD visible but mark complete
+            if (tickHUD != null && simManager != null)
+                tickHUD.UpdatePhase("Complete", simManager.TicksElapsed, 0);
+
+            AddEventLogEntry($"=== WEEK {engine.week} COMPLETE ===", goldColor);
+            Debug.Log($"[GameUIController] Week {engine.week} complete, ticks elapsed: {(simManager != null ? simManager.TicksElapsed : 0)}");
+
+            // Process remaining engine systems (squeal, investigations, economy)
+            // but skip order resolution since sim handled it
+            engine.week++;
+
+            EndExecution();
+        }
+
+        private void EndExecution()
+        {
             phase = GamePhase.Planning;
             if (phaseText != null) { phaseText.text = "PLANNING"; phaseText.color = yellowColor; }
             if (runWeekButton != null) runWeekButton.interactable = true;
 
             selectedHoodId = null;
             selectedBlockId = null;
-            RefreshAll();
 
-            // Auto-switch to the Event Log tab so the player sees the week's results.
+            // Clear pending orders
+            engine.pendingOrders.Clear();
+            foreach (var gang in engine.gangs.Values)
+            {
+                foreach (var hood in gang.hoods)
+                {
+                    if (hood.status == HoodStatus.Assigned)
+                    {
+                        hood.status = HoodStatus.Available;
+                        hood.assignedOrder = null;
+                    }
+                }
+            }
+
+            RefreshAll();
             ShowTab(6);
         }
 

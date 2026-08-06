@@ -1,0 +1,829 @@
+================================================================================
+VEHICLE STATE SETTERS - Finding who sets 0x38000000 bits at offset 0x24
+================================================================================
+
+################################################################################
+# PART 1: SEARCH FOR VEHICLE BIT VALUES (0x08M, 0x10M, 0x20M, etc.)
+################################################################################
+
+--- Searching for 0x08000000 ---
+  OR 0x08000000 at 00660EDC in FUN_00660e60
+  OR 0x08000000 at 007750EE in __sopen
+
+--- Searching for 0x10000000 ---
+  OR 0x10000000 at 007750FE in __sopen
+
+--- Searching for 0x18000000 ---
+
+--- Searching for 0x20000000 ---
+  OR 0x20000000 at 005DC0C6 in FUN_005dc080
+  OR 0x20000000 at 005DC2B1 in FUN_005dc080
+
+--- Searching for 0x28000000 ---
+
+--- Searching for 0x30000000 ---
+  OR 0x30000000 at 0048CC7F in FUN_0048cc60
+
+--- Searching for 0x38000000 ---
+
+Functions setting vehicle bits: 4
+  FUN_0048cc60
+  __sopen
+  FUN_00660e60
+  FUN_005dc080
+
+################################################################################
+# PART 2: SEARCH FOR DISTANCE CALCULATION (IMUL by 0x60)
+################################################################################
+
+
+Functions with IMUL 0x60: 0
+
+################################################################################
+# PART 3: DECOMPILE KEY FUNCTIONS
+################################################################################
+
+============================================================
+Function: FUN_005ee370
+============================================================
+Address: 005ee370
+Size: 194 bytes
+
+
+void __fastcall FUN_005ee370(int param_1)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  CHAR local_64 [100];
+  
+  uVar2 = thunk_FUN_0062cc00(0,0,200,100,0xffffffff);
+  *(undefined4 *)(param_1 + 0x14c0) = uVar2;
+  thunk_FUN_0062ebd0();
+  thunk_FUN_004a5800(s_Begin_the_Working_Week__007a5704,0,4,param_1);
+  thunk_FUN_004a6010();
+  iVar1 = DAT_007c0024;
+  *(undefined1 **)(param_1 + 0x14bc) = &LAB_0040959d;
+  if (*(char *)(iVar1 + 0x25a8) == '\x03') {
+    wsprintfA(local_64,s_Week__i_of__i_007a571c,*(int *)(iVar1 + 0x2594) + 1,
+              *(undefined4 *)(iVar1 + 0x25b4));
+  }
+  else {
+    wsprintfA(local_64,s_Week__i_007a572c,*(int *)(iVar1 + 0x2594) + 1);
+  }
+  thunk_FUN_007389c0(local_64,1,0);
+  *(undefined4 *)(param_1 + 0x4298) = 3;
+  return;
+}
+
+
+
+============================================================
+Function: FUN_005bbee0
+============================================================
+Address: 005bbee0
+Size: 184 bytes
+
+
+void __thiscall FUN_005bbee0(int param_1,undefined4 param_2,char param_3)
+
+{
+  char *pcVar1;
+  char *pcVar2;
+  CHAR local_64 [100];
+  
+  if (*(int *)(param_1 + 0x33ec) == -1) {
+    switch(param_2) {
+    case 0xfffffff4:
+      pcVar1 = s_NotEnoughGuns_007a4388;
+      break;
+    case 0xfffffff5:
+      pcVar1 = s_CrimesPending_007a4378;
+      break;
+    case 0xfffffff6:
+      pcVar1 = s_OnlyThisMuch_007a4368;
+      break;
+    default:
+      goto switchD_005bbf0a_caseD_fffffff7;
+    case 0xfffffff8:
+      pcVar1 = s_NotEnoughLand_007a4358;
+      break;
+    case 0xfffffff9:
+      pcVar1 = s_NotEnoughMoney_007a4348;
+      break;
+    case 0xfffffffa:
+      pcVar1 = s_NotEnoughBombs_007a4338;
+      break;
+    case 0xfffffffb:
+      pcVar1 = s_NotEnoughCars_007a4328;
+      break;
+    case 0xfffffffd:
+      pcVar1 = s_NotEnoughCars_007a4318;
+      break;
+    case 0xfffffffe:
+      pcVar1 = s_NotEnoughPeople_007a4308;
+      break;
+    case 0xffffffff:
+      pcVar1 = s_NotEnoughTime_007a42f8;
+    }
+    if (param_3 == '\0') {
+      pcVar2 = s_Samples_Male__s_wav_007a4398;
+    }
+    else {
+      pcVar2 = s_Samples_Female__s_wav_007a43ac;
+    }
+    wsprintfA(local_64,pcVar2,pcVar1);
+    thunk_FUN_007301e0(local_64,param_1 + 0x33ec,0,0,0);
+  }
+switchD_005bbf0a_caseD_fffffff7:
+  return;
+}
+
+
+
+============================================================
+Function: FUN_0075eea0
+============================================================
+Address: 0075eea0
+Size: 169 bytes
+
+
+void __fastcall FUN_0075eea0(int *param_1)
+
+{
+  uint uVar1;
+  int iVar2;
+  int iVar3;
+  
+  iVar3 = param_1[0x15];
+  if (iVar3 != 0) {
+    if ((((*(uint *)(iVar3 + 0xc) & 0x20) != 0) && ((param_1[0x21] & 0x1fU) != 0xf)) &&
+       ((*(uint *)(iVar3 + 0xc) & 2) != 0)) {
+      iVar2 = thunk_FUN_00568380();
+      if (iVar2 != 0) {
+        thunk_FUN_00481860(param_1,*(undefined1 *)(iVar3 + 0x10));
+      }
+    }
+    thunk_FUN_00568fe0(param_1[0x15]);
+  }
+  iVar3 = thunk_FUN_005691a0();
+  param_1[0x15] = iVar3;
+  if (((iVar3 != 0) && (uVar1 = *(uint *)(iVar3 + 0xc), (uVar1 & 0x20) != 0)) &&
+     (((param_1[0x21] & 0x1fU) != 0xf && ((uVar1 & 2) != 0)))) {
+    thunk_FUN_00481670(param_1,CONCAT31((int3)(uVar1 >> 8),*(undefined1 *)(iVar3 + 0x10)));
+  }
+  (**(code **)(*param_1 + 0x80))();
+  return;
+}
+
+
+
+################################################################################
+# PART 4: DECOMPILE VEHICLE BIT SETTERS
+################################################################################
+
+============================================================
+Vehicle Bit Setter: FUN_0048cc60
+============================================================
+Address: 0048cc60
+Size: 789 bytes
+
+
+void __fastcall FUN_0048cc60(undefined4 *param_1)
+
+{
+  int *piVar1;
+  void *pvVar2;
+  int *piVar3;
+  int iVar4;
+  undefined4 *unaff_FS_OFFSET;
+  int local_18;
+  undefined4 local_10;
+  undefined1 *puStack_c;
+  int local_8;
+  
+  local_10 = *unaff_FS_OFFSET;
+  puStack_c = &LAB_0048cfd7;
+  *unaff_FS_OFFSET = &local_10;
+  *param_1 = &PTR_thunk_FUN_004a12d0_0077e848;
+  param_1[0x33] = &PTR_LAB_0077e830;
+  local_8 = 7;
+  if (param_1[0x58] != 0) {
+    FUN_0076a250(param_1[0x58]);
+    param_1[0x58] = 0;
+  }
+  local_18 = 0;
+  piVar3 = (int *)param_1[0x70];
+  if (0 < (int)param_1[0x73]) {
+    do {
+      piVar1 = (int *)piVar3[1];
+      if (piVar3 != (int *)0x0) {
+        if ((undefined4 *)*piVar3 != (undefined4 *)0x0) {
+          (*(code *)**(undefined4 **)*piVar3)(1);
+          *piVar3 = 0;
+        }
+        if (piVar3 != (int *)0x0) {
+          piVar3[1] = 0;
+          piVar3[2] = 0;
+          *piVar3 = 0;
+          FUN_0076a250(piVar3);
+        }
+      }
+      local_18 = local_18 + 1;
+      piVar3 = piVar1;
+    } while (local_18 < (int)param_1[0x73]);
+  }
+  iVar4 = 0;
+  param_1[0x70] = 0;
+  param_1[0x71] = 0;
+  param_1[0x73] = 0;
+  param_1[0x72] = 0;
+  piVar3 = (int *)param_1[0x68];
+  if (0 < (int)param_1[0x6b]) {
+    do {
+      piVar1 = (int *)piVar3[1];
+      if (piVar3 != (int *)0x0) {
+        if ((undefined4 *)*piVar3 != (undefined4 *)0x0) {
+          (*(code *)**(undefined4 **)*piVar3)(1);
+          *piVar3 = 0;
+        }
+        if (piVar3 != (int *)0x0) {
+          thunk_FUN_004a3b30(1);
+        }
+      }
+      iVar4 = iVar4 + 1;
+      piVar3 = piVar1;
+    } while (iVar4 < (int)param_1[0x6b]);
+  }
+  local_18 = 0;
+  param_1[0x68] = 0;
+  param_1[0x69] = 0;
+  param_1[0x6b] = 0;
+  param_1[0x6a] = 0;
+  piVar3 = (int *)param_1[0x80];
+  if (0 < (int)param_1[0x83]) {
+    do {
+      piVar1 = (int *)piVar3[1];
+      if (piVar3 != (int *)0x0) {
+        if ((undefined4 *)*piVar3 != (undefined4 *)0x0) {
+          (*(code *)**(undefined4 **)*piVar3)(1);
+          *piVar3 = 0;
+        }
+        if (piVar3 != (int *)0x0) {
+          piVar3[1] = 0;
+          piVar3[2] = 0;
+          *piVar3 = 0;
+          FUN_0076a250(piVar3);
+        }
+      }
+      local_18 = local_18 + 1;
+      piVar3 = piVar1;
+    } while (local_18 < (int)param_1[0x83]);
+  }
+  local_18 = 0;
+  param_1[0x80] = 0;
+  param_1[0x81] = 0;
+  param_1[0x83] = 0;
+  param_1[0x82] = 0;
+  piVar3 = (int *)param_1[0x96];
+  if (0 < (int)param_1[0x99]) {
+    do {
+      piVar1 = (int *)piVar3[1];
+      if (piVar3 != (int *)0x0) {
+        if ((undefined4 *)*piVar3 != (undefined4 *)0x0) {
+          (*(code *)**(undefined4 **)*piVar3)(1);
+          *piVar3 = 0;
+        }
+        if (piVar3 != (int *)0x0) {
+          piVar3[1] = 0;
+          piVar3[2] = 0;
+          *piVar3 = 0;
+          FUN_0076a250(piVar3);
+        }
+      }
+      local_18 = local_18 + 1;
+      piVar3 = piVar1;
+    } while (local_18 < (int)param_1[0x99]);
+  }
+  param_1[0x96] = 0;
+  param_1[0x97] = 0;
+  param_1[0x99] = 0;
+  param_1[0x98] = 0;
+  thunk_FUN_004a2870();
+  thunk_FUN_004a18b0();
+  pvVar2 = (void *)param_1[0x92];
+  if (pvVar2 != (void *)0x0) {
+    _eh_vector_destructor_iterator_(pvVar2,0x18,*(int *)((int)pvVar2 + -4),thunk_FUN_0049ccf0);
+    FUN_0076a250((int)pvVar2 + -4);
+    param_1[0x92] = 0;
+  }
+  local_8._0_1_ = 6;
+  FUN_0048cf75();
+  local_8._0_1_ = 5;
+  FUN_0048cf83();
+  local_8._0_1_ = 4;
+  FUN_0048cf91();
+  local_8._0_1_ = 3;
+  FUN_0048cf9f();
+  local_8._0_1_ = 2;
+  FUN_0048cfad();
+  local_8._0_1_ = 1;
+  FUN_0048cfbb();
+  local_8 = (uint)local_8._1_3_ << 8;
+  FUN_0048cfc9();
+  local_8 = 0xffffffff;
+  FUN_0048cfe1();
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+============================================================
+Vehicle Bit Setter: __sopen
+============================================================
+Address: 00774f00
+Size: 1041 bytes
+
+
+/* Library Function - Single Match
+    __sopen
+   
+   Library: Visual Studio 1998 Release */
+
+int __cdecl __sopen(char *_Filename,int _OpenFlag,int _ShareFlag,...)
+
+{
+  int *piVar1;
+  byte *pbVar2;
+  uint uVar3;
+  undefined4 *puVar4;
+  HANDLE hFile;
+  int iVar5;
+  int *piVar6;
+  int iVar7;
+  byte bVar8;
+  DWORD DVar9;
+  bool bVar10;
+  uint in_stack_00000010;
+  char local_19;
+  DWORD local_18;
+  uint local_14;
+  DWORD local_10;
+  _SECURITY_ATTRIBUTES local_c;
+  
+  local_c.lpSecurityDescriptor = (LPVOID)0x0;
+  local_c.nLength = 0xc;
+  bVar10 = (_OpenFlag & 0x80U) == 0;
+  if (bVar10) {
+    bVar8 = 0;
+  }
+  else {
+    bVar8 = 0x10;
+  }
+  local_c.bInheritHandle = (BOOL)bVar10;
+  if (((_OpenFlag & 0x8000U) == 0) && (((_OpenFlag & 0x4000U) != 0 || (DAT_007c3938 != 0x8000)))) {
+    bVar8 = bVar8 | 0x80;
+  }
+  uVar3 = _OpenFlag & 3;
+  if (uVar3 == 0) {
+    local_14 = 0x80000000;
+  }
+  else if (uVar3 == 1) {
+    local_14 = 0x40000000;
+  }
+  else {
+    if (uVar3 != 2) {
+      puVar4 = (undefined4 *)FUN_0076e8f0();
+      *puVar4 = 0x16;
+      puVar4 = (undefined4 *)FUN_0076e900();
+      *puVar4 = 0;
+      return -1;
+    }
+    local_14 = 0xc0000000;
+  }
+  switch(_ShareFlag) {
+  case 0x10:
+    local_18 = 0;
+    break;
+  default:
+    puVar4 = (undefined4 *)FUN_0076e8f0();
+    *puVar4 = 0x16;
+    puVar4 = (undefined4 *)FUN_0076e900();
+    *puVar4 = 0;
+    return -1;
+  case 0x20:
+    local_18 = 1;
+    break;
+  case 0x30:
+    local_18 = 2;
+    break;
+  case 0x40:
+    local_18 = 3;
+  }
+  uVar3 = _OpenFlag & 0x700;
+  if (uVar3 < 0x101) {
+    if (uVar3 == 0x100) {
+      local_10 = 4;
+      goto LAB_007750a1;
+    }
+    if (uVar3 != 0) goto LAB_0077504e;
+LAB_00775071:
+    local_10 = 3;
+    goto LAB_007750a1;
+  }
+  if (uVar3 < 0x301) {
+    if (uVar3 == 0x300) {
+      local_10 = 2;
+      goto LAB_007750a1;
+    }
+    if (uVar3 != 0x200) goto LAB_0077504e;
+LAB_00775085:
+    local_10 = 5;
+  }
+  else {
+    if (uVar3 < 0x501) {
+      if (uVar3 != 0x500) {
+        if (uVar3 != 0x400) {
+LAB_0077504e:
+          puVar4 = (undefined4 *)FUN_0076e8f0();
+          *puVar4 = 0x16;
+          puVar4 = (undefined4 *)FUN_0076e900();
+          *puVar4 = 0;
+          return -1;
+        }
+        goto LAB_00775071;
+      }
+    }
+    else {
+      if (uVar3 == 0x600) goto LAB_00775085;
+      if (uVar3 != 0x700) goto LAB_0077504e;
+    }
+    local_10 = 1;
+  }
+LAB_007750a1:
+  DVar9 = 0x80;
+  if (((_OpenFlag & 0x100U) != 0) && ((~DAT_007c19d0 & in_stack_00000010 & 0x80) == 0)) {
+    DVar9 = 1;
+  }
+  if ((_OpenFlag & 0x40U) != 0) {
+    local_14 = local_14 | 0x10000;
+    DVar9 = DVar9 | 0x4000000;
+  }
+  if ((_OpenFlag & 0x1000U) != 0) {
+    DVar9 = DVar9 | 0x100;
+  }
+  if ((_OpenFlag & 0x20U) == 0) {
+    if ((_OpenFlag & 0x10U) != 0) {
+      DVar9 = DVar9 | 0x10000000;
+    }
+  }
+  else {
+    DVar9 = DVar9 | 0x8000000;
+  }
+  uVar3 = __alloc_osfhnd();
+  if (uVar3 == 0xffffffff) {
+    puVar4 = (undefined4 *)FUN_0076e8f0();
+    *puVar4 = 0x18;
+    puVar4 = (undefined4 *)FUN_0076e900();
+    *puVar4 = 0;
+    return -1;
+  }
+  hFile = CreateFileA(_Filename,local_14,local_18,&local_c,local_10,DVar9,(HANDLE)0x0);
+  if (hFile == (HANDLE)0xffffffff) {
+    DVar9 = GetLastError();
+    __dosmaperr(DVar9);
+    __unlock_fhandle(uVar3);
+    return -1;
+  }
+  DVar9 = GetFileType(hFile);
+  if (DVar9 == 0) {
+    CloseHandle(hFile);
+    DVar9 = GetLastError();
+    __dosmaperr(DVar9);
+    __unlock_fhandle(uVar3);
+    return -1;
+  }
+  if (DVar9 == 2) {
+    bVar8 = bVar8 | 0x40;
+  }
+  else if (DVar9 == 3) {
+    bVar8 = bVar8 | 8;
+  }
+  __set_osfhnd(uVar3,(intptr_t)hFile);
+  piVar1 = (int *)((int)&DAT_00904220 + ((int)(uVar3 & 0xffffffe7) >> 3));
+  local_14 = (uVar3 & 0x1f) * 0x24;
+  *(byte *)(*piVar1 + 4 + local_14) = bVar8 | 1;
+  local_18 = CONCAT31(local_18._1_3_,bVar8) & 0xffffff48;
+  if ((((bVar8 & 0x48) == 0) && ((bVar8 & 0x80) != 0)) && ((_OpenFlag & 2U) != 0)) {
+    iVar5 = __lseek_lk(uVar3,0xffffffff,2);
+    if (iVar5 == -1) {
+      piVar6 = (int *)FUN_0076e900();
+      if (*piVar6 != 0x83) {
+        __close(uVar3);
+        __unlock_fhandle(uVar3);
+        return -1;
+      }
+    }
+    else {
+      local_19 = '\0';
+      iVar7 = __read_lk(uVar3,&local_19,1);
+      if (((iVar7 == 0) && (local_19 == '\x1a')) && (iVar5 = __chsize_lk(uVar3,iVar5), iVar5 == -1))
+      {
+        __close(uVar3);
+        __unlock_fhandle(uVar3);
+        return -1;
+      }
+      iVar5 = __lseek_lk(uVar3,0,0);
+      if (iVar5 == -1) {
+        __close(uVar3);
+        __unlock_fhandle(uVar3);
+        return -1;
+      }
+    }
+  }
+  if (((char)local_18 == '\0') && ((_OpenFlag & 8U) != 0)) {
+    pbVar2 = (byte *)(*piVar1 + 4 + local_14);
+    *pbVar2 = *pbVar2 | 0x20;
+  }
+  __unlock_fhandle(uVar3);
+  return uVar3;
+}
+
+
+
+============================================================
+Vehicle Bit Setter: FUN_00660e60
+============================================================
+Address: 00660e60
+Size: 765 bytes
+
+
+int __fastcall FUN_00660e60(int param_1)
+
+{
+  char cVar1;
+  int *piVar2;
+  undefined4 *puVar3;
+  bool bVar4;
+  int iVar5;
+  int *piVar6;
+  uint uVar7;
+  int iVar8;
+  int *local_8;
+  int *local_4;
+  
+  iVar8 = 0;
+  iVar5 = thunk_FUN_0061ef40(&local_8);
+  do {
+    if (iVar5 == 0) {
+      iVar5 = thunk_FUN_0061ef40(&local_8);
+      while (iVar5 != 0) {
+        do {
+          cVar1 = *(char *)((int)local_8 + 10);
+          if ((((cVar1 == '\x1d') || (cVar1 == '\x1b')) || (cVar1 == '\x1a')) &&
+             ((((byte)local_8[0x21] & 0x1f) == 0xf && ((local_8[9] & 0x38000000U) == 0x8000000)))) {
+            piVar6 = *(int **)(param_1 + 0x124);
+            bVar4 = false;
+            local_4 = local_8;
+            while ((piVar6 != (int *)0x0 && (!bVar4))) {
+              if ((int *)*piVar6 == local_4) {
+                piVar2 = *(int **)(param_1 + 0x124);
+                *piVar6 = 0;
+                if (piVar6 == piVar2) {
+                  if (*(int **)(param_1 + 0x128) == piVar6) {
+                    *(undefined4 *)(param_1 + 0x124) = 0;
+                    *(undefined4 *)(param_1 + 0x128) = 0;
+                  }
+                  else {
+                    iVar5 = piVar2[1];
+                    *(int *)(param_1 + 0x124) = iVar5;
+                    *(undefined4 *)(iVar5 + 8) = 0;
+                  }
+                }
+                else if (piVar6 == *(int **)(param_1 + 0x128)) {
+                  iVar5 = (*(int **)(param_1 + 0x128))[2];
+                  *(int *)(param_1 + 0x128) = iVar5;
+                  *(undefined4 *)(iVar5 + 4) = 0;
+                }
+                else {
+                  iVar5 = piVar6[2];
+                  *(int *)(iVar5 + 4) = piVar6[1];
+                  *(int *)(piVar6[1] + 8) = iVar5;
+                }
+                *(int *)(param_1 + 0x130) = *(int *)(param_1 + 0x130) + -1;
+                if (*(int **)(param_1 + 300) == piVar6) {
+                  iVar5 = piVar6[2];
+                  if (iVar5 == 0) {
+                    iVar5 = *(int *)(param_1 + 0x124);
+                    *(undefined4 *)(param_1 + 0x140) = 0;
+                  }
+                  *(int *)(param_1 + 300) = iVar5;
+                }
+                iVar5 = *(int *)(param_1 + 0x13c);
+                if (5 < iVar5) {
+                  while (2 < iVar5) {
+                    puVar3 = *(undefined4 **)(param_1 + 0x138);
+                    if (puVar3 != (undefined4 *)0x0) {
+                      iVar5 = puVar3[2];
+                      *(int *)(param_1 + 0x138) = iVar5;
+                      *(undefined4 *)(iVar5 + 4) = 0;
+                      *(int *)(param_1 + 0x13c) = *(int *)(param_1 + 0x13c) + -1;
+                      if (puVar3 != (undefined4 *)0x0) {
+                        puVar3[1] = 0;
+                        puVar3[2] = 0;
+                        *puVar3 = 0;
+                        FUN_0076a250(puVar3);
+                      }
+                    }
+                    iVar5 = *(int *)(param_1 + 0x13c);
+                  }
+                }
+                iVar5 = *(int *)(param_1 + 0x138);
+                if (iVar5 == 0) {
+                  *(int **)(param_1 + 0x134) = piVar6;
+                  *(int **)(param_1 + 0x138) = piVar6;
+                  iVar5 = *(int *)(param_1 + 0x13c);
+                  piVar6[2] = 0;
+                  piVar6[1] = 0;
+                  *piVar6 = 0;
+                  *(int *)(param_1 + 0x13c) = iVar5 + 1;
+                  bVar4 = true;
+                }
+                else {
+                  *(int **)(iVar5 + 4) = piVar6;
+                  piVar6[2] = iVar5;
+                  iVar5 = *(int *)(param_1 + 0x13c);
+                  *(int **)(param_1 + 0x138) = piVar6;
+                  piVar6[1] = 0;
+                  *piVar6 = 0;
+                  *(int *)(param_1 + 0x13c) = iVar5 + 1;
+                  bVar4 = true;
+                }
+              }
+              else {
+                piVar6 = (int *)piVar6[1];
+                bVar4 = false;
+              }
+            }
+            (**(code **)(*local_8 + 8))();
+            bVar4 = true;
+          }
+          else {
+            bVar4 = false;
+          }
+        } while ((bVar4) && (iVar5 = thunk_FUN_0061ef40(&local_8), iVar5 != 0));
+        iVar5 = thunk_FUN_0061ef60(&local_8);
+      }
+      iVar5 = thunk_FUN_0061ef40(&local_8);
+      while (iVar5 != 0) {
+        cVar1 = *(char *)((int)local_8 + 10);
+        if ((((cVar1 == '\x1d') || (cVar1 == '\x1b')) || (cVar1 == '\x1a')) &&
+           (((byte)local_8[0x21] & 0x1f) == 0xf)) {
+          iVar8 = iVar8 + 1;
+        }
+        iVar5 = thunk_FUN_0061ef60(&local_8);
+      }
+      return iVar8;
+    }
+    cVar1 = *(char *)((int)local_8 + 10);
+    if ((((cVar1 == '\x1d') || (cVar1 == '\x1b')) || (cVar1 == '\x1a')) &&
+       ((((byte)local_8[0x21] & 0x1f) == 0xf &&
+        (piVar6 = *(int **)(param_1 + 0x124), piVar6 != (int *)0x0)))) {
+      while ((int *)*piVar6 != local_8) {
+        if ((piVar6 == (int *)0x0) || (piVar6 = (int *)piVar6[1], piVar6 == (int *)0x0))
+        goto LAB_00660ee4;
+      }
+      uVar7 = thunk_FUN_00712500();
+      if ((uVar7 & 3) == 0) {
+        local_8[9] = local_8[9] & 0xcfffffffU | 0x8000000;
+      }
+    }
+LAB_00660ee4:
+    iVar5 = thunk_FUN_0061ef60(&local_8);
+  } while( true );
+}
+
+
+
+============================================================
+Vehicle Bit Setter: FUN_005dc080
+============================================================
+Address: 005dc080
+Size: 557 bytes
+
+
+void __fastcall FUN_005dc080(int *param_1)
+
+{
+  uint uVar1;
+  void *pvVar2;
+  int iVar3;
+  undefined4 *puVar4;
+  int iVar5;
+  int iVar6;
+  undefined4 *unaff_FS_OFFSET;
+  short local_1c;
+  short sStack_1a;
+  int local_14;
+  undefined4 local_10;
+  undefined1 *puStack_c;
+  undefined4 local_8;
+  
+  local_10 = *unaff_FS_OFFSET;
+  local_8 = 0xffffffff;
+  puStack_c = &LAB_005dc294;
+  *unaff_FS_OFFSET = &local_10;
+  uVar1 = param_1[9];
+  if ((uVar1 & 0x38000000) == 0) {
+    if (DAT_00902860 == 7) {
+      param_1[9] = uVar1 & 0xe7ffffff | 0x20000000;
+      (**(code **)(*param_1 + 0x30))();
+    }
+    else {
+      param_1[9] = uVar1 & 0xe7ffffff | 0x20000000;
+      if (param_1[0x15] == 0) {
+        pvVar2 = operator_new(0x70);
+        local_8 = 0;
+        iVar3 = 0;
+        if (pvVar2 != (void *)0x0) {
+          iVar3 = thunk_FUN_00568670();
+        }
+        iVar6 = param_1[2];
+        param_1[0x15] = iVar3;
+        *(int *)(iVar3 + 0x14) = param_1[1];
+        *(short *)(iVar3 + 0x18) = (short)iVar6;
+      }
+      local_8 = 0xffffffff;
+      iVar3 = thunk_FUN_00563190();
+      if ((iVar3 == 0) || (*(char *)(iVar3 + 5) != '\t')) {
+        iVar3 = thunk_FUN_00561740();
+        local_8 = 1;
+        if (iVar3 == 0) {
+          puVar4 = (undefined4 *)0x0;
+        }
+        else {
+          puVar4 = (undefined4 *)thunk_FUN_005614d0(9);
+        }
+        local_8 = 0xffffffff;
+        iVar3 = thunk_FUN_006064c0();
+        if (iVar3 == 0) {
+          iVar3 = thunk_FUN_00712500();
+          iVar3 = iVar3 % 3 + -1;
+          iVar6 = thunk_FUN_00712500();
+          local_14 = iVar6 % 3 + -1;
+        }
+        else {
+          iVar6 = param_1[1];
+          iVar3 = thunk_FUN_006071e0();
+          if (iVar3 == 0) {
+            (**(code **)(*param_1 + 0x30))();
+            if (puVar4 != (undefined4 *)0x0) {
+              (**(code **)*puVar4)(1);
+            }
+            goto LAB_005dc2c1;
+          }
+          local_1c = (short)iVar6;
+          iVar5 = (int)local_1c - (int)(short)param_1[1];
+          iVar3 = 1;
+          if (iVar5 < 1) {
+            iVar3 = (-1 < iVar5) - 1;
+          }
+          sStack_1a = (short)((uint)iVar6 >> 0x10);
+          iVar6 = (int)sStack_1a - (int)*(short *)((int)param_1 + 6);
+          if (iVar6 < 1) {
+            local_14 = (-1 < iVar6) - 1;
+          }
+          else {
+            local_14 = 1;
+          }
+          iVar6 = thunk_FUN_00712500();
+          *(char *)(param_1 + 2) = (char)(iVar6 % 0x60);
+          iVar6 = thunk_FUN_00712500();
+          *(char *)((int)param_1 + 9) = (char)(iVar6 % 0x60);
+        }
+        if ((iVar3 == 0) && (local_14 == 0)) {
+          iVar3 = 1;
+        }
+        *(char *)(puVar4 + 3) = (char)iVar3;
+        *(undefined1 *)((int)puVar4 + 0xd) = (undefined1)local_14;
+        iVar3 = thunk_FUN_00712500();
+        *(char *)((int)puVar4 + 0xe) = (char)(iVar3 % 100);
+        puVar4[2] = 0;
+        thunk_FUN_00563080(puVar4);
+        (**(code **)(*param_1 + 0x80))();
+      }
+    }
+  }
+LAB_005dc2c1:
+  *unaff_FS_OFFSET = local_10;
+  return;
+}
+
+
+
+################################################################################
+# PART 5: DECOMPILE DISTANCE CALC FUNCTIONS (game logic range)
+################################################################################
+
+=== END ===

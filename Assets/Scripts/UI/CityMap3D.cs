@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
+using UnityEngine.UI;
 using TMPro;
 using System;
 using System.Collections.Generic;
@@ -300,10 +301,26 @@ namespace SteelCity.Sim
         public bool GetFillEnabled() => chunkManager?.GetFillEnabled() ?? true;
         public bool GetCamLightEnabled() => chunkManager?.GetCamLightEnabled() ?? true;
 
+        // --- Accessors for SimulationManager / EventPlayer ---
+        public Transform MapRoot => mapRoot;
+        public CityLayout CachedLayout => cachedLayout;
+        public float Spacing => ComputedSpacing;
+        public float GroundTile => GroundTileSize;
+        public float SidewalkW => sidewalkWidth;
+        public Camera MapCamera => mapCamera;
+        public VoxelCharacter SpawnedCharacter { get; private set; }
+
         private readonly Dictionary<string, BlockView3D> views = new();
         private Transform mapRoot;
         private Dictionary<string, Block> cachedBlocks;
         private CityLayout cachedLayout;
+        private VoxelCollisionWorld collisionWorld;
+
+        // --- Road ticker UI (reports road under mouse) ---
+        private TextMeshProUGUI roadTickerText;
+        private int cachedMinRow, cachedMaxRow, cachedMinCol, cachedMaxCol;
+        private float cachedCenterRow, cachedCenterCol, cachedSpacing;
+        private bool gridCached = false;
 
         void Awake()
         {
@@ -338,6 +355,55 @@ namespace SteelCity.Sim
             var sun = GetComponent<VoxelSun>();
             if (sun == null)
                 sun = gameObject.AddComponent<VoxelSun>();
+
+            SetupRoadTicker();
+        }
+
+        /// <summary>
+        /// Create a road ticker UI text element positioned in the upper-left corner
+        /// of the map viewport. Reports the road/intersection under the mouse cursor.
+        /// </summary>
+        void SetupRoadTicker()
+        {
+            var canvas = FindFirstObjectByType<Canvas>();
+            if (canvas == null)
+            {
+                Debug.LogWarning("[CityMap3D] No Canvas found — road ticker disabled.");
+                return;
+            }
+
+            var tickerObj = new GameObject("RoadTicker");
+            tickerObj.transform.SetParent(canvas.transform, false);
+            var vp = mapCamera.rect;
+            var rt = tickerObj.AddComponent<RectTransform>();
+            rt.anchorMin = new Vector2(vp.xMin, vp.yMax);
+            rt.anchorMax = new Vector2(vp.xMin, vp.yMax);
+            rt.pivot = new Vector2(0f, 1f);
+            rt.anchoredPosition = new Vector2(8f, -8f);
+            rt.sizeDelta = new Vector2(220f, 60f);
+
+            // Background on a child (can't share Graphic components on one GameObject)
+            var bgObj = new GameObject("RoadTickerBG");
+            bgObj.transform.SetParent(tickerObj.transform, false);
+            var bgRT = bgObj.AddComponent<RectTransform>();
+            bgRT.anchorMin = Vector2.zero;
+            bgRT.anchorMax = Vector2.one;
+            bgRT.offsetMin = Vector2.zero;
+            bgRT.offsetMax = Vector2.zero;
+            var bg = bgObj.AddComponent<Image>();
+            bg.color = new Color(0.05f, 0.05f, 0.08f, 0.6f);
+            bg.raycastTarget = false;
+
+            // Text on the parent
+            roadTickerText = tickerObj.AddComponent<TextMeshProUGUI>();
+            roadTickerText.fontSize = 14;
+            roadTickerText.fontStyle = FontStyles.Bold;
+            roadTickerText.alignment = TextAlignmentOptions.TopLeft;
+            roadTickerText.color = new Color(1f, 0.95f, 0.7f, 0.9f);
+            roadTickerText.text = "—";
+            roadTickerText.raycastTarget = false;
+
+            Debug.Log("[CityMap3D] Road ticker created.");
         }
 
         // --- Mouse camera state ---
@@ -351,7 +417,7 @@ namespace SteelCity.Sim
             HandleMouseCamera();
             HandleClick();
             UpdateCameraTransform();
-
+            UpdateRoadTicker();
         }
 
         /// <summary>
@@ -518,6 +584,13 @@ namespace SteelCity.Sim
 
             float spacing = ComputedSpacing;
 
+            // Cache grid params for road ticker
+            cachedMinRow = minRow; cachedMaxRow = maxRow;
+            cachedMinCol = minCol; cachedMaxCol = maxCol;
+            cachedCenterRow = centerRow; cachedCenterCol = centerCol;
+            cachedSpacing = spacing;
+            gridCached = true;
+
             // PHASE 1: Terrain (roads + ground) — single voxel chunk for raymarch
             if (chunkManager != null)
             {
@@ -604,6 +677,13 @@ namespace SteelCity.Sim
 
             chunkManager.LoadChunkFromData("terrain", terrainData, w, h, d, origin);
 
+            // Register terrain voxels with collision world for ground probing
+            if (collisionWorld == null)
+                collisionWorld = gameObject.GetComponent<VoxelCollisionWorld>();
+            if (collisionWorld == null)
+                collisionWorld = gameObject.AddComponent<VoxelCollisionWorld>();
+            collisionWorld.RegisterTerrain(terrainData, w, h, d, origin, voxelSize);
+
             Debug.Log($"[CityMap3D] Voxel terrain generated: {w}x{h}x{d} at world origin {origin} " +
                 $"(covers {w * voxelSize:F1}m × {d * voxelSize:F1}m, {blockAnchors.Count} block anchors)");
 
@@ -614,6 +694,7 @@ namespace SteelCity.Sim
                 if (logged++ < 3)
                     Debug.Log($"[CityMap3D]   Anchor {kv.Key} → {kv.Value}");
             }
+
         }
 
         /// <summary>
@@ -708,80 +789,98 @@ namespace SteelCity.Sim
 
         [Header("Characters")]
         [Tooltip("Character voxel size (smaller than buildings for proper person scale).")]
-        [SerializeField] private float characterVoxelSize = 0.015f;
+        [SerializeField] private float characterVoxelSize = 0.02f;
 
         private void SpawnSceneCharacters(
             Dictionary<string, Block> blocks,
             float centerRow, float centerCol, float spacing)
         {
-            var charParent = new GameObject("Characters");
-            charParent.transform.SetParent(mapRoot, false);
-
-            // Barber shop is block_4 at row=1, col=0
+            // Barber shop is block_4 at row=1, col=0, slot 0 in a 3×3 sub-building grid.
+            // Slot 0 = (r=0, c=0) = NW corner of the block.
             float blockRow = 1f;
             float blockCol = 0f;
             float bx = (blockCol - centerCol) * spacing;
             float bz = -(blockRow - centerRow) * spacing;
 
-            // Barber building is 32v×20v×34v (X×Y×Z) at voxelSize=0.1
-            // Building footprint: 3.2 × 3.4 world units
-            // Building half-width X = 1.6, half-depth Z = 1.7
-            // Ground tile = 11.6, outer edge = 5.8
-            // Sidewalk band: from building edge to ground tile edge
-            // South sidewalk midpoint Z: building half (1.7) + sidewalk half (0.5) = 2.2 from center
-            // East sidewalk midpoint X: building half (1.6) + sidewalk half (0.5) = 2.1 from center
-            float bHalfX = 1.6f;
-            float bHalfZ = 1.7f;
+            // Sub-building layout (matches BuildRaymarchBlock multi-building logic)
+            int buildingCount = 9;
+            int cols = Mathf.CeilToInt(Mathf.Sqrt(buildingCount)); // 3
+            float subSize = GroundTileSize * 0.9f / cols;
+            float subOffset = GroundTileSize * 0.45f - subSize * 0.5f;
+
+            // Barber is slot 0 → r=0, c=0 → NW corner
+            float subPx = -subOffset + 0 * subSize; // c=0
+            float subPz = -subOffset + 0 * subSize; // r=0
+
+            // Barber building local center (relative to mapRoot)
+            float barberX = bx + subPx;
+            float barberZ = bz + subPz;
+
+            // Barber is 32v×34v at voxelSize=0.1 → 3.2 × 3.4 world units
+            float bHalfX = 1.6f; // 32 * 0.1 * 0.5
+            float bHalfZ = 1.7f; // 34 * 0.1 * 0.5
+            Vector3 buildingSize = new Vector3(3.2f, 2.0f, 3.4f);
+
+            // Convert barber center to world space for terrain probing
+            Vector3 barberWorldCenter = new Vector3(barberX, 0f, barberZ) + mapRoot.position;
+
+            // Scan terrain for roads on each face
+            var orientation = BuildingOrientation.Analyze(
+                collisionWorld, barberWorldCenter, buildingSize, probeDistance: 3f);
+
+            Debug.Log($"[CityMap3D] Barber orientation: faces={orientation.streetFaces}, " +
+                $"isCorner={orientation.isCorner}, door={BuildingOrientation.DirectionName(orientation.doorDirection)}");
+
+            // Place hoodlum in front of the door, on the sidewalk
             float sidewalkHalf = sidewalkWidth * 0.5f;
+            Vector3 doorDir = orientation.doorDirection;
+            float px, pz;
 
-            // Place characters around the barber shop on sidewalks on 3 sides
-            // South side (front), East side, West side — leave north (back) empty
-            var spawns = new (string asset, float dx, float dz, float rotY)[]
+            if (orientation.isCorner)
             {
-                // South sidewalk (front of barber) — facing north toward building
-                ("character_hoodlum_0.stasset",  0f,                bHalfZ + sidewalkHalf, 0f),
-                ("character_hoodlum_0.stasset",  1.2f,              bHalfZ + sidewalkHalf, 0f),
-                ("character_civilian_0.stasset", -1.2f,             bHalfZ + sidewalkHalf, 0f),
-                // East sidewalk — facing west toward building
-                ("character_civilian_0.stasset", bHalfX + sidewalkHalf,  0.5f, 270f),
-                // West sidewalk — facing east toward building
-                ("character_hoodlum_overcoat_0.stasset", -(bHalfX + sidewalkHalf),  0.5f, 90f),
-                // South sidewalk corner — police on patrol
-                ("character_police_0.stasset",   bHalfX + sidewalkHalf, bHalfZ + sidewalkHalf, 315f),
-            };
-
-            int placed = 0;
-            for (int i = 0; i < spawns.Length; i++)
+                // Place at the corner — intersection of the two street-facing directions
+                px = orientation.cornerPosition.x - mapRoot.position.x;
+                pz = orientation.cornerPosition.z - mapRoot.position.z;
+                // Offset slightly toward the door direction
+                px += doorDir.x * sidewalkHalf;
+                pz += doorDir.z * sidewalkHalf;
+                Debug.Log($"[CityMap3D] Placing hoodlum at CORNER: ({px:F2}, {pz:F2})");
+            }
+            else
             {
-                var (asset, dx, dz, rotY) = spawns[i];
-                string charPath = Path.Combine(Application.streamingAssetsPath, "voxel_buildings", asset);
-                if (!File.Exists(charPath))
-                {
-                    Debug.LogWarning($"[CityMap3D] {asset} not found.");
-                    continue;
-                }
-
-                var mesh = StAssetReader.LoadAsMesh(charPath, characterVoxelSize);
-                if (mesh == null || mesh.vertexCount == 0) continue;
-
-                var go = new GameObject($"Char_{i}_{Path.GetFileNameWithoutExtension(asset)}");
-                go.transform.SetParent(charParent.transform, false);
-                go.AddComponent<MeshFilter>().sharedMesh = mesh;
-                var rend = go.AddComponent<MeshRenderer>();
-                var shader = Shader.Find("SteelCity/VoxelVertexColor")
-                    ?? Shader.Find("Universal Render Pipeline/Lit")
-                    ?? Shader.Find("Standard");
-                rend.material = new Material(shader);
-
-                // Position relative to barber block center
-                float px = bx + dx;
-                float pz = bz + dz;
-                go.transform.localPosition = new Vector3(px, 0.02f, pz);
-                go.transform.rotation = Quaternion.Euler(0f, rotY, 0f);
-                placed++;
+                // Place in front of the door face
+                px = barberX + doorDir.x * (bHalfX + sidewalkHalf);
+                pz = barberZ + doorDir.z * (bHalfZ + sidewalkHalf);
+                Debug.Log($"[CityMap3D] Placing hoodlum at DOOR: ({px:F2}, {pz:F2}) facing {BuildingOrientation.DirectionName(doorDir)}");
             }
 
-            Debug.Log($"[CityMap3D] Spawned {placed} characters on sidewalks around barber shop at ({bx:F1}, {bz:F1})");
+            // Y: terrain is 2 voxels thick at voxelSize=0.1 → top surface at Y=0.2
+            float groundY = voxelSize * 2f; // 0.2
+
+            // SteelTide VoxelObject approach: create a standalone GameObject with VoxelCharacter component.
+            var charParent = mapRoot.Find("Characters");
+            if (charParent == null)
+            {
+                var cp = new GameObject("Characters");
+                cp.transform.SetParent(mapRoot, false);
+                charParent = cp.transform;
+            }
+
+            var charObj = new GameObject("Character_Hoodlum_0");
+            charObj.transform.SetParent(charParent, false);
+            var vc = charObj.AddComponent<VoxelCharacter>();
+            vc.assetFileName = "character_hoodlum_0.stasset";
+            vc.voxelSize = characterVoxelSize;
+            vc.chunkManager = chunkManager;
+            vc.collisionWorld = collisionWorld;
+            // Local position relative to mapRoot — start above ground, gravity will pull down
+            vc.centerPosition = new Vector3(px, groundY + 0.5f, pz);
+            vc.useWorldPosition = false;
+            vc.showGroundProbe = true; // debug — turn off after verifying
+
+            SpawnedCharacter = vc;
+
+            Debug.Log($"[CityMap3D] Spawned VoxelCharacter hoodlum at ({px:F2}, {pz:F2}) — barber at ({barberX:F2}, {barberZ:F2}), groundY={groundY}");
         }
 
         private void BuildRaymarchBlock(Transform root, string blockId, Block block,
@@ -975,6 +1074,135 @@ namespace SteelCity.Sim
             if (!views.TryGetValue(blockId, out var view)) return;
             if (view.label != null)
                 view.label.text = labelText;
+        }
+
+        /// <summary>
+        /// Each frame, check what road/intersection/block the mouse is over
+        /// and update the road ticker UI text.
+        /// </summary>
+        void UpdateRoadTicker()
+        {
+            if (roadTickerText == null) return;
+
+            if (Mouse.current == null)
+            {
+                roadTickerText.text = "—";
+                return;
+            }
+
+            Vector2 mousePos = Mouse.current.position.ReadValue();
+            float normX = mousePos.x / Screen.width;
+            float normY = mousePos.y / Screen.height;
+
+            var vp = mapCamera.rect;
+            if (normX < vp.x || normX > vp.x + vp.width || normY < vp.y || normY > vp.y + vp.height)
+            {
+                roadTickerText.text = "—";
+                return;
+            }
+
+            if (!gridCached)
+            {
+                roadTickerText.text = "Loading city...";
+                return;
+            }
+
+            // Convert screen mouse to world point on the terrain plane (Y=0)
+            Ray ray = mapCamera.ScreenPointToRay(mousePos);
+            // Intersect with horizontal plane at mapRoot.position.y
+            float planeY = mapRoot.position.y;
+            if (Mathf.Abs(ray.direction.y) < 0.001f)
+            {
+                roadTickerText.text = "—";
+                return;
+            }
+            float t = (planeY - ray.origin.y) / ray.direction.y;
+            if (t < 0)
+            {
+                roadTickerText.text = "—";
+                return;
+            }
+            Vector3 worldHit = ray.origin + ray.direction * t;
+
+            // Convert to city-local (relative to mapRoot)
+            Vector3 local = worldHit - mapRoot.position;
+
+            // City coordinate system:
+            //   Block (col,row) center: X = (col - centerCol) * spacing, Z = -(row - centerRow) * spacing
+            //   Horizontal roads (EW): Z = -(minRow + i - 0.5 - centerRow) * spacing, for i = 0..ewCount
+            //   Vertical roads (NS):   X = (minCol + i - 0.5 - centerCol) * spacing, for i = 0..nsCount
+            //   Road half-width = roadWidth * 0.5
+            //   Block half-size = GroundTileSize * 0.5
+
+            float halfRoad = roadWidth * 0.5f;
+            float halfTile = GroundTileSize * 0.5f;
+            float spacing = cachedSpacing;
+
+            // Find nearest horizontal road (EW street)
+            // Road i is at Z = -(minRow + i - 0.5 - centerRow) * spacing
+            // Invert: i = -Z/spacing - minRow + 0.5 + centerRow
+            float ewIdx_f = -local.z / spacing - cachedMinRow + 0.5f + cachedCenterRow;
+            int ewIdx = Mathf.RoundToInt(ewIdx_f);
+            float ewRoadZ = -(cachedMinRow + ewIdx - 0.5f - cachedCenterRow) * spacing;
+            bool onEW = Mathf.Abs(local.z - ewRoadZ) <= halfRoad;
+
+            // Find nearest vertical road (NS avenue)
+            // Road i is at X = (minCol + i - 0.5 - centerCol) * spacing
+            // Invert: i = X/spacing - minCol + 0.5 + centerCol
+            float nsIdx_f = local.x / spacing - cachedMinCol + 0.5f + cachedCenterCol;
+            int nsIdx = Mathf.RoundToInt(nsIdx_f);
+            float nsRoadX = (cachedMinCol + nsIdx - 0.5f - cachedCenterCol) * spacing;
+            bool onNS = Mathf.Abs(local.x - nsRoadX) <= halfRoad;
+
+            // Determine what block the cursor is over (if not on a road)
+            float blockX_f = local.x / spacing + cachedCenterCol;
+            float blockZ_f = -local.z / spacing + cachedCenterRow;
+            int blockCol = Mathf.RoundToInt(blockX_f);
+            int blockRow = Mathf.RoundToInt(blockZ_f);
+            float blockCenterX = (blockCol - cachedCenterCol) * spacing;
+            float blockCenterZ = -(blockRow - cachedCenterRow) * spacing;
+            bool onBlock = !onEW && !onNS &&
+                Mathf.Abs(local.x - blockCenterX) <= halfTile &&
+                Mathf.Abs(local.z - blockCenterZ) <= halfTile;
+
+            if (onEW && onNS)
+            {
+                // Intersection
+                string ewName = StreetNamesEW[((ewIdx % StreetNamesEW.Length) + StreetNamesEW.Length) % StreetNamesEW.Length];
+                string nsName = StreetNamesNS[((nsIdx % StreetNamesNS.Length) + StreetNamesNS.Length) % StreetNamesNS.Length];
+                roadTickerText.text = $"Intersection\n{ewName} & {nsName}";
+            }
+            else if (onEW)
+            {
+                string ewName = StreetNamesEW[((ewIdx % StreetNamesEW.Length) + StreetNamesEW.Length) % StreetNamesEW.Length];
+                roadTickerText.text = $"On {ewName}";
+            }
+            else if (onNS)
+            {
+                string nsName = StreetNamesNS[((nsIdx % StreetNamesNS.Length) + StreetNamesNS.Length) % StreetNamesNS.Length];
+                roadTickerText.text = $"On {nsName}";
+            }
+            else if (onBlock)
+            {
+                // Look up block by row/col
+                string blockName = "Block";
+                if (cachedBlocks != null)
+                {
+                    foreach (var blk in cachedBlocks.Values)
+                    {
+                        if (blk.row == blockRow && blk.col == blockCol)
+                        {
+                            blockName = blk.name;
+                            break;
+                        }
+                    }
+                }
+                roadTickerText.text = $"{blockName}\n(r{blockRow} c{blockCol})";
+            }
+            else
+            {
+                roadTickerText.text = "Out of bounds";
+            }
         }
 
         private void HandleClick()

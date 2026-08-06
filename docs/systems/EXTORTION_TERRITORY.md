@@ -1,7 +1,8 @@
 # Extortion & Territory — Steel City: Mob Sim
 
 **Created**: August 2, 2026
-**Status**: 📐 In Progress
+**Updated**: August 6, 2026
+**Status**: 📐 In Progress (refined with playtesting insights)
 
 ---
 
@@ -44,12 +45,40 @@ Derived from territory ownership and strength:
 | Connected | Extorted (high) OR business owned | Real-time alerts. Squealer identity. |
 | Networked | Business owned + high extortion + friendly NPC | Predictive intel. Raid warnings. |
 
+### Key Extortion Factors (Playtesting Insight)
+
+From manual analysis, the factors that determine extortion success:
+
+| Factor | Effect | Source |
+|--------|--------|--------|
+| **Hood's Intimidation skill** | Primary skill check for extortion | Manual p.40, p.93 |
+| **Distance from nearest office** | Further = higher rejection rate | Manual p.39 |
+| **Manpower assigned** | More hoods = more pressure = higher success | Manual p.38 |
+| **NPC hostility** | High hostility = resistance + squeal risk | Manual p.91 |
+| **NPC fear** | High fear = compliance (but also more squealing) | Binary data |
+| **Rival defense strength** | Affects "Take Over Protection" success | Binary case 0x30 |
+
+**Intelligence is NOT used for extortion.** Only Intimidation. Intelligence is used for: bribery, recruitment, bombing, arson, killing, and Lieutenant order allocation.
+
+### Office Proximity (Playtesting Insight)
+
+"Base" = nearest office, not just starting HQ. Multiple offices reduce the distance penalty across your territory. **Expanding your office network is a territorial strategy**, not just a convenience.
+
+### Protection Is a Service Contract (Playtesting Insight)
+
+From manual p.91: "Business Owners who are within your protection may be extremely stubborn. If they are paying, they will expect **good service**, and a **succession of attacks from another source** may see them **leaving your empire in droves**."
+
+- Protection is NOT permanent — owners leave if you don't defend them
+- Rival gangs can steal your protection by attacking your businesses faster than you defend
+- The binary contains a "Take Over Protection" order (case 0x30) — distinct from basic extortion
+- Re-extorting a lost business can fail because the owner's **hostility toward you has increased** (you failed to protect them)
+
 ### The Refusal Chain
 
 This is the core fun. When a hood is assigned to extort:
 
 1. **Hood arrives at block** → finds target business
-2. **Compliance roll**: Hood's Intimidation skill vs. NPC's `fear - hostility`
+2. **Compliance roll**: Hood's Intimidation skill vs. NPC's `fear - hostility` (modified by distance penalty)
    - If `fear > hostility`: NPC complies, pays protection money. Done.
    - If `hostility >= fear`: NPC refuses. Order fails. Player notified.
 3. **Player decides response** (next week):
@@ -85,6 +114,26 @@ Achieving this requires:
 - Not so much violence that hostility spikes
 - Consistent presence (collection visits maintain fear without new violence)
 - Corrupt cop coverage to suppress any squeal that does occur
+
+**BUT**: High fear also increases squealing (terrified people talk more). The sweet spot is NOT maximum fear. See `CRIME_SQUEAL.md` → The Fear Trap.
+
+### Territory Strategy (Playtesting Insight)
+
+**Your territory / planned expansion:**
+- Intimidate (raises fear, minimal hostility)
+- Donate to charity, set up soup kitchens (lowers hostility)
+- Patrol and defend (prevents owner defection)
+- Bribe local cops (suppresses squeal)
+- Set up offices nearby (reduces distance penalty)
+- Own newspaper / get priests on side (shifts public opinion)
+
+**Rival territory:**
+- Attack their protected businesses → owners blame rival for failing to protect → defect from rival
+- Ambush rival hoods → reduce their ability to maintain territory
+
+**Neutral territory:**
+- Do NOT raid — raises hostility against yourself
+- Donate to charity first → then intimidate → then extort → then patrol
 
 ### Market Share Decay
 

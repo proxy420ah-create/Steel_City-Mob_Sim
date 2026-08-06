@@ -2,7 +2,7 @@
 
 **Purpose**: Central hub for all project documentation — helps coding agents find information fast and efficiently.
 
-**Last Updated**: August 4, 2026
+**Last Updated**: August 6, 2026
 **Project**: Steel City: Mob Sim — Organized Crime Simulation
 **Status**: 🔄 ALPHA — Vertical Slice Playable (Unity 6)
 
@@ -12,10 +12,10 @@
 
 | Category | Documents | Status |
 |----------|-----------|--------|
-| **Core Design** | 2 docs | ✅ Complete |
-| **Systems Design** | 8 docs | ✅ Complete |
+| **Core Design** | 3 docs | ✅ Complete |
+| **Systems Design** | 9 docs | ✅ Complete |
 | **Data Reference** | 1 doc | ✅ Complete |
-| **Source Analysis** | 1 doc | ✅ Complete |
+| **Source Analysis** | 2 docs | ✅ Complete |
 | **Unity Project** | 12 docs | ✅ Complete |
 | **VoxelAssetStudio** | 20+ docs | ✅ Complete |
 | **Vertical Slice** | 1 doc | ✅ Complete |
@@ -41,7 +41,37 @@
   - Original game architecture observations
   - What to preserve, what to polish
 
-**Keywords**: design, philosophy, principles, source, analysis, xtx, decoding
+**Reverse Engineering Findings:**
+- **`docs/core/REVERSE_ENGINEERING_FINDINGS.md`** — Ghidra binary analysis of gangsters.exe (18 sections, 2400+ lines)
+  - Game timing system (12000-tick weekly budget, 500 ticks/hour)
+  - Order type system (dual enum: player orders vs. AI goals)
+  - Order setup dispatcher (`FUN_005b3440` — 30+ order types mapped)
+  - NotEnough error system (time, cars, bombs, guns, money)
+  - **Vehicle-vs-walk decision SOLVED** (bit 15 flag: walk=12000 ticks, drive=32 ticks)
+  - Movement state machine (4 states: Init → Pathfinding → Walking → Arrived)
+  - Per-tick entity simulation (`FUN_005d2740` — street crossing, wandering)
+  - Gang order dispatch with priority calculation (`FUN_0049a530`)
+  - Waypoint pathfinding system with countdown timer
+  - Block size: 0x60 (96) pixels
+  - Engine core deep dive: time budget command queue, pathfinding, street crossing
+  - Thunk caller trace analysis (walk/drive dispatch architecture)
+  - Vehicle state machine (`0x38000000` field: 3-bit lifecycle)
+  - Portrait generation system (5-layer compositor, seed-based)
+  - **Section 18: Combat & Pathfinding Deep Dive** — SIM_TICK orchestrator internals (5 queues, 13 cases), 4 combat variants (ranged/melee/vehicle/arrest), waypoint following (3-state), street crossing with traffic lights, AI state machine (8 states with probabilities), entity structure field map, arrest/kidnap message system
+
+**Engine Integration Plan:**
+- **`docs/core/ENGINE_INTEGRATION_PLAN.md`** — Maps reverse-engineered systems to Steel City implementation
+  - 4 core reusable systems: SIM_TICK orchestrator, pathfinding/waypoints, vehicle system, NPC collision/traffic
+  - **Vehicle system deep dive**: SIM_TICK driving cases (4/8/10), 5-substate driving AI, vehicle variety table, visual model plans (turning wheels, faction colors)
+  - **Section 4A: Dynamic Car Chases & Vehicle Combat Vision** — emergent road encounters, fear/hostility/intelligence trigger system, car chase state machine, 6 emergent gameplay scenarios, code reuse analysis (11 existing systems → 4 new components)
+  - C# class designs for each system (SimulationManager, VehiclePhysicsSystem, CarChaseSystem, RoadEncounterDetector, etc.)
+  - 5-phase implementation plan with momentum milestones
+  - Entity component mapping (original offsets → Unity components)
+  - Global state mapping (DAT_007c0024 → SimulationContext)
+  - Architecture diagram
+  - 8 key design principles from the binary
+
+**Keywords**: design, philosophy, principles, source, analysis, xtx, decoding, ghidra, reverse engineering, binary, decompilation, orders, vehicles, timing, combat, pathfinding, sim_tick, traffic, integration, engine, architecture
 
 ---
 
@@ -95,6 +125,18 @@
   - NPC squeal rolls trigger investigations
   - Escalation ladder (extort → intimidate → assault → torch → bomb)
   - Investigation visibility and leads decay
+  - **Fear Trap**: High fear increases squealing (terrified people talk more)
+  - **Information tiers**: Lawyer-gated squealer identification, conditional reports
+  - **Legal system chain**: Post-arrest pipeline (Lawyer, Judge/DA bribes, witness/juror intimidation)
+
+**Playtesting Insights:**
+- **`docs/systems/PLAYTESTING_INSIGHTS.md`** — Insights from original game manual study + live playtesting
+  - Fear/Hostility/Squeal three-axis model with counterintuitive fear-squeal relationship
+  - Extortion mechanics (intimidation skill only, office proximity, manpower, service contract model)
+  - Information asymmetry design (Lawyer-gated, indirect detection, deduction game)
+  - Territory strategy ("baby and scare" your territory, attack rival, donate in neutral)
+  - Legal system, illegal business front-matching, diplomacy levels, snitches
+  - Open questions for further playtesting
 
 **3D City Rendering:**
 - **`docs/systems/3D_CITY_RENDERING.md`** — Working Week visualization
@@ -105,7 +147,7 @@
   - Camera system (free orbit, follow mode)
   - Performance budget and comparison to SteelTide
 
-**Keywords**: systems, character, extortion, territory, intelligence, corruption, police, combat, crime, squeal, 3d, rendering, visualization, camera
+**Keywords**: systems, character, extortion, territory, intelligence, corruption, police, combat, crime, squeal, 3d, rendering, visualization, camera, playtesting, insights, fear, hostility, legal, diplomacy
 
 ---
 
@@ -152,7 +194,17 @@ All Unity-side documentation lives in `Assets/docs/`. See `Assets/docs/DOCUMENTA
 - **`Assets/docs/VOXEL_LIGHTING_AND_SHADOWS.md`** — Raymarch lighting pipeline (hybrid normals, shadow debug, lighting toggles)
 - **`Assets/docs/VOXEL_BUILDING_METHODOLOGY.md`** — Voxel building generation pipeline
 - **`Assets/docs/MOB_SIM_SCALE_STANDARD.md`** — Scale system (voxel sizes, door sizes, reference objects)
+- **`Assets/docs/COORDINATE_SYSTEM.md`** — Positioning & coordinate spaces (MapRoot offset, block grid, character placement, corner vs center)
 - **`Assets/docs/PORTING_NOTES.md`** — Python → C# porting gotchas and verification
+
+### Simulation Architecture (Assets/Scripts/Sim/)
+- **`FollowCamera.cs`** — Follow camera with spherical coordinate positioning, free-look mode, OnGUI debug HUD, hotkey controls, UI auto-hide, VoxelRenderBridge integration
+- **`SimulationManager.cs`** — Pure logic simulation manager (produces SimEvents, no Unity-specific references)
+- **`EventPlayer.cs`** — Consumes SimEvents from SimulationManager, drives visual updates
+- **`SimEventStream.cs`** — Event stream with SimEvent factory methods
+- **`VoxelCharacter.cs`** — Voxel character rendering with WorldCenter property for camera aiming
+- **`Pathfinder.cs`** — A* pathfinding on WaypointGraph
+- **`WaypointGraph.cs`** — Waypoint graph with sidewalk/crosswalk/jaywalk links
 
 ### VoxelAssetStudio Roadmaps
 - **`VoxelAssetStudio/IMPROVEMENT_ROADMAP.md`** — V2.0 improvement plan (undo/redo, layers, selection tools)
