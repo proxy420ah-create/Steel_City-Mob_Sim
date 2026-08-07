@@ -27,7 +27,7 @@ namespace SteelCity.Sim
 
         [Header("Proxy Render (Fragment Shader Path)")]
         [Tooltip("If true, use proxy-box fragment shader instead of compute dispatches. 5-10x faster for small on-screen volumes.")]
-        [SerializeField] private bool useProxyRender = true;
+        [SerializeField] private bool useProxyRender = false;
         [SerializeField] private Shader proxyShader;
         private Material proxyMaterial;
         private Mesh proxyCubeMesh;
@@ -739,7 +739,6 @@ namespace SteelCity.Sim
         /// Called by CityMap3D.OnRenderImage or manually each frame.
         /// Dispatches the raymarch shader for all active chunks and blits result.
         /// </summary>
-        private bool hasLoggedRender = false;
 
         public void SetLighting(Vector3 dir, float intensity, float ambient, float fill, Color tint)
         {
@@ -805,13 +804,6 @@ namespace SteelCity.Sim
         {
             EnsureProxyRT();
 
-            if (!hasLoggedRender)
-            {
-                Debug.Log($"[VoxelChunkManager] Proxy render STARTED: {chunks.Count} chunks, " +
-                    $"camera ortho={renderCamera.orthographic}, " +
-                    $"renderTarget={renderWidth}x{renderHeight}");
-                hasLoggedRender = true;
-            }
 
             // Set per-frame shader constants
             var camTransform = renderCamera.transform;
@@ -951,17 +943,6 @@ namespace SteelCity.Sim
             if (raymarchShader == null || renderCamera == null || chunks.Count == 0)
                 return;
 
-            if (!hasLoggedRender)
-            {
-                Debug.Log($"[VoxelChunkManager] RenderChunks STARTED: {chunks.Count} chunks, " +
-                    $"camera ortho={renderCamera.orthographic}, " +
-                    $"renderTarget={renderWidth}x{renderHeight}, " +
-                    $"voxelSize={voxelSize}, maxSteps={maxSteps}");
-                foreach (var c in chunks)
-                    Debug.Log($"[VoxelChunkManager]   Chunk '{c.name}': dims={c.dims.x}x{c.dims.y}x{c.dims.z} " +
-                        $"pos={c.hostObject?.transform.position} buffer={c.voxelBuffer?.count ?? 0}");
-                hasLoggedRender = true;
-            }
 
             EnsureRenderTargets();
 
