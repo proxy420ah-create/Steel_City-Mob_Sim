@@ -112,6 +112,84 @@ namespace SteelCity.Sim
         private static readonly int MaxMaterials = 130; // matches StAssetReader.MaterialCount
         private ComputeBuffer defaultTintBuffer; // all (1,1,1,1) — used when no custom tint set
 
+        // --- Packed voxel cache: avoids re-reading + re-packing the same .stasset files ---
+        // Key = file path, Value = (packed uint[], w, h, d)
+        private static readonly Dictionary<string, (uint[] data, int w, int h, int d)> packedVoxelCache = new();
+        private static int packedCacheHits;
+        private static int packedCacheMisses;
+
+        private static (uint[] data, int w, int h, int d) GetPackedVoxels(string filepath)
+        {
+            if (packedVoxelCache.TryGetValue(filepath, out var cached))
+            {
+                packedCacheHits++;
+                return ((uint[])cached.data.Clone(), cached.w, cached.h, cached.d);
+            }
+
+            packedCacheMisses++;
+            var voxels = StAssetReader.LoadVoxels(filepath);
+            if (voxels == null) return (null, 0, 0, 0);
+
+            int w = voxels.GetLength(0);
+            int h = voxels.GetLength(1);
+            int d = voxels.GetLength(2);
+            int voxelCount = w * h * d;
+            var packedData = new uint[voxelCount];
+            int idx = 0;
+            for (int z = 0; z < d; z++)
+                for (int y = 0; y < h; y++)
+                    for (int x = 0; x < w; x++)
+                        packedData[idx++] = (uint)voxels[x, y, z];
+
+            packedVoxelCache[filepath] = (packedData, w, h, d);
+            return ((uint[])packedData.Clone(), w, h, d);
+        }
+
+        public static void ClearPackedVoxelCache()
+        {
+            int count = packedVoxelCache.Count;
+            packedVoxelCache.Clear();
+            Debug.Log($"[VoxelChunkManager] Cleared packed voxel cache: {count} files (hits={packedCacheHits} misses={packedCacheMisses})");
+            packedCacheHits = 0;
+            packedCacheMisses = 0;
+        }
+
+        public static int PackedCacheHits => packedCacheHits;
+        public static int PackedCacheMisses => packedCacheMisses;
+        public static int PackedCacheFiles => packedVoxelCache.Count;
+
+        // --- Dimension cache: read only 16-byte header for fast size lookup ---
+        private static readonly Dictionary<string, (int w, int h, int d)> dimCache = new();
+
+        /// <summary>Get .stasset dimensions from header only (no voxel data loaded). Cached.</summary>
+        public static (int w, int h, int d) GetStassetDimensions(string filepath)
+        {
+            if (dimCache.TryGetValue(filepath, out var cached))
+                return cached;
+
+            if (!File.Exists(filepath))
+                return (0, 0, 0);
+
+            byte[] header = new byte[16];
+            using (var fs = File.OpenRead(filepath))
+            {
+                int read = fs.Read(header, 0, 16);
+                if (read < 16 || header[0] != (byte)'S' || header[1] != (byte)'T' ||
+                    header[2] != (byte)'A' || header[3] != (byte)'S')
+                    return (0, 0, 0);
+            }
+
+            int w = header[6] | (header[7] << 8);
+            int h = header[8] | (header[9] << 8);
+            int d = header[10] | (header[11] << 8);
+            var result = (w, h, d);
+            dimCache[filepath] = result;
+            return result;
+        }
+
+        /// <summary>Threshold: buildings wider/deeper than this occupy an entire block.</summary>
+        public const int FullBlockVoxelThreshold = 64;
+
         // --- Fullscreen quad for displaying the render texture ---
         private GameObject displayQuad;
         private Material displayMaterial;
@@ -479,27 +557,10 @@ namespace SteelCity.Sim
             // Remove existing chunk with same name
             RemoveChunk(name);
 
-            var voxels = StAssetReader.LoadVoxels(stassetPath);
-            if (voxels == null) return;
+            var (packedData, w, h, d) = GetPackedVoxels(stassetPath);
+            if (packedData == null) return;
 
-            int w = voxels.GetLength(0);
-            int h = voxels.GetLength(1);
-            int d = voxels.GetLength(2);
-
-            // Pack ushort[,,] into uint[] (each voxel is 16-bit, stored as uint for shader)
             int voxelCount = w * h * d;
-            var packedData = new uint[voxelCount];
-            int idx = 0;
-            for (int z = 0; z < d; z++)
-            {
-                for (int y = 0; y < h; y++)
-                {
-                    for (int x = 0; x < w; x++)
-                    {
-                        packedData[idx++] = (uint)voxels[x, y, z];
-                    }
-                }
-            }
 
             // Create a world-space GameObject for this chunk (visible in Hierarchy)
             var hostObj = new GameObject($"VoxelChunk_{name}");
@@ -549,21 +610,8 @@ namespace SteelCity.Sim
         /// </summary>
         public BuildingFootprint LoadChunkCentered(string name, string filepath, Vector3 centerPos, float customVoxelSize)
         {
-            var voxels = StAssetReader.LoadVoxels(filepath);
-            if (voxels == null) return null;
-
-            int w = voxels.GetLength(0);
-            int h = voxels.GetLength(1);
-            int d = voxels.GetLength(2);
-
-            // Pack ushort[,,] into uint[] (single pass, no double file read)
-            int voxelCount = w * h * d;
-            var packedData = new uint[voxelCount];
-            int idx = 0;
-            for (int z = 0; z < d; z++)
-                for (int y = 0; y < h; y++)
-                    for (int x = 0; x < w; x++)
-                        packedData[idx++] = (uint)voxels[x, y, z];
+            var (packedData, w, h, d) = GetPackedVoxels(filepath);
+            if (packedData == null) return null;
 
             // Offset so the CENTER of the voxel volume sits at centerPos
             Vector3 cornerPos = centerPos - new Vector3(w * customVoxelSize * 0.5f, 0f, d * customVoxelSize * 0.5f);

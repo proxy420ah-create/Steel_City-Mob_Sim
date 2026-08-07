@@ -795,6 +795,7 @@ namespace SteelCity.Sim
 
             buildStopwatch.Stop();
             Debug.Log($"[Perf] BuildMap complete: {blocks.Count} blocks in {buildStopwatch.ElapsedMilliseconds}ms");
+            Debug.Log($"[Perf] Voxel cache: {VoxelChunkManager.PackedCacheHits} hits / {VoxelChunkManager.PackedCacheMisses} misses ({VoxelChunkManager.PackedCacheFiles} unique files cached)");
         }
 
         // ====================================================================
@@ -1112,32 +1113,78 @@ namespace SteelCity.Sim
                 }
                 else
                 {
-                    int cols = Mathf.CeilToInt(Mathf.Sqrt(buildingCount));
-                    int rows = Mathf.CeilToInt((float)buildingCount / cols);
-                    float subSize = GroundTileSize * 0.9f / cols;
-                    float subOffset = GroundTileSize * 0.45f - subSize * 0.5f;
-                    float buildingMeshWidth = BuildingVoxelWidth * voxelSize;
-
+                    // Multi-building block: check for full-block-sized assets
+                    // In Gangsters, tenement/industrial blocks occupy the entire block.
+                    // Small commercial buildings share the block in a sub-grid.
+                    bool hasFullBlockBuilding = false;
                     for (int i = 0; i < buildingCount; i++)
                     {
-                        int r = i / cols;
-                        int c = i % cols;
-                        float px = -subOffset + c * subSize;
-                        float pz = -subOffset + r * subSize;
-
                         string stasset = layoutBlock.buildings[i].stasset;
                         string fullPath = Path.Combine(Application.streamingAssetsPath, stasset);
-                        float scale = subSize / buildingMeshWidth;
-                        float bh = GetBuildingHeight(stasset) * scale;
-                        if (bh > maxBuildingHeight) maxBuildingHeight = bh;
-
-                        // Sub-building center = anchor + local offset within block
-                        Vector3 buildingCenter = anchorPos + new Vector3(px, 0f, pz);
-                        string chunkName = $"{blockId}_building_{i}";
-                        var footprint = chunkManager.LoadChunkCentered(chunkName, fullPath, buildingCenter);
-                        if (footprint != null)
+                        var (vw, vh, vd) = VoxelChunkManager.GetStassetDimensions(fullPath);
+                        if (vw >= VoxelChunkManager.FullBlockVoxelThreshold ||
+                            vd >= VoxelChunkManager.FullBlockVoxelThreshold)
                         {
-                            RegisterAddress(blockId, chunkName, buildingCenter, footprint.size, row, col, i);
+                            hasFullBlockBuilding = true;
+                            break;
+                        }
+                    }
+
+                    if (hasFullBlockBuilding)
+                    {
+                        // Place the first full-block building centered on the anchor.
+                        // In Gangsters, a tenement block occupies all slots — no neighbors.
+                        for (int i = 0; i < buildingCount; i++)
+                        {
+                            string stasset = layoutBlock.buildings[i].stasset;
+                            string fullPath = Path.Combine(Application.streamingAssetsPath, stasset);
+                            var (vw, vh, vd) = VoxelChunkManager.GetStassetDimensions(fullPath);
+
+                            if (vw >= VoxelChunkManager.FullBlockVoxelThreshold ||
+                                vd >= VoxelChunkManager.FullBlockVoxelThreshold)
+                            {
+                                float bh = GetBuildingHeight(stasset);
+                                if (bh > maxBuildingHeight) maxBuildingHeight = bh;
+
+                                string chunkName = $"{blockId}_building_{i}";
+                                var footprint = chunkManager.LoadChunkCentered(chunkName, fullPath, anchorPos);
+                                if (footprint != null)
+                                {
+                                    RegisterAddress(blockId, chunkName, anchorPos, footprint.size, row, col, i);
+                                }
+                                break; // Only place one full-block building
+                            }
+                        }
+                    }
+                    else
+                    {
+                        int cols = Mathf.CeilToInt(Mathf.Sqrt(buildingCount));
+                        int rows = Mathf.CeilToInt((float)buildingCount / cols);
+                        float subSize = GroundTileSize * 0.9f / cols;
+                        float subOffset = GroundTileSize * 0.45f - subSize * 0.5f;
+                        float buildingMeshWidth = BuildingVoxelWidth * voxelSize;
+
+                        for (int i = 0; i < buildingCount; i++)
+                        {
+                            int r = i / cols;
+                            int c = i % cols;
+                            float px = -subOffset + c * subSize;
+                            float pz = -subOffset + r * subSize;
+
+                            string stasset = layoutBlock.buildings[i].stasset;
+                            string fullPath = Path.Combine(Application.streamingAssetsPath, stasset);
+                            float scale = subSize / buildingMeshWidth;
+                            float bh = GetBuildingHeight(stasset) * scale;
+                            if (bh > maxBuildingHeight) maxBuildingHeight = bh;
+
+                            // Sub-building center = anchor + local offset within block
+                            Vector3 buildingCenter = anchorPos + new Vector3(px, 0f, pz);
+                            string chunkName = $"{blockId}_building_{i}";
+                            var footprint = chunkManager.LoadChunkCentered(chunkName, fullPath, buildingCenter);
+                            if (footprint != null)
+                            {
+                                RegisterAddress(blockId, chunkName, buildingCenter, footprint.size, row, col, i);
+                            }
                         }
                     }
                 }

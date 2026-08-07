@@ -49,6 +49,15 @@
   - Performance budget tracker (16ms frame budget)
   - Baseline entity counts from RE + gameplay knowledge
 
+**City State Preservation:**
+- **`docs/core/CITY_STATE_PRESERVATION.md`** — Week-to-week city baking & incremental update architecture
+  - State categories: financial (week-end batch), physical (immediate), static (frozen)
+  - Packed voxel file cache (eliminates redundant .stasset reads)
+  - ComputeBuffer persistence across week transitions (no full rebuild)
+  - Building swap API for mid-week events (bomb, fire)
+  - Event queue design for batch processing at week end
+  - Performance projections: 92s → ~20-30s load, 0ms week transitions with no changes
+
 **Source Game Analysis:**
 - **`docs/core/SOURCE_GAME_ANALYSIS.md`** — Analysis of Gangsters: Organized Crime
   - .xtx file encoding (4-byte XOR key)
