@@ -239,9 +239,9 @@ namespace SteelCity.Sim
             propVolumeOffset = Shader.PropertyToID("_VolumeOffset");
             propVolumeRotation = Shader.PropertyToID("_VolumeRotation");
             propVolumeInvRotation = Shader.PropertyToID("_VolumeInvRotation");
-            propCameraOrigin = Shader.PropertyToID("_CamOrigin");
-            propCameraToWorld = Shader.PropertyToID("_CamToWorld");
-            propInvProjection = Shader.PropertyToID("_InvProj");
+            propCameraOrigin = Shader.PropertyToID("_CameraOrigin");
+            propCameraToWorld = Shader.PropertyToID("_CameraToWorld");
+            propInvProjection = Shader.PropertyToID("_InvProjection");
             propScreenSize = Shader.PropertyToID("_ScreenSize");
             propMaxSteps = Shader.PropertyToID("_MaxSteps");
             propBackgroundColor = Shader.PropertyToID("_BackgroundColor");
