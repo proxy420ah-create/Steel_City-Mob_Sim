@@ -239,9 +239,9 @@ namespace SteelCity.Sim
             propVolumeOffset = Shader.PropertyToID("_VolumeOffset");
             propVolumeRotation = Shader.PropertyToID("_VolumeRotation");
             propVolumeInvRotation = Shader.PropertyToID("_VolumeInvRotation");
-            propCameraOrigin = Shader.PropertyToID("_CameraOrigin");
-            propCameraToWorld = Shader.PropertyToID("_CameraToWorld");
-            propInvProjection = Shader.PropertyToID("_InvProjection");
+            propCameraOrigin = Shader.PropertyToID("_CamOrigin");
+            propCameraToWorld = Shader.PropertyToID("_CamToWorld");
+            propInvProjection = Shader.PropertyToID("_InvProj");
             propScreenSize = Shader.PropertyToID("_ScreenSize");
             propMaxSteps = Shader.PropertyToID("_MaxSteps");
             propBackgroundColor = Shader.PropertyToID("_BackgroundColor");
@@ -839,6 +839,7 @@ namespace SteelCity.Sim
             proxyMaterial.SetMatrix(propCameraToWorld, cameraToWorld);
             proxyMaterial.SetMatrix(propInvProjection, invProj);
             proxyMaterial.SetVector(propScreenSize, new Vector4(renderWidth, renderHeight, 0, 0));
+            proxyMaterial.SetVector(propCameraOrigin, camTransform.position);
 
             // Build sorted draw list (back-to-front for correct depth compositing)
             var drawList = new List<(VoxelChunk chunk, float dist)>(chunks.Count);
@@ -863,10 +864,12 @@ namespace SteelCity.Sim
             }
             drawList.Sort((a, b) => b.dist.CompareTo(a.dist)); // farthest first
 
-            // Clear and draw via CommandBuffer (DrawMeshNow doesn't support MaterialPropertyBlock)
+            // Clear and draw via CommandBuffer
             var cmd = new CommandBuffer { name = "VoxelProxyRaymarch" };
             cmd.SetRenderTarget(proxyRT);
             cmd.ClearRenderTarget(true, true, backgroundColor);
+            // Set view/projection matrices so UNITY_MATRIX_VP works in vertex shader
+            cmd.SetViewProjectionMatrices(renderCamera.worldToCameraMatrix, renderCamera.projectionMatrix);
 
             foreach (var (chunk, _) in drawList)
             {
@@ -912,7 +915,6 @@ namespace SteelCity.Sim
 
             Graphics.ExecuteCommandBuffer(cmd);
             cmd.Dispose();
-            Graphics.SetRenderTarget(prevRT);
         }
 
         private void EnsureProxyRT()

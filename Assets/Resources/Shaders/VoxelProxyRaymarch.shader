@@ -68,9 +68,10 @@ Shader "SteelCity/VoxelProxyRaymarch"
             int _FillEnabled;
             int _CamLightEnabled;
 
-            float4x4 _CameraToWorld;
-            float4x4 _InvProjection;
+            float4x4 _CamToWorld;
+            float4x4 _InvProj;
             float2   _ScreenSize;
+            float3   _CamOrigin;
 
             // ---- Bit layout ----
             #define VX_SHAPE_SHIFT     12
@@ -209,17 +210,17 @@ Shader "SteelCity/VoxelProxyRaymarch"
                     float2 screenPos = input.positionCS.xy / _ScreenSize;
                     float2 ndc = screenPos * 2.0 - 1.0;
                     float4 clipNear = float4(ndc.x, ndc.y, -1.0, 1.0);
-                    float4 viewNear = mul(_InvProjection, clipNear);
+                    float4 viewNear = mul(_InvProj, clipNear);
                     viewNear /= viewNear.w;
-                    float3 worldNear = mul(_CameraToWorld, float4(viewNear.xyz, 1.0)).xyz;
+                    float3 worldNear = mul(_CamToWorld, float4(viewNear.xyz, 1.0)).xyz;
 
                     ro = worldNear;
-                    rd = normalize(mul((float3x3)_CameraToWorld, float3(0, 0, -1)));
+                    rd = normalize(mul((float3x3)_CamToWorld, float3(0, 0, -1)));
                 }
                 else
                 {
                     // Perspective: ray from camera through fragment
-                    ro = _WorldSpaceCameraPos;
+                    ro = _CamOrigin;
                     rd = normalize(input.worldPos - ro);
                 }
 
