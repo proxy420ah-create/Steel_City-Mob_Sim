@@ -32,11 +32,11 @@ namespace SteelCity.Sim
         [Tooltip("If true, camera positions behind character's movement direction (chase-cam). If false, uses orbit mode.")]
         public bool chaseMode = true;
         [Tooltip("Distance behind character in chase mode.")]
-        public float chaseDistance = 6f;
+        public float chaseDistance = 7f;
         [Tooltip("Height above character in chase mode.")]
-        public float chaseHeight = 3.5f;
+        public float chaseHeight = 12.25f;
         [Tooltip("Extra pitch angle (degrees) for chase camera.")]
-        public float chasePitch = 15f;
+        public float chasePitch = 30f;
 
         [Header("Debug Controls")]
         [Tooltip("Show on-screen camera debug HUD.")]
@@ -55,7 +55,7 @@ namespace SteelCity.Sim
         private Vector3 velocity = Vector3.zero;
         private bool loggedFirstFrame = false;
         private float currentYaw;
-        private float currentPitch = 20f;
+        private float currentPitch = 60f;
         private float lookYaw = 0f;
         private float lookPitch = 0f;
         private bool freeLook = false;
