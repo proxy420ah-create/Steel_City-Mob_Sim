@@ -94,6 +94,7 @@ namespace SteelCity.Sim
         private int propMaterialCount, propVolumeDims, propVoxelSize, propVolumeOffset;
         private int propVolumeRotation, propVolumeInvRotation;
         private int propCameraOrigin, propCameraToWorld, propInvProjection;
+        private int propProxyCamOrigin, propProxyCamToWorld, propProxyInvProj;
         private int propScreenSize, propMaxSteps, propBackgroundColor, propIsOrthographic;
         private int propLightDirection, propLightIntensity, propAmbientIntensity, propFillIntensity, propLightColor;
         private int propChunkTints;
@@ -242,6 +243,9 @@ namespace SteelCity.Sim
             propCameraOrigin = Shader.PropertyToID("_CameraOrigin");
             propCameraToWorld = Shader.PropertyToID("_CameraToWorld");
             propInvProjection = Shader.PropertyToID("_InvProjection");
+            propProxyCamOrigin = Shader.PropertyToID("_ProxyCamOrigin");
+            propProxyCamToWorld = Shader.PropertyToID("_ProxyCamToWorld");
+            propProxyInvProj = Shader.PropertyToID("_ProxyInvProj");
             propScreenSize = Shader.PropertyToID("_ScreenSize");
             propMaxSteps = Shader.PropertyToID("_MaxSteps");
             propBackgroundColor = Shader.PropertyToID("_BackgroundColor");
@@ -828,10 +832,10 @@ namespace SteelCity.Sim
             proxyMaterial.SetInt(propAmbientEnabled, ambientEnabled);
             proxyMaterial.SetInt(propFillEnabled, fillEnabled);
             proxyMaterial.SetInt(propCamLightEnabled, camLightEnabled);
-            proxyMaterial.SetMatrix(propCameraToWorld, cameraToWorld);
-            proxyMaterial.SetMatrix(propInvProjection, invProj);
+            proxyMaterial.SetMatrix(propProxyCamToWorld, cameraToWorld);
+            proxyMaterial.SetMatrix(propProxyInvProj, invProj);
             proxyMaterial.SetVector(propScreenSize, new Vector4(renderWidth, renderHeight, 0, 0));
-            proxyMaterial.SetVector(propCameraOrigin, camTransform.position);
+            proxyMaterial.SetVector(propProxyCamOrigin, camTransform.position);
 
             // Build sorted draw list (back-to-front for correct depth compositing)
             var drawList = new List<(VoxelChunk chunk, float dist)>(chunks.Count);

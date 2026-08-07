@@ -1,3 +1,6 @@
+// Upgrade NOTE: commented out 'float4x4 _CameraToWorld', a built-in variable
+// Upgrade NOTE: replaced '_CameraToWorld' with 'unity_CameraToWorld'
+
 // Steel City: Mob Sim — Proxy-Box Voxel Raymarch Shader
 // VoxelProxyRaymarch.shader
 //
@@ -69,10 +72,10 @@ Shader "SteelCity/VoxelProxyRaymarch"
             int _FillEnabled;
             int _CamLightEnabled;
 
-            float4x4 _CameraToWorld;
-            float4x4 _InvProjection;
+            float4x4 _ProxyCamToWorld;
+            float4x4 _ProxyInvProj;
             float2   _ScreenSize;
-            float3   _CameraOrigin;
+            float3   _ProxyCamOrigin;
 
             // ---- Bit layout ----
             #define VX_SHAPE_SHIFT     12
@@ -211,17 +214,17 @@ Shader "SteelCity/VoxelProxyRaymarch"
                     float2 screenPos = input.positionCS.xy / _ScreenSize;
                     float2 ndc = screenPos * 2.0 - 1.0;
                     float4 clipNear = float4(ndc.x, ndc.y, -1.0, 1.0);
-                    float4 viewNear = mul(_InvProjection, clipNear);
+                    float4 viewNear = mul(_ProxyInvProj, clipNear);
                     viewNear /= viewNear.w;
-                    float3 worldNear = mul(_CameraToWorld, float4(viewNear.xyz, 1.0)).xyz;
+                    float3 worldNear = mul(_ProxyCamToWorld, float4(viewNear.xyz, 1.0)).xyz;
 
                     ro = worldNear;
-                    rd = normalize(mul((float3x3)_CameraToWorld, float3(0, 0, -1)));
+                    rd = normalize(mul((float3x3)_ProxyCamToWorld, float3(0, 0, -1)));
                 }
                 else
                 {
                     // Perspective: ray from camera through fragment
-                    ro = _CameraOrigin;
+                    ro = _ProxyCamOrigin;
                     rd = normalize(input.worldPos - ro);
                 }
 
