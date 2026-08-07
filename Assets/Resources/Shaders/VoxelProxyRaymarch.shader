@@ -20,7 +20,7 @@ Shader "SteelCity/VoxelProxyRaymarch"
 
     SubShader
     {
-        Tags { "RenderPipeline" = "UniversalPipeline" "RenderType" = "Opaque" "Queue" = "Geometry" }
+        Tags { "RenderType" = "Opaque" "Queue" = "Geometry" }
         Cull Off
         ZWrite On
         ZTest LEqual
@@ -29,12 +29,13 @@ Shader "SteelCity/VoxelProxyRaymarch"
         {
             Name "ProxyRaymarch"
 
-            HLSLPROGRAM
+            CGPROGRAM
             #pragma target 4.5
             #pragma vertex vert
             #pragma fragment frag
+            #pragma exclude_renderers gles gles3
 
-            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+            #include "UnityCG.cginc"
 
             // ---- Bindings (same as compute shader) ----
             StructuredBuffer<uint>   _VoxelData;
@@ -466,7 +467,7 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 o.depth = ndcZ;
                 return o;
             }
-            ENDHLSL
+            ENDCG
         }
     }
 }
