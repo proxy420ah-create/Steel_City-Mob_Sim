@@ -849,19 +849,6 @@ namespace SteelCity.Sim
             var hood = engine.FindHood(order.hoodId);
             var targetBlock = engine.blocks[order.blockId];
 
-            // Find start block (player HQ = barber shop = block_4)
-            string startBlockId = null;
-            foreach (var (bid, blk) in engine.blocks)
-            {
-                if (blk.isPlayerHq) { startBlockId = bid; break; }
-            }
-            if (startBlockId == null)
-            {
-                AddEventLogEntry("[ERROR] No player HQ found!", redColor);
-                EndExecution();
-                return;
-            }
-
             // Get character position
             var character = cityMap.SpawnedCharacter;
             if (character == null)
@@ -871,11 +858,20 @@ namespace SteelCity.Sim
                 return;
             }
 
-            // Compute start and target local positions
-            Vector3 startLocalPos = character.centerPosition;
+            // Compute start and target local positions from LIVE character transform
+            Vector3 startLocalPos = character.transform.position - cityMap.MapRoot.position;
             Vector3 targetLocalPos = ComputeBlockCenterLocal(targetBlock);
 
-            Debug.Log($"[GameUIController] Character start pos: {startLocalPos}");
+            // Find nearest block to character's actual current position (not fixed HQ)
+            string startBlockId = FindNearestBlockId(startLocalPos);
+            if (string.IsNullOrEmpty(startBlockId))
+            {
+                AddEventLogEntry("[ERROR] Could not determine start block from character position!", redColor);
+                EndExecution();
+                return;
+            }
+
+            Debug.Log($"[GameUIController] Character start pos (live): {startLocalPos} startBlock={startBlockId}");
             Debug.Log($"[GameUIController] Target block pos: {targetLocalPos} (block={targetBlock.id})");
 
             // Create SimulationManager (pure logic, no rendering)
@@ -898,6 +894,8 @@ namespace SteelCity.Sim
                 Debug.Log("[GameUIController] FollowCamera GameObject created");
             }
             followCam.Initialize(character.transform, cityMap.MapCamera, character);
+            cityMap.IsExecutionMode = true;
+            cityMap.SetGranularLodMode(true);
             Debug.Log("[GameUIController] FollowCamera initialized — camera transition complete");
 
             // Create HUD
@@ -963,6 +961,56 @@ namespace SteelCity.Sim
                 -(block.row - centerRow) * spacing);
         }
 
+        private string FindNearestBlockId(Vector3 localPos)
+        {
+            if (engine?.blocks == null || engine.blocks.Count == 0)
+                return null;
+
+            float spacing = cityMap.Spacing;
+            if (spacing <= 0.0001f)
+                return null;
+
+            var layout = cityMap.CachedLayout;
+            if (layout == null || layout.blocks == null || layout.blocks.Length == 0)
+                return null;
+
+            int minRow = int.MaxValue, maxRow = int.MinValue, minCol = int.MaxValue, maxCol = int.MinValue;
+            foreach (var b in layout.blocks)
+            {
+                if (b.row < minRow) minRow = b.row;
+                if (b.row > maxRow) maxRow = b.row;
+                if (b.col < minCol) minCol = b.col;
+                if (b.col > maxCol) maxCol = b.col;
+            }
+
+            float centerRow = (minRow + maxRow) * 0.5f;
+            float centerCol = (minCol + maxCol) * 0.5f;
+
+            int nearestCol = Mathf.RoundToInt(localPos.x / spacing + centerCol);
+            int nearestRow = Mathf.RoundToInt(-localPos.z / spacing + centerRow);
+
+            string bestId = null;
+            float bestDist = float.MaxValue;
+            foreach (var (bid, blk) in engine.blocks)
+            {
+                if (blk.row == nearestRow && blk.col == nearestCol)
+                {
+                    return bid;
+                }
+
+                float dRow = blk.row - nearestRow;
+                float dCol = blk.col - nearestCol;
+                float dist = dRow * dRow + dCol * dCol;
+                if (dist < bestDist)
+                {
+                    bestDist = dist;
+                    bestId = bid;
+                }
+            }
+
+            return bestId;
+        }
+
         private void OnTickSimulationComplete()
         {
             Debug.Log("[GameUIController] === WORKING WEEK -> PLANNING transition ===");
@@ -973,6 +1021,8 @@ namespace SteelCity.Sim
                 followCam.Shutdown();
                 Debug.Log("[GameUIController] FollowCamera shutdown complete");
             }
+            cityMap.IsExecutionMode = false;
+            cityMap.SetGranularLodMode(false);
 
             // Shut down event player
             if (eventPlayer != null)

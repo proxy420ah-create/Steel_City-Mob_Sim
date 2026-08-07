@@ -109,7 +109,7 @@ namespace SteelCity.Sim
                 }
             }
 
-            Debug.Log($"[VoxelCollisionWorld] Appended {registered:N0} voxels from chunk at {chunkWorldOrigin} (offset {offX},{offY},{offZ})");
+            // Suppress per-chunk collision registration log (too many at scale)
         }
 
         /// <summary>

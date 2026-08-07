@@ -69,6 +69,7 @@ namespace SteelCity.Sim
             int chunkVoxels = Mathf.Max(1, Mathf.CeilToInt(chunkSize / voxelSize));
             int h = 2; // 2 voxels thick
             float terrainTopY = mapRootOffset.y + h * voxelSize;
+            const float eps = 0.001f; // tolerance for floating point boundary checks
 
             for (int row = minRow; row <= maxRow; row++)
             {
@@ -93,30 +94,32 @@ namespace SteelCity.Sim
                     var data = new uint[w * h * d];
 
                     // Fill roads that pass through this chunk
+                    // Use epsilon tolerance — road centers fall exactly on chunk boundaries
+                    // and floating point precision can cause the check to fail.
                     // Horizontal road above (between row-1 and row)
                     float roadZAbove = -(row - 0.5f - centerRow) * spacing;
-                    if (roadZAbove >= czMin && roadZAbove <= czMax)
+                    if (roadZAbove >= czMin - eps && roadZAbove <= czMax + eps)
                     {
                         FillRoadStrip(data, w, h, d, localOrigin, voxelSize,
                             cxMin, cxMax, roadZAbove - halfRoad, roadZAbove + halfRoad, true);
                     }
                     // Horizontal road below (between row and row+1)
                     float roadZBelow = -(row + 0.5f - centerRow) * spacing;
-                    if (roadZBelow >= czMin && roadZBelow <= czMax)
+                    if (roadZBelow >= czMin - eps && roadZBelow <= czMax + eps)
                     {
                         FillRoadStrip(data, w, h, d, localOrigin, voxelSize,
                             cxMin, cxMax, roadZBelow - halfRoad, roadZBelow + halfRoad, true);
                     }
                     // Vertical road left (between col-1 and col)
                     float roadXLeft = (col - 0.5f - centerCol) * spacing;
-                    if (roadXLeft >= cxMin && roadXLeft <= cxMax)
+                    if (roadXLeft >= cxMin - eps && roadXLeft <= cxMax + eps)
                     {
                         FillRoadStrip(data, w, h, d, localOrigin, voxelSize,
                             roadXLeft - halfRoad, roadXLeft + halfRoad, czMin, czMax, false);
                     }
                     // Vertical road right (between col and col+1)
                     float roadXRight = (col + 0.5f - centerCol) * spacing;
-                    if (roadXRight >= cxMin && roadXRight <= cxMax)
+                    if (roadXRight >= cxMin - eps && roadXRight <= cxMax + eps)
                     {
                         FillRoadStrip(data, w, h, d, localOrigin, voxelSize,
                             roadXRight - halfRoad, roadXRight + halfRoad, czMin, czMax, false);

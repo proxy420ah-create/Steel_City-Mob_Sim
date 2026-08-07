@@ -27,7 +27,7 @@ namespace SteelCity.Sim
 
         [Header("Proxy Render (Fragment Shader Path)")]
         [Tooltip("If true, use proxy-box fragment shader instead of compute dispatches. 5-10x faster for small on-screen volumes.")]
-        [SerializeField] private bool useProxyRender = false;
+        [SerializeField] private bool useProxyRender = true;
         [SerializeField] private Shader proxyShader;
         private Material proxyMaterial;
         private Mesh proxyCubeMesh;
@@ -36,12 +36,41 @@ namespace SteelCity.Sim
         [Header("Render Settings")]
         [Tooltip("Voxel size in world units (should match CityMap3D.voxelSize).")]
         [SerializeField] private float voxelSize = 0.1f;
-        [Tooltip("Max DDA steps per ray (safety cap). 256 is fine for 96-voxel chunks.")]
-        [SerializeField] private int maxSteps = 256;
+        [Tooltip("Max DDA steps per ray (safety cap). 96 covers most building chunks; terrain needs ~132.")]
+        [SerializeField] private int maxSteps = 96;
         [Tooltip("Render texture resolution scale relative to screen.")]
-        [SerializeField] private float resolutionScale = 0.75f;
+        [SerializeField] private float resolutionScale = 0.5f;
         [Tooltip("Background color when rays miss all chunks. Alpha=0 for transparent (shows scene behind).")]
         [SerializeField] private Color backgroundColor = new(0f, 0f, 0f, 0f);
+        [Tooltip("Max world-space distance to render chunks. 0 = no limit. Set ~40-60 for Working mode perf.")]
+        [SerializeField] private float maxRenderDistance = 50f;
+        [Tooltip("If true, keep distant chunks visible and rely on per-chunk step LOD instead of distance culling.")]
+        [SerializeField] private bool preferGranularLodOverDistanceCulling = false;
+        [Header("Granular LOD (Proxy)")]
+        [Tooltip("Distance where medium LOD starts for non-building chunks.")]
+        [SerializeField] private float lodMidDistance = 20f;
+        [Tooltip("Distance where far LOD starts for non-building chunks.")]
+        [SerializeField] private float lodFarDistance = 35f;
+        [Tooltip("Distance where ultra-far LOD starts for non-building chunks.")]
+        [SerializeField] private float lodUltraFarDistance = 55f;
+        [Tooltip("Ray steps for medium LOD.")]
+        [SerializeField] private int lodMidSteps = 64;
+        [Tooltip("Ray steps for far LOD.")]
+        [SerializeField] private int lodFarSteps = 32;
+        [Tooltip("Ray steps for ultra-far LOD.")]
+        [SerializeField] private int lodUltraFarSteps = 20;
+        [Tooltip("Multiplier for building LOD distance thresholds (<1 means buildings degrade sooner).")]
+        [SerializeField] private float buildingLodDistanceMultiplier = 0.7f;
+        [Tooltip("Distance at which building chunks switch to cheap shading (skips smooth-normal blend, real GPU cost reduction). Applied at midDist tier onward.")]
+        [SerializeField] private bool enableCheapShadingLod = true;
+        [Tooltip("Distance at which building chunks switch to unlit fast-path (skips GetLighting + entire shadow-ray setup — the biggest real perf win). Applied at ultraDist tier onward.")]
+        [SerializeField] private bool enableUnlitLod = true;
+        [Tooltip("Log per-building-chunk LOD tier/distance once per second when true.")]
+        [SerializeField] private bool debugLodTiers = false;
+        [Tooltip("DEBUG: force ALL building chunks to ultra-far LOD (cheap shading + min steps) regardless of distance. Use to exaggerate the perf effect for testing — do not ship enabled.")]
+        [SerializeField] private bool debugForceAllBuildingsUltraLod = false;
+        [Tooltip("DEBUG: solid-tint building chunks by LOD tier (green=near, yellow=mid, orange=far, red=ultra) so tiers are visually obvious. Overrides real shading — do not ship enabled.")]
+        [SerializeField] private bool debugColorizeLodTiers = false;
 
         [Header("Debug")]
         [SerializeField] private bool debugChunkBounds = false;
@@ -54,6 +83,7 @@ namespace SteelCity.Sim
             public ComputeBuffer voxelBuffer;    // uint[] packed voxels
             public ComputeBuffer materialBuffer; // float4[] color lookup (shared)
             public ComputeBuffer tintBuffer;     // float4[] per-material tint (per-chunk)
+            public MaterialPropertyBlock cachedPropBlock; // reused across frames to avoid GC
             public VoxelInt3 dims;               // voxel dimensions
             public Vector3 worldOffset;          // cached world-space position
             public Quaternion rotation;            // cached world-space rotation
@@ -67,6 +97,9 @@ namespace SteelCity.Sim
 
         private readonly List<VoxelChunk> chunks = new();
         private readonly Dictionary<string, VoxelChunk> chunkLookup = new();
+
+        // --- Reusable proxy draw list (avoids per-frame allocation) ---
+        private readonly List<(VoxelChunk chunk, float dist)> proxyDrawList = new();
 
         // --- Render targets ---
         private RenderTexture colorRT;
@@ -96,10 +129,21 @@ namespace SteelCity.Sim
         private int propCameraOrigin, propCameraToWorld, propInvProjection;
         private int propProxyCamOrigin, propProxyCamToWorld, propProxyInvProj;
         private int propScreenSize, propMaxSteps, propBackgroundColor, propIsOrthographic;
+        private int propCheapShading;
+        private int propUnlitLod;
+        private int propLodDebugEnabled, propLodDebugColor;
         private int propLightDirection, propLightIntensity, propAmbientIntensity, propFillIntensity, propLightColor;
         private int propChunkTints;
         private int propShadowNormalNudge, propShadowLightNudge, propShadowSkipSteps, propShadowMaxSteps, propShadowEnabled;
         private int propSunLightEnabled, propAmbientEnabled, propFillEnabled, propCamLightEnabled;
+
+        // --- Perf tracking (event-driven, not timed) ---
+        private int perfLastActiveChunks = -1;
+        private int perfLastRenderW = -1;
+        private int perfLastRenderH = -1;
+        private bool perfLastProxy = false;
+        private bool distanceCullingEnabled = true;
+        private float savedMaxRenderDistance = 50f;
 
         // --- Lighting state (set by VoxelSun) ---
         private Vector3 lightDirection = new Vector3(0.3f, 1f, -0.2f).normalized;
@@ -113,7 +157,7 @@ namespace SteelCity.Sim
         private float shadowLightNudge = 2.0f;
         private int shadowSkipSteps = 4;
         private int shadowMaxSteps = 32;
-        private int shadowEnabled = 1;
+        private int shadowEnabled = 0; // disabled by default for performance — re-enable for quality shots
 
         // --- Lighting debug toggles ---
         private int sunLightEnabled = 1;
@@ -125,6 +169,14 @@ namespace SteelCity.Sim
 
         void Awake()
         {
+            // Force perf defaults — inspector may hold stale values from before code changes
+            maxSteps = Mathf.Min(maxSteps, 96);
+            resolutionScale = Mathf.Min(resolutionScale, 0.5f);
+            shadowEnabled = 0;
+            useProxyRender = true;
+            if (maxRenderDistance <= 0f) maxRenderDistance = 50f;
+            savedMaxRenderDistance = maxRenderDistance;
+
             TryAutoLoadShader();
             if (raymarchShader == null)
             {
@@ -250,6 +302,10 @@ namespace SteelCity.Sim
             propMaxSteps = Shader.PropertyToID("_MaxSteps");
             propBackgroundColor = Shader.PropertyToID("_BackgroundColor");
             propIsOrthographic = Shader.PropertyToID("_IsOrthographic");
+            propCheapShading = Shader.PropertyToID("_CheapShading");
+            propUnlitLod = Shader.PropertyToID("_UnlitLod");
+            propLodDebugEnabled = Shader.PropertyToID("_LodDebugEnabled");
+            propLodDebugColor = Shader.PropertyToID("_LodDebugColor");
             propLightDirection = Shader.PropertyToID("_LightDirection");
             propLightIntensity = Shader.PropertyToID("_LightIntensity");
             propAmbientIntensity = Shader.PropertyToID("_AmbientIntensity");
@@ -473,8 +529,7 @@ namespace SteelCity.Sim
             chunks.Add(chunk);
             chunkLookup[name] = chunk;
 
-            Debug.Log($"[VoxelChunkManager] Loaded chunk '{name}': {w}x{h}x{d} voxels at {worldPos} (voxelSize={customVoxelSize})" +
-                (chunk.hasSolid ? $" tightAABB=[{chunk.tightMinX},{chunk.tightMinY},{chunk.tightMinZ}]->[{chunk.tightMaxX},{chunk.tightMaxY},{chunk.tightMaxZ}]" : " (empty)"));
+            // Suppress per-chunk load logs (too many at scale — 300+ chunks for 100 blocks)
         }
 
         /// <summary>
@@ -583,8 +638,8 @@ namespace SteelCity.Sim
             chunks.Add(chunk);
             chunkLookup[name] = chunk;
 
-            Debug.Log($"[VoxelChunkManager] Loaded procedural chunk '{name}': {w}x{h}x{d} at {worldPos} (voxelSize={customVoxelSize})" +
-                (chunk.hasSolid ? $" tightAABB=[{chunk.tightMinX},{chunk.tightMinY},{chunk.tightMinZ}]->[{chunk.tightMaxX},{chunk.tightMaxY},{chunk.tightMaxZ}]" : " (empty)"));
+            // Suppress per-chunk load logs for procedural terrain (too many at scale)
+            // Only log errors (empty chunks, data mismatches) not routine loads
         }
 
         /// <summary>
@@ -644,7 +699,14 @@ namespace SteelCity.Sim
                 worldOffset = host.transform.position,
                 rotation = host.transform.rotation,
                 voxelSize = customVoxelSize,
-                active = true
+                active = true,
+                hasSolid = true,
+                tightMinX = 0,
+                tightMinY = 0,
+                tightMinZ = 0,
+                tightMaxX = Mathf.Max(0, dimsX - 1),
+                tightMaxY = Mathf.Max(0, dimsY - 1),
+                tightMaxZ = Mathf.Max(0, dimsZ - 1)
             };
 
             chunks.Add(chunk);
@@ -784,6 +846,26 @@ namespace SteelCity.Sim
         public bool GetUseProxyRender() => useProxyRender;
         public void SetUseProxyRender(bool v) => useProxyRender = v;
 
+        public void SetGranularLodMode(bool enabled)
+        {
+            preferGranularLodOverDistanceCulling = enabled;
+            if (enabled)
+            {
+                if (maxRenderDistance > 0f)
+                    savedMaxRenderDistance = maxRenderDistance;
+                distanceCullingEnabled = false;
+                maxRenderDistance = 0f;
+            }
+            else
+            {
+                distanceCullingEnabled = true;
+                if (savedMaxRenderDistance > 0f)
+                    maxRenderDistance = savedMaxRenderDistance;
+                else if (maxRenderDistance <= 0f)
+                    maxRenderDistance = 50f;
+            }
+        }
+
         public void RenderChunks()
         {
             if (renderCamera == null || chunks.Count == 0)
@@ -792,10 +874,25 @@ namespace SteelCity.Sim
             if (useProxyRender && proxyMaterial != null && proxyCubeMesh != null)
             {
                 RenderProxyChunks();
-                return;
+            }
+            else
+            {
+                RenderComputeChunks();
             }
 
-            RenderComputeChunks();
+            // Event-driven perf log — only on significant state changes (not per-frame drawn count)
+            int activeNow = 0;
+            foreach (var c in chunks) if (c.active) activeNow++;
+            int drawnNow = useProxyRender ? proxyDrawList.Count : activeNow;
+            if (activeNow != perfLastActiveChunks || renderWidth != perfLastRenderW ||
+                renderHeight != perfLastRenderH || useProxyRender != perfLastProxy)
+            {
+                Debug.Log($"[Perf] active={activeNow} drawn={drawnNow} render={renderWidth}x{renderHeight} proxy={useProxyRender} shadows={shadowEnabled} maxSteps={maxSteps}");
+                perfLastActiveChunks = activeNow;
+                perfLastRenderW = renderWidth;
+                perfLastRenderH = renderHeight;
+                perfLastProxy = useProxyRender;
+            }
         }
 
         /// <summary>
@@ -818,6 +915,9 @@ namespace SteelCity.Sim
             proxyMaterial.SetInt(propMaxSteps, maxSteps);
             proxyMaterial.SetVector(propBackgroundColor, backgroundColor);
             proxyMaterial.SetInt(propIsOrthographic, renderCamera.orthographic ? 1 : 0);
+            proxyMaterial.SetInt(propCheapShading, 0);
+            proxyMaterial.SetInt(propUnlitLod, 0);
+            proxyMaterial.SetInt(propLodDebugEnabled, 0);
             proxyMaterial.SetVector(propLightDirection, lightDirection);
             proxyMaterial.SetFloat(propLightIntensity, lightIntensity);
             proxyMaterial.SetFloat(propAmbientIntensity, ambientIntensity);
@@ -838,7 +938,13 @@ namespace SteelCity.Sim
             proxyMaterial.SetVector(propProxyCamOrigin, camTransform.position);
 
             // Build sorted draw list (back-to-front for correct depth compositing)
-            var drawList = new List<(VoxelChunk chunk, float dist)>(chunks.Count);
+            // Reuse cached list to avoid per-frame allocation
+            // Frustum-cull chunks whose tight AABB is entirely off-screen
+            // Distance culling only for perspective cameras (Working mode); ortho (Planning) sees all
+            bool isOrtho = renderCamera.orthographic;
+            var frustumPlanes = GeometryUtility.CalculateFrustumPlanes(renderCamera);
+            proxyDrawList.Clear();
+            int culledCount = 0;
             foreach (var chunk in chunks)
             {
                 if (!chunk.active || chunk.voxelBuffer == null || !chunk.hasSolid)
@@ -848,17 +954,37 @@ namespace SteelCity.Sim
                     ? chunk.hostObject.transform.position
                     : chunk.worldOffset;
 
-                // Tight AABB center in world space
                 float vs = chunk.voxelSize;
                 Vector3 tightCenter = chunkWorldPos + new Vector3(
                     (chunk.tightMinX + chunk.tightMaxX + 1) * vs * 0.5f,
                     (chunk.tightMinY + chunk.tightMaxY + 1) * vs * 0.5f,
                     (chunk.tightMinZ + chunk.tightMaxZ + 1) * vs * 0.5f);
 
+                // Tight AABB in world space for frustum culling
+                Vector3 tightSize = new Vector3(
+                    (chunk.tightMaxX - chunk.tightMinX + 1) * vs,
+                    (chunk.tightMaxY - chunk.tightMinY + 1) * vs,
+                    (chunk.tightMaxZ - chunk.tightMinZ + 1) * vs);
+                Bounds chunkBounds = new Bounds(tightCenter, tightSize);
+
+                if (!GeometryUtility.TestPlanesAABB(frustumPlanes, chunkBounds))
+                {
+                    culledCount++;
+                    continue;
+                }
+
                 float dist = Vector3.Distance(tightCenter, camTransform.position);
-                drawList.Add((chunk, dist));
+
+                // Distance culling — only for perspective cameras (Working mode)
+                if (!isOrtho && distanceCullingEnabled && maxRenderDistance > 0f && dist > maxRenderDistance)
+                {
+                    culledCount++;
+                    continue;
+                }
+
+                proxyDrawList.Add((chunk, dist));
             }
-            drawList.Sort((a, b) => b.dist.CompareTo(a.dist)); // farthest first
+            proxyDrawList.Sort((a, b) => a.dist.CompareTo(b.dist)); // nearest first — enables GPU early-Z rejection
 
             // Clear and draw via CommandBuffer
             var cmd = new CommandBuffer { name = "VoxelProxyRaymarch" };
@@ -867,7 +993,7 @@ namespace SteelCity.Sim
             // Set view/projection matrices so UNITY_MATRIX_VP works in vertex shader
             cmd.SetViewProjectionMatrices(renderCamera.worldToCameraMatrix, renderCamera.projectionMatrix);
 
-            foreach (var (chunk, _) in drawList)
+            foreach (var (chunk, dist) in proxyDrawList)
             {
                 Vector3 chunkWorldPos = chunk.hostObject != null
                     ? chunk.hostObject.transform.position
@@ -892,14 +1018,85 @@ namespace SteelCity.Sim
                 // TRS matrix: position at tight center, scale to tight size, apply rotation
                 Matrix4x4 trs = Matrix4x4.TRS(tightCenter, chunkRot, tightSize);
 
-                // Per-chunk property block
-                var block = new MaterialPropertyBlock();
+                // Reuse cached MaterialPropertyBlock — avoids per-chunk per-frame allocation
+                if (chunk.cachedPropBlock == null)
+                    chunk.cachedPropBlock = new MaterialPropertyBlock();
+                var block = chunk.cachedPropBlock;
+                block.Clear();
                 block.SetBuffer(propVoxelData, chunk.voxelBuffer);
                 block.SetBuffer(propMaterialColors, sharedMaterialBuffer);
                 block.SetBuffer(propChunkTints, chunk.tintBuffer ?? defaultTintBuffer);
                 block.SetVector(propVolumeDims, new Vector4(chunk.dims.x, chunk.dims.y, chunk.dims.z, 0));
                 block.SetFloat(propVoxelSize, vs);
                 block.SetVector(propVolumeOffset, chunkWorldPos);
+
+                // LOD: reduce maxSteps for distant chunks — far voxels are small on screen.
+                // NOTE: since the raymarch loop breaks on the first solid hit, _MaxSteps only
+                // affects rays that travel through empty space before hitting something (e.g.
+                // ground under empty lots, background misses). Solid buildings hit on the very
+                // first step and are unaffected by this — the real building-cost lever is
+                // _CheapShading below, which skips the smooth-normal blend (6 buffer reads).
+                int lodSteps = maxSteps;
+                int cheapShading = 0;
+                int unlitLod = 0;
+                int lodDebugEnabled = 0;
+                Color lodDebugColor = Color.white;
+                if (!isOrtho)
+                {
+                    if (preferGranularLodOverDistanceCulling)
+                    {
+                        bool isBuildingChunk = chunk.name != null && chunk.name.Contains("_building");
+                        float distScale = isBuildingChunk ? Mathf.Clamp(buildingLodDistanceMultiplier, 0.35f, 1f) : 1f;
+
+                        float midDist = lodMidDistance * distScale;
+                        float farDist = lodFarDistance * distScale;
+                        float ultraDist = lodUltraFarDistance * distScale;
+
+                        bool forceUltra = isBuildingChunk && debugForceAllBuildingsUltraLod;
+
+                        if (forceUltra || dist > ultraDist) lodSteps = Mathf.Clamp(lodUltraFarSteps, 8, maxSteps);
+                        else if (dist > farDist) lodSteps = Mathf.Clamp(lodFarSteps, 8, maxSteps);
+                        else if (dist > midDist) lodSteps = Mathf.Clamp(lodMidSteps, 8, maxSteps);
+
+                        // Actual GPU cost reduction for buildings: skip smooth-normal blend
+                        // once past the mid-distance tier. This is the real performance lever
+                        // for opaque geometry since it applies on every hit pixel, not just
+                        // long-travel misses.
+                        if (isBuildingChunk && enableCheapShadingLod && (forceUltra || dist > midDist))
+                            cheapShading = 1;
+
+                        // Biggest real perf win: skip lighting/shadow-setup math entirely once
+                        // a building hits the ultra-far tier.
+                        if (isBuildingChunk && enableUnlitLod && (forceUltra || dist > ultraDist))
+                            unlitLod = 1;
+
+                        if (debugLodTiers && isBuildingChunk && Time.frameCount % 60 == 0)
+                        {
+                            string tier = forceUltra ? "ultra(forced)" : dist > ultraDist ? "ultra" : dist > farDist ? "far" : dist > midDist ? "mid" : "near";
+                            Debug.Log($"[LOD] {chunk.name} dist={dist:F1} tier={tier} steps={lodSteps} cheapShading={cheapShading} unlitLod={unlitLod}");
+                        }
+
+                        // Debug: solid-tint by tier so the LOD boundary is visually obvious
+                        if (debugColorizeLodTiers && isBuildingChunk)
+                        {
+                            lodDebugEnabled = 1;
+                            if (forceUltra || dist > ultraDist) lodDebugColor = new Color(1f, 0.15f, 0.15f);      // red
+                            else if (dist > farDist) lodDebugColor = new Color(1f, 0.55f, 0f);                    // orange
+                            else if (dist > midDist) lodDebugColor = new Color(1f, 0.9f, 0.1f);                   // yellow
+                            else lodDebugColor = new Color(0.2f, 0.9f, 0.2f);                                      // green
+                        }
+                    }
+                    else
+                    {
+                        if (dist > 35f) lodSteps = Mathf.Max(16, maxSteps / 4);
+                        else if (dist > 20f) lodSteps = Mathf.Max(32, maxSteps / 2);
+                    }
+                }
+                block.SetInt(propMaxSteps, lodSteps);
+                block.SetInt(propCheapShading, cheapShading);
+                block.SetInt(propUnlitLod, unlitLod);
+                block.SetInt(propLodDebugEnabled, lodDebugEnabled);
+                block.SetVector(propLodDebugColor, lodDebugColor);
 
                 Matrix4x4 localToWorld = Matrix4x4.Rotate(chunkRot);
                 Matrix4x4 worldToLocal = Matrix4x4.Rotate(Quaternion.Inverse(chunkRot));

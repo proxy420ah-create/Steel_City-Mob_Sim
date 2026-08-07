@@ -63,6 +63,11 @@ namespace SteelCity.Sim
         private float chaseYaw;
         private bool chaseYawInitialized;
 
+        // --- Cached OnGUI resources (avoid per-frame allocation) ---
+        private GUIStyle cachedLabelStyle;
+        private GUIStyle cachedBgStyle;
+        private Texture2D cachedBgTex;
+
         public void Initialize(Transform followTarget, Camera mapCamera, VoxelCharacter voxelChar = null)
         {
             target = followTarget;
@@ -375,12 +380,27 @@ namespace SteelCity.Sim
         {
             if (!showDebugHUD) return;
 
-            GUIStyle style = new GUIStyle(GUI.skin.label);
-            style.fontSize = 14;
-            style.normal.textColor = new Color(1f, 1f, 0.4f);
+            // Initialize cached styles once
+            if (cachedLabelStyle == null)
+            {
+                cachedLabelStyle = new GUIStyle(GUI.skin.label);
+                cachedLabelStyle.fontSize = 14;
+                cachedLabelStyle.normal.textColor = new Color(1f, 1f, 0.4f);
+            }
+            if (cachedBgTex == null)
+            {
+                cachedBgTex = new Texture2D(1, 1);
+                cachedBgTex.SetPixel(0, 0, new Color(0.08f, 0.08f, 0.12f, 0.85f));
+                cachedBgTex.Apply();
+            }
+            if (cachedBgStyle == null)
+            {
+                cachedBgStyle = new GUIStyle(GUI.skin.box);
+                cachedBgStyle.normal.background = cachedBgTex;
+            }
 
-            GUIStyle bgStyle = new GUIStyle(GUI.skin.box);
-            bgStyle.normal.background = MakeSolidTexture(0.08f, 0.08f, 0.12f, 0.85f);
+            var style = cachedLabelStyle;
+            var bgStyle = cachedBgStyle;
 
             float w = 340f, h = 260f;
             GUILayout.BeginArea(new Rect(10, 10, w, h), bgStyle);
@@ -413,14 +433,6 @@ namespace SteelCity.Sim
             GUILayout.Label("[T] Chase/Orbit  [Shift] Free-Look  [Z] Reset", style);
             GUILayout.Label("[C] Capture  [H] Hide HUD", style);
             GUILayout.EndArea();
-        }
-
-        private static Texture2D MakeSolidTexture(float r, float g, float b, float a)
-        {
-            var tex = new Texture2D(1, 1);
-            tex.SetPixel(0, 0, new Color(r, g, b, a));
-            tex.Apply();
-            return tex;
         }
     }
 }

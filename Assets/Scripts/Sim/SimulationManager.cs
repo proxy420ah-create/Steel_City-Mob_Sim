@@ -123,7 +123,12 @@ namespace SteelCity.Sim
             }
 
             string currentNodeId = currentPath[pathIndex];
-            var node = waypointGraph.Nodes[currentNodeId];
+            if (!waypointGraph.Nodes.TryGetValue(currentNodeId, out var node))
+            {
+                eventStream.Enqueue(SimEvent.NoPathEvent($"Path node missing in graph: {currentNodeId}"));
+                SetState(SimState.Complete);
+                return;
+            }
 
             int linkCost = 1;
             string linkType = "walk";
@@ -190,8 +195,17 @@ namespace SteelCity.Sim
                 return;
             }
 
+            if (!ValidatePathContinuity(currentPath, "to_target"))
+            {
+                eventStream.Enqueue(SimEvent.NoPathEvent(
+                    $"Invalid path continuity {startBlockId} to {targetBlockId}!"));
+                SetState(SimState.Complete);
+                return;
+            }
+
             pathIndex = 0;
             eventStream.Enqueue(SimEvent.PathFoundEvent(currentPath.Count));
+            LogPathTrace("to_target", startBlockId, targetBlockId, currentPath);
         }
 
         void FindPathHome()
@@ -208,8 +222,17 @@ namespace SteelCity.Sim
                 return;
             }
 
+            if (!ValidatePathContinuity(currentPath, "to_home"))
+            {
+                eventStream.Enqueue(SimEvent.NoPathEvent(
+                    $"Invalid path continuity {targetBlockId} to {startBlockId}!"));
+                SetState(SimState.Complete);
+                return;
+            }
+
             pathIndex = 0;
             eventStream.Enqueue(SimEvent.PathFoundEvent(currentPath.Count));
+            LogPathTrace("to_home", targetBlockId, startBlockId, currentPath);
         }
 
         void OnArrivedAtDestination()
@@ -344,6 +367,79 @@ namespace SteelCity.Sim
                         ticksElapsed, ticksRemaining));
                     break;
             }
+        }
+
+        void LogPathTrace(string label, string fromBlock, string toBlock, List<string> path)
+        {
+            if (path == null || path.Count == 0)
+                return;
+
+            int sample = Mathf.Min(6, path.Count);
+            var head = new List<string>(sample);
+            for (int i = 0; i < sample; i++)
+            {
+                string nodeId = path[i];
+                if (waypointGraph.Nodes.TryGetValue(nodeId, out var node))
+                    head.Add($"{nodeId}({node.localPos.x:F1},{node.localPos.z:F1})");
+                else
+                    head.Add($"{nodeId}(missing)");
+            }
+
+            string tail = string.Empty;
+            if (path.Count > sample)
+            {
+                string lastId = path[path.Count - 1];
+                if (waypointGraph.Nodes.TryGetValue(lastId, out var lastNode))
+                    tail = $" ... {lastId}({lastNode.localPos.x:F1},{lastNode.localPos.z:F1})";
+                else
+                    tail = $" ... {lastId}(missing)";
+            }
+
+            Debug.Log($"[SimulationManager] PathTrace {label} {fromBlock}->{toBlock} nodes={path.Count} route={string.Join(" -> ", head)}{tail}");
+        }
+
+        bool ValidatePathContinuity(List<string> path, string label)
+        {
+            if (path == null || path.Count <= 1)
+                return true;
+
+            for (int i = 0; i < path.Count - 1; i++)
+            {
+                string current = path[i];
+                string next = path[i + 1];
+
+                if (!waypointGraph.Nodes.TryGetValue(current, out var currentNode))
+                {
+                    Debug.LogWarning($"[SimulationManager] PathTrace {label} invalid: missing node '{current}' at index {i}");
+                    return false;
+                }
+                if (!waypointGraph.Nodes.TryGetValue(next, out var nextNode))
+                {
+                    Debug.LogWarning($"[SimulationManager] PathTrace {label} invalid: missing node '{next}' at index {i + 1}");
+                    return false;
+                }
+
+                bool linked = false;
+                foreach (var link in currentNode.links)
+                {
+                    if (link.targetId == next)
+                    {
+                        linked = true;
+                        break;
+                    }
+                }
+
+                if (!linked)
+                {
+                    Debug.LogWarning(
+                        $"[SimulationManager] PathTrace {label} invalid: no direct link {current} -> {next} (index {i}->{i + 1}) | " +
+                        $"from: block={currentNode.blockId} edge={currentNode.edgeIndex} type={currentNode.type} pos=({currentNode.localPos.x:F2},{currentNode.localPos.z:F2}) | " +
+                        $"to: block={nextNode.blockId} edge={nextNode.edgeIndex} type={nextNode.type} pos=({nextNode.localPos.x:F2},{nextNode.localPos.z:F2})");
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         void SetState(SimState newState)

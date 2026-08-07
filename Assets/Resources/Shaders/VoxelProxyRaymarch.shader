@@ -54,6 +54,10 @@ Shader "SteelCity/VoxelProxyRaymarch"
             int    _MaxSteps;
             float4 _BackgroundColor;
             int    _IsOrthographic;
+            int    _CheapShading; // skips SmoothNormal blend for distant/LOD'd chunks
+            int    _UnlitLod;    // skips fill/cam lighting + shadow-adjust math entirely (ultra-far tier)
+            int    _LodDebugEnabled; // debug: tint hit color by LOD tier
+            float4 _LodDebugColor;
 
             float3 _LightDirection;
             float  _LightIntensity;
@@ -290,51 +294,114 @@ Shader "SteelCity/VoxelProxyRaymarch"
                         float4 tint = _ChunkTints[mat];
                         baseColor.rgb *= tint.rgb;
 
-                        // Blended normal (same as compute shader)
-                        float3 smoothN = SmoothNormal(voxel, dims);
+                        // Blended normal (same as compute shader) — skipped entirely
+                        // for cheap-shading LOD tier to avoid 6 extra buffer reads per pixel
                         float3 blendedN;
-                        if (abs(normal.y) > 0.5)
+                        if (_CheapShading != 0 || _UnlitLod != 0)
+                        {
+                            blendedN = normal;
+                        }
+                        else if (abs(normal.y) > 0.5)
                         {
                             blendedN = normal;
                         }
                         else
                         {
+                            float3 smoothN = SmoothNormal(voxel, dims);
                             blendedN = normalize(normal * 0.7 + smoothN * 0.3);
                         }
                         blendedN = normalize(mul((float3x3)_VolumeInvRotation, blendedN));
-                        float3 lighting = GetLighting(blendedN, mat);
 
-                        // Shadow ray (same as compute shader)
-                        float3 hitWorldPos = localRo + localRd * currentT;
-                        float3 shadowDir = mul((float3x3)_VolumeRotation, _LightDirection);
-                        float3 localN = normalize(mul((float3x3)_VolumeRotation, blendedN));
-                        float3 shadowOrigin = hitWorldPos
-                            + localN * (_VoxelSize * _ShadowNormalNudge)
-                            + shadowDir * (_VoxelSize * _ShadowLightNudge);
+                        float3 shadowedLighting;
 
-                        float3 shadowLocal = (shadowOrigin - _VolumeOffset) / _VoxelSize;
-                        int3 shadowVoxel = clamp((int3)floor(shadowLocal), int3(0, 0, 0), dims - int3(1, 1, 1));
-
-                        int3 shadowStep = (int3)sign(shadowDir);
-                        float3 shadowDelta = abs(_VoxelSize / shadowDir);
-
-                        float3 shadowSideDist;
-                        if (shadowDir.x < 0) shadowSideDist.x = (shadowLocal.x - float(shadowVoxel.x)) * shadowDelta.x;
-                        else shadowSideDist.x = (float(shadowVoxel.x + 1) - shadowLocal.x) * shadowDelta.x;
-                        if (shadowDir.y < 0) shadowSideDist.y = (shadowLocal.y - float(shadowVoxel.y)) * shadowDelta.y;
-                        else shadowSideDist.y = (float(shadowVoxel.y + 1) - shadowLocal.y) * shadowDelta.y;
-                        if (shadowDir.z < 0) shadowSideDist.z = (shadowLocal.z - float(shadowVoxel.z)) * shadowDelta.z;
-                        else shadowSideDist.z = (float(shadowVoxel.z + 1) - shadowLocal.z) * shadowDelta.z;
-
-                        float shadowFactor = 1.0;
-                        [loop]
-                        for (int s = 0; s < _ShadowMaxSteps && _ShadowEnabled; s++)
+                        if (_UnlitLod != 0)
                         {
-                            if (!InBounds(shadowVoxel, dims))
-                                break;
+                            // Ultra-far fast path: skips GetLighting's fill/cam branches AND the
+                            // entire shadow-ray setup/loop (divisions, floor, sign, per-step buffer
+                            // reads) below. Real ALU + memory-bandwidth savings per hit pixel,
+                            // unlike _CheapShading alone which only skips the normal blend.
+                            float skyDot = dot(blendedN, _LightDirection) * 0.5 + 0.5;
+                            skyDot = skyDot * skyDot;
+                            float3 ambient = float3(_AmbientIntensity, _AmbientIntensity, _AmbientIntensity * 1.03);
+                            shadowedLighting = ambient + _LightColor * skyDot * _LightIntensity;
+                        }
+                        else
+                        {
+                            float3 lighting = GetLighting(blendedN, mat);
 
-                            if (s < _ShadowSkipSteps)
+                            // Shadow ray (same as compute shader)
+                            float3 hitWorldPos = localRo + localRd * currentT;
+                            float3 shadowDir = mul((float3x3)_VolumeRotation, _LightDirection);
+                            float3 localN = normalize(mul((float3x3)_VolumeRotation, blendedN));
+                            float3 shadowOrigin = hitWorldPos
+                                + localN * (_VoxelSize * _ShadowNormalNudge)
+                                + shadowDir * (_VoxelSize * _ShadowLightNudge);
+
+                            float3 shadowLocal = (shadowOrigin - _VolumeOffset) / _VoxelSize;
+                            int3 shadowVoxel = clamp((int3)floor(shadowLocal), int3(0, 0, 0), dims - int3(1, 1, 1));
+
+                            int3 shadowStep = (int3)sign(shadowDir);
+                            float3 shadowDelta = abs(_VoxelSize / shadowDir);
+
+                            float3 shadowSideDist;
+                            if (shadowDir.x < 0) shadowSideDist.x = (shadowLocal.x - float(shadowVoxel.x)) * shadowDelta.x;
+                            else shadowSideDist.x = (float(shadowVoxel.x + 1) - shadowLocal.x) * shadowDelta.x;
+                            if (shadowDir.y < 0) shadowSideDist.y = (shadowLocal.y - float(shadowVoxel.y)) * shadowDelta.y;
+                            else shadowSideDist.y = (float(shadowVoxel.y + 1) - shadowLocal.y) * shadowDelta.y;
+                            if (shadowDir.z < 0) shadowSideDist.z = (shadowLocal.z - float(shadowVoxel.z)) * shadowDelta.z;
+                            else shadowSideDist.z = (float(shadowVoxel.z + 1) - shadowLocal.z) * shadowDelta.z;
+
+                            float shadowFactor = 1.0;
+                            [loop]
+                            for (int s = 0; s < _ShadowMaxSteps && _ShadowEnabled; s++)
                             {
+                                if (!InBounds(shadowVoxel, dims))
+                                    break;
+
+                                if (s < _ShadowSkipSteps)
+                                {
+                                    if (shadowSideDist.x < shadowSideDist.y)
+                                    {
+                                        if (shadowSideDist.x < shadowSideDist.z)
+                                        {
+                                            shadowVoxel.x += shadowStep.x;
+                                            shadowSideDist.x += shadowDelta.x;
+                                        }
+                                        else
+                                        {
+                                            shadowVoxel.z += shadowStep.z;
+                                            shadowSideDist.z += shadowDelta.z;
+                                        }
+                                    }
+                                    else
+                                    {
+                                        if (shadowSideDist.y < shadowSideDist.z)
+                                        {
+                                            shadowVoxel.y += shadowStep.y;
+                                            shadowSideDist.y += shadowDelta.y;
+                                        }
+                                        else
+                                        {
+                                            shadowVoxel.z += shadowStep.z;
+                                            shadowSideDist.z += shadowDelta.z;
+                                        }
+                                    }
+                                    continue;
+                                }
+
+                                uint sPacked = _VoxelData[VoxelIndex(shadowVoxel, dims)];
+                                uint sMat = VxMaterial(sPacked);
+
+                                if (sMat != 0u)
+                                {
+                                    float3 voxelCenter = _VolumeOffset + (float3(shadowVoxel) + 0.5) * _VoxelSize;
+                                    float3 toHit = shadowOrigin - voxelCenter;
+                                    float perpDist = length(toHit - shadowDir * dot(toHit, shadowDir));
+                                    float softness = saturate(perpDist / (_VoxelSize * 2.0));
+                                    shadowFactor = min(shadowFactor, softness);
+                                    if (shadowFactor < 0.05) { shadowFactor = 0.0; break; }
+                                }
+
                                 if (shadowSideDist.x < shadowSideDist.y)
                                 {
                                     if (shadowSideDist.x < shadowSideDist.z)
@@ -361,60 +428,24 @@ Shader "SteelCity/VoxelProxyRaymarch"
                                         shadowSideDist.z += shadowDelta.z;
                                     }
                                 }
-                                continue;
                             }
 
-                            uint sPacked = _VoxelData[VoxelIndex(shadowVoxel, dims)];
-                            uint sMat = VxMaterial(sPacked);
-
-                            if (sMat != 0u)
-                            {
-                                float3 voxelCenter = _VolumeOffset + (float3(shadowVoxel) + 0.5) * _VoxelSize;
-                                float3 toHit = shadowOrigin - voxelCenter;
-                                float perpDist = length(toHit - shadowDir * dot(toHit, shadowDir));
-                                float softness = saturate(perpDist / (_VoxelSize * 2.0));
-                                shadowFactor = min(shadowFactor, softness);
-                                if (shadowFactor < 0.05) { shadowFactor = 0.0; break; }
-                            }
-
-                            if (shadowSideDist.x < shadowSideDist.y)
-                            {
-                                if (shadowSideDist.x < shadowSideDist.z)
-                                {
-                                    shadowVoxel.x += shadowStep.x;
-                                    shadowSideDist.x += shadowDelta.x;
-                                }
-                                else
-                                {
-                                    shadowVoxel.z += shadowStep.z;
-                                    shadowSideDist.z += shadowDelta.z;
-                                }
-                            }
-                            else
-                            {
-                                if (shadowSideDist.y < shadowSideDist.z)
-                                {
-                                    shadowVoxel.y += shadowStep.y;
-                                    shadowSideDist.y += shadowDelta.y;
-                                }
-                                else
-                                {
-                                    shadowVoxel.z += shadowStep.z;
-                                    shadowSideDist.z += shadowDelta.z;
-                                }
-                            }
+                            // Apply shadow factor
+                            float skyDot = dot(blendedN, _LightDirection) * 0.5 + 0.5;
+                            skyDot = skyDot * skyDot;
+                            float3 sunContribution = _LightColor * skyDot * _LightIntensity;
+                            float3 nonSunLighting = lighting - sunContribution;
+                            shadowedLighting = nonSunLighting + sunContribution * shadowFactor;
+                            float ambientFloor = max(0.0, _AmbientIntensity * 0.35);
+                            shadowedLighting = max(shadowedLighting, float3(ambientFloor, ambientFloor, ambientFloor * 1.02));
                         }
 
-                        // Apply shadow factor
-                        float skyDot = dot(blendedN, _LightDirection) * 0.5 + 0.5;
-                        skyDot = skyDot * skyDot;
-                        float3 sunContribution = _LightColor * skyDot * _LightIntensity;
-                        float3 nonSunLighting = lighting - sunContribution;
-                        float3 shadowedLighting = nonSunLighting + sunContribution * shadowFactor;
-                        float ambientFloor = max(0.0, _AmbientIntensity * 0.35);
-                        shadowedLighting = max(shadowedLighting, float3(ambientFloor, ambientFloor, ambientFloor * 1.02));
-
                         hitColor = float4(baseColor.rgb * shadowedLighting, baseColor.a);
+
+                        // Debug: solid-tint hit color by LOD tier so tiers are visible at a glance
+                        if (_LodDebugEnabled != 0)
+                            hitColor = float4(_LodDebugColor.rgb, hitColor.a);
+
                         worldHit = ro + rd * currentT;
                         hit = true;
                         break;

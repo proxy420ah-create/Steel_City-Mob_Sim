@@ -254,6 +254,7 @@ namespace SteelCity.Sim
         public void SetUseSplitTerrain(bool v) => useSplitTerrain = v;
         public bool GetUseProxyRender() => chunkManager?.GetUseProxyRender() ?? false;
         public void SetUseProxyRender(bool v) { if (chunkManager != null) chunkManager.SetUseProxyRender(v); }
+        public void SetGranularLodMode(bool v) { if (chunkManager != null) chunkManager.SetGranularLodMode(v); }
         public float GetCameraOrthoSize() => mapCamera != null ? mapCamera.orthographicSize : 18f;
 
         // --- Shadow debug API ---
@@ -578,8 +579,17 @@ namespace SteelCity.Sim
         private Vector2 lastMousePos;
         private Vector3 panOffset = Vector3.zero;
 
+        // Set by GameUIController when entering/leaving Working mode
+        public bool IsExecutionMode { get; set; } = false;
+
         void Update()
         {
+            if (IsExecutionMode)
+            {
+                // Working mode: skip planning-only interactions (mouse camera, click, road ticker)
+                // FollowCamera handles camera; map camera is disabled
+                return;
+            }
             HandleMouseCamera();
             HandleClick();
             UpdateCameraTransform();
@@ -702,6 +712,7 @@ namespace SteelCity.Sim
 
         public void BuildMap(Dictionary<string, Block> blocks)
         {
+            var buildStopwatch = System.Diagnostics.Stopwatch.StartNew();
             cachedBlocks = blocks;
 
             foreach (var kv in views) if (kv.Value.root != null) Destroy(kv.Value.root);
@@ -781,6 +792,9 @@ namespace SteelCity.Sim
 
             // PHASE 4: Characters
             SpawnSceneCharacters(blocks, centerRow, centerCol, spacing);
+
+            buildStopwatch.Stop();
+            Debug.Log($"[Perf] BuildMap complete: {blocks.Count} blocks in {buildStopwatch.ElapsedMilliseconds}ms");
         }
 
         // ====================================================================
@@ -985,64 +999,38 @@ namespace SteelCity.Sim
             Dictionary<string, Block> blocks,
             float centerRow, float centerCol, float spacing)
         {
-            // Barber shop is block_4 at row=1, col=0, slot 0 in a 3×3 sub-building grid.
-            // Slot 0 = (r=0, c=0) = NW corner of the block.
-            float blockRow = 1f;
+            // Find player HQ block — fall back to first block if not found
+            float blockRow = 0f;
             float blockCol = 0f;
+            Block spawnBlock = null;
+            foreach (var b in blocks.Values)
+            {
+                if (b.isPlayerHq)
+                {
+                    spawnBlock = b;
+                    blockRow = b.row;
+                    blockCol = b.col;
+                    break;
+                }
+            }
+            if (spawnBlock == null)
+            {
+                // Fallback: use first block
+                var first = blocks.Values.GetEnumerator();
+                first.MoveNext();
+                spawnBlock = first.Current;
+                blockRow = spawnBlock.row;
+                blockCol = spawnBlock.col;
+            }
+
+            Debug.Log($"[CityMap3D] Spawning character at {spawnBlock.id} (r{blockRow} c{blockCol})");
+
             float bx = (blockCol - centerCol) * spacing;
             float bz = -(blockRow - centerRow) * spacing;
 
-            // Sub-building layout (matches BuildRaymarchBlock multi-building logic)
-            int buildingCount = 9;
-            int cols = Mathf.CeilToInt(Mathf.Sqrt(buildingCount)); // 3
-            float subSize = GroundTileSize * 0.9f / cols;
-            float subOffset = GroundTileSize * 0.45f - subSize * 0.5f;
-
-            // Barber is slot 0 → r=0, c=0 → NW corner
-            float subPx = -subOffset + 0 * subSize; // c=0
-            float subPz = -subOffset + 0 * subSize; // r=0
-
-            // Barber building local center (relative to mapRoot)
-            float barberX = bx + subPx;
-            float barberZ = bz + subPz;
-
-            // Barber is 32v×34v at voxelSize=0.1 → 3.2 × 3.4 world units
-            float bHalfX = 1.6f; // 32 * 0.1 * 0.5
-            float bHalfZ = 1.7f; // 34 * 0.1 * 0.5
-            Vector3 buildingSize = new Vector3(3.2f, 2.0f, 3.4f);
-
-            // Convert barber center to world space for terrain probing
-            Vector3 barberWorldCenter = new Vector3(barberX, 0f, barberZ) + mapRoot.position;
-
-            // Scan terrain for roads on each face
-            var orientation = BuildingOrientation.Analyze(
-                collisionWorld, barberWorldCenter, buildingSize, probeDistance: 3f);
-
-            Debug.Log($"[CityMap3D] Barber orientation: faces={orientation.streetFaces}, " +
-                $"isCorner={orientation.isCorner}, door={BuildingOrientation.DirectionName(orientation.doorDirection)}");
-
-            // Place hoodlum in front of the door, on the sidewalk
-            float sidewalkHalf = sidewalkWidth * 0.5f;
-            Vector3 doorDir = orientation.doorDirection;
-            float px, pz;
-
-            if (orientation.isCorner)
-            {
-                // Place at the corner — intersection of the two street-facing directions
-                px = orientation.cornerPosition.x - mapRoot.position.x;
-                pz = orientation.cornerPosition.z - mapRoot.position.z;
-                // Offset slightly toward the door direction
-                px += doorDir.x * sidewalkHalf;
-                pz += doorDir.z * sidewalkHalf;
-                Debug.Log($"[CityMap3D] Placing hoodlum at CORNER: ({px:F2}, {pz:F2})");
-            }
-            else
-            {
-                // Place in front of the door face
-                px = barberX + doorDir.x * (bHalfX + sidewalkHalf);
-                pz = barberZ + doorDir.z * (bHalfZ + sidewalkHalf);
-                Debug.Log($"[CityMap3D] Placing hoodlum at DOOR: ({px:F2}, {pz:F2}) facing {BuildingOrientation.DirectionName(doorDir)}");
-            }
+            // Place character at block center — simple and reliable for any city size
+            float px = bx;
+            float pz = bz;
 
             // Y: terrain is 2 voxels thick at voxelSize=0.1 → top surface at Y=0.2
             float groundY = voxelSize * 2f; // 0.2
@@ -1070,7 +1058,7 @@ namespace SteelCity.Sim
 
             SpawnedCharacter = vc;
 
-            Debug.Log($"[CityMap3D] Spawned VoxelCharacter hoodlum at ({px:F2}, {pz:F2}) — barber at ({barberX:F2}, {barberZ:F2}), groundY={groundY}");
+            Debug.Log($"[CityMap3D] Spawned VoxelCharacter hoodlum at ({px:F2}, {pz:F2}), groundY={groundY}");
         }
 
         private void BuildRaymarchBlock(Transform root, string blockId, Block block,
@@ -1119,7 +1107,7 @@ namespace SteelCity.Sim
                     if (footprint != null)
                     {
                         RegisterAddress(blockId, chunkName, anchorPos, footprint.size, row, col, -1);
-                        Debug.Log($"[CityMap3D] Building '{chunkName}' centered at {anchorPos}, footprint {footprint.size}");
+                        // Suppress per-building centered log (too many at scale)
                     }
                 }
                 else
@@ -1221,7 +1209,7 @@ namespace SteelCity.Sim
             };
             addressRegistry.Add(entry);
 
-            Debug.Log($"[CityMap3D] Address registered: {address} → {chunkName} at {worldCenter} ({size.x:F1}×{size.y:F1}×{size.z:F1}m)");
+            // Suppress per-address registration log (too many at scale)
         }
 
         private readonly Dictionary<string, float> heightCache = new();

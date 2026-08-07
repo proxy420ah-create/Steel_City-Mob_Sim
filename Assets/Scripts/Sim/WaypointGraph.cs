@@ -145,8 +145,8 @@ namespace SteelCity.Sim
                     int e1, e2;
                     if (b2.col > b1.col) { e1 = 1; e2 = 3; }
                     else if (b2.col < b1.col) { e1 = 3; e2 = 1; }
-                    else if (b2.row > b1.row) { e1 = 0; e2 = 2; }
-                    else { e1 = 2; e2 = 0; }
+                    else if (b2.row > b1.row) { e1 = 2; e2 = 0; }
+                    else { e1 = 0; e2 = 2; }
 
                     string c1 = $"{b1.block_id}_c{e1}";
                     string c2 = $"{b2.block_id}_c{e2}";
