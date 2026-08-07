@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using UnityEngine;
 
 namespace SteelCity.Sim
@@ -50,6 +51,17 @@ namespace SteelCity.Sim
         ///
         /// anchorPositions: Returns world-space center of each block for building placement.
         /// </summary>
+        // Pre-computed metadata for one terrain chunk (used for parallel generation)
+        private struct ChunkMeta
+        {
+            public int row, col;
+            public int w, d;
+            public float cxMin, cxMax, czMin, czMax;
+            public float blockX, blockZ;
+            public Vector3 worldOrigin;
+            public Vector3 localOrigin;
+        }
+
         public static List<TerrainChunk> GeneratePerBlockTerrain(
             int minRow, int maxRow, int minCol, int maxCol,
             float centerRow, float centerCol,
@@ -61,16 +73,18 @@ namespace SteelCity.Sim
             Vector3 mapRootOffset,
             out Dictionary<string, Vector3> anchorPositions)
         {
-            var chunks = new List<TerrainChunk>();
-            anchorPositions = new Dictionary<string, Vector3>();
-
             float halfRoad = roadWidth * 0.5f;
-            float chunkSize = groundTileSize + roadWidth; // block tile + one full road (half on each side)
-            int chunkVoxels = Mathf.Max(1, Mathf.CeilToInt(chunkSize / voxelSize));
             int h = 2; // 2 voxels thick
             float terrainTopY = mapRootOffset.y + h * voxelSize;
-            const float eps = 0.001f; // tolerance for floating point boundary checks
+            const float eps = 0.001f;
 
+            int rowCount = maxRow - minRow + 1;
+            int colCount = maxCol - minCol + 1;
+            int chunkCount = rowCount * colCount;
+
+            // Phase 1 (main thread): pre-compute all chunk metadata
+            var meta = new ChunkMeta[chunkCount];
+            int idx = 0;
             for (int row = minRow; row <= maxRow; row++)
             {
                 for (int col = minCol; col <= maxCol; col++)
@@ -78,71 +92,91 @@ namespace SteelCity.Sim
                     float blockX = (col - centerCol) * spacing;
                     float blockZ = -(row - centerRow) * spacing;
 
-                    // Chunk bounds: block center ± (groundTile/2 + halfRoad)
                     float cxMin = blockX - groundTileSize * 0.5f - halfRoad;
                     float cxMax = blockX + groundTileSize * 0.5f + halfRoad;
                     float czMin = blockZ - groundTileSize * 0.5f - halfRoad;
                     float czMax = blockZ + groundTileSize * 0.5f + halfRoad;
 
-                    // Adjust chunk voxel dims to actual bounds (in case of rounding)
                     int w = Mathf.Max(1, Mathf.CeilToInt((cxMax - cxMin) / voxelSize));
                     int d = Mathf.Max(1, Mathf.CeilToInt((czMax - czMin) / voxelSize));
 
-                    Vector3 worldOrigin = new Vector3(cxMin, 0f, czMin) + mapRootOffset;
-                    Vector3 localOrigin = new Vector3(cxMin, 0f, czMin);
-
-                    var data = new uint[w * h * d];
-
-                    // Fill roads that pass through this chunk
-                    // Use epsilon tolerance — road centers fall exactly on chunk boundaries
-                    // and floating point precision can cause the check to fail.
-                    // Horizontal road above (between row-1 and row)
-                    float roadZAbove = -(row - 0.5f - centerRow) * spacing;
-                    if (roadZAbove >= czMin - eps && roadZAbove <= czMax + eps)
+                    meta[idx] = new ChunkMeta
                     {
-                        FillRoadStrip(data, w, h, d, localOrigin, voxelSize,
-                            cxMin, cxMax, roadZAbove - halfRoad, roadZAbove + halfRoad, true);
-                    }
-                    // Horizontal road below (between row and row+1)
-                    float roadZBelow = -(row + 0.5f - centerRow) * spacing;
-                    if (roadZBelow >= czMin - eps && roadZBelow <= czMax + eps)
-                    {
-                        FillRoadStrip(data, w, h, d, localOrigin, voxelSize,
-                            cxMin, cxMax, roadZBelow - halfRoad, roadZBelow + halfRoad, true);
-                    }
-                    // Vertical road left (between col-1 and col)
-                    float roadXLeft = (col - 0.5f - centerCol) * spacing;
-                    if (roadXLeft >= cxMin - eps && roadXLeft <= cxMax + eps)
-                    {
-                        FillRoadStrip(data, w, h, d, localOrigin, voxelSize,
-                            roadXLeft - halfRoad, roadXLeft + halfRoad, czMin, czMax, false);
-                    }
-                    // Vertical road right (between col and col+1)
-                    float roadXRight = (col + 0.5f - centerCol) * spacing;
-                    if (roadXRight >= cxMin - eps && roadXRight <= cxMax + eps)
-                    {
-                        FillRoadStrip(data, w, h, d, localOrigin, voxelSize,
-                            roadXRight - halfRoad, roadXRight + halfRoad, czMin, czMax, false);
-                    }
-
-                    // Fill ground tile (sidewalk ring + stone interior)
-                    FillGroundTile(data, w, h, d, localOrigin, voxelSize,
-                        blockX - groundTileSize * 0.5f, blockX + groundTileSize * 0.5f,
-                        blockZ - groundTileSize * 0.5f, blockZ + groundTileSize * 0.5f,
-                        sidewalkWidth);
-
-                    chunks.Add(new TerrainChunk
-                    {
-                        name = $"terrain_r{row}c{col}",
-                        data = data,
-                        w = w, h = h, d = d,
-                        worldOrigin = worldOrigin
-                    });
-
-                    // Record anchor
-                    Vector3 anchorWorld = new Vector3(blockX, terrainTopY, blockZ) + mapRootOffset;
-                    anchorPositions[$"r{row}c{col}"] = anchorWorld;
+                        row = row, col = col,
+                        w = w, d = d,
+                        cxMin = cxMin, cxMax = cxMax, czMin = czMin, czMax = czMax,
+                        blockX = blockX, blockZ = blockZ,
+                        worldOrigin = new Vector3(cxMin, 0f, czMin) + mapRootOffset,
+                        localOrigin = new Vector3(cxMin, 0f, czMin)
+                    };
+                    idx++;
                 }
+            }
+
+            // Phase 2 (parallel): fill voxel data for each chunk concurrently
+            var chunkData = new uint[chunkCount][];
+            for (int i = 0; i < chunkCount; i++)
+                chunkData[i] = new uint[meta[i].w * h * meta[i].d];
+
+            Parallel.For(0, chunkCount, i =>
+            {
+                ref var m = ref meta[i];
+                var data = chunkData[i];
+                int w = m.w, dh = m.d;
+
+                // Horizontal road above (between row-1 and row)
+                float roadZAbove = -(m.row - 0.5f - centerRow) * spacing;
+                if (roadZAbove >= m.czMin - eps && roadZAbove <= m.czMax + eps)
+                {
+                    FillRoadStrip(data, w, h, dh, m.localOrigin, voxelSize,
+                        m.cxMin, m.cxMax, roadZAbove - halfRoad, roadZAbove + halfRoad, true);
+                }
+                // Horizontal road below (between row and row+1)
+                float roadZBelow = -(m.row + 0.5f - centerRow) * spacing;
+                if (roadZBelow >= m.czMin - eps && roadZBelow <= m.czMax + eps)
+                {
+                    FillRoadStrip(data, w, h, dh, m.localOrigin, voxelSize,
+                        m.cxMin, m.cxMax, roadZBelow - halfRoad, roadZBelow + halfRoad, true);
+                }
+                // Vertical road left (between col-1 and col)
+                float roadXLeft = (m.col - 0.5f - centerCol) * spacing;
+                if (roadXLeft >= m.cxMin - eps && roadXLeft <= m.cxMax + eps)
+                {
+                    FillRoadStrip(data, w, h, dh, m.localOrigin, voxelSize,
+                        roadXLeft - halfRoad, roadXLeft + halfRoad, m.czMin, m.czMax, false);
+                }
+                // Vertical road right (between col and col+1)
+                float roadXRight = (m.col + 0.5f - centerCol) * spacing;
+                if (roadXRight >= m.cxMin - eps && roadXRight <= m.cxMax + eps)
+                {
+                    FillRoadStrip(data, w, h, dh, m.localOrigin, voxelSize,
+                        roadXRight - halfRoad, roadXRight + halfRoad, m.czMin, m.czMax, false);
+                }
+
+                // Fill ground tile (sidewalk ring + stone interior)
+                FillGroundTile(data, w, h, dh, m.localOrigin, voxelSize,
+                    m.blockX - groundTileSize * 0.5f, m.blockX + groundTileSize * 0.5f,
+                    m.blockZ - groundTileSize * 0.5f, m.blockZ + groundTileSize * 0.5f,
+                    sidewalkWidth);
+            });
+
+            // Phase 3 (main thread): assemble results
+            var chunks = new List<TerrainChunk>(chunkCount);
+            anchorPositions = new Dictionary<string, Vector3>(chunkCount);
+
+            for (int i = 0; i < chunkCount; i++)
+            {
+                ref var m = ref meta[i];
+                chunks.Add(new TerrainChunk
+                {
+                    name = $"terrain_r{m.row}c{m.col}",
+                    data = chunkData[i],
+                    w = m.w, h = h, d = m.d,
+                    worldOrigin = m.worldOrigin
+                });
+
+                Vector3 anchorWorld = new Vector3(m.blockX, terrainTopY, m.blockZ) + mapRootOffset;
+                anchorPositions[$"r{m.row}c{m.col}"] = anchorWorld;
             }
 
             return chunks;

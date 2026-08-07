@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.IO;
+using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -113,17 +114,93 @@ namespace SteelCity.Sim
         private ComputeBuffer defaultTintBuffer; // all (1,1,1,1) — used when no custom tint set
 
         // --- Packed voxel cache: avoids re-reading + re-packing the same .stasset files ---
-        // Key = file path, Value = (packed uint[], w, h, d)
-        private static readonly Dictionary<string, (uint[] data, int w, int h, int d)> packedVoxelCache = new();
+        // Includes pre-computed tight AABB so LoadChunkFromData can skip the scan.
+        // Data is read-only after caching — no clone needed (SetData and AABB only read).
+        private struct CachedVoxelData
+        {
+            public uint[] data;
+            public int w, h, d;
+            public int minX, minY, minZ, maxX, maxY, maxZ;
+            public bool hasSolid;
+        }
+        private static readonly Dictionary<string, CachedVoxelData> packedVoxelCache = new();
         private static int packedCacheHits;
         private static int packedCacheMisses;
+
+        /// <summary>
+        /// Pre-load all unique .stasset files in parallel. Populates cache with
+        /// packed voxel data + pre-computed AABB. Call before the building loop.
+        /// </summary>
+        public static void PreloadStassetFiles(List<string> filepaths)
+        {
+            // Filter to unique files that aren't already cached
+            var unique = new HashSet<string>();
+            foreach (var path in filepaths)
+            {
+                if (File.Exists(path) && !packedVoxelCache.ContainsKey(path))
+                    unique.Add(path);
+            }
+
+            if (unique.Count == 0) return;
+
+            var paths = new List<string>(unique);
+            var results = new CachedVoxelData[paths.Count];
+
+            Parallel.For(0, paths.Count, i =>
+            {
+                string path = paths[i];
+                var voxels = StAssetReader.LoadVoxels(path);
+                if (voxels == null) return;
+
+                int w = voxels.GetLength(0);
+                int h = voxels.GetLength(1);
+                int d = voxels.GetLength(2);
+                int voxelCount = w * h * d;
+                var packedData = new uint[voxelCount];
+                int idx = 0;
+                for (int z = 0; z < d; z++)
+                    for (int y = 0; y < h; y++)
+                        for (int x = 0; x < w; x++)
+                            packedData[idx++] = (uint)voxels[x, y, z];
+
+                // Compute AABB in parallel too
+                ComputeTightAABB(packedData, w, h, d,
+                    out int minX, out int minY, out int minZ,
+                    out int maxX, out int maxY, out int maxZ, out bool hasSolid);
+
+                results[i] = new CachedVoxelData
+                {
+                    data = packedData, w = w, h = h, d = d,
+                    minX = minX, minY = minY, minZ = minZ,
+                    maxX = maxX, maxY = maxY, maxZ = maxZ,
+                    hasSolid = hasSolid
+                };
+            });
+
+            // Add to cache on main thread (Dictionary is not thread-safe)
+            for (int i = 0; i < paths.Count; i++)
+            {
+                if (results[i].data != null)
+                {
+                    packedVoxelCache[paths[i]] = results[i];
+                    packedCacheMisses++;
+                }
+            }
+
+            int loaded = 0;
+            for (int i = 0; i < results.Length; i++)
+                if (results[i].data != null) loaded++;
+
+            Debug.Log($"[VoxelChunkManager] Pre-loaded {loaded}/{paths.Count} unique .stasset files in parallel");
+        }
 
         private static (uint[] data, int w, int h, int d) GetPackedVoxels(string filepath)
         {
             if (packedVoxelCache.TryGetValue(filepath, out var cached))
             {
                 packedCacheHits++;
-                return ((uint[])cached.data.Clone(), cached.w, cached.h, cached.d);
+                // No clone needed — data is read-only (SetData copies to GPU, AABB only reads)
+                return (cached.data, cached.w, cached.h, cached.d);
             }
 
             packedCacheMisses++;
@@ -141,8 +218,18 @@ namespace SteelCity.Sim
                     for (int x = 0; x < w; x++)
                         packedData[idx++] = (uint)voxels[x, y, z];
 
-            packedVoxelCache[filepath] = (packedData, w, h, d);
-            return ((uint[])packedData.Clone(), w, h, d);
+            ComputeTightAABB(packedData, w, h, d,
+                out int minX, out int minY, out int minZ,
+                out int maxX, out int maxY, out int maxZ, out bool hasSolid);
+
+            packedVoxelCache[filepath] = new CachedVoxelData
+            {
+                data = packedData, w = w, h = h, d = d,
+                minX = minX, minY = minY, minZ = minZ,
+                maxX = maxX, maxY = maxY, maxZ = maxZ,
+                hasSolid = hasSolid
+            };
+            return (packedData, w, h, d);
         }
 
         public static void ClearPackedVoxelCache()
@@ -560,6 +647,9 @@ namespace SteelCity.Sim
             var (packedData, w, h, d) = GetPackedVoxels(stassetPath);
             if (packedData == null) return;
 
+            // Use pre-computed AABB from cache if available
+            var cached = packedVoxelCache.TryGetValue(stassetPath, out var cvd);
+
             int voxelCount = w * h * d;
 
             // Create a world-space GameObject for this chunk (visible in Hierarchy)
@@ -583,9 +673,18 @@ namespace SteelCity.Sim
             chunk.materialBuffer = sharedMaterialBuffer; // shared
             chunk.tintBuffer = defaultTintBuffer; // default: no tint
 
-            ComputeTightAABB(packedData, w, h, d,
-                out chunk.tightMinX, out chunk.tightMinY, out chunk.tightMinZ,
-                out chunk.tightMaxX, out chunk.tightMaxY, out chunk.tightMaxZ, out chunk.hasSolid);
+            if (cached)
+            {
+                chunk.tightMinX = cvd.minX; chunk.tightMinY = cvd.minY; chunk.tightMinZ = cvd.minZ;
+                chunk.tightMaxX = cvd.maxX; chunk.tightMaxY = cvd.maxY; chunk.tightMaxZ = cvd.maxZ;
+                chunk.hasSolid = cvd.hasSolid;
+            }
+            else
+            {
+                ComputeTightAABB(packedData, w, h, d,
+                    out chunk.tightMinX, out chunk.tightMinY, out chunk.tightMinZ,
+                    out chunk.tightMaxX, out chunk.tightMaxY, out chunk.tightMaxZ, out chunk.hasSolid);
+            }
 
             chunks.Add(chunk);
             chunkLookup[name] = chunk;
@@ -613,10 +712,14 @@ namespace SteelCity.Sim
             var (packedData, w, h, d) = GetPackedVoxels(filepath);
             if (packedData == null) return null;
 
+            // Use pre-computed AABB from cache if available
+            var cached = packedVoxelCache.TryGetValue(filepath, out var cvd);
+
             // Offset so the CENTER of the voxel volume sits at centerPos
             Vector3 cornerPos = centerPos - new Vector3(w * customVoxelSize * 0.5f, 0f, d * customVoxelSize * 0.5f);
 
-            LoadChunkFromData(name, packedData, w, h, d, cornerPos, customVoxelSize);
+            LoadChunkFromDataWithAABB(name, packedData, w, h, d, cornerPos, customVoxelSize,
+                cached, cvd.minX, cvd.minY, cvd.minZ, cvd.maxX, cvd.maxY, cvd.maxZ, cvd.hasSolid);
 
             return new BuildingFootprint
             {
@@ -688,6 +791,62 @@ namespace SteelCity.Sim
 
             // Suppress per-chunk load logs for procedural terrain (too many at scale)
             // Only log errors (empty chunks, data mismatches) not routine loads
+        }
+
+        /// <summary>
+        /// Load a chunk from raw uint[] voxel data with pre-computed AABB.
+        /// Skips the ComputeTightAABB scan when AABB is already known (from cache).
+        /// </summary>
+        public void LoadChunkFromDataWithAABB(string name, uint[] packedData, int w, int h, int d,
+            Vector3 worldPos, float customVoxelSize,
+            bool hasCachedAABB,
+            int aabbMinX, int aabbMinY, int aabbMinZ,
+            int aabbMaxX, int aabbMaxY, int aabbMaxZ, bool aabbHasSolid)
+        {
+            RemoveChunk(name);
+
+            int voxelCount = w * h * d;
+            if (packedData == null || packedData.Length != voxelCount)
+            {
+                Debug.LogError($"[VoxelChunkManager] LoadChunkFromDataWithAABB '{name}': data length {packedData?.Length ?? 0} != {voxelCount}");
+                return;
+            }
+
+            var hostObj = new GameObject($"VoxelChunk_{name}");
+            hostObj.transform.SetParent(transform, false);
+            hostObj.transform.position = worldPos;
+            hostObj.AddComponent<VoxelChunkGizmo>().Initialize(w, h, d, customVoxelSize);
+
+            var chunk = new VoxelChunk
+            {
+                name = name,
+                hostObject = hostObj,
+                dims = new VoxelInt3(w, h, d),
+                worldOffset = worldPos,
+                voxelSize = customVoxelSize,
+                active = true
+            };
+
+            chunk.voxelBuffer = new ComputeBuffer(voxelCount, sizeof(uint));
+            chunk.voxelBuffer.SetData(packedData);
+            chunk.materialBuffer = sharedMaterialBuffer;
+            chunk.tintBuffer = defaultTintBuffer;
+
+            if (hasCachedAABB)
+            {
+                chunk.tightMinX = aabbMinX; chunk.tightMinY = aabbMinY; chunk.tightMinZ = aabbMinZ;
+                chunk.tightMaxX = aabbMaxX; chunk.tightMaxY = aabbMaxY; chunk.tightMaxZ = aabbMaxZ;
+                chunk.hasSolid = aabbHasSolid;
+            }
+            else
+            {
+                ComputeTightAABB(packedData, w, h, d,
+                    out chunk.tightMinX, out chunk.tightMinY, out chunk.tightMinZ,
+                    out chunk.tightMaxX, out chunk.tightMaxY, out chunk.tightMaxZ, out chunk.hasSolid);
+            }
+
+            chunks.Add(chunk);
+            chunkLookup[name] = chunk;
         }
 
         /// <summary>

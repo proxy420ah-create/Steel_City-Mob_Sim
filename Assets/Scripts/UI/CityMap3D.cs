@@ -6,6 +6,7 @@ using TMPro;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using Stopwatch = System.Diagnostics.Stopwatch;
 
 namespace SteelCity.Sim
 {
@@ -768,15 +769,54 @@ namespace SteelCity.Sim
             cachedSpacing = spacing;
             gridCached = true;
 
+            // --- File logger for debugging freezes ---
+            string logPath = Path.Combine(Application.persistentDataPath, "buildmap_log.txt");
+            void LogBuild(string msg)
+            {
+                string line = $"[{DateTime.Now:HH:mm:ss.fff}] {msg}";
+                Debug.Log(line);
+                try { File.AppendAllText(logPath, line + "\n"); } catch { }
+            }
+            LogBuild($"=== BuildMap START: {blocks.Count} blocks, grid {minRow}-{maxRow} x {minCol}-{maxCol} ===");
+            LogBuild($"Log file: {logPath}");
+
             // PHASE 1: Terrain (roads + ground) — single voxel chunk for raymarch
             if (chunkManager != null)
             {
+                var t1 = Stopwatch.StartNew();
                 BuildVoxelTerrain(minRow, maxRow, minCol, maxCol, centerRow, centerCol, spacing);
+                t1.Stop();
+                LogBuild($"PHASE 1 (terrain): {t1.ElapsedMilliseconds}ms");
             }
 
             // PHASE 2: City blocks — load building .stasset chunks
+            // Pre-load all unique .stasset files in parallel (file I/O + packing + AABB on worker threads)
+            if (cachedLayout != null && cachedLayout.blocks != null)
+            {
+                var uniquePaths = new HashSet<string>();
+                foreach (var lb in cachedLayout.blocks)
+                {
+                    if (lb.buildings == null) continue;
+                    foreach (var b in lb.buildings)
+                    {
+                        string fullPath = Path.Combine(Application.streamingAssetsPath, b.stasset);
+                        uniquePaths.Add(fullPath);
+                    }
+                }
+                var t2 = Stopwatch.StartNew();
+                VoxelChunkManager.PreloadStassetFiles(new List<string>(uniquePaths));
+                t2.Stop();
+                LogBuild($"PHASE 2A (preload {uniquePaths.Count} files): {t2.ElapsedMilliseconds}ms");
+            }
+
+            var t3 = Stopwatch.StartNew();
+            int blockNum = 0;
             foreach (var (blockId, block) in blocks)
             {
+                blockNum++;
+                if (blockNum % 50 == 0)
+                    LogBuild($"  building block {blockNum}/{blocks.Count}...");
+
                 var root = new GameObject($"Block_{blockId}");
                 root.transform.SetParent(mapRoot, false);
                 root.transform.localPosition = new Vector3(
@@ -786,6 +826,8 @@ namespace SteelCity.Sim
 
                 BuildRaymarchBlock(root.transform, blockId, block, block.row, block.col, minRow, maxRow, minCol, maxCol);
             }
+            t3.Stop();
+            LogBuild($"PHASE 2B (buildings): {t3.ElapsedMilliseconds}ms for {blocks.Count} blocks");
 
             // PHASE 3: Compass (flat on ground, next to city)
             CreateCompass(minRow, maxRow, minCol, maxCol, centerRow, centerCol, spacing);
@@ -794,8 +836,8 @@ namespace SteelCity.Sim
             SpawnSceneCharacters(blocks, centerRow, centerCol, spacing);
 
             buildStopwatch.Stop();
-            Debug.Log($"[Perf] BuildMap complete: {blocks.Count} blocks in {buildStopwatch.ElapsedMilliseconds}ms");
-            Debug.Log($"[Perf] Voxel cache: {VoxelChunkManager.PackedCacheHits} hits / {VoxelChunkManager.PackedCacheMisses} misses ({VoxelChunkManager.PackedCacheFiles} unique files cached)");
+            LogBuild($"=== BuildMap COMPLETE: {blocks.Count} blocks in {buildStopwatch.ElapsedMilliseconds}ms ===");
+            LogBuild($"Voxel cache: {VoxelChunkManager.PackedCacheHits} hits / {VoxelChunkManager.PackedCacheMisses} misses ({VoxelChunkManager.PackedCacheFiles} unique files)");
         }
 
         // ====================================================================
@@ -857,20 +899,38 @@ namespace SteelCity.Sim
             if (useSplitTerrain)
             {
                 // === SPLIT TERRAIN: one small chunk per block ===
+                var tGen = Stopwatch.StartNew();
                 var terrainChunks = VoxelTerrainBuilder.GeneratePerBlockTerrain(
                     minRow, maxRow, minCol, maxCol,
                     centerRow, centerCol,
                     spacing, groundTile, roadWidth, voxelSize, sidewalkWidth,
                     mapRoot.position,
                     out blockAnchors);
+                tGen.Stop();
 
+                var tUpload = Stopwatch.StartNew();
                 int totalVoxels = 0;
+                int chunkNum = 0;
                 foreach (var tc in terrainChunks)
                 {
+                    chunkNum++;
+                    if (chunkNum % 50 == 0)
+                        try { File.AppendAllText(Path.Combine(Application.persistentDataPath, "buildmap_log.txt"),
+                            $"[{DateTime.Now:HH:mm:ss.fff}]   terrain upload {chunkNum}/{terrainChunks.Count}...\n"); } catch { }
+
                     chunkManager.LoadChunkFromData(tc.name, tc.data, tc.w, tc.h, tc.d, tc.worldOrigin);
                     collisionWorld.RegisterTerrainChunk(tc.data, tc.w, tc.h, tc.d, tc.worldOrigin, voxelSize);
                     totalVoxels += tc.w * tc.h * tc.d;
                 }
+                tUpload.Stop();
+
+                string logPath = Path.Combine(Application.persistentDataPath, "buildmap_log.txt");
+                try {
+                    File.AppendAllText(logPath,
+                        $"[{DateTime.Now:HH:mm:ss.fff}] PHASE 1A (terrain gen parallel): {tGen.ElapsedMilliseconds}ms for {terrainChunks.Count} chunks\n");
+                    File.AppendAllText(logPath,
+                        $"[{DateTime.Now:HH:mm:ss.fff}] PHASE 1B (terrain GPU upload + collision): {tUpload.ElapsedMilliseconds}ms for {terrainChunks.Count} chunks, {totalVoxels:N0} voxels\n");
+                } catch { }
 
                 Debug.Log($"[CityMap3D] Split terrain: {terrainChunks.Count} chunks, {totalVoxels:N0} total voxels, " +
                     $"{blockAnchors.Count} block anchors");
