@@ -866,10 +866,33 @@ namespace SteelCity.Sim
             }
         }
 
+        // --- CPU timing tracking ---
+        private float lastCpuCullMs;
+        private float lastCpuDrawMs;
+        private float lastCpuTotalMs;
+        private int perfActiveChunks;
+        private int perfDrawnChunks;
+
+        // Public read-only access for GUI display
+        public float CpuCullMs => lastCpuCullMs;
+        public float CpuDrawMs => lastCpuDrawMs;
+        public float CpuTotalMs => lastCpuTotalMs;
+        public int PerfActiveChunks => perfActiveChunks;
+        public int PerfDrawnChunks => perfDrawnChunks;
+        public int PerfTotalChunks => chunks.Count;
+
+        // Call to emit a one-shot perf log (e.g. on key press)
+        public void LogPerfSnapshot()
+        {
+            Debug.Log($"[Perf] total={chunks.Count} active={perfActiveChunks} drawn={perfDrawnChunks} render={renderWidth}x{renderHeight} proxy={useProxyRender} shadows={shadowEnabled} maxSteps={maxSteps} | CPU: cull={lastCpuCullMs:F2}ms draw={lastCpuDrawMs:F2}ms total={lastCpuTotalMs:F2}ms");
+        }
+
         public void RenderChunks()
         {
             if (renderCamera == null || chunks.Count == 0)
                 return;
+
+            float totalStart = Time.realtimeSinceStartup;
 
             if (useProxyRender && proxyMaterial != null && proxyCubeMesh != null)
             {
@@ -880,15 +903,19 @@ namespace SteelCity.Sim
                 RenderComputeChunks();
             }
 
-            // Event-driven perf log — only on significant state changes (not per-frame drawn count)
-            int activeNow = 0;
-            foreach (var c in chunks) if (c.active) activeNow++;
-            int drawnNow = useProxyRender ? proxyDrawList.Count : activeNow;
-            if (activeNow != perfLastActiveChunks || renderWidth != perfLastRenderW ||
+            lastCpuTotalMs = (Time.realtimeSinceStartup - totalStart) * 1000f;
+
+            // Track perf data for GUI display (no auto-logging)
+            perfActiveChunks = 0;
+            foreach (var c in chunks) if (c.active) perfActiveChunks++;
+            perfDrawnChunks = useProxyRender ? proxyDrawList.Count : perfActiveChunks;
+
+            // Only log on significant state change (not per-frame, not timed)
+            if (perfActiveChunks != perfLastActiveChunks || renderWidth != perfLastRenderW ||
                 renderHeight != perfLastRenderH || useProxyRender != perfLastProxy)
             {
-                Debug.Log($"[Perf] active={activeNow} drawn={drawnNow} render={renderWidth}x{renderHeight} proxy={useProxyRender} shadows={shadowEnabled} maxSteps={maxSteps}");
-                perfLastActiveChunks = activeNow;
+                LogPerfSnapshot();
+                perfLastActiveChunks = perfActiveChunks;
                 perfLastRenderW = renderWidth;
                 perfLastRenderH = renderHeight;
                 perfLastProxy = useProxyRender;
@@ -941,6 +968,8 @@ namespace SteelCity.Sim
             // Reuse cached list to avoid per-frame allocation
             // Frustum-cull chunks whose tight AABB is entirely off-screen
             // Distance culling only for perspective cameras (Working mode); ortho (Planning) sees all
+            float cullStart = Time.realtimeSinceStartup;
+
             bool isOrtho = renderCamera.orthographic;
             var frustumPlanes = GeometryUtility.CalculateFrustumPlanes(renderCamera);
             proxyDrawList.Clear();
@@ -985,6 +1014,10 @@ namespace SteelCity.Sim
                 proxyDrawList.Add((chunk, dist));
             }
             proxyDrawList.Sort((a, b) => a.dist.CompareTo(b.dist)); // nearest first — enables GPU early-Z rejection
+
+            lastCpuCullMs = (Time.realtimeSinceStartup - cullStart) * 1000f;
+
+            float drawStart = Time.realtimeSinceStartup;
 
             // Clear and draw via CommandBuffer
             var cmd = new CommandBuffer { name = "VoxelProxyRaymarch" };
@@ -1108,6 +1141,8 @@ namespace SteelCity.Sim
 
             Graphics.ExecuteCommandBuffer(cmd);
             cmd.Dispose();
+
+            lastCpuDrawMs = (Time.realtimeSinceStartup - drawStart) * 1000f;
         }
 
         private void EnsureProxyRT()

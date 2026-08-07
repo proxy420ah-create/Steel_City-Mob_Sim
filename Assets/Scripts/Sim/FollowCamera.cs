@@ -210,6 +210,12 @@ namespace SteelCity.Sim
                 showDebugHUD = !showDebugHUD;
             }
 
+            // Perf snapshot log with P
+            if (kb.pKey.wasPressedThisFrame && chunkManager != null)
+            {
+                chunkManager.LogPerfSnapshot();
+            }
+
             // Capture to log with C
             if (kb.cKey.wasPressedThisFrame)
             {
@@ -402,7 +408,7 @@ namespace SteelCity.Sim
             var style = cachedLabelStyle;
             var bgStyle = cachedBgStyle;
 
-            float w = 340f, h = 260f;
+            float w = 360f, h = 340f;
             GUILayout.BeginArea(new Rect(10, 10, w, h), bgStyle);
             GUILayout.Label("<b>FOLLOW CAMERA DEBUG</b>", style);
             GUILayout.Label("", style);
@@ -430,8 +436,15 @@ namespace SteelCity.Sim
             GUILayout.Label($"Aim: {character?.WorldCenter.ToString() ?? "null"}", style);
             GUILayout.Label($"Cam: {transform.position}", style);
             GUILayout.Label("", style);
+            if (chunkManager != null)
+            {
+                GUILayout.Label("<b>PERF</b>", style);
+                GUILayout.Label($"Chunks: {chunkManager.PerfTotalChunks} total / {chunkManager.PerfActiveChunks} active / {chunkManager.PerfDrawnChunks} drawn", style);
+                GUILayout.Label($"CPU: cull={chunkManager.CpuCullMs:F2}ms draw={chunkManager.CpuDrawMs:F2}ms total={chunkManager.CpuTotalMs:F2}ms", style);
+                GUILayout.Label("", style);
+            }
             GUILayout.Label("[T] Chase/Orbit  [Shift] Free-Look  [Z] Reset", style);
-            GUILayout.Label("[C] Capture  [H] Hide HUD", style);
+            GUILayout.Label("[C] Capture  [H] Hide HUD  [P] Perf Log", style);
             GUILayout.EndArea();
         }
     }

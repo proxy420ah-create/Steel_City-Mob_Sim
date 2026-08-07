@@ -1,6 +1,27 @@
 # Recent Changes — Steel City: Mob Sim
 
-**Last Updated**: August 6, 2026
+**Last Updated**: August 7, 2026
+
+---
+
+## ⚠️ REMINDER: City Scale Testing — TWO Files Must Change Together
+
+When testing different city sizes (25/100/500/1000 blocks), you MUST copy **both** files from `StreamingAssets/`:
+
+| File | Used By | Controls |
+|------|---------|----------|
+| `city_template_NN.json` → `city_template.json` | `DataLoader` → `GameEngine.Setup()` | Game logic: blocks, businesses, NPCs, police, gangs |
+| `city_layout_NN.json` → `city_layout.json` | `CityMap3D.LoadCityLayout()` | Visuals: .stasset building placement, voxel rendering |
+
+**If only one is updated**, the engine block count won't match the visual layout — e.g., 500 layout with 100 template produces a 10x10 city despite the log saying "500 blocks loaded".
+
+```powershell
+# Example: switch to 500 blocks
+Copy-Item "SteelCityMobSim\Assets\StreamingAssets\city_template_500.json" "SteelCityMobSim\Assets\StreamingAssets\city_template.json" -Force
+Copy-Item "SteelCityMobSim\Assets\StreamingAssets\city_layout_500.json" "SteelCityMobSim\Assets\StreamingAssets\city_layout.json" -Force
+```
+
+Available tiers: `city_template_25`, `city_template_100`, `city_template_500`, `city_template_1000` (and matching `city_layout_*`).
 
 ---
 
