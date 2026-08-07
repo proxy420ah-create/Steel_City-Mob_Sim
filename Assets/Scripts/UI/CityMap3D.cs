@@ -252,6 +252,8 @@ namespace SteelCity.Sim
         public bool GetShowBlockLabels() => showBlockLabels;
         public bool GetUseSplitTerrain() => useSplitTerrain;
         public void SetUseSplitTerrain(bool v) => useSplitTerrain = v;
+        public bool GetUseProxyRender() => chunkManager?.GetUseProxyRender() ?? false;
+        public void SetUseProxyRender(bool v) { if (chunkManager != null) chunkManager.SetUseProxyRender(v); }
         public float GetCameraOrthoSize() => mapCamera != null ? mapCamera.orthographicSize : 18f;
 
         // --- Shadow debug API ---

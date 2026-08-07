@@ -62,7 +62,6 @@ namespace SteelCity.Sim
         [SerializeField] private Button runWeekButton;
 
         [Header("=== FPS COUNTER ===")]
-        [SerializeField] private TMP_Text fpsText;
         private float fpsAccumTime;
         private int fpsAccumFrames;
         private float fpsUpdateInterval = 0.5f;
@@ -178,25 +177,6 @@ namespace SteelCity.Sim
 
             RefreshAll();
 
-            // Auto-create FPS counter if not wired in Inspector
-            if (fpsText == null)
-            {
-                var fpsObj = new GameObject("FPSCounter");
-                fpsObj.transform.SetParent(transform, false);
-                fpsText = fpsObj.AddComponent<TextMeshProUGUI>();
-                fpsText.fontSize = 14;
-                fpsText.alignment = TextAlignmentOptions.TopRight;
-                fpsText.color = greenColor;
-                var rect = fpsText.rectTransform;
-                rect.anchorMin = new Vector2(1f, 1f);
-                rect.anchorMax = new Vector2(1f, 1f);
-                rect.pivot = new Vector2(1f, 1f);
-                rect.anchoredPosition = new Vector2(-10f, -10f);
-                rect.sizeDelta = new Vector2(120f, 30f);
-                fpsText.text = "-- FPS";
-                Debug.Log("[GameUIController] Auto-created FPS counter (top-right corner)");
-            }
-
             // --- PRE-FLIGHT CHECK: verify all critical UI references are wired ---
             RunPreflightCheck();
 
@@ -210,11 +190,21 @@ namespace SteelCity.Sim
             if (fpsAccumTime >= fpsUpdateInterval)
             {
                 float fps = fpsAccumFrames / fpsAccumTime;
-                if (fpsText != null)
+                Color fpsColor = fps >= 50 ? greenColor : fps >= 30 ? yellowColor : redColor;
+                string fpsStr = $"{fps:F0} FPS";
+
+                // Planning phase: append to phaseText
+                if (phase == GamePhase.Planning && phaseText != null)
                 {
-                    fpsText.text = $"{fps:F0} FPS";
-                    fpsText.color = fps >= 50 ? greenColor : fps >= 30 ? yellowColor : redColor;
+                    phaseText.text = $"PLANNING  [{fpsStr}]";
+                    phaseText.color = yellowColor;
                 }
+                // Working phase: update TickHUD
+                else if (tickHUD != null)
+                {
+                    tickHUD.UpdateFPS(fpsStr, fpsColor);
+                }
+
                 fpsAccumTime = 0f;
                 fpsAccumFrames = 0;
             }
@@ -404,6 +394,8 @@ namespace SteelCity.Sim
                 cityMap.SetShowBlockLabels);
             AddEditorToggle(contentObj.transform, "Split Terrain", cityMap.GetUseSplitTerrain(),
                 cityMap.SetUseSplitTerrain);
+            AddEditorToggle(contentObj.transform, "Proxy Render", cityMap.GetUseProxyRender(),
+                cityMap.SetUseProxyRender);
 
             // Rebuild button (manual trigger)
             AddEditorButton(contentObj.transform, "REBUILD CITY", () => cityMap.RebuildCity(), goldColor);

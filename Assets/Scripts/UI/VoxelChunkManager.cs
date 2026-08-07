@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace SteelCity.Sim
 {
@@ -23,6 +24,14 @@ namespace SteelCity.Sim
     {
         [Header("Compute Shader")]
         [SerializeField] private ComputeShader raymarchShader;
+
+        [Header("Proxy Render (Fragment Shader Path)")]
+        [Tooltip("If true, use proxy-box fragment shader instead of compute dispatches. 5-10x faster for small on-screen volumes.")]
+        [SerializeField] private bool useProxyRender = true;
+        [SerializeField] private Shader proxyShader;
+        private Material proxyMaterial;
+        private Mesh proxyCubeMesh;
+        private RenderTexture proxyRT;
 
         [Header("Render Settings")]
         [Tooltip("Voxel size in world units (should match CityMap3D.voxelSize).")]
@@ -50,6 +59,10 @@ namespace SteelCity.Sim
             public Quaternion rotation;            // cached world-space rotation
             public float voxelSize;              // per-chunk voxel size (buildings=0.1, characters=0.015)
             public bool active;
+            // Tight AABB of solid voxels (in voxel coords, inclusive)
+            public int tightMinX, tightMinY, tightMinZ;
+            public int tightMaxX, tightMaxY, tightMaxZ;
+            public bool hasSolid;               // false if chunk is entirely air
         }
 
         private readonly List<VoxelChunk> chunks = new();
@@ -123,6 +136,61 @@ namespace SteelCity.Sim
             CacheShaderIDs();
             CreateSharedMaterialBuffer();
             kernelCSRaymarch = raymarchShader.FindKernel("CSRaymarch");
+            InitProxyRender();
+        }
+
+        private void InitProxyRender()
+        {
+            // Auto-load proxy shader if not assigned
+            if (proxyShader == null)
+            {
+                proxyShader = Resources.Load<Shader>("Shaders/VoxelProxyRaymarch");
+                if (proxyShader == null)
+                    proxyShader = Shader.Find("SteelCity/VoxelProxyRaymarch");
+            }
+            if (proxyShader != null)
+            {
+                proxyMaterial = new Material(proxyShader);
+                Debug.Log("[VoxelChunkManager] Proxy shader loaded and material created.");
+            }
+            else
+            {
+                Debug.LogWarning("[VoxelChunkManager] Proxy shader not found! Proxy render will not work.");
+            }
+
+            // Create a unit cube mesh for proxy rendering
+            proxyCubeMesh = CreateUnitCubeMesh();
+        }
+
+        private static Mesh CreateUnitCubeMesh()
+        {
+            var mesh = new Mesh();
+            mesh.vertices = new Vector3[]
+            {
+                // Front face
+                new(-0.5f, -0.5f, -0.5f), new(0.5f, -0.5f, -0.5f), new(0.5f, 0.5f, -0.5f), new(-0.5f, 0.5f, -0.5f),
+                // Back face
+                new(-0.5f, -0.5f, 0.5f), new(0.5f, -0.5f, 0.5f), new(0.5f, 0.5f, 0.5f), new(-0.5f, 0.5f, 0.5f),
+                // Left face
+                new(-0.5f, -0.5f, -0.5f), new(-0.5f, -0.5f, 0.5f), new(-0.5f, 0.5f, 0.5f), new(-0.5f, 0.5f, -0.5f),
+                // Right face
+                new(0.5f, -0.5f, -0.5f), new(0.5f, -0.5f, 0.5f), new(0.5f, 0.5f, 0.5f), new(0.5f, 0.5f, -0.5f),
+                // Top face
+                new(-0.5f, 0.5f, -0.5f), new(0.5f, 0.5f, -0.5f), new(0.5f, 0.5f, 0.5f), new(-0.5f, 0.5f, 0.5f),
+                // Bottom face
+                new(-0.5f, -0.5f, -0.5f), new(0.5f, -0.5f, -0.5f), new(0.5f, -0.5f, 0.5f), new(-0.5f, -0.5f, 0.5f),
+            };
+            mesh.triangles = new int[]
+            {
+                0, 1, 2, 0, 2, 3,       // Front
+                4, 5, 6, 4, 6, 7,       // Back
+                8, 9, 10, 8, 10, 11,    // Left
+                12, 13, 14, 12, 14, 15, // Right
+                16, 17, 18, 16, 18, 19, // Top
+                20, 21, 22, 20, 22, 23, // Bottom
+            };
+            mesh.RecalculateBounds();
+            return mesh;
         }
 
         /// <summary>
@@ -150,6 +218,9 @@ namespace SteelCity.Sim
             if (defaultTintBuffer != null) { defaultTintBuffer.Release(); defaultTintBuffer = null; }
             if (displayMaterial != null) { Destroy(displayMaterial); displayMaterial = null; }
             if (displayQuad != null) { Destroy(displayQuad); displayQuad = null; }
+            if (proxyMaterial != null) { Destroy(proxyMaterial); proxyMaterial = null; }
+            if (proxyRT != null) { proxyRT.Release(); proxyRT = null; }
+            if (proxyCubeMesh != null) { Destroy(proxyCubeMesh); proxyCubeMesh = null; }
         }
 
         #endregion
@@ -282,6 +353,45 @@ namespace SteelCity.Sim
 
         #endregion
 
+        #region --- TIGHT AABB ---
+
+        /// <summary>
+        /// Scan voxel data to find the tight bounding box of all solid voxels.
+        /// Used to size the proxy cube mesh so only pixels covering solid geometry run the fragment shader.
+        /// </summary>
+        private static void ComputeTightAABB(uint[] data, int w, int h, int d,
+            out int minX, out int minY, out int minZ,
+            out int maxX, out int maxY, out int maxZ, out bool hasSolid)
+        {
+            minX = int.MaxValue; minY = int.MaxValue; minZ = int.MaxValue;
+            maxX = int.MinValue; maxY = int.MinValue; maxZ = int.MinValue;
+            hasSolid = false;
+
+            for (int z = 0; z < d; z++)
+                for (int y = 0; y < h; y++)
+                    for (int x = 0; x < w; x++)
+                    {
+                        if (data[x + y * w + z * w * h] != 0u)
+                        {
+                            hasSolid = true;
+                            if (x < minX) minX = x;
+                            if (y < minY) minY = y;
+                            if (z < minZ) minZ = z;
+                            if (x > maxX) maxX = x;
+                            if (y > maxY) maxY = y;
+                            if (z > maxZ) maxZ = z;
+                        }
+                    }
+
+            if (!hasSolid)
+            {
+                minX = minY = minZ = 0;
+                maxX = maxY = maxZ = 0;
+            }
+        }
+
+        #endregion
+
         #region --- CHUNK MANAGEMENT ---
 
         /// <summary>
@@ -352,10 +462,15 @@ namespace SteelCity.Sim
             chunk.materialBuffer = sharedMaterialBuffer; // shared
             chunk.tintBuffer = defaultTintBuffer; // default: no tint
 
+            ComputeTightAABB(packedData, w, h, d,
+                out chunk.tightMinX, out chunk.tightMinY, out chunk.tightMinZ,
+                out chunk.tightMaxX, out chunk.tightMaxY, out chunk.tightMaxZ, out chunk.hasSolid);
+
             chunks.Add(chunk);
             chunkLookup[name] = chunk;
 
-            Debug.Log($"[VoxelChunkManager] Loaded chunk '{name}': {w}x{h}x{d} voxels at {worldPos} (voxelSize={customVoxelSize})");
+            Debug.Log($"[VoxelChunkManager] Loaded chunk '{name}': {w}x{h}x{d} voxels at {worldPos} (voxelSize={customVoxelSize})" +
+                (chunk.hasSolid ? $" tightAABB=[{chunk.tightMinX},{chunk.tightMinY},{chunk.tightMinZ}]->[{chunk.tightMaxX},{chunk.tightMaxY},{chunk.tightMaxZ}]" : " (empty)"));
         }
 
         /// <summary>
@@ -457,10 +572,15 @@ namespace SteelCity.Sim
             chunk.materialBuffer = sharedMaterialBuffer;
             chunk.tintBuffer = defaultTintBuffer; // default: no tint
 
+            ComputeTightAABB(packedData, w, h, d,
+                out chunk.tightMinX, out chunk.tightMinY, out chunk.tightMinZ,
+                out chunk.tightMaxX, out chunk.tightMaxY, out chunk.tightMaxZ, out chunk.hasSolid);
+
             chunks.Add(chunk);
             chunkLookup[name] = chunk;
 
-            Debug.Log($"[VoxelChunkManager] Loaded procedural chunk '{name}': {w}x{h}x{d} at {worldPos} (voxelSize={customVoxelSize})");
+            Debug.Log($"[VoxelChunkManager] Loaded procedural chunk '{name}': {w}x{h}x{d} at {worldPos} (voxelSize={customVoxelSize})" +
+                (chunk.hasSolid ? $" tightAABB=[{chunk.tightMinX},{chunk.tightMinY},{chunk.tightMinZ}]->[{chunk.tightMaxX},{chunk.tightMaxY},{chunk.tightMaxZ}]" : " (empty)"));
         }
 
         /// <summary>
@@ -612,6 +732,7 @@ namespace SteelCity.Sim
         {
             if (colorRT != null) { colorRT.Release(); colorRT = null; }
             if (depthRT != null) { depthRT.Release(); depthRT = null; }
+            if (proxyRT != null) { proxyRT.Release(); proxyRT = null; }
         }
 
         /// <summary>
@@ -657,7 +778,173 @@ namespace SteelCity.Sim
         public bool GetFillEnabled() => fillEnabled == 1;
         public bool GetCamLightEnabled() => camLightEnabled == 1;
 
+        public bool GetUseProxyRender() => useProxyRender;
+        public void SetUseProxyRender(bool v) => useProxyRender = v;
+
         public void RenderChunks()
+        {
+            if (renderCamera == null || chunks.Count == 0)
+                return;
+
+            if (useProxyRender && proxyMaterial != null && proxyCubeMesh != null)
+            {
+                RenderProxyChunks();
+                return;
+            }
+
+            RenderComputeChunks();
+        }
+
+        /// <summary>
+        /// Proxy-box fragment shader render path.
+        /// Draws a scaled cube mesh per chunk into a depth-enabled render texture.
+        /// Only pixels covered by each cube's screen footprint run the fragment shader.
+        /// Off-screen cubes are frustum-culled by Unity's mesh pipeline.
+        /// </summary>
+        private void RenderProxyChunks()
+        {
+            EnsureProxyRT();
+
+            if (!hasLoggedRender)
+            {
+                Debug.Log($"[VoxelChunkManager] Proxy render STARTED: {chunks.Count} chunks, " +
+                    $"camera ortho={renderCamera.orthographic}, " +
+                    $"renderTarget={renderWidth}x{renderHeight}");
+                hasLoggedRender = true;
+            }
+
+            // Set per-frame shader constants
+            var camTransform = renderCamera.transform;
+            var cameraToWorld = renderCamera.cameraToWorldMatrix;
+            var invProj = renderCamera.projectionMatrix.inverse;
+
+            proxyMaterial.SetInt(propMaterialCount, MaxMaterials);
+            proxyMaterial.SetInt(propMaxSteps, maxSteps);
+            proxyMaterial.SetVector(propBackgroundColor, backgroundColor);
+            proxyMaterial.SetInt(propIsOrthographic, renderCamera.orthographic ? 1 : 0);
+            proxyMaterial.SetVector(propLightDirection, lightDirection);
+            proxyMaterial.SetFloat(propLightIntensity, lightIntensity);
+            proxyMaterial.SetFloat(propAmbientIntensity, ambientIntensity);
+            proxyMaterial.SetFloat(propFillIntensity, fillIntensity);
+            proxyMaterial.SetVector(propLightColor, lightColor);
+            proxyMaterial.SetFloat(propShadowNormalNudge, shadowNormalNudge);
+            proxyMaterial.SetFloat(propShadowLightNudge, shadowLightNudge);
+            proxyMaterial.SetInt(propShadowSkipSteps, shadowSkipSteps);
+            proxyMaterial.SetInt(propShadowMaxSteps, shadowMaxSteps);
+            proxyMaterial.SetInt(propShadowEnabled, shadowEnabled);
+            proxyMaterial.SetInt(propSunLightEnabled, sunLightEnabled);
+            proxyMaterial.SetInt(propAmbientEnabled, ambientEnabled);
+            proxyMaterial.SetInt(propFillEnabled, fillEnabled);
+            proxyMaterial.SetInt(propCamLightEnabled, camLightEnabled);
+            proxyMaterial.SetMatrix(propCameraToWorld, cameraToWorld);
+            proxyMaterial.SetMatrix(propInvProjection, invProj);
+            proxyMaterial.SetVector(propScreenSize, new Vector4(renderWidth, renderHeight, 0, 0));
+
+            // Build sorted draw list (back-to-front for correct depth compositing)
+            var drawList = new List<(VoxelChunk chunk, float dist)>(chunks.Count);
+            foreach (var chunk in chunks)
+            {
+                if (!chunk.active || chunk.voxelBuffer == null || !chunk.hasSolid)
+                    continue;
+
+                Vector3 chunkWorldPos = chunk.hostObject != null
+                    ? chunk.hostObject.transform.position
+                    : chunk.worldOffset;
+
+                // Tight AABB center in world space
+                float vs = chunk.voxelSize;
+                Vector3 tightCenter = chunkWorldPos + new Vector3(
+                    (chunk.tightMinX + chunk.tightMaxX + 1) * vs * 0.5f,
+                    (chunk.tightMinY + chunk.tightMaxY + 1) * vs * 0.5f,
+                    (chunk.tightMinZ + chunk.tightMaxZ + 1) * vs * 0.5f);
+
+                float dist = Vector3.Distance(tightCenter, camTransform.position);
+                drawList.Add((chunk, dist));
+            }
+            drawList.Sort((a, b) => b.dist.CompareTo(a.dist)); // farthest first
+
+            // Clear and draw via CommandBuffer (DrawMeshNow doesn't support MaterialPropertyBlock)
+            var cmd = new CommandBuffer { name = "VoxelProxyRaymarch" };
+            cmd.SetRenderTarget(proxyRT);
+            cmd.ClearRenderTarget(true, true, backgroundColor);
+
+            foreach (var (chunk, _) in drawList)
+            {
+                Vector3 chunkWorldPos = chunk.hostObject != null
+                    ? chunk.hostObject.transform.position
+                    : chunk.worldOffset;
+                Quaternion chunkRot = chunk.hostObject != null
+                    ? chunk.hostObject.transform.rotation
+                    : Quaternion.identity;
+                float vs = chunk.voxelSize;
+
+                // Tight AABB size in world space
+                Vector3 tightSize = new Vector3(
+                    (chunk.tightMaxX - chunk.tightMinX + 1) * vs,
+                    (chunk.tightMaxY - chunk.tightMinY + 1) * vs,
+                    (chunk.tightMaxZ - chunk.tightMinZ + 1) * vs);
+
+                // Tight AABB center in world space
+                Vector3 tightCenter = chunkWorldPos + new Vector3(
+                    (chunk.tightMinX + chunk.tightMaxX + 1) * vs * 0.5f,
+                    (chunk.tightMinY + chunk.tightMaxY + 1) * vs * 0.5f,
+                    (chunk.tightMinZ + chunk.tightMaxZ + 1) * vs * 0.5f);
+
+                // TRS matrix: position at tight center, scale to tight size, apply rotation
+                Matrix4x4 trs = Matrix4x4.TRS(tightCenter, chunkRot, tightSize);
+
+                // Per-chunk property block
+                var block = new MaterialPropertyBlock();
+                block.SetBuffer(propVoxelData, chunk.voxelBuffer);
+                block.SetBuffer(propMaterialColors, sharedMaterialBuffer);
+                block.SetBuffer(propChunkTints, chunk.tintBuffer ?? defaultTintBuffer);
+                block.SetVector(propVolumeDims, new Vector4(chunk.dims.x, chunk.dims.y, chunk.dims.z, 0));
+                block.SetFloat(propVoxelSize, vs);
+                block.SetVector(propVolumeOffset, chunkWorldPos);
+
+                Matrix4x4 localToWorld = Matrix4x4.Rotate(chunkRot);
+                Matrix4x4 worldToLocal = Matrix4x4.Rotate(Quaternion.Inverse(chunkRot));
+                block.SetMatrix(propVolumeRotation, worldToLocal);
+                block.SetMatrix(propVolumeInvRotation, localToWorld);
+
+                cmd.DrawMesh(proxyCubeMesh, trs, proxyMaterial, 0, 0, block);
+            }
+
+            Graphics.ExecuteCommandBuffer(cmd);
+            cmd.Dispose();
+            Graphics.SetRenderTarget(prevRT);
+        }
+
+        private void EnsureProxyRT()
+        {
+            int viewportW = Mathf.Max(1, (int)(Screen.width * resolutionScale));
+            int viewportH = Mathf.Max(1, (int)(Screen.height * resolutionScale));
+            if (renderCamera != null)
+            {
+                var r = renderCamera.rect;
+                viewportW = Mathf.Max(1, (int)(Screen.width * r.width * resolutionScale));
+                viewportH = Mathf.Max(1, (int)(Screen.height * r.height * resolutionScale));
+            }
+
+            if (proxyRT != null && proxyRT.width == viewportW && proxyRT.height == viewportH)
+                return;
+
+            if (proxyRT != null) proxyRT.Release();
+
+            proxyRT = new RenderTexture(viewportW, viewportH, 24, RenderTextureFormat.ARGB32)
+            {
+                filterMode = FilterMode.Bilinear
+            };
+            proxyRT.Create();
+
+            renderWidth = viewportW;
+            renderHeight = viewportH;
+        }
+
+        /// <summary>
+        /// Original compute shader render path — dispatches MobSimVoxelRaymarch.compute per chunk.
+        /// </summary>
+        private void RenderComputeChunks()
         {
             if (raymarchShader == null || renderCamera == null || chunks.Count == 0)
                 return;
@@ -779,7 +1066,7 @@ namespace SteelCity.Sim
         /// </summary>
         public RenderTexture GetColorTexture()
         {
-            return colorRT;
+            return useProxyRender ? proxyRT : colorRT;
         }
 
         /// <summary>
@@ -788,8 +1075,9 @@ namespace SteelCity.Sim
         /// </summary>
         public void BlitToScreen(RenderTexture dest)
         {
-            if (colorRT == null) return;
-            Graphics.Blit(colorRT, dest);
+            var rt = useProxyRender ? proxyRT : colorRT;
+            if (rt == null) return;
+            Graphics.Blit(rt, dest);
         }
 
         #endregion

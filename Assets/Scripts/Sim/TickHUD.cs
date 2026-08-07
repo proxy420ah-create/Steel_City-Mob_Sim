@@ -12,6 +12,7 @@ namespace SteelCity.Sim
         private TMP_Text phaseText;
         private TMP_Text ticksRemainingText;
         private TMP_Text orderText;
+        private TMP_Text fpsText;
         private ScrollRect eventLogScroll;
         private RectTransform eventLogContent;
         private readonly Queue<GameObject> logEntries = new();
@@ -73,6 +74,7 @@ namespace SteelCity.Sim
             tickCounterText = CreateTextComponent(panelObj.transform, "Tick: 0", textColor, 14, true);
             ticksRemainingText = CreateTextComponent(panelObj.transform, "Remaining: 12000", dimColor, 14, true);
             orderText = CreateTextComponent(panelObj.transform, "Order: None", goldColor, 14, true);
+            fpsText = CreateTextComponent(panelObj.transform, "-- FPS", dimColor, 14, true);
 
             var dividerObj = new GameObject("Divider");
             dividerObj.transform.SetParent(panelObj.transform, false);
@@ -181,6 +183,15 @@ namespace SteelCity.Sim
             foreach (var entry in logEntries)
                 if (entry != null) Destroy(entry);
             logEntries.Clear();
+        }
+
+        public void UpdateFPS(string text, Color color)
+        {
+            if (fpsText != null)
+            {
+                fpsText.text = text;
+                fpsText.color = color;
+            }
         }
 
         public void Shutdown()
