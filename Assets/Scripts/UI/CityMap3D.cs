@@ -57,6 +57,10 @@ namespace SteelCity.Sim
         [Tooltip("Show road name labels on streets.")]
         [SerializeField] private bool showRoadNames = true;
 
+        [Header("Terrain")]
+        [Tooltip("If true, generate one small terrain chunk per block instead of one massive chunk. Reduces DDA traversal cost.")]
+        [SerializeField] private bool useSplitTerrain = true;
+
         [Header("Label")]
         [Tooltip("Show floating block name labels above buildings.")]
         [SerializeField] private bool showBlockLabels = false;
@@ -246,6 +250,8 @@ namespace SteelCity.Sim
         public int GetBuildingsPerBlockRow() => buildingsPerBlockRow;
         public bool GetShowRoadNames() => showRoadNames;
         public bool GetShowBlockLabels() => showBlockLabels;
+        public bool GetUseSplitTerrain() => useSplitTerrain;
+        public void SetUseSplitTerrain(bool v) => useSplitTerrain = v;
         public float GetCameraOrthoSize() => mapCamera != null ? mapCamera.orthographicSize : 18f;
 
         // --- Shadow debug API ---
@@ -309,6 +315,164 @@ namespace SteelCity.Sim
         public float SidewalkW => sidewalkWidth;
         public Camera MapCamera => mapCamera;
         public VoxelCharacter SpawnedCharacter { get; private set; }
+
+        // --- Debug path overlay ---
+        private GameObject debugPathRoot;
+
+        /// <summary>
+        /// Draw a debug overlay showing the planned path as colored lines through waypoint nodes.
+        /// Reuses compass-style LineRenderer + sphere markers. Green = start, Yellow = end,
+        /// Cyan = intermediate nodes. Lines sit slightly above ground to avoid z-fighting.
+        /// </summary>
+        public void ShowDebugPath(List<string> nodeIds, WaypointGraph graph)
+        {
+            ClearDebugPath();
+
+            if (nodeIds == null || nodeIds.Count == 0 || graph == null) return;
+
+            debugPathRoot = new GameObject("DebugPath");
+            debugPathRoot.transform.SetParent(mapRoot, false);
+
+            float pathY = voxelSize * 2.5f; // slightly above ground surface
+
+            // Build line positions in world space
+            var positions = new Vector3[nodeIds.Count];
+            for (int i = 0; i < nodeIds.Count; i++)
+            {
+                if (!graph.Nodes.ContainsKey(nodeIds[i])) return;
+                positions[i] = graph.Nodes[nodeIds[i]].localPos + mapRoot.position;
+                positions[i].y = pathY;
+            }
+
+            // Main path line
+            var lineObj = new GameObject("DebugPathLine");
+            lineObj.transform.SetParent(debugPathRoot.transform, false);
+            var lr = lineObj.AddComponent<LineRenderer>();
+            lr.positionCount = positions.Length;
+            lr.useWorldSpace = true;
+            lr.startWidth = 0.12f;
+            lr.endWidth = 0.12f;
+            lr.material = new Material(Shader.Find("Sprites/Default") ?? Shader.Find("Standard"));
+            lr.startColor = new Color(0.2f, 1f, 0.3f, 0.9f);  // green start
+            lr.endColor = new Color(1f, 0.9f, 0.2f, 0.9f);    // yellow end
+            for (int i = 0; i < positions.Length; i++)
+                lr.SetPosition(i, positions[i]);
+
+            // Node markers — small spheres at each waypoint
+            for (int i = 0; i < positions.Length; i++)
+            {
+                var marker = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                marker.name = $"PathNode_{i}_{nodeIds[i]}";
+                marker.transform.SetParent(debugPathRoot.transform, false);
+                marker.transform.localScale = new Vector3(0.15f, 0.05f, 0.15f);
+                marker.transform.position = positions[i];
+
+                var rend = marker.GetComponent<Renderer>();
+                rend.material = new Material(Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard"));
+
+                if (i == 0)
+                    rend.material.color = new Color(0.2f, 1f, 0.3f, 1f);  // green = start
+                else if (i == positions.Length - 1)
+                    rend.material.color = new Color(1f, 0.9f, 0.2f, 1f); // yellow = end
+                else
+                    rend.material.color = new Color(0.2f, 0.8f, 1f, 1f); // cyan = intermediate
+
+                var col = marker.GetComponent<Collider>();
+                if (col) Destroy(col);
+            }
+
+            Debug.Log($"[CityMap3D] Debug path drawn: {nodeIds.Count} nodes");
+        }
+
+        public void ClearDebugPath()
+        {
+            if (debugPathRoot != null)
+            {
+                Destroy(debugPathRoot.gameObject);
+                debugPathRoot = null;
+            }
+        }
+
+        // --- Waypoint label overlay ---
+        private GameObject waypointLabelRoot;
+
+        /// <summary>
+        /// Render floating text labels at every waypoint node in the graph.
+        /// Shows node ID, type, and edge index so you can verify corner/mid placement.
+        /// Corners = yellow, Mids = cyan, Crosswalk = orange.
+        /// </summary>
+        public void ShowWaypointLabels(WaypointGraph graph)
+        {
+            ClearWaypointLabels();
+
+            if (graph == null) return;
+
+            waypointLabelRoot = new GameObject("WaypointLabels");
+            waypointLabelRoot.transform.SetParent(mapRoot, false);
+
+            float labelY = voxelSize * 3f; // above ground + path line
+
+            foreach (var (nodeId, node) in graph.Nodes)
+            {
+                var labelObj = new GameObject($"WP_{nodeId}");
+                labelObj.transform.SetParent(waypointLabelRoot.transform, false);
+
+                Vector3 worldPos = node.localPos + mapRoot.position;
+                worldPos.y = labelY;
+                labelObj.transform.position = worldPos;
+
+                // Rotate to lay flat on ground (same as compass labels)
+                labelObj.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
+
+                var tmp = labelObj.AddComponent<TextMeshPro>();
+                tmp.fontSize = 2f;
+                tmp.fontSizeMax = 2f;
+                tmp.enableAutoSizing = false;
+                tmp.alignment = TextAlignmentOptions.Center;
+                tmp.fontStyle = FontStyles.Bold;
+
+                string typeShort = node.type switch
+                {
+                    WaypointType.SidewalkCorner => "C",
+                    WaypointType.SidewalkMid => "M",
+                    WaypointType.CrosswalkCorner => "X",
+                    _ => "?"
+                };
+
+                tmp.text = $"{nodeId}\n{typeShort} e{node.edgeIndex}";
+
+                tmp.color = node.type switch
+                {
+                    WaypointType.SidewalkCorner => new Color(1f, 0.9f, 0.2f, 0.95f),   // yellow
+                    WaypointType.SidewalkMid => new Color(0.2f, 0.8f, 1f, 0.95f),       // cyan
+                    WaypointType.CrosswalkCorner => new Color(1f, 0.5f, 0.1f, 0.95f),   // orange
+                    _ => Color.white
+                };
+
+                // Small sphere marker underneath the text
+                var marker = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                marker.name = $"Marker_{nodeId}";
+                marker.transform.SetParent(labelObj.transform, false);
+                marker.transform.localPosition = Vector3.zero;
+                marker.transform.localScale = new Vector3(0.08f, 0.03f, 0.08f);
+                var rend = marker.GetComponent<Renderer>();
+                rend.material = new Material(Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard"));
+                rend.material.color = tmp.color;
+                var col = marker.GetComponent<Collider>();
+                if (col) Destroy(col);
+            }
+
+            Debug.Log($"[CityMap3D] Waypoint labels drawn: {graph.Nodes.Count} nodes");
+        }
+
+        public void ClearWaypointLabels()
+        {
+            if (waypointLabelRoot != null)
+            {
+                Destroy(waypointLabelRoot.gameObject);
+                waypointLabelRoot = null;
+            }
+        }
 
         private readonly Dictionary<string, BlockView3D> views = new();
         private Transform mapRoot;
@@ -667,25 +831,50 @@ namespace SteelCity.Sim
         {
             float groundTile = GroundTileSize;
 
-            var terrainData = VoxelTerrainBuilder.GenerateCityTerrain(
-                minRow, maxRow, minCol, maxCol,
-                centerRow, centerCol,
-                spacing, groundTile, roadWidth, voxelSize,
-                mapRoot.position,  // Pass the city offset so terrain aligns with buildings
-                out int w, out int h, out int d, out Vector3 origin,
-                out blockAnchors);
-
-            chunkManager.LoadChunkFromData("terrain", terrainData, w, h, d, origin);
-
-            // Register terrain voxels with collision world for ground probing
+            // Ensure collision world exists
             if (collisionWorld == null)
                 collisionWorld = gameObject.GetComponent<VoxelCollisionWorld>();
             if (collisionWorld == null)
                 collisionWorld = gameObject.AddComponent<VoxelCollisionWorld>();
-            collisionWorld.RegisterTerrain(terrainData, w, h, d, origin, voxelSize);
 
-            Debug.Log($"[CityMap3D] Voxel terrain generated: {w}x{h}x{d} at world origin {origin} " +
-                $"(covers {w * voxelSize:F1}m × {d * voxelSize:F1}m, {blockAnchors.Count} block anchors)");
+            if (useSplitTerrain)
+            {
+                // === SPLIT TERRAIN: one small chunk per block ===
+                var terrainChunks = VoxelTerrainBuilder.GeneratePerBlockTerrain(
+                    minRow, maxRow, minCol, maxCol,
+                    centerRow, centerCol,
+                    spacing, groundTile, roadWidth, voxelSize, sidewalkWidth,
+                    mapRoot.position,
+                    out blockAnchors);
+
+                int totalVoxels = 0;
+                foreach (var tc in terrainChunks)
+                {
+                    chunkManager.LoadChunkFromData(tc.name, tc.data, tc.w, tc.h, tc.d, tc.worldOrigin);
+                    collisionWorld.RegisterTerrainChunk(tc.data, tc.w, tc.h, tc.d, tc.worldOrigin, voxelSize);
+                    totalVoxels += tc.w * tc.h * tc.d;
+                }
+
+                Debug.Log($"[CityMap3D] Split terrain: {terrainChunks.Count} chunks, {totalVoxels:N0} total voxels, " +
+                    $"{blockAnchors.Count} block anchors");
+            }
+            else
+            {
+                // === ORIGINAL: single large terrain chunk ===
+                var terrainData = VoxelTerrainBuilder.GenerateCityTerrain(
+                    minRow, maxRow, minCol, maxCol,
+                    centerRow, centerCol,
+                    spacing, groundTile, roadWidth, voxelSize,
+                    mapRoot.position,
+                    out int w, out int h, out int d, out Vector3 origin,
+                    out blockAnchors);
+
+                chunkManager.LoadChunkFromData("terrain", terrainData, w, h, d, origin);
+                collisionWorld.RegisterTerrain(terrainData, w, h, d, origin, voxelSize);
+
+                Debug.Log($"[CityMap3D] Voxel terrain generated: {w}x{h}x{d} at world origin {origin} " +
+                    $"(covers {w * voxelSize:F1}m × {d * voxelSize:F1}m, {blockAnchors.Count} block anchors)");
+            }
 
             // Log first few anchors for verification
             int logged = 0;
@@ -694,7 +883,6 @@ namespace SteelCity.Sim
                 if (logged++ < 3)
                     Debug.Log($"[CityMap3D]   Anchor {kv.Key} → {kv.Value}");
             }
-
         }
 
         /// <summary>

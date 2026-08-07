@@ -41,6 +41,8 @@ StructuredBuffer<float4> _ChunkTints;
 int3   _VolumeDims;        // voxel counts (x,y,z) for this chunk
 float  _VoxelSize;         // world units per voxel
 float3 _VolumeOffset;      // world-space position of this chunk's origin
+float4x4 _VolumeRotation;  // world-to-local rotation (inverse of chunk rotation)
+float4x4 _VolumeInvRotation; // local-to-world rotation (chunk rotation)
 float3 _CameraOrigin;      // world space camera position
 float4x4 _CameraToWorld;   // camera-to-world matrix
 float4x4 _InvProjection;   // inverse projection matrix
@@ -232,37 +234,43 @@ void CSRaymarch(uint3 id : SV_DispatchThreadID)
     float4 color = existingColor;
     float  depth = existingDepth;
 
-    // Volume bounds in world space (offset by chunk position)
+    // --- Transform ray into volume local space (handles rotation) ---
+    // Build local-space ray by applying inverse rotation around volume center
+    float3 volumeCenter = _VolumeOffset + float3(_VolumeDims) * _VoxelSize * 0.5;
+    float3 localRo = mul((float3x3)_VolumeRotation, ro - volumeCenter) + volumeCenter;
+    float3 localRd = mul((float3x3)_VolumeRotation, rd);
+
+    // Volume bounds in local space (axis-aligned after rotation transform)
     float3 volumeMin = _VolumeOffset;
     float3 volumeMax = _VolumeOffset + float3(_VolumeDims) * _VoxelSize;
 
-    // Test ray-box intersection
+    // Test ray-box intersection in local space
     float tNear, tFar;
-    if (!RayAABBIntersection(ro, rd, volumeMin, volumeMax, tNear, tFar))
+    if (!RayAABBIntersection(localRo, localRd, volumeMin, volumeMax, tNear, tFar))
     {
         return; // Ray misses this chunk — preserve existing pixel
     }
 
-    // Start raymarching at volume entry point
+    // Start raymarching at volume entry point (in local space)
     float tStart = max(tNear, 0.0);
-    float3 startPos = ro + rd * (tStart + 0.001);
+    float3 startPos = localRo + localRd * (tStart + 0.001);
 
     // DDA setup in voxel space (relative to chunk origin)
     float3 localStart = (startPos - _VolumeOffset) / _VoxelSize;
     int3 voxel = (int3)floor(localStart);
     voxel = clamp(voxel, int3(0,0,0), _VolumeDims - int3(1,1,1));
 
-    int3 stepDir = (int3)sign(rd);
-    float3 deltaDist = abs(_VoxelSize / rd);
+    int3 stepDir = (int3)sign(localRd);
+    float3 deltaDist = abs(_VoxelSize / localRd);
 
     float3 sideDist;
-    if (rd.x < 0) sideDist.x = (localStart.x - float(voxel.x)) * deltaDist.x;
+    if (localRd.x < 0) sideDist.x = (localStart.x - float(voxel.x)) * deltaDist.x;
     else sideDist.x = (float(voxel.x + 1) - localStart.x) * deltaDist.x;
 
-    if (rd.y < 0) sideDist.y = (localStart.y - float(voxel.y)) * deltaDist.y;
+    if (localRd.y < 0) sideDist.y = (localStart.y - float(voxel.y)) * deltaDist.y;
     else sideDist.y = (float(voxel.y + 1) - localStart.y) * deltaDist.y;
 
-    if (rd.z < 0) sideDist.z = (localStart.z - float(voxel.z)) * deltaDist.z;
+    if (localRd.z < 0) sideDist.z = (localStart.z - float(voxel.z)) * deltaDist.z;
     else sideDist.z = (float(voxel.z + 1) - localStart.z) * deltaDist.z;
 
     // tMax must be offset by tStart so currentT always represents true
@@ -318,24 +326,29 @@ void CSRaymarch(uint3 id : SV_DispatchThreadID)
                 // Side face — blend for softer wall appearance
                 blendedN = normalize(normal * 0.7 + smoothN * 0.3);
             }
+            // Transform normal from local to world space for lighting
+            blendedN = normalize(mul((float3x3)_VolumeInvRotation, blendedN));
             float3 lighting = GetLighting(blendedN, mat);
 
             // --- Shadow ray ---
             // Cast a secondary ray from the hit point toward the light source.
             // If it hits another solid voxel, the point is in shadow.
             // Soft shadows: track closest approach distance for penumbra.
-            float3 hitWorldPos = ro + rd * currentT;
-            float3 shadowDir = _LightDirection; // Uses sun direction from VoxelSun
+            // hitWorldPos is in local space (we transformed the ray above)
+            float3 hitWorldPos = localRo + localRd * currentT;
+            float3 shadowDir = mul((float3x3)_VolumeRotation, _LightDirection); // transform light to local space
+            // Transform normal back to local space for shadow ray nudge
+            float3 localN = normalize(mul((float3x3)_VolumeRotation, blendedN));
             // Nudge along surface normal AND light direction to avoid self-shadowing.
             // The normal offset lifts the origin off the surface; the light-direction
             // offset moves it into open air. Using both eliminates the checkerboard
             // pattern on flat surfaces (roads, sidewalks) where grazing shadow rays
             // would re-enter the same voxel grid.
             float3 shadowOrigin = hitWorldPos
-                + blendedN * (_VoxelSize * _ShadowNormalNudge)
+                + localN * (_VoxelSize * _ShadowNormalNudge)
                 + shadowDir * (_VoxelSize * _ShadowLightNudge);
 
-            // Convert to local voxel space for this chunk
+            // Already in local space — convert to voxel space for this chunk
             float3 shadowLocal = (shadowOrigin - _VolumeOffset) / _VoxelSize;
             int3 shadowVoxel = (int3)floor(shadowLocal);
             shadowVoxel = clamp(shadowVoxel, int3(0,0,0), _VolumeDims - int3(1,1,1));

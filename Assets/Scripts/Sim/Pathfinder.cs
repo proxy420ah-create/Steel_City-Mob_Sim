@@ -12,7 +12,7 @@ namespace SteelCity.Sim
             this.graph = graph;
         }
 
-        public List<string> FindPath(string startNodeId, string endNodeId, float jaywalkBias = 0.5f)
+        public List<string> FindPath(string startNodeId, string endNodeId)
         {
             if (!graph.Nodes.ContainsKey(startNodeId) || !graph.Nodes.ContainsKey(endNodeId))
             {
@@ -50,8 +50,7 @@ namespace SteelCity.Sim
                     if (closed.Contains(link.targetId)) continue;
                     if (!graph.Nodes.ContainsKey(link.targetId)) continue;
 
-                    float riskPenalty = link.riskWeight * jaywalkBias * 10f;
-                    float tentativeG = gScore[current] + link.baseTickCost + riskPenalty;
+                    float tentativeG = gScore[current] + link.baseTickCost;
 
                     if (!gScore.TryGetValue(link.targetId, out float existing) || tentativeG < existing)
                     {
@@ -69,8 +68,7 @@ namespace SteelCity.Sim
 
         public List<string> FindPathBlockToBlock(
             string startBlockId, Vector3 startPos,
-            string endBlockId, Vector3 endPos,
-            float jaywalkBias = 0.5f)
+            string endBlockId, Vector3 endPos)
         {
             string startNode = graph.FindNearestNode(startPos, startBlockId);
             string endNode = graph.FindNearestNode(endPos, endBlockId);
@@ -81,7 +79,7 @@ namespace SteelCity.Sim
                 return null;
             }
 
-            var path = FindPath(startNode, endNode, jaywalkBias);
+            var path = FindPath(startNode, endNode);
             if (path != null)
             {
                 int totalTicks = 0;

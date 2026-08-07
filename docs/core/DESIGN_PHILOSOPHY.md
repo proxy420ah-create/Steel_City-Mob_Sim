@@ -183,3 +183,35 @@ When evaluating any new feature or system change, ask:
 6. **Does the original have something similar?** (If yes, we're polishing. If no, we're adding carefully.)
 
 If a feature fails any of these tests, it needs strong justification before inclusion.
+
+---
+
+## 6. Mafia Tycoon, Not City Builder
+
+**Full document**: `docs/core/MAFIA_TYCOON_DESIGN_PRINCIPLE.md`
+
+The economy exists as a **weapon and a consequence**, not as a management
+interface. The player is a crime boss, not an economist.
+
+**The player disrupts the economy through crime. The player does NOT manage
+the economy through business controls.**
+
+### Quick Test
+
+When evaluating any economic feature, ask:
+1. Does the player interact with this through crime? → Mafia tycoon ✅
+2. Does the player need a dashboard to understand it? → City builder ❌
+3. Can the player ignore this and still play? → If no, it's management — cut it
+4. Does this produce emergent consequences from criminal actions? → Mafia tycoon ✅
+5. Does this require the player to optimize numbers? → Business management ❌
+
+### Information Rule
+
+Economic information is **gated behind gang activity** (spying, casing, scouting).
+The player never sees raw economic data without gang intelligence gathering.
+
+### Action Rule
+
+Economic change happens **through crime, not through management**.
+The player bombs, raids, extorts, and intimidates. They do not set prices,
+adjust wages, or manage supply chains.

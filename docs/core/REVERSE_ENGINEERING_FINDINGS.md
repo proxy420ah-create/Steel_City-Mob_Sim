@@ -1,7 +1,7 @@
 # Reverse Engineering Findings — Gangsters.exe Binary Analysis
 
 **Created**: August 5, 2026
-**Status**: 🔶 Active — Vehicle state machine + portrait system SOLVED, movement state machine mapped
+**Status**: 🔶 Active — Vehicle state machine + portrait system SOLVED, movement state machine mapped, traffic interactions mapped
 **Analyst**: Cascade + USER
 **Source Binary**: `gangsters.exe` (GOG release, ~1998 Hothouse Creations)
 **Toolchain**: Ghidra 12.1.2, JDK 21 (Eclipse Adoptium), custom Java analysis scripts
@@ -1979,6 +1979,16 @@ character anywhere.
 | How does the portrait system work? | **5-layer compositor**: head (14 types) → variant → hair → eyes → nose → mouth, each randomly selected. Plus 16-bit appearance bitfield (skin tone, features) |
 | Is portrait generation deterministic? | **Yes** — uses seed stack (`thunk_FUN_0069e820` push / `thunk_FUN_0069e9b0` pop) for reproducible results |
 | Can portraits map to voxel characters? | **Yes** — each 2D layer maps to a 3D mesh layer; seed system enables reproducible generation |
+| What is `entity+0x68` (`entity[0x1a]`)? | **Target entity pointer** — stores entity found by pedestrian search that is blocking movement |
+| What are the 0x700 flags in `entity[0x19]`? | **"Aware of nearby entity"** status bits, set after entity search finds something |
+| What does the blocked crossing handler do? | `FUN_005ddb80`: 1/128 chance per tick for peds only, sets 0x80 flag, creates wait action (type 14) |
+| How do vehicles reroute? | `FUN_005d6ef0`: spiral grid search (-5 to +5 lateral, 30 to 1 forward), validates via `thunk_FUN_00609060` |
+| Do trams have right-of-way? | **No RE evidence found** — no tram-specific priority logic in any decompiled function |
+| Is pedestrian avoidance type-specific? | **No** — `FUN_005dd9d0` checks only `vtable+0x20` (passability), not entity type |
+| Are trams excluded from random walks? | **Yes** — `FUN_005dddc0` re-rolls action type 3 if entity is tram (type 8) |
+| Do vehicles move passengers? | **Yes** — `FUN_004cb0c0` iterates `entity[0x45]` passenger list, updates each passenger's position |
+| Are all entities billboard sprites? | **Yes** — no collision/hitbox/physics code, all interactions are grid cell occupancy checks |
+| What is `FUN_00414ba0`? | **Game state/mode transition handler** (not tram movement) — case 8 = tram simulation phase, calls undecompiled `thunk_FUN_005bba40` and `thunk_FUN_006c7a90` |
 
 ### Still Pending
 
@@ -1996,11 +2006,9 @@ character anywhere.
 8. **Find pathfinding function pointer table** — since pathfinding thunks
    have 0 direct references, locate the vtable or function pointer array
    used to invoke them
-9. **Decompile `thunk_FUN_0069e820`/`thunk_FUN_0069e9b0`** — portrait seed
-   push/pop system (deterministic random sequence for reproducible characters)
-10. **Dump portrait definition table** — extract actual head/hair/eyes/nose/mouth
+9. **Dump portrait definition table** — extract actual head/hair/eyes/nose/mouth
     counts from binary data at `param_1 + 0x560`
-11. **Find portrait sprite files** — locate the actual .spr/.dat files
+10. **Find portrait sprite files** — locate the actual .spr/.dat files
     referenced by the portrait renderer `FUN_0063a950`
 
 ### Open Questions
@@ -2017,6 +2025,13 @@ character anywhere.
   is `DAT_009008e4` seeded with distance/hood-level data before the call?
 - What does `DAT_00902860 == 7` check in `FUN_005dc080` signify? (game mode?
   day of week? mission type?)
+- What does `thunk_FUN_005bba40` (called in tram mode case 8) actually do?
+  Is it tram route advancement, stop processing, or state update?
+- What does `thunk_FUN_006c7a90` (called in tram mode case 8) do?
+- Does `vtable+0xF4` (vehicle "can drive" check) use the same passability
+  logic as `vtable+0x20`, or is it a separate vehicle-specific check?
+- Are there tram-specific movement functions beyond `FUN_00414ba0` case 8?
+  The mode handler calls thunks that haven't been decompiled yet.
 
 ---
 
@@ -2033,6 +2048,10 @@ character anywhere.
 | `FindVehicleStateSetters.java` | `C:\Tools\ghidra_scripts\` | Searches for individual vehicle bit setters (0x08M/0x10M/0x20M), IMUL 0x60 distance calc |
 | `FindPortraitSystem.java` | `C:\Tools\ghidra_scripts\` | Searches for portrait/character generation strings, _rand callers, sprite loading |
 | `DecompileDecisionAndPortraits.java` | `C:\Tools\ghidra_scripts\` | Decompiles walk/drive decision function, vehicle assignment, portrait generator |
+| `DecompileVehiclePedInteraction.java` | `C:\Tools\ghidra_scripts\` | Full SIM_TICK decompile, vtable scan, entity type comparisons, street crossing/access decompile |
+| `SearchTrafficSignalWrites.java` | `C:\Tools\ghidra_scripts\` | Searches for any writes to `DAT_007c0024 + 0x1220` (road access flags) — binary scan + Ghidra refs |
+| `DecompileRoadAccessInit.java` | `C:\Tools\ghidra_scripts\` | Decompiles `FUN_00650ee0` (city constructor) and map init candidates that write road access flags |
+| `DecompileTrafficInteractions.java` | `C:\Tools\ghidra_scripts\` | Comprehensive ped/vehicle/tram interaction: entity awareness, blocked crossing, reroute, post-processing, tram type-8 dispatch, occupancy vtable callers, entity offset analyses |
 
 ### Output Files (Additional)
 
@@ -2042,6 +2061,10 @@ character anywhere.
 | `ghidra_vehicle_state_setters.txt` | ~830 | Individual vehicle bit setters + decompiled functions |
 | `ghidra_portrait_system.txt` | ~16380 | Portrait system string search, _rand callers, 119 decompiled candidate functions |
 | `ghidra_decision_portraits.txt` | ~1420 | Walk/drive decision function + portrait generator + callers |
+| `ghidra_vehicle_ped_interaction.txt` | ~15617 | Full SIM_TICK decompile, vtable resolutions, entity type comparisons, street crossing/access |
+| `ghidra_traffic_signal_writes.txt` | 85 | Road access flag write search — 20 reads, 0 dynamic writes, 7 static writes in constructor |
+| `ghidra_road_access_init.txt` | ~2965 | City constructor `FUN_00650ee0` decompile — confirms road access flags are static |
+| `ghidra_traffic_interactions.txt` | ~16007 | Full traffic interaction analysis: entity awareness, blocked crossing, vehicle reroute, SIM_TICK post-processing, tram dispatch, entity type comparisons, string searches, offset analyses |
 
 ## Appendix B: Data File Cross-Reference
 
@@ -2284,18 +2307,19 @@ projectiles — AI combat is resolved statistically without visual effects.
 5. At each cell:
    - Check if reached target position (exact match)
    - Check if cell is NULL or impassable → stop
-   - Check road network data at `DAT_007c0024 + 0x1220` for traffic signals
+   - Check road network data at `DAT_007c0024 + 0x1220` for **road access flags** (static, not dynamic traffic signals)
    - Check directional flags: `0xF0F00` (N/S), `0xF0F000` (E/W), `0xFF0000` (all)
 6. Return 1 if crossing possible, 0 if blocked
 
-**Traffic light checking**:
+**Road access flag checking** (NOT traffic signals — see Section 18.12):
 ```c
 road_id = *(byte*)(cell + 0x29);
 // Check 4 bytes at DAT_007c0024 + 0x1220 + road_id * 4
 // Byte 0: West open, Byte 1: East open, Byte 2: North open, Byte 3: South open
+// 0x00 = open, 0x01 = closed (restricted direction)
 if (DAT_007c0024[0x1220 + road_id*4] != 0 ||
     DAT_007c0024[0x1221 + road_id*4] != 0)
-    goto blocked;  // Traffic signal prevents crossing
+    goto blocked;  // Road access flag prevents crossing
 ```
 
 **6-cell maximum**: Crossings are limited to 6-lane roads wide. This is a
@@ -2319,7 +2343,7 @@ Checks if a position has accessible streets in 4 cardinal directions.
 7. For each direction: check adjacent cell
    - Must be road type (vtable `+0x20` returns 0)
    - Must have access flag (`cell[10] & 1`)
-   - Must have open traffic signal in that direction
+   - Must have open road access flag in that direction
 8. Return 1 if any direction is accessible, 0 if all blocked
 
 ### 18.6 Animation Lookup (`FUN_0048a750`) — Detailed
@@ -2473,3 +2497,329 @@ param+0x59 = anim_id;
 | 0xB | Combat approach | Timer + RNG, `thunk_FUN_00565C30` | ✅ Combat system |
 | 0xC | Combat engagement | 8-substate, COMBAT_1-4, `thunk_FUN_006ABEA0` | ✅ Combat system |
 | 0xD | Fleeing | 7-substate, zigzag patterns, RNG direction | ✅ AI behavior |
+
+### 18.12 Road Access Flags — Static, NOT Traffic Signals (`FUN_00650ee0`)
+
+**Status**: CONFIRMED via RE + user playtest
+
+**Previous interpretation**: The `+0x1220` array was described as "traffic signals" that coordinate traffic flow.
+
+**Corrected interpretation**: The `+0x1220` array is a **static road access grid** baked into the city map at initialization. There are no traffic lights in Gangsters. Vehicle and pedestrian movement is emergent based on map cell passability checks.
+
+**RE Evidence**:
+
+1. **Write search** (`SearchTrafficSignalWrites.java`):
+   - 20 defined Ghidra references to `0x007c1244`–`0x007c1400` — **all reads, zero writes**
+   - Binary scan of entire `.text` section: 7 STORE instructions with `0x1220`-range displacement — **all in `FUN_00650ee0`**
+   - 1 `REP STOSD` (bulk zero-fill) also in `FUN_00650ee0`
+   - **No writes found outside the constructor**
+
+2. **Constructor decompilation** (`DecompileRoadAccessInit.java`):
+   - `FUN_00650ee0` is a **city object constructor** (7,290 bytes):
+     - Allocates 15+ sub-objects via `operator_new(0xc)`
+     - Constructs arrays via `_eh_vector_constructor_iterator_`
+     - Loads data files: `Data_Business_Suspicion_txt`, `EventLog_txt`, `Data_crime_txt`
+     - Loads sprites: `Graphics_Headquarters_spr`
+     - Shows `MessageBoxA` for invalid HWND
+   - **Line 959**: `REP STOSD` zeroes the entire road access array (0x5E dwords from offset `0x488`)
+   - **Lines 965-1013**: 35 specific bytes set to `1` at offsets `0x1221` through `0x127D`
+   - These are the **baked-in road access restrictions** — specific road segments have specific directional restrictions
+
+3. **User playtest confirmation**:
+   - Roads do not lose access during a game week
+   - No in-game visual or behavioral evidence of traffic lights
+   - All vehicle movement appears emergent based on other vehicles and map topology
+
+**Conclusion**: The `+0x1220` array defines which directions entities can cross/move at each road segment. It is part of the city's navigation topology, set once during map initialization, and never modified during gameplay. **There are no traffic signals in Gangsters.**
+
+**Implications for Steel City**:
+- Road access restrictions should be a property of the road network topology, not a dynamic system
+- No traffic light coordination system is needed to replicate Gangsters behavior
+- Vehicle interaction is purely emergent from passability checks and vehicle speed/movement logic
+
+---
+
+## 19. Traffic Interactions Deep Dive
+
+**Source**: `ghidra_traffic_interactions.txt` (output of `DecompileTrafficInteractions.java`)
+**Date**: August 6, 2026
+
+### 19.1 Architectural Foundation: Billboard Sprite / Grid Occupancy Model
+
+**Key insight**: All entities in Gangsters (pedestrians, vehicles, trams) are
+**billboard sprites** at single grid coordinates. There are no 3D meshes,
+hitboxes, or physical extents. "Collision" is purely **grid cell occupancy**.
+
+- Each entity occupies one grid cell
+- `vtable+0x20` returns whether that entity's cell blocks movement — a
+  **logical flag**, not a physics intersection test
+- No collision strings ("crash", "hit", "runover") exist in the binary
+- No hitbox or mesh intersection code exists
+- Vehicle "rerouting" is grid pathfinding around occupied cells, not
+  steering around physical obstacles
+- The `entity+0x68` target pointer is "which entity is in my way" — a
+  pointer to the sprite at the blocking cell
+
+This means the entire traffic interaction system is a **grid-based occupancy
+model**: entities check whether cells are passable, and react accordingly.
+
+### 19.2 Pedestrian Entity Awareness (`FUN_005dd910`, ~90 bytes)
+
+**Trigger**: Called from SIM_TICK when `FUN_005dd9d0` (entity search) finds
+a non-passable entity in the pedestrian's rectangular search area.
+
+**Behavior**:
+1. Only activates if `entity[0x1a]` (offset `0x68`) == 0 — no existing target
+2. Stores found entity pointer: `entity[0x1a] = param_2` (the found entity)
+3. Calls `vtable+0x8` on the found entity, passing the pedestrian —
+   generic "interaction" callback, not type-specific
+4. Gets position/direction via `thunk_FUN_0060bab0`
+5. Clears bits 10-14 on path structure flags: `& 0xffff83ff`
+6. Allocates time budget via `thunk_FUN_00565790` with RNG-based value
+7. Sets up new movement via `thunk_FUN_00564060`
+8. Triggers AI re-evaluation via `vtable+0x80`
+
+**Key findings**:
+- `entity + 0x68` = `entity[0x1a]` = **target entity pointer** (who/what is
+  blocking me)
+- The 0x700 flags set in SIM_TICK after this call: `entity[0x19] |= 0x700` =
+  "aware of nearby entity" status bits
+- The reaction is **generic** — no entity type check. A tram, car, truck,
+  or another pedestrian would all trigger the same reaction if their
+  `vtable+0x20` returns "not passable"
+
+### 19.3 Entity Search (`FUN_005dd9d0`) — Passability, Not Type
+
+The entity search checks `vtable+0x20` (passability) for each entity in the
+rectangular search area. It does **NOT** check entity type. Any non-passable
+entity triggers the reaction.
+
+**Detection model**:
+- Pedestrians: area scan (rectangle `position ± radius`)
+- Vehicles: point check (`vtable+0xF4` — "can drive forward to next cell?")
+- Both use passability (vtable calls), but different scan patterns
+
+### 19.4 Blocked Crossing Handler (`FUN_005ddb80`, ~120 bytes)
+
+**Trigger**: Called when a pedestrian's street crossing is blocked.
+
+**Behavior**:
+1. **Only applies to pedestrians** — checks `entity+0x10 == 0x10`
+2. Only if not already blocked: `entity[0x19] & 0x80 == 0`
+3. Only if has path: `entity[0x15] != 0`
+4. **Probabilistic**: 1/128 chance per tick (`RNG & 0x7f == 0`)
+5. Sets blocked flag: `entity[0x19] |= 0x80`
+6. Calls `thunk_FUN_00561740()` — check if can wait
+7. If can wait: creates wait action (type 0xE = 14) via `thunk_FUN_005614d0(0xe)`
+8. Random direction (0 or 1) via RNG
+9. Adds to action queue via `thunk_FUN_00563080`
+10. Triggers AI re-evaluation via `vtable+0x80`
+
+**Key findings**:
+- The 0x80 flag in `entity[0x19]` = "blocked/waiting" status
+- Combined with 0x700 (awareness), `entity[0x19]` tracks pedestrian
+  interaction state: 0x700 = aware, 0x80 = blocked
+- No collision detection, no vehicle interaction — purely pedestrian
+  waiting behavior
+- The 1/128 probability means pedestrians don't always react to blocked
+  crossings — sometimes they just proceed
+
+### 19.5 Vehicle Reroute (`FUN_005d6ef0`, ~200 bytes)
+
+**Trigger**: Called when a vehicle's path is blocked.
+
+**Behavior**:
+1. Calls `thunk_FUN_00606340()` — setup
+2. **Spiral/grid search pattern**: lateral offset -5 to +5, forward distance
+   30 down to 1 (two modes based on `param_3`: searches Y-axis or X-axis)
+3. For each candidate position: calls `thunk_FUN_00609060()` — validate
+   position (road passability check)
+4. If valid position found: calls `thunk_FUN_0060b470(7)` — set new
+   destination with mode 7
+5. If no valid position: calls `thunk_FUN_00606760()` — fallback (likely
+   stop or abort)
+6. Outputs new position via `*param_2 = local_8`
+
+**Key findings**:
+- **No entity awareness** — rerouting is purely road-network-based,
+  not avoiding other vehicles
+- The spiral search covers a 11×30 grid area around the vehicle
+- Mode 7 destination suggests "rerouted" vs normal pathfinding modes
+- This is grid pathfinding around occupied cells, not physical obstacle
+  avoidance
+
+### 19.6 SIM_TICK Post-Processing (`FUN_005dddc0`, ~700 bytes)
+
+**Trigger**: Called after entity movement in SIM_TICK.
+
+**Entry conditions**:
+- Entity must have no active state (`entity+0x11 & 0x1f == 0`)
+- Must be at grid position
+- Not already blocked (`entity[0x19] & 0x80 == 0`)
+- Must have path (`entity[0x15] != 0`)
+- **1/8 chance per tick** (`RNG & 7 == 0`)
+
+**Behavior**: Uses switch on `RNG & 0x1F` (32 cases) to select an action
+type (0-7). Action types set different `entity+0x11` values:
+- Type 0 → 0x1C (idle/loiter)
+- Type 1 → 0x11 (walk)
+- Type 2 → 0x21 (wander)
+- Type 3 → Complex position-based direction selection (random walk)
+- Type 4 → 0x24 (special action)
+- Type 5 → 0x05 (look around)
+- Type 6 → 0x04 (another action)
+- Type 7 → Position-based with grid cell modulo 5
+
+**CRITICAL TRAM FINDING**:
+```c
+} while (((char)param_1[0x16] != '\b') && (*(char *)(puVar9 + 2) == '\x03'));
+```
+- `param_1[0x16]` = entity type field
+- `'\b'` = 8 = tram entity type
+- `puVar9 + 2` = selected action type
+- `'\x03'` = action type 3 (random walk direction)
+
+**This is the first direct RE evidence of tram-specific behavior exclusion**:
+If the entity is a tram (type 8) AND action type 3 was selected, the loop
+**re-rolls**. Trams are excluded from random walk directions — they must
+follow fixed routes.
+
+### 19.7 Game State Transition Handler (`FUN_00414ba0`, 7273 bytes)
+
+**Corrected interpretation**: This is a **game state/mode transition handler**
+for the world simulation, NOT a UI/view transition handler. The `param_1`
+object has offsets up to `0x4600+` — this is the game world/state object.
+
+The switch on `param_1 + 0x114` (current mode) with `param_2` (new mode)
+is a state machine for game phases. Functions like `thunk_FUN_0062a390`
+are likely **invalidating display regions** (telling the renderer "this area
+changed, redraw it"), not setting up user interfaces.
+
+**Case 8 (Tram simulation phase)**:
+- Calls `thunk_FUN_005bba40()` if `param_1 + 0x2dcc == 0` (first entry)
+- Calls `thunk_FUN_006c7a90()` — tram system update (route advancement,
+  stop processing — NOT yet decompiled)
+- Clears `param_1 + 0x390d` flag
+- Copies state from working fields to active fields
+- Tram orders stored at `entity + 0x3904`
+- Tram order processing: if `entity + 0x3904 != 0` and
+  `entity + 0x1462 == 0x01` (player in control) and
+  `*(entity + 0x3904) + 0xfc != 0` (order has data),
+  calls `thunk_FUN_005b3440(0xffffffff, 0)` — process order
+
+**No evidence of tram right-of-way logic** in this function. The tram-specific
+logic is about state management and order processing, not traffic priority.
+Actual tram movement functions (`thunk_FUN_005bba40`, `thunk_FUN_006c7a90`)
+have NOT been decompiled yet.
+
+### 19.8 Tram Spawn/Dispatch (`FUN_0054d850`, 2891 bytes)
+
+A **spawn/dispatch function** that activates for entity state `0x3A` (58):
+- Reads `entity+0x70` and `entity+0x71` (grid position)
+- Iterates through entity array at `DAT_007c0024[0x278]` (stride 0x84)
+- Uses `entity+0x68` as a position/bounds field for range checking
+- Excludes entity types 0x66, 0x1F, 0x43 from candidate list
+- Does 3×3 grid search, checking `vtable+0x20` (passability) and
+  `vtable+0x12C` (type identity)
+- If passability returns 3, removes entity from candidates
+- Randomly selects from remaining candidates, sorts by property at `+0x40`
+- Creates new entities (0x6C bytes) via `thunk_FUN_00626520`
+- **Special handling for entity type 8 (tram)**: creates 4 additional
+  entities in a directional pattern
+
+### 19.9 Vehicle Driving Decision (`FUN_004cb0c0`, 614 bytes)
+
+**Behavior**:
+1. Checks path flags at `entity[0x15]+0xC`
+2. Calls `vtable+0xF4` — "can drive forward" check (vehicle-specific
+   passability variant)
+3. If can't drive: attempts pathfinding via `thunk_FUN_0060be40`,
+   then `thunk_FUN_00609060` (validate route)
+4. If valid route found: starts driving via `thunk_FUN_00607e80`
+5. If invalid: calls `thunk_FUN_00608b00` (stop/abort)
+6. **Iterates `entity[0x45]` (passenger list)** — moves all passengers
+   when vehicle moves. Each passenger gets `thunk_FUN_00564060`
+   (movement setup) and `vtable+0x80` (AI tick)
+
+**Key finding**: Vehicles move passengers with them. The passenger list at
+`entity[0x45]` is traversed and each passenger's position is updated.
+
+### 19.10 Vehicle AI Decision (`FUN_004c3dd0`, 5624 bytes)
+
+**Behavior**:
+- Reads `entity+0x59` (driver ID), looks up skill in table
+- If driver skill too low → resets state to 4 (stopped)
+- Checks `entity[9] & 0x38000000` — vehicle movement mode flags
+- Manages order processing via `vtable+0x58`
+- Periodic update via `vtable+0xA0`
+- State machine on `entity[0x54] & 0xC` (2-bit sub-state)
+
+### 19.11 Entity+0x179 (Vehicle In-Use Flag)
+
+Written by `FUN_004c3dd0` and `FUN_004cb0c0`. This flag tracks whether a
+vehicle is currently in use (has a driver/passenger). The binary pattern
+scan for offset `0x179` found these two functions as the primary writers.
+
+### 19.12 String Search Results — No Traffic Strings
+
+All traffic-related strings have **NO code references**:
+- "tram", "train" — exist in data section, never referenced by code
+- "trolley", "streetcar", "collision", "crash", "yield", "right-of-way",
+  "blocked", "traffic", "pedestrian", "reroute", "detour" — NOT FOUND
+- "wait" — 7 instances, all no refs
+- "ped" — 10 instances, all no refs
+
+**Conclusion**: The game binary contains no debug/diagnostic strings for
+traffic interaction systems. All logic is purely numeric/type-based without
+string identifiers.
+
+### 19.13 Caller Analysis — All Thunk-Mediated
+
+All 5 key functions (`FUN_005dd910`, `FUN_005ddb80`, `FUN_005d6ef0`,
+`FUN_005dddc0`, `FUN_00414ba0`) show **0 direct call references** — they
+are all called via thunks (cross-segment stubs), consistent with the
+binary's architecture.
+
+### 19.14 Summary: Confirmed vs Refuted
+
+| Prior Inference | RE Evidence | Verdict |
+|----------------|-------------|---------|
+| Pedestrians have entity awareness | `FUN_005dd910` stores target at `entity[0x1a]` | ✅ Confirmed |
+| `entity+0x68` is important state | It's `entity[0x1a]` = target entity pointer | ✅ Confirmed |
+| 0x700 flags = pedestrian awareness | Set after entity search in SIM_TICK | ✅ Confirmed |
+| Crossing has 16-tick cost | `thunk_FUN_00565c30(0, 0x10)` — 0x10 = 16 | ✅ Confirmed |
+| Blocked crossing triggers wait | `FUN_005ddb80` sets 0x80 flag + creates wait action | ✅ Confirmed |
+| Vehicles reroute when blocked | `FUN_005d6ef0` does spiral grid search | ✅ Confirmed |
+| Trams have right-of-way over peds | No RE evidence found | ❌ Refuted (no evidence) |
+| Trams get special treatment in post-proc | `FUN_005dddc0` re-rolls action type 3 for trams | ✅ Confirmed |
+| Pedestrian avoidance is type-specific | Search uses only passability, not entity type | ❌ Refuted — generic |
+| Vehicles move passengers with them | `FUN_004cb0c0` iterates `entity[0x45]` list | ✅ Confirmed |
+| Tram dispatch is type-specific | `FUN_0054d850` has special case for type 8 | ✅ Confirmed |
+| Traffic signals exist | No evidence in any RE pass | ❌ Refuted |
+| All entities are billboard sprites | No collision/hitbox/physics code in binary | ✅ Confirmed (architectural) |
+| `FUN_00414ba0` is tram movement | It's a game state transition handler | ❌ Refuted — state management, not movement |
+
+### 19.15 Steel City Design Implications
+
+1. **Grid occupancy model**: Traffic interactions should be grid-based
+   passability checks, not physics collisions. Entities occupy cells and
+   block movement through those cells.
+
+2. **Generic detection, not type-specific**: Pedestrians detect ANY blocking
+   entity, not just vehicles. The reaction is the same regardless of what
+   is blocking them. Type-specific behavior (like trams being excluded from
+   random walks) is handled at the action-selection level, not detection.
+
+3. **Parallel detection systems**: Pedestrians use area scans, vehicles use
+   point checks. Steel City should implement both patterns.
+
+4. **Tram route enforcement**: Trams are excluded from random walk actions.
+   They must follow fixed routes. This is enforced at the post-processing
+   level (re-rolling action type 3), not at the movement level.
+
+5. **No traffic signals**: The game has no traffic light system. All traffic
+   flow is emergent from passability checks and grid occupancy.
+
+6. **Billboard sprite architecture**: Since all entities are single-point
+   sprites, there's no need for complex collision detection. Steel City
+   should use the same grid-occupancy model if replicating original behavior.

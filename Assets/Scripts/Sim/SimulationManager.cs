@@ -7,6 +7,7 @@ namespace SteelCity.Sim
     {
         Idle,
         WalkingToTarget,
+        DialogPhase,
         ResolvingOrder,
         WalkingHome,
         Complete
@@ -17,9 +18,20 @@ namespace SteelCity.Sim
         public const int TickBudget = 12000;
 
         public float tickInterval = 0.08f;
-        public float wanderChance = 0.05f;
-        public float trafficLightChance = 0.15f;
-        public int trafficLightWaitTicks = 16;
+
+        // Order action durations (in ticks) from original game data
+        public static readonly Dictionary<string, int> OrderActionTicks = new()
+        {
+            { "extort", 166 },
+            { "collect", 166 },
+            { "intimidate", 333 },
+            { "recruit", 166 },
+            { "bomb", 333 },
+            { "torch", 333 },
+            { "assault", 6000 },
+            { "kill", 6000 },
+            { "stand", 0 }
+        };
 
         public SimState State => state;
         public int TicksElapsed => ticksElapsed;
@@ -45,7 +57,11 @@ namespace SteelCity.Sim
 
         private List<string> currentPath;
         private int pathIndex;
-        private int wanderTicksBuffer;
+
+        public List<string> CurrentPath => currentPath;
+        public WaypointGraph Graph => waypointGraph;
+        private int dialogTicksRemaining;
+        private int dialogTotalTicks;
 
         private readonly SimEventStream eventStream = new();
 
@@ -67,7 +83,6 @@ namespace SteelCity.Sim
             ticksElapsed = 0;
             ticksRemaining = TickBudget;
             pathIndex = 0;
-            wanderTicksBuffer = 0;
             started = true;
 
             if (order.orderType == "stand")
@@ -85,24 +100,13 @@ namespace SteelCity.Sim
         {
             if (!started || state == SimState.Complete) return;
 
-            if (wanderTicksBuffer > 0)
-            {
-                wanderTicksBuffer--;
-                ticksElapsed++;
-                ticksRemaining--;
-                eventStream.Enqueue(SimEvent.WanderEvent(
-                    wanderTicksBuffer, CurrentPos(), ticksElapsed, ticksRemaining));
-                if (ticksRemaining <= 0)
-                {
-                    eventStream.Enqueue(SimEvent.TickExhausted(ticksElapsed));
-                    SetState(SimState.Complete);
-                }
-                return;
-            }
-
             if (state == SimState.WalkingToTarget || state == SimState.WalkingHome)
             {
                 ProcessWalkingTick();
+            }
+            else if (state == SimState.DialogPhase)
+            {
+                ProcessDialogTick();
             }
             else if (state == SimState.ResolvingOrder)
             {
@@ -153,27 +157,6 @@ namespace SteelCity.Sim
             ticksElapsed += linkCost;
             ticksRemaining -= linkCost;
 
-            if (node.type == WaypointType.SidewalkCorner || node.type == WaypointType.SidewalkMid)
-            {
-                if (Random.value < wanderChance)
-                {
-                    wanderTicksBuffer = Random.Range(1, 4);
-                    eventStream.Enqueue(SimEvent.WanderEvent(
-                        wanderTicksBuffer, toPos, ticksElapsed, ticksRemaining));
-                }
-            }
-
-            if (node.type == WaypointType.CrosswalkCorner)
-            {
-                if (Random.value < trafficLightChance)
-                {
-                    ticksElapsed += trafficLightWaitTicks;
-                    ticksRemaining -= trafficLightWaitTicks;
-                    eventStream.Enqueue(SimEvent.TrafficWaitEvent(
-                        trafficLightWaitTicks, toPos, ticksElapsed, ticksRemaining));
-                }
-            }
-
             pathIndex++;
 
             if (ticksRemaining <= 0)
@@ -195,11 +178,9 @@ namespace SteelCity.Sim
 
         void FindPathToTarget()
         {
-            float jaywalkBias = Random.Range(0.2f, 0.8f);
             currentPath = pathfinder.FindPathBlockToBlock(
                 startBlockId, startPos,
-                targetBlockId, targetPos,
-                jaywalkBias);
+                targetBlockId, targetPos);
 
             if (currentPath == null || currentPath.Count == 0)
             {
@@ -210,16 +191,14 @@ namespace SteelCity.Sim
             }
 
             pathIndex = 0;
-            eventStream.Enqueue(SimEvent.PathFoundEvent(currentPath.Count, jaywalkBias));
+            eventStream.Enqueue(SimEvent.PathFoundEvent(currentPath.Count));
         }
 
         void FindPathHome()
         {
-            float jaywalkBias = Random.Range(0.2f, 0.8f);
             currentPath = pathfinder.FindPathBlockToBlock(
                 targetBlockId, targetPos,
-                startBlockId, startPos,
-                jaywalkBias);
+                startBlockId, startPos);
 
             if (currentPath == null || currentPath.Count == 0)
             {
@@ -230,7 +209,7 @@ namespace SteelCity.Sim
             }
 
             pathIndex = 0;
-            eventStream.Enqueue(SimEvent.PathFoundEvent(currentPath.Count, jaywalkBias));
+            eventStream.Enqueue(SimEvent.PathFoundEvent(currentPath.Count));
         }
 
         void OnArrivedAtDestination()
@@ -238,7 +217,23 @@ namespace SteelCity.Sim
             if (state == SimState.WalkingToTarget)
             {
                 eventStream.Enqueue(SimEvent.Arrive(targetBlockId, ticksElapsed, ticksRemaining));
-                SetState(SimState.ResolvingOrder);
+
+                // Enter dialog/action phase — original game spends ticks at target
+                int actionTicks = GetOrderActionTicks(activeOrder);
+                if (actionTicks > 0)
+                {
+                    dialogTotalTicks = actionTicks;
+                    dialogTicksRemaining = actionTicks;
+                    SetState(SimState.DialogPhase);
+                    eventStream.Enqueue(SimEvent.DialogStartEvent(
+                        activeOrder.orderType, targetBlockId, actionTicks,
+                        ticksElapsed, ticksRemaining));
+                }
+                else
+                {
+                    // No dialog phase (e.g. stand order) — resolve immediately
+                    SetState(SimState.ResolvingOrder);
+                }
             }
             else if (state == SimState.WalkingHome)
             {
@@ -253,6 +248,43 @@ namespace SteelCity.Sim
             ResolveOrderAtTarget();
             SetState(SimState.WalkingHome);
             FindPathHome();
+        }
+
+        void ProcessDialogTick()
+        {
+            dialogTicksRemaining--;
+            ticksElapsed++;
+            ticksRemaining--;
+
+            // Emit periodic dialog progress events
+            if (dialogTicksRemaining % 50 == 0 && dialogTicksRemaining > 0)
+            {
+                eventStream.Enqueue(SimEvent.DialogProgressEvent(
+                    activeOrder.orderType, targetBlockId,
+                    dialogTicksRemaining, dialogTotalTicks,
+                    ticksElapsed, ticksRemaining));
+            }
+
+            if (dialogTicksRemaining <= 0)
+            {
+                eventStream.Enqueue(SimEvent.DialogEndEvent(
+                    activeOrder.orderType, targetBlockId,
+                    ticksElapsed, ticksRemaining));
+                SetState(SimState.ResolvingOrder);
+            }
+            else if (ticksRemaining <= 0)
+            {
+                eventStream.Enqueue(SimEvent.TickExhausted(ticksElapsed));
+                SetState(SimState.Complete);
+            }
+        }
+
+        int GetOrderActionTicks(Order order)
+        {
+            if (order == null) return 0;
+            if (OrderActionTicks.TryGetValue(order.orderType, out int ticks))
+                return ticks;
+            return 100; // default fallback for unknown orders
         }
 
         void ResolveOrderAtTarget()

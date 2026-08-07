@@ -16,21 +16,34 @@ namespace SteelCity.Sim
         [Tooltip("Camera offset behind and above target.")]
         public Vector3 offset = new Vector3(0f, 3f, -4f);
 
-        [Tooltip("How smoothly camera follows (higher = snappier).")]
-        public float followSpeed = 5f;
+        [Tooltip("How smoothly camera follows position (higher = snappier).")]
+        public float followSpeed = 3f;
 
-        [Tooltip("How smoothly camera looks at target.")]
-        public float lookSpeed = 5f;
+        [Tooltip("How smoothly camera rotates to look at target.")]
+        public float lookSpeed = 3f;
+
+        [Tooltip("How smoothly camera yaw catches up to movement direction (lower = lazier).")]
+        public float chaseYawSpeed = 2f;
 
         [Tooltip("Field of view for the follow camera.")]
         public float fieldOfView = 50f;
 
+        [Header("Chase Camera")]
+        [Tooltip("If true, camera positions behind character's movement direction (chase-cam). If false, uses orbit mode.")]
+        public bool chaseMode = true;
+        [Tooltip("Distance behind character in chase mode.")]
+        public float chaseDistance = 6f;
+        [Tooltip("Height above character in chase mode.")]
+        public float chaseHeight = 3.5f;
+        [Tooltip("Extra pitch angle (degrees) for chase camera.")]
+        public float chasePitch = 15f;
+
         [Header("Debug Controls")]
         [Tooltip("Show on-screen camera debug HUD.")]
         public bool showDebugHUD = true;
-        [Tooltip("Distance from target.")]
+        [Tooltip("Distance from target (orbit mode).")]
         public float distance = 5f;
-        [Tooltip("Height above target.")]
+        [Tooltip("Height above target (orbit mode).")]
         public float height = 3f;
 
         private Camera cam;
@@ -46,6 +59,9 @@ namespace SteelCity.Sim
         private float lookYaw = 0f;
         private float lookPitch = 0f;
         private bool freeLook = false;
+        private Vector3 lastTargetPos;
+        private float chaseYaw;
+        private bool chaseYawInitialized;
 
         public void Initialize(Transform followTarget, Camera mapCamera, VoxelCharacter voxelChar = null)
         {
@@ -110,11 +126,11 @@ namespace SteelCity.Sim
             hiddenUIChildren.Clear();
             foreach (var c in canvases)
             {
-                // Disable all direct children of the canvas except RaymarchOverlay
+                // Disable all direct children of the canvas except RaymarchOverlay and TransitionOverlay
                 for (int i = 0; i < c.transform.childCount; i++)
                 {
                     var child = c.transform.GetChild(i);
-                    if (!child.name.Contains("RaymarchOverlay") && child.gameObject.activeSelf)
+                    if (!child.name.Contains("RaymarchOverlay") && !child.name.Contains("Transition") && child.gameObject.activeSelf)
                     {
                         child.gameObject.SetActive(false);
                         hiddenUIChildren.Add(child.gameObject);
@@ -129,8 +145,11 @@ namespace SteelCity.Sim
             currentYaw = Mathf.Atan2(offset.x, -offset.z) * Mathf.Rad2Deg;
             currentPitch = Mathf.Atan2(height, Mathf.Sqrt(offset.x * offset.x + offset.z * offset.z)) * Mathf.Rad2Deg;
 
+            chaseYawInitialized = false;
+            lastTargetPos = Vector3.zero;
+
             Debug.Log("[FollowCamera] Initialize COMPLETE — follow camera active");
-            Debug.Log($"[FollowCamera] Initial: distance={distance:F2}, height={height:F2}, yaw={currentYaw:F1}, pitch={currentPitch:F1}");
+            Debug.Log($"[FollowCamera] Initial: distance={distance:F2}, height={height:F2}, yaw={currentYaw:F1}, pitch={currentPitch:F1}, chaseMode={chaseMode}");
             loggedFirstFrame = false;
         }
 
@@ -193,7 +212,14 @@ namespace SteelCity.Sim
             }
 
             // Toggle free-look mode with Left Shift (hold) or T (toggle)
-            freeLook = kb.leftShiftKey.isPressed || kb.tKey.isPressed;
+            freeLook = kb.leftShiftKey.isPressed;
+
+            // T toggles chase mode
+            if (kb.tKey.wasPressedThisFrame)
+            {
+                chaseMode = !chaseMode;
+                Debug.Log($"[FollowCamera] Chase mode toggled: {chaseMode}");
+            }
 
             // Z resets look offsets to zero (re-center view)
             if (kb.zKey.wasPressedThisFrame)
@@ -257,29 +283,78 @@ namespace SteelCity.Sim
             // Aim at the character's world center, not the corner of the voxel volume
             Vector3 aimPoint = character != null ? character.WorldCenter : target.position + Vector3.up * 0.5f;
 
-            // Compute offset from spherical coords (yaw, pitch, distance, height)
-            float yawRad = currentYaw * Mathf.Deg2Rad;
-            float pitchRad = currentPitch * Mathf.Deg2Rad;
-            float horizDist = distance * Mathf.Cos(pitchRad);
-            Vector3 computedOffset = new Vector3(
-                horizDist * Mathf.Sin(yawRad),
-                height,
-                -horizDist * Mathf.Cos(yawRad));
+            if (chaseMode && !freeLook)
+            {
+                // === CHASE CAM ===
+                // Track movement direction and position camera behind character
 
-            Vector3 desiredPos = aimPoint + computedOffset;
-            transform.position = Vector3.SmoothDamp(transform.position, desiredPos, ref velocity, 1f / followSpeed);
+                Vector3 currentPos = aimPoint;
+                if (!chaseYawInitialized)
+                {
+                    // Initialize chase yaw from current camera position relative to target
+                    Vector3 toCam = transform.position - currentPos;
+                    chaseYaw = Mathf.Atan2(toCam.x, toCam.z) * Mathf.Rad2Deg;
+                    chaseYawInitialized = true;
+                }
+                else
+                {
+                    // Compute movement direction from position delta
+                    Vector3 delta = currentPos - lastTargetPos;
+                    float moveDist = new Vector2(delta.x, delta.z).magnitude;
+                    if (moveDist > 0.001f)
+                    {
+                        // Movement heading (degrees, 0 = +Z)
+                        float moveYaw = Mathf.Atan2(delta.x, delta.z) * Mathf.Rad2Deg;
+                        // Camera should be behind movement, so add 180
+                        float desiredChaseYaw = moveYaw + 180f;
+                        // Smoothly interpolate yaw (lazy follow)
+                        chaseYaw = Mathf.LerpAngle(chaseYaw, desiredChaseYaw, chaseYawSpeed * Time.deltaTime);
+                    }
+                }
+                lastTargetPos = currentPos;
 
-            // Look at aim point, then apply free-look offsets on top
-            Quaternion baseRot = Quaternion.LookRotation(aimPoint - transform.position);
-            Quaternion lookOffset = Quaternion.Euler(lookPitch, lookYaw, 0f);
-            transform.rotation = Quaternion.Slerp(transform.rotation, baseRot * lookOffset, lookSpeed * Time.deltaTime);
+                // Position camera behind character at chase distance/height
+                float yawRad = chaseYaw * Mathf.Deg2Rad;
+                Vector3 desiredPos = new Vector3(
+                    currentPos.x + Mathf.Sin(yawRad) * chaseDistance,
+                    currentPos.y + chaseHeight,
+                    currentPos.z + Mathf.Cos(yawRad) * chaseDistance);
+
+                transform.position = Vector3.SmoothDamp(transform.position, desiredPos, ref velocity, 1f / followSpeed);
+
+                // Look at character with slight pitch offset
+                Vector3 lookTarget = currentPos + Vector3.up * (chaseHeight * 0.3f);
+                Quaternion baseRot = Quaternion.LookRotation(lookTarget - transform.position);
+                Quaternion lookOffset = Quaternion.Euler(lookPitch, lookYaw, 0f);
+                transform.rotation = Quaternion.Slerp(transform.rotation, baseRot * lookOffset, lookSpeed * Time.deltaTime);
+            }
+            else
+            {
+                // === ORBIT / FREE LOOK ===
+                float yawRad = currentYaw * Mathf.Deg2Rad;
+                float pitchRad = currentPitch * Mathf.Deg2Rad;
+                float horizDist = distance * Mathf.Cos(pitchRad);
+                Vector3 computedOffset = new Vector3(
+                    horizDist * Mathf.Sin(yawRad),
+                    height,
+                    -horizDist * Mathf.Cos(yawRad));
+
+                Vector3 desiredPos = aimPoint + computedOffset;
+                transform.position = Vector3.SmoothDamp(transform.position, desiredPos, ref velocity, 1f / followSpeed);
+
+                // Look at aim point, then apply free-look offsets on top
+                Quaternion baseRot = Quaternion.LookRotation(aimPoint - transform.position);
+                Quaternion lookOffset = Quaternion.Euler(lookPitch, lookYaw, 0f);
+                transform.rotation = Quaternion.Slerp(transform.rotation, baseRot * lookOffset, lookSpeed * Time.deltaTime);
+            }
 
             if (!loggedFirstFrame)
             {
                 loggedFirstFrame = true;
                 Debug.Log($"[FollowCamera] First LateUpdate — aimPoint={aimPoint}, camPos={transform.position}, " +
                           $"targetPos={target.position}, charWorldCenter={(character != null ? character.WorldCenter.ToString() : "null")}, " +
-                          $"charWorldSize={(character != null ? character.WorldSize.ToString() : "null")}");
+                          $"charWorldSize={(character != null ? character.WorldSize.ToString() : "null")}, " +
+                          $"chaseMode={chaseMode}");
             }
         }
 
@@ -307,25 +382,36 @@ namespace SteelCity.Sim
             GUIStyle bgStyle = new GUIStyle(GUI.skin.box);
             bgStyle.normal.background = MakeSolidTexture(0.08f, 0.08f, 0.12f, 0.85f);
 
-            float w = 340f, h = 230f;
+            float w = 340f, h = 260f;
             GUILayout.BeginArea(new Rect(10, 10, w, h), bgStyle);
             GUILayout.Label("<b>FOLLOW CAMERA DEBUG</b>", style);
             GUILayout.Label("", style);
-            GUILayout.Label($"Distance:  {distance:F2}  (Q/E)", style);
-            GUILayout.Label($"Height:    {height:F2}  (R/F)", style);
-            GUILayout.Label($"Yaw:       {currentYaw:F1} deg  (Left/Right)", style);
-            GUILayout.Label($"Pitch:     {currentPitch:F1} deg  (Up/Down)", style);
+            GUILayout.Label($"Mode: {(chaseMode ? "CHASE" : "ORBIT")}{(freeLook ? " + FREE LOOK" : "")}", style);
+            GUILayout.Label("", style);
+            if (chaseMode && !freeLook)
+            {
+                GUILayout.Label($"Chase Dist:  {chaseDistance:F2}", style);
+                GUILayout.Label($"Chase Hgt:   {chaseHeight:F2}", style);
+                GUILayout.Label($"Chase Yaw:   {chaseYaw:F1} deg", style);
+            }
+            else
+            {
+                GUILayout.Label($"Distance:  {distance:F2}  (Q/E)", style);
+                GUILayout.Label($"Height:    {height:F2}  (R/F)", style);
+                GUILayout.Label($"Yaw:       {currentYaw:F1} deg  (Left/Right)", style);
+                GUILayout.Label($"Pitch:     {currentPitch:F1} deg  (Up/Down)", style);
+            }
             GUILayout.Label($"FOV:       {fieldOfView:F1}  (+/-)", style);
             GUILayout.Label($"FollowSpd: {followSpeed:F1}", style);
             GUILayout.Label($"LookSpd:   {lookSpeed:F1}", style);
-            GUILayout.Label($"Mode: {(freeLook ? "FREE LOOK" : "ORBIT")}", style);
             GUILayout.Label($"LookYaw:   {lookYaw:F1} deg", style);
             GUILayout.Label($"LookPitch: {lookPitch:F1} deg", style);
             GUILayout.Label("", style);
             GUILayout.Label($"Aim: {character?.WorldCenter.ToString() ?? "null"}", style);
             GUILayout.Label($"Cam: {transform.position}", style);
             GUILayout.Label("", style);
-            GUILayout.Label("[C] Capture  [H] Hide HUD  [Shift] Free-Look  [Z] Reset Look", style);
+            GUILayout.Label("[T] Chase/Orbit  [Shift] Free-Look  [Z] Reset", style);
+            GUILayout.Label("[C] Capture  [H] Hide HUD", style);
             GUILayout.EndArea();
         }
 

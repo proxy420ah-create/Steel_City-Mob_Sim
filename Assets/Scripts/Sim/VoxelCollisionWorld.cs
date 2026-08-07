@@ -72,6 +72,47 @@ namespace SteelCity.Sim
         }
 
         /// <summary>
+        /// Append a single terrain chunk's voxel data into the sparse grid.
+        /// Used for split terrain — each chunk has its own world origin but
+        /// shares the same global voxel grid (all chunks use the same voxelSize
+        /// and are positioned in world space, so grid coordinates are global).
+        /// </summary>
+        public void RegisterTerrainChunk(uint[] data, int w, int h, int d, Vector3 chunkWorldOrigin, float vs)
+        {
+            if (!initialized)
+            {
+                gridOrigin = chunkWorldOrigin;
+                voxelSize = vs;
+                initialized = true;
+            }
+
+            // Offset of this chunk relative to the global grid origin
+            Vector3 originOffset = (chunkWorldOrigin - gridOrigin) / voxelSize;
+            int offX = Mathf.RoundToInt(originOffset.x);
+            int offY = Mathf.RoundToInt(originOffset.y);
+            int offZ = Mathf.RoundToInt(originOffset.z);
+
+            int registered = 0;
+            for (int z = 0; z < d; z++)
+            {
+                for (int y = 0; y < h; y++)
+                {
+                    for (int x = 0; x < w; x++)
+                    {
+                        uint packed = data[x + y * w + z * w * h];
+                        if (packed != 0)
+                        {
+                            voxelData[new Vector3Int(x + offX, y + offY, z + offZ)] = (byte)(packed & 0xFF);
+                            registered++;
+                        }
+                    }
+                }
+            }
+
+            Debug.Log($"[VoxelCollisionWorld] Appended {registered:N0} voxels from chunk at {chunkWorldOrigin} (offset {offX},{offY},{offZ})");
+        }
+
+        /// <summary>
         /// DDA raymarch downward from a world position. Returns ground hit info.
         /// This is the SteelTide VoxelWorld.RaymarchChunk pattern, simplified for
         /// straight-down ground probes.

@@ -47,6 +47,7 @@ namespace SteelCity.Sim
             public ComputeBuffer tintBuffer;     // float4[] per-material tint (per-chunk)
             public VoxelInt3 dims;               // voxel dimensions
             public Vector3 worldOffset;          // cached world-space position
+            public Quaternion rotation;            // cached world-space rotation
             public float voxelSize;              // per-chunk voxel size (buildings=0.1, characters=0.015)
             public bool active;
         }
@@ -78,6 +79,7 @@ namespace SteelCity.Sim
         // --- Shader property IDs ---
         private int propVoxelData, propOutput, propDepthBuffer, propMaterialColors;
         private int propMaterialCount, propVolumeDims, propVoxelSize, propVolumeOffset;
+        private int propVolumeRotation, propVolumeInvRotation;
         private int propCameraOrigin, propCameraToWorld, propInvProjection;
         private int propScreenSize, propMaxSteps, propBackgroundColor, propIsOrthographic;
         private int propLightDirection, propLightIntensity, propAmbientIntensity, propFillIntensity, propLightColor;
@@ -164,6 +166,8 @@ namespace SteelCity.Sim
             propVolumeDims = Shader.PropertyToID("_VolumeDims");
             propVoxelSize = Shader.PropertyToID("_VoxelSize");
             propVolumeOffset = Shader.PropertyToID("_VolumeOffset");
+            propVolumeRotation = Shader.PropertyToID("_VolumeRotation");
+            propVolumeInvRotation = Shader.PropertyToID("_VolumeInvRotation");
             propCameraOrigin = Shader.PropertyToID("_CameraOrigin");
             propCameraToWorld = Shader.PropertyToID("_CameraToWorld");
             propInvProjection = Shader.PropertyToID("_InvProjection");
@@ -514,6 +518,7 @@ namespace SteelCity.Sim
                 tintBuffer = defaultTintBuffer,
                 dims = new VoxelInt3(dimsX, dimsY, dimsZ),
                 worldOffset = host.transform.position,
+                rotation = host.transform.rotation,
                 voxelSize = customVoxelSize,
                 active = true
             };
@@ -727,6 +732,11 @@ namespace SteelCity.Sim
                     ? chunk.hostObject.transform.position
                     : chunk.worldOffset;
 
+                // Read live rotation from host GameObject
+                Quaternion chunkRot = chunk.hostObject != null
+                    ? chunk.hostObject.transform.rotation
+                    : Quaternion.identity;
+
                 // Per-chunk voxel size (buildings=0.1, characters=0.015)
                 float chunkVoxelSize = chunk.voxelSize;
 
@@ -739,9 +749,16 @@ namespace SteelCity.Sim
                 if (Vector3.Dot(toCenter, camTransform.forward) < -chunk.dims.x * chunkVoxelSize)
                     continue; // Behind camera
 
+                // Compute rotation matrices for shader
+                // _VolumeRotation = world-to-local (inverse), _VolumeInvRotation = local-to-world
+                Matrix4x4 localToWorld = Matrix4x4.Rotate(chunkRot);
+                Matrix4x4 worldToLocal = Matrix4x4.Rotate(Quaternion.Inverse(chunkRot));
+
                 // Set per-chunk parameters
                 raymarchShader.SetInts(propVolumeDims, new int[] { chunk.dims.x, chunk.dims.y, chunk.dims.z });
                 raymarchShader.SetVector(propVolumeOffset, chunkWorldPos);
+                raymarchShader.SetMatrix(propVolumeRotation, worldToLocal);
+                raymarchShader.SetMatrix(propVolumeInvRotation, localToWorld);
                 raymarchShader.SetFloat(propVoxelSize, chunkVoxelSize);
                 raymarchShader.SetBuffer(kernelCSRaymarch, propVoxelData, chunk.voxelBuffer);
                 raymarchShader.SetBuffer(kernelCSRaymarch, propChunkTints, chunk.tintBuffer ?? defaultTintBuffer);

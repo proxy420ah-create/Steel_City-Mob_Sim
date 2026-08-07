@@ -5,8 +5,8 @@ namespace SteelCity.Sim
     public class EventPlayer : MonoBehaviour
     {
         [Header("Playback")]
-        [Tooltip("Playback speed multiplier. 1=normal, 2=double, 5=fast.")]
-        public float playbackSpeed = 1f;
+        [Tooltip("Playback speed multiplier. 1=normal, 0.3=walking pace.")]
+        public float playbackSpeed = 0.3f;
 
         [Tooltip("If true, simulation pauses. Events queue up but don't play.")]
         public bool isPaused = false;
@@ -27,6 +27,16 @@ namespace SteelCity.Sim
         private bool running;
 
         private float tickAccumulator;
+
+        [Tooltip("How fast character rotates to face movement direction (higher=snappier).")]
+        public float turnSpeed = 5f;
+
+        [Tooltip("Yaw offset in degrees to correct voxel model facing. 0 = model front faces +Z. " +
+                 "If model faces -Z, use 180. If model faces +X, use -90. If model faces -X, use 90.")]
+        public float modelFacingOffset = 180f;
+
+        private Quaternion targetRotation;
+        private bool hasTargetRotation;
 
         public bool IsRunning => running;
 
@@ -71,6 +81,13 @@ namespace SteelCity.Sim
                 pos.y = character.transform.position.y;
                 PlaceCharacter(pos);
 
+                // Rotate character to face movement direction
+                if (character != null && hasTargetRotation)
+                {
+                    character.transform.rotation = Quaternion.Slerp(
+                        character.transform.rotation, targetRotation, turnSpeed * Time.deltaTime);
+                }
+
                 if (t >= 1f)
                 {
                     currentMoveEvent = null;
@@ -105,6 +122,21 @@ namespace SteelCity.Sim
                     OnStateChanged?.Invoke(simManager.State, evt.tickElapsed, evt.tickRemaining);
                     break;
 
+                case SimEventType.DialogStart:
+                    Log($"[Tick {evt.tickElapsed}] {evt.orderType.ToUpper()} dialog started at {evt.blockId} ({evt.dialogTotalTicks} ticks)");
+                    OnStateChanged?.Invoke(simManager.State, evt.tickElapsed, evt.tickRemaining);
+                    break;
+
+                case SimEventType.DialogProgress:
+                    Log($"[Tick {evt.tickElapsed}] {evt.orderType.ToUpper()} in progress... ({evt.dialogTicksRemaining}/{evt.dialogTotalTicks} ticks left)");
+                    OnStateChanged?.Invoke(simManager.State, evt.tickElapsed, evt.tickRemaining);
+                    break;
+
+                case SimEventType.DialogEnd:
+                    Log($"[Tick {evt.tickElapsed}] {evt.orderType.ToUpper()} dialog complete at {evt.blockId}");
+                    OnStateChanged?.Invoke(simManager.State, evt.tickElapsed, evt.tickRemaining);
+                    break;
+
                 case SimEventType.OrderResolve:
                     if (evt.success)
                         Log($"[EXTORT] SUCCESS — {evt.details}");
@@ -125,7 +157,7 @@ namespace SteelCity.Sim
                     break;
 
                 case SimEventType.PathFound:
-                    Log($"[SIM] Path found: {evt.pathNodeCount} nodes, jaywalk bias={evt.jaywalkBias:F2}");
+                    Log($"[SIM] Path found: {evt.pathNodeCount} nodes");
                     break;
 
                 case SimEventType.NoPath:
@@ -152,8 +184,22 @@ namespace SteelCity.Sim
             currentFromWorld = evt.fromPos + mapRoot.position;
             currentToWorld = evt.toPos + mapRoot.position;
 
-            string dir = simManager.State == SimState.WalkingToTarget ? ">" : "<";
-            Log($"[Tick {evt.tickElapsed}] {dir} {evt.nodeId} [+{evt.tickCost} {evt.linkType}]");
+            // Compute target rotation to face movement direction
+            Vector3 dir = currentToWorld - currentFromWorld;
+            dir.y = 0f;
+            if (dir.sqrMagnitude > 0.001f)
+            {
+                targetRotation = Quaternion.LookRotation(dir.normalized, Vector3.up) *
+                                 Quaternion.Euler(0f, modelFacingOffset, 0f);
+                hasTargetRotation = true;
+            }
+            else
+            {
+                hasTargetRotation = false;
+            }
+
+            string dirSymbol = simManager.State == SimState.WalkingToTarget ? ">" : "<";
+            Log($"[Tick {evt.tickElapsed}] {dirSymbol} {evt.nodeId} [+{evt.tickCost} {evt.linkType}]");
 
             OnStateChanged?.Invoke(simManager.State, evt.tickElapsed, evt.tickRemaining);
         }

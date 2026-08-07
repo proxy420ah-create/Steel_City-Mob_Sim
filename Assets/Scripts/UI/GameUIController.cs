@@ -61,6 +61,12 @@ namespace SteelCity.Sim
         [SerializeField] private Transform eventLogContent;
         [SerializeField] private Button runWeekButton;
 
+        [Header("=== FPS COUNTER ===")]
+        [SerializeField] private TMP_Text fpsText;
+        private float fpsAccumTime;
+        private int fpsAccumFrames;
+        private float fpsUpdateInterval = 0.5f;
+
         [Header("=== PREFABS (optional) ===")]
         [Tooltip("Prefab for a hood card. Needs Button+Image + child TMP_Text 'HoodName', 'HoodSkills', optional 'HoodOrder'.")]
         [SerializeField] private GameObject hoodCardPrefab;
@@ -94,6 +100,7 @@ namespace SteelCity.Sim
         private EventPlayer eventPlayer;
         private FollowCamera followCam;
         private TickHUD tickHUD;
+        private WeekTransition weekTransition;
 
         private readonly Dictionary<string, GameObject> hoodCards = new();
         private readonly List<(string text, Color color)> eventLogBuffer = new();
@@ -151,14 +158,66 @@ namespace SteelCity.Sim
             {
                 cityMap.OnBlockClicked += OnBlockClicked;
                 cityMap.BuildMap(engine.blocks);
+
+                // Build waypoint graph and show labels for planning phase debugging
+                if (waypointGraph == null)
+                {
+                    waypointGraph = new WaypointGraph();
+                    var layout = cityMap.CachedLayout;
+                    if (layout != null)
+                    {
+                        waypointGraph.GenerateFromLayout(
+                            layout,
+                            cityMap.Spacing,
+                            cityMap.GroundTile,
+                            cityMap.SidewalkW,
+                            cityMap.MapRoot.position);
+                    }
+                }
             }
 
             RefreshAll();
+
+            // Auto-create FPS counter if not wired in Inspector
+            if (fpsText == null)
+            {
+                var fpsObj = new GameObject("FPSCounter");
+                fpsObj.transform.SetParent(transform, false);
+                fpsText = fpsObj.AddComponent<TextMeshProUGUI>();
+                fpsText.fontSize = 14;
+                fpsText.alignment = TextAlignmentOptions.TopRight;
+                fpsText.color = greenColor;
+                var rect = fpsText.rectTransform;
+                rect.anchorMin = new Vector2(1f, 1f);
+                rect.anchorMax = new Vector2(1f, 1f);
+                rect.pivot = new Vector2(1f, 1f);
+                rect.anchoredPosition = new Vector2(-10f, -10f);
+                rect.sizeDelta = new Vector2(120f, 30f);
+                fpsText.text = "-- FPS";
+                Debug.Log("[GameUIController] Auto-created FPS counter (top-right corner)");
+            }
 
             // --- PRE-FLIGHT CHECK: verify all critical UI references are wired ---
             RunPreflightCheck();
 
             Debug.Log("[GameUIController] Game initialized. Planning phase active.");
+        }
+
+        void Update()
+        {
+            fpsAccumTime += Time.unscaledDeltaTime;
+            fpsAccumFrames++;
+            if (fpsAccumTime >= fpsUpdateInterval)
+            {
+                float fps = fpsAccumFrames / fpsAccumTime;
+                if (fpsText != null)
+                {
+                    fpsText.text = $"{fps:F0} FPS";
+                    fpsText.color = fps >= 50 ? greenColor : fps >= 30 ? yellowColor : redColor;
+                }
+                fpsAccumTime = 0f;
+                fpsAccumFrames = 0;
+            }
         }
 
         void OnDestroy()
@@ -343,6 +402,8 @@ namespace SteelCity.Sim
                 cityMap.SetShowRoadNames);
             AddEditorToggle(contentObj.transform, "Show Block Labels", cityMap.GetShowBlockLabels(),
                 cityMap.SetShowBlockLabels);
+            AddEditorToggle(contentObj.transform, "Split Terrain", cityMap.GetUseSplitTerrain(),
+                cityMap.SetUseSplitTerrain);
 
             // Rebuild button (manual trigger)
             AddEditorButton(contentObj.transform, "REBUILD CITY", () => cityMap.RebuildCity(), goldColor);
@@ -739,7 +800,35 @@ namespace SteelCity.Sim
 
             AddEventLogEntry($"=== WEEK {engine.week} BEGIN ===", goldColor);
 
-            StartTickSimulation();
+            // Start fade-to-black transition, then set up sim during loading phase
+            EnsureWeekTransition();
+            StartCoroutine(weekTransition.RunTransition(engine.week, () =>
+            {
+                Debug.Log("[GameUIController] Transition onReady — setting up sim and camera");
+                StartTickSimulation();
+                // Pause EventPlayer so no movement happens until scene is fully loaded + hold
+                if (eventPlayer != null)
+                {
+                    eventPlayer.isPaused = true;
+                    Debug.Log("[GameUIController] EventPlayer paused — waiting for post-fade hold");
+                }
+            }, () =>
+            {
+                // onStart: fired after fade-in + 5s hold
+                if (eventPlayer != null)
+                {
+                    eventPlayer.isPaused = false;
+                    Debug.Log("[GameUIController] EventPlayer unpaused — simulation starting");
+                }
+            }));
+        }
+
+        private void EnsureWeekTransition()
+        {
+            if (weekTransition != null) return;
+            var obj = new GameObject("WeekTransition");
+            weekTransition = obj.AddComponent<WeekTransition>();
+            Debug.Log("[GameUIController] WeekTransition created");
         }
 
         private void StartTickSimulation()
@@ -851,6 +940,11 @@ namespace SteelCity.Sim
 
             // Start simulation!
             simManager.StartSimulation(order, startBlockId, startLocalPos, order.blockId, targetLocalPos);
+
+            // Show debug path overlay
+            if (simManager.CurrentPath != null && simManager.CurrentPath.Count > 0)
+                cityMap.ShowDebugPath(simManager.CurrentPath, simManager.Graph);
+
             AddEventLogEntry($"[SIM] {hood.name} begins mission: {order.orderType} on {targetBlock.name}", goldColor);
         }
 

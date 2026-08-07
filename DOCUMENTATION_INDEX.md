@@ -33,6 +33,21 @@
   - Simulation produces narrative
   - Auto-resolved everything
   - Faithful modernization
+  - **Mafia Tycoon, not City Builder** — economy as weapon, not management interface
+
+**Mafia Tycoon Design Principle:**
+- **`docs/core/MAFIA_TYCOON_DESIGN_PRINCIPLE.md`** — Guardrail against economic over-engineering
+  - The line between mafia tycoon and city builder
+  - Information rule: economic data gated behind gang activity
+  - Action rule: economic change through crime, not management
+  - Quick test for evaluating economic features
+
+**Feature-Driven Architecture Pipeline:**
+- **`docs/core/FEATURE_DRIVEN_ARCHITECTURE.md`** — Megaplan methodology for technical foundation
+  - Per-feature pipeline: Differentiator → Sim/Data/AI → Render/Perf → Lock-in
+  - Running feature tracker (core, nice-to-have, deferred)
+  - Performance budget tracker (16ms frame budget)
+  - Baseline entity counts from RE + gameplay knowledge
 
 **Source Game Analysis:**
 - **`docs/core/SOURCE_GAME_ANALYSIS.md`** — Analysis of Gangsters: Organized Crime
@@ -71,7 +86,21 @@
   - Architecture diagram
   - 8 key design principles from the binary
 
-**Keywords**: design, philosophy, principles, source, analysis, xtx, decoding, ghidra, reverse engineering, binary, decompilation, orders, vehicles, timing, combat, pathfinding, sim_tick, traffic, integration, engine, architecture
+**Ghidra Scripting Guide:**
+- **`docs/core/GHIDRA_SCRIPTING_GUIDE.md`** — Standardized methodology for writing Ghidra Java scripts
+  - Script skeleton + key GhidraScript variables
+  - Decompilation patterns (timeout guidelines, thunk handling)
+  - Caller tracing (including vtable zero-reference workaround)
+  - String search (case sensitivity, reference tracing)
+  - Binary pattern scanning (x86 instruction patterns for indirect calls, CMP, AND/TEST)
+  - Vtable table resolution (scanning .rdata for function pointer arrays)
+  - Global state access (DAT_007c0024 offset map)
+  - Output file conventions + existing script inventory (23 scripts)
+  - Key addresses quick reference (functions, globals, entity types, memory layout)
+  - Common pitfalls (signed bytes, thunk resolution, SIB bytes, little-endian)
+  - Workflow for adding new scripts
+
+**Keywords**: design, philosophy, principles, source, analysis, xtx, decoding, ghidra, reverse engineering, binary, decompilation, orders, vehicles, timing, combat, pathfinding, sim_tick, traffic, integration, engine, architecture, scripting, vtable, pattern scan
 
 ---
 

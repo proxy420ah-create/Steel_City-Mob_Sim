@@ -8,8 +8,7 @@ namespace SteelCity.Sim
     {
         SidewalkCorner,
         SidewalkMid,
-        CrosswalkCorner,
-        CrosswalkJaywalk
+        CrosswalkCorner
     }
 
     [Serializable]
@@ -97,10 +96,10 @@ namespace SteelCity.Sim
                     float dx = 0, dz = 0, mx = 0, mz = 0;
                     switch (e)
                     {
-                        case 0: dx = -halfTile; dz = halfTile; mx = 0; mz = halfTile; break;  // N
-                        case 1: dx = halfTile; dz = halfTile; mx = halfTile; mz = 0; break;   // E
-                        case 2: dx = halfTile; dz = -halfTile; mx = 0; mz = -halfTile; break; // S
-                        case 3: dx = -halfTile; dz = -halfTile; mx = -halfTile; mz = 0; break;// W
+                        case 0: dx = -halfTile + halfSidewalk; dz = halfTile - halfSidewalk; mx = 0; mz = halfTile - halfSidewalk; break;  // N
+                        case 1: dx = halfTile - halfSidewalk; dz = halfTile - halfSidewalk; mx = halfTile - halfSidewalk; mz = 0; break;   // E
+                        case 2: dx = halfTile - halfSidewalk; dz = -halfTile + halfSidewalk; mx = 0; mz = -halfTile + halfSidewalk; break; // S
+                        case 3: dx = -halfTile + halfSidewalk; dz = -halfTile + halfSidewalk; mx = -halfTile + halfSidewalk; mz = 0; break;// W
                     }
 
                     var cornerPos = new Vector3(bx + dx, 0, bz + dz);
@@ -120,18 +119,16 @@ namespace SteelCity.Sim
                     nodes[midId].links.Add(new WaypointLink(cornerId, cost, 0f, WaypointType.SidewalkCorner));
                 }
 
+                // Connect each mid to BOTH adjacent corners, forming a perimeter loop:
+                // c0 ↔ m0 ↔ c1 ↔ m1 ↔ c2 ↔ m2 ↔ c3 ↔ m3 ↔ c0
                 for (int e = 0; e < 4; e++)
                 {
-                    string c0 = $"{b.block_id}_c{e}";
-                    string c1 = $"{b.block_id}_c{(e + 1) % 4}";
-                    string m0 = $"{b.block_id}_m{e}";
-                    string m1 = $"{b.block_id}_m{(e + 1) % 4}";
+                    string mid = $"{b.block_id}_m{e}";
+                    string nextCorner = $"{b.block_id}_c{(e + 1) % 4}";
 
-                    int costC = Mathf.Max(2, Mathf.RoundToInt(Vector3.Distance(nodes[c0].localPos, nodes[c1].localPos) * 3f));
-                    nodes[c0].links.Add(new WaypointLink(c1, costC, 0f, WaypointType.SidewalkCorner));
-
-                    int costM = Mathf.Max(2, Mathf.RoundToInt(Vector3.Distance(nodes[m0].localPos, nodes[m1].localPos) * 3f));
-                    nodes[m0].links.Add(new WaypointLink(m1, costM, 0f, WaypointType.SidewalkMid));
+                    int cost = Mathf.Max(2, Mathf.RoundToInt(Vector3.Distance(nodes[mid].localPos, nodes[nextCorner].localPos) * 3f));
+                    nodes[mid].links.Add(new WaypointLink(nextCorner, cost, 0f, WaypointType.SidewalkCorner));
+                    nodes[nextCorner].links.Add(new WaypointLink(mid, cost, 0f, WaypointType.SidewalkMid));
                 }
             }
 
@@ -156,11 +153,30 @@ namespace SteelCity.Sim
                     string m1 = $"{b1.block_id}_m{e1}";
                     string m2 = $"{b2.block_id}_m{e2}";
 
-                    nodes[c1].links.Add(new WaypointLink(c2, 16, 0f, WaypointType.CrosswalkCorner));
-                    nodes[c2].links.Add(new WaypointLink(c1, 16, 0f, WaypointType.CrosswalkCorner));
+                    // Mid-edge crosswalk: straight across at the middle of the block edge
+                    nodes[m1].links.Add(new WaypointLink(m2, 16, 0f, WaypointType.CrosswalkCorner));
+                    nodes[m2].links.Add(new WaypointLink(m1, 16, 0f, WaypointType.CrosswalkCorner));
 
-                    nodes[m1].links.Add(new WaypointLink(m2, 8, 0.3f, WaypointType.CrosswalkJaywalk));
-                    nodes[m2].links.Add(new WaypointLink(m1, 8, 0.3f, WaypointType.CrosswalkJaywalk));
+                    // Corner crosswalks: connect matching corners straight across the street.
+                    // Corners go clockwise: c0=NW, c1=NE, c2=SE, c3=SW.
+                    // Edge e has corners c{e} and c{(e+1)%4}.
+                    // Facing edges have corners in OPPOSITE order along the shared boundary,
+                    // so first corner of e1 connects to SECOND corner of e2 (and vice versa).
+                    //
+                    // Example: b1 east edge (e1=1) has corners c1(NE), c2(SE)
+                    //          b2 west edge (e2=3) has corners c3(SW), c0(NW)
+                    //          Correct: c1↔c0 (north side), c2↔c3 (south side)
+                    string c1a = $"{b1.block_id}_c{e1}";              // first corner of b1's edge
+                    string c1b = $"{b1.block_id}_c{(e1 + 1) % 4}";    // second corner of b1's edge
+                    string c2a = $"{b2.block_id}_c{e2}";              // first corner of b2's edge
+                    string c2b = $"{b2.block_id}_c{(e2 + 1) % 4}";    // second corner of b2's edge
+
+                    // First corner of b1 ↔ SECOND corner of b2 (same side of street)
+                    nodes[c1a].links.Add(new WaypointLink(c2b, 16, 0f, WaypointType.CrosswalkCorner));
+                    nodes[c2b].links.Add(new WaypointLink(c1a, 16, 0f, WaypointType.CrosswalkCorner));
+                    // Second corner of b1 ↔ FIRST corner of b2 (same side of street)
+                    nodes[c1b].links.Add(new WaypointLink(c2a, 16, 0f, WaypointType.CrosswalkCorner));
+                    nodes[c2a].links.Add(new WaypointLink(c1b, 16, 0f, WaypointType.CrosswalkCorner));
                 }
             }
 

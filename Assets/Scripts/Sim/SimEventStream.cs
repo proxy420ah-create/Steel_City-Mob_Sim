@@ -7,6 +7,9 @@ namespace SteelCity.Sim
     {
         HoodMove,
         HoodArrive,
+        DialogStart,
+        DialogProgress,
+        DialogEnd,
         OrderResolve,
         Wander,
         TrafficWait,
@@ -34,7 +37,8 @@ namespace SteelCity.Sim
         public string details;
         public int wanderTicks;
         public int pathNodeCount;
-        public float jaywalkBias;
+        public int dialogTicksRemaining;
+        public int dialogTotalTicks;
         public string message;
 
         public static SimEvent Move(Vector3 from, Vector3 to, float duration, int tickCost, string linkType,
@@ -124,13 +128,12 @@ namespace SteelCity.Sim
             };
         }
 
-        public static SimEvent PathFoundEvent(int nodeCount, float jaywalkBias)
+        public static SimEvent PathFoundEvent(int nodeCount)
         {
             return new SimEvent
             {
                 type = SimEventType.PathFound,
-                pathNodeCount = nodeCount,
-                jaywalkBias = jaywalkBias
+                pathNodeCount = nodeCount
             };
         }
 
@@ -140,6 +143,50 @@ namespace SteelCity.Sim
             {
                 type = SimEventType.NoPath,
                 message = message
+            };
+        }
+
+        public static SimEvent DialogStartEvent(string orderType, string blockId, int totalTicks,
+                                                  int tickElapsed, int tickRemaining)
+        {
+            return new SimEvent
+            {
+                type = SimEventType.DialogStart,
+                orderType = orderType,
+                blockId = blockId,
+                dialogTotalTicks = totalTicks,
+                dialogTicksRemaining = totalTicks,
+                tickElapsed = tickElapsed,
+                tickRemaining = tickRemaining
+            };
+        }
+
+        public static SimEvent DialogProgressEvent(string orderType, string blockId,
+                                                     int remaining, int total,
+                                                     int tickElapsed, int tickRemaining)
+        {
+            return new SimEvent
+            {
+                type = SimEventType.DialogProgress,
+                orderType = orderType,
+                blockId = blockId,
+                dialogTicksRemaining = remaining,
+                dialogTotalTicks = total,
+                tickElapsed = tickElapsed,
+                tickRemaining = tickRemaining
+            };
+        }
+
+        public static SimEvent DialogEndEvent(string orderType, string blockId,
+                                               int tickElapsed, int tickRemaining)
+        {
+            return new SimEvent
+            {
+                type = SimEventType.DialogEnd,
+                orderType = orderType,
+                blockId = blockId,
+                tickElapsed = tickElapsed,
+                tickRemaining = tickRemaining
             };
         }
     }

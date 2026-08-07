@@ -30,6 +30,10 @@ saves/
 # ── Decoded source game data (not our IP) ──────────────────────
 gangsters_decoded/
 
+# ── Ghidra reverse-engineering files (internal use only) ───────
+ghidra_project/
+ghidra_*.txt
+
 # ── OS / editor cruft ──────────────────────────────────────────
 .DS_Store
 Thumbs.db

@@ -21,14 +21,12 @@ namespace SteelCity.Sim
         [Tooltip("Maximum ticks per hood per week (from RE findings).")]
         public const int TickBudget = 12000;
 
-        [Tooltip("Chance per sidewalk node to wander 1 extra tick (0.05 = 5%).")]
-        public float wanderChance = 0.05f;
+        [Tooltip("Yaw offset in degrees to correct voxel model facing. 0 = model front faces +Z. " +
+                 "If model faces -Z, use 180. If model faces +X, use -90. If model faces -X, use 90.")]
+        public float modelFacingOffset = 180f;
 
-        [Tooltip("Chance per crosswalk to wait for traffic light (0.15 = 15%).")]
-        public float trafficLightChance = 0.15f;
-
-        [Tooltip("Extra ticks consumed when waiting at a traffic light.")]
-        public int trafficLightWaitTicks = 16;
+        [Tooltip("How fast character rotates to face movement direction (higher=snappier).")]
+        public float turnSpeed = 5f;
 
         [Header("References")]
         public VoxelCharacter character;
@@ -56,7 +54,6 @@ namespace SteelCity.Sim
         private Vector3 startPos;
         private Vector3 targetPos;
 
-        private int wanderTicksBuffer;
 
         public TickPhase Phase => phase;
         public int TicksElapsed => ticksElapsed;
@@ -86,7 +83,6 @@ namespace SteelCity.Sim
             ticksElapsed = 0;
             ticksRemaining = TickBudget;
             pathIndex = 0;
-            wanderTicksBuffer = 0;
             running = true;
 
             SetPhase(TickPhase.WalkingToTarget);
@@ -112,15 +108,6 @@ namespace SteelCity.Sim
 
         void ProcessTick()
         {
-            if (wanderTicksBuffer > 0)
-            {
-                wanderTicksBuffer--;
-                ticksElapsed++;
-                ticksRemaining--;
-                Log($"[Tick {ticksElapsed}] Wandering... ({wanderTicksBuffer} wander ticks left)");
-                return;
-            }
-
             if (phase == TickPhase.WalkingToTarget || phase == TickPhase.WalkingHome)
             {
                 if (currentPath == null || pathIndex >= currentPath.Count)
@@ -160,25 +147,6 @@ namespace SteelCity.Sim
                 string dir = phase == TickPhase.WalkingToTarget ? ">" : "<";
                 Log($"[Tick {ticksElapsed}] {dir} {node.id} ({node.type}) [+{linkCost} {linkType}]");
 
-                if (node.type == WaypointType.SidewalkCorner || node.type == WaypointType.SidewalkMid)
-                {
-                    if (Random.value < wanderChance)
-                    {
-                        wanderTicksBuffer = Random.Range(1, 4);
-                        Log($"  >> Wander trigger! +{wanderTicksBuffer} ticks");
-                    }
-                }
-
-                if (node.type == WaypointType.CrosswalkCorner)
-                {
-                    if (Random.value < trafficLightChance)
-                    {
-                        ticksElapsed += trafficLightWaitTicks;
-                        ticksRemaining -= trafficLightWaitTicks;
-                        Log($"  >> Traffic light! +{trafficLightWaitTicks} ticks");
-                    }
-                }
-
                 pathIndex++;
 
                 if (ticksRemaining <= 0)
@@ -195,11 +163,9 @@ namespace SteelCity.Sim
 
         void FindPathToTarget()
         {
-            float jaywalkBias = Random.Range(0.2f, 0.8f);
             currentPath = pathfinder.FindPathBlockToBlock(
                 startBlockId, startPos,
-                targetBlockId, targetPos,
-                jaywalkBias);
+                targetBlockId, targetPos);
 
             if (currentPath == null || currentPath.Count == 0)
             {
@@ -211,16 +177,14 @@ namespace SteelCity.Sim
             }
 
             pathIndex = 0;
-            Log($"[TickSim] Path found: {currentPath.Count} nodes, jaywalk bias={jaywalkBias:F2}");
+            Log($"[TickSim] Path found: {currentPath.Count} nodes");
         }
 
         void FindPathHome()
         {
-            float jaywalkBias = Random.Range(0.2f, 0.8f);
             currentPath = pathfinder.FindPathBlockToBlock(
                 targetBlockId, targetPos,
-                startBlockId, startPos,
-                jaywalkBias);
+                startBlockId, startPos);
 
             if (currentPath == null || currentPath.Count == 0)
             {
@@ -232,7 +196,7 @@ namespace SteelCity.Sim
             }
 
             pathIndex = 0;
-            Log($"[TickSim] Path home: {currentPath.Count} nodes, jaywalk bias={jaywalkBias:F2}");
+            Log($"[TickSim] Path home: {currentPath.Count} nodes");
         }
 
         void OnArrivedAtDestination()
@@ -318,12 +282,24 @@ namespace SteelCity.Sim
             if (character == null || mapRoot == null) return;
 
             Vector3 worldPos = node.localPos + mapRoot.position;
+            Vector3 prevPos = character.transform.position + character.WorldSize * 0.5f;
             worldPos.y = character.transform.position.y;
 
             if (character.useWorldPosition)
                 character.PlaceAtCenter(worldPos);
             else
                 character.transform.localPosition = node.localPos;
+
+            // Rotate character to face movement direction
+            Vector3 moveDir = worldPos - prevPos;
+            moveDir.y = 0f;
+            if (moveDir.sqrMagnitude > 0.001f)
+            {
+                Quaternion targetRot = Quaternion.LookRotation(moveDir.normalized, Vector3.up) *
+                                       Quaternion.Euler(0f, modelFacingOffset, 0f);
+                character.transform.rotation = Quaternion.Slerp(
+                    character.transform.rotation, targetRot, turnSpeed * Time.deltaTime);
+            }
         }
 
         void SetPhase(TickPhase newPhase)
