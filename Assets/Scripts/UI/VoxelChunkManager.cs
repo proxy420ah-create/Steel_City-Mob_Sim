@@ -45,8 +45,6 @@ namespace SteelCity.Sim
         [SerializeField] private Color backgroundColor = new(0f, 0f, 0f, 0f);
         [Tooltip("Max world-space distance to render chunks. 0 = no limit. Set ~40-60 for Working mode perf.")]
         [SerializeField] private float maxRenderDistance = 50f;
-        [Tooltip("If true, keep distant chunks visible and rely on per-chunk step LOD instead of distance culling.")]
-        [SerializeField] private bool preferGranularLodOverDistanceCulling = false;
         [Header("Granular LOD (Proxy)")]
         [Tooltip("Distance where medium LOD starts for non-building chunks.")]
         [SerializeField] private float lodMidDistance = 20f;
@@ -341,6 +339,11 @@ namespace SteelCity.Sim
             useProxyRender = true;
             if (maxRenderDistance <= 0f) maxRenderDistance = 50f;
             savedMaxRenderDistance = maxRenderDistance;
+            // Reset runtime LOD state — never inherit granular LOD from a previous session
+            runtimeGranularLod = false;
+            distanceCullingEnabled = true;
+
+            Debug.Log($"[VoxelChunkManager] Awake: maxRenderDistance={maxRenderDistance} resolutionScale={resolutionScale} maxSteps={maxSteps} useProxyRender={useProxyRender} shadows={shadowEnabled}");
 
             TryAutoLoadShader();
             if (raymarchShader == null)
@@ -1053,23 +1056,18 @@ namespace SteelCity.Sim
         public bool GetUseProxyRender() => useProxyRender;
         public void SetUseProxyRender(bool v) => useProxyRender = v;
 
+        private bool runtimeGranularLod = false;
+
         public void SetGranularLodMode(bool enabled)
         {
-            preferGranularLodOverDistanceCulling = enabled;
+            runtimeGranularLod = enabled;
             if (enabled)
             {
-                if (maxRenderDistance > 0f)
-                    savedMaxRenderDistance = maxRenderDistance;
                 distanceCullingEnabled = false;
-                maxRenderDistance = 0f;
             }
             else
             {
                 distanceCullingEnabled = true;
-                if (savedMaxRenderDistance > 0f)
-                    maxRenderDistance = savedMaxRenderDistance;
-                else if (maxRenderDistance <= 0f)
-                    maxRenderDistance = 50f;
             }
         }
 
@@ -1116,6 +1114,14 @@ namespace SteelCity.Sim
             perfActiveChunks = 0;
             foreach (var c in chunks) if (c.active) perfActiveChunks++;
             perfDrawnChunks = useProxyRender ? proxyDrawList.Count : perfActiveChunks;
+
+            // Per-frame logging to catch GPU hitch (happens in Planning AND Working)
+            if (Time.frameCount % 30 == 0)
+            {
+                float fps = 1f / Time.smoothDeltaTime;
+                bool isOrtho = renderCamera != null && renderCamera.orthographic;
+                Debug.Log($"[PerfFrame] f={Time.frameCount} fps={fps:F0} drawn={perfDrawnChunks} total={perfActiveChunks} CPU={lastCpuTotalMs:F2}ms cull={lastCpuCullMs:F2}ms draw={lastCpuDrawMs:F2}ms ortho={isOrtho} granularLod={runtimeGranularLod} distCull={distanceCullingEnabled} maxDist={maxRenderDistance} res={renderWidth}x{renderHeight}");
+            }
 
             // Only log on significant state change (not per-frame, not timed)
             if (perfActiveChunks != perfLastActiveChunks || renderWidth != perfLastRenderW ||
@@ -1283,7 +1289,7 @@ namespace SteelCity.Sim
                 Color lodDebugColor = Color.white;
                 if (!isOrtho)
                 {
-                    if (preferGranularLodOverDistanceCulling)
+                    if (runtimeGranularLod)
                     {
                         bool isBuildingChunk = chunk.name != null && chunk.name.Contains("_building");
                         float distScale = isBuildingChunk ? Mathf.Clamp(buildingLodDistanceMultiplier, 0.35f, 1f) : 1f;

@@ -77,6 +77,7 @@ namespace SteelCity.Sim
             // Create a child GameObject for the raymarch overlay
             var obj = new GameObject("RaymarchOverlay");
             obj.transform.SetParent(canvas.transform, false);
+            obj.transform.SetAsFirstSibling(); // Render behind all UI panels
 
             var rt = obj.AddComponent<RectTransform>();
             var img = obj.AddComponent<RawImage>();
