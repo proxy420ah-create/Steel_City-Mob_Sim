@@ -1,6 +1,6 @@
 # Recent Changes — Steel City: Mob Sim
 
-**Last Updated**: August 7, 2026
+**Last Updated**: August 7, 2026 (Vehicle System)
 
 ---
 
@@ -22,6 +22,45 @@ Copy-Item "SteelCityMobSim\Assets\StreamingAssets\city_layout_500.json" "SteelCi
 ```
 
 Available tiers: `city_template_25`, `city_template_100`, `city_template_500`, `city_template_1000` (and matching `city_layout_*`).
+
+---
+
+## August 7, 2026 — Vehicle System: Generalized Instancing + RoadGraph + 1920s Touring Car Model
+
+### Created
+- `Assets/Scripts/Sim/RoadGraph.cs` — Vehicle pathfinding graph (street intersections as nodes, links between neighbors)
+  - `GenerateFromLayout` builds a lattice grid of intersections aligned with city blocks
+  - `RandomNodeId` / `RandomNeighbor` for basic random-walk navigation
+- `Assets/Scripts/Sim/VoxelVehicle.cs` — Voxel vehicle component (analogous to VoxelCharacter)
+  - Loads .stasset, registers with VoxelChunkManager's per-asset InstancedGroup
+  - Uses `transform.localPosition` for mapRoot coordinate space consistency
+  - `PlaceAtCenter` for external movement control
+- `Assets/Scripts/Sim/VehicleTestSpawner.cs` — Test harness + VehicleAgent
+  - F9 spawns N vehicles that randomly drive between RoadGraph intersections
+  - VehicleAgent does endless random walk (pick random neighbor, drive there, repeat)
+  - No AI/destination logic — pure navigation + rendering test
+- `VoxelAssetStudio/procedural_mob_vehicles.py` — 1920s vehicle voxel generator
+  - `generate_touring_car`: Ford Model T style touring car (20x16x30 voxels)
+  - Open-top 4/5 seater: 2 bench seats (driver + 1 front, 2 rear passengers)
+  - Artillery wheels (wooden spokes + iron tires), brass headlights, radiator grille
+  - Running boards, fenders, spare tire, folding top supports
+  - Interior sized to fit 4 characters at 0.05m/voxel scale
+- `Assets/StreamingAssets/voxel_buildings/vehicle_civilian_car_0.stasset` — Exported voxel model (2,485 solid voxels, 19KB)
+- `docs/systems/DYNAMIC_OBJECT_RENDERING_TIERS.md` — Three-tier rendering philosophy document
+
+### Changed
+- `Assets/Scripts/UI/VoxelChunkManager.cs` — Generalized instanced character/vehicle rendering
+  - Replaced singular shared buffer with `Dictionary<string, InstancedGroup>` keyed by asset filename
+  - Each asset type gets its own shared voxel buffer + instance offset buffer + draw call
+  - `RegisterInstancedCharacter` / `UnregisterInstancedCharacter` / `RenderInstancedCharacters` updated
+  - `ReleaseAllInstancedGroups` for cleanup
+
+### Testing
+- Press **F9** in Play mode to spawn test vehicles on the RoadGraph
+- Vehicles should render via the generalized InstancedGroup system and drive randomly between intersections
+- Vehicle model: 20x16x30 at 0.05m/voxel = 1.0m x 0.8m x 1.5m mob sim scale
+- **Auto-spawn**: VehicleTestSpawner auto-spawns on Start (parked, not moving). Vehicle appears at the road intersection nearest to player HQ (Vinny's office), visible during planning phase. CityMap3D.SpawnSceneCharacters adds the spawner to the scene if not present.
+- **F10 = toggle driving** (F9 conflicts with StressTestDiagnostics stop key). Press F10 once to start driving, press again to park.
 
 ---
 

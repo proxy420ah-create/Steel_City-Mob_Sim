@@ -65,6 +65,13 @@ namespace SteelCity.Sim
                             break;
                         }
                     }
+
+                    // Player hoods start located at HQ, inside the tenement (not yet on the sidewalk)
+                    foreach (var hood in player.hoods)
+                    {
+                        hood.currentBlockId = block.id;
+                        hood.isInsideBuilding = true;
+                    }
                 }
             }
 

@@ -439,7 +439,7 @@ namespace SteelCity.Sim
             if (chunkManager != null)
             {
                 GUILayout.Label("<b>PERF</b>", style);
-                GUILayout.Label($"Chunks: {chunkManager.PerfTotalChunks} total / {chunkManager.PerfActiveChunks} active / {chunkManager.PerfDrawnChunks} drawn / {chunkManager.InstancedCharacterCount} instanced", style);
+                GUILayout.Label($"Chunks: {chunkManager.PerfTotalChunks} total / {chunkManager.PerfActiveChunks} active / {chunkManager.PerfDrawnChunks} drawn / {chunkManager.InstancedCharacterCount} instanced / {chunkManager.BakedSectorCount} sectors ({chunkManager.BakedSectorBuildingCount} baked)", style);
                 GUILayout.Label($"LOD: N:{chunkManager.PerfLodNear} M:{chunkManager.PerfLodMid} F:{chunkManager.PerfLodFar} U:{chunkManager.PerfLodUltra} C:{chunkManager.PerfLodCulled}", style);
                 GUILayout.Label($"ScreenRatio: {chunkManager.PerfMinScreenRatio:F4} - {chunkManager.PerfMaxScreenRatio:F4} (avg {chunkManager.PerfAvgScreenRatio:F4})", style);
                 GUILayout.Label($"CPU: cull={chunkManager.CpuCullMs:F2}ms draw={chunkManager.CpuDrawMs:F2}ms total={chunkManager.CpuTotalMs:F2}ms", style);

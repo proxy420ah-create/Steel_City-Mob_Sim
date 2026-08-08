@@ -716,6 +716,35 @@ namespace SteelCity.Sim
             selectedHoodId = hoodId;
             RefreshHoods();
             TryEnableOrderButtons();
+            FocusCameraOnHood(hoodId);
+        }
+
+        /// <summary>Pans the planning-phase map camera to center on the block where the given hood is currently located.</summary>
+        private void FocusCameraOnHood(string hoodId)
+        {
+            if (cityMap == null || engine == null) return;
+
+            Hood hood = null;
+            foreach (var gang in engine.gangs.Values)
+            {
+                foreach (var h in gang.hoods)
+                {
+                    if (h.id == hoodId) { hood = h; break; }
+                }
+                if (hood != null) break;
+            }
+
+            if (hood == null || string.IsNullOrEmpty(hood.currentBlockId)) return;
+            if (!engine.blocks.TryGetValue(hood.currentBlockId, out var block)) return;
+
+            Vector3 localPos = ComputeBlockCenterLocal(block);
+            Vector3 worldPos = cityMap.MapRoot.position + localPos;
+            cityMap.SetCameraFocus(worldPos);
+
+            // Auto-select the block too, so it's highlighted and its info panel shows
+            selectedBlockId = block.id;
+            RefreshBlockInfo();
+            RefreshMapHighlights();
         }
 
         private void TryEnableOrderButtons()
@@ -1149,8 +1178,9 @@ namespace SteelCity.Sim
                 string statusIcon = hood.status == HoodStatus.Assigned ? "[ASSIGNED]" :
                                     hood.status == HoodStatus.Arrested ? "[ARRESTED]" :
                                     hood.status == HoodStatus.Dead ? "[DEAD]" : "[READY]";
+                string locationIcon = hood.isInsideBuilding ? " [INSIDE]" : "";
 
-                if (nameText != null) nameText.text = $"{statusIcon} {hood.name}";
+                if (nameText != null) nameText.text = $"{statusIcon} {hood.name}{locationIcon}";
                 if (skillsText != null) skillsText.text = hood.SkillSummary;
 
                 if (orderText != null)

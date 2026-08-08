@@ -62,6 +62,12 @@ namespace SteelCity.Sim
         [Tooltip("If true, generate one small terrain chunk per block instead of one massive chunk. Reduces DDA traversal cost.")]
         [SerializeField] private bool useSplitTerrain = true;
 
+        [Header("Sector Baking")]
+        [Tooltip("If true, bake static buildings into sector-level merged buffers (1 draw call per sector instead of 1 per building).")]
+        [SerializeField] private bool useSectorBaking = false;
+        [Tooltip("Number of blocks per sector side (4 = 4x4 blocks = 16 blocks per sector).")]
+        [SerializeField] private int sectorSizeBlocks = 4;
+
         [Header("Label")]
         [Tooltip("Show floating block name labels above buildings.")]
         [SerializeField] private bool showBlockLabels = false;
@@ -702,6 +708,10 @@ namespace SteelCity.Sim
                 isPanning = true;
                 lastMousePos = mousePos;
                 cameraFollowsCityCenter = false;
+                // Resync panOffset from the current focus point — cameraFocus may have moved
+                // externally (e.g. SetCameraFocus from clicking a hood) without panOffset
+                // tracking it, which would otherwise cause the drag to jump on the next update.
+                panOffset = cameraFocus - mapRoot.position;
             }
             if (Mouse.current.rightButton.isPressed && isPanning)
             {
@@ -856,25 +866,54 @@ namespace SteelCity.Sim
                 LogBuild($"PHASE 2A (preload {uniquePaths.Count} files): {t2.ElapsedMilliseconds}ms");
             }
 
-            var t3 = Stopwatch.StartNew();
-            int blockNum = 0;
-            foreach (var (blockId, block) in blocks)
+            if (useSectorBaking && cachedLayout != null && chunkManager != null)
             {
-                blockNum++;
-                if (blockNum % 50 == 0)
-                    LogBuild($"  building block {blockNum}/{blocks.Count}...");
+                // Sector baking path: merge buildings into sector buffers
+                var t3 = Stopwatch.StartNew();
+                var sectors = SectorBaker.BakeAllSectors(
+                    chunkManager, cachedLayout, blockAnchors,
+                    sectorSizeBlocks, buildingsPerBlockRow, BuildingVoxelWidth,
+                    sidewalkWidth, roadWidth, voxelSize,
+                    (int)centerRow, (int)centerCol, spacing);
+                t3.Stop();
+                int totalBuildings = 0;
+                foreach (var s in sectors) totalBuildings += s.buildingCount;
+                LogBuild($"PHASE 2B (sector bake): {t3.ElapsedMilliseconds}ms for {sectors.Count} sectors ({totalBuildings} buildings)");
 
-                var root = new GameObject($"Block_{blockId}");
-                root.transform.SetParent(mapRoot, false);
-                root.transform.localPosition = new Vector3(
-                    (block.col - centerCol) * spacing,
-                    0f,
-                    -(block.row - centerRow) * spacing);
-
-                BuildRaymarchBlock(root.transform, blockId, block, block.row, block.col, minRow, maxRow, minCol, maxCol);
+                // Still create block root GameObjects for labels and game logic
+                foreach (var (blockId, block) in blocks)
+                {
+                    var root = new GameObject($"Block_{blockId}");
+                    root.transform.SetParent(mapRoot, false);
+                    root.transform.localPosition = new Vector3(
+                        (block.col - centerCol) * spacing,
+                        0f,
+                        -(block.row - centerRow) * spacing);
+                }
             }
-            t3.Stop();
-            LogBuild($"PHASE 2B (buildings): {t3.ElapsedMilliseconds}ms for {blocks.Count} blocks");
+            else
+            {
+                // Per-building path (original): 1 draw call per building
+                var t3 = Stopwatch.StartNew();
+                int blockNum = 0;
+                foreach (var (blockId, block) in blocks)
+                {
+                    blockNum++;
+                    if (blockNum % 50 == 0)
+                        LogBuild($"  building block {blockNum}/{blocks.Count}...");
+
+                    var root = new GameObject($"Block_{blockId}");
+                    root.transform.SetParent(mapRoot, false);
+                    root.transform.localPosition = new Vector3(
+                        (block.col - centerCol) * spacing,
+                        0f,
+                        -(block.row - centerRow) * spacing);
+
+                    BuildRaymarchBlock(root.transform, blockId, block, block.row, block.col, minRow, maxRow, minCol, maxCol);
+                }
+                t3.Stop();
+                LogBuild($"PHASE 2B (buildings): {t3.ElapsedMilliseconds}ms for {blocks.Count} blocks");
+            }
 
             // PHASE 3: Compass (flat on ground, next to city)
             CreateCompass(minRow, maxRow, minCol, maxCol, centerRow, centerCol, spacing);
@@ -1167,6 +1206,15 @@ namespace SteelCity.Sim
             SpawnedCharacter = vc;
 
             Debug.Log($"[CityMap3D] Spawned VoxelCharacter hoodlum at ({px:F2}, {pz:F2}), groundY={groundY}");
+
+            // Spawn vehicle test spawner (auto-spawns a car near HQ on Start)
+            if (FindFirstObjectByType<VehicleTestSpawner>() == null)
+            {
+                var vehObj = new GameObject("VehicleTestSpawner");
+                vehObj.transform.SetParent(mapRoot, false);
+                var vts = vehObj.AddComponent<VehicleTestSpawner>();
+                Debug.Log("[CityMap3D] Added VehicleTestSpawner to scene — will auto-spawn vehicle near HQ.");
+            }
         }
 
         private void BuildRaymarchBlock(Transform root, string blockId, Block block,
@@ -1603,7 +1651,7 @@ namespace SteelCity.Sim
             GUILayout.BeginArea(new Rect(10, 10, w, h), hudBgStyle);
             GUILayout.Label("<b>ORTHO RENDER HUD</b>", hudLabelStyle);
             GUILayout.Label($"FPS: {fps:F0}  |  OrthoSize: {chunkManager.CameraOrthoSize:F1}", hudLabelStyle);
-            GUILayout.Label($"Res: {chunkManager.PerfTotalChunks} total / {chunkManager.PerfActiveChunks} active / {chunkManager.PerfDrawnChunks} drawn / {chunkManager.InstancedCharacterCount} instanced", hudLabelStyle);
+            GUILayout.Label($"Res: {chunkManager.PerfTotalChunks} total / {chunkManager.PerfActiveChunks} active / {chunkManager.PerfDrawnChunks} drawn / {chunkManager.InstancedCharacterCount} instanced / {chunkManager.BakedSectorCount} sectors ({chunkManager.BakedSectorBuildingCount} baked)", hudLabelStyle);
             GUILayout.Label("", hudLabelStyle);
             GUILayout.Label("<b>LOD TIERS</b>", hudLabelStyle);
             GUILayout.Label($"  <color=#2ee62e>Near</color>: {chunkManager.PerfLodNear}  <color=#e6e62e>Mid</color>: {chunkManager.PerfLodMid}  <color=#e68a2e>Far</color>: {chunkManager.PerfLodFar}  <color=#e62e2e>Ultra</color>: {chunkManager.PerfLodUltra}  Culled: {chunkManager.PerfLodCulled}", hudLabelStyle);

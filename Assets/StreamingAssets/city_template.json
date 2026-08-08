@@ -504,7 +504,7 @@
       "land_value": 3,
       "businesses": [
         {
-          "type": "empty_land",
+          "type": "apartment_block",
           "illegal": false,
           "count": 1
         }

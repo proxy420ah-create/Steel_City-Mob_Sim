@@ -39,6 +39,7 @@ Shader "SteelCity/VoxelProxyRaymarch"
             #pragma vertex vert
             #pragma fragment frag
             #pragma multi_compile_instancing
+            #pragma shader_feature_local BUILDING_INSTANCING
             #pragma exclude_renderers gles gles3
 
             #include "UnityCG.cginc"
@@ -87,6 +88,12 @@ Shader "SteelCity/VoxelProxyRaymarch"
             // --- Instancing: per-instance data (xyz = world offset, w = yaw radians) ---
             StructuredBuffer<float4> _InstanceOffsets;
 
+            // --- Building instancing (sector baking): per-building metadata in a flat merged buffer ---
+            // _BuildingMeta[i] = (bufferOffset, dimsX, dimsY, dimsZ)
+            // _BuildingPositions[i] = (worldOffsetX, worldOffsetY, worldOffsetZ, 0)
+            StructuredBuffer<float4> _BuildingMeta;
+            StructuredBuffer<float4> _BuildingPositions;
+
             // ---- Bit layout ----
             #define VX_SHAPE_SHIFT     12
             #define VX_ROTATION_SHIFT  9
@@ -111,6 +118,8 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 float3 worldPos   : TEXCOORD0;
                 float3 volumeOffset : TEXCOORD1;
                 float  yaw         : TEXCOORD2;
+                float4 instMeta    : TEXCOORD3; // (bufferOffset, dimsX, dimsY, dimsZ) for building instancing
+                float  voxelSize   : TEXCOORD4; // per-building voxel size (pos.w) or uniform fallback
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
@@ -153,19 +162,19 @@ Shader "SteelCity/VoxelProxyRaymarch"
             }
 
             // ---- Smooth normal from voxel neighbourhood ----
-            float3 SmoothNormal(int3 v, int3 dims)
+            float3 SmoothNormal(int3 v, int3 dims, uint bufferOffset)
             {
                 float cx = 0, cy = 0, cz = 0;
                 int3 nxp = v + int3(1, 0, 0);  int3 nxm = v + int3(-1, 0, 0);
                 int3 nyp = v + int3(0, 1, 0);  int3 nym = v + int3(0, -1, 0);
                 int3 nzp = v + int3(0, 0, 1);  int3 nzm = v + int3(0, 0, -1);
 
-                if (InBounds(nxp, dims)) cx += (VxMaterial(_VoxelData[VoxelIndex(nxp, dims)]) != 0u) ? 1.0 : 0.0;
-                if (InBounds(nxm, dims)) cx -= (VxMaterial(_VoxelData[VoxelIndex(nxm, dims)]) != 0u) ? 1.0 : 0.0;
-                if (InBounds(nyp, dims)) cy += (VxMaterial(_VoxelData[VoxelIndex(nyp, dims)]) != 0u) ? 1.0 : 0.0;
-                if (InBounds(nym, dims)) cy -= (VxMaterial(_VoxelData[VoxelIndex(nym, dims)]) != 0u) ? 1.0 : 0.0;
-                if (InBounds(nzp, dims)) cz += (VxMaterial(_VoxelData[VoxelIndex(nzp, dims)]) != 0u) ? 1.0 : 0.0;
-                if (InBounds(nzm, dims)) cz -= (VxMaterial(_VoxelData[VoxelIndex(nzm, dims)]) != 0u) ? 1.0 : 0.0;
+                if (InBounds(nxp, dims)) cx += (VxMaterial(_VoxelData[bufferOffset + VoxelIndex(nxp, dims)]) != 0u) ? 1.0 : 0.0;
+                if (InBounds(nxm, dims)) cx -= (VxMaterial(_VoxelData[bufferOffset + VoxelIndex(nxm, dims)]) != 0u) ? 1.0 : 0.0;
+                if (InBounds(nyp, dims)) cy += (VxMaterial(_VoxelData[bufferOffset + VoxelIndex(nyp, dims)]) != 0u) ? 1.0 : 0.0;
+                if (InBounds(nym, dims)) cy -= (VxMaterial(_VoxelData[bufferOffset + VoxelIndex(nym, dims)]) != 0u) ? 1.0 : 0.0;
+                if (InBounds(nzp, dims)) cz += (VxMaterial(_VoxelData[bufferOffset + VoxelIndex(nzp, dims)]) != 0u) ? 1.0 : 0.0;
+                if (InBounds(nzm, dims)) cz -= (VxMaterial(_VoxelData[bufferOffset + VoxelIndex(nzm, dims)]) != 0u) ? 1.0 : 0.0;
 
                 float3 n = normalize(float3(-cx, -cy, -cz));
                 if (length(n) < 0.001) n = float3(0, 1, 0);
@@ -213,12 +222,25 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 output.worldPos = worldPos.xyz;
                 output.positionCS = mul(UNITY_MATRIX_VP, worldPos);
             #ifdef UNITY_INSTANCING_ENABLED
-                float4 instData = _InstanceOffsets[unity_InstanceID];
-                output.volumeOffset = instData.xyz;
-                output.yaw = instData.w;
+                #if defined(BUILDING_INSTANCING)
+                    float4 meta = _BuildingMeta[unity_InstanceID];
+                    float4 pos = _BuildingPositions[unity_InstanceID];
+                    output.volumeOffset = pos.xyz;
+                    output.yaw = 0.0;
+                    output.instMeta = meta; // (bufferOffset, dimsX, dimsY, dimsZ)
+                    output.voxelSize = pos.w;
+                #else
+                    float4 instData = _InstanceOffsets[unity_InstanceID];
+                    output.volumeOffset = instData.xyz;
+                    output.yaw = instData.w;
+                    output.instMeta = float4(0.0, _VolumeDims.x, _VolumeDims.y, _VolumeDims.z);
+                    output.voxelSize = _VoxelSize;
+                #endif
             #else
                 output.volumeOffset = _VolumeOffset;
                 output.yaw = 0.0;
+                output.instMeta = float4(0.0, _VolumeDims.x, _VolumeDims.y, _VolumeDims.z);
+                output.voxelSize = _VoxelSize;
             #endif
                 return output;
             }
@@ -228,6 +250,7 @@ Shader "SteelCity/VoxelProxyRaymarch"
             {
                 FragOutput o;
                 UNITY_SETUP_INSTANCE_ID(input);
+                float voxelSize = input.voxelSize;
 
                 // Ray origin and direction
                 float3 ro;
@@ -254,26 +277,39 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 }
 
                 // --- Per-instance volume data (instancing) or uniforms (non-instanced) ---
+                uint bufferOffset = 0;
+                int3 dims;
+
             #ifdef UNITY_INSTANCING_ENABLED
                 float3 volOffset = input.volumeOffset;
-                float yaw = input.yaw;
-                float yc = cos(yaw), ys = sin(yaw);
-                float3x3 volRot = float3x3(yc, 0, -ys, 0, 1, 0, ys, 0, yc);
-                float3x3 volInvRot = float3x3(yc, 0, ys, 0, 1, 0, -ys, 0, yc);
+                #if defined(BUILDING_INSTANCING)
+                    bufferOffset = (uint)input.instMeta.x;
+                    dims = int3((int)input.instMeta.y, (int)input.instMeta.z, (int)input.instMeta.w);
+                    // Buildings are axis-aligned (no rotation in sector baking)
+                    float3x3 volRot = float3x3(1, 0, 0, 0, 1, 0, 0, 0, 1);
+                    float3x3 volInvRot = float3x3(1, 0, 0, 0, 1, 0, 0, 0, 1);
+                #else
+                    float yaw = input.yaw;
+                    float yc = cos(yaw), ys = sin(yaw);
+                    float3x3 volRot = float3x3(yc, 0, -ys, 0, 1, 0, ys, 0, yc);
+                    float3x3 volInvRot = float3x3(yc, 0, ys, 0, 1, 0, -ys, 0, yc);
+                    dims = VolumeDimsInt();
+                #endif
             #else
                 float3 volOffset = _VolumeOffset;
                 float3x3 volRot = (float3x3)_VolumeRotation;
                 float3x3 volInvRot = (float3x3)_VolumeInvRotation;
+                dims = VolumeDimsInt();
             #endif
 
                 // Transform ray into volume local space (handles rotation)
-                float3 volumeCenter = volOffset + float3(_VolumeDims) * _VoxelSize * 0.5;
+                float3 volumeCenter = volOffset + float3(dims) * voxelSize * 0.5;
                 float3 localRo = mul(volRot, ro - volumeCenter) + volumeCenter;
                 float3 localRd = mul(volRot, rd);
 
                 // Volume bounds
                 float3 volumeMin = volOffset;
-                float3 volumeMax = volOffset + float3(_VolumeDims) * _VoxelSize;
+                float3 volumeMax = volOffset + float3(dims) * voxelSize;
 
                 // Ray-box intersection
                 float tNear, tFar;
@@ -285,13 +321,11 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 // DDA setup
                 float tStart = max(tNear, 0.0);
                 float3 startPos = localRo + localRd * (tStart + 0.001);
-
-                int3 dims = VolumeDimsInt();
-                float3 localStart = (startPos - volOffset) / _VoxelSize;
+                float3 localStart = (startPos - volOffset) / voxelSize;
                 int3 voxel = clamp((int3)floor(localStart), int3(0, 0, 0), dims - int3(1, 1, 1));
 
                 int3 stepDir = (int3)sign(localRd);
-                float3 deltaDist = abs(_VoxelSize / localRd);
+                float3 deltaDist = abs(voxelSize / localRd);
 
                 float3 sideDist;
                 if (localRd.x < 0) sideDist.x = (localStart.x - float(voxel.x)) * deltaDist.x;
@@ -316,7 +350,7 @@ Shader "SteelCity/VoxelProxyRaymarch"
                     if (!InBounds(voxel, dims))
                         break;
 
-                    uint packed = _VoxelData[VoxelIndex(voxel, dims)];
+                    uint packed = _VoxelData[bufferOffset + VoxelIndex(voxel, dims)];
                     uint mat = VxMaterial(packed);
 
                     if (mat != 0u)
@@ -341,7 +375,7 @@ Shader "SteelCity/VoxelProxyRaymarch"
                         }
                         else
                         {
-                            float3 smoothN = SmoothNormal(voxel, dims);
+                            float3 smoothN = SmoothNormal(voxel, dims, bufferOffset);
                             blendedN = normalize(normal * 0.7 + smoothN * 0.3);
                         }
                         blendedN = normalize(mul(volInvRot, blendedN));
@@ -368,14 +402,14 @@ Shader "SteelCity/VoxelProxyRaymarch"
                             float3 shadowDir = mul(volRot, _LightDirection);
                             float3 localN = normalize(mul(volRot, blendedN));
                             float3 shadowOrigin = hitWorldPos
-                                + localN * (_VoxelSize * _ShadowNormalNudge)
-                                + shadowDir * (_VoxelSize * _ShadowLightNudge);
+                                + localN * (voxelSize * _ShadowNormalNudge)
+                                + shadowDir * (voxelSize * _ShadowLightNudge);
 
-                            float3 shadowLocal = (shadowOrigin - volOffset) / _VoxelSize;
+                            float3 shadowLocal = (shadowOrigin - volOffset) / voxelSize;
                             int3 shadowVoxel = clamp((int3)floor(shadowLocal), int3(0, 0, 0), dims - int3(1, 1, 1));
 
                             int3 shadowStep = (int3)sign(shadowDir);
-                            float3 shadowDelta = abs(_VoxelSize / shadowDir);
+                            float3 shadowDelta = abs(voxelSize / shadowDir);
 
                             float3 shadowSideDist;
                             if (shadowDir.x < 0) shadowSideDist.x = (shadowLocal.x - float(shadowVoxel.x)) * shadowDelta.x;
@@ -423,15 +457,15 @@ Shader "SteelCity/VoxelProxyRaymarch"
                                     continue;
                                 }
 
-                                uint sPacked = _VoxelData[VoxelIndex(shadowVoxel, dims)];
+                                uint sPacked = _VoxelData[bufferOffset + VoxelIndex(shadowVoxel, dims)];
                                 uint sMat = VxMaterial(sPacked);
 
                                 if (sMat != 0u)
                                 {
-                                    float3 voxelCenter = volOffset + (float3(shadowVoxel) + 0.5) * _VoxelSize;
+                                    float3 voxelCenter = volOffset + (float3(shadowVoxel) + 0.5) * voxelSize;
                                     float3 toHit = shadowOrigin - voxelCenter;
                                     float perpDist = length(toHit - shadowDir * dot(toHit, shadowDir));
-                                    float softness = saturate(perpDist / (_VoxelSize * 2.0));
+                                    float softness = saturate(perpDist / (voxelSize * 2.0));
                                     shadowFactor = min(shadowFactor, softness);
                                     if (shadowFactor < 0.05) { shadowFactor = 0.0; break; }
                                 }

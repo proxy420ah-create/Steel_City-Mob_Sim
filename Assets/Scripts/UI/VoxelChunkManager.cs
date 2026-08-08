@@ -34,6 +34,8 @@ namespace SteelCity.Sim
         private Mesh proxyCubeMesh;
         private RenderTexture proxyRT;
 
+        [SerializeField] private bool disableSectorCulling = true;
+
         // Coverage-aware dynamic resolution tuning
         private const float CoverageHeuristicScale = 0.85f; // heuristic to map sum(r^2) → 0..1 coverage
         private const float LowCoverageThreshold = 0.20f;    // below this, switch to half-res (small-coverage optimization)
@@ -204,7 +206,7 @@ namespace SteelCity.Sim
             Debug.Log($"[VoxelChunkManager] Pre-loaded {loaded}/{paths.Count} unique .stasset files in parallel");
         }
 
-        private static (uint[] data, int w, int h, int d) GetPackedVoxels(string filepath)
+        public static (uint[] data, int w, int h, int d) GetPackedVoxels(string filepath)
         {
             if (packedVoxelCache.TryGetValue(filepath, out var cached))
             {
@@ -312,6 +314,7 @@ namespace SteelCity.Sim
         private int propShadowNormalNudge, propShadowLightNudge, propShadowSkipSteps, propShadowMaxSteps, propShadowEnabled;
         private int propSunLightEnabled, propAmbientEnabled, propFillEnabled, propCamLightEnabled;
         private int propInstanceOffsets;
+        private int propBuildingMeta, propBuildingPositions;
 
         // --- Perf tracking (event-driven, not timed) ---
         private int perfLastActiveChunks = -1;
@@ -505,6 +508,8 @@ namespace SteelCity.Sim
             propFillEnabled = Shader.PropertyToID("_FillEnabled");
             propCamLightEnabled = Shader.PropertyToID("_CamLightEnabled");
             propInstanceOffsets = Shader.PropertyToID("_InstanceOffsets");
+            propBuildingMeta = Shader.PropertyToID("_BuildingMeta");
+            propBuildingPositions = Shader.PropertyToID("_BuildingPositions");
         }
 
         private void CreateSharedMaterialBuffer()
@@ -964,13 +969,26 @@ namespace SteelCity.Sim
             }
             chunks.Clear();
             chunkLookup.Clear();
-            instancedCharacters.Clear();
-            if (instanceOffsetBuffer != null) { instanceOffsetBuffer.Release(); instanceOffsetBuffer = null; }
+            ReleaseAllInstancedGroups();
+
+            // Clear baked sectors
+            foreach (var sector in bakedSectors)
+            {
+                if (sector.mergedVoxelBuffer != null) { sector.mergedVoxelBuffer.Release(); sector.mergedVoxelBuffer = null; }
+                if (sector.buildingMetaBuffer != null) { sector.buildingMetaBuffer.Release(); sector.buildingMetaBuffer = null; }
+                if (sector.buildingPosBuffer != null) { sector.buildingPosBuffer.Release(); sector.buildingPosBuffer = null; }
+            }
+            bakedSectors.Clear();
+            sectorLookup.Clear();
         }
 
-        // --- Instanced character rendering ---
-        // All characters sharing the same .stasset use one ComputeBuffer + one DrawMeshInstanced call.
+        // --- Instanced character/vehicle rendering ---
+        // Each distinct .stasset asset gets its OWN shared voxel buffer + its OWN per-instance
+        // offset buffer, drawn with its OWN DrawMeshInstanced call — one draw call PER ASSET TYPE,
+        // not per instance. This lets citizens, hoods, and vehicles each use a different shape while
+        // every instance of a given shape still batches into a single draw call.
         // Per-instance data (xyz = world position, w = yaw radians) is passed via a StructuredBuffer.
+        // See docs/systems/DYNAMIC_OBJECT_RENDERING_TIERS.md ("Tier 2: Batched Dynamic").
 
         public class InstancedCharacter
         {
@@ -978,75 +996,88 @@ namespace SteelCity.Sim
             public Vector3 worldOffset;
             public float yaw;
             public bool visible = true;
+            public string assetKey; // which InstancedGroup this instance belongs to
         }
 
-        private readonly List<InstancedCharacter> instancedCharacters = new();
-        private ComputeBuffer instanceOffsetBuffer;
-        private ComputeBuffer sharedCharacterVoxelBuffer;
-        private int charDimX, charDimY, charDimZ;
-        private float charVoxelSize;
-        private bool characterInstancingInitialized;
+        private class InstancedGroup
+        {
+            public ComputeBuffer sharedVoxelBuffer;
+            public ComputeBuffer instanceOffsetBuffer;
+            public int dimX, dimY, dimZ;
+            public float voxelSize;
+            public readonly List<InstancedCharacter> instances = new();
+        }
+
+        private readonly Dictionary<string, InstancedGroup> instancedGroups = new();
 
         public InstancedCharacter RegisterInstancedCharacter(GameObject host, string assetFileName, float voxelSize)
         {
-            if (!characterInstancingInitialized)
+            if (!instancedGroups.TryGetValue(assetFileName, out var group))
             {
                 string path = System.IO.Path.Combine(Application.streamingAssetsPath, "voxel_buildings", assetFileName);
                 if (!System.IO.File.Exists(path))
                 {
-                    Debug.LogError($"[VoxelChunkManager] Instanced character asset not found: {path}");
+                    Debug.LogError($"[VoxelChunkManager] Instanced asset not found: {path}");
                     return null;
                 }
 
                 var voxelData = StAssetReader.LoadVoxels(path);
                 if (voxelData == null)
                 {
-                    Debug.LogError($"[VoxelChunkManager] Failed to load instanced character asset: {path}");
+                    Debug.LogError($"[VoxelChunkManager] Failed to load instanced asset: {path}");
                     return null;
                 }
 
-                charDimX = voxelData.GetLength(0);
-                charDimY = voxelData.GetLength(1);
-                charDimZ = voxelData.GetLength(2);
-                charVoxelSize = voxelSize;
+                int dimX = voxelData.GetLength(0);
+                int dimY = voxelData.GetLength(1);
+                int dimZ = voxelData.GetLength(2);
 
-                int totalVoxels = charDimX * charDimY * charDimZ;
+                int totalVoxels = dimX * dimY * dimZ;
                 var gpuData = new uint[totalVoxels];
                 int idx = 0;
-                for (int z = 0; z < charDimZ; z++)
-                    for (int y = 0; y < charDimY; y++)
-                        for (int x = 0; x < charDimX; x++)
+                for (int z = 0; z < dimZ; z++)
+                    for (int y = 0; y < dimY; y++)
+                        for (int x = 0; x < dimX; x++)
                             gpuData[idx++] = (uint)voxelData[x, y, z];
 
-                sharedCharacterVoxelBuffer = new ComputeBuffer(totalVoxels, sizeof(uint));
-                sharedCharacterVoxelBuffer.SetData(gpuData);
-                characterInstancingInitialized = true;
+                group = new InstancedGroup { dimX = dimX, dimY = dimY, dimZ = dimZ, voxelSize = voxelSize };
+                group.sharedVoxelBuffer = new ComputeBuffer(totalVoxels, sizeof(uint));
+                group.sharedVoxelBuffer.SetData(gpuData);
+                instancedGroups[assetFileName] = group;
 
-                Debug.Log($"[VoxelChunkManager] Shared character buffer initialized: {assetFileName} {charDimX}x{charDimY}x{charDimZ} = {totalVoxels:N0} voxels (shared across all instances)");
+                Debug.Log($"[VoxelChunkManager] Shared instanced buffer initialized: {assetFileName} {dimX}x{dimY}x{dimZ} = {totalVoxels:N0} voxels (shared across all instances of this asset)");
             }
 
             var ic = new InstancedCharacter
             {
                 gameObject = host,
                 worldOffset = host.transform.position,
-                yaw = host.transform.rotation.eulerAngles.y * Mathf.Deg2Rad
+                yaw = host.transform.rotation.eulerAngles.y * Mathf.Deg2Rad,
+                assetKey = assetFileName
             };
-            instancedCharacters.Add(ic);
+            group.instances.Add(ic);
             return ic;
         }
 
         public void UnregisterInstancedCharacter(InstancedCharacter ic)
         {
-            if (ic != null)
-                instancedCharacters.Remove(ic);
+            if (ic == null) return;
+            if (instancedGroups.TryGetValue(ic.assetKey, out var group))
+                group.instances.Remove(ic);
         }
 
         private void RenderInstancedCharacters(CommandBuffer cmd)
         {
-            if (!characterInstancingInitialized || instancedCharacters.Count == 0) return;
+            foreach (var group in instancedGroups.Values)
+                RenderInstancedGroup(cmd, group);
+        }
+
+        private void RenderInstancedGroup(CommandBuffer cmd, InstancedGroup group)
+        {
+            if (group.instances.Count == 0) return;
 
             int visibleCount = 0;
-            foreach (var ic in instancedCharacters)
+            foreach (var ic in group.instances)
             {
                 if (ic.gameObject == null) { ic.visible = false; continue; }
                 ic.worldOffset = ic.gameObject.transform.position;
@@ -1061,14 +1092,13 @@ namespace SteelCity.Sim
             var matrices = new Matrix4x4[visibleCount];
             int writeIdx = 0;
 
-            Vector3 charSize = new Vector3(charDimX, charDimY, charDimZ) * charVoxelSize;
-            Vector3 halfSize = charSize * 0.5f;
+            Vector3 size = new Vector3(group.dimX, group.dimY, group.dimZ) * group.voxelSize;
             // Pad proxy by +1 voxel on each axis to ensure full coverage at perspective grazing angles
-            Vector3 pad = new Vector3(charVoxelSize, charVoxelSize, charVoxelSize);
-            Vector3 paddedSize = charSize + pad;
+            Vector3 pad = new Vector3(group.voxelSize, group.voxelSize, group.voxelSize);
+            Vector3 paddedSize = size + pad;
             Vector3 paddedHalf = paddedSize * 0.5f;
 
-            foreach (var ic in instancedCharacters)
+            foreach (var ic in group.instances)
             {
                 if (!ic.visible) continue;
                 offsets[writeIdx] = new Vector4(ic.worldOffset.x, ic.worldOffset.y, ic.worldOffset.z, ic.yaw);
@@ -1080,19 +1110,19 @@ namespace SteelCity.Sim
                 writeIdx++;
             }
 
-            if (instanceOffsetBuffer == null || instanceOffsetBuffer.count < visibleCount)
+            if (group.instanceOffsetBuffer == null || group.instanceOffsetBuffer.count < visibleCount)
             {
-                if (instanceOffsetBuffer != null) instanceOffsetBuffer.Release();
-                instanceOffsetBuffer = new ComputeBuffer(Mathf.Max(visibleCount, 128), sizeof(float) * 4);
+                if (group.instanceOffsetBuffer != null) group.instanceOffsetBuffer.Release();
+                group.instanceOffsetBuffer = new ComputeBuffer(Mathf.Max(visibleCount, 128), sizeof(float) * 4);
             }
-            instanceOffsetBuffer.SetData(offsets, 0, 0, visibleCount);
+            group.instanceOffsetBuffer.SetData(offsets, 0, 0, visibleCount);
 
-            proxyMaterial.SetBuffer(propVoxelData, sharedCharacterVoxelBuffer);
-            proxyMaterial.SetBuffer(propInstanceOffsets, instanceOffsetBuffer);
+            proxyMaterial.SetBuffer(propVoxelData, group.sharedVoxelBuffer);
+            proxyMaterial.SetBuffer(propInstanceOffsets, group.instanceOffsetBuffer);
             proxyMaterial.SetBuffer(propMaterialColors, sharedMaterialBuffer);
             proxyMaterial.SetBuffer(propChunkTints, defaultTintBuffer);
-            proxyMaterial.SetVector(propVolumeDims, new Vector4(charDimX, charDimY, charDimZ, 0));
-            proxyMaterial.SetFloat(propVoxelSize, charVoxelSize);
+            proxyMaterial.SetVector(propVolumeDims, new Vector4(group.dimX, group.dimY, group.dimZ, 0));
+            proxyMaterial.SetFloat(propVoxelSize, group.voxelSize);
 
             proxyMaterial.SetInt(propMaxSteps, maxSteps);
             proxyMaterial.SetInt(propCheapShading, 0);
@@ -1101,7 +1131,18 @@ namespace SteelCity.Sim
 
             cmd.DrawMeshInstanced(proxyCubeMesh, 0, proxyMaterial, 0, matrices, visibleCount);
 
-            // No LOD settings to restore — using full quality for characters
+            // No LOD settings to restore — using full quality for instanced characters/vehicles
+        }
+
+        private void ReleaseAllInstancedGroups()
+        {
+            foreach (var group in instancedGroups.Values)
+            {
+                if (group.sharedVoxelBuffer != null) group.sharedVoxelBuffer.Release();
+                if (group.instanceOffsetBuffer != null) group.instanceOffsetBuffer.Release();
+                group.instances.Clear();
+            }
+            instancedGroups.Clear();
         }
 
         private void ReleaseAllChunks()
@@ -1115,13 +1156,225 @@ namespace SteelCity.Sim
             }
             chunks.Clear();
             chunkLookup.Clear();
-            instancedCharacters.Clear();
-            if (sharedCharacterVoxelBuffer != null) { sharedCharacterVoxelBuffer.Release(); sharedCharacterVoxelBuffer = null; }
-            if (instanceOffsetBuffer != null) { instanceOffsetBuffer.Release(); instanceOffsetBuffer = null; }
-            characterInstancingInitialized = false;
+            ReleaseAllInstancedGroups();
+
+            // Release baked sectors
+            foreach (var sector in bakedSectors)
+            {
+                if (sector.mergedVoxelBuffer != null) { sector.mergedVoxelBuffer.Release(); sector.mergedVoxelBuffer = null; }
+                if (sector.buildingMetaBuffer != null) { sector.buildingMetaBuffer.Release(); sector.buildingMetaBuffer = null; }
+                if (sector.buildingPosBuffer != null) { sector.buildingPosBuffer.Release(); sector.buildingPosBuffer = null; }
+            }
+            bakedSectors.Clear();
+            sectorLookup.Clear();
+            if (sectorMaterial != null) { Destroy(sectorMaterial); sectorMaterial = null; }
         }
 
         #endregion
+
+        // --- Sector baking (static building instancing) ---
+        // Multiple buildings in a sector share one flat voxel buffer.
+        // One DrawMeshInstanced call per sector replaces N DrawMesh calls.
+        // Shader BUILDING_INSTANCING keyword reads per-building dims + buffer offset.
+
+        public class BakedSector
+        {
+            public string name;
+            public ComputeBuffer mergedVoxelBuffer;   // flat uint[] — all buildings concatenated
+            public ComputeBuffer buildingMetaBuffer;   // float4[] (bufferOffset, dimsX, dimsY, dimsZ)
+            public ComputeBuffer buildingPosBuffer;    // float4[] (worldOffsetX, Y, Z, 0)
+            public Vector4[] cpuMeta;                  // CPU copy of buildingMeta for TRS computation
+            public Vector4[] cpuPositions;             // CPU copy of buildingPositions
+            public int buildingCount;
+            public float voxelSize;
+            public Vector3 sectorMin;   // world-space AABB of sector
+            public Vector3 sectorMax;
+            public bool active = true;
+            public MaterialPropertyBlock cachedPropBlock; // per-sector buffer bindings (CommandBuffer.DrawMeshInstanced does not snapshot Material.SetBuffer state)
+        }
+
+        private readonly List<BakedSector> bakedSectors = new();
+        private readonly Dictionary<string, BakedSector> sectorLookup = new();
+        private Material sectorMaterial; // clone of proxyMaterial with BUILDING_INSTANCING enabled
+
+        public void RegisterSector(string name, uint[] mergedVoxelData,
+            Vector4[] buildingMeta, Vector4[] buildingPositions,
+            float sectorVoxelSize, Vector3 sectorMin, Vector3 sectorMax)
+        {
+            UnregisterSector(name);
+
+            if (sectorMaterial == null)
+            {
+                sectorMaterial = new Material(proxyMaterial);
+                sectorMaterial.enableInstancing = true;
+                sectorMaterial.EnableKeyword("BUILDING_INSTANCING");
+            }
+
+            int buildingCount = buildingMeta.Length;
+            var sector = new BakedSector
+            {
+                name = name,
+                buildingCount = buildingCount,
+                voxelSize = sectorVoxelSize,
+                sectorMin = sectorMin,
+                sectorMax = sectorMax,
+                cpuMeta = buildingMeta,
+                cpuPositions = buildingPositions
+            };
+
+            sector.mergedVoxelBuffer = new ComputeBuffer(mergedVoxelData.Length, sizeof(uint));
+            sector.mergedVoxelBuffer.SetData(mergedVoxelData);
+
+            sector.buildingMetaBuffer = new ComputeBuffer(buildingCount, sizeof(float) * 4);
+            sector.buildingMetaBuffer.SetData(buildingMeta);
+
+            sector.buildingPosBuffer = new ComputeBuffer(buildingCount, sizeof(float) * 4);
+            sector.buildingPosBuffer.SetData(buildingPositions);
+
+            bakedSectors.Add(sector);
+            sectorLookup[name] = sector;
+
+            Debug.Log($"[VoxelChunkManager] Registered baked sector '{name}': {buildingCount} buildings, {mergedVoxelData.Length:N0} voxels, bounds {sectorMin}..{sectorMax}");
+        }
+
+        public void UnregisterSector(string name)
+        {
+            if (!sectorLookup.TryGetValue(name, out var sector)) return;
+            if (sector.mergedVoxelBuffer != null) { sector.mergedVoxelBuffer.Release(); sector.mergedVoxelBuffer = null; }
+            if (sector.buildingMetaBuffer != null) { sector.buildingMetaBuffer.Release(); sector.buildingMetaBuffer = null; }
+            if (sector.buildingPosBuffer != null) { sector.buildingPosBuffer.Release(); sector.buildingPosBuffer = null; }
+            bakedSectors.Remove(sector);
+            sectorLookup.Remove(name);
+        }
+
+        public int BakedSectorCount => bakedSectors.Count;
+        public int BakedSectorBuildingCount
+        {
+            get
+            {
+                int total = 0;
+                foreach (var s in bakedSectors) total += s.buildingCount;
+                return total;
+            }
+        }
+
+        private void RenderBakedSectors(CommandBuffer cmd, Camera cam, bool isOrtho, float orthoSize,
+            float perspHalfHeight)
+        {
+            if (bakedSectors.Count == 0 || sectorMaterial == null) return;
+
+            // Set shared lighting/material properties on sector material once
+            sectorMaterial.SetBuffer(propMaterialColors, sharedMaterialBuffer);
+            sectorMaterial.SetBuffer(propChunkTints, defaultTintBuffer);
+            sectorMaterial.SetInt(propMaxSteps, maxSteps);
+            sectorMaterial.SetInt(propCheapShading, 0);
+            sectorMaterial.SetInt(propUnlitLod, 0);
+            sectorMaterial.SetInt(propLodDebugEnabled, 0);
+            sectorMaterial.SetInt(propIsOrthographic, isOrtho ? 1 : 0);
+            sectorMaterial.SetVector(propScreenSize, new Vector4(renderWidth, renderHeight, 0, 0));
+            sectorMaterial.SetVector(propLightDirection, lightDirection);
+            sectorMaterial.SetFloat(propLightIntensity, lightIntensity);
+            sectorMaterial.SetFloat(propAmbientIntensity, ambientIntensity);
+            sectorMaterial.SetFloat(propFillIntensity, fillIntensity);
+            sectorMaterial.SetVector(propLightColor, lightColor);
+            sectorMaterial.SetInt(propSunLightEnabled, sunLightEnabled);
+            sectorMaterial.SetInt(propAmbientEnabled, ambientEnabled);
+            sectorMaterial.SetInt(propFillEnabled, fillEnabled);
+            sectorMaterial.SetInt(propCamLightEnabled, camLightEnabled);
+            sectorMaterial.SetInt(propShadowEnabled, shadowEnabled);
+            sectorMaterial.SetFloat(propShadowNormalNudge, shadowNormalNudge);
+            sectorMaterial.SetFloat(propShadowLightNudge, shadowLightNudge);
+            sectorMaterial.SetInt(propShadowSkipSteps, shadowSkipSteps);
+            sectorMaterial.SetInt(propShadowMaxSteps, shadowMaxSteps);
+            sectorMaterial.SetInt(propMaterialCount, MaxMaterials);
+            sectorMaterial.SetVector(propBackgroundColor, backgroundColor);
+            sectorMaterial.SetMatrix(propProxyCamToWorld, cam.cameraToWorldMatrix);
+            sectorMaterial.SetMatrix(propProxyInvProj, cam.projectionMatrix.inverse);
+            sectorMaterial.SetVector(propProxyCamOrigin, cam.transform.position);
+
+            // Prepare camera frustum for CPU frustum-culling of sector AABBs (when enabled)
+            Plane[] frustumPlanes = null;
+            if (!disableSectorCulling)
+                frustumPlanes = GeometryUtility.CalculateFrustumPlanes(cam);
+
+            // Local helper: distance from a point to an AABB (0 if inside)
+            static float DistanceToAABB(Vector3 p, Vector3 bmin, Vector3 bmax)
+            {
+                float dx = Mathf.Max(Mathf.Max(bmin.x - p.x, 0f), p.x - bmax.x);
+                float dy = Mathf.Max(Mathf.Max(bmin.y - p.y, 0f), p.y - bmax.y);
+                float dz = Mathf.Max(Mathf.Max(bmin.z - p.z, 0f), p.z - bmax.z);
+                return Mathf.Sqrt(dx * dx + dy * dy + dz * dz);
+            }
+
+            foreach (var sector in bakedSectors)
+            {
+                if (!sector.active || sector.buildingCount == 0) continue;
+
+                // Sector AABB and culling
+                float vs = sector.voxelSize;
+                Vector3 center = (sector.sectorMin + sector.sectorMax) * 0.5f;
+                Vector3 size = sector.sectorMax - sector.sectorMin;
+                var sectorBounds = new Bounds(center, size);
+                // Pad bounds slightly to avoid edge pop from numeric error and proxy-padding
+                float pad = vs * 8f;
+                sectorBounds.Expand(pad * 2f);
+
+                if (!disableSectorCulling)
+                {
+                    if (!GeometryUtility.TestPlanesAABB(frustumPlanes, sectorBounds))
+                        continue;
+
+                    if (maxRenderDistance > 0f)
+                    {
+                        float distToBox = DistanceToAABB(cam.transform.position, sector.sectorMin, sector.sectorMax);
+                        if (distToBox > (maxRenderDistance + pad))
+                            continue;
+                    }
+                }
+
+                // Per-building TRS matrices — each building gets its own proxy cube
+                var matrices = new Matrix4x4[sector.buildingCount];
+
+                for (int i = 0; i < sector.buildingCount; i++)
+                {
+                    Vector4 meta = sector.cpuMeta[i];
+                    Vector4 pos = sector.cpuPositions[i];
+                    int dx = (int)meta.y;
+                    int dy = (int)meta.z;
+                    int dz = (int)meta.w;
+
+                    // Use per-building voxel size from positions.w (fallback to sector.voxelSize)
+                    float vsb = pos.w > 0f ? pos.w : sector.voxelSize;
+                    Vector3 buildingSize = new Vector3(dx, dy, dz) * vsb;
+                    // Pad by 1 voxel to avoid grazing-angle clipping
+                    Vector3 voxelPad = new Vector3(vsb, vsb, vsb);
+                    Vector3 paddedSize = buildingSize + voxelPad;
+                    Vector3 paddedHalf = paddedSize * 0.5f;
+
+                    Vector3 worldOffset = new Vector3(pos.x, pos.y, pos.z);
+                    Vector3 centerPos = worldOffset + paddedHalf;
+                    matrices[i] = Matrix4x4.TRS(centerPos, Quaternion.identity, paddedSize);
+                }
+
+                // Bind sector-specific buffers via a per-sector MaterialPropertyBlock.
+                // IMPORTANT: CommandBuffer.DrawMeshInstanced does NOT snapshot Material.SetBuffer
+                // state at record time — it reads whatever is currently set on the material when
+                // the command buffer executes. Since sectorMaterial is shared across all sectors,
+                // calling sectorMaterial.SetBuffer(...) in this loop would make every sector draw
+                // with the LAST sector's buffers. Use a cached property block per sector instead.
+                if (sector.cachedPropBlock == null)
+                    sector.cachedPropBlock = new MaterialPropertyBlock();
+                var sectorBlock = sector.cachedPropBlock;
+                sectorBlock.Clear();
+                sectorBlock.SetBuffer(propVoxelData, sector.mergedVoxelBuffer);
+                sectorBlock.SetBuffer(propBuildingMeta, sector.buildingMetaBuffer);
+                sectorBlock.SetBuffer(propBuildingPositions, sector.buildingPosBuffer);
+                // Non-instanced path reads _VoxelSize; instanced path uses per-instance voxel size from Varyings
+                sectorBlock.SetFloat(propVoxelSize, sector.voxelSize);
+
+                cmd.DrawMeshInstanced(proxyCubeMesh, 0, sectorMaterial, 0, matrices, sector.buildingCount, sectorBlock);
+            }
+        }
 
         #region --- RENDERING ---
 
@@ -1264,7 +1517,15 @@ namespace SteelCity.Sim
         public bool ShowOrthoHud => showOrthoHud;
         public int RenderWidth => renderWidth;
         public int RenderHeight => renderHeight;
-        public int InstancedCharacterCount => instancedCharacters.Count;
+        public int InstancedCharacterCount
+        {
+            get
+            {
+                int total = 0;
+                foreach (var group in instancedGroups.Values) total += group.instances.Count;
+                return total;
+            }
+        }
         public float CurrentResolutionScale => currentResolutionScale;
 
         // Call to emit a one-shot perf log (e.g. on key press)
@@ -1275,7 +1536,7 @@ namespace SteelCity.Sim
 
         public void RenderChunks()
         {
-            if (renderCamera == null || chunks.Count == 0)
+            if (renderCamera == null || (chunks.Count == 0 && bakedSectors.Count == 0 && instancedGroups.Count == 0))
                 return;
 
             float totalStart = Time.realtimeSinceStartup;
@@ -1648,6 +1909,9 @@ namespace SteelCity.Sim
 
             // Draw all instanced characters in a single DrawMeshInstanced call
             RenderInstancedCharacters(cmd);
+
+            // Draw all baked sectors (static buildings)
+            RenderBakedSectors(cmd, renderCamera, isOrtho, orthoSize, perspHalfHeight);
 
             Graphics.ExecuteCommandBuffer(cmd);
             cmd.Dispose();
