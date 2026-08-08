@@ -1,7 +1,7 @@
 # 📚 Steel City: Mob Sim — Documentation Index
 
 **Purpose**: Central hub for all Mob Sim project documentation
-**Last Updated**: August 4, 2026
+**Last Updated**: August 8, 2026
 **Project**: Steel City — Mob Sim (Unity)
 
 ---
@@ -14,8 +14,9 @@
 | **UI System** | 3 docs | ✅ Complete |
 | **Voxel Buildings** | 3 docs | ✅ Complete |
 | **Voxel Rendering** | 4 docs | ✅ Complete |
+| **Rendering Systems** | 1 doc | ✅ Complete |
 | **Lighting Debug** | 1 doc | ✅ Complete |
-| **Scale Standard** | 1 doc | ✅ Complete |
+| **Scale Standard** | 1 doc | ⚠️ SEE MASTER DOC |
 | **Porting Notes** | 1 doc | ✅ Complete |
 
 ---
@@ -111,12 +112,42 @@
 
 ---
 
-### 5. Scale Standard ✅ COMPLETE
+### 4b. Rendering Systems ✅ COMPLETE
 
-- **`MOB_SIM_SCALE_STANDARD.md`** — Mob Sim universe scale system
-  - Core scale constants (building voxel = 0.1m, char voxel = 0.015m)
+- **`docs/systems/INSTANCING_AND_BUFFERING.md`** — GPU instancing and ComputeBuffer deep dive
+  - How instanced character/vehicle rendering works (step by step)
+  - ComputeBuffer lifecycle: creation, upload, release
+  - MaterialPropertyBlock: why per-draw isolation is critical
+  - The shared-material overwrite bug (root cause analysis of invisible Vinny)
+  - Sector baking vs instanced characters: same pattern, different scale
+  - Shader-side instancing: how vertex/fragment shaders read per-instance data
+  - Performance characteristics, debugging guide, glossary
+  - **Key lesson**: any time multiple draw calls share a material but need different buffer bindings, use MaterialPropertyBlock
+
+- **`docs/systems/GPU_DRIVEN_SECTOR_RENDERING.md`** — Sector baking architecture and GPU-driven indirect rendering proposal
+  - Current sector baking implementation (Tier 1 static buildings)
+  - Known gaps: no LOD, no depth sort, 1023-instance cap
+  - Proposed GPU-driven indirect rendering evolution
+
+- **`docs/systems/DYNAMIC_OBJECT_RENDERING_TIERS.md`** — Rendering strategy classification
+  - Three tiers: bake (static), instance (batched dynamic), individual (unique mutation)
+  - Decision checklist for new dynamic objects
+  - Worked examples and anti-patterns
+
+**Keywords**: instancing, ComputeBuffer, MaterialPropertyBlock, DrawMeshInstanced, proxy cube, raymarch, buffer binding, sector baking, rendering tiers
+
+---
+
+### 5. Scale Standard ⚠️ SEE MASTER DOC
+
+- **`MODEL_DESIGN_STANDARD.md`** — 🔒 MASTER REFERENCE — source of truth for scale, doors, orientation, proportions
+  - NPC ("Vinny") as the scale root, door-to-NPC-height ratio test (1.25×+)
+  - Corrected door standard (supersedes the table below)
+  - Orientation convention per model type (buildings=Z0 front, vehicles=+Z front, characters=low-Z front)
+  - Proportion reference table, per-model audit (which buildings are certified vs need rework)
+- **`MOB_SIM_SCALE_STANDARD.md`** — Mob Sim universe scale system (⚠️ door table outdated, see master doc above)
+  - Core scale constants (building voxel = 0.1m, char voxel = 0.02m, vehicle voxel = 0.05m)
   - Scale ratio: 3.75× (real world → mob sim)
-  - Standard door sizes (4v standard, 5v civic, 6v vehicle bay)
   - Reference object library (NPC, door, trash can, bench, street light, car, dumpster, tree)
   - Building height reference table
   - Relationship to Steel Tide FPS scale (independent systems)
@@ -219,7 +250,7 @@
 `BUILDING_PROTRUSION_SYSTEM.md` (Adding Protrusion section)
 
 ### "I need to check door scale"
-`MOB_SIM_SCALE_STANDARD.md` (Standard Door Sizes section)
+`MODEL_DESIGN_STANDARD.md` (Section 3, Door Standard) — supersedes `MOB_SIM_SCALE_STANDARD.md`'s door table
 
 ### "I need to fix a UI layout issue"
 `UI_LAYOUT_GOTCHAS.md`
@@ -244,6 +275,15 @@
 
 ### "I need camera controls"
 `VOXEL_CAMERA_SYSTEM.md`
+
+### "I need to understand instancing and GPU buffers"
+`docs/systems/INSTANCING_AND_BUFFERING.md`
+
+### "I need to understand rendering tiers (when to bake vs instance)"
+`docs/systems/DYNAMIC_OBJECT_RENDERING_TIERS.md`
+
+### "I need to understand sector baking"
+`docs/systems/GPU_DRIVEN_SECTOR_RENDERING.md`
 
 ---
 
@@ -293,6 +333,6 @@ Voxel assets:   Assets/StreamingAssets/voxel_buildings/
 
 ---
 
-**Last Updated**: August 4, 2026
-**Version**: 1.1.0
+**Last Updated**: August 8, 2026
+**Version**: 1.2.0
 **Maintainer**: Development Team

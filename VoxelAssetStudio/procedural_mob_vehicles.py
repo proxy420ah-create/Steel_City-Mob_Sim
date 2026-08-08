@@ -127,21 +127,30 @@ def generate_touring_car(seed=None):
         grid[3, y, 2:22] = PAINTED_GREEN
         grid[16, y, 2:22] = PAINTED_GREEN
 
-    # Door cutouts (gaps in side walls at door positions)
-    # Front doors (Z=10-15) — leave as open air for touring car style
-    for y in range(7, 12):
-        grid[3, y, 10:16] = AIR
-        grid[16, y, 10:16] = AIR
+    # Door panels (closed by default — base model must not show interior
+    # through the doors; an open-door variant/animation is a separate concern)
+    # Front doors (Z=10-15)
+    for y in range(6, 12):
+        grid[3, y, 10:16] = PAINTED_GREEN
+        grid[16, y, 10:16] = PAINTED_GREEN
     # Rear doors (Z=3-8)
-    for y in range(7, 12):
-        grid[3, y, 3:9] = AIR
-        grid[16, y, 3:9] = AIR
+    for y in range(6, 12):
+        grid[3, y, 3:9] = PAINTED_GREEN
+        grid[16, y, 3:9] = PAINTED_GREEN
 
-    # Door sills (bottom of door opening, Y=6)
-    grid[3, 6, 3:9] = PAINTED_GREEN
-    grid[16, 6, 3:9] = PAINTED_GREEN
-    grid[3, 6, 10:16] = PAINTED_GREEN
-    grid[16, 6, 10:16] = PAINTED_GREEN
+    # Door outline (dark wood seam so the closed panel still reads as a door)
+    for z in (9, 16):
+        grid[3, 6:12, z] = DARK_WOOD
+        grid[16, 6:12, z] = DARK_WOOD
+    for z in (2, 21):
+        grid[3, 6:12, z] = DARK_WOOD
+        grid[16, 6:12, z] = DARK_WOOD
+
+    # Door handles (brass, centered on each door)
+    grid[3, 9, 12] = GOLD_BRASS
+    grid[16, 9, 12] = GOLD_BRASS
+    grid[3, 9, 5] = GOLD_BRASS
+    grid[16, 9, 5] = GOLD_BRASS
 
     # === Rear seat (dark wood = leather upholstery) ===
     # Seat base: X=4-15, Y=6-7, Z=3-8

@@ -1,29 +1,35 @@
 """
 Diagnostic tool to inspect .stasset files and verify data integrity.
+
+Usage: python diagnose_stasset.py [file1.stasset file2.stasset ...]
+Defaults to a few representative Steel City models if no args given.
 """
 
 from stasset_io import load_stasset
 import os
+import sys
 
-output_dir = "../My project/Assets/StreamingAssets"
+output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "..", "Assets", "StreamingAssets", "voxel_buildings")
 
-files_to_check = [
-    "Test_2_Hollow_Box.stasset",
-    "Test_3_Solid_MultiMaterial.stasset",
+files_to_check = sys.argv[1:] if len(sys.argv) > 1 else [
+    "barber_0.stasset",
+    "apartment_block_0.stasset",
+    "vehicle_civilian_car_0.stasset",
 ]
 
 print("🔍 Diagnosing .stasset files")
 print("=" * 70)
 
 for filename in files_to_check:
-    filepath = os.path.join(output_dir, filename)
+    filepath = filename if os.path.isabs(filename) or os.path.exists(filename) else os.path.join(output_dir, filename)
     if not os.path.exists(filepath):
         print(f"\n❌ {filename}: NOT FOUND")
         continue
     
-    voxels, dims = load_stasset(filepath)
+    voxels, dims, _skeleton = load_stasset(filepath)
     
-    print(f"\n📄 {filename}")
+    print(f"\n📄 {os.path.basename(filepath)}")
     print(f"   Dimensions: {dims[0]}×{dims[1]}×{dims[2]}")
     print(f"   Shape: {voxels.shape}")
     print(f"   Total voxels: {voxels.size:,}")

@@ -27,15 +27,57 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent))
 from stasset_io import load_stasset
 
+try:
+    from mob_materials import MOB_MATERIALS
+except ImportError:
+    MOB_MATERIALS = {}
+
 
 # ---------------------------------------------------------------------------
 # Symbols and colors
 # ---------------------------------------------------------------------------
+# Legacy skeleton-rig material IDs (SteelTide FPS actors)
 MATERIAL_SYMBOLS = {
     0: " ",   # Air
     12: "B",  # Bone
     21: "J",  # Joint
 }
+
+# Steel City Mob Sim material symbols, derived from mob_materials.py categories.
+# One letter per material group so ASCII views stay readable.
+_MOB_SIM_SYMBOLS = {
+    100: "#",  # Red Brick
+    101: "S",  # Stone
+    102: "C",  # Concrete
+    103: "s",  # Stucco
+    104: "-",  # Asphalt
+    105: "c",  # Cobblestone
+    106: "w",  # Dark Wood
+    107: "W",  # Light Wood
+    108: "o",  # Weathered Wood
+    109: "I",  # Dark Iron
+    110: "i",  # Aged Metal
+    111: "M",  # Painted Metal
+    112: "g",  # Window Glass
+    113: "L",  # Lit Window
+    114: "G",  # Storefront Glass
+    115: "R",  # Neon Red
+    116: "U",  # Neon Blue
+    117: "N",  # Neon Green
+    118: "T",  # Tar
+    119: "t",  # Terracotta
+    120: "r",  # Painted Red
+    121: "n",  # Painted Green
+    122: "b",  # Painted Brown
+    123: "$",  # Gold/Brass
+    124: "*",  # Lamp Glow
+    125: "F",  # Flesh
+    126: "K",  # Black Fabric
+    127: "H",  # White Fabric
+    128: "h",  # Hair
+    129: "u",  # Painted Blue
+}
+MATERIAL_SYMBOLS.update(_MOB_SIM_SYMBOLS)
 
 
 def symbol_for(mat_id):
@@ -96,28 +138,31 @@ def render_side_view(voxels, dims):
 # ---------------------------------------------------------------------------
 def symmetry_report(voxels, dims, center_x=None):
     """
-    Compare left vs right voxel counts for each Y-slice. Reports any slice
-    where the counts differ.
-    """
-    if center_x is None:
-        center_x = dims[0] // 2
+    Compare each X column against its mirror column (x <-> width-1-x) for
+    every Y-slice. This correctly handles BOTH odd-width grids (one true
+    center column at width//2) and even-width grids (two middle columns,
+    width//2-1 and width//2, that mirror each other with no lone center).
 
+    A slice is symmetric if voxels[x, y, z] and voxels[w-1-x, y, z] are both
+    air or both non-air for every x, z (material IDs may legitimately differ
+    left/right for tinting, so only occupancy is compared).
+    """
+    w = dims[0]
     lines = []
-    lines.append(f"Symmetry axis: x={center_x}")
-    lines.append("Y-slice | Left voxels | Right voxels | Match")
+    lines.append(f"Symmetry axis: mirrors x <-> {w-1}-x (width={w}, {'odd' if w % 2 else 'even'})")
+    lines.append("Y-slice | Mismatched voxels | Match")
     lines.append("-" * 50)
 
     mismatches = 0
     for y in range(dims[1]):
-        left = np.count_nonzero(voxels[0:center_x, y, :])
-        right = np.count_nonzero(voxels[center_x + 1:dims[0], y, :])
-        # Center column is counted separately; if it exists it should be 1 voxel.
-        center = np.count_nonzero(voxels[center_x, y, :])
-        match = left == right
-        if not match or center > 1:
+        slice_ = voxels[:, y, :] != 0            # occupancy mask, shape (w, d)
+        mirrored = slice_[::-1, :]                # flip along X
+        diff = np.count_nonzero(slice_ != mirrored)
+        # Each true asymmetry is counted twice (x and its mirror both differ).
+        diff_voxels = diff // 2
+        if diff_voxels > 0:
             mismatches += 1
-            status = "MISMATCH" if not match else "CENTER>1"
-            lines.append(f"y={y:2d}    | {left:11d} | {right:12d} | {status}")
+            lines.append(f"y={y:2d}    | {diff_voxels:17d} | MISMATCH")
 
     if mismatches == 0:
         lines.append("All slices are symmetric.")
@@ -311,7 +356,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="ASCII inspection and analysis for .stasset voxel actors."
     )
-    default_path = str(SCRIPT_DIR / "../../My project/Assets/StreamingAssets/ActorSymmetric.stasset")
+    default_path = str(SCRIPT_DIR / "../../Assets/StreamingAssets/voxel_buildings/vehicle_civilian_car_0.stasset")
     parser.add_argument(
         "filepath",
         nargs="?",

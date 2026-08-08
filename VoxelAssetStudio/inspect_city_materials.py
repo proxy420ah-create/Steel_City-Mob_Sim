@@ -87,8 +87,7 @@ def inspect_file(filepath):
 def main():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     stasset_dir = os.path.join(
-        os.path.dirname(base_dir),
-        "Steel_City-Mob_Sim", "Assets", "StreamingAssets", "voxel_buildings"
+        base_dir, "..", "Assets", "StreamingAssets", "voxel_buildings"
     )
     
     if not os.path.isdir(stasset_dir):
@@ -96,7 +95,7 @@ def main():
         return
     
     # Inspect key files: apartment block, apartments, barber, empty land
-    targets = [
+    targets = sys.argv[1:] if len(sys.argv) > 1 else [
         "apartment_block_0.stasset",
         "apartments_0.stasset",
         "barber_0.stasset",
@@ -104,7 +103,7 @@ def main():
     
     # Also find empty_land files
     for f in os.listdir(stasset_dir):
-        if "empty_land" in f or "courtyard" in f:
+        if f.endswith(".stasset") and ("empty_land" in f or "courtyard" in f):
             targets.append(f)
     
     for fname in targets:

@@ -93,6 +93,10 @@ namespace SteelCity.Sim
         private string selectedBlockId;
         private bool cityEditorBuilt;
 
+        // --- Vinny teleport (planning phase only) ---
+        private bool vinnyPlacementMode = false;
+        private string vinnyTeleportTargetBlockId = null;
+
         // --- Simulation (decoupled: SimulationManager produces events, EventPlayer renders) ---
         private WaypointGraph waypointGraph;
         private SimulationManager simManager;
@@ -196,8 +200,9 @@ namespace SteelCity.Sim
                 // Planning phase: append to phaseText
                 if (phase == GamePhase.Planning && phaseText != null)
                 {
-                    phaseText.text = $"PLANNING  [{fpsStr}]";
-                    phaseText.color = yellowColor;
+                    string modeTag = vinnyPlacementMode ? "  [VINNY PLACEMENT]" : "";
+                    phaseText.text = $"PLANNING{modeTag}  [{fpsStr}]";
+                    phaseText.color = vinnyPlacementMode ? goldColor : yellowColor;
                 }
                 // Working phase: update TickHUD
                 else if (tickHUD != null)
@@ -207,6 +212,23 @@ namespace SteelCity.Sim
 
                 fpsAccumTime = 0f;
                 fpsAccumFrames = 0;
+            }
+
+            // Vinny teleport hotkey (planning phase only)
+            if (phase == GamePhase.Planning && vinnyPlacementMode)
+            {
+                var kb = UnityEngine.InputSystem.Keyboard.current;
+                if (kb != null)
+                {
+                    if (kb.tKey.wasPressedThisFrame && !string.IsNullOrEmpty(vinnyTeleportTargetBlockId))
+                    {
+                        TeleportVinnyToBlock(vinnyTeleportTargetBlockId);
+                    }
+                    if (kb.escapeKey.wasPressedThisFrame)
+                    {
+                        ExitVinnyPlacementMode();
+                    }
+                }
             }
         }
 
@@ -704,6 +726,19 @@ namespace SteelCity.Sim
         private void OnBlockClicked(string blockId)
         {
             if (phase != GamePhase.Planning) return;
+
+            // If in Vinny placement mode, store target block
+            if (vinnyPlacementMode)
+            {
+                vinnyTeleportTargetBlockId = blockId;
+                if (engine.blocks.TryGetValue(blockId, out var block))
+                {
+                    AddEventLogEntry($"[VINNY] Target: {block.name}. Press [T] to teleport, [ESC] to cancel.", goldColor);
+                }
+                RefreshBlockInfo();
+                return;
+            }
+
             selectedBlockId = blockId;
             RefreshBlockInfo();
             RefreshMapHighlights();
@@ -1241,9 +1276,37 @@ namespace SteelCity.Sim
             if (blockInfoContent == null) return;
             ClearChildren(blockInfoContent);
 
+            // Always show Vinny button at top during planning phase
+            if (phase == GamePhase.Planning)
+            {
+                var vinnyBtn = CreateButtonInParent(blockInfoContent, "📍 Vinny", goldColor);
+                vinnyBtn.onClick.AddListener(OnVinnyClicked);
+
+                if (vinnyPlacementMode)
+                {
+                    Color modeColor = vinnyPlacementMode ? goldColor : mutedColor;
+                    AddTextToParent(blockInfoContent, "--- PLACEMENT MODE ---", modeColor, true);
+                    AddTextToParent(blockInfoContent, "1. Click a block on the map", textBright);
+                    AddTextToParent(blockInfoContent, "2. Press [T] to teleport Vinny", textBright);
+                    AddTextToParent(blockInfoContent, "3. Press [ESC] to exit", mutedColor);
+
+                    if (!string.IsNullOrEmpty(vinnyTeleportTargetBlockId) &&
+                        engine.blocks.TryGetValue(vinnyTeleportTargetBlockId, out var targetBlock))
+                    {
+                        AddTextToParent(blockInfoContent, $"Target: {targetBlock.name}", goldColor, true);
+                    }
+                    else
+                    {
+                        AddTextToParent(blockInfoContent, "No target selected yet.", mutedColor);
+                    }
+                    AddTextToParent(blockInfoContent, "", mutedColor);
+                }
+            }
+
             if (string.IsNullOrEmpty(selectedBlockId) || !engine.blocks.TryGetValue(selectedBlockId, out var block))
             {
-                AddTextToParent(blockInfoContent, "Click a block on the map to view details.", mutedColor);
+                if (!vinnyPlacementMode)
+                    AddTextToParent(blockInfoContent, "Click a block on the map to view details.", mutedColor);
                 return;
             }
 
@@ -1403,7 +1466,122 @@ namespace SteelCity.Sim
 
         #endregion
 
+        #region --- VINNY TELEPORT ---
+
+        private void OnVinnyClicked()
+        {
+            if (phase != GamePhase.Planning) return;
+            var character = cityMap?.SpawnedCharacter;
+            if (character == null)
+            {
+                AddEventLogEntry("[VINNY] No character spawned!", redColor);
+                return;
+            }
+
+            // Center camera on Vinny
+            Vector3 vinnyCenter = character.WorldCenter;
+            cityMap.SetCameraFocus(vinnyCenter);
+
+            // Toggle placement mode
+            vinnyPlacementMode = !vinnyPlacementMode;
+            if (vinnyPlacementMode)
+            {
+                vinnyTeleportTargetBlockId = null;
+                AddEventLogEntry("[VINNY] Placement mode ON. Click a block, then press [T] to teleport.", goldColor);
+            }
+            else
+            {
+                vinnyTeleportTargetBlockId = null;
+                AddEventLogEntry("[VINNY] Placement mode OFF.", mutedColor);
+            }
+            RefreshBlockInfo();
+        }
+
+        private void ExitVinnyPlacementMode()
+        {
+            vinnyPlacementMode = false;
+            vinnyTeleportTargetBlockId = null;
+            AddEventLogEntry("[VINNY] Placement mode cancelled.", mutedColor);
+            RefreshBlockInfo();
+        }
+
+        private void TeleportVinnyToBlock(string blockId)
+        {
+            var character = cityMap?.SpawnedCharacter;
+            if (character == null || engine == null || !engine.blocks.TryGetValue(blockId, out var block))
+            {
+                AddEventLogEntry("[VINNY] Cannot teleport — character or block missing.", redColor);
+                return;
+            }
+
+            Vector3 localPos = ComputeBlockCenterLocal(block);
+            Vector3 worldPos = cityMap.MapRoot.position + localPos;
+
+            // Keep current Y (gravity will handle ground snap)
+            worldPos.y = character.transform.position.y;
+
+            character.PlaceAtCenter(worldPos);
+
+            // Update hood game state so UI reflects the teleport
+            // Vinny = player's first hood (PoC: single hood)
+            if (engine.gangs.TryGetValue("player", out var playerGang) && playerGang.hoods.Count > 0)
+            {
+                var vinnyHood = playerGang.hoods[0];
+                vinnyHood.currentBlockId = blockId;
+                vinnyHood.isInsideBuilding = false;
+                Debug.Log($"[GameUIController] Updated hood '{vinnyHood.name}' currentBlockId={blockId}, isInsideBuilding=false");
+            }
+
+            // Center camera on new position
+            Vector3 newCenter = character.WorldCenter;
+            cityMap.SetCameraFocus(newCenter);
+
+            AddEventLogEntry($"[VINNY] Teleported to {block.name}.", greenColor);
+            Debug.Log($"[GameUIController] Vinny teleported to block {blockId} at world pos {worldPos}");
+
+            // Exit placement mode
+            vinnyPlacementMode = false;
+            vinnyTeleportTargetBlockId = null;
+            RefreshBlockInfo();
+            RefreshHoods();
+        }
+
+        #endregion
+
         #region --- HELPERS ---
+
+        private Button CreateButtonInParent(Transform parent, string label, Color color)
+        {
+            var obj = new GameObject("ActionButton");
+            obj.transform.SetParent(parent, false);
+            var img = obj.AddComponent<Image>();
+            img.color = new Color(color.r * 0.3f, color.g * 0.3f, color.b * 0.3f, 0.9f);
+            var btn = obj.AddComponent<Button>();
+            var colors = btn.colors;
+            colors.normalColor = new Color(color.r * 0.3f, color.g * 0.3f, color.b * 0.3f, 0.9f);
+            colors.highlightedColor = new Color(color.r * 0.5f, color.g * 0.5f, color.b * 0.5f, 1f);
+            colors.pressedColor = new Color(color.r * 0.15f, color.g * 0.15f, color.b * 0.15f, 1f);
+            btn.colors = colors;
+
+            var textObj = new GameObject("Label");
+            textObj.transform.SetParent(obj.transform, false);
+            var tmp = textObj.AddComponent<TextMeshProUGUI>();
+            tmp.text = label;
+            tmp.fontSize = 12;
+            tmp.color = color;
+            tmp.alignment = TextAlignmentOptions.Center;
+            tmp.raycastTarget = false;
+            var rect = textObj.GetComponent<RectTransform>();
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = Vector2.zero;
+            rect.offsetMax = Vector2.zero;
+
+            var le = obj.AddComponent<LayoutElement>();
+            le.preferredHeight = 28;
+            le.flexibleWidth = 1;
+            return btn;
+        }
 
         private void AddTextToParent(Transform parent, string text, Color color, bool bold = false)
         {

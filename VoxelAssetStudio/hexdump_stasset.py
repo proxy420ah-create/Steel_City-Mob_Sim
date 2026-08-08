@@ -1,12 +1,17 @@
 """
 Hex dump tool to inspect raw bytes in .stasset files.
+
+Usage: python hexdump_stasset.py [path/to/file.stasset]
+Defaults to the Steel City vehicle model if no path is given.
 """
 
 import struct
 import os
+import sys
 
-output_dir = "../My project/Assets/StreamingAssets"
-filepath = os.path.join(output_dir, "Test_3_Solid_MultiMaterial.stasset")
+output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "..", "Assets", "StreamingAssets", "voxel_buildings")
+filepath = sys.argv[1] if len(sys.argv) > 1 else os.path.join(output_dir, "vehicle_civilian_car_0.stasset")
 
 with open(filepath, 'rb') as f:
     # Read header
@@ -18,7 +23,7 @@ with open(filepath, 'rb') as f:
     depth = struct.unpack('<H', f.read(2))[0]
     reserved = struct.unpack('<I', f.read(4))[0]
     
-    print(f"📄 Test_3_Solid_MultiMaterial.stasset")
+    print(f"📄 {os.path.basename(filepath)}")
     print(f"   Magic: {magic}")
     print(f"   Version: {version}")
     print(f"   Dimensions: {width}×{height}×{depth}")

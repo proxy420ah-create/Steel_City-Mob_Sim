@@ -1006,6 +1006,7 @@ namespace SteelCity.Sim
             public int dimX, dimY, dimZ;
             public float voxelSize;
             public readonly List<InstancedCharacter> instances = new();
+            public MaterialPropertyBlock cachedPropBlock;
         }
 
         private readonly Dictionary<string, InstancedGroup> instancedGroups = new();
@@ -1117,19 +1118,27 @@ namespace SteelCity.Sim
             }
             group.instanceOffsetBuffer.SetData(offsets, 0, 0, visibleCount);
 
-            proxyMaterial.SetBuffer(propVoxelData, group.sharedVoxelBuffer);
-            proxyMaterial.SetBuffer(propInstanceOffsets, group.instanceOffsetBuffer);
-            proxyMaterial.SetBuffer(propMaterialColors, sharedMaterialBuffer);
-            proxyMaterial.SetBuffer(propChunkTints, defaultTintBuffer);
-            proxyMaterial.SetVector(propVolumeDims, new Vector4(group.dimX, group.dimY, group.dimZ, 0));
-            proxyMaterial.SetFloat(propVoxelSize, group.voxelSize);
+            // Use a MaterialPropertyBlock per group so each group's voxel buffer, dims,
+            // and voxelSize are isolated. Without this, the shared proxyMaterial's
+            // properties get overwritten by the last group drawn, causing earlier groups
+            // to raymarch with wrong dims/voxelSize/buffer — voxels never get hit.
+            if (group.cachedPropBlock == null)
+                group.cachedPropBlock = new MaterialPropertyBlock();
+            var block = group.cachedPropBlock;
+            block.Clear();
+            block.SetBuffer(propVoxelData, group.sharedVoxelBuffer);
+            block.SetBuffer(propInstanceOffsets, group.instanceOffsetBuffer);
+            block.SetBuffer(propMaterialColors, sharedMaterialBuffer);
+            block.SetBuffer(propChunkTints, defaultTintBuffer);
+            block.SetVector(propVolumeDims, new Vector4(group.dimX, group.dimY, group.dimZ, 0));
+            block.SetFloat(propVoxelSize, group.voxelSize);
 
-            proxyMaterial.SetInt(propMaxSteps, maxSteps);
-            proxyMaterial.SetInt(propCheapShading, 0);
-            proxyMaterial.SetInt(propUnlitLod, 0);
-            proxyMaterial.SetInt(propLodDebugEnabled, 0);
+            block.SetInt(propMaxSteps, maxSteps);
+            block.SetInt(propCheapShading, 0);
+            block.SetInt(propUnlitLod, 0);
+            block.SetInt(propLodDebugEnabled, 0);
 
-            cmd.DrawMeshInstanced(proxyCubeMesh, 0, proxyMaterial, 0, matrices, visibleCount);
+            cmd.DrawMeshInstanced(proxyCubeMesh, 0, proxyMaterial, 0, matrices, visibleCount, block);
 
             // No LOD settings to restore — using full quality for instanced characters/vehicles
         }

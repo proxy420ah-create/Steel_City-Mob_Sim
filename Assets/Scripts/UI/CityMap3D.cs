@@ -880,7 +880,13 @@ namespace SteelCity.Sim
                 foreach (var s in sectors) totalBuildings += s.buildingCount;
                 LogBuild($"PHASE 2B (sector bake): {t3.ElapsedMilliseconds}ms for {sectors.Count} sectors ({totalBuildings} buildings)");
 
-                // Still create block root GameObjects for labels and game logic
+                // Still create block root GameObjects for labels and game logic.
+                // Sector baking merges RENDERING into per-sector buffers, but click
+                // detection is block-granular and works off individual colliders —
+                // so each block still needs its own hidden ground collider registered
+                // in `views`, exactly like the non-baked path does in BuildRaymarchBlock.
+                // Without this, HandleClick()'s `views` lookup is empty and every
+                // click on a baked block silently misses.
                 foreach (var (blockId, block) in blocks)
                 {
                     var root = new GameObject($"Block_{blockId}");
@@ -889,6 +895,35 @@ namespace SteelCity.Sim
                         (block.col - centerCol) * spacing,
                         0f,
                         -(block.row - centerRow) * spacing);
+
+                    var ground = new GameObject("GroundCollider");
+                    ground.transform.SetParent(root.transform, false);
+                    ground.transform.localScale = new Vector3(GroundTileSize, 0.02f, GroundTileSize);
+                    ground.transform.localPosition = Vector3.zero;
+                    var groundCollider = ground.AddComponent<BoxCollider>();
+                    groundCollider.size = Vector3.one;
+
+                    TextMeshPro tmp = null;
+                    if (showBlockLabels)
+                    {
+                        var labelObj = new GameObject("Label");
+                        labelObj.transform.SetParent(root.transform, false);
+                        labelObj.transform.localPosition = new Vector3(0f, 0.5f, 0f);
+                        tmp = labelObj.AddComponent<TextMeshPro>();
+                        tmp.fontSize = labelFontSize;
+                        tmp.alignment = TextAlignmentOptions.Center;
+                        tmp.color = labelColor;
+                        tmp.text = block.name;
+                        labelObj.transform.rotation = mapCamera.transform.rotation;
+                    }
+
+                    views[blockId] = new BlockView3D
+                    {
+                        root = root.gameObject,
+                        groundCollider = ground,
+                        label = tmp,
+                        blockId = blockId
+                    };
                 }
             }
             else

@@ -1,6 +1,13 @@
 # Mob Sim Scale Standard
 
-**Version**: 1.0 | **Date**: August 3, 2026 | **Status**: ✅ ACTIVE
+**Version**: 1.0 | **Date**: August 3, 2026 | **Status**: ⚠️ PARTIALLY SUPERSEDED
+
+---
+
+> **⚠️ See `MODEL_DESIGN_STANDARD.md` for the current source of truth.** The door size table
+> below is out of date — an Aug 8, 2026 audit found it doesn't match what building generators
+> actually implement, and doesn't tie door height to NPC scale. Voxel size constants and the
+> reference object library below are still accurate.
 
 ---
 
