@@ -319,6 +319,8 @@ namespace SteelCity.Sim
         public float SidewalkW => sidewalkWidth;
         public Camera MapCamera => mapCamera;
         public VoxelCharacter SpawnedCharacter { get; private set; }
+        public Dictionary<string, Block> CachedBlocks => cachedBlocks;
+        public float CharacterVoxelSize => characterVoxelSize;
 
         // --- Debug path overlay ---
         private GameObject debugPathRoot;
@@ -486,6 +488,8 @@ namespace SteelCity.Sim
 
         // --- Road ticker UI (reports road under mouse) ---
         private TextMeshProUGUI roadTickerText;
+        // --- Perf ticker UI (drawn/cov/scale/steps/LOD) ---
+        private TextMeshProUGUI perfTickerText;
         private int cachedMinRow, cachedMaxRow, cachedMinCol, cachedMaxCol;
         private float cachedCenterRow, cachedCenterCol, cachedSpacing;
         private bool gridCached = false;
@@ -572,6 +576,24 @@ namespace SteelCity.Sim
             roadTickerText.raycastTarget = false;
 
             Debug.Log("[CityMap3D] Road ticker created.");
+
+            // Perf ticker just below the road ticker
+            var perfObj = new GameObject("PerfTicker");
+            perfObj.transform.SetParent(canvas.transform, false);
+            var prt = perfObj.AddComponent<RectTransform>();
+            prt.anchorMin = new Vector2(vp.xMin, vp.yMax);
+            prt.anchorMax = new Vector2(vp.xMin, vp.yMax);
+            prt.pivot = new Vector2(0f, 1f);
+            prt.anchoredPosition = new Vector2(8f, -72f);
+            prt.sizeDelta = new Vector2(360f, 64f);
+
+            perfTickerText = perfObj.AddComponent<TextMeshProUGUI>();
+            perfTickerText.fontSize = 12;
+            perfTickerText.fontStyle = FontStyles.Bold;
+            perfTickerText.alignment = TextAlignmentOptions.TopLeft;
+            perfTickerText.color = new Color(0.8f, 1f, 0.9f, 0.95f);
+            perfTickerText.text = "";
+            perfTickerText.raycastTarget = false;
         }
 
         // --- Mouse camera state ---
@@ -595,6 +617,31 @@ namespace SteelCity.Sim
             HandleClick();
             UpdateCameraTransform();
             UpdateRoadTicker();
+            UpdatePerfTicker();
+        }
+
+        private void UpdatePerfTicker()
+        {
+            if (perfTickerText == null || chunkManager == null) return;
+            // Respect HUD toggle on chunk manager
+            bool show = chunkManager.ShowOrthoHud;
+            if (!show)
+            {
+                if (perfTickerText.enabled) perfTickerText.enabled = false;
+                return;
+            }
+            if (!perfTickerText.enabled) perfTickerText.enabled = true;
+
+            int drawn = chunkManager.PerfDrawnChunks;
+            float covPct = chunkManager.ApproxCoveragePct * 100f;
+            float scale = chunkManager.CurrentResolutionScale;
+            float steps = chunkManager.AvgLodSteps;
+            int n = chunkManager.PerfLodNear;
+            int m = chunkManager.PerfLodMid;
+            int f = chunkManager.PerfLodFar;
+            int u = chunkManager.PerfLodUltra;
+
+            perfTickerText.text = $"Drawn {drawn}  |  Cov {covPct:F0}%  |  Scale {scale:F2}  |  Steps {steps:F0}\nLOD N:{n} M:{m} F:{f} U:{u}";
         }
 
         /// <summary>
@@ -1521,6 +1568,50 @@ namespace SteelCity.Sim
                     t = t.parent;
                 }
             }
+        }
+
+        // --- Ortho HUD (perf + LOD debug) ---
+        private GUIStyle hudLabelStyle;
+        private GUIStyle hudBgStyle;
+        private Texture2D hudBgTex;
+
+        void OnGUI()
+        {
+            if (chunkManager == null || !chunkManager.ShowOrthoHud) return;
+
+            if (hudLabelStyle == null)
+            {
+                hudLabelStyle = new GUIStyle(GUI.skin.label);
+                hudLabelStyle.fontSize = 13;
+                hudLabelStyle.richText = true;
+                hudLabelStyle.normal.textColor = new Color(0.85f, 1f, 0.85f);
+            }
+            if (hudBgTex == null)
+            {
+                hudBgTex = new Texture2D(1, 1);
+                hudBgTex.SetPixel(0, 0, new Color(0.06f, 0.08f, 0.06f, 0.85f));
+                hudBgTex.Apply();
+            }
+            if (hudBgStyle == null)
+            {
+                hudBgStyle = new GUIStyle(GUI.skin.box);
+                hudBgStyle.normal.background = hudBgTex;
+            }
+
+            float fps = 1f / Mathf.Max(Time.smoothDeltaTime, 0.0001f);
+            float w = 320f, h = 200f;
+            GUILayout.BeginArea(new Rect(10, 10, w, h), hudBgStyle);
+            GUILayout.Label("<b>ORTHO RENDER HUD</b>", hudLabelStyle);
+            GUILayout.Label($"FPS: {fps:F0}  |  OrthoSize: {chunkManager.CameraOrthoSize:F1}", hudLabelStyle);
+            GUILayout.Label($"Res: {chunkManager.PerfTotalChunks} total / {chunkManager.PerfActiveChunks} active / {chunkManager.PerfDrawnChunks} drawn / {chunkManager.InstancedCharacterCount} instanced", hudLabelStyle);
+            GUILayout.Label("", hudLabelStyle);
+            GUILayout.Label("<b>LOD TIERS</b>", hudLabelStyle);
+            GUILayout.Label($"  <color=#2ee62e>Near</color>: {chunkManager.PerfLodNear}  <color=#e6e62e>Mid</color>: {chunkManager.PerfLodMid}  <color=#e68a2e>Far</color>: {chunkManager.PerfLodFar}  <color=#e62e2e>Ultra</color>: {chunkManager.PerfLodUltra}  Culled: {chunkManager.PerfLodCulled}", hudLabelStyle);
+            GUILayout.Label($"  ScreenRatio  min:{chunkManager.PerfMinScreenRatio:F4}  max:{chunkManager.PerfMaxScreenRatio:F4}  avg:{chunkManager.PerfAvgScreenRatio:F4}", hudLabelStyle);
+            GUILayout.Label("", hudLabelStyle);
+            GUILayout.Label($"CPU: cull={chunkManager.CpuCullMs:F2}ms  draw={chunkManager.CpuDrawMs:F2}ms  total={chunkManager.CpuTotalMs:F2}ms", hudLabelStyle);
+            GUILayout.Label($"Render: {chunkManager.RenderWidth}x{chunkManager.RenderHeight}  Proxy: {chunkManager.GetUseProxyRender()}", hudLabelStyle);
+            GUILayout.EndArea();
         }
     }
 

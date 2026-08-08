@@ -235,5 +235,26 @@ namespace SteelCity.Sim
             le.preferredHeight = 20;
             return tmp;
         }
+        private TMP_Text perfStatsText;
+
+        public void UpdatePerfStats(string text)
+        {
+            if (perfStatsText == null)
+            {
+                var obj = new GameObject("PerfStatsText");
+                obj.transform.SetParent(hudCanvas.transform, false);
+                var rt = obj.AddComponent<RectTransform>();
+                rt.anchorMin = new Vector2(0, 0);
+                rt.anchorMax = new Vector2(0.5f, 0);
+                rt.anchoredPosition = new Vector2(10, 10);
+                rt.sizeDelta = new Vector2(400, 60);
+                perfStatsText = obj.AddComponent<TextMeshProUGUI>();
+                perfStatsText.fontSize = 12;
+                perfStatsText.color = new Color(0.85f, 1f, 0.85f, 0.9f);
+                perfStatsText.alignment = TextAlignmentOptions.BottomLeft;
+                perfStatsText.raycastTarget = false;
+            }
+            perfStatsText.text = text;
+        }
     }
 }

@@ -34,6 +34,13 @@ namespace SteelCity.Sim
         private Mesh proxyCubeMesh;
         private RenderTexture proxyRT;
 
+        // Coverage-aware dynamic resolution tuning
+        private const float CoverageHeuristicScale = 0.85f; // heuristic to map sum(r^2) → 0..1 coverage
+        private const float LowCoverageThreshold = 0.20f;    // below this, switch to half-res (small-coverage optimization)
+        // Drawn-based dynamic resolution (addresses cliff at ~85 drawn)
+        private const int DrawnHalfResThreshold = 80;        // at or above this drawn count, prefer half-res
+        private const int DrawnHalfResReturn = 74;           // drop back to full-res when drawn falls below this
+
         [Header("Render Settings")]
         [Tooltip("Voxel size in world units (should match CityMap3D.voxelSize).")]
         [SerializeField] private float voxelSize = 0.1f;
@@ -45,31 +52,35 @@ namespace SteelCity.Sim
         [SerializeField] private Color backgroundColor = new(0f, 0f, 0f, 0f);
         [Tooltip("Max world-space distance to render chunks. 0 = no limit. Set ~40-60 for Working mode perf.")]
         [SerializeField] private float maxRenderDistance = 50f;
-        [Header("Granular LOD (Proxy)")]
-        [Tooltip("Distance where medium LOD starts for non-building chunks.")]
-        [SerializeField] private float lodMidDistance = 20f;
-        [Tooltip("Distance where far LOD starts for non-building chunks.")]
-        [SerializeField] private float lodFarDistance = 35f;
-        [Tooltip("Distance where ultra-far LOD starts for non-building chunks.")]
-        [SerializeField] private float lodUltraFarDistance = 55f;
-        [Tooltip("Ray steps for medium LOD.")]
-        [SerializeField] private int lodMidSteps = 64;
-        [Tooltip("Ray steps for far LOD.")]
-        [SerializeField] private int lodFarSteps = 32;
-        [Tooltip("Ray steps for ultra-far LOD.")]
-        [SerializeField] private int lodUltraFarSteps = 20;
-        [Tooltip("Multiplier for building LOD distance thresholds (<1 means buildings degrade sooner).")]
-        [SerializeField] private float buildingLodDistanceMultiplier = 0.7f;
-        [Tooltip("Distance at which building chunks switch to cheap shading (skips smooth-normal blend, real GPU cost reduction). Applied at midDist tier onward.")]
+        [Header("Screen-Space LOD (Unified — works for ortho + perspective)")]
+        [Tooltip("Screen ratio threshold for Near tier (full quality). Chunk bounding sphere / view extent. 0.15 = 15% of screen.")]
+        [SerializeField] private float lodNearScreenRatio = 0.15f;
+        [Tooltip("Screen ratio threshold for Mid tier (cheap shading). 0.05 = 5% of screen.")]
+        [SerializeField] private float lodMidScreenRatio = 0.05f;
+        [Tooltip("Screen ratio threshold for Far tier (unlit, reduced steps). 0.02 = 2% of screen.")]
+        [SerializeField] private float lodFarScreenRatio = 0.02f;
+        [Tooltip("Screen ratio threshold for Ultra tier (minimal steps). 0.005 = 0.5% of screen.")]
+        [SerializeField] private float lodUltraScreenRatio = 0.005f;
+        [Tooltip("Screen ratio below which chunks are culled entirely. 0.002 = 0.2% of screen (sub-pixel).")]
+        [SerializeField] private float lodCullScreenRatio = 0.002f;
+        [Tooltip("Ray steps for Mid LOD tier.")]
+        [SerializeField] private int lodMidSteps = 48;
+        [Tooltip("Ray steps for Far LOD tier.")]
+        [SerializeField] private int lodFarSteps = 24;
+        [Tooltip("Ray steps for Ultra LOD tier.")]
+        [SerializeField] private int lodUltraFarSteps = 12;
+        [Tooltip("Enable cheap shading at Mid tier and beyond (skips smooth-normal blend, 6 fewer buffer reads per pixel).")]
         [SerializeField] private bool enableCheapShadingLod = true;
-        [Tooltip("Distance at which building chunks switch to unlit fast-path (skips GetLighting + entire shadow-ray setup — the biggest real perf win). Applied at ultraDist tier onward.")]
+        [Tooltip("Enable unlit fast-path at Far tier and beyond (skips GetLighting + shadow-ray setup — biggest GPU perf win).")]
         [SerializeField] private bool enableUnlitLod = true;
-        [Tooltip("Log per-building-chunk LOD tier/distance once per second when true.")]
+        [Tooltip("Log per-chunk LOD tier once per second when true.")]
         [SerializeField] private bool debugLodTiers = false;
-        [Tooltip("DEBUG: force ALL building chunks to ultra-far LOD (cheap shading + min steps) regardless of distance. Use to exaggerate the perf effect for testing — do not ship enabled.")]
+        [Tooltip("DEBUG: force ALL chunks to Ultra LOD regardless of screen size.")]
         [SerializeField] private bool debugForceAllBuildingsUltraLod = false;
-        [Tooltip("DEBUG: solid-tint building chunks by LOD tier (green=near, yellow=mid, orange=far, red=ultra) so tiers are visually obvious. Overrides real shading — do not ship enabled.")]
+        [Tooltip("DEBUG: solid-tint chunks by LOD tier (green=near, yellow=mid, orange=far, red=ultra) so tiers are visually obvious.")]
         [SerializeField] private bool debugColorizeLodTiers = false;
+        [Tooltip("Show perf + LOD HUD overlay on the ortho/planning camera.")]
+        [SerializeField] private bool showOrthoHud = true;
 
         [Header("Debug")]
         [SerializeField] private bool debugChunkBounds = false;
@@ -105,6 +116,7 @@ namespace SteelCity.Sim
         private RenderTexture depthRT;
         private int renderWidth;
         private int renderHeight;
+        private float currentResolutionScale;
 
         // --- Material color lookup (shared) ---
         private ComputeBuffer sharedMaterialBuffer;
@@ -299,6 +311,7 @@ namespace SteelCity.Sim
         private int propChunkTints;
         private int propShadowNormalNudge, propShadowLightNudge, propShadowSkipSteps, propShadowMaxSteps, propShadowEnabled;
         private int propSunLightEnabled, propAmbientEnabled, propFillEnabled, propCamLightEnabled;
+        private int propInstanceOffsets;
 
         // --- Perf tracking (event-driven, not timed) ---
         private int perfLastActiveChunks = -1;
@@ -342,6 +355,7 @@ namespace SteelCity.Sim
             // Reset runtime LOD state — never inherit granular LOD from a previous session
             runtimeGranularLod = false;
             distanceCullingEnabled = true;
+            currentResolutionScale = Mathf.Clamp(resolutionScale, 0.25f, 1.0f);
 
             Debug.Log($"[VoxelChunkManager] Awake: maxRenderDistance={maxRenderDistance} resolutionScale={resolutionScale} maxSteps={maxSteps} useProxyRender={useProxyRender} shadows={shadowEnabled}");
 
@@ -372,7 +386,8 @@ namespace SteelCity.Sim
             if (proxyShader != null)
             {
                 proxyMaterial = new Material(proxyShader);
-                Debug.Log("[VoxelChunkManager] Proxy shader loaded and material created.");
+                proxyMaterial.enableInstancing = true;
+                Debug.Log("[VoxelChunkManager] Proxy shader loaded and material created (instancing enabled).");
             }
             else
             {
@@ -489,6 +504,7 @@ namespace SteelCity.Sim
             propAmbientEnabled = Shader.PropertyToID("_AmbientEnabled");
             propFillEnabled = Shader.PropertyToID("_FillEnabled");
             propCamLightEnabled = Shader.PropertyToID("_CamLightEnabled");
+            propInstanceOffsets = Shader.PropertyToID("_InstanceOffsets");
         }
 
         private void CreateSharedMaterialBuffer()
@@ -948,6 +964,144 @@ namespace SteelCity.Sim
             }
             chunks.Clear();
             chunkLookup.Clear();
+            instancedCharacters.Clear();
+            if (instanceOffsetBuffer != null) { instanceOffsetBuffer.Release(); instanceOffsetBuffer = null; }
+        }
+
+        // --- Instanced character rendering ---
+        // All characters sharing the same .stasset use one ComputeBuffer + one DrawMeshInstanced call.
+        // Per-instance data (xyz = world position, w = yaw radians) is passed via a StructuredBuffer.
+
+        public class InstancedCharacter
+        {
+            public GameObject gameObject;
+            public Vector3 worldOffset;
+            public float yaw;
+            public bool visible = true;
+        }
+
+        private readonly List<InstancedCharacter> instancedCharacters = new();
+        private ComputeBuffer instanceOffsetBuffer;
+        private ComputeBuffer sharedCharacterVoxelBuffer;
+        private int charDimX, charDimY, charDimZ;
+        private float charVoxelSize;
+        private bool characterInstancingInitialized;
+
+        public InstancedCharacter RegisterInstancedCharacter(GameObject host, string assetFileName, float voxelSize)
+        {
+            if (!characterInstancingInitialized)
+            {
+                string path = System.IO.Path.Combine(Application.streamingAssetsPath, "voxel_buildings", assetFileName);
+                if (!System.IO.File.Exists(path))
+                {
+                    Debug.LogError($"[VoxelChunkManager] Instanced character asset not found: {path}");
+                    return null;
+                }
+
+                var voxelData = StAssetReader.LoadVoxels(path);
+                if (voxelData == null)
+                {
+                    Debug.LogError($"[VoxelChunkManager] Failed to load instanced character asset: {path}");
+                    return null;
+                }
+
+                charDimX = voxelData.GetLength(0);
+                charDimY = voxelData.GetLength(1);
+                charDimZ = voxelData.GetLength(2);
+                charVoxelSize = voxelSize;
+
+                int totalVoxels = charDimX * charDimY * charDimZ;
+                var gpuData = new uint[totalVoxels];
+                int idx = 0;
+                for (int z = 0; z < charDimZ; z++)
+                    for (int y = 0; y < charDimY; y++)
+                        for (int x = 0; x < charDimX; x++)
+                            gpuData[idx++] = (uint)voxelData[x, y, z];
+
+                sharedCharacterVoxelBuffer = new ComputeBuffer(totalVoxels, sizeof(uint));
+                sharedCharacterVoxelBuffer.SetData(gpuData);
+                characterInstancingInitialized = true;
+
+                Debug.Log($"[VoxelChunkManager] Shared character buffer initialized: {assetFileName} {charDimX}x{charDimY}x{charDimZ} = {totalVoxels:N0} voxels (shared across all instances)");
+            }
+
+            var ic = new InstancedCharacter
+            {
+                gameObject = host,
+                worldOffset = host.transform.position,
+                yaw = host.transform.rotation.eulerAngles.y * Mathf.Deg2Rad
+            };
+            instancedCharacters.Add(ic);
+            return ic;
+        }
+
+        public void UnregisterInstancedCharacter(InstancedCharacter ic)
+        {
+            if (ic != null)
+                instancedCharacters.Remove(ic);
+        }
+
+        private void RenderInstancedCharacters(CommandBuffer cmd)
+        {
+            if (!characterInstancingInitialized || instancedCharacters.Count == 0) return;
+
+            int visibleCount = 0;
+            foreach (var ic in instancedCharacters)
+            {
+                if (ic.gameObject == null) { ic.visible = false; continue; }
+                ic.worldOffset = ic.gameObject.transform.position;
+                ic.yaw = ic.gameObject.transform.rotation.eulerAngles.y * Mathf.Deg2Rad;
+                ic.visible = true;
+                visibleCount++;
+            }
+
+            if (visibleCount == 0) return;
+
+            var offsets = new Vector4[visibleCount];
+            var matrices = new Matrix4x4[visibleCount];
+            int writeIdx = 0;
+
+            Vector3 charSize = new Vector3(charDimX, charDimY, charDimZ) * charVoxelSize;
+            Vector3 halfSize = charSize * 0.5f;
+            // Pad proxy by +1 voxel on each axis to ensure full coverage at perspective grazing angles
+            Vector3 pad = new Vector3(charVoxelSize, charVoxelSize, charVoxelSize);
+            Vector3 paddedSize = charSize + pad;
+            Vector3 paddedHalf = paddedSize * 0.5f;
+
+            foreach (var ic in instancedCharacters)
+            {
+                if (!ic.visible) continue;
+                offsets[writeIdx] = new Vector4(ic.worldOffset.x, ic.worldOffset.y, ic.worldOffset.z, ic.yaw);
+                // IMPORTANT: Keep proxy cube axis-aligned in world (no rotation). Shader handles volume rotation.
+                Quaternion rot = Quaternion.identity;
+                // Center the proxy on the world-aligned AABB center
+                Vector3 centerPos = ic.worldOffset + paddedHalf;
+                matrices[writeIdx] = Matrix4x4.TRS(centerPos, rot, paddedSize);
+                writeIdx++;
+            }
+
+            if (instanceOffsetBuffer == null || instanceOffsetBuffer.count < visibleCount)
+            {
+                if (instanceOffsetBuffer != null) instanceOffsetBuffer.Release();
+                instanceOffsetBuffer = new ComputeBuffer(Mathf.Max(visibleCount, 128), sizeof(float) * 4);
+            }
+            instanceOffsetBuffer.SetData(offsets, 0, 0, visibleCount);
+
+            proxyMaterial.SetBuffer(propVoxelData, sharedCharacterVoxelBuffer);
+            proxyMaterial.SetBuffer(propInstanceOffsets, instanceOffsetBuffer);
+            proxyMaterial.SetBuffer(propMaterialColors, sharedMaterialBuffer);
+            proxyMaterial.SetBuffer(propChunkTints, defaultTintBuffer);
+            proxyMaterial.SetVector(propVolumeDims, new Vector4(charDimX, charDimY, charDimZ, 0));
+            proxyMaterial.SetFloat(propVoxelSize, charVoxelSize);
+
+            proxyMaterial.SetInt(propMaxSteps, maxSteps);
+            proxyMaterial.SetInt(propCheapShading, 0);
+            proxyMaterial.SetInt(propUnlitLod, 0);
+            proxyMaterial.SetInt(propLodDebugEnabled, 0);
+
+            cmd.DrawMeshInstanced(proxyCubeMesh, 0, proxyMaterial, 0, matrices, visibleCount);
+
+            // No LOD settings to restore — using full quality for characters
         }
 
         private void ReleaseAllChunks()
@@ -961,6 +1115,10 @@ namespace SteelCity.Sim
             }
             chunks.Clear();
             chunkLookup.Clear();
+            instancedCharacters.Clear();
+            if (sharedCharacterVoxelBuffer != null) { sharedCharacterVoxelBuffer.Release(); sharedCharacterVoxelBuffer = null; }
+            if (instanceOffsetBuffer != null) { instanceOffsetBuffer.Release(); instanceOffsetBuffer = null; }
+            characterInstancingInitialized = false;
         }
 
         #endregion
@@ -970,13 +1128,13 @@ namespace SteelCity.Sim
         private void EnsureRenderTargets()
         {
             // Size to camera viewport pixels, not full screen
-            int viewportW = Mathf.Max(1, (int)(Screen.width * resolutionScale));
-            int viewportH = Mathf.Max(1, (int)(Screen.height * resolutionScale));
+            int viewportW = Mathf.Max(1, (int)(Screen.width * currentResolutionScale));
+            int viewportH = Mathf.Max(1, (int)(Screen.height * currentResolutionScale));
             if (renderCamera != null)
             {
                 var r = renderCamera.rect;
-                viewportW = Mathf.Max(1, (int)(Screen.width * r.width * resolutionScale));
-                viewportH = Mathf.Max(1, (int)(Screen.height * r.height * resolutionScale));
+                viewportW = Mathf.Max(1, (int)(Screen.width * r.width * currentResolutionScale));
+                viewportH = Mathf.Max(1, (int)(Screen.height * r.height * currentResolutionScale));
             }
 
             if (colorRT != null && colorRT.width == viewportW && colorRT.height == viewportH)
@@ -1077,6 +1235,11 @@ namespace SteelCity.Sim
         private float lastCpuTotalMs;
         private int perfActiveChunks;
         private int perfDrawnChunks;
+        private int perfLodNear, perfLodMid, perfLodFar, perfLodUltra, perfLodCulled;
+        private float perfMinScreenRatio = 1f, perfMaxScreenRatio = 0f, perfAvgScreenRatio = 0f;
+        // Coverage and LOD debug metrics
+        private float approxCoveragePct = 0f;
+        private float avgLodSteps = 0f;
 
         // Public read-only access for GUI display
         public float CpuCullMs => lastCpuCullMs;
@@ -1085,11 +1248,29 @@ namespace SteelCity.Sim
         public int PerfActiveChunks => perfActiveChunks;
         public int PerfDrawnChunks => perfDrawnChunks;
         public int PerfTotalChunks => chunks.Count;
+        public int PerfLodNear => perfLodNear;
+        public int PerfLodMid => perfLodMid;
+        public int PerfLodFar => perfLodFar;
+        public int PerfLodUltra => perfLodUltra;
+        public int PerfLodCulled => perfLodCulled;
+        public float PerfMinScreenRatio => perfMinScreenRatio;
+        public float PerfMaxScreenRatio => perfMaxScreenRatio;
+        public float PerfAvgScreenRatio => perfAvgScreenRatio;
+        public float ApproxCoveragePct => approxCoveragePct;
+        public float AvgLodSteps => avgLodSteps;
+        public bool IsOrtho => renderCamera != null && renderCamera.orthographic;
+        public float CameraOrthoSize => renderCamera != null && renderCamera.orthographic ? renderCamera.orthographicSize : 0f;
+        public float CameraFov => renderCamera != null && !renderCamera.orthographic ? renderCamera.fieldOfView : 0f;
+        public bool ShowOrthoHud => showOrthoHud;
+        public int RenderWidth => renderWidth;
+        public int RenderHeight => renderHeight;
+        public int InstancedCharacterCount => instancedCharacters.Count;
+        public float CurrentResolutionScale => currentResolutionScale;
 
         // Call to emit a one-shot perf log (e.g. on key press)
         public void LogPerfSnapshot()
         {
-            Debug.Log($"[Perf] total={chunks.Count} active={perfActiveChunks} drawn={perfDrawnChunks} render={renderWidth}x{renderHeight} proxy={useProxyRender} shadows={shadowEnabled} maxSteps={maxSteps} | CPU: cull={lastCpuCullMs:F2}ms draw={lastCpuDrawMs:F2}ms total={lastCpuTotalMs:F2}ms");
+            Debug.Log($"[Perf] total={chunks.Count} active={perfActiveChunks} drawn={perfDrawnChunks} LOD(N:{perfLodNear} M:{perfLodMid} F:{perfLodFar} U:{perfLodUltra} C:{perfLodCulled}) screenRatio(min:{perfMinScreenRatio:F4} max:{perfMaxScreenRatio:F4} avg:{perfAvgScreenRatio:F4}) render={renderWidth}x{renderHeight} proxy={useProxyRender} shadows={shadowEnabled} maxSteps={maxSteps} | CPU: cull={lastCpuCullMs:F2}ms draw={lastCpuDrawMs:F2}ms total={lastCpuTotalMs:F2}ms");
         }
 
         public void RenderChunks()
@@ -1115,12 +1296,12 @@ namespace SteelCity.Sim
             foreach (var c in chunks) if (c.active) perfActiveChunks++;
             perfDrawnChunks = useProxyRender ? proxyDrawList.Count : perfActiveChunks;
 
-            // Per-frame logging to catch GPU hitch (happens in Planning AND Working)
+            // Per-frame logging (every 30 frames)
             if (Time.frameCount % 30 == 0)
             {
                 float fps = 1f / Time.smoothDeltaTime;
                 bool isOrtho = renderCamera != null && renderCamera.orthographic;
-                Debug.Log($"[PerfFrame] f={Time.frameCount} fps={fps:F0} drawn={perfDrawnChunks} total={perfActiveChunks} CPU={lastCpuTotalMs:F2}ms cull={lastCpuCullMs:F2}ms draw={lastCpuDrawMs:F2}ms ortho={isOrtho} granularLod={runtimeGranularLod} distCull={distanceCullingEnabled} maxDist={maxRenderDistance} res={renderWidth}x{renderHeight}");
+                Debug.Log($"[PerfFrame] f={Time.frameCount} fps={fps:F0} drawn={perfDrawnChunks} LOD(N:{perfLodNear} M:{perfLodMid} F:{perfLodFar} U:{perfLodUltra} C:{perfLodCulled}) cov={(approxCoveragePct*100f):F0}% stepsAvg={avgLodSteps:F0} CPU={lastCpuTotalMs:F2}ms cull={lastCpuCullMs:F2}ms draw={lastCpuDrawMs:F2}ms ortho={isOrtho} res={renderWidth}x{renderHeight} scale={currentResolutionScale:F2}");
             }
 
             // Only log on significant state change (not per-frame, not timed)
@@ -1144,8 +1325,6 @@ namespace SteelCity.Sim
         private void RenderProxyChunks()
         {
             EnsureProxyRT();
-
-
             // Set per-frame shader constants
             var camTransform = renderCamera.transform;
             var cameraToWorld = renderCamera.cameraToWorldMatrix;
@@ -1177,16 +1356,23 @@ namespace SteelCity.Sim
             proxyMaterial.SetVector(propScreenSize, new Vector4(renderWidth, renderHeight, 0, 0));
             proxyMaterial.SetVector(propProxyCamOrigin, camTransform.position);
 
-            // Build sorted draw list (back-to-front for correct depth compositing)
-            // Reuse cached list to avoid per-frame allocation
-            // Frustum-cull chunks whose tight AABB is entirely off-screen
-            // Distance culling only for perspective cameras (Working mode); ortho (Planning) sees all
+            // Build sorted draw list with unified screen-space LOD
+            // Works for both ortho and perspective — screen ratio = bounding sphere / view extent
             float cullStart = Time.realtimeSinceStartup;
 
             bool isOrtho = renderCamera.orthographic;
+            float orthoSize = renderCamera.orthographicSize;
+            float perspHalfHeight = isOrtho ? 0f : Mathf.Tan(renderCamera.fieldOfView * 0.5f * Mathf.Deg2Rad);
             var frustumPlanes = GeometryUtility.CalculateFrustumPlanes(renderCamera);
             proxyDrawList.Clear();
-            int culledCount = 0;
+            perfLodNear = perfLodMid = perfLodFar = perfLodUltra = perfLodCulled = 0;
+            perfMinScreenRatio = 1f;
+            perfMaxScreenRatio = 0f;
+            float screenRatioSum = 0f;
+            int screenRatioCount = 0;
+            // Coverage union accumulator: cov = 1 - Π(1 - area_i)
+            float coverageUnion = 0f;
+
             foreach (var chunk in chunks)
             {
                 if (!chunk.active || chunk.voxelBuffer == null || !chunk.hasSolid)
@@ -1202,33 +1388,133 @@ namespace SteelCity.Sim
                     (chunk.tightMinY + chunk.tightMaxY + 1) * vs * 0.5f,
                     (chunk.tightMinZ + chunk.tightMaxZ + 1) * vs * 0.5f);
 
-                // Tight AABB in world space for frustum culling
                 Vector3 tightSize = new Vector3(
                     (chunk.tightMaxX - chunk.tightMinX + 1) * vs,
                     (chunk.tightMaxY - chunk.tightMinY + 1) * vs,
                     (chunk.tightMaxZ - chunk.tightMinZ + 1) * vs);
                 Bounds chunkBounds = new Bounds(tightCenter, tightSize);
 
+                // Frustum cull
                 if (!GeometryUtility.TestPlanesAABB(frustumPlanes, chunkBounds))
                 {
-                    culledCount++;
+                    perfLodCulled++;
                     continue;
                 }
 
                 float dist = Vector3.Distance(tightCenter, camTransform.position);
 
-                // Distance culling — only for perspective cameras (Working mode)
+                // Perspective distance culling (Working mode)
                 if (!isOrtho && distanceCullingEnabled && maxRenderDistance > 0f && dist > maxRenderDistance)
                 {
-                    culledCount++;
+                    perfLodCulled++;
                     continue;
                 }
 
+                // Compute screen-space ratio: bounding sphere radius / view half-extent
+                float boundsRadius = chunkBounds.extents.magnitude;
+                float screenRatio;
+                if (isOrtho)
+                {
+                    // Ortho: view extent = orthographicSize (half-height in world units)
+                    screenRatio = boundsRadius / Mathf.Max(orthoSize, 0.001f);
+                }
+                else
+                {
+                    // Perspective: view extent = distance * tan(fov/2)
+                    float viewExtent = Mathf.Max(dist, 0.001f) * perspHalfHeight;
+                    screenRatio = boundsRadius / viewExtent;
+                }
+
+                // Screen-space culling — skip sub-pixel chunks
+                if (screenRatio < lodCullScreenRatio)
+                {
+                    perfLodCulled++;
+                    continue;
+                }
+
+                // Track stats
+                perfMinScreenRatio = Mathf.Min(perfMinScreenRatio, screenRatio);
+                perfMaxScreenRatio = Mathf.Max(perfMaxScreenRatio, screenRatio);
+                screenRatioSum += screenRatio;
+                screenRatioCount++;
+
+                // Approximate per-chunk screen rect in viewport space and accumulate union
+                // Build world AABB corners (axis-aligned) from chunkBounds
+                Vector3 c = chunkBounds.center;
+                Vector3 e = chunkBounds.extents;
+                Vector3[] corners = new Vector3[8]
+                {
+                    new Vector3(c.x - e.x, c.y - e.y, c.z - e.z),
+                    new Vector3(c.x + e.x, c.y - e.y, c.z - e.z),
+                    new Vector3(c.x - e.x, c.y + e.y, c.z - e.z),
+                    new Vector3(c.x + e.x, c.y + e.y, c.z - e.z),
+                    new Vector3(c.x - e.x, c.y - e.y, c.z + e.z),
+                    new Vector3(c.x + e.x, c.y - e.y, c.z + e.z),
+                    new Vector3(c.x - e.x, c.y + e.y, c.z + e.z),
+                    new Vector3(c.x + e.x, c.y + e.y, c.z + e.z)
+                };
+
+                // Project to normalized viewport (0..1 in screen space)
+                float vxMin = 1f, vyMin = 1f, vxMax = 0f, vyMax = 0f;
+                for (int i = 0; i < 8; i++)
+                {
+                    Vector3 vp = renderCamera.WorldToViewportPoint(corners[i]);
+                    vxMin = Mathf.Min(vxMin, vp.x);
+                    vxMax = Mathf.Max(vxMax, vp.x);
+                    vyMin = Mathf.Min(vyMin, vp.y);
+                    vyMax = Mathf.Max(vyMax, vp.y);
+                }
+
+                // Intersect with camera rect to get coverage relative to the map viewport
+                var r = renderCamera.rect; // in 0..1 screen space
+                float ixMin = Mathf.Max(vxMin, r.xMin);
+                float ixMax = Mathf.Min(vxMax, r.xMax);
+                float iyMin = Mathf.Max(vyMin, r.yMin);
+                float iyMax = Mathf.Min(vyMax, r.yMax);
+                float iw = Mathf.Max(0f, ixMax - ixMin);
+                float ih = Mathf.Max(0f, iyMax - iyMin);
+                float rectAreaInScreen = iw * ih; // fraction of full screen
+                float viewportAreaInScreen = r.width * r.height;
+                float areaFrac = viewportAreaInScreen > 0f ? Mathf.Clamp01(rectAreaInScreen / viewportAreaInScreen) : 0f;
+
+                // Union update: cov' = 1 - (1 - cov) * (1 - area)
+                coverageUnion = 1f - (1f - coverageUnion) * (1f - areaFrac);
+
                 proxyDrawList.Add((chunk, dist));
             }
+
+            perfAvgScreenRatio = screenRatioCount > 0 ? screenRatioSum / screenRatioCount : 0f;
             proxyDrawList.Sort((a, b) => a.dist.CompareTo(b.dist)); // nearest first — enables GPU early-Z rejection
 
             lastCpuCullMs = (Time.realtimeSinceStartup - cullStart) * 1000f;
+
+            // Estimate coverage and adjust dynamic resolution before issuing draws
+            approxCoveragePct = Mathf.Clamp01(coverageUnion * CoverageHeuristicScale);
+            int drawnCount = proxyDrawList.Count;
+
+            // Hysteresis for drawn-based decision
+            bool wantHalfByDrawn = drawnCount >= DrawnHalfResThreshold;
+            if (!wantHalfByDrawn && currentResolutionScale < 0.75f)
+            {
+                // Currently half-res: only return to full when comfortably below return threshold
+                wantHalfByDrawn = !(drawnCount <= DrawnHalfResReturn);
+            }
+
+            // Small-coverage also prefers half-res (cheap win when only tiny area visible)
+            bool wantHalfByCoverage = approxCoveragePct < LowCoverageThreshold;
+
+            float targetScale = (wantHalfByDrawn || wantHalfByCoverage) ? 0.5f : 1.0f;
+            // Never upscale above the configured base resolutionScale
+            targetScale = Mathf.Min(targetScale, Mathf.Clamp(resolutionScale, 0.25f, 1.0f));
+            if (Mathf.Abs(targetScale - currentResolutionScale) > 0.001f)
+            {
+                float old = currentResolutionScale;
+                currentResolutionScale = targetScale;
+                EnsureProxyRT();
+                // Update screen size for new RT
+                proxyMaterial.SetVector(propScreenSize, new Vector4(renderWidth, renderHeight, 0, 0));
+                Debug.Log($"[DynRes] scale {old:F2} -> {currentResolutionScale:F2} | drawn={drawnCount} cov={(approxCoveragePct*100f):F0}%");
+            }
 
             float drawStart = Time.realtimeSinceStartup;
 
@@ -1238,6 +1524,8 @@ namespace SteelCity.Sim
             cmd.ClearRenderTarget(true, true, backgroundColor);
             // Set view/projection matrices so UNITY_MATRIX_VP works in vertex shader
             cmd.SetViewProjectionMatrices(renderCamera.worldToCameraMatrix, renderCamera.projectionMatrix);
+
+            int stepsAccum = 0;
 
             foreach (var (chunk, dist) in proxyDrawList)
             {
@@ -1276,73 +1564,79 @@ namespace SteelCity.Sim
                 block.SetFloat(propVoxelSize, vs);
                 block.SetVector(propVolumeOffset, chunkWorldPos);
 
-                // LOD: reduce maxSteps for distant chunks — far voxels are small on screen.
-                // NOTE: since the raymarch loop breaks on the first solid hit, _MaxSteps only
-                // affects rays that travel through empty space before hitting something (e.g.
-                // ground under empty lots, background misses). Solid buildings hit on the very
-                // first step and are unaffected by this — the real building-cost lever is
-                // _CheapShading below, which skips the smooth-normal blend (6 buffer reads).
-                int lodSteps = maxSteps;
+                // --- Unified screen-space LOD ---
+                // Compute screen ratio from the same formula used in culling.
+                // This replaces the old distance-based LOD that was disabled in ortho.
+                float boundsRadius = new Vector3(
+                    (chunk.tightMaxX - chunk.tightMinX + 1) * vs * 0.5f,
+                    (chunk.tightMaxY - chunk.tightMinY + 1) * vs * 0.5f,
+                    (chunk.tightMaxZ - chunk.tightMinZ + 1) * vs * 0.5f).magnitude;
+
+                float screenRatio;
+                if (isOrtho)
+                    screenRatio = boundsRadius / Mathf.Max(orthoSize, 0.001f);
+                else
+                    screenRatio = boundsRadius / (Mathf.Max(dist, 0.001f) * perspHalfHeight);
+
+                bool forceUltra = debugForceAllBuildingsUltraLod;
+
+                int lodSteps;
                 int cheapShading = 0;
                 int unlitLod = 0;
                 int lodDebugEnabled = 0;
                 Color lodDebugColor = Color.white;
-                if (!isOrtho)
+
+                // Assign LOD tier based on screen-space ratio
+                // Near: full quality | Mid: cheap shading | Far: unlit | Ultra: minimal steps
+                if (forceUltra || screenRatio < lodUltraScreenRatio)
                 {
-                    if (runtimeGranularLod)
-                    {
-                        bool isBuildingChunk = chunk.name != null && chunk.name.Contains("_building");
-                        float distScale = isBuildingChunk ? Mathf.Clamp(buildingLodDistanceMultiplier, 0.35f, 1f) : 1f;
-
-                        float midDist = lodMidDistance * distScale;
-                        float farDist = lodFarDistance * distScale;
-                        float ultraDist = lodUltraFarDistance * distScale;
-
-                        bool forceUltra = isBuildingChunk && debugForceAllBuildingsUltraLod;
-
-                        if (forceUltra || dist > ultraDist) lodSteps = Mathf.Clamp(lodUltraFarSteps, 8, maxSteps);
-                        else if (dist > farDist) lodSteps = Mathf.Clamp(lodFarSteps, 8, maxSteps);
-                        else if (dist > midDist) lodSteps = Mathf.Clamp(lodMidSteps, 8, maxSteps);
-
-                        // Actual GPU cost reduction for buildings: skip smooth-normal blend
-                        // once past the mid-distance tier. This is the real performance lever
-                        // for opaque geometry since it applies on every hit pixel, not just
-                        // long-travel misses.
-                        if (isBuildingChunk && enableCheapShadingLod && (forceUltra || dist > midDist))
-                            cheapShading = 1;
-
-                        // Biggest real perf win: skip lighting/shadow-setup math entirely once
-                        // a building hits the ultra-far tier.
-                        if (isBuildingChunk && enableUnlitLod && (forceUltra || dist > ultraDist))
-                            unlitLod = 1;
-
-                        if (debugLodTiers && isBuildingChunk && Time.frameCount % 60 == 0)
-                        {
-                            string tier = forceUltra ? "ultra(forced)" : dist > ultraDist ? "ultra" : dist > farDist ? "far" : dist > midDist ? "mid" : "near";
-                            Debug.Log($"[LOD] {chunk.name} dist={dist:F1} tier={tier} steps={lodSteps} cheapShading={cheapShading} unlitLod={unlitLod}");
-                        }
-
-                        // Debug: solid-tint by tier so the LOD boundary is visually obvious
-                        if (debugColorizeLodTiers && isBuildingChunk)
-                        {
-                            lodDebugEnabled = 1;
-                            if (forceUltra || dist > ultraDist) lodDebugColor = new Color(1f, 0.15f, 0.15f);      // red
-                            else if (dist > farDist) lodDebugColor = new Color(1f, 0.55f, 0f);                    // orange
-                            else if (dist > midDist) lodDebugColor = new Color(1f, 0.9f, 0.1f);                   // yellow
-                            else lodDebugColor = new Color(0.2f, 0.9f, 0.2f);                                      // green
-                        }
-                    }
-                    else
-                    {
-                        if (dist > 35f) lodSteps = Mathf.Max(16, maxSteps / 4);
-                        else if (dist > 20f) lodSteps = Mathf.Max(32, maxSteps / 2);
-                    }
+                    lodSteps = Mathf.Clamp(lodUltraFarSteps, 8, maxSteps);
+                    cheapShading = enableCheapShadingLod ? 1 : 0;
+                    unlitLod = enableUnlitLod ? 1 : 0;
+                    perfLodUltra++;
                 }
+                else if (screenRatio < lodFarScreenRatio)
+                {
+                    lodSteps = Mathf.Clamp(lodFarSteps, 8, maxSteps);
+                    cheapShading = enableCheapShadingLod ? 1 : 0;
+                    unlitLod = enableUnlitLod ? 1 : 0;
+                    perfLodFar++;
+                }
+                else if (screenRatio < lodMidScreenRatio)
+                {
+                    lodSteps = Mathf.Clamp(lodMidSteps, 8, maxSteps);
+                    cheapShading = enableCheapShadingLod ? 1 : 0;
+                    perfLodMid++;
+                }
+                else
+                {
+                    lodSteps = maxSteps;
+                    perfLodNear++;
+                }
+
+                if (debugLodTiers && Time.frameCount % 60 == 0)
+                {
+                    string tier = forceUltra ? "ultra(forced)" : screenRatio < lodUltraScreenRatio ? "ultra" : screenRatio < lodFarScreenRatio ? "far" : screenRatio < lodNearScreenRatio ? "mid" : "near";
+                    Debug.Log($"[LOD] {chunk.name} screenRatio={screenRatio:F4} tier={tier} steps={lodSteps} cheapShading={cheapShading} unlitLod={unlitLod}");
+                }
+
+                // Debug: solid-tint by tier so LOD boundaries are visually obvious
+                if (debugColorizeLodTiers)
+                {
+                    lodDebugEnabled = 1;
+                    if (forceUltra || screenRatio < lodUltraScreenRatio) lodDebugColor = new Color(1f, 0.15f, 0.15f);      // red
+                    else if (screenRatio < lodFarScreenRatio) lodDebugColor = new Color(1f, 0.55f, 0f);                     // orange
+                    else if (screenRatio < lodNearScreenRatio) lodDebugColor = new Color(1f, 0.9f, 0.1f);                   // yellow
+                    else lodDebugColor = new Color(0.2f, 0.9f, 0.2f);                                                        // green
+                }
+
                 block.SetInt(propMaxSteps, lodSteps);
                 block.SetInt(propCheapShading, cheapShading);
                 block.SetInt(propUnlitLod, unlitLod);
                 block.SetInt(propLodDebugEnabled, lodDebugEnabled);
                 block.SetVector(propLodDebugColor, lodDebugColor);
+
+                stepsAccum += lodSteps;
 
                 Matrix4x4 localToWorld = Matrix4x4.Rotate(chunkRot);
                 Matrix4x4 worldToLocal = Matrix4x4.Rotate(Quaternion.Inverse(chunkRot));
@@ -1352,21 +1646,25 @@ namespace SteelCity.Sim
                 cmd.DrawMesh(proxyCubeMesh, trs, proxyMaterial, 0, 0, block);
             }
 
+            // Draw all instanced characters in a single DrawMeshInstanced call
+            RenderInstancedCharacters(cmd);
+
             Graphics.ExecuteCommandBuffer(cmd);
             cmd.Dispose();
 
             lastCpuDrawMs = (Time.realtimeSinceStartup - drawStart) * 1000f;
+            avgLodSteps = proxyDrawList.Count > 0 ? (float)stepsAccum / proxyDrawList.Count : 0f;
         }
 
         private void EnsureProxyRT()
         {
-            int viewportW = Mathf.Max(1, (int)(Screen.width * resolutionScale));
-            int viewportH = Mathf.Max(1, (int)(Screen.height * resolutionScale));
+            int viewportW = Mathf.Max(1, (int)(Screen.width * currentResolutionScale));
+            int viewportH = Mathf.Max(1, (int)(Screen.height * currentResolutionScale));
             if (renderCamera != null)
             {
                 var r = renderCamera.rect;
-                viewportW = Mathf.Max(1, (int)(Screen.width * r.width * resolutionScale));
-                viewportH = Mathf.Max(1, (int)(Screen.height * r.height * resolutionScale));
+                viewportW = Mathf.Max(1, (int)(Screen.width * r.width * currentResolutionScale));
+                viewportH = Mathf.Max(1, (int)(Screen.height * r.height * currentResolutionScale));
             }
 
             if (proxyRT != null && proxyRT.width == viewportW && proxyRT.height == viewportH)

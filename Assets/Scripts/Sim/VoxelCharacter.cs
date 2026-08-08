@@ -52,12 +52,19 @@ namespace SteelCity.Sim
 
         // Voxel data
         private ushort[,,] voxelData;
-        private ComputeBuffer voxelBuffer;
+        private ComputeBuffer voxelBuffer; // only used in non-instanced mode
         private int dimX, dimY, dimZ;
         private bool initialized = false;
 
-        // Registration name (unique per instance)
+        // Registration name (unique per instance, non-instanced mode)
         private string volumeName;
+
+        // Instanced mode handle
+        private VoxelChunkManager.InstancedCharacter instancedHandle;
+
+        [Header("Instancing")]
+        [Tooltip("If true, uses GPU instancing (shared voxel buffer, 1 draw call for all instances). Requires all instances use the same .stasset.")]
+        public bool useInstancing = true;
 
         // Physics state
         private float verticalVelocity = 0f;
@@ -78,9 +85,18 @@ namespace SteelCity.Sim
         void Start()
         {
             LoadAsset();
-            CreateComputeBuffer();
             ApplyCenterPosition();
-            RegisterWithManager();
+
+            if (useInstancing)
+            {
+                RegisterInstancedWithManager();
+            }
+            else
+            {
+                CreateComputeBuffer();
+                RegisterWithManager();
+            }
+
             FindCollisionWorld();
             initialized = true;
         }
@@ -268,6 +284,24 @@ namespace SteelCity.Sim
             Debug.Log($"[VoxelCharacter] Registered with VoxelChunkManager as '{volumeName}' at {transform.position}");
         }
 
+        void RegisterInstancedWithManager()
+        {
+            if (chunkManager == null)
+                chunkManager = FindFirstObjectByType<VoxelChunkManager>();
+
+            if (chunkManager == null)
+            {
+                Debug.LogWarning("[VoxelCharacter] No VoxelChunkManager found in scene! Character will not render.");
+                return;
+            }
+
+            instancedHandle = chunkManager.RegisterInstancedCharacter(gameObject, assetFileName, voxelSize);
+            if (instancedHandle != null)
+                Debug.Log($"[VoxelCharacter] Registered as INSTANCED at {transform.position} (shared buffer, 1 draw call for all instances)");
+            else
+                Debug.LogWarning("[VoxelCharacter] Instanced registration failed — character will not render.");
+        }
+
         // BoxCollider removed — collision is handled by VoxelCollisionWorld probing,
         // same as SteelTide's VoxelActor2Ground using VoxelWorld.RaymarchChunk().
 
@@ -287,8 +321,15 @@ namespace SteelCity.Sim
 
         void OnDestroy()
         {
-            if (chunkManager != null && !string.IsNullOrEmpty(volumeName))
+            if (useInstancing && instancedHandle != null)
+            {
+                chunkManager?.UnregisterInstancedCharacter(instancedHandle);
+                instancedHandle = null;
+            }
+            else if (chunkManager != null && !string.IsNullOrEmpty(volumeName))
+            {
                 chunkManager.UnregisterVolume(volumeName);
+            }
 
             if (voxelBuffer != null)
             {

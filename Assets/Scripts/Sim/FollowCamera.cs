@@ -408,7 +408,7 @@ namespace SteelCity.Sim
             var style = cachedLabelStyle;
             var bgStyle = cachedBgStyle;
 
-            float w = 360f, h = 340f;
+            float w = 360f, h = 400f;
             GUILayout.BeginArea(new Rect(10, 10, w, h), bgStyle);
             GUILayout.Label("<b>FOLLOW CAMERA DEBUG</b>", style);
             GUILayout.Label("", style);
@@ -439,7 +439,9 @@ namespace SteelCity.Sim
             if (chunkManager != null)
             {
                 GUILayout.Label("<b>PERF</b>", style);
-                GUILayout.Label($"Chunks: {chunkManager.PerfTotalChunks} total / {chunkManager.PerfActiveChunks} active / {chunkManager.PerfDrawnChunks} drawn", style);
+                GUILayout.Label($"Chunks: {chunkManager.PerfTotalChunks} total / {chunkManager.PerfActiveChunks} active / {chunkManager.PerfDrawnChunks} drawn / {chunkManager.InstancedCharacterCount} instanced", style);
+                GUILayout.Label($"LOD: N:{chunkManager.PerfLodNear} M:{chunkManager.PerfLodMid} F:{chunkManager.PerfLodFar} U:{chunkManager.PerfLodUltra} C:{chunkManager.PerfLodCulled}", style);
+                GUILayout.Label($"ScreenRatio: {chunkManager.PerfMinScreenRatio:F4} - {chunkManager.PerfMaxScreenRatio:F4} (avg {chunkManager.PerfAvgScreenRatio:F4})", style);
                 GUILayout.Label($"CPU: cull={chunkManager.CpuCullMs:F2}ms draw={chunkManager.CpuDrawMs:F2}ms total={chunkManager.CpuTotalMs:F2}ms", style);
                 GUILayout.Label("", style);
             }

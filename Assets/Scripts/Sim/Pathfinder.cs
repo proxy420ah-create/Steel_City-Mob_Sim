@@ -6,6 +6,17 @@ namespace SteelCity.Sim
     public class Pathfinder
     {
         private readonly WaypointGraph graph;
+        public WaypointGraph Graph => graph;
+
+        // --- Async path queue + cache for stress testing ---
+        private readonly Queue<(string startBlock, Vector3 startPos, string endBlock, Vector3 endPos, System.Action<List<string>> callback)> pendingRequests = new();
+        private readonly Dictionary<(string, string), List<string>> pathCache = new();
+        private int cacheHits, cacheMisses;
+
+        public int PendingRequests => pendingRequests.Count;
+        public int CacheSize => pathCache.Count;
+        public int CacheHits => cacheHits;
+        public int CacheMisses => cacheMisses;
 
         public Pathfinder(WaypointGraph graph)
         {
@@ -100,6 +111,38 @@ namespace SteelCity.Sim
                     $"start={startNode}, end={endNode}");
             }
             return path;
+        }
+
+        public void EnqueueRequest(string startBlockId, Vector3 startPos, string endBlockId, Vector3 endPos, System.Action<List<string>> callback)
+        {
+            pendingRequests.Enqueue((startBlockId, startPos, endBlockId, endPos, callback));
+        }
+
+        public void ProcessQueue(int maxPerFrame)
+        {
+            int processed = 0;
+            while (pendingRequests.Count > 0 && processed < maxPerFrame)
+            {
+                var req = pendingRequests.Dequeue();
+                var key = (req.startBlock, req.endBlock);
+
+                List<string> path;
+                if (pathCache.TryGetValue(key, out var cached))
+                {
+                    cacheHits++;
+                    path = cached;
+                }
+                else
+                {
+                    cacheMisses++;
+                    path = FindPathBlockToBlock(req.startBlock, req.startPos, req.endBlock, req.endPos);
+                    if (path != null)
+                        pathCache[key] = path;
+                }
+
+                req.callback?.Invoke(path);
+                processed++;
+            }
         }
 
         private float Heuristic(string a, string b)

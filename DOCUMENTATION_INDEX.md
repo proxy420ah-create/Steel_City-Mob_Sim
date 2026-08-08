@@ -83,6 +83,19 @@
   - Portrait generation system (5-layer compositor, seed-based)
   - **Section 18: Combat & Pathfinding Deep Dive** — SIM_TICK orchestrator internals (5 queues, 13 cases), 4 combat variants (ranged/melee/vehicle/arrest), waypoint following (3-state), street crossing with traffic lights, AI state machine (8 states with probabilities), entity structure field map, arrest/kidnap message system
 
+**Vehicle RE Reference:**
+- **`docs/core/VEHICLE_RE_REFERENCE.md`** — Consolidated vehicle reverse-engineering data (single-stop reference)
+  - All 9 Ghidra output files catalogued (walk/drive decision, state setters, flags, traffic, ped interaction)
+  - Entity types (tram/train/truck/car with subtypes), key functions table (24 functions)
+  - Vehicle flags & bitfields (0x8000, 0x80000, 0x38000000 with setter mapping)
+  - Walk vs drive decision logic (distance threshold 0x40, 375× speed differential)
+  - SIM_TICK driving cases (4/8/10) with 5-substate advanced driving machine
+  - Traffic system (static road flags, street crossing, blocked crossing, vehicle reroute)
+  - Pedestrian-vehicle interaction (entity awareness, area scan, post-tick processing)
+  - Global state structure offsets, entity structure field map (30+ fields)
+  - Time budget system, vehicle strings, vtable architecture, animation system
+  - Implementation notes (preserve/modernize/add), re-running Ghidra scripts guide
+
 **Engine Integration Plan:**
 - **`docs/core/ENGINE_INTEGRATION_PLAN.md`** — Maps reverse-engineered systems to Steel City implementation
   - 4 core reusable systems: SIM_TICK orchestrator, pathfinding/waypoints, vehicle system, NPC collision/traffic
