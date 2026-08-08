@@ -102,7 +102,55 @@ namespace SteelCity.Sim
                     isDriving = !isDriving;
                     Debug.Log($"[VehicleTest] {driveKey} pressed — {(isDriving ? "START DRIVING" : "STOPPED (parked)")}");
                     foreach (var v in activeVehicles)
-                        if (v != null) v.IsDriving = isDriving;
+                    {
+                        if (v == null) continue;
+                        v.IsDriving = isDriving;
+
+                        var pdr = PathDebugRenderer.Instance;
+                        if (pdr == null)
+                        {
+                            var pdrObj = new GameObject("PathDebugRenderer");
+                            pdr = pdrObj.AddComponent<PathDebugRenderer>();
+                        }
+                        if (cityMap != null)
+                            pdr.SetMapRoot(cityMap.MapRoot);
+
+                        if (isDriving)
+                        {
+                            var vv = v.GetComponent<VoxelVehicle>();
+
+                            // Diagnostic logging
+                            var route = v.PlannedRoute;
+                            int rIdx = v.RouteIndex;
+                            Debug.Log($"[VehicleTest] RegisterPath: entity={v.gameObject.name}, routeCount={route?.Count ?? -1}, routeIndex={rIdx}, remaining={(route != null ? route.Count - rIdx : -1)}");
+                            if (route != null && route.Count > 0)
+                            {
+                                var sb = new System.Text.StringBuilder();
+                                for (int ri = 0; ri < route.Count; ri++)
+                                {
+                                    string nodeId = route[ri];
+                                    bool hasNode = roadGraph.Nodes.TryGetValue(nodeId, out var n);
+                                    Vector3 pos = hasNode ? n.localPos : new Vector3(float.NaN, 0, 0);
+                                    sb.Append($"\n  [{ri}] {nodeId} => {(hasNode ? pos.ToString("F2") : "NOT_FOUND")}");
+                                }
+                                Debug.Log($"[VehicleTest] Route details:{sb}");
+                            }
+                            Debug.Log($"[VehicleTest] PDR Instance={pdr != null}, mapRoot={(cityMap != null ? cityMap.MapRoot : null)}, roadGraphNodes={roadGraph?.Nodes?.Count ?? -1}");
+
+                            pdr.RegisterPath(
+                                v.transform,
+                                vv != null ? vv.WorldSize : Vector3.one,
+                                () => v.PlannedRoute,
+                                (nodeId) => roadGraph.Nodes.TryGetValue(nodeId, out var n) ? n.localPos : new Vector3(float.NaN, 0, 0),
+                                PathDebugType.Car,
+                                () => v.RouteIndex);
+                            Debug.Log($"[VehicleTest] RegisterPath done. PDR activePaths={PathDebugRenderer.Instance?.ActivePathCount ?? -1}");
+                        }
+                        else
+                        {
+                            pdr.UnregisterPath(v.transform);
+                        }
+                    }
                 }
             }
         }
@@ -239,8 +287,16 @@ namespace SteelCity.Sim
         {
             isDriving = false;
             vehiclesSpawned = false;
+
+            var pdr = PathDebugRenderer.Instance;
             foreach (var v in activeVehicles)
-                if (v != null) Destroy(v.gameObject);
+            {
+                if (v != null)
+                {
+                    pdr?.UnregisterPath(v.transform);
+                    Destroy(v.gameObject);
+                }
+            }
             activeVehicles.Clear();
             Debug.Log("[VehicleTest] Test stopped.");
         }
@@ -254,7 +310,7 @@ namespace SteelCity.Sim
     /// <summary>
     /// Drives a VoxelVehicle in an endless random walk across the RoadGraph — pick a random
     /// neighboring intersection (avoiding an immediate U-turn where possible), drive there,
-    /// repeat. No destination, no drive-state machine yet — pure navigation test.
+    /// repeat. Plans several segments ahead so the debug path beam has a visible route.
     /// </summary>
     public class VehicleAgent : MonoBehaviour
     {
@@ -268,8 +324,18 @@ namespace SteelCity.Sim
         private float segmentElapsed;
         private float segmentDuration;
 
+        private readonly List<string> plannedRoute = new();
+        private int routeIndex;
+        private const int PlanAheadCount = 6;
+
         /// <summary>When false, the vehicle stays parked at its current position.</summary>
         public bool IsDriving { get; set; }
+
+        /// <summary>Current planned route as a list of upcoming road node IDs.</summary>
+        public List<string> PlannedRoute => plannedRoute;
+
+        /// <summary>How many nodes in the planned route the vehicle has already passed.</summary>
+        public int RouteIndex => routeIndex;
 
         public void Initialize(RoadGraph graph, string startNodeId, float speed)
         {
@@ -279,20 +345,50 @@ namespace SteelCity.Sim
             previousNodeId = null;
             fromPos = transform.localPosition;
             IsDriving = false;
+            PlanRoute();
+        }
+
+        private void PlanRoute()
+        {
+            plannedRoute.Clear();
+            routeIndex = 0;
+
+            string cur = currentNodeId;
+            string prev = previousNodeId;
+
+            plannedRoute.Add(cur);
+
+            for (int i = 0; i < PlanAheadCount; i++)
+            {
+                string next = graph.RandomNeighbor(cur, prev);
+                if (next == null) break;
+                plannedRoute.Add(next);
+                prev = cur;
+                cur = next;
+            }
         }
 
         private void PickNextTarget()
         {
-            string nextId = graph.RandomNeighbor(currentNodeId, previousNodeId);
-            if (nextId == null)
+            // Advance through the planned route
+            routeIndex++;
+
+            if (routeIndex >= plannedRoute.Count - 1)
             {
-                // Dead end (shouldn't happen on a fully connected grid) — idle and retry next frame.
-                segmentDuration = 0f;
-                return;
+                // Route exhausted — plan a new one from the current node
+                currentNodeId = plannedRoute[plannedRoute.Count - 1];
+                previousNodeId = plannedRoute.Count > 1 ? plannedRoute[plannedRoute.Count - 2] : null;
+                PlanRoute();
+                routeIndex = 0;
             }
 
-            fromPos = graph.Nodes[currentNodeId].localPos;
-            toPos = graph.Nodes[nextId].localPos;
+            string fromId = plannedRoute[routeIndex];
+            string toId = plannedRoute[routeIndex + 1];
+
+            currentNodeId = toId;
+
+            fromPos = graph.Nodes[fromId].localPos;
+            toPos = graph.Nodes[toId].localPos;
             fromPos.y = transform.localPosition.y;
             toPos.y = transform.localPosition.y;
 
@@ -300,8 +396,7 @@ namespace SteelCity.Sim
             segmentDuration = distance / Mathf.Max(speed, 0.01f);
             segmentElapsed = 0f;
 
-            previousNodeId = currentNodeId;
-            currentNodeId = nextId;
+            previousNodeId = fromId;
         }
 
         void Update()

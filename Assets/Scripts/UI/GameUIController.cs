@@ -104,6 +104,7 @@ namespace SteelCity.Sim
         private FollowCamera followCam;
         private TickHUD tickHUD;
         private WeekTransition weekTransition;
+        private PathDebugRenderer pathDebugRenderer;
 
         private readonly Dictionary<string, GameObject> hoodCards = new();
         private readonly List<(string text, Color color)> eventLogBuffer = new();
@@ -995,9 +996,28 @@ namespace SteelCity.Sim
             // Start simulation!
             simManager.StartSimulation(order, startBlockId, startLocalPos, order.blockId, targetLocalPos);
 
-            // Show debug path overlay
+            // Show debug path overlay via PathDebugRenderer
             if (simManager.CurrentPath != null && simManager.CurrentPath.Count > 0)
-                cityMap.ShowDebugPath(simManager.CurrentPath, simManager.Graph);
+            {
+                if (pathDebugRenderer == null)
+                {
+                    pathDebugRenderer = FindFirstObjectByType<PathDebugRenderer>();
+                    if (pathDebugRenderer == null)
+                    {
+                        var pdrObj = new GameObject("PathDebugRenderer");
+                        pathDebugRenderer = pdrObj.AddComponent<PathDebugRenderer>();
+                    }
+                    pathDebugRenderer.SetMapRoot(cityMap.MapRoot);
+                }
+                pathDebugRenderer.ClearAllPaths();
+                pathDebugRenderer.RegisterPath(
+                    character.transform,
+                    character.WorldSize,
+                    () => simManager.CurrentPath,
+                    (nodeId) => simManager.Graph.Nodes.TryGetValue(nodeId, out var n) ? n.localPos : new Vector3(float.NaN, 0, 0),
+                    PathDebugType.Pedestrian,
+                    () => simManager.PathIndex);
+            }
 
             AddEventLogEntry($"[SIM] {hood.name} begins mission: {order.orderType} on {targetBlock.name}", goldColor);
         }
@@ -1093,6 +1113,13 @@ namespace SteelCity.Sim
             {
                 eventPlayer.Shutdown();
                 Debug.Log("[GameUIController] EventPlayer shutdown complete");
+            }
+
+            // Clear path debug overlays
+            if (pathDebugRenderer != null)
+            {
+                pathDebugRenderer.ClearAllPaths();
+                Debug.Log("[GameUIController] Path debug overlays cleared");
             }
 
             // Keep HUD visible but mark complete

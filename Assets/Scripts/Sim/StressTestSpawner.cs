@@ -27,6 +27,11 @@ namespace SteelCity.Sim
         [SerializeField] private bool verboseLogging = false;
         [Tooltip("Press this key to spawn Vinnys. Default: F8")]
         [SerializeField] private Key spawnKey = Key.F8;
+        [Tooltip("Press this key to cycle path beam count. Default: F7")]
+        [SerializeField] private Key beamCycleKey = Key.F7;
+
+        private static readonly int[] BeamLevels = { 0, 5, 10, 25, 50, 100, int.MaxValue };
+        private int beamLevelIndex = 6; // defaults to max (all agents show beams)
 
         private List<StressTestAgent> activeAgents = new();
         private Dictionary<string, Block> blocks;
@@ -81,29 +86,44 @@ namespace SteelCity.Sim
                 RunTest();
             }
 
+            // F7 cycles beam count levels
+            if (Keyboard.current != null && Keyboard.current[beamCycleKey].wasPressedThisFrame && testRunning)
+            {
+                beamLevelIndex = (beamLevelIndex + 1) % BeamLevels.Length;
+                int targetCount = BeamLevels[beamLevelIndex];
+                Debug.Log($"[StressTest] {beamCycleKey} pressed — path beams: {(targetCount == int.MaxValue ? "ALL" : targetCount.ToString())}");
+                UpdatePathBeams(targetCount);
+            }
+
             if (!testRunning) return;
 
             // Process queued path requests (time-sliced)
             if (pathfinder != null && pathfinder.PendingRequests > 0)
                 pathfinder.ProcessQueue(maxPathsPerFrame);
 
-            // Log status every 300 frames (~5s at 60fps)
-            if (Time.frameCount % 300 == 0)
+            // Auto-register path beams for agents that got paths since last check
+            if (beamLevelIndex > 0 && Time.frameCount % 30 == 0)
             {
-                int alive = 0, moving = 0, returning = 0, done = 0, awaiting = 0;
-                foreach (var a in activeAgents)
-                {
-                    if (a == null) continue;
-                    alive++;
-                    if (a.state == AgentState.AwaitingPath) awaiting++;
-                    else if (a.state == AgentState.PathingToTarget) moving++;
-                    else if (a.state == AgentState.PathingHome) returning++;
-                    else if (a.state == AgentState.Completed) done++;
-                }
-
-                float fps = 1f / Time.smoothDeltaTime;
-                Debug.Log($"[StressTest] fps={fps:F0} alive={alive} awaiting={awaiting} moving={moving} returning={returning} done={done} pending={pathfinder?.PendingRequests ?? 0} cache={pathfinder?.CacheSize ?? 0} hits={pathfinder?.CacheHits ?? 0} misses={pathfinder?.CacheMisses ?? 0} chunks={chunkManager.PerfTotalChunks} drawn={chunkManager.PerfDrawnChunks}");
+                AutoRegisterNewPathBeams();
             }
+
+            // Periodic status log silenced — use F7 for beam cycling and P key for perf snapshots
+            // if (Time.frameCount % 300 == 0)
+            // {
+            //     int alive = 0, moving = 0, returning = 0, done = 0, awaiting = 0;
+            //     foreach (var a in activeAgents)
+            //     {
+            //         if (a == null) continue;
+            //         alive++;
+            //         if (a.state == AgentState.AwaitingPath) awaiting++;
+            //         else if (a.state == AgentState.PathingToTarget) moving++;
+            //         else if (a.state == AgentState.PathingHome) returning++;
+            //         else if (a.state == AgentState.Completed) done++;
+            //     }
+            //
+            //     float fps = 1f / Time.smoothDeltaTime;
+            //     Debug.Log($"[StressTest] fps={fps:F0} alive={alive} awaiting={awaiting} moving={moving} returning={returning} done={done} pending={pathfinder?.PendingRequests ?? 0} cache={pathfinder?.CacheSize ?? 0} hits={pathfinder?.CacheHits ?? 0} misses={pathfinder?.CacheMisses ?? 0} chunks={chunkManager.PerfTotalChunks} drawn={chunkManager.PerfDrawnChunks}");
+            // }
 
             // Update TickHUD perf stats every 10 frames (~6x/sec)
             if (Time.frameCount % 10 == 0)
@@ -272,7 +292,10 @@ namespace SteelCity.Sim
                     yield return new WaitForSeconds(spawnDelay);
             }
 
-            Debug.Log($"[StressTest] All {spawned} agents spawned. Waiting for completion...");
+            Debug.Log($"[StressTest] All {spawned} agents spawned. Registering path beams for all...");
+
+            // Auto-register path beams for all agents by default
+            UpdatePathBeams(BeamLevels[beamLevelIndex]);
 
             // Wait for all agents to complete
             while (activeAgents.Count > 0)
@@ -288,17 +311,101 @@ namespace SteelCity.Sim
         {
             testRunning = false;
             StopAllCoroutines();
+
+            var pdr = PathDebugRenderer.Instance;
             foreach (var a in activeAgents)
             {
-                if (a != null) Destroy(a.gameObject);
+                if (a != null)
+                {
+                    pdr?.UnregisterPath(a.transform);
+                    Destroy(a.gameObject);
+                }
             }
             activeAgents.Clear();
+            beamLevelIndex = 0;
             Debug.Log("[StressTest] Test stopped.");
         }
 
         void OnDestroy()
         {
             StopTest();
+        }
+
+        private void UpdatePathBeams(int targetCount)
+        {
+            var pdr = PathDebugRenderer.Instance;
+            if (pdr == null)
+            {
+                var pdrObj = new GameObject("PathDebugRenderer");
+                pdr = pdrObj.AddComponent<PathDebugRenderer>();
+            }
+            if (cityMap != null)
+                pdr.SetMapRoot(cityMap.MapRoot);
+
+            // Unregister all agents first
+            foreach (var a in activeAgents)
+            {
+                if (a != null)
+                    pdr.UnregisterPath(a.transform);
+            }
+
+            if (targetCount == 0) return;
+
+            // Register beams for the first N agents that have a path
+            int registered = 0;
+            foreach (var a in activeAgents)
+            {
+                if (a == null || a.Path == null || a.Path.Count == 0) continue;
+                if (registered >= targetCount) break;
+
+                var vc = a.GetComponent<VoxelCharacter>();
+                pdr.RegisterPath(
+                    a.transform,
+                    vc != null ? vc.WorldSize : Vector3.one,
+                    () => a.Path,
+                    (nodeId) => a.Graph.Nodes.TryGetValue(nodeId, out var n) ? n.localPos : new Vector3(float.NaN, 0, 0),
+                    PathDebugType.Pedestrian,
+                    () => a.PathIndex);
+                registered++;
+            }
+
+            Debug.Log($"[StressTest] Registered {registered}/{(targetCount == int.MaxValue ? "ALL" : targetCount.ToString())} path beams");
+        }
+
+        /// <summary>
+        /// Registers path beams for agents that have acquired paths since the last call.
+        /// Does not unregister existing beams — only adds new ones.
+        /// </summary>
+        private void AutoRegisterNewPathBeams()
+        {
+            var pdr = PathDebugRenderer.Instance;
+            if (pdr == null) return;
+
+            int targetCount = BeamLevels[beamLevelIndex];
+            int currentCount = pdr.ActivePathCount;
+            if (targetCount != int.MaxValue && currentCount >= targetCount) return;
+
+            int registered = 0;
+            foreach (var a in activeAgents)
+            {
+                if (a == null || a.Path == null || a.Path.Count == 0) continue;
+
+                // RegisterPath calls UnregisterPath internally first, so this is idempotent
+                var vc = a.GetComponent<VoxelCharacter>();
+                pdr.RegisterPath(
+                    a.transform,
+                    vc != null ? vc.WorldSize : Vector3.one,
+                    () => a.Path,
+                    (nodeId) => a.Graph.Nodes.TryGetValue(nodeId, out var n) ? n.localPos : new Vector3(float.NaN, 0, 0),
+                    PathDebugType.Pedestrian,
+                    () => a.PathIndex);
+                registered++;
+
+                if (targetCount != int.MaxValue && currentCount + registered >= targetCount) break;
+            }
+
+            if (registered > 0)
+                Debug.Log($"[StressTest] Auto-registered {registered} new path beams (total: {pdr.ActivePathCount})");
         }
     }
 
@@ -336,6 +443,10 @@ namespace SteelCity.Sim
         private float segmentElapsed;
         private float segmentDuration;
         private bool awaitingReturnPath;
+
+        public List<string> Path => path;
+        public int PathIndex => pathIndex;
+        public WaypointGraph Graph => pathfinder.Graph;
 
         public void Initialize(
             Vector3 spawnPos, Vector3 targetPos,

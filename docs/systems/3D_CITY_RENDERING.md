@@ -323,3 +323,9 @@ The 3D is built last because it depends on the simulation being correct. But it'
 - **Intelligence**: What's visible in 3D depends on information tier — rival hoods only render if player can see them
 - **Combat**: Auto-resolved by simulation, played back as 3D street battle animation
 - **Corruption**: Corrupt cops visible on their beats, can be seen patrolling (or not patrolling) your territory
+
+---
+
+## Debug Path Rendering
+
+Debug pathfinding beams are rendered as instanced box meshes via `CommandBuffer.DrawMeshInstanced`, composited directly into the voxel raymarch render texture. See **`docs/systems/PATH_DEBUG_RENDERING.md`** for the full architecture, camera hookup gotcha, and troubleshooting guide.

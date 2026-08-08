@@ -520,3 +520,4 @@ Comment out one group's registration to see if the other renders correctly. If i
 - **`docs/systems/3D_CITY_RENDERING.md`** — High-level vision for the 3D city visualization, entity budgets, camera modes.
 - **`Assets/docs/VOXEL_LIGHTING_AND_SHADOWS.md`** — How the raymarch shader computes lighting (Half-Lambert, soft shadows, smooth normals).
 - **`Assets/docs/VOXEL_BLEED_THROUGH_FIX.md`** — Depth buffer compositing fix for multi-chunk rendering.
+- **`docs/systems/PATH_DEBUG_RENDERING.md`** — Instanced box-beam debug path rendering via CommandBuffer. Uses the same `DrawMeshInstanced` + batching pattern, composited into the voxel render texture.

@@ -17,6 +17,7 @@
 | **Rendering Systems** | 1 doc | ✅ Complete |
 | **Lighting Debug** | 1 doc | ✅ Complete |
 | **Scale Standard** | 1 doc | ⚠️ SEE MASTER DOC |
+| **Inspection Toolchain** | 1 doc | ✅ Complete |
 | **Porting Notes** | 1 doc | ✅ Complete |
 
 ---
@@ -156,6 +157,22 @@
 
 ---
 
+### 5b. Inspection Toolchain ✅ COMPLETE
+
+- **`VOXEL_INSPECTION_TOOLCHAIN.md`** — Operational guide for all voxel model inspection and diagnostic tools
+  - Unified inspector (`sc_inspector.py`): 10 quality checks in one pass (dimensions, materials, scale, door height, orientation, symmetry, proportions, wall closure, internal holes, ASCII views)
+  - Legacy CLI tools: `hexdump_stasset.py`, `diagnose_stasset.py`, `debug_dimensions.py`, `inspect_city_materials.py`, `toolbox/stasset_inspector.py`
+  - Voxel Asset Studio GUI editor usage
+  - Model audit workflow (6-step process: generate → inspect → cross-section → cross-check → Unity test → update audit)
+  - Common issues and how to spot them (open doors, short doors, asymmetry, missing walls, wrong orientation)
+  - `.stasset` binary format reference
+  - Baseline results for all certified models (Aug 8, 2026)
+  - Material symbol legend for ASCII views
+
+**Keywords**: inspection, diagnostic, audit, symmetry, door height, wall closure, sc_inspector, stasset, hexdump, material histogram
+
+---
+
 ### 6. Porting Notes ✅ COMPLETE
 
 - **`PORTING_NOTES.md`** — Porting notes and migration history
@@ -189,9 +206,16 @@
 - Camera controls → `VOXEL_CAMERA_SYSTEM.md`
 
 ### Scale & Proportions
-- Scale standard → `MOB_SIM_SCALE_STANDARD.md`
-- Door sizes → `MOB_SIM_SCALE_STANDARD.md` (Standard Door Sizes section)
+- Master design standard → `MODEL_DESIGN_STANDARD.md`
+- Scale standard (legacy) → `MOB_SIM_SCALE_STANDARD.md`
+- Door sizes → `MODEL_DESIGN_STANDARD.md` (Section 3, Door Standard)
 - Reference objects → `MOB_SIM_SCALE_STANDARD.md` (Reference Object Library section)
+
+### Inspection & Diagnostics
+- Unified inspector → `VOXEL_INSPECTION_TOOLCHAIN.md` (Section 1)
+- Model audit workflow → `VOXEL_INSPECTION_TOOLCHAIN.md` (Section 4)
+- Common issues → `VOXEL_INSPECTION_TOOLCHAIN.md` (Section 5)
+- File format → `VOXEL_INSPECTION_TOOLCHAIN.md` (Section 6)
 
 ### Porting
 - Migration notes → `PORTING_NOTES.md`
@@ -299,8 +323,10 @@ Compute shader: Assets/Resources/Shaders/MobSimVoxelRaymarch.compute
 Voxel studio:   VoxelAssetStudio/
   Buildings:    procedural_mob_buildings.py
   Characters:   procedural_mob_characters.py
+  Vehicles:     procedural_mob_vehicles.py
   Materials:    mob_materials.py
   I/O:          stasset_io.py
+  Inspector:    sc_inspector.py
   City gen:     generate_city_assets.py
 City layout:    Assets/StreamingAssets/city_layout.json
 Voxel assets:   Assets/StreamingAssets/voxel_buildings/
@@ -308,7 +334,7 @@ Voxel assets:   Assets/StreamingAssets/voxel_buildings/
 
 ### Key Values
 - `voxelSize = 0.1` — world units per voxel (buildings)
-- `voxelSize = 0.015` — world units per voxel (characters)
+- `voxelSize = 0.02` — world units per voxel (characters)
 - `roadWidth = 1.6` — world units
 - `sidewalkWidth = 1.0` — world units
 - `BLOCK_W = 32`, `BLOCK_D = 32` — voxel grid dimensions
@@ -334,5 +360,5 @@ Voxel assets:   Assets/StreamingAssets/voxel_buildings/
 ---
 
 **Last Updated**: August 8, 2026
-**Version**: 1.2.0
+**Version**: 1.3.0
 **Maintainer**: Development Team

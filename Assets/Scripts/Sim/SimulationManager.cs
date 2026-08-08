@@ -60,6 +60,7 @@ namespace SteelCity.Sim
 
         public List<string> CurrentPath => currentPath;
         public WaypointGraph Graph => waypointGraph;
+        public int PathIndex => pathIndex;
         private int dialogTicksRemaining;
         private int dialogTotalTicks;
 

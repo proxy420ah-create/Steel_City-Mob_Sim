@@ -50,6 +50,19 @@ namespace SteelCity.Sim
             // Dispatch compute shader → renders all chunks into colorRT
             chunkManager.RenderChunks();
 
+            // Composite debug path beams into the same render target
+            var pathDebug = PathDebugRenderer.Instance;
+            if (pathDebug != null)
+            {
+                if (Time.frameCount % 60 == 0)
+                    Debug.Log($"[VoxelRenderBridge] Calling RenderBeamsIntoCamera (PDR active, paths={pathDebug.ActivePathCount})");
+                pathDebug.RenderBeamsIntoCamera(_camera);
+            }
+            else if (Time.frameCount % 120 == 0)
+            {
+                Debug.Log("[VoxelRenderBridge] PathDebugRenderer.Instance is NULL — no beams to render");
+            }
+
             // Assign the raymarch result to the RawImage
             var result = chunkManager.GetColorTexture();
             if (result != null && overlayImage != null)

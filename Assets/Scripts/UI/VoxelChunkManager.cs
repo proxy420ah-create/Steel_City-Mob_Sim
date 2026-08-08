@@ -317,10 +317,6 @@ namespace SteelCity.Sim
         private int propBuildingMeta, propBuildingPositions;
 
         // --- Perf tracking (event-driven, not timed) ---
-        private int perfLastActiveChunks = -1;
-        private int perfLastRenderW = -1;
-        private int perfLastRenderH = -1;
-        private bool perfLastProxy = false;
         private bool distanceCullingEnabled = true;
         private float savedMaxRenderDistance = 50f;
 
@@ -1567,23 +1563,24 @@ namespace SteelCity.Sim
             perfDrawnChunks = useProxyRender ? proxyDrawList.Count : perfActiveChunks;
 
             // Per-frame logging (every 30 frames)
-            if (Time.frameCount % 30 == 0)
-            {
-                float fps = 1f / Time.smoothDeltaTime;
-                bool isOrtho = renderCamera != null && renderCamera.orthographic;
-                Debug.Log($"[PerfFrame] f={Time.frameCount} fps={fps:F0} drawn={perfDrawnChunks} LOD(N:{perfLodNear} M:{perfLodMid} F:{perfLodFar} U:{perfLodUltra} C:{perfLodCulled}) cov={(approxCoveragePct*100f):F0}% stepsAvg={avgLodSteps:F0} CPU={lastCpuTotalMs:F2}ms cull={lastCpuCullMs:F2}ms draw={lastCpuDrawMs:F2}ms ortho={isOrtho} res={renderWidth}x{renderHeight} scale={currentResolutionScale:F2}");
-            }
+            // Perf logging silenced — use P key (FollowCamera) for on-demand snapshots
+            // if (Time.frameCount % 30 == 0)
+            // {
+            //     float fps = 1f / Time.smoothDeltaTime;
+            //     bool isOrtho = renderCamera != null && renderCamera.orthographic;
+            //     Debug.Log($"[PerfFrame] f={Time.frameCount} fps={fps:F0} drawn={perfDrawnChunks} LOD(N:{perfLodNear} M:{perfLodMid} F:{perfLodFar} U:{perfLodUltra} C:{perfLodCulled}) cov={(approxCoveragePct*100f):F0}% stepsAvg={avgLodSteps:F0} CPU={lastCpuTotalMs:F2}ms cull={lastCpuCullMs:F2}ms draw={lastCpuDrawMs:F2}ms ortho={isOrtho} res={renderWidth}x{renderHeight} scale={currentResolutionScale:F2}");
+            // }
 
-            // Only log on significant state change (not per-frame, not timed)
-            if (perfActiveChunks != perfLastActiveChunks || renderWidth != perfLastRenderW ||
-                renderHeight != perfLastRenderH || useProxyRender != perfLastProxy)
-            {
-                LogPerfSnapshot();
-                perfLastActiveChunks = perfActiveChunks;
-                perfLastRenderW = renderWidth;
-                perfLastRenderH = renderHeight;
-                perfLastProxy = useProxyRender;
-            }
+            // Auto perf snapshot on state change — silenced to reduce log noise
+            // if (perfActiveChunks != perfLastActiveChunks || renderWidth != perfLastRenderW ||
+            //     renderHeight != perfLastRenderH || useProxyRender != perfLastProxy)
+            // {
+            //     LogPerfSnapshot();
+            //     perfLastActiveChunks = perfActiveChunks;
+            //     perfLastRenderW = renderWidth;
+            //     perfLastRenderH = renderHeight;
+            //     perfLastProxy = useProxyRender;
+            // }
         }
 
         /// <summary>

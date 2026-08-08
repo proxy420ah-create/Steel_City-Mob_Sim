@@ -2,7 +2,7 @@
 
 **Purpose**: Central hub for all project documentation — helps coding agents find information fast and efficiently.
 
-**Last Updated**: August 6, 2026
+**Last Updated**: August 8, 2026
 **Project**: Steel City: Mob Sim — Organized Crime Simulation
 **Status**: 🔄 ALPHA — Vertical Slice Playable (Unity 6)
 
@@ -13,7 +13,7 @@
 | Category | Documents | Status |
 |----------|-----------|--------|
 | **Core Design** | 3 docs | ✅ Complete |
-| **Systems Design** | 9 docs | ✅ Complete |
+| **Systems Design** | 10 docs | ✅ Complete |
 | **Data Reference** | 1 doc | ✅ Complete |
 | **Source Analysis** | 2 docs | ✅ Complete |
 | **Unity Project** | 12 docs | ✅ Complete |
@@ -198,7 +198,16 @@
   - Camera system (free orbit, follow mode)
   - Performance budget and comparison to SteelTide
 
-**Keywords**: systems, character, extortion, territory, intelligence, corruption, police, combat, crime, squeal, 3d, rendering, visualization, camera, playtesting, insights, fear, hostility, legal, diplomacy
+**Path Debug Rendering:**
+- **`docs/systems/PATH_DEBUG_RENDERING.md`** — Instanced box-beam debug path rendering via CommandBuffer
+  - Replaces LineRenderer (invisible under voxel RawImage overlay)
+  - `CommandBuffer.DrawMeshInstanced` into voxel render texture
+  - Per-type batching (Pedestrian/Car/Trolley) with single color per draw call
+  - Camera hookup gotcha: bridge must pass camera explicitly (Camera.main fails in URP)
+  - Fallback behavior when no VoxelRenderBridge present
+  - Diagnostic logging pipeline for troubleshooting
+
+**Keywords**: systems, character, extortion, territory, intelligence, corruption, police, combat, crime, squeal, 3d, rendering, visualization, camera, playtesting, insights, fear, hostility, legal, diplomacy, path, debug, beams, commandbuffer, instanced
 
 ---
 

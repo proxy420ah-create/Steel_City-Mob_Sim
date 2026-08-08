@@ -1,6 +1,6 @@
 # Recent Changes — Steel City: Mob Sim
 
-**Last Updated**: August 7, 2026 (Vehicle System)
+**Last Updated**: August 8, 2026 (Path Debug Rendering)
 
 ---
 
@@ -22,6 +22,37 @@ Copy-Item "SteelCityMobSim\Assets\StreamingAssets\city_layout_500.json" "SteelCi
 ```
 
 Available tiers: `city_template_25`, `city_template_100`, `city_template_500`, `city_template_1000` (and matching `city_layout_*`).
+
+---
+
+## August 8, 2026 — Instanced Box-Beam Path Debug Rendering + Camera Fix
+
+### Created
+- `Assets/Shaders/InstancedColor.shader` — Unlit transparent instanced shader with `_Color` property for per-batch coloring
+- `docs/systems/PATH_DEBUG_RENDERING.md` — Documents the CommandBuffer-based instanced beam rendering pipeline, camera hookup gotcha, batching strategy, and troubleshooting
+
+### Changed
+- `Assets/Scripts/Sim/PathDebugRenderer.cs` — Complete rewrite from LineRenderer to instanced box beams
+  - Uses `CommandBuffer.DrawMeshInstanced` to composite beams into the voxel render texture
+  - Per-type batching (Pedestrian/Car/Trolley) with single color per draw call (3 draw calls max)
+  - Sorts `activePaths` by type for contiguous batch ranges
+  - Reusable `batchBuffer` with `Array.Copy` (no per-frame GC allocation)
+  - `RenderBeamsIntoCamera(Camera externalCam = null)` accepts camera from bridge
+  - Fallback path in `Update()` when no `VoxelRenderBridge` present
+  - Comprehensive diagnostic logging (every 60 frames): path state, batch counts, draw call counts
+- `Assets/Scripts/UI/VoxelRenderBridge.cs` — Passes `_camera` to `RenderBeamsIntoCamera()` instead of relying on `Camera.main`
+  - Added diagnostic logging for PDR instance status
+- `Assets/Scripts/UI/VoxelChunkManager.cs` — Removed unused perf tracking fields (`perfLastActiveChunks`, etc.)
+
+### Bug Fixed
+- **Vehicle path beams not emitting**: `PathDebugRenderer` used `Camera.main` to find the render camera, but the voxel render camera (owned by `VoxelRenderBridge`) isn't tagged "MainCamera" in URP. Fix: `VoxelRenderBridge` passes its camera reference directly to `RenderBeamsIntoCamera(_camera)`.
+- **Color bleeding across path types**: Setting `_Color` directly on `beamMaterial` caused all `CommandBuffer.DrawMeshInstanced` calls to use the last color set (deferred execution). Fix: Use `MaterialPropertyBlock` per draw call — same pattern as the instanced character MaterialPropertyBlock bug.
+- **Pedestrian paths not shown by default**: `StressTestSpawner` started with beams off (level 0). Fix: Default to ALL level, auto-register after spawn, and periodically register agents that acquire paths async.
+
+### Testing
+- Press **F10** to toggle vehicle driving. Purple beams should appear showing the planned route.
+- Console shows `[PathDebug]` diagnostic logs every 60 frames confirming active paths, batch counts, and draw calls.
+- Beams composite on top of the voxel raymarch render (visible through the RawImage overlay).
 
 ---
 
