@@ -1601,7 +1601,8 @@ namespace SteelCity.Sim
             GUILayout.BeginArea(new Rect(10, 10, w, h), hudBgStyle);
             GUILayout.Label("<b>ORTHO RENDER HUD</b>", hudLabelStyle);
             GUILayout.Label($"FPS: {fps:F0}  |  OrthoSize: {chunkManager.CameraOrthoSize:F1}", hudLabelStyle);
-            GUILayout.Label($"Res: {chunkManager.PerfTotalChunks} total / {chunkManager.PerfActiveChunks} active / {chunkManager.PerfDrawnChunks} drawn / {chunkManager.InstancedCharacterCount} instanced / {chunkManager.BakedSectorCount} sectors ({chunkManager.BakedSectorBuildingCount} baked)", hudLabelStyle);
+            GUILayout.Label($"Draws: {chunkManager.PerfTotalDrawCalls} total ({chunkManager.PerfSectorsDrawn} sectors + {chunkManager.InstancedCharacterCount} instanced) | Chunks: {chunkManager.PerfTotalChunks} total / {chunkManager.PerfActiveChunks} active / {chunkManager.PerfDrawnChunks} legacy", hudLabelStyle);
+            GUILayout.Label($"Baked: {chunkManager.BakedSectorCount} sectors / {chunkManager.BakedSectorBuildingCount} buildings", hudLabelStyle);
             GUILayout.Label("", hudLabelStyle);
             GUILayout.Label("<b>LOD TIERS</b>", hudLabelStyle);
             GUILayout.Label($"  <color=#2ee62e>Near</color>: {chunkManager.PerfLodNear}  <color=#e6e62e>Mid</color>: {chunkManager.PerfLodMid}  <color=#e68a2e>Far</color>: {chunkManager.PerfLodFar}  <color=#e62e2e>Ultra</color>: {chunkManager.PerfLodUltra}  Culled: {chunkManager.PerfLodCulled}", hudLabelStyle);

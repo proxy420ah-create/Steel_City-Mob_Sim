@@ -386,6 +386,15 @@
 
 ## 🔧 For Coding Agents
 
+### Git Repository
+```
+Repo root:     SteelCityMobSim/ (this directory — has its own .git)
+Remote:        https://github.com/proxy420ah-create/Steel_City-Mob_Sim.git
+Branch:        master
+NOTE:          The parent workspace (Cursor Workshop) is a SEPARATE git repo.
+               Always run git commands from inside SteelCityMobSim/, not from the parent.
+```
+
 ### Key File Locations
 ```
 Unity scripts:  Assets/Scripts/

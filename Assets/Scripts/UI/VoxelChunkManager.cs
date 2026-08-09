@@ -1318,7 +1318,8 @@ namespace SteelCity.Sim
         private void RenderBakedSectors(CommandBuffer cmd, Camera cam, bool isOrtho, float orthoSize,
             float perspHalfHeight)
         {
-            if (bakedSectors.Count == 0 || sectorMaterial == null) return;
+            if (bakedSectors.Count == 0 || sectorMaterial == null) { perfSectorsDrawn = 0; return; }
+            perfSectorsDrawn = 0;
 
             // Set shared lighting/material properties on sector material once
             sectorMaterial.SetBuffer(propMaterialColors, sharedMaterialBuffer);
@@ -1430,6 +1431,7 @@ namespace SteelCity.Sim
                 sectorBlock.SetFloat(propVoxelSize, sector.voxelSize);
 
                 cmd.DrawMeshInstanced(proxyCubeMesh, 0, sectorMaterial, 0, matrices, sector.buildingCount, sectorBlock);
+                perfSectorsDrawn++;
             }
         }
 
@@ -1545,6 +1547,7 @@ namespace SteelCity.Sim
         private float lastCpuTotalMs;
         private int perfActiveChunks;
         private int perfDrawnChunks;
+        private int perfSectorsDrawn;
         private int perfLodNear, perfLodMid, perfLodFar, perfLodUltra, perfLodCulled;
         private float perfMinScreenRatio = 1f, perfMaxScreenRatio = 0f, perfAvgScreenRatio = 0f;
         // Coverage and LOD debug metrics
@@ -1557,7 +1560,9 @@ namespace SteelCity.Sim
         public float CpuTotalMs => lastCpuTotalMs;
         public int PerfActiveChunks => perfActiveChunks;
         public int PerfDrawnChunks => perfDrawnChunks;
+        public int PerfSectorsDrawn => perfSectorsDrawn;
         public int PerfTotalChunks => chunks.Count;
+        public int PerfTotalDrawCalls => perfSectorsDrawn + instancedGroups.Count(g => g.instances.Count > 0);
         public int PerfLodNear => perfLodNear;
         public int PerfLodMid => perfLodMid;
         public int PerfLodFar => perfLodFar;
@@ -1588,7 +1593,7 @@ namespace SteelCity.Sim
         // Call to emit a one-shot perf log (e.g. on key press)
         public void LogPerfSnapshot()
         {
-            Debug.Log($"[Perf] total={chunks.Count} active={perfActiveChunks} drawn={perfDrawnChunks} LOD(N:{perfLodNear} M:{perfLodMid} F:{perfLodFar} U:{perfLodUltra} C:{perfLodCulled}) screenRatio(min:{perfMinScreenRatio:F4} max:{perfMaxScreenRatio:F4} avg:{perfAvgScreenRatio:F4}) render={renderWidth}x{renderHeight} proxy={useProxyRender} shadows={shadowEnabled} maxSteps={maxSteps} | CPU: cull={lastCpuCullMs:F2}ms draw={lastCpuDrawMs:F2}ms total={lastCpuTotalMs:F2}ms");
+            Debug.Log($"[Perf] total={chunks.Count} active={perfActiveChunks} drawn={perfDrawnChunks} sectorsDrawn={perfSectorsDrawn} totalDrawCalls={perfSectorsDrawn + instancedGroups.Count(g => g.instances.Count > 0)} LOD(N:{perfLodNear} M:{perfLodMid} F:{perfLodFar} U:{perfLodUltra} C:{perfLodCulled}) screenRatio(min:{perfMinScreenRatio:F4} max:{perfMaxScreenRatio:F4} avg:{perfAvgScreenRatio:F4}) render={renderWidth}x{renderHeight} proxy={useProxyRender} shadows={shadowEnabled} maxSteps={maxSteps} | CPU: cull={lastCpuCullMs:F2}ms draw={lastCpuDrawMs:F2}ms total={lastCpuTotalMs:F2}ms");
         }
 
         public void RenderChunks()
@@ -1630,6 +1635,7 @@ namespace SteelCity.Sim
             perfActiveChunks = 0;
             foreach (var c in chunks) if (c.active) perfActiveChunks++;
             perfDrawnChunks = useProxyRender ? proxyDrawList.Count : perfActiveChunks;
+            // perfSectorsDrawn is set inside RenderBakedSectors
 
             // Per-frame logging (every 30 frames)
             // Perf logging silenced — use P key (FollowCamera) for on-demand snapshots
