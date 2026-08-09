@@ -1,0 +1,1810 @@
+{
+  "_comment": "Steel City template: 100 blocks, 9 empty plots each. HQ blocks use tenement_block.",
+  "version": "0.0.3",
+  "grid": {
+    "rows": 10,
+    "cols": 10
+  },
+  "blocks": [
+    {
+      "id": "block_1",
+      "name": "N Quarter 1",
+      "row": 0,
+      "col": 0,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_2",
+      "name": "N Quarter 2",
+      "row": 0,
+      "col": 1,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_3",
+      "name": "N Quarter 3",
+      "row": 0,
+      "col": 2,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_4",
+      "name": "N Quarter 4",
+      "row": 0,
+      "col": 3,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_5",
+      "name": "N Quarter 5",
+      "row": 0,
+      "col": 4,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_6",
+      "name": "N Quarter 6",
+      "row": 0,
+      "col": 5,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_7",
+      "name": "N Quarter 7",
+      "row": 0,
+      "col": 6,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_8",
+      "name": "N Quarter 8",
+      "row": 0,
+      "col": 7,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_9",
+      "name": "N Quarter 9",
+      "row": 0,
+      "col": 8,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_10",
+      "name": "N Quarter 10",
+      "row": 0,
+      "col": 9,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_11",
+      "name": "N Quarter 11",
+      "row": 1,
+      "col": 0,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_12",
+      "name": "N Quarter 12",
+      "row": 1,
+      "col": 1,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_13",
+      "name": "N Quarter 13",
+      "row": 1,
+      "col": 2,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_14",
+      "name": "N Quarter 14",
+      "row": 1,
+      "col": 3,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_15",
+      "name": "N Quarter 15",
+      "row": 1,
+      "col": 4,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_16",
+      "name": "N Quarter 16",
+      "row": 1,
+      "col": 5,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_17",
+      "name": "N Quarter 17",
+      "row": 1,
+      "col": 6,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_18",
+      "name": "N Quarter 18",
+      "row": 1,
+      "col": 7,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_19",
+      "name": "N Quarter 19",
+      "row": 1,
+      "col": 8,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_20",
+      "name": "N Quarter 20",
+      "row": 1,
+      "col": 9,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_21",
+      "name": "N Quarter 21",
+      "row": 2,
+      "col": 0,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_22",
+      "name": "N Quarter 22",
+      "row": 2,
+      "col": 1,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_23",
+      "name": "N Quarter 23",
+      "row": 2,
+      "col": 2,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_24",
+      "name": "N Quarter 24",
+      "row": 2,
+      "col": 3,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_25",
+      "name": "N Quarter 25",
+      "row": 2,
+      "col": 4,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_26",
+      "name": "N Quarter 26",
+      "row": 2,
+      "col": 5,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "tenement_block",
+          "illegal": false,
+          "count": 1
+        }
+      ],
+      "population": 0,
+      "player_hq": true,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_27",
+      "name": "N Quarter 27",
+      "row": 2,
+      "col": 6,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_28",
+      "name": "N Quarter 28",
+      "row": 2,
+      "col": 7,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_29",
+      "name": "N Quarter 29",
+      "row": 2,
+      "col": 8,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_30",
+      "name": "N Quarter 30",
+      "row": 2,
+      "col": 9,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_31",
+      "name": "W Quarter 31",
+      "row": 3,
+      "col": 0,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_32",
+      "name": "W Quarter 32",
+      "row": 3,
+      "col": 1,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_33",
+      "name": "W Quarter 33",
+      "row": 3,
+      "col": 2,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_34",
+      "name": "Central Block 34",
+      "row": 3,
+      "col": 3,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_35",
+      "name": "Central Block 35",
+      "row": 3,
+      "col": 4,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_36",
+      "name": "Central Block 36",
+      "row": 3,
+      "col": 5,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_37",
+      "name": "Central Block 37",
+      "row": 3,
+      "col": 6,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_38",
+      "name": "E Quarter 38",
+      "row": 3,
+      "col": 7,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_39",
+      "name": "E Quarter 39",
+      "row": 3,
+      "col": 8,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_40",
+      "name": "E Quarter 40",
+      "row": 3,
+      "col": 9,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_41",
+      "name": "W Quarter 41",
+      "row": 4,
+      "col": 0,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_42",
+      "name": "W Quarter 42",
+      "row": 4,
+      "col": 1,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_43",
+      "name": "W Quarter 43",
+      "row": 4,
+      "col": 2,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_44",
+      "name": "Central Block 44",
+      "row": 4,
+      "col": 3,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_45",
+      "name": "Central Block 45",
+      "row": 4,
+      "col": 4,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_46",
+      "name": "Central Block 46",
+      "row": 4,
+      "col": 5,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_47",
+      "name": "Central Block 47",
+      "row": 4,
+      "col": 6,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_48",
+      "name": "E Quarter 48",
+      "row": 4,
+      "col": 7,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_49",
+      "name": "E Quarter 49",
+      "row": 4,
+      "col": 8,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_50",
+      "name": "E Quarter 50",
+      "row": 4,
+      "col": 9,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_51",
+      "name": "W Quarter 51",
+      "row": 5,
+      "col": 0,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "tenement_block",
+          "illegal": false,
+          "count": 1
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": true,
+      "police_station": false
+    },
+    {
+      "id": "block_52",
+      "name": "W Quarter 52",
+      "row": 5,
+      "col": 1,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_53",
+      "name": "W Quarter 53",
+      "row": 5,
+      "col": 2,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_54",
+      "name": "Central Block 54",
+      "row": 5,
+      "col": 3,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_55",
+      "name": "Central Block 55",
+      "row": 5,
+      "col": 4,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_56",
+      "name": "Central Block 56",
+      "row": 5,
+      "col": 5,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_57",
+      "name": "Central Block 57",
+      "row": 5,
+      "col": 6,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_58",
+      "name": "E Quarter 58",
+      "row": 5,
+      "col": 7,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_59",
+      "name": "E Quarter 59",
+      "row": 5,
+      "col": 8,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_60",
+      "name": "E Quarter 60",
+      "row": 5,
+      "col": 9,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_61",
+      "name": "W Quarter 61",
+      "row": 6,
+      "col": 0,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_62",
+      "name": "W Quarter 62",
+      "row": 6,
+      "col": 1,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_63",
+      "name": "W Quarter 63",
+      "row": 6,
+      "col": 2,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_64",
+      "name": "Central Block 64",
+      "row": 6,
+      "col": 3,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_65",
+      "name": "Central Block 65",
+      "row": 6,
+      "col": 4,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_66",
+      "name": "Central Block 66",
+      "row": 6,
+      "col": 5,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_67",
+      "name": "Central Block 67",
+      "row": 6,
+      "col": 6,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_68",
+      "name": "E Quarter 68",
+      "row": 6,
+      "col": 7,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_69",
+      "name": "E Quarter 69",
+      "row": 6,
+      "col": 8,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_70",
+      "name": "E Quarter 70",
+      "row": 6,
+      "col": 9,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_71",
+      "name": "S Quarter 71",
+      "row": 7,
+      "col": 0,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_72",
+      "name": "S Quarter 72",
+      "row": 7,
+      "col": 1,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_73",
+      "name": "S Quarter 73",
+      "row": 7,
+      "col": 2,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_74",
+      "name": "S Quarter 74",
+      "row": 7,
+      "col": 3,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_75",
+      "name": "S Quarter 75",
+      "row": 7,
+      "col": 4,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_76",
+      "name": "S Quarter 76",
+      "row": 7,
+      "col": 5,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_77",
+      "name": "S Quarter 77",
+      "row": 7,
+      "col": 6,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_78",
+      "name": "S Quarter 78",
+      "row": 7,
+      "col": 7,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_79",
+      "name": "S Quarter 79",
+      "row": 7,
+      "col": 8,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_80",
+      "name": "S Quarter 80",
+      "row": 7,
+      "col": 9,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_81",
+      "name": "S Quarter 81",
+      "row": 8,
+      "col": 0,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_82",
+      "name": "S Quarter 82",
+      "row": 8,
+      "col": 1,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_83",
+      "name": "S Quarter 83",
+      "row": 8,
+      "col": 2,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_84",
+      "name": "S Quarter 84",
+      "row": 8,
+      "col": 3,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_85",
+      "name": "S Quarter 85",
+      "row": 8,
+      "col": 4,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_86",
+      "name": "S Quarter 86",
+      "row": 8,
+      "col": 5,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_87",
+      "name": "S Quarter 87",
+      "row": 8,
+      "col": 6,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_88",
+      "name": "S Quarter 88",
+      "row": 8,
+      "col": 7,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_89",
+      "name": "S Quarter 89",
+      "row": 8,
+      "col": 8,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_90",
+      "name": "S Quarter 90",
+      "row": 8,
+      "col": 9,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_91",
+      "name": "S Quarter 91",
+      "row": 9,
+      "col": 0,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_92",
+      "name": "S Quarter 92",
+      "row": 9,
+      "col": 1,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_93",
+      "name": "S Quarter 93",
+      "row": 9,
+      "col": 2,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_94",
+      "name": "S Quarter 94",
+      "row": 9,
+      "col": 3,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_95",
+      "name": "S Quarter 95",
+      "row": 9,
+      "col": 4,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_96",
+      "name": "S Quarter 96",
+      "row": 9,
+      "col": 5,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_97",
+      "name": "S Quarter 97",
+      "row": 9,
+      "col": 6,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_98",
+      "name": "S Quarter 98",
+      "row": 9,
+      "col": 7,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_99",
+      "name": "S Quarter 99",
+      "row": 9,
+      "col": 8,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    },
+    {
+      "id": "block_100",
+      "name": "S Quarter 100",
+      "row": 9,
+      "col": 9,
+      "land_value": 3,
+      "businesses": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "count": 9
+        }
+      ],
+      "population": 0,
+      "player_hq": false,
+      "rival_hq": false,
+      "police_station": false
+    }
+  ]
+}

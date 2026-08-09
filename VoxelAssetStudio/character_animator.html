@@ -1,0 +1,1777 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Steel City — Character Animator</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#0a0a14; color:#eee; font-family:'Segoe UI',monospace; overflow:hidden; user-select:none; }
+#canvas-container { position:absolute; top:0; left:0; width:100vw; height:100vh; }
+
+/* Top toolbar */
+#toolbar {
+  position:fixed; top:0; left:0; right:0; height:48px;
+  background:rgba(0,0,0,0.9); display:flex; align-items:center;
+  padding:0 12px; gap:4px; z-index:100; border-bottom:1px solid #333;
+}
+.tool-btn {
+  width:36px; height:36px; border:1px solid #444; border-radius:6px;
+  background:#2a2a3e; color:#aaa; cursor:pointer; font-size:16px;
+  display:flex; align-items:center; justify-content:center;
+  transition:all 0.15s;
+}
+.tool-btn:hover { background:#3a3a5e; color:#fff; }
+.tool-btn.active { background:#0a4; color:#fff; border-color:#0c6; }
+.tool-sep { width:1px; height:32px; background:#333; margin:0 4px; }
+.tool-label { font-size:11px; color:#888; margin-right:4px; }
+
+/* Left panel — Groups */
+#left-panel {
+  position:fixed; top:56px; left:8px; width:200px;
+  background:rgba(0,0,0,0.85); border-radius:8px; padding:12px;
+  z-index:90; max-height:calc(100vh - 120px); overflow-y:auto;
+}
+#left-panel h3 { font-size:12px; color:#0ff; margin-bottom:8px; }
+.group-item {
+  display:flex; align-items:center; gap:8px; padding:6px 8px;
+  border-radius:4px; cursor:pointer; margin:2px 0; font-size:11px;
+  transition:background 0.15s; border:1px solid transparent;
+}
+.group-item:hover { background:rgba(255,255,255,0.08); }
+.group-item.selected { background:rgba(0,170,68,0.25); border-color:#0c6; }
+.group-swatch {
+  width:18px; height:18px; border-radius:3px; border:1px solid #555; flex-shrink:0;
+}
+.group-name { flex:1; }
+.group-count { color:#888; font-size:10px; }
+
+/* Right panel — Animation */
+#right-panel {
+  position:fixed; top:56px; right:8px; width:280px;
+  background:rgba(0,0,0,0.85); border-radius:8px; padding:12px;
+  z-index:90; max-height:calc(100vh - 120px); overflow-y:auto;
+}
+#right-panel h3 { font-size:12px; color:#0ff; margin-bottom:8px; }
+#right-panel label { display:block; font-size:11px; margin:6px 0 2px; color:#aaa; }
+#right-panel input[type=range] { width:100%; }
+
+/* State buttons */
+.state-grid {
+  display:grid; grid-template-columns:repeat(3,1fr); gap:4px; margin-bottom:8px;
+}
+.state-btn {
+  padding:6px 4px; border:1px solid #444; border-radius:4px;
+  background:#2a2a3e; color:#aaa; cursor:pointer; font-size:10px;
+  text-align:center; transition:all 0.15s;
+}
+.state-btn:hover { background:#3a3a5e; color:#fff; }
+.state-btn.active { background:#0a4; color:#fff; border-color:#0c6; }
+
+/* Playback controls */
+.playback-row {
+  display:flex; gap:4px; margin:8px 0; align-items:center;
+}
+.playback-btn {
+  width:32px; height:32px; border:1px solid #444; border-radius:6px;
+  background:#2a2a3e; color:#aaa; cursor:pointer; font-size:14px;
+  display:flex; align-items:center; justify-content:center;
+}
+.playback-btn:hover { background:#3a3a5e; color:#fff; }
+.playback-btn.active { background:#0a4; color:#fff; border-color:#0c6; }
+
+/* Pivot gizmos info */
+.pivot-info { font-size:10px; color:#fa0; margin:4px 0; }
+.pivot-row { display:flex; gap:4px; align-items:center; margin:2px 0; }
+.pivot-row label { width:60px; font-size:10px; color:#888; margin:0; }
+.pivot-row input {
+  width:60px; background:#111; color:#0f0; border:1px solid #333;
+  border-radius:3px; padding:2px 4px; font-size:10px;
+}
+
+/* View mode toggle */
+.view-mode-row {
+  display:flex; gap:4px; margin:8px 0;
+}
+.view-btn {
+  flex:1; padding:6px; border:1px solid #444; border-radius:4px;
+  background:#2a2a3e; color:#aaa; cursor:pointer; font-size:10px;
+  text-align:center; transition:all 0.15s;
+}
+.view-btn:hover { background:#3a3a5e; }
+.view-btn.active { background:#06a; color:#fff; border-color:#08c; }
+
+/* Bottom status bar */
+#status-bar {
+  position:fixed; bottom:0; left:0; right:0; height:28px;
+  background:rgba(0,0,0,0.9); display:flex; align-items:center;
+  padding:0 12px; font-size:11px; color:#888; z-index:100;
+  border-top:1px solid #333; gap:16px;
+}
+#status-coords { color:#0f0; min-width:180px; }
+#status-tool { color:#0ff; min-width:100px; }
+#status-info { color:#888; }
+#status-fps { margin-left:auto; color:#666; }
+
+/* Export modal */
+#export-modal {
+  position:fixed; top:0; left:0; width:100vw; height:100vh;
+  background:rgba(0,0,0,0.7); display:none; align-items:center; justify-content:center;
+  z-index:200;
+}
+#export-box {
+  background:#1e1e2e; border:1px solid #444; border-radius:12px;
+  padding:24px; max-width:520px; width:90%;
+}
+#export-box h2 { color:#0ff; margin-bottom:16px; font-size:16px; }
+#export-box h3 { font-size:13px; color:#0ff; margin-bottom:8px; }
+#export-box p { font-size:11px; color:#aaa; margin-bottom:8px; }
+#export-box textarea {
+  width:100%; height:200px; background:#111; color:#0f0;
+  border:1px solid #333; border-radius:6px; padding:8px; font-family:monospace;
+  font-size:11px; resize:vertical;
+}
+.btn-row { display:flex; gap:8px; margin-top:12px; }
+.export-btn {
+  background:#2a2a3e; color:#eee; border:1px solid #555; padding:8px 16px;
+  border-radius:6px; cursor:pointer; font-size:12px;
+}
+.export-btn:hover { background:#3a3a5e; }
+.export-btn.primary { background:#0a4; border-color:#0c6; }
+.section-divider { border-top:1px solid #333; padding-top:16px; margin-top:16px; }
+
+/* Tooltip */
+#tooltip {
+  position:fixed; background:rgba(0,0,0,0.9); border:1px solid #444;
+  border-radius:4px; padding:4px 8px; font-size:11px; color:#ddd;
+  pointer-events:none; z-index:300; display:none;
+}
+
+/* Compass */
+#compass-info { font-size:10px; margin-top:8px; color:#888; }
+#compass-info span { font-weight:bold; }
+.cx { color:#e33; } .cy { color:#3e3; } .cz { color:#33e; }
+
+/* Timeline scrubber */
+#timeline-row {
+  display:flex; align-items:center; gap:8px; margin:8px 0;
+}
+#timeline-row input[type=range] { flex:1; }
+#timeline-time { font-size:10px; color:#0f0; min-width:60px; }
+
+/* Anim param sliders */
+.param-section {
+  border:1px solid #333; border-radius:6px; padding:8px; margin:4px 0;
+}
+.param-section-title {
+  font-size:11px; color:#0ff; margin-bottom:4px;
+}
+.param-row {
+  display:flex; align-items:center; gap:8px; margin:2px 0; font-size:10px;
+}
+.param-row label { width:80px; color:#888; }
+.param-row input[type=range] { flex:1; }
+.param-row .param-val { width:40px; color:#0f0; text-align:right; font-size:10px; }
+
+#editor-nav { position:fixed; top:8px; right:8px; z-index:9999; display:flex; gap:4px; }
+#editor-nav a { padding:4px 10px; border-radius:4px; font-size:11px; text-decoration:none; background:rgba(0,0,0,0.7); color:#888; border:1px solid #333; transition:all 0.15s; font-family:'Segoe UI',sans-serif; }
+#editor-nav a:hover { background:rgba(0,170,68,0.3); color:#fff; border-color:#0c6; }
+#editor-nav a.current { background:#0a4; color:#fff; border-color:#0c6; }
+
+</style>
+</head>
+<body>
+<div id="editor-nav"><a href="character_pipeline.html">Pipeline</a><a href="voxel_editor.html">Voxel Editor</a><a href="voxel_editor_2x.html">Voxel 2x</a><a href="character_animator.html" class="current">Animator</a></div>
+<div id="canvas-container"></div>
+
+<!-- Toolbar -->
+<div id="toolbar">
+  <span class="tool-label">Tools:</span>
+  <button class="tool-btn active" data-tool="paint" title="Paint Group (P)">🎨</button>
+  <button class="tool-btn" data-tool="eyedropper" title="Pick Group (I)">💧</button>
+  <button class="tool-btn" data-tool="fill" title="Flood Fill Group (F)">🪣</button>
+  <button class="tool-btn" data-tool="erase" title="Clear Group (E)">🗑</button>
+  <div class="tool-sep"></div>
+  <button class="tool-btn" data-tool="camera" title="Camera Mode (Esc)">🎥</button>
+  <div class="tool-sep"></div>
+  <button class="tool-btn" id="grid-btn" title="Toggle Grid" class="active">▦</button>
+  <button class="tool-btn" id="reset-btn" title="Reset View">🎯</button>
+  <div class="tool-sep"></div>
+  <button class="tool-btn" id="export-btn" title="Save / Load / Export" style="background:#0a4;color:#fff;">💾</button>
+</div>
+
+<!-- Left panel: Groups -->
+<div id="left-panel">
+  <h3>Animation Groups</h3>
+  <div id="group-list"></div>
+  <div id="compass-info">
+    <span class="cx">X</span>=red
+    <span class="cy">Y</span>=green(up)
+    <span class="cz">Z</span>=blue
+  </div>
+  <div style="margin-top:8px;font-size:10px;color:#888;">
+    Group 0 = Body (static)<br>
+    Groups 1-5 = Animated limbs
+  </div>
+</div>
+
+<!-- Right panel: Animation -->
+<div id="right-panel">
+  <h3>Animation Preview</h3>
+
+  <div class="view-mode-row">
+    <button class="view-btn active" data-view="material">Material View</button>
+    <button class="view-btn" data-view="group">Group View</button>
+  </div>
+
+  <label>Animation State:</label>
+  <div class="state-grid" id="state-grid"></div>
+
+  <div class="playback-row">
+    <button class="playback-btn active" id="play-btn" title="Play/Pause">▶</button>
+    <button class="playback-btn" id="stop-btn" title="Stop">⏹</button>
+    <span style="font-size:10px;color:#888;">Speed:</span>
+    <input type="range" id="speed-slider" min="0.1" max="3" step="0.1" value="1" style="flex:1;">
+    <span id="speed-val" style="font-size:10px;color:#0f0;width:30px;">1.0x</span>
+  </div>
+
+  <div id="timeline-row">
+    <span style="font-size:10px;color:#888;">Time:</span>
+    <input type="range" id="timeline-slider" min="0" max="10" step="0.01" value="0">
+    <span id="timeline-time">0.00s</span>
+  </div>
+
+  <h3 style="margin-top:12px;">Pivot Points</h3>
+  <div id="pivot-controls"></div>
+  <div style="margin-top:6px;">
+    <button class="export-btn" onclick="resetPivots()" style="font-size:10px;padding:4px 8px;">Reset Pivots</button>
+    <button class="export-btn" onclick="autoDetectPivots()" style="font-size:10px;padding:4px 8px;margin-left:4px;">Auto-Detect</button>
+  </div>
+
+  <h3 style="margin-top:12px;">Animation Parameters</h3>
+  <div id="param-controls"></div>
+</div>
+
+<!-- Status bar -->
+<div id="status-bar">
+  <span id="status-tool">Tool: Paint</span>
+  <span id="status-coords">---, ---, ---</span>
+  <span id="status-info">Ready</span>
+  <span id="status-fps">0 FPS</span>
+</div>
+
+<!-- Save/Load/Export modal -->
+<div id="export-modal">
+  <div id="export-box">
+    <h2>💾 Save / Load / Export</h2>
+
+    <div style="margin-bottom:16px;">
+      <h3>Load Character</h3>
+      <p>Import a .stasset JSON file (dims + voxels array) to edit an existing character.</p>
+      <div class="btn-row">
+        <button class="export-btn primary" onclick="document.getElementById('import-stasset-input').click()">📥 Import .stasset JSON</button>
+        <input type="file" id="import-stasset-input" accept=".json" style="display:none" onchange="importStasset(event)">
+        <button class="export-btn" onclick="document.getElementById('import-groups-input').click()">📥 Import .groups JSON</button>
+        <input type="file" id="import-groups-input" accept=".json" style="display:none" onchange="importGroups(event)">
+      </div>
+    </div>
+
+    <div class="section-divider" style="margin-bottom:16px;">
+      <h3>Export Group Data</h3>
+      <p>Export groupID assignments as JSON. Convert to .groups binary via Python script.</p>
+      <div class="btn-row">
+        <button class="export-btn primary" onclick="exportGroupsJSON()">⬇ Export .groups JSON</button>
+        <button class="export-btn" onclick="exportAnimParams()">⬇ Export .anim.json</button>
+      </div>
+    </div>
+
+    <div class="section-divider" style="margin-bottom:16px;">
+      <h3>Save / Load Project (voxels + groups + params)</h3>
+      <div class="btn-row">
+        <button class="export-btn primary" onclick="saveProject()">💾 Save Project</button>
+        <button class="export-btn" onclick="document.getElementById('load-project-input').click()">📂 Load Project</button>
+        <input type="file" id="load-project-input" accept=".json" style="display:none" onchange="loadProject(event)">
+      </div>
+    </div>
+
+    <div class="btn-row" style="justify-content:flex-end;">
+      <button class="export-btn" onclick="closeExport()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Tooltip -->
+<div id="tooltip"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// === DATA ===
+const allMaterials = [
+  {
+    "id": 100,
+    "name": "Red Brick",
+    "r": 147,
+    "g": 66,
+    "b": 51,
+    "hex": "#934233"
+  },
+  {
+    "id": 101,
+    "name": "Stone",
+    "r": 122,
+    "g": 107,
+    "b": 86,
+    "hex": "#7a6b56"
+  },
+  {
+    "id": 102,
+    "name": "Concrete",
+    "r": 147,
+    "g": 147,
+    "b": 137,
+    "hex": "#939389"
+  },
+  {
+    "id": 103,
+    "name": "Stucco",
+    "r": 209,
+    "g": 204,
+    "b": 188,
+    "hex": "#d1ccbc"
+  },
+  {
+    "id": 104,
+    "name": "Asphalt",
+    "r": 45,
+    "g": 45,
+    "b": 51,
+    "hex": "#2d2d33"
+  },
+  {
+    "id": 105,
+    "name": "Cobblestone",
+    "r": 107,
+    "g": 96,
+    "b": 86,
+    "hex": "#6b6056"
+  },
+  {
+    "id": 106,
+    "name": "Dark Wood",
+    "r": 76,
+    "g": 45,
+    "b": 25,
+    "hex": "#4c2d19"
+  },
+  {
+    "id": 107,
+    "name": "Light Wood",
+    "r": 153,
+    "g": 107,
+    "b": 63,
+    "hex": "#996b3f"
+  },
+  {
+    "id": 108,
+    "name": "Weathered Wood",
+    "r": 107,
+    "g": 91,
+    "b": 66,
+    "hex": "#6b5b42"
+  },
+  {
+    "id": 109,
+    "name": "Dark Iron",
+    "r": 71,
+    "g": 61,
+    "b": 56,
+    "hex": "#473d38"
+  },
+  {
+    "id": 110,
+    "name": "Aged Metal",
+    "r": 107,
+    "g": 102,
+    "b": 91,
+    "hex": "#6b665b"
+  },
+  {
+    "id": 111,
+    "name": "Painted Metal",
+    "r": 229,
+    "g": 224,
+    "b": 209,
+    "hex": "#e5e0d1"
+  },
+  {
+    "id": 112,
+    "name": "Window Glass",
+    "r": 114,
+    "g": 140,
+    "b": 165,
+    "hex": "#728ca5"
+  },
+  {
+    "id": 113,
+    "name": "Lit Window",
+    "r": 242,
+    "g": 216,
+    "b": 127,
+    "hex": "#f2d87f"
+  },
+  {
+    "id": 114,
+    "name": "Storefront Glass",
+    "r": 140,
+    "g": 165,
+    "b": 178,
+    "hex": "#8ca5b2"
+  },
+  {
+    "id": 115,
+    "name": "Neon Red",
+    "r": 242,
+    "g": 38,
+    "b": 38,
+    "hex": "#f22626"
+  },
+  {
+    "id": 116,
+    "name": "Neon Blue",
+    "r": 38,
+    "g": 76,
+    "b": 242,
+    "hex": "#264cf2"
+  },
+  {
+    "id": 117,
+    "name": "Neon Green",
+    "r": 38,
+    "g": 216,
+    "b": 63,
+    "hex": "#26d83f"
+  },
+  {
+    "id": 118,
+    "name": "Tar",
+    "r": 71,
+    "g": 61,
+    "b": 51,
+    "hex": "#473d33"
+  },
+  {
+    "id": 119,
+    "name": "Terracotta",
+    "r": 140,
+    "g": 81,
+    "b": 51,
+    "hex": "#8c5133"
+  },
+  {
+    "id": 120,
+    "name": "Painted Red",
+    "r": 114,
+    "g": 30,
+    "b": 25,
+    "hex": "#721e19"
+  },
+  {
+    "id": 121,
+    "name": "Painted Green",
+    "r": 38,
+    "g": 71,
+    "b": 45,
+    "hex": "#26472d"
+  },
+  {
+    "id": 122,
+    "name": "Painted Brown",
+    "r": 56,
+    "g": 30,
+    "b": 20,
+    "hex": "#381e14"
+  },
+  {
+    "id": 123,
+    "name": "Gold/Brass",
+    "r": 198,
+    "g": 158,
+    "b": 51,
+    "hex": "#c69e33"
+  },
+  {
+    "id": 124,
+    "name": "Lamp Glow",
+    "r": 255,
+    "g": 216,
+    "b": 127,
+    "hex": "#ffd87f"
+  },
+  {
+    "id": 125,
+    "name": "Flesh",
+    "r": 209,
+    "g": 173,
+    "b": 140,
+    "hex": "#d1ad8c"
+  },
+  {
+    "id": 126,
+    "name": "Black Fabric",
+    "r": 15,
+    "g": 15,
+    "b": 17,
+    "hex": "#0f0f11"
+  },
+  {
+    "id": 127,
+    "name": "White Fabric",
+    "r": 224,
+    "g": 219,
+    "b": 209,
+    "hex": "#e0dbd1"
+  },
+  {
+    "id": 128,
+    "name": "Hair",
+    "r": 30,
+    "g": 20,
+    "b": 15,
+    "hex": "#1e140f"
+  },
+  {
+    "id": 129,
+    "name": "Painted Blue",
+    "r": 30,
+    "g": 51,
+    "b": 114,
+    "hex": "#1e3372"
+  }
+];
+const GROUPS = [
+  {
+    "id": 0,
+    "name": "Body",
+    "color": "#888888",
+    "desc": "Torso/core (no transform)"
+  },
+  {
+    "id": 1,
+    "name": "Head",
+    "color": "#00ff66",
+    "desc": "Head \u2014 yaw + pitch rotations"
+  },
+  {
+    "id": 2,
+    "name": "Left Arm",
+    "color": "#00aaff",
+    "desc": "Left arm \u2014 X-axis swing"
+  },
+  {
+    "id": 3,
+    "name": "Right Arm",
+    "color": "#ff6666",
+    "desc": "Right arm \u2014 X-axis swing (opposite phase)"
+  },
+  {
+    "id": 4,
+    "name": "Left Leg",
+    "color": "#ffaa00",
+    "desc": "Left leg \u2014 X-axis stride"
+  },
+  {
+    "id": 5,
+    "name": "Right Leg",
+    "color": "#aa66ff",
+    "desc": "Right leg \u2014 X-axis stride (opposite phase)"
+  }
+];
+const STATES = [
+  {
+    "id": 0,
+    "name": "Idle",
+    "desc": "Standing still"
+  },
+  {
+    "id": 1,
+    "name": "Walking",
+    "desc": "Walking cycle \u2014 arms/legs swing"
+  },
+  {
+    "id": 2,
+    "name": "Looking",
+    "desc": "Head looking around"
+  },
+  {
+    "id": 3,
+    "name": "Checking",
+    "desc": "Head checking + subtle movement"
+  },
+  {
+    "id": 4,
+    "name": "Aiming",
+    "desc": "Aiming pose \u2014 arms raised"
+  },
+  {
+    "id": 5,
+    "name": "Crouching",
+    "desc": "Crouch pose \u2014 legs bent, arms forward"
+  },
+  {
+    "id": 6,
+    "name": "Flinching",
+    "desc": "Flinch reaction \u2014 arms back, head down"
+  },
+  {
+    "id": 7,
+    "name": "Falling",
+    "desc": "Falling \u2014 legs spread"
+  },
+  {
+    "id": 8,
+    "name": "Down",
+    "desc": "Lying down / defeated"
+  }
+];
+
+// Default pivot points (matching shader ComputeGroupRotation)
+// Pivots are in voxel-local space (voxel units, origin = volume corner)
+// For a 16x32x10 character
+const DEFAULT_PIVOTS = {
+  1: { x: 0.5, y: 0.78, z: 0.5 },  // Head
+  2: { x: 0.25, y: 0.75, z: 0.5 }, // Left arm
+  3: { x: 0.75, y: 0.75, z: 0.5 }, // Right arm
+  4: { x: 0.375, y: 0.34, z: 0.5 }, // Left leg
+  5: { x: 0.625, y: 0.34, z: 0.5 }, // Right leg
+};
+
+// Current pivots (editable)
+let pivots = JSON.parse(JSON.stringify(DEFAULT_PIVOTS));
+
+// Default animation parameters (matching shader hardcoded values)
+const DEFAULT_PARAMS = {
+  walk: {
+    armSwing: 0.3,      // radians
+    armFreq: 6.0,        // Hz
+    legStride: 0.4,      // radians
+    legFreq: 6.0,        // Hz
+  },
+  looking: {
+    headYaw: 0.5,
+    headYawFreq: 2.0,
+    headPitch: 0.1,
+    headPitchFreq: 1.3,
+  },
+  checking: {
+    headYaw: 0.5,
+    headYawFreq: 2.0,
+    headPitch: 0.1,
+    headPitchFreq: 1.3,
+  },
+  aiming: {
+    headYaw: 0.3,
+    headPitch: -0.1,
+    armSwing: -1.2,
+  },
+  crouching: {
+    headPitch: 0.2,
+    armSwingL: 0.3,
+    armSwingR: -0.3,
+    legStride: 0.6,
+  },
+  flinching: {
+    headPitch: 0.4,
+    armSwing: -1.5,
+  },
+  falling: {
+    legStrideL: -0.5,
+    legStrideR: 0.5,
+  },
+};
+
+let animParams = JSON.parse(JSON.stringify(DEFAULT_PARAMS));
+
+// Voxel data
+let W = 16, H = 32, D = 10;
+const voxelMap = new Map();  // "x,y,z" -> materialId
+const groupMap = new Map();  // "x,y,z" -> groupId (default 0)
+
+// === SCENE ===
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0a14);
+
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 5000);
+camera.position.set(W * 3, H * 2, D * 3);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.1;
+controls.target.set(0, H / 2, 0);
+
+// Lighting
+scene.add(new THREE.AmbientLight(0x666688, 0.6));
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
+dirLight.position.set(W, H * 2, D);
+scene.add(dirLight);
+const dirLight2 = new THREE.DirectionalLight(0x88aaff, 0.4);
+dirLight2.position.set(-W, H, -D);
+scene.add(dirLight2);
+
+// Grid floor
+let gridHelper = new THREE.GridHelper(Math.max(W, D) * 4, Math.max(W, D), 0x444466, 0x222244);
+gridHelper.position.set(0, 0, 0);
+scene.add(gridHelper);
+
+// Compass
+function buildCompass() {
+  const grp = new THREE.Group();
+  grp.position.set(-W / 2 - 4, 0, -D / 2 - 4);
+  const L = Math.max(W, H, D) * 0.5;
+  const mkAxis = (color, dir) => {
+    const geo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0, 0), dir.clone().multiplyScalar(L)
+    ]);
+    return new THREE.Line(geo, new THREE.LineBasicMaterial({ color }));
+  };
+  grp.add(mkAxis(0xff3333, new THREE.Vector3(1, 0, 0)));
+  grp.add(mkAxis(0x33ff33, new THREE.Vector3(0, 1, 0)));
+  grp.add(mkAxis(0x3333ff, new THREE.Vector3(0, 0, 1)));
+  scene.add(grp);
+}
+buildCompass();
+
+// === RAYCASTING ===
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+const dummyMatrix = new THREE.Matrix4();
+
+// === INSTANCED MESH ===
+const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+const lambertMat = new THREE.MeshLambertMaterial();
+let instancedMesh = null;
+let edgesMesh = null;
+let showEdges = true;
+let viewMode = 'material'; // 'material' or 'group'
+
+// Group colors
+const GROUP_COLORS = {};
+for (const g of GROUPS) {
+  const c = new THREE.Color(g.color);
+  GROUP_COLORS[g.id] = c;
+}
+
+// Material colors
+function getMatColor(mid) {
+  const m = allMaterials.find(m => m.id === mid);
+  if (m) return new THREE.Color(m.r / 255, m.g / 255, m.b / 255);
+  return new THREE.Color(0.8, 0.8, 0.8);
+}
+
+// === HIGHLIGHT ===
+const hlGeo = new THREE.BoxGeometry(1.05, 1.05, 1.05);
+let hlMesh = null;
+
+function clearHighlight() {
+  if (hlMesh) { scene.remove(hlMesh); hlMesh.dispose(); hlMesh = null; }
+}
+
+function showHighlight(positions, color) {
+  clearHighlight();
+  if (positions.length === 0) return;
+  const count = positions.length;
+  const mat = new THREE.MeshBasicMaterial({ color, opacity: 0.35, transparent: true, depthWrite: false });
+  hlMesh = new THREE.InstancedMesh(hlGeo, mat, count);
+  for (let i = 0; i < count; i++) {
+    const [x, y, z] = positions[i];
+    dummyMatrix.setPosition(x - W / 2, y, z - D / 2);
+    hlMesh.setMatrixAt(i, dummyMatrix);
+  }
+  hlMesh.instanceMatrix.needsUpdate = true;
+  scene.add(hlMesh);
+}
+
+// === MESH BUILDING ===
+function getVoxelList() {
+  const result = [];
+  for (const [key, mid] of voxelMap) {
+    const [x, y, z] = key.split(',').map(Number);
+    result.push({ x, y, z, mid, gid: groupMap.get(key) || 0 });
+  }
+  return result;
+}
+
+function rebuildMesh() {
+  const voxels = getVoxelList();
+  const count = voxels.length;
+
+  if (instancedMesh) {
+    scene.remove(instancedMesh);
+    instancedMesh.dispose();
+  }
+  if (edgesMesh) {
+    scene.remove(edgesMesh);
+    edgesMesh.geometry.dispose();
+    edgesMesh.material.dispose();
+  }
+
+  if (count === 0) return;
+
+  instancedMesh = new THREE.InstancedMesh(boxGeo, lambertMat, count);
+  instancedMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3);
+
+  const color = new THREE.Color();
+  for (let i = 0; i < count; i++) {
+    const v = voxels[i];
+    dummyMatrix.setPosition(v.x - W / 2, v.y, v.z - D / 2);
+    instancedMesh.setMatrixAt(i, dummyMatrix);
+    if (viewMode === 'group') {
+      color.copy(GROUP_COLORS[v.gid] || GROUP_COLORS[0]);
+    } else {
+      color.copy(getMatColor(v.mid));
+    }
+    instancedMesh.setColorAt(i, color);
+  }
+  instancedMesh.instanceMatrix.needsUpdate = true;
+  if (instancedMesh.instanceColor) instancedMesh.instanceColor.needsUpdate = true;
+  scene.add(instancedMesh);
+
+  // Edges
+  if (showEdges) {
+    const edgesGeo = new THREE.EdgesGeometry(boxGeo);
+    const edgesMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.2 });
+    edgesMesh = new THREE.InstancedMesh(edgesGeo, edgesMat, count);
+    for (let i = 0; i < count; i++) {
+      const v = voxels[i];
+      dummyMatrix.setPosition(v.x - W / 2, v.y, v.z - D / 2);
+      edgesMesh.setMatrixAt(i, dummyMatrix);
+    }
+    edgesMesh.instanceMatrix.needsUpdate = true;
+    scene.add(edgesMesh);
+  }
+}
+
+// === ANIMATION MESH (posed preview) ===
+let animMesh = null;
+let animEdgesMesh = null;
+let pivotGroup = null;
+
+function buildPivotGizmos() {
+  if (pivotGroup) scene.remove(pivotGroup);
+  pivotGroup = new THREE.Group();
+  
+  for (let gid = 1; gid <= 5; gid++) {
+    const p = pivots[gid];
+    if (!p) continue;
+    const px = p.x * W - W / 2;
+    const py = p.y * H;
+    const pz = p.z * D - D / 2;
+    
+    // Small sphere at pivot
+    const sphereGeo = new THREE.SphereGeometry(0.8, 8, 8);
+    const sphereMat = new THREE.MeshBasicMaterial({ color: GROUPS[gid].color });
+    const sphere = new THREE.Mesh(sphereGeo, sphereMat);
+    sphere.position.set(px, py, pz);
+    pivotGroup.add(sphere);
+    
+    // Ring around pivot
+    const ringGeo = new THREE.TorusGeometry(1.5, 0.15, 4, 16);
+    const ringMat = new THREE.MeshBasicMaterial({ color: GROUPS[gid].color, transparent: true, opacity: 0.5 });
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.position.set(px, py, pz);
+    pivotGroup.add(ring);
+  }
+  
+  scene.add(pivotGroup);
+}
+
+// === ANIMATION MATH (ported from shader ComputeGroupRotation) ===
+function rotationX(angle) {
+  const c = Math.cos(angle), s = Math.sin(angle);
+  return [[1,0,0],[0,c,-s],[0,s,c]];
+}
+
+function rotationY(angle) {
+  const c = Math.cos(angle), s = Math.sin(angle);
+  return [[c,0,-s],[0,1,0],[s,0,c]];
+}
+
+function matMul3(a, b) {
+  const r = [[0,0,0],[0,0,0],[0,0,0]];
+  for (let i=0;i<3;i++) for (let j=0;j<3;j++) for (let k=0;k<3;k++)
+    r[i][j] += a[i][k]*b[k][j];
+  return r;
+}
+
+function matVec3(m, v) {
+  return [
+    m[0][0]*v[0]+m[0][1]*v[1]+m[0][2]*v[2],
+    m[1][0]*v[0]+m[1][1]*v[1]+m[1][2]*v[2],
+    m[2][0]*v[0]+m[2][1]*v[1]+m[2][2]*v[2],
+  ];
+}
+
+function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpeed) {
+  const PI = Math.PI;
+  const headPivot = [dims[0]*0.5, dims[1]*0.78, dims[2]*0.5];
+  const lArmPivot = [dims[0]*0.25, dims[1]*0.75, dims[2]*0.5];
+  const rArmPivot = [dims[0]*0.75, dims[1]*0.75, dims[2]*0.5];
+  const lLegPivot = [dims[0]*0.375, dims[1]*0.34, dims[2]*0.5];
+  const rLegPivot = [dims[0]*0.625, dims[1]*0.34, dims[2]*0.5];
+
+  let pivot = [0,0,0];
+  let rot = [[1,0,0],[0,1,0],[0,0,1]];
+
+  if (gid === 1) { // Head
+    pivot = headPivot.map(v => v * voxelSize);
+    let headYaw = 0, headPitch = 0;
+    if (animState > 1.5 && animState < 3.5) { // Looking or Checking
+      const p = animParams.looking;
+      headYaw = Math.sin(animTime * p.headYawFreq) * p.headYaw;
+      headPitch = Math.sin(animTime * p.headPitchFreq) * p.headPitch;
+    } else if (animState > 3.5 && animState < 4.5) { // Aiming
+      const p = animParams.aiming;
+      headYaw = p.headYaw; headPitch = p.headPitch;
+    } else if (animState > 5.5 && animState < 6.5) { // Crouching
+      headPitch = animParams.crouching.headPitch;
+    } else if (animState > 6.5 && animState < 7.5) { // Flinching
+      headPitch = animParams.flinching.headPitch;
+    } else return null;
+    rot = matMul3(rotationY(headYaw), rotationX(headPitch));
+    return { pivot, rot };
+  } else if (gid === 2) { // Left arm
+    pivot = lArmPivot.map(v => v * voxelSize);
+    let swing = 0;
+    if (animState > 0.5 && animState < 1.5) { // Walking
+      swing = Math.sin(animTime * animParams.walk.armFreq * animSpeed) * animParams.walk.armSwing;
+    } else if (animState > 3.5 && animState < 4.5) { // Aiming
+      swing = animParams.aiming.armSwing;
+    } else if (animState > 5.5 && animState < 6.5) { // Crouching
+      swing = animParams.crouching.armSwingL;
+    } else if (animState > 6.5 && animState < 7.5) { // Flinching
+      swing = animParams.flinching.armSwing;
+    } else return null;
+    rot = rotationX(swing);
+    return { pivot, rot };
+  } else if (gid === 3) { // Right arm
+    pivot = rArmPivot.map(v => v * voxelSize);
+    let swing = 0;
+    if (animState > 0.5 && animState < 1.5) { // Walking
+      swing = Math.sin(animTime * animParams.walk.armFreq * animSpeed + PI) * animParams.walk.armSwing;
+    } else if (animState > 3.5 && animState < 4.5) { // Aiming
+      swing = animParams.aiming.armSwing;
+    } else if (animState > 5.5 && animState < 6.5) { // Crouching
+      swing = animParams.crouching.armSwingR;
+    } else if (animState > 6.5 && animState < 7.5) { // Flinching
+      swing = animParams.flinching.armSwing;
+    } else return null;
+    rot = rotationX(swing);
+    return { pivot, rot };
+  } else if (gid === 4) { // Left leg
+    pivot = lLegPivot.map(v => v * voxelSize);
+    let stride = 0;
+    if (animState > 0.5 && animState < 1.5) { // Walking
+      stride = Math.sin(animTime * animParams.walk.legFreq * animSpeed + PI) * animParams.walk.legStride;
+    } else if (animState > 5.5 && animState < 6.5) { // Crouching
+      stride = animParams.crouching.legStride;
+    } else if (animState > 7.5 && animState < 8.5) { // Falling
+      stride = animParams.falling.legStrideL;
+    } else return null;
+    rot = rotationX(stride);
+    return { pivot, rot };
+  } else if (gid === 5) { // Right leg
+    pivot = rLegPivot.map(v => v * voxelSize);
+    let stride = 0;
+    if (animState > 0.5 && animState < 1.5) { // Walking
+      stride = Math.sin(animTime * animParams.walk.legFreq * animSpeed) * animParams.walk.legStride;
+    } else if (animState > 5.5 && animState < 6.5) { // Crouching
+      stride = animParams.crouching.legStride;
+    } else if (animState > 7.5 && animState < 8.5) { // Falling
+      stride = animParams.falling.legStrideR;
+    } else return null;
+    rot = rotationX(stride);
+    return { pivot, rot };
+  }
+  return null;
+}
+
+// === ANIMATED MESH REBUILD ===
+let currentAnimState = 0;
+let animTime = 0;
+let isPlaying = true;
+let animSpeed = 1.0;
+let useAnimatedMesh = false;
+
+function rebuildAnimatedMesh() {
+  if (animMesh) {
+    scene.remove(animMesh);
+    animMesh.dispose();
+    animMesh = null;
+  }
+  if (animEdgesMesh) {
+    scene.remove(animEdgesMesh);
+    animEdgesMesh.geometry.dispose();
+    animEdgesMesh.material.dispose();
+    animEdgesMesh = null;
+  }
+
+  if (!useAnimatedMesh) {
+    rebuildMesh();
+    return;
+  }
+
+  const voxels = getVoxelList();
+  const count = voxels.length;
+  if (count === 0) return;
+
+  animMesh = new THREE.InstancedMesh(boxGeo, lambertMat, count);
+  animMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3);
+
+  const color = new THREE.Color();
+  const dims = [W, H, D];
+  const voxelSize = 1.0; // 1 unit per voxel in editor
+
+  for (let i = 0; i < count; i++) {
+    const v = voxels[i];
+    let px = v.x - W / 2;
+    let py = v.y;
+    let pz = v.z - D / 2;
+
+    // Apply group transform
+    if (v.gid > 0) {
+      const result = computeGroupRotation(v.gid, dims, voxelSize, currentAnimState, animTime, animSpeed);
+      if (result) {
+        const localPos = [v.x, v.y, v.z];
+        const relPos = [localPos[0] - result.pivot[0], localPos[1] - result.pivot[1], localPos[2] - result.pivot[2]];
+        const transformed = matVec3(result.rot, relPos);
+        px = transformed[0] + result.pivot[0] - W / 2;
+        py = transformed[1] + result.pivot[1];
+        pz = transformed[2] + result.pivot[2] - D / 2;
+      }
+    }
+
+    dummyMatrix.setPosition(px, py, pz);
+    animMesh.setMatrixAt(i, dummyMatrix);
+
+    if (viewMode === 'group') {
+      color.copy(GROUP_COLORS[v.gid] || GROUP_COLORS[0]);
+    } else {
+      color.copy(getMatColor(v.mid));
+    }
+    animMesh.setColorAt(i, color);
+  }
+  animMesh.instanceMatrix.needsUpdate = true;
+  if (animMesh.instanceColor) animMesh.instanceColor.needsUpdate = true;
+  scene.add(animMesh);
+
+  // Edges
+  if (showEdges) {
+    const edgesGeo = new THREE.EdgesGeometry(boxGeo);
+    const edgesMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.15 });
+    animEdgesMesh = new THREE.InstancedMesh(edgesGeo, edgesMat, count);
+    for (let i = 0; i < count; i++) {
+      const v = voxels[i];
+      let px = v.x - W / 2;
+      let py = v.y;
+      let pz = v.z - D / 2;
+      if (v.gid > 0) {
+        const result = computeGroupRotation(v.gid, [W,H,D], 1.0, currentAnimState, animTime, animSpeed);
+        if (result) {
+          const localPos = [v.x, v.y, v.z];
+          const relPos = [localPos[0] - result.pivot[0], localPos[1] - result.pivot[1], localPos[2] - result.pivot[2]];
+          const transformed = matVec3(result.rot, relPos);
+          px = transformed[0] + result.pivot[0] - W / 2;
+          py = transformed[1] + result.pivot[1];
+          pz = transformed[2] + result.pivot[2] - D / 2;
+        }
+      }
+      dummyMatrix.setPosition(px, py, pz);
+      animEdgesMesh.setMatrixAt(i, dummyMatrix);
+    }
+    animEdgesMesh.instanceMatrix.needsUpdate = true;
+    scene.add(animEdgesMesh);
+  }
+}
+
+// === RAYCASTING ===
+const planeGeo = new THREE.PlaneGeometry(W * 4, D * 4);
+planeGeo.rotateX(-Math.PI / 2);
+const groundPlane = new THREE.Mesh(planeGeo, new THREE.MeshBasicMaterial({ visible: false }));
+groundPlane.position.set(0, 0, 0);
+scene.add(groundPlane);
+
+function raycastVoxel(event) {
+  pointer.set(
+    (event.clientX / window.innerWidth) * 2 - 1,
+    -(event.clientY / window.innerHeight) * 2 + 1
+  );
+  raycaster.setFromCamera(pointer, camera);
+
+  const objects = [];
+  const meshToUse = useAnimatedMesh ? animMesh : instancedMesh;
+  if (meshToUse) objects.push(meshToUse);
+  objects.push(groundPlane);
+
+  const intersects = raycaster.intersectObjects(objects, false);
+  if (intersects.length === 0) return null;
+
+  const hit = intersects[0];
+  if (hit.object === groundPlane) {
+    const p = hit.point;
+    const x = Math.floor(p.x + W / 2);
+    const z = Math.floor(p.z + D / 2);
+    return { x, y: 0, z, normal: new THREE.Vector3(0, 1, 0) };
+  }
+
+  const instanceId = hit.instanceId;
+  const voxels = getVoxelList();
+  if (instanceId >= voxels.length) return null;
+  const v = voxels[instanceId];
+  const normal = hit.face.normal.clone();
+  return { x: v.x, y: v.y, z: v.z, normal, gid: v.gid, mid: v.mid };
+}
+
+// === TOOLS ===
+let currentTool = 'paint';
+let selectedGroup = 1;
+
+function performTool(event) {
+  if (currentTool === 'camera') return;
+  const hit = raycastVoxel(event);
+  if (!hit) return;
+
+  switch (currentTool) {
+    case 'paint':
+      groupMap.set(`${hit.x},${hit.y},${hit.z}`, selectedGroup);
+      if (useAnimatedMesh) rebuildAnimatedMesh(); else rebuildMesh();
+      updateGroupCounts();
+      setStatus(`Painted group ${GROUPS[selectedGroup].name} at (${hit.x},${hit.y},${hit.z})`);
+      break;
+    case 'erase':
+      groupMap.set(`${hit.x},${hit.y},${hit.z}`, 0);
+      if (useAnimatedMesh) rebuildAnimatedMesh(); else rebuildMesh();
+      updateGroupCounts();
+      setStatus(`Cleared group at (${hit.x},${hit.y},${hit.z})`);
+      break;
+    case 'eyedropper':
+      const gid = groupMap.get(`${hit.x},${hit.y},${hit.z}`) || 0;
+      selectGroup(gid);
+      setStatus(`Picked group ${GROUPS[gid]?.name || 'Body'}`);
+      break;
+    case 'fill':
+      floodFillGroup(hit.x, hit.y, hit.z, selectedGroup);
+      if (useAnimatedMesh) rebuildAnimatedMesh(); else rebuildMesh();
+      updateGroupCounts();
+      setStatus(`Flood-filled group ${GROUPS[selectedGroup].name}`);
+      break;
+  }
+}
+
+function floodFillGroup(x, y, z, newGid) {
+  const startKey = `${x},${y},${z}`;
+  const targetGid = groupMap.get(startKey) || 0;
+  if (targetGid === newGid) return;
+  const visited = new Set();
+  const queue = [[x, y, z]];
+  while (queue.length > 0) {
+    const [cx, cy, cz] = queue.shift();
+    const key = `${cx},${cy},${cz}`;
+    if (visited.has(key)) continue;
+    if (!voxelMap.has(key)) continue;
+    const gid = groupMap.get(key) || 0;
+    if (gid !== targetGid) continue;
+    visited.add(key);
+    groupMap.set(key, newGid);
+    queue.push([cx+1,cy,cz],[cx-1,cy,cz],[cx,cy+1,cz],[cx,cy-1,cz],[cx,cy,cz+1],[cx,cy,cz-1]);
+  }
+}
+
+// === HIGHLIGHT ON HOVER ===
+function updateHighlight(event) {
+  if (currentTool === 'camera') { clearHighlight(); return; }
+  const hit = raycastVoxel(event);
+  if (!hit) { clearHighlight(); return; }
+  const colors = { paint: 0x00ff00, erase: 0xff0000, eyedropper: 0x00aaff, fill: 0x00ffff };
+  showHighlight([[hit.x, hit.y, hit.z]], colors[currentTool] || 0xffffff);
+  document.getElementById('status-coords').textContent = `(${hit.x}, ${hit.y}, ${hit.z}) gid=${hit.gid ?? '?'}`;
+}
+
+// === UI BUILDING ===
+function buildGroupList() {
+  const container = document.getElementById('group-list');
+  container.innerHTML = '';
+  for (const g of GROUPS) {
+    const div = document.createElement('div');
+    div.className = 'group-item' + (g.id === selectedGroup ? ' selected' : '');
+    div.innerHTML = `
+      <div class="group-swatch" style="background:${g.color}"></div>
+      <span class="group-name">${g.name}</span>
+      <span class="group-count" id="group-count-${g.id}">0</span>
+    `;
+    div.onclick = () => selectGroup(g.id);
+    container.appendChild(div);
+  }
+  updateGroupCounts();
+}
+
+function selectGroup(gid) {
+  selectedGroup = gid;
+  document.querySelectorAll('.group-item').forEach((el, i) => {
+    el.classList.toggle('selected', GROUPS[i].id === gid);
+  });
+  if (currentTool === 'erase' || currentTool === 'eyedropper') {
+    setTool('paint');
+  }
+}
+
+function updateGroupCounts() {
+  const counts = {};
+  for (const g of GROUPS) counts[g.id] = 0;
+  for (const [key, gid] of groupMap) {
+    counts[gid] = (counts[gid] || 0) + 1;
+  }
+  for (const g of GROUPS) {
+    const el = document.getElementById(`group-count-${g.id}`);
+    if (el) el.textContent = counts[g.id] || 0;
+  }
+}
+
+function buildStateGrid() {
+  const container = document.getElementById('state-grid');
+  container.innerHTML = '';
+  for (const s of STATES) {
+    const btn = document.createElement('button');
+    btn.className = 'state-btn' + (s.id === currentAnimState ? ' active' : '');
+    btn.textContent = s.name;
+    btn.title = s.desc;
+    btn.onclick = () => selectState(s.id);
+    container.appendChild(btn);
+  }
+}
+
+function selectState(stateId) {
+  currentAnimState = stateId;
+  animTime = 0;
+  document.querySelectorAll('.state-btn').forEach((el, i) => {
+    el.classList.toggle('active', STATES[i].id === stateId);
+  });
+  if (!useAnimatedMesh) {
+    useAnimatedMesh = true;
+    // Hide static mesh
+    if (instancedMesh) instancedMesh.visible = false;
+    if (edgesMesh) edgesMesh.visible = false;
+  }
+  rebuildAnimatedMesh();
+  buildParamControls();
+  setStatus(`State: ${STATES[stateId].name} — ${STATES[stateId].desc}`);
+}
+
+function buildPivotControls() {
+  const container = document.getElementById('pivot-controls');
+  container.innerHTML = '';
+  for (let gid = 1; gid <= 5; gid++) {
+    const p = pivots[gid];
+    const div = document.createElement('div');
+    div.className = 'pivot-info';
+    div.innerHTML = `<span style="color:${GROUPS[gid].color}">●</span> ${GROUPS[gid].name}`;
+    container.appendChild(div);
+
+    for (const axis of ['x', 'y', 'z']) {
+      const row = document.createElement('div');
+      row.className = 'pivot-row';
+      row.innerHTML = `
+        <label>${axis.toUpperCase()}</label>
+        <input type="number" min="0" max="1" step="0.01" value="${p[axis]}" data-gid="${gid}" data-axis="${axis}">
+      `;
+      const input = row.querySelector('input');
+      input.oninput = (e) => {
+        pivots[gid][axis] = parseFloat(e.target.value);
+        buildPivotGizmos();
+        if (useAnimatedMesh) rebuildAnimatedMesh();
+      };
+      container.appendChild(row);
+    }
+  }
+  buildPivotGizmos();
+}
+
+function buildParamControls() {
+  const container = document.getElementById('param-controls');
+  container.innerHTML = '';
+
+  // Determine which params are relevant for current state
+  let relevantParams = [];
+  const stateName = STATES[currentAnimState].name.toLowerCase();
+
+  if (currentAnimState === 1) { // Walking
+    relevantParams = [
+      ['walk', 'armSwing', 'Arm Swing', 0, 1.5, 0.01],
+      ['walk', 'armFreq', 'Arm Freq', 1, 15, 0.1],
+      ['walk', 'legStride', 'Leg Stride', 0, 1.5, 0.01],
+      ['walk', 'legFreq', 'Leg Freq', 1, 15, 0.1],
+    ];
+  } else if (currentAnimState === 2 || currentAnimState === 3) { // Looking/Checking
+    relevantParams = [
+      ['looking', 'headYaw', 'Head Yaw', 0, 1.5, 0.01],
+      ['looking', 'headYawFreq', 'Yaw Freq', 0.5, 10, 0.1],
+      ['looking', 'headPitch', 'Head Pitch', 0, 1, 0.01],
+      ['looking', 'headPitchFreq', 'Pitch Freq', 0.5, 10, 0.1],
+    ];
+  } else if (currentAnimState === 4) { // Aiming
+    relevantParams = [
+      ['aiming', 'headYaw', 'Head Yaw', -1, 1, 0.01],
+      ['aiming', 'headPitch', 'Head Pitch', -1, 1, 0.01],
+      ['aiming', 'armSwing', 'Arm Swing', -2, 0, 0.01],
+    ];
+  } else if (currentAnimState === 5) { // Crouching
+    relevantParams = [
+      ['crouching', 'headPitch', 'Head Pitch', 0, 1, 0.01],
+      ['crouching', 'armSwingL', 'L Arm Swing', -1.5, 1.5, 0.01],
+      ['crouching', 'armSwingR', 'R Arm Swing', -1.5, 1.5, 0.01],
+      ['crouching', 'legStride', 'Leg Stride', 0, 1.5, 0.01],
+    ];
+  } else if (currentAnimState === 6) { // Flinching
+    relevantParams = [
+      ['flinching', 'headPitch', 'Head Pitch', 0, 1.5, 0.01],
+      ['flinching', 'armSwing', 'Arm Swing', -2.5, 0, 0.01],
+    ];
+  } else if (currentAnimState === 7) { // Falling
+    relevantParams = [
+      ['falling', 'legStrideL', 'L Leg Stride', -1.5, 1.5, 0.01],
+      ['falling', 'legStrideR', 'R Leg Stride', -1.5, 1.5, 0.01],
+    ];
+  }
+
+  if (relevantParams.length === 0) {
+    container.innerHTML = '<div style="font-size:10px;color:#888;">No adjustable params for this state.</div>';
+    return;
+  }
+
+  for (const [section, key, label, min, max, step] of relevantParams) {
+    const row = document.createElement('div');
+    row.className = 'param-row';
+    const val = animParams[section][key];
+    row.innerHTML = `
+      <label>${label}</label>
+      <input type="range" min="${min}" max="${max}" step="${step}" value="${val}" data-section="${section}" data-key="${key}">
+      <span class="param-val">${val.toFixed(2)}</span>
+    `;
+    const input = row.querySelector('input');
+    const valSpan = row.querySelector('.param-val');
+    input.oninput = (e) => {
+      animParams[section][key] = parseFloat(e.target.value);
+      valSpan.textContent = parseFloat(e.target.value).toFixed(2);
+      if (useAnimatedMesh) rebuildAnimatedMesh();
+    };
+    container.appendChild(row);
+  }
+}
+
+// === TOOL SELECTION ===
+function setTool(tool) {
+  currentTool = tool;
+  document.querySelectorAll('.tool-btn[data-tool]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tool === tool);
+  });
+  document.getElementById('status-tool').textContent = `Tool: ${tool.charAt(0).toUpperCase() + tool.slice(1)}`;
+}
+
+document.querySelectorAll('.tool-btn[data-tool]').forEach(btn => {
+  btn.onclick = () => setTool(btn.dataset.tool);
+});
+
+// View mode toggle
+document.querySelectorAll('.view-btn').forEach(btn => {
+  btn.onclick = () => {
+    viewMode = btn.dataset.view;
+    document.querySelectorAll('.view-btn').forEach(b => b.classList.toggle('active', b === btn));
+    if (useAnimatedMesh) rebuildAnimatedMesh(); else rebuildMesh();
+  };
+});
+
+// Playback controls
+document.getElementById('play-btn').onclick = function() {
+  isPlaying = !isPlaying;
+  this.textContent = isPlaying ? '▶' : '⏸';
+  this.classList.toggle('active', isPlaying);
+};
+
+document.getElementById('stop-btn').onclick = function() {
+  isPlaying = false;
+  animTime = 0;
+  document.getElementById('play-btn').textContent = '▶';
+  document.getElementById('play-btn').classList.remove('active');
+  if (useAnimatedMesh) rebuildAnimatedMesh();
+};
+
+document.getElementById('speed-slider').oninput = function(e) {
+  animSpeed = parseFloat(e.target.value);
+  document.getElementById('speed-val').textContent = animSpeed.toFixed(1) + 'x';
+};
+
+document.getElementById('timeline-slider').oninput = function(e) {
+  animTime = parseFloat(e.target.value);
+  document.getElementById('timeline-time').textContent = animTime.toFixed(2) + 's';
+  if (useAnimatedMesh) rebuildAnimatedMesh();
+};
+
+// Grid toggle
+document.getElementById('grid-btn').onclick = function() {
+  gridHelper.visible = !gridHelper.visible;
+  this.classList.toggle('active', gridHelper.visible);
+  if (pivotGroup) pivotGroup.visible = gridHelper.visible;
+};
+
+// Reset view
+document.getElementById('reset-btn').onclick = () => {
+  camera.position.set(W * 3, H * 2, D * 3);
+  controls.target.set(0, H / 2, 0);
+  controls.update();
+};
+
+// Export button
+document.getElementById('export-btn').onclick = () => {
+  document.getElementById('export-modal').style.display = 'flex';
+};
+
+window.closeExport = () => {
+  document.getElementById('export-modal').style.display = 'none';
+};
+
+// === RESET PIVOTS ===
+window.resetPivots = () => {
+  pivots = JSON.parse(JSON.stringify(DEFAULT_PIVOTS));
+  buildPivotControls();
+  if (useAnimatedMesh) rebuildAnimatedMesh();
+  setStatus('Pivots reset to defaults');
+};
+
+// === AUTO-DETECT PIVOTS from group bounds ===
+window.autoDetectPivots = () => {
+  for (let gid = 1; gid <= 5; gid++) {
+    let minX=W, minY=H, minZ=D, maxX=0, maxY=0, maxZ=0, count=0;
+    for (const [key, g] of groupMap) {
+      if (g !== gid) continue;
+      const [x,y,z] = key.split(',').map(Number);
+      minX=Math.min(minX,x); maxX=Math.max(maxX,x);
+      minY=Math.min(minY,y); maxY=Math.max(maxY,y);
+      minZ=Math.min(minZ,z); maxZ=Math.max(maxZ,z);
+      count++;
+    }
+    if (count === 0) continue;
+    // Pivot = top-center of the group's bounding box
+    pivots[gid].x = (minX + maxX + 1) / 2 / W;
+    pivots[gid].y = (maxY + 1) / H;
+    pivots[gid].z = (minZ + maxZ + 1) / 2 / D;
+  }
+  buildPivotControls();
+  if (useAnimatedMesh) rebuildAnimatedMesh();
+  setStatus('Pivots auto-detected from group bounds');
+};
+
+// === EXPORT / IMPORT ===
+window.exportGroupsJSON = () => {
+  const data = {
+    format: 'groups_export',
+    dims: [W, H, D],
+    groups: Array.from(groupMap.entries()).map(([k, v]) => {
+      const [x, y, z] = k.split(',').map(Number);
+      return [x, y, z, v];
+    })
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `character_groups_${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  setStatus(`Exported ${data.groups.length} group assignments`);
+};
+
+window.exportAnimParams = () => {
+  const data = {
+    format: 'anim_params',
+    version: 1,
+    pivots: pivots,
+    params: animParams,
+    states: STATES,
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `character_anim_${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  setStatus('Exported animation parameters');
+};
+
+window.saveProject = () => {
+  const data = {
+    format: 'character_animator_project',
+    version: 1,
+    dims: [W, H, D],
+    materials: allMaterials,
+    voxels: Array.from(voxelMap.entries()).map(([k, v]) => {
+      const [x, y, z] = k.split(',').map(Number);
+      return [x, y, z, v];
+    }),
+    groups: Array.from(groupMap.entries()).map(([k, v]) => {
+      const [x, y, z] = k.split(',').map(Number);
+      return [x, y, z, v];
+    }),
+    pivots: pivots,
+    animParams: animParams,
+    savedAt: new Date().toISOString(),
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `character_project_${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  setStatus(`Project saved: ${data.voxels.length} voxels, ${data.groups.length} groups`);
+};
+
+window.loadProject = (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data.dims || !data.voxels) throw new Error('Invalid project file');
+      W = data.dims[0]; H = data.dims[1]; D = data.dims[2];
+      voxelMap.clear();
+      groupMap.clear();
+      for (const [x, y, z, mid] of data.voxels) voxelMap.set(`${x},${y},${z}`, mid);
+      if (data.groups) for (const [x, y, z, gid] of data.groups) groupMap.set(`${x},${y},${z}`, gid);
+      if (data.pivots) pivots = data.pivots;
+      if (data.animParams) animParams = data.animParams;
+      buildPivotControls();
+      buildParamControls();
+      if (useAnimatedMesh) rebuildAnimatedMesh(); else rebuildMesh();
+      updateGroupCounts();
+      setStatus(`Loaded project: ${data.voxels.length} voxels`);
+      closeExport();
+    } catch (err) {
+      setStatus(`Load failed: ${err.message}`);
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+};
+
+window.importStasset = (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data.dims || !data.voxels) throw new Error('Invalid stasset JSON');
+      W = data.dims[0]; H = data.dims[1]; D = data.dims[2];
+      voxelMap.clear();
+      for (const [x, y, z, mid] of data.voxels) {
+        if (mid !== 0) voxelMap.set(`${x},${y},${z}`, mid);
+      }
+      // Initialize all groups to 0
+      groupMap.clear();
+      for (const [key] of voxelMap) groupMap.set(key, 0);
+      if (useAnimatedMesh) rebuildAnimatedMesh(); else rebuildMesh();
+      updateGroupCounts();
+      buildPivotControls();
+      setStatus(`Imported ${data.voxels.length} voxels from .stasset JSON`);
+      closeExport();
+    } catch (err) {
+      setStatus(`Import failed: ${err.message}`);
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+};
+
+window.importGroups = (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data.dims || !data.groups) throw new Error('Invalid groups JSON');
+      groupMap.clear();
+      for (const [x, y, z, gid] of data.groups) {
+        groupMap.set(`${x},${y},${z}`, gid);
+      }
+      if (useAnimatedMesh) rebuildAnimatedMesh(); else rebuildMesh();
+      updateGroupCounts();
+      setStatus(`Imported ${data.groups.length} group assignments`);
+      closeExport();
+    } catch (err) {
+      setStatus(`Import failed: ${err.message}`);
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+};
+
+// === STATUS ===
+function setStatus(msg) {
+  document.getElementById('status-info').textContent = msg;
+}
+
+// === KEYBOARD ===
+window.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') return;
+  switch (e.key.toLowerCase()) {
+    case 'p': setTool('paint'); break;
+    case 'e': setTool('erase'); break;
+    case 'i': setTool('eyedropper'); break;
+    case 'f': setTool('fill'); break;
+    case 'escape': setTool('camera'); break;
+    case '1': case '2': case '3': case '4': case '5': case '6':
+      selectGroup(parseInt(e.key) - 1);
+      break;
+    case ' ':
+      e.preventDefault();
+      document.getElementById('play-btn').click();
+      break;
+  }
+});
+
+// === MOUSE EVENTS ===
+let isMouseDown = false;
+renderer.domElement.addEventListener('mousedown', (e) => {
+  if (e.button === 0) {
+    isMouseDown = true;
+    if (currentTool !== 'camera') performTool(e);
+  }
+});
+renderer.domElement.addEventListener('mousemove', (e) => {
+  updateHighlight(e);
+  if (isMouseDown && currentTool !== 'camera' && currentTool !== 'eyedropper') {
+    performTool(e);
+  }
+});
+renderer.domElement.addEventListener('mouseup', () => { isMouseDown = false; });
+renderer.domElement.addEventListener('mouseleave', () => { isMouseDown = false; clearHighlight(); });
+
+// === RESIZE ===
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// === FPS ===
+let lastTime = performance.now();
+let frameCount = 0;
+
+// === ANIMATION LOOP ===
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+
+  if (isPlaying && useAnimatedMesh) {
+    animTime += 0.016 * animSpeed;
+    document.getElementById('timeline-slider').value = animTime % 10;
+    document.getElementById('timeline-time').textContent = (animTime % 10).toFixed(2) + 's';
+    rebuildAnimatedMesh();
+  }
+
+  renderer.render(scene, camera);
+
+  frameCount++;
+  const now = performance.now();
+  if (now - lastTime > 1000) {
+    document.getElementById('status-fps').textContent = Math.round(frameCount * 1000 / (now - lastTime)) + ' FPS';
+    frameCount = 0;
+    lastTime = now;
+  }
+}
+
+// === INIT ===
+buildGroupList();
+buildStateGrid();
+buildPivotControls();
+buildParamControls();
+
+// Create a simple default character (placeholder cube) so the editor isn't empty
+function createDefaultCharacter() {
+  // Simple humanoid placeholder: 16 wide, 32 tall, 10 deep
+  // Body (group 0): torso + hips
+  for (let y = 11; y < 24; y++)
+    for (let x = 4; x < 12; x++)
+      for (let z = 3; z < 7; z++)
+        voxelMap.set(`${x},${y},${z}`, 107); // Light Wood
+
+  // Head (group 1): top portion
+  for (let y = 24; y < 30; y++)
+    for (let x = 5; x < 11; x++)
+      for (let z = 3; z < 7; z++) {
+        const key = `${x},${y},${z}`;
+        voxelMap.set(key, 103); // Stucco (skin)
+        groupMap.set(key, 1);
+      }
+
+  // Left arm (group 2): left side
+  for (let y = 18; y < 24; y++)
+    for (let x = 2; x < 4; x++)
+      for (let z = 3; z < 7; z++) {
+        const key = `${x},${y},${z}`;
+        voxelMap.set(key, 120); // Painted Red
+        groupMap.set(key, 2);
+      }
+
+  // Right arm (group 3): right side
+  for (let y = 18; y < 24; y++)
+    for (let x = 12; x < 14; x++)
+      for (let z = 3; z < 7; z++) {
+        const key = `${x},${y},${z}`;
+        voxelMap.set(key, 121); // Painted Green
+        groupMap.set(key, 3);
+      }
+
+  // Left leg (group 4): bottom left
+  for (let y = 0; y < 11; y++)
+    for (let x = 5; x < 8; x++)
+      for (let z = 3; z < 7; z++) {
+        const key = `${x},${y},${z}`;
+        voxelMap.set(key, 106); // Dark Wood
+        groupMap.set(key, 4);
+      }
+
+  // Right leg (group 5): bottom right
+  for (let y = 0; y < 11; y++)
+    for (let x = 8; x < 11; x++)
+      for (let z = 3; z < 7; z++) {
+        const key = `${x},${y},${z}`;
+        voxelMap.set(key, 106); // Dark Wood
+        groupMap.set(key, 5);
+      }
+
+  // Fill remaining group 0 assignments
+  for (const [key] of voxelMap) {
+    if (!groupMap.has(key)) groupMap.set(key, 0);
+  }
+}
+
+createDefaultCharacter();
+rebuildMesh();
+updateGroupCounts();
+animate();
+
+setStatus('Character Animator ready — select a state to preview animation');
+</script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+{
+  "_comment": "Steel City: Mob Sim — Weapon hit and damage tables. Derived from original game's Hit Table.xtx and Damage Table.xtx.",
+  "version": "0.0.1",
+  "hit_formula": "((attacker_skill + 1) / (defender_skill + 1)) * range_factor",
+  "damage_formula": "range_in_locations * 8 + rand(0,7) -> lookup table",
+  "wound_states": {"1": "Winded", "2": "Lightly Wounded", "3": "Badly Wounded", "4": "Dead"},
+  "weapons": [
+    {"name": "Pistol", "hit_factors": [50, 21, 14, 11, 7, 0, 0, 0]},
+    {"name": "Tommy Gun", "hit_factors": [12, 10, 9, 8, 6, 5, 4, 0]},
+    {"name": "Rifle", "hit_factors": [34, 50, 50, 50, 24, 20, 17, 0]},
+    {"name": "Shotgun", "hit_factors": [52, 100, 52, 24, 20, 0, 0, 0]},
+    {"name": "Fist", "hit_factors": [52, 0, 0, 0, 0, 0, 0, 0]},
+    {"name": "Bat/Crowbar", "hit_factors": [52, 0, 0, 0, 0, 0, 0, 0]},
+    {"name": "Knife", "hit_factors": [52, 0, 0, 0, 0, 0, 0, 0]},
+    {"name": "Kick", "hit_factors": [105, 0, 0, 0, 0, 0, 0, 0]},
+    {"name": "Twin Pistols", "hit_factors": [60, 45, 30, 26, 22, 20, 15, 0]}
+  ]
+}

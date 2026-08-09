@@ -1,0 +1,1109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GPU Instancing & Buffering — Visual Guide</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #1c2331;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --accent2: #3fb950;
+    --accent3: #f0883e;
+    --accent4: #f778ba;
+    --red: #f85149;
+    --yellow: #d29922;
+    --cyan: #39c5cf;
+    --purple: #bc8cff;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    padding: 0;
+  }
+
+  /* --- Hero --- */
+  .hero {
+    text-align: center;
+    padding: 60px 20px 40px;
+    background: linear-gradient(135deg, #0d1117 0%, #161b22 50%, #1a2332 100%);
+    border-bottom: 1px solid var(--border);
+  }
+  .hero h1 {
+    font-size: 2.6em;
+    background: linear-gradient(90deg, var(--accent), var(--purple), var(--accent4));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 10px;
+  }
+  .hero .subtitle { color: var(--text-dim); font-size: 1.15em; max-width: 700px; margin: 0 auto; }
+  .hero .badges { margin-top: 20px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .badge {
+    padding: 4px 14px;
+    border-radius: 20px;
+    font-size: 0.85em;
+    font-weight: 600;
+    border: 1px solid;
+  }
+  .badge.b1 { color: var(--accent); border-color: var(--accent); }
+  .badge.b2 { color: var(--accent2); border-color: var(--accent2); }
+  .badge.b3 { color: var(--accent3); border-color: var(--accent3); }
+  .badge.b4 { color: var(--accent4); border-color: var(--accent4); }
+
+  /* --- Layout --- */
+  .container { max-width: 1100px; margin: 0 auto; padding: 40px 24px 80px; }
+  section { margin-bottom: 60px; }
+  h2 {
+    font-size: 1.8em;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  h2 .num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    font-size: 0.65em;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  h3 { font-size: 1.25em; margin: 24px 0 12px; color: var(--accent); }
+  p { margin-bottom: 14px; color: var(--text); }
+  .lead { color: var(--text-dim); font-size: 1.1em; margin-bottom: 20px; }
+
+  /* --- Cards --- */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin: 20px 0;
+  }
+  .card.glow-blue { border-left: 4px solid var(--accent); }
+  .card.glow-green { border-left: 4px solid var(--accent2); }
+  .card.glow-orange { border-left: 4px solid var(--accent3); }
+  .card.glow-pink { border-left: 4px solid var(--accent4); }
+  .card.glow-red { border-left: 4px solid var(--red); }
+
+  /* --- Grid --- */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
+  @media (max-width: 768px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+
+  /* --- Analogy box --- */
+  .analogy {
+    background: linear-gradient(135deg, #1a1f2e, #1e2d3a);
+    border: 1px solid var(--accent);
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin: 20px 0;
+    position: relative;
+  }
+  .analogy::before {
+    content: "💡 ANALOGY";
+    position: absolute;
+    top: -10px; left: 20px;
+    background: var(--bg);
+    padding: 0 10px;
+    font-size: 0.75em;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 1px;
+  }
+
+  /* --- Flowchart --- */
+  .flowchart { display: flex; flex-direction: column; align-items: center; gap: 0; margin: 30px 0; }
+  .flow-node {
+    background: var(--surface2);
+    border: 2px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 28px;
+    text-align: center;
+    min-width: 280px;
+    position: relative;
+    z-index: 1;
+  }
+  .flow-node .title { font-weight: 700; font-size: 1.05em; margin-bottom: 4px; }
+  .flow-node .desc { font-size: 0.85em; color: var(--text-dim); }
+  .flow-node.start { border-color: var(--accent2); }
+  .flow-node.start .title { color: var(--accent2); }
+  .flow-node.end { border-color: var(--accent4); }
+  .flow-node.end .title { color: var(--accent4); }
+  .flow-node.warn { border-color: var(--yellow); }
+  .flow-node.warn .title { color: var(--yellow); }
+  .flow-node.danger { border-color: var(--red); }
+  .flow-node.danger .title { color: var(--red); }
+  .flow-arrow {
+    width: 2px; height: 28px;
+    background: var(--border);
+    position: relative;
+  }
+  .flow-arrow::after {
+    content: "";
+    position: absolute;
+    bottom: -1px; left: 50%;
+    transform: translateX(-50%);
+    border-left: 7px solid transparent;
+    border-right: 7px solid transparent;
+    border-top: 9px solid var(--border);
+  }
+  .flow-arrow.label::before {
+    content: attr(data-label);
+    position: absolute;
+    top: 50%; left: 12px;
+    transform: translateY(-50%);
+    font-size: 0.78em;
+    color: var(--text-dim);
+    white-space: nowrap;
+    background: var(--bg);
+    padding: 0 6px;
+  }
+  .flow-row { display: flex; gap: 30px; align-items: flex-start; justify-content: center; }
+  .flow-branch { display: flex; flex-direction: column; align-items: center; gap: 0; }
+
+  /* --- Visual comparison: Draw calls --- */
+  .draw-call-viz {
+    display: flex;
+    gap: 30px;
+    justify-content: center;
+    align-items: stretch;
+    margin: 30px 0;
+    flex-wrap: wrap;
+  }
+  .dc-panel {
+    flex: 1;
+    min-width: 320px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .dc-panel h4 { text-align: center; margin-bottom: 16px; font-size: 1.1em; }
+  .dc-panel.bad h4 { color: var(--red); }
+  .dc-panel.good h4 { color: var(--accent2); }
+  .dc-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(48,54,61,0.5);
+    font-size: 0.85em;
+  }
+  .dc-row:last-child { border-bottom: none; }
+  .dc-icon {
+    width: 28px; height: 28px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7em;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .dc-icon.cpu { background: rgba(88,166,255,0.15); color: var(--accent); border: 1px solid var(--accent); }
+  .dc-icon.gpu { background: rgba(63,185,80,0.15); color: var(--accent2); border: 1px solid var(--accent2); }
+  .dc-icon.call { background: rgba(248,81,73,0.15); color: var(--red); border: 1px solid var(--red); }
+  .dc-bar {
+    height: 8px;
+    border-radius: 4px;
+    margin: 12px 0 4px;
+  }
+  .dc-bar.fill-red { background: linear-gradient(90deg, var(--red), #c0392b); }
+  .dc-bar.fill-green { background: linear-gradient(90deg, var(--accent2), #238636); }
+  .dc-label { font-size: 0.78em; color: var(--text-dim); text-align: right; }
+
+  /* --- Building grid viz --- */
+  .building-grid {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 4px;
+    margin: 16px auto;
+    max-width: 360px;
+  }
+  .building-cell {
+    aspect-ratio: 1;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.6em;
+    font-weight: 700;
+  }
+  .building-cell.individual {
+    background: rgba(248,81,73,0.12);
+    border: 1px solid var(--red);
+    color: var(--red);
+  }
+  .building-cell.instanced {
+    background: rgba(63,185,80,0.12);
+    border: 1px solid var(--accent2);
+    color: var(--accent2);
+  }
+  .building-cell .tag { font-size: 0.9em; }
+
+  /* --- Buffer visualization --- */
+  .buffer-viz {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin: 20px 0;
+  }
+  .buffer-block {
+    display: flex;
+    gap: 4px;
+    margin: 12px 0;
+    flex-wrap: wrap;
+  }
+  .buffer-cell {
+    width: 48px; height: 48px;
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7em;
+    font-weight: 600;
+    border: 1px solid;
+    transition: transform 0.2s;
+  }
+  .buffer-cell:hover { transform: scale(1.1); z-index: 5; }
+  .buffer-cell .idx { font-size: 0.6em; opacity: 0.6; }
+  .buffer-cell.pos { background: rgba(88,166,255,0.1); border-color: var(--accent); color: var(--accent); }
+  .buffer-cell.rot { background: rgba(188,140,255,0.1); border-color: var(--purple); color: var(--purple); }
+  .buffer-cell.scale { background: rgba(63,185,80,0.1); border-color: var(--accent2); color: var(--accent2); }
+  .buffer-cell.color { background: rgba(240,136,62,0.1); border-color: var(--accent3); color: var(--accent3); }
+
+  .buffer-label {
+    font-size: 0.8em;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .buffer-label .dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+  }
+
+  /* --- GPU/CPU pipeline --- */
+  .pipeline {
+    display: flex;
+    gap: 0;
+    margin: 30px 0;
+    overflow-x: auto;
+  }
+  .pipeline-stage {
+    flex: 1;
+    min-width: 160px;
+    text-align: center;
+    position: relative;
+    padding: 16px 12px;
+  }
+  .pipeline-stage .icon {
+    width: 56px; height: 56px;
+    margin: 0 auto 10px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5em;
+    border: 2px solid;
+  }
+  .pipeline-stage .name { font-weight: 700; font-size: 0.95em; margin-bottom: 4px; }
+  .pipeline-stage .detail { font-size: 0.78em; color: var(--text-dim); }
+  .pipeline-stage:not(:last-child)::after {
+    content: "→";
+    position: absolute;
+    right: -10px; top: 50%;
+    transform: translateY(-50%);
+    font-size: 1.5em;
+    color: var(--border);
+    z-index: 2;
+  }
+  .pipeline-stage.cpu .icon { border-color: var(--accent); background: rgba(88,166,255,0.08); }
+  .pipeline-stage.cpu .name { color: var(--accent); }
+  .pipeline-stage.buffer .icon { border-color: var(--purple); background: rgba(188,140,255,0.08); }
+  .pipeline-stage.buffer .name { color: var(--purple); }
+  .pipeline-stage.gpu .icon { border-color: var(--accent2); background: rgba(63,185,80,0.08); }
+  .pipeline-stage.gpu .name { color: var(--accent2); }
+  .pipeline-stage.screen .icon { border-color: var(--accent3); background: rgba(240,136,62,0.08); }
+  .pipeline-stage.screen .name { color: var(--accent3); }
+
+  /* --- Bug story --- */
+  .bug-story {
+    background: linear-gradient(135deg, #1a1010, #1e1a1a);
+    border: 1px solid var(--red);
+    border-radius: 12px;
+    padding: 24px;
+    margin: 24px 0;
+  }
+  .bug-story h4 { color: var(--red); margin-bottom: 12px; font-size: 1.15em; }
+  .bug-timeline { display: flex; flex-direction: column; gap: 16px; margin-top: 16px; }
+  .bug-event {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+  }
+  .bug-event .step {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.85em;
+    flex-shrink: 0;
+  }
+  .bug-event .step.ok { background: rgba(63,185,80,0.15); color: var(--accent2); border: 2px solid var(--accent2); }
+  .bug-event .step.bad { background: rgba(248,81,73,0.15); color: var(--red); border: 2px solid var(--red); }
+  .bug-event .step.fix { background: rgba(88,166,255,0.15); color: var(--accent); border: 2px solid var(--accent); }
+  .bug-event .text { font-size: 0.9em; }
+  .bug-event .text strong { color: var(--text); }
+  .bug-event .text .note { color: var(--text-dim); font-size: 0.85em; }
+
+  /* --- Code block --- */
+  .code-block {
+    background: #0d1117;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin: 16px 0;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 0.85em;
+    overflow-x: auto;
+    line-height: 1.5;
+  }
+  .code-block .kw { color: var(--purple); }
+  .code-block .type { color: var(--accent); }
+  .code-block .str { color: var(--accent3); }
+  .code-block .comment { color: var(--text-dim); font-style: italic; }
+  .code-block .num { color: var(--accent4); }
+  .code-block .fn { color: var(--yellow); }
+
+  /* --- Comparison table --- */
+  .comp-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 20px 0;
+    font-size: 0.9em;
+  }
+  .comp-table th {
+    background: var(--surface2);
+    padding: 12px 16px;
+    text-align: left;
+    border-bottom: 2px solid var(--border);
+    font-weight: 700;
+    color: var(--accent);
+  }
+  .comp-table td {
+    padding: 10px 16px;
+    border-bottom: 1px solid rgba(48,54,61,0.5);
+  }
+  .comp-table tr:hover td { background: rgba(88,166,255,0.04); }
+  .comp-table .check { color: var(--accent2); }
+  .comp-table .cross { color: var(--red); }
+  .comp-table .warn { color: var(--yellow); }
+
+  /* --- Tier diagram --- */
+  .tier-diagram { display: flex; flex-direction: column; gap: 16px; margin: 24px 0; }
+  .tier {
+    display: flex;
+    align-items: stretch;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .tier .tier-label {
+    width: 140px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    font-weight: 700;
+    text-align: center;
+    flex-shrink: 0;
+  }
+  .tier .tier-body { padding: 16px 20px; background: var(--surface); flex: 1; }
+  .tier .tier-body .title { font-weight: 700; margin-bottom: 6px; }
+  .tier .tier-body .desc { font-size: 0.85em; color: var(--text-dim); }
+  .tier .tier-body .example { font-size: 0.8em; margin-top: 6px; color: var(--accent); }
+  .tier.t1 .tier-label { background: rgba(63,185,80,0.12); color: var(--accent2); border-right: 3px solid var(--accent2); }
+  .tier.t2 .tier-label { background: rgba(88,166,255,0.12); color: var(--accent); border-right: 3px solid var(--accent); }
+  .tier.t3 .tier-label { background: rgba(240,136,62,0.12); color: var(--accent3); border-right: 3px solid var(--accent3); }
+
+  /* --- Tooltip / callout --- */
+  .callout {
+    border-left: 4px solid var(--yellow);
+    background: rgba(210,153,34,0.06);
+    padding: 14px 18px;
+    border-radius: 0 8px 8px 0;
+    margin: 16px 0;
+    font-size: 0.9em;
+  }
+  .callout strong { color: var(--yellow); }
+
+  /* --- Legend --- */
+  .legend { display: flex; gap: 20px; flex-wrap: wrap; margin: 16px 0; font-size: 0.82em; }
+  .legend-item { display: flex; align-items: center; gap: 6px; color: var(--text-dim); }
+  .legend-item .swatch { width: 14px; height: 14px; border-radius: 4px; border: 1px solid; }
+
+  /* --- Footer --- */
+  .footer {
+    text-align: center;
+    padding: 30px;
+    border-top: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 0.85em;
+  }
+
+  /* --- Animations --- */
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+  .pulse { animation: pulse 2s infinite; }
+
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  section { animation: slideIn 0.5s ease-out; }
+
+  /* --- Mini diagram: MaterialPropertyBlock --- */
+  .mpb-viz {
+    display: flex;
+    gap: 20px;
+    justify-content: center;
+    align-items: stretch;
+    margin: 24px 0;
+    flex-wrap: wrap;
+  }
+  .mpb-card {
+    flex: 1;
+    min-width: 280px;
+    border-radius: 10px;
+    padding: 16px;
+    border: 2px solid;
+  }
+  .mpb-card.broken { border-color: var(--red); background: rgba(248,81,73,0.05); }
+  .mpb-card.fixed { border-color: var(--accent2); background: rgba(63,185,80,0.05); }
+  .mpb-card h5 { text-align: center; margin-bottom: 12px; font-size: 1em; }
+  .mpb-card.broken h5 { color: var(--red); }
+  .mpb-card.fixed h5 { color: var(--accent2); }
+  .mpb-flow { display: flex; flex-direction: column; gap: 8px; }
+  .mpb-step {
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 0.82em;
+    text-align: center;
+  }
+  .mpb-step.mat { background: rgba(188,140,255,0.1); border: 1px solid var(--purple); color: var(--purple); }
+  .mpb-step.draw { background: rgba(88,166,255,0.1); border: 1px solid var(--accent); color: var(--accent); }
+  .mpb-step.result-bad { background: rgba(248,81,73,0.1); border: 1px solid var(--red); color: var(--red); }
+  .mpb-step.result-good { background: rgba(63,185,80,0.1); border: 1px solid var(--accent2); color: var(--accent2); }
+  .mpb-arrow { text-align: center; color: var(--text-dim); font-size: 1.2em; }
+</style>
+</head>
+<body>
+
+<!-- ========================= HERO ========================= -->
+<div class="hero">
+  <h1>⚡ GPU Instancing & Buffering</h1>
+  <p class="subtitle">A visual guide to how Steel City renders 1000+ buildings + terrain in 12 draw calls</p>
+  <div class="badges">
+    <span class="badge b1">Draw Calls</span>
+    <span class="badge b2">ComputeBuffer</span>
+    <span class="badge b3">MaterialPropertyBlock</span>
+    <span class="badge b4">Sector Baking</span>
+  </div>
+</div>
+
+<div class="container">
+
+<!-- ========================= SECTION 1: DRAW CALLS ========================= -->
+<section>
+  <h2><span class="num" style="background:rgba(88,166,255,0.15);color:var(--accent);">1</span> What is a Draw Call?</h2>
+  <p class="lead">Every time the CPU tells the GPU "draw this mesh with this material," that's a draw call. The GPU is fast — the CPU is the bottleneck.</p>
+
+  <div class="analogy">
+    <p><strong>Imagine a restaurant kitchen:</strong></p>
+    <p>The GPU is the chef — it can cook 1000 burgers instantly. But the waiter (CPU) has to write down each order individually, walk to the kitchen, and read it out. If the waiter writes 1600 separate tickets, the chef stands around waiting. <strong>Instancing</strong> is like handing the chef a single ticket that says "make 1600 burgers, here's the list of toppings for each one."</p>
+  </div>
+
+  <!-- Visual comparison -->
+  <div class="draw-call-viz">
+    <!-- Without instancing -->
+    <div class="dc-panel bad">
+      <h4>🔴 Without Instancing</h4>
+      <div class="dc-row"><div class="dc-icon cpu">CPU</div><span>Prepare state (shader, uniforms, matrices)</span></div>
+      <div class="dc-row"><div class="dc-icon call">→</div><span>Draw Call #1 — Building A</span></div>
+      <div class="dc-row"><div class="dc-icon gpu">GPU</div><span>Render 1 building</span></div>
+      <div class="dc-row"><div class="dc-icon cpu">CPU</div><span>Prepare state again...</span></div>
+      <div class="dc-row"><div class="dc-icon call">→</div><span>Draw Call #2 — Building B</span></div>
+      <div class="dc-row"><div class="dc-icon gpu">GPU</div><span>Render 1 building</span></div>
+      <div class="dc-row" style="color:var(--text-dim);"><div class="dc-icon call">→</div><span>... × 1600 times</span></div>
+      <div class="dc-bar fill-red" style="width: 95%;"></div>
+      <div class="dc-label">1600 draw calls — CPU bottlenecked</div>
+    </div>
+
+    <!-- With instancing -->
+    <div class="dc-panel good">
+      <h4>🟢 With Instancing</h4>
+      <div class="dc-row"><div class="dc-icon cpu">CPU</div><span>Prepare state ONCE</span></div>
+      <div class="dc-row"><div class="dc-icon cpu">CPU</div><span>Upload position buffer (1600 entries)</span></div>
+      <div class="dc-row"><div class="dc-icon call">→</div><span>Draw Call #1 — "Draw mesh 1600×"</span></div>
+      <div class="dc-row"><div class="dc-icon gpu">GPU</div><span>GPU reads buffer, renders all 1600</span></div>
+      <div class="dc-row" style="color:var(--accent2);"><div class="dc-icon gpu">✓</div><span>Done. GPU wasn't even sweating.</span></div>
+      <div class="dc-bar fill-green" style="width: 8%;"></div>
+      <div class="dc-label">1 draw call — CPU barely touched</div>
+    </div>
+  </div>
+
+  <div class="card glow-blue">
+    <h3>Visual: 1600 Buildings</h3>
+    <p>Each cell below is a building in the city. The color shows how the CPU handles them:</p>
+    <div class="building-grid" id="grid-individual">
+      <!-- 64 cells representing the concept -->
+    </div>
+    <div class="legend">
+      <div class="legend-item"><div class="swatch" style="border-color:var(--red);background:rgba(248,81,73,0.12);"></div>1600 separate draw calls (CPU dies)</div>
+      <div class="legend-item"><div class="swatch" style="border-color:var(--accent2);background:rgba(63,185,80,0.12);"></div>1 instanced draw call (CPU chillin')</div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= SECTION 2: COMPUTEBUFFER ========================= -->
+<section>
+  <h2><span class="num" style="background:rgba(188,140,255,0.15);color:var(--purple);">2</span> What is a ComputeBuffer?</h2>
+  <p class="lead">A block of GPU memory that the CPU fills once and the GPU reads many times. Think of it as an array that lives on the GPU.</p>
+
+  <div class="analogy">
+    <p><strong>Imagine a shipping manifest:</strong></p>
+    <p>Instead of telling each worker individually "you're at position (3,0,5), you're at position (7,0,12)..." — you pin a manifest to the wall (GPU memory) with everyone's position. Each worker reads their own row. The foreman (CPU) only has to pin the manifest once.</p>
+  </div>
+
+  <!-- Pipeline -->
+  <h3>The CPU → Buffer → GPU Pipeline</h3>
+  <div class="pipeline">
+    <div class="pipeline-stage cpu">
+      <div class="icon">🖥️</div>
+      <div class="name">CPU</div>
+      <div class="detail">Creates buffer, fills with per-instance data</div>
+    </div>
+    <div class="pipeline-stage buffer">
+      <div class="icon">📦</div>
+      <div class="name">ComputeBuffer</div>
+      <div class="detail">GPU memory block — holds all instance data</div>
+    </div>
+    <div class="pipeline-stage gpu">
+      <div class="icon">🎮</div>
+      <div class="name">GPU Shader</div>
+      <div class="detail">Reads buffer per-vertex, offsets position</div>
+    </div>
+    <div class="pipeline-stage screen">
+      <div class="icon">🖼️</div>
+      <div class="name">Screen</div>
+      <div class="detail">1600 buildings rendered in 1 call</div>
+    </div>
+  </div>
+
+  <!-- Buffer contents visualization -->
+  <div class="buffer-viz">
+    <h3 style="margin-top:0;">What's Inside the Buffer?</h3>
+    <p>Each instance gets a row of data. The GPU shader reads the row matching its instance ID:</p>
+
+    <div class="buffer-label">
+      <div class="dot" style="background:var(--accent);"></div>
+      <strong>Instance 0</strong> — Building at block (0,0)
+    </div>
+    <div class="buffer-block">
+      <div class="buffer-cell pos"><span>Pos</span><span class="idx">0,0,0</span></div>
+      <div class="buffer-cell rot"><span>Rot</span><span class="idx">0°</span></div>
+      <div class="buffer-cell scale"><span>Scl</span><span class="idx">1.0</span></div>
+      <div class="buffer-cell color"><span>Tint</span><span class="idx">#brick</span></div>
+    </div>
+
+    <div class="buffer-label">
+      <div class="dot" style="background:var(--purple);"></div>
+      <strong>Instance 1</strong> — Building at block (1,0)
+    </div>
+    <div class="buffer-block">
+      <div class="buffer-cell pos"><span>Pos</span><span class="idx">3.2,0,0</span></div>
+      <div class="buffer-cell rot"><span>Rot</span><span class="idx">90°</span></div>
+      <div class="buffer-cell scale"><span>Scl</span><span class="idx">1.0</span></div>
+      <div class="buffer-cell color"><span>Tint</span><span class="idx">#stone</span></div>
+    </div>
+
+    <div class="buffer-label">
+      <div class="dot" style="background:var(--accent2);"></div>
+      <strong>Instance 2</strong> — Building at block (0,1)
+    </div>
+    <div class="buffer-block">
+      <div class="buffer-cell pos"><span>Pos</span><span class="idx">0,0,3.2</span></div>
+      <div class="buffer-cell rot"><span>Rot</span><span class="idx">180°</span></div>
+      <div class="buffer-cell scale"><span>Scl</span><span class="idx">1.0</span></div>
+      <div class="buffer-cell color"><span>Tint</span><span class="idx">#wood</span></div>
+    </div>
+
+    <div class="buffer-label" style="color:var(--text-dim);">
+      <div class="dot" style="background:var(--border);"></div>
+      <strong>... Instance 1599</strong> — Last building
+    </div>
+    <div class="buffer-block">
+      <div class="buffer-cell pos"><span>Pos</span><span class="idx">...</span></div>
+      <div class="buffer-cell rot"><span>Rot</span><span class="idx">...</span></div>
+      <div class="buffer-cell scale"><span>Scl</span><span class="idx">...</span></div>
+      <div class="buffer-cell color"><span>Tint</span><span class="idx">...</span></div>
+    </div>
+  </div>
+
+  <div class="card glow-blue">
+    <h3>Code: How the Buffer is Created</h3>
+    <div class="code-block">
+<span class="comment">// CPU side — create the buffer once</span>
+<span class="type">ComputeBuffer</span> instanceBuffer = <span class="kw">new</span> <span class="type">ComputeBuffer</span>(<span class="num">1600</span>, <span class="fn">Marshal.SizeOf</span>&lt;<span class="type">InstanceData</span>&gt;());
+
+<span class="comment">// Fill with per-building data</span>
+<span class="type">InstanceData</span>[] data = <span class="kw">new</span> <span class="type">InstanceData</span>[<span class="num">1600</span>];
+<span class="kw">for</span> (<span class="kw">int</span> i = <span class="num">0</span>; i &lt; <span class="num">1600</span>; i++) {
+    data[i].position = blocks[i].worldPos;
+    data[i].rotation  = blocks[i].rotationY;
+    data[i].color     = blocks[i].tintColor;
+}
+instanceBuffer.<span class="fn">SetData</span>(data);
+
+<span class="comment">// GPU reads it in the shader</span>
+<span class="comment">// cbuffer InstanceData { float3 position; float rotation; float4 color; }</span>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= SECTION 3: THE BUG ========================= -->
+<section>
+  <h2><span class="num" style="background:rgba(248,81,73,0.15);color:var(--red);">3</span> The Shared-Material Bug (Invisible Vinny)</h2>
+  <p class="lead">The #1 instancing pitfall. When multiple instanced groups share a material but need different buffer bindings, the last one wins. Everyone else goes invisible.</p>
+
+  <div class="bug-story">
+    <h4>🐛 The Story of Invisible Vinny</h4>
+    <p>Vinny (the NPC character) and a civilian car both used instanced rendering through the same <code>proxyMaterial</code>. Each had its own voxel buffer with different dims and voxel sizes. What went wrong?</p>
+
+    <div class="bug-timeline">
+      <div class="bug-event">
+        <div class="step ok">1</div>
+        <div class="text">
+          <strong>Vinny's group registers first.</strong> The character instancer sets <code>proxyMaterial._VoxelData = characterBuffer</code>, <code>_VoxelSize = 0.02</code>, then records <code>DrawMeshInstanced</code> into the command buffer.
+          <div class="note">proxyMaterial._VoxelData = characterBuffer → cmd.DrawMeshInstanced(character) ← recorded, not executed yet</div>
+        </div>
+      </div>
+      <div class="bug-event">
+        <div class="step ok">2</div>
+        <div class="text">
+          <strong>Car group registers next.</strong> The vehicle instancer sets <code>proxyMaterial._VoxelData = carBuffer</code>, <code>_VoxelSize = 0.05</code>, then records its <code>DrawMeshInstanced</code>.
+          <div class="note">proxyMaterial._VoxelData = carBuffer ← OVERWRITES Vinny's binding → cmd.DrawMeshInstanced(car)</div>
+        </div>
+      </div>
+      <div class="bug-event">
+        <div class="step bad">3</div>
+        <div class="text">
+          <strong>Command buffer executes: Vinny is invisible!</strong> Both draw calls run with <code>_VoxelData = carBuffer</code> (the last value set). Vinny's raymarch reads car voxels at car voxelSize (0.05) with car dims — the character's actual voxels (at 0.02 spacing) are never hit → discard → invisible.
+          <div class="note">GPU runs both draws with carBuffer → character raymarch misses → invisible Vinny</div>
+        </div>
+      </div>
+      <div class="bug-event">
+        <div class="step fix">4</div>
+        <div class="text">
+          <strong>The fix: MaterialPropertyBlock.</strong> Each instanced group gets its own <code>MaterialPropertyBlock</code> passed to <code>DrawMeshInstanced</code>. The shared <code>proxyMaterial</code> is never mutated — each draw call carries its own buffer/dims/voxelSize snapshot.
+          <div class="note">Character MPB → characterBuffer, 0.02 | Car MPB → carBuffer, 0.05 → no conflict ✅</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Visual: broken vs fixed -->
+  <div class="mpb-viz">
+    <div class="mpb-card broken">
+      <h5>🔴 Without MaterialPropertyBlock</h5>
+      <div class="mpb-flow">
+        <div class="mpb-step mat">Shared proxyMaterial<br><small>_VoxelData = null</small></div>
+        <div class="mpb-arrow">↓</div>
+        <div class="mpb-step draw">Character Instancer<br><small>Sets proxyMaterial._VoxelData = characterBuffer (0.02m)</small></div>
+        <div class="mpb-arrow">↓</div>
+        <div class="mpb-step draw">Vehicle Instancer<br><small>Sets proxyMaterial._VoxelData = carBuffer (0.05m) ← OVERWRITES</small></div>
+        <div class="mpb-arrow">↓</div>
+        <div class="mpb-step draw">Command Buffer Executes<br><small>Both draws see _VoxelData = carBuffer</small></div>
+        <div class="mpb-arrow">↓</div>
+        <div class="mpb-step result-bad">Vinny INVISIBLE ❌<br><small>Raymarch reads car voxels at wrong size/dims</small></div>
+      </div>
+    </div>
+
+    <div class="mpb-card fixed">
+      <h5>🟢 With MaterialPropertyBlock</h5>
+      <div class="mpb-flow">
+        <div class="mpb-step mat">Shared proxyMaterial<br><small>_VoxelData never touched directly!</small></div>
+        <div class="mpb-arrow">↓</div>
+        <div class="mpb-step draw">Character Instancer<br><small>Uses charMPB → characterBuffer, 0.02m</small></div>
+        <div class="mpb-arrow">↓</div>
+        <div class="mpb-step result-good">Vinny renders ✅</div>
+        <div class="mpb-arrow">↓</div>
+        <div class="mpb-step draw">Vehicle Instancer<br><small>Uses carMPB → carBuffer, 0.05m</small></div>
+        <div class="mpb-arrow">↓</div>
+        <div class="mpb-step result-good">Car renders ✅</div>
+        <div class="mpb-arrow">↓</div>
+        <div class="mpb-step draw">Next frame: both still correct<br><small>Each MPB carries its own snapshot</small></div>
+        <div class="mpb-arrow">↓</div>
+        <div class="mpb-step result-good">Both render ✅ 🎉</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <strong>Key Lesson:</strong> Any time multiple draw calls share a material but need different buffer bindings, use <code>MaterialPropertyBlock</code>. It's a per-draw-call override that doesn't mutate the shared material. Think of it as a sticky note attached to a specific draw call — it doesn't change the original document.
+  </div>
+</section>
+
+<!-- ========================= SECTION 4: SHADER SIDE ========================= -->
+<section>
+  <h2><span class="num" style="background:rgba(63,185,80,0.15);color:var(--accent2);">4</span> Shader-Side Instancing</h2>
+  <p class="lead">The GPU shader reads per-instance data from the buffer and offsets each vertex. Here's how it flows:</p>
+
+  <div class="flowchart">
+    <div class="flow-node start">
+      <div class="title">Vertex Input (Base Mesh)</div>
+      <div class="desc">e.g. building corner at (1.5, 0, 1.5) — same for ALL instances</div>
+    </div>
+    <div class="flow-arrow label" data-label="GPU reads instance_ID"></div>
+    <div class="flow-node">
+      <div class="title">Read Instance Buffer[instance_ID]</div>
+      <div class="desc">Gets position, rotation, scale, color for THIS specific building</div>
+    </div>
+    <div class="flow-arrow label" data-label="Apply transform"></div>
+    <div class="flow-node">
+      <div class="title">Offset + Rotate Vertex</div>
+      <div class="desc">vertex.pos += instance.position; vertex.pos = rotate(vertex.pos, instance.rotation)</div>
+    </div>
+    <div class="flow-arrow label" data-label="Apply tint"></div>
+    <div class="flow-node">
+      <div class="title">Apply Per-Instance Color</div>
+      <div class="desc">fragment.color *= instance.tintColor</div>
+    </div>
+    <div class="flow-arrow"></div>
+    <div class="flow-node end">
+      <div class="title">Output to Screen</div>
+      <div class="desc">This building is now at its correct world position with its unique tint</div>
+    </div>
+  </div>
+
+  <div class="card glow-green">
+    <h3>Shader Code (Simplified)</h3>
+    <div class="code-block">
+<span class="comment">// --- GPU shader (HLSL / Unity ShaderLab) ---</span>
+
+<span class="comment">// Per-instance data — comes from ComputeBuffer</span>
+<span class="kw">struct</span> <span class="type">InstanceData</span> {
+    <span class="type">float3</span> position;
+    <span class="type">float</span>  rotation;
+    <span class="type">float4</span> color;
+};
+
+<span class="comment">// Unity auto-fills this with the instance index</span>
+<span class="kw">UNITY_INSTANCING_BUFFER_START</span>(Props)
+    <span class="kw">UNITY_DEFINE_INSTANCED_PROP</span>(<span class="type">InstanceData</span>, _InstanceData)
+<span class="kw">UNITY_INSTANCING_BUFFER_END</span>(Props)
+
+<span class="type">float4</span> <span class="fn">vert</span>(<span class="type">appdata_t</span> IN, <span class="kw">uint</span> instanceID : <span class="type">SV_InstanceID</span>) : <span class="type">SV_Position</span> {
+    <span class="comment">// Read THIS instance's data from the buffer</span>
+    <span class="type">InstanceData</span> inst = <span class="kw">UNITY_ACCESS_INSTANCED_PROP</span>(Props, _InstanceData);
+
+    <span class="comment">// Offset the base mesh vertex to world position</span>
+    <span class="type">float3</span> worldPos = IN.vertex.xyz + inst.position;
+    worldPos = <span class="fn">rotateY</span>(worldPos, inst.rotation);
+
+    <span class="comment">// Pass tint to fragment shader</span>
+    IN.color = inst.color;
+
+    <span class="kw">return</span> <span class="fn">UnityObjectToClipPos</span>(<span class="type">float4</span>(worldPos, <span class="num">1.0</span>));
+}
+    </div>
+  </div>
+</section>
+
+<!-- ========================= SECTION 5: RENDERING TIERS ========================= -->
+<section>
+  <h2><span class="num" style="background:rgba(240,136,62,0.15);color:var(--accent3);">5</span> Rendering Tiers</h2>
+  <p class="lead">Not everything should be instanced. Steel City uses three tiers depending on how dynamic an object is:</p>
+
+  <div class="tier-diagram">
+    <div class="tier t1">
+      <div class="tier-label">
+        TIER 1<br>
+        <small>BAKE</small>
+      </div>
+      <div class="tier-body">
+        <div class="title">Sector Baking (Static)</div>
+        <div class="desc">All static buildings in a sector are combined into a single mesh. One draw call for the entire sector. No per-frame updates needed.</div>
+        <div class="example">📦 Example: 200 buildings in a city block → 1 baked mesh → 1 draw call</div>
+      </div>
+    </div>
+    <div class="tier t2">
+      <div class="tier-label">
+        TIER 2<br>
+        <small>INSTANCE</small>
+      </div>
+      <div class="tier-body">
+        <div class="title">GPU Instancing (Batched Dynamic)</div>
+        <div class="desc">Many copies of the same mesh with different transforms. ComputeBuffer holds per-instance data. One draw call for all copies.</div>
+        <div class="example">📦 Example: 50 NPCs walking around → 1 instanced draw call (50 entries in buffer)</div>
+      </div>
+    </div>
+    <div class="tier t3">
+      <div class="tier-label">
+        TIER 3<br>
+        <small>INDIVIDUAL</small>
+      </div>
+      <div class="tier-body">
+        <div class="title">Individual Draw (Unique Mutation)</div>
+        <div class="desc">When an object needs unique per-vertex state (damage, color change, animation). One draw call per object. Most expensive but most flexible.</div>
+        <div class="example">📦 Example: A building being destroyed → needs its own mesh + draw call</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <strong>Decision checklist:</strong> Can it be baked and forgotten? → Tier 1. Same mesh, different positions? → Tier 2. Unique per-vertex state? → Tier 3.
+  </div>
+</section>
+
+<!-- ========================= SECTION 6: SECTOR BAKING ========================= -->
+<section>
+  <h2><span class="num" style="background:rgba(247,120,186,0.15);color:var(--accent4);">6</span> Sector Baking vs Instanced Characters</h2>
+  <p class="lead">Two different instancing strategies for two different problems. Same pattern, different scale.</p>
+
+  <div class="grid-2">
+    <div class="card glow-pink">
+      <h3>🏢 Sector Baking (Buildings + Terrain)</h3>
+      <p><strong>Problem:</strong> 884 static buildings + 100 terrain chunks, never move, never change.</p>
+      <p><strong>Solution:</strong> Combine all building/terrain meshes in a sector into one giant buffer. Upload once. Forget about it.</p>
+      <div class="flowchart" style="margin: 16px 0;">
+        <div class="flow-node start"><div class="title">884 buildings + 100 terrain chunks</div><div class="desc">Individual voxel data arrays</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="title">Bake into 10 sectors</div><div class="desc">9 building sectors + 1 terrain sector (13.9M voxels)</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node end"><div class="title">10 draw calls</div><div class="desc">Forever. No per-frame cost. Was 200+ draw calls.</div></div>
+      </div>
+      <p style="font-size:0.85em;color:var(--text-dim);">Trade-off: Can't move or modify individual buildings without re-baking the whole sector. Terrain baking skips ComputeTightAABB (flat slab, AABB is full bounds) and skips GameObject creation (raymarch doesn't need transforms).</p>
+    </div>
+
+    <div class="card glow-blue">
+      <h3>🚶 Instanced Characters (NPCs)</h3>
+      <p><strong>Problem:</strong> 50 NPCs, same mesh, but they move every frame.</p>
+      <p><strong>Solution:</strong> One mesh, ComputeBuffer with 50 entries. Update buffer positions every frame. Still 1 draw call.</p>
+      <div class="flowchart" style="margin: 16px 0;">
+        <div class="flow-node start"><div class="title">50 NPCs</div><div class="desc">Same body mesh, different positions</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node"><div class="title">Update buffer</div><div class="desc">Write 50 new positions each frame</div></div>
+        <div class="flow-arrow"></div>
+        <div class="flow-node end"><div class="title">1 draw call</div><div class="desc">Every frame, but still just 1 call</div></div>
+      </div>
+      <p style="font-size:0.85em;color:var(--text-dim);">Trade-off: Must update buffer every frame (cheap — just 50 floats).</p>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= SECTION 7: PERFORMANCE ========================= -->
+<section>
+  <h2><span class="num" style="background:rgba(57,197,207,0.15);color:var(--cyan);">7</span> Performance Comparison</h2>
+
+  <table class="comp-table">
+    <thead>
+      <tr>
+        <th>Approach</th>
+        <th>Draw Calls</th>
+        <th>CPU Cost</th>
+        <th>GPU Cost</th>
+        <th>Flexibility</th>
+        <th>Best For</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Individual (naïve)</td>
+        <td class="cross">1600</td>
+        <td class="cross">Very High</td>
+        <td class="check">Low</td>
+        <td class="check">Max</td>
+        <td>Nothing — avoid</td>
+      </tr>
+      <tr>
+        <td>GPU Instancing</td>
+        <td class="check">1</td>
+        <td class="check">Low</td>
+        <td class="check">Low</td>
+        <td class="warn">Medium</td>
+        <td>NPCs, vehicles, repeated props</td>
+      </tr>
+      <tr>
+        <td>Sector Baking</td>
+        <td class="check">1</td>
+        <td class="check">Minimal</td>
+        <td class="check">Low</td>
+        <td class="cross">Low</td>
+        <td>Static buildings, terrain</td>
+      </tr>
+      <tr>
+        <td>MaterialPropertyBlock</td>
+        <td class="check">1 per type</td>
+        <td class="check">Low</td>
+        <td class="check">Low</td>
+        <td class="check">High</td>
+        <td>Multiple instancers sharing a shader</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="card glow-green">
+    <h3>✅ Measured Performance (100-Block City, Aug 9, 2026)</h3>
+    <table class="comp-table" style="margin: 12px 0;">
+      <thead>
+        <tr><th>Metric</th><th>Before</th><th>After</th><th>Improvement</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Terrain load time</td><td class="cross">78,466ms</td><td class="check">371ms</td><td class="check">211x</td></tr>
+        <tr><td>Total BuildMap</td><td class="cross">~79s</td><td class="check">~0.5s</td><td class="check">~158x</td></tr>
+        <tr><td>Terrain draw calls</td><td class="cross">100</td><td class="check">1</td><td class="check">99x fewer</td></tr>
+        <tr><td>Collision memory</td><td class="cross">~500MB (Dict)</td><td class="check">13.3MB (flat array)</td><td class="check">~38x less</td></tr>
+        <tr><td>Total draw calls</td><td class="cross">200+</td><td class="check">12</td><td class="check">~17x fewer</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card glow-blue">
+    <h3>Known Gaps (Current State)</h3>
+    <ul style="margin-left:20px; font-size:0.9em; line-height:2;">
+      <li><strong style="color:var(--yellow);">No LOD</strong> — all buildings render at full detail regardless of distance</li>
+      <li><strong style="color:var(--yellow);">No depth sort</strong> — transparent materials may render in wrong order</li>
+      <li><strong style="color:var(--yellow);">1023 instance cap</strong> — Unity's DrawMeshInstanced limit per call (need multiple calls for 1600+)</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ========================= SECTION 8: FULL FLOW ========================= -->
+<section>
+  <h2><span class="num" style="background:rgba(210,153,34,0.15);color:var(--yellow);">8</span> The Full Flow: Start to Pixels</h2>
+  <p class="lead">Here's the complete journey from city generation to pixels on screen:</p>
+
+  <div class="flowchart">
+    <div class="flow-node start">
+      <div class="title">1. City Generation (Python)</div>
+      <div class="desc">procedural_mob_buildings.py generates .stasset voxel files</div>
+    </div>
+    <div class="flow-arrow"></div>
+    <div class="flow-node">
+      <div class="title">2. Unity Loads Assets</div>
+      <div class="desc">StAssetReader reads .stasset → voxel grid → meshified into vertices</div>
+    </div>
+    <div class="flow-arrow"></div>
+    <div class="flow-node">
+      <div class="title">3. Terrain Sector Baking (371ms)</div>
+      <div class="desc">100 terrain chunks → 1 merged buffer (13.9M voxels) → 1 ComputeBuffer → 1 draw call</div>
+    </div>
+    <div class="flow-arrow label" data-label="Terrain done in 371ms (was 78s)"></div>
+    <div class="flow-node">
+      <div class="title">4. Building Sector Baking</div>
+      <div class="desc">VoxelChunkManager combines buildings per sector into one buffer (9 sectors)</div>
+    </div>
+    <div class="flow-arrow label" data-label="Static buildings + terrain done"></div>
+    <div class="flow-node">
+      <div class="title">4. Character Instancer Setup</div>
+      <div class="desc">Creates ComputeBuffer for NPCs, MaterialPropertyBlock for isolation</div>
+    </div>
+    <div class="flow-arrow"></div>
+    <div class="flow-node">
+      <div class="title">5. Per-Frame Update</div>
+      <div class="desc">NPC positions written to buffer → DrawMeshInstanced → 1 draw call</div>
+    </div>
+    <div class="flow-arrow"></div>
+    <div class="flow-node">
+      <div class="title">6. GPU Shader</div>
+      <div class="desc">Reads instance buffer, offsets vertices, applies tint, rasterizes</div>
+    </div>
+    <div class="flow-arrow"></div>
+    <div class="flow-node end">
+      <div class="title">7. Screen Output</div>
+      <div class="desc">984 baked buildings + 100 terrain chunks + 2 instanced = 12 draw calls total. CPU happy. GPU happy. 🎉</div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= SECTION 9: GLOSSARY ========================= -->
+<section>
+  <h2><span class="num" style="background:rgba(139,148,158,0.15);color:var(--text-dim);">9</span> Quick Glossary</h2>
+
+  <div class="grid-2">
+    <div class="card" style="padding:18px;">
+      <h3 style="margin:0 0 10px;font-size:1.05em;">Draw Call</h3>
+      <p style="font-size:0.88em;margin:0;">CPU → GPU command: "draw this mesh with this material." Expensive because of CPU state setup, not GPU rendering.</p>
+    </div>
+    <div class="card" style="padding:18px;">
+      <h3 style="margin:0 0 10px;font-size:1.05em;">ComputeBuffer</h3>
+      <p style="font-size:0.88em;margin:0;">GPU memory block filled by CPU, read by GPU shaders. Holds per-instance data (positions, rotations, colors).</p>
+    </div>
+    <div class="card" style="padding:18px;">
+      <h3 style="margin:0 0 10px;font-size:1.05em;">MaterialPropertyBlock</h3>
+      <p style="font-size:0.88em;margin:0;">Per-draw-call material override. Prevents multiple instancers from clobbering each other's buffer bindings on a shared material.</p>
+    </div>
+    <div class="card" style="padding:18px;">
+      <h3 style="margin:0 0 10px;font-size:1.05em;">Instancing</h3>
+      <p style="font-size:0.88em;margin:0;">Rendering N copies of the same mesh in 1 draw call. GPU reads per-instance data from a buffer to place each copy.</p>
+    </div>
+    <div class="card" style="padding:18px;">
+      <h3 style="margin:0 0 10px;font-size:1.05em;">Sector Baking</h3>
+      <p style="font-size:0.88em;margin:0;">Pre-combining static meshes into one giant mesh per sector. Zero per-frame cost, but can't modify individual objects.</p>
+    </div>
+    <div class="card" style="padding:18px;">
+      <h3 style="margin:0 0 10px;font-size:1.05em;">SV_InstanceID</h3>
+      <p style="font-size:0.88em;margin:0;">GPU semantic that tells the shader which instance index it's processing. Used to look up the correct row in the instance buffer.</p>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<div class="footer">
+  <p>Steel City: Mob Sim — GPU Instancing & Buffering Visual Guide</p>
+  <p>Companion to <code>INSTANCING_AND_BUFFERING.md</code> | Generated Aug 8, 2026 · Updated Aug 9, 2026</p>
+</div>
+
+<script>
+  // Generate building grid cells
+  (function() {
+    var grid = document.getElementById('grid-individual');
+    if (!grid) return;
+    var total = 64; // 8×8 visual
+    for (var i = 0; i < total; i++) {
+      var cell = document.createElement('div');
+      cell.className = 'building-cell instanced';
+      cell.innerHTML = '<span class="tag">B' + i + '</span>';
+      grid.appendChild(cell);
+    }
+  })();
+</script>
+
+</body>
+</html>

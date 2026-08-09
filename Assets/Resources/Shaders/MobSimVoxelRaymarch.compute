@@ -1,0 +1,519 @@
+// Steel City: Mob Sim — GPU Voxel Raymarching
+// MobSimVoxelRaymarch.compute
+//
+// Renders voxel building chunks via DDA raymarching on GPU.
+// Each voxel is a packed 16-bit word matching mob_materials.py / StAssetReader.cs:
+//   Bit 15..12 (4)  SHAPE      Bit 11..9 (3)  ROTATION      Bit 8..0 (9)  MATERIAL
+//
+// Material IDs use the 1920s palette (100-169). A 256-entry color lookup
+// buffer is uploaded by VoxelChunkManager.cs.
+//
+// Adapted from Steel Tide's VoxelRaymarch.compute for Mob Sim architecture.
+
+#pragma kernel CSRaymarch
+
+// ---- Packed-voxel bit layout (mirror of VoxelBits.cs / StAssetReader.cs) ----
+#define VX_SHAPE_SHIFT     12
+#define VX_ROTATION_SHIFT  9
+#define VX_MATERIAL_MASK   0x1FFu   // low 9 bits
+#define VX_SHAPE_MASK      0xFu     // 4 bits
+#define VX_ROTATION_MASK   0x7u     // 3 bits
+
+uint VxMaterial(uint v)  { return v & VX_MATERIAL_MASK; }
+uint VxShape(uint v)     { return (v >> VX_SHAPE_SHIFT) & VX_SHAPE_MASK; }
+uint VxRotation(uint v)  { return (v >> VX_ROTATION_SHIFT) & VX_ROTATION_MASK; }
+
+// ---- Bindings ---------------------------------------------------------------
+StructuredBuffer<uint>   _VoxelData;       // Packed 16-bit voxel words (as uint array)
+RWTexture2D<float4>      _Output;          // screen-space color target
+RWTexture2D<float>       _DepthBuffer;     // per-pixel depth (world units)
+
+// Per-material color lookup (130 entries, indexed by material ID)
+StructuredBuffer<float4> _MaterialColors;
+int    _MaterialCount;
+
+// Per-chunk per-material tint (130 entries of float3, packed as float4)
+// Each entry is a multiplier: finalColor = baseColor * tint
+// Default tint = (1,1,1) = no change. Allows per-building material-specific effects.
+StructuredBuffer<float4> _ChunkTints;
+
+// Per-chunk parameters
+int3   _VolumeDims;        // voxel counts (x,y,z) for this chunk
+float  _VoxelSize;         // world units per voxel
+float3 _VolumeOffset;      // world-space position of this chunk's origin
+float4x4 _VolumeRotation;  // world-to-local rotation (inverse of chunk rotation)
+float4x4 _VolumeInvRotation; // local-to-world rotation (chunk rotation)
+float3 _CameraOrigin;      // world space camera position
+float4x4 _CameraToWorld;   // camera-to-world matrix
+float4x4 _InvProjection;   // inverse projection matrix
+float2 _ScreenSize;        // render target pixels
+int    _MaxSteps;          // safety cap on DDA iterations
+float4 _BackgroundColor;   // fallback color when rays miss
+int    _IsOrthographic;    // 1 = orthographic camera, 0 = perspective
+
+// Lighting parameters (set from C# via VoxelSun — NOT Unity scene lights)
+float3 _LightDirection;    // Normalized direction TO the light source
+float  _LightIntensity;    // Main light strength (0-2)
+float  _AmbientIntensity;  // Ambient fill strength (0-1)
+float  _FillIntensity;     // Fill/bounce light strength (0-1)
+float3 _LightColor;        // Tint of the main light (day=white, dusk=orange)
+
+// Shadow debug parameters (set from C# via VoxelChunkManager)
+float  _ShadowNormalNudge;    // Multiplier for normal offset on shadow ray origin (voxel units)
+float  _ShadowLightNudge;     // Multiplier for light-dir offset on shadow ray origin (voxel units)
+int    _ShadowSkipSteps;      // DDA steps to skip before testing occlusion
+int    _ShadowMaxSteps;       // Max DDA steps for shadow ray
+int    _ShadowEnabled;        // 1 = shadows on, 0 = shadows off
+
+// Lighting debug toggles (set from C# via VoxelChunkManager)
+int    _SunLightEnabled;      // 1 = half-Lambert sun term on
+int    _AmbientEnabled;       // 1 = ambient term on
+int    _FillEnabled;          // 1 = fill light term on
+int    _CamLightEnabled;      // 1 = camera-facing light term on
+
+// ---- Helpers ----------------------------------------------------------------
+bool InBounds(int3 v)
+{
+    return all(v >= int3(0,0,0)) && all(v < _VolumeDims);
+}
+
+int VoxelIndex(int3 v)
+{
+    return v.x + v.y * _VolumeDims.x + v.z * _VolumeDims.x * _VolumeDims.y;
+}
+
+// AABB Ray Intersection
+bool RayAABBIntersection(float3 rayOrigin, float3 rayDir,
+    float3 boxMin, float3 boxMax, out float tNear, out float tFar)
+{
+    float3 invDir = 1.0 / rayDir;
+    float3 t0 = (boxMin - rayOrigin) * invDir;
+    float3 t1 = (boxMax - rayOrigin) * invDir;
+
+    float3 tMin = min(t0, t1);
+    float3 tMax = max(t0, t1);
+
+    tNear = max(max(tMin.x, tMin.y), tMin.z);
+    tFar = min(min(tMax.x, tMax.y), tMax.z);
+
+    return tNear <= tFar && tFar >= 0.0;
+}
+
+float3 RayDirFromUV(float2 uv)
+{
+    float2 ndc = uv * 2.0 - 1.0;
+    float4 clipNear = float4(ndc.x, ndc.y, 0.0, 1.0);
+    float4 clipFar  = float4(ndc.x, ndc.y, 1.0, 1.0);
+
+    float4 viewNear = mul(_InvProjection, clipNear);
+    float4 viewFar  = mul(_InvProjection, clipFar);
+    viewNear /= viewNear.w;
+    viewFar  /= viewFar.w;
+
+    float3 viewDir = normalize(viewFar.xyz - viewNear.xyz);
+    float3 worldDir = mul((float3x3)_CameraToWorld, viewDir);
+    return normalize(worldDir);
+}
+
+// ---- Helpers ----------------------------------------------------------------
+
+/// Smooth (interpolated) normal from voxel neighborhood.
+/// Samples density in 6-neighbourhood and computes gradient → smooth normal.
+/// This eliminates the harsh pixel-jumping from per-face normals.
+float3 SmoothNormal(int3 v)
+{
+    // Sample 6 neighbours: solid (mat != 0) = 1, air = 0
+    float cx = 0, cy = 0, cz = 0;
+    int3 nxp = v + int3(1, 0, 0);  int3 nxm = v + int3(-1, 0, 0);
+    int3 nyp = v + int3(0, 1, 0);  int3 nym = v + int3(0, -1, 0);
+    int3 nzp = v + int3(0, 0, 1);  int3 nzm = v + int3(0, 0, -1);
+
+    if (InBounds(nxp)) cx += (VxMaterial(_VoxelData[VoxelIndex(nxp)]) != 0u) ? 1.0 : 0.0;
+    if (InBounds(nxm)) cx -= (VxMaterial(_VoxelData[VoxelIndex(nxm)]) != 0u) ? 1.0 : 0.0;
+    if (InBounds(nyp)) cy += (VxMaterial(_VoxelData[VoxelIndex(nyp)]) != 0u) ? 1.0 : 0.0;
+    if (InBounds(nym)) cy -= (VxMaterial(_VoxelData[VoxelIndex(nym)]) != 0u) ? 1.0 : 0.0;
+    if (InBounds(nzp)) cz += (VxMaterial(_VoxelData[VoxelIndex(nzp)]) != 0u) ? 1.0 : 0.0;
+    if (InBounds(nzm)) cz -= (VxMaterial(_VoxelData[VoxelIndex(nzm)]) != 0u) ? 1.0 : 0.0;
+
+    // Gradient points from solid toward air = outward normal
+    float3 n = normalize(float3(-cx, -cy, -cz));
+    // Fallback if degenerate (isolated voxel)
+    if (length(n) < 0.001) n = float3(0, 1, 0);
+    return n;
+}
+
+// ---- Lighting ---------------------------------------------------------------
+// Driven by _LightDirection, _LightIntensity, _AmbientIntensity, _FillIntensity, _LightColor
+// Uses half-Lambert wrap lighting for softer, more consistent shading
+float3 GetLighting(float3 normal, uint mat)
+{
+    // Window glass and neon get emissive treatment (no shading)
+    // New IDs: 113=Lit Window, 115=Neon Red, 116=Neon Blue, 117=Neon Green, 124=Lamp Glow
+    if (mat == 113u || mat == 115u || mat == 116u || mat == 117u || mat == 124u)
+        return float3(1.0, 1.0, 1.0);
+
+    // Storefront glass — slightly brighter
+    // New IDs: 112=Window Glass, 114=Storefront Glass
+    if (mat == 112u || mat == 114u)
+        return float3(0.85, 0.85, 0.85);
+
+    // Half-Lambert: wraps dot product from [-1,1] to [0,1] for softer transitions
+    // This eliminates harsh black-to-white jumps on wall edges
+    float sky = dot(normal, _LightDirection) * 0.5 + 0.5;
+    sky = sky * sky; // Square for softer falloff
+
+    // Fill light — derived from main light, bounced from opposite side
+    float3 fillDir = normalize(float3(-_LightDirection.x * 0.5, _LightDirection.y * 0.3, -_LightDirection.z * 0.5));
+    float fill = dot(normal, fillDir) * 0.5 + 0.5;
+    fill = fill * fill;
+
+    // Camera-facing fill — isometric cam looks from front-right-above
+    float3 camLight = normalize(float3(0.6, 0.5, 0.6));
+    float cam = dot(normal, camLight) * 0.5 + 0.5;
+    cam = cam * 0.20;
+
+    // Shading: ambient + main(light tinted) + fill + camera fill
+    float3 ambient = float3(_AmbientIntensity, _AmbientIntensity, _AmbientIntensity * 1.03);
+    float3 mainLight = _LightColor * sky * _LightIntensity;
+    float3 fillLight = fill * _FillIntensity;
+    float3 result = float3(0,0,0);
+    if (_AmbientEnabled)  result += ambient;
+    if (_SunLightEnabled) result += mainLight;
+    if (_FillEnabled)     result += fillLight;
+    if (_CamLightEnabled) result += cam;
+    return result;
+}
+
+// ---- Kernel -----------------------------------------------------------------
+[numthreads(8, 8, 1)]
+void CSRaymarch(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)_ScreenSize.x || id.y >= (uint)_ScreenSize.y)
+        return;
+
+    float2 uv = (float2(id.xy) + 0.5) / _ScreenSize;
+    float2 ndc = uv * 2.0 - 1.0;
+
+    // Ray origin and direction — different for orthographic vs perspective
+    float3 ro;
+    float3 rd;
+
+    if (_IsOrthographic)
+    {
+        // Orthographic: rays are parallel, origin varies per pixel on near plane
+        // Unity projection uses -Z forward in view space, so near plane = -1 in NDC
+        float4 clipNear = float4(ndc.x, ndc.y, -1.0, 1.0);
+        float4 viewNear = mul(_InvProjection, clipNear);
+        viewNear /= viewNear.w;
+        float3 worldNear = mul(_CameraToWorld, float4(viewNear.xyz, 1.0)).xyz;
+
+        ro = worldNear;
+        // Direction = camera forward in world space (view space -Z, transformed by cameraToWorldMatrix)
+        rd = normalize(mul((float3x3)_CameraToWorld, float3(0, 0, -1)));
+    }
+    else
+    {
+        // Perspective: origin = camera position, direction varies per pixel
+        // Unity projection: near plane at NDC z=-1, far at z=+1, view space -Z forward
+        float4 clipNear = float4(ndc.x, ndc.y, -1.0, 1.0);
+        float4 clipFar  = float4(ndc.x, ndc.y,  1.0, 1.0);
+
+        float4 viewNear = mul(_InvProjection, clipNear);
+        float4 viewFar  = mul(_InvProjection, clipFar);
+        viewNear /= viewNear.w;
+        viewFar  /= viewFar.w;
+
+        float3 viewDir = normalize(viewFar.xyz - viewNear.xyz);
+        rd = normalize(mul((float3x3)_CameraToWorld, viewDir));
+        ro = _CameraOrigin;
+    }
+
+    // Read existing pixel (for multi-chunk compositing)
+    float4 existingColor = _Output[id.xy];
+    float  existingDepth = _DepthBuffer[id.xy];
+    float4 color = existingColor;
+    float  depth = existingDepth;
+
+    // --- Transform ray into volume local space (handles rotation) ---
+    // Build local-space ray by applying inverse rotation around volume center
+    float3 volumeCenter = _VolumeOffset + float3(_VolumeDims) * _VoxelSize * 0.5;
+    float3 localRo = mul((float3x3)_VolumeRotation, ro - volumeCenter) + volumeCenter;
+    float3 localRd = mul((float3x3)_VolumeRotation, rd);
+
+    // Volume bounds in local space (axis-aligned after rotation transform)
+    float3 volumeMin = _VolumeOffset;
+    float3 volumeMax = _VolumeOffset + float3(_VolumeDims) * _VoxelSize;
+
+    // Test ray-box intersection in local space
+    float tNear, tFar;
+    if (!RayAABBIntersection(localRo, localRd, volumeMin, volumeMax, tNear, tFar))
+    {
+        return; // Ray misses this chunk — preserve existing pixel
+    }
+
+    // Start raymarching at volume entry point (in local space)
+    float tStart = max(tNear, 0.0);
+    float3 startPos = localRo + localRd * (tStart + 0.001);
+
+    // DDA setup in voxel space (relative to chunk origin)
+    float3 localStart = (startPos - _VolumeOffset) / _VoxelSize;
+    int3 voxel = (int3)floor(localStart);
+    voxel = clamp(voxel, int3(0,0,0), _VolumeDims - int3(1,1,1));
+
+    int3 stepDir = (int3)sign(localRd);
+    float3 deltaDist = abs(_VoxelSize / localRd);
+
+    float3 sideDist;
+    if (localRd.x < 0) sideDist.x = (localStart.x - float(voxel.x)) * deltaDist.x;
+    else sideDist.x = (float(voxel.x + 1) - localStart.x) * deltaDist.x;
+
+    if (localRd.y < 0) sideDist.y = (localStart.y - float(voxel.y)) * deltaDist.y;
+    else sideDist.y = (float(voxel.y + 1) - localStart.y) * deltaDist.y;
+
+    if (localRd.z < 0) sideDist.z = (localStart.z - float(voxel.z)) * deltaDist.z;
+    else sideDist.z = (float(voxel.z + 1) - localStart.z) * deltaDist.z;
+
+    // tMax must be offset by tStart so currentT always represents true
+    // camera-to-hit distance. Without this, depth comparisons between chunks
+    // use volume-relative distances, causing bleed-through (far chunks
+    // rendering in front of near ones).
+    float3 tMax = tStart + sideDist;
+    float3 tDelta = deltaDist;
+    float currentT = tStart;
+
+    float3 normal = float3(0, 1, 0);
+
+    [loop]
+    for (int i = 0; i < _MaxSteps; ++i)
+    {
+        if (!InBounds(voxel))
+            break;
+
+        uint packed = _VoxelData[VoxelIndex(voxel)];
+        uint mat = VxMaterial(packed);
+
+        if (mat != 0u) // 0 = Air
+        {
+            // Clamp material ID to valid range
+            uint maxMat = max(1, (uint)_MaterialCount) - 1u;
+            mat = min(mat, maxMat);
+
+            float4 baseColor = _MaterialColors[mat];
+
+            // Apply per-chunk per-material tint
+            float4 tint = _ChunkTints[mat];
+            baseColor.rgb *= tint.rgb;
+
+            // Blend smooth gradient normal with hard DDA face normal.
+            // The face normal is always correct for the surface being hit.
+            // The smooth normal helps at edges/corners but causes per-voxel
+            // flipping on flat walls (windows, doors create neighbour variance
+            // that flips the gradient), producing vertical/horizontal lines
+            // at sunset when the sun is nearly horizontal and dot products
+            // are extremely sensitive to small normal changes.
+            // Hybrid normal: DDA face normal for top/bottom surfaces (uniform
+            // flat ground — no edge-vs-center gradient), blended with SmoothNormal
+            // for side faces (soft wall shading at building edges/corners).
+            float3 smoothN = SmoothNormal(voxel);
+            float3 blendedN;
+            if (abs(normal.y) > 0.5)
+            {
+                // Top or bottom face — use hard DDA normal directly
+                blendedN = normal;
+            }
+            else
+            {
+                // Side face — blend for softer wall appearance
+                blendedN = normalize(normal * 0.7 + smoothN * 0.3);
+            }
+            // Transform normal from local to world space for lighting
+            blendedN = normalize(mul((float3x3)_VolumeInvRotation, blendedN));
+            float3 lighting = GetLighting(blendedN, mat);
+
+            // --- Shadow ray ---
+            // Cast a secondary ray from the hit point toward the light source.
+            // If it hits another solid voxel, the point is in shadow.
+            // Soft shadows: track closest approach distance for penumbra.
+            // hitWorldPos is in local space (we transformed the ray above)
+            float3 hitWorldPos = localRo + localRd * currentT;
+            float3 shadowDir = mul((float3x3)_VolumeRotation, _LightDirection); // transform light to local space
+            // Transform normal back to local space for shadow ray nudge
+            float3 localN = normalize(mul((float3x3)_VolumeRotation, blendedN));
+            // Nudge along surface normal AND light direction to avoid self-shadowing.
+            // The normal offset lifts the origin off the surface; the light-direction
+            // offset moves it into open air. Using both eliminates the checkerboard
+            // pattern on flat surfaces (roads, sidewalks) where grazing shadow rays
+            // would re-enter the same voxel grid.
+            float3 shadowOrigin = hitWorldPos
+                + localN * (_VoxelSize * _ShadowNormalNudge)
+                + shadowDir * (_VoxelSize * _ShadowLightNudge);
+
+            // Already in local space — convert to voxel space for this chunk
+            float3 shadowLocal = (shadowOrigin - _VolumeOffset) / _VoxelSize;
+            int3 shadowVoxel = (int3)floor(shadowLocal);
+            shadowVoxel = clamp(shadowVoxel, int3(0,0,0), _VolumeDims - int3(1,1,1));
+
+            int3 shadowStep = (int3)sign(shadowDir);
+            float3 shadowDelta = abs(_VoxelSize / shadowDir);
+
+            float3 shadowSideDist;
+            if (shadowDir.x < 0) shadowSideDist.x = (shadowLocal.x - float(shadowVoxel.x)) * shadowDelta.x;
+            else shadowSideDist.x = (float(shadowVoxel.x + 1) - shadowLocal.x) * shadowDelta.x;
+            if (shadowDir.y < 0) shadowSideDist.y = (shadowLocal.y - float(shadowVoxel.y)) * shadowDelta.y;
+            else shadowSideDist.y = (float(shadowVoxel.y + 1) - shadowLocal.y) * shadowDelta.y;
+            if (shadowDir.z < 0) shadowSideDist.z = (shadowLocal.z - float(shadowVoxel.z)) * shadowDelta.z;
+            else shadowSideDist.z = (float(shadowVoxel.z + 1) - shadowLocal.z) * shadowDelta.z;
+
+            // March shadow ray — limited steps for performance
+            // Soft shadows: accumulate partial occlusion for smooth penumbra
+            float shadowFactor = 1.0; // 1 = fully lit
+            int maxShadowSteps = _ShadowMaxSteps;
+            // Skip first few steps to avoid self-shadowing artifacts on flat surfaces
+            int skipSteps = _ShadowSkipSteps;
+            [loop]
+            for (int s = 0; s < maxShadowSteps && _ShadowEnabled; s++)
+            {
+                if (!InBounds(shadowVoxel))
+                    break; // Ray left the volume — fully lit
+
+                // Skip early steps — the origin nudge should have cleared the surface
+                // but this belt-and-suspenders approach prevents any residual self-hit
+                if (s < skipSteps)
+                {
+                    // Advance shadow DDA without testing occlusion
+                    if (shadowSideDist.x < shadowSideDist.y)
+                    {
+                        if (shadowSideDist.x < shadowSideDist.z)
+                        {
+                            shadowVoxel.x += shadowStep.x;
+                            shadowSideDist.x += shadowDelta.x;
+                        }
+                        else
+                        {
+                            shadowVoxel.z += shadowStep.z;
+                            shadowSideDist.z += shadowDelta.z;
+                        }
+                    }
+                    else
+                    {
+                        if (shadowSideDist.y < shadowSideDist.z)
+                        {
+                            shadowVoxel.y += shadowStep.y;
+                            shadowSideDist.y += shadowDelta.y;
+                        }
+                        else
+                        {
+                            shadowVoxel.z += shadowStep.z;
+                            shadowSideDist.z += shadowDelta.z;
+                        }
+                    }
+                    continue;
+                }
+
+                uint sPacked = _VoxelData[VoxelIndex(shadowVoxel)];
+                uint sMat = VxMaterial(sPacked);
+
+                if (sMat != 0u)
+                {
+                    // Hit an occluder — compute soft penumbra
+                    // Distance from shadow ray to voxel center determines softness
+                    float3 voxelCenter = _VolumeOffset + (float3(shadowVoxel) + 0.5) * _VoxelSize;
+                    float3 toHit = shadowOrigin - voxelCenter;
+                    float perpDist = length(toHit - shadowDir * dot(toHit, shadowDir));
+                    // Closer = sharper shadow, farther = softer
+                    float softness = saturate(perpDist / (_VoxelSize * 2.0));
+                    shadowFactor = min(shadowFactor, softness);
+                    if (shadowFactor < 0.05) { shadowFactor = 0.0; break; }
+                }
+
+                // Advance shadow DDA
+                if (shadowSideDist.x < shadowSideDist.y)
+                {
+                    if (shadowSideDist.x < shadowSideDist.z)
+                    {
+                        shadowVoxel.x += shadowStep.x;
+                        shadowSideDist.x += shadowDelta.x;
+                    }
+                    else
+                    {
+                        shadowVoxel.z += shadowStep.z;
+                        shadowSideDist.z += shadowDelta.z;
+                    }
+                }
+                else
+                {
+                    if (shadowSideDist.y < shadowSideDist.z)
+                    {
+                        shadowVoxel.y += shadowStep.y;
+                        shadowSideDist.y += shadowDelta.y;
+                    }
+                    else
+                    {
+                        shadowVoxel.z += shadowStep.z;
+                        shadowSideDist.z += shadowDelta.z;
+                    }
+                }
+            }
+
+            // Apply shadow factor to lighting.
+            // Shadowed areas retain full ambient + fill so they're never pure black.
+            // Only the directional sun component is modulated by shadowFactor.
+            float skyDot = dot(blendedN, _LightDirection) * 0.5 + 0.5;
+            skyDot = skyDot * skyDot;
+            float3 sunContribution = _LightColor * skyDot * _LightIntensity;
+            float3 nonSunLighting = lighting - sunContribution; // ambient + fill + cam
+            float3 shadowedLighting = nonSunLighting + sunContribution * shadowFactor;
+            // Safety floor: ensure a minimum ambient so flats (roofs, stoops) never go black
+            float ambientFloor = max(0.0, _AmbientIntensity * 0.35);
+            shadowedLighting = max(shadowedLighting, float3(ambientFloor, ambientFloor, ambientFloor * 1.02));
+
+            // Depth test — only write if closer than existing
+            float hitDepth = currentT;
+            if (hitDepth <= depth)
+            {
+                color = float4(baseColor.rgb * shadowedLighting, baseColor.a);
+                depth = hitDepth;
+            }
+            break;
+        }
+
+        // Advance DDA — track face normal for shading
+        if (tMax.x < tMax.y)
+        {
+            if (tMax.x < tMax.z)
+            {
+                voxel.x += stepDir.x;
+                currentT = tMax.x;
+                tMax.x += tDelta.x;
+                normal = float3(-stepDir.x, 0, 0);
+            }
+            else
+            {
+                voxel.z += stepDir.z;
+                currentT = tMax.z;
+                tMax.z += tDelta.z;
+                normal = float3(0, 0, -stepDir.z);
+            }
+        }
+        else
+        {
+            if (tMax.y < tMax.z)
+            {
+                voxel.y += stepDir.y;
+                currentT = tMax.y;
+                tMax.y += tDelta.y;
+                normal = float3(0, -stepDir.y, 0);
+            }
+            else
+            {
+                voxel.z += stepDir.z;
+                currentT = tMax.z;
+                tMax.z += tDelta.z;
+                normal = float3(0, 0, -stepDir.z);
+            }
+        }
+    }
+
+    _Output[id.xy] = color;
+    _DepthBuffer[id.xy] = depth;
+}

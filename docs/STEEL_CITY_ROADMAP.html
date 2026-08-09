@@ -1,0 +1,1245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Steel City: Mob Sim — Vertical Slice Roadmap</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #1c2331;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --orange: #f0883e;
+    --pink: #f778ba;
+    --red: #f85149;
+    --yellow: #d29922;
+    --cyan: #39c5cf;
+    --purple: #bc8cff;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+  }
+
+  /* --- Hero --- */
+  .hero {
+    text-align: center;
+    padding: 50px 20px 30px;
+    background: linear-gradient(135deg, #0d1117 0%, #161b22 50%, #1a2332 100%);
+    border-bottom: 1px solid var(--border);
+  }
+  .hero h1 {
+    font-size: 2.4em;
+    background: linear-gradient(90deg, var(--accent), var(--purple), var(--pink));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 8px;
+  }
+  .hero .subtitle { color: var(--text-dim); font-size: 1.1em; max-width: 700px; margin: 0 auto; }
+  .hero .meta { margin-top: 14px; font-size: 0.85em; color: var(--text-dim); }
+
+  /* --- Overall progress --- */
+  .progress-section {
+    max-width: 900px;
+    margin: 30px auto;
+    padding: 0 24px;
+  }
+  .overall-bar {
+    height: 30px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 15px;
+    overflow: hidden;
+    position: relative;
+  }
+  .overall-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--green), var(--accent), var(--purple));
+    border-radius: 15px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding-right: 12px;
+    font-weight: 700;
+    font-size: 0.85em;
+    color: #fff;
+    transition: width 1s ease;
+  }
+  .overall-label {
+    text-align: center;
+    margin-top: 8px;
+    font-size: 0.9em;
+    color: var(--text-dim);
+  }
+
+  /* --- Container --- */
+  .container { max-width: 1100px; margin: 0 auto; padding: 30px 24px 80px; }
+
+  /* --- Phase sections --- */
+  .phase {
+    margin-bottom: 50px;
+    position: relative;
+  }
+  .phase-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 20px;
+    padding-bottom: 12px;
+    border-bottom: 2px solid var(--border);
+  }
+  .phase-icon {
+    width: 48px; height: 48px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.4em;
+    font-weight: 700;
+    flex-shrink: 0;
+    border: 2px solid;
+  }
+  .phase-icon.done { border-color: var(--green); background: rgba(63,185,80,0.1); color: var(--green); }
+  .phase-icon.current { border-color: var(--accent); background: rgba(88,166,255,0.1); color: var(--accent); animation: pulse-border 2s infinite; }
+  .phase-icon.planned { border-color: var(--text-dim); background: rgba(139,148,158,0.08); color: var(--text-dim); }
+  .phase-title { flex: 1; }
+  .phase-title h2 { font-size: 1.5em; margin-bottom: 2px; }
+  .phase-title .dates { font-size: 0.82em; color: var(--text-dim); }
+  .phase-status {
+    padding: 4px 14px;
+    border-radius: 20px;
+    font-size: 0.78em;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    border: 1px solid;
+    white-space: nowrap;
+  }
+  .phase-status.done { color: var(--green); border-color: var(--green); background: rgba(63,185,80,0.05); }
+  .phase-status.current { color: var(--accent); border-color: var(--accent); background: rgba(88,166,255,0.05); }
+  .phase-status.planned { color: var(--text-dim); border-color: var(--text-dim); background: rgba(139,148,158,0.05); }
+
+  /* --- Feature cards --- */
+  .features { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 768px) { .features { grid-template-columns: 1fr; } }
+
+  .feature {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+    position: relative;
+    transition: transform 0.15s, border-color 0.15s;
+  }
+  .feature:hover { transform: translateY(-2px); border-color: var(--accent); }
+  .feature.done { border-left: 4px solid var(--green); }
+  .feature.current { border-left: 4px solid var(--accent); }
+  .feature.partial { border-left: 4px solid var(--yellow); }
+  .feature.planned { border-left: 4px solid var(--text-dim); opacity: 0.85; }
+
+  .feature-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .feature-status-icon {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7em;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .feature-status-icon.done { background: var(--green); color: #fff; }
+  .feature-status-icon.current { background: var(--accent); color: #fff; animation: pulse-glow 2s infinite; }
+  .feature-status-icon.partial { background: var(--yellow); color: #000; }
+  .feature-status-icon.planned { background: var(--surface2); color: var(--text-dim); border: 1px solid var(--border); }
+  .feature-name { font-weight: 700; font-size: 1.0em; }
+  .feature-tag {
+    margin-left: auto;
+    font-size: 0.7em;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 600;
+  }
+  .feature-tag.done { background: rgba(63,185,80,0.12); color: var(--green); }
+  .feature-tag.current { background: rgba(88,166,255,0.12); color: var(--accent); }
+  .feature-tag.partial { background: rgba(210,153,34,0.12); color: var(--yellow); }
+  .feature-tag.planned { background: rgba(139,148,158,0.08); color: var(--text-dim); }
+
+  .feature-desc { font-size: 0.85em; color: var(--text-dim); margin-bottom: 8px; }
+  .feature-items { font-size: 0.82em; line-height: 1.8; }
+  .feature-items li { list-style: none; padding-left: 18px; position: relative; }
+  .feature-items li::before {
+    position: absolute;
+    left: 0;
+    font-weight: 700;
+  }
+  .feature-items li.check::before { content: "✅"; }
+  .feature-items li.warn::before { content: "⚠️"; }
+  .feature-items li.pending::before { content: "🔲"; }
+  .feature-items li.current::before { content: "🔵"; }
+
+  /* --- Current work banner --- */
+  .current-banner {
+    background: linear-gradient(135deg, rgba(88,166,255,0.08), rgba(188,140,255,0.08));
+    border: 2px solid var(--accent);
+    border-radius: 14px;
+    padding: 24px;
+    margin: 30px 0 40px;
+    position: relative;
+    animation: pulse-border 3s infinite;
+  }
+  .current-banner h3 {
+    color: var(--accent);
+    font-size: 1.3em;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .current-banner .pulse-dot {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: pulse-dot 1.5s infinite;
+  }
+  .current-banner .desc { font-size: 0.9em; color: var(--text); margin-bottom: 12px; }
+  .current-banner .files {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+  }
+  .current-banner .file-chip {
+    padding: 3px 10px;
+    border-radius: 6px;
+    font-size: 0.78em;
+    font-family: 'Consolas', monospace;
+    background: rgba(88,166,255,0.1);
+    border: 1px solid rgba(88,166,255,0.3);
+    color: var(--accent);
+  }
+
+  /* --- Timeline --- */
+  .timeline {
+    position: relative;
+    padding-left: 40px;
+    margin: 30px 0;
+  }
+  .timeline::before {
+    content: "";
+    position: absolute;
+    left: 15px; top: 0; bottom: 0;
+    width: 3px;
+    background: linear-gradient(180deg, var(--green), var(--accent), var(--text-dim));
+    border-radius: 2px;
+  }
+  .tl-item {
+    position: relative;
+    margin-bottom: 24px;
+  }
+  .tl-dot {
+    position: absolute;
+    left: -32px; top: 4px;
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    border: 3px solid var(--bg);
+    z-index: 1;
+  }
+  .tl-dot.done { background: var(--green); }
+  .tl-dot.current { background: var(--accent); animation: pulse-dot 1.5s infinite; }
+  .tl-dot.planned { background: var(--surface2); border-color: var(--border); }
+  .tl-date { font-size: 0.75em; color: var(--text-dim); margin-bottom: 2px; }
+  .tl-title { font-weight: 700; font-size: 1.0em; margin-bottom: 4px; }
+  .tl-desc { font-size: 0.82em; color: var(--text-dim); }
+
+  /* --- Stats grid --- */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    margin: 30px 0;
+  }
+  @media (max-width: 600px) { .stats-grid { grid-template-columns: repeat(2, 1fr); } }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    text-align: center;
+  }
+  .stat-num {
+    font-size: 2em;
+    font-weight: 800;
+    background: linear-gradient(90deg, var(--accent), var(--purple));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .stat-label { font-size: 0.78em; color: var(--text-dim); margin-top: 4px; }
+
+  /* --- Scale roadmap --- */
+  .scale-roadmap { margin: 20px 0; }
+  .scale-phase {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 18px;
+    border-radius: 10px;
+    margin-bottom: 10px;
+    border: 1px solid var(--border);
+  }
+  .scale-phase.active {
+    border-color: var(--accent);
+    background: rgba(88,166,255,0.05);
+  }
+  .scale-phase.done {
+    border-color: var(--green);
+    background: rgba(63,185,80,0.03);
+  }
+  .scale-phase .sp-label {
+    font-weight: 700;
+    min-width: 80px;
+    font-size: 0.9em;
+  }
+  .scale-phase .sp-grid { font-size: 0.85em; color: var(--text-dim); min-width: 60px; }
+  .scale-phase .sp-detail { font-size: 0.82em; color: var(--text-dim); flex: 1; }
+  .scale-phase .sp-status {
+    font-size: 0.75em;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-weight: 600;
+  }
+
+  /* --- Animations --- */
+  @keyframes pulse-border {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(88,166,255,0.3); }
+    50% { box-shadow: 0 0 0 8px rgba(88,166,255,0); }
+  }
+  @keyframes pulse-glow {
+    0%, 100% { box-shadow: 0 0 4px 0 rgba(88,166,255,0.5); }
+    50% { box-shadow: 0 0 12px 2px rgba(88,166,255,0.6); }
+  }
+  @keyframes pulse-dot {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.3); opacity: 0.7; }
+  }
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(15px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .phase { animation: fadeInUp 0.4s ease-out; }
+
+  /* --- Footer --- */
+  .footer {
+    text-align: center;
+    padding: 30px;
+    border-top: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 0.82em;
+  }
+  .footer .update-note {
+    margin-top: 8px;
+    padding: 8px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    display: inline-block;
+  }
+</style>
+</head>
+<body>
+
+<!-- ========================= HERO ========================= -->
+<div class="hero">
+  <h1>🏙️ Steel City: Mob Sim</h1>
+  <p class="subtitle">Vertical Slice Development Roadmap</p>
+  <div class="meta">
+    <span style="color:var(--green);">● Foundations Complete</span> &nbsp;|&nbsp;
+    <span style="color:var(--accent);">● Simulation In Progress</span> &nbsp;|&nbsp;
+    <span style="color:var(--cyan);">● GPU Rendering Optimization In Progress</span> &nbsp;|&nbsp;
+    <span style="color:var(--text-dim);">● Content Expansion Planned</span>
+  </div>
+</div>
+
+<!-- ========================= MAINTENANCE REMINDER ========================= -->
+<div style="max-width: 900px; margin: 0 auto; padding: 12px 24px;">
+  <div style="background: var(--surface2); border: 1px solid var(--yellow); border-radius: 8px; padding: 14px 18px; display: flex; align-items: flex-start; gap: 12px;">
+    <span style="font-size: 1.3em;">⚠️</span>
+    <div>
+      <strong style="color: var(--yellow);">Maintenance Reminder</strong>
+      <p style="margin: 4px 0 0 0; color: var(--text-dim); font-size: 0.9em;">
+        This roadmap must be updated whenever new features are discussed, design documents are created, or phases change status.
+        If you're working on a design doc or brainstorming a new system, update the corresponding phase here afterward.
+        Last review: <strong>Aug 9, 2026</strong> — Phase 4c (Voxel Group Animation) COMPLETE with Approach B inverse-transform sampling, combat/vehicle design doc, invariant computation audit, GPU rendering Phase 1, gang simulation architecture design doc + visual guide (Phase 4d).
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- ========================= PROGRESS BAR ========================= -->
+<div class="progress-section">
+  <div class="overall-bar">
+    <div class="overall-fill" style="width: 70%;">70%</div>
+  </div>
+  <div class="overall-label">Vertical Slice Completion — Foundations ✅ → Simulation 🔄 → Polish 🔲</div>
+</div>
+
+<div class="container">
+
+  <!-- ========================= STATS ========================= -->
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-num">39</div>
+      <div class="stat-label">C# Scripts</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num">230+</div>
+      <div class="stat-label">Voxel Models</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num">18</div>
+      <div class="stat-label">Doc Files</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num">100</div>
+      <div class="stat-label">City Blocks</div>
+    </div>
+  </div>
+
+  <!-- ========================= CURRENT WORK BANNER ========================= -->
+  <div class="current-banner">
+    <h3><span class="pulse-dot"></span> Current Work — Gang Simulation Architecture Design + GPU Rendering Phase 2</h3>
+    <div class="desc">
+      <strong>Gang Simulation design complete:</strong> <code>GANG_SIMULATION_ARCHITECTURE.md</code> + <code>GANG_SIMULATION_VISUAL.html</code> created. Proposes merging StressTestAgent + SimulationManager into unified HoodAgent with per-hood order queues, tick budgets, and state machines based on Gangsters.exe RE findings. Awaiting approval before implementation.<br>
+      <strong>GPU Rendering:</strong> Phase 1 (TRS Cache) complete. Phase 2 (buffer pooling) next. 6 invariant computation candidates pending.<br>
+      <strong>Live simulation:</strong> NPCs navigate via waypoint graph with tick-based movement.
+    </div>
+    <div class="files">
+      <span class="file-chip">GANG_SIMULATION_ARCHITECTURE.md</span>
+      <span class="file-chip">GANG_SIMULATION_VISUAL.html</span>
+      <span class="file-chip">SimulationManager.cs</span>
+      <span class="file-chip">WaypointGraph.cs</span>
+      <span class="file-chip">Pathfinder.cs</span>
+      <span class="file-chip">VoxelCharacter.cs</span>
+      <span class="file-chip">VoxelCollisionWorld.cs</span>
+      <span class="file-chip">StressTestSpawner.cs</span>
+      <span class="file-chip">FollowCamera.cs</span>
+      <span class="file-chip">TickHUD.cs</span>
+    </div>
+  </div>
+
+  <!-- ========================= PHASE 1: FOUNDATIONS (DONE) ========================= -->
+  <div class="phase">
+    <div class="phase-header">
+      <div class="phase-icon done">✅</div>
+      <div class="phase-title">
+        <h2>Phase 1 — Foundations</h2>
+        <div class="dates">Aug 2 – Aug 6, 2026</div>
+      </div>
+      <div class="phase-status done">COMPLETE</div>
+    </div>
+    <div class="features">
+      <div class="feature done">
+        <div class="feature-head">
+          <div class="feature-status-icon done">✓</div>
+          <div class="feature-name">Asset Pipeline</div>
+          <div class="feature-tag done">DONE</div>
+        </div>
+        <div class="feature-desc">Python procedural generation → .stasset → Unity runtime loading</div>
+        <ul class="feature-items">
+          <li class="check">mob_materials.py — 1920s material palette (30 materials)</li>
+          <li class="check">procedural_mob_buildings.py — 11 building generators</li>
+          <li class="check">procedural_mob_characters.py — character variants</li>
+          <li class="check">procedural_mob_vehicles.py — touring car generator</li>
+          <li class="check">generate_city_assets.py — city layout + .stasset export</li>
+          <li class="check">StAssetReader.cs — runtime .stasset loading in Unity</li>
+        </ul>
+      </div>
+
+      <div class="feature done">
+        <div class="feature-head">
+          <div class="feature-status-icon done">✓</div>
+          <div class="feature-name">City Generation</div>
+          <div class="feature-tag done">DONE</div>
+        </div>
+        <div class="feature-desc">Road-first pipeline: Geography → Roads → Sidewalks → Blocks</div>
+        <ul class="feature-items">
+          <li class="check">3×3 block grid with road network</li>
+          <li class="check">Per-building outward rotation from block center</li>
+          <li class="check">Road labels (flat, readable, all streets)</li>
+          <li class="check">Compass rose for scene orientation</li>
+          <li class="check">Rubble decorations on empty land plots</li>
+        </ul>
+      </div>
+
+      <div class="feature done">
+        <div class="feature-head">
+          <div class="feature-status-icon done">✓</div>
+          <div class="feature-name">GPU Voxel Rendering</div>
+          <div class="feature-tag done">DONE</div>
+        </div>
+        <div class="feature-desc">Raymarch compute shader pipeline with full lighting</div>
+        <ul class="feature-items">
+          <li class="check">GPU raymarch compute shader (MobSimVoxelRaymarch.compute)</li>
+          <li class="check">Dynamic lighting via VoxelSun (day/night cycle)</li>
+          <li class="check">Hybrid normals — DDA face + SmoothNormal blend</li>
+          <li class="check">Half-Lambert wrap lighting + soft shadow penumbra</li>
+          <li class="check">Self-shadowing fix + multi-chunk depth buffer fix</li>
+          <li class="check">Shadow debug controls + lighting component toggles</li>
+          <li class="check">Dynamic resolution scaling</li>
+        </ul>
+      </div>
+
+      <div class="feature done">
+        <div class="feature-head">
+          <div class="feature-status-icon done">✓</div>
+          <div class="feature-name">Camera & Controls</div>
+          <div class="feature-tag done">DONE</div>
+        </div>
+        <div class="feature-desc">Isometric camera with smooth controls</div>
+        <ul class="feature-items">
+          <li class="check">Pan (RMB drag), Zoom (scroll wheel), Focus (LMB click)</li>
+          <li class="check">Smooth rotator (LerpAngle interpolation)</li>
+          <li class="check">Camera clamping to city bounds</li>
+          <li class="check">Viewport separation (60% UI / 40% 3D map)</li>
+        </ul>
+      </div>
+
+      <div class="feature done">
+        <div class="feature-head">
+          <div class="feature-status-icon done">✓</div>
+          <div class="feature-name">Scale & Design Standards</div>
+          <div class="feature-tag done">DONE</div>
+        </div>
+        <div class="feature-desc">NPC "Vinny" as scale root, door ratios, orientation conventions</div>
+        <ul class="feature-items">
+          <li class="check">MODEL_DESIGN_STANDARD.md — master reference</li>
+          <li class="check">3.75× scale ratio (real world → mob sim)</li>
+          <li class="check">Door height standard (1.25× NPC height minimum)</li>
+          <li class="check">Orientation per type (buildings Z=0, vehicles +Z, characters low Z)</li>
+          <li class="check">Proportion reference table + per-model audit</li>
+        </ul>
+      </div>
+
+      <div class="feature done">
+        <div class="feature-head">
+          <div class="feature-status-icon done">✓</div>
+          <div class="feature-name">UI System</div>
+          <div class="feature-tag done">DONE</div>
+        </div>
+        <div class="feature-desc">7-tab info panel with canvas setup</div>
+        <ul class="feature-items">
+          <li class="check">Tabbed layout (Hoods, Block, Orders, Finance, Police, Invest, Log)</li>
+          <li class="check">CreatePage / CreateScrollablePage helpers</li>
+          <li class="check">Camera viewport separation</li>
+          <li class="check">Compass rose for orientation</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================= PHASE 2: RENDERING OPTIMIZATION (DONE) ========================= -->
+  <div class="phase">
+    <div class="phase-header">
+      <div class="phase-icon done">✅</div>
+      <div class="phase-title">
+        <h2>Phase 2 — Rendering Optimization</h2>
+        <div class="dates">Aug 6 – Aug 7, 2026</div>
+      </div>
+      <div class="phase-status done">COMPLETE</div>
+    </div>
+    <div class="features">
+      <div class="feature done">
+        <div class="feature-head">
+          <div class="feature-status-icon done">✓</div>
+          <div class="feature-name">GPU Instancing & Buffering</div>
+          <div class="feature-tag done">DONE</div>
+        </div>
+        <div class="feature-desc">Instanced rendering for characters, vehicles, and static buildings</div>
+        <ul class="feature-items">
+          <li class="check">ComputeBuffer for per-instance data (pos, yaw, voxel data)</li>
+          <li class="check">MaterialPropertyBlock per-group isolation (Invisible Vinny fix)</li>
+          <li class="check">Sector baking — multiple buildings merged into 1 mesh per sector</li>
+          <li class="check">Per-sector MaterialPropertyBlock for buffer isolation</li>
+          <li class="check">DrawMeshInstanced — 1 draw call per asset type / sector</li>
+        </ul>
+      </div>
+
+      <div class="feature done">
+        <div class="feature-head">
+          <div class="feature-status-icon done">✓</div>
+          <div class="feature-name">Rendering Tiers</div>
+          <div class="feature-tag done">DONE</div>
+        </div>
+        <div class="feature-desc">Three-tier strategy: Bake / Instance / Individual</div>
+        <ul class="feature-items">
+          <li class="check">Tier 1: Sector baking (static buildings → 1 mesh per sector)</li>
+          <li class="check">Tier 2: GPU instancing (batched dynamic — NPCs, vehicles, door leaves)</li>
+          <li class="check">Tier 3: Individual draw (unique mutation — destruction)</li>
+          <li class="check">Decision checklist documented</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================= PHASE 3: INSPECTION TOOLCHAIN (DONE) ========================= -->
+  <div class="phase">
+    <div class="phase-header">
+      <div class="phase-icon done">✅</div>
+      <div class="phase-title">
+        <h2>Phase 3 — Inspection & Quality Assurance</h2>
+        <div class="dates">Aug 7 – Aug 8, 2026</div>
+      </div>
+      <div class="phase-status done">COMPLETE</div>
+    </div>
+    <div class="features">
+      <div class="feature done">
+        <div class="feature-head">
+          <div class="feature-status-icon done">✓</div>
+          <div class="feature-name">Unified Voxel Inspector</div>
+          <div class="feature-tag done">DONE</div>
+        </div>
+        <div class="feature-desc">10 quality checks in a single CLI pass</div>
+        <ul class="feature-items">
+          <li class="check">sc_inspector.py — dimensions, materials, scale, door height</li>
+          <li class="check">Orientation, symmetry, proportions, wall closure, internal holes</li>
+          <li class="check">ASCII cross-section views with material symbols</li>
+          <li class="check">Storefront vs missing wall detection (glass-behind check)</li>
+          <li class="check">Baseline results for 18 models (characters, vehicles, buildings)</li>
+        </ul>
+      </div>
+
+      <div class="feature done">
+        <div class="feature-head">
+          <div class="feature-status-icon done">✓</div>
+          <div class="feature-name">Documentation Suite</div>
+          <div class="feature-tag done">DONE</div>
+        </div>
+        <div class="feature-desc">15 documents covering all systems</div>
+        <ul class="feature-items">
+          <li class="check">INSTANCING_AND_BUFFERING.md + visual HTML guide</li>
+          <li class="check">VOXEL_INSPECTION_TOOLCHAIN.md</li>
+          <li class="check">MODEL_DESIGN_STANDARD.md (master reference)</li>
+          <li class="check">GPU_DRIVEN_SECTOR_RENDERING.md</li>
+          <li class="check">DYNAMIC_OBJECT_RENDERING_TIERS.md</li>
+          <li class="check">PATH_DEBUG_RENDERING.md — CommandBuffer instanced beam pipeline</li>
+          <li class="check">DOCUMENTATION_INDEX.md (central hub, v1.3.0)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================= PHASE 4: LIVE SIMULATION (CURRENT) ========================= -->
+  <div class="phase">
+    <div class="phase-header">
+      <div class="phase-icon current">🔄</div>
+      <div class="phase-title">
+        <h2>Phase 4 — Live Simulation & Pathfinding</h2>
+        <div class="dates">Aug 8, 2026 — IN PROGRESS</div>
+      </div>
+      <div class="phase-status current">ACTIVE</div>
+    </div>
+    <div class="features">
+      <div class="feature current">
+        <div class="feature-head">
+          <div class="feature-status-icon current">●</div>
+          <div class="feature-name">Waypoint Pathfinding</div>
+          <div class="feature-tag current">IN PROGRESS</div>
+        </div>
+        <div class="feature-desc">NPCs navigate the city via sidewalk waypoint graph</div>
+        <ul class="feature-items">
+          <li class="check">WaypointGraph.cs — sidewalk corner, mid, crosswalk nodes</li>
+          <li class="check">Pathfinder.cs — A* pathfinding through waypoint graph</li>
+          <li class="check">RoadGraph.cs — road network for vehicle routing</li>
+          <li class="check">PathDebugRenderer.cs — instanced box-beam rendering via CommandBuffer</li>
+          <li class="check">Per-type batching (Pedestrian/Car/Trolley) with MaterialPropertyBlock color isolation</li>
+          <li class="check">Beams composited into voxel render texture (visible through RawImage overlay)</li>
+          <li class="check">Camera passed from VoxelRenderBridge (Camera.main fails in URP)</li>
+          <li class="check">All pedestrian paths shown by default (auto-registration)</li>
+        </ul>
+      </div>
+
+      <div class="feature current">
+        <div class="feature-head">
+          <div class="feature-status-icon current">●</div>
+          <div class="feature-name">Tick-Based Simulation</div>
+          <div class="feature-tag current">IN PROGRESS</div>
+        </div>
+        <div class="feature-desc">Real-time tick system driving character/vehicle movement</div>
+        <ul class="feature-items">
+          <li class="check">SimulationManager.cs — manages active sim state, paths</li>
+          <li class="check">TickSimulation.cs — tick loop driving movement</li>
+          <li class="check">TickHUD.cs — on-screen tick counter + phase display</li>
+          <li class="current">VoxelCharacter.cs — instanced character with path following</li>
+          <li class="current">VoxelVehicle.cs — instanced vehicle with road following</li>
+        </ul>
+      </div>
+
+      <div class="feature current">
+        <div class="feature-head">
+          <div class="feature-status-icon current">●</div>
+          <div class="feature-name">Camera & Debug Tools</div>
+          <div class="feature-tag current">IN PROGRESS</div>
+        </div>
+        <div class="feature-desc">Follow camera and stress testing for simulation</div>
+        <ul class="feature-items">
+          <li class="check">FollowCamera.cs — camera tracks active character</li>
+          <li class="check">StressTestSpawner.cs — spawn N characters for perf testing</li>
+          <li class="check">StressTestDiagnostics.cs — performance metrics</li>
+          <li class="check">VehicleTestSpawner.cs — vehicle spawn testing</li>
+          <li class="check">Path debug beams working for all entity types (pedestrian + vehicle)</li>
+        </ul>
+      </div>
+
+      <div class="feature partial">
+        <div class="feature-head">
+          <div class="feature-status-icon partial">⚠</div>
+          <div class="feature-name">Collision World</div>
+          <div class="feature-tag partial">PARTIAL</div>
+        </div>
+        <div class="feature-desc">Hybrid physics: voxel raymarch terrain + Unity colliders for actors</div>
+        <ul class="feature-items">
+          <li class="check">VoxelCollisionWorld.cs — voxel-based collision queries</li>
+          <li class="warn">Bone colliders for actors — design phase</li>
+          <li class="pending">Dynamic object ↔ voxel terrain interaction bridge</li>
+        </ul>
+      </div>
+
+      <div class="feature partial">
+        <div class="feature-head">
+          <div class="feature-status-icon partial">⚠</div>
+          <div class="feature-name">Event Playback</div>
+          <div class="feature-tag partial">PARTIAL</div>
+        </div>
+        <div class="feature-desc">Animated Run Week coroutine (currently instant)</div>
+        <ul class="feature-items">
+          <li class="check">EventPlayer.cs — event playback infrastructure</li>
+          <li class="check">SimEventStream.cs — event stream for sim → UI</li>
+          <li class="warn">Step-by-step playback (extortion → police → rival → economy)</li>
+          <li class="pending">Camera auto-pan to events</li>
+          <li class="pending">Animation primitives (floating $, hood icons, territory colors)</li>
+          <li class="pending">Speed controls (normal / fast / skip)</li>
+        </ul>
+      </div>
+
+      <div class="feature partial">
+        <div class="feature-head">
+          <div class="feature-status-icon partial">⚠</div>
+          <div class="feature-name">UI Polish</div>
+          <div class="feature-tag partial">PARTIAL</div>
+        </div>
+        <div class="feature-desc">Block tab, orders tab, business selection wiring</div>
+        <ul class="feature-items">
+          <li class="warn">Block tab — show all 9 businesses in sub-grid</li>
+          <li class="warn">Orders tab — business-within-block selection</li>
+          <li class="warn">Hoods tab — current assignment display</li>
+          <li class="warn">Business selection state → GameUIController wiring</li>
+          <li class="check">Lighting/shadow debug controls (toggles + sliders)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================= PHASE 4b: GPU-DRIVEN RENDERING (IN PROGRESS) ========================= -->
+  <div class="phase">
+    <div class="phase-header">
+      <div class="phase-icon active">�</div>
+      <div class="phase-title">
+        <h2>Phase 4b — GPU-Driven Rendering Optimization</h2>
+        <div class="dates">In Progress — Phase 1 complete, 5 phases remaining (~9-12 hours)</div>
+      </div>
+      <div class="phase-status active">IN PROGRESS</div>
+    </div>
+    <div class="features">
+      <div class="feature done">
+        <div class="feature-head">
+          <div class="feature-status-icon done">✅</div>
+          <div class="feature-name">Phase 1: Static Sector TRS Cache</div>
+          <div class="feature-tag done">COMPLETE</div>
+        </div>
+        <div class="feature-desc">Cache Matrix4x4[] for sector buildings — stop rebuilding 984 matrices per frame</div>
+        <ul class="feature-items">
+          <li class="done">BakedSector gets cachedMatrices field</li>
+          <li class="done">Build matrices once at RegisterSector time via BuildSectorMatrices()</li>
+          <li class="done">984 TRS calls/frame → 0, 10 array allocs/frame → 0</li>
+          <li class="done">Bonus: vSync + 120fps cap, HUD frame time metrics (ms + min/max/avg + GPU/CPU)</li>
+          <li class="done">Commit b184e99 — Aug 9, 2026</li>
+        </ul>
+      </div>
+
+      <div class="feature planned">
+        <div class="feature-head">
+          <div class="feature-status-icon planned">○</div>
+          <div class="feature-name">Phase 2: Buffer Pooling + SubUpdates</div>
+          <div class="feature-tag planned">PLANNED</div>
+        </div>
+        <div class="feature-desc">ComputeBufferMode.SubUpdates + BeginWrite/EndWrite for zero-GC buffer updates</div>
+        <ul class="feature-items">
+          <li class="pending">Replace SetData with BeginWrite/EndWrite for instance offsets</li>
+          <li class="pending">Pool reusable ComputeBuffers across frames</li>
+          <li class="pending">Zero GC allocs per frame — low risk</li>
+        </ul>
+      </div>
+
+      <div class="feature planned">
+        <div class="feature-head">
+          <div class="feature-status-icon planned">○</div>
+          <div class="feature-name">Phase 3: DrawMeshInstancedIndirect</div>
+          <div class="feature-tag planned">PLANNED</div>
+        </div>
+        <div class="feature-desc">Replace DrawMeshInstanced with indirect draw — instance count from GPU buffer</div>
+        <ul class="feature-items">
+          <li class="pending">Create IndirectArguments GraphicsBuffer per sector</li>
+          <li class="pending">CPU writes instance count initially (no GPU culling yet)</li>
+          <li class="pending">Removes 1023 instance cap — medium risk</li>
+        </ul>
+      </div>
+
+      <div class="feature planned">
+        <div class="feature-head">
+          <div class="feature-status-icon planned">○</div>
+          <div class="feature-name">Phase 4: Compute Shader Frustum Culling</div>
+          <div class="feature-tag planned">PLANNED</div>
+        </div>
+        <div class="feature-desc">GPU compute shader culls invisible instances — no CPU readback</div>
+        <ul class="feature-items">
+          <li class="pending">New SectorCull.compute shader</li>
+          <li class="pending">InterlockedAdd for compacted visible index list</li>
+          <li class="pending">Shader reads _VisibleIndices[unity_InstanceID] — medium risk</li>
+        </ul>
+      </div>
+
+      <div class="feature planned">
+        <div class="feature-head">
+          <div class="feature-status-icon planned">○</div>
+          <div class="feature-name">Phase 5: GPU-Side LOD</div>
+          <div class="feature-tag planned">PLANNED</div>
+        </div>
+        <div class="feature-desc">Compute shader assigns LOD tier per instance — distant buildings get fewer raymarch steps</div>
+        <ul class="feature-items">
+          <li class="pending">LOD tiers: full / half / quarter / cull based on screen-space size</li>
+          <li class="pending">Hysteresis to prevent flickering at LOD boundaries</li>
+          <li class="pending">Shader scales maxSteps per instance — higher risk</li>
+        </ul>
+      </div>
+
+      <div class="feature planned">
+        <div class="feature-head">
+          <div class="feature-status-icon planned">○</div>
+          <div class="feature-name">Phase 6: Remove 1023 Cap + Scale Test</div>
+          <div class="feature-tag planned">PLANNED</div>
+        </div>
+        <div class="feature-desc">Merge sectors, test with 500-1000 block cities</div>
+        <ul class="feature-items">
+          <li class="pending">Optionally merge all building sectors into 1 mega-sector</li>
+          <li class="pending">Test with 500-block city layout</li>
+          <li class="pending">Target: ~3 draw calls for entire city — low risk if 3-4 solid</li>
+        </ul>
+      </div>
+
+      <div class="feature active">
+        <div class="feature-head">
+          <div class="feature-status-icon active">🔄</div>
+          <div class="feature-name">Invariant Computation Audit — 6 Pending Candidates</div>
+          <div class="feature-tag active">IN PROGRESS</div>
+        </div>
+        <div class="feature-desc">"Do Once, Not Repeat Constantly" — identified during Phase 1 audit. See <code>INVARIANT_COMPUTATION_PRINCIPLE.md</code></div>
+        <ul class="feature-items">
+          <li class="pending">🔴 #1 Sector Bounds: cache <code>Bounds</code> at RegisterSector (10 allocs/frame → 0)</li>
+          <li class="pending">🔴 #2 PropBlock Clear: skip Clear()+re-set when buffers unchanged (10+ API calls/frame saved)</li>
+          <li class="pending">🟡 #3 Group Size/Pad: cache paddedSize+paddedHalf at group creation</li>
+          <li class="pending">🟡 #4 Chunk Tight AABB: cache tightSize+boundsRadius at load (computed 2× per chunk now)</li>
+          <li class="pending">🟡 #5 Corners Array: reuse static <code>Vector3[8]</code> scratch (N allocs/frame → 0)</li>
+          <li class="pending">🟢 #6 Instanced Arrays: pool offset/matrix arrays per group (GC scales with char count)</li>
+          <li class="done">✅ Case Study 1: TRS Matrix Cache (Phase 1 — 984 builds/frame → 0)</li>
+          <li class="done">✅ Case Study 2: Collision World Flat Array (78s → 371ms, 211× faster)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================= PHASE 4c: VOXEL GROUP ANIMATION (COMPLETE) ========================= -->
+  <div class="phase">
+    <div class="phase-header">
+      <div class="phase-icon done">✅</div>
+      <div class="phase-title">
+        <h2>Phase 4c — Voxel Group Animation (Articulated Limbs)</h2>
+        <div class="dates">COMPLETE — ~6-10 hrs actual — Approach B inverse-transform sampling working</div>
+      </div>
+      <div class="phase-status done">COMPLETE</div>
+    </div>
+    <div class="features">
+      <div class="feature done">
+        <div class="feature-head">
+          <div class="feature-status-icon done">✅</div>
+          <div class="feature-name">Voxel Group System</div>
+          <div class="feature-tag done">DONE</div>
+        </div>
+        <div class="feature-desc">Tag voxels with groupID (head, torso, arms, legs) for per-limb procedural transforms in raymarch shader — see <code>VOXEL_GROUP_ANIMATION.md</code></div>
+        <ul class="feature-items">
+          <li class="done">Step 1: Tag character voxels with group IDs (programmatic partition, 4 .groups files created)</li>
+          <li class="done">Step 2: Expand instance buffer — add animState + animTime (16→32 bytes/instance)</li>
+          <li class="done">Step 3: Upload groupID buffer per InstancedGroup, bind as _GroupIDs in shader</li>
+          <li class="done">Step 4: Per-group transforms in VoxelProxyRaymarch.shader DDA loop — Approach B (inverse-transform sampling)</li>
+          <li class="done">Step 5: CharacterAnimation.cs — drive animState/animTime from C# (9 states: Idle, Walking, Looking, Checking, Aiming, Crouching, Flinching, Falling, Down)</li>
+          <li class="done">Step 6: PedestrianLookAround.cs — NPC random look-around, hood coast-clear check</li>
+        </ul>
+      </div>
+
+      <div class="feature done">
+        <div class="feature-head">
+          <div class="feature-status-icon done">✅</div>
+          <div class="feature-name">Gangsters-Inspired Suspicious Atmosphere</div>
+          <div class="feature-tag done">DONE</div>
+        </div>
+        <div class="feature-desc">Pedestrians and hoods share the same head-turn animation — emergent suspicion from identical behavior</div>
+        <ul class="feature-items">
+          <li class="done">Walking with arm/leg counter-swing (procedural, not keyframes)</li>
+          <li class="done">Random head look-around for ambient NPCs (stop, turn head, resume)</li>
+          <li class="done">Hood "coast clear" check — same animation, crime AI triggered</li>
+          <li class="done">Can't distinguish civilians from criminals until crime committed</li>
+        </ul>
+      </div>
+
+      <div class="feature done">
+        <div class="feature-head">
+          <div class="feature-status-icon done">✅</div>
+          <div class="feature-name">Combat Animation Poses</div>
+          <div class="feature-tag done">DONE</div>
+        </div>
+        <div class="feature-desc">Per-limb poses for combat — extends group system with aim, crouch, flinch states (shader-implemented, pending AI integration)</div>
+        <ul class="feature-items">
+          <li class="done">Aiming: arm raises to -1.2rad, head pitch toward target</li>
+          <li class="done">Crouching: legs rotate 0.6rad, arms tuck ±0.3rad</li>
+          <li class="done">Flinch: arms recoil -1.5rad, head pitch 0.4rad</li>
+          <li class="pending">Hybrid: procedural for 50+ ambient NPCs (cheap), voxel groups for 4-20 combat participants</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================= PHASE 4d: GANG SIMULATION (PLANNED) ========================= -->
+  <div class="phase">
+    <div class="phase-header">
+      <div class="phase-icon planned">🔲</div>
+      <div class="phase-title">
+        <h2>Phase 4d — Multi-Hood Gang Simulation</h2>
+        <div class="dates">Planned — ~40-50 hrs — Design doc + visual guide complete</div>
+      </div>
+      <div class="phase-status planned">PLANNED</div>
+    </div>
+    <div class="features">
+      <div class="feature planned">
+        <div class="feature-head">
+          <div class="feature-status-icon planned">○</div>
+          <div class="feature-name">HoodAgent + HoodSpawner</div>
+          <div class="feature-tag planned">PLANNED</div>
+        </div>
+        <div class="feature-desc">Merge StressTestAgent movement + SimulationManager game logic into unified per-hood agent — see <code>GANG_SIMULATION_ARCHITECTURE.md</code></div>
+        <ul class="feature-items">
+          <li class="pending">HoodAgent.cs — state machine: Idle → PathToTarget → ExecuteOrder → PathHome → Idle</li>
+          <li class="pending">HoodSpawner.cs — spawn N hoods at HQ with ground-probe spawn (Y+50 raycast)</li>
+          <li class="pending">Per-hood order queue + 12,000 tick budget (from RE data)</li>
+          <li class="pending">GangDispatcher — iterates all hoods, starts working phase</li>
+          <li class="pending">Shared Pathfinder + WaypointGraph (no per-hood copies)</li>
+        </ul>
+      </div>
+
+      <div class="feature planned">
+        <div class="feature-head">
+          <div class="feature-status-icon planned">○</div>
+          <div class="feature-name">Order System</div>
+          <div class="feature-tag planned">PLANNED</div>
+        </div>
+        <div class="feature-desc">Per-hood order queues with tick-based execution — based on Gangsters.exe RE findings</div>
+        <ul class="feature-items">
+          <li class="pending">Order types: Goto (16), Guard (166), Extort (166), Collect (400), Kill (6000), Bomb (6000)</li>
+          <li class="pending">Tick consumption per order type (from GAME_DATA_REFERENCE.md)</li>
+          <li class="pending">Budget exhaustion = hood returns home</li>
+          <li class="pending">Weekly reset: budget refilled, orders cleared</li>
+        </ul>
+      </div>
+
+      <div class="feature planned">
+        <div class="feature-head">
+          <div class="feature-status-icon planned">○</div>
+          <div class="feature-name">Vehicle Decision Logic</div>
+          <div class="feature-tag planned">PLANNED</div>
+        </div>
+        <div class="feature-desc">Two decision paths from original game: distance-based (75%) + random assignment (25%)</div>
+        <ul class="feature-items">
+          <li class="pending">Distance > 64 units → assign vehicle from pool</li>
+          <li class="pending">Special orders (kill, bomb) → 25% random vehicle chance</li>
+          <li class="pending">Vehicle pool managed by GangDispatcher</li>
+          <li class="pending">Walking fallback when no vehicles available</li>
+        </ul>
+      </div>
+
+      <div class="feature planned">
+        <div class="feature-head">
+          <div class="feature-status-icon planned">○</div>
+          <div class="feature-name">Cleanup Deprecated Systems</div>
+          <div class="feature-tag planned">PLANNED</div>
+        </div>
+        <div class="feature-desc">Remove all single-Vinny special-cased code after HoodAgent proven</div>
+        <ul class="feature-items">
+          <li class="pending">Remove FollowCamera.cs, StressTestSpawner.cs, StressTestAgent.cs, StressTestDiagnostics.cs</li>
+          <li class="pending">Remove SimulationManager.cs (logic merged into HoodAgent)</li>
+          <li class="pending">Remove Vinny selector UI + teleport button from GameUIController</li>
+          <li class="pending">Keep VoxelCharacter.cs, Pathfinder.cs, WaypointGraph.cs, VoxelCollisionWorld.cs</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-header">
+      <div class="phase-icon planned">🔲</div>
+      <div class="phase-title">
+        <h2>Phase 5 — Content Expansion</h2>
+        <div class="dates">Planned — After simulation stable</div>
+      </div>
+      <div class="phase-status planned">PLANNED</div>
+    </div>
+    <div class="features">
+      <div class="feature planned">
+        <div class="feature-head">
+          <div class="feature-status-icon planned">○</div>
+          <div class="feature-name">More Building Types</div>
+          <div class="feature-tag planned">PLANNED</div>
+        </div>
+        <div class="feature-desc">Expand from 11 to 30+ business types</div>
+        <ul class="feature-items">
+          <li class="pending">Restaurant, hotel, nightclub, pharmacy</li>
+          <li class="pending">Warehouse, drug den, protection front</li>
+          <li class="pending">Betting parlor, jazz club, tailor</li>
+          <li class="pending">Jewelry store, bank, union hall</li>
+          <li class="pending">Import/export, trucking company, distillery, brewery</li>
+        </ul>
+      </div>
+
+      <div class="feature planned">
+        <div class="feature-head">
+          <div class="feature-status-icon planned">○</div>
+          <div class="feature-name">Full 3×3 Business Sub-Grid</div>
+          <div class="feature-tag planned">PLANNED</div>
+        </div>
+        <div class="feature-desc">Fill each block to full 9-business density</div>
+        <ul class="feature-items">
+          <li class="pending">Currently 1-2 businesses per block → target 9</li>
+          <li class="pending">81 total businesses (from current ~13)</li>
+          <li class="pending">Road tile .stasset files (currently generated in-code)</li>
+          <li class="pending">Character models walking streets (hoods, NPCs)</li>
+        </ul>
+      </div>
+
+      <div class="feature planned">
+        <div class="feature-head">
+          <div class="feature-status-icon planned">○</div>
+          <div class="feature-name">Tier 2 Door Leaves (All Buildings)</div>
+          <div class="feature-tag planned">PLANNED</div>
+        </div>
+        <div class="feature-desc">Instanced door animation — every building's door swing via Tier 2 batched dynamic</div>
+        <ul class="feature-items">
+          <li class="pending">Door leaves pulled from Tier 1 baked sectors → Tier 2 instanced batch</li>
+          <li class="pending">Shared door mesh + per-instance swing angle in instance buffer</li>
+          <li class="pending">1 DrawMeshInstanced call for all doors city-wide (no per-door draw calls)</li>
+          <li class="pending">Swing state driven by sim events (NPCs entering/exiting buildings)</li>
+          <li class="pending">Door voxel models separated from building .stasset files</li>
+        </ul>
+      </div>
+
+      <div class="feature planned">
+        <div class="feature-head">
+          <div class="feature-status-icon planned">○</div>
+          <div class="feature-name">Visual Indicators</div>
+          <div class="feature-tag planned">PLANNED</div>
+        </div>
+        <div class="feature-desc">Map feedback for game state</div>
+        <ul class="feature-items">
+          <li class="pending">Owner gang color tint on roofs/facades</li>
+          <li class="pending">Selection highlight (gold outline)</li>
+          <li class="pending">Active order icon (pulsing above business)</li>
+          <li class="pending">Investigation icon (magnifying glass)</li>
+          <li class="pending">Police presence badge</li>
+          <li class="pending">Illegal business red glow at night</li>
+        </ul>
+      </div>
+
+      <div class="feature planned">
+        <div class="feature-head">
+          <div class="feature-status-icon planned">○</div>
+          <div class="feature-name">Win/Loss Conditions</div>
+          <div class="feature-tag planned">PLANNED</div>
+        </div>
+        <div class="feature-desc">Game ending triggers</div>
+        <ul class="feature-items">
+          <li class="pending">Win: Control 100 blocks</li>
+          <li class="pending">Win: Get elected mayor</li>
+          <li class="pending">Loss: All hoods arrested/dead</li>
+          <li class="pending">Loss: Treasury below $0 (bankruptcy)</li>
+          <li class="pending">Loss: FBI raid on HQ</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================= PHASE 6: SCALE EXPANSION (PLANNED) ========================= -->
+  <div class="phase">
+    <div class="phase-header">
+      <div class="phase-icon planned">🔲</div>
+      <div class="phase-title">
+        <h2>Phase 6 — Scale Expansion</h2>
+        <div class="dates">Planned — After vertical slice proven</div>
+      </div>
+      <div class="phase-status planned">PLANNED</div>
+    </div>
+
+    <div class="scale-roadmap">
+      <div class="scale-phase done">
+        <div class="sp-label" style="color:var(--green);">Phase 0</div>
+        <div class="sp-grid">3×3</div>
+        <div class="sp-detail">9 blocks, ~13 businesses, 1-2 per block — <strong>current</strong></div>
+        <div class="sp-status" style="color:var(--green);border:1px solid var(--green);">DONE</div>
+      </div>
+      <div class="scale-phase active">
+        <div class="sp-label" style="color:var(--accent);">Phase 1</div>
+        <div class="sp-grid">3×3</div>
+        <div class="sp-detail">9 blocks, 81 businesses, full 3×3 sub-grid — <strong>immediate target</strong></div>
+        <div class="sp-status" style="color:var(--accent);border:1px solid var(--accent);">NEXT</div>
+      </div>
+      <div class="scale-phase">
+        <div class="sp-label" style="color:var(--text-dim);">Phase 2</div>
+        <div class="sp-grid">5×5</div>
+        <div class="sp-detail">25 blocks, 225 businesses, multiple neighborhoods</div>
+        <div class="sp-status" style="color:var(--text-dim);border:1px solid var(--text-dim);">PLANNED</div>
+      </div>
+      <div class="scale-phase">
+        <div class="sp-label" style="color:var(--text-dim);">Phase 3</div>
+        <div class="sp-grid">10×10</div>
+        <div class="sp-detail">100 blocks, 900 businesses — full original game scale</div>
+        <div class="sp-status" style="color:var(--text-dim);border:1px solid var(--text-dim);">PLANNED</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================= TIMELINE ========================= -->
+  <div class="phase">
+    <div class="phase-header">
+      <div class="phase-icon done">📅</div>
+      <div class="phase-title">
+        <h2>Development Timeline</h2>
+      </div>
+    </div>
+    <div class="timeline">
+      <div class="tl-item">
+        <div class="tl-dot done"></div>
+        <div class="tl-date">Aug 2, 2026</div>
+        <div class="tl-title">Project Kickoff</div>
+        <div class="tl-desc">Game design skeleton, data models, file structure defined. Python prototype existed.</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot done"></div>
+        <div class="tl-date">Aug 2 – Aug 3</div>
+        <div class="tl-title">Asset Pipeline Built</div>
+        <div class="tl-desc">mob_materials.py, procedural_mob_buildings.py, generate_city_assets.py, StAssetReader.cs</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot done"></div>
+        <div class="tl-date">Aug 3 – Aug 4</div>
+        <div class="tl-title">GPU Raymarch Rendering</div>
+        <div class="tl-desc">Compute shader pipeline, proxy cube rendering, lighting, shadows, camera controls</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot done"></div>
+        <div class="tl-date">Aug 4 – Aug 5</div>
+        <div class="tl-title">Voxel Ordering Fix + Protrusion System</div>
+        <div class="tl-desc">Critical X-major/Fortran order fix. Awning, poles, columns, fire escapes added to buildings.</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot done"></div>
+        <div class="tl-date">Aug 5 – Aug 6</div>
+        <div class="tl-title">Lighting Polish + Shadow Debug</div>
+        <div class="tl-desc">Hybrid normals, self-shadowing fix, bleed-through fix, debug controls, day/night cycle</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot done"></div>
+        <div class="tl-date">Aug 6 – Aug 7</div>
+        <div class="tl-title">Instancing & Sector Baking</div>
+        <div class="tl-desc">GPU instancing for characters/vehicles, sector baking for buildings, MaterialPropertyBlock fix</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot done"></div>
+        <div class="tl-date">Aug 7 – Aug 8</div>
+        <div class="tl-title">Inspection Toolchain + Design Standards</div>
+        <div class="tl-desc">sc_inspector.py (10 checks), MODEL_DESIGN_STANDARD.md, VOXEL_INSPECTION_TOOLCHAIN.md, baseline audit</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot done"></div>
+        <div class="tl-date">Aug 9, 2026</div>
+        <div class="tl-title">Terrain Sector Baking + Collision World Optimization</div>
+        <div class="tl-desc">78s → 371ms terrain load (211x). Dictionary→flat array for VoxelCollisionWorld. 100 chunks → 1 sector. 12 total draw calls.</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot done"></div>
+        <div class="tl-date">Aug 9, 2026</div>
+        <div class="tl-title">GPU-Driven Rendering Phase 1 + Frame Stabilization + HUD Metrics</div>
+        <div class="tl-desc">TRS matrix cache (984 builds/frame → 0). vSync + 120fps cap. HUD frame time (ms) with min/max/avg + ProfilerRecorder GPU/CPU. Invariant computation audit: 6 candidates identified. Commit b184e99.</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot current"></div>
+        <div class="tl-date">Aug 9, 2026 — NOW</div>
+        <div class="tl-title">GPU-Driven Rendering Phase 2 + Invariant Computation Fixes</div>
+        <div class="tl-desc">Next: buffer pooling (SubUpdates) or 6 pending invariant candidates (sector bounds, propblock clear, group size, chunk AABB, corners array, instanced arrays). See INVARIANT_COMPUTATION_PRINCIPLE.md. Simulation & pathfinding also in progress.</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot planned"></div>
+        <div class="tl-date">Next</div>
+        <div class="tl-title">Animated Run Week</div>
+        <div class="tl-desc">Coroutine-based playback: extortion → police → rival → economy. Camera auto-pan, animation primitives, speed controls.</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot planned"></div>
+        <div class="tl-date">After</div>
+        <div class="tl-title">Phase 1 Content Expansion</div>
+        <div class="tl-desc">Full 3×3 business sub-grid, more building types, visual indicators, win/loss conditions</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot planned"></div>
+        <div class="tl-date">Future</div>
+        <div class="tl-title">Scale Expansion</div>
+        <div class="tl-desc">5×5 grid (25 blocks) → 10×10 grid (100 blocks) → full original game scale</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="footer">
+  <p>Steel City: Mob Sim — Vertical Slice Roadmap</p>
+  <p>Companion to <code>GAME_DESIGN_SKELETON.md</code> and <code>DOCUMENTATION_INDEX.md</code></p>
+  <div class="update-note">
+    📝 Last updated: Aug 9, 2026 2:25 PM — Phase 4c (Voxel Group Animation) COMPLETE — Approach B inverse-transform sampling working, 9 animation states, debug key cycling
+  </div>
+  <div style="margin-top: 10px; padding: 10px 14px; background: var(--surface2); border: 1px solid var(--yellow); border-radius: 6px; font-size: 0.85em; color: var(--text-dim);">
+    ⚠️ <strong style="color: var(--yellow);">Keep this roadmap current.</strong>
+    Update phases, timeline, and progress whenever new design documents are created or features are discussed.
+    See <code>DOCUMENTATION_INDEX.md</code> for the full document list.
+  </div>
+</div>
+
+</body>
+</html>

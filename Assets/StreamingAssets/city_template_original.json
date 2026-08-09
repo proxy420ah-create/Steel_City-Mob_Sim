@@ -1,0 +1,19 @@
+{
+  "_comment": "Steel City: Mob Sim — 3x3 block test scene. Barber shop + apartment + 7 empty lots.",
+  "version": "0.0.2",
+  "grid": {"rows": 3, "cols": 3},
+  "blocks": [
+    {"id": "block_1", "name": "NW Lot", "row": 0, "col": 0, "land_value": 3, "businesses": [{"type": "empty_land", "count": 1}], "population": 0},
+    {"id": "block_2", "name": "North Lot", "row": 0, "col": 1, "land_value": 3, "businesses": [{"type": "empty_land", "count": 1}], "population": 0},
+    {"id": "block_3", "name": "NE Lot", "row": 0, "col": 2, "land_value": 3, "businesses": [{"type": "empty_land", "count": 1}], "population": 0},
+    {"id": "block_4", "name": "Barber Block", "row": 1, "col": 0, "land_value": 5, "businesses": [{"type": "barber", "count": 1}, {"type": "empty_land", "count": 8}], "population": 2, "player_hq": true},
+    {"id": "block_5", "name": "Center Lot", "row": 1, "col": 1, "land_value": 3, "businesses": [{"type": "empty_land", "count": 1}], "population": 0},
+    {"id": "block_6", "name": "Apartment Block", "row": 1, "col": 2, "land_value": 7, "businesses": [{"type": "apartments", "count": 1}], "population": 20},
+    {"id": "block_7", "name": "SW Lot", "row": 2, "col": 0, "land_value": 3, "businesses": [{"type": "empty_land", "count": 1}], "population": 0},
+    {"id": "block_8", "name": "South Lot", "row": 2, "col": 1, "land_value": 3, "businesses": [{"type": "empty_land", "count": 1}], "population": 0},
+    {"id": "block_9", "name": "SE Lot", "row": 2, "col": 2, "land_value": 3, "businesses": [{"type": "empty_land", "count": 1}], "population": 0}
+  ],
+  "police_beats": [
+    {"officer_id": "officer_001", "name": "Patrolman O'Brien", "beat": ["block_4", "block_5", "block_7"], "bribe_cost": 300}
+  ]
+}

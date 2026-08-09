@@ -1,0 +1,1284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Optimization Deep Dive — TRS Cache & Collision World — Visual Guide</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #1c2331;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --accent2: #3fb950;
+    --accent3: #f0883e;
+    --accent4: #f778ba;
+    --red: #f85149;
+    --yellow: #d29922;
+    --cyan: #39c5cf;
+    --purple: #bc8cff;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    padding: 0;
+  }
+
+  /* --- Hero --- */
+  .hero {
+    text-align: center;
+    padding: 60px 20px 40px;
+    background: linear-gradient(135deg, #0d1117 0%, #161b22 50%, #1a2332 100%);
+    border-bottom: 1px solid var(--border);
+  }
+  .hero h1 {
+    font-size: 2.6em;
+    background: linear-gradient(90deg, var(--accent), var(--purple), var(--accent4));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 10px;
+  }
+  .hero .subtitle { color: var(--text-dim); font-size: 1.15em; max-width: 700px; margin: 0 auto; }
+  .hero .badges { margin-top: 20px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .badge {
+    padding: 4px 14px;
+    border-radius: 20px;
+    font-size: 0.85em;
+    font-weight: 600;
+    border: 1px solid;
+  }
+  .badge.b1 { color: var(--accent); border-color: var(--accent); }
+  .badge.b2 { color: var(--accent2); border-color: var(--accent2); }
+  .badge.b3 { color: var(--accent3); border-color: var(--accent3); }
+  .badge.b4 { color: var(--red); border-color: var(--red); }
+
+  /* --- Layout --- */
+  .container { max-width: 1100px; margin: 0 auto; padding: 40px 24px 80px; }
+  section { margin-bottom: 60px; }
+  h2 {
+    font-size: 1.8em;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  h2 .num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    font-size: 0.65em;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  h3 { font-size: 1.25em; margin: 24px 0 12px; color: var(--accent); }
+  p { margin-bottom: 14px; color: var(--text); }
+  .lead { color: var(--text-dim); font-size: 1.1em; margin-bottom: 20px; }
+
+  /* --- Cards --- */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin: 20px 0;
+  }
+  .card.glow-blue { border-left: 4px solid var(--accent); }
+  .card.glow-green { border-left: 4px solid var(--accent2); }
+  .card.glow-orange { border-left: 4px solid var(--accent3); }
+  .card.glow-pink { border-left: 4px solid var(--accent4); }
+  .card.glow-red { border-left: 4px solid var(--red); }
+  .card.glow-yellow { border-left: 4px solid var(--yellow); }
+
+  /* --- Grid --- */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
+  @media (max-width: 768px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+
+  /* --- Analogy --- */
+  .analogy {
+    background: linear-gradient(135deg, #1a1f2e, #1e2d3a);
+    border: 1px solid var(--accent);
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin: 20px 0;
+    position: relative;
+  }
+  .analogy::before {
+    content: "💡 ANALOGY";
+    position: absolute;
+    top: -10px; left: 20px;
+    background: var(--bg);
+    padding: 0 10px;
+    font-size: 0.75em;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 1px;
+  }
+
+  /* --- Code blocks --- */
+  .code-block {
+    background: #0a0e14;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin: 16px 0;
+    overflow-x: auto;
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.88em;
+    line-height: 1.5;
+  }
+  .code-block .kw { color: var(--purple); }
+  .code-block .type { color: var(--accent); }
+  .code-block .str { color: var(--accent2); }
+  .code-block .num-lit { color: var(--accent3); }
+  .code-block .comment { color: var(--text-dim); font-style: italic; }
+  .code-block .fn { color: var(--yellow); }
+  .code-block .var { color: var(--cyan); }
+  .code-block .red { color: var(--red); }
+  .code-block .green { color: var(--accent2); }
+
+  /* --- Flowchart --- */
+  .flowchart { display: flex; flex-direction: column; align-items: center; gap: 0; margin: 30px 0; }
+  .flow-node {
+    background: var(--surface2);
+    border: 2px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 28px;
+    text-align: center;
+    min-width: 280px;
+    position: relative;
+    z-index: 1;
+  }
+  .flow-node .title { font-weight: 700; font-size: 1.05em; margin-bottom: 4px; }
+  .flow-node .desc { font-size: 0.85em; color: var(--text-dim); }
+  .flow-node.start { border-color: var(--accent2); }
+  .flow-node.start .title { color: var(--accent2); }
+  .flow-node.end { border-color: var(--accent4); }
+  .flow-node.end .title { color: var(--accent4); }
+  .flow-node.warn { border-color: var(--yellow); }
+  .flow-node.warn .title { color: var(--yellow); }
+  .flow-node.danger { border-color: var(--red); }
+  .flow-node.danger .title { color: var(--red); }
+  .flow-arrow {
+    width: 2px; height: 28px;
+    background: var(--border);
+    position: relative;
+  }
+  .flow-arrow::after {
+    content: "";
+    position: absolute;
+    bottom: -1px; left: 50%;
+    transform: translateX(-50%);
+    border-left: 7px solid transparent;
+    border-right: 7px solid transparent;
+    border-top: 9px solid var(--border);
+  }
+  .flow-arrow.label::before {
+    content: attr(data-label);
+    position: absolute;
+    top: 50%; left: 12px;
+    transform: translateY(-50%);
+    font-size: 0.78em;
+    color: var(--text-dim);
+    white-space: nowrap;
+    background: var(--bg);
+    padding: 0 6px;
+  }
+  .flow-row { display: flex; gap: 30px; align-items: flex-start; justify-content: center; }
+  .flow-branch { display: flex; flex-direction: column; align-items: center; gap: 0; }
+
+  /* --- Matrix visualization --- */
+  .matrix-viz {
+    display: flex;
+    gap: 30px;
+    justify-content: center;
+    align-items: stretch;
+    margin: 30px 0;
+    flex-wrap: wrap;
+  }
+  .matrix-panel {
+    flex: 1;
+    min-width: 300px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .matrix-panel h4 { text-align: center; margin-bottom: 16px; font-size: 1.1em; }
+  .matrix-panel.bad h4 { color: var(--red); }
+  .matrix-panel.good h4 { color: var(--accent2); }
+
+  /* --- 4x4 Matrix grid --- */
+  .matrix-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 3px;
+    max-width: 200px;
+    margin: 16px auto;
+  }
+  .matrix-cell {
+    aspect-ratio: 1.2;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.65em;
+    font-weight: 700;
+    font-family: monospace;
+  }
+  .matrix-cell.t { background: rgba(88,166,255,0.15); border: 1px solid var(--accent); color: var(--accent); }
+  .matrix-cell.r { background: rgba(188,140,255,0.15); border: 1px solid var(--purple); color: var(--purple); }
+  .matrix-cell.s { background: rgba(63,185,80,0.15); border: 1px solid var(--accent2); color: var(--accent2); }
+  .matrix-cell.zero { background: rgba(48,54,61,0.3); border: 1px solid var(--border); color: var(--text-dim); }
+  .matrix-cell.one { background: rgba(63,185,80,0.08); border: 1px solid rgba(63,185,80,0.3); color: var(--accent2); }
+
+  .matrix-legend {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-top: 12px;
+    font-size: 0.78em;
+    color: var(--text-dim);
+  }
+  .matrix-legend .item { display: flex; align-items: center; gap: 6px; }
+  .matrix-legend .dot {
+    width: 12px; height: 12px;
+    border-radius: 3px;
+    border: 1px solid;
+  }
+  .matrix-legend .dot.t { border-color: var(--accent); background: rgba(88,166,255,0.15); }
+  .matrix-legend .dot.r { border-color: var(--purple); background: rgba(188,140,255,0.15); }
+  .matrix-legend .dot.s { border-color: var(--accent2); background: rgba(63,185,80,0.15); }
+
+  /* --- Building TRS example --- */
+  .building-trs {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin: 20px 0;
+  }
+  .trs-row {
+    display: grid;
+    grid-template-columns: 60px 1fr 1fr 1fr;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(48,54,61,0.5);
+    font-size: 0.85em;
+    align-items: center;
+  }
+  .trs-row:last-child { border-bottom: none; }
+  .trs-row.header { font-weight: 700; color: var(--text-dim); font-size: 0.78em; text-transform: uppercase; }
+  .trs-row .bld { font-weight: 700; color: var(--accent); }
+  .trs-row .val { font-family: monospace; font-size: 0.9em; }
+  .trs-row .val.t { color: var(--accent); }
+  .trs-row .val.r { color: var(--purple); }
+  .trs-row .val.s { color: var(--accent2); }
+
+  /* --- Before/After comparison --- */
+  .compare {
+    display: flex;
+    gap: 20px;
+    margin: 24px 0;
+    flex-wrap: wrap;
+  }
+  .compare-panel {
+    flex: 1;
+    min-width: 300px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .compare-panel.before { border-left: 4px solid var(--red); }
+  .compare-panel.after { border-left: 4px solid var(--accent2); }
+  .compare-panel h4 { margin-bottom: 12px; font-size: 1.1em; }
+  .compare-panel.before h4 { color: var(--red); }
+  .compare-panel.after h4 { color: var(--accent2); }
+  .compare-stat {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(48,54,61,0.4);
+    font-size: 0.88em;
+  }
+  .compare-stat:last-child { border-bottom: none; }
+  .compare-stat .label { color: var(--text-dim); }
+  .compare-stat .value { font-weight: 700; font-family: monospace; }
+  .compare-stat .value.bad { color: var(--red); }
+  .compare-stat .value.good { color: var(--accent2); }
+
+  /* --- Collision world grid viz --- */
+  .collision-viz {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin: 20px 0;
+  }
+  .collision-grid {
+    display: grid;
+    gap: 2px;
+    margin: 16px auto;
+    max-width: 400px;
+  }
+  .collision-cell {
+    aspect-ratio: 1;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.55em;
+    font-weight: 600;
+    font-family: monospace;
+    transition: transform 0.15s;
+  }
+  .collision-cell:hover { transform: scale(1.15); z-index: 5; }
+  .collision-cell.empty { background: rgba(48,54,61,0.2); border: 1px solid rgba(48,54,61,0.3); }
+  .collision-cell.filled { background: rgba(63,185,80,0.12); border: 1px solid var(--accent2); color: var(--accent2); }
+  .collision-cell.hash { background: rgba(248,81,73,0.12); border: 1px solid var(--red); color: var(--red); }
+  .collision-cell.origin { background: rgba(88,166,255,0.2); border: 2px solid var(--accent); color: var(--accent); }
+  .collision-cell.negative { background: rgba(210,153,34,0.12); border: 1px solid var(--yellow); color: var(--yellow); }
+
+  /* --- Timeline --- */
+  .timeline {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin: 24px 0;
+  }
+  .timeline-item {
+    display: flex;
+    gap: 20px;
+    padding: 16px 0;
+    border-bottom: 1px solid rgba(48,54,61,0.4);
+  }
+  .timeline-item:last-child { border-bottom: none; }
+  .timeline-time {
+    min-width: 120px;
+    font-family: monospace;
+    font-weight: 700;
+    font-size: 0.9em;
+    text-align: right;
+  }
+  .timeline-time.bad { color: var(--red); }
+  .timeline-time.good { color: var(--accent2); }
+  .timeline-time.mid { color: var(--yellow); }
+  .timeline-body { flex: 1; }
+  .timeline-body .title { font-weight: 700; margin-bottom: 4px; }
+  .timeline-body .desc { font-size: 0.85em; color: var(--text-dim); }
+
+  /* --- Perf bar --- */
+  .perf-bar-container {
+    margin: 16px 0;
+  }
+  .perf-bar-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.85em;
+    margin-bottom: 6px;
+  }
+  .perf-bar-label .name { color: var(--text-dim); }
+  .perf-bar-label .value { font-weight: 700; font-family: monospace; }
+  .perf-bar-track {
+    height: 24px;
+    background: var(--surface2);
+    border-radius: 6px;
+    overflow: hidden;
+    position: relative;
+  }
+  .perf-bar-fill {
+    height: 100%;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    padding-left: 10px;
+    font-size: 0.75em;
+    font-weight: 700;
+    color: white;
+    transition: width 0.5s ease;
+  }
+  .perf-bar-fill.red { background: linear-gradient(90deg, var(--red), #c0392b); }
+  .perf-bar-fill.yellow { background: linear-gradient(90deg, var(--yellow), #b7950b); }
+  .perf-bar-fill.green { background: linear-gradient(90deg, var(--accent2), #238636); }
+  .perf-bar-fill.blue { background: linear-gradient(90deg, var(--accent), #2d6cb0); }
+
+  /* --- Footer --- */
+  .footer {
+    text-align: center;
+    padding: 30px 20px;
+    border-top: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 0.85em;
+  }
+  .footer a { color: var(--accent); text-decoration: none; }
+
+  /* --- Table --- */
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 0.88em;
+  }
+  .data-table th {
+    text-align: left;
+    padding: 10px 14px;
+    background: var(--surface2);
+    border-bottom: 2px solid var(--border);
+    color: var(--text-dim);
+    font-size: 0.85em;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .data-table td {
+    padding: 10px 14px;
+    border-bottom: 1px solid rgba(48,54,61,0.4);
+  }
+  .data-table tr:last-child td { border-bottom: none; }
+  .data-table .num { font-family: monospace; font-weight: 700; }
+  .data-table .num.bad { color: var(--red); }
+  .data-table .num.good { color: var(--accent2); }
+
+  /* --- Callout --- */
+  .callout {
+    background: linear-gradient(135deg, rgba(88,166,255,0.08), rgba(188,140,255,0.08));
+    border: 1px solid var(--accent);
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin: 20px 0;
+    font-size: 0.95em;
+  }
+  .callout .title { font-weight: 700; color: var(--accent); margin-bottom: 6px; }
+
+  /* --- TOC --- */
+  .toc {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin: 24px 0;
+  }
+  .toc h3 { margin-bottom: 12px; font-size: 1.1em; }
+  .toc ul { list-style: none; }
+  .toc li { padding: 4px 0; }
+  .toc a { color: var(--accent); text-decoration: none; font-size: 0.92em; }
+  .toc a:hover { text-decoration: underline; }
+  .toc .indent { padding-left: 20px; }
+
+  /* --- Animated grid expansion --- */
+  .expand-demo {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin: 20px 0;
+  }
+  .expand-step {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    padding: 16px 0;
+    border-bottom: 1px solid rgba(48,54,61,0.4);
+  }
+  .expand-step:last-child { border-bottom: none; }
+  .expand-step .num-circle {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.85em;
+    flex-shrink: 0;
+  }
+  .expand-step .num-circle.bad { background: rgba(248,81,73,0.15); border: 2px solid var(--red); color: var(--red); }
+  .expand-step .num-circle.good { background: rgba(63,185,80,0.15); border: 2px solid var(--accent2); color: var(--accent2); }
+  .expand-step .num-circle.mid { background: rgba(210,153,34,0.15); border: 2px solid var(--yellow); color: var(--yellow); }
+  .expand-step .content { flex: 1; }
+  .expand-step .content .title { font-weight: 700; margin-bottom: 4px; }
+  .expand-step .content .desc { font-size: 0.85em; color: var(--text-dim); }
+  .expand-grid-mini {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 2px;
+    min-width: 120px;
+  }
+  .expand-grid-mini .mc {
+    aspect-ratio: 1;
+    border-radius: 2px;
+    font-size: 0.5em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: monospace;
+  }
+  .expand-grid-mini .mc.e { background: rgba(48,54,61,0.2); border: 1px solid rgba(48,54,61,0.3); }
+  .expand-grid-mini .mc.f { background: rgba(63,185,80,0.12); border: 1px solid var(--accent2); color: var(--accent2); }
+  .expand-grid-mini .mc.o { background: rgba(88,166,255,0.2); border: 2px solid var(--accent); color: var(--accent); }
+  .expand-grid-mini .mc.n { background: rgba(210,153,34,0.12); border: 1px solid var(--yellow); color: var(--yellow); }
+  .expand-grid-mini .mc.x { background: rgba(248,81,73,0.12); border: 1px solid var(--red); color: var(--red); }
+</style>
+</head>
+<body>
+
+<!-- ===== HERO ===== -->
+<div class="hero">
+  <h1>Optimization Deep Dive</h1>
+  <p class="subtitle">TRS Matrix Cache & Collision World Flat-Array — How two fixes turned 78-second loads into 371ms</p>
+  <div class="badges">
+    <span class="badge b1">TRS Cache</span>
+    <span class="badge b4">Collision World</span>
+    <span class="badge b2">211× Faster</span>
+    <span class="badge b3">Phase 1 GPU Rendering</span>
+  </div>
+</div>
+
+<div class="container">
+
+<!-- ===== TOC ===== -->
+<div class="toc">
+  <h3>📋 Contents</h3>
+  <ul>
+    <li><a href="#overview">1. Overview — The Two Optimizations</a></li>
+    <li><a href="#trs">2. What Is a TRS Matrix?</a></li>
+    <li><a href="#trs-problem">3. The Problem: Rebuilding 984 Matrices Every Frame</a></li>
+    <li><a href="#trs-fix">4. The Fix: Cache Once, Reuse Forever</a></li>
+    <li><a href="#collision">5. Collision World — Dictionary vs Flat Array</a></li>
+    <li><a href="#directions">6. The "All Directions" Grid Expansion Bug</a></li>
+    <li><a href="#compound">7. How the Two Fixes Compound</a></li>
+    <li><a href="#hud">8. Measuring Gains — Frame Time vs FPS</a></li>
+    <li><a href="#related">Related Documents</a></li>
+  </ul>
+</div>
+
+<!-- ===== 1. OVERVIEW ===== -->
+<section id="overview">
+  <h2><span class="num" style="background:rgba(88,166,255,0.15);color:var(--accent);">1</span> Overview — The Two Optimizations</h2>
+  <p class="lead">Two seemingly unrelated fixes, same core principle: <b>do the work once, reuse the result.</b></p>
+
+  <div class="grid-2">
+    <div class="card glow-blue">
+      <h3>TRS Matrix Cache</h3>
+      <p><b>What:</b> Pre-compute the position/rotation/scale matrices for all 984 buildings at load time instead of rebuilding them every frame.</p>
+      <p><b>Impact:</b> Eliminates 984 <code>Matrix4x4.TRS()</code> calls + 10 array allocations per frame → zero per-frame cost.</p>
+      <p><b>Where:</b> <code>VoxelChunkManager.cs</code> — <code>RegisterSector()</code> + <code>RenderBakedSectors()</code></p>
+    </div>
+    <div class="card glow-red">
+      <h3>Collision World Flat Array</h3>
+      <p><b>What:</b> Replace <code>Dictionary&lt;Vector3Int, byte&gt;</code> with a flat <code>byte[]</code> array for voxel collision data.</p>
+      <p><b>Impact:</b> 78s → 371ms load time (211× faster) — eliminates 13.9M dictionary hash computations.</p>
+      <p><b>Where:</b> <code>VoxelCollisionWorld.cs</code> — <code>RegisterTerrainChunk()</code></p>
+    </div>
+  </div>
+
+  <div class="analogy">
+    <p><b>Imagine a restaurant kitchen:</b></p>
+    <p><b>TRS cache</b> is like pre-chopping all your vegetables before service starts, instead of chopping each one to order. The vegetables don't change between orders, so why re-chop them 60 times per second?</p>
+    <p><b>Flat array</b> is like replacing a filing cabinet (where you search by name, hash the name, find the folder, open it) with a numbered shelf — "ingredient #4,523 is on shelf 4,523." No searching, no hashing, just direct access.</p>
+  </div>
+</section>
+
+<!-- ===== 2. WHAT IS A TRS MATRIX ===== -->
+<section id="trs">
+  <h2><span class="num" style="background:rgba(188,140,255,0.15);color:var(--purple);">2</span> What Is a TRS Matrix?</h2>
+  <p class="lead">TRS = <b>T</b>ranslation, <b>R</b>otation, <b>S</b>cale — packed into a single 4×4 matrix the GPU uses to place an object in 3D space.</p>
+
+  <p>When the GPU draws a building, it needs three pieces of information:</p>
+
+  <div class="grid-3">
+    <div class="card glow-blue">
+      <h3 style="color:var(--accent);">📍 Translation (T)</h3>
+      <p>Where is the building in world space?</p>
+      <p><code>(x=15.2, y=0, z=-8.4)</code></p>
+    </div>
+    <div class="card glow-pink">
+      <h3 style="color:var(--purple);">🔄 Rotation (R)</h3>
+      <p>Which way is it facing?</p>
+      <p><code>Quaternion.identity</code> (no rotation — all our buildings are axis-aligned)</p>
+    </div>
+    <div class="card glow-green">
+      <h3 style="color:var(--accent2);">📐 Scale (S)</h3>
+      <p>How big is it?</p>
+      <p><code>(12 × 20 × 12 voxels) × 0.05m = 0.6m × 1.0m × 0.6m</code></p>
+    </div>
+  </div>
+
+  <h3>The 4×4 Matrix Structure</h3>
+  <p><code>Matrix4x4.TRS(position, rotation, scale)</code> packs all three into a single 4×4 matrix. The GPU reads this matrix in the vertex shader to transform each vertex from "proxy cube space" into world space:</p>
+
+  <div class="matrix-viz">
+    <div class="matrix-panel good">
+      <h4>TRS Matrix (4×4)</h4>
+      <div class="matrix-grid">
+        <div class="matrix-cell s">Sx</div>
+        <div class="matrix-cell zero">0</div>
+        <div class="matrix-cell zero">0</div>
+        <div class="matrix-cell t">Tx</div>
+        <div class="matrix-cell zero">0</div>
+        <div class="matrix-cell s">Sy</div>
+        <div class="matrix-cell zero">0</div>
+        <div class="matrix-cell t">Ty</div>
+        <div class="matrix-cell zero">0</div>
+        <div class="matrix-cell zero">0</div>
+        <div class="matrix-cell s">Sz</div>
+        <div class="matrix-cell t">Tz</div>
+        <div class="matrix-cell zero">0</div>
+        <div class="matrix-cell zero">0</div>
+        <div class="matrix-cell zero">0</div>
+        <div class="matrix-cell one">1</div>
+      </div>
+      <div class="matrix-legend">
+        <div class="item"><div class="dot t"></div> Translation</div>
+        <div class="item"><div class="dot s"></div> Scale</div>
+        <div class="item"><div class="dot r"></div> Rotation (identity = no color)</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <div class="title">Why a matrix?</div>
+    <p>The GPU can multiply a vertex position by this single matrix in one operation: <code>worldPos = TRS × localPos</code>. Without it, the GPU would need separate translation, rotation, and scale steps for every vertex of every building. One matrix = one multiply = maximum efficiency.</p>
+  </div>
+
+  <h3>Example: Three Buildings in a Sector</h3>
+  <p>Each building gets its own TRS matrix. <code>DrawMeshInstanced</code> takes an array of these matrices and draws all buildings in a single draw call:</p>
+
+  <div class="building-trs">
+    <div class="trs-row header">
+      <div>Bldg</div>
+      <div>Translation (T)</div>
+      <div>Rotation (R)</div>
+      <div>Scale (S)</div>
+    </div>
+    <div class="trs-row">
+      <div class="bld">#0</div>
+      <div class="val t">(15.2, 0, -8.4)</div>
+      <div class="val r">identity</div>
+      <div class="val s">(0.65, 1.05, 0.65)</div>
+    </div>
+    <div class="trs-row">
+      <div class="bld">#1</div>
+      <div class="val t">(18.4, 0, -8.4)</div>
+      <div class="val r">identity</div>
+      <div class="val s">(0.60, 1.50, 0.60)</div>
+    </div>
+    <div class="trs-row">
+      <div class="bld">#2</div>
+      <div class="val t">(21.6, 0, -8.4)</div>
+      <div class="val r">identity</div>
+      <div class="val s">(0.70, 0.85, 0.70)</div>
+    </div>
+    <div class="trs-row" style="border-top: 1px solid var(--border); padding-top: 14px; margin-top: 4px;">
+      <div class="bld">...</div>
+      <div class="val" style="color:var(--text-dim);">...</div>
+      <div class="val" style="color:var(--text-dim);">...</div>
+      <div class="val" style="color:var(--text-dim);">...</div>
+    </div>
+    <div class="trs-row">
+      <div class="bld">#983</div>
+      <div class="val t">(94.8, 0, -52.2)</div>
+      <div class="val r">identity</div>
+      <div class="val s">(0.55, 1.20, 0.55)</div>
+    </div>
+  </div>
+
+  <p>That's <b>984 matrices</b> for the full 100-block city. Each one is computed from the building's voxel dimensions, world position, and voxel size.</p>
+</section>
+
+<!-- ===== 3. THE PROBLEM ===== -->
+<section id="trs-problem">
+  <h2><span class="num" style="background:rgba(248,81,73,0.15);color:var(--red);">3</span> The Problem: Rebuilding 984 Matrices Every Frame</h2>
+  <p class="lead">Before Phase 1, <code>RenderBakedSectors()</code> rebuilt all 984 matrices from scratch — every single frame.</p>
+
+  <div class="flowchart">
+    <div class="flow-node danger">
+      <div class="title">Every Frame (60-120× per second)</div>
+      <div class="desc">RenderBakedSectors() is called</div>
+    </div>
+    <div class="flow-arrow"></div>
+    <div class="flow-node danger">
+      <div class="title">For Each Sector (10 sectors)</div>
+      <div class="desc">Allocate new Matrix4x4[buildingCount]</div>
+    </div>
+    <div class="flow-arrow"></div>
+    <div class="flow-node danger">
+      <div class="title">For Each Building (984 total)</div>
+      <div class="desc">Read meta → compute size → compute center → Matrix4x4.TRS()</div>
+    </div>
+    <div class="flow-arrow"></div>
+    <div class="flow-node warn">
+      <div class="title">DrawMeshInstanced(matrices)</div>
+      <div class="desc">GPU draws all buildings — matrices are identical to last frame!</div>
+    </div>
+  </div>
+
+  <div class="compare">
+    <div class="compare-panel before">
+      <h4>❌ Before Phase 1</h4>
+      <div class="code-block">
+<span class="comment">// RenderBakedSectors — runs EVERY FRAME</span>
+<span class="kw">var</span> <span class="var">matrices</span> = <span class="kw">new</span> <span class="type">Matrix4x4</span>[<span class="var">sector</span>.buildingCount];
+
+<span class="kw">for</span> (<span class="kw">int</span> i = 0; i &lt; <span class="var">sector</span>.buildingCount; i++)
+{
+    <span class="kw">var</span> <span class="var">meta</span> = <span class="var">sector</span>.cpuMeta[i];
+    <span class="kw">var</span> <span class="var">pos</span> = <span class="var">sector</span>.cpuPositions[i];
+    <span class="kw">int</span> dx = (<span class="kw">int</span>)<span class="var">meta</span>.y;
+    <span class="kw">int</span> dy = (<span class="kw">int</span>)<span class="var">meta</span>.z;
+    <span class="kw">int</span> dz = (<span class="kw">int</span>)<span class="var">meta</span>.w;
+
+    <span class="kw">float</span> vsb = <span class="var">pos</span>.w &gt; 0f ? <span class="var">pos</span>.w : <span class="var">sector</span>.voxelSize;
+    <span class="kw">var</span> <span class="var">buildingSize</span> = <span class="kw">new</span> <span class="type">Vector3</span>(dx, dy, dz) * vsb;
+    <span class="kw">var</span> <span class="var">paddedSize</span> = <span class="var">buildingSize</span> + <span class="kw">new</span> <span class="type">Vector3</span>(vsb, vsb, vsb);
+    <span class="kw">var</span> <span class="var">centerPos</span> = <span class="kw">new</span> <span class="type">Vector3</span>(<span class="var">pos</span>.x, <span class="var">pos</span>.y, <span class="var">pos</span>.z) + <span class="var">paddedSize</span> * 0.5f;
+
+    <span class="var">matrices</span>[i] = <span class="type">Matrix4x4</span>.<span class="fn">TRS</span>(<span class="var">centerPos</span>, <span class="type">Quaternion</span>.identity, <span class="var">paddedSize</span>);
+}
+
+<span class="var">cmd</span>.<span class="fn">DrawMeshInstanced</span>(..., <span class="var">matrices</span>, ...);
+      </div>
+      <div class="compare-stat"><span class="label">Matrix builds per frame</span><span class="value bad">984</span></div>
+      <div class="compare-stat"><span class="label">Array allocations per frame</span><span class="value bad">10</span></div>
+      <div class="compare-stat"><span class="label">Result changes between frames?</span><span class="value bad">Never — buildings don't move</span></div>
+    </div>
+    <div class="compare-panel after">
+      <h4>✅ After Phase 1</h4>
+      <div class="code-block">
+<span class="comment">// RegisterSector — runs ONCE at load time</span>
+<span class="var">sector</span>.cachedMatrices = <span class="fn">BuildSectorMatrices</span>(
+    <span class="var">buildingMeta</span>, <span class="var">buildingPositions</span>,
+    <span class="var">buildingCount</span>, <span class="var">sectorVoxelSize</span>);
+
+<span class="comment">// RenderBakedSectors — runs EVERY FRAME</span>
+<span class="kw">var</span> <span class="var">matrices</span> = <span class="var">sector</span>.cachedMatrices;  <span class="comment">// just a reference!</span>
+<span class="var">cmd</span>.<span class="fn">DrawMeshInstanced</span>(..., <span class="var">matrices</span>, ...);
+      </div>
+      <div class="compare-stat"><span class="label">Matrix builds per frame</span><span class="value good">0</span></div>
+      <div class="compare-stat"><span class="label">Array allocations per frame</span><span class="value good">0</span></div>
+      <div class="compare-stat"><span class="label">Result changes between frames?</span><span class="value good">No — so don't recompute!</span></div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <div class="title">The key insight</div>
+    <p>Buildings are <b>static</b>. They don't move, rotate, or change size. The TRS matrix for building #500 is identical on frame 1 and frame 100,000. Rebuilding it every frame is pure waste — like recalculating 2+2=4 sixty times per second.</p>
+  </div>
+</section>
+
+<!-- ===== 4. THE FIX ===== -->
+<section id="trs-fix">
+  <h2><span class="num" style="background:rgba(63,185,80,0.15);color:var(--accent2);">4</span> The Fix: Cache Once, Reuse Forever</h2>
+  <p class="lead">Move the matrix computation from <code>RenderBakedSectors()</code> (per-frame) to <code>RegisterSector()</code> (once at load).</p>
+
+  <div class="flowchart">
+    <div class="flow-node start">
+      <div class="title">RegisterSector() — called once per sector at load</div>
+      <div class="desc">Building data arrives: meta, positions, voxel size</div>
+    </div>
+    <div class="flow-arrow"></div>
+    <div class="flow-node start">
+      <div class="title">BuildSectorMatrices()</div>
+      <div class="desc">Loop through all buildings, compute TRS once, store in cachedMatrices</div>
+    </div>
+    <div class="flow-arrow"></div>
+    <div class="flow-node end">
+      <div class="title">RenderBakedSectors() — every frame</div>
+      <div class="desc">Just read sector.cachedMatrices — no computation needed</div>
+    </div>
+    <div class="flow-arrow"></div>
+    <div class="flow-node end">
+      <div class="title">DrawMeshInstanced(cachedMatrices)</div>
+      <div class="desc">GPU draws all buildings with pre-built matrices</div>
+    </div>
+  </div>
+
+  <h3>What changed in the code</h3>
+  <div class="grid-2">
+    <div class="card glow-green">
+      <h4>Added to BakedSector class</h4>
+      <div class="code-block">
+<span class="kw">public</span> <span class="type">Matrix4x4</span>[] cachedMatrices;
+<span class="comment">// Pre-built TRS matrices
+// (buildings never move)</span>
+      </div>
+    </div>
+    <div class="card glow-green">
+      <h4>Added BuildSectorMatrices() helper</h4>
+      <div class="code-block">
+<span class="kw">private static</span> <span class="type">Matrix4x4</span>[] <span class="fn">BuildSectorMatrices</span>(
+    <span class="type">Vector4</span>[] meta, <span class="type">Vector4</span>[] positions,
+    <span class="kw">int</span> count, <span class="kw">float</span> voxelSize)
+{
+    <span class="kw">var</span> matrices = <span class="kw">new</span> <span class="type">Matrix4x4</span>[count];
+    <span class="kw">for</span> (<span class="kw">int</span> i = 0; i &lt; count; i++)
+    {
+        <span class="comment">// ... same TRS logic, but
+//     only runs ONCE ...</span>
+        matrices[i] = <span class="type">Matrix4x4</span>.<span class="fn">TRS</span>(...);
+    }
+    <span class="kw">return</span> matrices;
+}
+      </div>
+    </div>
+  </div>
+
+  <h3>Measured Impact</h3>
+  <table class="data-table">
+    <thead>
+      <tr><th>Metric</th><th>Before</th><th>After</th><th>Improvement</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Matrix4x4.TRS() calls per frame</td><td class="num bad">984</td><td class="num good">0</td><td class="num good">−100%</td></tr>
+      <tr><td>Array allocations per frame</td><td class="num bad">10</td><td class="num good">0</td><td class="num good">−100%</td></tr>
+      <tr><td>GC pressure</td><td class="num bad">~15KB/frame</td><td class="num good">0</td><td class="num good">Eliminated</td></tr>
+      <tr><td>Estimated CPU time saved</td><td class="num">~0.1ms/frame</td><td class="num good">0ms</td><td class="num good">Freed up</td></tr>
+      <tr><td>Scale to 500 blocks</td><td class="num bad">~5-10ms/frame</td><td class="num good">0ms</td><td class="num good">Critical for scale</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout">
+    <div class="title">Why this matters at scale</div>
+    <p>At 100 blocks, saving 0.1ms per frame is nice. At 500 blocks (4,920 buildings), the per-frame matrix rebuild would cost <b>5-10ms</b> — enough to drop you from 120fps to 60fps. The cache eliminates this entirely, making the rendering cost <b>O(1) regardless of city size</b>.</p>
+  </div>
+</section>
+
+<!-- ===== 5. COLLISION WORLD ===== -->
+<section id="collision">
+  <h2><span class="num" style="background:rgba(248,81,73,0.15);color:var(--red);">5</span> Collision World — Dictionary vs Flat Array</h2>
+  <p class="lead">The 78-second load time bottleneck was not terrain generation or GPU upload — it was <code>Dictionary&lt;Vector3Int, byte&gt;</code> doing 13.9 million inserts.</p>
+
+  <h3>The Problem: Dictionary Hashing</h3>
+  <p>Every voxel in the terrain collision world was stored as a key-value pair in a <code>Dictionary&lt;Vector3Int, byte&gt;</code>. For a 100-block city, that's <b>13.9 million entries</b>. Each insert requires:</p>
+
+  <div class="flowchart">
+    <div class="flow-node danger">
+      <div class="title">1. Hash the Vector3Int key</div>
+      <div class="desc">XOR of x, y, z coordinates → hash code</div>
+    </div>
+    <div class="flow-arrow"></div>
+    <div class="flow-node danger">
+      <div class="title">2. Find the bucket</div>
+      <div class="desc">hash % bucketCount → probe the bucket array</div>
+    </div>
+    <div class="flow-arrow"></div>
+    <div class="flow-node danger">
+      <div class="title">3. Handle collisions</div>
+      <div class="desc">If bucket occupied, walk the collision chain</div>
+    </div>
+    <div class="flow-arrow"></div>
+    <div class="flow-node danger">
+      <div class="title">4. Internal resize (~24 times)</div>
+      <div class="desc">Dictionary doubles capacity, re-hashes ALL existing entries</div>
+    </div>
+  </div>
+
+  <div class="compare">
+    <div class="compare-panel before">
+      <h4>❌ Dictionary&lt;Vector3Int, byte&gt;</h4>
+      <div class="code-block">
+<span class="comment">// Each voxel insert:</span>
+collisionDict[<span class="kw">new</span> <span class="type">Vector3Int</span>(x, y, z)] = <span class="var">value</span>;
+
+<span class="comment">// Internally:
+// 1. Compute hash = x ^ y ^ z
+// 2. bucket = hash % buckets.Length
+// 3. Walk collision chain
+// 4. If full → resize (copy ALL entries)
+//    This happens ~24 times growing to 13.9M</span>
+      </div>
+      <div class="compare-stat"><span class="label">Operations</span><span class="value bad">13.9M inserts</span></div>
+      <div class="compare-stat"><span class="label">Hash computations</span><span class="value bad">13.9M+</span></div>
+      <div class="compare-stat"><span class="label">Internal resizes</span><span class="value bad">~24 (each copies all entries)</span></div>
+      <div class="compare-stat"><span class="label">Memory overhead</span><span class="value bad">~500MB+ (entry structs + buckets)</span></div>
+      <div class="compare-stat"><span class="label">Load time</span><span class="value bad">78,466ms</span></div>
+    </div>
+    <div class="compare-panel after">
+      <h4>✅ Flat byte[] Array</h4>
+      <div class="code-block">
+<span class="comment">// Each voxel insert:</span>
+collisionArray[idx] = <span class="var">value</span>;
+
+<span class="comment">// Internally:
+// 1. idx = x * strideY * strideZ
+//       + y * strideZ
+//       + z
+// 2. array[idx] = value  ← that's it.
+// No hashing. No buckets.
+// No collision chains. No resizes
+// (except ~10 Array.Copy grows).</span>
+      </div>
+      <div class="compare-stat"><span class="label">Operations</span><span class="value good">13.9M array writes</span></div>
+      <div class="compare-stat"><span class="label">Hash computations</span><span class="value good">0</span></div>
+      <div class="compare-stat"><span class="label">Internal resizes</span><span class="value good">~10 (fast Array.Copy)</span></div>
+      <div class="compare-stat"><span class="label">Memory overhead</span><span class="value good">13.3MB (just the bytes)</span></div>
+      <div class="compare-stat"><span class="label">Load time</span><span class="value good">371ms</span></div>
+    </div>
+  </div>
+
+  <h3>Visual: How Dictionary Lookup Works vs Array Index</h3>
+  <div class="collision-viz">
+    <p><b>Dictionary:</b> To find voxel at (3, 7, 2), hash it → probe bucket → walk chain → find entry:</p>
+    <div class="collision-grid" style="grid-template-columns: repeat(12, 1fr);">
+      <div class="collision-cell hash">H</div>
+      <div class="collision-cell hash">H</div>
+      <div class="collision-cell hash">H</div>
+      <div class="collision-cell hash">H</div>
+      <div class="collision-cell hash">H</div>
+      <div class="collision-cell hash">H</div>
+      <div class="collision-cell hash">H</div>
+      <div class="collision-cell hash">H</div>
+      <div class="collision-cell hash">H</div>
+      <div class="collision-cell hash">H</div>
+      <div class="collision-cell hash">H</div>
+      <div class="collision-cell hash">H</div>
+      <div class="collision-cell hash">→</div>
+      <div class="collision-cell hash">?</div>
+      <div class="collision-cell hash">≠</div>
+      <div class="collision-cell hash">≠</div>
+      <div class="collision-cell hash">✓</div>
+      <div class="collision-cell empty"> </div>
+      <div class="collision-cell empty"> </div>
+      <div class="collision-cell empty"> </div>
+      <div class="collision-cell empty"> </div>
+      <div class="collision-cell empty"> </div>
+      <div class="collision-cell empty"> </div>
+      <div class="collision-cell empty"> </div>
+    </div>
+    <p style="font-size:0.85em; color:var(--text-dim);">Hash → bucket → walk chain comparing keys → found at position 5. <b>5 comparisons + 1 hash</b></p>
+
+    <hr style="border-color:var(--border); margin: 20px 0;">
+
+    <p><b>Flat Array:</b> To find voxel at (3, 7, 2), compute index → direct access:</p>
+    <div class="collision-grid" style="grid-template-columns: repeat(12, 1fr);">
+      <div class="collision-cell filled">0</div>
+      <div class="collision-cell filled">1</div>
+      <div class="collision-cell filled">2</div>
+      <div class="collision-cell filled">3</div>
+      <div class="collision-cell filled">4</div>
+      <div class="collision-cell filled">5</div>
+      <div class="collision-cell filled">6</div>
+      <div class="collision-cell filled">7</div>
+      <div class="collision-cell filled">8</div>
+      <div class="collision-cell filled">9</div>
+      <div class="collision-cell filled">10</div>
+      <div class="collision-cell filled">11</div>
+      <div class="collision-cell empty"> </div>
+      <div class="collision-cell empty"> </div>
+      <div class="collision-cell empty"> </div>
+      <div class="collision-cell empty"> </div>
+      <div class="collision-cell empty"> </div>
+      <div class="collision-cell empty"> </div>
+      <div class="collision-cell empty"> </div>
+      <div class="collision-cell empty"> </div>
+      <div class="collision-cell empty"> </div>
+      <div class="collision-cell empty"> </div>
+      <div class="collision-cell empty"> </div>
+      <div class="collision-cell empty"> </div>
+    </div>
+    <p style="font-size:0.85em; color:var(--text-dim);">Index = 3×strideY×strideZ + 7×strideZ + 2 = <b>idx 8473</b> → <code>array[8473]</code>. <b>1 multiply, 2 adds, 1 array access. No comparisons.</b></p>
+  </div>
+
+  <h3>Performance Comparison</h3>
+  <div class="perf-bar-container">
+    <div class="perf-bar-label">
+      <span class="name">Dictionary&lt;Vector3Int, byte&gt; — 13.9M inserts</span>
+      <span class="value" style="color:var(--red);">78,466ms</span>
+    </div>
+    <div class="perf-bar-track">
+      <div class="perf-bar-fill red" style="width: 100%;">78.5 seconds</div>
+    </div>
+  </div>
+  <div class="perf-bar-container">
+    <div class="perf-bar-label">
+      <span class="name">Flat byte[] array — 13.9M writes</span>
+      <span class="value" style="color:var(--accent2);">371ms</span>
+    </div>
+    <div class="perf-bar-track">
+      <div class="perf-bar-fill green" style="width: 0.5%;">0.37s</div>
+    </div>
+  </div>
+  <p style="text-align:center; font-size:1.3em; font-weight:700; color:var(--accent2);">211× faster</p>
+</section>
+
+<!-- ===== 6. ALL DIRECTIONS BUG ===== -->
+<section id="directions">
+  <h2><span class="num" style="background:rgba(210,153,34,0.15);color:var(--yellow);">6</span> The "All Directions" Grid Expansion Bug</h2>
+  <p class="lead">Switching to a flat array introduced a new problem: the city isn't laid out from a corner — chunks exist in all directions, causing negative array indices.</p>
+
+  <h3>The Bug</h3>
+  <p>When we replaced the dictionary with a flat array, we assumed the first terrain chunk (row 0, col 0) was at the most negative corner. Array indices were computed as:</p>
+
+  <div class="code-block">
+<span class="comment">// Index computation (original — buggy)</span>
+<span class="kw">int</span> idx = (offX - originX) * strideY * strideZ
+         + (offY - originY) * strideZ
+         + (offZ - originZ);
+
+<span class="comment">// If offZ < originZ → negative index → CRASH</span>
+      </div>
+
+  <div class="card glow-red">
+    <h4>What happened</h4>
+    <p>The first chunk (r0c0) was registered at some position, setting the grid origin. But chunks further south had <b>more negative Z values</b> than the origin, producing negative indices:</p>
+    <div class="collision-grid" style="grid-template-columns: repeat(8, 1fr); max-width:300px;">
+      <div class="collision-cell origin">O</div>
+      <div class="collision-cell filled">+</div>
+      <div class="collision-cell filled">+</div>
+      <div class="collision-cell filled">+</div>
+      <div class="collision-cell empty"> </div>
+      <div class="collision-cell empty"> </div>
+      <div class="collision-cell empty"> </div>
+      <div class="collision-cell empty"> </div>
+      <div class="collision-cell negative">N</div>
+      <div class="collision-cell negative">N</div>
+      <div class="collision-cell empty"> </div>
+      <div class="collision-cell empty"> </div>
+      <div class="collision-cell empty"> </div>
+      <div class="collision-cell empty"> </div>
+      <div class="collision-cell empty"> </div>
+      <div class="collision-cell empty"> </div>
+    </div>
+    <p style="font-size:0.85em; margin-top:12px;">
+      <span style="color:var(--accent);">O</span> = origin chunk (r0c0) &nbsp;
+      <span style="color:var(--accent2);">+</span> = positive offsets (works) &nbsp;
+      <span style="color:var(--yellow);">N</span> = negative offsets (IndexOutOfRangeException!)
+    </p>
+  </div>
+
+  <h3>The Fix: Grid Expansion in All Directions</h3>
+  <p>When a chunk arrives with coordinates outside the current grid bounds (in any direction), the grid expands to accommodate it:</p>
+
+  <div class="expand-demo">
+    <div class="expand-step">
+      <div class="num-circle mid">1</div>
+      <div class="content">
+        <div class="title">Chunk r0c0 arrives — sets initial origin</div>
+        <div class="desc">Grid is created with origin at this chunk's position. All indices are non-negative.</div>
+      </div>
+      <div class="expand-grid-mini">
+        <div class="mc e"></div><div class="mc e"></div><div class="mc e"></div><div class="mc e"></div><div class="mc e"></div><div class="mc e"></div>
+        <div class="mc e"></div><div class="mc e"></div><div class="mc e"></div><div class="mc o">O</div><div class="mc e"></div><div class="mc e"></div>
+        <div class="mc e"></div><div class="mc e"></div><div class="mc e"></div><div class="mc e"></div><div class="mc e"></div><div class="mc e"></div>
+      </div>
+    </div>
+    <div class="expand-step">
+      <div class="num-circle bad">2</div>
+      <div class="content">
+        <div class="title">Chunk r1c0 arrives — SOUTH of origin (negative Z)</div>
+        <div class="desc">Without fix: negative index → <code>IndexOutOfRangeException</code>. With fix: grid origin shifts south, existing data is copied with offset.</div>
+      </div>
+      <div class="expand-grid-mini">
+        <div class="mc e"></div><div class="mc e"></div><div class="mc e"></div><div class="mc e"></div><div class="mc e"></div><div class="mc e"></div>
+        <div class="mc e"></div><div class="mc e"></div><div class="mc e"></div><div class="mc o">O</div><div class="mc e"></div><div class="mc e"></div>
+        <div class="mc e"></div><div class="mc e"></div><div class="mc e"></div><div class="mc n">N</div><div class="mc e"></div><div class="mc e"></div>
+      </div>
+    </div>
+    <div class="expand-step">
+      <div class="num-circle good">3</div>
+      <div class="content">
+        <div class="title">Grid expands — origin shifts, data copied</div>
+        <div class="desc">New origin is at the most negative corner. Old data is <code>Array.Copy</code>'d with the offset applied. All indices become non-negative.</div>
+      </div>
+      <div class="expand-grid-mini">
+        <div class="mc e"></div><div class="mc e"></div><div class="mc e"></div><div class="mc e"></div><div class="mc e"></div><div class="mc e"></div>
+        <div class="mc e"></div><div class="mc e"></div><div class="mc e"></div><div class="mc e"></div><div class="mc e"></div><div class="mc e"></div>
+        <div class="mc e"></div><div class="mc e"></div><div class="mc e"></div><div class="mc o">O</div><div class="mc e"></div><div class="mc e"></div>
+        <div class="mc e"></div><div class="mc e"></div><div class="mc e"></div><div class="mc f">N</div><div class="mc e"></div><div class="mc e"></div>
+      </div>
+    </div>
+    <div class="expand-step">
+      <div class="num-circle good">4</div>
+      <div class="content">
+        <div class="title">All future chunks — any direction works</div>
+        <div class="desc">Grid can grow north, south, east, west, and up. No chunk is assumed to be the corner. ~10 expansions total for a 10×10 city, each is a fast <code>Array.Copy</code>.</div>
+      </div>
+      <div class="expand-grid-mini">
+        <div class="mc e"></div><div class="mc e"></div><div class="mc e"></div><div class="mc e"></div><div class="mc e"></div><div class="mc e"></div>
+        <div class="mc e"></div><div class="mc f">+</div><div class="mc f">+</div><div class="mc f">+</div><div class="mc f">+</div><div class="mc e"></div>
+        <div class="mc e"></div><div class="mc f">+</div><div class="mc o">O</div><div class="mc f">+</div><div class="mc f">+</div><div class="mc e"></div>
+        <div class="mc e"></div><div class="mc f">N</div><div class="mc f">+</div><div class="mc f">+</div><div class="mc f">+</div><div class="mc e"></div>
+        <div class="mc e"></div><div class="mc e"></div><div class="mc e"></div><div class="mc e"></div><div class="mc e"></div><div class="mc e"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="code-block">
+<span class="comment">// Grid expansion in negative direction</span>
+<span class="kw">if</span> (offX &lt; originX || offY &lt; originY || offZ &lt; originZ)
+{
+    <span class="comment">// Compute new origin (shift south/west/down)</span>
+    <span class="kw">int</span> newOriginX = Mathf.Min(originX, offX);
+    <span class="kw">int</span> newOriginY = Mathf.Min(originY, offY);
+    <span class="kw">int</span> newOriginZ = Mathf.Min(originZ, offZ);
+
+    <span class="comment">// Allocate bigger array</span>
+    <span class="kw">var</span> newGrid = <span class="kw">new</span> <span class="type">byte</span>[newSizeX * newSizeY * newSizeZ];
+
+    <span class="comment">// Copy existing data with offset</span>
+    <span class="type">Array</span>.<span class="fn">Copy</span>(grid, 0, newGrid, offsetInNewGrid, grid.Length);
+    grid = newGrid;
+
+    <span class="comment">// Recompute offset relative to new origin</span>
+    offX -= newOriginX; offY -= newOriginY; offZ -= newOriginZ;
+}
+      </div>
+
+  <div class="analogy">
+    <p><b>Imagine a chess board that can grow:</b></p>
+    <p>You start with an 8×8 board and place a piece at square E4. Then someone wants to place a piece at "A-3" — a square that doesn't exist because it's south of the board's edge. Instead of crashing, you attach a new row of squares to the south edge, shift your coordinate system so A-3 is now valid, and copy the existing board into the right position in the new larger board. That's exactly what the grid expansion does.</p>
+  </div>
+</section>
+
+<!-- ===== 7. COMPOUND EFFECTS ===== -->
+<section id="compound">
+  <h2><span class="num" style="background:rgba(247,120,186,0.15);color:var(--accent4);">7</span> How the Two Fixes Compound</h2>
+  <p class="lead">Both optimizations follow the same principle — but they target different parts of the pipeline.</p>
+
+  <div class="grid-2">
+    <div class="card glow-red">
+      <h3>Collision World (Load Time)</h3>
+      <p><b>When:</b> Once, at city load</p>
+      <p><b>What it eliminates:</b> 13.9M dictionary hash computations + 24 internal resizes</p>
+      <p><b>Impact:</b> 78s → 371ms (211× faster load)</p>
+    </div>
+    <div class="card glow-blue">
+      <h3>TRS Cache (Per Frame)</h3>
+      <p><b>When:</b> Every frame, 120× per second</p>
+      <p><b>What it eliminates:</b> 984 matrix builds + 10 array allocations</p>
+      <p><b>Impact:</b> ~0.1ms/frame saved (scales to 5-10ms at 500 blocks)</p>
+    </div>
+  </div>
+
+  <h3>The Compound Timeline</h3>
+  <div class="timeline">
+    <div class="timeline-item">
+      <div class="timeline-time bad">78,466ms</div>
+      <div class="timeline-body">
+        <div class="title">Dictionary collision world + per-frame TRS rebuild</div>
+        <div class="desc">13.9M dictionary inserts dominate load time. Every frame rebuilds 984 matrices.</div>
+      </div>
+    </div>
+    <div class="timeline-item">
+      <div class="timeline-time mid">~371ms</div>
+      <div class="timeline-body">
+        <div class="title">Flat array collision world (fix 1)</div>
+        <div class="desc">Load time drops 211×. But per-frame TRS rebuild still wastes CPU every frame.</div>
+      </div>
+    </div>
+    <div class="timeline-item">
+      <div class="timeline-time good">~371ms + 0ms/frame</div>
+      <div class="timeline-body">
+        <div class="title">Flat array + TRS cache (both fixes)</div>
+        <div class="desc">Fast load AND zero per-frame matrix waste. Both CPU and GPU headroom maximized.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <div class="title">The shared principle</div>
+    <p>Both fixes identify work that produces the <b>same result every time</b> and move it from "repeat constantly" to "do once." The collision grid doesn't change after load. The TRS matrices don't change after registration. Recognizing <b>invariant computation</b> is the most powerful optimization technique in real-time rendering.</p>
+  </div>
+</section>
+
+<!-- ===== 8. MEASURING GAINS ===== -->
+<section id="hud">
+  <h2><span class="num" style="background:rgba(57,197,207,0.15);color:var(--cyan);">8</span> Measuring Gains — Frame Time vs FPS</h2>
+  <p class="lead">With the new HUD, you can measure optimization gains <b>while vSync is on</b> — no need to disable frame limiting.</p>
+
+  <h3>The HUD Display</h3>
+  <div class="card glow-blue">
+    <div class="code-block" style="font-size:0.82em;">
+<span style="color:var(--accent);">ORTHO RENDER HUD</span>
+FPS: 120  |  Frame: <span style="color:var(--accent2);">8.33ms</span> (min:<span style="color:var(--accent2);">6.12</span> max:<span style="color:var(--yellow);">14.55</span> avg:<span style="color:var(--accent2);">8.41</span>)  |  OrthoSize: 12.0
+CPU thread: <span style="color:var(--accent);">5.22ms</span>  |  GPU: <span style="color:var(--purple);">7.81ms</span>  |  Budget: <span style="color:var(--text-dim);">8.33ms@120fps</span>
+Draws: 12 total (10 sectors + 2 instanced) | Chunks: 0 total / 0 active / 0 legacy
+Baked: 10 sectors / 984 buildings
+
+LOD TIERS
+  Near: 0  Mid: 0  Far: 0  Ultra: 0  Culled: 0
+
+CPU: cull=0.12ms  draw=0.45ms  total=0.57ms
+Render: 1920x1080  Proxy: True
+    </div>
+  </div>
+
+  <h3>Why Frame Time (ms) Is Better Than FPS</h3>
+  <table class="data-table">
+    <thead>
+      <tr><th>Scenario</th><th>FPS</th><th>Frame Time</th><th>Actual Change</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Before optimization</td><td class="num">400</td><td class="num">2.50ms</td><td>—</td></tr>
+      <tr><td>After optimization</td><td class="num">600</td><td class="num">1.67ms</td><td class="num good">0.83ms saved</td></tr>
+      <tr><td colspan="4" style="font-size:0.82em; color:var(--text-dim);">↑ "50% FPS gain!" sounds huge, but it's less than 1ms of actual work saved.</td></tr>
+      <tr><td>Before regression</td><td class="num">60</td><td class="num">16.67ms</td><td>—</td></tr>
+      <tr><td>After regression</td><td class="num">50</td><td class="num">20.00ms</td><td class="num bad">3.33ms lost</td></tr>
+      <tr><td colspan="4" style="font-size:0.82em; color:var(--text-dim);">↑ "Only 10 FPS lost" sounds small, but it's 3.33ms of real work added — 4× worse than the "50% gain" above.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="grid-3">
+    <div class="card glow-green">
+      <h4>Frame (ms)</h4>
+      <p>Total wall-clock time per frame. Compare against <b>Budget: 8.33ms</b> to know if you're hitting 120fps.</p>
+    </div>
+    <div class="card glow-blue">
+      <h4>CPU thread (ms)</h4>
+      <p>Main thread time from <code>ProfilerRecorder</code>. Includes all Unity overhead. If CPU &gt; GPU → CPU-bound.</p>
+    </div>
+    <div class="card glow-pink">
+      <h4>GPU (ms)</h4>
+      <p>GPU frame time from <code>ProfilerRecorder</code>. If GPU &gt; CPU → GPU-bound. Equal = balanced.</p>
+    </div>
+  </div>
+
+  <div class="callout">
+    <div class="title">How to measure an optimization</div>
+    <p><b>Before:</b> Note the <code>avg</code> frame time (e.g. 8.41ms). <b>After:</b> Check if <code>avg</code> dropped (e.g. 7.92ms). The difference (0.49ms) is the real gain — regardless of what FPS shows. vSync stays on, the game stays smooth, and you still get accurate measurements.</p>
+  </div>
+</section>
+
+<!-- ===== RELATED ===== -->
+<section id="related">
+  <h2>Related Documents</h2>
+  <div class="grid-2">
+    <div class="card glow-blue">
+      <h3>Core Pipeline</h3>
+      <ul style="list-style:none; padding-left:0;">
+        <li>📄 <code>INSTANCING_AND_BUFFERING.md</code> — Full instancing pipeline docs</li>
+        <li>🎨 <code>INSTANCING_AND_BUFFERING_VISUAL.html</code> — Visual guide to instancing</li>
+        <li>🚀 <code>GPU_DRIVEN_RENDERING_PLAN.md</code> — 6-phase GPU rendering roadmap</li>
+      </ul>
+    </div>
+    <div class="card glow-green">
+      <h3>Code Files</h3>
+      <ul style="list-style:none; padding-left:0;">
+        <li>⚙️ <code>VoxelChunkManager.cs</code> — TRS cache, sector rendering</li>
+        <li>🌍 <code>VoxelCollisionWorld.cs</code> — Flat array collision grid</li>
+        <li>🏙️ <code>CityMap3D.cs</code> — HUD frame time metrics, vSync</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<div class="footer">
+  <p>Steel City Mob Sim — Optimization Deep Dive Visual Guide</p>
+  <p>Generated: Aug 9, 2026 | <a href="INSTANCING_AND_BUFFERING_VISUAL.html">← Back to Instancing Visual Guide</a></p>
+</div>
+
+</body>
+</html>
