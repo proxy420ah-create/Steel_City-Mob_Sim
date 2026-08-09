@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
@@ -42,12 +43,14 @@ namespace SteelCity.Sim
         // Drawn-based dynamic resolution (addresses cliff at ~85 drawn)
         private const int DrawnHalfResThreshold = 80;        // at or above this drawn count, prefer half-res
         private const int DrawnHalfResReturn = 74;           // drop back to full-res when drawn falls below this
+        // When user manually sets resolution via R key, suspend auto-resolution
+        private bool manualResolutionOverride = false;
 
         [Header("Render Settings")]
         [Tooltip("Voxel size in world units (should match CityMap3D.voxelSize).")]
-        [SerializeField] private float voxelSize = 0.1f;
-        [Tooltip("Max DDA steps per ray (safety cap). 96 covers most building chunks; terrain needs ~132.")]
-        [SerializeField] private int maxSteps = 96;
+        [SerializeField] private float voxelSize = 0.05f;
+        [Tooltip("Max DDA steps per ray (safety cap). 264 covers terrain chunks at voxelSize=0.05; buildings need ~192.")]
+        [SerializeField] private int maxSteps = 264;
         [Tooltip("Render texture resolution scale relative to screen.")]
         [SerializeField] private float resolutionScale = 0.5f;
         [Tooltip("Background color when rays miss all chunks. Alpha=0 for transparent (shows scene behind).")]
@@ -287,7 +290,7 @@ namespace SteelCity.Sim
         }
 
         /// <summary>Threshold: buildings wider/deeper than this occupy an entire block.</summary>
-        public const int FullBlockVoxelThreshold = 64;
+        public const int FullBlockVoxelThreshold = 128;
 
         // --- Fullscreen quad for displaying the render texture ---
         private GameObject displayQuad;
@@ -344,9 +347,11 @@ namespace SteelCity.Sim
 
         void Awake()
         {
-            // Force perf defaults — inspector may hold stale values from before code changes
-            maxSteps = Mathf.Min(maxSteps, 96);
-            resolutionScale = Mathf.Min(resolutionScale, 0.5f);
+            // Force 2x-upscaled defaults — Inspector may hold stale values from before the voxelSize change
+            voxelSize = 0.05f;
+            maxSteps = 264;
+            // Lock dynres to 1.0 (full resolution)
+            resolutionScale = 1.0f;
             shadowEnabled = 0;
             useProxyRender = true;
             if (maxRenderDistance <= 0f) maxRenderDistance = 50f;
@@ -354,7 +359,8 @@ namespace SteelCity.Sim
             // Reset runtime LOD state — never inherit granular LOD from a previous session
             runtimeGranularLod = false;
             distanceCullingEnabled = true;
-            currentResolutionScale = Mathf.Clamp(resolutionScale, 0.25f, 1.0f);
+            currentResolutionScale = 1.0f;
+            manualResolutionOverride = true; // lock dynres — prevent auto hysteresis from lowering
 
             Debug.Log($"[VoxelChunkManager] Awake: maxRenderDistance={maxRenderDistance} resolutionScale={resolutionScale} maxSteps={maxSteps} useProxyRender={useProxyRender} shadows={shadowEnabled}");
 
@@ -740,6 +746,52 @@ namespace SteelCity.Sim
 
             LoadChunkFromDataWithAABB(name, packedData, w, h, d, cornerPos, customVoxelSize,
                 cached, cvd.minX, cvd.minY, cvd.minZ, cvd.maxX, cvd.maxY, cvd.maxZ, cvd.hasSolid);
+
+            return new BuildingFootprint
+            {
+                center = centerPos,
+                size = new Vector3(w * customVoxelSize, h * customVoxelSize, d * customVoxelSize),
+                dims = new VoxelInt3(w, h, d)
+            };
+        }
+
+        /// <summary>
+        /// Load a building chunk centered on the given world position, with a procedural
+        /// modification pass applied to a CLONE of the cached voxel data.
+        /// Used for empty land plots — each gets unique debris scattered deterministically.
+        /// The modifier callback receives (voxels, w, h, d) and modifies the array in-place.
+        /// </summary>
+        public BuildingFootprint LoadChunkCenteredProcedural(
+            string name, string filepath, Vector3 centerPos,
+            Action<uint[], int, int, int> modifier)
+        {
+            return LoadChunkCenteredProcedural(name, filepath, centerPos, voxelSize, modifier);
+        }
+
+        public BuildingFootprint LoadChunkCenteredProcedural(
+            string name, string filepath, Vector3 centerPos, float customVoxelSize,
+            Action<uint[], int, int, int> modifier)
+        {
+            var (baseData, w, h, d) = GetPackedVoxels(filepath);
+            if (baseData == null) return null;
+
+            // Clone the cached data so we don't corrupt the shared cache
+            var clonedData = new uint[baseData.Length];
+            System.Array.Copy(baseData, clonedData, baseData.Length);
+
+            // Run the procedural modifier
+            modifier?.Invoke(clonedData, w, h, d);
+
+            // Recompute AABB after modification
+            ComputeTightAABB(clonedData, w, h, d,
+                out int minX, out int minY, out int minZ,
+                out int maxX, out int maxY, out int maxZ, out bool hasSolid);
+
+            // Offset so the CENTER of the voxel volume sits at centerPos
+            Vector3 cornerPos = centerPos - new Vector3(w * customVoxelSize * 0.5f, 0f, d * customVoxelSize * 0.5f);
+
+            LoadChunkFromDataWithAABB(name, clonedData, w, h, d, cornerPos, customVoxelSize,
+                true, minX, minY, minZ, maxX, maxY, maxZ, hasSolid);
 
             return new BuildingFootprint
             {
@@ -1541,6 +1593,23 @@ namespace SteelCity.Sim
 
         public void RenderChunks()
         {
+            // Runtime resolution cycling: press R to cycle through 0.5 → 0.65 → 0.75 → 1.0 → 0.5
+            var kb = UnityEngine.InputSystem.Keyboard.current;
+            if (kb != null && kb.rKey.wasPressedThisFrame)
+            {
+                float[] scales = { 0.5f, 0.65f, 0.75f, 1.0f };
+                int idx = 0;
+                for (int i = 0; i < scales.Length; i++)
+                {
+                    if (Mathf.Abs(currentResolutionScale - scales[i]) < 0.02f) { idx = (i + 1) % scales.Length; break; }
+                }
+                currentResolutionScale = scales[idx];
+                manualResolutionOverride = true;
+                EnsureProxyRT();
+                proxyMaterial.SetVector(propScreenSize, new Vector4(renderWidth, renderHeight, 0, 0));
+                Debug.Log($"[DynRes] Manual: scale set to {currentResolutionScale:F2} | render={renderWidth}x{renderHeight}");
+            }
+
             if (renderCamera == null || (chunks.Count == 0 && bakedSectors.Count == 0 && instancedGroups.Count == 0))
                 return;
 
@@ -1759,6 +1828,9 @@ namespace SteelCity.Sim
             approxCoveragePct = Mathf.Clamp01(coverageUnion * CoverageHeuristicScale);
             int drawnCount = proxyDrawList.Count;
 
+            // Skip auto-resolution if user manually set via R key
+            if (!manualResolutionOverride)
+            {
             // Hysteresis for drawn-based decision
             bool wantHalfByDrawn = drawnCount >= DrawnHalfResThreshold;
             if (!wantHalfByDrawn && currentResolutionScale < 0.75f)
@@ -1782,6 +1854,7 @@ namespace SteelCity.Sim
                 proxyMaterial.SetVector(propScreenSize, new Vector4(renderWidth, renderHeight, 0, 0));
                 Debug.Log($"[DynRes] scale {old:F2} -> {currentResolutionScale:F2} | drawn={drawnCount} cov={(approxCoveragePct*100f):F0}%");
             }
+            } // end if (!manualResolutionOverride)
 
             float drawStart = Time.realtimeSinceStartup;
 

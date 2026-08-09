@@ -369,6 +369,7 @@
   <div class="meta">
     <span style="color:var(--green);">● Foundations Complete</span> &nbsp;|&nbsp;
     <span style="color:var(--accent);">● Simulation In Progress</span> &nbsp;|&nbsp;
+    <span style="color:var(--cyan);">● GPU Rendering Optimization Planned</span> &nbsp;|&nbsp;
     <span style="color:var(--text-dim);">● Content Expansion Planned</span>
   </div>
 </div>
@@ -376,7 +377,7 @@
 <!-- ========================= PROGRESS BAR ========================= -->
 <div class="progress-section">
   <div class="overall-bar">
-    <div class="overall-fill" style="width: 65%;">65%</div>
+    <div class="overall-fill" style="width: 68%;">68%</div>
   </div>
   <div class="overall-label">Vertical Slice Completion — Foundations ✅ → Simulation 🔄 → Polish 🔲</div>
 </div>
@@ -386,7 +387,7 @@
   <!-- ========================= STATS ========================= -->
   <div class="stats-grid">
     <div class="stat-card">
-      <div class="stat-num">37</div>
+      <div class="stat-num">39</div>
       <div class="stat-label">C# Scripts</div>
     </div>
     <div class="stat-card">
@@ -394,23 +395,23 @@
       <div class="stat-label">Voxel Models</div>
     </div>
     <div class="stat-card">
-      <div class="stat-num">14</div>
+      <div class="stat-num">18</div>
       <div class="stat-label">Doc Files</div>
     </div>
     <div class="stat-card">
-      <div class="stat-num">9</div>
+      <div class="stat-num">100</div>
       <div class="stat-label">City Blocks</div>
     </div>
   </div>
 
   <!-- ========================= CURRENT WORK BANNER ========================= -->
   <div class="current-banner">
-    <h3><span class="pulse-dot"></span> Current Work — Live Simulation & Pathfinding</h3>
+    <h3><span class="pulse-dot"></span> Current Work — Terrain Optimization Complete, GPU-Driven Rendering Planned</h3>
     <div class="desc">
-      Building the real-time character movement system. NPCs and vehicles now walk/drive through the city
-      using a waypoint graph pathfinder. Tick-based simulation drives movement, with debug path visualization,
-      follow camera, stress testing, and collision world. This is the bridge between static city rendering
-      and animated Run Week playback.
+      <strong>Terrain load optimized: 78s → 371ms (211x faster).</strong> Sector baking + flat-array collision world.
+      100-block city now renders in 12 draw calls. Next: iterative GPU-driven rendering plan (6 phases)
+      to enable 500-1000 block cities with compute shader culling and GPU-side LOD.
+      Live simulation & pathfinding also in progress — NPCs navigate via waypoint graph with tick-based movement.
     </div>
     <div class="files">
       <span class="file-chip">SimulationManager.cs</span>
@@ -425,6 +426,8 @@
       <span class="file-chip">TickHUD.cs</span>
       <span class="file-chip">StressTestSpawner.cs</span>
       <span class="file-chip">EventPlayer.cs</span>
+      <span class="file-chip">VoxelTerrainBuilder.cs</span>
+      <span class="file-chip">SectorBaker.cs</span>
     </div>
   </div>
 
@@ -740,6 +743,103 @@
     </div>
   </div>
 
+  <!-- ========================= PHASE 4b: GPU-DRIVEN RENDERING (PLANNED) ========================= -->
+  <div class="phase">
+    <div class="phase-header">
+      <div class="phase-icon planned">🔲</div>
+      <div class="phase-title">
+        <h2>Phase 4b — GPU-Driven Rendering Optimization</h2>
+        <div class="dates">Planned — 6-phase iterative plan (~10-12 hours)</div>
+      </div>
+      <div class="phase-status planned">PLANNED</div>
+    </div>
+    <div class="features">
+      <div class="feature planned">
+        <div class="feature-head">
+          <div class="feature-status-icon planned">○</div>
+          <div class="feature-name">Phase 1: Static Sector TRS Cache</div>
+          <div class="feature-tag planned">PLANNED</div>
+        </div>
+        <div class="feature-desc">Cache Matrix4x4[] for sector buildings — stop rebuilding 984 matrices per frame</div>
+        <ul class="feature-items">
+          <li class="pending">BakedSector gets cachedMatrices field</li>
+          <li class="pending">Build matrices once at RegisterSector time</li>
+          <li class="pending">~0.1ms saved now, ~5-10ms at scale — near zero risk</li>
+        </ul>
+      </div>
+
+      <div class="feature planned">
+        <div class="feature-head">
+          <div class="feature-status-icon planned">○</div>
+          <div class="feature-name">Phase 2: Buffer Pooling + SubUpdates</div>
+          <div class="feature-tag planned">PLANNED</div>
+        </div>
+        <div class="feature-desc">ComputeBufferMode.SubUpdates + BeginWrite/EndWrite for zero-GC buffer updates</div>
+        <ul class="feature-items">
+          <li class="pending">Replace SetData with BeginWrite/EndWrite for instance offsets</li>
+          <li class="pending">Pool reusable ComputeBuffers across frames</li>
+          <li class="pending">Zero GC allocs per frame — low risk</li>
+        </ul>
+      </div>
+
+      <div class="feature planned">
+        <div class="feature-head">
+          <div class="feature-status-icon planned">○</div>
+          <div class="feature-name">Phase 3: DrawMeshInstancedIndirect</div>
+          <div class="feature-tag planned">PLANNED</div>
+        </div>
+        <div class="feature-desc">Replace DrawMeshInstanced with indirect draw — instance count from GPU buffer</div>
+        <ul class="feature-items">
+          <li class="pending">Create IndirectArguments GraphicsBuffer per sector</li>
+          <li class="pending">CPU writes instance count initially (no GPU culling yet)</li>
+          <li class="pending">Removes 1023 instance cap — medium risk</li>
+        </ul>
+      </div>
+
+      <div class="feature planned">
+        <div class="feature-head">
+          <div class="feature-status-icon planned">○</div>
+          <div class="feature-name">Phase 4: Compute Shader Frustum Culling</div>
+          <div class="feature-tag planned">PLANNED</div>
+        </div>
+        <div class="feature-desc">GPU compute shader culls invisible instances — no CPU readback</div>
+        <ul class="feature-items">
+          <li class="pending">New SectorCull.compute shader</li>
+          <li class="pending">InterlockedAdd for compacted visible index list</li>
+          <li class="pending">Shader reads _VisibleIndices[unity_InstanceID] — medium risk</li>
+        </ul>
+      </div>
+
+      <div class="feature planned">
+        <div class="feature-head">
+          <div class="feature-status-icon planned">○</div>
+          <div class="feature-name">Phase 5: GPU-Side LOD</div>
+          <div class="feature-tag planned">PLANNED</div>
+        </div>
+        <div class="feature-desc">Compute shader assigns LOD tier per instance — distant buildings get fewer raymarch steps</div>
+        <ul class="feature-items">
+          <li class="pending">LOD tiers: full / half / quarter / cull based on screen-space size</li>
+          <li class="pending">Hysteresis to prevent flickering at LOD boundaries</li>
+          <li class="pending">Shader scales maxSteps per instance — higher risk</li>
+        </ul>
+      </div>
+
+      <div class="feature planned">
+        <div class="feature-head">
+          <div class="feature-status-icon planned">○</div>
+          <div class="feature-name">Phase 6: Remove 1023 Cap + Scale Test</div>
+          <div class="feature-tag planned">PLANNED</div>
+        </div>
+        <div class="feature-desc">Merge sectors, test with 500-1000 block cities</div>
+        <ul class="feature-items">
+          <li class="pending">Optionally merge all building sectors into 1 mega-sector</li>
+          <li class="pending">Test with 500-block city layout</li>
+          <li class="pending">Target: ~3 draw calls for entire city — low risk if 3-4 solid</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
   <!-- ========================= PHASE 5: CONTENT EXPANSION (PLANNED) ========================= -->
   <div class="phase">
     <div class="phase-header">
@@ -924,10 +1024,16 @@
         <div class="tl-desc">sc_inspector.py (10 checks), MODEL_DESIGN_STANDARD.md, VOXEL_INSPECTION_TOOLCHAIN.md, baseline audit</div>
       </div>
       <div class="tl-item">
+        <div class="tl-dot done"></div>
+        <div class="tl-date">Aug 9, 2026</div>
+        <div class="tl-title">Terrain Sector Baking + Collision World Optimization</div>
+        <div class="tl-desc">78s → 371ms terrain load (211x). Dictionary→flat array for VoxelCollisionWorld. 100 chunks → 1 sector. 12 total draw calls.</div>
+      </div>
+      <div class="tl-item">
         <div class="tl-dot current"></div>
-        <div class="tl-date">Aug 8, 2026 — NOW</div>
-        <div class="tl-title">Live Simulation & Pathfinding</div>
-        <div class="tl-desc">WaypointGraph, Pathfinder, SimulationManager, VoxelCharacter/Vehicle, FollowCamera, stress testing, PathDebugRenderer</div>
+        <div class="tl-date">Aug 9, 2026 — NOW</div>
+        <div class="tl-title">Live Simulation + GPU-Driven Rendering Plan</div>
+        <div class="tl-desc">Simulation & pathfinding in progress. GPU-driven rendering plan documented (6 phases: TRS cache → buffer pooling → indirect draw → GPU culling → GPU LOD → scale test)</div>
       </div>
       <div class="tl-item">
         <div class="tl-dot planned"></div>
@@ -956,7 +1062,7 @@
   <p>Steel City: Mob Sim — Vertical Slice Roadmap</p>
   <p>Companion to <code>GAME_DESIGN_SKELETON.md</code> and <code>DOCUMENTATION_INDEX.md</code></p>
   <div class="update-note">
-    📝 Last updated: Aug 8, 2026 2:20 PM — Update this file as work progresses
+    📝 Last updated: Aug 9, 2026 1:15 AM — Terrain optimization complete, GPU-driven rendering plan added
   </div>
 </div>
 

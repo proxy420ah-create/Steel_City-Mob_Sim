@@ -42,6 +42,17 @@ namespace SteelCity.Sim
             public string stassetPath;   // full path to .stasset file
             public Vector3 worldOffset;  // world-space corner position (not center)
             public float voxelSize;
+            public int row;              // block row (for procedural seeding)
+            public int col;              // block col (for procedural seeding)
+            public int subIndex;         // building index within block (for procedural seeding)
+        }
+
+        /// <summary>Detect empty land stasset paths for procedural debris scattering.</summary>
+        private static bool IsEmptyLand(string stassetPath)
+        {
+            return stassetPath != null &&
+                   stassetPath.Contains("empty_land") &&
+                   !stassetPath.Contains("tenement");
         }
 
         /// <summary>
@@ -106,7 +117,18 @@ namespace SteelCity.Sim
                 if (packedData == null) continue;
 
                 int voxelCount = w * h * d;
-                System.Array.Copy(packedData, 0, mergedVoxelData, writeOffset, voxelCount);
+
+                // For empty land: clone the cached data and apply procedural debris scatter
+                if (IsEmptyLand(info.stassetPath))
+                {
+                    var cloned = (uint[])packedData.Clone();
+                    ProceduralDebrisScatterer.Scatter(cloned, w, h, d, info.row, info.col, info.subIndex);
+                    System.Array.Copy(cloned, 0, mergedVoxelData, writeOffset, voxelCount);
+                }
+                else
+                {
+                    System.Array.Copy(packedData, 0, mergedVoxelData, writeOffset, voxelCount);
+                }
                 writeOffset += voxelCount;
 
                 // Compute sector AABB from building world positions + sizes
@@ -234,7 +256,10 @@ namespace SteelCity.Sim
                         {
                             stassetPath = fullPath,
                             worldOffset = cornerPos,
-                            voxelSize = voxelSize
+                            voxelSize = voxelSize,
+                            row = lb.row,
+                            col = lb.col,
+                            subIndex = 0
                         });
                     }
                     else
@@ -268,7 +293,10 @@ namespace SteelCity.Sim
                                     {
                                         stassetPath = fullPath,
                                         worldOffset = cornerPos,
-                                        voxelSize = voxelSize
+                                        voxelSize = voxelSize,
+                                        row = lb.row,
+                                        col = lb.col,
+                                        subIndex = i
                                     });
                                     break;
                                 }
@@ -302,7 +330,10 @@ namespace SteelCity.Sim
                                 {
                                     stassetPath = fullPath,
                                     worldOffset = cornerPos,
-                                    voxelSize = voxelSize * scale
+                                    voxelSize = voxelSize * scale,
+                                    row = lb.row,
+                                    col = lb.col,
+                                    subIndex = i
                                 });
                             }
                         }

@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using UnityEngine;
 
 namespace SteelCity.Sim
@@ -16,8 +15,9 @@ namespace SteelCity.Sim
         [Header("Debug")]
         public bool showDebugRays = false;
 
-        // Sparse voxel storage: gridPos -> materialID (0 = air, not stored)
-        private readonly Dictionary<Vector3Int, byte> voxelData = new();
+        // Flat voxel storage: indexed by x + y*gridW + z*gridW*gridH
+        private byte[] voxelGrid;
+        private int gridW, gridH, gridD;
 
         // World origin of the voxel grid (corner of the volume)
         private Vector3 gridOrigin;
@@ -37,7 +37,9 @@ namespace SteelCity.Sim
         /// </summary>
         public byte GetVoxelAtGrid(Vector3Int gridPos)
         {
-            return voxelData.TryGetValue(gridPos, out byte mat) ? mat : (byte)0;
+            int idx = gridPos.x + gridPos.y * gridW + gridPos.z * gridW * gridH;
+            if (idx < 0 || idx >= voxelGrid.Length) return 0;
+            return voxelGrid[idx];
         }
 
         /// <summary>
@@ -46,9 +48,10 @@ namespace SteelCity.Sim
         /// </summary>
         public void RegisterTerrain(uint[] data, int w, int h, int d, Vector3 worldOrigin, float vs)
         {
-            voxelData.Clear();
             gridOrigin = worldOrigin;
             voxelSize = vs;
+            gridW = w; gridH = h; gridD = d;
+            voxelGrid = new byte[w * h * d];
 
             int registered = 0;
             for (int z = 0; z < d; z++)
@@ -60,7 +63,7 @@ namespace SteelCity.Sim
                         uint packed = data[x + y * w + z * w * h];
                         if (packed != 0)
                         {
-                            voxelData[new Vector3Int(x, y, z)] = (byte)(packed & 0xFF);
+                            voxelGrid[x + y * w + z * w * h] = (byte)(packed & 0xFF);
                             registered++;
                         }
                     }
@@ -83,6 +86,8 @@ namespace SteelCity.Sim
             {
                 gridOrigin = chunkWorldOrigin;
                 voxelSize = vs;
+                gridW = w; gridH = h; gridD = d;
+                voxelGrid = new byte[w * h * d];
                 initialized = true;
             }
 
@@ -92,7 +97,44 @@ namespace SteelCity.Sim
             int offY = Mathf.RoundToInt(originOffset.y);
             int offZ = Mathf.RoundToInt(originOffset.z);
 
-            int registered = 0;
+            // Compute new bounds accounting for negative offsets
+            int newOriginX = Mathf.Min(0, offX); // shift in X (negative = chunks left of origin)
+            int newOriginZ = Mathf.Min(0, offZ);
+            int newOriginY = Mathf.Min(0, offY);
+            int endX = Mathf.Max(gridW, offX + w);
+            int endY = Mathf.Max(gridH, offY + h);
+            int endZ = Mathf.Max(gridD, offZ + d);
+            int newW = endX - newOriginX;
+            int newH = endY - newOriginY;
+            int newD = endZ - newOriginZ;
+
+            // Re-allocate if bounds changed
+            if (newW != gridW || newH != gridH || newD != gridD || newOriginX != 0 || newOriginY != 0 || newOriginZ != 0)
+            {
+                var newGrid = new byte[newW * newH * newD];
+                // Copy existing data into new grid (shifted by -newOriginX/Y/Z)
+                int shiftX = -newOriginX;
+                int shiftY = -newOriginY;
+                int shiftZ = -newOriginZ;
+                for (int z = 0; z < gridD; z++)
+                    for (int y = 0; y < gridH; y++)
+                        for (int x = 0; x < gridW; x++)
+                            newGrid[(x + shiftX) + (y + shiftY) * newW + (z + shiftZ) * newW * newH] =
+                                voxelGrid[x + y * gridW + z * gridW * gridH];
+
+                voxelGrid = newGrid;
+                gridW = newW; gridH = newH; gridD = newD;
+
+                // Shift grid origin in world space
+                gridOrigin += new Vector3(newOriginX * voxelSize, newOriginY * voxelSize, newOriginZ * voxelSize);
+
+                // Recompute offset relative to new origin
+                offX -= newOriginX;
+                offY -= newOriginY;
+                offZ -= newOriginZ;
+            }
+
+            // Write chunk data into flat grid (O(1) per voxel — no dictionary hashing)
             for (int z = 0; z < d; z++)
             {
                 for (int y = 0; y < h; y++)
@@ -101,15 +143,10 @@ namespace SteelCity.Sim
                     {
                         uint packed = data[x + y * w + z * w * h];
                         if (packed != 0)
-                        {
-                            voxelData[new Vector3Int(x + offX, y + offY, z + offZ)] = (byte)(packed & 0xFF);
-                            registered++;
-                        }
+                            voxelGrid[(x + offX) + (y + offY) * gridW + (z + offZ) * gridW * gridH] = (byte)(packed & 0xFF);
                     }
                 }
             }
-
-            // Suppress per-chunk collision registration log (too many at scale)
         }
 
         /// <summary>
@@ -136,8 +173,8 @@ namespace SteelCity.Sim
 
             while (steps < maxSteps && vy >= 0)
             {
-                Vector3Int gridPos = new Vector3Int(vx, vy, vz);
-                if (voxelData.TryGetValue(gridPos, out byte mat) && mat != 0)
+                int idx = vx + vy * gridW + vz * gridW * gridH;
+                if (idx >= 0 && idx < voxelGrid.Length && voxelGrid[idx] != 0)
                 {
                     // Hit solid voxel — ground is at the TOP of this voxel
                     groundY = gridOrigin.y + (vy + 1) * voxelSize;
@@ -163,7 +200,8 @@ namespace SteelCity.Sim
             // Check a few Y layers (terrain is 2 voxels thick)
             for (int vy = 0; vy < 10; vy++)
             {
-                if (voxelData.TryGetValue(new Vector3Int(vx, vy, vz), out byte mat) && mat != 0)
+                int idx = vx + vy * gridW + vz * gridW * gridH;
+                if (idx >= 0 && idx < voxelGrid.Length && voxelGrid[idx] != 0)
                     return true;
             }
             return false;
@@ -192,13 +230,21 @@ namespace SteelCity.Sim
 
             // Draw a few sample voxels for debugging
             int drawn = 0;
-            foreach (var kvp in voxelData)
+            for (int z = 0; z < gridD && drawn <= 500; z++)
             {
-                if (drawn > 500) break;
-                Vector3 pos = VoxelGridToWorld(kvp.Key);
-                Gizmos.color = new Color(0.3f, 0.6f, 0.3f, 0.3f);
-                Gizmos.DrawCube(pos, Vector3.one * voxelSize * 0.9f);
-                drawn++;
+                for (int y = 0; y < gridH && drawn <= 500; y++)
+                {
+                    for (int x = 0; x < gridW && drawn <= 500; x++)
+                    {
+                        if (voxelGrid[x + y * gridW + z * gridW * gridH] != 0)
+                        {
+                            Vector3 pos = VoxelGridToWorld(new Vector3Int(x, y, z));
+                            Gizmos.color = new Color(0.3f, 0.6f, 0.3f, 0.3f);
+                            Gizmos.DrawCube(pos, Vector3.one * voxelSize * 0.9f);
+                            drawn++;
+                        }
+                    }
+                }
             }
         }
     }

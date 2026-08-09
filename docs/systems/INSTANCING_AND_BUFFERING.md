@@ -21,7 +21,8 @@
 
 **Created**: Aug 8, 2026
 **Status**: ✅ COMPLETE — documents the working instancing + buffering pipeline
-**Relates to**: `Assets/Scripts/UI/VoxelChunkManager.cs`, `Assets/Resources/Shaders/VoxelProxyRaymarch.shader`, `Assets/Scripts/Sim/VoxelCharacter.cs`, `Assets/Scripts/Sim/VoxelVehicle.cs`, `docs/systems/GPU_DRIVEN_SECTOR_RENDERING.md`, `docs/systems/DYNAMIC_OBJECT_RENDERING_TIERS.md`
+**Updated**: Aug 9, 2026 — added terrain sector baking + collision world flat-array optimization
+**Relates to**: `Assets/Scripts/UI/VoxelChunkManager.cs`, `Assets/Resources/Shaders/VoxelProxyRaymarch.shader`, `Assets/Scripts/Sim/VoxelCharacter.cs`, `Assets/Scripts/Sim/VoxelVehicle.cs`, `Assets/Scripts/Sim/VoxelCollisionWorld.cs`, `Assets/Scripts/UI/SectorBaker.cs`, `docs/systems/GPU_DRIVEN_SECTOR_RENDERING.md`, `docs/systems/DYNAMIC_OBJECT_RENDERING_TIERS.md`
 
 ---
 
@@ -338,7 +339,36 @@ The sector baking path had the identical issue and was fixed earlier — see `GP
 | **PropertyBlock** | Per group (per asset file) | Per sector |
 | **Voxel size** | Per group (character=0.02, vehicle=0.05) | Per building (stored in `_BuildingPositions[i].w`) |
 | **Buffer offset** | Always 0 (each group has its own complete buffer) | Per building (each building reads its slice of the merged buffer) |
-| **Draw calls** | 1 per asset file | 1 per sector |
+| **Draw calls** | 1 per asset file | 1 per sector (buildings + terrain) |
+
+### Terrain Sector Baking (Added Aug 9, 2026)
+
+Terrain uses the **same `RegisterSector` API** as buildings. 100 terrain chunks (13.9M voxels) are concatenated into one flat `uint[]` buffer and registered as a single sector:
+
+```csharp
+// CityMap3D.BuildVoxelTerrain — bakes 100 chunks into 1 sector
+chunkManager.RegisterSector("terrain_sector", mergedTerrain, terrainMeta, terrainPositions,
+    voxelSize, terrainMin, terrainMax);
+```
+
+Key differences from building sectors:
+- **No `ComputeTightAABB`** — terrain is a flat 2-voxel slab, AABB is full bounds
+- **No `GameObject` creation** — raymarch shader doesn't need transform hierarchy
+- **100 chunks → 1 `ComputeBuffer` → 1 `SetData` → 1 draw call** (was 100 of each)
+
+### Collision World Flat-Array Optimization (Added Aug 9, 2026)
+
+The CPU-side collision world (`VoxelCollisionWorld`) was the **78-second bottleneck** — not GPU upload or terrain generation.
+
+**Root cause**: `Dictionary<Vector3Int, byte>` for 13.9M voxel inserts. Each insert required hash computation, bucket probing, and dictionary resizing (~24 resizes to grow to 13.9M entries).
+
+**Fix**: Replaced with flat `byte[]` array indexed by `x + y*gridW + z*gridW*gridH`:
+- Each write: `array[idx] = value` — O(1), no hashing, no resizing
+- Grid grows dynamically in all directions (handles negative offsets by shifting origin)
+- Memory: 13.3MB flat array vs ~500MB+ dictionary entry overhead
+- Lookups (`ProbeGround`, `HasGroundAt`) also O(1) array index with bounds check
+
+**Result**: Terrain load 78,466ms → 371ms (211x faster). Total BuildMap ~79s → ~0.5s.
 
 The key difference: sector baking merges multiple different assets into one buffer (with offsets), while character/vehicle instancing keeps each asset in its own buffer. Both use `MaterialPropertyBlock` to isolate per-draw state.
 
@@ -432,7 +462,20 @@ If `voxelSize` is wrong (e.g., 0.05 instead of 0.02), the world-space positions 
 | 1 character + 1 vehicle | 2 (one per group) |
 | 100 characters (same asset) + 1 vehicle | 2 (100 instances in 1 draw + 1 draw) |
 | 100 characters (5 different assets) + 1 vehicle | 6 (one per asset group) |
-| Full city (sector baked) + 50 characters + 10 vehicles | ~15 sectors + a few instanced groups |
+| **100-block city (measured Aug 9)** | **12** (1 terrain sector + 9 building sectors + 2 instanced) |
+| Full city (sector baked) + 50 characters + 10 vehicles | ~12 sectors + a few instanced groups |
+
+### Measured Performance (100-Block City, Aug 9, 2026)
+
+| Metric | Before Optimization | After Optimization | Improvement |
+|--------|---------------------|-------------------|-------------|
+| Terrain load time | 78,466ms | 371ms | **211x** |
+| Total BuildMap | ~79s | ~0.5s | **~158x** |
+| Terrain draw calls | 100 | 1 | 99x fewer |
+| Terrain ComputeBuffers | 100 | 1 | 99x fewer |
+| Terrain GameObjects | 100 | 0 | All eliminated |
+| Collision memory | ~500MB+ (Dictionary) | 13.3MB (flat byte[]) | ~38x less |
+| Total draw calls (city + entities) | 200+ | 12 | ~17x fewer |
 
 ### Per-Frame CPU Cost
 
@@ -461,6 +504,8 @@ The proxy cube is small on screen for characters (a few dozen pixels), so even w
 | Vehicle (civilian car) | 40×20×80 | 64KB |
 | Building (small shop) | 32×32×32 | 128KB |
 | Sector (16 blocks, ~50 buildings) | merged | ~6MB |
+| Terrain sector (100 chunks) | merged 13.9M voxels | ~53MB |
+| Collision world (flat array) | 2640×2×2640 | 13.3MB |
 
 Voxel buffers are surprisingly small — the entire character + vehicle voxel data fits in under 100KB of GPU memory.
 

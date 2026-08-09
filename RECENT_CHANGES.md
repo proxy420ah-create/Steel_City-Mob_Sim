@@ -1,6 +1,43 @@
 # Recent Changes — Steel City: Mob Sim
 
-**Last Updated**: August 8, 2026 (Path Debug Rendering)
+**Last Updated**: August 9, 2026 (Terrain Sector Baking + Collision World Optimization — 211x load time improvement)
+
+---
+
+## August 9, 2026 — Terrain Sector Baking + Collision World Flat Array Optimization
+
+### Impact
+- **Terrain load: 78,466ms → 371ms** (211x faster)
+- **Total BuildMap: ~79s → ~0.5s** (estimated 158x faster)
+- **Draw calls: 100 terrain chunks → 1 sector (1 draw call)**
+- **ComputeBuffers: 100 → 1** for terrain
+- **GameObjects: 100 → 0** for terrain (no transform hierarchy overhead)
+- **Memory: ~500MB dictionary overhead → 13.3MB flat byte array** for collision world
+
+### Changes
+
+#### 1. Terrain Sector Baking (`CityMap3D.cs:868-935`)
+Replaced 100 sequential `LoadChunkFromData` calls (each creating a `ComputeBuffer`, `SetData`, `ComputeTightAABB`, and `GameObject`) with a single sector bake:
+- All 100 terrain chunks concatenated into one flat `uint[]` buffer (13.9M voxels)
+- Per-chunk metadata `(bufferOffset, dims, worldOffset)` stored in `Vector4[]` arrays
+- Registered via `RegisterSector("terrain_sector", ...)` — 1 `ComputeBuffer`, 1 `SetData`, 1 draw call
+- No `ComputeTightAABB` needed (terrain AABB is full bounds — flat 2-voxel slab)
+- No `GameObject` creation (raymarch shader doesn't need transform hierarchy)
+
+#### 2. Collision World Flat Array (`VoxelCollisionWorld.cs`)
+**Root cause of 78s bottleneck**: `Dictionary<Vector3Int, byte>` for 13.9M voxel inserts.
+- Each insert: `Vector3Int` hash computation + bucket probe + collision chain + dictionary resizing (~24 resizes to grow to 13.9M entries)
+- Replaced with flat `byte[]` array indexed by `x + y*gridW + z*gridW*gridH`
+- Each write is now `array[idx] = value` — O(1), no hashing, no resizing
+- Grid grows dynamically in all directions (handles negative offsets by shifting origin)
+- Lookups (`ProbeGround`, `HasGroundAt`) also O(1) array index with bounds check
+- Memory: 13.9M bytes (13.3MB) vs ~500MB+ dictionary entry overhead
+
+### What This Enables Next
+- **Larger cities**: 500-1000 block cities now feasible (terrain was the bottleneck, not buildings)
+- **Faster iteration**: Sub-second reload enables rapid testing of layout/visual changes
+- **More GPU headroom**: 99 fewer draw calls and 99 fewer ComputeBuffers frees GPU for characters/vehicles
+- **Potential for async terrain**: With collision registration no longer blocking, terrain generation could be moved to a background thread entirely
 
 ---
 
@@ -22,6 +59,75 @@ Copy-Item "SteelCityMobSim\Assets\StreamingAssets\city_layout_500.json" "SteelCi
 ```
 
 Available tiers: `city_template_25`, `city_template_100`, `city_template_500`, `city_template_1000` (and matching `city_layout_*`).
+
+---
+
+## August 8, 2026 — Tenement Block 0 Final Redesign (Dual FE + Roof)
+
+### Deployed
+- `Assets/StreamingAssets/voxel_buildings/tenement_block_0.stasset` — **Replaced** with final version (96×60×96, 95,702 non-air voxels)
+- `Assets/StreamingAssets/voxel_buildings/tenement_block_0_original_backup.stasset` — Backup of original
+
+### Created
+- `VoxelAssetStudio/extend_landings.py` — Extend FE landings to 2-window coverage per landing
+- `VoxelAssetStudio/mirror_fe.py` — Mirror FE across X axis (back-left → back-right)
+- `VoxelAssetStudio/add_side_fe.py` — Duplicate + rotate FE 90° onto adjacent wall (front-left)
+- `VoxelAssetStudio/add_roof_deco.py` — Add water tower + parapet wall to roof
+- `VoxelAssetStudio/analyze_fe_landings.py` — Detailed landing/window analysis
+- `VoxelAssetStudio/load_firework.py` — Load user-edited firework JSON with roof buffer
+
+### Changed
+- `VoxelAssetStudio/voxel_editor_html.py` — Added 3-axis slice controls (X/Y/Z min/max sliders)
+- `VoxelAssetStudio/procedural_mob_buildings.py` — Added `roof_buf=8` parameter to `generate_apartment_block()`
+- `VoxelAssetStudio/json_to_stasset.py` — Fixed `save_stasset()` call (removed unsupported `scale` kwarg)
+- `Assets/docs/VOXEL_EDITOR_AND_FIRE_ESCAPE.md` — Added sections: 3-axis slicer, grep gotcha, landing extension, mirroring, 90° rotation, roof buffer, updated alignment table and script/file listings
+
+### Tenement Final Specs
+- **Dimensions**: 96×60×96 (was 96×44×96 — +16 roof buffer)
+- **Core**: 80×80 with 8-voxel side buffer
+- **Fire escapes**: 2 (back-right + front-left, mirrored + rotated)
+- **Landing Y levels**: 10, 18, 26, 34 (2 below window sills at 12, 20, 28, 36)
+- **Landing coverage**: 2 windows per landing (X=62-75 back wall, Z=10-36 left wall)
+- **Roof**: Water tower (8×8 wood tank on iron legs, Y=44-51) + parapet wall (2v brick, Y=44-45)
+- **Total voxels**: 95,702 non-air
+
+---
+
+## August 8, 2026 — Voxel Editor Enhancements + Fire Escape Redesign
+
+### Created
+- `Assets/docs/VOXEL_EDITOR_AND_FIRE_ESCAPE.md` — Full documentation of voxel editor HTML system and fire escape workflow
+- `VoxelAssetStudio/shift_fe.py` — Shift fire escape JSON voxels by Y offset
+- `VoxelAssetStudio/fix_fe_spacing.py` — Full pipeline: fix spacing + regenerate tenement + bolt on fire escape
+- `VoxelAssetStudio/bolt_fe_v2.py` — Earlier bolt-on version (80×80 core, 8v buffer)
+- `VoxelAssetStudio/analyze_fe.py` — Analyze fire escape JSON (bounding box, Y distribution, landings)
+- `VoxelAssetStudio/load_fe_test.py` — Load fire escape JSON into editor for inspection
+
+### Changed
+- `VoxelAssetStudio/voxel_editor_html.py` — Enhanced with:
+  - **Escape key**: Universal reset — clears all tool states, switches to camera mode
+  - **Camera tool**: New tool mode (gray highlight) with early returns in `performTool` and `updateHighlight`
+  - **Volume expansion**: Dynamic grid resizing via modal (W/H/D changed from `const` to `let`, `gridHelper` to `let`)
+  - **Enhanced selection**: Shift+click for single voxel, Ctrl+click for box select, flood-fill default
+  - **Ruler tool**: White highlight with voxel count in status bar
+  - Updated `TOOL_COLORS` and `TOOL_DESC` dictionaries
+- `Assets/docs/DOCUMENTATION_INDEX.md` — Added Voxel Editor category (Section 3b), updated key file locations, version 1.4.0
+
+### Tenement Buffer Change
+- **Core**: 88×88 → 80×80 voxels (regenerated with `generate_apartment_block(w=80, d=80)`)
+- **Buffer**: 4 → 8 voxels each side (enables 7-voxel-deep fire escape + future decorations)
+- **Total footprint**: 96×96 voxels (unchanged — fits game map exactly)
+- **BuildingVoxelWidth=32** in `CityMap3D.cs` constrains total to 96×96
+
+### Fire Escape Alignment
+- Landings at Y=10, 18, 26, 34 (2 below window sills, 8-voxel spacing)
+- Drop ladder with guide rails (street to first landing)
+- Roof ladder (top landing to roof, per 1860 NYC ordinance)
+- Support posts: vertical iron posts from ground to first landing
+- Materials: DARK_IRON (109) structure, PAINTED_METAL (111) railings
+
+### Output
+- `tenement_block_0_new_fe.stasset` — 96×52×96, script-generated intermediate version
 
 ---
 

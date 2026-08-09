@@ -526,7 +526,7 @@
 <!-- ========================= HERO ========================= -->
 <div class="hero">
   <h1>⚡ GPU Instancing & Buffering</h1>
-  <p class="subtitle">A visual guide to how Steel City renders 1600+ buildings without melting your CPU</p>
+  <p class="subtitle">A visual guide to how Steel City renders 1000+ buildings + terrain in 12 draw calls</p>
   <div class="badges">
     <span class="badge b1">Draw Calls</span>
     <span class="badge b2">ComputeBuffer</span>
@@ -897,17 +897,17 @@ instanceBuffer.<span class="fn">SetData</span>(data);
 
   <div class="grid-2">
     <div class="card glow-pink">
-      <h3>🏢 Sector Baking (Buildings)</h3>
-      <p><strong>Problem:</strong> 1600 static buildings, never move, never change.</p>
-      <p><strong>Solution:</strong> Combine all building meshes in a sector into one giant mesh. Upload once. Forget about it.</p>
+      <h3>🏢 Sector Baking (Buildings + Terrain)</h3>
+      <p><strong>Problem:</strong> 884 static buildings + 100 terrain chunks, never move, never change.</p>
+      <p><strong>Solution:</strong> Combine all building/terrain meshes in a sector into one giant buffer. Upload once. Forget about it.</p>
       <div class="flowchart" style="margin: 16px 0;">
-        <div class="flow-node start"><div class="title">200 buildings</div><div class="desc">Individual voxel meshes</div></div>
+        <div class="flow-node start"><div class="title">884 buildings + 100 terrain chunks</div><div class="desc">Individual voxel data arrays</div></div>
         <div class="flow-arrow"></div>
-        <div class="flow-node"><div class="title">Bake into 1 mesh</div><div class="desc">Combine vertices, translate positions</div></div>
+        <div class="flow-node"><div class="title">Bake into 10 sectors</div><div class="desc">9 building sectors + 1 terrain sector (13.9M voxels)</div></div>
         <div class="flow-arrow"></div>
-        <div class="flow-node end"><div class="title">1 draw call</div><div class="desc">Forever. No per-frame cost.</div></div>
+        <div class="flow-node end"><div class="title">10 draw calls</div><div class="desc">Forever. No per-frame cost. Was 200+ draw calls.</div></div>
       </div>
-      <p style="font-size:0.85em;color:var(--text-dim);">Trade-off: Can't move or modify individual buildings without re-baking the whole sector.</p>
+      <p style="font-size:0.85em;color:var(--text-dim);">Trade-off: Can't move or modify individual buildings without re-baking the whole sector. Terrain baking skips ComputeTightAABB (flat slab, AABB is full bounds) and skips GameObject creation (raymarch doesn't need transforms).</p>
     </div>
 
     <div class="card glow-blue">
@@ -977,6 +977,22 @@ instanceBuffer.<span class="fn">SetData</span>(data);
     </tbody>
   </table>
 
+  <div class="card glow-green">
+    <h3>✅ Measured Performance (100-Block City, Aug 9, 2026)</h3>
+    <table class="comp-table" style="margin: 12px 0;">
+      <thead>
+        <tr><th>Metric</th><th>Before</th><th>After</th><th>Improvement</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Terrain load time</td><td class="cross">78,466ms</td><td class="check">371ms</td><td class="check">211x</td></tr>
+        <tr><td>Total BuildMap</td><td class="cross">~79s</td><td class="check">~0.5s</td><td class="check">~158x</td></tr>
+        <tr><td>Terrain draw calls</td><td class="cross">100</td><td class="check">1</td><td class="check">99x fewer</td></tr>
+        <tr><td>Collision memory</td><td class="cross">~500MB (Dict)</td><td class="check">13.3MB (flat array)</td><td class="check">~38x less</td></tr>
+        <tr><td>Total draw calls</td><td class="cross">200+</td><td class="check">12</td><td class="check">~17x fewer</td></tr>
+      </tbody>
+    </table>
+  </div>
+
   <div class="card glow-blue">
     <h3>Known Gaps (Current State)</h3>
     <ul style="margin-left:20px; font-size:0.9em; line-height:2;">
@@ -1004,10 +1020,15 @@ instanceBuffer.<span class="fn">SetData</span>(data);
     </div>
     <div class="flow-arrow"></div>
     <div class="flow-node">
-      <div class="title">3. Sector Baking</div>
-      <div class="desc">VoxelChunkManager combines buildings per sector into one mesh</div>
+      <div class="title">3. Terrain Sector Baking (371ms)</div>
+      <div class="desc">100 terrain chunks → 1 merged buffer (13.9M voxels) → 1 ComputeBuffer → 1 draw call</div>
     </div>
-    <div class="flow-arrow label" data-label="Static buildings done"></div>
+    <div class="flow-arrow label" data-label="Terrain done in 371ms (was 78s)"></div>
+    <div class="flow-node">
+      <div class="title">4. Building Sector Baking</div>
+      <div class="desc">VoxelChunkManager combines buildings per sector into one buffer (9 sectors)</div>
+    </div>
+    <div class="flow-arrow label" data-label="Static buildings + terrain done"></div>
     <div class="flow-node">
       <div class="title">4. Character Instancer Setup</div>
       <div class="desc">Creates ComputeBuffer for NPCs, MaterialPropertyBlock for isolation</div>
@@ -1025,7 +1046,7 @@ instanceBuffer.<span class="fn">SetData</span>(data);
     <div class="flow-arrow"></div>
     <div class="flow-node end">
       <div class="title">7. Screen Output</div>
-      <div class="desc">1600 buildings + 50 NPCs = ~2-3 draw calls total. CPU happy. GPU happy. 🎉</div>
+      <div class="desc">984 baked buildings + 100 terrain chunks + 2 instanced = 12 draw calls total. CPU happy. GPU happy. 🎉</div>
     </div>
   </div>
 </section>
@@ -1066,7 +1087,7 @@ instanceBuffer.<span class="fn">SetData</span>(data);
 
 <div class="footer">
   <p>Steel City: Mob Sim — GPU Instancing & Buffering Visual Guide</p>
-  <p>Companion to <code>INSTANCING_AND_BUFFERING.md</code> | Generated Aug 8, 2026</p>
+  <p>Companion to <code>INSTANCING_AND_BUFFERING.md</code> | Generated Aug 8, 2026 · Updated Aug 9, 2026</p>
 </div>
 
 <script>

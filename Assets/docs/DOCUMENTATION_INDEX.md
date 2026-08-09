@@ -1,7 +1,7 @@
 # 📚 Steel City: Mob Sim — Documentation Index
 
 **Purpose**: Central hub for all Mob Sim project documentation
-**Last Updated**: August 8, 2026
+**Last Updated**: August 9, 2026
 **Project**: Steel City — Mob Sim (Unity)
 
 ---
@@ -13,11 +13,13 @@
 | **Game Design** | 1 doc | ✅ Complete |
 | **UI System** | 3 docs | ✅ Complete |
 | **Voxel Buildings** | 3 docs | ✅ Complete |
+| **Voxel Editor** | 1 doc | ✅ Complete |
 | **Voxel Rendering** | 4 docs | ✅ Complete |
-| **Rendering Systems** | 1 doc | ✅ Complete |
+| **Rendering Systems** | 4 docs | ✅ Complete |
 | **Lighting Debug** | 1 doc | ✅ Complete |
 | **Scale Standard** | 1 doc | ⚠️ SEE MASTER DOC |
 | **Inspection Toolchain** | 1 doc | ✅ Complete |
+| **Asset Pipeline** | 1 doc | ✅ Complete |
 | **Porting Notes** | 1 doc | ✅ Complete |
 
 ---
@@ -79,6 +81,24 @@
 
 ---
 
+### 3b. Voxel Editor ✅ COMPLETE
+
+- **`VOXEL_EDITOR_AND_FIRE_ESCAPE.md`** — Browser-based voxel editor and fire escape design workflow
+  - Voxel editor HTML system (Three.js + InstancedMesh + raycasting)
+  - Tool set: paint, erase, box, line, select, extrude, ruler, camera
+  - Enhanced selection: flood-fill, Shift+click single, Ctrl+click box
+  - Escape key universal reset
+  - Volume expansion (dynamic grid resizing)
+  - Y-slice layer controls
+  - Fire escape historical context (1860 NYC ordinance, 1901 Tenement House Act)
+  - Design-to-bolt-on workflow: hand-design → alignment correction → buffer expansion → bolt-on
+  - Game map constraints (96×96 footprint, BuildingVoxelWidth=32)
+  - Scripts reference: shift_fe.py, fix_fe_spacing.py, bolt_fe_v2.py, analyze_fe.py
+
+**Keywords**: voxel editor, HTML, Three.js, fire escape, tenement, buffer, alignment, drop ladder, roof ladder
+
+---
+
 ### 4. Voxel Rendering ✅ COMPLETE
 
 - **`VOXEL_LIGHTING_AND_SHADOWS.md`** — Voxel raymarch lighting pipeline
@@ -121,21 +141,45 @@
   - MaterialPropertyBlock: why per-draw isolation is critical
   - The shared-material overwrite bug (root cause analysis of invisible Vinny)
   - Sector baking vs instanced characters: same pattern, different scale
+  - **Terrain sector baking** (Aug 9) — 100 chunks → 1 sector, same RegisterSector API
+  - **Collision world flat-array optimization** (Aug 9) — Dictionary→byte[], 211x faster
+  - **Measured performance** — 78s→371ms terrain load, 12 total draw calls, 13.3MB collision memory
   - Shader-side instancing: how vertex/fragment shaders read per-instance data
   - Performance characteristics, debugging guide, glossary
   - **Key lesson**: any time multiple draw calls share a material but need different buffer bindings, use MaterialPropertyBlock
+
+- **`docs/systems/INSTANCING_AND_BUFFERING_VISUAL.html`** — Visual companion guide (HTML)
+  - Interactive visual diagrams for draw calls, buffers, instancing pipeline
+  - The MaterialPropertyBlock bug visualized (broken vs fixed)
+  - Rendering tiers diagram (Bake / Instance / Individual)
+  - Full flow: city generation → terrain baking → building baking → instancing → screen
+  - **Measured performance table** (Aug 9) — before/after comparison with improvement factors
 
 - **`docs/systems/GPU_DRIVEN_SECTOR_RENDERING.md`** — Sector baking architecture and GPU-driven indirect rendering proposal
   - Current sector baking implementation (Tier 1 static buildings)
   - Known gaps: no LOD, no depth sort, 1023-instance cap
   - Proposed GPU-driven indirect rendering evolution
 
+- **`docs/systems/GPU_DRIVEN_RENDERING_PLAN.md`** — Iterative 6-phase plan for GPU-driven rendering (Aug 9)
+  - Phase 1: Static sector TRS cache (stop rebuilding 984 matrices/frame)
+  - Phase 2: Buffer pooling + ComputeBufferMode.SubUpdates (zero GC allocs)
+  - Phase 3: DrawMeshInstancedIndirect (remove 1023 instance cap)
+  - Phase 4: Compute shader frustum culling (GPU-side, no CPU readback)
+  - Phase 5: GPU-side LOD (compute shader assigns LOD tier per instance)
+  - Phase 6: Scale test with 500-1000 block cities
+  - Each phase independently testable with rollback instructions
+
 - **`docs/systems/DYNAMIC_OBJECT_RENDERING_TIERS.md`** — Rendering strategy classification
   - Three tiers: bake (static), instance (batched dynamic), individual (unique mutation)
   - Decision checklist for new dynamic objects
   - Worked examples and anti-patterns
 
-**Keywords**: instancing, ComputeBuffer, MaterialPropertyBlock, DrawMeshInstanced, proxy cube, raymarch, buffer binding, sector baking, rendering tiers
+- **`docs/systems/PATH_DEBUG_RENDERING.md`** — Instanced box-beam debug path rendering
+  - CommandBuffer-based instanced rendering for path visualization
+  - Per-type batching with MaterialPropertyBlock color isolation
+  - Composited into voxel render texture
+
+**Keywords**: instancing, ComputeBuffer, MaterialPropertyBlock, DrawMeshInstanced, DrawMeshInstancedIndirect, proxy cube, raymarch, buffer binding, sector baking, rendering tiers, GPU-driven, compute shader, frustum culling, LOD, terrain baking, collision world
 
 ---
 
@@ -173,7 +217,22 @@
 
 ---
 
-### 6. Porting Notes ✅ COMPLETE
+### 6. Voxel Asset Pipeline ✅ COMPLETE
+
+- **`VOXEL_ASSET_PIPELINE.md`** — End-to-end workflow for creating, reviewing, and deploying voxel models
+  - 5-step pipeline: Create → Review (VS) → Approve → Deploy → Verify
+  - Scale standards (buildings 0.1f, characters 0.02f, vehicles 0.05f)
+  - Door size standard (8v tall, 4v wide)
+  - VoxelAssetStudio review workflow with checklist
+  - Analysis tool usage (`analyze_building.py`)
+  - Scale reference generation (`gen_scale_reference.py`)
+  - Common workflows: door size changes, new buildings, hand-editing
+
+**Keywords**: pipeline, workflow, review, approve, deploy, VS, VoxelAssetStudio, scale reference, door standard
+
+---
+
+### 7. Porting Notes ✅ COMPLETE
 
 - **`PORTING_NOTES.md`** — Porting notes and migration history
   - Codebase migration steps
@@ -198,6 +257,11 @@
 - Protrusion system → `BUILDING_PROTRUSION_SYSTEM.md`
 - Generation methodology → `VOXEL_BUILDING_METHODOLOGY.md`
 - Voxel ordering fix → `VOXEL_ORDERING_FIX.md`
+
+### Voxel Editor & Fire Escape
+- Editor system & tools → `VOXEL_EDITOR_AND_FIRE_ESCAPE.md` (Section 1)
+- Fire escape workflow → `VOXEL_EDITOR_AND_FIRE_ESCAPE.md` (Section 2)
+- Game map constraints → `VOXEL_EDITOR_AND_FIRE_ESCAPE.md` (Section 3)
 
 ### Voxel Rendering & Lighting
 - Lighting pipeline → `VOXEL_LIGHTING_AND_SHADOWS.md`
@@ -309,6 +373,15 @@
 ### "I need to understand sector baking"
 `docs/systems/GPU_DRIVEN_SECTOR_RENDERING.md`
 
+### "I need the GPU-driven rendering optimization plan"
+`docs/systems/GPU_DRIVEN_RENDERING_PLAN.md`
+
+### "I need the visual guide to instancing and buffering"
+`docs/systems/INSTANCING_AND_BUFFERING_VISUAL.html`
+
+### "I need to understand path debug rendering"
+`docs/systems/PATH_DEBUG_RENDERING.md`
+
 ---
 
 ## 🔧 For Coding Agents
@@ -326,8 +399,10 @@ Voxel studio:   VoxelAssetStudio/
   Vehicles:     procedural_mob_vehicles.py
   Materials:    mob_materials.py
   I/O:          stasset_io.py
+  Editor:       voxel_editor_html.py
   Inspector:    sc_inspector.py
   City gen:     generate_city_assets.py
+  FE scripts:   shift_fe.py, fix_fe_spacing.py, bolt_fe_v2.py, analyze_fe.py
 City layout:    Assets/StreamingAssets/city_layout.json
 Voxel assets:   Assets/StreamingAssets/voxel_buildings/
 ```
@@ -359,6 +434,6 @@ Voxel assets:   Assets/StreamingAssets/voxel_buildings/
 
 ---
 
-**Last Updated**: August 8, 2026
-**Version**: 1.3.0
+**Last Updated**: August 9, 2026
+**Version**: 1.5.0
 **Maintainer**: Development Team
