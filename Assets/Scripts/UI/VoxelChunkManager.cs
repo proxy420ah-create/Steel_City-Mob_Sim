@@ -127,6 +127,7 @@ namespace SteelCity.Sim
         private ComputeBuffer sharedMaterialBuffer;
         private static readonly int MaxMaterials = 130; // matches StAssetReader.MaterialCount
         private ComputeBuffer defaultTintBuffer; // all (1,1,1,1) — used when no custom tint set
+        private ComputeBuffer dummyGroupIDBuffer; // single uint(0) — bound when no .groups file exists
 
         // --- Packed voxel cache: avoids re-reading + re-packing the same .stasset files ---
         // Includes pre-computed tight AABB so LoadChunkFromData can skip the scan.
@@ -317,6 +318,9 @@ namespace SteelCity.Sim
         private int propShadowNormalNudge, propShadowLightNudge, propShadowSkipSteps, propShadowMaxSteps, propShadowEnabled;
         private int propSunLightEnabled, propAmbientEnabled, propFillEnabled, propCamLightEnabled;
         private int propInstanceOffsets;
+        private int propGroupIDs;
+        private int propGroupIDsEnabled;
+        private int propInstanceCount;
         private int propBuildingMeta, propBuildingPositions;
 
         // --- Perf tracking (event-driven, not timed) ---
@@ -457,6 +461,7 @@ namespace SteelCity.Sim
             ReleaseRenderTargets();
             if (sharedMaterialBuffer != null) { sharedMaterialBuffer.Release(); sharedMaterialBuffer = null; }
             if (defaultTintBuffer != null) { defaultTintBuffer.Release(); defaultTintBuffer = null; }
+            if (dummyGroupIDBuffer != null) { dummyGroupIDBuffer.Release(); dummyGroupIDBuffer = null; }
             if (displayMaterial != null) { Destroy(displayMaterial); displayMaterial = null; }
             if (displayQuad != null) { Destroy(displayQuad); displayQuad = null; }
             if (proxyMaterial != null) { Destroy(proxyMaterial); proxyMaterial = null; }
@@ -510,6 +515,9 @@ namespace SteelCity.Sim
             propFillEnabled = Shader.PropertyToID("_FillEnabled");
             propCamLightEnabled = Shader.PropertyToID("_CamLightEnabled");
             propInstanceOffsets = Shader.PropertyToID("_InstanceOffsets");
+            propGroupIDs = Shader.PropertyToID("_GroupIDs");
+            propGroupIDsEnabled = Shader.PropertyToID("_GroupIDsEnabled");
+            propInstanceCount = Shader.PropertyToID("_InstanceCount");
             propBuildingMeta = Shader.PropertyToID("_BuildingMeta");
             propBuildingPositions = Shader.PropertyToID("_BuildingPositions");
         }
@@ -532,6 +540,11 @@ namespace SteelCity.Sim
                 defaultTints[i] = new Vector4(1f, 1f, 1f, 1f);
             defaultTintBuffer = new ComputeBuffer(MaxMaterials, sizeof(float) * 4);
             defaultTintBuffer.SetData(defaultTints);
+
+            // Dummy group ID buffer: 1 voxel with groupID=0 (torso/no transform)
+            // Bound when a group has no .groups file so D3D12 doesn't reject the draw call
+            dummyGroupIDBuffer = new ComputeBuffer(1, sizeof(uint));
+            dummyGroupIDBuffer.SetData(new uint[] { 0 });
 
             // Debug: log key material colors to verify they're updated
             Debug.Log($"[VoxelChunkManager] Material buffer created ({MaxMaterials} entries). " +
@@ -1045,11 +1058,16 @@ namespace SteelCity.Sim
             public float yaw;
             public bool visible = true;
             public string assetKey; // which InstancedGroup this instance belongs to
+            // Animation state (voxel group system)
+            public float animState;   // AnimState enum cast to float (0=Idle, 1=Walking, 2=Looking, 3=Checking, 4=Aiming, 5=Crouching, 6=Flinching, 7=Falling, 8=Down)
+            public float animTime;    // seconds since animation started
+            public float animSpeed = 1.0f; // walk speed multiplier
         }
 
         private class InstancedGroup
         {
             public ComputeBuffer sharedVoxelBuffer;
+            public ComputeBuffer groupIDBuffer;     // per-voxel groupID (animation groups)
             public ComputeBuffer instanceOffsetBuffer;
             public int dimX, dimY, dimZ;
             public float voxelSize;
@@ -1092,6 +1110,20 @@ namespace SteelCity.Sim
                 group = new InstancedGroup { dimX = dimX, dimY = dimY, dimZ = dimZ, voxelSize = voxelSize };
                 group.sharedVoxelBuffer = new ComputeBuffer(totalVoxels, sizeof(uint));
                 group.sharedVoxelBuffer.SetData(gpuData);
+                
+                // Load animation group IDs (.groups file) if it exists
+                string groupPath = path.Replace(".stasset", ".groups");
+                if (System.IO.File.Exists(groupPath))
+                {
+                    var groupIDs = LoadGroupIDs(groupPath, totalVoxels);
+                    if (groupIDs != null)
+                    {
+                        group.groupIDBuffer = new ComputeBuffer(totalVoxels, sizeof(uint));
+                        group.groupIDBuffer.SetData(groupIDs);
+                        Debug.Log($"[VoxelChunkManager] Animation groups loaded: {assetFileName} — {totalVoxels:N0} voxels tagged with groupIDs");
+                    }
+                }
+                
                 instancedGroups[assetFileName] = group;
 
                 Debug.Log($"[VoxelChunkManager] Shared instanced buffer initialized: {assetFileName} {dimX}x{dimY}x{dimZ} = {totalVoxels:N0} voxels (shared across all instances of this asset)");
@@ -1113,6 +1145,51 @@ namespace SteelCity.Sim
             if (ic == null) return;
             if (instancedGroups.TryGetValue(ic.assetKey, out var group))
                 group.instances.Remove(ic);
+        }
+
+        /// <summary>
+        /// Load a .groups file (STAG format, same layout as .stasset but uint16 groupIDs).
+        /// Returns uint[] of groupID per voxel, or null if file invalid.
+        /// </summary>
+        private uint[] LoadGroupIDs(string path, int expectedVoxels)
+        {
+            if (!System.IO.File.Exists(path)) return null;
+
+            byte[] data = System.IO.File.ReadAllBytes(path);
+            if (data.Length < 16)
+            {
+                Debug.LogError($"[VoxelChunkManager] Groups file too small: {path}");
+                return null;
+            }
+
+            // Check magic: STAG (ST Asset Groups)
+            if (data[0] != (byte)'S' || data[1] != (byte)'T' ||
+                data[2] != (byte)'A' || data[3] != (byte)'G')
+            {
+                Debug.LogError($"[VoxelChunkManager] Invalid groups magic: {path}");
+                return null;
+            }
+
+            int gWidth  = data[6]  | (data[7]  << 8);
+            int gHeight = data[8]  | (data[9]  << 8);
+            int gDepth  = data[10] | (data[11] << 8);
+            int gTotal = gWidth * gHeight * gDepth;
+
+            if (gTotal != expectedVoxels)
+            {
+                Debug.LogError($"[VoxelChunkManager] Groups voxel count mismatch: {gTotal} vs {expectedVoxels} in {path}");
+                return null;
+            }
+
+            var groupIDs = new uint[gTotal];
+            int offset = 16;
+            for (int i = 0; i < gTotal; i++)
+            {
+                groupIDs[i] = (uint)(data[offset] | (data[offset + 1] << 8));
+                offset += 2;
+            }
+
+            return groupIDs;
         }
 
         private void RenderInstancedCharacters(CommandBuffer cmd)
@@ -1137,7 +1214,9 @@ namespace SteelCity.Sim
 
             if (visibleCount == 0) return;
 
-            var offsets = new Vector4[visibleCount];
+            // Allocate buffers: 2x float4 per instance (position+yaw, animState+animTime+speed)
+            int bufferElements = visibleCount * 2;
+            var offsets = new Vector4[bufferElements];
             var matrices = new Matrix4x4[visibleCount];
             int writeIdx = 0;
 
@@ -1151,6 +1230,8 @@ namespace SteelCity.Sim
             {
                 if (!ic.visible) continue;
                 offsets[writeIdx] = new Vector4(ic.worldOffset.x, ic.worldOffset.y, ic.worldOffset.z, ic.yaw);
+                // Second float4: animation data
+                offsets[writeIdx + visibleCount] = new Vector4(ic.animState, ic.animTime, ic.animSpeed, 0);
                 // IMPORTANT: Keep proxy cube axis-aligned in world (no rotation). Shader handles volume rotation.
                 Quaternion rot = Quaternion.identity;
                 // Center the proxy on the world-aligned AABB center
@@ -1159,12 +1240,12 @@ namespace SteelCity.Sim
                 writeIdx++;
             }
 
-            if (group.instanceOffsetBuffer == null || group.instanceOffsetBuffer.count < visibleCount)
+            if (group.instanceOffsetBuffer == null || group.instanceOffsetBuffer.count < bufferElements)
             {
                 if (group.instanceOffsetBuffer != null) group.instanceOffsetBuffer.Release();
-                group.instanceOffsetBuffer = new ComputeBuffer(Mathf.Max(visibleCount, 128), sizeof(float) * 4);
+                group.instanceOffsetBuffer = new ComputeBuffer(Mathf.Max(bufferElements, 256), sizeof(float) * 4);
             }
-            group.instanceOffsetBuffer.SetData(offsets, 0, 0, visibleCount);
+            group.instanceOffsetBuffer.SetData(offsets, 0, 0, bufferElements);
 
             // Use a MaterialPropertyBlock per group so each group's voxel buffer, dims,
             // and voxelSize are isolated. Without this, the shared proxyMaterial's
@@ -1186,6 +1267,12 @@ namespace SteelCity.Sim
             block.SetInt(propUnlitLod, 0);
             block.SetInt(propLodDebugEnabled, 0);
 
+            // Animation group bindings — always bind _GroupIDs (D3D12 requires SRV at declared index)
+            bool hasGroups = group.groupIDBuffer != null;
+            block.SetInt(propGroupIDsEnabled, hasGroups ? 1 : 0);
+            block.SetInt(propInstanceCount, visibleCount);
+            block.SetBuffer(propGroupIDs, hasGroups ? group.groupIDBuffer : dummyGroupIDBuffer);
+
             cmd.DrawMeshInstanced(proxyCubeMesh, 0, proxyMaterial, 0, matrices, visibleCount, block);
 
             // No LOD settings to restore — using full quality for instanced characters/vehicles
@@ -1196,6 +1283,7 @@ namespace SteelCity.Sim
             foreach (var group in instancedGroups.Values)
             {
                 if (group.sharedVoxelBuffer != null) group.sharedVoxelBuffer.Release();
+                if (group.groupIDBuffer != null) group.groupIDBuffer.Release();
                 if (group.instanceOffsetBuffer != null) group.instanceOffsetBuffer.Release();
                 group.instances.Clear();
             }
@@ -1435,6 +1523,11 @@ namespace SteelCity.Sim
                 // Non-instanced path reads _VoxelSize; instanced path uses per-instance voxel size from Varyings
                 sectorBlock.SetFloat(propVoxelSize, sector.voxelSize);
 
+                // Animation group bindings — sectors have no groups, but shader requires _GroupIDs SRV
+                sectorBlock.SetInt(propGroupIDsEnabled, 0);
+                sectorBlock.SetInt(propInstanceCount, 0);
+                sectorBlock.SetBuffer(propGroupIDs, dummyGroupIDBuffer);
+
                 cmd.DrawMeshInstanced(proxyCubeMesh, 0, sectorMaterial, 0, matrices, sector.buildingCount, sectorBlock);
                 perfSectorsDrawn++;
             }
@@ -1651,7 +1744,7 @@ namespace SteelCity.Sim
             // perfSectorsDrawn is set inside RenderBakedSectors
 
             // Per-frame logging (every 30 frames)
-            // Perf logging silenced — use P key (FollowCamera) for on-demand snapshots
+            // Perf logging silenced — use P key for on-demand snapshots
             // if (Time.frameCount % 30 == 0)
             // {
             //     float fps = 1f / Time.smoothDeltaTime;
@@ -1919,6 +2012,10 @@ namespace SteelCity.Sim
                 block.SetBuffer(propVoxelData, chunk.voxelBuffer);
                 block.SetBuffer(propMaterialColors, sharedMaterialBuffer);
                 block.SetBuffer(propChunkTints, chunk.tintBuffer ?? defaultTintBuffer);
+                // Animation group bindings — non-instanced chunks have no groups, but shader requires _GroupIDs SRV
+                block.SetInt(propGroupIDsEnabled, 0);
+                block.SetInt(propInstanceCount, 0);
+                block.SetBuffer(propGroupIDs, dummyGroupIDBuffer);
                 block.SetVector(propVolumeDims, new Vector4(chunk.dims.x, chunk.dims.y, chunk.dims.z, 0));
                 block.SetFloat(propVoxelSize, vs);
                 block.SetVector(propVolumeOffset, chunkWorldPos);

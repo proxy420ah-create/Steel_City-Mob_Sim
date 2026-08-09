@@ -20,7 +20,7 @@ import numpy as np
 # Add VoxelAssetStudio to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from stasset_io import save_stasset
-from procedural_mob_buildings import BUILDING_GENERATORS
+from procedural_mob_buildings import BUILDING_GENERATORS, generate_building
 
 
 def main():
@@ -35,7 +35,7 @@ def main():
     layout_path = os.path.join(streaming_assets, "city_layout.json")
 
     # Load city template
-    with open(city_template_path, "r") as f:
+    with open(city_template_path, "r", encoding="utf-8-sig") as f:
         template = json.load(f)
 
     os.makedirs(output_dir, exist_ok=True)
@@ -64,29 +64,24 @@ def main():
         }
 
         # Determine block type for special rendering
-        if block_def.get("player_hq"):
-            block_type = "hq"
-        elif block_def.get("rival_hq"):
-            block_type = "hq"  # same style, different color at runtime
-        elif block_def.get("police_station"):
-            block_type = "police_station"
-        else:
-            block_type = None
+        # Note: HQs are just tenement blocks (not a special building type).
+        #       police_station was trimmed (no 8v door). Both flags remain
+        #       in the template for gameplay logic but no longer generate
+        #       special buildings.
+        block_type = None
 
-        # If this is a special block (HQ, police), generate that building
+        # If this is a special block, generate that building
         if block_type:
-            gen_func = BUILDING_GENERATORS.get(block_type)
-            if gen_func:
-                fname = f"{block_type}_{block_id}.stasset"
-                fpath = os.path.join(output_dir, fname)
-                grid = gen_func(seed=hash(block_id) % 10000)
-                save_stasset(fpath, grid)
-                block_layout["buildings"].append({
-                    "type": block_type,
-                    "stasset": f"voxel_buildings/{fname}",
-                    "slot": 0
-                })
-                layout["building_types"][block_type] = list(grid.shape)
+            fname = f"{block_type}_{block_id}.stasset"
+            fpath = os.path.join(output_dir, fname)
+            grid, dims, meta = generate_building(block_type, seed=hash(block_id) % 10000)
+            save_stasset(fpath, grid, building_meta=meta)
+            block_layout["buildings"].append({
+                "type": block_type,
+                "stasset": f"voxel_buildings/{fname}",
+                "slot": 0
+            })
+            layout["building_types"][block_type] = list(grid.shape)
 
         # Generate regular businesses
         slot = 1 if block_type else 0
@@ -111,11 +106,10 @@ def main():
                 fpath = os.path.join(output_dir, fname)
 
                 # Generate the voxel building
-                gen = BUILDING_GENERATORS.get(biz_type, BUILDING_GENERATORS["empty_land"])
-                grid = gen(seed=hash(f"{block_id}_{biz_type}_{i}") % 10000)
+                grid, dims, meta = generate_building(biz_type, seed=hash(f"{block_id}_{biz_type}_{i}") % 10000)
 
                 # Save as .stasset
-                save_stasset(fpath, grid)
+                save_stasset(fpath, grid, building_meta=meta)
 
                 block_layout["buildings"].append({
                     "type": biz_type,
@@ -133,8 +127,8 @@ def main():
         if not block_layout["buildings"]:
             fname = f"empty_land_{block_id}.stasset"
             fpath = os.path.join(output_dir, fname)
-            grid = BUILDING_GENERATORS["empty_land"](seed=hash(block_id) % 10000)
-            save_stasset(fpath, grid)
+            grid, dims, meta = generate_building("empty_land", seed=hash(block_id) % 10000)
+            save_stasset(fpath, grid, building_meta=meta)
             block_layout["buildings"].append({
                 "type": "empty_land",
                 "stasset": f"voxel_buildings/{fname}",

@@ -93,15 +93,10 @@ namespace SteelCity.Sim
         private string selectedBlockId;
         private bool cityEditorBuilt;
 
-        // --- Vinny teleport (planning phase only) ---
-        private bool vinnyPlacementMode = false;
-        private string vinnyTeleportTargetBlockId = null;
-
         // --- Simulation (decoupled: SimulationManager produces events, EventPlayer renders) ---
         private WaypointGraph waypointGraph;
         private SimulationManager simManager;
         private EventPlayer eventPlayer;
-        private FollowCamera followCam;
         private TickHUD tickHUD;
         private WeekTransition weekTransition;
         private PathDebugRenderer pathDebugRenderer;
@@ -201,9 +196,8 @@ namespace SteelCity.Sim
                 // Planning phase: append to phaseText
                 if (phase == GamePhase.Planning && phaseText != null)
                 {
-                    string modeTag = vinnyPlacementMode ? "  [VINNY PLACEMENT]" : "";
-                    phaseText.text = $"PLANNING{modeTag}  [{fpsStr}]";
-                    phaseText.color = vinnyPlacementMode ? goldColor : yellowColor;
+                    phaseText.text = $"PLANNING  [{fpsStr}]";
+                    phaseText.color = yellowColor;
                 }
                 // Working phase: update TickHUD
                 else if (tickHUD != null)
@@ -215,22 +209,6 @@ namespace SteelCity.Sim
                 fpsAccumFrames = 0;
             }
 
-            // Vinny teleport hotkey (planning phase only)
-            if (phase == GamePhase.Planning && vinnyPlacementMode)
-            {
-                var kb = UnityEngine.InputSystem.Keyboard.current;
-                if (kb != null)
-                {
-                    if (kb.tKey.wasPressedThisFrame && !string.IsNullOrEmpty(vinnyTeleportTargetBlockId))
-                    {
-                        TeleportVinnyToBlock(vinnyTeleportTargetBlockId);
-                    }
-                    if (kb.escapeKey.wasPressedThisFrame)
-                    {
-                        ExitVinnyPlacementMode();
-                    }
-                }
-            }
         }
 
         void OnDestroy()
@@ -728,18 +706,6 @@ namespace SteelCity.Sim
         {
             if (phase != GamePhase.Planning) return;
 
-            // If in Vinny placement mode, store target block
-            if (vinnyPlacementMode)
-            {
-                vinnyTeleportTargetBlockId = blockId;
-                if (engine.blocks.TryGetValue(blockId, out var block))
-                {
-                    AddEventLogEntry($"[VINNY] Target: {block.name}. Press [T] to teleport, [ESC] to cancel.", goldColor);
-                }
-                RefreshBlockInfo();
-                return;
-            }
-
             selectedBlockId = blockId;
             RefreshBlockInfo();
             RefreshMapHighlights();
@@ -950,18 +916,11 @@ namespace SteelCity.Sim
             eventPlayer.Initialize(simManager, character, cityMap.MapRoot);
             Debug.Log("[GameUIController] EventPlayer created and initialized");
 
-            // Create follow camera
-            Debug.Log("[GameUIController] Setting up follow camera...");
-            if (followCam == null)
-            {
-                var camObj = new GameObject("FollowCamera");
-                followCam = camObj.AddComponent<FollowCamera>();
-                Debug.Log("[GameUIController] FollowCamera GameObject created");
-            }
-            followCam.Initialize(character.transform, cityMap.MapCamera, character);
+            // Focus camera on HQ block in isometric perspective
+            FocusCameraOnHq();
             cityMap.IsExecutionMode = true;
             cityMap.SetGranularLodMode(true);
-            Debug.Log("[GameUIController] FollowCamera initialized — camera transition complete");
+            Debug.Log("[GameUIController] Camera focused on HQ — working mode started");
 
             // Create HUD
             if (tickHUD == null)
@@ -1099,12 +1058,8 @@ namespace SteelCity.Sim
         {
             Debug.Log("[GameUIController] === WORKING WEEK -> PLANNING transition ===");
 
-            // Shut down follow camera
-            if (followCam != null)
-            {
-                followCam.Shutdown();
-                Debug.Log("[GameUIController] FollowCamera shutdown complete");
-            }
+            // Restore camera to character (planning mode — animation work)
+            RestoreCameraFromHq();
             cityMap.IsExecutionMode = false;
             cityMap.SetGranularLodMode(false);
 
@@ -1303,37 +1258,9 @@ namespace SteelCity.Sim
             if (blockInfoContent == null) return;
             ClearChildren(blockInfoContent);
 
-            // Always show Vinny button at top during planning phase
-            if (phase == GamePhase.Planning)
-            {
-                var vinnyBtn = CreateButtonInParent(blockInfoContent, "📍 Vinny", goldColor);
-                vinnyBtn.onClick.AddListener(OnVinnyClicked);
-
-                if (vinnyPlacementMode)
-                {
-                    Color modeColor = vinnyPlacementMode ? goldColor : mutedColor;
-                    AddTextToParent(blockInfoContent, "--- PLACEMENT MODE ---", modeColor, true);
-                    AddTextToParent(blockInfoContent, "1. Click a block on the map", textBright);
-                    AddTextToParent(blockInfoContent, "2. Press [T] to teleport Vinny", textBright);
-                    AddTextToParent(blockInfoContent, "3. Press [ESC] to exit", mutedColor);
-
-                    if (!string.IsNullOrEmpty(vinnyTeleportTargetBlockId) &&
-                        engine.blocks.TryGetValue(vinnyTeleportTargetBlockId, out var targetBlock))
-                    {
-                        AddTextToParent(blockInfoContent, $"Target: {targetBlock.name}", goldColor, true);
-                    }
-                    else
-                    {
-                        AddTextToParent(blockInfoContent, "No target selected yet.", mutedColor);
-                    }
-                    AddTextToParent(blockInfoContent, "", mutedColor);
-                }
-            }
-
             if (string.IsNullOrEmpty(selectedBlockId) || !engine.blocks.TryGetValue(selectedBlockId, out var block))
             {
-                if (!vinnyPlacementMode)
-                    AddTextToParent(blockInfoContent, "Click a block on the map to view details.", mutedColor);
+                AddTextToParent(blockInfoContent, "Click a block on the map to view details.", mutedColor);
                 return;
             }
 
@@ -1493,89 +1420,61 @@ namespace SteelCity.Sim
 
         #endregion
 
-        #region --- VINNY TELEPORT ---
+        #region --- HELPERS ---
 
-        private void OnVinnyClicked()
+        private float savedOrthoSize;
+        private bool hasSavedCameraState = false;
+
+        private void FocusCameraOnHq()
         {
-            if (phase != GamePhase.Planning) return;
-            var character = cityMap?.SpawnedCharacter;
-            if (character == null)
+            if (engine == null || cityMap == null) return;
+
+            string hqBlockId = null;
+            foreach (var kvp in engine.blocks)
             {
-                AddEventLogEntry("[VINNY] No character spawned!", redColor);
+                if (kvp.Value.isPlayerHq) { hqBlockId = kvp.Key; break; }
+            }
+
+            if (hqBlockId == null)
+            {
+                Debug.LogWarning("[GameUIController] No player HQ block found — camera stays on character");
                 return;
             }
 
-            // Center camera on Vinny
-            Vector3 vinnyCenter = character.WorldCenter;
-            cityMap.SetCameraFocus(vinnyCenter);
-
-            // Toggle placement mode
-            vinnyPlacementMode = !vinnyPlacementMode;
-            if (vinnyPlacementMode)
-            {
-                vinnyTeleportTargetBlockId = null;
-                AddEventLogEntry("[VINNY] Placement mode ON. Click a block, then press [T] to teleport.", goldColor);
-            }
-            else
-            {
-                vinnyTeleportTargetBlockId = null;
-                AddEventLogEntry("[VINNY] Placement mode OFF.", mutedColor);
-            }
-            RefreshBlockInfo();
-        }
-
-        private void ExitVinnyPlacementMode()
-        {
-            vinnyPlacementMode = false;
-            vinnyTeleportTargetBlockId = null;
-            AddEventLogEntry("[VINNY] Placement mode cancelled.", mutedColor);
-            RefreshBlockInfo();
-        }
-
-        private void TeleportVinnyToBlock(string blockId)
-        {
-            var character = cityMap?.SpawnedCharacter;
-            if (character == null || engine == null || !engine.blocks.TryGetValue(blockId, out var block))
-            {
-                AddEventLogEntry("[VINNY] Cannot teleport — character or block missing.", redColor);
-                return;
-            }
-
-            Vector3 localPos = ComputeBlockCenterLocal(block);
+            var hqBlock = engine.blocks[hqBlockId];
+            Vector3 localPos = ComputeBlockCenterLocal(hqBlock);
             Vector3 worldPos = cityMap.MapRoot.position + localPos;
 
-            // Keep current Y (gravity will handle ground snap)
-            worldPos.y = character.transform.position.y;
+            savedOrthoSize = cityMap.GetCameraOrthoSize();
+            hasSavedCameraState = true;
 
-            character.PlaceAtCenter(worldPos);
+            cityMap.SetCameraFocus(worldPos);
+            cityMap.SetCameraOrthoSize(8f);
+            cityMap.SetCameraYaw(45f);
+            cityMap.SetCameraPitch(35.264f);
 
-            // Update hood game state so UI reflects the teleport
-            // Vinny = player's first hood (PoC: single hood)
-            if (engine.gangs.TryGetValue("player", out var playerGang) && playerGang.hoods.Count > 0)
-            {
-                var vinnyHood = playerGang.hoods[0];
-                vinnyHood.currentBlockId = blockId;
-                vinnyHood.isInsideBuilding = false;
-                Debug.Log($"[GameUIController] Updated hood '{vinnyHood.name}' currentBlockId={blockId}, isInsideBuilding=false");
-            }
-
-            // Center camera on new position
-            Vector3 newCenter = character.WorldCenter;
-            cityMap.SetCameraFocus(newCenter);
-
-            AddEventLogEntry($"[VINNY] Teleported to {block.name}.", greenColor);
-            Debug.Log($"[GameUIController] Vinny teleported to block {blockId} at world pos {worldPos}");
-
-            // Exit placement mode
-            vinnyPlacementMode = false;
-            vinnyTeleportTargetBlockId = null;
-            RefreshBlockInfo();
-            RefreshHoods();
+            Debug.Log($"[GameUIController] 📷 Camera focused on HQ '{hqBlock.name}' at {worldPos}, ortho=8f (isometric)");
         }
 
-        #endregion
+        private void RestoreCameraFromHq()
+        {
+            if (cityMap == null) return;
 
-        #region --- HELPERS ---
+            var character = cityMap?.SpawnedCharacter;
+            if (character != null)
+            {
+                Vector3 center = character.WorldCenter;
+                cityMap.SetCameraFocus(center);
+                cityMap.SetCameraOrthoSize(4f);
+                Debug.Log($"[GameUIController] 📷 Camera restored to character at {center}");
+            }
+            else if (hasSavedCameraState)
+            {
+                cityMap.SetCameraOrthoSize(savedOrthoSize);
+                hasSavedCameraState = false;
+                Debug.Log("[GameUIController] 📷 Camera ortho size restored");
+            }
+        }
 
         private Button CreateButtonInParent(Transform parent, string label, Color color)
         {

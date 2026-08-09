@@ -12,6 +12,8 @@ namespace SteelCity.Sim
     /// </summary>
     public static class ProceduralDebrisScatterer
     {
+        /// <summary>Toggle to disable debris scatter on empty plots for debugging.</summary>
+        public static bool Enabled = true;
         // Material IDs (must match StAssetReader palette)
         private const ushort AIR = 0;
         private const ushort STONE = 101;
@@ -58,12 +60,12 @@ namespace SteelCity.Sim
         public static void Scatter(uint[] voxels, int w, int h, int d,
             int row, int col, int subIndex, float density = 0.03f)
         {
+            if (!Enabled) return;
+
             // Deterministic seed from grid position
             int seed = (row * 73856093) ^ (col * 19349663) ^ (subIndex * 83492791);
             seed = seed & 0x7FFFFFFF; // ensure positive
             var rng = new System.Random(seed);
-
-            Debug.Log($"[DebrisScatter] row={row} col={col} sub={subIndex} seed={seed} grid={w}x{h}x{d} density={density}");
 
             // Find the ground surface Y (top of the base terrain in this grid)
             int groundY = FindGroundSurface(voxels, w, h, d);
@@ -188,7 +190,6 @@ namespace SteelCity.Sim
                 }
             }
 
-            Debug.Log($"[DebrisScatter] Done: groundY={groundY} clusters={placed} weeds={weedCount} grid={w}x{h}x{d}");
         }
 
         /// <summary>

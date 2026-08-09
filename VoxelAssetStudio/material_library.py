@@ -44,6 +44,20 @@ MATERIALS = {
     21: {"name": "Joint", "color": (1.0, 0.25, 0.25, 1.0), "mass": 1.8},                  # Red - Skeleton joints (indestructible)
 }
 
+# --- Mob Sim Materials (100-129) ---
+# Merge from mob_materials.py so VoxelAssetStudio can render mob buildings
+try:
+    from mob_materials import MOB_MATERIALS
+    for _mid, _mdef in MOB_MATERIALS.items():
+        if _mid not in MATERIALS:
+            MATERIALS[_mid] = {
+                "name": _mdef["name"],
+                "color": _mdef["color"],
+                "mass": _mdef.get("mass", 1.0),
+            }
+except ImportError:
+    pass
+
 # Default paint materials (all available materials for painting)
 DEFAULT_MATERIALS = [
     0,   # Air
@@ -68,6 +82,16 @@ DEFAULT_MATERIALS = [
     20,  # Plasteel Panels
     12,  # Bone
     21,  # Joint
+    # Mob Sim materials (100-129)
+    100, 101, 102, 103, 104, 105,  # Masonry
+    106, 107, 108,                  # Wood
+    109, 110, 111,                  # Metal
+    112, 113, 114,                  # Glass
+    115, 116, 117,                  # Neon
+    118, 119,                       # Roofing
+    120, 121, 122, 129,             # Painted
+    123, 124,                       # Decorative
+    125, 126, 127, 128,             # Character
 ]
 
 def get_material_name(material_id):

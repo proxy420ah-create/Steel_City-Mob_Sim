@@ -2,6 +2,10 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
+// DEPRECATED: FollowCamera is no longer used.
+// Working phase now uses map camera focused on HQ block via GameUIController.FocusCameraOnHq().
+// This file is kept for reference but can be safely deleted.
+
 namespace SteelCity.Sim
 {
     public class FollowCamera : MonoBehaviour

@@ -86,7 +86,13 @@ Shader "SteelCity/VoxelProxyRaymarch"
             float3   _ProxyCamOrigin;
 
             // --- Instancing: per-instance data (xyz = world offset, w = yaw radians) ---
+            // Buffer layout: first N float4s = (pos, yaw), next N float4s = (animState, animTime, animSpeed, 0)
             StructuredBuffer<float4> _InstanceOffsets;
+            int _InstanceCount;
+
+            // --- Animation group IDs (per-voxel groupID for articulated limb transforms) ---
+            StructuredBuffer<uint> _GroupIDs;
+            int _GroupIDsEnabled;
 
             // --- Building instancing (sector baking): per-building metadata in a flat merged buffer ---
             // _BuildingMeta[i] = (bufferOffset, dimsX, dimsY, dimsZ)
@@ -120,6 +126,9 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 float  yaw         : TEXCOORD2;
                 float4 instMeta    : TEXCOORD3; // (bufferOffset, dimsX, dimsY, dimsZ) for building instancing
                 float  voxelSize   : TEXCOORD4; // per-building voxel size (pos.w) or uniform fallback
+                float  animState   : TEXCOORD5; // animation state (0=Idle, 1=Walking, 2=Looking, etc.)
+                float  animTime    : TEXCOORD6; // seconds since animation started
+                float  animSpeed   : TEXCOORD7; // walk speed multiplier
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
@@ -181,6 +190,141 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 return n;
             }
 
+            // ---- Animation group transform ----
+            // Returns the world-space offset for a voxel based on its groupID and animation state.
+            // Approach B: inverse-transform sampling in DDA — the ray "sees" voxels at posed positions.
+            // GroupTransformOffset is kept for reference/debugging but no longer applied to output.
+            // Pivot points are in voxel-local space (voxel units, origin = volume corner).
+            // For a 16x32x10 character: head pivot ~(8,25,5), shoulders ~(4,24,5)/(12,24,5), hips ~(6,11,5)/(10,11,5)
+            // These are computed from dims at runtime.
+            float3x3 RotationX(float angle)
+            {
+                float c = cos(angle), s = sin(angle);
+                return float3x3(1, 0, 0, 0, c, -s, 0, s, c);
+            }
+            float3x3 RotationY(float angle)
+            {
+                float c = cos(angle), s = sin(angle);
+                return float3x3(c, 0, -s, 0, 1, 0, s, 0, c);
+            }
+
+            // Compute per-group rotation for a given animation state.
+            // Returns false if the state has no transform for this group (idle/unhandled).
+            // pivot and rot are outputs. pivot is in world units (voxelSize already applied).
+            bool ComputeGroupRotation(
+                uint groupID, float3 dims, float voxelSize,
+                float animState, float animTime, float animSpeed,
+                out float3 pivot, out float3x3 rot)
+            {
+                float3 headPivot   = float3(dims.x * 0.5, dims.y * 0.78, dims.z * 0.5);
+                float3 lArmPivot   = float3(dims.x * 0.25, dims.y * 0.75, dims.z * 0.5);
+                float3 rArmPivot   = float3(dims.x * 0.75, dims.y * 0.75, dims.z * 0.5);
+                float3 lLegPivot   = float3(dims.x * 0.375, dims.y * 0.34, dims.z * 0.5);
+                float3 rLegPivot   = float3(dims.x * 0.625, dims.y * 0.34, dims.z * 0.5);
+                float PI = 3.14159265;
+                pivot = float3(0, 0, 0);
+                rot = float3x3(1, 0, 0, 0, 1, 0, 0, 0, 1);
+
+                if (groupID == 1u) // Head
+                {
+                    pivot = headPivot * voxelSize;
+                    float headYaw = 0.0, headPitch = 0.0;
+                    if (animState > 1.5 && animState < 3.5) { // Looking or Checking
+                        headYaw = sin(animTime * 2.0) * 0.5;
+                        headPitch = sin(animTime * 1.3) * 0.1;
+                    } else if (animState > 3.5 && animState < 4.5) { // Aiming
+                        headYaw = 0.3; headPitch = -0.1;
+                    } else if (animState > 5.5 && animState < 6.5) { // Crouching
+                        headPitch = 0.2;
+                    } else if (animState > 6.5 && animState < 7.5) { // Flinching
+                        headPitch = 0.4;
+                    } else return false;
+                    rot = mul(RotationY(headYaw), RotationX(headPitch));
+                    return true;
+                }
+                else if (groupID == 2u) // Left arm
+                {
+                    pivot = lArmPivot * voxelSize;
+                    float swing = 0.0;
+                    if (animState > 0.5 && animState < 1.5) // Walking
+                        swing = sin(animTime * 6.0 * animSpeed) * 0.3;
+                    else if (animState > 3.5 && animState < 4.5) swing = -1.2; // Aiming
+                    else if (animState > 5.5 && animState < 6.5) swing = 0.3;  // Crouching
+                    else if (animState > 6.5 && animState < 7.5) swing = -1.5; // Flinching
+                    else return false;
+                    rot = RotationX(swing);
+                    return true;
+                }
+                else if (groupID == 3u) // Right arm
+                {
+                    pivot = rArmPivot * voxelSize;
+                    float swing = 0.0;
+                    if (animState > 0.5 && animState < 1.5) // Walking
+                        swing = sin(animTime * 6.0 * animSpeed + PI) * 0.3;
+                    else if (animState > 3.5 && animState < 4.5) swing = -1.2; // Aiming
+                    else if (animState > 5.5 && animState < 6.5) swing = -0.3; // Crouching
+                    else if (animState > 6.5 && animState < 7.5) swing = -1.5; // Flinching
+                    else return false;
+                    rot = RotationX(swing);
+                    return true;
+                }
+                else if (groupID == 4u) // Left leg
+                {
+                    pivot = lLegPivot * voxelSize;
+                    float stride = 0.0;
+                    if (animState > 0.5 && animState < 1.5) // Walking
+                        stride = sin(animTime * 6.0 * animSpeed + PI) * 0.4;
+                    else if (animState > 5.5 && animState < 6.5) stride = 0.6;  // Crouching
+                    else if (animState > 7.5 && animState < 8.5) stride = -0.5; // Falling
+                    else return false;
+                    rot = RotationX(stride);
+                    return true;
+                }
+                else if (groupID == 5u) // Right leg
+                {
+                    pivot = rLegPivot * voxelSize;
+                    float stride = 0.0;
+                    if (animState > 0.5 && animState < 1.5) // Walking
+                        stride = sin(animTime * 6.0 * animSpeed) * 0.4;
+                    else if (animState > 5.5 && animState < 6.5) stride = 0.6;  // Crouching
+                    else if (animState > 7.5 && animState < 8.5) stride = 0.5;  // Falling
+                    else return false;
+                    rot = RotationX(stride);
+                    return true;
+                }
+                return false;
+            }
+
+            // Forward transform: restPos → posedPos offset
+            float3 GroupTransformOffset(
+                uint groupID, float3 voxelLocalPos, float3 dims, float voxelSize,
+                float animState, float animTime, float animSpeed)
+            {
+                if (groupID == 0u) return float3(0, 0, 0);
+                float3 pivot; float3x3 rot;
+                if (!ComputeGroupRotation(groupID, dims, voxelSize, animState, animTime, animSpeed, pivot, rot))
+                    return float3(0, 0, 0);
+                float3 relPos = voxelLocalPos - pivot;
+                float3 transformedPos = mul(rot, relPos) + pivot;
+                return transformedPos - voxelLocalPos;
+            }
+
+            // Inverse transform: posedPos → restPos offset
+            // Used in the DDA loop to sample voxel data at rest positions while stepping through posed space.
+            // For rotation matrices, inverse = transpose.
+            float3 InverseGroupTransformOffset(
+                uint groupID, float3 voxelLocalPos, float3 dims, float voxelSize,
+                float animState, float animTime, float animSpeed)
+            {
+                if (groupID == 0u) return float3(0, 0, 0);
+                float3 pivot; float3x3 rot;
+                if (!ComputeGroupRotation(groupID, dims, voxelSize, animState, animTime, animSpeed, pivot, rot))
+                    return float3(0, 0, 0);
+                float3 relPos = voxelLocalPos - pivot;
+                float3 restPos = mul(transpose(rot), relPos) + pivot;
+                return restPos - voxelLocalPos;
+            }
+
             // ---- Lighting (ported from compute shader) ----
             float3 GetLighting(float3 normal, uint mat)
             {
@@ -229,18 +373,29 @@ Shader "SteelCity/VoxelProxyRaymarch"
                     output.yaw = 0.0;
                     output.instMeta = meta; // (bufferOffset, dimsX, dimsY, dimsZ)
                     output.voxelSize = pos.w;
+                    output.animState = 0.0;
+                    output.animTime = 0.0;
+                    output.animSpeed = 1.0;
                 #else
                     float4 instData = _InstanceOffsets[unity_InstanceID];
                     output.volumeOffset = instData.xyz;
                     output.yaw = instData.w;
                     output.instMeta = float4(0.0, _VolumeDims.x, _VolumeDims.y, _VolumeDims.z);
                     output.voxelSize = _VoxelSize;
+                    // Read animation data from second half of instance buffer
+                    float4 animData = _InstanceOffsets[unity_InstanceID + _InstanceCount];
+                    output.animState = animData.x;
+                    output.animTime = animData.y;
+                    output.animSpeed = animData.z;
                 #endif
             #else
                 output.volumeOffset = _VolumeOffset;
                 output.yaw = 0.0;
                 output.instMeta = float4(0.0, _VolumeDims.x, _VolumeDims.y, _VolumeDims.z);
                 output.voxelSize = _VoxelSize;
+                output.animState = 0.0;
+                output.animTime = 0.0;
+                output.animSpeed = 1.0;
             #endif
                 return output;
             }
@@ -350,7 +505,28 @@ Shader "SteelCity/VoxelProxyRaymarch"
                     if (!InBounds(voxel, dims))
                         break;
 
-                    uint packed = _VoxelData[bufferOffset + VoxelIndex(voxel, dims)];
+                    // Inverse-transform sampling: when groupIDs are enabled, sample voxel data
+                    // at the REST position (inverse of the group transform). This makes the ray
+                    // "see" voxels at their posed positions, producing visible limb movement.
+                    int3 sampleVoxel = voxel;
+                    if (_GroupIDsEnabled != 0)
+                    {
+                        uint gid = _GroupIDs[bufferOffset + VoxelIndex(voxel, dims)];
+                        if (gid > 0u)
+                        {
+                            float3 voxelLocalPos = (float3(voxel) + 0.5) * voxelSize;
+                            float3 restOffset = InverseGroupTransformOffset(
+                                gid, voxelLocalPos, float3(dims), voxelSize,
+                                input.animState, input.animTime, input.animSpeed);
+                            float3 restPos = voxelLocalPos + restOffset;
+                            int3 restVoxel = (int3)floor(restPos / voxelSize);
+                            if (InBounds(restVoxel, dims))
+                                sampleVoxel = restVoxel;
+                            // else: out-of-bounds = empty, keep original voxel (likely miss)
+                        }
+                    }
+
+                    uint packed = _VoxelData[bufferOffset + VoxelIndex(sampleVoxel, dims)];
                     uint mat = VxMaterial(packed);
 
                     if (mat != 0u)
@@ -375,7 +551,7 @@ Shader "SteelCity/VoxelProxyRaymarch"
                         }
                         else
                         {
-                            float3 smoothN = SmoothNormal(voxel, dims, bufferOffset);
+                            float3 smoothN = SmoothNormal(sampleVoxel, dims, bufferOffset);
                             blendedN = normalize(normal * 0.7 + smoothN * 0.3);
                         }
                         blendedN = normalize(mul(volInvRot, blendedN));
@@ -515,6 +691,7 @@ Shader "SteelCity/VoxelProxyRaymarch"
                             hitColor = float4(_LodDebugColor.rgb, hitColor.a);
 
                         worldHit = ro + rd * currentT;
+
                         hit = true;
                         break;
                     }

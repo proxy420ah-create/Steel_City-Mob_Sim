@@ -1,0 +1,1010 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Steel City — Gang Simulation Architecture Visual Guide</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #1c2331;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --orange: #f0883e;
+    --pink: #f778ba;
+    --red: #f85149;
+    --yellow: #d29922;
+    --cyan: #39c5cf;
+    --purple: #bc8cff;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+  }
+
+  /* --- Hero --- */
+  .hero {
+    text-align: center;
+    padding: 50px 20px 30px;
+    background: linear-gradient(135deg, #0d1117 0%, #1a1a2e 40%, #16213e 70%, #0f3460 100%);
+    border-bottom: 1px solid var(--border);
+  }
+  .hero h1 {
+    font-size: 2.4em;
+    background: linear-gradient(90deg, var(--accent), var(--cyan), var(--green));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 8px;
+  }
+  .hero .subtitle { color: var(--text-dim); font-size: 1.1em; max-width: 700px; margin: 0 auto; }
+  .hero .meta { margin-top: 14px; font-size: 0.85em; color: var(--text-dim); }
+
+  /* --- Container --- */
+  .container { max-width: 1100px; margin: 0 auto; padding: 30px 24px 80px; }
+
+  /* --- Section --- */
+  .section {
+    margin-bottom: 50px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px;
+  }
+  .section h2 {
+    font-size: 1.6em;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .section .tagline { color: var(--text-dim); font-size: 0.95em; margin-bottom: 20px; }
+
+  /* --- Cards --- */
+  .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; margin-top: 16px; }
+  .card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px;
+  }
+  .card h3 { font-size: 1.1em; margin-bottom: 8px; }
+  .card .icon { font-size: 1.8em; margin-bottom: 6px; }
+  .card p { color: var(--text-dim); font-size: 0.9em; }
+  .card .badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 0.75em;
+    font-weight: 600;
+    margin-top: 8px;
+  }
+  .badge-low { background: rgba(63,185,80,0.2); color: var(--green); border: 1px solid var(--green); }
+  .badge-med { background: rgba(210,153,34,0.2); color: var(--yellow); border: 1px solid var(--yellow); }
+  .badge-high { background: rgba(248,81,73,0.2); color: var(--red); border: 1px solid var(--red); }
+  .badge-none { background: rgba(88,166,255,0.2); color: var(--accent); border: 1px solid var(--accent); }
+
+  /* --- Flowchart --- */
+  .flowchart {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 24px;
+    margin-top: 16px;
+    overflow-x: auto;
+  }
+  .flow-row { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap; }
+  .flow-node {
+    padding: 10px 18px;
+    border-radius: 8px;
+    font-size: 0.85em;
+    font-weight: 600;
+    text-align: center;
+    min-width: 120px;
+    border: 2px solid;
+  }
+  .flow-node.idle { background: rgba(139,148,158,0.15); border-color: var(--text-dim); color: var(--text-dim); }
+  .flow-node.plan { background: rgba(188,140,255,0.15); border-color: var(--purple); color: var(--purple); }
+  .flow-node.walk { background: rgba(88,166,255,0.15); border-color: var(--accent); color: var(--accent); }
+  .flow-node.exec { background: rgba(240,136,62,0.15); border-color: var(--orange); color: var(--orange); }
+  .flow-node.home { background: rgba(63,185,80,0.15); border-color: var(--green); color: var(--green); }
+  .flow-node.report { background: rgba(210,153,34,0.15); border-color: var(--yellow); color: var(--yellow); }
+  .flow-node.deprecated { background: rgba(248,81,73,0.08); border-color: var(--red); color: var(--red); text-decoration: line-through; opacity: 0.6; }
+  .flow-node.new { background: rgba(57,197,207,0.15); border-color: var(--cyan); color: var(--cyan); }
+  .flow-arrow { color: var(--text-dim); font-size: 1.2em; }
+  .flow-label { color: var(--text-dim); font-size: 0.75em; margin-top: 2px; }
+
+  /* --- Table --- */
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 0.9em; }
+  th { background: var(--surface2); padding: 10px 14px; text-align: left; border-bottom: 2px solid var(--border); font-size: 0.85em; }
+  td { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  tr:hover td { background: rgba(88,166,255,0.05); }
+
+  /* --- Tier badge --- */
+  .tier {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.8em;
+    font-weight: 700;
+  }
+  .tier-1 { background: rgba(63,185,80,0.2); color: var(--green); }
+  .tier-2 { background: rgba(88,166,255,0.2); color: var(--accent); }
+  .tier-3 { background: rgba(248,81,73,0.2); color: var(--red); }
+
+  /* --- Comparison --- */
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+  @media (max-width: 768px) { .compare { grid-template-columns: 1fr; } }
+  .compare-col { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 18px; }
+  .compare-col h4 { margin-bottom: 10px; font-size: 1em; }
+  .compare-col ul { list-style: none; padding: 0; }
+  .compare-col li { padding: 4px 0; font-size: 0.88em; color: var(--text-dim); }
+  .compare-col li::before { content: "\25B8 "; color: var(--accent); }
+
+  /* --- Callout --- */
+  .callout {
+    background: linear-gradient(135deg, rgba(210,153,34,0.1), rgba(240,136,62,0.1));
+    border: 1px solid var(--yellow);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-top: 16px;
+  }
+  .callout strong { color: var(--yellow); }
+  .callout p { color: var(--text-dim); font-size: 0.9em; margin-top: 4px; }
+  .callout.info {
+    background: linear-gradient(135deg, rgba(88,166,255,0.08), rgba(57,197,207,0.08));
+    border-color: var(--accent);
+  }
+  .callout.info strong { color: var(--accent); }
+  .callout.danger {
+    background: linear-gradient(135deg, rgba(248,81,73,0.08), rgba(247,120,186,0.08));
+    border-color: var(--red);
+  }
+  .callout.danger strong { color: var(--red); }
+
+  /* --- Architecture diagram --- */
+  .arch-diagram {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 24px;
+    margin-top: 16px;
+    overflow-x: auto;
+  }
+  .arch-box {
+    border: 2px solid;
+    border-radius: 10px;
+    padding: 14px 18px;
+    text-align: center;
+    font-weight: 600;
+    font-size: 0.88em;
+  }
+  .arch-box .arch-sub { font-size: 0.75em; color: var(--text-dim); font-weight: 400; margin-top: 4px; }
+  .arch-row { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
+  .arch-arrow-down { color: var(--text-dim); font-size: 1.5em; text-align: center; margin: 4px 0; }
+
+  /* --- Phase timeline --- */
+  .phase-timeline {
+    display: flex;
+    gap: 0;
+    margin-top: 20px;
+    overflow-x: auto;
+    padding-bottom: 8px;
+  }
+  .phase-block {
+    flex: 1;
+    min-width: 140px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    margin-right: 4px;
+    text-align: center;
+  }
+  .phase-block .ph-num { font-size: 1.5em; font-weight: 800; }
+  .phase-block .ph-name { font-size: 0.85em; font-weight: 600; margin-top: 4px; }
+  .phase-block .ph-effort { font-size: 0.75em; color: var(--text-dim); margin-top: 6px; }
+  .phase-block .ph-dep { font-size: 0.7em; color: var(--purple); margin-top: 4px; }
+  .phase-block.p1 { border-top: 3px solid var(--green); }
+  .phase-block.p1 .ph-num { color: var(--green); }
+  .phase-block.p2 { border-top: 3px solid var(--yellow); }
+  .phase-block.p2 .ph-num { color: var(--yellow); }
+  .phase-block.p3 { border-top: 3px solid var(--orange); }
+  .phase-block.p3 .ph-num { color: var(--orange); }
+  .phase-block.p4 { border-top: 3px solid var(--red); }
+  .phase-block.p4 .ph-num { color: var(--red); }
+  .phase-block.p5 { border-top: 3px solid var(--accent); }
+  .phase-block.p5 .ph-num { color: var(--accent); }
+
+  /* --- Tick budget visual --- */
+  .tick-bar {
+    display: flex;
+    height: 32px;
+    border-radius: 6px;
+    overflow: hidden;
+    margin-top: 8px;
+    border: 1px solid var(--border);
+  }
+  .tick-segment {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.72em;
+    font-weight: 600;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .tick-legend { display: flex; gap: 16px; margin-top: 8px; flex-wrap: wrap; }
+  .tick-legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.8em; color: var(--text-dim); }
+  .tick-legend-swatch { width: 14px; height: 14px; border-radius: 3px; }
+
+  /* --- Footer --- */
+  .footer {
+    text-align: center;
+    padding: 30px 20px;
+    border-top: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 0.85em;
+  }
+
+  /* --- Misc --- */
+  .highlight { color: var(--yellow); }
+  .code { font-family: 'Consolas', 'Courier New', monospace; background: var(--bg); padding: 2px 6px; border-radius: 4px; font-size: 0.88em; color: var(--cyan); }
+  .divider { height: 1px; background: var(--border); margin: 20px 0; }
+  .strike { text-decoration: line-through; opacity: 0.5; }
+</style>
+</head>
+<body>
+
+<!-- ========================= HERO ========================= -->
+<div class="hero">
+  <h1>🏙️ Steel City — Gang Simulation Architecture</h1>
+  <p class="subtitle">From single-Vinny prototype to multi-hood gang simulation — based on Gangsters.exe reverse engineering</p>
+  <div class="meta">
+    Companion to <code>GANG_SIMULATION_ARCHITECTURE.md</code> &nbsp;|&nbsp; Aug 9, 2026 &nbsp;|&nbsp; Design Draft
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- ========================= CURRENT vs PROPOSED ========================= -->
+  <div class="section">
+    <h2>🔄 Current State → Proposed Architecture</h2>
+    <p class="tagline">Three overlapping systems → one unified multi-hood simulation</p>
+
+    <div class="compare">
+      <div class="compare-col" style="border: 2px solid var(--red);">
+        <h4 style="color: var(--red);">❌ Current — Three Parallel Systems</h4>
+        <ul>
+          <li><strong style="color:var(--red);">Single-Vinny spawn</strong> — special-cased player hood with follow cam, selector UI, teleport button</li>
+          <li><strong style="color:var(--yellow);">Tick simulation</strong> — <span class="code">SimulationManager</span> + <span class="code">EventPlayer</span>, single-hood only, has game logic (orders, dialog, extortion)</li>
+          <li><strong style="color:var(--accent);">Stress test</strong> — <span class="code">StressTestSpawner</span> + <span class="code">StressTestAgent</span>, 100 agents, real-time A* pathfinding, <strong>no game logic</strong></li>
+          <li><strong style="color:var(--pink);">Follow camera</strong> — buggy, deprecated, tracks single Vinny</li>
+          <li><strong style="color:var(--pink);">Vinny selector UI</strong> — teleport button in planning phase, special treatment</li>
+        </ul>
+        <div class="badge-high" style="margin-top:10px;">DEPRECATED — remove all</div>
+      </div>
+      <div class="compare-col" style="border: 2px solid var(--green);">
+        <h4 style="color: var(--green);">✅ Proposed — Unified Multi-Hood System</h4>
+        <ul>
+          <li><strong style="color:var(--cyan);">HoodAgent</strong> — merges <span class="code">StressTestAgent</span> movement + <span class="code">SimulationManager</span> game logic</li>
+          <li><strong style="color:var(--green);">HoodSpawner</strong> — auto-spawns N hoods at player HQ, ground-probe spawn (no more hardcoded Y)</li>
+          <li><strong style="color:var(--accent);">GangDispatcher</strong> — iterates all hoods, starts working phase, manages gang roster</li>
+          <li><strong style="color:var(--purple);">VoxelCharacter</strong> — unchanged render wrapper, GPU instanced (Tier 2, 1 draw call)</li>
+          <li><strong style="color:var(--text-dim);">Overhead camera</strong> — existing city map camera, no follow cam</li>
+          <li><strong style="color:var(--text-dim);">No special UI</strong> — hoods spawn and move autonomously</li>
+        </ul>
+        <div class="badge-low" style="margin-top:10px;">SCALABLE — 1 to 100+ hoods</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================= ORIGINAL GAME ARCHITECTURE ========================= -->
+  <div class="section">
+    <h2>📜 Original Game Architecture (from RE Findings)</h2>
+    <p class="tagline">How Gangsters: Organized Crime dispatched orders to multiple hoods — the blueprint for our simulation</p>
+
+    <div class="flowchart">
+      <h4 style="color: var(--purple); margin-bottom: 12px;">Planning Phase → Working Phase → Report</h4>
+      <div class="flow-row">
+        <div class="flow-node plan">PLANNING<br><span class="flow-label">player assigns orders</span></div>
+        <span class="flow-arrow">→ orders queued →</span>
+        <div class="flow-node walk">WORKING<br><span class="flow-label">gang dispatch (FUN_0049a530)</span></div>
+        <span class="flow-arrow">→ all hoods move →</span>
+        <div class="flow-node exec">EXECUTE<br><span class="flow-label">order at target</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node home">RETURN<br><span class="flow-label">walk home</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node report">REPORT<br><span class="flow-label">weekly summary</span></div>
+      </div>
+    </div>
+
+    <div class="card-grid" style="margin-top: 20px;">
+      <div class="card">
+        <div class="icon">📋</div>
+        <h3>Order Assignment (Planning)</h3>
+        <p>Player selects hood → selects order type → selects target block. Order stored in hood's queue. <strong>No execution</strong> — just stored. Each hood gets its own order queue (doubly-linked list).</p>
+        <div class="badge-none">No sim runs during planning</div>
+      </div>
+      <div class="card">
+        <div class="icon">⚔️</div>
+        <h3>Gang Dispatch (Working Start)</h3>
+        <p><span class="code">FUN_0049a530</span> iterates <strong>all hoods in gang</strong>. For each: allocate 12,000 tick budget, set movement destination, calculate priority (distance + RNG + hood level). All hoods begin moving <strong>simultaneously</strong>.</p>
+        <div class="badge-med">Per-hood independence</div>
+      </div>
+      <div class="card">
+        <div class="icon">⏱️</div>
+        <h3>Per-Tick Simulation</h3>
+        <p><span class="code">FUN_005d2740</span> runs every tick for <strong>all entities</strong>. Movement state machine: Init → Pathfind → Walk → Arrive. Street crossings cost 16 ticks. Random wandering 16-47 ticks. Animation advances every 16 ticks.</p>
+        <div class="badge-none">All entities, every tick</div>
+      </div>
+      <div class="card">
+        <div class="icon">🎯</div>
+        <h3>Order Execution at Target</h3>
+        <p><span class="code">FUN_00583dc0</span> compares position to target → triggers order resolution. Action duration depends on order type: extort=166 ticks, kill=6000 ticks. On completion: vehicle returned, arrest check, next order queued.</p>
+        <div class="badge-high">Per-order-type duration</div>
+      </div>
+    </div>
+
+    <div class="callout info">
+      <strong>💡 Key RE Insight: Per-Hood Independence</strong>
+      <p>Each hood has its own order queue, time budget, and state machine. The gang dispatcher iterates all hoods but each runs independently. This maps cleanly to N <span class="code">SimulationManager</span> instances — one per hood.</p>
+    </div>
+  </div>
+
+  <!-- ========================= NEW ARCHITECTURE ========================= -->
+  <div class="section">
+    <h2>🏗️ Steel City Architecture</h2>
+    <p class="tagline">HoodAgent merges movement + game logic. HoodSpawner replaces all special-cased spawn paths.</p>
+
+    <div class="arch-diagram">
+      <div class="arch-row">
+        <div class="arch-box" style="border-color: var(--cyan); color: var(--cyan); min-width: 200px;">
+          HoodSpawner
+          <div class="arch-sub">replaces StressTestSpawner + CityMap3D.SpawnCharacter</div>
+        </div>
+      </div>
+      <div class="arch-arrow-down">↓ creates N of ↓</div>
+      <div class="arch-row">
+        <div class="arch-box" style="border-color: var(--accent); color: var(--accent); min-width: 280px;">
+          HoodAgent (×N)
+          <div class="arch-sub">merges StressTestAgent movement + SimulationManager game logic</div>
+        </div>
+      </div>
+      <div class="arch-arrow-down">↓ each owns one ↓</div>
+      <div class="arch-row">
+        <div class="arch-box" style="border-color: var(--green); color: var(--green); min-width: 200px;">
+          VoxelCharacter
+          <div class="arch-sub">GPU instanced render wrapper (Tier 2, 1 draw call)</div>
+        </div>
+      </div>
+      <div class="arch-arrow-down">↓ drives ↓</div>
+      <div class="arch-row">
+        <div class="arch-box" style="border-color: var(--purple); color: var(--purple); min-width: 200px;">
+          CharacterAnimation
+          <div class="arch-sub">voxel group transforms (walk, aim, crouch, idle)</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card-grid" style="margin-top: 20px;">
+      <div class="card" style="border-left: 3px solid var(--accent);">
+        <h3 style="color: var(--accent);">HoodAgent — Movement</h3>
+        <p>Real-time A* pathfinding via shared <span class="code">Pathfinder</span>. Waypoint lerp movement. Face direction rotation. Ground Y from <span class="code">VoxelCollisionWorld</span> probe. <strong>From StressTestAgent — proven at 100 agents.</strong></p>
+      </div>
+      <div class="card" style="border-left: 3px solid var(--orange);">
+        <h3 style="color: var(--orange);">HoodAgent — Game Logic</h3>
+        <p>Order queue (<span class="code">List&lt;Order&gt;</span>). Time budget (12,000 ticks/week). State machine: Idle → PathToTarget → ExecuteOrder → PathHome → Idle. Order resolution (extort, collect, kill). Tick consumption per action. <strong>From SimulationManager.</strong></p>
+      </div>
+      <div class="card" style="border-left: 3px solid var(--purple);">
+        <h3 style="color: var(--purple);">HoodAgent — Animation</h3>
+        <p>Drives <span class="code">CharacterAnimation</span> states: Walking (moving), Checking/Aiming (at target), Idle (waiting), Falling (airborne). Voxel group transforms for articulated limbs.</p>
+      </div>
+      <div class="card" style="border-left: 3px solid var(--green);">
+        <h3 style="color: var(--green);">HoodAgent — Rendering</h3>
+        <p>Via <span class="code">VoxelCharacter</span>: GPU instanced (Tier 2). <span class="code">animState</span>, <span class="code">animTime</span>, <span class="code">animSpeed</span> in instance buffer. 1 draw call for all hoods regardless of count.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================= HOOD LIFECYCLE ========================= -->
+  <div class="section">
+    <h2>🔄 Hood Lifecycle State Machine</h2>
+    <p class="tagline">Each hood runs this state machine independently — N hoods, N state machines, 1 draw call</p>
+
+    <div class="flowchart">
+      <div class="flow-row">
+        <div class="flow-node idle">IDLE<br><span class="flow-label">at home block, waiting</span></div>
+        <span class="flow-arrow">→ order assigned →</span>
+        <div class="flow-node plan">PATH TO TARGET<br><span class="flow-label">A* pathfind + walk</span></div>
+        <span class="flow-arrow">→ arrive →</span>
+        <div class="flow-node exec">EXECUTE ORDER<br><span class="flow-label">tick countdown</span></div>
+      </div>
+      <div class="flow-row" style="margin-top: 12px;">
+        <div class="flow-node home">PATH HOME<br><span class="flow-label">return to home block</span></div>
+        <span class="flow-arrow">← order complete ←</span>
+        <div class="flow-node exec" style="opacity:0.6;">EXECUTE ORDER</div>
+        <span class="flow-arrow">← more orders? ←</span>
+        <div class="flow-node plan" style="opacity:0.6;">PATH TO NEXT</div>
+      </div>
+      <div class="flow-row" style="margin-top: 12px;">
+        <div class="flow-node idle" style="opacity:0.6;">IDLE</div>
+        <span class="flow-arrow">← arrived home, no more orders ←</span>
+        <div class="flow-node home" style="opacity:0.6;">PATH HOME</div>
+        <span class="flow-arrow">← out of ticks ←</span>
+        <div class="flow-node report">WEEK END<br><span class="flow-label">reset budget</span></div>
+      </div>
+    </div>
+
+    <div class="callout info">
+      <strong>💡 Decoupled Movement and Game Logic</strong>
+      <p>Movement uses real-time <span class="code">Time.deltaTime</span> lerp (proven by StressTestAgent). Game logic uses tick-based countdown (order action times from RE data). These are decoupled: movement is visual, ticks are logical. A hood can be visually walking while its tick budget counts down.</p>
+    </div>
+  </div>
+
+  <!-- ========================= TICK BUDGET ========================= -->
+  <div class="section">
+    <h2>⏱️ Tick Budget — 12,000 Ticks Per Hood Per Week</h2>
+    <p class="tagline">Every hood gets the same budget. Orders consume ticks. Walking consumes ticks. When budget = 0, hood goes home.</p>
+
+    <div style="margin-top: 16px;">
+      <h4 style="color: var(--accent); margin-bottom: 8px;">Example: Hood with 3 orders (extort × 2, collect × 1)</h4>
+      <div class="tick-bar">
+        <div class="tick-segment" style="width: 1.4%; background: var(--text-dim);">Walk</div>
+        <div class="tick-segment" style="width: 1.4%; background: var(--accent);">Extort</div>
+        <div class="tick-segment" style="width: 1.4%; background: var(--text-dim);">Walk</div>
+        <div class="tick-segment" style="width: 1.4%; background: var(--accent);">Extort</div>
+        <div class="tick-segment" style="width: 1.4%; background: var(--text-dim);">Walk</div>
+        <div class="tick-segment" style="width: 3.3%; background: var(--orange);">Collect</div>
+        <div class="tick-segment" style="width: 1.4%; background: var(--text-dim);">Walk Home</div>
+        <div class="tick-segment" style="width: 88.3%; background: var(--green);">Idle (budget remaining)</div>
+      </div>
+      <div class="tick-legend">
+        <div class="tick-legend-item"><div class="tick-legend-swatch" style="background: var(--text-dim);"></div>Walking (16-47 ticks/segment)</div>
+        <div class="tick-legend-item"><div class="tick-legend-swatch" style="background: var(--accent);"></div>Extort (166 ticks)</div>
+        <div class="tick-legend-item"><div class="tick-legend-swatch" style="background: var(--orange);"></div>Collect (400 ticks)</div>
+        <div class="tick-legend-item"><div class="tick-legend-swatch" style="background: var(--red);"></div>Kill (6000 ticks)</div>
+        <div class="tick-legend-item"><div class="tick-legend-swatch" style="background: var(--green);"></div>Idle (remaining budget)</div>
+      </div>
+    </div>
+
+    <table style="margin-top: 24px;">
+      <thead>
+        <tr><th>Order Type</th><th>Tick Cost</th><th>% of Weekly Budget</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Goto Order</td><td><strong style="color:var(--green);">16</strong></td><td>0.13%</td><td>Minimal — just move to location</td></tr>
+        <tr><td>Guard Business</td><td><strong style="color:var(--green);">166</strong></td><td>1.4%</td><td>Same as extort — stand watch</td></tr>
+        <tr><td>Collect Protection</td><td><strong style="color:var(--yellow);">400</strong></td><td>3.3%</td><td>Moderate — shake down business</td></tr>
+        <tr><td>Extort</td><td><strong style="color:var(--yellow);">166</strong></td><td>1.4%</td><td>Quick — intimidate owner</td></tr>
+        <tr><td>Kill</td><td><strong style="color:var(--red);">6,000</strong></td><td>50%</td><td>Expensive — half the week!</td></tr>
+        <tr><td>Bomb</td><td><strong style="color:var(--red);">6,000</strong></td><td>50%</td><td>Same as kill — high-risk action</td></tr>
+        <tr><td>Walking (per segment)</td><td><strong style="color:var(--text-dim);">16-47</strong></td><td>0.1-0.4%</td><td>Pathfind + traverse to target</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout">
+      <strong>💡 Budget Exhaustion = Go Home</strong>
+      <p>When a hood's tick budget hits 0, the current order is abandoned and the hood paths home. This means a hood with a Kill order (6,000 ticks) plus walking time may not complete a second order that week. The player must budget wisely — just like the original game.</p>
+    </div>
+  </div>
+
+  <!-- ========================= VEHICLE DECISION LOGIC ========================= -->
+  <div class="section">
+    <h2>🚗 Vehicle Decision Logic</h2>
+    <p class="tagline">Two decision paths from the original game — distance-based and random assignment</p>
+
+    <div class="flowchart">
+      <h4 style="color: var(--accent); margin-bottom: 12px;">Path 1: Distance-Based (75% of decisions)</h4>
+      <div class="flow-row">
+        <div class="flow-node idle">ORDER ASSIGNED<br><span class="flow-label">target block set</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node plan">DISTANCE CHECK<br><span class="flow-label">> 64 units?</span></div>
+        <span class="flow-arrow">→ yes →</span>
+        <div class="flow-node walk">ASSIGN VEHICLE<br><span class="flow-label">drive to target</span></div>
+        <span class="flow-arrow">→ no →</span>
+        <div class="flow-node idle">WALK ON FOOT<br><span class="flow-label">no vehicle</span></div>
+      </div>
+    </div>
+
+    <div class="flowchart" style="margin-top: 16px;">
+      <h4 style="color: var(--purple); margin-bottom: 12px;">Path 2: Random Assignment (25% of decisions)</h4>
+      <div class="flow-row">
+        <div class="flow-node idle">SPECIAL ORDER<br><span class="flow-label">kill, bomb, etc.</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node plan">RNG CHECK<br><span class="flow-label">25% chance</span></div>
+        <span class="flow-arrow">→ success →</span>
+        <div class="flow-node walk">RANDOM VEHICLE<br><span class="flow-label">any available car</span></div>
+        <span class="flow-arrow">→ fail →</span>
+        <div class="flow-node idle">WALK ON FOOT<br><span class="flow-label">no vehicle</span></div>
+      </div>
+    </div>
+
+    <div class="card-grid" style="margin-top: 20px;">
+      <div class="card">
+        <div class="icon">📏</div>
+        <h3>Distance Threshold: 64 Units</h3>
+        <p>From RE: if target is > 64 game units away, hood is assigned a vehicle. This is roughly 2-3 city blocks in our scale. Shorter distances = walk. This prevents hoods from driving across the street.</p>
+        <div class="badge-low">Simple, deterministic</div>
+      </div>
+      <div class="card">
+        <div class="icon">🎲</div>
+        <h3>Random 25% for Special Orders</h3>
+        <p>For high-priority orders (kill, bomb), there's a 25% chance of random vehicle assignment regardless of distance. Adds unpredictability — sometimes a hood drives to a nearby hit, sometimes walks.</p>
+        <div class="badge-med">RNG-based, adds variety</div>
+      </div>
+      <div class="card">
+        <div class="icon">🔑</div>
+        <h3>Vehicle Pool</h3>
+        <p>Vehicles are shared gang resources. <span class="code">GangDispatcher</span> manages a pool of available vehicles. When a hood needs a car, one is assigned from the pool. When the hood returns home, the vehicle returns to the pool.</p>
+        <div class="badge-none">Shared resource</div>
+      </div>
+      <div class="card">
+        <div class="icon">🚶</div>
+        <h3>Walking Fallback</h3>
+        <p>If no vehicles are available in the pool, the hood walks regardless of distance. This can cause long travel times and tick budget exhaustion — strategic vehicle management matters.</p>
+        <div class="badge-high">Strategic constraint</div>
+      </div>
+    </div>
+
+    <div class="callout">
+      <strong>💡 Two Vehicle Flag Systems in Original</strong>
+      <p>The RE data reveals <strong>two separate vehicle flag systems</strong> — one for the distance-based path and one for the random path. These are independent and can overlap. Our implementation will unify them into a single <span class="code">VehicleAssignment</span> component per hood.</p>
+    </div>
+  </div>
+
+  <!-- ========================= RENDERING PIPELINE ========================= -->
+  <div class="section">
+    <h2>📊 Rendering Pipeline — All Hoods = 1 Draw Call</h2>
+    <p class="tagline">Hoods are Tier 2 (Batched Dynamic). GPU instanced. No per-hood draw calls regardless of count.</p>
+
+    <div class="arch-diagram">
+      <div class="arch-row">
+        <div class="arch-box" style="border-color: var(--cyan); color: var(--cyan);">
+          HoodSpawner
+          <div class="arch-sub">creates N HoodAgents</div>
+        </div>
+        <span class="flow-arrow">→</span>
+        <div class="arch-box" style="border-color: var(--accent); color: var(--accent);">
+          HoodAgent.Update()
+          <div class="arch-sub">sets position, yaw, animState, animTime</div>
+        </div>
+        <span class="flow-arrow">→</span>
+        <div class="arch-box" style="border-color: var(--green); color: var(--green);">
+          VoxelCharacter
+          <div class="arch-sub">writes to shared instance buffer</div>
+        </div>
+      </div>
+      <div class="arch-arrow-down">↓ all instances in one buffer ↓</div>
+      <div class="arch-row">
+        <div class="arch-box" style="border-color: var(--purple); color: var(--purple);">
+          DrawMeshInstanced
+          <div class="arch-sub">1 draw call for ALL hoods — 1 or 100+</div>
+        </div>
+        <span class="flow-arrow">→</span>
+        <div class="arch-box" style="border-color: var(--orange); color: var(--orange);">
+          VoxelProxyRaymarch.shader
+          <div class="arch-sub">per-instance: pos, yaw, animState, animTime</div>
+        </div>
+      </div>
+    </div>
+
+    <table style="margin-top: 20px;">
+      <thead>
+        <tr><th>Instance Buffer Field</th><th>Size</th><th>Purpose</th><th>Source</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>x, y, z</td><td>12 bytes</td><td>World position</td><td>HoodAgent movement</td></tr>
+        <tr><td>yaw</td><td>4 bytes</td><td>Facing direction</td><td>HoodAgent movement</td></tr>
+        <tr><td>animState</td><td>4 bytes</td><td>Animation state enum</td><td>HoodAgent state machine</td></tr>
+        <tr><td>animTime</td><td>4 bytes</td><td>Animation phase</td><td>HoodAgent Update</td></tr>
+        <tr><td>animSpeed</td><td>4 bytes</td><td>Walk cycle speed</td><td>HoodAgent velocity</td></tr>
+        <tr><td><strong>Total</strong></td><td><strong>32 bytes/hood</strong></td><td colspan="2">100 hoods = 3.2KB instance buffer — trivial</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout info">
+      <strong>💡 Instance Buffer Evolution</strong>
+      <p>Current: 16 bytes (pos + yaw). Phase 1: +animState, animTime = 24 bytes. Phase 2: +animSpeed = 28 bytes. Phase 3 (groups): +faction, health = 32 bytes. All backward-compatible — unused fields zeroed. See <span class="code">DYNAMIC_OBJECT_RENDERING_TIERS.md</span> for tier classification.</p>
+    </div>
+  </div>
+
+  <!-- ========================= PHYSICS & SPAWN FIX ========================= -->
+  <div class="section">
+    <h2>🔧 Physics & Spawn Fix</h2>
+    <p class="tagline">Ground probing replaces hardcoded Y. No more floating or underground hoods.</p>
+
+    <div class="compare">
+      <div class="compare-col" style="border: 2px solid var(--red);">
+        <h4 style="color: var(--red);">❌ Current — Hardcoded Spawn Y</h4>
+        <ul>
+          <li>Spawn at fixed Y=0 (or hardcoded offset)</li>
+          <li>Falls through terrain on uneven ground</li>
+          <li>Log spam from ground snap attempts</li>
+          <li>Single Vinny = manually positioned</li>
+          <li>Stress test = random Y, often wrong</li>
+        </ul>
+      </div>
+      <div class="compare-col" style="border: 2px solid var(--green);">
+        <h4 style="color: var(--green);">✅ Proposed — Ground Probe Spawn</h4>
+        <ul>
+          <li>Spawn at Y+50, probe downward via <span class="code">VoxelCollisionWorld</span></li>
+          <li>Snap to ground surface height</li>
+          <li>Increased snap distance (50 units)</li>
+          <li>Log spam reduced — only log on failure</li>
+          <li>Works for any terrain height across 100 blocks</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="flowchart" style="margin-top: 16px;">
+      <div class="flow-row">
+        <div class="flow-node new">SPAWN AT Y+50<br><span class="flow-label">above expected ground</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node walk">PROBE DOWNWARD<br><span class="flow-label">VoxelCollisionWorld.Raycast</span></div>
+        <span class="flow-arrow">→ hit →</span>
+        <div class="flow-node home">SNAP TO GROUND<br><span class="flow-label">set Y = hit.point.y</span></div>
+        <span class="flow-arrow">→ no hit →</span>
+        <div class="flow-node report">LOG WARNING<br><span class="flow-label">use fallback Y=0</span></div>
+      </div>
+    </div>
+
+    <div class="callout">
+      <strong>💡 Why Y+50?</strong>
+      <p>The tallest buildings in Steel City are ~40 units. Spawning at Y+50 guarantees the probe starts above any terrain feature. The downward raycast via <span class="code">VoxelCollisionWorld</span> finds the actual ground surface. This replaces the old hardcoded Y that assumed flat terrain.</p>
+    </div>
+  </div>
+
+  <!-- ========================= CAMERA SYSTEM ========================= -->
+  <div class="section">
+    <h2>📷 Camera System</h2>
+    <p class="tagline">No follow camera. Overhead view for planning, street free-cam for flavor.</p>
+
+    <div class="compare">
+      <div class="compare-col" style="border: 2px solid var(--red);">
+        <h4 style="color: var(--red);">❌ Deprecated — FollowCamera</h4>
+        <ul>
+          <li>Tracks single Vinny character</li>
+          <li>Buggy — jerky movement, clipping</li>
+          <li>Doesn't work with multi-hood system</li>
+          <li>Requires active character selection</li>
+          <li>Conflicts with city overview camera</li>
+        </ul>
+        <div class="badge-high" style="margin-top:10px;">REMOVE</div>
+      </div>
+      <div class="compare-col" style="border: 2px solid var(--green);">
+        <h4 style="color: var(--green);">✅ Proposed — Two Camera Modes</h4>
+        <ul>
+          <li><strong style="color:var(--accent);">Overhead (default)</strong> — existing city map camera, see all hoods</li>
+          <li><strong style="color:var(--cyan);">Street Free-Cam (future)</strong> — click a hood to zoom to street level, free orbit</li>
+          <li>No tracking lock — camera is player-controlled</li>
+          <li>Smooth transition between modes</li>
+          <li>Works with 1 or 100 hoods</li>
+        </ul>
+        <div class="badge-low" style="margin-top:10px;">Player-controlled</div>
+      </div>
+    </div>
+
+    <div class="callout info">
+      <strong>💡 Why No Follow Cam?</strong>
+      <p>With 100+ hoods, a follow cam only shows one. The overhead camera lets the player see the whole gang's movement — which is the point of the simulation. Street free-cam is a future flavor feature for screenshots, not a gameplay requirement.</p>
+    </div>
+  </div>
+
+  <!-- ========================= DEPRECATED FILES ========================= -->
+  <div class="section">
+    <h2>🗑️ Deprecated Files — To Be Removed</h2>
+    <p class="tagline">These files are replaced by HoodAgent + HoodSpawner. Remove after migration.</p>
+
+    <table>
+      <thead>
+        <tr><th>File</th><th>Current Role</th><th>Replaced By</th><th>Status</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="code">FollowCamera.cs</span></td>
+          <td>Tracks single Vinny</td>
+          <td>Overhead camera (existing)</td>
+          <td><span class="tier tier-3">REMOVE</span></td>
+        </tr>
+        <tr>
+          <td><span class="code">StressTestSpawner.cs</span></td>
+          <td>Spawns 100 test agents</td>
+          <td>HoodSpawner</td>
+          <td><span class="tier tier-3">REMOVE</span></td>
+        </tr>
+        <tr>
+          <td><span class="code">StressTestAgent.cs</span></td>
+          <td>Movement-only test agent</td>
+          <td>HoodAgent (movement half)</td>
+          <td><span class="tier tier-3">REMOVE</span></td>
+        </tr>
+        <tr>
+          <td><span class="code">SimulationManager.cs</span></td>
+          <td>Single-hood game logic</td>
+          <td>HoodAgent (game logic half)</td>
+          <td><span class="tier tier-3">REMOVE</span></td>
+        </tr>
+        <tr>
+          <td><span class="code">StressTestDiagnostics.cs</span></td>
+          <td>Perf metrics for stress test</td>
+          <td>TickHUD (existing)</td>
+          <td><span class="tier tier-3">REMOVE</span></td>
+        </tr>
+        <tr>
+          <td>Vinny selector UI (in <span class="code">GameUIController</span>)</td>
+          <td>Teleport button, special Vinny controls</td>
+          <td>Nothing — hoods are autonomous</td>
+          <td><span class="tier tier-3">REMOVE</span></td>
+        </tr>
+        <tr>
+          <td><span class="code">VoxelCharacter.cs</span></td>
+          <td>Render wrapper</td>
+          <td>Unchanged — reused as-is</td>
+          <td><span class="tier tier-1">KEEP</span></td>
+        </tr>
+        <tr>
+          <td><span class="code">Pathfinder.cs</span></td>
+          <td>A* pathfinding</td>
+          <td>Unchanged — shared by all HoodAgents</td>
+          <td><span class="tier tier-1">KEEP</span></td>
+        </tr>
+        <tr>
+          <td><span class="code">WaypointGraph.cs</span></td>
+          <td>Sidewalk waypoint network</td>
+          <td>Unchanged — shared resource</td>
+          <td><span class="tier tier-1">KEEP</span></td>
+        </tr>
+        <tr>
+          <td><span class="code">VoxelCollisionWorld.cs</span></td>
+          <td>Voxel-based collision queries</td>
+          <td>Unchanged — used for ground probe</td>
+          <td><span class="tier tier-1">KEEP</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ========================= IMPLEMENTATION PHASES ========================= -->
+  <div class="section">
+    <h2>📅 Implementation Phasing</h2>
+    <p class="tagline">5 phases, ~40-50 hours total. Phase 1 is the foundation — HoodAgent + HoodSpawner.</p>
+
+    <div class="phase-timeline">
+      <div class="phase-block p1">
+        <div class="ph-num">1</div>
+        <div class="ph-name">HoodAgent + Spawner</div>
+        <div class="ph-effort">~15 hrs</div>
+        <div class="ph-dep">No deps</div>
+      </div>
+      <div class="phase-block p2">
+        <div class="ph-num">2</div>
+        <div class="ph-name">Order System</div>
+        <div class="ph-effort">~10 hrs</div>
+        <div class="ph-dep">← Phase 1</div>
+      </div>
+      <div class="phase-block p3">
+        <div class="ph-num">3</div>
+        <div class="ph-name">Vehicle Logic</div>
+        <div class="ph-effort">~8 hrs</div>
+        <div class="ph-dep">← Phase 2</div>
+      </div>
+      <div class="phase-block p4">
+        <div class="ph-num">4</div>
+        <div class="ph-name">Cleanup Deprecated</div>
+        <div class="ph-effort">~4 hrs</div>
+        <div class="ph-dep">← Phase 1</div>
+      </div>
+      <div class="phase-block p5">
+        <div class="ph-num">5</div>
+        <div class="ph-name">Polish & Test</div>
+        <div class="ph-effort">~8 hrs</div>
+        <div class="ph-dep">← All above</div>
+      </div>
+    </div>
+
+    <div class="card-grid" style="margin-top: 20px;">
+      <div class="card" style="border-left: 3px solid var(--green);">
+        <h3 style="color: var(--green);">Phase 1: HoodAgent + HoodSpawner</h3>
+        <p>Create <span class="code">HoodAgent.cs</span> — merge <span class="code">StressTestAgent</span> movement (A*, waypoint lerp, ground probe) with <span class="code">SimulationManager</span> state machine (Idle → PathToTarget → ExecuteOrder → PathHome). Create <span class="code">HoodSpawner.cs</span> — spawn N hoods at HQ block with ground-probe spawn. <strong>Deliverable: 10 hoods spawn at HQ, walk to random targets, return home.</strong></p>
+      </div>
+      <div class="card" style="border-left: 3px solid var(--yellow);">
+        <h3 style="color: var(--yellow);">Phase 2: Order System</h3>
+        <p>Implement order queue per hood. Order types: Goto, Guard, Extort, Collect, Kill, Bomb. Tick consumption per order type (from GAME_DATA_REFERENCE.md). GangDispatcher starts working phase — iterates all hoods, assigns first order. <strong>Deliverable: assign orders via code, hoods execute them with tick budgets.</strong></p>
+      </div>
+      <div class="card" style="border-left: 3px solid var(--orange);">
+        <h3 style="color: var(--orange);">Phase 3: Vehicle Logic</h3>
+        <p>Distance-based vehicle assignment (>64 units = drive). Random 25% for special orders. Vehicle pool management via GangDispatcher. Hoods enter/exit vehicles, drive via RoadGraph. <strong>Deliverable: hoods drive to distant targets, walk to nearby ones.</strong></p>
+      </div>
+      <div class="card" style="border-left: 3px solid var(--red);">
+        <h3 style="color: var(--red);">Phase 4: Cleanup Deprecated</h3>
+        <p>Remove <span class="code">FollowCamera.cs</span>, <span class="code">StressTestSpawner.cs</span>, <span class="code">StressTestAgent.cs</span>, <span class="code">StressTestDiagnostics.cs</span>, <span class="code">SimulationManager.cs</span>. Remove Vinny selector UI from <span class="code">GameUIController</span>. Remove teleport button. <strong>Deliverable: no references to old systems, clean build.</strong></p>
+      </div>
+      <div class="card" style="border-left: 3px solid var(--accent);">
+        <h3 style="color: var(--accent);">Phase 5: Polish & Test</h3>
+        <p>Test with 1, 10, 50, 100 hoods. Verify tick budgets exhaust correctly. Verify vehicle assignment. Verify ground probe spawn on all terrain types. Performance profiling — confirm 1 draw call for all hoods. <strong>Deliverable: 100 hoods simulating simultaneously at 60+ fps.</strong></p>
+      </div>
+    </div>
+
+    <div class="callout">
+      <strong>💡 Dependency Graph</strong>
+      <p>
+        Phase 1 → Phase 2 (orders need HoodAgent) → Phase 3 (vehicles need orders)<br>
+        Phase 1 → Phase 4 (cleanup can start once HoodAgent works, but finish after Phase 2)<br>
+        Phase 5 (polish) — after all above
+      </p>
+    </div>
+  </div>
+
+  <!-- ========================= PHYSICAL PROJECTILES & CROSSFIRE ========================= -->
+  <div class="section">
+    <h2>🎯 Physical Projectiles & Crossfire</h2>
+    <p class="tagline">No physics engine. Just a spatial hash + distance checks. Stray bullets create stories.</p>
+
+    <div class="compare">
+      <div class="compare-col" style="border: 2px solid var(--text-dim);">
+        <h4 style="color: var(--text-dim);">Hitscan (Baseline)</h4>
+        <ul>
+          <li>Instant raycast — target hit or missed</li>
+          <li>No travel time — can't dodge, can't lead</li>
+          <li>Only the intended target can be hit</li>
+          <li>No stray bullets — no crossfire casualties</li>
+          <li>Simple, deterministic</li>
+        </ul>
+      </div>
+      <div class="compare-col" style="border: 2px solid var(--cyan);">
+        <h4 style="color: var(--cyan);">Physical Projectiles (Recommended)</h4>
+        <ul>
+          <li>Lightweight entity: position, velocity, TTL</li>
+          <li>Travel time — suppression, dodging, leading targets</li>
+          <li><strong style="color:var(--red);">Stray bullets hit anyone</strong> — civilians, cops, rival hoods</li>
+          <li>Crossfire creates mayhem → peds scatter, police escalate</li>
+          <li>Drive-by sprays actually spray a street</li>
+          <li>Witnesses generated → investigations → consequences</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="arch-diagram" style="margin-top: 20px;">
+      <h4 style="color: var(--accent); margin-bottom: 12px;">Spatial Hash — O(N) Rebuild, O(P×k) Queries</h4>
+      <div class="arch-row">
+        <div class="arch-box" style="border-color: var(--green); color: var(--green);">
+          Instance Positions
+          <div class="arch-sub">from instance buffer (already exists)</div>
+        </div>
+        <span class="flow-arrow">→</span>
+        <div class="arch-box" style="border-color: var(--accent); color: var(--accent);">
+          Spatial Hash
+          <div class="arch-sub">Dictionary&lt;Vector3Int, List&lt;int&gt;&gt; — 2-unit cells</div>
+        </div>
+        <span class="flow-arrow">→</span>
+        <div class="arch-box" style="border-color: var(--orange); color: var(--orange);">
+          Projectile Query
+          <div class="arch-sub">check current cell + 8 neighbors</div>
+        </div>
+        <span class="flow-arrow">→</span>
+        <div class="arch-box" style="border-color: var(--red); color: var(--red);">
+          Hit Resolution
+          <div class="arch-sub">damage + animation + CrimeSystem</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card-grid" style="margin-top: 20px;">
+      <div class="card" style="border-left: 3px solid var(--red);">
+        <div class="icon">🚶</div>
+        <h3 style="color: var(--red);">Civilian Hit by Stray Bullet</h3>
+        <p>Projectile hits civilian instance → instant down (unarmed) → <span class="code">WitnessEvent</span> generated with <span class="code">sourceHoodId</span> + <span class="code">location</span> → civilian reports to police → investigation escalates → player's hood becomes wanted.</p>
+        <div class="badge-high">Emergent consequence</div>
+      </div>
+      <div class="card" style="border-left: 3px solid var(--yellow);">
+        <div class="icon">👮</div>
+        <h3 style="color: var(--yellow);">Cop Hit by Crossfire</h3>
+        <p>Projectile hits police instance → cop killer = max threat → immediate police escalation → dispatch SWAT or heavy response → roadblocks → manhunt for source hood.</p>
+        <div class="badge-high">Maximum escalation</div>
+      </div>
+      <div class="card" style="border-left: 3px solid var(--accent);">
+        <div class="icon">🔫</div>
+        <h3 style="color: var(--accent);">Hood Hit by Rival</h3>
+        <p>Projectile hits hood instance → damage applied → flinch/fall animation → faction retaliation triggered → rival gang enters combat state → gunfight escalates.</p>
+        <div class="badge-med">Combat trigger</div>
+      </div>
+      <div class="card" style="border-left: 3px solid var(--orange);">
+        <div class="icon">🚗</div>
+        <h3 style="color: var(--orange);">Vehicle Mayhem</h3>
+        <p>Same spatial hash — vehicle sweeps through cells each frame → AABB overlap check against instances → ped knocked down → vehicle takes damage → emergent chaos during chases.</p>
+        <div class="badge-none">Unified query system</div>
+      </div>
+    </div>
+
+    <table style="margin-top: 20px;">
+      <thead>
+        <tr><th>Scenario</th><th>Instances</th><th>Projectiles</th><th>Checks/Frame</th><th>Physics Engine?</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Ambient (no combat)</td><td>100</td><td>0</td><td>0 (skip rebuild)</td><td><span class="tier tier-1">None</span></td></tr>
+        <tr><td>Single gunfight</td><td>100</td><td>20</td><td>~60 distance checks</td><td><span class="tier tier-1">None</span></td></tr>
+        <tr><td>Major combat</td><td>200</td><td>80</td><td>~240 distance checks</td><td><span class="tier tier-1">None</span></td></tr>
+        <tr><td>City-wide mayhem</td><td>500</td><td>200</td><td>~600 distance checks</td><td><span class="tier tier-1">None</span></td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout danger">
+      <strong>💡 Why Not Unity Physics?</strong>
+      <p>Unity Rigidbody + Collider = broadphase + solver + contact pairs. Scales to ~50 entities before lag. Our spatial hash = O(N) dictionary bucketing + O(P×k) distance checks. Scales to 500+ instances and 200+ projectiles. We need "does this point overlap this sphere" — not resting contacts, stacking, or joints. The spatial hash is the right tool.</p>
+    </div>
+
+    <div class="callout info">
+      <strong>💡 The Mob Sim Value</strong>
+      <p>In a mob sim, the <em>stories</em> come from things going wrong. A hit goes sideways because a pedestrian walked into the crossfire. A drive-by catches a rival who happened to be walking past. Physical projectiles create these moments — and the spatial hash makes it cheap enough for 500+ instances.</p>
+    </div>
+  </div>
+
+  <!-- ========================= DATA FLOW SUMMARY ========================= -->
+  <div class="section">
+    <h2>🔀 Data Flow Summary</h2>
+    <p class="tagline">How data moves through the system — from player input to rendered pixels</p>
+
+    <div class="arch-diagram">
+      <div class="arch-row">
+        <div class="arch-box" style="border-color: var(--purple); color: var(--purple);">
+          Player (Planning)
+          <div class="arch-sub">assigns orders to hoods via UI</div>
+        </div>
+        <span class="flow-arrow">→</span>
+        <div class="arch-box" style="border-color: var(--yellow); color: var(--yellow);">
+          GangDispatcher
+          <div class="arch-sub">starts working phase, iterates all hoods</div>
+        </div>
+        <span class="flow-arrow">→</span>
+        <div class="arch-box" style="border-color: var(--accent); color: var(--accent);">
+          HoodAgent.Update()
+          <div class="arch-sub">state machine + movement + tick budget</div>
+        </div>
+      </div>
+      <div class="arch-arrow-down">↓ per frame ↓</div>
+      <div class="arch-row">
+        <div class="arch-box" style="border-color: var(--green); color: var(--green);">
+          VoxelCharacter
+          <div class="arch-sub">writes pos/yaw/animState to instance buffer</div>
+        </div>
+        <span class="flow-arrow">→</span>
+        <div class="arch-box" style="border-color: var(--cyan); color: var(--cyan);">
+          GPU Instanced Draw
+          <div class="arch-sub">1 draw call, all hoods rendered</div>
+        </div>
+        <span class="flow-arrow">→</span>
+        <div class="arch-box" style="border-color: var(--orange); color: var(--orange);">
+          Screen
+          <div class="arch-sub">player sees all hoods moving</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout info" style="margin-top: 20px;">
+      <strong>💡 Key Architectural Decision: Shared Pathfinder</strong>
+      <p>All HoodAgents share a single <span class="code">Pathfinder</span> instance and <span class="code">WaypointGraph</span>. Pathfinding is done on-demand (when a hood needs a new path), not every frame. The waypoint graph is static — built once at city generation. This means 100 hoods can pathfind without 100 separate graph copies.</p>
+    </div>
+  </div>
+
+</div>
+
+<!-- ========================= FOOTER ========================= -->
+<div class="footer">
+  <p>🏙️ Steel City — Gang Simulation Architecture Visual Guide</p>
+  <p>Companion to <code>GANG_SIMULATION_ARCHITECTURE.md</code> and <code>DOCUMENTATION_INDEX.md</code></p>
+  <div style="margin-top: 8px;">
+    📝 Created: Aug 9, 2026 — Design draft, not yet implemented
+  </div>
+</div>
+
+</body>
+</html>

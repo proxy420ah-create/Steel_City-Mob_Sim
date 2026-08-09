@@ -33,17 +33,18 @@ def _skeleton_has_content(skeleton):
     return bool(skeleton.get('bones')) or bool(skeleton.get('joints'))
 
 
-def load_stasset(filepath):
+def load_stasset_full(filepath):
     """
-    Load .stasset file and return voxel data plus optional skeleton metadata.
+    Load .stasset file and return voxel data plus all metadata.
     
     Args:
         filepath: Path to .stasset file
         
     Returns:
-        tuple: (voxels, dims, skeleton) where voxels is a 3D numpy array (uint16),
-               dims is (width, height, depth), and skeleton is a dict (v2 files
-               with a rig) or None (v1 files / no rig).
+        tuple: (voxels, dims, skeleton, building_meta) where voxels is a 3D
+               numpy array (uint16), dims is (width, height, depth), skeleton
+               is a dict (v2 files with a rig) or None, and building_meta is a
+               dict (v2 files with building metadata) or None.
     """
     with open(filepath, 'rb') as f:
         # Read header (16 bytes)
@@ -78,6 +79,7 @@ def load_stasset(filepath):
         
         # Read optional skeleton block (v2)
         skeleton = None
+        building_meta = None
         if version >= 2:
             block_magic = f.read(4)
             if block_magic == SKELETON_BLOCK_MAGIC:
@@ -87,8 +89,10 @@ def load_stasset(filepath):
                     raise ValueError(
                         f"Truncated skeleton block! Expected {json_len} bytes, got {len(json_bytes)}"
                     )
-                skeleton = json.loads(json_bytes.decode('utf-8'))
-        
+                payload = json.loads(json_bytes.decode('utf-8'))
+                skeleton = payload if (payload.get('bones') or payload.get('joints')) else None
+                building_meta = payload.get('building')
+    
     print(f"✅ Loaded {filepath}")
     print(f"   Dimensions: {width}×{height}×{depth}")
     print(f"   Total voxels: {count:,}")
@@ -96,38 +100,56 @@ def load_stasset(filepath):
     if skeleton is not None:
         print(f"   Skeleton: {len(skeleton.get('bones', []))} bones, "
               f"{len(skeleton.get('joints', []))} joints")
+    if building_meta is not None:
+        print(f"   Building meta: door_face={building_meta.get('door_face')}, "
+              f"door_h={building_meta.get('door_height')}, door_w={building_meta.get('door_width')}")
     
-    return voxels, (width, height, depth), skeleton
+    return voxels, (width, height, depth), skeleton, building_meta
 
 
-def save_stasset(filepath, voxels, skeleton=None):
+def load_stasset(filepath):
     """
-    Save voxel data to .stasset file, optionally embedding skeleton metadata.
+    Backwards-compatible load: returns (voxels, dims, skeleton).
+    Use load_stasset_full() to also get building_meta.
+    """
+    voxels, dims, skeleton, _building_meta = load_stasset_full(filepath)
+    return voxels, dims, skeleton
+
+
+def save_stasset(filepath, voxels, skeleton=None, building_meta=None):
+    """
+    Save voxel data to .stasset file, optionally embedding metadata.
     
     Args:
-        filepath: Output path
+        filepath: Output file path
         voxels: 3D numpy array (uint16)
         skeleton: Optional dict with 'bones', 'joints', 'influence_map',
                   'attachments'. When provided (and non-empty) the file is
-                  written as v2 with an appended skeleton block; otherwise v1.
+                  written as v2 with an appended metadata block; otherwise v1.
+        building_meta: Optional dict with building metadata (door_face,
+                       door_height, door_width, door_y). When provided, the
+                       file is written as v2 with building info in the JSON payload.
     """
     dims = voxels.shape
     has_skeleton = _skeleton_has_content(skeleton)
-    version = 2 if has_skeleton else 1
+    has_building = building_meta is not None and bool(building_meta)
+    version = 2 if (has_skeleton or has_building) else 1
     
     # Pre-serialize the skeleton block so we can report an accurate file size.
     skeleton_bytes = b''
-    if has_skeleton:
+    if has_skeleton or has_building:
         payload = {
             'version': 2,
-            'root_joint': skeleton.get('root_joint'),
-            'bones': skeleton.get('bones', []),
-            'joints': skeleton.get('joints', []),
-            'influence_map': skeleton.get('influence_map', {}),
-            'attachments': skeleton.get('attachments', []),
-            'materials': skeleton.get('materials', {}),
-            'ams': skeleton.get('ams', {}),
+            'root_joint': skeleton.get('root_joint') if has_skeleton else None,
+            'bones': skeleton.get('bones', []) if has_skeleton else [],
+            'joints': skeleton.get('joints', []) if has_skeleton else [],
+            'influence_map': skeleton.get('influence_map', {}) if has_skeleton else {},
+            'attachments': skeleton.get('attachments', []) if has_skeleton else [],
+            'materials': skeleton.get('materials', {}) if has_skeleton else {},
+            'ams': skeleton.get('ams', {}) if has_skeleton else {},
         }
+        if has_building:
+            payload['building'] = building_meta
         json_bytes = json.dumps(payload, default=_json_default).encode('utf-8')
         skeleton_bytes = (
             SKELETON_BLOCK_MAGIC
@@ -162,4 +184,6 @@ def save_stasset(filepath, voxels, skeleton=None):
     if has_skeleton:
         print(f"   Skeleton: {len(payload['bones'])} bones, {len(payload['joints'])} joints, "
               f"{len(payload['influence_map'])} influenced voxels")
+    if has_building:
+        print(f"   Building meta: {building_meta}")
     print(f"   File size: {total_bytes:,} bytes")

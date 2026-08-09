@@ -67,7 +67,7 @@ namespace SteelCity.Sim
 
             // Probe points: just outside each face of the building, at ground level
             // North face = -Z, South face = +Z, East face = +X, West face = -X
-            float probeY = 0.1f; // terrain surface level
+            float probeY = collisionWorld.VoxelSize * 2f; // terrain surface = 2 voxels thick
             float faceOffset = 0.05f; // just outside the building face
 
             bool northRoad = ProbeForRoad(collisionWorld,

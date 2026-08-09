@@ -13,7 +13,7 @@
 | Category | Documents | Status |
 |----------|-----------|--------|
 | **Core Design** | 3 docs | ✅ Complete |
-| **Systems Design** | 10 docs | ✅ Complete |
+| **Systems Design** | 11 docs | ✅ Complete |
 | **Data Reference** | 1 doc | ✅ Complete |
 | **Source Analysis** | 2 docs | ✅ Complete |
 | **Unity Project** | 12 docs | ✅ Complete |
@@ -207,7 +207,16 @@
   - Fallback behavior when no VoxelRenderBridge present
   - Diagnostic logging pipeline for troubleshooting
 
-**Keywords**: systems, character, extortion, territory, intelligence, corruption, police, combat, crime, squeal, 3d, rendering, visualization, camera, playtesting, insights, fear, hostility, legal, diplomacy, path, debug, beams, commandbuffer, instanced
+**Voxel Engine Gotchas:**
+- **`docs/systems/VOXEL_ENGINE_GOTCHAS.md`** — Non-obvious bugs and traps in the voxel rendering/collision/terrain system
+  - ProbeGround flat-array index aliasing (vy out of bounds → false ground hit at Y=66)
+  - DebrisScatter log spam (900+ lines per build from per-item logging in batch loops)
+  - Empty plot detection (partial vs fully vacant block — per-building vs block-level predicate)
+  - Shader animation "Approach A" (output-only offset invisible — must use inverse-transform sampling in DDA)
+  - Missing CharacterAnimation component on spawned hood (animState stays 0, pipeline fed zeros)
+  - Key voxel engine constants table (terrain thickness, voxel sizes, index formula, animation groups)
+
+**Keywords**: systems, character, extortion, territory, intelligence, corruption, police, combat, crime, squeal, 3d, rendering, visualization, camera, playtesting, insights, fear, hostility, legal, diplomacy, path, debug, beams, commandbuffer, instanced, voxel, gotchas, pitfalls, collision, probe, terrain, flat-array, aliasing, animation, shader, raymarch, dda, inverse-transform, groupid, stance, characteranimation
 
 ---
 

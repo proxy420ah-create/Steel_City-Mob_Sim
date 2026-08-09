@@ -164,8 +164,16 @@ namespace SteelCity.Sim
             int vx = Mathf.FloorToInt(local.x);
             int vz = Mathf.FloorToInt(local.z);
 
+            // Bounds check — probing outside the registered grid must fail
+            // fast instead of falling through to the flat-array index math below,
+            // which does NOT validate vx/vz and can alias into unrelated voxel
+            // data at a completely different (bogus) height if left unchecked.
+            if (vx < 0 || vx >= gridW || vz < 0 || vz >= gridD)
+                return false;
+
             // Start from the character's Y and march downward
             int vy = Mathf.FloorToInt(local.y);
+            if (vy >= gridH) vy = gridH - 1;
 
             // DDA straight down — just scan Y voxels from current position
             int steps = 0;

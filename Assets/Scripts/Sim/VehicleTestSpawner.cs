@@ -195,7 +195,7 @@ namespace SteelCity.Sim
                 vehicleParent = vp.transform;
             }
 
-            float groundY = 0.2f; // matches StressTestSpawner's terrain-top convention
+            float groundY = cityMap != null ? cityMap.GetVoxelSize() * 2f : 0.1f;
 
             // Find the road intersection nearest to the player HQ block
             string hqStartNode = FindNearestNodeToHq();

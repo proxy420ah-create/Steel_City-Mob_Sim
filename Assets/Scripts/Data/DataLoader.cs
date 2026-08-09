@@ -266,7 +266,7 @@ namespace SteelCity.Sim
                 }
             }
 
-            var beatsNode = root["police_beats"].AsArray;
+            var beatsNode = root["police_beats"]?.AsArray;
             if (beatsNode != null)
             {
                 for (int i = 0; i < beatsNode.Count; i++)

@@ -3,465 +3,1551 @@
   "blocks": [
     {
       "block_id": "block_1",
-      "block_name": "S Lot 1",
+      "block_name": "N Quarter 1",
       "row": 0,
       "col": 0,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_0.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_1.stasset",
-          "slot": 1
-        }
-      ]
-    },
-    {
-      "block_id": "block_2",
-      "block_name": "Central Block 2",
-      "row": 0,
-      "col": 1,
-      "buildings": [
-        {
-          "type": "empty_land",
-          "illegal": false,
-          "stasset": "voxel_buildings/empty_land_2.stasset",
-          "slot": 0
-        }
-      ]
-    },
-    {
-      "block_id": "block_3",
-      "block_name": "W Quarter 3",
-      "row": 0,
-      "col": 2,
-      "buildings": [
-        {
-          "type": "empty_land",
-          "illegal": false,
-          "stasset": "voxel_buildings/empty_land_3.stasset",
-          "slot": 0
-        }
-      ]
-    },
-    {
-      "block_id": "block_4",
-      "block_name": "Central Ward 4",
-      "row": 0,
-      "col": 3,
-      "buildings": [
-        {
-          "type": "apartments",
-          "illegal": false,
-          "stasset": "voxel_buildings/apartments_0.stasset",
-          "slot": 0
-        }
-      ]
-    },
-    {
-      "block_id": "block_5",
-      "block_name": "SE Zone 5",
-      "row": 0,
-      "col": 4,
-      "buildings": [
-        {
-          "type": "empty_land",
-          "illegal": false,
-          "stasset": "voxel_buildings/empty_land_4.stasset",
-          "slot": 0
-        }
-      ]
-    },
-    {
-      "block_id": "block_6",
-      "block_name": "NW Block 6",
-      "row": 0,
-      "col": 5,
-      "buildings": [
-        {
-          "type": "empty_land",
-          "illegal": false,
-          "stasset": "voxel_buildings/empty_land_5.stasset",
-          "slot": 0
-        }
-      ]
-    },
-    {
-      "block_id": "block_7",
-      "block_name": "NW Row 7",
-      "row": 0,
-      "col": 6,
-      "buildings": [
-        {
-          "type": "empty_land",
-          "illegal": false,
-          "stasset": "voxel_buildings/empty_land_6.stasset",
-          "slot": 0
-        }
-      ]
-    },
-    {
-      "block_id": "block_8",
-      "block_name": "Central Block 8",
-      "row": 0,
-      "col": 7,
-      "buildings": [
-        {
-          "type": "empty_land",
-          "illegal": false,
-          "stasset": "voxel_buildings/empty_land_7.stasset",
-          "slot": 0
-        },
-        {
-          "type": "empty_land",
-          "illegal": false,
-          "stasset": "voxel_buildings/empty_land_8.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 1
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_9.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 2
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_10.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 3
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_11.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 4
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_12.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 5
         },
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_1.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 6
         },
         {
-          "type": "casino",
-          "illegal": true,
-          "stasset": "voxel_buildings/casino_0.stasset",
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
-      "block_id": "block_9",
-      "block_name": "E Zone 9",
+      "block_id": "block_2",
+      "block_name": "N Quarter 2",
       "row": 0,
-      "col": 8,
+      "col": 1,
       "buildings": [
         {
-          "type": "bakery",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/bakery_0.stasset",
-          "slot": 0
-        }
-      ]
-    },
-    {
-      "block_id": "block_10",
-      "block_name": "E Flats 10",
-      "row": 0,
-      "col": 9,
-      "buildings": [
-        {
-          "type": "apartments",
-          "illegal": false,
-          "stasset": "voxel_buildings/apartments_2.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_13.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
+        }
+      ]
+    },
+    {
+      "block_id": "block_3",
+      "block_name": "N Quarter 3",
+      "row": 0,
+      "col": 2,
+      "buildings": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
+        }
+      ]
+    },
+    {
+      "block_id": "block_4",
+      "block_name": "N Quarter 4",
+      "row": 0,
+      "col": 3,
+      "buildings": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
+        }
+      ]
+    },
+    {
+      "block_id": "block_5",
+      "block_name": "N Quarter 5",
+      "row": 0,
+      "col": 4,
+      "buildings": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
+        }
+      ]
+    },
+    {
+      "block_id": "block_6",
+      "block_name": "N Quarter 6",
+      "row": 0,
+      "col": 5,
+      "buildings": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
+        }
+      ]
+    },
+    {
+      "block_id": "block_7",
+      "block_name": "N Quarter 7",
+      "row": 0,
+      "col": 6,
+      "buildings": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
+        }
+      ]
+    },
+    {
+      "block_id": "block_8",
+      "block_name": "N Quarter 8",
+      "row": 0,
+      "col": 7,
+      "buildings": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
+        }
+      ]
+    },
+    {
+      "block_id": "block_9",
+      "block_name": "N Quarter 9",
+      "row": 0,
+      "col": 8,
+      "buildings": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
+        }
+      ]
+    },
+    {
+      "block_id": "block_10",
+      "block_name": "N Quarter 10",
+      "row": 0,
+      "col": 9,
+      "buildings": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_11",
-      "block_name": "NW Lot 11",
+      "block_name": "N Quarter 11",
       "row": 1,
       "col": 0,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_14.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_12",
-      "block_name": "SE Sector 12",
+      "block_name": "N Quarter 12",
       "row": 1,
       "col": 1,
       "buildings": [
         {
-          "type": "speakeasy",
-          "illegal": true,
-          "stasset": "voxel_buildings/speakeasy_0.stasset",
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_13",
-      "block_name": "W Heights 13",
+      "block_name": "N Quarter 13",
       "row": 1,
       "col": 2,
       "buildings": [
         {
-          "type": "butcher",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/butcher_0.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_14",
-      "block_name": "NE District 14",
+      "block_name": "N Quarter 14",
       "row": 1,
       "col": 3,
       "buildings": [
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_3.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_15",
-      "block_name": "Mid Ward 15",
+      "block_name": "N Quarter 15",
       "row": 1,
       "col": 4,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_15.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_16",
-      "block_name": "Central Heights 16",
+      "block_name": "N Quarter 16",
       "row": 1,
       "col": 5,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_16.stasset",
-          "slot": 0
-        }
-      ]
-    },
-    {
-      "block_id": "block_17",
-      "block_name": "E District 17",
-      "row": 1,
-      "col": 6,
-      "buildings": [
-        {
-          "type": "apartments",
-          "illegal": false,
-          "stasset": "voxel_buildings/apartments_4.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
         },
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_5.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 1
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_17.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
+        }
+      ]
+    },
+    {
+      "block_id": "block_17",
+      "block_name": "N Quarter 17",
+      "row": 1,
+      "col": 6,
+      "buildings": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_18",
-      "block_name": "S Flats 18",
+      "block_name": "N Quarter 18",
       "row": 1,
       "col": 7,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_18.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_19.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 1
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_20.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 2
         },
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_6.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_19",
-      "block_name": "Central Block 19",
+      "block_name": "N Quarter 19",
       "row": 1,
       "col": 8,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_21.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_22.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 1
         },
         {
-          "type": "barber",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/barber_0.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_20",
-      "block_name": "Central Lot 20",
+      "block_name": "N Quarter 20",
       "row": 1,
       "col": 9,
       "buildings": [
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_7.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_21",
-      "block_name": "NE Quarter 21",
+      "block_name": "N Quarter 21",
       "row": 2,
       "col": 0,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_23.stasset",
-          "slot": 0
-        }
-      ]
-    },
-    {
-      "block_id": "block_22",
-      "block_name": "S Heights 22",
-      "row": 2,
-      "col": 1,
-      "buildings": [
-        {
-          "type": "casino",
-          "illegal": true,
-          "stasset": "voxel_buildings/casino_1.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_24.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 1
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_25.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 2
         },
         {
-          "type": "butcher",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/butcher_1.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
+        }
+      ]
+    },
+    {
+      "block_id": "block_22",
+      "block_name": "N Quarter 22",
+      "row": 2,
+      "col": 1,
+      "buildings": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_23",
-      "block_name": "W Sector 23",
+      "block_name": "N Quarter 23",
       "row": 2,
       "col": 2,
       "buildings": [
         {
-          "type": "diner",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/diner_0.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_24",
-      "block_name": "Central Heights 24",
+      "block_name": "N Quarter 24",
       "row": 2,
       "col": 3,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_26.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_25",
-      "block_name": "N Row 25",
+      "block_name": "N Quarter 25",
       "row": 2,
       "col": 4,
       "buildings": [
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_8.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
@@ -472,868 +1558,2628 @@
       "col": 5,
       "buildings": [
         {
-          "type": "hq",
-          "stasset": "voxel_buildings/hq_block_26.stasset",
-          "slot": 0
-        },
-        {
-          "type": "apartment_block",
+          "type": "tenement_block",
           "illegal": false,
-          "stasset": "voxel_buildings/apartment_block_0.stasset",
-          "slot": 1
+          "stasset": "voxel_buildings/tenement_block_0.stasset",
+          "slot": 0
         }
       ]
     },
     {
       "block_id": "block_27",
-      "block_name": "S Flats 27",
+      "block_name": "N Quarter 27",
       "row": 2,
       "col": 6,
       "buildings": [
         {
-          "type": "butcher",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/butcher_2.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_28",
-      "block_name": "E Row 28",
+      "block_name": "N Quarter 28",
       "row": 2,
       "col": 7,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_27.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_29",
-      "block_name": "SE Quarter 29",
+      "block_name": "N Quarter 29",
       "row": 2,
       "col": 8,
       "buildings": [
         {
-          "type": "diner",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/diner_1.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_30",
-      "block_name": "SE Heights 30",
+      "block_name": "N Quarter 30",
       "row": 2,
       "col": 9,
       "buildings": [
         {
-          "type": "bakery",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/bakery_1.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_28.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_31",
-      "block_name": "S Quarter 31",
+      "block_name": "W Quarter 31",
       "row": 3,
       "col": 0,
       "buildings": [
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_9.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_32",
-      "block_name": "E Sector 32",
+      "block_name": "W Quarter 32",
       "row": 3,
       "col": 1,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_29.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_33",
-      "block_name": "SW Flats 33",
+      "block_name": "W Quarter 33",
       "row": 3,
       "col": 2,
       "buildings": [
         {
-          "type": "garage",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/garage_0.stasset",
-          "slot": 0
-        }
-      ]
-    },
-    {
-      "block_id": "block_34",
-      "block_name": "S Quarter 34",
-      "row": 3,
-      "col": 3,
-      "buildings": [
-        {
-          "type": "apartments",
-          "illegal": false,
-          "stasset": "voxel_buildings/apartments_10.stasset",
-          "slot": 0
-        }
-      ]
-    },
-    {
-      "block_id": "block_35",
-      "block_name": "N District 35",
-      "row": 3,
-      "col": 4,
-      "buildings": [
-        {
-          "type": "apartments",
-          "illegal": false,
-          "stasset": "voxel_buildings/apartments_11.stasset",
-          "slot": 0
-        }
-      ]
-    },
-    {
-      "block_id": "block_36",
-      "block_name": "NE Ward 36",
-      "row": 3,
-      "col": 5,
-      "buildings": [
-        {
-          "type": "casino",
-          "illegal": true,
-          "stasset": "voxel_buildings/casino_2.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
         },
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_12.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 1
         },
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_13.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 2
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_30.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
+        }
+      ]
+    },
+    {
+      "block_id": "block_34",
+      "block_name": "Central Block 34",
+      "row": 3,
+      "col": 3,
+      "buildings": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
+        }
+      ]
+    },
+    {
+      "block_id": "block_35",
+      "block_name": "Central Block 35",
+      "row": 3,
+      "col": 4,
+      "buildings": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
+        }
+      ]
+    },
+    {
+      "block_id": "block_36",
+      "block_name": "Central Block 36",
+      "row": 3,
+      "col": 5,
+      "buildings": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_37",
-      "block_name": "NW Lot 37",
+      "block_name": "Central Block 37",
       "row": 3,
       "col": 6,
       "buildings": [
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_14.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_38",
-      "block_name": "N Flats 38",
+      "block_name": "E Quarter 38",
       "row": 3,
       "col": 7,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_31.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_39",
-      "block_name": "S Quarter 39",
+      "block_name": "E Quarter 39",
       "row": 3,
       "col": 8,
       "buildings": [
         {
-          "type": "speakeasy",
-          "illegal": true,
-          "stasset": "voxel_buildings/speakeasy_1.stasset",
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_40",
-      "block_name": "N Row 40",
+      "block_name": "E Quarter 40",
       "row": 3,
       "col": 9,
       "buildings": [
         {
-          "type": "garage",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/garage_1.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_41",
-      "block_name": "NE Quarter 41",
+      "block_name": "W Quarter 41",
       "row": 4,
       "col": 0,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_32.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_33.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 1
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_34.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_42",
-      "block_name": "S Lot 42",
+      "block_name": "W Quarter 42",
       "row": 4,
       "col": 1,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_35.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_43",
-      "block_name": "S Flats 43",
+      "block_name": "W Quarter 43",
       "row": 4,
       "col": 2,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_36.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_44",
-      "block_name": "NW Block 44",
+      "block_name": "Central Block 44",
       "row": 4,
       "col": 3,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_37.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_38.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 1
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_39.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_45",
-      "block_name": "Central Lot 45",
+      "block_name": "Central Block 45",
       "row": 4,
       "col": 4,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_40.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_41.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 1
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_42.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 2
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_43.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_46",
-      "block_name": "Central District 46",
+      "block_name": "Central Block 46",
       "row": 4,
       "col": 5,
       "buildings": [
         {
-          "type": "diner",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/diner_2.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_47",
-      "block_name": "NE Flats 47",
+      "block_name": "Central Block 47",
       "row": 4,
       "col": 6,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_44.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_48",
-      "block_name": "S Ward 48",
+      "block_name": "E Quarter 48",
       "row": 4,
       "col": 7,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_45.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_46.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_49",
-      "block_name": "E Heights 49",
+      "block_name": "E Quarter 49",
       "row": 4,
       "col": 8,
       "buildings": [
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_15.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_50",
-      "block_name": "S District 50",
+      "block_name": "E Quarter 50",
       "row": 4,
       "col": 9,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_47.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_51",
-      "block_name": "Central District 51",
+      "block_name": "W Quarter 51",
       "row": 5,
       "col": 0,
       "buildings": [
         {
-          "type": "hq",
-          "stasset": "voxel_buildings/hq_block_51.stasset",
+          "type": "tenement_block",
+          "illegal": false,
+          "stasset": "voxel_buildings/tenement_block_1.stasset",
           "slot": 0
         }
       ]
     },
     {
       "block_id": "block_52",
-      "block_name": "N Zone 52",
+      "block_name": "W Quarter 52",
       "row": 5,
       "col": 1,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_48.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_53",
-      "block_name": "NW Flats 53",
+      "block_name": "W Quarter 53",
       "row": 5,
       "col": 2,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_49.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_50.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 1
         },
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_16.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_54",
-      "block_name": "SE Lot 54",
+      "block_name": "Central Block 54",
       "row": 5,
       "col": 3,
       "buildings": [
         {
-          "type": "bakery",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/bakery_2.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_55",
-      "block_name": "W Sector 55",
+      "block_name": "Central Block 55",
       "row": 5,
       "col": 4,
       "buildings": [
         {
-          "type": "speakeasy",
-          "illegal": true,
-          "stasset": "voxel_buildings/speakeasy_2.stasset",
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_56",
-      "block_name": "W Quarter 56",
+      "block_name": "Central Block 56",
       "row": 5,
       "col": 5,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_51.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
         },
         {
-          "type": "casino",
-          "illegal": true,
-          "stasset": "voxel_buildings/casino_3.stasset",
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 1
         },
         {
-          "type": "diner",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/diner_3.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_57",
-      "block_name": "NE Block 57",
+      "block_name": "Central Block 57",
       "row": 5,
       "col": 6,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_52.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_53.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 1
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_54.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 2
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_55.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 3
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_56.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 4
         },
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_17.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 5
         },
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_18.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_58",
-      "block_name": "Mid Flats 58",
+      "block_name": "E Quarter 58",
       "row": 5,
       "col": 7,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_57.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_59",
-      "block_name": "NE Lot 59",
+      "block_name": "E Quarter 59",
       "row": 5,
       "col": 8,
       "buildings": [
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_19.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
         },
         {
-          "type": "butcher",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/butcher_3.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_60",
-      "block_name": "SE Block 60",
+      "block_name": "E Quarter 60",
       "row": 5,
       "col": 9,
       "buildings": [
         {
-          "type": "bakery",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/bakery_3.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
         },
         {
-          "type": "speakeasy",
-          "illegal": true,
-          "stasset": "voxel_buildings/speakeasy_3.stasset",
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 1
         },
         {
-          "type": "diner",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/diner_4.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 2
         },
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_20.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 3
         },
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_21.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 4
         },
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_22.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 5
         },
         {
-          "type": "barber",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/barber_1.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_61",
-      "block_name": "SE Flats 61",
+      "block_name": "W Quarter 61",
       "row": 6,
       "col": 0,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_58.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_59.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 1
         },
         {
-          "type": "garage",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/garage_2.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_62",
-      "block_name": "SW Quarter 62",
+      "block_name": "W Quarter 62",
       "row": 6,
       "col": 1,
       "buildings": [
         {
-          "type": "casino",
-          "illegal": true,
-          "stasset": "voxel_buildings/casino_4.stasset",
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_63",
-      "block_name": "Central Row 63",
+      "block_name": "W Quarter 63",
       "row": 6,
       "col": 2,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_60.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_64",
-      "block_name": "W Sector 64",
+      "block_name": "Central Block 64",
       "row": 6,
       "col": 3,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_61.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_65",
-      "block_name": "N Quarter 65",
+      "block_name": "Central Block 65",
       "row": 6,
       "col": 4,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_62.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_63.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 1
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_64.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 2
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_65.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 3
         },
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_23.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 4
         },
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_24.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 5
         },
         {
-          "type": "bakery",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/bakery_4.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 6
         },
         {
-          "type": "casino",
-          "illegal": true,
-          "stasset": "voxel_buildings/casino_5.stasset",
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 7
         },
         {
-          "type": "garage",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/garage_3.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 8
         }
       ]
     },
     {
       "block_id": "block_66",
-      "block_name": "S Heights 66",
+      "block_name": "Central Block 66",
       "row": 6,
       "col": 5,
       "buildings": [
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_25.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_67",
-      "block_name": "SW Row 67",
+      "block_name": "Central Block 67",
       "row": 6,
       "col": 6,
       "buildings": [
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_26.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
         },
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_27.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 1
         },
         {
-          "type": "speakeasy",
-          "illegal": true,
-          "stasset": "voxel_buildings/speakeasy_4.stasset",
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 2
         },
         {
-          "type": "speakeasy",
-          "illegal": true,
-          "stasset": "voxel_buildings/speakeasy_5.stasset",
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_68",
-      "block_name": "W Sector 68",
+      "block_name": "E Quarter 68",
       "row": 6,
       "col": 7,
       "buildings": [
         {
-          "type": "casino",
-          "illegal": true,
-          "stasset": "voxel_buildings/casino_6.stasset",
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_69",
-      "block_name": "Central Block 69",
+      "block_name": "E Quarter 69",
       "row": 6,
       "col": 8,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_66.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
@@ -1344,663 +4190,1918 @@
       "col": 9,
       "buildings": [
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_28.stasset",
-          "slot": 0
-        }
-      ]
-    },
-    {
-      "block_id": "block_71",
-      "block_name": "SE Lot 71",
-      "row": 7,
-      "col": 0,
-      "buildings": [
-        {
-          "type": "apartments",
-          "illegal": false,
-          "stasset": "voxel_buildings/apartments_29.stasset",
-          "slot": 0
-        }
-      ]
-    },
-    {
-      "block_id": "block_72",
-      "block_name": "Mid Ward 72",
-      "row": 7,
-      "col": 1,
-      "buildings": [
-        {
-          "type": "apartments",
-          "illegal": false,
-          "stasset": "voxel_buildings/apartments_30.stasset",
-          "slot": 0
-        }
-      ]
-    },
-    {
-      "block_id": "block_73",
-      "block_name": "SE Flats 73",
-      "row": 7,
-      "col": 2,
-      "buildings": [
-        {
-          "type": "casino",
-          "illegal": true,
-          "stasset": "voxel_buildings/casino_7.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_67.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 1
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_68.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 2
         },
         {
-          "type": "diner",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/diner_5.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
+        }
+      ]
+    },
+    {
+      "block_id": "block_71",
+      "block_name": "S Quarter 71",
+      "row": 7,
+      "col": 0,
+      "buildings": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
+        }
+      ]
+    },
+    {
+      "block_id": "block_72",
+      "block_name": "S Quarter 72",
+      "row": 7,
+      "col": 1,
+      "buildings": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
+        }
+      ]
+    },
+    {
+      "block_id": "block_73",
+      "block_name": "S Quarter 73",
+      "row": 7,
+      "col": 2,
+      "buildings": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_74",
-      "block_name": "SW District 74",
+      "block_name": "S Quarter 74",
       "row": 7,
       "col": 3,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_69.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_70.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 1
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_71.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 2
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_72.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 3
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_73.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 4
         },
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_31.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 5
         },
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_32.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 6
         },
         {
-          "type": "speakeasy",
-          "illegal": true,
-          "stasset": "voxel_buildings/speakeasy_6.stasset",
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 7
         },
         {
-          "type": "bakery",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/bakery_5.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 8
         }
       ]
     },
     {
       "block_id": "block_75",
-      "block_name": "S Heights 75",
+      "block_name": "S Quarter 75",
       "row": 7,
       "col": 4,
       "buildings": [
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_33.stasset",
-          "slot": 0
-        }
-      ]
-    },
-    {
-      "block_id": "block_76",
-      "block_name": "S Lot 76",
-      "row": 7,
-      "col": 5,
-      "buildings": [
-        {
-          "type": "police_station",
-          "stasset": "voxel_buildings/police_station_block_76.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
         },
-        {
-          "type": "butcher",
-          "illegal": false,
-          "stasset": "voxel_buildings/butcher_4.stasset",
-          "slot": 1
-        }
-      ]
-    },
-    {
-      "block_id": "block_77",
-      "block_name": "SW Block 77",
-      "row": 7,
-      "col": 6,
-      "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_74.stasset",
-          "slot": 0
-        }
-      ]
-    },
-    {
-      "block_id": "block_78",
-      "block_name": "NE Zone 78",
-      "row": 7,
-      "col": 7,
-      "buildings": [
-        {
-          "type": "bakery",
-          "illegal": false,
-          "stasset": "voxel_buildings/bakery_6.stasset",
-          "slot": 0
-        }
-      ]
-    },
-    {
-      "block_id": "block_79",
-      "block_name": "NE Block 79",
-      "row": 7,
-      "col": 8,
-      "buildings": [
-        {
-          "type": "speakeasy",
-          "illegal": true,
-          "stasset": "voxel_buildings/speakeasy_7.stasset",
-          "slot": 0
-        }
-      ]
-    },
-    {
-      "block_id": "block_80",
-      "block_name": "SE Quarter 80",
-      "row": 7,
-      "col": 9,
-      "buildings": [
-        {
-          "type": "butcher",
-          "illegal": false,
-          "stasset": "voxel_buildings/butcher_5.stasset",
-          "slot": 0
-        }
-      ]
-    },
-    {
-      "block_id": "block_81",
-      "block_name": "NE Row 81",
-      "row": 8,
-      "col": 0,
-      "buildings": [
-        {
-          "type": "speakeasy",
-          "illegal": true,
-          "stasset": "voxel_buildings/speakeasy_8.stasset",
-          "slot": 0
-        },
-        {
-          "type": "bakery",
-          "illegal": false,
-          "stasset": "voxel_buildings/bakery_7.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 1
         },
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_34.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 2
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_75.stasset",
-          "slot": 3
-        }
-      ]
-    },
-    {
-      "block_id": "block_82",
-      "block_name": "S Ward 82",
-      "row": 8,
-      "col": 1,
-      "buildings": [
-        {
-          "type": "speakeasy",
-          "illegal": true,
-          "stasset": "voxel_buildings/speakeasy_9.stasset",
-          "slot": 0
-        },
-        {
-          "type": "speakeasy",
-          "illegal": true,
-          "stasset": "voxel_buildings/speakeasy_10.stasset",
-          "slot": 1
-        },
-        {
-          "type": "speakeasy",
-          "illegal": true,
-          "stasset": "voxel_buildings/speakeasy_11.stasset",
-          "slot": 2
-        },
-        {
-          "type": "apartments",
-          "illegal": false,
-          "stasset": "voxel_buildings/apartments_35.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 3
         },
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_36.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 4
         },
         {
-          "type": "garage",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/garage_4.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 5
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_76.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 6
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_77.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
+        }
+      ]
+    },
+    {
+      "block_id": "block_76",
+      "block_name": "S Quarter 76",
+      "row": 7,
+      "col": 5,
+      "buildings": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
+        }
+      ]
+    },
+    {
+      "block_id": "block_77",
+      "block_name": "S Quarter 77",
+      "row": 7,
+      "col": 6,
+      "buildings": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
+        }
+      ]
+    },
+    {
+      "block_id": "block_78",
+      "block_name": "S Quarter 78",
+      "row": 7,
+      "col": 7,
+      "buildings": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
+        }
+      ]
+    },
+    {
+      "block_id": "block_79",
+      "block_name": "S Quarter 79",
+      "row": 7,
+      "col": 8,
+      "buildings": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
+        }
+      ]
+    },
+    {
+      "block_id": "block_80",
+      "block_name": "S Quarter 80",
+      "row": 7,
+      "col": 9,
+      "buildings": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
+        }
+      ]
+    },
+    {
+      "block_id": "block_81",
+      "block_name": "S Quarter 81",
+      "row": 8,
+      "col": 0,
+      "buildings": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
+        }
+      ]
+    },
+    {
+      "block_id": "block_82",
+      "block_name": "S Quarter 82",
+      "row": 8,
+      "col": 1,
+      "buildings": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_83",
-      "block_name": "NW Lot 83",
+      "block_name": "S Quarter 83",
       "row": 8,
       "col": 2,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_78.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_84",
-      "block_name": "W Zone 84",
+      "block_name": "S Quarter 84",
       "row": 8,
       "col": 3,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_79.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
         },
         {
-          "type": "speakeasy",
-          "illegal": true,
-          "stasset": "voxel_buildings/speakeasy_12.stasset",
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 1
         },
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_37.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_85",
-      "block_name": "W Ward 85",
+      "block_name": "S Quarter 85",
       "row": 8,
       "col": 4,
       "buildings": [
         {
-          "type": "speakeasy",
-          "illegal": true,
-          "stasset": "voxel_buildings/speakeasy_13.stasset",
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_86",
-      "block_name": "SW Lot 86",
+      "block_name": "S Quarter 86",
       "row": 8,
       "col": 5,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_80.stasset",
-          "slot": 0
-        }
-      ]
-    },
-    {
-      "block_id": "block_87",
-      "block_name": "W Sector 87",
-      "row": 8,
-      "col": 6,
-      "buildings": [
-        {
-          "type": "apartments",
-          "illegal": false,
-          "stasset": "voxel_buildings/apartments_38.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
         },
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_39.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 1
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_81.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
+        }
+      ]
+    },
+    {
+      "block_id": "block_87",
+      "block_name": "S Quarter 87",
+      "row": 8,
+      "col": 6,
+      "buildings": [
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_88",
-      "block_name": "NE Sector 88",
+      "block_name": "S Quarter 88",
       "row": 8,
       "col": 7,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_82.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_89",
-      "block_name": "NW Block 89",
+      "block_name": "S Quarter 89",
       "row": 8,
       "col": 8,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_83.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
         },
         {
-          "type": "speakeasy",
-          "illegal": true,
-          "stasset": "voxel_buildings/speakeasy_14.stasset",
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 1
         },
         {
-          "type": "garage",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/garage_5.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 2
         },
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_40.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_90",
-      "block_name": "NE Quarter 90",
+      "block_name": "S Quarter 90",
       "row": 8,
       "col": 9,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_84.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_91",
-      "block_name": "Central District 91",
+      "block_name": "S Quarter 91",
       "row": 9,
       "col": 0,
       "buildings": [
         {
-          "type": "casino",
-          "illegal": true,
-          "stasset": "voxel_buildings/casino_8.stasset",
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_92",
-      "block_name": "SW Block 92",
+      "block_name": "S Quarter 92",
       "row": 9,
       "col": 1,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_85.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
         },
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_41.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 1
         },
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_42.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 2
         },
         {
-          "type": "diner",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/diner_6.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_93",
-      "block_name": "S Ward 93",
+      "block_name": "S Quarter 93",
       "row": 9,
       "col": 2,
       "buildings": [
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_43.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_94",
-      "block_name": "E Row 94",
+      "block_name": "S Quarter 94",
       "row": 9,
       "col": 3,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_86.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
         },
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_44.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 1
         },
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_45.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 2
         },
         {
-          "type": "butcher",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/butcher_6.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 3
         },
         {
-          "type": "speakeasy",
-          "illegal": true,
-          "stasset": "voxel_buildings/speakeasy_15.stasset",
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_95",
-      "block_name": "NE Row 95",
+      "block_name": "S Quarter 95",
       "row": 9,
       "col": 4,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_87.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
         },
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_88.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 1
         },
         {
-          "type": "butcher",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/butcher_7.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 2
         },
         {
-          "type": "barber",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/barber_2.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_96",
-      "block_name": "E Flats 96",
+      "block_name": "S Quarter 96",
       "row": 9,
       "col": 5,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_89.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_97",
-      "block_name": "Mid Heights 97",
+      "block_name": "S Quarter 97",
       "row": 9,
       "col": 6,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_90.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_98",
-      "block_name": "NE Heights 98",
+      "block_name": "S Quarter 98",
       "row": 9,
       "col": 7,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_91.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_99",
-      "block_name": "Mid Quarter 99",
+      "block_name": "S Quarter 99",
       "row": 9,
       "col": 8,
       "buildings": [
         {
-          "type": "apartments",
+          "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/apartments_46.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     },
     {
       "block_id": "block_100",
-      "block_name": "E Block 100",
+      "block_name": "S Quarter 100",
       "row": 9,
       "col": 9,
       "buildings": [
         {
           "type": "empty_land",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land_92.stasset",
+          "stasset": "voxel_buildings/empty_land.stasset",
           "slot": 0
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 1
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 2
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 3
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 4
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 5
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 6
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 7
+        },
+        {
+          "type": "empty_land",
+          "illegal": false,
+          "stasset": "voxel_buildings/empty_land.stasset",
+          "slot": 8
         }
       ]
     }
@@ -2011,60 +6112,10 @@
       4,
       32
     ],
-    "apartments": [
-      32,
-      36,
-      34
-    ],
-    "casino": [
-      32,
-      24,
-      32
-    ],
-    "bakery": [
-      32,
-      18,
-      34
-    ],
-    "speakeasy": [
-      32,
-      18,
-      32
-    ],
-    "butcher": [
-      32,
-      20,
-      32
-    ],
-    "barber": [
-      32,
-      20,
-      34
-    ],
-    "diner": [
-      32,
-      16,
-      32
-    ],
-    "hq": [
-      32,
-      28,
-      32
-    ],
-    "apartment_block": [
+    "tenement_block": [
       96,
       44,
-      98
-    ],
-    "garage": [
-      32,
-      14,
-      32
-    ],
-    "police_station": [
-      32,
-      26,
-      34
+      96
     ]
   }
 }

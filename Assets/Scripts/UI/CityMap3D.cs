@@ -27,6 +27,12 @@ namespace SteelCity.Sim
     {
         [Header("Camera")]
         [SerializeField] private Camera mapCamera;
+
+        [Header("Debug Toggles")]
+        [Tooltip("When true, removes camera zoom/pitch/orbit restrictions for close-up animation inspection. Toggle in Inspector or via code.")]
+        public bool debugCameraFreedom = false;
+        [Tooltip("Orbit distance when debugCameraFreedom is enabled. Smaller = closer to character.")]
+        public float debugCameraOrbitDistance = 5f;
         [Range(0f, 1f)]
         [SerializeField] private float viewportWidth = 0.4f;
         [SerializeField] private bool mapOnRightSide = true;
@@ -125,7 +131,7 @@ namespace SteelCity.Sim
         public void SetCameraOrthoSize(float size)
         {
             if (mapCamera != null)
-                mapCamera.orthographicSize = Mathf.Clamp(size, 1f, 60f);
+                mapCamera.orthographicSize = Mathf.Clamp(size, debugCameraFreedom ? 0.1f : 1f, 60f);
         }
 
         // --- Camera rotation (smooth) ---
@@ -148,7 +154,7 @@ namespace SteelCity.Sim
 
         public void SetCameraPitch(float pitch)
         {
-            targetPitch = Mathf.Clamp(pitch, 10f, 80f);
+            targetPitch = Mathf.Clamp(pitch, debugCameraFreedom ? 1f : 10f, debugCameraFreedom ? 89f : 80f);
         }
 
         public void ResetCamera()
@@ -181,10 +187,11 @@ namespace SteelCity.Sim
             cameraPitch = Mathf.Lerp(cameraPitch, targetPitch, Time.deltaTime * 5f);
 
             // Compute camera position from yaw/pitch orbiting focus point
+            float orbitDist = debugCameraFreedom ? debugCameraOrbitDistance : CameraOrbitDistance;
             float yawRad = cameraYaw * Mathf.Deg2Rad;
             float pitchRad = cameraPitch * Mathf.Deg2Rad;
-            float horizDist = CameraOrbitDistance * Mathf.Cos(pitchRad);
-            float height = CameraOrbitDistance * Mathf.Sin(pitchRad);
+            float horizDist = orbitDist * Mathf.Cos(pitchRad);
+            float height = orbitDist * Mathf.Sin(pitchRad);
 
             Vector3 camPos = cameraFocus + new Vector3(
                 -horizDist * Mathf.Sin(yawRad),
@@ -501,9 +508,19 @@ namespace SteelCity.Sim
             if (IsExecutionMode)
             {
                 // Working mode: skip planning-only interactions (mouse camera, click, road ticker)
-                // FollowCamera handles camera; map camera is disabled
+                // Map camera is focused on HQ via GameUIController.FocusCameraOnHq()
                 return;
             }
+
+            // Debug hotkey: F6 toggles camera freedom + debris scatter
+            var kb = Keyboard.current;
+            if (kb != null && kb.f6Key.wasPressedThisFrame)
+            {
+                debugCameraFreedom = !debugCameraFreedom;
+                ProceduralDebrisScatterer.Enabled = !debugCameraFreedom;
+                Debug.Log($"[CityMap3D] 🎛️ Debug toggles: cameraFreedom={debugCameraFreedom}, debrisScatter={!debugCameraFreedom}");
+            }
+
             HandleMouseCamera();
             HandleClick();
             UpdateCameraTransform();
@@ -566,8 +583,10 @@ namespace SteelCity.Sim
                 float scroll = Mouse.current.scroll.ReadValue().y;
                 if (Mathf.Abs(scroll) > 0.1f)
                 {
-                    float newSize = mapCamera.orthographicSize - scroll * 0.08f;
-                    mapCamera.orthographicSize = Mathf.Clamp(newSize, 3f, 40f);
+                    float zoomSpeed = debugCameraFreedom ? 0.04f : 0.08f;
+                    float minZoom = debugCameraFreedom ? 0.1f : 3f;
+                    float newSize = mapCamera.orthographicSize - scroll * zoomSpeed;
+                    mapCamera.orthographicSize = Mathf.Clamp(newSize, minZoom, 40f);
                 }
             }
 
@@ -581,7 +600,9 @@ namespace SteelCity.Sim
             {
                 Vector2 delta = mousePos - lastMousePos;
                 targetYaw += delta.x * 0.3f;
-                targetPitch = Mathf.Clamp(targetPitch - delta.y * 0.2f, 10f, 80f);
+                float minPitch = debugCameraFreedom ? 1f : 10f;
+                float maxPitch = debugCameraFreedom ? 89f : 80f;
+                targetPitch = Mathf.Clamp(targetPitch - delta.y * 0.2f, minPitch, maxPitch);
                 lastMousePos = mousePos;
             }
             if (Mouse.current.middleButton.wasReleasedThisFrame)
@@ -1163,6 +1184,15 @@ namespace SteelCity.Sim
                 vehObj.transform.SetParent(mapRoot, false);
                 var vts = vehObj.AddComponent<VehicleTestSpawner>();
                 Debug.Log("[CityMap3D] Added VehicleTestSpawner to scene — will auto-spawn vehicle near HQ.");
+            }
+
+            // Spawn HoodSpawner for debug hood placement (empty plot, ground-probed Y)
+            if (FindFirstObjectByType<HoodSpawner>() == null)
+            {
+                var hoodObj = new GameObject("HoodSpawner");
+                hoodObj.transform.SetParent(mapRoot, false);
+                var hs = hoodObj.AddComponent<HoodSpawner>();
+                Debug.Log("[CityMap3D] Added HoodSpawner to scene — will auto-spawn debug hood in empty plot.");
             }
         }
 

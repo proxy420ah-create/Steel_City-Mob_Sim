@@ -217,7 +217,7 @@ namespace SteelCity.Sim
 
             float spawnX = (spawnBlock.col - centerCol) * spacing;
             float spawnZ = -(spawnBlock.row - centerRow) * spacing;
-            float groundY = 0.2f; // terrain top surface
+            float groundY = cityMap != null ? cityMap.GetVoxelSize() * 2f : 0.1f;
 
             Debug.Log($"[StressTest] Starting: {characterCount} agents, spawn at {spawnBlock.id} ({spawnX:F1}, {spawnZ:F1})");
 

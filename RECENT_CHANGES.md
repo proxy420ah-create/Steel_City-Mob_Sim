@@ -1,6 +1,193 @@
 # Recent Changes — Steel City: Mob Sim
 
-**Last Updated**: August 9, 2026 (Terrain Sector Baking + Collision World Optimization — 211x load time improvement)
+**Last Updated**: August 9, 2026 (Remove deprecated Vinny UI + FollowCamera → HQ camera focus)
+
+---
+
+## August 9, 2026 — Remove Deprecated Vinny UI + FollowCamera
+
+### Impact
+- **Planning mode**: Camera stays on debug hood (HoodSpawner) for animation work — no more Vinny teleport UI clutter
+- **Working mode**: Camera smoothly transitions to HQ tenement block in isometric perspective (45° yaw, 35.264° pitch, ortho=8)
+- **Working → Planning**: Camera smoothly returns to debug hood character
+- **FollowCamera deprecated** — no longer instantiated, marked with deprecation header
+
+### Changes
+
+#### `GameUIController.cs`
+- Removed `vinnyPlacementMode` and `vinnyTeleportTargetBlockId` fields
+- Removed Vinny teleport hotkey handling from `Update()`
+- Removed Vinny placement mode interception from `OnBlockClicked()`
+- Removed Vinny button + placement mode UI from `RefreshBlockInfo()`
+- Removed entire `VINNY TELEPORT` region (`OnVinnyClicked`, `ExitVinnyPlacementMode`, `TeleportVinnyToBlock`)
+- Removed `followCam` field
+- Replaced FollowCamera setup with `FocusCameraOnHq()` — focuses map camera on HQ block
+- Replaced FollowCamera shutdown with `RestoreCameraFromHq()` — returns camera to debug hood
+- Added `FocusCameraOnHq()` and `RestoreCameraFromHq()` helper methods
+- Planning phase text no longer shows `[VINNY PLACEMENT]` tag
+
+#### `CityMap3D.cs`
+- Updated stale comment referencing FollowCamera
+
+#### `VoxelChunkManager.cs`
+- Updated stale comment referencing FollowCamera
+
+#### `FollowCamera.cs`
+- Added deprecation header — no longer instantiated, kept for reference
+
+### Files Modified
+| File | Change |
+|---|---|
+| `GameUIController.cs` | Removed Vinny UI + FollowCamera, added HQ camera focus/restore |
+| `CityMap3D.cs` | Updated comment |
+| `VoxelChunkManager.cs` | Updated comment |
+| `FollowCamera.cs` | Added deprecation header |
+
+### Testing Notes
+- **Planning mode**: Camera stays on debug hood from HoodSpawner. Press 1-9 to cycle animations as before.
+- **Working mode (Run Week)**: Camera smoothly lerps to HQ block in isometric view. Simulation runs as before.
+- **Working → Planning**: Camera smoothly returns to debug hood.
+- No Vinny teleport button in block info panel anymore.
+
+---
+
+## August 9, 2026 — Animation Fix: Inverse-Transform Sampling + Component Wiring
+
+### Impact
+- **Character animations now actually visible** — head turns, arms/legs swing, crouching, flinching all work
+- **9 animation states** fully functional (Idle, Walking, Looking, Checking, Aiming, Crouching, Flinching, Falling, Down)
+- **Debug key cycling** — press 1-9 in Play mode to test each state
+- **No skeleton, no rigging** — purely shader-based per-voxel group transforms in the DDA raymarch
+
+### Root Causes Fixed
+
+#### Bug 1: Shader "Approach A" — output-only offset was invisible
+The original `GroupTransformOffset` applied the animation offset to `worldHit` **after** the DDA raymarch found a hit. This only changed the depth buffer write — the screen position and color were unchanged. The character looked identical in every animation state.
+
+**Fix**: Switched to "Approach B" — inverse-transform sampling in the DDA loop. Each DDA voxel position is inverse-transformed to find its rest-space position, and voxel data is sampled there. The ray "sees" voxels at their posed positions, producing visible movement.
+
+#### Bug 2: Missing CharacterAnimation component on spawned hood
+`HoodSpawner.SpawnDebugHood()` created a `VoxelCharacter` but never added `CharacterAnimation`. The entire animation pipeline was fed zeros (animState=0=Idle forever).
+
+**Fix**: Added `CharacterAnimation` + `PedestrianLookAround` to spawned hood. Added debug key cycling (1-9) using `UnityEngine.InputSystem.Keyboard.current`.
+
+### Changes
+
+#### `VoxelProxyRaymarch.shader`
+- Refactored animation functions: extracted shared `ComputeGroupRotation()` (returns bool — false when state has no transform for that group)
+- Added `InverseGroupTransformOffset()` — uses `transpose(rot)` for inverse rotation
+- DDA loop now inverse-transforms each voxel to rest space before sampling `_VoxelData`
+- Removed output-only `worldHit += offset` (Approach A — dead code)
+- Added Aiming (state 4), Crouching (state 5), Flinching (state 6), Falling (state 7) states
+- `SmoothNormal` now uses `sampleVoxel` (inverse-transformed) instead of `voxel` (DDA position)
+
+#### `HoodSpawner.cs`
+- Added `using UnityEngine.InputSystem`
+- Added `CharacterAnimation` component to spawned hood (with `autoDetectWalking = false`)
+- Added `PedestrianLookAround` component to spawned hood
+- Added `Update()` with debug key cycling: `Keyboard.current[Key.Digit1 + i].wasPressedThisFrame`
+- 9 states: Idle, Walking, Looking, Checking, Aiming, Crouching, Flinching, Falling, Down
+
+### Files Modified
+| File | Change |
+|---|---|
+| `VoxelProxyRaymarch.shader` | Approach A → B (inverse-transform DDA sampling), added states 4-7, shared `ComputeGroupRotation` |
+| `HoodSpawner.cs` | Added CharacterAnimation + PedestrianLookAround, debug key cycling (Input System) |
+
+### Documentation Updated
+| File | Change |
+|---|---|
+| `VOXEL_ENGINE_GOTCHAS.md` | Added Gotcha #4 (Approach A invisible) + Gotcha #5 (missing CharacterAnimation) |
+| `DOCUMENTATION_INDEX.md` | Updated gotchas summary + animation keywords |
+
+### Testing Notes
+- Press 1-9 in Play mode to cycle animation states
+- Console logs `[HoodSpawner] 🎬 Animation state → [state]` on each key press
+- Head should turn during Looking/Checking, arms/legs swing during Walking, etc.
+- If no animation: check console for groupID buffer loading log from VoxelChunkManager
+
+---
+
+## August 9, 2026 — Voxel Group Animation (Articulated Limbs Without Skeletons)
+
+### Impact
+- **Vinny and all pedestrians can now walk with swinging arms/legs and turn their heads**
+- **Zero additional draw calls** — still 1 draw call per asset type (GPU instancing preserved)
+- **+8 KB GPU memory** per 500 instances (16→32 bytes/instance) + ~16 KB one-time groupID buffer
+- **<1-3ms additional GPU time** — one extra buffer read + ~10 ALU ops per hit voxel in DDA loop
+- **Backward compatible** — vehicles and buildings unaffected (no .groups file = no transform)
+
+### Changes
+
+#### 1. Voxel Group Partitioning (`.groups` files)
+- Python script partitioned 4 character `.stasset` files into 6 animation groups (head, torso, L/R arms, L/R legs)
+- New `.groups` file format (STAG magic, same layout as .stasset, uint16 groupID per voxel)
+- Files: `character_hoodlum_0.groups`, `character_civilian_0.groups`, `character_police_0.groups`, `character_hoodlum_overcoat_0.groups`
+- Backups created: `*.stasset.bak` for all 4 characters
+
+#### 2. Instance Buffer Expansion (`VoxelChunkManager.cs`)
+- `InstancedCharacter`: added `animState`, `animTime`, `animSpeed` fields
+- `InstancedGroup`: added `groupIDBuffer` (ComputeBuffer for per-voxel groupIDs)
+- `RenderInstancedGroup()`: instance buffer now 2x float4 per instance (pos+yaw, anim+speed)
+- `LoadGroupIDs()`: new method to load STAG-format .groups files
+- Buffer stride: 16→32 bytes/instance, allocated as `visibleCount * 2` elements
+- Binds `_GroupIDs`, `_GroupIDsEnabled`, `_InstanceCount` to shader via MaterialPropertyBlock
+- `ReleaseAllInstancedGroups()`: releases groupIDBuffer alongside voxel/instance buffers
+
+#### 3. Shader Group Transforms (`VoxelProxyRaymarch.shader`)
+- New bindings: `_GroupIDs` (StructuredBuffer<uint>), `_GroupIDsEnabled` (int), `_InstanceCount` (int)
+- `Varyings`: added `animState`, `animTime`, `animSpeed` (TEXCOORD5-7)
+- Vertex shader: reads animation data from `_InstanceOffsets[instanceID + _InstanceCount]`
+- `GroupTransformOffset()` function: computes per-group rotation offset based on animState/animTime
+  - Walking (state 1): arms swing sin(6t)±0.3rad, legs stride sin(6t+π)±0.4rad
+  - Looking/Checking (state 2-3): head yaw sin(2t)±0.5rad, pitch sin(1.3t)±0.1rad
+  - Pivot points computed from dims: head(0.5,0.78,0.5), arms(0.25/0.75,0.75,0.5), legs(0.375/0.625,0.34,0.5)
+- DDA loop: on voxel hit, reads groupID, computes offset, applies to worldHit via `mul(volInvRot, offset)`
+- ~~Approach A: transform applied to output position only (depth compositing), not to raymarch itself~~ **SUPERSEDED — see Animation Fix entry above (Approach B: inverse-transform sampling)**
+- All 3 instancing paths set anim defaults (BUILDING_INSTANCING=0, character=from buffer, non-instanced=0)
+
+#### 4. Animation Driver (`CharacterAnimation.cs` — new file)
+- `AnimState` enum: Idle, Walking, Looking, Checking, Aiming, Crouching, Flinching, Falling, Down
+- Auto-detects walking from velocity (configurable threshold)
+- Pushes animState/animTime/animSpeed to InstancedCharacter handle each frame
+- `SetState()` resets animTime for clean transitions
+
+#### 5. Gangsters-Inspired NPC Behavior (`PedestrianLookAround.cs` — new file)
+- Random look-around: 5-15s interval, 2-4s duration, sets state to Looking
+- `CoastClearCheck()` coroutine for hoods: sets state to Checking, longer pause
+- Same head-turn animation for civilians and hoods = emergent suspicion
+
+#### 6. VoxelCharacter Accessor (`VoxelCharacter.cs`)
+- Added `GetInstancedHandle()` public method so CharacterAnimation can access the instanced render handle
+
+### Design Documentation
+- `docs/systems/VOXEL_GROUP_ANIMATION.md` — 547-line dedicated design doc (12 sections)
+- `COMBAT_VEHICLE_DESIGN.md` — updated with Gangsters design reference + 6-step implementation plan
+- `STEEL_CITY_ROADMAP.html` — added Phase 4c (Voxel Group Animation)
+- `DOCUMENTATION_INDEX.md` — added VOXEL_GROUP_ANIMATION.md to systems listing + quick lookup
+
+### Files Modified
+| File | Change |
+|---|---|
+| `VoxelChunkManager.cs` | Instance buffer expansion, groupID loading, buffer binding |
+| `VoxelProxyRaymarch.shader` | Group transform in DDA loop, anim Varyings, vertex shader reads |
+| `VoxelCharacter.cs` | GetInstancedHandle() accessor |
+| `RECENT_CHANGES.md` | This entry |
+
+### Files Created
+| File | Purpose |
+|---|---|
+| `CharacterAnimation.cs` | Animation state driver (pushes to GPU via instance buffer) |
+| `PedestrianLookAround.cs` | Gangsters-inspired random look-around behavior |
+| `*.groups` (4 files) | Per-voxel groupID data for each character model |
+| `*.stasset.bak` (4 files) | Backups of original character assets |
+| `VOXEL_GROUP_ANIMATION.md` | Design doc (547 lines, 12 sections) |
+
+### Testing Notes
+- **Expected behavior**: When CharacterAnimation is attached and state=Walking, Vinny's arms/legs should swing. When state=Looking, head should turn left/right.
+- **Without CharacterAnimation**: Characters render as before (animState=0=Idle, no group transforms applied since _GroupIDsEnabled=0 for groups without .groups files... wait, _GroupIDsEnabled is set per-group based on whether groupIDBuffer exists. Characters WITH .groups but WITHOUT CharacterAnimation will have _GroupIDsEnabled=1 but animState=0, so GroupTransformOffset returns float3(0,0,0) for all groups. Safe.)
+- **Vehicles**: No .groups files → groupIDBuffer=null → _GroupIDsEnabled=0 → no transform. Safe.
+- **Buildings**: BUILDING_INSTANCING path → anim fields set to 0 → no transform. Safe.
 
 ---
 

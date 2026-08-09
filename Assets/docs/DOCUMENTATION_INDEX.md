@@ -169,6 +169,17 @@
   - Phase 6: Scale test with 500-1000 block cities
   - Each phase independently testable with rollback instructions
 
+- **`docs/systems/INVARIANT_COMPUTATION_PRINCIPLE.md`** — "Do Once, Not Repeat Constantly" optimization principle (Aug 9)
+  - Case studies: TRS matrix cache, collision world flat array
+  - 6 pending candidates identified during audit (sector bounds, propblock clear, group size, chunk AABB, corners array, instanced arrays)
+  - Audit checklist for code review + anti-patterns to watch for
+  - Profiling tips using HUD frame time metrics
+
+- **`docs/systems/OPTIMIZATION_VISUAL.html`** — Visual guide to TRS cache + collision world optimizations (Aug 9)
+  - Interactive HTML with diagrams, flowcharts, before/after comparisons
+  - Covers TRS matrix structure, dictionary vs flat array, grid expansion bug
+  - Frame time vs FPS measurement guide
+
 - **`docs/systems/DYNAMIC_OBJECT_RENDERING_TIERS.md`** — Rendering strategy classification
   - Three tiers: bake (static), instance (batched dynamic), individual (unique mutation)
   - Decision checklist for new dynamic objects
@@ -179,7 +190,33 @@
   - Per-type batching with MaterialPropertyBlock color isolation
   - Composited into voxel render texture
 
-**Keywords**: instancing, ComputeBuffer, MaterialPropertyBlock, DrawMeshInstanced, DrawMeshInstancedIndirect, proxy cube, raymarch, buffer binding, sector baking, rendering tiers, GPU-driven, compute shader, frustum culling, LOD, terrain baking, collision world
+- **`docs/systems/COMBAT_VEHICLE_DESIGN.md`** — Street combat, vehicle chase, physics & NPC animation design (Aug 9)
+  - Cover system: Approach A (collision world query) vs Approach B (dynamic cover props)
+  - Vehicle physics: 3 tiers (sphere, raycast suspension, WheelCollider) — recommends sphere for civilians, raycast for combat
+  - NPC animation without skeletons: procedural shader, voxel swap, voxel groups, morph targets
+  - Vehicle combat: Tier 2→3→1 promotion, firing from vehicles, crash/flip/disable
+  - Traffic swarm: bumper system, flee vectors, formation following, stuck detection
+  - Police escalation: noise/threat system, escalation ladder, roadblocks
+  - 7-phase implementation plan with dependencies (~150 hrs total)
+
+- **`docs/systems/COMBAT_VISUAL.html`** — Visual guide to combat & vehicle design concepts (Aug 9)
+  - Animated CSS diagrams: hood AI state machine, vehicle chase flow, police escalation ladder
+  - NPC animation demos (walking bob, recoil, flinch, falling) with CSS keyframe animations
+  - Vehicle physics tier comparison (sphere vs raycast vs WheelCollider)
+  - Tier 2→3→1 promotion diagram for vehicles
+  - 7-phase implementation timeline with dependency graph
+  - Companion to `COMBAT_VEHICLE_DESIGN.md`
+
+- **`docs/systems/VOXEL_GROUP_ANIMATION.md`** — Articulated limb animation without skeletons (Aug 9)
+  - Voxel group system: tag voxels with groupID (head, torso, arms, legs) for per-limb transforms
+  - Gangsters-inspired design: walking with limb swing, random head look-around, hood coast-clear checks
+  - Current architecture analysis: `VoxelProxyRaymarch.shader`, `VoxelChunkManager.cs`, instance buffer format
+  - 6-step implementation plan (~11-20 hrs): tag voxels → expand buffer → upload groupIDs → shader transforms → C# driver → AI behavior
+  - Animation parameters: walk cycle, head look-around, aim pose, crouch
+  - Testing plan (6 phases), risks & mitigations, phase integration with combat design
+  - Companion to `COMBAT_VEHICLE_DESIGN.md` (§5) and `COMBAT_VISUAL.html` (Technique 3)
+
+**Keywords**: instancing, ComputeBuffer, MaterialPropertyBlock, DrawMeshInstanced, DrawMeshInstancedIndirect, proxy cube, raymarch, buffer binding, sector baking, rendering tiers, GPU-driven, compute shader, frustum culling, LOD, terrain baking, collision world, combat, cover system, vehicle physics, raycast suspension, NPC animation, procedural animation, voxel groups, police escalation, traffic swarm, tier promotion, articulated limbs, groupID, pivot points, walk cycle, head tracking, Gangsters
 
 ---
 
@@ -379,8 +416,23 @@
 ### "I need the visual guide to instancing and buffering"
 `docs/systems/INSTANCING_AND_BUFFERING_VISUAL.html`
 
+### "I need the optimization principle document (do-once, invariant computation)"
+`docs/systems/INVARIANT_COMPUTATION_PRINCIPLE.md`
+
+### "I need the visual guide to TRS cache + collision world optimizations"
+`docs/systems/OPTIMIZATION_VISUAL.html`
+
 ### "I need to understand path debug rendering"
 `docs/systems/PATH_DEBUG_RENDERING.md`
+
+### "I need the combat/vehicle/physics design document"
+`docs/systems/COMBAT_VEHICLE_DESIGN.md`
+
+### "I need the visual guide to combat & vehicle concepts"
+`docs/systems/COMBAT_VISUAL.html`
+
+### "I need the voxel group animation design document"
+`docs/systems/VOXEL_GROUP_ANIMATION.md`
 
 ---
 
@@ -434,6 +486,16 @@ Voxel assets:   Assets/StreamingAssets/voxel_buildings/
 - Document renamed → Update all references
 - Major feature complete → Update status dashboard
 - New category needed → Add new section
+
+### ⚠️ When to Update the Roadmap
+**`docs/STEEL_CITY_ROADMAP.html`** must be updated alongside this index whenever:
+- A **new design document** is created (add a feature block to the relevant phase)
+- A **new system is brainstormed** or discussed (add to timeline or create a phase)
+- A **phase changes status** (PLANNED → IN PROGRESS → COMPLETE)
+- **Progress percentage** shifts (update the overall bar)
+- **New findings** invalidate or change existing roadmap items
+
+The roadmap is the living visual summary of the project. If it's stale, new contributors (and coding agents) get a wrong picture of priorities and progress. **Always update both this index AND the roadmap when creating or significantly updating documentation.**
 
 ### Status Indicators
 - ✅ COMPLETE — Fully documented, tested, working

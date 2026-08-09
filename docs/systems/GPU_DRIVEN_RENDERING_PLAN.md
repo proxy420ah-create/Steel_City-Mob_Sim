@@ -1,7 +1,7 @@
 # GPU-Driven Rendering Plan — Iterative Path to Indirect Rendering
 
 **Created**: Aug 9, 2026
-**Status**: 📋 PLANNED — 6-phase iterative plan
+**Status**: � IN PROGRESS — Phase 1 complete, 5 phases remaining
 **Relates to**: `docs/systems/INSTANCING_AND_BUFFERING.md`, `docs/systems/GPU_DRIVEN_SECTOR_RENDERING.md`, `Assets/Scripts/UI/VoxelChunkManager.cs`, `Assets/Scripts/UI/SectorBaker.cs`
 
 ---
@@ -16,7 +16,7 @@ This document outlines an iterative, 6-phase plan to evolve Steel City's renderi
 |--------|----------|-------|
 | **Buffering** | 90% | Sector baking, MaterialPropertyBlock, shared buffers |
 | **Instancing** | 90% | Two instancing paths (characters + buildings), 12 draw calls for 984 objects |
-| **Caching** | 70% | Voxel cache + AABB cache + parallel preload, missing buffer pooling |
+| **Caching** | 80% | Voxel cache + AABB cache + parallel preload + TRS matrix cache. Missing buffer pooling + 5 invariant computation candidates (see `INVARIANT_COMPUTATION_PRINCIPLE.md`) |
 | **Batching** | 30% | Sector baking IS batching, but no GPU-driven indirect rendering |
 
 ### Why Now?
@@ -32,34 +32,48 @@ This plan future-proofs the rendering architecture for scale expansion.
 
 ---
 
-## Phase 1: Static Sector TRS Cache
+## Phase 1: Static Sector TRS Cache ✅ COMPLETE
 
 **Effort**: ~30 min | **Risk**: Near zero | **Benefit now**: ~0.1ms saved | **Benefit at scale**: ~5-10ms saved
+**Status**: ✅ Complete — Aug 9, 2026 (commit `b184e99`)
 
 ### What
 
 Cache `Matrix4x4[]` for sector buildings — they never move, so stop rebuilding 984 matrices every frame.
 
-### Changes
+### Changes Implemented
 
-- `BakedSector` class gets a `Matrix4x4[] cachedMatrices` field
-- Build matrices once at `RegisterSector` time (when `buildingPositions` is already available)
-- `RenderBakedSectors` uses `cachedMatrices` instead of rebuilding per-frame
+- ✅ `BakedSector` class gets a `Matrix4x4[] cachedMatrices` field
+- ✅ New `BuildSectorMatrices()` static helper method encapsulates TRS computation
+- ✅ Build matrices once at `RegisterSector` time (when `buildingPositions` is already available)
+- ✅ `RenderBakedSectors` uses `cachedMatrices` instead of rebuilding per-frame
+- ✅ Fixed compilation error: `Dictionary.Count(g => ...)` replaced with `CountActiveInstancedGroups()` helper
 
 ### Files Touched
 
-- `VoxelChunkManager.cs` — `BakedSector` class, `RegisterSector`, `RenderBakedSectors`
+- `VoxelChunkManager.cs` — `BakedSector` class, `RegisterSector`, `RenderBakedSectors`, new `BuildSectorMatrices`, new `CountActiveInstancedGroups`
 
-### Test Plan
+### Results
 
-1. Run city — verify identical rendering (no visual change expected)
-2. Check debug HUD — CPU draw time should drop slightly
-3. Walk camera around — sectors should still appear/disappear correctly (frustum cull still works)
-4. **Pass criteria**: Zero visual difference, no errors in console
+- 984 `Matrix4x4.TRS()` calls per frame → 0
+- 10 array allocations per frame → 0
+- ~15KB GC pressure per frame → 0
+- Zero visual difference — all buildings render identically
+- Sectors still appear/disappear correctly with camera movement
+
+### Additional Work in Same Commit
+
+- Frame rate stabilization: `QualitySettings.vSyncCount = 1` + `Application.targetFrameRate = 120`
+- HUD frame time metrics: rolling 120-frame min/max/avg + `ProfilerRecorder` for GPU/CPU frame time
+- Debug HUD updated: `PerfSectorsDrawn`, `PerfTotalDrawCalls`, legacy chunk labels clarified
 
 ### Rollback
 
 Revert the `cachedMatrices` field and restore the per-frame matrix build loop.
+
+### Follow-up
+
+An audit following this fix identified 6 more invariant computation candidates in the same code path. See `docs/systems/INVARIANT_COMPUTATION_PRINCIPLE.md` for the full list and audit checklist.
 
 ---
 
@@ -345,7 +359,7 @@ Revert sector merge — keep 9 geographic sectors with 1023 cap per sector.
 
 | Phase | Effort | Benefit Now | Benefit at Scale | Risk | Status |
 |-------|--------|------------|-----------------|------|--------|
-| 1. TRS Cache | 30 min | ~0.1ms saved | ~5-10ms saved | Near zero | 🔲 Not started |
+| 1. TRS Cache | 30 min | ~0.1ms saved | ~5-10ms saved | Near zero | ✅ Complete |
 | 2. Buffer Pooling | 45 min | Zero GC allocs | Same | Low | 🔲 Not started |
 | 3. Indirect Draw | 2-3 hr | Enables 4-5 | Removes 1023 cap | Medium | 🔲 Not started |
 | 4. GPU Culling | 2-3 hr | Negligible | Major CPU savings | Medium | 🔲 Not started |
@@ -381,4 +395,6 @@ Phases MUST be done in order — each builds on the previous:
 - **`docs/systems/INSTANCING_AND_BUFFERING.md`** — Current instancing/buffering architecture (the starting point)
 - **`docs/systems/GPU_DRIVEN_SECTOR_RENDERING.md`** — Original sector baking proposal (some ideas now realized)
 - **`docs/systems/DYNAMIC_OBJECT_RENDERING_TIERS.md`** — Rendering tier classification
+- **`docs/systems/INVARIANT_COMPUTATION_PRINCIPLE.md`** — "Do Once, Not Repeat Constantly" principle + audit checklist + 6 pending candidates
+- **`docs/systems/OPTIMIZATION_VISUAL.html`** — Visual guide to TRS cache + collision world optimizations
 - **`docs/systems/INSTANCING_AND_BUFFERING_VISUAL.html`** — Visual guide companion

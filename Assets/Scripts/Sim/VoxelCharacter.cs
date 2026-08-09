@@ -73,6 +73,9 @@ namespace SteelCity.Sim
         /// <summary>True after asset loaded and registered with renderer.</summary>
         public bool IsInitialized => initialized;
 
+        /// <summary>Access to the instanced render handle (for animation drivers). Null if not using instancing.</summary>
+        public VoxelChunkManager.InstancedCharacter GetInstancedHandle() => instancedHandle;
+
         /// <summary>Voxel dimensions (x, y, z).</summary>
         public (int x, int y, int z) Dims => (dimX, dimY, dimZ);
 
@@ -160,6 +163,7 @@ namespace SteelCity.Sim
                 else if (distToGround > snapDistance)
                 {
                     // Ground is below us but not close enough to snap — fall toward it
+                    bool wasOnGround = onGround;
                     onGround = false;
                     verticalVelocity -= gravity * Time.deltaTime;
                     float newY = transform.position.y + verticalVelocity * Time.deltaTime;
@@ -172,7 +176,8 @@ namespace SteelCity.Sim
 
                     if (newY >= groundY && verticalVelocity < 0)
                     {
-                        Debug.Log($"[VoxelCharacter] Landed on ground Y={groundY:F3}");
+                        if (wasOnGround == false)
+                            Debug.Log($"[VoxelCharacter] Landed on ground Y={groundY:F3}");
                         verticalVelocity = 0f;
                         onGround = true;
                     }

@@ -37,21 +37,7 @@ import math
 
 # ---- Building asset pools ----
 EMPTY_LAND = [
-    "voxel_buildings/empty_land_0.stasset",
-    "voxel_buildings/empty_land_1.stasset",
-    "voxel_buildings/empty_land_2.stasset",
-    "voxel_buildings/empty_land_3.stasset",
-    "voxel_buildings/empty_land_4.stasset",
-    "voxel_buildings/empty_land_5.stasset",
-    "voxel_buildings/empty_land_6.stasset",
-    "voxel_buildings/empty_land_7.stasset",
-    "voxel_buildings/empty_land_8.stasset",
-    "voxel_buildings/empty_land_9.stasset",
-    "voxel_buildings/empty_land_10.stasset",
-    "voxel_buildings/empty_land_11.stasset",
-    "voxel_buildings/empty_land_12.stasset",
-    "voxel_buildings/empty_land_13.stasset",
-    "voxel_buildings/empty_land_14.stasset",
+    "voxel_buildings/empty_land.stasset",
 ]
 
 APARTMENTS = [

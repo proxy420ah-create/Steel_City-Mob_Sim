@@ -369,15 +369,30 @@
   <div class="meta">
     <span style="color:var(--green);">● Foundations Complete</span> &nbsp;|&nbsp;
     <span style="color:var(--accent);">● Simulation In Progress</span> &nbsp;|&nbsp;
-    <span style="color:var(--cyan);">● GPU Rendering Optimization Planned</span> &nbsp;|&nbsp;
+    <span style="color:var(--cyan);">● GPU Rendering Optimization In Progress</span> &nbsp;|&nbsp;
     <span style="color:var(--text-dim);">● Content Expansion Planned</span>
+  </div>
+</div>
+
+<!-- ========================= MAINTENANCE REMINDER ========================= -->
+<div style="max-width: 900px; margin: 0 auto; padding: 12px 24px;">
+  <div style="background: var(--surface2); border: 1px solid var(--yellow); border-radius: 8px; padding: 14px 18px; display: flex; align-items: flex-start; gap: 12px;">
+    <span style="font-size: 1.3em;">⚠️</span>
+    <div>
+      <strong style="color: var(--yellow);">Maintenance Reminder</strong>
+      <p style="margin: 4px 0 0 0; color: var(--text-dim); font-size: 0.9em;">
+        This roadmap must be updated whenever new features are discussed, design documents are created, or phases change status.
+        If you're working on a design doc or brainstorming a new system, update the corresponding phase here afterward.
+        Last review: <strong>Aug 9, 2026</strong> — Phase 4c (Voxel Group Animation) COMPLETE with Approach B inverse-transform sampling, combat/vehicle design doc, invariant computation audit, GPU rendering Phase 1, gang simulation architecture design doc + visual guide (Phase 4d).
+      </p>
+    </div>
   </div>
 </div>
 
 <!-- ========================= PROGRESS BAR ========================= -->
 <div class="progress-section">
   <div class="overall-bar">
-    <div class="overall-fill" style="width: 68%;">68%</div>
+    <div class="overall-fill" style="width: 70%;">70%</div>
   </div>
   <div class="overall-label">Vertical Slice Completion — Foundations ✅ → Simulation 🔄 → Polish 🔲</div>
 </div>
@@ -406,28 +421,23 @@
 
   <!-- ========================= CURRENT WORK BANNER ========================= -->
   <div class="current-banner">
-    <h3><span class="pulse-dot"></span> Current Work — Terrain Optimization Complete, GPU-Driven Rendering Planned</h3>
+    <h3><span class="pulse-dot"></span> Current Work — Gang Simulation Architecture Design + GPU Rendering Phase 2</h3>
     <div class="desc">
-      <strong>Terrain load optimized: 78s → 371ms (211x faster).</strong> Sector baking + flat-array collision world.
-      100-block city now renders in 12 draw calls. Next: iterative GPU-driven rendering plan (6 phases)
-      to enable 500-1000 block cities with compute shader culling and GPU-side LOD.
-      Live simulation & pathfinding also in progress — NPCs navigate via waypoint graph with tick-based movement.
+      <strong>Gang Simulation design complete:</strong> <code>GANG_SIMULATION_ARCHITECTURE.md</code> + <code>GANG_SIMULATION_VISUAL.html</code> created. Proposes merging StressTestAgent + SimulationManager into unified HoodAgent with per-hood order queues, tick budgets, and state machines based on Gangsters.exe RE findings. Awaiting approval before implementation.<br>
+      <strong>GPU Rendering:</strong> Phase 1 (TRS Cache) complete. Phase 2 (buffer pooling) next. 6 invariant computation candidates pending.<br>
+      <strong>Live simulation:</strong> NPCs navigate via waypoint graph with tick-based movement.
     </div>
     <div class="files">
+      <span class="file-chip">GANG_SIMULATION_ARCHITECTURE.md</span>
+      <span class="file-chip">GANG_SIMULATION_VISUAL.html</span>
       <span class="file-chip">SimulationManager.cs</span>
       <span class="file-chip">WaypointGraph.cs</span>
       <span class="file-chip">Pathfinder.cs</span>
-      <span class="file-chip">PathDebugRenderer.cs</span>
       <span class="file-chip">VoxelCharacter.cs</span>
-      <span class="file-chip">VoxelVehicle.cs</span>
       <span class="file-chip">VoxelCollisionWorld.cs</span>
-      <span class="file-chip">TickSimulation.cs</span>
+      <span class="file-chip">StressTestSpawner.cs</span>
       <span class="file-chip">FollowCamera.cs</span>
       <span class="file-chip">TickHUD.cs</span>
-      <span class="file-chip">StressTestSpawner.cs</span>
-      <span class="file-chip">EventPlayer.cs</span>
-      <span class="file-chip">VoxelTerrainBuilder.cs</span>
-      <span class="file-chip">SectorBaker.cs</span>
     </div>
   </div>
 
@@ -743,28 +753,30 @@
     </div>
   </div>
 
-  <!-- ========================= PHASE 4b: GPU-DRIVEN RENDERING (PLANNED) ========================= -->
+  <!-- ========================= PHASE 4b: GPU-DRIVEN RENDERING (IN PROGRESS) ========================= -->
   <div class="phase">
     <div class="phase-header">
-      <div class="phase-icon planned">🔲</div>
+      <div class="phase-icon active">�</div>
       <div class="phase-title">
         <h2>Phase 4b — GPU-Driven Rendering Optimization</h2>
-        <div class="dates">Planned — 6-phase iterative plan (~10-12 hours)</div>
+        <div class="dates">In Progress — Phase 1 complete, 5 phases remaining (~9-12 hours)</div>
       </div>
-      <div class="phase-status planned">PLANNED</div>
+      <div class="phase-status active">IN PROGRESS</div>
     </div>
     <div class="features">
-      <div class="feature planned">
+      <div class="feature done">
         <div class="feature-head">
-          <div class="feature-status-icon planned">○</div>
+          <div class="feature-status-icon done">✅</div>
           <div class="feature-name">Phase 1: Static Sector TRS Cache</div>
-          <div class="feature-tag planned">PLANNED</div>
+          <div class="feature-tag done">COMPLETE</div>
         </div>
         <div class="feature-desc">Cache Matrix4x4[] for sector buildings — stop rebuilding 984 matrices per frame</div>
         <ul class="feature-items">
-          <li class="pending">BakedSector gets cachedMatrices field</li>
-          <li class="pending">Build matrices once at RegisterSector time</li>
-          <li class="pending">~0.1ms saved now, ~5-10ms at scale — near zero risk</li>
+          <li class="done">BakedSector gets cachedMatrices field</li>
+          <li class="done">Build matrices once at RegisterSector time via BuildSectorMatrices()</li>
+          <li class="done">984 TRS calls/frame → 0, 10 array allocs/frame → 0</li>
+          <li class="done">Bonus: vSync + 120fps cap, HUD frame time metrics (ms + min/max/avg + GPU/CPU)</li>
+          <li class="done">Commit b184e99 — Aug 9, 2026</li>
         </ul>
       </div>
 
@@ -837,10 +849,162 @@
           <li class="pending">Target: ~3 draw calls for entire city — low risk if 3-4 solid</li>
         </ul>
       </div>
+
+      <div class="feature active">
+        <div class="feature-head">
+          <div class="feature-status-icon active">🔄</div>
+          <div class="feature-name">Invariant Computation Audit — 6 Pending Candidates</div>
+          <div class="feature-tag active">IN PROGRESS</div>
+        </div>
+        <div class="feature-desc">"Do Once, Not Repeat Constantly" — identified during Phase 1 audit. See <code>INVARIANT_COMPUTATION_PRINCIPLE.md</code></div>
+        <ul class="feature-items">
+          <li class="pending">🔴 #1 Sector Bounds: cache <code>Bounds</code> at RegisterSector (10 allocs/frame → 0)</li>
+          <li class="pending">🔴 #2 PropBlock Clear: skip Clear()+re-set when buffers unchanged (10+ API calls/frame saved)</li>
+          <li class="pending">🟡 #3 Group Size/Pad: cache paddedSize+paddedHalf at group creation</li>
+          <li class="pending">🟡 #4 Chunk Tight AABB: cache tightSize+boundsRadius at load (computed 2× per chunk now)</li>
+          <li class="pending">🟡 #5 Corners Array: reuse static <code>Vector3[8]</code> scratch (N allocs/frame → 0)</li>
+          <li class="pending">🟢 #6 Instanced Arrays: pool offset/matrix arrays per group (GC scales with char count)</li>
+          <li class="done">✅ Case Study 1: TRS Matrix Cache (Phase 1 — 984 builds/frame → 0)</li>
+          <li class="done">✅ Case Study 2: Collision World Flat Array (78s → 371ms, 211× faster)</li>
+        </ul>
+      </div>
     </div>
   </div>
 
-  <!-- ========================= PHASE 5: CONTENT EXPANSION (PLANNED) ========================= -->
+  <!-- ========================= PHASE 4c: VOXEL GROUP ANIMATION (COMPLETE) ========================= -->
+  <div class="phase">
+    <div class="phase-header">
+      <div class="phase-icon done">✅</div>
+      <div class="phase-title">
+        <h2>Phase 4c — Voxel Group Animation (Articulated Limbs)</h2>
+        <div class="dates">COMPLETE — ~6-10 hrs actual — Approach B inverse-transform sampling working</div>
+      </div>
+      <div class="phase-status done">COMPLETE</div>
+    </div>
+    <div class="features">
+      <div class="feature done">
+        <div class="feature-head">
+          <div class="feature-status-icon done">✅</div>
+          <div class="feature-name">Voxel Group System</div>
+          <div class="feature-tag done">DONE</div>
+        </div>
+        <div class="feature-desc">Tag voxels with groupID (head, torso, arms, legs) for per-limb procedural transforms in raymarch shader — see <code>VOXEL_GROUP_ANIMATION.md</code></div>
+        <ul class="feature-items">
+          <li class="done">Step 1: Tag character voxels with group IDs (programmatic partition, 4 .groups files created)</li>
+          <li class="done">Step 2: Expand instance buffer — add animState + animTime (16→32 bytes/instance)</li>
+          <li class="done">Step 3: Upload groupID buffer per InstancedGroup, bind as _GroupIDs in shader</li>
+          <li class="done">Step 4: Per-group transforms in VoxelProxyRaymarch.shader DDA loop — Approach B (inverse-transform sampling)</li>
+          <li class="done">Step 5: CharacterAnimation.cs — drive animState/animTime from C# (9 states: Idle, Walking, Looking, Checking, Aiming, Crouching, Flinching, Falling, Down)</li>
+          <li class="done">Step 6: PedestrianLookAround.cs — NPC random look-around, hood coast-clear check</li>
+        </ul>
+      </div>
+
+      <div class="feature done">
+        <div class="feature-head">
+          <div class="feature-status-icon done">✅</div>
+          <div class="feature-name">Gangsters-Inspired Suspicious Atmosphere</div>
+          <div class="feature-tag done">DONE</div>
+        </div>
+        <div class="feature-desc">Pedestrians and hoods share the same head-turn animation — emergent suspicion from identical behavior</div>
+        <ul class="feature-items">
+          <li class="done">Walking with arm/leg counter-swing (procedural, not keyframes)</li>
+          <li class="done">Random head look-around for ambient NPCs (stop, turn head, resume)</li>
+          <li class="done">Hood "coast clear" check — same animation, crime AI triggered</li>
+          <li class="done">Can't distinguish civilians from criminals until crime committed</li>
+        </ul>
+      </div>
+
+      <div class="feature done">
+        <div class="feature-head">
+          <div class="feature-status-icon done">✅</div>
+          <div class="feature-name">Combat Animation Poses</div>
+          <div class="feature-tag done">DONE</div>
+        </div>
+        <div class="feature-desc">Per-limb poses for combat — extends group system with aim, crouch, flinch states (shader-implemented, pending AI integration)</div>
+        <ul class="feature-items">
+          <li class="done">Aiming: arm raises to -1.2rad, head pitch toward target</li>
+          <li class="done">Crouching: legs rotate 0.6rad, arms tuck ±0.3rad</li>
+          <li class="done">Flinch: arms recoil -1.5rad, head pitch 0.4rad</li>
+          <li class="pending">Hybrid: procedural for 50+ ambient NPCs (cheap), voxel groups for 4-20 combat participants</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================= PHASE 4d: GANG SIMULATION (PLANNED) ========================= -->
+  <div class="phase">
+    <div class="phase-header">
+      <div class="phase-icon planned">🔲</div>
+      <div class="phase-title">
+        <h2>Phase 4d — Multi-Hood Gang Simulation</h2>
+        <div class="dates">Planned — ~40-50 hrs — Design doc + visual guide complete</div>
+      </div>
+      <div class="phase-status planned">PLANNED</div>
+    </div>
+    <div class="features">
+      <div class="feature planned">
+        <div class="feature-head">
+          <div class="feature-status-icon planned">○</div>
+          <div class="feature-name">HoodAgent + HoodSpawner</div>
+          <div class="feature-tag planned">PLANNED</div>
+        </div>
+        <div class="feature-desc">Merge StressTestAgent movement + SimulationManager game logic into unified per-hood agent — see <code>GANG_SIMULATION_ARCHITECTURE.md</code></div>
+        <ul class="feature-items">
+          <li class="pending">HoodAgent.cs — state machine: Idle → PathToTarget → ExecuteOrder → PathHome → Idle</li>
+          <li class="pending">HoodSpawner.cs — spawn N hoods at HQ with ground-probe spawn (Y+50 raycast)</li>
+          <li class="pending">Per-hood order queue + 12,000 tick budget (from RE data)</li>
+          <li class="pending">GangDispatcher — iterates all hoods, starts working phase</li>
+          <li class="pending">Shared Pathfinder + WaypointGraph (no per-hood copies)</li>
+        </ul>
+      </div>
+
+      <div class="feature planned">
+        <div class="feature-head">
+          <div class="feature-status-icon planned">○</div>
+          <div class="feature-name">Order System</div>
+          <div class="feature-tag planned">PLANNED</div>
+        </div>
+        <div class="feature-desc">Per-hood order queues with tick-based execution — based on Gangsters.exe RE findings</div>
+        <ul class="feature-items">
+          <li class="pending">Order types: Goto (16), Guard (166), Extort (166), Collect (400), Kill (6000), Bomb (6000)</li>
+          <li class="pending">Tick consumption per order type (from GAME_DATA_REFERENCE.md)</li>
+          <li class="pending">Budget exhaustion = hood returns home</li>
+          <li class="pending">Weekly reset: budget refilled, orders cleared</li>
+        </ul>
+      </div>
+
+      <div class="feature planned">
+        <div class="feature-head">
+          <div class="feature-status-icon planned">○</div>
+          <div class="feature-name">Vehicle Decision Logic</div>
+          <div class="feature-tag planned">PLANNED</div>
+        </div>
+        <div class="feature-desc">Two decision paths from original game: distance-based (75%) + random assignment (25%)</div>
+        <ul class="feature-items">
+          <li class="pending">Distance > 64 units → assign vehicle from pool</li>
+          <li class="pending">Special orders (kill, bomb) → 25% random vehicle chance</li>
+          <li class="pending">Vehicle pool managed by GangDispatcher</li>
+          <li class="pending">Walking fallback when no vehicles available</li>
+        </ul>
+      </div>
+
+      <div class="feature planned">
+        <div class="feature-head">
+          <div class="feature-status-icon planned">○</div>
+          <div class="feature-name">Cleanup Deprecated Systems</div>
+          <div class="feature-tag planned">PLANNED</div>
+        </div>
+        <div class="feature-desc">Remove all single-Vinny special-cased code after HoodAgent proven</div>
+        <ul class="feature-items">
+          <li class="pending">Remove FollowCamera.cs, StressTestSpawner.cs, StressTestAgent.cs, StressTestDiagnostics.cs</li>
+          <li class="pending">Remove SimulationManager.cs (logic merged into HoodAgent)</li>
+          <li class="pending">Remove Vinny selector UI + teleport button from GameUIController</li>
+          <li class="pending">Keep VoxelCharacter.cs, Pathfinder.cs, WaypointGraph.cs, VoxelCollisionWorld.cs</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
   <div class="phase">
     <div class="phase-header">
       <div class="phase-icon planned">🔲</div>
@@ -1030,10 +1194,16 @@
         <div class="tl-desc">78s → 371ms terrain load (211x). Dictionary→flat array for VoxelCollisionWorld. 100 chunks → 1 sector. 12 total draw calls.</div>
       </div>
       <div class="tl-item">
+        <div class="tl-dot done"></div>
+        <div class="tl-date">Aug 9, 2026</div>
+        <div class="tl-title">GPU-Driven Rendering Phase 1 + Frame Stabilization + HUD Metrics</div>
+        <div class="tl-desc">TRS matrix cache (984 builds/frame → 0). vSync + 120fps cap. HUD frame time (ms) with min/max/avg + ProfilerRecorder GPU/CPU. Invariant computation audit: 6 candidates identified. Commit b184e99.</div>
+      </div>
+      <div class="tl-item">
         <div class="tl-dot current"></div>
         <div class="tl-date">Aug 9, 2026 — NOW</div>
-        <div class="tl-title">Live Simulation + GPU-Driven Rendering Plan</div>
-        <div class="tl-desc">Simulation & pathfinding in progress. GPU-driven rendering plan documented (6 phases: TRS cache → buffer pooling → indirect draw → GPU culling → GPU LOD → scale test)</div>
+        <div class="tl-title">GPU-Driven Rendering Phase 2 + Invariant Computation Fixes</div>
+        <div class="tl-desc">Next: buffer pooling (SubUpdates) or 6 pending invariant candidates (sector bounds, propblock clear, group size, chunk AABB, corners array, instanced arrays). See INVARIANT_COMPUTATION_PRINCIPLE.md. Simulation & pathfinding also in progress.</div>
       </div>
       <div class="tl-item">
         <div class="tl-dot planned"></div>
@@ -1062,7 +1232,12 @@
   <p>Steel City: Mob Sim — Vertical Slice Roadmap</p>
   <p>Companion to <code>GAME_DESIGN_SKELETON.md</code> and <code>DOCUMENTATION_INDEX.md</code></p>
   <div class="update-note">
-    📝 Last updated: Aug 9, 2026 1:15 AM — Terrain optimization complete, GPU-driven rendering plan added
+    📝 Last updated: Aug 9, 2026 2:25 PM — Phase 4c (Voxel Group Animation) COMPLETE — Approach B inverse-transform sampling working, 9 animation states, debug key cycling
+  </div>
+  <div style="margin-top: 10px; padding: 10px 14px; background: var(--surface2); border: 1px solid var(--yellow); border-radius: 6px; font-size: 0.85em; color: var(--text-dim);">
+    ⚠️ <strong style="color: var(--yellow);">Keep this roadmap current.</strong>
+    Update phases, timeline, and progress whenever new design documents are created or features are discussed.
+    See <code>DOCUMENTATION_INDEX.md</code> for the full document list.
   </div>
 </div>
 
