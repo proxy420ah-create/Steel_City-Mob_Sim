@@ -3,6 +3,7 @@ using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
 using TMPro;
+using Unity.Profiling;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -344,6 +345,11 @@ namespace SteelCity.Sim
 
         void Awake()
         {
+            // Stabilize frame rate — uncapped rendering causes erratic FPS spikes
+            // vSync is hardware-synced (recommended by Unity docs over targetFrameRate for smoothness)
+            QualitySettings.vSyncCount = 1;              // Sync to monitor refresh rate (60/120/144 Hz)
+            Application.targetFrameRate = 120;            // Software cap as fallback when vSync is unavailable
+
             // Force 2x-upscaled defaults — Inspector may hold stale values from before the voxelSize change
             voxelSize = 0.05f;
 
@@ -456,8 +462,42 @@ namespace SteelCity.Sim
         // Set by GameUIController when entering/leaving Working mode
         public bool IsExecutionMode { get; set; } = false;
 
+        void OnEnable()
+        {
+            gpuFrameTimeRecorder = ProfilerRecorder.StartNew(ProfilerCategory.Render, "GPU Frame Time");
+            cpuFrameTimeRecorder = ProfilerRecorder.StartNew(ProfilerCategory.Internal, "CPU Main Thread Frame Time");
+        }
+
+        void OnDisable()
+        {
+            gpuFrameTimeRecorder.Dispose();
+            cpuFrameTimeRecorder.Dispose();
+        }
+
         void Update()
         {
+            // Track frame time in rolling buffer
+            float ms = Time.unscaledDeltaTime * 1000f;
+            frameTimeBuffer[frameTimeIdx] = ms;
+            frameTimeIdx = (frameTimeIdx + 1) % FRAME_WINDOW;
+            if (frameTimeCount < FRAME_WINDOW) frameTimeCount++;
+
+            // Recompute min/max/avg over filled portion of buffer
+            if (frameTimeCount > 0)
+            {
+                float sum = 0f;
+                frameTimeMin = float.MaxValue;
+                frameTimeMax = 0f;
+                for (int i = 0; i < frameTimeCount; i++)
+                {
+                    float v = frameTimeBuffer[i];
+                    sum += v;
+                    if (v < frameTimeMin) frameTimeMin = v;
+                    if (v > frameTimeMax) frameTimeMax = v;
+                }
+                frameTimeAvg = sum / frameTimeCount;
+            }
+
             if (IsExecutionMode)
             {
                 // Working mode: skip planning-only interactions (mouse camera, click, road ticker)
@@ -1573,6 +1613,17 @@ namespace SteelCity.Sim
         private GUIStyle hudBgStyle;
         private Texture2D hudBgTex;
 
+        // --- Frame time tracking (rolling window) ---
+        private const int FRAME_WINDOW = 120; // 2 seconds at 60fps, 1 second at 120fps
+        private float[] frameTimeBuffer = new float[FRAME_WINDOW];
+        private int frameTimeIdx = 0;
+        private int frameTimeCount = 0;
+        private float frameTimeMin = float.MaxValue;
+        private float frameTimeMax = 0f;
+        private float frameTimeAvg = 0f;
+        private ProfilerRecorder gpuFrameTimeRecorder;
+        private ProfilerRecorder cpuFrameTimeRecorder;
+
         void OnGUI()
         {
             if (chunkManager == null || !chunkManager.ShowOrthoHud) return;
@@ -1597,10 +1648,17 @@ namespace SteelCity.Sim
             }
 
             float fps = 1f / Mathf.Max(Time.smoothDeltaTime, 0.0001f);
-            float w = 320f, h = 200f;
+            float frameTimeMs = Time.unscaledDeltaTime * 1000f;
+            float gpuMs = gpuFrameTimeRecorder.Valid ? gpuFrameTimeRecorder.LastValue : -1f;
+            float cpuMs = cpuFrameTimeRecorder.Valid ? cpuFrameTimeRecorder.LastValue : -1f;
+            float w = 340f, h = 230f;
             GUILayout.BeginArea(new Rect(10, 10, w, h), hudBgStyle);
             GUILayout.Label("<b>ORTHO RENDER HUD</b>", hudLabelStyle);
-            GUILayout.Label($"FPS: {fps:F0}  |  OrthoSize: {chunkManager.CameraOrthoSize:F1}", hudLabelStyle);
+            GUILayout.Label($"FPS: {fps:F0}  |  Frame: {frameTimeMs:F2}ms (min:{frameTimeMin:F2} max:{frameTimeMax:F2} avg:{frameTimeAvg:F2})  |  OrthoSize: {chunkManager.CameraOrthoSize:F1}", hudLabelStyle);
+            if (gpuMs >= 0f)
+                GUILayout.Label($"CPU thread: {cpuMs:F2}ms  |  GPU: {gpuMs:F2}ms  |  Budget: {(1000f/120f):F2}ms@120fps", hudLabelStyle);
+            else
+                GUILayout.Label($"CPU thread: {cpuMs:F2}ms  |  GPU: N/A  |  Budget: {(1000f/120f):F2}ms@120fps", hudLabelStyle);
             GUILayout.Label($"Draws: {chunkManager.PerfTotalDrawCalls} total ({chunkManager.PerfSectorsDrawn} sectors + {chunkManager.InstancedCharacterCount} instanced) | Chunks: {chunkManager.PerfTotalChunks} total / {chunkManager.PerfActiveChunks} active / {chunkManager.PerfDrawnChunks} legacy", hudLabelStyle);
             GUILayout.Label($"Baked: {chunkManager.BakedSectorCount} sectors / {chunkManager.BakedSectorBuildingCount} buildings", hudLabelStyle);
             GUILayout.Label("", hudLabelStyle);

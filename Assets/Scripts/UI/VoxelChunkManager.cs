@@ -1242,6 +1242,7 @@ namespace SteelCity.Sim
             public ComputeBuffer buildingPosBuffer;    // float4[] (worldOffsetX, Y, Z, 0)
             public Vector4[] cpuMeta;                  // CPU copy of buildingMeta for TRS computation
             public Vector4[] cpuPositions;             // CPU copy of buildingPositions
+            public Matrix4x4[] cachedMatrices;         // pre-built TRS matrices (buildings never move)
             public int buildingCount;
             public float voxelSize;
             public Vector3 sectorMin;   // world-space AABB of sector
@@ -1288,6 +1289,9 @@ namespace SteelCity.Sim
             sector.buildingPosBuffer = new ComputeBuffer(buildingCount, sizeof(float) * 4);
             sector.buildingPosBuffer.SetData(buildingPositions);
 
+            // Pre-build TRS matrices once — buildings never move so no need to rebuild per frame
+            sector.cachedMatrices = BuildSectorMatrices(buildingMeta, buildingPositions, buildingCount, sectorVoxelSize);
+
             bakedSectors.Add(sector);
             sectorLookup[name] = sector;
 
@@ -1313,6 +1317,28 @@ namespace SteelCity.Sim
                 foreach (var s in bakedSectors) total += s.buildingCount;
                 return total;
             }
+        }
+
+        private static Matrix4x4[] BuildSectorMatrices(Vector4[] meta, Vector4[] positions, int count, float sectorVoxelSize)
+        {
+            var matrices = new Matrix4x4[count];
+            for (int i = 0; i < count; i++)
+            {
+                int dx = (int)meta[i].y;
+                int dy = (int)meta[i].z;
+                int dz = (int)meta[i].w;
+
+                float vsb = positions[i].w > 0f ? positions[i].w : sectorVoxelSize;
+                Vector3 buildingSize = new Vector3(dx, dy, dz) * vsb;
+                Vector3 voxelPad = new Vector3(vsb, vsb, vsb);
+                Vector3 paddedSize = buildingSize + voxelPad;
+                Vector3 paddedHalf = paddedSize * 0.5f;
+
+                Vector3 worldOffset = new Vector3(positions[i].x, positions[i].y, positions[i].z);
+                Vector3 centerPos = worldOffset + paddedHalf;
+                matrices[i] = Matrix4x4.TRS(centerPos, Quaternion.identity, paddedSize);
+            }
+            return matrices;
         }
 
         private void RenderBakedSectors(CommandBuffer cmd, Camera cam, bool isOrtho, float orthoSize,
@@ -1390,29 +1416,8 @@ namespace SteelCity.Sim
                     }
                 }
 
-                // Per-building TRS matrices — each building gets its own proxy cube
-                var matrices = new Matrix4x4[sector.buildingCount];
-
-                for (int i = 0; i < sector.buildingCount; i++)
-                {
-                    Vector4 meta = sector.cpuMeta[i];
-                    Vector4 pos = sector.cpuPositions[i];
-                    int dx = (int)meta.y;
-                    int dy = (int)meta.z;
-                    int dz = (int)meta.w;
-
-                    // Use per-building voxel size from positions.w (fallback to sector.voxelSize)
-                    float vsb = pos.w > 0f ? pos.w : sector.voxelSize;
-                    Vector3 buildingSize = new Vector3(dx, dy, dz) * vsb;
-                    // Pad by 1 voxel to avoid grazing-angle clipping
-                    Vector3 voxelPad = new Vector3(vsb, vsb, vsb);
-                    Vector3 paddedSize = buildingSize + voxelPad;
-                    Vector3 paddedHalf = paddedSize * 0.5f;
-
-                    Vector3 worldOffset = new Vector3(pos.x, pos.y, pos.z);
-                    Vector3 centerPos = worldOffset + paddedHalf;
-                    matrices[i] = Matrix4x4.TRS(centerPos, Quaternion.identity, paddedSize);
-                }
+                // Per-building TRS matrices — pre-cached at RegisterSector time (buildings never move)
+                var matrices = sector.cachedMatrices;
 
                 // Bind sector-specific buffers via a per-sector MaterialPropertyBlock.
                 // IMPORTANT: CommandBuffer.DrawMeshInstanced does NOT snapshot Material.SetBuffer
@@ -1562,7 +1567,7 @@ namespace SteelCity.Sim
         public int PerfDrawnChunks => perfDrawnChunks;
         public int PerfSectorsDrawn => perfSectorsDrawn;
         public int PerfTotalChunks => chunks.Count;
-        public int PerfTotalDrawCalls => perfSectorsDrawn + instancedGroups.Count(g => g.instances.Count > 0);
+        public int PerfTotalDrawCalls => perfSectorsDrawn + CountActiveInstancedGroups();
         public int PerfLodNear => perfLodNear;
         public int PerfLodMid => perfLodMid;
         public int PerfLodFar => perfLodFar;
@@ -1590,10 +1595,18 @@ namespace SteelCity.Sim
         }
         public float CurrentResolutionScale => currentResolutionScale;
 
+        private int CountActiveInstancedGroups()
+        {
+            int count = 0;
+            foreach (var g in instancedGroups.Values)
+                if (g.instances.Count > 0) count++;
+            return count;
+        }
+
         // Call to emit a one-shot perf log (e.g. on key press)
         public void LogPerfSnapshot()
         {
-            Debug.Log($"[Perf] total={chunks.Count} active={perfActiveChunks} drawn={perfDrawnChunks} sectorsDrawn={perfSectorsDrawn} totalDrawCalls={perfSectorsDrawn + instancedGroups.Count(g => g.instances.Count > 0)} LOD(N:{perfLodNear} M:{perfLodMid} F:{perfLodFar} U:{perfLodUltra} C:{perfLodCulled}) screenRatio(min:{perfMinScreenRatio:F4} max:{perfMaxScreenRatio:F4} avg:{perfAvgScreenRatio:F4}) render={renderWidth}x{renderHeight} proxy={useProxyRender} shadows={shadowEnabled} maxSteps={maxSteps} | CPU: cull={lastCpuCullMs:F2}ms draw={lastCpuDrawMs:F2}ms total={lastCpuTotalMs:F2}ms");
+            Debug.Log($"[Perf] total={chunks.Count} active={perfActiveChunks} drawn={perfDrawnChunks} sectorsDrawn={perfSectorsDrawn} totalDrawCalls={perfSectorsDrawn + CountActiveInstancedGroups()} LOD(N:{perfLodNear} M:{perfLodMid} F:{perfLodFar} U:{perfLodUltra} C:{perfLodCulled}) screenRatio(min:{perfMinScreenRatio:F4} max:{perfMaxScreenRatio:F4} avg:{perfAvgScreenRatio:F4}) render={renderWidth}x{renderHeight} proxy={useProxyRender} shadows={shadowEnabled} maxSteps={maxSteps} | CPU: cull={lastCpuCullMs:F2}ms draw={lastCpuDrawMs:F2}ms total={lastCpuTotalMs:F2}ms");
         }
 
         public void RenderChunks()
