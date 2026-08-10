@@ -1,6 +1,40 @@
 # Recent Changes — Steel City: Mob Sim
 
-**Last Updated**: August 9, 2026 (Remove deprecated Vinny UI + FollowCamera → HQ camera focus)
+**Last Updated**: August 9, 2026 (Portrait-First character pipeline + animator JSON loading)
+
+---
+
+## August 9, 2026 — Portrait-First Character Pipeline + Animator JSON
+
+### Impact
+- Character generation now starts from decoded Gangsters 1998 portrait presets
+- Hoodlum 0 model regenerated procedurally as `character_hoodlum_0.json` (2,404 voxels, 6 animation groups)
+- Animator correctly loads groups + pivots + params from project JSON
+
+### Changes
+
+#### `character_pipeline.html`
+- Removed baked `HOOD0_VOXELS` data and `loadHood0()` function
+- Extracted shared `buildHead()` function (used by both bust and full-body generation)
+- Added `generateBust()` for portrait head+shoulders preview
+- Added `PORTRAIT_CATALOG` with decoded feature presets
+- Added portrait catalog UI, `selectPortrait()`, `buildFullBodyFromPortrait()`
+- Fixed `setV()` argument bug in hat generation (was 3 args, needed 4)
+- Updated hat options to match decoded catalog (Flat Cap, Fedora, Boater, Wide Brim)
+
+#### `character_animator.html`
+- Fixed `importStasset()` to load groups, pivots, and animParams when present in JSON (previously defaulted all voxels to group 0)
+
+#### New Files
+- `VoxelAssetStudio/character_hoodlum_0.json` — Pre-generated Hood 0 project (2404 voxels)
+- `VoxelAssetStudio/gen_hood0.py` — Python script to regenerate the JSON
+- `VoxelAssetStudio/CHARACTER_PIPELINE_REFERENCE.md` — Full technical reference
+
+### Files Modified
+| File | Change |
+|---|---|
+| `character_pipeline.html` | Portrait-first refactor, buildHead extraction, setV fix |
+| `character_animator.html` | importStasset groups/pivots/params loading fix |
 
 ---
 

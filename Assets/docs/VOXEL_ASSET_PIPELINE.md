@@ -165,3 +165,28 @@ Assets/StreamingAssets/voxel_buildings/
 4. Save back to .stasset
 5. Verify in-game
 6. Note: hand-edits are overwritten by next `generate_city_assets.py` run — update the procedural generator to make changes permanent
+
+---
+
+## Character Pipeline (Web-based)
+
+**Full Reference**: `VoxelAssetStudio/CHARACTER_PIPELINE_REFERENCE.md`
+
+The character pipeline uses a **Portrait-First** workflow in web-based HTML editors:
+
+```
+1. PORTRAIT  →  Select face from decoded Gangsters 1998 catalog
+2. BUST      →  Generate head+shoulders voxel preview (16×32×10)
+3. FULL BODY →  Procedural generation with locked features
+4. RIG       →  Auto-assign animation groups + pivots
+5. ANIMATE   →  Load in character_animator.html, test states
+6. EXPORT    →  .stasset + .groups + .anim JSON for Unity
+```
+
+**Key Files**:
+- `character_pipeline.html` — Portrait selection, feature refinement, full body generation
+- `character_animator.html` — Load model, test animation states, export groups/params
+- `character_hoodlum_0.json` — Pre-generated Hood 0 project (2,404 voxels, 6 groups)
+- `gen_hood0.py` — Python script to regenerate Hood 0 JSON
+
+**Group Scheme**: Pipeline uses 10 groups (upper/lower limb split), animator uses 6 groups (merged). Mapping: `{0:0, 1:1, 2:2, 3:3, 4:4, 5:5, 6:4, 7:5, 8:2, 9:3}`

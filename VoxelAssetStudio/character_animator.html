@@ -1585,13 +1585,22 @@ window.importStasset = (event) => {
       for (const [x, y, z, mid] of data.voxels) {
         if (mid !== 0) voxelMap.set(`${x},${y},${z}`, mid);
       }
-      // Initialize all groups to 0
+      // Load groups if present, otherwise default all to 0
       groupMap.clear();
-      for (const [key] of voxelMap) groupMap.set(key, 0);
+      if (data.groups && data.groups.length > 0) {
+        for (const [x, y, z, gid] of data.groups) groupMap.set(`${x},${y},${z}`, gid);
+        // Fill any missing voxels with group 0
+        for (const [key] of voxelMap) { if (!groupMap.has(key)) groupMap.set(key, 0); }
+      } else {
+        for (const [key] of voxelMap) groupMap.set(key, 0);
+      }
+      if (data.pivots) pivots = data.pivots;
+      if (data.animParams) animParams = data.animParams;
       if (useAnimatedMesh) rebuildAnimatedMesh(); else rebuildMesh();
       updateGroupCounts();
       buildPivotControls();
-      setStatus(`Imported ${data.voxels.length} voxels from .stasset JSON`);
+      buildParamControls();
+      setStatus(`Imported ${data.voxels.length} voxels${data.groups ? ' + ' + data.groups.length + ' group assignments' : ''} from JSON`);
       closeExport();
     } catch (err) {
       setStatus(`Import failed: ${err.message}`);
