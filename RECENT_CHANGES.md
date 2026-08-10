@@ -1,6 +1,58 @@
 # Recent Changes — Steel City: Mob Sim
 
-**Last Updated**: August 9, 2026 (Body Part Paint tool, additive selection, mirror highlight fix + half-voxel offset)
+**Last Updated**: August 9, 2026 (Extrude de-extrude, paint drag, volume bounds, ROM sizing, model centering, alignment fixes)
+
+---
+
+## August 9, 2026 — Extrude De-extrude, Paint Drag, Volume Bounds, ROM Sizing, Model Centering
+
+### Impact
+- **De-extrude** (Ctrl+click/drag) — remove layers from a face inward, mirror-aware
+- **Paint drag** — click+drag to paint across voxels in one stroke, single undo entry
+- **Volume bounds wireframe** — cyan box shows the editable volume limits
+- **Set Volume Size** — directly type new W/H/D, or auto-size to range of motion
+- **Size to ROM** — Steel Tide approach: computes maxReach from model center, sizes cube to `2×maxReach + 2×padding`
+- **Center Model** — shifts model to center of grid for symmetric animation clearance
+- **Mirror fix for extrude** — extrude/de-extrude now route through `setVoxel` for mirror support
+- **Mouse button remap** — left=tools only, middle=orbit, right=pan, scroll=zoom (no more ctrl/shift pan conflict)
+
+### Changes
+
+#### `VoxelAssetStudio/voxel_editor.html`
+- **De-extrude**: `performDeExtrude(hit)` function; Ctrl+click removes face layer; Ctrl+click+drag removes multiple layers inward; `extrudeDragDeextrude` flag; preview shows voxels to be removed
+- **Mirror for extrude**: `performExtrude`, `performDeExtrude`, and drag-extrude mouseup all use `setVoxel` instead of direct `voxelMap.set/delete`; status shows `+mirror` suffix
+- **Paint drag**: `paintDragActive` state; mousedown starts stroke, mousemove paints each new voxel, mouseup commits single history entry; `paintDragVisited` Set prevents double-paint; mirror-aware via `setVoxel`
+- **Volume bounds wireframe**: `buildVolumeBounds()` creates cyan `LineSegments`/`EdgesGeometry` box; ⬜ toolbar button toggles visibility; auto-rebuilds on expand/load/import
+- **Set Volume Size modal**: 📦 button opens modal with direct W/H/D inputs; `applyVolumeSize()` resizes grid (clamps voxels if shrinking); rebuilds grid + bounds
+- **Size to ROM**: `sizeToROM()` — computes model centroid, maxReach (farthest voxel from center), side = `ceil(2×maxReach) + 2×padding`; sets W/H/D inputs for review before apply
+- **Center Model**: 🎯 button; `centerModel()` shifts voxels + groupMap to grid center; reports shift + new bounds
+- **Mouse remap**: `controls.mouseButtons = { LEFT: null, MIDDLE: ROTATE, RIGHT: PAN }`; left freed for tools; `controls.enabled = false` during extrude drag
+- **OrbitControls conflict fix**: `controls.enabled = false` on extrude drag start, `true` on mouseup
+
+#### `VoxelAssetStudio/character_hoodlum_0.json`
+- Model centered in grid: shifted from X[0-15] Y[0-31] Z[0-9] to X[40-55] Y[18-49] Z[43-52]
+- All 2404 voxels + 2404 group entries + 5 pivots shifted by (+40, +18, +43)
+
+### Files Modified
+| File | Change |
+|---|---|
+| `VoxelAssetStudio/voxel_editor.html` | De-extrude, paint drag, volume bounds, ROM sizing, center model, mouse remap, mirror extrude fix, compass alignment fix, auto-center after resize |
+| `VoxelAssetStudio/character_hoodlum_0.json` | Model centered in 96×68×96 grid |
+
+### Alignment Fixes
+- **Compass**: Moved from corner (`-W/2-4, 0, -D/2-4`) to origin `(0,0,0)` — axes now extend from volume center
+- **Compass rebuild**: `buildCompass()` now called on all W/H/D changes (expand, resize, load, import) — was only built once at startup
+- **Center Model camera**: Now focuses camera on model center in world space (was targeting volume center which could be empty space)
+- **Auto-center after resize**: `applyVolumeSize` now calls `centerModel(true)` after changing W/H/D — model stays centered in new volume
+- **Center Model refactor**: `centerModel(skipHistoryAndMesh)` flag added so callers can avoid double history pushes
+
+### Testing Notes
+- 🧪 **TEST NOW**: Extrude tool — Ctrl+click a face → removes face layer. Ctrl+drag → removes multiple layers. Mirror X on → both sides de-extrude.
+- 🧪 **TEST NOW**: Paint tool — click+drag across voxels → paints in one stroke. Ctrl+Z → undoes entire stroke.
+- 🧪 **TEST NOW**: 📦 button → Set Volume Size modal. Type new W/H/D → Apply. Or click "Size to ROM" → auto-computes, then Apply.
+- 🧪 **TEST NOW**: ⬜ button → toggles cyan volume bounds wireframe.
+- 🧪 **TEST NOW**: 🎯 button → centers model in grid.
+- 🧪 **TEST NOW**: Middle-drag → orbit. Right-drag → pan. Scroll → zoom. Left-click → tools only (no camera interference).
 
 ---
 
