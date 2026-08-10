@@ -17,10 +17,9 @@ def setV(x, y, z, mid):
         voxel_map[key] = mid
 
 def skin_material(tone):
-    if tone < 16: return 122
-    if tone < 32: return 122
-    if tone < 48: return 102
-    return 103
+    if tone < 16: return 125  # Flesh (light)
+    if tone < 32: return 131  # Brown Flesh (medium)
+    return 131  # Brown Flesh (dark)
 
 # Hood 0 features from PORTRAIT_CATALOG
 features = {
@@ -53,13 +52,13 @@ for y in range(13, 15):
         setV(x, y, 1, skin)
         setV(x, y, 8, skin)
 
-# Body detail accents (hoodlum)
+# Body detail accents (hoodlum) - red fabric for tie
 for y in range(15, 20):
     setV(7, y, 1, 127)
     setV(8, y, 8, 127)
 for y in range(15, 22):
-    setV(7, y, 1, 120)
-    setV(8, y, 8, 120)
+    setV(7, y, 1, 130)
+    setV(8, y, 8, 130)
 
 # === SHOULDERS (y=22, full width x=0-15, z=0-9) ===
 for x in range(0, 16):
@@ -89,10 +88,10 @@ for z in range(2, 8):
 for x in range(4, 12):
     setV(x, 25, 7, hair_mat)
 
-# === EYES (mat 109) - case 1 (medium) ===
+# === EYES (mat 132) - case 1 (medium) ===
 eye_y, eye_z, eye_lx, eye_rx = 26, 7, 6, 9
-setV(eye_lx, eye_y, eye_z, 109)
-setV(eye_rx, eye_y, eye_z, 109)
+setV(eye_lx, eye_y, eye_z, 132)
+setV(eye_rx, eye_y, eye_z, 132)
 
 # === NOSE - case 1 ===
 setV(7, 27, 7, skin)
@@ -108,7 +107,7 @@ for x in range(0, 16):
         setV(x, 28, z, body_mat)
 for x in range(2, 14):
     for z in range(1, 9):
-        setV(x, 29, z, 120)
+        setV(x, 29, z, 133)  # Green Fabric accent
 for y in range(30, 32):
     for x in range(2, 14):
         for z in range(1, 9):

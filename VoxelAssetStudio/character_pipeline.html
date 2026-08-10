@@ -26,6 +26,7 @@ body { background:#0a0a14; color:#eee; font-family:'Segoe UI',monospace; overflo
 .phase-content { display:none; } .phase-content.active { display:block; }
 .tool-btn { width:34px; height:34px; border:1px solid #444; border-radius:6px; background:#2a2a3e; color:#aaa; cursor:pointer; font-size:15px; display:flex; align-items:center; justify-content:center; transition:all 0.15s; }
 .tool-btn:hover { background:#3a3a5e; color:#fff; } .tool-btn.active { background:#0a4; color:#fff; border-color:#0c6; }
+#tooltip { position:fixed; background:rgba(0,0,0,0.9); border:1px solid #444; border-radius:4px; padding:4px 8px; font-size:11px; color:#ddd; pointer-events:none; z-index:300; display:none; max-width:400px; }
 .tool-row { display:flex; gap:3px; flex-wrap:wrap; margin-bottom:6px; }
 .group-item { display:flex; align-items:center; gap:6px; padding:5px 6px; border-radius:4px; cursor:pointer; margin:2px 0; font-size:11px; transition:all 0.15s; border:1px solid transparent; }
 .group-item:hover { background:rgba(255,255,255,0.08); } .group-item.selected { background:rgba(0,170,68,0.25); border-color:#0c6; }
@@ -111,18 +112,62 @@ body { background:#0a0a14; color:#eee; font-family:'Segoe UI',monospace; overflo
     <div class="tool-row">
       <button class="tool-btn active" data-tool="place" title="Place (P)">&#129825;</button>
       <button class="tool-btn" data-tool="erase" title="Erase (E)">&#10006;</button>
-      <button class="tool-btn" data-tool="paint" title="Paint (M)">&#127912;</button>
+      <button class="tool-btn" data-tool="paint" title="Paint (B)">&#127912;</button>
       <button class="tool-btn" data-tool="eyedropper" title="Pick (I)">&#128167;</button>
       <button class="tool-btn" data-tool="fill" title="Flood Fill (F)">&#129701;</button>
       <button class="tool-btn" data-tool="line" title="Line (L)">&#128207;</button>
-      <button class="tool-btn" data-tool="box" title="Box (B)">&#128230;</button>
+      <button class="tool-btn" data-tool="box" title="Box (X)">&#128230;</button>
       <button class="tool-btn" data-tool="grouppaint" title="Group Paint (G)" style="font-size:11px;">G</button>
+      <button class="tool-btn" data-tool="ruler" title="Ruler (R)">&#128208;</button>
+      <button class="tool-btn" data-tool="select" title="Select (S)">&#128454;</button>
+      <button class="tool-btn" data-tool="extrude" title="Extrude (J)">&#11014;</button>
+      <button class="tool-btn" data-tool="camera" title="Camera (Esc)">&#127909;</button>
+    </div>
+    <div class="tool-row" style="margin-top:4px;">
+      <button class="tool-btn" onclick="copySelection()" title="Copy Selection" style="width:30px;height:28px;font-size:12px;">&#128203;</button>
+      <button class="tool-btn" onclick="pasteSelection()" title="Paste" style="width:30px;height:28px;font-size:12px;">&#128204;</button>
+      <button class="tool-btn" onclick="deleteSelection()" title="Delete Selection" style="width:30px;height:28px;font-size:12px;">&#128465;</button>
+      <button class="tool-btn" onclick="clearSelection()" title="Clear Selection" style="width:30px;height:28px;font-size:12px;">&#10006;</button>
+      <button class="tool-btn" onclick="moveSelection()" title="Move Selection (V)" style="width:30px;height:28px;font-size:12px;">&#8597;</button>
+      <button class="tool-btn" onclick="openReplaceModal()" title="Replace Material" style="width:30px;height:28px;font-size:12px;">&#128260;</button>
+    </div>
+    <div id="sel-info" style="font-size:10px;color:#fa0;margin:4px 0;">No selection</div>
+    <div id="hotkeys-box" style="font-size:9px;color:#666;line-height:1.6;margin-top:6px;border-top:1px solid #333;padding-top:6px;background:#0a0a14;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+        <b style="color:#888;">Hotkeys:</b>
+        <input type="color" id="scene-bg-picker" value="#0a0a14" title="Change scene background color" style="width:20px;height:18px;border:1px solid #444;border-radius:3px;cursor:pointer;background:transparent;">
+      </div>
+      <b>P</b>=Place &nbsp; <b>E</b>=Erase &nbsp; <b>B</b>=Paint<br>
+      <b>I</b>=Pick &nbsp; <b>F</b>=Fill &nbsp; <b>L</b>=Line<br>
+      <b>X</b>=Box &nbsp; <b>G</b>=GroupPaint<br>
+      <b>R</b>=Ruler &nbsp; <b>S</b>=Select &nbsp; <b>J</b>=Extrude<br>
+      <b>Esc</b>=Camera &nbsp; <b>1-9</b>=Select Group<br>
+      <b>Ctrl+Z</b>=Undo &nbsp; <b>Ctrl+Y</b>=Redo &nbsp; <b>Space</b>=Play/Pause<br>
+      <b>Shift+Click</b>=Single Select &nbsp; <b>Ctrl+Click</b>=Box Select<br>
+      <b>Shift+Click</b>=Drag Extrude &nbsp; <b>Arrows</b>=Move Paste<br>
+      <b>V</b>=Move Selection &nbsp; <b>Enter</b>=Confirm Paste<br>
+      <b>Esc</b>=Cancel Paste/Move
     </div>
     <div class="view-row" id="phase2-view-toggle">
       <button class="view-btn active" data-view="material" data-phase2="1">Material View</button>
       <button class="view-btn" data-view="group" data-phase2="1">Group View</button>
     </div>
+    <div style="margin-top:4px;"><label style="font-size:10px;color:#888;">Fill Mode:</label>
+      <select id="fill-mode" style="width:100%;background:#111;color:#0f0;border:1px solid #333;border-radius:4px;padding:3px 4px;font-size:10px;margin-top:2px;">
+        <option value="cavity">Cavity (connected)</option>
+        <option value="air">Air (all empty)</option>
+        <option value="replace">Replace (same material)</option>
+      </select>
+    </div>
     <h3>&#127912; Materials</h3><div class="mat-grid" id="mat-grid"></div>
+    <div style="font-size:9px;color:#666;margin-top:6px;line-height:1.5;">
+      <b style="color:#888;">Axes:</b> <span style="color:#e33;">X</span>=red &nbsp; <span style="color:#3e3;">Y</span>=green(up) &nbsp; <span style="color:#33e;">Z</span>=blue<br>
+      <b style="color:#888;">Voxels:</b> <span id="voxel-count">0</span><br>
+      <b style="color:#888;">Tool Colors:</b><br>
+      <span style="color:#0f0;">■</span> Place &nbsp; <span style="color:#f00;">■</span> Erase &nbsp; <span style="color:#fa0;">■</span> Paint<br>
+      <span style="color:#0af;">■</span> Pick &nbsp; <span style="color:#0ff;">■</span> Fill &nbsp; <span style="color:#ff0;">■</span> Line<br>
+      <span style="color:#f0f;">■</span> Box &nbsp; <span style="color:#f80;">■</span> Select &nbsp; <span style="color:#8f0;">■</span> Extrude
+    </div>
     <div style="margin-top:8px;"><label style="font-size:10px;color:#888;">Mirror:</label>
       <div class="tool-row"><button class="tool-btn" id="mirror-x" title="Mirror X" style="width:30px;height:28px;font-size:10px;">X</button><button class="tool-btn" id="mirror-y" title="Mirror Y" style="width:30px;height:28px;font-size:10px;">Y</button><button class="tool-btn" id="mirror-z" title="Mirror Z" style="width:30px;height:28px;font-size:10px;">Z</button></div>
     </div>
@@ -173,7 +218,41 @@ body { background:#0a0a14; color:#eee; font-family:'Segoe UI',monospace; overflo
     <h3>&#128203; Character Summary</h3><div id="char-summary" style="font-size:11px;color:#aaa;"></div>
   </div>
 </div>
-<div id="status-bar"><span id="status-info">Ready &mdash; Phase 1: Create your character</span><span id="status-fps">0 FPS</span></div>
+<div id="status-bar"><span id="status-tool">Tool: Place</span><span id="status-coords">---, ---, ---</span><span id="status-info">Ready &mdash; Phase 1: Create your character</span><span id="status-fps">0 FPS</span></div>
+<div id="tooltip"></div>
+<div id="replace-modal" style="position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.7);display:none;align-items:center;justify-content:center;z-index:300;">
+  <div style="background:#1e1e2e;border:1px solid #444;border-radius:12px;padding:24px;max-width:360px;width:90%;">
+    <h2 style="color:#0ff;font-size:16px;margin-bottom:12px;">&#128260; Replace Material</h2>
+    <p style="font-size:11px;color:#aaa;margin-bottom:8px;">Replace all voxels of one material with another.</p>
+    <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;"><label style="font-size:11px;color:#aaa;">From:</label><select id="replace-from" style="flex:1;background:#111;color:#0f0;border:1px solid #333;border-radius:4px;padding:4px;font-size:11px;"></select></div>
+    <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;"><label style="font-size:11px;color:#aaa;">To:</label><select id="replace-to" style="flex:1;background:#111;color:#0f0;border:1px solid #333;border-radius:4px;padding:4px;font-size:11px;"></select></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;"><button class="export-btn" onclick="document.getElementById('replace-modal').style.display='none'">Cancel</button><button class="export-btn primary" onclick="doReplace()">Replace</button></div>
+  </div>
+</div>
+<div id="paste-controls" style="position:fixed;bottom:40px;right:10px;background:#1e1e2e;border:1px solid #444;border-radius:8px;padding:12px;z-index:200;display:none;max-width:220px;">
+  <div style="font-size:11px;color:#0ff;margin-bottom:8px;">Paste Preview — Move & Confirm</div>
+  <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px;">
+    <button class="console-btn" onclick="movePaste(-1,0,0)" style="padding:4px 8px;font-size:11px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:4px;cursor:pointer;">X-</button>
+    <button class="console-btn" onclick="movePaste(1,0,0)" style="padding:4px 8px;font-size:11px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:4px;cursor:pointer;">X+</button>
+    <button class="console-btn" onclick="movePaste(0,1,0)" style="padding:4px 8px;font-size:11px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:4px;cursor:pointer;">Y+</button>
+    <button class="console-btn" onclick="movePaste(0,-1,0)" style="padding:4px 8px;font-size:11px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:4px;cursor:pointer;">Y-</button>
+    <button class="console-btn" onclick="movePaste(0,0,-1)" style="padding:4px 8px;font-size:11px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:4px;cursor:pointer;">Z-</button>
+    <button class="console-btn" onclick="movePaste(0,0,1)" style="padding:4px 8px;font-size:11px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:4px;cursor:pointer;">Z+</button>
+  </div>
+  <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px;">
+    <button class="console-btn" onclick="movePaste(-5,0,0)" style="padding:3px 6px;font-size:10px;background:#2a2a3e;color:#aaa;border:1px solid #444;border-radius:4px;cursor:pointer;">X-5</button>
+    <button class="console-btn" onclick="movePaste(5,0,0)" style="padding:3px 6px;font-size:10px;background:#2a2a3e;color:#aaa;border:1px solid #444;border-radius:4px;cursor:pointer;">X+5</button>
+    <button class="console-btn" onclick="movePaste(0,5,0)" style="padding:3px 6px;font-size:10px;background:#2a2a3e;color:#aaa;border:1px solid #444;border-radius:4px;cursor:pointer;">Y+5</button>
+    <button class="console-btn" onclick="movePaste(0,-5,0)" style="padding:3px 6px;font-size:10px;background:#2a2a3e;color:#aaa;border:1px solid #444;border-radius:4px;cursor:pointer;">Y-5</button>
+    <button class="console-btn" onclick="movePaste(0,0,-5)" style="padding:3px 6px;font-size:10px;background:#2a2a3e;color:#aaa;border:1px solid #444;border-radius:4px;cursor:pointer;">Z-5</button>
+    <button class="console-btn" onclick="movePaste(0,0,5)" style="padding:3px 6px;font-size:10px;background:#2a2a3e;color:#aaa;border:1px solid #444;border-radius:4px;cursor:pointer;">Z+5</button>
+  </div>
+  <div style="display:flex;gap:8px;margin-top:8px;">
+    <button class="console-btn" onclick="confirmPaste()" style="padding:5px 12px;font-size:11px;background:#0a4;color:#fff;border:1px solid #0c6;border-radius:4px;cursor:pointer;">Confirm</button>
+    <button class="console-btn" onclick="cancelPaste()" style="padding:5px 12px;font-size:11px;background:#333;color:#eee;border:1px solid #444;border-radius:4px;cursor:pointer;">Cancel</button>
+  </div>
+  <div style="font-size:9px;color:#888;margin-top:6px;">Arrows=move X/Y | [=Z- | ]=Z+ | Enter=confirm | Esc=cancel</div>
+</div>
 <div id="export-modal"><div id="export-box"><h2>&#128193; Load Existing Character</h2><p>Import a .stasset JSON or project file to edit an existing character.</p><div class="btn-row"><button class="export-btn primary" onclick="document.getElementById('import-stasset-input').click()">&#128229; Import .stasset JSON</button><input type="file" id="import-stasset-input" accept=".json" style="display:none" onchange="importStasset(event)"><button class="export-btn" onclick="document.getElementById('import-project-input').click()">&#128193; Load Project</button><input type="file" id="import-project-input" accept=".json" style="display:none" onchange="loadProject(event)"></div><div class="btn-row" style="justify-content:flex-end;margin-top:16px;"><button class="export-btn" onclick="document.getElementById('export-modal').style.display='none'">Cancel</button></div></div></div>
 
 <script type="importmap">
@@ -184,7 +263,7 @@ body { background:#0a0a14; color:#eee; font-family:'Segoe UI',monospace; overflo
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-const allMaterials = [{"id": 100, "name": "Red Brick", "r": 147, "g": 66, "b": 51, "hex": "#934233"}, {"id": 101, "name": "Stone", "r": 122, "g": 107, "b": 86, "hex": "#7a6b56"}, {"id": 102, "name": "Concrete", "r": 147, "g": 147, "b": 137, "hex": "#939389"}, {"id": 103, "name": "Stucco", "r": 209, "g": 204, "b": 188, "hex": "#d1ccbc"}, {"id": 104, "name": "Asphalt", "r": 45, "g": 45, "b": 51, "hex": "#2d2d33"}, {"id": 105, "name": "Cobblestone", "r": 107, "g": 96, "b": 86, "hex": "#6b6056"}, {"id": 106, "name": "Dark Wood", "r": 76, "g": 45, "b": 25, "hex": "#4c2d19"}, {"id": 107, "name": "Light Wood", "r": 153, "g": 107, "b": 63, "hex": "#996b3f"}, {"id": 108, "name": "Weathered Wood", "r": 107, "g": 91, "b": 66, "hex": "#6b5b42"}, {"id": 109, "name": "Dark Iron", "r": 71, "g": 61, "b": 56, "hex": "#473d38"}, {"id": 110, "name": "Aged Metal", "r": 107, "g": 102, "b": 91, "hex": "#6b665b"}, {"id": 111, "name": "Painted Metal", "r": 229, "g": 224, "b": 209, "hex": "#e5e0d1"}, {"id": 112, "name": "Window Glass", "r": 114, "g": 140, "b": 165, "hex": "#728ca5"}, {"id": 113, "name": "Lit Window", "r": 242, "g": 216, "b": 127, "hex": "#f2d87f"}, {"id": 114, "name": "Storefront Glass", "r": 140, "g": 165, "b": 178, "hex": "#8ca5b2"}, {"id": 115, "name": "Neon Red", "r": 242, "g": 38, "b": 38, "hex": "#f22626"}, {"id": 116, "name": "Neon Blue", "r": 38, "g": 76, "b": 242, "hex": "#264cf2"}, {"id": 117, "name": "Neon Green", "r": 38, "g": 216, "b": 63, "hex": "#26d83f"}, {"id": 118, "name": "Tar", "r": 71, "g": 61, "b": 51, "hex": "#473d33"}, {"id": 119, "name": "Terracotta", "r": 140, "g": 81, "b": 51, "hex": "#8c5133"}, {"id": 120, "name": "Painted Red", "r": 114, "g": 30, "b": 25, "hex": "#721e19"}, {"id": 121, "name": "Painted Green", "r": 38, "g": 71, "b": 45, "hex": "#26472d"}, {"id": 122, "name": "Painted Brown", "r": 56, "g": 30, "b": 20, "hex": "#381e14"}, {"id": 123, "name": "Gold/Brass", "r": 198, "g": 158, "b": 51, "hex": "#c69e33"}, {"id": 124, "name": "Lamp Glow", "r": 255, "g": 216, "b": 127, "hex": "#ffd87f"}, {"id": 125, "name": "Flesh", "r": 209, "g": 173, "b": 140, "hex": "#d1ad8c"}, {"id": 126, "name": "Black Fabric", "r": 15, "g": 15, "b": 17, "hex": "#0f0f11"}, {"id": 127, "name": "White Fabric", "r": 224, "g": 219, "b": 209, "hex": "#e0dbd1"}, {"id": 128, "name": "Hair", "r": 30, "g": 20, "b": 15, "hex": "#1e140f"}, {"id": 129, "name": "Painted Blue", "r": 30, "g": 51, "b": 114, "hex": "#1e3372"}];
+const allMaterials = [{"id": 100, "name": "Red Brick", "r": 147, "g": 66, "b": 51, "hex": "#934233"}, {"id": 101, "name": "Stone", "r": 122, "g": 107, "b": 86, "hex": "#7a6b56"}, {"id": 102, "name": "Concrete", "r": 147, "g": 147, "b": 137, "hex": "#939389"}, {"id": 103, "name": "Stucco", "r": 209, "g": 204, "b": 188, "hex": "#d1ccbc"}, {"id": 104, "name": "Asphalt", "r": 45, "g": 45, "b": 51, "hex": "#2d2d33"}, {"id": 105, "name": "Cobblestone", "r": 107, "g": 96, "b": 86, "hex": "#6b6056"}, {"id": 106, "name": "Dark Wood", "r": 76, "g": 45, "b": 25, "hex": "#4c2d19"}, {"id": 107, "name": "Light Wood", "r": 153, "g": 107, "b": 63, "hex": "#996b3f"}, {"id": 108, "name": "Weathered Wood", "r": 107, "g": 91, "b": 66, "hex": "#6b5b42"}, {"id": 109, "name": "Dark Iron", "r": 71, "g": 61, "b": 56, "hex": "#473d38"}, {"id": 110, "name": "Aged Metal", "r": 107, "g": 102, "b": 91, "hex": "#6b665b"}, {"id": 111, "name": "Painted Metal", "r": 229, "g": 224, "b": 209, "hex": "#e5e0d1"}, {"id": 112, "name": "Window Glass", "r": 114, "g": 140, "b": 165, "hex": "#728ca5"}, {"id": 113, "name": "Lit Window", "r": 242, "g": 216, "b": 127, "hex": "#f2d87f"}, {"id": 114, "name": "Storefront Glass", "r": 140, "g": 165, "b": 178, "hex": "#8ca5b2"}, {"id": 115, "name": "Neon Red", "r": 242, "g": 38, "b": 38, "hex": "#f22626"}, {"id": 116, "name": "Neon Blue", "r": 38, "g": 76, "b": 242, "hex": "#264cf2"}, {"id": 117, "name": "Neon Green", "r": 38, "g": 216, "b": 63, "hex": "#26d83f"}, {"id": 118, "name": "Tar", "r": 71, "g": 61, "b": 51, "hex": "#473d33"}, {"id": 119, "name": "Terracotta", "r": 140, "g": 81, "b": 51, "hex": "#8c5133"}, {"id": 120, "name": "Painted Red", "r": 114, "g": 30, "b": 25, "hex": "#721e19"}, {"id": 121, "name": "Painted Green", "r": 38, "g": 71, "b": 45, "hex": "#26472d"}, {"id": 122, "name": "Painted Brown", "r": 56, "g": 30, "b": 20, "hex": "#381e14"}, {"id": 123, "name": "Gold/Brass", "r": 198, "g": 158, "b": 51, "hex": "#c69e33"}, {"id": 124, "name": "Lamp Glow", "r": 255, "g": 216, "b": 127, "hex": "#ffd87f"}, {"id": 125, "name": "Flesh", "r": 209, "g": 173, "b": 140, "hex": "#d1ad8c"}, {"id": 126, "name": "Black Fabric", "r": 15, "g": 15, "b": 17, "hex": "#0f0f11"}, {"id": 127, "name": "White Fabric", "r": 224, "g": 219, "b": 209, "hex": "#e0dbd1"}, {"id": 128, "name": "Hair", "r": 30, "g": 20, "b": 15, "hex": "#1e140f"}, {"id": 129, "name": "Painted Blue", "r": 30, "g": 51, "b": 114, "hex": "#1e3372"}, {"id": 130, "name": "Red Fabric", "r": 160, "g": 30, "b": 30, "hex": "#a01e1e"}, {"id": 131, "name": "Brown Flesh", "r": 180, "g": 130, "b": 100, "hex": "#b48264"}, {"id": 132, "name": "Eye", "r": 20, "g": 20, "b": 35, "hex": "#141423"}, {"id": 133, "name": "Green Fabric", "r": 30, "g": 100, "b": 40, "hex": "#1e6428"}];
 
 const GROUPS = [
   {id:0, name:'Body', color:'#888888'},
@@ -725,12 +804,272 @@ function raycastVoxel(event) {
     placeX:v.x+Math.round(normal.x), placeY:v.y+Math.round(normal.y), placeZ:v.z+Math.round(normal.z)};
 }
 
+// === HIGHLIGHT SYSTEM ===
+const hlGeo = new THREE.BoxGeometry(1.05, 1.05, 1.05);
+let hlMesh = null;
+let hlEdgesMesh = null;
+let hlEdgesMesh2 = null;
+
+const TOOL_COLORS = {
+  place: 0x00ff00, erase: 0xff0000, paint: 0xffaa00, eyedropper: 0x00aaff,
+  fill: 0x00ffff, line: 0xffff00, box: 0xff00ff, grouppaint: 0xff00ff,
+  select: 0xff8800, extrude: 0x88ff00, ruler: 0xffffff, camera: 0x888888,
+};
+
+const TOOL_DESC = {
+  place: 'Click a face to place a new voxel',
+  erase: 'Click a voxel to remove it',
+  paint: 'Click a voxel to recolor it',
+  eyedropper: 'Click a voxel to pick its material',
+  fill: 'Click to fill connected same-material',
+  line: 'Click two points to draw a line',
+  box: 'Click two points to fill a box',
+  grouppaint: 'Click a voxel to change its group',
+  select: 'Click to flood-fill select | Shift=single | Ctrl=box',
+  extrude: 'Click a face to extrude 1 layer',
+  ruler: 'Click two points to measure distance',
+  camera: 'Camera mode — orbit, pan, zoom (Esc)',
+};
+
+function clearHighlight() {
+  if (hlMesh) { scene.remove(hlMesh); hlMesh.dispose(); hlMesh = null; }
+  if (hlEdgesMesh) { scene.remove(hlEdgesMesh); hlEdgesMesh.geometry.dispose(); hlEdgesMesh.material.dispose(); hlEdgesMesh = null; }
+  if (hlEdgesMesh2) { scene.remove(hlEdgesMesh2); hlEdgesMesh2.geometry.dispose(); hlEdgesMesh2.material.dispose(); hlEdgesMesh2 = null; }
+}
+
+function showHighlight(positions, color) {
+  clearHighlight();
+  if (positions.length === 0) return;
+  const count = positions.length;
+  const mat = new THREE.MeshBasicMaterial({ color, opacity: 0.35, transparent: true, depthWrite: false });
+  hlMesh = new THREE.InstancedMesh(hlGeo, mat, count);
+  const edgesGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
+  const edgesMat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.8 });
+  hlEdgesMesh = new THREE.InstancedMesh(edgesGeo, edgesMat, count);
+  for (let i = 0; i < count; i++) {
+    const [x, y, z] = positions[i];
+    dummyMatrix.setPosition(x - W / 2, y, z - D / 2);
+    hlMesh.setMatrixAt(i, dummyMatrix);
+    hlEdgesMesh.setMatrixAt(i, dummyMatrix);
+  }
+  hlMesh.instanceMatrix.needsUpdate = true;
+  hlEdgesMesh.instanceMatrix.needsUpdate = true;
+  scene.add(hlMesh);
+  scene.add(hlEdgesMesh);
+}
+
+function getVoxelAt(x, y, z) {
+  return voxelMap.has(`${x},${y},${z}`) ? voxelMap.get(`${x},${y},${z}`) : 0;
+}
+
+function computeFloodFill(x, y, z, targetMid) {
+  const stack = [[x, y, z]];
+  const visited = new Set();
+  const result = [];
+  while (stack.length) {
+    const [cx, cy, cz] = stack.pop();
+    const key = `${cx},${cy},${cz}`;
+    if (visited.has(key)) continue;
+    visited.add(key);
+    if (getVoxelAt(cx, cy, cz) !== targetMid) continue;
+    result.push([cx, cy, cz]);
+    if (result.length > 50000) break;
+    stack.push([cx+1,cy,cz],[cx-1,cy,cz],[cx,cy+1,cz],[cx,cy-1,cz],[cx,cy,cz+1],[cx,cy,cz-1]);
+  }
+  return result;
+}
+
+let lastMouseEvent = null;
+
+function updateHighlight(event) {
+  lastMouseEvent = event;
+  if (currentTool === 'camera') { clearHighlight(); document.getElementById('tooltip').style.display = 'none'; return; }
+  const hit = raycastVoxel(event);
+  if (!hit) { clearHighlight(); document.getElementById('tooltip').style.display = 'none'; return; }
+  const color = TOOL_COLORS[currentTool] || 0x00ff00;
+  let positions = [];
+  let infoText = '';
+  // Always show material under cursor when hovering a solid voxel
+  let matInfoStr = '';
+  if (hit.mid !== undefined && hit.mid !== 0) {
+    const matInfo = allMaterials.find(m => m.id === hit.mid);
+    const matName = matInfo ? matInfo.name : `Mat ${hit.mid}`;
+    matInfoStr = `Mat: ${matName} (${hit.mid}) @ (${hit.x},${hit.y},${hit.z})`;
+  }
+  switch (currentTool) {
+    case 'place':
+      if (hit.placeX !== undefined) { positions = [[hit.placeX, hit.placeY, hit.placeZ]]; infoText = matInfoStr ? matInfoStr + ' | Place @ (' + hit.placeX + ',' + hit.placeY + ',' + hit.placeZ + ')' : `Place @ (${hit.placeX},${hit.placeY},${hit.placeZ})`; }
+      break;
+    case 'erase':
+      if (hit.mid !== undefined) { positions = [[hit.x, hit.y, hit.z]]; infoText = matInfoStr ? matInfoStr + ' | Erase' : `Erase @ (${hit.x},${hit.y},${hit.z}) mat=${hit.mid}`; }
+      break;
+    case 'paint':
+      if (hit.mid !== undefined) { positions = [[hit.x, hit.y, hit.z]]; infoText = matInfoStr ? matInfoStr + ` | Paint -> ${selectedMaterial}` : `Paint @ (${hit.x},${hit.y},${hit.z}) ${hit.mid}->${selectedMaterial}`; }
+      break;
+    case 'eyedropper':
+      if (hit.mid !== undefined) { positions = [[hit.x, hit.y, hit.z]]; infoText = matInfoStr ? matInfoStr + ' | Pick' : `Pick @ (${hit.x},${hit.y},${hit.z})`; }
+      break;
+    case 'fill':
+      if (hit.mid !== undefined || hit.placeX !== undefined) {
+        const mode = document.getElementById('fill-mode').value;
+        const clickY = hit.placeX !== undefined ? hit.placeY : hit.y;
+        const yClamp = event.shiftKey ? 'below' : (event.ctrlKey ? 'above' : null);
+        const clampLabel = yClamp === 'below' ? ` Y<=${clickY}` : (yClamp === 'above' ? ` Y>=${clickY}` : '');
+        const clampFilter = (cells) => yClamp === 'below' ? cells.filter(c => c[1] <= clickY) : (yClamp === 'above' ? cells.filter(c => c[1] >= clickY) : cells);
+        const modHint = yClamp === 'below' ? ' [Shift: fill below]' : (yClamp === 'above' ? ' [Ctrl: fill above]' : ' [Shift/Ctrl: clamp Y]');
+        function getPreviewOrigin() {
+          if (yClamp === 'below' && hit.placeX !== undefined) {
+            let cy = hit.placeY;
+            while (cy >= 0 && getVoxelAt(hit.placeX, cy, hit.placeZ) !== 0) cy--;
+            if (cy >= 0) return [hit.placeX, cy, hit.placeZ];
+            return [hit.placeX, hit.placeY, hit.placeZ];
+          }
+          if (hit.placeX !== undefined) return [hit.placeX, hit.placeY, hit.placeZ];
+          return [hit.x, hit.y, hit.z];
+        }
+        if (mode === 'replace' && hit.mid !== undefined) {
+          const fp = clampFilter(computeFloodFill(hit.x, hit.y, hit.z, hit.mid));
+          positions = fp; infoText = `Replace ${fp.length} voxels (mat ${hit.mid} -> ${selectedMaterial})${clampLabel}${modHint}`;
+        } else if ((mode === 'cavity' || mode === 'air') && (hit.placeX !== undefined || hit.mid !== undefined)) {
+          const [ox, oy, oz] = getPreviewOrigin();
+          if (getVoxelAt(ox, oy, oz) === 0) {
+            let fc = mode === 'cavity' ? clampFilter(computeCavity(ox, oy, oz)) : clampFilter(computeFloodFillAir(ox, oy, oz));
+            positions = fc; infoText = `${mode === 'cavity' ? 'Cavity' : 'Air'} fill: ${fc.length} voxels${clampLabel}${modHint}`;
+          } else if (hit.mid !== undefined) {
+            const fp = clampFilter(computeFloodFill(hit.x, hit.y, hit.z, hit.mid));
+            positions = fp; infoText = `Replace ${fp.length} voxels (mat ${hit.mid} -> ${selectedMaterial})${clampLabel}${modHint}`;
+          } else { infoText = `Click on a face to fill${modHint}`; }
+        } else if (hit.mid !== undefined) {
+          const fp = clampFilter(computeFloodFill(hit.x, hit.y, hit.z, hit.mid));
+          positions = fp; infoText = (matInfoStr ? matInfoStr + ' | ' : '') + `Replace ${fp.length} voxels (mat ${hit.mid} -> ${selectedMaterial})${clampLabel}${modHint}`;
+        } else { infoText = (matInfoStr ? matInfoStr + ' | ' : '') + `Click on a face to fill${modHint}`; }
+      }
+      break;
+    case 'line':
+      if (lineStart) {
+        const ex = hit.placeX!==undefined?hit.placeX:hit.x, ey = hit.placeY!==undefined?hit.placeY:hit.y, ez = hit.placeZ!==undefined?hit.placeZ:hit.z;
+        positions = computeLineVoxels(lineStart[0], lineStart[1], lineStart[2], ex, ey, ez);
+        infoText = (matInfoStr ? matInfoStr + ' | ' : '') + `Line: (${lineStart[0]},${lineStart[1]},${lineStart[2]}) -> (${ex},${ey},${ez}) = ${positions.length} voxels`;
+      } else {
+        const p = hit.placeX!==undefined?[hit.placeX,hit.placeY,hit.placeZ]:[hit.x,hit.y,hit.z];
+        positions = [p]; infoText = (matInfoStr ? matInfoStr + ' | ' : '') + `Line start @ (${p[0]},${p[1]},${p[2]}) — click to set`;
+      }
+      break;
+    case 'box':
+      if (boxStart && boxStart[3] !== 'select-box') {
+        const ex = hit.placeX!==undefined?hit.placeX:hit.x, ey = hit.placeY!==undefined?hit.placeY:hit.y, ez = hit.placeZ!==undefined?hit.placeZ:hit.z;
+        positions = computeBoxVoxels(boxStart[0], boxStart[1], boxStart[2], ex, ey, ez);
+        infoText = (matInfoStr ? matInfoStr + ' | ' : '') + `Box: (${boxStart[0]},${boxStart[1]},${boxStart[2]}) -> (${ex},${ey},${ez}) = ${positions.length} voxels`;
+      } else {
+        const p = hit.placeX!==undefined?[hit.placeX,hit.placeY,hit.placeZ]:[hit.x,hit.y,hit.z];
+        positions = [p]; infoText = (matInfoStr ? matInfoStr + ' | ' : '') + `Box start @ (${p[0]},${p[1]},${p[2]}) — click to set`;
+      }
+      break;
+    case 'grouppaint':
+      if (hit.mid !== undefined) { positions = [[hit.x, hit.y, hit.z]]; infoText = (matInfoStr ? matInfoStr + ' | ' : '') + `GroupPaint @ (${hit.x},${hit.y},${hit.z}) -> group ${selectedGroup}`; }
+      break;
+    case 'select':
+      if (selectionActive && selVoxels.length > 0) {
+        positions = selVoxels.map(v => [v[0], v[1], v[2]]);
+        infoText = (matInfoStr ? matInfoStr + ' | ' : '') + `Selection: ${selVoxels.length} voxels — click another to reselect`;
+      } else if (hit.mid !== undefined) {
+        const preview = computeFloodFill(hit.x, hit.y, hit.z, hit.mid);
+        positions = preview;
+        infoText = (matInfoStr ? matInfoStr + ' | ' : '') + `Will select ${preview.length} voxels (mat ${hit.mid}) — click to confirm`;
+      } else { infoText = (matInfoStr ? matInfoStr + ' | ' : '') + 'Click a solid voxel to select'; }
+      break;
+    case 'ruler':
+      if (rulerStart) {
+        const ex = hit.placeX!==undefined?hit.placeX:hit.x, ey = hit.placeY!==undefined?hit.placeY:hit.y, ez = hit.placeZ!==undefined?hit.placeZ:hit.z;
+        const dx=ex-rulerStart[0], dy=ey-rulerStart[1], dz=ez-rulerStart[2];
+        const dist = Math.sqrt(dx*dx+dy*dy+dz*dz);
+        positions = computeLineVoxels(rulerStart[0], rulerStart[1], rulerStart[2], ex, ey, ez);
+        infoText = (matInfoStr ? matInfoStr + ' | ' : '') + `Ruler: ${dist.toFixed(2)} dist | ${positions.length} voxels | d=(${dx},${dy},${dz}) — click to measure`;
+      } else {
+        const p = hit.placeX!==undefined?[hit.placeX,hit.placeY,hit.placeZ]:[hit.x,hit.y,hit.z];
+        positions = [p]; infoText = (matInfoStr ? matInfoStr + ' | ' : '') + `Ruler start @ (${p[0]},${p[1]},${p[2]}) — click to set`;
+      }
+      break;
+    case 'extrude':
+      if (extrudeDragActive) {
+        positions = [];
+        const [nx, ny, nz] = extrudeDragNormal;
+        for (let layer = 1; layer <= extrudeDragLayers; layer++) {
+          for (const [fx, fy, fz] of extrudeDragFace) {
+            const px = fx + nx * layer, py = fy + ny * layer, pz = fz + nz * layer;
+            if (px >= 0 && px < W && py >= 0 && py < H && pz >= 0 && pz < D) positions.push([px, py, pz]);
+          }
+        }
+        infoText = (matInfoStr ? matInfoStr + ' | ' : '') + `Extrude drag: ${extrudeDragLayers} layer(s) x ${extrudeDragFace.length} = ${positions.length} voxels dir=(${nx},${ny},${nz})`;
+      } else if (hit.mid !== undefined) {
+        positions = [[hit.x, hit.y, hit.z]];
+        if (hit.placeX !== undefined) positions.push([hit.placeX, hit.placeY, hit.placeZ]);
+        const nx = Math.round(hit.normal.x), ny = Math.round(hit.normal.y), nz = Math.round(hit.normal.z);
+        const shiftHint = event.shiftKey ? ' [Shift+click to drag-extrude]' : ' [Hold Shift to drag-extrude]';
+        infoText = (matInfoStr ? matInfoStr + ' | ' : '') + `Extrude @ (${hit.x},${hit.y},${hit.z}) dir=(${nx},${ny},${nz})${shiftHint}`;
+      }
+      break;
+  }
+  // Paste mode preview
+  if (pasteMode && clipboard.length > 0) {
+    const bx = pasteOrigin.x + pasteOffset.x, by = pasteOrigin.y + pasteOffset.y, bz = pasteOrigin.z + pasteOffset.z;
+    const pp = [];
+    for (const v of clipboard) { const px=bx+v.x, py=by+v.y, pz=bz+v.z; if (px>=0&&px<W&&py>=0&&py<H&&pz>=0&&pz<D) pp.push([px,py,pz]); }
+    showHighlight(pp, 0x00ffff);
+    infoText = (matInfoStr ? matInfoStr + ' | ' : '') + `Paste: ${pp.length} voxels at (${bx},${by},${bz}) — arrows=move | Enter=confirm | Esc=cancel`;
+  } else if (selectionActive && selVoxels.length > 0 && currentTool !== 'select') {
+    const selPos = selVoxels.map(v => [v[0], v[1], v[2]]);
+    showHighlight(positions.concat(selPos), color);
+    if (selPos.length > 0) {
+      const edgesGeo2 = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
+      const edgesMat2 = new THREE.LineBasicMaterial({ color: 0xff8800, transparent: true, opacity: 0.8 });
+      const selEdges = new THREE.InstancedMesh(edgesGeo2, edgesMat2, selPos.length);
+      for (let i = 0; i < selPos.length; i++) { dummyMatrix.setPosition(selPos[i][0]-W/2, selPos[i][1], selPos[i][2]-D/2); selEdges.setMatrixAt(i, dummyMatrix); }
+      selEdges.instanceMatrix.needsUpdate = true;
+      scene.add(selEdges);
+      hlEdgesMesh2 = selEdges;
+    }
+  } else {
+    showHighlight(positions, color);
+  }
+  // Update status coords
+  const sc = document.getElementById('status-coords');
+  if (sc) {
+    if (hit.placeX !== undefined) sc.textContent = `x:${hit.placeX} y:${hit.placeY} z:${hit.placeZ}`;
+    else if (hit.mid !== undefined) sc.textContent = `x:${hit.x} y:${hit.y} z:${hit.z}`;
+  }
+  // Tooltip
+  if (infoText) {
+    const tt = document.getElementById('tooltip');
+    tt.style.display = 'block';
+    tt.style.left = (event.clientX + 12) + 'px';
+    tt.style.top = (event.clientY + 12) + 'px';
+    tt.textContent = infoText;
+  } else {
+    document.getElementById('tooltip').style.display = 'none';
+  }
+}
+
 // === VOXEL TOOLS ===
 let currentTool = 'place';
 let selectedMaterial = 106;
 let selectedGroup = 0;
 let mirrorX = false, mirrorY = false, mirrorZ = false;
 let lineStart = null, boxStart = null;
+let rulerStart = null;
+let extrudeDragActive = false;
+let extrudeDragFace = [];
+let extrudeDragNormal = [0, 0, 0];
+let extrudeDragMid = 0;
+let extrudeDragLayers = 1;
+let selVoxels = [];
+let selectionActive = false;
+let clipboard = [];
+let pasteMode = false;
+let moveMode = false;
+let pasteOffset = {x:0, y:0, z:0};
+let pasteOrigin = {x:0, y:0, z:0};
+let copyOrigin = {x:0, y:0, z:0};
 
 function setVoxelWithMirror(x, y, z, mid) {
   const positions = [[x,y,z]];
@@ -763,11 +1102,26 @@ function performTool(event) {
       }
       break;
     case 'erase':
-      setVoxelWithMirror(hit.x,hit.y,hit.z,0);
-      pushHistory(); rebuildMesh(); updateGroupCounts();
+      if (selectionActive && selVoxels.length > 0) {
+        for (const v of selVoxels) { voxelMap.delete(`${v[0]},${v[1]},${v[2]}`); groupMap.delete(`${v[0]},${v[1]},${v[2]}`); }
+        pushHistory(); rebuildMesh(); updateGroupCounts();
+        setStatus(`Erased ${selVoxels.length} selected voxels`);
+        clearSelection();
+      } else {
+        setVoxelWithMirror(hit.x,hit.y,hit.z,0);
+        pushHistory(); rebuildMesh(); updateGroupCounts();
+      }
       break;
     case 'paint':
-      if (hit.mid !== undefined) { setVoxelWithMirror(hit.x,hit.y,hit.z,selectedMaterial); pushHistory(); rebuildMesh(); }
+      if (selectionActive && selVoxels.length > 0) {
+        for (const v of selVoxels) { voxelMap.set(`${v[0]},${v[1]},${v[2]}`, selectedMaterial); groupMap.set(`${v[0]},${v[1]},${v[2]}`, selectedGroup); }
+        pushHistory(); rebuildMesh(); updateGroupCounts();
+        const m = allMaterials.find(m => m.id === selectedMaterial);
+        setStatus(`Painted ${selVoxels.length} selected voxels with ${m ? m.name : selectedMaterial}`);
+        clearSelection();
+      } else if (hit.mid !== undefined) {
+        setVoxelWithMirror(hit.x,hit.y,hit.z,selectedMaterial); pushHistory(); rebuildMesh();
+      }
       break;
     case 'eyedropper':
       if (hit.mid !== undefined) { selectedMaterial = hit.mid; updateMaterialSelection(); if (hit.gid !== undefined) selectGroup(hit.gid); setTool('paint'); }
@@ -784,7 +1138,47 @@ function performTool(event) {
       }
       break;
     case 'fill':
-      if (hit.mid !== undefined) { const cells = floodFill(hit.x,hit.y,hit.z,hit.mid); for (const [x,y,z] of cells) setVoxelWithMirror(x,y,z,selectedMaterial); pushHistory(); rebuildMesh(); updateGroupCounts(); }
+      if (hit.mid !== undefined || hit.placeX !== undefined) {
+        const mode = document.getElementById('fill-mode').value;
+        const clickY = hit.placeX !== undefined ? hit.placeY : hit.y;
+        const yClamp = event.shiftKey ? 'below' : (event.ctrlKey ? 'above' : null);
+        const clampLabel = yClamp === 'below' ? ` Y<=${clickY}` : (yClamp === 'above' ? ` Y>=${clickY}` : '');
+        const clampFilter = (cells) => yClamp === 'below' ? cells.filter(c => c[1] <= clickY) : (yClamp === 'above' ? cells.filter(c => c[1] >= clickY) : cells);
+        function getFillOrigin() {
+          if (yClamp === 'below' && hit.placeX !== undefined) {
+            let cy = hit.placeY;
+            while (cy >= 0 && getVoxelAt(hit.placeX, cy, hit.placeZ) !== 0) cy--;
+            if (cy >= 0) return [hit.placeX, cy, hit.placeZ];
+            return [hit.placeX, hit.placeY, hit.placeZ];
+          }
+          if (hit.placeX !== undefined) return [hit.placeX, hit.placeY, hit.placeZ];
+          return [hit.x, hit.y, hit.z];
+        }
+        if (mode === 'replace' && hit.mid !== undefined) {
+          const cells = clampFilter(computeFloodFill(hit.x, hit.y, hit.z, hit.mid));
+          for (const [x, y, z] of cells) setVoxelWithMirror(x, y, z, selectedMaterial);
+          pushHistory(); rebuildMesh(); updateGroupCounts();
+          setStatus(`Replaced ${cells.length} voxels (mat ${hit.mid}->${selectedMaterial})${clampLabel}`);
+        } else if ((mode === 'cavity' || mode === 'air') && (hit.placeX !== undefined || hit.mid !== undefined)) {
+          const [ox, oy, oz] = getFillOrigin();
+          if (getVoxelAt(ox, oy, oz) === 0) {
+            let fillCells = mode === 'cavity' ? clampFilter(computeCavity(ox, oy, oz)) : clampFilter(computeFloodFillAir(ox, oy, oz));
+            for (const [x, y, z] of fillCells) setVoxelWithMirror(x, y, z, selectedMaterial);
+            pushHistory(); rebuildMesh(); updateGroupCounts();
+            setStatus(`${mode === 'cavity' ? 'Cavity' : 'Air'} filled: ${fillCells.length} voxels${clampLabel}`);
+          } else if (hit.mid !== undefined) {
+            const cells = clampFilter(computeFloodFill(hit.x, hit.y, hit.z, hit.mid));
+            for (const [x, y, z] of cells) setVoxelWithMirror(x, y, z, selectedMaterial);
+            pushHistory(); rebuildMesh(); updateGroupCounts();
+            setStatus(`Replaced ${cells.length} voxels (mat ${hit.mid}->${selectedMaterial})${clampLabel}`);
+          }
+        } else if (hit.mid !== undefined) {
+          const cells = clampFilter(computeFloodFill(hit.x, hit.y, hit.z, hit.mid));
+          for (const [x, y, z] of cells) setVoxelWithMirror(x, y, z, selectedMaterial);
+          pushHistory(); rebuildMesh(); updateGroupCounts();
+          setStatus(`Replaced ${cells.length} voxels (mat ${hit.mid}->${selectedMaterial})${clampLabel}`);
+        }
+      }
       break;
     case 'line':
       if (!lineStart) { lineStart=[hit.placeX!==undefined?[hit.placeX,hit.placeY,hit.placeZ]:[hit.x,hit.y,hit.z]]; }
@@ -793,6 +1187,76 @@ function performTool(event) {
     case 'box':
       if (!boxStart) { boxStart=[hit.placeX!==undefined?[hit.placeX,hit.placeY,hit.placeZ]:[hit.x,hit.y,hit.z]]; }
       else { const ex=hit.placeX!==undefined?hit.placeX:hit.x, ey=hit.placeY!==undefined?hit.placeY:hit.y, ez=hit.placeZ!==undefined?hit.placeZ:hit.z; const bv = computeBoxVoxels(boxStart[0][0],boxStart[0][1],boxStart[0][2],ex,ey,ez); for (const [x,y,z] of bv) if(x>=0&&x<W&&y>=0&&y<H&&z>=0&&z<D) setVoxelWithMirror(x,y,z,selectedMaterial); pushHistory(); rebuildMesh(); updateGroupCounts(); boxStart=null; }
+      break;
+    case 'ruler':
+      if (!rulerStart) {
+        rulerStart = hit.placeX!==undefined ? [hit.placeX,hit.placeY,hit.placeZ] : [hit.x,hit.y,hit.z];
+        setStatus(`Ruler start: (${rulerStart[0]},${rulerStart[1]},${rulerStart[2]}) — click end point`);
+      } else {
+        const ex=hit.placeX!==undefined?hit.placeX:hit.x, ey=hit.placeY!==undefined?hit.placeY:hit.y, ez=hit.placeZ!==undefined?hit.placeZ:hit.z;
+        const dx=ex-rulerStart[0], dy=ey-rulerStart[1], dz=ez-rulerStart[2];
+        const dist=Math.sqrt(dx*dx+dy*dy+dz*dz);
+        const manhattan=Math.abs(dx)+Math.abs(dy)+Math.abs(dz);
+        setStatus(`Distance: ${dist.toFixed(2)} | Voxels: ${Math.round(dist)+1} | Delta=(${dx},${dy},${dz}) | Manhattan: ${manhattan}`);
+        rulerStart=null;
+      }
+      break;
+    case 'select':
+      if (hit.mid === undefined) { setStatus('Click a voxel to select | Shift=single | Ctrl=box'); return; }
+      if (event.shiftKey) {
+        selVoxels = [[hit.x,hit.y,hit.z,hit.mid]];
+        selectionActive = true;
+        document.getElementById('sel-info').textContent = `Sel: 1 voxel (mat ${hit.mid})`;
+        setStatus(`Selected 1 voxel at (${hit.x},${hit.y},${hit.z})`);
+      } else if (event.ctrlKey) {
+        if (!boxStart || boxStart[3] !== 'select-box') {
+          boxStart = [hit.x,hit.y,hit.z,'select-box'];
+          setStatus(`Box select start at (${hit.x},${hit.y},${hit.z}) — Ctrl+click end point`);
+        } else {
+          const [sx,sy,sz] = boxStart;
+          const minX=Math.min(sx,hit.x), maxX=Math.max(sx,hit.x);
+          const minY=Math.min(sy,hit.y), maxY=Math.max(sy,hit.y);
+          const minZ=Math.min(sz,hit.z), maxZ=Math.max(sz,hit.z);
+          selVoxels = [];
+          for (let x=minX;x<=maxX;x++) for (let y=minY;y<=maxY;y++) for (let z=minZ;z<=maxZ;z++) {
+            const key = `${x},${y},${z}`;
+            if (voxelMap.has(key)) selVoxels.push([x,y,z,voxelMap.get(key)]);
+          }
+          selectionActive = true;
+          document.getElementById('sel-info').textContent = `Sel: ${selVoxels.length} voxels (box)`;
+          setStatus(`Box selected ${selVoxels.length} voxels`);
+          boxStart = null;
+        }
+      } else {
+        const cells = floodFill(hit.x,hit.y,hit.z,hit.mid);
+        selVoxels = cells.map(c => [c[0],c[1],c[2],hit.mid]);
+        selectionActive = true;
+        document.getElementById('sel-info').textContent = `Sel: ${selVoxels.length} voxels (mat ${hit.mid})`;
+        setStatus(`Selected ${selVoxels.length} connected voxels (mat ${hit.mid})`);
+      }
+      break;
+    case 'extrude':
+      if (hit.mid !== undefined) {
+        if (event.shiftKey) {
+          const nx=Math.round(hit.normal.x), ny=Math.round(hit.normal.y), nz=Math.round(hit.normal.z);
+          extrudeDragFace = computeExtrudeFace(hit.x, hit.y, hit.z, hit.mid, nx, ny, nz);
+          extrudeDragNormal = [nx, ny, nz];
+          extrudeDragMid = hit.mid;
+          extrudeDragLayers = 1;
+          extrudeDragActive = true;
+          isDragging = true;
+          setStatus(`Extrude drag: ${extrudeDragFace.length} face voxels, move mouse along (${nx},${ny},${nz}) — release to commit`);
+        } else {
+          const nx=Math.round(hit.normal.x), ny=Math.round(hit.normal.y), nz=Math.round(hit.normal.z);
+          const faceVoxels = computeExtrudeFace(hit.x, hit.y, hit.z, hit.mid, nx, ny, nz);
+          for (const [fx,fy,fz] of faceVoxels) {
+            const px=fx+nx, py=fy+ny, pz=fz+nz;
+            if (px>=0&&px<W&&py>=0&&py<H&&pz>=0&&pz<D) { voxelMap.set(`${px},${py},${pz}`, hit.mid); groupMap.set(`${px},${py},${pz}`, selectedGroup); }
+          }
+          pushHistory(); rebuildMesh(); updateGroupCounts();
+          setStatus(`Extruded ${faceVoxels.length} voxels along (${nx},${ny},${nz})`);
+        }
+      }
       break;
   }
 }
@@ -810,6 +1274,202 @@ function floodFill(x,y,z,targetMid) {
   }
   return result;
 }
+
+function computeExtrudeFace(x, y, z, targetMid, nx, ny, nz) {
+  const faceVoxels = [];
+  const stack = [[x, y, z]];
+  const visited = new Set();
+  while (stack.length) {
+    const [cx, cy, cz] = stack.pop();
+    const key = `${cx},${cy},${cz}`;
+    if (visited.has(key)) continue;
+    visited.add(key);
+    if (getVoxelAt(cx, cy, cz) !== targetMid) continue;
+    if (getVoxelAt(cx + nx, cy + ny, cz + nz) === 0) {
+      faceVoxels.push([cx, cy, cz]);
+      const perpDirs = [];
+      if (nx === 0) perpDirs.push([1, 0, 0], [-1, 0, 0]);
+      if (ny === 0) perpDirs.push([0, 1, 0], [0, -1, 0]);
+      if (nz === 0) perpDirs.push([0, 0, 1], [0, 0, -1]);
+      for (const [dx, dy, dz] of perpDirs) stack.push([cx + dx, cy + dy, cz + dz]);
+    }
+  }
+  return faceVoxels;
+}
+
+let _exteriorAirCache = null;
+let _exteriorAirVoxelCount = -1;
+function computeExteriorAir() {
+  if (_exteriorAirCache && _exteriorAirVoxelCount === voxelMap.size) return _exteriorAirCache;
+  const exterior = new Set();
+  const stack = [];
+  for (let x = 0; x < W; x++) {
+    for (let z = 0; z < D; z++) {
+      if (getVoxelAt(x, 0, z) === 0) stack.push([x, 0, z]);
+      if (getVoxelAt(x, H-1, z) === 0) stack.push([x, H-1, z]);
+    }
+    for (let y = 0; y < H; y++) {
+      if (getVoxelAt(x, y, 0) === 0) stack.push([x, y, 0]);
+      if (getVoxelAt(x, y, D-1) === 0) stack.push([x, y, D-1]);
+    }
+  }
+  for (let z = 0; z < D; z++) {
+    for (let y = 0; y < H; y++) {
+      if (getVoxelAt(0, y, z) === 0) stack.push([0, y, z]);
+      if (getVoxelAt(W-1, y, z) === 0) stack.push([W-1, y, z]);
+    }
+  }
+  while (stack.length) {
+    const [cx, cy, cz] = stack.pop();
+    const key = `${cx},${cy},${cz}`;
+    if (exterior.has(key)) continue;
+    if (cx < 0 || cx >= W || cy < 0 || cy >= H || cz < 0 || cz >= D) continue;
+    if (getVoxelAt(cx, cy, cz) !== 0) continue;
+    exterior.add(key);
+    stack.push([cx+1,cy,cz],[cx-1,cy,cz],[cx,cy+1,cz],[cx,cy-1,cz],[cx,cy,cz+1],[cx,cy,cz-1]);
+  }
+  _exteriorAirCache = exterior;
+  _exteriorAirVoxelCount = voxelMap.size;
+  return exterior;
+}
+
+function computeFloodFillAir(x, y, z) {
+  if (getVoxelAt(x, y, z) !== 0) return [];
+  const stack = [[x, y, z]];
+  const visited = new Set();
+  const result = [];
+  while (stack.length) {
+    const [cx, cy, cz] = stack.pop();
+    const key = `${cx},${cy},${cz}`;
+    if (visited.has(key)) continue;
+    visited.add(key);
+    if (cx < 0 || cx >= W || cy < 0 || cy >= H || cz < 0 || cz >= D) continue;
+    if (getVoxelAt(cx, cy, cz) !== 0) continue;
+    result.push([cx, cy, cz]);
+    if (result.length > 10000) break;
+    stack.push([cx+1,cy,cz],[cx-1,cy,cz],[cx,cy+1,cz],[cx,cy-1,cz],[cx,cy,cz+1],[cx,cy,cz-1]);
+  }
+  return result;
+}
+
+function computeCavity(x, y, z) {
+  if (getVoxelAt(x, y, z) !== 0) return [];
+  const exterior = computeExteriorAir();
+  const airCells = computeFloodFillAir(x, y, z);
+  return airCells.filter(([cx, cy, cz]) => !exterior.has(`${cx},${cy},${cz}`));
+}
+
+// === SELECTION & CLIPBOARD ===
+function clearSelection() {
+  selVoxels = [];
+  selectionActive = false;
+  const si = document.getElementById('sel-info');
+  if (si) si.textContent = 'No selection';
+  clearHighlight();
+}
+
+window.copySelection = function() {
+  if (selVoxels.length === 0) return;
+  let minX=Infinity,minY=Infinity,minZ=Infinity;
+  for (const v of selVoxels) { minX=Math.min(minX,v[0]); minY=Math.min(minY,v[1]); minZ=Math.min(minZ,v[2]); }
+  clipboard = selVoxels.map(v => ({x:v[0]-minX, y:v[1]-minY, z:v[2]-minZ, mid:v[3]}));
+  copyOrigin = {x:minX, y:minY, z:minZ};
+  setStatus(`Copied ${clipboard.length} voxels to clipboard`);
+};
+
+window.pasteSelection = function() {
+  if (clipboard.length === 0) { setStatus('Nothing to paste — copy first'); return; }
+  pasteMode = true;
+  pasteOrigin = {x:copyOrigin.x, y:copyOrigin.y, z:copyOrigin.z};
+  pasteOffset = {x:0, y:0, z:0};
+  const pc = document.getElementById('paste-controls');
+  if (pc) pc.style.display = 'block';
+  setStatus(`Paste mode: ${clipboard.length} voxels — arrows to move, Enter to confirm, Esc to cancel`);
+};
+
+window.moveSelection = function() {
+  if (selVoxels.length === 0) { setStatus('Select voxels first (S tool)'); return; }
+  let minX=Infinity,minY=Infinity,minZ=Infinity;
+  for (const v of selVoxels) { minX=Math.min(minX,v[0]); minY=Math.min(minY,v[1]); minZ=Math.min(minZ,v[2]); }
+  clipboard = selVoxels.map(v => ({x:v[0]-minX, y:v[1]-minY, z:v[2]-minZ, mid:v[3]}));
+  pasteOrigin = {x:minX, y:minY, z:minZ};
+  pasteOffset = {x:0, y:0, z:0};
+  pasteMode = true; moveMode = true;
+  const pc = document.getElementById('paste-controls');
+  if (pc) pc.style.display = 'block';
+  setStatus(`Move mode: ${clipboard.length} voxels — arrows to move, Enter to confirm, Esc to cancel`);
+};
+
+window.movePaste = function(dx,dy,dz) {
+  if (!pasteMode) return;
+  pasteOffset.x += dx; pasteOffset.y += dy; pasteOffset.z += dz;
+  if (lastMouseEvent) updateHighlight(lastMouseEvent);
+};
+
+window.confirmPaste = function() {
+  if (!pasteMode || clipboard.length === 0) return;
+  const bx = pasteOrigin.x + pasteOffset.x;
+  const by = pasteOrigin.y + pasteOffset.y;
+  const bz = pasteOrigin.z + pasteOffset.z;
+  // In move mode: delete original voxels first
+  if (moveMode) {
+    for (const v of selVoxels) { voxelMap.delete(`${v[0]},${v[1]},${v[2]}`); groupMap.delete(`${v[0]},${v[1]},${v[2]}`); }
+  }
+  let placed = 0;
+  for (const v of clipboard) {
+    const px = bx + v.x, py = by + v.y, pz = bz + v.z;
+    if (px>=0&&px<W&&py>=0&&py<H&&pz>=0&&pz<D) { voxelMap.set(`${px},${py},${pz}`, v.mid); groupMap.set(`${px},${py},${pz}`, selectedGroup); placed++; }
+  }
+  pushHistory(); rebuildMesh(); updateGroupCounts();
+  const wasMove = moveMode;
+  setStatus(`${wasMove ? 'Moved' : 'Pasted'} ${placed} voxels to (${bx},${by},${bz})`);
+  pasteMode = false; moveMode = false;
+  const pc = document.getElementById('paste-controls');
+  if (pc) pc.style.display = 'none';
+  if (wasMove) clearSelection();
+};
+
+window.cancelPaste = function() {
+  pasteMode = false; moveMode = false;
+  const pc = document.getElementById('paste-controls');
+  if (pc) pc.style.display = 'none';
+  setStatus('Paste cancelled');
+};
+
+window.deleteSelection = function() {
+  if (selVoxels.length === 0) return;
+  for (const v of selVoxels) { voxelMap.delete(`${v[0]},${v[1]},${v[2]}`); groupMap.delete(`${v[0]},${v[1]},${v[2]}`); }
+  pushHistory(); rebuildMesh(); updateGroupCounts();
+  setStatus(`Deleted ${selVoxels.length} voxels from selection`);
+  clearSelection();
+};
+
+window.clearSelection = clearSelection;
+
+// === REPLACE MATERIAL ===
+window.openReplaceModal = function() {
+  const presentIds = new Set();
+  for (const v of voxelMap.values()) presentIds.add(v);
+  const fromSel = document.getElementById('replace-from');
+  const toSel = document.getElementById('replace-to');
+  fromSel.innerHTML = ''; toSel.innerHTML = '';
+  for (const m of CHARACTER_MATERIALS) {
+    if (presentIds.has(m.id)) fromSel.innerHTML += `<option value="${m.id}">${m.name} (${m.id})</option>`;
+    toSel.innerHTML += `<option value="${m.id}">${m.name} (${m.id})</option>`;
+  }
+  document.getElementById('replace-modal').style.display = 'flex';
+};
+
+window.doReplace = function() {
+  const fromMid = parseInt(document.getElementById('replace-from').value);
+  const toMid = parseInt(document.getElementById('replace-to').value);
+  if (fromMid === toMid) return;
+  let count = 0;
+  for (const [key, mid] of voxelMap) { if (mid === fromMid) { voxelMap.set(key, toMid); count++; } }
+  pushHistory(); rebuildMesh();
+  document.getElementById('replace-modal').style.display = 'none';
+  setStatus(`Replaced ${count} voxels: ${fromMid} -> ${toMid}`);
+};
 
 function computeLineVoxels(x0,y0,z0,x1,y1,z1) {
   const dx=Math.abs(x1-x0),dy=Math.abs(y1-y0),dz=Math.abs(z1-z0);
@@ -859,10 +1519,14 @@ function redo() {
 }
 
 // === UI BUILDING ===
+// Character-relevant materials only (excludes building materials like brick, stone, asphalt, etc.)
+const CHARACTER_MATERIAL_IDS = [106, 107, 108, 109, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133];
+const CHARACTER_MATERIALS = CHARACTER_MATERIAL_IDS.map(id => allMaterials.find(m => m.id === id)).filter(Boolean);
+
 function buildMaterialGrid() {
   const container = document.getElementById('mat-grid');
   container.innerHTML = '';
-  for (const m of allMaterials) {
+  for (const m of CHARACTER_MATERIALS) {
     const cell = document.createElement('div');
     cell.className = 'mat-cell' + (m.id === selectedMaterial ? ' selected' : '');
     cell.style.background = `rgb(${m.r},${m.g},${m.b})`;
@@ -872,7 +1536,7 @@ function buildMaterialGrid() {
   }
 }
 function updateMaterialSelection() {
-  document.querySelectorAll('.mat-cell').forEach((el, i) => { if(allMaterials[i]) el.classList.toggle('selected', allMaterials[i].id === selectedMaterial); });
+  document.querySelectorAll('.mat-cell').forEach((el, i) => { if(CHARACTER_MATERIALS[i]) el.classList.toggle('selected', CHARACTER_MATERIALS[i].id === selectedMaterial); });
 }
 function buildGroupList() {
   const container = document.getElementById('group-list');
@@ -901,6 +1565,8 @@ function updateGroupCounts() {
   for (const g of GROUPS) counts[g.id] = 0;
   for (const [, gid] of groupMap) counts[gid] = (counts[gid]||0)+1;
   for (const g of GROUPS) { const el = document.getElementById(`gcount-${g.id}`); if (el) el.textContent = counts[g.id]||0; }
+  const vc = document.getElementById('voxel-count');
+  if (vc) vc.textContent = voxelMap.size;
 }
 function buildStateGrid() {
   const container = document.getElementById('state-grid');
@@ -1143,7 +1809,38 @@ function loadProject(event) {
 // === TOOL SELECTION ===
 function setTool(tool) {
   currentTool = tool;
+  lineStart = null;
+  boxStart = null;
+  rulerStart = null;
+  extrudeDragActive = false;
+  extrudeDragFace = [];
+  extrudeDragLayers = 1;
+  if (pasteMode) { cancelPaste(); }
   document.querySelectorAll('[data-tool]').forEach(el => el.classList.toggle('active', el.dataset.tool === tool));
+  const st = document.getElementById('status-tool');
+  if (st) st.textContent = `Tool: ${tool.charAt(0).toUpperCase() + tool.slice(1)}`;
+  let desc = TOOL_DESC[tool] || '';
+  if (selectionActive && selVoxels.length > 0 && (tool === 'erase' || tool === 'paint')) {
+    desc = `Selection active (${selVoxels.length} voxels) — click to apply to entire selection`;
+  }
+  setStatus(desc);
+  clearHighlight();
+  // Re-render selection overlay immediately if active
+  if (selectionActive && selVoxels.length > 0 && tool !== 'select') {
+    const selPositions = selVoxels.map(v => [v[0], v[1], v[2]]);
+    if (selPositions.length > 0) {
+      const edgesGeo2 = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
+      const edgesMat2 = new THREE.LineBasicMaterial({ color: 0xff8800, transparent: true, opacity: 0.9 });
+      hlEdgesMesh2 = new THREE.InstancedMesh(edgesGeo2, edgesMat2, selPositions.length);
+      for (let i = 0; i < selPositions.length; i++) {
+        dummyMatrix.setPosition(selPositions[i][0] - W / 2, selPositions[i][1], selPositions[i][2] - D / 2);
+        hlEdgesMesh2.setMatrixAt(i, dummyMatrix);
+      }
+      hlEdgesMesh2.instanceMatrix.needsUpdate = true;
+      scene.add(hlEdgesMesh2);
+    }
+  }
+  if (lastMouseEvent && currentPhase === 2) updateHighlight(lastMouseEvent);
 }
 
 // === STATUS ===
@@ -1158,6 +1855,7 @@ document.querySelectorAll('.view-btn').forEach(btn => btn.onclick = () => {
   container.querySelectorAll('.view-btn').forEach(b => b.classList.toggle('active', b === btn));
   if (useAnimatedMesh) rebuildAnimatedMesh(); else rebuildMesh();
 });
+document.getElementById('scene-bg-picker').oninput = function() { scene.background = new THREE.Color(this.value); };
 document.getElementById('mirror-x').onclick = function() { mirrorX = !mirrorX; this.classList.toggle('active', mirrorX); };
 document.getElementById('mirror-y').onclick = function() { mirrorY = !mirrorY; this.classList.toggle('active', mirrorY); };
 document.getElementById('mirror-z').onclick = function() { mirrorZ = !mirrorZ; this.classList.toggle('active', mirrorZ); };
@@ -1184,8 +1882,41 @@ renderer.domElement.addEventListener('pointerdown', (e) => {
 });
 renderer.domElement.addEventListener('pointermove', (e) => {
   if (mouseDownPos) { const dx = Math.abs(e.clientX - mouseDownPos[0]); const dy = Math.abs(e.clientY - mouseDownPos[1]); if (dx > 3 || dy > 3) isDragging = true; }
+  if (extrudeDragActive && mouseDownPos) {
+    const dx = e.clientX - mouseDownPos[0];
+    const dy = e.clientY - mouseDownPos[1];
+    const [nx, ny, nz] = extrudeDragNormal;
+    let projection = 0;
+    if (ny !== 0) projection = -dy * ny;
+    else projection = dx;
+    if (nx !== 0 || nz !== 0) projection = dx - dy * 0.5;
+    extrudeDragLayers = Math.min(Math.max(1, Math.round(projection / 15)), 50);
+  }
+  if (currentPhase === 2 && !mouseDownPos) updateHighlight(e);
+  else if (currentPhase === 2 && extrudeDragActive) updateHighlight(e);
+});
+renderer.domElement.addEventListener('mouseleave', () => {
+  clearHighlight();
+  document.getElementById('tooltip').style.display = 'none';
 });
 renderer.domElement.addEventListener('pointerup', (e) => {
+  if (extrudeDragActive) {
+    const [nx, ny, nz] = extrudeDragNormal;
+    let placed = 0;
+    for (let layer = 1; layer <= extrudeDragLayers; layer++) {
+      for (const [fx, fy, fz] of extrudeDragFace) {
+        const px = fx + nx * layer, py = fy + ny * layer, pz = fz + nz * layer;
+        if (px >= 0 && px < W && py >= 0 && py < H && pz >= 0 && pz < D) {
+          if (getVoxelAt(px, py, pz) === 0) { voxelMap.set(`${px},${py},${pz}`, extrudeDragMid); groupMap.set(`${px},${py},${pz}`, selectedGroup); placed++; }
+        }
+      }
+    }
+    pushHistory(); rebuildMesh(); updateGroupCounts();
+    setStatus(`Extruded ${placed} voxels (${extrudeDragLayers} layers x ${extrudeDragFace.length} face) dir=(${nx},${ny},${nz})`);
+    extrudeDragActive = false; extrudeDragFace = []; extrudeDragLayers = 1;
+    mouseDownPos = null; isDragging = false;
+    return;
+  }
   if (currentPhase === 2 && !isDragging) performTool(e);
   mouseDownPos = null; isDragging = false;
 });
@@ -1196,12 +1927,24 @@ window.addEventListener('keydown', (e) => {
   switch(e.key.toLowerCase()) {
     case 'p': setTool('place'); break;
     case 'e': setTool('erase'); break;
-    case 'm': setTool('paint'); break;
+    case 'b': setTool('paint'); break;
     case 'i': setTool('eyedropper'); break;
     case 'f': setTool('fill'); break;
     case 'l': setTool('line'); break;
-    case 'b': setTool('box'); break;
+    case 'x': setTool('box'); break;
     case 'g': setTool('grouppaint'); break;
+    case 'r': setTool('ruler'); break;
+    case 's': setTool('select'); break;
+    case 'j': setTool('extrude'); break;
+    case 'escape': if (pasteMode) { cancelPaste(); return; } setTool('camera'); break;
+    case 'v': moveSelection(); break;
+    case 'enter': if (pasteMode) { e.preventDefault(); confirmPaste(); } break;
+    case 'arrowup': if (pasteMode) { e.preventDefault(); movePaste(0,1,0); } break;
+    case 'arrowdown': if (pasteMode) { e.preventDefault(); movePaste(0,-1,0); } break;
+    case 'arrowleft': if (pasteMode) { e.preventDefault(); movePaste(-1,0,0); } break;
+    case 'arrowright': if (pasteMode) { e.preventDefault(); movePaste(1,0,0); } break;
+    case '[': if (pasteMode) { e.preventDefault(); movePaste(0,0,-1); } break;
+    case ']': if (pasteMode) { e.preventDefault(); movePaste(0,0,1); } break;
     case '1': case '2': case '3': case '4': case '5': case '6': case '7': case '8': case '9': selectGroup(parseInt(e.key)-1); break;
     case ' ': if (currentPhase === 3) { e.preventDefault(); document.getElementById('play-btn').click(); } break;
     case 'z': if (e.ctrlKey) undo(); break;
@@ -1300,6 +2043,15 @@ window.generateFromFeatures = generateFromFeatures;
 window.generateFromSeed = generateFromSeed;
 window.randomizeSeed = randomizeSeed;
 window.autoAssignGroups = autoAssignGroups;
+window.copySelection = copySelection;
+window.pasteSelection = pasteSelection;
+window.deleteSelection = deleteSelection;
+window.clearSelection = clearSelection;
+window.openReplaceModal = openReplaceModal;
+window.doReplace = doReplace;
+window.movePaste = movePaste;
+window.confirmPaste = confirmPaste;
+window.cancelPaste = cancelPaste;
 window.clearAllGroups = clearAllGroups;
 window.resetPivots = resetPivots;
 window.autoDetectPivots = autoDetectPivots;
