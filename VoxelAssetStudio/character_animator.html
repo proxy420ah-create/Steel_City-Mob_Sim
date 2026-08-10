@@ -146,6 +146,21 @@ body { background:#0a0a14; color:#eee; font-family:'Segoe UI',monospace; overflo
   pointer-events:none; z-index:300; display:none;
 }
 
+/* UI hide toggle (press H) — hides all panels for unobstructed 3D view.
+   Replicated from the voxel editor so the animator can be used as a
+   clean animation preview studio. */
+body.ui-hidden #toolbar,
+body.ui-hidden #left-panel,
+body.ui-hidden #right-panel,
+body.ui-hidden #status-bar { display:none !important; }
+#ui-hidden-hint {
+  position:fixed; bottom:10px; right:10px; z-index:90;
+  font-size:11px; color:#888; background:#1a1a2e;
+  padding:4px 8px; border-radius:4px; pointer-events:none;
+  display:none; border:1px solid #333;
+}
+body.ui-hidden #ui-hidden-hint { display:block; }
+
 /* Compass */
 #compass-info { font-size:10px; margin-top:8px; color:#888; }
 #compass-info span { font-weight:bold; }
@@ -182,16 +197,14 @@ body { background:#0a0a14; color:#eee; font-family:'Segoe UI',monospace; overflo
 <body>
 <div id="editor-nav"><a href="character_pipeline.html">Pipeline</a><a href="voxel_editor.html">Voxel Editor</a><a href="voxel_editor_2x.html">Voxel 2x</a><a href="character_animator.html" class="current">Animator</a></div>
 <div id="canvas-container"></div>
+<div id="ui-hidden-hint">press H to show UI</div>
 
-<!-- Toolbar -->
+<!-- Toolbar — animation studio only: no voxel-editing tools.
+     Paint/eyedropper/fill/erase were removed so the model cannot be
+     accidentally modified here. Use the Voxel Editor for authoring. -->
 <div id="toolbar">
-  <span class="tool-label">Tools:</span>
-  <button class="tool-btn active" data-tool="paint" title="Paint Group (P)">🎨</button>
-  <button class="tool-btn" data-tool="eyedropper" title="Pick Group (I)">💧</button>
-  <button class="tool-btn" data-tool="fill" title="Flood Fill Group (F)">🪣</button>
-  <button class="tool-btn" data-tool="erase" title="Clear Group (E)">🗑</button>
-  <div class="tool-sep"></div>
-  <button class="tool-btn" data-tool="camera" title="Camera Mode (Esc)">🎥</button>
+  <span class="tool-label">View:</span>
+  <button class="tool-btn active" data-tool="camera" title="Camera Mode (Esc)">🎥</button>
   <div class="tool-sep"></div>
   <button class="tool-btn" id="grid-btn" title="Toggle Grid" class="active">▦</button>
   <button class="tool-btn" id="reset-btn" title="Reset View">🎯</button>
@@ -253,7 +266,7 @@ body { background:#0a0a14; color:#eee; font-family:'Segoe UI',monospace; overflo
 
 <!-- Status bar -->
 <div id="status-bar">
-  <span id="status-tool">Tool: Paint</span>
+  <span id="status-tool">Tool: Camera</span>
   <span id="status-coords">---, ---, ---</span>
   <span id="status-info">Ready</span>
   <span id="status-fps">0 FPS</span>
@@ -558,43 +571,18 @@ const allMaterials = [
     "hex": "#1e3372"
   }
 ];
-const GROUPS = [
-  {
-    "id": 0,
-    "name": "Body",
-    "color": "#888888",
-    "desc": "Torso/core (no transform)"
-  },
-  {
-    "id": 1,
-    "name": "Head",
-    "color": "#00ff66",
-    "desc": "Head \u2014 yaw + pitch rotations"
-  },
-  {
-    "id": 2,
-    "name": "Left Arm",
-    "color": "#00aaff",
-    "desc": "Left arm \u2014 X-axis swing"
-  },
-  {
-    "id": 3,
-    "name": "Right Arm",
-    "color": "#ff6666",
-    "desc": "Right arm \u2014 X-axis swing (opposite phase)"
-  },
-  {
-    "id": 4,
-    "name": "Left Leg",
-    "color": "#ffaa00",
-    "desc": "Left leg \u2014 X-axis stride"
-  },
-  {
-    "id": 5,
-    "name": "Right Leg",
-    "color": "#aa66ff",
-    "desc": "Right leg \u2014 X-axis stride (opposite phase)"
-  }
+// Default GROUPS — overridden by bodyGroups from the editor if present
+let GROUPS = [
+  { id: 0, name: 'Body',           color: '#888888', desc: 'Torso/core (no transform)' },
+  { id: 1, name: 'Head',           color: '#ff6b6b', desc: 'Head — yaw + pitch rotations' },
+  { id: 2, name: 'Left Arm',       color: '#00ff88', desc: 'Left arm — X-axis swing' },
+  { id: 3, name: 'Right Arm',      color: '#00ddff', desc: 'Right arm — X-axis swing (opposite phase)' },
+  { id: 4, name: 'Left Leg',       color: '#ffaa00', desc: 'Left leg — X-axis stride' },
+  { id: 5, name: 'Right Leg',      color: '#ff6600', desc: 'Right leg — X-axis stride (opposite phase)' },
+  { id: 8, name: 'Left Forearm',   color: '#ff00ff', desc: 'Left forearm' },
+  { id: 9, name: 'Right Forearm',  color: '#aa00ff', desc: 'Right forearm' },
+  { id: 6, name: 'Left Shin',      color: '#ffff00', desc: 'Left shin' },
+  { id: 7, name: 'Right Shin',     color: '#88ff00', desc: 'Right shin' },
 ];
 const STATES = [
   {
@@ -732,15 +720,42 @@ const dirLight2 = new THREE.DirectionalLight(0x88aaff, 0.4);
 dirLight2.position.set(-W, H, -D);
 scene.add(dirLight2);
 
-// Grid floor
-let gridHelper = new THREE.GridHelper(Math.max(W, D) * 4, Math.max(W, D), 0x444466, 0x222244);
-gridHelper.position.set(0, 0, 0);
-scene.add(gridHelper);
+// Grid floor — rebuildable so it matches the CURRENT W/H/D after a model is
+// imported from the editor (was previously built once at load time using
+// placeholder dims and never updated, so it never matched an imported
+// model's actual size).
+function buildGridHelper() {
+  if (gridHelper) {
+    scene.remove(gridHelper);
+    gridHelper.geometry.dispose();
+    gridHelper.material.dispose();
+  }
+  // Cell pitch MUST be 1 unit to match voxel size — divisions must equal
+  // size, otherwise cell width drifts from actual voxel spacing (this was
+  // the bug: size=max(W,D)*4, divisions=max(W,D) gave a 4-unit cell).
+  const gridExtent = Math.max(W, D) * 2;
+  gridHelper = new THREE.GridHelper(gridExtent, gridExtent, 0x444466, 0x222244);
+  // -0.5 on X/Z so grid lines land on voxel boundaries instead of centers
+  // (voxels are unit cubes centered on integer coords). -0.5 on Y so the
+  // grid sits at the BOTTOM FACE of Y=0 voxels (ground surface), not
+  // their center — matches the convention used in voxel_editor.html.
+  // The model is always rendered centered at world origin here (px = v.x
+  // - W/2), so the volume center is world (0,0,0) — no extra offset needed.
+  gridHelper.position.set(-0.5, -0.5, -0.5);
+  scene.add(gridHelper);
+}
+let gridHelper = null;
+buildGridHelper();
 
-// Compass
+// Compass — rebuildable for the same reason as the grid above.
+let compassGroup = null;
 function buildCompass() {
+  if (compassGroup) scene.remove(compassGroup);
   const grp = new THREE.Group();
-  grp.position.set(-W / 2 - 4, 0, -D / 2 - 4);
+  // Sit at the volume's ground-level center (world origin here), with the
+  // same -0.5 correction as the grid so it lines up with the actual voxel
+  // bounds instead of drifting half a voxel off.
+  grp.position.set(-0.5, -0.5, -0.5);
   const L = Math.max(W, H, D) * 0.5;
   const mkAxis = (color, dir) => {
     const geo = new THREE.BufferGeometry().setFromPoints([
@@ -751,6 +766,7 @@ function buildCompass() {
   grp.add(mkAxis(0xff3333, new THREE.Vector3(1, 0, 0)));
   grp.add(mkAxis(0x33ff33, new THREE.Vector3(0, 1, 0)));
   grp.add(mkAxis(0x3333ff, new THREE.Vector3(0, 0, 1)));
+  compassGroup = grp;
   scene.add(grp);
 }
 buildCompass();
@@ -768,12 +784,15 @@ let edgesMesh = null;
 let showEdges = true;
 let viewMode = 'material'; // 'material' or 'group'
 
-// Group colors
-const GROUP_COLORS = {};
-for (const g of GROUPS) {
-  const c = new THREE.Color(g.color);
-  GROUP_COLORS[g.id] = c;
+// Group colors — rebuilt if GROUPS is overridden by editor import
+let GROUP_COLORS = {};
+function rebuildGroupColors() {
+  GROUP_COLORS = {};
+  for (const g of GROUPS) {
+    GROUP_COLORS[g.id] = new THREE.Color(g.color);
+  }
 }
+rebuildGroupColors();
 
 // Material colors
 function getMatColor(mid) {
@@ -927,25 +946,39 @@ function matVec3(m, v) {
 
 function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpeed) {
   const PI = Math.PI;
-  const headPivot = [dims[0]*0.5, dims[1]*0.78, dims[2]*0.5];
-  const lArmPivot = [dims[0]*0.25, dims[1]*0.75, dims[2]*0.5];
-  const rArmPivot = [dims[0]*0.75, dims[1]*0.75, dims[2]*0.5];
-  const lLegPivot = [dims[0]*0.375, dims[1]*0.34, dims[2]*0.5];
-  const rLegPivot = [dims[0]*0.625, dims[1]*0.34, dims[2]*0.5];
 
-  let pivot = [0,0,0];
+  // Forearms/shins are rigidly attached to their parent limb — no separate
+  // elbow/knee hinge yet, so they inherit the exact same pivot + rotation
+  // as the upper arm / thigh. This keeps the whole limb moving as one
+  // piece instead of the forearm/shin staying frozen while the upper
+  // limb swings (which caused the broken/detached look during Walking).
+  const PARENT_OF = { 8: 2, 9: 3, 6: 4, 7: 5 }; // LForearm->LArm, RForearm->RArm, LShin->LLeg, RShin->RLeg
+  if (gid in PARENT_OF) {
+    return computeGroupRotation(PARENT_OF[gid], dims, voxelSize, animState, animTime, animSpeed);
+  }
+
+  // Use the REAL pivots (adjustable in the UI / auto-detected from actual
+  // group bounding boxes) instead of hardcoded proportions. The hardcoded
+  // fractions (0.25/0.75 of dims, etc.) assumed a specific default anatomy
+  // filling most of the volume — for a custom model in a larger volume
+  // (e.g. a 48^3 ROM cube where the body occupies a small sub-region),
+  // those fractions point at empty space, causing limbs to rotate around
+  // a pivot nowhere near the actual geometry.
+  const p = pivots[gid];
+  if (!p) return null;
+  const pivot = [p.x * dims[0] * voxelSize, p.y * dims[1] * voxelSize, p.z * dims[2] * voxelSize];
+
   let rot = [[1,0,0],[0,1,0],[0,0,1]];
 
   if (gid === 1) { // Head
-    pivot = headPivot.map(v => v * voxelSize);
     let headYaw = 0, headPitch = 0;
     if (animState > 1.5 && animState < 3.5) { // Looking or Checking
-      const p = animParams.looking;
-      headYaw = Math.sin(animTime * p.headYawFreq) * p.headYaw;
-      headPitch = Math.sin(animTime * p.headPitchFreq) * p.headPitch;
+      const p2 = animParams.looking;
+      headYaw = Math.sin(animTime * p2.headYawFreq) * p2.headYaw;
+      headPitch = Math.sin(animTime * p2.headPitchFreq) * p2.headPitch;
     } else if (animState > 3.5 && animState < 4.5) { // Aiming
-      const p = animParams.aiming;
-      headYaw = p.headYaw; headPitch = p.headPitch;
+      const p2 = animParams.aiming;
+      headYaw = p2.headYaw; headPitch = p2.headPitch;
     } else if (animState > 5.5 && animState < 6.5) { // Crouching
       headPitch = animParams.crouching.headPitch;
     } else if (animState > 6.5 && animState < 7.5) { // Flinching
@@ -954,7 +987,6 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
     rot = matMul3(rotationY(headYaw), rotationX(headPitch));
     return { pivot, rot };
   } else if (gid === 2) { // Left arm
-    pivot = lArmPivot.map(v => v * voxelSize);
     let swing = 0;
     if (animState > 0.5 && animState < 1.5) { // Walking
       swing = Math.sin(animTime * animParams.walk.armFreq * animSpeed) * animParams.walk.armSwing;
@@ -968,7 +1000,6 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
     rot = rotationX(swing);
     return { pivot, rot };
   } else if (gid === 3) { // Right arm
-    pivot = rArmPivot.map(v => v * voxelSize);
     let swing = 0;
     if (animState > 0.5 && animState < 1.5) { // Walking
       swing = Math.sin(animTime * animParams.walk.armFreq * animSpeed + PI) * animParams.walk.armSwing;
@@ -982,7 +1013,6 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
     rot = rotationX(swing);
     return { pivot, rot };
   } else if (gid === 4) { // Left leg
-    pivot = lLegPivot.map(v => v * voxelSize);
     let stride = 0;
     if (animState > 0.5 && animState < 1.5) { // Walking
       stride = Math.sin(animTime * animParams.walk.legFreq * animSpeed + PI) * animParams.walk.legStride;
@@ -994,7 +1024,6 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
     rot = rotationX(stride);
     return { pivot, rot };
   } else if (gid === 5) { // Right leg
-    pivot = rLegPivot.map(v => v * voxelSize);
     let stride = 0;
     if (animState > 0.5 && animState < 1.5) { // Walking
       stride = Math.sin(animTime * animParams.walk.legFreq * animSpeed) * animParams.walk.legStride;
@@ -1146,67 +1175,37 @@ function raycastVoxel(event) {
 }
 
 // === TOOLS ===
-let currentTool = 'paint';
+// The animator is an ANIMATION-ONLY studio — no voxel editing happens here.
+// currentTool is permanently locked to 'camera' so mouse interaction only
+// orbits/pans/zooms the view and can never modify voxels or group assignments.
+// Authoring belongs in the Voxel Editor; this prevents accidental destruction
+// of imported models.
+let currentTool = 'camera';
 let selectedGroup = 1;
 
-function performTool(event) {
-  if (currentTool === 'camera') return;
-  const hit = raycastVoxel(event);
-  if (!hit) return;
+// Look up a group by id (NOT array index) — GROUPS is ordered
+// [0,1,2,3,4,5,8,9,6,7] so array index only matches id for ids 0-5.
+// Forearms/shins (6-9) would resolve to the WRONG entry via GROUPS[gid].
+function getGroupById(id) {
+  return GROUPS.find(g => g.id === id);
+}
 
-  switch (currentTool) {
-    case 'paint':
-      groupMap.set(`${hit.x},${hit.y},${hit.z}`, selectedGroup);
-      if (useAnimatedMesh) rebuildAnimatedMesh(); else rebuildMesh();
-      updateGroupCounts();
-      setStatus(`Painted group ${GROUPS[selectedGroup].name} at (${hit.x},${hit.y},${hit.z})`);
-      break;
-    case 'erase':
-      groupMap.set(`${hit.x},${hit.y},${hit.z}`, 0);
-      if (useAnimatedMesh) rebuildAnimatedMesh(); else rebuildMesh();
-      updateGroupCounts();
-      setStatus(`Cleared group at (${hit.x},${hit.y},${hit.z})`);
-      break;
-    case 'eyedropper':
-      const gid = groupMap.get(`${hit.x},${hit.y},${hit.z}`) || 0;
-      selectGroup(gid);
-      setStatus(`Picked group ${GROUPS[gid]?.name || 'Body'}`);
-      break;
-    case 'fill':
-      floodFillGroup(hit.x, hit.y, hit.z, selectedGroup);
-      if (useAnimatedMesh) rebuildAnimatedMesh(); else rebuildMesh();
-      updateGroupCounts();
-      setStatus(`Flood-filled group ${GROUPS[selectedGroup].name}`);
-      break;
-  }
+// Safety no-op: the animator cannot modify voxels. Kept as a guard so any
+// stray caller (e.g. a leftover mouse binding) exits without effect.
+function performTool(event) {
+  return;
 }
 
 function floodFillGroup(x, y, z, newGid) {
-  const startKey = `${x},${y},${z}`;
-  const targetGid = groupMap.get(startKey) || 0;
-  if (targetGid === newGid) return;
-  const visited = new Set();
-  const queue = [[x, y, z]];
-  while (queue.length > 0) {
-    const [cx, cy, cz] = queue.shift();
-    const key = `${cx},${cy},${cz}`;
-    if (visited.has(key)) continue;
-    if (!voxelMap.has(key)) continue;
-    const gid = groupMap.get(key) || 0;
-    if (gid !== targetGid) continue;
-    visited.add(key);
-    groupMap.set(key, newGid);
-    queue.push([cx+1,cy,cz],[cx-1,cy,cz],[cx,cy+1,cz],[cx,cy-1,cz],[cx,cy,cz+1],[cx,cy,cz-1]);
-  }
+  return;
 }
 
 // === HIGHLIGHT ON HOVER ===
+// Camera-only mode: no edit-color highlight, but still report the voxel
+// coordinates + group id under the cursor so the status bar is useful.
 function updateHighlight(event) {
-  if (currentTool === 'camera') { clearHighlight(); return; }
   const hit = raycastVoxel(event);
   if (!hit) { clearHighlight(); return; }
-  const colors = { paint: 0x00ff00, erase: 0xff0000, eyedropper: 0x00aaff, fill: 0x00ffff };
-  showHighlight([[hit.x, hit.y, hit.z]], colors[currentTool] || 0xffffff);
   document.getElementById('status-coords').textContent = `(${hit.x}, ${hit.y}, ${hit.z}) gid=${hit.gid ?? '?'}`;
 }
 
@@ -1462,6 +1461,18 @@ window.resetPivots = () => {
 
 // === AUTO-DETECT PIVOTS from group bounds ===
 window.autoDetectPivots = () => {
+  // Overall model center (all voxels) — used to figure out which side each
+  // limb is on, so arms pivot at the SHOULDER (inner edge) rather than
+  // their own geometric center. Using the center would rotate the arm
+  // around a point in mid-air along its own length, swinging it lopsided.
+  let allMinX = W, allMaxX = 0;
+  for (const key of voxelMap.keys()) {
+    const x = parseInt(key.split(',')[0], 10);
+    if (x < allMinX) allMinX = x;
+    if (x > allMaxX) allMaxX = x;
+  }
+  const modelCenterX = (allMinX + allMaxX + 1) / 2;
+
   for (let gid = 1; gid <= 5; gid++) {
     let minX=W, minY=H, minZ=D, maxX=0, maxY=0, maxZ=0, count=0;
     for (const [key, g] of groupMap) {
@@ -1473,14 +1484,31 @@ window.autoDetectPivots = () => {
       count++;
     }
     if (count === 0) continue;
-    // Pivot = top-center of the group's bounding box
-    pivots[gid].x = (minX + maxX + 1) / 2 / W;
-    pivots[gid].y = (maxY + 1) / H;
-    pivots[gid].z = (minZ + maxZ + 1) / 2 / D;
+
+    if (gid === 1) {
+      // Head: pivot at the bottom-center (neck) so yaw/pitch reads
+      // correctly, instead of rotating around the head's own middle.
+      pivots[gid].x = (minX + maxX + 1) / 2 / W;
+      pivots[gid].y = minY / H;
+      pivots[gid].z = (minZ + maxZ + 1) / 2 / D;
+    } else if (gid === 2 || gid === 3) {
+      // Arms: pivot at the SHOULDER — the X edge of the arm's bounding box
+      // closest to the body's horizontal center — plus the top of the
+      // arm's own Y range (shoulder height).
+      const innerX = Math.abs(minX - modelCenterX) < Math.abs(maxX - modelCenterX) ? minX : maxX;
+      pivots[gid].x = innerX / W;
+      pivots[gid].y = (maxY + 1) / H;
+      pivots[gid].z = (minZ + maxZ + 1) / 2 / D;
+    } else {
+      // Legs: pivot at the hip — top-center of the leg's bounding box.
+      pivots[gid].x = (minX + maxX + 1) / 2 / W;
+      pivots[gid].y = (maxY + 1) / H;
+      pivots[gid].z = (minZ + maxZ + 1) / 2 / D;
+    }
   }
   buildPivotControls();
   if (useAnimatedMesh) rebuildAnimatedMesh();
-  setStatus('Pivots auto-detected from group bounds');
+  setStatus('Pivots auto-detected from group bounds (anatomically-aware)');
 };
 
 // === EXPORT / IMPORT ===
@@ -1580,27 +1608,7 @@ window.importStasset = (event) => {
     try {
       const data = JSON.parse(e.target.result);
       if (!data.dims || !data.voxels) throw new Error('Invalid stasset JSON');
-      W = data.dims[0]; H = data.dims[1]; D = data.dims[2];
-      voxelMap.clear();
-      for (const [x, y, z, mid] of data.voxels) {
-        if (mid !== 0) voxelMap.set(`${x},${y},${z}`, mid);
-      }
-      // Load groups if present, otherwise default all to 0
-      groupMap.clear();
-      if (data.groups && data.groups.length > 0) {
-        for (const [x, y, z, gid] of data.groups) groupMap.set(`${x},${y},${z}`, gid);
-        // Fill any missing voxels with group 0
-        for (const [key] of voxelMap) { if (!groupMap.has(key)) groupMap.set(key, 0); }
-      } else {
-        for (const [key] of voxelMap) groupMap.set(key, 0);
-      }
-      if (data.pivots) pivots = data.pivots;
-      if (data.animParams) animParams = data.animParams;
-      if (useAnimatedMesh) rebuildAnimatedMesh(); else rebuildMesh();
-      updateGroupCounts();
-      buildPivotControls();
-      buildParamControls();
-      setStatus(`Imported ${data.voxels.length} voxels${data.groups ? ' + ' + data.groups.length + ' group assignments' : ''} from JSON`);
+      loadCharacterData(data, `from ${file.name}`);
       closeExport();
     } catch (err) {
       setStatus(`Import failed: ${err.message}`);
@@ -1617,14 +1625,24 @@ window.importGroups = (event) => {
   reader.onload = (e) => {
     try {
       const data = JSON.parse(e.target.result);
-      if (!data.dims || !data.groups) throw new Error('Invalid groups JSON');
+      if (!data.groups) throw new Error('Invalid groups JSON');
       groupMap.clear();
-      for (const [x, y, z, gid] of data.groups) {
-        groupMap.set(`${x},${y},${z}`, gid);
+      // The editor's "Export .groups JSON" saves a {"x,y,z": gid} dict, not
+      // an array of tuples — support both for compatibility.
+      if (Array.isArray(data.groups)) {
+        for (const [x, y, z, gid] of data.groups) groupMap.set(`${x},${y},${z}`, gid);
+      } else {
+        for (const [key, gid] of Object.entries(data.groups)) groupMap.set(key, gid);
       }
+      if (data.bodyGroups && data.bodyGroups.length > 0) {
+        GROUPS = data.bodyGroups;
+        rebuildGroupColors();
+      }
+      autoDetectPivots();
       if (useAnimatedMesh) rebuildAnimatedMesh(); else rebuildMesh();
       updateGroupCounts();
-      setStatus(`Imported ${data.groups.length} group assignments`);
+      buildGroupList();
+      setStatus(`Imported ${groupMap.size} group assignments`);
       closeExport();
     } catch (err) {
       setStatus(`Import failed: ${err.message}`);
@@ -1640,14 +1658,19 @@ function setStatus(msg) {
 }
 
 // === KEYBOARD ===
+let uiHidden = false;
 window.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT') return;
   switch (e.key.toLowerCase()) {
-    case 'p': setTool('paint'); break;
-    case 'e': setTool('erase'); break;
-    case 'i': setTool('eyedropper'); break;
-    case 'f': setTool('fill'); break;
     case 'escape': setTool('camera'); break;
+    case 'h':
+      // Toggle hide all UI panels (toolbar, left/right panels, status bar)
+      // for unobstructed 3D animation preview. Press H again to bring them back.
+      e.preventDefault();
+      uiHidden = !uiHidden;
+      document.body.classList.toggle('ui-hidden', uiHidden);
+      setStatus(uiHidden ? 'UI hidden — press H to show' : 'UI visible');
+      break;
     case '1': case '2': case '3': case '4': case '5': case '6':
       selectGroup(parseInt(e.key) - 1);
       break;
@@ -1659,18 +1682,14 @@ window.addEventListener('keydown', (e) => {
 });
 
 // === MOUSE EVENTS ===
+// Camera-only: left mouse orbits, right mouse pans, scroll zooms — no
+// voxel editing. isMouseDown is tracked only to keep updateHighlight cheap.
 let isMouseDown = false;
 renderer.domElement.addEventListener('mousedown', (e) => {
-  if (e.button === 0) {
-    isMouseDown = true;
-    if (currentTool !== 'camera') performTool(e);
-  }
+  if (e.button === 0) isMouseDown = true;
 });
 renderer.domElement.addEventListener('mousemove', (e) => {
   updateHighlight(e);
-  if (isMouseDown && currentTool !== 'camera' && currentTool !== 'eyedropper') {
-    performTool(e);
-  }
 });
 renderer.domElement.addEventListener('mouseup', () => { isMouseDown = false; });
 renderer.domElement.addEventListener('mouseleave', () => { isMouseDown = false; clearHighlight(); });
@@ -1710,7 +1729,6 @@ function animate() {
 }
 
 // === INIT ===
-buildGroupList();
 buildStateGrid();
 buildPivotControls();
 buildParamControls();
@@ -1775,12 +1793,111 @@ function createDefaultCharacter() {
   }
 }
 
-createDefaultCharacter();
-rebuildMesh();
-updateGroupCounts();
-animate();
+// === UNIFIED CHARACTER LOADER ===
+// Single entry point for loading a model, used by BOTH the sessionStorage
+// hand-off from the editor's "Send to Animator" button AND the "Import
+// .stasset JSON" file picker. Previously these were two separate, diverging
+// code paths — one correctly parsed groups but skipped the pivot/grid/
+// compass rebuild in a way that left them stale, the other rebuilt geometry
+// correctly but used a groups-parsing branch that assumed the WRONG format
+// ([x,y,z,gid] tuple arrays) when the editor actually saves groups as a
+// dict ({"x,y,z": gid}) — silently dropping every group assignment and
+// leaving all voxels on Body (gid 0). Unifying into one function means both
+// entry points get correct group parsing, pivot detection, and grid/compass
+// alignment for free, with no chance of the two paths drifting apart again.
+function loadCharacterData(data, sourceLabel) {
+  if (data.dims) { W = data.dims[0]; H = data.dims[1]; D = data.dims[2]; }
 
-setStatus('Character Animator ready — select a state to preview animation');
+  voxelMap.clear();
+  if (data.voxels) {
+    for (const v of data.voxels) {
+      // Support both voxel formats: {x,y,z,m} objects (sessionStorage hand-off)
+      // and [x,y,z,mid] arrays (.stasset file format).
+      if (Array.isArray(v)) {
+        const [x, y, z, mid] = v;
+        if (mid !== 0) voxelMap.set(`${x},${y},${z}`, mid);
+      } else {
+        voxelMap.set(`${v.x},${v.y},${v.z}`, v.m);
+      }
+    }
+  }
+
+  groupMap.clear();
+  if (data.groups) {
+    if (Array.isArray(data.groups)) {
+      // [x,y,z,gid] tuple array format
+      for (const [x, y, z, gid] of data.groups) groupMap.set(`${x},${y},${z}`, gid);
+    } else {
+      // {"x,y,z": gid} dict format — what the voxel editor actually saves
+      for (const [key, gid] of Object.entries(data.groups)) groupMap.set(key, gid);
+    }
+  }
+  // Fill any voxel missing a group assignment with group 0 (Body)
+  for (const [key] of voxelMap) { if (!groupMap.has(key)) groupMap.set(key, 0); }
+
+  // Override GROUPS if the editor sent custom bodyGroups (colors/names)
+  if (data.bodyGroups && data.bodyGroups.length > 0) {
+    GROUPS = data.bodyGroups;
+    rebuildGroupColors();
+  }
+  if (data.animParams) animParams = data.animParams;
+
+  // Prefer pivots saved in the file; otherwise auto-detect from the ACTUAL
+  // group bounding boxes. The hardcoded default pivots assume a specific
+  // default anatomy filling most of the volume — for a custom model (e.g.
+  // sized to a large ROM cube where the body occupies a small sub-region),
+  // those defaults point at empty space and cause limbs to rotate around
+  // the wrong point entirely.
+  if (data.pivots) {
+    pivots = data.pivots;
+  } else {
+    autoDetectPivots(); // also rebuilds pivot controls + mesh
+  }
+
+  // Rebuild grid + compass for the NEW dims — built once at page load using
+  // placeholder dims, never matched a freshly imported model's actual size.
+  buildGridHelper();
+  buildCompass();
+  camera.position.set(W * 3, H * 2, D * 3);
+  controls.target.set(0, H / 2, 0);
+  controls.update();
+
+  if (useAnimatedMesh) rebuildAnimatedMesh(); else rebuildMesh();
+  updateGroupCounts();
+  buildGroupList();
+  buildPivotControls();
+  buildParamControls();
+
+  setStatus(`Loaded ${sourceLabel}: ${voxelMap.size} voxels, ${groupMap.size} group assignments`);
+}
+
+// Check for data sent from the voxel editor via sessionStorage
+const importedData = sessionStorage.getItem('animator_import');
+if (importedData) {
+  try {
+    const data = JSON.parse(importedData);
+    loadCharacterData(data, 'from editor');
+    sessionStorage.removeItem('animator_import');
+  } catch (err) {
+    console.error('Failed to load editor data:', err);
+    createDefaultCharacter();
+    rebuildMesh();
+    updateGroupCounts();
+    buildGroupList();
+    buildPivotControls();
+    buildParamControls();
+    setStatus('Failed to load editor data — using default character');
+  }
+} else {
+  createDefaultCharacter();
+  rebuildMesh();
+  updateGroupCounts();
+  buildGroupList();
+  buildPivotControls();
+  buildParamControls();
+  setStatus('Character Animator ready — select a state to preview animation');
+}
+animate();
 </script>
 </body>
 </html>

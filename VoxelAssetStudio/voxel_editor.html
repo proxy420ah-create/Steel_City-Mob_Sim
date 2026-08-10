@@ -103,7 +103,8 @@ body { background:#1a1a2e; color:#eee; font-family:'Segoe UI',monospace; overflo
 body.ui-hidden #toolbar,
 body.ui-hidden #left-panel,
 body.ui-hidden #right-panel,
-body.ui-hidden #status-bar { display:none !important; }
+body.ui-hidden #status-bar,
+body.ui-hidden #adv-panel { display:none !important; }
 #ui-hidden-hint {
   position:fixed; bottom:10px; right:10px; z-index:90;
   font-size:11px; color:#888; background:#1a1a2e;
@@ -150,7 +151,7 @@ body.ui-hidden #ui-hidden-hint { display:block; }
 
 /* Advanced tools panel */
 #adv-panel {
-  position:fixed; top:56px; left:240px; width:200px;
+  position:fixed; top:56px; left:240px; width:240px;
   background:rgba(0,0,0,0.8); border-radius:8px; padding:12px;
   z-index:88; display:none;
 }
@@ -279,6 +280,7 @@ body.ui-hidden #ui-hidden-hint { display:block; }
   <div class="rp-tabs">
     <button class="rp-tab active" data-rp-tab="layers">Layers & View</button>
     <button class="rp-tab" data-rp-tab="bodyparts">Body Parts</button>
+    <button class="rp-tab" data-rp-tab="wardrobe">Wardrobe</button>
   </div>
 
   <!-- Tab: Layers & View -->
@@ -357,9 +359,54 @@ body.ui-hidden #ui-hidden-hint { display:block; }
       Export with groups → load in Animator.
     </div>
   </div>
-</div>
 
-<!-- Status bar -->
+  <!-- Tab: Wardrobe -->
+  <div class="rp-panel" id="rp-wardrobe">
+    <h3 style="font-size:12px;color:#0ff;margin-bottom:8px;">👕 Clothing & Accessories</h3>
+
+    <!-- Load Base Template -->
+    <div style="border-bottom:1px solid #333;padding-bottom:10px;margin-bottom:10px;">
+      <label style="font-size:11px;color:#aaa;display:block;margin-bottom:4px;">Base Template</label>
+      <button class="export-btn" style="font-size:10px;padding:6px 8px;width:100%;" id="load-base-btn">🧍 Load Naked Base Template</button>
+      <p style="font-size:10px;color:#666;margin:4px 0 0 0;">Loads character_base_naked.json as the starting point for clothing variation.</p>
+    </div>
+
+    <!-- Preset Management -->
+    <div style="border-bottom:1px solid #333;padding-bottom:10px;margin-bottom:10px;">
+      <label style="font-size:11px;color:#aaa;display:block;margin-bottom:4px;">Clothing Presets</label>
+      <div id="preset-list" style="max-height:200px;overflow-y:auto;border:1px solid #333;border-radius:4px;padding:4px;margin-bottom:6px;">
+        <div style="font-size:10px;color:#666;text-align:center;padding:8px;">No presets saved yet</div>
+      </div>
+      <div style="display:flex;gap:4px;">
+        <button class="export-btn" style="flex:1;font-size:10px;padding:4px 6px;" id="preset-apply-btn">✓ Apply</button>
+        <button class="export-btn" style="flex:1;font-size:10px;padding:4px 6px;" id="preset-save-btn">💾 Save Current</button>
+        <button class="export-btn" style="flex:1;font-size:10px;padding:4px 6px;" id="preset-delete-btn">🗑 Delete</button>
+      </div>
+      <div style="display:flex;gap:4px;margin-top:4px;">
+        <button class="export-btn" style="flex:1;font-size:10px;padding:4px 6px;" id="preset-import-btn">⬆ Import</button>
+        <button class="export-btn" style="flex:1;font-size:10px;padding:4px 6px;" id="preset-export-btn">⬇ Export</button>
+      </div>
+      <p style="font-size:10px;color:#666;margin:4px 0 0 0;">Save current clothing state as a preset, or apply a saved preset onto the base template.</p>
+    </div>
+
+    <!-- Quick Actions -->
+    <div style="border-bottom:1px solid #333;padding-bottom:10px;margin-bottom:10px;">
+      <label style="font-size:11px;color:#aaa;display:block;margin-bottom:4px;">Quick Actions</label>
+      <button class="export-btn" style="font-size:10px;padding:6px 8px;width:100%;margin-bottom:4px;" id="strip-clothes-btn">↩ Strip to Naked (revert to base)</button>
+      <p style="font-size:10px;color:#666;margin:4px 0 0 0;">Removes all clothing/accessory voxels and material swaps, restoring the naked base.</p>
+    </div>
+
+    <!-- Preset Info -->
+    <div id="preset-info" style="font-size:10px;color:#888;line-height:1.5;">
+      <b>How it works:</b><br>
+      1. Load the naked base template<br>
+      2. Paint clothes / place accessories<br>
+      3. Save as a clothing preset<br>
+      4. Load base + apply preset for new variants<br><br>
+      Presets store material swaps + added/removed voxels relative to the naked base, so they work on any body that shares the same anatomy.
+    </div>
+  </div>
+</div>
 <div id="status-bar">
   <span id="status-tool">Tool: Place</span>
   <span id="status-coords">---, ---, ---</span>
@@ -520,21 +567,26 @@ body.ui-hidden #ui-hidden-hint { display:block; }
 
     <!-- Section 2: Expand Per-Side -->
     <div style="border-top:1px solid #333;padding-top:12px;margin-bottom:12px;">
-      <div style="color:#6af;font-size:12px;margin-bottom:6px;">📐+ Expand Per-Side</div>
-      <p style="color:#888;font-size:11px;margin:0 0 8px 0;">Add space on specific sides. −Side shifts voxels inward (expands that direction). +Side adds empty space on the far side.</p>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+        <div style="color:#6af;font-size:12px;">📐+ Expand Per-Side</div>
+        <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:#aaa;cursor:pointer;">
+          <input type="checkbox" id="exp-equal" style="cursor:pointer;"> Equal expansion
+        </label>
+      </div>
+      <p style="color:#888;font-size:11px;margin:0 0 8px 0;">Add space on specific sides. −Side shifts voxels inward (expands that direction). +Side adds empty space on the far side. <span style="color:#0af;">Equal expansion</span> mirrors the value to both sides — ideal for mirror mode.</p>
       <div style="display:grid;grid-template-columns:auto 1fr 1fr;gap:8px 12px;align-items:center;">
         <label style="color:#ccc;font-size:12px;">Axis</label>
         <label style="color:#888;font-size:11px;">−Side (shift)</label>
         <label style="color:#888;font-size:11px;">+Side (add)</label>
         <label style="color:#ff6;font-size:12px;">X</label>
-        <input id="exp-x-neg" type="number" value="0" min="0" style="width:80px;background:#1a1a2e;color:#fff;border:1px solid #444;padding:4px;border-radius:4px;">
-        <input id="exp-x-pos" type="number" value="0" min="0" style="width:80px;background:#1a1a2e;color:#fff;border:1px solid #444;padding:4px;border-radius:4px;">
+        <input id="exp-x-neg" type="number" value="0" min="0" style="width:80px;background:#1a1a2e;color:#fff;border:1px solid #444;padding:4px;border-radius:4px;" data-axis="x" data-side="neg">
+        <input id="exp-x-pos" type="number" value="0" min="0" style="width:80px;background:#1a1a2e;color:#fff;border:1px solid #444;padding:4px;border-radius:4px;" data-axis="x" data-side="pos">
         <label style="color:#6f6;font-size:12px;">Y</label>
-        <input id="exp-y-neg" type="number" value="0" min="0" style="width:80px;background:#1a1a2e;color:#fff;border:1px solid #444;padding:4px;border-radius:4px;">
-        <input id="exp-y-pos" type="number" value="0" min="0" style="width:80px;background:#1a1a2e;color:#fff;border:1px solid #444;padding:4px;border-radius:4px;">
+        <input id="exp-y-neg" type="number" value="0" min="0" style="width:80px;background:#1a1a2e;color:#fff;border:1px solid #444;padding:4px;border-radius:4px;" data-axis="y" data-side="neg">
+        <input id="exp-y-pos" type="number" value="0" min="0" style="width:80px;background:#1a1a2e;color:#fff;border:1px solid #444;padding:4px;border-radius:4px;" data-axis="y" data-side="pos">
         <label style="color:#6af;font-size:12px;">Z</label>
-        <input id="exp-z-neg" type="number" value="0" min="0" style="width:80px;background:#1a1a2e;color:#fff;border:1px solid #444;padding:4px;border-radius:4px;">
-        <input id="exp-z-pos" type="number" value="0" min="0" style="width:80px;background:#1a1a2e;color:#fff;border:1px solid #444;padding:4px;border-radius:4px;">
+        <input id="exp-z-neg" type="number" value="0" min="0" style="width:80px;background:#1a1a2e;color:#fff;border:1px solid #444;padding:4px;border-radius:4px;" data-axis="z" data-side="neg">
+        <input id="exp-z-pos" type="number" value="0" min="0" style="width:80px;background:#1a1a2e;color:#fff;border:1px solid #444;padding:4px;border-radius:4px;" data-axis="z" data-side="pos">
       </div>
       <div id="exp-preview" style="color:#aaa;font-size:11px;margin:8px 0;"></div>
       <div style="display:flex;gap:8px;margin-top:4px;">
@@ -697,16 +749,16 @@ for (const v of initialVoxels) {
 
 // === BODY PART GROUPS ===
 const BODY_GROUPS = [
-  { id: 0, name: 'Body',      color: '#888888', desc: 'Torso / unassigned' },
-  { id: 1, name: 'Head',      color: '#ff6b6b', desc: 'Head and neck' },
-  { id: 2, name: 'Left Arm',  color: '#4ecdc4', desc: 'Left arm (upper + lower)' },
-  { id: 3, name: 'Right Arm', color: '#45b7d1', desc: 'Right arm (upper + lower)' },
-  { id: 4, name: 'Left Leg',  color: '#f9ca24', desc: 'Left leg (thigh + shin)' },
-  { id: 5, name: 'Right Leg', color: '#f0932b', desc: 'Right leg (thigh + shin)' },
-  { id: 8, name: 'Left Forearm',  color: '#22a6b3', desc: 'Left forearm' },
-  { id: 9, name: 'Right Forearm', color: '#0abde3', desc: 'Right forearm' },
-  { id: 6, name: 'Left Shin',  color: '#badc58', desc: 'Left shin' },
-  { id: 7, name: 'Right Shin', color: '#6ab04c', desc: 'Right shin' },
+  { id: 0, name: 'Body',           color: '#888888', desc: 'Torso / unassigned' },
+  { id: 1, name: 'Head',           color: '#ff6b6b', desc: 'Head and neck' },
+  { id: 2, name: 'Left Arm',       color: '#00ff88', desc: 'Left arm (upper + lower)' },
+  { id: 3, name: 'Right Arm',      color: '#00ddff', desc: 'Right arm (upper + lower)' },
+  { id: 4, name: 'Left Leg',       color: '#ffaa00', desc: 'Left leg (thigh + shin)' },
+  { id: 5, name: 'Right Leg',      color: '#ff6600', desc: 'Right leg (thigh + shin)' },
+  { id: 8, name: 'Left Forearm',   color: '#ff00ff', desc: 'Left forearm' },
+  { id: 9, name: 'Right Forearm',  color: '#aa00ff', desc: 'Right forearm' },
+  { id: 6, name: 'Left Shin',      color: '#ffff00', desc: 'Left shin' },
+  { id: 7, name: 'Right Shin',     color: '#88ff00', desc: 'Right shin' },
 ];
 const GROUP_COLORS = {};
 for (const g of BODY_GROUPS) GROUP_COLORS[g.id] = g.color;
@@ -837,7 +889,7 @@ function exportGroupsJSON() {
   setStatus(`Exported ${Object.keys(groupsObj).length} group assignments`);
 }
 
-function sendToAnimator() {
+window.sendToAnimator = function() {
   const voxels = [];
   const groups = {};
   for (const [key, mid] of voxelMap) {
@@ -846,6 +898,7 @@ function sendToAnimator() {
     if (groupMap.has(key)) groups[key] = groupMap.get(key);
   }
   const data = {
+    dims: [W, H, D], // critical: animator's loadCharacterData centers voxels as x - W/2; without this it falls back to placeholder 16x32x10 and the model renders offset
     voxels,
     groups,
     materials: allMaterials,
@@ -855,6 +908,247 @@ function sendToAnimator() {
   window.open('character_animator.html', '_blank');
   setStatus(`Sent ${voxels.length} voxels with ${Object.keys(groups).length} group assignments to Animator`);
 }
+
+// === WARDROBE / CLOTHING PRESET SYSTEM ===
+// A clothing preset captures the DIFF between the naked base template and
+// the current model state: which materials were swapped, which voxels were
+// added, which were removed. This lets you apply the same outfit to any
+// character that shares the same anatomy template.
+//
+// Preset format:
+// {
+//   name: "suit_formal",
+//   materialSwaps: { "125": 126 },        // oldMat → newMat (per voxel)
+//   addedVoxels: [[x,y,z,mid], ...],      // voxels not in the base
+//   removedVoxels: [[x,y,z], ...],        // base voxels that were deleted
+// }
+
+let baseTemplateSnapshot = null; // snapshot of naked base for diffing
+let clothingPresets = [];        // loaded presets (in-memory)
+let selectedPresetIdx = -1;
+
+// Take a snapshot of the current voxelMap state for later diffing
+function snapshotVoxelMap() {
+  const snap = {};
+  for (const [key, mid] of voxelMap) snap[key] = mid;
+  return snap;
+}
+
+// Compute the diff between base snapshot and current state → preset object
+function computeClothingDiff(name) {
+  if (!baseTemplateSnapshot) {
+    setStatus('No base template loaded — cannot compute clothing diff');
+    return null;
+  }
+  const materialSwaps = {};
+  const addedVoxels = [];
+  const removedVoxels = [];
+  // Check current voxels vs base
+  for (const [key, mid] of voxelMap) {
+    if (key in baseTemplateSnapshot) {
+      // Existed in base — check if material changed
+      if (baseTemplateSnapshot[key] !== mid) {
+        materialSwaps[key] = mid; // store per-voxel: key → new material
+      }
+    } else {
+      // Not in base — it was added (clothing/accessory voxel)
+      const [x, y, z] = key.split(',').map(Number);
+      addedVoxels.push([x, y, z, mid]);
+    }
+  }
+  // Check base voxels that are no longer present (removed)
+  for (const key of Object.keys(baseTemplateSnapshot)) {
+    if (!voxelMap.has(key)) {
+      const [x, y, z] = key.split(',').map(Number);
+      removedVoxels.push([x, y, z]);
+    }
+  }
+  return { name, materialSwaps, addedVoxels, removedVoxels };
+}
+
+// Apply a preset onto the current model (assumes base template is loaded)
+function applyClothingPreset(preset) {
+  if (!baseTemplateSnapshot) {
+    setStatus('Load the naked base template first, then apply preset');
+    return;
+  }
+  // Apply material swaps
+  for (const [key, newMid] of Object.entries(preset.materialSwaps)) {
+    if (voxelMap.has(key)) voxelMap.set(key, newMid);
+  }
+  // Add clothing/accessory voxels
+  for (const [x, y, z, mid] of preset.addedVoxels) {
+    voxelMap.set(`${x},${y},${z}`, mid);
+  }
+  // Remove voxels (e.g. bare areas where clothing replaces skin)
+  for (const [x, y, z] of preset.removedVoxels) {
+    const key = `${x},${y},${z}`;
+    voxelMap.delete(key);
+    groupMap.delete(key);
+  }
+  pushHistory();
+  rebuildMesh();
+  updateGroupCounts();
+  setStatus(`Applied preset "${preset.name}": ${Object.keys(preset.materialSwaps).length} swaps, ${preset.addedVoxels.length} added, ${preset.removedVoxels.length} removed`);
+}
+
+// Strip back to naked base (revert all clothing)
+function stripToBase() {
+  if (!baseTemplateSnapshot) {
+    setStatus('No base template loaded');
+    return;
+  }
+  voxelMap.clear();
+  groupMap.clear();
+  for (const [key, mid] of Object.entries(baseTemplateSnapshot)) {
+    voxelMap.set(key, mid);
+  }
+  pushHistory();
+  rebuildMesh();
+  updateGroupCounts();
+  setStatus('Stripped to naked base template');
+}
+
+// Load the naked base template from file
+function loadBaseTemplate() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.onchange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (!data.dims || !data.voxels) throw new Error('Invalid file');
+        W = data.dims[0]; H = data.dims[1]; D = data.dims[2];
+        voxelMap.clear();
+        groupMap.clear();
+        for (const [x, y, z, mid] of data.voxels) {
+          voxelMap.set(`${x},${y},${z}`, mid);
+        }
+        if (data.groups) {
+          for (const [key, gid] of Object.entries(data.groups)) {
+            groupMap.set(key, gid);
+          }
+        }
+        // Snapshot the base state for clothing diffing
+        baseTemplateSnapshot = snapshotVoxelMap();
+        originOffsetX = -W / 2;
+        originOffsetZ = -D / 2;
+        rebuildVolumeVisuals();
+        initialCamPos.set(W * 2, H * 1.5, D * 2);
+        camera.position.copy(initialCamPos);
+        controls.target.set(0, H / 2, 0);
+        controls.update();
+        yMin = 0; yMax = H - 1;
+        xMin = 0; xMax = W - 1;
+        zMin = 0; zMax = D - 1;
+        yMaxSlider.max = H - 1; yMaxSlider.value = H - 1; yMaxVal.textContent = yMax;
+        yMinSlider.max = H - 1; yMinSlider.value = 0; yMinVal.textContent = yMin;
+        xMaxSlider.max = W - 1; xMaxSlider.value = W - 1; xMaxVal.textContent = xMax;
+        xMinSlider.max = W - 1; xMinSlider.value = 0; xMinVal.textContent = xMin;
+        zMaxSlider.max = D - 1; zMaxSlider.value = D - 1; zMaxVal.textContent = zMax;
+        zMinSlider.max = D - 1; zMinSlider.value = 0; zMinVal.textContent = zMin;
+        pushHistory();
+        rebuildMesh();
+        updateGroupCounts();
+        updateModelDimsLabel();
+        setStatus(`Loaded base template: ${file.name} (${voxelMap.size} voxels) — ready for clothing`);
+      } catch (err) {
+        setStatus('Error loading base template: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+}
+
+// Refresh the preset list UI
+function refreshPresetList() {
+  const list = document.getElementById('preset-list');
+  if (clothingPresets.length === 0) {
+    list.innerHTML = '<div style="font-size:10px;color:#666;text-align:center;padding:8px;">No presets saved yet</div>';
+    selectedPresetIdx = -1;
+    return;
+  }
+  list.innerHTML = clothingPresets.map((p, i) => {
+    const sel = i === selectedPresetIdx ? 'background:#0a4;color:#fff;' : '';
+    const summary = `${Object.keys(p.materialSwaps).length}sw/${p.addedVoxels.length}add/${p.removedVoxels.length}rm`;
+    return `<div class="preset-item" data-idx="${i}" style="padding:4px 6px;cursor:pointer;font-size:11px;border-bottom:1px solid #222;${sel}">${p.name} <span style="color:#666;font-size:9px;">(${summary})</span></div>`;
+  }).join('');
+  list.querySelectorAll('.preset-item').forEach(item => {
+    item.addEventListener('click', () => {
+      selectedPresetIdx = parseInt(item.dataset.idx);
+      refreshPresetList();
+    });
+  });
+}
+
+// Wire up wardrobe buttons
+document.getElementById('load-base-btn').addEventListener('click', loadBaseTemplate);
+document.getElementById('strip-clothes-btn').addEventListener('click', stripToBase);
+document.getElementById('preset-save-btn').addEventListener('click', () => {
+  if (!baseTemplateSnapshot) { setStatus('Load base template first'); return; }
+  const name = prompt('Preset name:', 'clothing_' + (clothingPresets.length + 1));
+  if (!name) return;
+  const preset = computeClothingDiff(name);
+  if (!preset) return;
+  clothingPresets.push(preset);
+  selectedPresetIdx = clothingPresets.length - 1;
+  refreshPresetList();
+  setStatus(`Saved preset "${name}"`);
+});
+document.getElementById('preset-apply-btn').addEventListener('click', () => {
+  if (selectedPresetIdx < 0) { setStatus('Select a preset first'); return; }
+  if (!baseTemplateSnapshot) { setStatus('Load base template first'); return; }
+  applyClothingPreset(clothingPresets[selectedPresetIdx]);
+});
+document.getElementById('preset-delete-btn').addEventListener('click', () => {
+  if (selectedPresetIdx < 0) { setStatus('Select a preset to delete'); return; }
+  const name = clothingPresets[selectedPresetIdx].name;
+  clothingPresets.splice(selectedPresetIdx, 1);
+  selectedPresetIdx = -1;
+  refreshPresetList();
+  setStatus(`Deleted preset "${name}"`);
+});
+document.getElementById('preset-export-btn').addEventListener('click', () => {
+  if (selectedPresetIdx < 0) { setStatus('Select a preset to export'); return; }
+  const preset = clothingPresets[selectedPresetIdx];
+  const blob = new Blob([JSON.stringify(preset, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = preset.name + '.preset.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  setStatus(`Exported preset "${preset.name}"`);
+});
+document.getElementById('preset-import-btn').addEventListener('click', () => {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json,.preset.json';
+  input.onchange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const preset = JSON.parse(ev.target.result);
+        if (!preset.name || !preset.materialSwaps) throw new Error('Not a valid preset');
+        clothingPresets.push(preset);
+        selectedPresetIdx = clothingPresets.length - 1;
+        refreshPresetList();
+        setStatus(`Imported preset "${preset.name}"`);
+      } catch (err) {
+        setStatus('Error importing preset: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+});
 
 // === SCENE ===
 const scene = new THREE.Scene();
@@ -948,7 +1242,12 @@ function buildGridHelper() {
   gridHelper = new THREE.GridHelper(gridExtent, gridExtent, 0x444466, 0x222244);
   // Same -0.5 axis correction as buildVolumeBounds() so grid lines land on
   // voxel boundaries instead of voxel centers.
-  gridHelper.position.set(c.x - 0.5, 0, c.z - 0.5);
+  // Y = -0.5 so the grid sits at the BOTTOM FACE of Y=0 voxels (not their
+  // center). Voxels are unit cubes centered on integer coords, so Y=0 spans
+  // [-0.5, +0.5] — placing the grid at Y=0 cut through the middle of the
+  // bottom voxel layer, making models look like they were sinking through
+  // the floor. Y=-0.5 aligns the grid with the actual ground surface.
+  gridHelper.position.set(c.x - 0.5, -0.5, c.z - 0.5);
   scene.add(gridHelper);
 }
 buildGridHelper();
@@ -993,7 +1292,9 @@ function buildCompass() {
   // Place at the volume's ground-level center so axes extend from volume center.
   // Same -0.5 axis correction as buildVolumeBounds()/buildGridHelper() so the
   // compass lines up with the actual center of the voxel grid/bounds box.
-  grp.position.set(c.x - 0.5, 0, c.z - 0.5);
+  // Y = -0.5 to sit on the ground surface (bottom face of Y=0 voxels), matching
+  // the grid floor.
+  grp.position.set(c.x - 0.5, -0.5, c.z - 0.5);
   const L = Math.max(W, H, D) * 0.25;
   const mkAxis = (color, dir) => {
     const geo = new THREE.BufferGeometry().setFromPoints([
@@ -3155,7 +3456,21 @@ function updateExpandPreview() {
 }
 // Expand inputs now live inside the unified volume modal
 ['exp-x-neg','exp-x-pos','exp-y-neg','exp-y-pos','exp-z-neg','exp-z-pos'].forEach(id => {
-  document.getElementById(id).addEventListener('input', updateExpandPreview);
+  const el = document.getElementById(id);
+  el.addEventListener('input', () => {
+    // Equal expansion: when the checkbox is on, editing one side mirrors
+    // the value to the other side of the same axis. This keeps the model
+    // centered on that axis — essential for mirror mode where the mirror
+    // plane must stay in the middle of the volume.
+    if (document.getElementById('exp-equal').checked) {
+      const axis = el.dataset.axis;
+      const side = el.dataset.side;
+      const other = side === 'neg' ? 'pos' : 'neg';
+      const otherEl = document.getElementById(`exp-${axis}-${other}`);
+      otherEl.value = el.value;
+    }
+    updateExpandPreview();
+  });
 });
 
 // Expand the volume on specific sides. −Side shifts existing voxels inward
@@ -3227,9 +3542,12 @@ window.centerModel = function(skipHistoryAndMesh) {
     if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
   }
   const spanX = maxX - minX + 1, spanY = maxY - minY + 1, spanZ = maxZ - minZ + 1;
-  // Target: center the model in the grid
+  // Target: center the model in the grid on X/Z only.
+  // Y is FLOOR-ANCHORED — the model stays on the ground (Y=0) and is never
+  // lifted vertically. This prevents resize/center operations from floating
+  // the model off the grid floor.
   const targetMinX = Math.floor((W - spanX) / 2);
-  const targetMinY = Math.floor((H - spanY) / 2);
+  const targetMinY = 0; // floor-anchored — no vertical centering
   const targetMinZ = Math.floor((D - spanZ) / 2);
   const dx = targetMinX - minX, dy = targetMinY - minY, dz = targetMinZ - minZ;
   const originWasDrifted = (originOffsetX !== -W / 2) || (originOffsetZ !== -D / 2);
