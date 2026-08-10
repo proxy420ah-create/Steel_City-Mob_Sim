@@ -1,6 +1,55 @@
 # Recent Changes — Steel City: Mob Sim
 
-**Last Updated**: August 9, 2026 (Portrait-First character pipeline + animator JSON loading)
+**Last Updated**: August 9, 2026 (Body Part Paint tool, additive selection, mirror highlight fix + half-voxel offset)
+
+---
+
+## August 9, 2026 — Body Part Paint Tool, Additive Selection, Mirror Highlight Fix + Half-Voxel Offset
+
+### Impact
+- **Body Part Paint tool** (🧩) — paint voxels into animation groups (head/torso/L+R arms/L+R legs) directly in the voxel editor with a visual group view mode
+- **Right-panel tabs** — Layers & View / Body Parts tabs organize the right panel
+- **Move Selection tool** (↭) — move a selection as a unit
+- **Additive Shift+click selection** — add/remove individual voxels to/from selection instead of replacing it
+- **Mirror highlight fix** — hover previews now show mirrored landing spots for all tools (place/paint/erase/fill/line/box/ruler/bodypart); previously only the primary voxel highlighted even though edits mirrored
+- **Half-voxel mirror offset** (½ button) — shifts the mirror plane from voxel boundaries (`W-1-x`) to voxel centers (`W-x`) for a self-mirroring central spine on even-sized grids
+
+### Changes
+
+#### `VoxelAssetStudio/voxel_editor.html`
+- Added Body Part Paint tool (🧩) with `bodypart` tool action; assigns voxels to selected body group, mirrors across enabled axes
+- Added right-panel tabs (`.rp-tabs` / `.rp-tab` / `.rp-panel`) — Layers & View / Body Parts
+- Added Body Parts tab content with group list, swatches, counts, view-mode toggle
+- Added Move Selection tool button (↭) in toolbar
+- Added group view mode (`groupViewMode`) — recolors voxels by group when active
+- **Mirror highlight fix**: extracted `mirrorCandidates(x,y,z)` helper; added `mirrorPositionsPreview(positions)` (no occupancy check, so empty cells show up); `updatePreview` now calls it after the per-tool switch (skipped for active `select` to avoid double-mirror of frozen selection)
+- **Half-voxel mirror offset**: added `mirrorHalf` state + `mirrorCoord(c, size)` helper (returns `size-c` when half on, `size-1-c` when off); routed `setVoxel`, `mirrorVoxelPositions`, bodypart tool, and preview mirror all through it; `updateMirrorPlanes()` shifts plane position by 0.5 when half on; added ½ toggle button in adv-panel
+
+#### `VoxelAssetStudio/character_pipeline.html`
+- Additive Shift+click selection — adds/removes individual voxels instead of replacing selection
+- Added Save Project / Export .stasset JSON / Export .groups JSON buttons to left panel
+- Line algorithm replaced (Bresenham 3D → lerp round) for cleaner diagonal lines
+- Paste mode now intercepts all keys at top of keydown handler (arrows/Enter/Esc/[/] only; blocks others)
+- `Ctrl+Z` / `Ctrl+Y` handled at top of keydown (returns after) so they don't fall through to tool hotkeys
+- Esc now clears all tool states (lineStart, boxStart, rulerStart, extrude drag, selection, highlight) before switching to camera
+- Added `realignSceneToDims()` — repositions camera, controls target, grid, and lights to current W/H/D; called on import/load so loaded models frame correctly
+- `grid` changed from `const` to `let` so `realignSceneToDims()` can swap it
+
+#### `VoxelAssetStudio/character_hoodlum_0.json`
+- `savedAt` timestamp bump only (no structural changes)
+
+### Files Modified
+| File | Change |
+|---|---|
+| `VoxelAssetStudio/voxel_editor.html` | Body Part Paint tool, right-panel tabs, Move Selection, group view mode, mirror highlight fix, half-voxel mirror offset |
+| `VoxelAssetStudio/character_pipeline.html` | Additive selection, Save/Export buttons, line algorithm, paste keyboard intercept, realignSceneToDims, Esc clears all |
+| `VoxelAssetStudio/character_hoodlum_0.json` | savedAt timestamp bump |
+
+### Testing Notes
+- 🧪 **TEST NOW**: Open voxel_editor.html, enable Mirror X, hover with Place tool → should see two highlight boxes (primary + mirrored). Click → both voxels place.
+- 🧪 **TEST NOW**: Click ½ button in Mirror panel → red X plane snaps to voxel center. Place on central column → self-mirrors.
+- 🧪 **TEST NOW**: Body Part tool (🧩) — select a group in Body Parts tab, click voxels → assigned to group. Toggle group view mode to verify.
+- 🧪 **TEST NOW**: character_pipeline.html — Shift+click multiple voxels → selection grows; Shift+click again → removes. Esc → all tool states clear.
 
 ---
 

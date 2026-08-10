@@ -143,7 +143,7 @@ body { background:#0a0a14; color:#eee; font-family:'Segoe UI',monospace; overflo
       <b>R</b>=Ruler &nbsp; <b>S</b>=Select &nbsp; <b>J</b>=Extrude<br>
       <b>Esc</b>=Camera &nbsp; <b>1-9</b>=Select Group<br>
       <b>Ctrl+Z</b>=Undo &nbsp; <b>Ctrl+Y</b>=Redo &nbsp; <b>Space</b>=Play/Pause<br>
-      <b>Shift+Click</b>=Single Select &nbsp; <b>Ctrl+Click</b>=Box Select<br>
+      <b>Shift+Click</b>=Add/Remove Single &nbsp; <b>Ctrl+Click</b>=Box Select<br>
       <b>Shift+Click</b>=Drag Extrude &nbsp; <b>Arrows</b>=Move Paste<br>
       <b>V</b>=Move Selection &nbsp; <b>Enter</b>=Confirm Paste<br>
       <b>Esc</b>=Cancel Paste/Move
@@ -172,6 +172,11 @@ body { background:#0a0a14; color:#eee; font-family:'Segoe UI',monospace; overflo
       <div class="tool-row"><button class="tool-btn" id="mirror-x" title="Mirror X" style="width:30px;height:28px;font-size:10px;">X</button><button class="tool-btn" id="mirror-y" title="Mirror Y" style="width:30px;height:28px;font-size:10px;">Y</button><button class="tool-btn" id="mirror-z" title="Mirror Z" style="width:30px;height:28px;font-size:10px;">Z</button></div>
     </div>
     <div style="margin-top:6px;"><button class="tool-btn" id="undo-btn" title="Undo" style="width:30px;height:28px;">&#8617;</button><button class="tool-btn" id="redo-btn" title="Redo" style="width:30px;height:28px;">&#8618;</button></div>
+    <div style="margin-top:8px;border-top:1px solid #333;padding-top:8px;">
+      <button class="export-btn primary" onclick="saveProject()" style="width:100%;margin-bottom:4px;font-size:11px;">&#128190; Save Project</button>
+      <button class="export-btn" onclick="exportStassetJSON()" style="width:100%;margin-bottom:4px;font-size:11px;">&#11015; Export .stasset JSON</button>
+      <button class="export-btn" onclick="exportGroupsJSON()" style="width:100%;margin-bottom:4px;font-size:11px;">&#11015; Export .groups JSON</button>
+    </div>
   </div>
   <div class="phase-content" id="phase3-left">
     <h3>&#127916; Animation States</h3>
@@ -328,7 +333,7 @@ controls.target.set(0, H/2, 0);
 scene.add(new THREE.AmbientLight(0x666688, 0.6));
 const dl = new THREE.DirectionalLight(0xffffff, 1.0); dl.position.set(W, H*2, D); scene.add(dl);
 const dl2 = new THREE.DirectionalLight(0x88aaff, 0.4); dl2.position.set(-W, H, -D); scene.add(dl2);
-const grid = new THREE.GridHelper(Math.max(W,D)*4, Math.max(W,D), 0x444466, 0x222244);
+let grid = new THREE.GridHelper(Math.max(W,D)*4, Math.max(W,D), 0x444466, 0x222244);
 scene.add(grid);
 
 // === RAYCASTING & MESH ===
@@ -1202,12 +1207,21 @@ function performTool(event) {
       }
       break;
     case 'select':
-      if (hit.mid === undefined) { setStatus('Click a voxel to select | Shift=single | Ctrl=box'); return; }
+      if (hit.mid === undefined) { setStatus('Click a voxel to select | Shift=single (additive) | Ctrl=box'); return; }
       if (event.shiftKey) {
-        selVoxels = [[hit.x,hit.y,hit.z,hit.mid]];
-        selectionActive = true;
-        document.getElementById('sel-info').textContent = `Sel: 1 voxel (mat ${hit.mid})`;
-        setStatus(`Selected 1 voxel at (${hit.x},${hit.y},${hit.z})`);
+        const newVox = [hit.x, hit.y, hit.z, hit.mid];
+        const key = `${hit.x},${hit.y},${hit.z}`;
+        const exists = selVoxels.some(v => v[0]===hit.x && v[1]===hit.y && v[2]===hit.z);
+        if (selectionActive && exists) {
+          selVoxels = selVoxels.filter(v => !(v[0]===hit.x && v[1]===hit.y && v[2]===hit.z));
+          if (selVoxels.length === 0) selectionActive = false;
+          setStatus(`Deselected voxel at (${hit.x},${hit.y},${hit.z}) — ${selVoxels.length} selected`);
+        } else {
+          selVoxels.push(newVox);
+          selectionActive = true;
+          setStatus(`Selected voxel at (${hit.x},${hit.y},${hit.z}) — ${selVoxels.length} selected (Shift+click to add/remove)`);
+        }
+        document.getElementById('sel-info').textContent = `Sel: ${selVoxels.length} voxels`;
       } else if (event.ctrlKey) {
         if (!boxStart || boxStart[3] !== 'select-box') {
           boxStart = [hit.x,hit.y,hit.z,'select-box'];
@@ -1472,17 +1486,17 @@ window.doReplace = function() {
 };
 
 function computeLineVoxels(x0,y0,z0,x1,y1,z1) {
-  const dx=Math.abs(x1-x0),dy=Math.abs(y1-y0),dz=Math.abs(z1-z0);
-  const sx=x0<x1?1:-1, sy=y0<y1?1:-1, sz=z0<z1?1:-1;
-  let err = dx-dy-dz, result = [];
-  while (true) {
-    result.push([x0,y0,z0]);
-    if (x0===x1&&y0===y1&&z0===z1) break;
-    const e2 = 2*err;
-    if (e2 > -dy) { err -= dy; x0 += sx; }
-    if (e2 < dx) { err += dx; y0 += sy; }
-    if (e2 > -dz) { err -= dz; }
-    if (e2 < dz) { err += dz; }
+  const result = [];
+  const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0), dz = Math.abs(z1 - z0);
+  const steps = Math.max(dx, dy, dz);
+  if (steps === 0) { result.push([x0, y0, z0]); return result; }
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    result.push([
+      Math.round(x0 + (x1 - x0) * t),
+      Math.round(y0 + (y1 - y0) * t),
+      Math.round(z0 + (z1 - z0) * t)
+    ]);
   }
   return result;
 }
@@ -1769,6 +1783,17 @@ function downloadJSON(data, filename) {
   URL.revokeObjectURL(url);
   setStatus(`Exported ${filename}`);
 }
+function realignSceneToDims() {
+  camera.position.set(W*3, H*2, D*3);
+  controls.target.set(0, H/2, 0);
+  controls.update();
+  scene.remove(grid);
+  const newGrid = new THREE.GridHelper(Math.max(W,D)*4, Math.max(W,D), 0x444466, 0x222244);
+  scene.add(newGrid);
+  grid = newGrid;
+  dl.position.set(W, H*2, D);
+  dl2.position.set(-W, H, -D);
+}
 function importStasset(event) {
   const file = event.target.files[0]; if (!file) return;
   const reader = new FileReader();
@@ -1779,6 +1804,7 @@ function importStasset(event) {
     for (const [x,y,z,mid] of data.voxels) voxelMap.set(`${x},${y},${z}`, mid);
     if (data.groups) for (const [x,y,z,gid] of data.groups) groupMap.set(`${x},${y},${z}`, gid);
     else autoAssignGroups();
+    realignSceneToDims();
     rebuildMesh(); updateGroupCounts(); pushHistory();
     document.getElementById('export-modal').style.display='none';
     setPhase(2);
@@ -1798,6 +1824,7 @@ function loadProject(event) {
     if (data.pivots) pivots = data.pivots;
     if (data.animParams) animParams = data.animParams;
     if (data.seed) document.getElementById('seed-input').value = data.seed;
+    realignSceneToDims();
     rebuildMesh(); updateGroupCounts(); pushHistory();
     document.getElementById('export-modal').style.display='none';
     setPhase(2);
@@ -1924,6 +1951,25 @@ renderer.domElement.addEventListener('pointerup', (e) => {
 // Keyboard
 window.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  // Paste mode intercepts all keys except arrows/Enter/Esc/[/]
+  if (pasteMode) {
+    switch(e.key.toLowerCase()) {
+      case 'arrowleft': e.preventDefault(); movePaste(-1,0,0); if (lastMouseEvent) updateHighlight(lastMouseEvent); return;
+      case 'arrowright': e.preventDefault(); movePaste(1,0,0); if (lastMouseEvent) updateHighlight(lastMouseEvent); return;
+      case 'arrowup': e.preventDefault(); movePaste(0,1,0); if (lastMouseEvent) updateHighlight(lastMouseEvent); return;
+      case 'arrowdown': e.preventDefault(); movePaste(0,-1,0); if (lastMouseEvent) updateHighlight(lastMouseEvent); return;
+      case 'enter': e.preventDefault(); confirmPaste(); return;
+      case 'escape': e.preventDefault(); cancelPaste(); return;
+      case '[': e.preventDefault(); movePaste(0,0,-1); if (lastMouseEvent) updateHighlight(lastMouseEvent); return;
+      case ']': e.preventDefault(); movePaste(0,0,1); if (lastMouseEvent) updateHighlight(lastMouseEvent); return;
+      default: return; // block all other keys during paste
+    }
+  }
+  if (e.ctrlKey || e.metaKey) {
+    if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); undo(); }
+    if (e.key === 'y' || e.key === 'Y') { e.preventDefault(); redo(); }
+    return;
+  }
   switch(e.key.toLowerCase()) {
     case 'p': setTool('place'); break;
     case 'e': setTool('erase'); break;
@@ -1936,19 +1982,21 @@ window.addEventListener('keydown', (e) => {
     case 'r': setTool('ruler'); break;
     case 's': setTool('select'); break;
     case 'j': setTool('extrude'); break;
-    case 'escape': if (pasteMode) { cancelPaste(); return; } setTool('camera'); break;
+    case 'escape':
+      lineStart = null;
+      boxStart = null;
+      rulerStart = null;
+      extrudeDragActive = false;
+      extrudeDragFace = [];
+      extrudeDragLayers = 1;
+      clearSelection();
+      clearHighlight();
+      setTool('camera');
+      setStatus('Camera mode — all tool states cleared');
+      break;
     case 'v': moveSelection(); break;
-    case 'enter': if (pasteMode) { e.preventDefault(); confirmPaste(); } break;
-    case 'arrowup': if (pasteMode) { e.preventDefault(); movePaste(0,1,0); } break;
-    case 'arrowdown': if (pasteMode) { e.preventDefault(); movePaste(0,-1,0); } break;
-    case 'arrowleft': if (pasteMode) { e.preventDefault(); movePaste(-1,0,0); } break;
-    case 'arrowright': if (pasteMode) { e.preventDefault(); movePaste(1,0,0); } break;
-    case '[': if (pasteMode) { e.preventDefault(); movePaste(0,0,-1); } break;
-    case ']': if (pasteMode) { e.preventDefault(); movePaste(0,0,1); } break;
     case '1': case '2': case '3': case '4': case '5': case '6': case '7': case '8': case '9': selectGroup(parseInt(e.key)-1); break;
     case ' ': if (currentPhase === 3) { e.preventDefault(); document.getElementById('play-btn').click(); } break;
-    case 'z': if (e.ctrlKey) undo(); break;
-    case 'y': if (e.ctrlKey) redo(); break;
   }
 });
 
