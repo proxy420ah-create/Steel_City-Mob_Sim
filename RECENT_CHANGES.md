@@ -1,8 +1,59 @@
 # Recent Changes — Steel City: Mob Sim
 
-**Last Updated**: August 9, 2026 (Extrude de-extrude, paint drag, volume bounds, ROM sizing, model centering, alignment fixes)
+**Last Updated**: August 10, 2026 (Phase 1: Keyframe shader port — walk keyframes now run in Unity)
 
 ---
+
+## August 10, 2026 — Phase 1: Keyframe Shader Port
+
+### Impact
+- Walk keyframe animation from the HTML animator now runs in Unity via GPU shader
+- Catmull-Rom spline interpolation ported to HLSL — no hang at passing poses
+- Body bob + weight shift applied to volume offset in shader
+- FK parent-child chains (forearm→arm, shin→leg) now work in shader inverse transform
+- `.anim.json` files auto-loaded alongside `.stasset` files in StreamingAssets
+- Falls back to hardcoded sin() if no `.anim.json` present (backward compatible)
+
+### Changes
+
+#### `Assets/Resources/Shaders/VoxelProxyRaymarch.shader`
+- **New buffers**: `_WalkKeyframes` (10 float4s), `_JointConfig` (7 float4s), `_WalkConfig` (float4)
+- **New HLSL functions**: `CatmullRom()`, `Smoothstep01()`, `CosineInterp()`, `GetWalkPoseValue()`, `GetWalkCyclePhase()`, `RotationZ()`, `RotationByAxis()`
+- **Replaced** hardcoded `sin(animTime * 6.0 * animSpeed)` in `ComputeGroupRotation` with keyframe interpolation for all walking states (groups 2-9)
+- **Added** groups 6/7/8/9 (shins/forearms) to `ComputeGroupRotation` — were previously unhandled
+- **Added** `ParentOfGroup()` + FK chain support in `InverseGroupTransformOffset` — child groups now inverse-transform through parent rotation
+- **Added** body bob + weight shift to volume offset in fragment shader (walking states only)
+- **Rest pose composition**: arms now compose Z (rest) → swing axis; legs compose Y (twist) → stride axis
+- **Fallback**: walking branches fall back to sin() if `_WalkKeyframesEnabled == 0`
+
+#### `Assets/Scripts/Sim/VoxelCharacter.cs`
+- **New**: `LoadAndApplyAnimParams()` — loads `{assetName}.anim.json` from StreamingAssets, parses with `JsonUtility`, uploads to `VoxelChunkManager.SetWalkKeyframes()`
+- **New**: JSON data classes for anim_params format (AnimParamsJson, WalkKeyframesData, WalkKFPose, etc.)
+- **Auto-mirror handling**: when `autoMirror` is true, kf2/kf3 derived from kf0/kf1 by L↔R swap in C# before upload
+- **Null-safe**: guards against missing sections (armSwing, legStride, etc.) with sensible defaults
+
+#### `Assets/Scripts/UI/VoxelChunkManager.cs`
+- **New**: `SetWalkKeyframes(assetFileName, walkKeyframes, jointConfig, walkConfig)` — creates ComputeBuffers and binds per instanced group
+- **New**: `InstancedGroup` fields — `walkKeyframeBuffer`, `jointConfigBuffer`, `walkConfig`, `walkKeyframesEnabled`
+- **New**: shader property IDs — `propWalkKeyframes`, `propWalkKeyframesEnabled`, `propJointConfig`, `propJointConfigEnabled`, `propWalkConfig`
+- **Updated**: render method binds walk keyframe buffers via MaterialPropertyBlock
+- **Updated**: `ReleaseAllInstancedGroups()` releases new buffers
+
+### How to test
+1. Export `.anim.json` from the HTML animator (Export .anim.json button)
+2. Rename to match the .stasset (e.g. `character_hoodlum_0.anim.json`)
+3. Place in `Assets/StreamingAssets/voxel_buildings/` alongside the `.stasset`
+4. Ensure `.groups` file also exists (for groupID per voxel)
+5. Enter Play mode — character should walk with the animator's keyframe poses, not the old sin() wave
+
+### Backward compatibility
+- No `.anim.json` → shader uses hardcoded sin() (old behavior)
+- No `.groups` file → groupIDs default to 0 (no limb transforms)
+- Old `.stasset` files work unchanged
+
+---
+
+## August 9, 2026 — Extrude De-extrude, Paint Drag, Volume Bounds, ROM Sizing, Model Centering
 
 ## August 9, 2026 — Extrude De-extrude, Paint Drag, Volume Bounds, ROM Sizing, Model Centering
 

@@ -1,5 +1,6 @@
 using System.IO;
 using UnityEngine;
+using System.Collections.Generic;
 
 namespace SteelCity.Sim
 {
@@ -93,6 +94,7 @@ namespace SteelCity.Sim
             if (useInstancing)
             {
                 RegisterInstancedWithManager();
+                LoadAndApplyAnimParams();
             }
             else
             {
@@ -305,6 +307,244 @@ namespace SteelCity.Sim
                 Debug.Log($"[VoxelCharacter] Registered as INSTANCED at {transform.position} (shared buffer, 1 draw call for all instances)");
             else
                 Debug.LogWarning("[VoxelCharacter] Instanced registration failed — character will not render.");
+        }
+
+        /// <summary>
+        /// Load animation parameters from a .anim.json file (exported by the HTML animator).
+        /// The file must be named {assetFileName without .stasset}.anim.json and placed
+        /// alongside the .stasset in StreamingAssets/voxel_buildings/.
+        /// If no file exists, the shader falls back to hardcoded sin() animation.
+        /// </summary>
+        void LoadAndApplyAnimParams()
+        {
+            // Expected file: character_hoodlum_0.anim.json (next to character_hoodlum_0.stasset)
+            string animFileName = Path.GetFileNameWithoutExtension(assetFileName) + ".anim.json";
+            string animPath = Path.Combine(Application.streamingAssetsPath, "voxel_buildings", animFileName);
+
+            if (!File.Exists(animPath))
+            {
+                Debug.Log($"[VoxelCharacter] No .anim.json found at {animPath} — using shader default animation.");
+                return;
+            }
+
+            string jsonText = File.ReadAllText(animPath);
+            var jsonData = JsonUtility.FromJson<AnimParamsJson>(jsonText);
+            if (jsonData == null || jsonData.params == null)
+            {
+                Debug.LogWarning($"[VoxelCharacter] Failed to parse {animPath} — using default animation.");
+                return;
+            }
+
+            var p = jsonData.params;
+            var wkf = p.walkKeyframes;
+            if (wkf == null)
+            {
+                Debug.LogWarning($"[VoxelCharacter] {animFileName} has no walkKeyframes — using default animation.");
+                return;
+            }
+
+            // Build the 10 float4 walk keyframe buffer.
+            // Index: 0=armSwingL, 1=armSwingR, 2=legStrideL, 3=legStrideR,
+            //        4=elbowBendL, 5=elbowBendR, 6=kneeBendL, 7=kneeBendR,
+            //        8=forearmTwistL, 9=forearmTwistR
+            // Each Vector4 = (kf0, kf1, kf2, kf3)
+            // When autoMirror is true, kf2 = mirror(kf0), kf3 = mirror(kf1).
+            // Mirroring swaps L↔R: armSwingL.kf2 = armSwingR.kf0, etc.
+            // When autoMirror is false, kf2/kf3 come from the JSON directly (may be null
+            // if the animator didn't author them — fall back to kf0/kf1 in that case).
+            bool autoMirror = wkf.autoMirror;
+            WalkKFPose kf2 = autoMirror ? wkf.kf0 : (wkf.kf2 ?? wkf.kf0);
+            WalkKFPose kf3 = autoMirror ? wkf.kf1 : (wkf.kf3 ?? wkf.kf1);
+
+            var kfs = new Vector4[10];
+            // For autoMirror: kf2 value for L = kf0 value for R (L↔R swap)
+            kfs[0] = new Vector4(wkf.kf0.armSwingL, wkf.kf1.armSwingL,
+                autoMirror ? wkf.kf0.armSwingR : kf2.armSwingL,
+                autoMirror ? wkf.kf1.armSwingR : kf3.armSwingL);
+            kfs[1] = new Vector4(wkf.kf0.armSwingR, wkf.kf1.armSwingR,
+                autoMirror ? wkf.kf0.armSwingL : kf2.armSwingR,
+                autoMirror ? wkf.kf1.armSwingL : kf3.armSwingR);
+            kfs[2] = new Vector4(wkf.kf0.legStrideL, wkf.kf1.legStrideL,
+                autoMirror ? wkf.kf0.legStrideR : kf2.legStrideL,
+                autoMirror ? wkf.kf1.legStrideR : kf3.legStrideL);
+            kfs[3] = new Vector4(wkf.kf0.legStrideR, wkf.kf1.legStrideR,
+                autoMirror ? wkf.kf0.legStrideL : kf2.legStrideR,
+                autoMirror ? wkf.kf1.legStrideL : kf3.legStrideR);
+            kfs[4] = new Vector4(wkf.kf0.elbowBendL, wkf.kf1.elbowBendL,
+                autoMirror ? wkf.kf0.elbowBendR : kf2.elbowBendL,
+                autoMirror ? wkf.kf1.elbowBendR : kf3.elbowBendL);
+            kfs[5] = new Vector4(wkf.kf0.elbowBendR, wkf.kf1.elbowBendR,
+                autoMirror ? wkf.kf0.elbowBendL : kf2.elbowBendR,
+                autoMirror ? wkf.kf1.elbowBendL : kf3.elbowBendR);
+            kfs[6] = new Vector4(wkf.kf0.kneeBendL, wkf.kf1.kneeBendL,
+                autoMirror ? wkf.kf0.kneeBendR : kf2.kneeBendL,
+                autoMirror ? wkf.kf1.kneeBendR : kf3.kneeBendL);
+            kfs[7] = new Vector4(wkf.kf0.kneeBendR, wkf.kf1.kneeBendR,
+                autoMirror ? wkf.kf0.kneeBendL : kf2.kneeBendR,
+                autoMirror ? wkf.kf1.kneeBendL : kf3.kneeBendR);
+            kfs[8] = new Vector4(wkf.kf0.forearmTwistL, wkf.kf1.forearmTwistL,
+                autoMirror ? wkf.kf0.forearmTwistR : kf2.forearmTwistL,
+                autoMirror ? wkf.kf1.forearmTwistR : kf3.forearmTwistL);
+            kfs[9] = new Vector4(wkf.kf0.forearmTwistR, wkf.kf1.forearmTwistR,
+                autoMirror ? wkf.kf0.forearmTwistL : kf2.forearmTwistR,
+                autoMirror ? wkf.kf1.forearmTwistL : kf3.forearmTwistR);
+
+            // Build the 7 float4 joint config buffer
+            // Null-guard each section for compatibility with older export files
+            var jc = new Vector4[7];
+            jc[0] = p.armSwing != null
+                ? new Vector4(p.armSwing.axisL, p.armSwing.axisR, p.armSwing.signL, p.armSwing.signR)
+                : new Vector4(0, 0, 1, 1);
+            jc[1] = p.legStride != null
+                ? new Vector4(p.legStride.axisL, p.legStride.axisR, p.legStride.signL, p.legStride.signR)
+                : new Vector4(0, 0, 1, 1);
+            jc[2] = p.elbowBend != null
+                ? new Vector4(p.elbowBend.axisL, p.elbowBend.axisR, p.elbowBend.signL, p.elbowBend.signR)
+                : new Vector4(1, 1, 1, -1);
+            jc[3] = p.kneeBend != null
+                ? new Vector4(p.kneeBend.axisL, p.kneeBend.axisR, p.kneeBend.signL, p.kneeBend.signR)
+                : new Vector4(0, 0, 1, 1);
+            jc[4] = p.legTwist != null
+                ? new Vector4(p.legTwist.leftRest, p.legTwist.rightRest, 0, 0)
+                : new Vector4(0, 0, 0, 0);
+            jc[5] = new Vector4(
+                p.restPose != null ? p.restPose.leftArmZ : -1.5708f,
+                p.restPose != null ? p.restPose.rightArmZ : 1.5708f,
+                p.elbowBend != null ? p.elbowBend.leftRest : 0f,
+                p.elbowBend != null ? p.elbowBend.rightRest : 0f);
+            jc[6] = p.kneeBend != null
+                ? new Vector4(p.kneeBend.leftRest, p.kneeBend.rightRest, 0, 0)
+                : new Vector4(0, 0, 0, 0);
+
+            // Walk config: (cycleDuration, bodyBobAmp, weightShiftAmp, autoMirror)
+            float bobAmp = wkf.bodyBob != null ? wkf.bodyBob.amplitude : 0f;
+            float shiftAmp = wkf.weightShift != null ? wkf.weightShift.amplitude : 0f;
+            var walkConfig = new Vector4(wkf.cycleDuration, bobAmp, shiftAmp, autoMirror ? 1f : 0f);
+
+            chunkManager.SetWalkKeyframes(assetFileName, kfs, jc, walkConfig);
+            Debug.Log($"[VoxelCharacter] Animation parameters loaded from {animFileName} — keyframe walk enabled");
+        }
+
+        // ---- JSON data classes for .anim.json parsing ----
+        // The animator exports: { format, version, pivots, params: {...}, states }
+        // JsonUtility uses field names matching JSON keys (case-insensitive).
+        [System.Serializable]
+        public class AnimParamsJson
+        {
+            public string format;
+            public int version;
+            public AnimParamsData params;
+        }
+
+        [System.Serializable]
+        public class AnimParamsData
+        {
+            public RestPoseData restPose;
+            public WalkKeyframesData walkKeyframes;
+            public ArmSwingData armSwing;
+            public LegStrideData legStride;
+            public ElbowBendData elbowBend;
+            public KneeBendData kneeBend;
+            public LegTwistData legTwist;
+        }
+
+        [System.Serializable]
+        public class RestPoseData
+        {
+            public float leftArmZ;
+            public float rightArmZ;
+        }
+
+        [System.Serializable]
+        public class WalkKeyframesData
+        {
+            public bool autoMirror;
+            public float cycleDuration;
+            public string interpolation;
+            public WalkKFPose kf0;
+            public WalkKFPose kf1;
+            public WalkKFPose kf2;
+            public WalkKFPose kf3;
+            public BodyBobData bodyBob;
+            public WeightShiftData weightShift;
+        }
+
+        [System.Serializable]
+        public class WalkKFPose
+        {
+            public float armSwingL;
+            public float armSwingR;
+            public float legStrideL;
+            public float legStrideR;
+            public float elbowBendL;
+            public float elbowBendR;
+            public float kneeBendL;
+            public float kneeBendR;
+            public float forearmTwistL;
+            public float forearmTwistR;
+        }
+
+        [System.Serializable]
+        public class BodyBobData
+        {
+            public bool enabled;
+            public float amplitude;
+        }
+
+        [System.Serializable]
+        public class WeightShiftData
+        {
+            public bool enabled;
+            public float amplitude;
+        }
+
+        [System.Serializable]
+        public class ArmSwingData
+        {
+            public int axisL;
+            public int axisR;
+            public int signL;
+            public int signR;
+        }
+
+        [System.Serializable]
+        public class LegStrideData
+        {
+            public int axisL;
+            public int axisR;
+            public int signL;
+            public int signR;
+        }
+
+        [System.Serializable]
+        public class ElbowBendData
+        {
+            public int axisL;
+            public int axisR;
+            public int signL;
+            public int signR;
+            public float leftRest;
+            public float rightRest;
+            public float twistL;
+            public float twistR;
+        }
+
+        [System.Serializable]
+        public class KneeBendData
+        {
+            public int axisL;
+            public int axisR;
+            public int signL;
+            public int signR;
+            public float leftRest;
+            public float rightRest;
+        }
+
+        [System.Serializable]
+        public class LegTwistData
+        {
+            public float leftRest;
+            public float rightRest;
         }
 
         // BoxCollider removed — collision is handled by VoxelCollisionWorld probing,

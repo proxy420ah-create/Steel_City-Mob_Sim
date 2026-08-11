@@ -94,6 +94,28 @@ Shader "SteelCity/VoxelProxyRaymarch"
             StructuredBuffer<uint> _GroupIDs;
             int _GroupIDsEnabled;
 
+            // --- Walk keyframe system (per-character-type, shared by all instances) ---
+            // 4 keyframes × 10 pose values = 40 floats, packed as 10 float4s (one per pose value, 4 KFs each).
+            // Layout: _WalkKeyframes[i] = float4(kf0_val, kf1_val, kf2_val, kf3_val) for pose value i.
+            // Pose value index: 0=armSwingL, 1=armSwingR, 2=legStrideL, 3=legStrideR,
+            //   4=elbowBendL, 5=elbowBendR, 6=kneeBendL, 7=kneeBendR, 8=forearmTwistL, 9=forearmTwistR
+            StructuredBuffer<float4> _WalkKeyframes;
+            int _WalkKeyframesEnabled;
+
+            // Per-joint config: axis (0=X,1=Y,2=Z) and sign (+1 or -1) for each limb pair.
+            // Packed as: _JointConfig[0] = float4(armAxisL, armAxisR, armSignL, armSignR)
+            //            _JointConfig[1] = float4(legAxisL, legAxisR, legSignL, legSignR)
+            //            _JointConfig[2] = float4(elbowAxisL, elbowAxisR, elbowSignL, elbowSignR)
+            //            _JointConfig[3] = float4(kneeAxisL, kneeAxisR, kneeSignL, kneeSignR)
+            //            _JointConfig[4] = float4(legTwistL, legTwistR, 0, 0)
+            //            _JointConfig[5] = float4(restPoseLArmZ, restPoseRArmZ, elbowRestL, elbowRestR)
+            //            _JointConfig[6] = float4(kneeRestL, kneeRestR, 0, 0)
+            StructuredBuffer<float4> _JointConfig;
+            int _JointConfigEnabled;
+
+            // Walk cycle config: (cycleDuration, bodyBobAmp, weightShiftAmp, autoMirror)
+            float4 _WalkConfig;
+
             // --- Building instancing (sector baking): per-building metadata in a flat merged buffer ---
             // _BuildingMeta[i] = (bufferOffset, dimsX, dimsY, dimsZ)
             // _BuildingPositions[i] = (worldOffsetX, worldOffsetY, worldOffsetZ, 0)
@@ -207,6 +229,76 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 float c = cos(angle), s = sin(angle);
                 return float3x3(c, 0, -s, 0, 1, 0, s, 0, c);
             }
+            float3x3 RotationZ(float angle)
+            {
+                float c = cos(angle), s = sin(angle);
+                return float3x3(c, -s, 0, s, c, 0, 0, 0, 1);
+            }
+            float3x3 RotationByAxis(int axis, float angle)
+            {
+                if (axis == 1) return RotationY(angle);
+                if (axis == 2) return RotationZ(angle);
+                return RotationX(angle);
+            }
+
+            // ---- Walk keyframe interpolation (ported from animator) ----
+            // Catmull-Rom spline: flows through keyframes with continuous velocity.
+            // Pauses only at natural extremes (contact), max velocity at passing (neutral).
+            float CatmullRom(float p0, float p1, float p2, float p3, float t)
+            {
+                float t2 = t * t;
+                float t3 = t2 * t;
+                return 0.5 * (
+                    (2.0 * p1) +
+                    (-p0 + p2) * t +
+                    (2.0*p0 - 5.0*p1 + 4.0*p2 - p3) * t2 +
+                    (-p0 + 3.0*p1 - 3.0*p2 + p3) * t3
+                );
+            }
+
+            // Smoothstep: S-curve interpolation (0->1).
+            float Smoothstep01(float t) { return t * t * (3.0 - 2.0 * t); }
+            // Cosine: smooth sine ease in/out (0->1).
+            float CosineInterp(float t) { return 0.5 - 0.5 * cos(t * 3.14159265); }
+
+            // Get interpolated walk pose value for a given pose index (0-9) at cycle phase.
+            // _WalkKeyframes[poseIdx] = float4(kf0, kf1, kf2, kf3)
+            float GetWalkPoseValue(int poseIdx, float cyclePhase, bool autoMirror)
+            {
+                float4 kfs = _WalkKeyframes[poseIdx];
+                float kf0 = kfs.x, kf1 = kfs.y, kf2 = kfs.z, kf3 = kfs.w;
+
+                // Auto-mirror: kf2 = mirror(kf0), kf3 = mirror(kf1)
+                // For armSwingL/R, legStrideL/R, etc., mirroring swaps L↔R values.
+                // But since we store each pose value separately, the mirror is already
+                // baked into the buffer by C# (kf2 for armSwingL = kf0 for armSwingR, etc.)
+                // So the shader just reads the 4 values as-is.
+
+                // Determine which segment we're in (0→1, 1→2, 2→3, 3→0)
+                float segPhase = cyclePhase * 4.0;
+                int seg = (int)floor(segPhase);
+                seg = seg % 4;
+                if (seg < 0) seg += 4;
+                float t = segPhase - floor(segPhase);
+
+                // Get the 4 control points for Catmull-Rom (cyclic)
+                float p0, p1, p2, p3;
+                if (seg == 0) { p0 = kf3; p1 = kf0; p2 = kf1; p3 = kf2; }
+                else if (seg == 1) { p0 = kf0; p1 = kf1; p2 = kf2; p3 = kf3; }
+                else if (seg == 2) { p0 = kf1; p1 = kf2; p2 = kf3; p3 = kf0; }
+                else { p0 = kf2; p1 = kf3; p2 = kf0; p3 = kf1; }
+
+                return CatmullRom(p0, p1, p2, p3, t);
+            }
+
+            // Compute the walk cycle phase (0.0 → 1.0) from animTime and animSpeed.
+            float GetWalkCyclePhase(float animTime, float animSpeed)
+            {
+                float cycleDur = _WalkConfig.x / max(0.01, animSpeed);
+                float phase = fmod(animTime, cycleDur);
+                if (phase < 0.0) phase += cycleDur;
+                return phase / cycleDur;
+            }
 
             // Compute per-group rotation for a given animation state.
             // Returns false if the state has no transform for this group (idle/unhandled).
@@ -224,6 +316,22 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 float PI = 3.14159265;
                 pivot = float3(0, 0, 0);
                 rot = float3x3(1, 0, 0, 0, 1, 0, 0, 0, 1);
+
+                // Precompute walk cycle phase for walking states (1=Walking, 3=Aim Walk)
+                bool isWalking = (animState > 0.5 && animState < 1.5) || (animState > 2.5 && animState < 3.5);
+                float walkPhase = 0.0;
+                if (isWalking && _WalkKeyframesEnabled != 0)
+                    walkPhase = GetWalkCyclePhase(animTime, animSpeed);
+                bool useKeyframes = isWalking && _WalkKeyframesEnabled != 0;
+
+                // Joint config shortcuts (only valid if _JointConfigEnabled)
+                float4 armCfg   = _JointConfigEnabled ? _JointConfig[0] : float4(0, 0, 1, 1);
+                float4 legCfg   = _JointConfigEnabled ? _JointConfig[1] : float4(0, 0, 1, 1);
+                float4 elbowCfg = _JointConfigEnabled ? _JointConfig[2] : float4(0, 0, 1, 1);
+                float4 kneeCfg  = _JointConfigEnabled ? _JointConfig[3] : float4(0, 0, 1, 1);
+                float4 twistCfg = _JointConfigEnabled ? _JointConfig[4] : float4(0, 0, 0, 0);
+                float4 restCfg  = _JointConfigEnabled ? _JointConfig[5] : float4(-1.5708, 1.5708, 0.2, 0.2);
+                float4 kneeRest = _JointConfigEnabled ? _JointConfig[6] : float4(0.1, 0.1, 0, 0);
 
                 if (groupID == 1u) // Head
                 {
@@ -246,50 +354,126 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 {
                     pivot = lArmPivot * voxelSize;
                     float swing = 0.0;
-                    if (animState > 0.5 && animState < 1.5) // Walking
-                        swing = sin(animTime * 6.0 * animSpeed) * 0.3;
+                    if (useKeyframes) // Walking — keyframe pose
+                        swing = armCfg.z * GetWalkPoseValue(0, walkPhase, _WalkConfig.w > 0.5);
                     else if (animState > 3.5 && animState < 4.5) swing = -1.2; // Aiming
                     else if (animState > 5.5 && animState < 6.5) swing = 0.3;  // Crouching
                     else if (animState > 6.5 && animState < 7.5) swing = -1.5; // Flinching
+                    else if (isWalking) { // Walking fallback (no keyframe buffer)
+                        swing = sin(animTime * 6.0 * animSpeed) * 0.3;
+                        rot = RotationX(swing);
+                        return true;
+                    }
                     else return false;
-                    rot = RotationX(swing);
+                    // Compose: Z (rest pose) → swing axis
+                    int axis = (int)armCfg.x;
+                    rot = mul(RotationByAxis(axis, swing), RotationZ(restCfg.x));
                     return true;
                 }
                 else if (groupID == 3u) // Right arm
                 {
                     pivot = rArmPivot * voxelSize;
                     float swing = 0.0;
-                    if (animState > 0.5 && animState < 1.5) // Walking
-                        swing = sin(animTime * 6.0 * animSpeed + PI) * 0.3;
+                    if (useKeyframes) // Walking — keyframe pose
+                        swing = armCfg.w * GetWalkPoseValue(1, walkPhase, _WalkConfig.w > 0.5);
                     else if (animState > 3.5 && animState < 4.5) swing = -1.2; // Aiming
                     else if (animState > 5.5 && animState < 6.5) swing = -0.3; // Crouching
                     else if (animState > 6.5 && animState < 7.5) swing = -1.5; // Flinching
+                    else if (isWalking) { // Walking fallback (no keyframe buffer)
+                        swing = sin(animTime * 6.0 * animSpeed + PI) * 0.3;
+                        rot = RotationX(swing);
+                        return true;
+                    }
                     else return false;
-                    rot = RotationX(swing);
+                    int axis = (int)armCfg.y;
+                    rot = mul(RotationByAxis(axis, swing), RotationZ(restCfg.y));
                     return true;
                 }
                 else if (groupID == 4u) // Left leg
                 {
                     pivot = lLegPivot * voxelSize;
                     float stride = 0.0;
-                    if (animState > 0.5 && animState < 1.5) // Walking
-                        stride = sin(animTime * 6.0 * animSpeed + PI) * 0.4;
+                    float twist = twistCfg.x;
+                    if (useKeyframes) // Walking — keyframe pose
+                        stride = legCfg.z * GetWalkPoseValue(2, walkPhase, _WalkConfig.w > 0.5);
                     else if (animState > 5.5 && animState < 6.5) stride = 0.6;  // Crouching
                     else if (animState > 7.5 && animState < 8.5) stride = -0.5; // Falling
+                    else if (isWalking) { // Walking fallback (no keyframe buffer)
+                        stride = sin(animTime * 6.0 * animSpeed + PI) * 0.4;
+                        rot = RotationX(stride);
+                        return true;
+                    }
                     else return false;
-                    rot = RotationX(stride);
+                    // Compose: Y twist (base orientation) → stride axis
+                    int axis = (int)legCfg.x;
+                    rot = mul(RotationByAxis(axis, stride), RotationY(twist));
                     return true;
                 }
                 else if (groupID == 5u) // Right leg
                 {
                     pivot = rLegPivot * voxelSize;
                     float stride = 0.0;
-                    if (animState > 0.5 && animState < 1.5) // Walking
-                        stride = sin(animTime * 6.0 * animSpeed) * 0.4;
+                    float twist = twistCfg.y;
+                    if (useKeyframes) // Walking — keyframe pose
+                        stride = legCfg.w * GetWalkPoseValue(3, walkPhase, _WalkConfig.w > 0.5);
                     else if (animState > 5.5 && animState < 6.5) stride = 0.6;  // Crouching
                     else if (animState > 7.5 && animState < 8.5) stride = 0.5;  // Falling
+                    else if (isWalking) { // Walking fallback (no keyframe buffer)
+                        stride = sin(animTime * 6.0 * animSpeed) * 0.4;
+                        rot = RotationX(stride);
+                        return true;
+                    }
                     else return false;
-                    rot = RotationX(stride);
+                    int axis = (int)legCfg.y;
+                    rot = mul(RotationByAxis(axis, stride), RotationY(twist));
+                    return true;
+                }
+                else if (groupID == 8u) // Left forearm (elbow hinge + twist)
+                {
+                    pivot = lArmPivot * voxelSize; // same pivot as shoulder — FK chain handles offset
+                    float bend = elbowCfg.z * restCfg.z; // signL * leftRest
+                    float twist = 0.0;
+                    if (useKeyframes) {
+                        bend = elbowCfg.z * GetWalkPoseValue(4, walkPhase, _WalkConfig.w > 0.5);
+                        twist = GetWalkPoseValue(8, walkPhase, _WalkConfig.w > 0.5);
+                    }
+                    int axis = (int)elbowCfg.x;
+                    rot = RotationByAxis(axis, bend);
+                    if (twist != 0.0) rot = mul(rot, RotationX(twist));
+                    return true;
+                }
+                else if (groupID == 9u) // Right forearm (elbow hinge + twist)
+                {
+                    pivot = rArmPivot * voxelSize;
+                    float bend = elbowCfg.w * restCfg.w; // signR * rightRest
+                    float twist = 0.0;
+                    if (useKeyframes) {
+                        bend = elbowCfg.w * GetWalkPoseValue(5, walkPhase, _WalkConfig.w > 0.5);
+                        twist = GetWalkPoseValue(9, walkPhase, _WalkConfig.w > 0.5);
+                    }
+                    int axis = (int)elbowCfg.y;
+                    rot = RotationByAxis(axis, bend);
+                    if (twist != 0.0) rot = mul(rot, RotationX(twist));
+                    return true;
+                }
+                else if (groupID == 6u) // Left shin (knee hinge)
+                {
+                    pivot = lLegPivot * voxelSize; // same pivot as hip — FK chain handles offset
+                    float bend = kneeCfg.z * kneeRest.x; // signL * leftRest
+                    if (useKeyframes)
+                        bend = kneeCfg.z * GetWalkPoseValue(6, walkPhase, _WalkConfig.w > 0.5);
+                    int axis = (int)kneeCfg.x;
+                    rot = RotationByAxis(axis, bend);
+                    return true;
+                }
+                else if (groupID == 7u) // Right shin (knee hinge)
+                {
+                    pivot = rLegPivot * voxelSize;
+                    float bend = kneeCfg.w * kneeRest.y; // signR * rightRest
+                    if (useKeyframes)
+                        bend = kneeCfg.w * GetWalkPoseValue(7, walkPhase, _WalkConfig.w > 0.5);
+                    int axis = (int)kneeCfg.y;
+                    rot = RotationByAxis(axis, bend);
                     return true;
                 }
                 return false;
@@ -309,19 +493,50 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 return transformedPos - voxelLocalPos;
             }
 
+            // PARENT_OF map for FK chains: child → parent
+            // 8 (L Forearm) → 2 (L Arm), 9 (R Forearm) → 3 (R Arm)
+            // 6 (L Shin) → 4 (L Leg), 7 (R Shin) → 5 (R Leg)
+            uint ParentOfGroup(uint gid)
+            {
+                if (gid == 8u) return 2u;
+                if (gid == 9u) return 3u;
+                if (gid == 6u) return 4u;
+                if (gid == 7u) return 5u;
+                return 0u; // no parent (body or unknown)
+            }
+
             // Inverse transform: posedPos → restPos offset
             // Used in the DDA loop to sample voxel data at rest positions while stepping through posed space.
             // For rotation matrices, inverse = transpose.
+            // Handles FK chains: child groups inverse-transform through their own rotation,
+            // then through their parent's rotation (reverse order of forward application).
             float3 InverseGroupTransformOffset(
                 uint groupID, float3 voxelLocalPos, float3 dims, float voxelSize,
                 float animState, float animTime, float animSpeed)
             {
                 if (groupID == 0u) return float3(0, 0, 0);
+
+                // Get this group's own transform
                 float3 pivot; float3x3 rot;
                 if (!ComputeGroupRotation(groupID, dims, voxelSize, animState, animTime, animSpeed, pivot, rot))
                     return float3(0, 0, 0);
+
+                // Inverse-transform through own rotation first
                 float3 relPos = voxelLocalPos - pivot;
                 float3 restPos = mul(transpose(rot), relPos) + pivot;
+
+                // If this is a child group, also inverse-transform through parent's rotation
+                uint parentGid = ParentOfGroup(groupID);
+                if (parentGid != 0u)
+                {
+                    float3 parentPivot; float3x3 parentRot;
+                    if (ComputeGroupRotation(parentGid, dims, voxelSize, animState, animTime, animSpeed, parentPivot, parentRot))
+                    {
+                        float3 parentRel = restPos - parentPivot;
+                        restPos = mul(transpose(parentRot), parentRel) + parentPivot;
+                    }
+                }
+
                 return restPos - voxelLocalPos;
             }
 
@@ -449,6 +664,23 @@ Shader "SteelCity/VoxelProxyRaymarch"
                     float3x3 volRot = float3x3(yc, 0, -ys, 0, 1, 0, ys, 0, yc);
                     float3x3 volInvRot = float3x3(yc, 0, ys, 0, 1, 0, -ys, 0, yc);
                     dims = VolumeDimsInt();
+
+                    // Body bob + weight shift (walking states only, keyframe system enabled)
+                    bool isWalkingState = (input.animState > 0.5 && input.animState < 1.5) ||
+                                          (input.animState > 2.5 && input.animState < 3.5);
+                    if (isWalkingState && _WalkKeyframesEnabled != 0)
+                    {
+                        float phase = GetWalkCyclePhase(input.animTime, input.animSpeed);
+                        // Body bob: -cos(phase * 4π) → lowest at contact (0, 0.5), highest at mid-stance (0.25, 0.75)
+                        float bobAmp = _WalkConfig.y;
+                        float bobY = -cos(phase * 4.0 * 3.14159265) * bobAmp * voxelSize;
+                        // Weight shift: sin(phase * 2π) → shifts over stance leg at mid-stance
+                        float shiftAmp = _WalkConfig.z;
+                        float shiftX = sin(phase * 2.0 * 3.14159265) * shiftAmp * voxelSize;
+                        // Apply in volume-local space (before yaw rotation)
+                        volOffset.y += bobY;
+                        volOffset.x += shiftX;
+                    }
                 #endif
             #else
                 float3 volOffset = _VolumeOffset;

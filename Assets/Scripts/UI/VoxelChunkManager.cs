@@ -322,6 +322,10 @@ namespace SteelCity.Sim
         private int propGroupIDsEnabled;
         private int propInstanceCount;
         private int propBuildingMeta, propBuildingPositions;
+        // Walk keyframe system
+        private int propWalkKeyframes, propWalkKeyframesEnabled;
+        private int propJointConfig, propJointConfigEnabled;
+        private int propWalkConfig;
 
         // --- Perf tracking (event-driven, not timed) ---
         private bool distanceCullingEnabled = true;
@@ -520,6 +524,12 @@ namespace SteelCity.Sim
             propInstanceCount = Shader.PropertyToID("_InstanceCount");
             propBuildingMeta = Shader.PropertyToID("_BuildingMeta");
             propBuildingPositions = Shader.PropertyToID("_BuildingPositions");
+            // Walk keyframe system
+            propWalkKeyframes = Shader.PropertyToID("_WalkKeyframes");
+            propWalkKeyframesEnabled = Shader.PropertyToID("_WalkKeyframesEnabled");
+            propJointConfig = Shader.PropertyToID("_JointConfig");
+            propJointConfigEnabled = Shader.PropertyToID("_JointConfigEnabled");
+            propWalkConfig = Shader.PropertyToID("_WalkConfig");
         }
 
         private void CreateSharedMaterialBuffer()
@@ -1073,6 +1083,11 @@ namespace SteelCity.Sim
             public float voxelSize;
             public readonly List<InstancedCharacter> instances = new();
             public MaterialPropertyBlock cachedPropBlock;
+            // Walk keyframe data (per character type, shared by all instances)
+            public ComputeBuffer walkKeyframeBuffer;  // 10 float4s (one per pose value, 4 KFs each)
+            public ComputeBuffer jointConfigBuffer;   // 7 float4s (axis/sign/rest per joint pair)
+            public Vector4 walkConfig;                // (cycleDuration, bodyBobAmp, weightShiftAmp, autoMirror)
+            public bool walkKeyframesEnabled = false;
         }
 
         private readonly Dictionary<string, InstancedGroup> instancedGroups = new();
@@ -1145,6 +1160,65 @@ namespace SteelCity.Sim
             if (ic == null) return;
             if (instancedGroups.TryGetValue(ic.assetKey, out var group))
                 group.instances.Remove(ic);
+        }
+
+        /// <summary>
+        /// Set walk keyframe data for an instanced character type.
+        /// All instances sharing the same assetFileName will use these keyframes.
+        /// Call this after RegisterInstancedCharacter, before the first render frame.
+        ///
+        /// walkKeyframes: 10 Vector4s, one per pose value.
+        ///   Index 0=armSwingL, 1=armSwingR, 2=legStrideL, 3=legStrideR,
+        ///   4=elbowBendL, 5=elbowBendR, 6=kneeBendL, 7=kneeBendR,
+        ///   8=forearmTwistL, 9=forearmTwistR
+        ///   Each Vector4 = (kf0, kf1, kf2, kf3) — the 4 keyframe values for that pose.
+        ///   When autoMirror is true, kf2 and kf3 should be pre-mirrored by the caller.
+        ///
+        /// jointConfig: 7 Vector4s:
+        ///   [0] = (armAxisL, armAxisR, armSignL, armSignR)
+        ///   [1] = (legAxisL, legAxisR, legSignL, legSignR)
+        ///   [2] = (elbowAxisL, elbowAxisR, elbowSignL, elbowSignR)
+        ///   [3] = (kneeAxisL, kneeAxisR, kneeSignL, kneeSignR)
+        ///   [4] = (legTwistL, legTwistR, 0, 0)
+        ///   [5] = (restPoseLArmZ, restPoseRArmZ, elbowRestL, elbowRestR)
+        ///   [6] = (kneeRestL, kneeRestR, 0, 0)
+        ///
+        /// walkConfig = (cycleDuration, bodyBobAmplitude, weightShiftAmplitude, autoMirror(1/0))
+        /// </summary>
+        public void SetWalkKeyframes(string assetFileName, Vector4[] walkKeyframes, Vector4[] jointConfig, Vector4 walkConfig)
+        {
+            if (!instancedGroups.TryGetValue(assetFileName, out var group))
+            {
+                Debug.LogWarning($"[VoxelChunkManager] SetWalkKeyframes: group not found for {assetFileName}");
+                return;
+            }
+
+            if (walkKeyframes == null || walkKeyframes.Length != 10)
+            {
+                Debug.LogWarning($"[VoxelChunkManager] SetWalkKeyframes: expected 10 walkKeyframe entries, got {(walkKeyframes == null ? "null" : walkKeyframes.Length.ToString())}");
+                return;
+            }
+
+            if (jointConfig == null || jointConfig.Length != 7)
+            {
+                Debug.LogWarning($"[VoxelChunkManager] SetWalkKeyframes: expected 7 jointConfig entries, got {(jointConfig == null ? "null" : jointConfig.Length.ToString())}");
+                return;
+            }
+
+            // Release old buffers if they exist
+            if (group.walkKeyframeBuffer != null) group.walkKeyframeBuffer.Release();
+            if (group.jointConfigBuffer != null) group.jointConfigBuffer.Release();
+
+            group.walkKeyframeBuffer = new ComputeBuffer(10, sizeof(float) * 4);
+            group.walkKeyframeBuffer.SetData(walkKeyframes);
+
+            group.jointConfigBuffer = new ComputeBuffer(7, sizeof(float) * 4);
+            group.jointConfigBuffer.SetData(jointConfig);
+
+            group.walkConfig = walkConfig;
+            group.walkKeyframesEnabled = true;
+
+            Debug.Log($"[VoxelChunkManager] Walk keyframes set for {assetFileName}: cycleDur={walkConfig.x}s bob={walkConfig.y} shift={walkConfig.z} autoMirror={walkConfig.w}");
         }
 
         /// <summary>
@@ -1273,6 +1347,17 @@ namespace SteelCity.Sim
             block.SetInt(propInstanceCount, visibleCount);
             block.SetBuffer(propGroupIDs, hasGroups ? group.groupIDBuffer : dummyGroupIDBuffer);
 
+            // Walk keyframe bindings
+            block.SetInt(propWalkKeyframesEnabled, group.walkKeyframesEnabled ? 1 : 0);
+            if (group.walkKeyframesEnabled && group.walkKeyframeBuffer != null)
+            {
+                block.SetBuffer(propWalkKeyframes, group.walkKeyframeBuffer);
+                block.SetInt(propJointConfigEnabled, group.jointConfigBuffer != null ? 1 : 0);
+                if (group.jointConfigBuffer != null)
+                    block.SetBuffer(propJointConfig, group.jointConfigBuffer);
+                block.SetVector(propWalkConfig, group.walkConfig);
+            }
+
             cmd.DrawMeshInstanced(proxyCubeMesh, 0, proxyMaterial, 0, matrices, visibleCount, block);
 
             // No LOD settings to restore — using full quality for instanced characters/vehicles
@@ -1285,6 +1370,8 @@ namespace SteelCity.Sim
                 if (group.sharedVoxelBuffer != null) group.sharedVoxelBuffer.Release();
                 if (group.groupIDBuffer != null) group.groupIDBuffer.Release();
                 if (group.instanceOffsetBuffer != null) group.instanceOffsetBuffer.Release();
+                if (group.walkKeyframeBuffer != null) group.walkKeyframeBuffer.Release();
+                if (group.jointConfigBuffer != null) group.jointConfigBuffer.Release();
                 group.instances.Clear();
             }
             instancedGroups.Clear();
