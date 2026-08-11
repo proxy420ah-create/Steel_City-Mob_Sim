@@ -229,6 +229,12 @@ body.ui-hidden #ui-hidden-hint { display:block; }
     Group 0 = Body (static)<br>
     Groups 1-5 = Animated limbs
   </div>
+
+  <!-- Gait Inspector (left panel, below group list) -->
+  <div id="gait-inspector" style="display:none; margin-top:10px; background:rgba(0,0,0,0.6); border:1px solid #444; border-radius:4px; padding:8px; font-family:monospace; font-size:10px; color:#ccc;">
+    <div style="color:#ffcc00; font-weight:bold; margin-bottom:4px; border-bottom:1px solid #444; padding-bottom:3px;">Gait Inspector</div>
+    <div id="gait-content"></div>
+  </div>
 </div>
 
 <!-- Right panel: Animation -->
@@ -266,6 +272,7 @@ body.ui-hidden #ui-hidden-hint { display:block; }
 
   <h3 style="margin-top:12px;">Animation Parameters
     <button class="export-btn" onclick="resetAnimParams()" style="font-size:10px;padding:2px 6px;margin-left:4px;">Reset</button>
+    <button class="export-btn" onclick="toggleGaitInspector()" style="font-size:10px;padding:2px 6px;margin-left:4px;">Gait Inspector</button>
   </h3>
   <div id="param-controls"></div>
 </div>
@@ -680,10 +687,75 @@ const DEFAULT_PARAMS = {
     5: { x: 0, y: 0, z: 0 },  // Right leg
   },
   walk: {
-    armSwing: 0.3,      // radians
+    armSwing: 0.3,      // radians (legacy sine mode — kept for backward compat)
     armFreq: 6.0,        // Hz
     legStride: 0.4,      // radians
     legFreq: 6.0,        // Hz
+  },
+  // === WALK KEYFRAME SYSTEM ===
+  // 4 keyframes per cycle: Contact, Passing, Contact(mirror), Passing(mirror)
+  // User poses KF0 + KF1; KF2 + KF3 auto-derived by L↔R mirror.
+  // System interpolates between keyframes.
+  // Values are LOGICAL angles (before sign/axis applied).
+  walkKeyframes: {
+    autoMirror: true,
+    cycleDuration: 1.2,  // seconds per full stride cycle
+    interpolation: 'spline',  // 'spline' (Catmull-Rom, no hang), 'cosine' (ease at each KF), 'smoothstep' (S-curve)
+    bodyBob: { enabled: true, amplitude: 0.6 },       // vertical bob (voxel units)
+    weightShift: { enabled: true, amplitude: 0.4 },   // lateral shift (voxel units)
+    // KF0 — Contact (R heel strike, L toe-off)
+    // R leg forward, L leg back, both knees straight, arms at extremes
+    kf0: {
+      armSwingL:  0.3,   // L arm forward
+      armSwingR: -0.3,   // R arm back
+      legStrideL: -0.4,  // L leg back
+      legStrideR:  0.4,  // R leg forward
+      elbowBendL:  0.1,  // nearly straight
+      elbowBendR:  0.1,
+      kneeBendL:   0.0,  // straight at contact
+      kneeBendR:   0.0,
+      forearmTwistL: 0.0,
+      forearmTwistR: 0.0,
+    },
+    // KF1 — Passing (R mid-stance, L swinging forward)
+    // R leg vertical, L leg swinging, L knee bent HIGH to clear ground
+    kf1: {
+      armSwingL:  0.0,   // arms passing through neutral
+      armSwingR:  0.0,
+      legStrideL:  0.3,  // L leg swinging forward
+      legStrideR: -0.1,  // R leg slightly behind (pushing off)
+      elbowBendL:  0.3,  // more bent
+      elbowBendR:  0.3,
+      kneeBendL:   0.8,  // L knee HIGH (swing phase — clear ground)
+      kneeBendR:   0.15, // R knee slight (stance — shock absorption)
+      forearmTwistL: 0.0,
+      forearmTwistR: 0.0,
+    },
+    // KF2 + KF3: when autoMirror is true, derived from kf0/kf1 by L↔R swap.
+    // When autoMirror is false, these are user-editable (for asymmetric walks).
+    kf2: null,  // null = auto-mirror of kf0
+    kf3: null,  // null = auto-mirror of kf1
+  },
+  // Arm swing axis/sign (shoulders, groups 2/3)
+  armSwing: {
+    axisL: 0,          // 0=X, 1=Y, 2=Z — rotation axis for left arm swing
+    axisR: 0,          // 0=X, 1=Y, 2=Z — rotation axis for right arm swing
+    signL: 1,          // 1 or -1 — swing direction for left arm
+    signR: 1,          // 1 or -1 — swing direction for right arm
+  },
+  // Leg stride axis/sign (hips, groups 4/5)
+  legStride: {
+    axisL: 0,          // 0=X, 1=Y, 2=Z — rotation axis for left leg stride
+    axisR: 0,          // 0=X, 1=Y, 2=Z — rotation axis for right leg stride
+    signL: 1,          // 1 or -1 — stride direction for left leg
+    signR: 1,          // 1 or -1 — stride direction for right leg
+  },
+  // Leg twist (hips, groups 4/5) — Y-axis yaw/toe-in-toe-out.
+  // Rotates the entire leg in place around its vertical axis.
+  // Shin inherits the twist but keeps its own knee bend settings.
+  legTwist: {
+    leftRest: 0.0,     // radians — static Y rotation for left leg (toe-in/out)
+    rightRest: 0.0,    // radians — static Y rotation for right leg (toe-in/out)
   },
   // Elbow hinge: forearms (groups 8/9) bend around X at the elbow pivot.
   // In T-pose the arm is horizontal, so X-bend moves the forearm up/down.
@@ -693,14 +765,23 @@ const DEFAULT_PARAMS = {
     leftRest: 0.0,     // straight at idle — arms hang flat
     rightRest: 0.0,
     walkAmp: 0.15,     // oscillation amplitude during walking
+    axisL: 1,          // Y axis for left elbow
+    axisR: 1,          // Y axis for right elbow
+    signL: 1,          // positive bend for left elbow
+    signR: -1,         // negative bend for right elbow
+    twistL: 0.0,       // resting forearm twist (Y rotation) for left forearm
+    twistR: 0.0,       // resting forearm twist (Y rotation) for right forearm
+    twistWalkAmp: 0.15, // walking twist oscillation amplitude (gait-driven)
   },
-  // Knee hinge: shins (groups 6/7) bend around X at the knee pivot.
-  // Legs are already vertical in T-pose, so X-bend moves the shin backward
-  // (calf toward thigh) — matching real knee biomechanics (knee only bends backward).
+  // Knee hinge: shins (groups 6/7) bend at the knee pivot.
   kneeBend: {
     leftRest: 0.0,     // straight at idle
     rightRest: 0.0,
-    walkAmp: 0.10,     // bend during walking swing phase
+    walkAmp: 0.42,     // bend during walking swing phase
+    axisL: 0,          // X axis for left knee
+    axisR: 0,          // X axis for right knee
+    signL: 1,          // positive bend for left knee
+    signR: 1,          // positive bend for right knee
   },
   looking: {
     headYaw: 0.5,
@@ -1038,6 +1119,138 @@ function matVec3(m, v) {
   ];
 }
 
+// Returns the rotation function for a given axis index: 0=X, 1=Y, 2=Z
+function rotationByAxis(axis, angle) {
+  if (axis === 1) return rotationY(angle);
+  if (axis === 2) return rotationZ(angle);
+  return rotationX(angle);
+}
+
+// === WALK KEYFRAME INTERPOLATION ===
+// Smoothstep: S-curve interpolation (0→1) — avoids robotic linear motion.
+function smoothstep(t) { return t * t * (3 - 2 * t); }
+// Cosine: smooth sine ease in/out (0→1) — gentle stops at keyframes, sine acceleration through transitions.
+function cosineInterp(t) { return 0.5 - 0.5 * Math.cos(t * Math.PI); }
+// Catmull-Rom spline interpolation between 4 cyclic keyframe values.
+// Velocity at each keyframe is derived from its neighbors, so motion only
+// pauses at natural extremes (peaks) and flows through neutral points at speed.
+// This matches the original sine wave's behavior: zero velocity at peaks,
+// max velocity at zero crossings — no "hang" at interior keyframes.
+function catmullRom(p0, p1, p2, p3, t) {
+  const t2 = t * t;
+  const t3 = t2 * t;
+  return 0.5 * (
+    (2 * p1) +
+    (-p0 + p2) * t +
+    (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
+    (-p0 + 3 * p1 - 3 * p2 + p3) * t3
+  );
+}
+
+// L↔R mirror of a keyframe pose: swaps all left/right values.
+function mirrorWalkPose(pose) {
+  return {
+    armSwingL: pose.armSwingR,     armSwingR: pose.armSwingL,
+    legStrideL: pose.legStrideR,   legStrideR: pose.legStrideL,
+    elbowBendL: pose.elbowBendR,   elbowBendR: pose.elbowBendL,
+    kneeBendL: pose.kneeBendR,     kneeBendR: pose.kneeBendL,
+    forearmTwistL: pose.forearmTwistR, forearmTwistR: pose.forearmTwistL,
+  };
+}
+
+// Returns the pose for keyframe index 0-3, applying auto-mirror if needed.
+function getWalkKfPose(idx, wkf) {
+  if (idx === 0) return wkf.kf0;
+  if (idx === 1) return wkf.kf1;
+  if (idx === 2) return wkf.kf2 || (wkf.autoMirror ? mirrorWalkPose(wkf.kf0) : wkf.kf0);
+  if (idx === 3) return wkf.kf3 || (wkf.autoMirror ? mirrorWalkPose(wkf.kf1) : wkf.kf1);
+  return wkf.kf0;
+}
+
+// Per-frame cache so we don't recompute for every voxel.
+let _walkPoseCache = null;
+let _walkPoseCacheKey = '';
+
+// Invalidate the walk pose cache — call when animParams change or at start of rebuild.
+function invalidateWalkPoseCache() { _walkPoseCache = null; _walkPoseCacheKey = ''; }
+
+// Computes the interpolated walk pose for the current animTime.
+// Returns { pose, cyclePhase, kfAIdx, kfBIdx, interpT, bodyBobY, weightShiftX }
+function getWalkPose(animTime, animSpeed, params) {
+  const cacheKey = animTime.toFixed(4) + ':' + animSpeed.toFixed(2);
+  if (_walkPoseCacheKey === cacheKey && _walkPoseCache) return _walkPoseCache;
+
+  const wkf = params.walkKeyframes;
+  const cycleDur = wkf.cycleDuration / Math.max(0.01, animSpeed);
+  const cyclePhase = ((animTime % cycleDur) + cycleDur) % cycleDur / cycleDur;  // 0.0 → 1.0
+
+  // 4 keyframes at phase positions 0, 0.25, 0.5, 0.75
+  const kfPositions = [0.0, 0.25, 0.5, 0.75];
+  let kfAIdx = 0, kfBIdx = 1, t = 0;
+
+  for (let i = 0; i < 4; i++) {
+    const next = (i + 1) % 4;
+    const posA = kfPositions[i];
+    const posB = kfPositions[next];
+    if (next === 0) {
+      // Wrap-around: 0.75 → 1.0 (= 0.0)
+      if (cyclePhase >= posA) {
+        kfAIdx = i; kfBIdx = 0;
+        t = (cyclePhase - posA) / (1.0 - posA);
+        break;
+      } else if (cyclePhase < posB) {
+        // Shouldn't happen (phase < 0.25 falls in segment 3→0)
+        kfAIdx = 3; kfBIdx = 0;
+        t = (cyclePhase + (1.0 - 0.75)) / (1.0 - 0.75 + 0.0);
+        break;
+      }
+    } else {
+      if (cyclePhase >= posA && cyclePhase < posB) {
+        kfAIdx = i; kfBIdx = next;
+        t = (cyclePhase - posA) / (posB - posA);
+        break;
+      }
+    }
+  }
+
+  const kfA = getWalkKfPose(kfAIdx, wkf);
+  const kfB = getWalkKfPose(kfBIdx, wkf);
+  const interpMode = wkf.interpolation || 'spline';
+
+  // For spline mode, we need all 4 keyframe poses (cyclic neighbors)
+  const prevKfIdx = (kfAIdx - 1 + 4) % 4;
+  const next2KfIdx = (kfBIdx + 1) % 4;
+  const kfPrev = (interpMode === 'spline') ? getWalkKfPose(prevKfIdx, wkf) : null;
+  const kfNext2 = (interpMode === 'spline') ? getWalkKfPose(next2KfIdx, wkf) : null;
+
+  const smoothT = interpMode === 'smoothstep' ? smoothstep(t)
+    : interpMode === 'cosine' ? cosineInterp(t)
+    : t; // spline uses raw t (Catmull-Rom handles the easing internally)
+
+  // Interpolate all pose values
+  const pose = {};
+  for (const key of Object.keys(kfA)) {
+    if (interpMode === 'spline') {
+      pose[key] = catmullRom(kfPrev[key], kfA[key], kfB[key], kfNext2[key], t);
+    } else {
+      pose[key] = kfA[key] + (kfB[key] - kfA[key]) * smoothT;
+    }
+  }
+
+  // Body bob: -cos(phase * 4π) → lowest at contact (0, 0.5), highest at mid-stance (0.25, 0.75)
+  const bobAmp = wkf.bodyBob.enabled ? wkf.bodyBob.amplitude : 0;
+  const bodyBobY = -Math.cos(cyclePhase * 4 * Math.PI) * bobAmp;
+
+  // Weight shift: sin(phase * 2π) → shifts over stance leg at mid-stance
+  const shiftAmp = wkf.weightShift.enabled ? wkf.weightShift.amplitude : 0;
+  const weightShiftX = Math.sin(cyclePhase * 2 * Math.PI) * shiftAmp;
+
+  const result = { pose, cyclePhase, kfAIdx, kfBIdx, interpT: smoothT, bodyBobY, weightShiftX };
+  _walkPoseCache = result;
+  _walkPoseCacheKey = cacheKey;
+  return result;
+}
+
 function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpeed) {
   const PI = Math.PI;
   const identity = [[1,0,0],[0,1,0],[0,0,1]];
@@ -1146,103 +1359,115 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
     // Compose: Y (yaw, left/right) × X (pitch, up/down) × Z (tilt, roll sideways)
     if (ownRot === null) ownRot = matMul3(rotationY(headYaw), matMul3(rotationX(headPitch), rotationZ(headTilt)));
   } else if (gid === 2) { // Left arm (shoulder)
+    const as = animParams.armSwing;
     let swing = 0;
     let reach = 0; // Y rotation — shoulder reach across body (aiming only)
-    if (animState > 0.5 && animState < 1.5) { // Walking
-      swing = Math.sin(animTime * animParams.walk.armFreq * animSpeed) * animParams.walk.armSwing;
+    if (animState > 0.5 && animState < 1.5) { // Walking — keyframe pose
+      const wp = getWalkPose(animTime, animSpeed, animParams);
+      swing = as.signL * wp.pose.armSwingL;
     } else if (animState > 2.5 && animState < 4.5) { // Aim Walk (3) or Aiming (4)
-      swing = animParams.aiming.armSwingL; // static pose — no oscillation
+      swing = as.signL * animParams.aiming.armSwingL; // static pose — no oscillation
       reach = animParams.aiming.shoulderReachL; // cross-body reach
     } else if (animState > 4.5 && animState < 5.5) { // Crouching
-      swing = animParams.crouching.armSwingL;
+      swing = as.signL * animParams.crouching.armSwingL;
     } else {
       ownRot = rotationZ(animParams.restPose.leftArmZ); // Idle: rest pose only
     }
-    // Compose: Z (rest pose, arm down) → X (swing, forward/back) → Y (reach, across body)
+    // Compose: Z (rest pose, arm down) → swing axis → Y (reach, across body)
     if (ownRot === null) {
-      ownRot = matMul3(rotationY(reach), matMul3(rotationX(swing), rotationZ(animParams.restPose.leftArmZ)));
+      ownRot = matMul3(rotationY(reach), matMul3(rotationByAxis(as.axisL, swing), rotationZ(animParams.restPose.leftArmZ)));
     }
   } else if (gid === 3) { // Right arm (shoulder)
+    const as = animParams.armSwing;
     let swing = 0;
     let reach = 0;
-    if (animState > 0.5 && animState < 1.5) { // Walking
-      swing = Math.sin(animTime * animParams.walk.armFreq * animSpeed + PI) * animParams.walk.armSwing;
+    if (animState > 0.5 && animState < 1.5) { // Walking — keyframe pose
+      const wp = getWalkPose(animTime, animSpeed, animParams);
+      swing = as.signR * wp.pose.armSwingR;
     } else if (animState > 2.5 && animState < 4.5) { // Aim Walk (3) or Aiming (4)
-      swing = animParams.aiming.armSwingR;
+      swing = as.signR * animParams.aiming.armSwingR;
       reach = animParams.aiming.shoulderReachR;
     } else if (animState > 4.5 && animState < 5.5) { // Crouching
-      swing = animParams.crouching.armSwingR;
+      swing = as.signR * animParams.crouching.armSwingR;
     } else {
       ownRot = rotationZ(animParams.restPose.rightArmZ);
     }
     if (ownRot === null) {
-      ownRot = matMul3(rotationY(reach), matMul3(rotationX(swing), rotationZ(animParams.restPose.rightArmZ)));
+      ownRot = matMul3(rotationY(reach), matMul3(rotationByAxis(as.axisR, swing), rotationZ(animParams.restPose.rightArmZ)));
     }
-  } else if (gid === 4) { // Left leg (hip) — no rest pose (already vertical)
+  } else if (gid === 4) { // Left leg (hip) — stride + Y twist (toe-in/out)
+    const ls = animParams.legStride;
+    const twist = animParams.legTwist.leftRest;
     let stride = 0;
-    if (animState > 0.5 && animState < 1.5 || animState > 2.5 && animState < 3.5) { // Walking or Aim Walk
-      stride = Math.sin(animTime * animParams.walk.legFreq * animSpeed + PI) * animParams.walk.legStride;
+    if (animState > 0.5 && animState < 1.5 || animState > 2.5 && animState < 3.5) { // Walking or Aim Walk — keyframe pose
+      const wp = getWalkPose(animTime, animSpeed, animParams);
+      stride = ls.signL * wp.pose.legStrideL;
     } else if (animState > 4.5 && animState < 5.5) { // Crouching
-      stride = animParams.crouching.legStrideL;
+      stride = ls.signL * animParams.crouching.legStrideL;
     } else {
-      ownRot = identity; // Idle: straight
+      ownRot = rotationY(twist); // Idle: straight + twist
     }
-    if (ownRot === null) ownRot = rotationX(stride);
-  } else if (gid === 5) { // Right leg (hip)
+    // Compose: Y twist (base orientation) → stride axis (animation on top)
+    if (ownRot === null) ownRot = matMul3(rotationByAxis(ls.axisL, stride), rotationY(twist));
+  } else if (gid === 5) { // Right leg (hip) — stride + Y twist (toe-in/out)
+    const ls = animParams.legStride;
+    const twist = animParams.legTwist.rightRest;
     let stride = 0;
-    if (animState > 0.5 && animState < 1.5 || animState > 2.5 && animState < 3.5) { // Walking or Aim Walk
-      stride = Math.sin(animTime * animParams.walk.legFreq * animSpeed) * animParams.walk.legStride;
+    if (animState > 0.5 && animState < 1.5 || animState > 2.5 && animState < 3.5) { // Walking or Aim Walk — keyframe pose
+      const wp = getWalkPose(animTime, animSpeed, animParams);
+      stride = ls.signR * wp.pose.legStrideR;
     } else if (animState > 4.5 && animState < 5.5) { // Crouching
-      stride = animParams.crouching.legStrideR;
+      stride = ls.signR * animParams.crouching.legStrideR;
     } else {
-      ownRot = identity;
+      ownRot = rotationY(twist);
     }
-    if (ownRot === null) ownRot = rotationX(stride);
-  } else if (gid === 8) { // Left forearm (elbow hinge)
-    // Elbow biomechanics: only bends FORWARD (forearm curls toward front of
-    // arm). When the arm is behind the body, the elbow locks straight — it
-    // cannot bend backward. Gate the bend by the arm's swing phase.
-    // NOTE: positive rotationX bends the forearm backward in this rig, so
-    // we use NEGATIVE bend values to curl forward.
-    let bend = -animParams.elbowBend.leftRest;
-    if (animState > 0.5 && animState < 1.5) { // Walking
-      const phase = Math.sin(animTime * animParams.walk.armFreq * animSpeed);
-      bend -= Math.max(0, phase) * animParams.elbowBend.walkAmp;
+    if (ownRot === null) ownRot = matMul3(rotationByAxis(ls.axisR, stride), rotationY(twist));
+  } else if (gid === 8) { // Left forearm (elbow hinge + twist)
+    const eb = animParams.elbowBend;
+    let bend = eb.signL * eb.leftRest;
+    let twist = eb.twistL;
+    if (animState > 0.5 && animState < 1.5) { // Walking — keyframe pose
+      const wp = getWalkPose(animTime, animSpeed, animParams);
+      bend = eb.signL * wp.pose.elbowBendL;
+      twist = wp.pose.forearmTwistL;
     } else if (animState > 2.5 && animState < 4.5) { // Aim Walk (3) or Aiming (4)
-      // Hold a static elbow bend for the weapon pose. Aiming uses negative
-      // bend (forward curl) matching the biomechanical convention.
-      bend = -animParams.aiming.elbowBendL;
+      bend = eb.signL * animParams.aiming.elbowBendL;
     }
-    ownRot = rotationX(bend);
-  } else if (gid === 9) { // Right forearm (elbow hinge)
-    let bend = -animParams.elbowBend.rightRest;
-    if (animState > 0.5 && animState < 1.5) { // Walking
-      const phase = Math.sin(animTime * animParams.walk.armFreq * animSpeed + PI);
-      bend -= Math.max(0, phase) * animParams.elbowBend.walkAmp;
+    ownRot = rotationByAxis(eb.axisL, bend);
+    if (twist !== 0) ownRot = matMul3(ownRot, rotationX(twist));
+  } else if (gid === 9) { // Right forearm (elbow hinge + twist)
+    const eb = animParams.elbowBend;
+    let bend = eb.signR * eb.rightRest;
+    let twist = eb.twistR;
+    if (animState > 0.5 && animState < 1.5) { // Walking — keyframe pose
+      const wp = getWalkPose(animTime, animSpeed, animParams);
+      bend = eb.signR * wp.pose.elbowBendR;
+      twist = wp.pose.forearmTwistR;
     } else if (animState > 2.5 && animState < 4.5) { // Aim Walk (3) or Aiming (4)
-      bend = -animParams.aiming.elbowBendR;
+      bend = eb.signR * animParams.aiming.elbowBendR;
     }
-    ownRot = rotationX(bend);
+    ownRot = rotationByAxis(eb.axisR, bend);
+    if (twist !== 0) ownRot = matMul3(ownRot, rotationX(twist));
   } else if (gid === 6) { // Left shin (knee hinge)
-    // Knee biomechanics: only bends BACKWARD (shin tucks toward back of
-    // thigh). Negative rotationX tucks the shin backward.
-    let bend = -animParams.kneeBend.leftRest;
-    if (animState > 0.5 && animState < 1.5 || animState > 2.5 && animState < 3.5) { // Walking or Aim Walk
-      const phase = Math.sin(animTime * animParams.walk.legFreq * animSpeed + PI);
-      bend += Math.max(0, -phase) * animParams.kneeBend.walkAmp;
+    const kb = animParams.kneeBend;
+    let bend = kb.signL * kb.leftRest;
+    if (animState > 0.5 && animState < 1.5 || animState > 2.5 && animState < 3.5) { // Walking or Aim Walk — keyframe pose
+      const wp = getWalkPose(animTime, animSpeed, animParams);
+      bend = kb.signL * wp.pose.kneeBendL;
     } else if (animState > 4.5 && animState < 5.5) { // Crouching — static knee bend
-      bend += animParams.crouching.kneeBendL;
+      bend += kb.signL * animParams.crouching.kneeBendL;
     }
-    ownRot = rotationX(bend);
+    ownRot = rotationByAxis(kb.axisL, bend);
   } else if (gid === 7) { // Right shin (knee hinge)
-    let bend = -animParams.kneeBend.rightRest;
-    if (animState > 0.5 && animState < 1.5 || animState > 2.5 && animState < 3.5) { // Walking or Aim Walk
-      const phase = Math.sin(animTime * animParams.walk.legFreq * animSpeed);
-      bend += Math.max(0, -phase) * animParams.kneeBend.walkAmp;
+    const kb = animParams.kneeBend;
+    let bend = kb.signR * kb.rightRest;
+    if (animState > 0.5 && animState < 1.5 || animState > 2.5 && animState < 3.5) { // Walking or Aim Walk — keyframe pose
+      const wp = getWalkPose(animTime, animSpeed, animParams);
+      bend = kb.signR * wp.pose.kneeBendR;
     } else if (animState > 4.5 && animState < 5.5) { // Crouching — static knee bend
-      bend += animParams.crouching.kneeBendR;
+      bend += kb.signR * animParams.crouching.kneeBendR;
     }
-    ownRot = rotationX(bend);
+    ownRot = rotationByAxis(kb.axisR, bend);
   }
 
   if (ownRot === null) return parentResult;
@@ -1275,6 +1500,7 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
 
 // === ANIMATED MESH REBUILD ===
 let currentAnimState = 9; // Start in T-Pose to match the model's raw bind pose on import
+let currentWalkKeyframe = 0; // Which walk keyframe is being edited (0-3)
 let animTime = 0;
 let isPlaying = true;
 let animSpeed = 1.0;
@@ -1298,9 +1524,18 @@ function rebuildAnimatedMesh() {
     return;
   }
 
+  // Invalidate walk pose cache so slider edits take effect immediately
+  invalidateWalkPoseCache();
+
   const voxels = getVoxelList();
   const count = voxels.length;
   if (count === 0) return;
+
+  // Compute walk pose once for body bob + weight shift (Walking or Aim Walk)
+  const isWalkState = (currentAnimState > 0.5 && currentAnimState < 1.5) || (currentAnimState > 2.5 && currentAnimState < 3.5);
+  const walkPose = isWalkState ? getWalkPose(animTime, animSpeed, animParams) : null;
+  const bodyBobY = walkPose ? walkPose.bodyBobY : 0;
+  const weightShiftX = walkPose ? walkPose.weightShiftX : 0;
 
   animMesh = new THREE.InstancedMesh(boxGeo, lambertMat, count);
   animMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3);
@@ -1334,6 +1569,12 @@ function rebuildAnimatedMesh() {
         py = pos[1] + off[1];
         pz = pos[2] + off[2] - D / 2;
       }
+    }
+
+    // Apply body bob (vertical) + weight shift (lateral) for walk states
+    if (isWalkState) {
+      px += weightShiftX;
+      py += bodyBobY;
     }
 
     dummyMatrix.setPosition(px, py, pz);
@@ -1375,6 +1616,12 @@ function rebuildAnimatedMesh() {
           pz = pos[2] + off[2] - D / 2;
         }
       }
+      // Apply body bob (vertical) + weight shift (lateral) for walk states
+      if (isWalkState) {
+        px += weightShiftX;
+        py += bodyBobY;
+      }
+
       dummyMatrix.setPosition(px, py, pz);
       animEdgesMesh.setMatrixAt(i, dummyMatrix);
     }
@@ -1558,6 +1805,199 @@ function buildPivotControls() {
   buildPivotGizmos();
 }
 
+// === WALK KEYFRAME POSE EDITOR ===
+// Builds the keyframe selector + per-keyframe pose sliders + cycle settings.
+// Shown at the top of the param panel when in Walking state.
+function buildWalkKeyframeUI(container) {
+  const wkf = animParams.walkKeyframes;
+  const KF_NAMES = ['Contact', 'Passing', 'Contact (L)', 'Passing (L)'];
+  const KF_PHASES = ['0%', '25%', '50%', '75%'];
+
+  // --- Section header ---
+  const header = document.createElement('div');
+  header.style.cssText = 'font-size:11px; color:#ffcc00; font-weight:bold; margin-bottom:4px; border-bottom:1px solid #444; padding-bottom:3px;';
+  header.textContent = 'Walk Keyframes';
+  container.appendChild(header);
+
+  // --- Keyframe selector tabs ---
+  const kfRow = document.createElement('div');
+  kfRow.style.cssText = 'display:flex; gap:2px; margin-bottom:6px;';
+  for (let i = 0; i < 4; i++) {
+    const btn = document.createElement('button');
+    const isMirror = (i >= 2 && wkf.autoMirror);
+    btn.style.cssText = `flex:1; padding:4px 2px; font-size:9px; border:1px solid #555; border-radius:3px; cursor:${isMirror ? 'default' : 'pointer'}; background:${currentWalkKeyframe === i ? '#0a4' : isMirror ? '#222' : '#333'}; color:${currentWalkKeyframe === i ? '#fff' : isMirror ? '#666' : '#aaa'};`;
+    btn.innerHTML = `KF${i}<br><span style="font-size:8px;">${KF_PHASES[i]}<br>${KF_NAMES[i]}</span>${isMirror ? '<br><span style="font-size:7px;color:#888;">(auto)</span>' : ''}`;
+    if (!isMirror) {
+      btn.onclick = () => {
+        currentWalkKeyframe = i;
+        buildParamControls();
+      };
+    }
+    kfRow.appendChild(btn);
+  }
+  container.appendChild(kfRow);
+
+  // --- Auto-mirror toggle ---
+  const mirrorRow = document.createElement('div');
+  mirrorRow.style.cssText = 'display:flex; gap:4px; margin-bottom:6px; align-items:center;';
+  mirrorRow.innerHTML = `
+    <label style="font-size:10px; color:#aaa; flex:1;">Auto-Mirror (KF2=KF0, KF3=KF1)</label>
+    <button id="auto-mirror-btn" style="padding:2px 8px; font-size:10px; border:1px solid #555; border-radius:3px; cursor:pointer; background:${wkf.autoMirror ? '#0a4' : '#333'}; color:${wkf.autoMirror ? '#fff' : '#888'};">${wkf.autoMirror ? 'ON' : 'OFF'}</button>
+  `;
+  mirrorRow.querySelector('#auto-mirror-btn').onclick = () => {
+    wkf.autoMirror = !wkf.autoMirror;
+    if (wkf.autoMirror && currentWalkKeyframe >= 2) currentWalkKeyframe = 0;
+    buildParamControls();
+    if (useAnimatedMesh) rebuildAnimatedMesh();
+  };
+  container.appendChild(mirrorRow);
+
+  // --- Pose sliders for the selected keyframe ---
+  const kfKey = ['kf0', 'kf1', 'kf2', 'kf3'][currentWalkKeyframe];
+  let kfData = wkf[kfKey];
+  // If auto-mirrored and kf2/kf3 is null, show the mirrored values (read-only display)
+  const isAutoMirrored = (currentWalkKeyframe >= 2 && wkf.autoMirror);
+  if (!kfData && isAutoMirrored) {
+    kfData = getWalkKfPose(currentWalkKeyframe, wkf);
+  }
+  if (!kfData) kfData = wkf.kf0; // fallback
+
+  const poseHeader = document.createElement('div');
+  poseHeader.style.cssText = 'font-size:10px; color:#0ff; margin:4px 0 2px; border-top:1px solid #333; padding-top:3px;';
+  poseHeader.textContent = isAutoMirrored
+    ? `KF${currentWalkKeyframe} (${KF_NAMES[currentWalkKeyframe]}) — auto-mirrored (read-only)`
+    : `KF${currentWalkKeyframe} (${KF_NAMES[currentWalkKeyframe]}) — pose values`;
+  container.appendChild(poseHeader);
+
+  const POSE_PARAMS = [
+    ['armSwingL',  'L Arm Swing',   -1.5, 1.5, 0.01],
+    ['armSwingR',  'R Arm Swing',   -1.5, 1.5, 0.01],
+    ['legStrideL', 'L Leg Stride',  -1.5, 1.5, 0.01],
+    ['legStrideR', 'R Leg Stride',  -1.5, 1.5, 0.01],
+    ['elbowBendL', 'L Elbow Bend',   0,    1.5, 0.01],
+    ['elbowBendR', 'R Elbow Bend',   0,    1.5, 0.01],
+    ['kneeBendL',  'L Knee Bend',    0,    1.5, 0.01],
+    ['kneeBendR',  'R Knee Bend',    0,    1.5, 0.01],
+    ['forearmTwistL', 'L Forearm Twist', -Math.PI, Math.PI, 0.01],
+    ['forearmTwistR', 'R Forearm Twist', -Math.PI, Math.PI, 0.01],
+  ];
+
+  for (const [key, label, min, max, step] of POSE_PARAMS) {
+    const row = document.createElement('div');
+    row.className = 'param-row';
+    const val = kfData[key] || 0;
+    const disabled = isAutoMirrored;
+
+    if (disabled) {
+      row.innerHTML = `
+        <label style="color:#888;">${label}</label>
+        <input type="range" min="${min}" max="${max}" step="${step}" value="${val}" disabled style="flex:1; opacity:0.5;">
+        <input type="number" min="${min}" max="${max}" step="${step}" value="${val.toFixed(2)}" disabled style="width:50px; opacity:0.5;">
+      `;
+    } else {
+      row.innerHTML = `
+        <label>${label}</label>
+        <input type="range" min="${min}" max="${max}" step="${step}" value="${val}" data-kf="${kfKey}" data-posekey="${key}" class="param-slider">
+        <input type="number" min="${min}" max="${max}" step="${step}" value="${val.toFixed(2)}" data-kf="${kfKey}" data-posekey="${key}" class="param-num">
+      `;
+      const slider = row.querySelector('.param-slider');
+      const numInput = row.querySelector('.param-num');
+      const update = (newVal) => {
+        if (!wkf[kfKey]) wkf[kfKey] = { armSwingL:0, armSwingR:0, legStrideL:0, legStrideR:0, elbowBendL:0, elbowBendR:0, kneeBendL:0, kneeBendR:0, forearmTwistL:0, forearmTwistR:0 };
+        wkf[kfKey][key] = newVal;
+        slider.value = newVal;
+        numInput.value = newVal.toFixed(2);
+        if (useAnimatedMesh) rebuildAnimatedMesh();
+      };
+      slider.oninput = (e) => update(parseFloat(e.target.value));
+      numInput.oninput = (e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) update(v); };
+      numInput.onchange = (e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) update(Math.max(min, Math.min(max, v))); };
+    }
+    container.appendChild(row);
+  }
+
+  // --- Cycle settings ---
+  const cycleHeader = document.createElement('div');
+  cycleHeader.style.cssText = 'font-size:10px; color:#0ff; margin:6px 0 2px; border-top:1px solid #333; padding-top:3px;';
+  cycleHeader.textContent = 'Cycle Settings';
+  container.appendChild(cycleHeader);
+
+  // Interpolation mode
+  const interpRow = document.createElement('div');
+  interpRow.className = 'param-row';
+  interpRow.innerHTML = `
+    <label>Interpolation</label>
+    <div style="display:flex; gap:2px; flex:1;">
+      <button data-val="spline" class="interp-btn ${wkf.interpolation === 'spline' ? 'active' : ''}" style="flex:1; padding:2px 4px; font-size:9px; background:${wkf.interpolation === 'spline' ? '#0a4' : '#333'}; color:${wkf.interpolation === 'spline' ? '#fff' : '#888'}; border:1px solid #555; cursor:pointer;">Spline</button>
+      <button data-val="cosine" class="interp-btn ${wkf.interpolation === 'cosine' ? 'active' : ''}" style="flex:1; padding:2px 4px; font-size:9px; background:${wkf.interpolation === 'cosine' ? '#0a4' : '#333'}; color:${wkf.interpolation === 'cosine' ? '#fff' : '#888'}; border:1px solid #555; cursor:pointer;">Sine</button>
+      <button data-val="smoothstep" class="interp-btn ${wkf.interpolation === 'smoothstep' ? 'active' : ''}" style="flex:1; padding:2px 4px; font-size:9px; background:${wkf.interpolation === 'smoothstep' ? '#0a4' : '#333'}; color:${wkf.interpolation === 'smoothstep' ? '#fff' : '#888'}; border:1px solid #555; cursor:pointer;">Smooth</button>
+    </div>
+  `;
+  interpRow.querySelectorAll('.interp-btn').forEach(btn => {
+    btn.onclick = () => {
+      wkf.interpolation = btn.dataset.val;
+      buildParamControls();
+      if (useAnimatedMesh) rebuildAnimatedMesh();
+    };
+  });
+  container.appendChild(interpRow);
+
+  // Cycle duration
+  const durRow = document.createElement('div');
+  durRow.className = 'param-row';
+  durRow.innerHTML = `
+    <label>Cycle Duration (sec)</label>
+    <input type="range" min="0.4" max="3.0" step="0.05" value="${wkf.cycleDuration}" id="cycle-dur-slider">
+    <input type="number" min="0.4" max="3.0" step="0.05" value="${wkf.cycleDuration.toFixed(2)}" id="cycle-dur-num">
+  `;
+  const durSlider = durRow.querySelector('#cycle-dur-slider');
+  const durNum = durRow.querySelector('#cycle-dur-num');
+  const updateDur = (v) => { wkf.cycleDuration = v; durSlider.value = v; durNum.value = v.toFixed(2); if (useAnimatedMesh) rebuildAnimatedMesh(); };
+  durSlider.oninput = (e) => updateDur(parseFloat(e.target.value));
+  durNum.oninput = (e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) updateDur(v); };
+  container.appendChild(durRow);
+
+  // Body bob
+  const bobRow = document.createElement('div');
+  bobRow.className = 'param-row';
+  bobRow.innerHTML = `
+    <label>Body Bob ${wkf.bodyBob.enabled ? '' : '(off)'}</label>
+    <button id="bob-toggle" style="padding:2px 6px; font-size:10px; border:1px solid #555; border-radius:3px; cursor:pointer; background:${wkf.bodyBob.enabled ? '#0a4' : '#333'}; color:${wkf.bodyBob.enabled ? '#fff' : '#888'}; width:30px;">${wkf.bodyBob.enabled ? 'ON' : 'OFF'}</button>
+    <input type="range" min="0" max="2.0" step="0.05" value="${wkf.bodyBob.amplitude}" id="bob-amp-slider" ${!wkf.bodyBob.enabled ? 'disabled style="opacity:0.5;"' : 'style="flex:1;"'}>
+  `;
+  bobRow.querySelector('#bob-toggle').onclick = () => {
+    wkf.bodyBob.enabled = !wkf.bodyBob.enabled;
+    buildParamControls();
+    if (useAnimatedMesh) rebuildAnimatedMesh();
+  };
+  const bobSlider = bobRow.querySelector('#bob-amp-slider');
+  bobSlider.oninput = (e) => { wkf.bodyBob.amplitude = parseFloat(e.target.value); if (useAnimatedMesh) rebuildAnimatedMesh(); };
+  container.appendChild(bobRow);
+
+  // Weight shift
+  const shiftRow = document.createElement('div');
+  shiftRow.className = 'param-row';
+  shiftRow.innerHTML = `
+    <label>Weight Shift ${wkf.weightShift.enabled ? '' : '(off)'}</label>
+    <button id="shift-toggle" style="padding:2px 6px; font-size:10px; border:1px solid #555; border-radius:3px; cursor:pointer; background:${wkf.weightShift.enabled ? '#0a4' : '#333'}; color:${wkf.weightShift.enabled ? '#fff' : '#888'}; width:30px;">${wkf.weightShift.enabled ? 'ON' : 'OFF'}</button>
+    <input type="range" min="0" max="1.0" step="0.05" value="${wkf.weightShift.amplitude}" id="shift-amp-slider" ${!wkf.weightShift.enabled ? 'disabled style="opacity:0.5;"' : 'style="flex:1;"'}>
+  `;
+  shiftRow.querySelector('#shift-toggle').onclick = () => {
+    wkf.weightShift.enabled = !wkf.weightShift.enabled;
+    buildParamControls();
+    if (useAnimatedMesh) rebuildAnimatedMesh();
+  };
+  const shiftSlider = shiftRow.querySelector('#shift-amp-slider');
+  shiftSlider.oninput = (e) => { wkf.weightShift.amplitude = parseFloat(e.target.value); if (useAnimatedMesh) rebuildAnimatedMesh(); };
+  container.appendChild(shiftRow);
+
+  // --- Axis/Sign section header ---
+  const axisHeader = document.createElement('div');
+  axisHeader.style.cssText = 'font-size:10px; color:#0ff; margin:6px 0 2px; border-top:1px solid #333; padding-top:3px;';
+  axisHeader.textContent = 'Joint Axis / Sign (how keyframe values map to rig)';
+  container.appendChild(axisHeader);
+}
+
 function buildParamControls() {
   const container = document.getElementById('param-controls');
   container.innerHTML = '';
@@ -1566,22 +2006,58 @@ function buildParamControls() {
   let relevantParams = [];
   const stateName = (STATES.find(s => s.id === currentAnimState) || { name: '' }).name.toLowerCase();
 
-  if (currentAnimState === 0) { // Idle — rest pose + joint offset + hinge rest bend
+  if (currentAnimState === 0) { // Idle — rest pose + joint offset + hinge rest bend + joint orientation
     relevantParams = [
       ['restPose', 'leftArmZ', 'L Arm Rest Z', -Math.PI, Math.PI, 0.01],
       ['restPose', 'rightArmZ', 'R Arm Rest Z', -Math.PI, Math.PI, 0.01],
+      ['armSwing', 'axisL', 'L Arm Axis', 0, 2, 1, 'axis'],
+      ['armSwing', 'axisR', 'R Arm Axis', 0, 2, 1, 'axis'],
+      ['armSwing', 'signL', 'L Arm Sign', -1, 1, 2, 'sign'],
+      ['armSwing', 'signR', 'R Arm Sign', -1, 1, 2, 'sign'],
+      ['legStride', 'axisL', 'L Leg Axis', 0, 2, 1, 'axis'],
+      ['legStride', 'axisR', 'R Leg Axis', 0, 2, 1, 'axis'],
+      ['legStride', 'signL', 'L Leg Sign', -1, 1, 2, 'sign'],
+      ['legStride', 'signR', 'R Leg Sign', -1, 1, 2, 'sign'],
+      ['legTwist', 'leftRest', 'L Leg Twist Y', -Math.PI, Math.PI, 0.01],
+      ['legTwist', 'rightRest', 'R Leg Twist Y', -Math.PI, Math.PI, 0.01],
       ['elbowBend', 'leftRest', 'L Elbow Rest', 0, 1.5, 0.01],
       ['elbowBend', 'rightRest', 'R Elbow Rest', 0, 1.5, 0.01],
+      ['elbowBend', 'axisL', 'L Elbow Axis', 0, 2, 1, 'axis'],
+      ['elbowBend', 'axisR', 'R Elbow Axis', 0, 2, 1, 'axis'],
+      ['elbowBend', 'signL', 'L Elbow Sign', -1, 1, 2, 'sign'],
+      ['elbowBend', 'signR', 'R Elbow Sign', -1, 1, 2, 'sign'],
+      ['elbowBend', 'twistL', 'L Forearm Twist', -Math.PI, Math.PI, 0.01],
+      ['elbowBend', 'twistR', 'R Forearm Twist', -Math.PI, Math.PI, 0.01],
       ['kneeBend', 'leftRest', 'L Knee Rest', 0, 1.5, 0.01],
       ['kneeBend', 'rightRest', 'R Knee Rest', 0, 1.5, 0.01],
+      ['kneeBend', 'axisL', 'L Knee Axis', 0, 2, 1, 'axis'],
+      ['kneeBend', 'axisR', 'R Knee Axis', 0, 2, 1, 'axis'],
+      ['kneeBend', 'signL', 'L Knee Sign', -1, 1, 2, 'sign'],
+      ['kneeBend', 'signR', 'R Knee Sign', -1, 1, 2, 'sign'],
     ];
     // Joint offset controls are appended AFTER the flat params loop below.
-  } else if (currentAnimState === 1) { // Walking
+  } else if (currentAnimState === 1) { // Walking — keyframe pose system
+    // Axis/sign controls remain (determine HOW keyframe values map to rig)
+    // Pose values are edited via the keyframe UI built below the flat params
     relevantParams = [
-      ['walk', 'armSwing', 'Arm Swing', 0, 1.5, 0.01],
-      ['walk', 'legStride', 'Leg Stride', 0, 1.5, 0.01],
-      ['elbowBend', 'walkAmp', 'Elbow Walk Amp', 0, 0.5, 0.01],
-      ['kneeBend', 'walkAmp', 'Knee Walk Amp', 0, 1.0, 0.01],
+      ['armSwing', 'axisL', 'L Arm Axis', 0, 2, 1, 'axis'],
+      ['armSwing', 'axisR', 'R Arm Axis', 0, 2, 1, 'axis'],
+      ['armSwing', 'signL', 'L Arm Sign', -1, 1, 2, 'sign'],
+      ['armSwing', 'signR', 'R Arm Sign', -1, 1, 2, 'sign'],
+      ['legStride', 'axisL', 'L Leg Axis', 0, 2, 1, 'axis'],
+      ['legStride', 'axisR', 'R Leg Axis', 0, 2, 1, 'axis'],
+      ['legStride', 'signL', 'L Leg Sign', -1, 1, 2, 'sign'],
+      ['legStride', 'signR', 'R Leg Sign', -1, 1, 2, 'sign'],
+      ['legTwist', 'leftRest', 'L Leg Twist Y', -Math.PI, Math.PI, 0.01],
+      ['legTwist', 'rightRest', 'R Leg Twist Y', -Math.PI, Math.PI, 0.01],
+      ['elbowBend', 'axisL', 'L Elbow Axis', 0, 2, 1, 'axis'],
+      ['elbowBend', 'axisR', 'R Elbow Axis', 0, 2, 1, 'axis'],
+      ['elbowBend', 'signL', 'L Elbow Sign', -1, 1, 2, 'sign'],
+      ['elbowBend', 'signR', 'R Elbow Sign', -1, 1, 2, 'sign'],
+      ['kneeBend', 'axisL', 'L Knee Axis', 0, 2, 1, 'axis'],
+      ['kneeBend', 'axisR', 'R Knee Axis', 0, 2, 1, 'axis'],
+      ['kneeBend', 'signL', 'L Knee Sign', -1, 1, 2, 'sign'],
+      ['kneeBend', 'signR', 'R Knee Sign', -1, 1, 2, 'sign'],
     ];
   } else if (currentAnimState === 2) { // Looking
     relevantParams = [
@@ -1590,7 +2066,7 @@ function buildParamControls() {
       ['looking', 'headPitch', 'Head Pitch', 0, 1, 0.01],
       ['looking', 'headPitchFreq', 'Pitch Freq', 0.5, 10, 0.1],
     ];
-  } else if (currentAnimState === 3) { // Aim Walk — aiming upper + walking lower
+  } else if (currentAnimState === 3) { // Aim Walk — aiming upper + keyframe walk lower
     relevantParams = [
       ['aiming', 'torsoTwist', 'Torso Twist', -1.0, 1.0, 0.01],
       ['aiming', 'headYaw', 'Head Yaw', -1, 1, 0.01],
@@ -1602,8 +2078,7 @@ function buildParamControls() {
       ['aiming', 'shoulderReachR', 'R Shoulder Reach', -1.0, 1.0, 0.01],
       ['aiming', 'elbowBendL', 'L Elbow Bend', 0, 1.5, 0.01],
       ['aiming', 'elbowBendR', 'R Elbow Bend', 0, 1.5, 0.01],
-      ['walk', 'legStride', 'Leg Stride', 0, 1.5, 0.01],
-      ['kneeBend', 'walkAmp', 'Knee Walk Amp', 0, 1.0, 0.01],
+      // Walk keyframes drive the legs/knees — edit poses in Walking state
     ];
   } else if (currentAnimState === 4) { // Aiming — static pose
     relevantParams = [
@@ -1641,6 +2116,11 @@ function buildParamControls() {
     return;
   }
 
+  // Walk keyframe pose editor (Walking state only)
+  if (currentAnimState === 1) {
+    buildWalkKeyframeUI(container);
+  }
+
   // Weapon-type preset dropdown for Aiming (4) and Aim Walk (3)
   if (currentAnimState === 3 || currentAnimState === 4) {
     const weaponDiv = document.createElement('div');
@@ -1663,32 +2143,73 @@ function buildParamControls() {
     container.appendChild(weaponDiv);
   }
 
-  for (const [section, key, label, min, max, step] of relevantParams) {
+  for (const param of relevantParams) {
+    const [section, key, label, min, max, step] = param;
+    const controlType = param[6]; // optional: 'axis' or 'sign' for button selectors
     const row = document.createElement('div');
     row.className = 'param-row';
     const val = animParams[section][key];
-    row.innerHTML = `
-      <label>${label}</label>
-      <input type="range" min="${min}" max="${max}" step="${step}" value="${val}" data-section="${section}" data-key="${key}" class="param-slider">
-      <input type="number" min="${min}" max="${max}" step="${step}" value="${val.toFixed(2)}" data-section="${section}" data-key="${key}" class="param-num">
-    `;
-    const slider = row.querySelector('.param-slider');
-    const numInput = row.querySelector('.param-num');
-    const update = (newVal) => {
-      animParams[section][key] = newVal;
-      slider.value = newVal;
-      numInput.value = newVal.toFixed(2);
-      if (useAnimatedMesh) rebuildAnimatedMesh();
-    };
-    slider.oninput = (e) => update(parseFloat(e.target.value));
-    numInput.oninput = (e) => {
-      const v = parseFloat(e.target.value);
-      if (!isNaN(v)) update(v);
-    };
-    numInput.onchange = (e) => {
-      const v = parseFloat(e.target.value);
-      if (!isNaN(v)) update(Math.max(min, Math.min(max, v)));
-    };
+
+    if (controlType === 'axis') {
+      // 3-button selector: X / Y / Z
+      row.innerHTML = `
+        <label>${label}</label>
+        <div style="display:flex; gap:2px; flex:1;">
+          <button data-val="0" class="axis-btn ${val===0?'active':''}" style="flex:1; padding:2px 6px; font-size:11px; background:${val===0?'#4a8':'#333'}; color:${val===0?'#fff':'#888'}; border:1px solid #555; cursor:pointer;">X</button>
+          <button data-val="1" class="axis-btn ${val===1?'active':''}" style="flex:1; padding:2px 6px; font-size:11px; background:${val===1?'#4a8':'#333'}; color:${val===1?'#fff':'#888'}; border:1px solid #555; cursor:pointer;">Y</button>
+          <button data-val="2" class="axis-btn ${val===2?'active':''}" style="flex:1; padding:2px 6px; font-size:11px; background:${val===2?'#4a8':'#333'}; color:${val===2?'#fff':'#888'}; border:1px solid #555; cursor:pointer;">Z</button>
+        </div>
+      `;
+      row.querySelectorAll('.axis-btn').forEach(btn => {
+        btn.onclick = () => {
+          const newVal = parseInt(btn.dataset.val);
+          animParams[section][key] = newVal;
+          buildParamControls();
+          if (useAnimatedMesh) rebuildAnimatedMesh();
+        };
+      });
+    } else if (controlType === 'sign') {
+      // 2-button selector: + / -
+      row.innerHTML = `
+        <label>${label}</label>
+        <div style="display:flex; gap:2px; flex:1;">
+          <button data-val="1" class="sign-btn ${val===1?'active':''}" style="flex:1; padding:2px 6px; font-size:11px; background:${val===1?'#48a':'#333'}; color:${val===1?'#fff':'#888'}; border:1px solid #555; cursor:pointer;">+</button>
+          <button data-val="-1" class="sign-btn ${val===-1?'active':''}" style="flex:1; padding:2px 6px; font-size:11px; background:${val===-1?'#48a':'#333'}; color:${val===-1?'#fff':'#888'}; border:1px solid #555; cursor:pointer;">&minus;</button>
+        </div>
+      `;
+      row.querySelectorAll('.sign-btn').forEach(btn => {
+        btn.onclick = () => {
+          const newVal = parseInt(btn.dataset.val);
+          animParams[section][key] = newVal;
+          buildParamControls();
+          if (useAnimatedMesh) rebuildAnimatedMesh();
+        };
+      });
+    } else {
+      // Standard slider + number input
+      row.innerHTML = `
+        <label>${label}</label>
+        <input type="range" min="${min}" max="${max}" step="${step}" value="${val}" data-section="${section}" data-key="${key}" class="param-slider">
+        <input type="number" min="${min}" max="${max}" step="${step}" value="${val.toFixed(2)}" data-section="${section}" data-key="${key}" class="param-num">
+      `;
+      const slider = row.querySelector('.param-slider');
+      const numInput = row.querySelector('.param-num');
+      const update = (newVal) => {
+        animParams[section][key] = newVal;
+        slider.value = newVal;
+        numInput.value = newVal.toFixed(2);
+        if (useAnimatedMesh) rebuildAnimatedMesh();
+      };
+      slider.oninput = (e) => update(parseFloat(e.target.value));
+      numInput.oninput = (e) => {
+        const v = parseFloat(e.target.value);
+        if (!isNaN(v)) update(v);
+      };
+      numInput.onchange = (e) => {
+        const v = parseFloat(e.target.value);
+        if (!isNaN(v)) update(Math.max(min, Math.min(max, v)));
+      };
+    }
     container.appendChild(row);
   }
 
@@ -2014,7 +2535,17 @@ window.loadProject = (event) => {
       for (const [x, y, z, mid] of data.voxels) voxelMap.set(`${x},${y},${z}`, mid);
       if (data.groups) for (const [x, y, z, gid] of data.groups) groupMap.set(`${x},${y},${z}`, gid);
       if (data.pivots) pivots = data.pivots;
-      if (data.animParams) animParams = data.animParams;
+      if (data.animParams) {
+        const defaults = JSON.parse(JSON.stringify(DEFAULT_PARAMS));
+        animParams = defaults;
+        for (const section of Object.keys(data.animParams)) {
+          if (defaults[section] && typeof defaults[section] === 'object' && !Array.isArray(defaults[section])) {
+            animParams[section] = Object.assign({}, defaults[section], data.animParams[section]);
+          } else {
+            animParams[section] = data.animParams[section];
+          }
+        }
+      }
       buildPivotControls();
       buildParamControls();
       if (useAnimatedMesh) rebuildAnimatedMesh(); else rebuildMesh();
@@ -2134,6 +2665,92 @@ window.addEventListener('resize', () => {
 let lastTime = performance.now();
 let frameCount = 0;
 
+// === GAIT INSPECTOR ===
+let gaitInspectorVisible = false;
+function toggleGaitInspector() {
+  gaitInspectorVisible = !gaitInspectorVisible;
+  document.getElementById('gait-inspector').style.display = gaitInspectorVisible ? 'block' : 'none';
+}
+window.toggleGaitInspector = toggleGaitInspector;
+
+function updateGaitInspector() {
+  if (!gaitInspectorVisible) return;
+  const el = document.getElementById('gait-content');
+  if (!el) return;
+
+  const PI = Math.PI;
+  const state = currentAnimState;
+  const stateName = STATES.find(s => s.id === state)?.name || '?';
+  const t = animTime;
+  const speed = animSpeed;
+  const p = animParams;
+
+  const isWalking = (state > 0.5 && state < 1.5) || (state > 2.5 && state < 3.5);
+  const isLooking = (state > 1.5 && state < 2.5);
+
+  let html = '';
+
+  // Header: current state + time
+  html += `<div style="margin-bottom:4px;"><span style="color:#88f;">State:</span> ${stateName} (${state})</div>`;
+  html += `<div style="margin-bottom:4px;"><span style="color:#88f;">Time:</span> ${t.toFixed(2)}s <span style="color:#666;">Speed: ${speed.toFixed(1)}x</span></div>`;
+
+  if (isWalking) {
+    const wp = getWalkPose(t, speed, p);
+    const phase = wp.cyclePhase;
+    const kfA = wp.kfAIdx;
+    const kfB = wp.kfBIdx;
+    const interpT = wp.interpT;
+    const KF_NAMES = ['Contact', 'Passing', 'Contact(L)', 'Passing(L)'];
+
+    // Phase progress bar (0→100%)
+    const phasePct = (phase * 100).toFixed(1);
+    html += `<div style="color:#ffcc00; margin-top:6px; margin-bottom:3px; border-top:1px solid #333; padding-top:4px;">Cycle Phase</div>`;
+    html += `<div style="background:#222; border:1px solid #333; height:10px; position:relative; margin:2px 0 4px;">
+      <div style="position:absolute; top:0; left:0; height:100%; width:${phasePct}%; background:#0a4;"></div>
+      <div style="position:absolute; top:0; left:25%; height:100%; width:1px; background:#555;"></div>
+      <div style="position:absolute; top:0; left:50%; height:100%; width:1px; background:#555;"></div>
+      <div style="position:absolute; top:0; left:75%; height:100%; width:1px; background:#555;"></div>
+    </div>`;
+    html += `<div style="color:#8f8;">Phase: ${(phase * 100).toFixed(1)}% (${(phase * 360).toFixed(0)}°)</div>`;
+    html += `<div style="color:#88f;">KF${kfA} (${KF_NAMES[kfA]}) → KF${kfB} (${KF_NAMES[kfB]})</div>`;
+    html += `<div style="color:#88f;">Interp: ${interpT.toFixed(3)} (${p.walkKeyframes.interpolation || 'cosine'})</div>`;
+
+    // Body motion
+    html += `<div style="color:#ffcc00; margin-top:6px; margin-bottom:3px; border-top:1px solid #333; padding-top:4px;">Body Motion</div>`;
+    html += `<div style="color:#fa8;">Bob Y: ${wp.bodyBobY.toFixed(3)} voxels</div>`;
+    html += `<div style="color:#fa8;">Shift X: ${wp.weightShiftX.toFixed(3)} voxels</div>`;
+
+    // Applied pose values
+    const pose = wp.pose;
+    html += `<div style="color:#ffcc00; margin-top:6px; margin-bottom:3px; border-top:1px solid #333; padding-top:4px;">Interpolated Pose (applied)</div>`;
+    html += `<div style="color:#8f8;">L Arm Swing:  ${pose.armSwingL.toFixed(3)} <span style="color:#666;">×${p.armSwing.signL} axis=${['X','Y','Z'][p.armSwing.axisL]}</span></div>`;
+    html += `<div style="color:#8f8;">R Arm Swing:  ${pose.armSwingR.toFixed(3)} <span style="color:#666;">×${p.armSwing.signR} axis=${['X','Y','Z'][p.armSwing.axisR]}</span></div>`;
+    html += `<div style="color:#fa8;">L Leg Stride: ${pose.legStrideL.toFixed(3)} <span style="color:#666;">×${p.legStride.signL} axis=${['X','Y','Z'][p.legStride.axisL]} +twistY ${p.legTwist.leftRest.toFixed(2)}</span></div>`;
+    html += `<div style="color:#fa8;">R Leg Stride: ${pose.legStrideR.toFixed(3)} <span style="color:#666;">×${p.legStride.signR} axis=${['X','Y','Z'][p.legStride.axisR]} +twistY ${p.legTwist.rightRest.toFixed(2)}</span></div>`;
+    html += `<div style="color:#48f;">L Elbow Bend: ${pose.elbowBendL.toFixed(3)} <span style="color:#666;">×${p.elbowBend.signL} axis=${['X','Y','Z'][p.elbowBend.axisL]}</span></div>`;
+    html += `<div style="color:#48f;">R Elbow Bend: ${pose.elbowBendR.toFixed(3)} <span style="color:#666;">×${p.elbowBend.signR} axis=${['X','Y','Z'][p.elbowBend.axisR]}</span></div>`;
+    html += `<div style="color:#a8f;">L Knee Bend:  ${pose.kneeBendL.toFixed(3)} <span style="color:#666;">×${p.kneeBend.signL} axis=${['X','Y','Z'][p.kneeBend.axisL]}</span></div>`;
+    html += `<div style="color:#a8f;">R Knee Bend:  ${pose.kneeBendR.toFixed(3)} <span style="color:#666;">×${p.kneeBend.signR} axis=${['X','Y','Z'][p.kneeBend.axisR]}</span></div>`;
+    html += `<div style="color:#f4a;">L Forearm Twist: ${pose.forearmTwistL.toFixed(3)}</div>`;
+    html += `<div style="color:#f4a;">R Forearm Twist: ${pose.forearmTwistR.toFixed(3)}</div>`;
+
+  } else if (isLooking) {
+    const yawPhase = Math.sin(t * p.looking.headYawFreq);
+    const pitchPhase = Math.sin(t * p.looking.headPitchFreq);
+    html += `<div style="color:#ffcc00; margin-top:6px; border-top:1px solid #333; padding-top:4px;">Head Oscillation</div>`;
+    html += `<div style="color:#f68;">Yaw:   ${yawPhase.toFixed(3)} × ${p.looking.headYaw.toFixed(2)} = ${(yawPhase * p.looking.headYaw).toFixed(3)}</div>`;
+    html += `<div style="color:#f68;">Pitch: ${pitchPhase.toFixed(3)} × ${p.looking.headPitch.toFixed(2)} = ${(pitchPhase * p.looking.headPitch).toFixed(3)}</div>`;
+  } else {
+    html += `<div style="color:#666; margin-top:8px; font-style:italic;">Static pose — no oscillation.
+Switch to Walking or Looking to see live phase data.</div>`;
+    html += `<div style="color:#ffcc00; margin-top:6px; margin-bottom:3px; border-top:1px solid #333; padding-top:4px;">Leg Twist (Y axis, static)</div>`;
+    html += `<div style="color:#fa8;">L Leg Twist: ${p.legTwist.leftRest.toFixed(3)} rad (${(p.legTwist.leftRest * 180 / Math.PI).toFixed(1)}°)</div>`;
+    html += `<div style="color:#fa8;">R Leg Twist: ${p.legTwist.rightRest.toFixed(3)} rad (${(p.legTwist.rightRest * 180 / Math.PI).toFixed(1)}°)</div>`;
+  }
+
+  el.innerHTML = html;
+}
+
 // === ANIMATION LOOP ===
 function animate() {
   requestAnimationFrame(animate);
@@ -2145,6 +2762,8 @@ function animate() {
     document.getElementById('timeline-time').textContent = (animTime % 10).toFixed(2) + 's';
     rebuildAnimatedMesh();
   }
+
+  updateGaitInspector();
 
   renderer.render(scene, camera);
 
@@ -2273,7 +2892,19 @@ function loadCharacterData(data, sourceLabel) {
     GROUPS = data.bodyGroups;
     rebuildGroupColors();
   }
-  if (data.animParams) animParams = data.animParams;
+  if (data.animParams) {
+    // Deep-merge with defaults so new param sections (e.g. legTwist) get
+    // their defaults when loading a project saved before they existed.
+    const defaults = JSON.parse(JSON.stringify(DEFAULT_PARAMS));
+    animParams = defaults;
+    for (const section of Object.keys(data.animParams)) {
+      if (defaults[section] && typeof defaults[section] === 'object' && !Array.isArray(defaults[section])) {
+        animParams[section] = Object.assign({}, defaults[section], data.animParams[section]);
+      } else {
+        animParams[section] = data.animParams[section];
+      }
+    }
+  }
 
   // Prefer pivots saved in the file; otherwise auto-detect from the ACTUAL
   // group bounding boxes. The hardcoded default pivots assume a specific
