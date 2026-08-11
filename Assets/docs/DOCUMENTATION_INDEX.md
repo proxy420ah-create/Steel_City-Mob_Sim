@@ -216,7 +216,17 @@
   - Testing plan (6 phases), risks & mitigations, phase integration with combat design
   - Companion to `COMBAT_VEHICLE_DESIGN.md` (§5) and `COMBAT_VISUAL.html` (Technique 3)
 
-**Keywords**: instancing, ComputeBuffer, MaterialPropertyBlock, DrawMeshInstanced, DrawMeshInstancedIndirect, proxy cube, raymarch, buffer binding, sector baking, rendering tiers, GPU-driven, compute shader, frustum culling, LOD, terrain baking, collision world, combat, cover system, vehicle physics, raycast suspension, NPC animation, procedural animation, voxel groups, police escalation, traffic swarm, tier promotion, articulated limbs, groupID, pivot points, walk cycle, head tracking, Gangsters
+- **`docs/systems/CHARACTER_ANIMATION_PIPELINE.md`** — Unified animation & physics pipeline (Aug 10)
+  - Architecture: keyframe procedural + flinch reactions + ragdoll physics → one per-group transform pipeline
+  - Data flow: animator export JSON → Unity shader buffers (pivots, keyframes, axis/sign, leg twist, body bob)
+  - Keyframe shader port plan: Catmull-Rom spline in HLSL, structured buffers, replace hardcoded sin()
+  - Ragdoll design: invisible proxy bones with ConfigurableJoints, per-group capsule colliders, VoxelCollisionWorld probing
+  - Steel Tide port mapping: VoxelActor2Joints (direct), VoxelActor2LimbDrive (direct), VoxelActor2Ground (adapt)
+  - Flinch system: one-shot keyframe sequences by hit location/force, blend to ragdoll on high force
+  - 5 implementation phases: shader port → angular limits → flinch → ragdoll → integration
+  - Performance: normal NPCs = zero physics, combat participants = ~10 Rigidbodies each
+
+**Keywords**: instancing, ComputeBuffer, MaterialPropertyBlock, DrawMeshInstanced, DrawMeshInstancedIndirect, proxy cube, raymarch, buffer binding, sector baking, rendering tiers, GPU-driven, compute shader, frustum culling, LOD, terrain baking, collision world, combat, cover system, vehicle physics, raycast suspension, NPC animation, procedural animation, voxel groups, police escalation, traffic swarm, tier promotion, articulated limbs, groupID, pivot points, walk cycle, head tracking, Gangsters, keyframe, Catmull-Rom, spline, ragdoll, flinch, ConfigurableJoint, proxy bones, physics
 
 ---
 
@@ -433,6 +443,9 @@
 
 ### "I need the voxel group animation design document"
 `docs/systems/VOXEL_GROUP_ANIMATION.md`
+
+### "I need the character animation & physics pipeline design"
+`docs/systems/CHARACTER_ANIMATION_PIPELINE.md`
 
 ---
 
