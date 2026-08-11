@@ -184,7 +184,11 @@ body.ui-hidden #ui-hidden-hint { display:block; }
   display:flex; align-items:center; gap:8px; margin:2px 0; font-size:10px;
 }
 .param-row label { width:80px; color:#888; }
-.param-row input[type=range] { flex:1; }
+.param-row input[type=range] { flex:1; min-width:0; }
+.param-row .param-num {
+  width:50px; background:#111; color:#0f0; border:1px solid #333;
+  border-radius:3px; padding:1px 3px; font-size:10px; text-align:right;
+}
 .param-row .param-val { width:40px; color:#0f0; text-align:right; font-size:10px; }
 
 #editor-nav { position:fixed; top:8px; right:8px; z-index:9999; display:flex; gap:4px; }
@@ -260,7 +264,9 @@ body.ui-hidden #ui-hidden-hint { display:block; }
     <button class="export-btn" onclick="autoDetectPivots()" style="font-size:10px;padding:4px 8px;margin-left:4px;">Auto-Detect</button>
   </div>
 
-  <h3 style="margin-top:12px;">Animation Parameters</h3>
+  <h3 style="margin-top:12px;">Animation Parameters
+    <button class="export-btn" onclick="resetAnimParams()" style="font-size:10px;padding:2px 6px;margin-left:4px;">Reset</button>
+  </h3>
   <div id="param-controls"></div>
 </div>
 
@@ -598,32 +604,22 @@ const STATES = [
   {
     "id": 2,
     "name": "Looking",
-    "desc": "Head looking around"
+    "desc": "Head looking around — scanning / checking environment"
   },
   {
     "id": 3,
-    "name": "Checking",
-    "desc": "Head checking + subtle movement"
+    "name": "Aim Walk",
+    "desc": "Aiming pose (upper body) + walking gait (lower body)"
   },
   {
     "id": 4,
     "name": "Aiming",
-    "desc": "Aiming pose \u2014 arms raised"
+    "desc": "Static aiming pose — arms raised, weapon-type presets"
   },
   {
     "id": 5,
     "name": "Crouching",
     "desc": "Crouch pose \u2014 legs bent, arms forward"
-  },
-  {
-    "id": 6,
-    "name": "Flinching",
-    "desc": "Flinch reaction \u2014 arms back, head down"
-  },
-  {
-    "id": 7,
-    "name": "Falling",
-    "desc": "Falling \u2014 legs spread"
   },
   {
     "id": 8,
@@ -641,11 +637,16 @@ const STATES = [
 // Pivots are in voxel-local space (voxel units, origin = volume corner)
 // For a 16x32x10 character
 const DEFAULT_PIVOTS = {
-  1: { x: 0.5, y: 0.78, z: 0.5 },  // Head
-  2: { x: 0.25, y: 0.75, z: 0.5 }, // Left arm
-  3: { x: 0.75, y: 0.75, z: 0.5 }, // Right arm
-  4: { x: 0.375, y: 0.34, z: 0.5 }, // Left leg
-  5: { x: 0.625, y: 0.34, z: 0.5 }, // Right leg
+  0: { x: 0.5, y: 0.4, z: 0.5 },  // Body (waist) — torso twist pivot
+  1: { x: 0.5, y: 0.78, z: 0.5 },  // Head (neck)
+  2: { x: 0.25, y: 0.75, z: 0.5 }, // Left arm (shoulder)
+  3: { x: 0.75, y: 0.75, z: 0.5 }, // Right arm (shoulder)
+  4: { x: 0.375, y: 0.34, z: 0.5 }, // Left leg (hip)
+  5: { x: 0.625, y: 0.34, z: 0.5 }, // Right leg (hip)
+  8: { x: 0.25, y: 0.75, z: 0.5 }, // Left forearm (elbow) — same as shoulder by default, auto-detect fixes
+  9: { x: 0.75, y: 0.75, z: 0.5 }, // Right forearm (elbow)
+  6: { x: 0.375, y: 0.20, z: 0.5 }, // Left shin (knee)
+  7: { x: 0.625, y: 0.20, z: 0.5 }, // Right shin (knee)
 };
 
 // Current pivots (editable)
@@ -684,40 +685,92 @@ const DEFAULT_PARAMS = {
     legStride: 0.4,      // radians
     legFreq: 6.0,        // Hz
   },
+  // Elbow hinge: forearms (groups 8/9) bend around X at the elbow pivot.
+  // In T-pose the arm is horizontal, so X-bend moves the forearm up/down.
+  // After the rest-pose Z rotation brings the arm down, the same X-bend
+  // becomes forward/back — matching real elbow biomechanics.
+  elbowBend: {
+    leftRest: 0.0,     // straight at idle — arms hang flat
+    rightRest: 0.0,
+    walkAmp: 0.15,     // oscillation amplitude during walking
+  },
+  // Knee hinge: shins (groups 6/7) bend around X at the knee pivot.
+  // Legs are already vertical in T-pose, so X-bend moves the shin backward
+  // (calf toward thigh) — matching real knee biomechanics (knee only bends backward).
+  kneeBend: {
+    leftRest: 0.0,     // straight at idle
+    rightRest: 0.0,
+    walkAmp: 0.10,     // bend during walking swing phase
+  },
   looking: {
     headYaw: 0.5,
     headYawFreq: 2.0,
-    headPitch: 0.1,
-    headPitchFreq: 1.3,
-  },
-  checking: {
-    headYaw: 0.5,
-    headYawFreq: 2.0,
-    headPitch: 0.1,
+    headPitch: 0.035,
     headPitchFreq: 1.3,
   },
   aiming: {
-    headYaw: 0.3,
-    headPitch: -0.1,
-    armSwing: -1.2,
+    weaponType: 'pistol',  // 'pistol' | 'dual' | 'rifle' — sets preset pose
+    torsoTwist: 0.2,        // Y rotation at waist (radians) — twists upper body
+    headYaw: 0.0,           // looking at target (Y rotation)
+    headPitch: -0.05,       // slight tilt down to sights (X rotation)
+    headTilt: 0.0,          // head roll sideways — leaning into rifle sight (Z rotation)
+    armSwingL: -1.4,        // left arm raised forward (radians, X rotation)
+    armSwingR: 0.0,         // right arm at side (pistol one-hand)
+    shoulderReachL: 0.0,    // left arm reach across body (radians, Y rotation)
+    shoulderReachR: 0.0,    // right arm reach across body (radians, Y rotation)
+    elbowBendL: 0.3,        // left elbow slightly bent
+    elbowBendR: 0.0,        // right elbow straight
   },
   crouching: {
-    headPitch: 0.2,
-    armSwingL: 0.3,
-    armSwingR: -0.3,
-    legStride: 0.6,
-  },
-  flinching: {
-    headPitch: 0.4,
-    armSwing: -1.5,
-  },
-  falling: {
-    legStrideL: -0.5,
-    legStrideR: 0.5,
+    bodyLower: 0.0,       // Y offset for torso+upper body only (hip anchor)
+    modelLower: 4.0,      // GLOBAL Y offset — plants feet on ground (tune for cover)
+    bodyLean: 0.0,        // no lean — torso stays upright in a squat
+    headPitch: 0.0,       // head stays upright
+    armSwingL: 0.0,       // arms at rest
+    armSwingR: 0.0,       // arms at rest
+    legStrideL: -1.15,    // left thigh angle forward (locked)
+    legStrideR: 0.0,      // right thigh angle (locked at 0)
+    kneeBendL: 1.15,      // left knee bend (locked)
+    kneeBendR: 1.40,      // right knee bend (locked)
   },
 };
 
 let animParams = JSON.parse(JSON.stringify(DEFAULT_PARAMS));
+
+// Weapon-type aiming presets. Each sets the arm + elbow + head angles for
+// a specific weapon stance. The game engine selects weaponType and the
+// aiming params update to match. Sliders remain for fine-tuning.
+const AIM_WEAPON_PRESETS = {
+  pistol: {
+    torsoTwist: 0.2,   // slight mobster shoulder twist
+    armSwingL: -1.4,  armSwingR: 0.0,
+    shoulderReachL: 0.0,  shoulderReachR: 0.0,
+    elbowBendL: 0.3,  elbowBendR: 0.0,
+    headYaw: 0.0,  headPitch: -0.05,  headTilt: 0.0,
+  },
+  dual: {
+    torsoTwist: 0.0,   // squared up — no twist
+    armSwingL: -1.4,  armSwingR: -1.4,
+    shoulderReachL: 0.0,  shoulderReachR: 0.0,
+    elbowBendL: 0.3,  elbowBendR: 0.3,
+    headYaw: 0.0,  headPitch: -0.05,  headTilt: 0.0,
+  },
+  rifle: {
+    // Tuned by user — dramatic mobster rifle stance with cross-body reach
+    torsoTwist: 0.85,
+    armSwingL: -1.60,  armSwingR: -1.35,
+    shoulderReachL: -0.20,  shoulderReachR: -1.00,
+    elbowBendL: 0.00,  elbowBendR: 0.70,
+    headYaw: -0.90,  headPitch: 0.10,  headTilt: 0.15,
+  },
+};
+
+function applyWeaponPreset(type) {
+  const preset = AIM_WEAPON_PRESETS[type];
+  if (!preset) return;
+  animParams.aiming.weaponType = type;
+  Object.assign(animParams.aiming, preset);
+}
 
 // Voxel data
 let W = 16, H = 32, D = 10;
@@ -922,29 +975,35 @@ let pivotGroup = null;
 function buildPivotGizmos() {
   if (pivotGroup) scene.remove(pivotGroup);
   pivotGroup = new THREE.Group();
-  
-  for (let gid = 1; gid <= 5; gid++) {
+
+  // Show gizmos for all pivot groups (0 body/waist + 1-5 parents + 6-9 elbow/knee hinges).
+  const pivotGids = [0, 1, 2, 3, 4, 5, 8, 9, 6, 7];
+  for (const gid of pivotGids) {
     const p = pivots[gid];
     if (!p) continue;
+    const g = getGroupById(gid);
+    const color = g ? g.color : '#888';
+    const isHinge = gid >= 6; // elbows/knees use smaller gizmos
+    const sphereR = isHinge ? 0.5 : 0.8;
+    const ringR = isHinge ? 1.0 : 1.5;
+
     const px = p.x * W - W / 2;
     const py = p.y * H;
     const pz = p.z * D - D / 2;
-    
-    // Small sphere at pivot
-    const sphereGeo = new THREE.SphereGeometry(0.8, 8, 8);
-    const sphereMat = new THREE.MeshBasicMaterial({ color: GROUPS[gid].color });
+
+    const sphereGeo = new THREE.SphereGeometry(sphereR, 8, 8);
+    const sphereMat = new THREE.MeshBasicMaterial({ color });
     const sphere = new THREE.Mesh(sphereGeo, sphereMat);
     sphere.position.set(px, py, pz);
     pivotGroup.add(sphere);
-    
-    // Ring around pivot
-    const ringGeo = new THREE.TorusGeometry(1.5, 0.15, 4, 16);
-    const ringMat = new THREE.MeshBasicMaterial({ color: GROUPS[gid].color, transparent: true, opacity: 0.5 });
+
+    const ringGeo = new THREE.TorusGeometry(ringR, 0.15, 4, 16);
+    const ringMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.5 });
     const ring = new THREE.Mesh(ringGeo, ringMat);
     ring.position.set(px, py, pz);
     pivotGroup.add(ring);
   }
-  
+
   scene.add(pivotGroup);
 }
 
@@ -981,128 +1040,237 @@ function matVec3(m, v) {
 
 function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpeed) {
   const PI = Math.PI;
-
-  // Forearms/shins are rigidly attached to their parent limb — no separate
-  // elbow/knee hinge yet, so they inherit the exact same pivot + rotation
-  // as the upper arm / thigh. This keeps the whole limb moving as one
-  // piece instead of the forearm/shin staying frozen while the upper
-  // limb swings (which caused the broken/detached look during Walking).
-  const PARENT_OF = { 8: 2, 9: 3, 6: 4, 7: 5 }; // LForearm->LArm, RForearm->RArm, LShin->LLeg, RShin->RLeg
-  if (gid in PARENT_OF) {
-    return computeGroupRotation(PARENT_OF[gid], dims, voxelSize, animState, animTime, animSpeed);
-  }
-
-  // T-Pose state: raw bind pose — NO rotations applied at all. This shows
-  // the model exactly as it was imported from the editor, with arms in
-  // their rigging T-position (straight out to the sides).
-  if (animState === 9) return null;
-
-  const p = pivots[gid];
-  if (!p) return null;
-  const pivot = [p.x * dims[0] * voxelSize, p.y * dims[1] * voxelSize, p.z * dims[2] * voxelSize];
-
-  // Per-joint positional offset (voxel units). Applied AFTER rotation as a
-  // plain translation, so it shifts the whole limb without affecting the
-  // rotation arc. Used to push limbs to the correct side of the body after
-  // the rest-pose rotation (e.g. arms that ended up inside the torso).
-  const off = animParams.jointOffset[gid] || { x: 0, y: 0, z: 0 };
-  const offset = [off.x, off.y, off.z];
-
-  // === REST POSE ===
-  // The model is rigged in T-pose (arms horizontal). Every non-T-pose state
-  // first applies a rest-pose rotation to bring the arms down to a natural
-  // idle stance (arms at the sides). Animation-specific rotations (swing,
-  // stride, etc.) are then composed ON TOP of this rest pose.
-  //
-  // Without this, Walking would swing the arms around the X axis while
-  // they're still horizontal — producing a helicopter/propeller motion in
-  // the horizontal plane instead of a natural sagittal (forward-backward)
-  // walking gait.
-  //
-  // Legs and head are already vertical in T-pose, so their rest rotation
-  // is identity (0). Only arms need the Z rotation to come down.
-  const REST_Z = {
-    2: animParams.restPose.leftArmZ,    // Left arm: -PI/2 (rotate down from +X to -Y)
-    3: animParams.restPose.rightArmZ,   // Right arm: +PI/2 (rotate down from -X to -Y)
-  };
-  const restZ = REST_Z[gid] !== undefined ? REST_Z[gid] : 0;
-  const restRot = rotationZ(restZ);
   const identity = [[1,0,0],[0,1,0],[0,0,1]];
 
+  // T-Pose state: raw bind pose — NO rotations applied at all.
+  if (animState === 9) return null;
+
+  // === BODY TRANSFORM (torso twist + crouch lean + crouch lower) ===
+  // The body transform affects:
+  //   - Group 0 (body): the torso block itself rotates/leans
+  //   - Groups 1, 2, 3 (head, arms): the transform is prepended to their chain
+  //   - Groups 8, 9 (forearms): inherit via parent arm chain
+  //   - Groups 4, 5, 6, 7 (legs, shins): NOT affected — legs stay planted
+  //
+  // Two sources:
+  //   - Aiming states (3, 4): torsoTwist (Y rotation) for mobster shoulder twist
+  //   - Crouching state (6): bodyLean (X rotation, forward lean) + bodyLower (Y translation)
+  const isAimingState = (animState > 2.5 && animState < 4.5); // Aim Walk (3) or Aiming (4)
+  const isCrouchingState = (animState > 4.5 && animState < 5.5); // Crouching (5)
+  const torsoTwist = isAimingState ? animParams.aiming.torsoTwist : 0;
+  const bodyLean = isCrouchingState ? animParams.crouching.bodyLean : 0;
+  const bodyLower = isCrouchingState ? animParams.crouching.bodyLower : 0;
+  const modelLower = isCrouchingState ? animParams.crouching.modelLower : 0;
+  const hasBodyRot = torsoTwist !== 0 || bodyLean !== 0;
+
+  function getBodyTransform() {
+    if (!hasBodyRot) return null;
+    const tp = pivots[0];
+    if (!tp) return null;
+    const bodyPivot = [tp.x * dims[0] * voxelSize, tp.y * dims[1] * voxelSize, tp.z * dims[2] * voxelSize];
+    // Compose: Y(twist) × X(lean) — twist applied after lean
+    let rot = identity;
+    if (bodyLean !== 0) rot = matMul3(rotationX(bodyLean), rot);
+    if (torsoTwist !== 0) rot = matMul3(rotationY(torsoTwist), rot);
+    return { pivot: bodyPivot, rot };
+  }
+
+  // The body lower offset is applied to group 0 and upper body groups (1, 2, 3).
+  // It's a Y translation in voxel units — physically drops the torso.
+  // modelLower is a GLOBAL offset applied to ALL groups — shifts the entire
+  // posed figure down as a unit so feet plant on the ground after crouch bends.
+  const bodyOffset = [0, -bodyLower - modelLower, 0];
+
+  // Group 0 (body): apply body rotation + lower offset
+  if (gid === 0) {
+    const bodyTransform = getBodyTransform();
+    if (!bodyTransform && bodyLower === 0 && modelLower === 0) return null;
+    const chain = bodyTransform ? [bodyTransform] : [];
+    return { chain, offset: bodyOffset };
+  }
+
+  // Parent-child relationships for two-segment limbs (forward kinematics).
+  const PARENT_OF = { 8: 2, 9: 3, 6: 4, 7: 5 };
+  const CHILD_GROUPS = [6, 7, 8, 9];
+
+  // If this is a child group, get the parent's transform chain first.
+  // The child's own transform will be PREPENDED to the parent's chain
+  // (applied first, then parent transforms cascade on top — standard FK).
+  let parentResult = null;
+  if (gid in PARENT_OF) {
+    parentResult = computeGroupRotation(PARENT_OF[gid], dims, voxelSize, animState, animTime, animSpeed);
+  }
+
+  const p = pivots[gid];
+  if (!p) return parentResult;
+  const ownPivot = [p.x * dims[0] * voxelSize, p.y * dims[1] * voxelSize, p.z * dims[2] * voxelSize];
+
+  // Offset: child groups inherit their parent's offset (no separate offset).
+  // Parent groups (1-5) use their own jointOffset entry.
+  // Upper body groups (1, 2, 3) also get the bodyLower offset added so they
+  // move down with the torso during crouching.
+  let offset;
+  if (parentResult) {
+    offset = parentResult.offset;
+  } else {
+    const off = animParams.jointOffset[gid] || { x: 0, y: 0, z: 0 };
+    offset = [off.x, off.y, off.z];
+  }
+  // Add body lower to upper body parent groups (head, arms) — not legs
+  if (bodyLower !== 0 && (gid === 1 || gid === 2 || gid === 3)) {
+    offset = [offset[0], offset[1] - bodyLower, offset[2]];
+  }
+  // Add modelLower to ALL root parent groups (1-5) — children (6-9) inherit
+  // via parentResult.offset. This shifts the entire posed figure down as a unit.
+  if (modelLower !== 0 && (gid === 1 || gid === 2 || gid === 3 || gid === 4 || gid === 5)) {
+    offset = [offset[0], offset[1] - modelLower, offset[2]];
+  }
+
+  // === COMPUTE THIS GROUP'S OWN ROTATION ===
+  let ownRot = null;
+
   if (gid === 1) { // Head — no rest pose needed (already upright in T-pose)
-    let headYaw = 0, headPitch = 0;
-    if (animState > 1.5 && animState < 3.5) { // Looking or Checking
+    let headYaw = 0, headPitch = 0, headTilt = 0;
+    if (animState > 1.5 && animState < 2.5) { // Looking
       const p2 = animParams.looking;
       headYaw = Math.sin(animTime * p2.headYawFreq) * p2.headYaw;
       headPitch = Math.sin(animTime * p2.headPitchFreq) * p2.headPitch;
-    } else if (animState > 3.5 && animState < 4.5) { // Aiming
+    } else if (animState > 2.5 && animState < 4.5) { // Aim Walk (3) or Aiming (4)
       const p2 = animParams.aiming;
-      headYaw = p2.headYaw; headPitch = p2.headPitch;
-    } else if (animState > 5.5 && animState < 6.5) { // Crouching
+      headYaw = p2.headYaw; headPitch = p2.headPitch; headTilt = p2.headTilt;
+    } else if (animState > 4.5 && animState < 5.5) { // Crouching
       headPitch = animParams.crouching.headPitch;
-    } else if (animState > 6.5 && animState < 7.5) { // Flinching
-      headPitch = animParams.flinching.headPitch;
     } else {
-      // Idle and other non-head-animation states: head at rest (identity)
-      return { pivot, rot: identity, offset };
+      ownRot = identity; // Idle: head at rest
     }
-    return { pivot, rot: matMul3(rotationY(headYaw), rotationX(headPitch)), offset };
-  } else if (gid === 2) { // Left arm
+    // Compose: Y (yaw, left/right) × X (pitch, up/down) × Z (tilt, roll sideways)
+    if (ownRot === null) ownRot = matMul3(rotationY(headYaw), matMul3(rotationX(headPitch), rotationZ(headTilt)));
+  } else if (gid === 2) { // Left arm (shoulder)
     let swing = 0;
+    let reach = 0; // Y rotation — shoulder reach across body (aiming only)
     if (animState > 0.5 && animState < 1.5) { // Walking
       swing = Math.sin(animTime * animParams.walk.armFreq * animSpeed) * animParams.walk.armSwing;
-    } else if (animState > 3.5 && animState < 4.5) { // Aiming
-      swing = animParams.aiming.armSwing;
-    } else if (animState > 5.5 && animState < 6.5) { // Crouching
+    } else if (animState > 2.5 && animState < 4.5) { // Aim Walk (3) or Aiming (4)
+      swing = animParams.aiming.armSwingL; // static pose — no oscillation
+      reach = animParams.aiming.shoulderReachL; // cross-body reach
+    } else if (animState > 4.5 && animState < 5.5) { // Crouching
       swing = animParams.crouching.armSwingL;
-    } else if (animState > 6.5 && animState < 7.5) { // Flinching
-      swing = animParams.flinching.armSwing;
     } else {
-      // Idle: arms at rest (down at sides), no additional swing
-      return { pivot, rot: restRot, offset };
+      ownRot = rotationZ(animParams.restPose.leftArmZ); // Idle: rest pose only
     }
-    // Compose: rest pose (Z rotation, arm down) THEN swing (X rotation, forward/back)
-    return { pivot, rot: matMul3(rotationX(swing), restRot), offset };
-  } else if (gid === 3) { // Right arm
+    // Compose: Z (rest pose, arm down) → X (swing, forward/back) → Y (reach, across body)
+    if (ownRot === null) {
+      ownRot = matMul3(rotationY(reach), matMul3(rotationX(swing), rotationZ(animParams.restPose.leftArmZ)));
+    }
+  } else if (gid === 3) { // Right arm (shoulder)
     let swing = 0;
+    let reach = 0;
     if (animState > 0.5 && animState < 1.5) { // Walking
       swing = Math.sin(animTime * animParams.walk.armFreq * animSpeed + PI) * animParams.walk.armSwing;
-    } else if (animState > 3.5 && animState < 4.5) { // Aiming
-      swing = animParams.aiming.armSwing;
-    } else if (animState > 5.5 && animState < 6.5) { // Crouching
+    } else if (animState > 2.5 && animState < 4.5) { // Aim Walk (3) or Aiming (4)
+      swing = animParams.aiming.armSwingR;
+      reach = animParams.aiming.shoulderReachR;
+    } else if (animState > 4.5 && animState < 5.5) { // Crouching
       swing = animParams.crouching.armSwingR;
-    } else if (animState > 6.5 && animState < 7.5) { // Flinching
-      swing = animParams.flinching.armSwing;
     } else {
-      return { pivot, rot: restRot, offset };
+      ownRot = rotationZ(animParams.restPose.rightArmZ);
     }
-    return { pivot, rot: matMul3(rotationX(swing), restRot), offset };
-  } else if (gid === 4) { // Left leg — no rest pose needed (already vertical)
+    if (ownRot === null) {
+      ownRot = matMul3(rotationY(reach), matMul3(rotationX(swing), rotationZ(animParams.restPose.rightArmZ)));
+    }
+  } else if (gid === 4) { // Left leg (hip) — no rest pose (already vertical)
     let stride = 0;
-    if (animState > 0.5 && animState < 1.5) { // Walking
+    if (animState > 0.5 && animState < 1.5 || animState > 2.5 && animState < 3.5) { // Walking or Aim Walk
       stride = Math.sin(animTime * animParams.walk.legFreq * animSpeed + PI) * animParams.walk.legStride;
-    } else if (animState > 5.5 && animState < 6.5) { // Crouching
-      stride = animParams.crouching.legStride;
-    } else if (animState > 7.5 && animState < 8.5) { // Falling
-      stride = animParams.falling.legStrideL;
+    } else if (animState > 4.5 && animState < 5.5) { // Crouching
+      stride = animParams.crouching.legStrideL;
     } else {
-      return { pivot, rot: identity, offset };
+      ownRot = identity; // Idle: straight
     }
-    return { pivot, rot: rotationX(stride), offset };
-  } else if (gid === 5) { // Right leg — no rest pose needed (already vertical)
+    if (ownRot === null) ownRot = rotationX(stride);
+  } else if (gid === 5) { // Right leg (hip)
     let stride = 0;
-    if (animState > 0.5 && animState < 1.5) { // Walking
+    if (animState > 0.5 && animState < 1.5 || animState > 2.5 && animState < 3.5) { // Walking or Aim Walk
       stride = Math.sin(animTime * animParams.walk.legFreq * animSpeed) * animParams.walk.legStride;
-    } else if (animState > 5.5 && animState < 6.5) { // Crouching
-      stride = animParams.crouching.legStride;
-    } else if (animState > 7.5 && animState < 8.5) { // Falling
-      stride = animParams.falling.legStrideR;
+    } else if (animState > 4.5 && animState < 5.5) { // Crouching
+      stride = animParams.crouching.legStrideR;
     } else {
-      return { pivot, rot: identity, offset };
+      ownRot = identity;
     }
-    return { pivot, rot: rotationX(stride), offset };
+    if (ownRot === null) ownRot = rotationX(stride);
+  } else if (gid === 8) { // Left forearm (elbow hinge)
+    // Elbow biomechanics: only bends FORWARD (forearm curls toward front of
+    // arm). When the arm is behind the body, the elbow locks straight — it
+    // cannot bend backward. Gate the bend by the arm's swing phase.
+    // NOTE: positive rotationX bends the forearm backward in this rig, so
+    // we use NEGATIVE bend values to curl forward.
+    let bend = -animParams.elbowBend.leftRest;
+    if (animState > 0.5 && animState < 1.5) { // Walking
+      const phase = Math.sin(animTime * animParams.walk.armFreq * animSpeed);
+      bend -= Math.max(0, phase) * animParams.elbowBend.walkAmp;
+    } else if (animState > 2.5 && animState < 4.5) { // Aim Walk (3) or Aiming (4)
+      // Hold a static elbow bend for the weapon pose. Aiming uses negative
+      // bend (forward curl) matching the biomechanical convention.
+      bend = -animParams.aiming.elbowBendL;
+    }
+    ownRot = rotationX(bend);
+  } else if (gid === 9) { // Right forearm (elbow hinge)
+    let bend = -animParams.elbowBend.rightRest;
+    if (animState > 0.5 && animState < 1.5) { // Walking
+      const phase = Math.sin(animTime * animParams.walk.armFreq * animSpeed + PI);
+      bend -= Math.max(0, phase) * animParams.elbowBend.walkAmp;
+    } else if (animState > 2.5 && animState < 4.5) { // Aim Walk (3) or Aiming (4)
+      bend = -animParams.aiming.elbowBendR;
+    }
+    ownRot = rotationX(bend);
+  } else if (gid === 6) { // Left shin (knee hinge)
+    // Knee biomechanics: only bends BACKWARD (shin tucks toward back of
+    // thigh). Negative rotationX tucks the shin backward.
+    let bend = -animParams.kneeBend.leftRest;
+    if (animState > 0.5 && animState < 1.5 || animState > 2.5 && animState < 3.5) { // Walking or Aim Walk
+      const phase = Math.sin(animTime * animParams.walk.legFreq * animSpeed + PI);
+      bend += Math.max(0, -phase) * animParams.kneeBend.walkAmp;
+    } else if (animState > 4.5 && animState < 5.5) { // Crouching — static knee bend
+      bend += animParams.crouching.kneeBendL;
+    }
+    ownRot = rotationX(bend);
+  } else if (gid === 7) { // Right shin (knee hinge)
+    let bend = -animParams.kneeBend.rightRest;
+    if (animState > 0.5 && animState < 1.5 || animState > 2.5 && animState < 3.5) { // Walking or Aim Walk
+      const phase = Math.sin(animTime * animParams.walk.legFreq * animSpeed);
+      bend += Math.max(0, -phase) * animParams.kneeBend.walkAmp;
+    } else if (animState > 4.5 && animState < 5.5) { // Crouching — static knee bend
+      bend += animParams.crouching.kneeBendR;
+    }
+    ownRot = rotationX(bend);
   }
-  return null;
+
+  if (ownRot === null) return parentResult;
+
+  // Build the transform chain: child's transform first, then parent's chain.
+  // This matters because the child's own bend (e.g. knee) must be applied
+  // using its FIXED bind-pose pivot BEFORE the parent's rotation (e.g. hip)
+  // carries the whole already-bent limb around as a rigid body. Applying
+  // the parent transform first would rotate the limb, then try to bend the
+  // knee around a now-stale pivot position — causing the shin to detach
+  // and float away from the body (visible at large rotation angles like
+  // a deep crouch, though it silently mis-shaped every knee/elbow bend
+  // done via the parent chain up to now).
+  // rebuildAnimatedMesh applies chain entries in array order — so the
+  // child's transform must come FIRST in the array.
+  const ownTransform = { pivot: ownPivot, rot: ownRot };
+  let chain = parentResult ? [ownTransform, ...parentResult.chain] : [ownTransform];
+
+  // Prepend body transform (torso twist / crouch lean) to upper body groups.
+  // The body rotation is applied LAST in the chain (outermost transform) so
+  // the entire upper body rotates as a unit around the waist pivot.
+  // Forearms (8, 9) inherit this via their parent arm's chain.
+  if (hasBodyRot && (gid === 1 || gid === 2 || gid === 3)) {
+    const bodyTransform = getBodyTransform();
+    if (bodyTransform) chain = [...chain, bodyTransform];
+  }
+
+  return { chain, offset };
 }
 
 // === ANIMATED MESH REBUILD ===
@@ -1147,19 +1315,24 @@ function rebuildAnimatedMesh() {
     let py = v.y;
     let pz = v.z - D / 2;
 
-    // Apply group transform
-    if (v.gid > 0) {
+    // Apply group transform (hierarchical transform chain for child groups).
+    // gid >= 0 includes group 0 (body) which gets torso twist when aiming.
+    if (v.gid >= 0) {
       const result = computeGroupRotation(v.gid, dims, voxelSize, currentAnimState, animTime, animSpeed);
-      if (result) {
-        const localPos = [v.x, v.y, v.z];
-        const relPos = [localPos[0] - result.pivot[0], localPos[1] - result.pivot[1], localPos[2] - result.pivot[2]];
-        const transformed = matVec3(result.rot, relPos);
-        // Apply per-joint positional offset AFTER rotation (plain translation
-        // in voxel space, before the world-space W/2 / D/2 centering).
+      if (result && result.chain) {
+        // Apply each transform in the chain in order (leaf to root).
+        // This is forward kinematics: child bend first, then parent
+        // rotation cascades on top, then grandparent, etc.
+        let pos = [v.x, v.y, v.z];
+        for (const { pivot, rot } of result.chain) {
+          const rel = [pos[0] - pivot[0], pos[1] - pivot[1], pos[2] - pivot[2]];
+          const transformed = matVec3(rot, rel);
+          pos = [transformed[0] + pivot[0], transformed[1] + pivot[1], transformed[2] + pivot[2]];
+        }
         const off = result.offset || [0, 0, 0];
-        px = transformed[0] + result.pivot[0] + off[0] - W / 2;
-        py = transformed[1] + result.pivot[1] + off[1];
-        pz = transformed[2] + result.pivot[2] + off[2] - D / 2;
+        px = pos[0] + off[0] - W / 2;
+        py = pos[1] + off[1];
+        pz = pos[2] + off[2] - D / 2;
       }
     }
 
@@ -1187,15 +1360,19 @@ function rebuildAnimatedMesh() {
       let px = v.x - W / 2;
       let py = v.y;
       let pz = v.z - D / 2;
-      if (v.gid > 0) {
+      if (v.gid >= 0) {
         const result = computeGroupRotation(v.gid, [W,H,D], 1.0, currentAnimState, animTime, animSpeed);
-        if (result) {
-          const localPos = [v.x, v.y, v.z];
-          const relPos = [localPos[0] - result.pivot[0], localPos[1] - result.pivot[1], localPos[2] - result.pivot[2]];
-          const transformed = matVec3(result.rot, relPos);
-          px = transformed[0] + result.pivot[0] - W / 2;
-          py = transformed[1] + result.pivot[1];
-          pz = transformed[2] + result.pivot[2] - D / 2;
+        if (result && result.chain) {
+          let pos = [v.x, v.y, v.z];
+          for (const { pivot, rot } of result.chain) {
+            const rel = [pos[0] - pivot[0], pos[1] - pivot[1], pos[2] - pivot[2]];
+            const transformed = matVec3(rot, rel);
+            pos = [transformed[0] + pivot[0], transformed[1] + pivot[1], transformed[2] + pivot[2]];
+          }
+          const off = result.offset || [0, 0, 0];
+          px = pos[0] + off[0] - W / 2;
+          py = pos[1] + off[1];
+          pz = pos[2] + off[2] - D / 2;
         }
       }
       dummyMatrix.setPosition(px, py, pz);
@@ -1343,17 +1520,23 @@ function selectState(stateId) {
   }
   rebuildAnimatedMesh();
   buildParamControls();
-  setStatus(`State: ${STATES[stateId].name} — ${STATES[stateId].desc}`);
+  const state = STATES.find(s => s.id === stateId) || { name: '?', desc: '' };
+  setStatus(`State: ${state.name} — ${state.desc}`);
 }
 
 function buildPivotControls() {
   const container = document.getElementById('pivot-controls');
   container.innerHTML = '';
-  for (let gid = 1; gid <= 5; gid++) {
+  // Include all pivot groups: 0 (body/waist), 1-5 (parents), 6-9 (elbows/knees).
+  // Order: body first, then parents, then child hinges.
+  const pivotGids = [0, 1, 2, 3, 8, 9, 4, 5, 6, 7];
+  for (const gid of pivotGids) {
+    if (!pivots[gid]) continue;
     const p = pivots[gid];
+    const g = getGroupById(gid);
     const div = document.createElement('div');
     div.className = 'pivot-info';
-    div.innerHTML = `<span style="color:${GROUPS[gid].color}">●</span> ${GROUPS[gid].name}`;
+    div.innerHTML = `<span style="color:${g ? g.color : '#888'}">●</span> ${g ? g.name : 'G'+gid}`;
     container.appendChild(div);
 
     for (const axis of ['x', 'y', 'z']) {
@@ -1381,51 +1564,72 @@ function buildParamControls() {
 
   // Determine which params are relevant for current state
   let relevantParams = [];
-  const stateName = STATES[currentAnimState].name.toLowerCase();
+  const stateName = (STATES.find(s => s.id === currentAnimState) || { name: '' }).name.toLowerCase();
 
-  if (currentAnimState === 0) { // Idle — rest pose + joint offset controls
+  if (currentAnimState === 0) { // Idle — rest pose + joint offset + hinge rest bend
     relevantParams = [
       ['restPose', 'leftArmZ', 'L Arm Rest Z', -Math.PI, Math.PI, 0.01],
       ['restPose', 'rightArmZ', 'R Arm Rest Z', -Math.PI, Math.PI, 0.01],
+      ['elbowBend', 'leftRest', 'L Elbow Rest', 0, 1.5, 0.01],
+      ['elbowBend', 'rightRest', 'R Elbow Rest', 0, 1.5, 0.01],
+      ['kneeBend', 'leftRest', 'L Knee Rest', 0, 1.5, 0.01],
+      ['kneeBend', 'rightRest', 'R Knee Rest', 0, 1.5, 0.01],
     ];
-    // Joint offset controls are appended AFTER the flat params loop below
-    // via the idleOffsetExtras flag.
+    // Joint offset controls are appended AFTER the flat params loop below.
   } else if (currentAnimState === 1) { // Walking
     relevantParams = [
       ['walk', 'armSwing', 'Arm Swing', 0, 1.5, 0.01],
-      ['walk', 'armFreq', 'Arm Freq', 1, 15, 0.1],
       ['walk', 'legStride', 'Leg Stride', 0, 1.5, 0.01],
-      ['walk', 'legFreq', 'Leg Freq', 1, 15, 0.1],
+      ['elbowBend', 'walkAmp', 'Elbow Walk Amp', 0, 0.5, 0.01],
+      ['kneeBend', 'walkAmp', 'Knee Walk Amp', 0, 1.0, 0.01],
     ];
-  } else if (currentAnimState === 2 || currentAnimState === 3) { // Looking/Checking
+  } else if (currentAnimState === 2) { // Looking
     relevantParams = [
       ['looking', 'headYaw', 'Head Yaw', 0, 1.5, 0.01],
       ['looking', 'headYawFreq', 'Yaw Freq', 0.5, 10, 0.1],
       ['looking', 'headPitch', 'Head Pitch', 0, 1, 0.01],
       ['looking', 'headPitchFreq', 'Pitch Freq', 0.5, 10, 0.1],
     ];
-  } else if (currentAnimState === 4) { // Aiming
+  } else if (currentAnimState === 3) { // Aim Walk — aiming upper + walking lower
     relevantParams = [
+      ['aiming', 'torsoTwist', 'Torso Twist', -1.0, 1.0, 0.01],
       ['aiming', 'headYaw', 'Head Yaw', -1, 1, 0.01],
       ['aiming', 'headPitch', 'Head Pitch', -1, 1, 0.01],
-      ['aiming', 'armSwing', 'Arm Swing', -2, 0, 0.01],
+      ['aiming', 'headTilt', 'Head Tilt', -0.5, 0.5, 0.01],
+      ['aiming', 'armSwingL', 'L Arm Raise', -2, 0.5, 0.01],
+      ['aiming', 'armSwingR', 'R Arm Raise', -2, 0.5, 0.01],
+      ['aiming', 'shoulderReachL', 'L Shoulder Reach', -1.0, 1.0, 0.01],
+      ['aiming', 'shoulderReachR', 'R Shoulder Reach', -1.0, 1.0, 0.01],
+      ['aiming', 'elbowBendL', 'L Elbow Bend', 0, 1.5, 0.01],
+      ['aiming', 'elbowBendR', 'R Elbow Bend', 0, 1.5, 0.01],
+      ['walk', 'legStride', 'Leg Stride', 0, 1.5, 0.01],
+      ['kneeBend', 'walkAmp', 'Knee Walk Amp', 0, 1.0, 0.01],
+    ];
+  } else if (currentAnimState === 4) { // Aiming — static pose
+    relevantParams = [
+      ['aiming', 'torsoTwist', 'Torso Twist', -1.0, 1.0, 0.01],
+      ['aiming', 'headYaw', 'Head Yaw', -1, 1, 0.01],
+      ['aiming', 'headPitch', 'Head Pitch', -1, 1, 0.01],
+      ['aiming', 'headTilt', 'Head Tilt', -0.5, 0.5, 0.01],
+      ['aiming', 'armSwingL', 'L Arm Raise', -2, 0.5, 0.01],
+      ['aiming', 'armSwingR', 'R Arm Raise', -2, 0.5, 0.01],
+      ['aiming', 'shoulderReachL', 'L Shoulder Reach', -1.0, 1.0, 0.01],
+      ['aiming', 'shoulderReachR', 'R Shoulder Reach', -1.0, 1.0, 0.01],
+      ['aiming', 'elbowBendL', 'L Elbow Bend', 0, 1.5, 0.01],
+      ['aiming', 'elbowBendR', 'R Elbow Bend', 0, 1.5, 0.01],
     ];
   } else if (currentAnimState === 5) { // Crouching
     relevantParams = [
+      ['crouching', 'modelLower', 'Model Lower', 0, 15, 0.5],
+      ['crouching', 'bodyLower', 'Body Lower', 0, 15, 0.5],
+      ['crouching', 'bodyLean', 'Body Lean', 0, 1.0, 0.01],
       ['crouching', 'headPitch', 'Head Pitch', 0, 1, 0.01],
       ['crouching', 'armSwingL', 'L Arm Swing', -1.5, 1.5, 0.01],
       ['crouching', 'armSwingR', 'R Arm Swing', -1.5, 1.5, 0.01],
-      ['crouching', 'legStride', 'Leg Stride', 0, 1.5, 0.01],
-    ];
-  } else if (currentAnimState === 6) { // Flinching
-    relevantParams = [
-      ['flinching', 'headPitch', 'Head Pitch', 0, 1.5, 0.01],
-      ['flinching', 'armSwing', 'Arm Swing', -2.5, 0, 0.01],
-    ];
-  } else if (currentAnimState === 7) { // Falling
-    relevantParams = [
-      ['falling', 'legStrideL', 'L Leg Stride', -1.5, 1.5, 0.01],
-      ['falling', 'legStrideR', 'R Leg Stride', -1.5, 1.5, 0.01],
+      ['crouching', 'legStrideL', 'L Leg Swing', -1.5, 1.5, 0.01],
+      ['crouching', 'legStrideR', 'R Leg Swing', -1.5, 1.5, 0.01],
+      ['crouching', 'kneeBendL', 'L Knee Bend', 0, 1.5, 0.01],
+      ['crouching', 'kneeBendR', 'R Knee Bend', 0, 1.5, 0.01],
     ];
   } else if (currentAnimState === 9) { // T-Pose
     container.innerHTML = '<div style="font-size:10px;color:#888;">T-Pose: raw bind pose, no rotations applied. Adjust rest-pose angles in the Idle state.</div>';
@@ -1437,21 +1641,53 @@ function buildParamControls() {
     return;
   }
 
+  // Weapon-type preset dropdown for Aiming (4) and Aim Walk (3)
+  if (currentAnimState === 3 || currentAnimState === 4) {
+    const weaponDiv = document.createElement('div');
+    weaponDiv.className = 'param-row';
+    weaponDiv.style.marginBottom = '6px';
+    weaponDiv.innerHTML = `
+      <label>Weapon</label>
+      <select id="weapon-type-select" class="param-num" style="flex:1; width:auto;">
+        <option value="pistol" ${animParams.aiming.weaponType === 'pistol' ? 'selected' : ''}>Pistol (one-hand)</option>
+        <option value="dual" ${animParams.aiming.weaponType === 'dual' ? 'selected' : ''}>Dual Pistols</option>
+        <option value="rifle" ${animParams.aiming.weaponType === 'rifle' ? 'selected' : ''}>Rifle (two-hand)</option>
+      </select>
+    `;
+    const select = weaponDiv.querySelector('select');
+    select.onchange = (e) => {
+      applyWeaponPreset(e.target.value);
+      buildParamControls(); // rebuild sliders with new preset values
+      if (useAnimatedMesh) rebuildAnimatedMesh();
+    };
+    container.appendChild(weaponDiv);
+  }
+
   for (const [section, key, label, min, max, step] of relevantParams) {
     const row = document.createElement('div');
     row.className = 'param-row';
     const val = animParams[section][key];
     row.innerHTML = `
       <label>${label}</label>
-      <input type="range" min="${min}" max="${max}" step="${step}" value="${val}" data-section="${section}" data-key="${key}">
-      <span class="param-val">${val.toFixed(2)}</span>
+      <input type="range" min="${min}" max="${max}" step="${step}" value="${val}" data-section="${section}" data-key="${key}" class="param-slider">
+      <input type="number" min="${min}" max="${max}" step="${step}" value="${val.toFixed(2)}" data-section="${section}" data-key="${key}" class="param-num">
     `;
-    const input = row.querySelector('input');
-    const valSpan = row.querySelector('.param-val');
-    input.oninput = (e) => {
-      animParams[section][key] = parseFloat(e.target.value);
-      valSpan.textContent = parseFloat(e.target.value).toFixed(2);
+    const slider = row.querySelector('.param-slider');
+    const numInput = row.querySelector('.param-num');
+    const update = (newVal) => {
+      animParams[section][key] = newVal;
+      slider.value = newVal;
+      numInput.value = newVal.toFixed(2);
       if (useAnimatedMesh) rebuildAnimatedMesh();
+    };
+    slider.oninput = (e) => update(parseFloat(e.target.value));
+    numInput.oninput = (e) => {
+      const v = parseFloat(e.target.value);
+      if (!isNaN(v)) update(v);
+    };
+    numInput.onchange = (e) => {
+      const v = parseFloat(e.target.value);
+      if (!isNaN(v)) update(Math.max(min, Math.min(max, v)));
     };
     container.appendChild(row);
   }
@@ -1480,15 +1716,25 @@ function buildParamControls() {
         const val = animParams.jointOffset[og.gid][axis];
         row.innerHTML = `
           <label style="color:${og.color}">${og.name} ${axis.toUpperCase()}</label>
-          <input type="range" min="-20" max="20" step="0.5" value="${val}" data-gid="${og.gid}" data-axis="${axis}">
-          <span class="param-val">${val.toFixed(1)}</span>
+          <input type="range" min="-20" max="20" step="0.5" value="${val}" data-gid="${og.gid}" data-axis="${axis}" class="param-slider">
+          <input type="number" min="-20" max="20" step="0.5" value="${val.toFixed(1)}" data-gid="${og.gid}" data-axis="${axis}" class="param-num">
         `;
-        const input = row.querySelector('input');
-        const valSpan = row.querySelector('.param-val');
-        input.oninput = (e) => {
-          animParams.jointOffset[og.gid][axis] = parseFloat(e.target.value);
-          valSpan.textContent = parseFloat(e.target.value).toFixed(1);
+        const slider = row.querySelector('.param-slider');
+        const numInput = row.querySelector('.param-num');
+        const update = (newVal) => {
+          animParams.jointOffset[og.gid][axis] = newVal;
+          slider.value = newVal;
+          numInput.value = newVal.toFixed(1);
           if (useAnimatedMesh) rebuildAnimatedMesh();
+        };
+        slider.oninput = (e) => update(parseFloat(e.target.value));
+        numInput.oninput = (e) => {
+          const v = parseFloat(e.target.value);
+          if (!isNaN(v)) update(v);
+        };
+        numInput.onchange = (e) => {
+          const v = parseFloat(e.target.value);
+          if (!isNaN(v)) update(Math.max(-20, Math.min(20, v)));
         };
         container.appendChild(row);
       }
@@ -1575,12 +1821,15 @@ window.resetPivots = () => {
   setStatus('Pivots reset to defaults');
 };
 
+window.resetAnimParams = () => {
+  animParams = JSON.parse(JSON.stringify(DEFAULT_PARAMS));
+  buildParamControls();
+  if (useAnimatedMesh) rebuildAnimatedMesh();
+  setStatus('Animation parameters reset to defaults');
+};
+
 // === AUTO-DETECT PIVOTS + JOINT OFFSETS from group bounds ===
 window.autoDetectPivots = () => {
-  // Overall model center (all voxels) — used to figure out which side each
-  // limb is on, so arms pivot at the SHOULDER (inner edge) rather than
-  // their own geometric center. Using the center would rotate the arm
-  // around a point in mid-air along its own length, swinging it lopsided.
   let allMinX = W, allMaxX = 0;
   for (const key of voxelMap.keys()) {
     const x = parseInt(key.split(',')[0], 10);
@@ -1589,8 +1838,7 @@ window.autoDetectPivots = () => {
   }
   const modelCenterX = (allMinX + allMaxX + 1) / 2;
 
-  // Reset joint offsets to zero before computing — we only want to set
-  // offsets for limbs that need correction (arms), not leave stale values.
+  // Reset joint offsets to zero before computing
   for (let gid = 1; gid <= 5; gid++) {
     if (animParams.jointOffset[gid]) {
       animParams.jointOffset[gid].x = 0;
@@ -1599,7 +1847,8 @@ window.autoDetectPivots = () => {
     }
   }
 
-  for (let gid = 1; gid <= 5; gid++) {
+  // Helper: compute bounding box for a group
+  function groupBounds(gid) {
     let minX=W, minY=H, minZ=D, maxX=0, maxY=0, maxZ=0, count=0;
     for (const [key, g] of groupMap) {
       if (g !== gid) continue;
@@ -1609,54 +1858,86 @@ window.autoDetectPivots = () => {
       minZ=Math.min(minZ,z); maxZ=Math.max(maxZ,z);
       count++;
     }
-    if (count === 0) continue;
+    return { minX, minY, minZ, maxX, maxY, maxZ, count };
+  }
+
+  // Detect parent groups (1-5): shoulders, hips, neck
+  for (let gid = 1; gid <= 5; gid++) {
+    const b = groupBounds(gid);
+    if (b.count === 0) continue;
 
     if (gid === 1) {
-      // Head: pivot at the bottom-center (neck) so yaw/pitch reads
-      // correctly, instead of rotating around the head's own middle.
-      pivots[gid].x = (minX + maxX + 1) / 2 / W;
-      pivots[gid].y = minY / H;
-      pivots[gid].z = (minZ + maxZ + 1) / 2 / D;
+      pivots[gid].x = (b.minX + b.maxX + 1) / 2 / W;
+      pivots[gid].y = b.minY / H;
+      pivots[gid].z = (b.minZ + b.maxZ + 1) / 2 / D;
     } else if (gid === 2 || gid === 3) {
-      // Arms: pivot at the SHOULDER — the X edge of the arm's bounding box
-      // closest to the body's horizontal center — plus the top of the
-      // arm's own Y range (shoulder height).
-      const innerX = Math.abs(minX - modelCenterX) < Math.abs(maxX - modelCenterX) ? minX : maxX;
+      const innerX = Math.abs(b.minX - modelCenterX) < Math.abs(b.maxX - modelCenterX) ? b.minX : b.maxX;
       pivots[gid].x = innerX / W;
-      pivots[gid].y = (maxY + 1) / H;
-      pivots[gid].z = (minZ + maxZ + 1) / 2 / D;
+      pivots[gid].y = (b.maxY + 1) / H;
+      pivots[gid].z = (b.minZ + b.maxZ + 1) / 2 / D;
 
-      // AUTO JOINT OFFSET: when the arm rotates 90° around Z (rest pose),
-      // its Y-thickness becomes X-thickness and extends INWARD from the
-      // shoulder pivot into the torso. The offset magnitude equals the
-      // arm's Y-height (maxY - minY + 1), pushing the arm back outward
-      // to the correct side of the body.
-      //
-      // L Arm (gid 2, high-X side): rotates -90°, extends in -X → offset +height
-      // R Arm (gid 3, low-X side):  rotates +90°, extends in +X → offset -height
-      const armHeight = maxY - minY + 1;
-      if (gid === 2) {
-        // Left arm: innerX is the low end of this arm's X range (closest to
-        // center), arm extends in +X from there. After -90° Z rotation the
-        // arm swings down and its Y-thickness extends in -X (inward) → push +X.
-        animParams.jointOffset[2].x = armHeight;
-      } else {
-        // Right arm: innerX is the high end of this arm's X range (closest to
-        // center), arm extends in -X from there. After +90° Z rotation the
-        // arm swings down and its Y-thickness extends in +X (inward) → push -X.
-        animParams.jointOffset[3].x = -armHeight;
-      }
+      // Auto joint offset for arms (see previous commit for full explanation)
+      const armHeight = b.maxY - b.minY + 1;
+      if (gid === 2) animParams.jointOffset[2].x = armHeight;
+      else animParams.jointOffset[3].x = -armHeight;
     } else {
-      // Legs: pivot at the hip — top-center of the leg's bounding box.
-      pivots[gid].x = (minX + maxX + 1) / 2 / W;
-      pivots[gid].y = (maxY + 1) / H;
-      pivots[gid].z = (minZ + maxZ + 1) / 2 / D;
+      // Legs: pivot at the hip — top-center
+      pivots[gid].x = (b.minX + b.maxX + 1) / 2 / W;
+      pivots[gid].y = (b.maxY + 1) / H;
+      pivots[gid].z = (b.minZ + b.maxZ + 1) / 2 / D;
     }
   }
+
+  // Detect body pivot (group 0): at the waist — center X, center Z,
+  // and Y at the midpoint between the arm Y-range and leg Y-range.
+  // This is the torso twist pivot.
+  {
+    const body = groupBounds(0);
+    if (body.count > 0) {
+      pivots[0].x = (body.minX + body.maxX + 1) / 2 / W;
+      pivots[0].z = (body.minZ + body.maxZ + 1) / 2 / D;
+      // Y: midpoint of body height (waist is roughly at the middle)
+      pivots[0].y = (body.minY + body.maxY + 1) / 2 / H;
+    }
+  }
+
+  // Detect child groups (6-9): elbows and knees
+  // Elbow (8/9): at the X boundary between upper arm and forearm.
+  //   Upper arm is closer to body center, forearm extends further out.
+  //   Elbow pivot = the OUTER X edge of the upper arm (where it meets the forearm),
+  //   same Y and Z as the upper arm center.
+  // Knee (6/7): at the Y boundary between thigh and shin.
+  //   Thigh is above, shin is below.
+  //   Knee pivot = the BOTTOM Y edge of the thigh (where it meets the shin),
+  //   same X and Z as the thigh center.
+  const CHILD_PARENT = { 8: 2, 9: 3, 6: 4, 7: 5 };
+  for (const childGid of [8, 9, 6, 7]) {
+    const parentGid = CHILD_PARENT[childGid];
+    const parent = groupBounds(parentGid);
+    const child = groupBounds(childGid);
+    if (parent.count === 0 || child.count === 0) continue;
+
+    if (childGid === 8 || childGid === 9) {
+      // Elbow: at the X boundary between upper arm and forearm.
+      // The forearm extends FURTHER from center than the upper arm.
+      // Elbow is at the outer X edge of the upper arm.
+      const parentOuterX = Math.abs(parent.maxX - modelCenterX) > Math.abs(parent.minX - modelCenterX) ? parent.maxX : parent.minX;
+      pivots[childGid].x = (parentOuterX + 1) / W;  // +1 to be at the boundary edge
+      pivots[childGid].y = (parent.minY + parent.maxY + 1) / 2 / H;  // center Y of upper arm
+      pivots[childGid].z = (parent.minZ + parent.maxZ + 1) / 2 / D;
+    } else {
+      // Knee: at the Y boundary between thigh and shin.
+      // Thigh is above, shin is below. Knee is at the bottom of the thigh.
+      pivots[childGid].x = (parent.minX + parent.maxX + 1) / 2 / W;  // center X of thigh
+      pivots[childGid].y = parent.minY / H;  // bottom of thigh = top of shin
+      pivots[childGid].z = (parent.minZ + parent.maxZ + 1) / 2 / D;
+    }
+  }
+
   buildPivotControls();
-  buildParamControls(); // refresh offset sliders so they show the new values
+  buildParamControls();
   if (useAnimatedMesh) rebuildAnimatedMesh();
-  setStatus('Pivots + joint offsets auto-detected from group bounds');
+  setStatus('Pivots + joint offsets auto-detected (includes elbow/knee hinges)');
 };
 
 // === EXPORT / IMPORT ===
