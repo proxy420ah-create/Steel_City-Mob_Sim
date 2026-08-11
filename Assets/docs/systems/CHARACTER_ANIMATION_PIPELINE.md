@@ -119,16 +119,16 @@ The animator's `Save Project` produces a JSON file containing:
 Both the animator and the shader use the same FK chain:
 
 ```
-Group 0 (Body/Torso)
-├── Group 1 (Head)
-├── Group 2 (L Arm/Shoulder)
-│   └── Group 8 (L Forearm/Elbow)
-├── Group 3 (R Arm/Shoulder)
-│   └── Group 9 (R Forearm/Elbow)
-├── Group 4 (L Leg/Hip)
-│   └── Group 6 (L Shin/Knee)
-└── Group 5 (R Leg/Hip)
-    └── Group 7 (R Shin/Knee)
+Group 0: Body (root)
+├── Group 1: Head
+├── Group 2: Left Arm
+│   └── Group 8: Left Forearm
+├── Group 3: Right Arm
+│   └── Group 9: Right Forearm
+├── Group 4: Left Leg
+│   └── Group 6: Left Shin
+└── Group 5: Right Leg
+    └── Group 7: Right Shin
 ```
 
 **PARENT_OF map**: `{8:2, 9:3, 6:4, 7:5}`
@@ -212,22 +212,39 @@ Add body bob + weight shift to the raymarch origin or volume offset.
 
 ### 5.1 Design
 
-Ragdoll uses **invisible proxy bones** — Unity Rigidbodies with ConfigurableJoints that mirror the group hierarchy. The proxy bones run Unity physics, then their transforms are uploaded to the shader as per-group rotation matrices.
+The ragdoll uses the **group structure as-is** — no renaming, no extra hierarchy. Each group becomes one proxy bone. The animator's data directly defines the entire ragdoll:
+
+| Animator data | Ragdoll use |
+|--------------|-------------|
+| Group IDs (0-9) | One proxy bone per group |
+| Pivots | ConfigurableJoint anchor positions |
+| `PARENT_OF` map | Joint parent-child connections |
+| Axis/sign per limb | Joint rotation axis and direction |
 
 ```
-Proxy bone hierarchy (invisible GameObjects):
-  Pelvis (root, group 0)
-  ├── Spine/Head (group 1)
-  ├── L Shoulder (group 2) → L Elbow (group 8)
-  ├── R Shoulder (group 3) → R Elbow (group 9)
-  ├── L Hip (group 4) → L Knee (group 6)
-  └── R Hip (group 5) → R Knee (group 7)
+Group structure = bone structure (no conversion needed):
+
+Group 0: Body          ← root (no parent)
+Group 1: Head          ← parent: Body
+Group 2: Left Arm      ← parent: Body
+Group 8: Left Forearm  ← parent: Left Arm
+Group 3: Right Arm     ← parent: Body
+Group 9: Right Forearm ← parent: Right Arm
+Group 4: Left Leg      ← parent: Body
+Group 6: Left Shin     ← parent: Left Leg
+Group 5: Right Leg     ← parent: Body
+Group 7: Right Shin    ← parent: Right Leg
 ```
+
+10 proxy bones total. Each is an invisible GameObject with:
+- Rigidbody (mass proportional to voxel count)
+- Capsule collider (sized from group's voxel bounds)
+- ConfigurableJoint (connected to parent, anchor at pivot position)
 
 ### 5.2 Per-group colliders
 
 Each proxy bone gets a **capsule collider** sized from that group's voxel bounds:
-- Compute min/max XYZ of all voxels with that groupID
+- Compute min/max XYZ of all voxels with that groupID (C# utility, runs once on ragdoll spawn)
 - Create a capsule along the dominant axis
 - Radius = half the average of the other two axes
 
@@ -235,15 +252,18 @@ This reuses the existing `VoxelCollisionWorld` for environment collision — eac
 
 ### 5.3 Joint configuration (ported from Steel Tide)
 
-Steel Tide's `VoxelActor2Joints.cs` provides the joint configuration logic:
+Steel Tide's `VoxelActor2Joints.cs` provides the joint configuration logic. Mapped to Steel City's groups:
 
-| Joint type | Configuration | Use case |
-|-----------|--------------|---------|
-| **Root** | All angular motion locked | Pelvis (parent of everything) |
-| **Ball** | ±maxAngle on X/Y/Z | Shoulders, hips, spine (3DOF) |
-| **Hinge** | minAngle/maxAngle on one axis, others locked | Elbows, knees (1DOF) |
+| Group | Joint type | Reason |
+|-------|-----------|--------|
+| 0 (Body) | Root (locked) | Torso is the root — everything connects to it |
+| 1 (Head) | Ball | Neck can yaw/pitch/tilt |
+| 2, 3 (Arms) | Ball | Shoulders are 3DOF |
+| 4, 5 (Legs) | Ball | Hips are 3DOF |
+| 8, 9 (Forearms) | Hinge | Elbows bend on one axis (the animator's `elbowBend.axisL/R`) |
+| 6, 7 (Shins) | Hinge | Knees bend on one axis (the animator's `kneeBend.axisL/R`) |
 
-The animator's `axisL/axisR` settings map directly to the hinge axis. The `signL/signR` settings map to the hinge direction.
+The animator's existing `axisL/axisR` settings map directly to the hinge axis. The `signL/signR` settings map to the hinge direction. Angular limits (min/max angle) are the one piece still missing from the animator — Phase 2 adds them.
 
 ### 5.4 What ports from Steel Tide
 
