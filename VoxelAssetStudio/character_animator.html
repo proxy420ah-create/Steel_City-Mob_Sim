@@ -120,23 +120,37 @@ body { background:#0a0a14; color:#eee; font-family:'Segoe UI',monospace; overflo
 }
 #export-box {
   background:#1e1e2e; border:1px solid #444; border-radius:12px;
-  padding:24px; max-width:520px; width:90%;
+  padding:24px; max-width:560px; width:90%;
 }
-#export-box h2 { color:#0ff; margin-bottom:16px; font-size:16px; }
-#export-box h3 { font-size:13px; color:#0ff; margin-bottom:8px; }
-#export-box p { font-size:11px; color:#aaa; margin-bottom:8px; }
+#export-box h2 { color:#0ff; margin-bottom:4px; font-size:18px; }
+#export-box .subtitle { color:#888; font-size:11px; margin-bottom:20px; }
+#export-box h3 { font-size:14px; color:#0ff; margin-bottom:6px; }
+#export-box p { font-size:11px; color:#aaa; margin-bottom:8px; line-height:1.5; }
+#export-box .export-section {
+  padding:16px; margin-bottom:12px; border:1px solid #333; border-radius:8px;
+  background:rgba(0,0,0,0.2);
+}
+#export-box .export-section.primary {
+  border-color:#0c6; background:rgba(0,170,68,0.08);
+}
+#export-box .step-num {
+  display:inline-block; width:20px; height:20px; border-radius:50%;
+  background:#0a4; color:#fff; text-align:center; line-height:20px;
+  font-size:11px; margin-right:6px;
+}
 #export-box textarea {
   width:100%; height:200px; background:#111; color:#0f0;
   border:1px solid #333; border-radius:6px; padding:8px; font-family:monospace;
   font-size:11px; resize:vertical;
 }
-.btn-row { display:flex; gap:8px; margin-top:12px; }
+.btn-row { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
 .export-btn {
   background:#2a2a3e; color:#eee; border:1px solid #555; padding:8px 16px;
   border-radius:6px; cursor:pointer; font-size:12px;
 }
 .export-btn:hover { background:#3a3a5e; }
-.export-btn.primary { background:#0a4; border-color:#0c6; }
+.export-btn.primary { background:#0a4; border-color:#0c6; font-weight:bold; }
+.export-btn.large { padding:12px 24px; font-size:14px; }
 .section-divider { border-top:1px solid #333; padding-top:16px; margin-top:16px; }
 
 /* Tooltip */
@@ -289,33 +303,48 @@ body.ui-hidden #ui-hidden-hint { display:block; }
 <div id="export-modal">
   <div id="export-box">
     <h2>💾 Save / Load / Export</h2>
+    <div class="subtitle">Character Animator — Project Management</div>
 
-    <div style="margin-bottom:16px;">
-      <h3>Load Character</h3>
-      <p>Import a .stasset JSON file (dims + voxels array) to edit an existing character.</p>
+    <!-- PRIMARY: Export for Unity -->
+    <div class="export-section primary">
+      <h3><span class="step-num">1</span>Export for Unity</h3>
+      <p>Saves a single Project JSON containing <b>voxels + groups + pivots + animation params</b>.</p>
+      <p style="color:#0c6;">After download, place the file in the appropriate folder:</p>
+      <p style="font-size:10px; padding-left:12px; line-height:1.8;">
+        <b>voxel_characters/</b> — animated characters (hoodlums, civilians, etc.)<br>
+        <b>voxel_buildings/</b> — static buildings and structures<br>
+        <b>voxel_accessories/</b> — hats, weapons, held items<br>
+        <b>voxel_decor/</b> — props, furniture, environmental items
+      </p>
+      <p>Then in Unity: <b>Tools &gt; Voxel Import &gt; [matching category]</b></p>
       <div class="btn-row">
-        <button class="export-btn primary" onclick="document.getElementById('import-stasset-input').click()">📥 Import .stasset JSON</button>
+        <button class="export-btn primary large" onclick="saveProject()">⬇ Export Project JSON (for Unity)</button>
+      </div>
+    </div>
+
+    <!-- Load existing project -->
+    <div class="export-section">
+      <h3><span class="step-num">2</span>Load Existing Project</h3>
+      <p>Import a previously saved Project JSON to continue editing.</p>
+      <div class="btn-row">
+        <button class="export-btn" onclick="document.getElementById('load-project-input').click()">📂 Load Project JSON</button>
+        <input type="file" id="load-project-input" accept=".json" style="display:none" onchange="loadProject(event)">
+      </div>
+    </div>
+
+    <!-- Advanced: Individual exports -->
+    <div class="export-section">
+      <h3>🔧 Advanced — Individual Exports</h3>
+      <p>Export individual data files. Only needed for debugging or manual pipeline use.</p>
+      <div class="btn-row">
+        <button class="export-btn" onclick="document.getElementById('import-stasset-input').click()">📥 Import .stasset JSON</button>
         <input type="file" id="import-stasset-input" accept=".json" style="display:none" onchange="importStasset(event)">
         <button class="export-btn" onclick="document.getElementById('import-groups-input').click()">📥 Import .groups JSON</button>
         <input type="file" id="import-groups-input" accept=".json" style="display:none" onchange="importGroups(event)">
       </div>
-    </div>
-
-    <div class="section-divider" style="margin-bottom:16px;">
-      <h3>Export Group Data</h3>
-      <p>Export groupID assignments as JSON. Convert to .groups binary via Python script.</p>
       <div class="btn-row">
-        <button class="export-btn primary" onclick="exportGroupsJSON()">⬇ Export .groups JSON</button>
+        <button class="export-btn" onclick="exportGroupsJSON()">⬇ Export .groups JSON</button>
         <button class="export-btn" onclick="exportAnimParams()">⬇ Export .anim.json</button>
-      </div>
-    </div>
-
-    <div class="section-divider" style="margin-bottom:16px;">
-      <h3>Save / Load Project (voxels + groups + params)</h3>
-      <div class="btn-row">
-        <button class="export-btn primary" onclick="saveProject()">💾 Save Project</button>
-        <button class="export-btn" onclick="document.getElementById('load-project-input').click()">📂 Load Project</button>
-        <input type="file" id="load-project-input" accept=".json" style="display:none" onchange="loadProject(event)">
       </div>
     </div>
 
@@ -2496,6 +2525,12 @@ window.exportAnimParams = () => {
 };
 
 window.saveProject = () => {
+  // Prompt for custom name
+  const defaultName = `character_project_${new Date().toISOString().slice(0,10)}`;
+  const customName = prompt('Enter export name (this will be the filename):', defaultName);
+  if (!customName || customName.trim() === '') return;
+  const fileName = customName.trim().endsWith('.json') ? customName.trim() : customName.trim() + '.json';
+
   const data = {
     format: 'character_animator_project',
     version: 1,
@@ -2516,9 +2551,9 @@ window.saveProject = () => {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `character_project_${new Date().toISOString().slice(0,10)}.json`;
+  a.download = fileName;
   a.click();
-  setStatus(`Project saved: ${data.voxels.length} voxels, ${data.groups.length} groups`);
+  setStatus(`Exported "${fileName}" — ${data.voxels.length} voxels, ${data.groups.length} groups`);
 };
 
 window.loadProject = (event) => {

@@ -134,6 +134,28 @@ namespace SteelCity.Sim
                 mapCamera.orthographicSize = Mathf.Clamp(size, debugCameraFreedom ? 0.1f : 1f, 60f);
         }
 
+        public void SetCameraPerspective(bool perspective)
+        {
+            if (mapCamera == null) return;
+            if (perspective)
+            {
+                if (mapCamera.orthographic)
+                {
+                    mapCamera.orthographic = false;
+                    mapCamera.fieldOfView = 45f;
+                    Debug.Log("[CityMap3D] Camera switched to PERSPECTIVE mode (FOV=45)");
+                }
+            }
+            else
+            {
+                if (!mapCamera.orthographic)
+                {
+                    mapCamera.orthographic = true;
+                    Debug.Log("[CityMap3D] Camera switched to ORTHOGRAPHIC mode");
+                }
+            }
+        }
+
         // --- Camera rotation (smooth) ---
         private float cameraYaw = 45f;
         private float cameraPitch = 35.264f;
@@ -333,6 +355,20 @@ namespace SteelCity.Sim
         public float SidewalkW => sidewalkWidth;
         public Camera MapCamera => mapCamera;
         public VoxelCharacter SpawnedCharacter { get; private set; }
+        private CharacterAnimation spawnedAnim;
+        private static readonly CharacterAnimation.AnimState[] debugAnimStates = new[]
+        {
+            CharacterAnimation.AnimState.Idle,
+            CharacterAnimation.AnimState.Walking,
+            CharacterAnimation.AnimState.Looking,
+            CharacterAnimation.AnimState.AimWalk,
+            CharacterAnimation.AnimState.Aiming,
+            CharacterAnimation.AnimState.Crouching,
+            CharacterAnimation.AnimState.Flinching,
+            CharacterAnimation.AnimState.Falling,
+            CharacterAnimation.AnimState.Down,
+            CharacterAnimation.AnimState.TPose
+        };
         public Dictionary<string, Block> CachedBlocks => cachedBlocks;
         public float CharacterVoxelSize => characterVoxelSize;
 
@@ -507,8 +543,10 @@ namespace SteelCity.Sim
 
             if (IsExecutionMode)
             {
-                // Working mode: skip planning-only interactions (mouse camera, click, road ticker)
-                // Map camera is focused on HQ via GameUIController.FocusCameraOnHq()
+                // Working mode: skip planning-only interactions (click, road ticker)
+                // but allow camera controls (mouse orbit/zoom) and camera transform updates
+                HandleMouseCamera();
+                UpdateCameraTransform();
                 return;
             }
 
@@ -554,6 +592,27 @@ namespace SteelCity.Sim
         }
 
         /// <summary>
+        /// Hotkeys 1-9 cycle through GPU shader animation states on the spawned character.
+        /// </summary>
+        private void HandleAnimationHotkeys()
+        {
+            if (spawnedAnim == null) return;
+            var kb = Keyboard.current;
+            if (kb == null) return;
+
+            for (int i = 0; i < debugAnimStates.Length; i++)
+            {
+                var key = Key.Digit1 + i;
+                if (kb[key].wasPressedThisFrame)
+                {
+                    var state = debugAnimStates[i];
+                    spawnedAnim.SetState(state);
+                    Debug.Log($"[CityMap3D] 🎬 Animation state → {state} ({(int)state})");
+                }
+            }
+        }
+
+        /// <summary>
         /// Mouse camera controls (only when cursor is over the map viewport):
         ///   LMB click  — focus on clicked block / reset focus to city center
         ///   MMB drag   — rotate camera (yaw + pitch)
@@ -584,10 +643,20 @@ namespace SteelCity.Sim
                 float scroll = Mouse.current.scroll.ReadValue().y;
                 if (Mathf.Abs(scroll) > 0.1f)
                 {
-                    float zoomSpeed = debugCameraFreedom ? 0.04f : 0.08f;
-                    float minZoom = debugCameraFreedom ? 0.1f : 3f;
-                    float newSize = mapCamera.orthographicSize - scroll * zoomSpeed;
-                    mapCamera.orthographicSize = Mathf.Clamp(newSize, minZoom, 40f);
+                    if (mapCamera.orthographic)
+                    {
+                        float zoomSpeed = debugCameraFreedom ? 0.04f : 0.08f;
+                        float minZoom = debugCameraFreedom ? 0.1f : 3f;
+                        float newSize = mapCamera.orthographicSize - scroll * zoomSpeed;
+                        mapCamera.orthographicSize = Mathf.Clamp(newSize, minZoom, 40f);
+                    }
+                    else
+                    {
+                        // Perspective: adjust FOV
+                        float zoomSpeed = 0.03f;
+                        float newFov = mapCamera.fieldOfView - scroll * zoomSpeed;
+                        mapCamera.fieldOfView = Mathf.Clamp(newFov, 20f, 80f);
+                    }
                 }
             }
 
@@ -624,9 +693,11 @@ namespace SteelCity.Sim
             {
                 Vector2 delta = mousePos - lastMousePos;
                 // Pan in screen space, converted to world-space offset
-                float panSpeed = mapCamera.orthographicSize * 0.005f;
-                Vector3 right = mapCamera.transform.right * (-delta.x * panSpeed);
-                Vector3 up = mapCamera.transform.up * (-delta.y * panSpeed);
+                float panScale = mapCamera.orthographic
+                    ? mapCamera.orthographicSize * 0.005f
+                    : mapCamera.fieldOfView * 0.01f;
+                Vector3 right = mapCamera.transform.right * (-delta.x * panScale);
+                Vector3 up = mapCamera.transform.up * (-delta.y * panScale);
                 panOffset += right + up;
                 cameraFocus = mapRoot.position + panOffset;
                 lastMousePos = mousePos;
@@ -1155,7 +1226,7 @@ namespace SteelCity.Sim
             // Y: terrain is 2 voxels thick at voxelSize=0.1 → top surface at Y=0.2
             float groundY = voxelSize * 2f; // 0.2
 
-            // SteelTide VoxelObject approach: create a standalone GameObject with VoxelCharacter component.
+            // Characters hierarchy
             var charParent = mapRoot.Find("Characters");
             if (charParent == null)
             {
@@ -1164,21 +1235,15 @@ namespace SteelCity.Sim
                 charParent = cp.transform;
             }
 
-            var charObj = new GameObject("Character_Hoodlum_0");
-            charObj.transform.SetParent(charParent, false);
-            var vc = charObj.AddComponent<VoxelCharacter>();
-            vc.assetFileName = "character_hoodlum_0.stasset";
-            vc.voxelSize = characterVoxelSize;
-            vc.chunkManager = chunkManager;
-            vc.collisionWorld = collisionWorld;
-            // Local position relative to mapRoot — start above ground, gravity will pull down
-            vc.centerPosition = new Vector3(px, groundY + 0.5f, pz);
-            vc.useWorldPosition = false;
-            vc.showGroundProbe = true; // debug — turn off after verifying
-
-            SpawnedCharacter = vc;
-
-            Debug.Log($"[CityMap3D] Spawned VoxelCharacter hoodlum at ({px:F2}, {pz:F2}), groundY={groundY}");
+            // Spawn GPUAnimationTestRig — clean GPU instanced test rig (no city baggage)
+            // Hotkeys: T=TPose I=Idle W=Walk L=Look A=Aim C=Crouch Space=Pause +/-=Speed
+            if (FindFirstObjectByType<GPUAnimationTestRig>() == null)
+            {
+                var gpuObj = new GameObject("GPUAnimationTestRig");
+                gpuObj.transform.SetParent(charParent, false);
+                gpuObj.AddComponent<GPUAnimationTestRig>();
+                Debug.Log("[CityMap3D] Added GPUAnimationTestRig — clean GPU instanced test (hotkeys: T/I/W/L/A/C)");
+            }
 
             // Spawn vehicle test spawner (auto-spawns a car near HQ on Start)
             if (FindFirstObjectByType<VehicleTestSpawner>() == null)
@@ -1187,15 +1252,6 @@ namespace SteelCity.Sim
                 vehObj.transform.SetParent(mapRoot, false);
                 var vts = vehObj.AddComponent<VehicleTestSpawner>();
                 Debug.Log("[CityMap3D] Added VehicleTestSpawner to scene — will auto-spawn vehicle near HQ.");
-            }
-
-            // Spawn HoodSpawner for debug hood placement (empty plot, ground-probed Y)
-            if (FindFirstObjectByType<HoodSpawner>() == null)
-            {
-                var hoodObj = new GameObject("HoodSpawner");
-                hoodObj.transform.SetParent(mapRoot, false);
-                var hs = hoodObj.AddComponent<HoodSpawner>();
-                Debug.Log("[CityMap3D] Added HoodSpawner to scene — will auto-spawn debug hood in empty plot.");
             }
         }
 

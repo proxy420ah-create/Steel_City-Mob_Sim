@@ -38,6 +38,16 @@ namespace SteelCity.Sim
         private Quaternion targetRotation;
         private bool hasTargetRotation;
 
+        [Tooltip("If true, camera follows the character during execution.")]
+    public bool cameraFollow = true;
+
+        [Tooltip("How fast camera catches up to character (higher=snappier).")]
+        public float cameraFollowSpeed = 3f;
+
+        private Vector3 currentCameraTarget;
+        private bool hasCameraTarget;
+        private CityMap3D cachedCityMap;
+
         public bool IsRunning => running;
 
         public void Initialize(SimulationManager manager, VoxelCharacter charComponent, Transform root)
@@ -48,6 +58,8 @@ namespace SteelCity.Sim
             running = true;
             tickAccumulator = 0f;
             currentMoveEvent = null;
+            hasCameraTarget = false;
+            cachedCityMap = FindFirstObjectByType<CityMap3D>();
         }
 
         public void Shutdown()
@@ -103,6 +115,32 @@ namespace SteelCity.Sim
             {
                 running = false;
                 OnComplete?.Invoke();
+            }
+
+            // Camera follow: smoothly track character position
+            if (cameraFollow && character != null)
+            {
+                Vector3 charWorld = character.useWorldPosition
+                    ? character.WorldCenter
+                    : character.transform.localPosition + mapRoot.position;
+
+                if (!hasCameraTarget)
+                {
+                    currentCameraTarget = charWorld;
+                    hasCameraTarget = true;
+                }
+                else
+                {
+                    currentCameraTarget = Vector3.Lerp(
+                        currentCameraTarget, charWorld,
+                        cameraFollowSpeed * Time.deltaTime);
+                }
+
+                // Update camera focus using cached reference
+                if (cachedCityMap != null)
+                {
+                    cachedCityMap.SetCameraFocus(currentCameraTarget);
+                }
             }
         }
 

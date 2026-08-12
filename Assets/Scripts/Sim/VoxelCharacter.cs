@@ -1,6 +1,7 @@
 using System.IO;
 using UnityEngine;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 
 namespace SteelCity.Sim
 {
@@ -21,7 +22,7 @@ namespace SteelCity.Sim
     public class VoxelCharacter : MonoBehaviour
     {
         [Header("Asset")]
-        [Tooltip("Filename relative to StreamingAssets/voxel_buildings/")]
+        [Tooltip("Filename relative to StreamingAssets/voxel_characters/")]
         public string assetFileName = "character_hoodlum_0.stasset";
 
         [Header("Voxel Grid")]
@@ -231,7 +232,7 @@ namespace SteelCity.Sim
 
         void LoadAsset()
         {
-            string path = Path.Combine(Application.streamingAssetsPath, "voxel_buildings", assetFileName);
+            string path = Path.Combine(Application.streamingAssetsPath, "voxel_characters", assetFileName);
             if (!File.Exists(path))
             {
                 Debug.LogError($"[VoxelCharacter] Asset not found: {path}");
@@ -312,14 +313,14 @@ namespace SteelCity.Sim
         /// <summary>
         /// Load animation parameters from a .anim.json file (exported by the HTML animator).
         /// The file must be named {assetFileName without .stasset}.anim.json and placed
-        /// alongside the .stasset in StreamingAssets/voxel_buildings/.
+        /// alongside the .stasset in StreamingAssets/voxel_characters/.
         /// If no file exists, the shader falls back to hardcoded sin() animation.
         /// </summary>
         void LoadAndApplyAnimParams()
         {
             // Expected file: character_hoodlum_0.anim.json (next to character_hoodlum_0.stasset)
             string animFileName = Path.GetFileNameWithoutExtension(assetFileName) + ".anim.json";
-            string animPath = Path.Combine(Application.streamingAssetsPath, "voxel_buildings", animFileName);
+            string animPath = Path.Combine(Application.streamingAssetsPath, "voxel_characters", animFileName);
 
             if (!File.Exists(animPath))
             {
@@ -329,13 +330,13 @@ namespace SteelCity.Sim
 
             string jsonText = File.ReadAllText(animPath);
             var jsonData = JsonUtility.FromJson<AnimParamsJson>(jsonText);
-            if (jsonData == null || jsonData.params == null)
+            if (jsonData == null || jsonData.@params == null)
             {
                 Debug.LogWarning($"[VoxelCharacter] Failed to parse {animPath} — using default animation.");
                 return;
             }
 
-            var p = jsonData.params;
+            var p = jsonData.@params;
             var wkf = p.walkKeyframes;
             if (wkf == null)
             {
@@ -423,6 +424,105 @@ namespace SteelCity.Sim
 
             chunkManager.SetWalkKeyframes(assetFileName, kfs, jc, walkConfig);
             Debug.Log($"[VoxelCharacter] Animation parameters loaded from {animFileName} — keyframe walk enabled");
+
+            // Authored per-model pivots — JsonUtility can't parse the int-keyed "pivots" dict,
+            // so parse it manually. Without this, the shader falls back to a hardcoded
+            // fractional pivot approximation that only matches the original hoodlum proportions.
+            var pivotDict = ParsePivotsManual(jsonText);
+            if (pivotDict.Count > 0)
+            {
+                // Fallback fractions matching the shader's hardcoded approximation — used for
+                // any core limb groupID (1-5) missing from the authored dict, so a partial
+                // export doesn't degrade to corner-pivot rotation once pivots are enabled.
+                // Forearms/shins (6-9) inherit their parent's pivot via the FK chain and don't
+                // need a fallback here.
+                var fallback = new Dictionary<int, Vector3>
+                {
+                    { 1, new Vector3(0.5f, 0.78f, 0.5f) },   // head
+                    { 2, new Vector3(0.25f, 0.75f, 0.5f) },  // left arm
+                    { 3, new Vector3(0.75f, 0.75f, 0.5f) },  // right arm
+                    { 4, new Vector3(0.375f, 0.34f, 0.5f) }, // left leg
+                    { 5, new Vector3(0.625f, 0.34f, 0.5f) }, // right leg
+                };
+
+                var pivotArray = new Vector4[10];
+                for (int i = 0; i < 10; i++)
+                {
+                    if (pivotDict.TryGetValue(i, out var v))
+                        pivotArray[i] = new Vector4(v.x, v.y, v.z, 0);
+                    else if (fallback.TryGetValue(i, out var fv))
+                        pivotArray[i] = new Vector4(fv.x, fv.y, fv.z, 0);
+                }
+                chunkManager.SetPivots(assetFileName, pivotArray);
+                Debug.Log($"[VoxelCharacter] Authored pivots loaded from {animFileName} — {pivotDict.Count} groups");
+            }
+
+            // Pack and upload static animation params (looking/aiming/crouching/jointOffset)
+            // as 12 float4s for the GPU shader.
+            var jointOffsets = ParseJointOffsetsManual(jsonText);
+            var asp = new Vector4[12];
+            // [0] = looking params
+            var lp = p.looking;
+            asp[0] = new Vector4(lp != null ? lp.headYaw : 0.5f, lp != null ? lp.headYawFreq : 2.0f,
+                                 lp != null ? lp.headPitch : 0.035f, lp != null ? lp.headPitchFreq : 1.3f);
+            // [1] = aiming torso/head
+            var ap = p.aiming;
+            asp[1] = new Vector4(ap != null ? ap.torsoTwist : 0.2f, ap != null ? ap.headYaw : 0f,
+                                 ap != null ? ap.headPitch : -0.05f, ap != null ? ap.headTilt : 0f);
+            // [2] = aiming arms/shoulders
+            asp[2] = new Vector4(ap != null ? ap.armSwingL : -1.4f, ap != null ? ap.armSwingR : 0f,
+                                 ap != null ? ap.shoulderReachL : 0f, ap != null ? ap.shoulderReachR : 0f);
+            // [3] = aiming elbows + crouching lower
+            var cp = p.crouching;
+            asp[3] = new Vector4(ap != null ? ap.elbowBendL : 0.3f, ap != null ? ap.elbowBendR : 0f,
+                                 cp != null ? cp.bodyLower : 0f, cp != null ? cp.modelLower : 4f);
+            // [4] = crouching lean/head/arms
+            asp[4] = new Vector4(cp != null ? cp.bodyLean : 0f, cp != null ? cp.headPitch : 0f,
+                                 cp != null ? cp.armSwingL : 0f, cp != null ? cp.armSwingR : 0f);
+            // [5] = crouching legs/knees
+            asp[5] = new Vector4(cp != null ? cp.legStrideL : -1.15f, cp != null ? cp.legStrideR : 0f,
+                                 cp != null ? cp.kneeBendL : 1.15f, cp != null ? cp.kneeBendR : 1.40f);
+            // [6] = elbow twist
+            var eb = p.elbowBend;
+            asp[6] = new Vector4(eb != null ? eb.twistL : 0f, eb != null ? eb.twistR : 0f, 0, 0);
+            // [7..11] = jointOffsets for groups 1..5
+            for (int i = 0; i < 5; i++)
+            {
+                int gid = i + 1;
+                if (jointOffsets.TryGetValue(gid, out var jo))
+                    asp[7 + i] = new Vector4(jo.x, jo.y, jo.z, 0);
+                else
+                    asp[7 + i] = Vector4.zero;
+            }
+            chunkManager.SetAnimStaticParams(assetFileName, asp);
+            Debug.Log($"[VoxelCharacter] Static anim params packed and uploaded (looking/aiming/crouching/jointOffset)");
+        }
+
+        /// <summary>
+        /// Parse pivots from raw JSON using regex — JsonUtility cannot deserialize int-keyed
+        /// dictionaries like "pivots": {"0": {"x":..,"y":..,"z":..}, "1": {...}, ...}.
+        /// </summary>
+        private static Dictionary<int, Vector3> ParsePivotsManual(string jsonText)
+        {
+            var result = new Dictionary<int, Vector3>();
+
+            int pivotsStart = jsonText.IndexOf("\"pivots\"");
+            int paramsStart = jsonText.IndexOf("\"params\"");
+            if (pivotsStart < 0 || paramsStart < 0 || paramsStart <= pivotsStart)
+                return result;
+
+            string pivotsSection = jsonText.Substring(pivotsStart, paramsStart - pivotsStart);
+
+            var entryPattern = new Regex(@"""(\d+)""\s*:\s*\{\s*""x""\s*:\s*([\-\d.eE+]+)\s*,\s*""y""\s*:\s*([\-\d.eE+]+)\s*,\s*""z""\s*:\s*([\-\d.eE+]+)\s*\}");
+            foreach (Match m in entryPattern.Matches(pivotsSection))
+            {
+                int gid = int.Parse(m.Groups[1].Value);
+                float x = float.Parse(m.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture);
+                float y = float.Parse(m.Groups[3].Value, System.Globalization.CultureInfo.InvariantCulture);
+                float z = float.Parse(m.Groups[4].Value, System.Globalization.CultureInfo.InvariantCulture);
+                result[gid] = new Vector3(x, y, z);
+            }
+            return result;
         }
 
         // ---- JSON data classes for .anim.json parsing ----
@@ -433,7 +533,36 @@ namespace SteelCity.Sim
         {
             public string format;
             public int version;
-            public AnimParamsData params;
+            public AnimParamsData @params;
+        }
+
+        /// <summary>
+        /// Parse jointOffset from raw JSON using regex — JsonUtility cannot deserialize
+        /// int-keyed dictionaries like "jointOffset": {"1": {"x":0,"y":0,"z":0}, ...}.
+        /// </summary>
+        private static Dictionary<int, Vector3> ParseJointOffsetsManual(string jsonText)
+        {
+            var result = new Dictionary<int, Vector3>();
+            int joStart = jsonText.IndexOf("\"jointOffset\"");
+            if (joStart < 0) return result;
+            int joEnd = jsonText.Length;
+            string[] nextKeys = { "\"walkKeyframes\"", "\"armSwing\"", "\"legStride\"", "\"legTwist\"", "\"elbowBend\"", "\"kneeBend\"", "\"looking\"", "\"aiming\"", "\"crouching\"" };
+            foreach (var key in nextKeys)
+            {
+                int idx = jsonText.IndexOf(key, joStart);
+                if (idx > 0 && idx < joEnd) joEnd = idx;
+            }
+            string joSection = jsonText.Substring(joStart, joEnd - joStart);
+            var entryPattern = new Regex(@"""(\d+)""\s*:\s*\{\s*""x""\s*:\s*([\-\d.eE+]+)\s*,\s*""y""\s*:\s*([\-\d.eE+]+)\s*,\s*""z""\s*:\s*([\-\d.eE+]+)\s*\}");
+            foreach (Match m in entryPattern.Matches(joSection))
+            {
+                int gid = int.Parse(m.Groups[1].Value);
+                float x = float.Parse(m.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture);
+                float y = float.Parse(m.Groups[3].Value, System.Globalization.CultureInfo.InvariantCulture);
+                float z = float.Parse(m.Groups[4].Value, System.Globalization.CultureInfo.InvariantCulture);
+                result[gid] = new Vector3(x, y, z);
+            }
+            return result;
         }
 
         [System.Serializable]
@@ -446,6 +575,48 @@ namespace SteelCity.Sim
             public ElbowBendData elbowBend;
             public KneeBendData kneeBend;
             public LegTwistData legTwist;
+            public LookingData looking;
+            public AimingData aiming;
+            public CrouchingData crouching;
+        }
+
+        [System.Serializable]
+        public class LookingData
+        {
+            public float headYaw;
+            public float headYawFreq;
+            public float headPitch;
+            public float headPitchFreq;
+        }
+
+        [System.Serializable]
+        public class AimingData
+        {
+            public float torsoTwist;
+            public float headYaw;
+            public float headPitch;
+            public float headTilt;
+            public float armSwingL;
+            public float armSwingR;
+            public float shoulderReachL;
+            public float shoulderReachR;
+            public float elbowBendL;
+            public float elbowBendR;
+        }
+
+        [System.Serializable]
+        public class CrouchingData
+        {
+            public float bodyLower;
+            public float modelLower;
+            public float bodyLean;
+            public float headPitch;
+            public float armSwingL;
+            public float armSwingR;
+            public float legStrideL;
+            public float legStrideR;
+            public float kneeBendL;
+            public float kneeBendR;
         }
 
         [System.Serializable]

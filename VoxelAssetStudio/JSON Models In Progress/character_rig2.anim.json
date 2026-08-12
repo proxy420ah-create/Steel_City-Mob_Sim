@@ -1,0 +1,244 @@
+{
+  "format": "anim_params",
+  "version": 1,
+  "pivots": {
+    "0": {
+      "x": 0.5,
+      "y": 0.3645833333333333,
+      "z": 0.5
+    },
+    "1": {
+      "x": 0.5,
+      "y": 0.5,
+      "z": 0.4895833333333333
+    },
+    "2": {
+      "x": 0.625,
+      "y": 0.4583333333333333,
+      "z": 0.4895833333333333
+    },
+    "3": {
+      "x": 0.3541666666666667,
+      "y": 0.4583333333333333,
+      "z": 0.4895833333333333
+    },
+    "4": {
+      "x": 0.5833333333333334,
+      "y": 0.2708333333333333,
+      "z": 0.5
+    },
+    "5": {
+      "x": 0.4166666666666667,
+      "y": 0.2708333333333333,
+      "z": 0.5
+    },
+    "6": {
+      "x": 0.5833333333333334,
+      "y": 0.125,
+      "z": 0.5
+    },
+    "7": {
+      "x": 0.4166666666666667,
+      "y": 0.125,
+      "z": 0.5
+    },
+    "8": {
+      "x": 0.7083333333333334,
+      "y": 0.4270833333333333,
+      "z": 0.4895833333333333
+    },
+    "9": {
+      "x": 0.3125,
+      "y": 0.4270833333333333,
+      "z": 0.4895833333333333
+    }
+  },
+  "params": {
+    "restPose": {
+      "leftArmZ": -1.5707963267948966,
+      "rightArmZ": 1.5707963267948966
+    },
+    "jointOffset": {
+      "1": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "2": {
+        "x": 3,
+        "y": 0,
+        "z": 0
+      },
+      "3": {
+        "x": -3,
+        "y": 0,
+        "z": 0
+      },
+      "4": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "5": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      }
+    },
+    "walk": {
+      "armSwing": 0.3,
+      "armFreq": 6,
+      "legStride": 0.4,
+      "legFreq": 6
+    },
+    "walkKeyframes": {
+      "autoMirror": true,
+      "cycleDuration": 1.2,
+      "interpolation": "spline",
+      "bodyBob": {
+        "enabled": true,
+        "amplitude": 0.6
+      },
+      "weightShift": {
+        "enabled": true,
+        "amplitude": 0.4
+      },
+      "kf0": {
+        "armSwingL": 0.3,
+        "armSwingR": -0.3,
+        "legStrideL": -0.4,
+        "legStrideR": 0.4,
+        "elbowBendL": 0.1,
+        "elbowBendR": 0.1,
+        "kneeBendL": 0,
+        "kneeBendR": 0,
+        "forearmTwistL": 0,
+        "forearmTwistR": 0
+      },
+      "kf1": {
+        "armSwingL": 0,
+        "armSwingR": 0,
+        "legStrideL": 0.3,
+        "legStrideR": -0.1,
+        "elbowBendL": 0.3,
+        "elbowBendR": 0.3,
+        "kneeBendL": 0.8,
+        "kneeBendR": 0.15,
+        "forearmTwistL": 0,
+        "forearmTwistR": 0
+      },
+      "kf2": null,
+      "kf3": null
+    },
+    "armSwing": {
+      "axisL": 0,
+      "axisR": 0,
+      "signL": 1,
+      "signR": 1
+    },
+    "legStride": {
+      "axisL": 0,
+      "axisR": 0,
+      "signL": 1,
+      "signR": 1
+    },
+    "legTwist": {
+      "leftRest": 0,
+      "rightRest": 0
+    },
+    "elbowBend": {
+      "leftRest": 0,
+      "rightRest": 0,
+      "walkAmp": 0.15,
+      "axisL": 1,
+      "axisR": 1,
+      "signL": 1,
+      "signR": -1,
+      "twistL": 0,
+      "twistR": 0,
+      "twistWalkAmp": 0.15
+    },
+    "kneeBend": {
+      "leftRest": 0,
+      "rightRest": 0,
+      "walkAmp": 0.42,
+      "axisL": 0,
+      "axisR": 0,
+      "signL": 1,
+      "signR": 1
+    },
+    "looking": {
+      "headYaw": 0.5,
+      "headYawFreq": 2,
+      "headPitch": 0.035,
+      "headPitchFreq": 1.3
+    },
+    "aiming": {
+      "weaponType": "pistol",
+      "torsoTwist": 0.2,
+      "headYaw": 0,
+      "headPitch": -0.05,
+      "headTilt": 0,
+      "armSwingL": -1.4,
+      "armSwingR": 0,
+      "shoulderReachL": 0,
+      "shoulderReachR": 0,
+      "elbowBendL": 0.3,
+      "elbowBendR": 0
+    },
+    "crouching": {
+      "bodyLower": 0,
+      "modelLower": 4,
+      "bodyLean": 0,
+      "headPitch": 0,
+      "armSwingL": 0,
+      "armSwingR": 0,
+      "legStrideL": -1.15,
+      "legStrideR": 0,
+      "kneeBendL": 1.15,
+      "kneeBendR": 1.4
+    }
+  },
+  "states": [
+    {
+      "id": 0,
+      "name": "Idle",
+      "desc": "Standing still"
+    },
+    {
+      "id": 1,
+      "name": "Walking",
+      "desc": "Walking cycle — arms/legs swing"
+    },
+    {
+      "id": 2,
+      "name": "Looking",
+      "desc": "Head looking around — scanning / checking environment"
+    },
+    {
+      "id": 3,
+      "name": "Aim Walk",
+      "desc": "Aiming pose (upper body) + walking gait (lower body)"
+    },
+    {
+      "id": 4,
+      "name": "Aiming",
+      "desc": "Static aiming pose — arms raised, weapon-type presets"
+    },
+    {
+      "id": 5,
+      "name": "Crouching",
+      "desc": "Crouch pose — legs bent, arms forward"
+    },
+    {
+      "id": 8,
+      "name": "Down",
+      "desc": "Lying down / defeated"
+    },
+    {
+      "id": 9,
+      "name": "T-Pose",
+      "desc": "Bind/rest pose — raw rigging position as imported from the editor. No rotations applied. Use this to inspect the unmodified skeleton."
+    }
+  ]
+}

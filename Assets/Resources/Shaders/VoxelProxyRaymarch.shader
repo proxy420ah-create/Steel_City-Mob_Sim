@@ -116,6 +116,31 @@ Shader "SteelCity/VoxelProxyRaymarch"
             // Walk cycle config: (cycleDuration, bodyBobAmp, weightShiftAmp, autoMirror)
             float4 _WalkConfig;
 
+            // --- Authored per-model joint pivots (from .anim.json "pivots" dict) ---
+            // _Pivots[groupID].xyz = normalized fraction of dims (0.0-1.0). Overrides the
+            // hardcoded fractional pivot approximation below when enabled, so models with
+            // proportions different from the original hoodlum (16x32x10) still articulate
+            // at the correct joint locations.
+            StructuredBuffer<float4> _Pivots;
+            int _PivotsEnabled;
+
+            // --- Static animation parameters (looking/aiming/crouching/jointOffset) ---
+            // Packed as 12 float4s, uploaded once per character type:
+            // [0]  = (looking.headYaw, looking.headYawFreq, looking.headPitch, looking.headPitchFreq)
+            // [1]  = (aiming.torsoTwist, aiming.headYaw, aiming.headPitch, aiming.headTilt)
+            // [2]  = (aiming.armSwingL, aiming.armSwingR, aiming.shoulderReachL, aiming.shoulderReachR)
+            // [3]  = (aiming.elbowBendL, aiming.elbowBendR, crouching.bodyLower, crouching.modelLower)
+            // [4]  = (crouching.bodyLean, crouching.headPitch, crouching.armSwingL, crouching.armSwingR)
+            // [5]  = (crouching.legStrideL, crouching.legStrideR, crouching.kneeBendL, crouching.kneeBendR)
+            // [6]  = (elbowTwistL, elbowTwistR, 0, 0)
+            // [7]  = (jointOffset_1.x, jointOffset_1.y, jointOffset_1.z, 0)  -- head
+            // [8]  = (jointOffset_2.x, jointOffset_2.y, jointOffset_2.z, 0)  -- left arm
+            // [9]  = (jointOffset_3.x, jointOffset_3.y, jointOffset_3.z, 0)  -- right arm
+            // [10] = (jointOffset_4.x, jointOffset_4.y, jointOffset_4.z, 0)  -- left leg
+            // [11] = (jointOffset_5.x, jointOffset_5.y, jointOffset_5.z, 0)  -- right leg
+            StructuredBuffer<float4> _AnimStaticParams;
+            int _AnimStaticParamsEnabled;
+
             // --- Building instancing (sector baking): per-building metadata in a flat merged buffer ---
             // _BuildingMeta[i] = (bufferOffset, dimsX, dimsY, dimsZ)
             // _BuildingPositions[i] = (worldOffsetX, worldOffsetY, worldOffsetZ, 0)
@@ -300,202 +325,419 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 return phase / cycleDur;
             }
 
-            // Compute per-group rotation for a given animation state.
-            // Returns false if the state has no transform for this group (idle/unhandled).
-            // pivot and rot are outputs. pivot is in world units (voxelSize already applied).
-            bool ComputeGroupRotation(
-                uint groupID, float3 dims, float voxelSize,
-                float animState, float animTime, float animSpeed,
-                out float3 pivot, out float3x3 rot)
+            // ---- Animation structs ----
+            struct TransformEntry {
+                float3 pivot;
+                float3x3 rot;
+            };
+
+            struct GroupTransformResult {
+                TransformEntry chain[3];  // max: own + parent + body
+                int chainLength;
+                float3 offset;
+            };
+
+            // ---- Pivot helper (voxel units, caller multiplies by voxelSize) ----
+            float3 GetGroupPivotRaw(uint groupID, float3 dims)
             {
-                float3 headPivot   = float3(dims.x * 0.5, dims.y * 0.78, dims.z * 0.5);
-                float3 lArmPivot   = float3(dims.x * 0.25, dims.y * 0.75, dims.z * 0.5);
-                float3 rArmPivot   = float3(dims.x * 0.75, dims.y * 0.75, dims.z * 0.5);
-                float3 lLegPivot   = float3(dims.x * 0.375, dims.y * 0.34, dims.z * 0.5);
-                float3 rLegPivot   = float3(dims.x * 0.625, dims.y * 0.34, dims.z * 0.5);
+                if (_PivotsEnabled)
+                    return _Pivots[groupID].xyz * dims;
+                // Fallbacks matching CPU GetDefaultPivots
+                if (groupID == 0u) return float3(0.5, 0.4, 0.5) * dims;
+                if (groupID == 1u) return float3(0.5, 0.78, 0.5) * dims;
+                if (groupID == 2u) return float3(0.25, 0.75, 0.5) * dims;
+                if (groupID == 3u) return float3(0.75, 0.75, 0.5) * dims;
+                if (groupID == 4u) return float3(0.375, 0.34, 0.5) * dims;
+                if (groupID == 5u) return float3(0.625, 0.34, 0.5) * dims;
+                if (groupID == 6u) return float3(0.375, 0.20, 0.5) * dims;
+                if (groupID == 7u) return float3(0.625, 0.20, 0.5) * dims;
+                if (groupID == 8u) return float3(0.25, 0.75, 0.5) * dims;
+                if (groupID == 9u) return float3(0.75, 0.75, 0.5) * dims;
+                return float3(0, 0, 0);
+            }
+
+            // ---- Static anim param helpers ----
+            float4 ASP(int idx) { return _AnimStaticParamsEnabled ? _AnimStaticParams[idx] : float4(0,0,0,0); }
+
+            // ---- Compute single group's own rotation (no FK chain) ----
+            // Direct port of CPU VoxelCharacterAnimator.ComputeGroupRotation per-group logic.
+            // Returns false if no rotation applies for this group in this state.
+            bool ComputeOwnRotation(
+                uint gid, float3 dims, float voxelSize,
+                float animState, float animTime, float animSpeed,
+                out float3x3 rot)
+            {
+                rot = float3x3(1,0,0, 0,1,0, 0,0,1);
                 float PI = 3.14159265;
-                pivot = float3(0, 0, 0);
-                rot = float3x3(1, 0, 0, 0, 1, 0, 0, 0, 1);
 
-                // Precompute walk cycle phase for walking states (1=Walking, 3=Aim Walk)
-                bool isWalking = (animState > 0.5 && animState < 1.5) || (animState > 2.5 && animState < 3.5);
+                bool isWalkState = animState > 0.5 && animState < 1.5;       // Walking (1) only
+                bool isAimWalkState = animState > 2.5 && animState < 3.5;    // Aim Walk (3) only
+                bool isAimingState = animState > 2.5 && animState < 4.5;     // Aim Walk (3) or Aiming (4)
+                bool isCrouchingState = animState > 4.5 && animState < 5.5;
+
                 float walkPhase = 0.0;
-                if (isWalking && _WalkKeyframesEnabled != 0)
+                bool useKeyframesWalk = false;           // Walking only — for arms/forearms
+                bool useKeyframesWalkOrAimWalk = false;  // Walking or Aim Walk — for legs/shins
+                if ((isWalkState || isAimWalkState) && _WalkKeyframesEnabled != 0) {
                     walkPhase = GetWalkCyclePhase(animTime, animSpeed);
-                bool useKeyframes = isWalking && _WalkKeyframesEnabled != 0;
+                    useKeyframesWalkOrAimWalk = true;
+                    if (isWalkState) useKeyframesWalk = true;
+                }
 
-                // Joint config shortcuts (only valid if _JointConfigEnabled)
+                // Joint config shortcuts
                 float4 armCfg   = _JointConfigEnabled ? _JointConfig[0] : float4(0, 0, 1, 1);
                 float4 legCfg   = _JointConfigEnabled ? _JointConfig[1] : float4(0, 0, 1, 1);
-                float4 elbowCfg = _JointConfigEnabled ? _JointConfig[2] : float4(0, 0, 1, 1);
+                float4 elbowCfg = _JointConfigEnabled ? _JointConfig[2] : float4(1, 1, 1, -1);
                 float4 kneeCfg  = _JointConfigEnabled ? _JointConfig[3] : float4(0, 0, 1, 1);
                 float4 twistCfg = _JointConfigEnabled ? _JointConfig[4] : float4(0, 0, 0, 0);
-                float4 restCfg  = _JointConfigEnabled ? _JointConfig[5] : float4(-1.5708, 1.5708, 0.2, 0.2);
-                float4 kneeRest = _JointConfigEnabled ? _JointConfig[6] : float4(0.1, 0.1, 0, 0);
+                float4 restCfg  = _JointConfigEnabled ? _JointConfig[5] : float4(-1.5708, 1.5708, 0, 0);
+                float4 kneeRest = _JointConfigEnabled ? _JointConfig[6] : float4(0, 0, 0, 0);
 
-                if (groupID == 1u) // Head
+                // Static anim params (with fallbacks matching CPU defaults)
+                float4 lookP   = ASP(0); if (!_AnimStaticParamsEnabled) lookP = float4(0.5, 2.0, 0.035, 1.3);
+                float4 aimP1   = ASP(1); if (!_AnimStaticParamsEnabled) aimP1 = float4(0.2, 0, -0.05, 0);
+                float4 aimP2   = ASP(2); if (!_AnimStaticParamsEnabled) aimP2 = float4(-1.4, 0, 0, 0);
+                float4 aimP3   = ASP(3); if (!_AnimStaticParamsEnabled) aimP3 = float4(0.3, 0, 0, 4);
+                float4 crouchP1= ASP(4); if (!_AnimStaticParamsEnabled) crouchP1 = float4(0, 0, 0, 0);
+                float4 crouchP2= ASP(5); if (!_AnimStaticParamsEnabled) crouchP2 = float4(-1.15, 0, 1.15, 1.40);
+                float2 elbowTw = ASP(6).xy; if (!_AnimStaticParamsEnabled) elbowTw = float2(0, 0);
+
+                if (gid == 1u) // Head
                 {
-                    pivot = headPivot * voxelSize;
-                    float headYaw = 0.0, headPitch = 0.0;
-                    if (animState > 1.5 && animState < 3.5) { // Looking or Checking
-                        headYaw = sin(animTime * 2.0) * 0.5;
-                        headPitch = sin(animTime * 1.3) * 0.1;
-                    } else if (animState > 3.5 && animState < 4.5) { // Aiming
-                        headYaw = 0.3; headPitch = -0.1;
-                    } else if (animState > 5.5 && animState < 6.5) { // Crouching
-                        headPitch = 0.2;
-                    } else if (animState > 6.5 && animState < 7.5) { // Flinching
-                        headPitch = 0.4;
-                    } else return false;
-                    rot = mul(RotationY(headYaw), RotationX(headPitch));
+                    float headYaw = 0.0, headPitch = 0.0, headTilt = 0.0;
+                    if (animState > 1.5 && animState < 2.5) { // Looking (state 2 only)
+                        headYaw = sin(animTime * lookP.y) * lookP.x;
+                        headPitch = sin(animTime * lookP.w) * lookP.z;
+                    } else if (isAimingState) { // Aim Walk (3) or Aiming (4)
+                        headYaw = aimP1.y;
+                        headPitch = aimP1.z;
+                        headTilt = aimP1.w;
+                    } else if (isCrouchingState) { // Crouching (5)
+                        headPitch = crouchP1.y;
+                    } else {
+                        return false; // Idle: head at rest
+                    }
+                    rot = mul(RotationY(headYaw), mul(RotationX(headPitch), RotationZ(headTilt)));
                     return true;
                 }
-                else if (groupID == 2u) // Left arm
+                else if (gid == 2u) // Left arm (shoulder)
                 {
-                    pivot = lArmPivot * voxelSize;
                     float swing = 0.0;
-                    if (useKeyframes) // Walking — keyframe pose
+                    float reach = 0.0;
+                    if (useKeyframesWalk) { // Walking only — keyframe pose
                         swing = armCfg.z * GetWalkPoseValue(0, walkPhase, _WalkConfig.w > 0.5);
-                    else if (animState > 3.5 && animState < 4.5) swing = -1.2; // Aiming
-                    else if (animState > 5.5 && animState < 6.5) swing = 0.3;  // Crouching
-                    else if (animState > 6.5 && animState < 7.5) swing = -1.5; // Flinching
-                    else if (isWalking) { // Walking fallback (no keyframe buffer)
-                        swing = sin(animTime * 6.0 * animSpeed) * 0.3;
-                        rot = RotationX(swing);
+                    } else if (isAimingState) { // Aim Walk (3) or Aiming (4)
+                        swing = armCfg.z * aimP2.x;       // signL * aiming.armSwingL
+                        reach = aimP2.z;                   // aiming.shoulderReachL
+                    } else if (isCrouchingState) {
+                        swing = armCfg.z * crouchP1.z;     // signL * crouching.armSwingL
+                    } else {
+                        rot = RotationZ(restCfg.x);        // Idle: restPose.leftArmZ
                         return true;
                     }
-                    else return false;
-                    // Compose: Z (rest pose) → swing axis
-                    int axis = (int)armCfg.x;
-                    rot = mul(RotationByAxis(axis, swing), RotationZ(restCfg.x));
+                    // Compose: Y(reach) * axis(swing) * Z(restPose)
+                    rot = mul(RotationY(reach), mul(RotationByAxis((int)armCfg.x, swing), RotationZ(restCfg.x)));
                     return true;
                 }
-                else if (groupID == 3u) // Right arm
+                else if (gid == 3u) // Right arm (shoulder)
                 {
-                    pivot = rArmPivot * voxelSize;
                     float swing = 0.0;
-                    if (useKeyframes) // Walking — keyframe pose
+                    float reach = 0.0;
+                    if (useKeyframesWalk) {
                         swing = armCfg.w * GetWalkPoseValue(1, walkPhase, _WalkConfig.w > 0.5);
-                    else if (animState > 3.5 && animState < 4.5) swing = -1.2; // Aiming
-                    else if (animState > 5.5 && animState < 6.5) swing = -0.3; // Crouching
-                    else if (animState > 6.5 && animState < 7.5) swing = -1.5; // Flinching
-                    else if (isWalking) { // Walking fallback (no keyframe buffer)
-                        swing = sin(animTime * 6.0 * animSpeed + PI) * 0.3;
-                        rot = RotationX(swing);
+                    } else if (isAimingState) {
+                        swing = armCfg.w * aimP2.y;        // signR * aiming.armSwingR
+                        reach = aimP2.w;                    // aiming.shoulderReachR
+                    } else if (isCrouchingState) {
+                        swing = armCfg.w * crouchP1.w;     // signR * crouching.armSwingR
+                    } else {
+                        rot = RotationZ(restCfg.y);        // Idle: restPose.rightArmZ
                         return true;
                     }
-                    else return false;
-                    int axis = (int)armCfg.y;
-                    rot = mul(RotationByAxis(axis, swing), RotationZ(restCfg.y));
+                    rot = mul(RotationY(reach), mul(RotationByAxis((int)armCfg.y, swing), RotationZ(restCfg.y)));
                     return true;
                 }
-                else if (groupID == 4u) // Left leg
+                else if (gid == 4u) // Left leg (hip)
                 {
-                    pivot = lLegPivot * voxelSize;
+                    float twist = twistCfg.x; // legTwist.leftRest
                     float stride = 0.0;
-                    float twist = twistCfg.x;
-                    if (useKeyframes) // Walking — keyframe pose
+                    if (useKeyframesWalkOrAimWalk) { // Walking or Aim Walk
                         stride = legCfg.z * GetWalkPoseValue(2, walkPhase, _WalkConfig.w > 0.5);
-                    else if (animState > 5.5 && animState < 6.5) stride = 0.6;  // Crouching
-                    else if (animState > 7.5 && animState < 8.5) stride = -0.5; // Falling
-                    else if (isWalking) { // Walking fallback (no keyframe buffer)
-                        stride = sin(animTime * 6.0 * animSpeed + PI) * 0.4;
-                        rot = RotationX(stride);
+                    } else if (isCrouchingState) {
+                        stride = legCfg.z * crouchP2.x;    // signL * crouching.legStrideL
+                    } else {
+                        rot = RotationY(twist);            // Idle: straight + twist
                         return true;
                     }
-                    else return false;
-                    // Compose: Y twist (base orientation) → stride axis
-                    int axis = (int)legCfg.x;
-                    rot = mul(RotationByAxis(axis, stride), RotationY(twist));
+                    // Compose: axis(stride) * Y(twist)
+                    rot = mul(RotationByAxis((int)legCfg.x, stride), RotationY(twist));
                     return true;
                 }
-                else if (groupID == 5u) // Right leg
+                else if (gid == 5u) // Right leg (hip)
                 {
-                    pivot = rLegPivot * voxelSize;
+                    float twist = twistCfg.y; // legTwist.rightRest
                     float stride = 0.0;
-                    float twist = twistCfg.y;
-                    if (useKeyframes) // Walking — keyframe pose
+                    if (useKeyframesWalkOrAimWalk) {
                         stride = legCfg.w * GetWalkPoseValue(3, walkPhase, _WalkConfig.w > 0.5);
-                    else if (animState > 5.5 && animState < 6.5) stride = 0.6;  // Crouching
-                    else if (animState > 7.5 && animState < 8.5) stride = 0.5;  // Falling
-                    else if (isWalking) { // Walking fallback (no keyframe buffer)
-                        stride = sin(animTime * 6.0 * animSpeed) * 0.4;
-                        rot = RotationX(stride);
+                    } else if (isCrouchingState) {
+                        stride = legCfg.w * crouchP2.y;    // signR * crouching.legStrideR
+                    } else {
+                        rot = RotationY(twist);
                         return true;
                     }
-                    else return false;
-                    int axis = (int)legCfg.y;
-                    rot = mul(RotationByAxis(axis, stride), RotationY(twist));
+                    rot = mul(RotationByAxis((int)legCfg.y, stride), RotationY(twist));
                     return true;
                 }
-                else if (groupID == 8u) // Left forearm (elbow hinge + twist)
+                else if (gid == 8u) // Left forearm (elbow hinge + twist)
                 {
-                    pivot = lArmPivot * voxelSize; // same pivot as shoulder — FK chain handles offset
-                    float bend = elbowCfg.z * restCfg.z; // signL * leftRest
-                    float twist = 0.0;
-                    if (useKeyframes) {
+                    float bend = elbowCfg.z * restCfg.z;   // signL * leftRest
+                    float twist = elbowTw.x;                // eb.twistL
+                    if (useKeyframesWalk) {
                         bend = elbowCfg.z * GetWalkPoseValue(4, walkPhase, _WalkConfig.w > 0.5);
                         twist = GetWalkPoseValue(8, walkPhase, _WalkConfig.w > 0.5);
+                    } else if (isAimingState) {
+                        bend = elbowCfg.z * aimP3.x;        // signL * aiming.elbowBendL
                     }
-                    int axis = (int)elbowCfg.x;
-                    rot = RotationByAxis(axis, bend);
+                    rot = RotationByAxis((int)elbowCfg.x, bend);
                     if (twist != 0.0) rot = mul(rot, RotationX(twist));
                     return true;
                 }
-                else if (groupID == 9u) // Right forearm (elbow hinge + twist)
+                else if (gid == 9u) // Right forearm (elbow hinge + twist)
                 {
-                    pivot = rArmPivot * voxelSize;
-                    float bend = elbowCfg.w * restCfg.w; // signR * rightRest
-                    float twist = 0.0;
-                    if (useKeyframes) {
+                    float bend = elbowCfg.w * restCfg.w;   // signR * rightRest
+                    float twist = elbowTw.y;                // eb.twistR
+                    if (useKeyframesWalk) {
                         bend = elbowCfg.w * GetWalkPoseValue(5, walkPhase, _WalkConfig.w > 0.5);
                         twist = GetWalkPoseValue(9, walkPhase, _WalkConfig.w > 0.5);
+                    } else if (isAimingState) {
+                        bend = elbowCfg.w * aimP3.y;        // signR * aiming.elbowBendR
                     }
-                    int axis = (int)elbowCfg.y;
-                    rot = RotationByAxis(axis, bend);
+                    rot = RotationByAxis((int)elbowCfg.y, bend);
                     if (twist != 0.0) rot = mul(rot, RotationX(twist));
                     return true;
                 }
-                else if (groupID == 6u) // Left shin (knee hinge)
+                else if (gid == 6u) // Left shin (knee hinge)
                 {
-                    pivot = lLegPivot * voxelSize; // same pivot as hip — FK chain handles offset
-                    float bend = kneeCfg.z * kneeRest.x; // signL * leftRest
-                    if (useKeyframes)
+                    float bend = kneeCfg.z * kneeRest.x;   // signL * leftRest
+                    if (useKeyframesWalkOrAimWalk) {
                         bend = kneeCfg.z * GetWalkPoseValue(6, walkPhase, _WalkConfig.w > 0.5);
-                    int axis = (int)kneeCfg.x;
-                    rot = RotationByAxis(axis, bend);
+                    } else if (isCrouchingState) {
+                        bend += kneeCfg.z * crouchP2.z;    // signL * crouching.kneeBendL
+                    }
+                    rot = RotationByAxis((int)kneeCfg.x, bend);
                     return true;
                 }
-                else if (groupID == 7u) // Right shin (knee hinge)
+                else if (gid == 7u) // Right shin (knee hinge)
                 {
-                    pivot = rLegPivot * voxelSize;
-                    float bend = kneeCfg.w * kneeRest.y; // signR * rightRest
-                    if (useKeyframes)
+                    float bend = kneeCfg.w * kneeRest.y;   // signR * rightRest
+                    if (useKeyframesWalkOrAimWalk) {
                         bend = kneeCfg.w * GetWalkPoseValue(7, walkPhase, _WalkConfig.w > 0.5);
-                    int axis = (int)kneeCfg.y;
-                    rot = RotationByAxis(axis, bend);
+                    } else if (isCrouchingState) {
+                        bend += kneeCfg.w * crouchP2.w;    // signR * crouching.kneeBendR
+                    }
+                    rot = RotationByAxis((int)kneeCfg.y, bend);
                     return true;
                 }
+
                 return false;
             }
 
-            // Forward transform: restPos → posedPos offset
+            // ---- Compute group offset (matches CPU offset logic) ----
+            // Returns offset in WORLD units (raw JSON values scaled by voxelSize).
+            // Inlined: HLSL doesn't allow recursion. Children's parent is always a root
+            // group (2,3,4,5), so we inline the root-group offset logic directly.
+            float3 ComputeGroupOffset(uint gid, bool hasParent, uint parentGid,
+                float bodyLower, float modelLower, float voxelSize)
+            {
+                float3 offset = float3(0, 0, 0);
+                if (hasParent) {
+                    // Children inherit parent's offset — inline parent's root-group logic
+                    uint pgid = parentGid;
+                    int pJoIdx = 6 + (int)pgid;
+                    if (_AnimStaticParamsEnabled)
+                        offset = _AnimStaticParams[pJoIdx].xyz;
+                    if (bodyLower != 0.0 && (pgid == 1u || pgid == 2u || pgid == 3u))
+                        offset.y -= bodyLower;
+                    if (modelLower != 0.0 && (pgid >= 1u && pgid <= 5u))
+                        offset.y -= modelLower;
+                } else if (gid >= 1u && gid <= 5u) {
+                    // Root parent groups: use jointOffset (raw voxel units from JSON)
+                    int joIdx = 6 + (int)gid;
+                    if (_AnimStaticParamsEnabled)
+                        offset = _AnimStaticParams[joIdx].xyz;
+                    // Add bodyLower to upper body parent groups (head, arms) — not legs
+                    if (bodyLower != 0.0 && (gid == 1u || gid == 2u || gid == 3u))
+                        offset.y -= bodyLower;
+                    // Add modelLower to ALL root parent groups (1-5)
+                    if (modelLower != 0.0 && (gid >= 1u && gid <= 5u))
+                        offset.y -= modelLower;
+                }
+                return offset * voxelSize;
+            }
+
+            // ---- Compute full transform chain for a group (matches CPU ComputeGroupRotation) ----
+            bool ComputeGroupRotation(
+                uint groupID, float3 dims, float voxelSize,
+                float animState, float animTime, float animSpeed,
+                out GroupTransformResult result)
+            {
+                result.chainLength = 0;
+                result.offset = float3(0, 0, 0);
+                result.chain[0].pivot = float3(0,0,0); result.chain[0].rot = float3x3(1,0,0, 0,1,0, 0,0,1);
+                result.chain[1].pivot = float3(0,0,0); result.chain[1].rot = float3x3(1,0,0, 0,1,0, 0,0,1);
+                result.chain[2].pivot = float3(0,0,0); result.chain[2].rot = float3x3(1,0,0, 0,1,0, 0,0,1);
+
+                // T-Pose: no transforms
+                if (animState > 8.5 && animState < 9.5) return false;
+
+                // Body transform params
+                bool isAimingState = animState > 2.5 && animState < 4.5; // Aim Walk (3) or Aiming (4)
+                bool isCrouchingState = animState > 4.5 && animState < 5.5; // Crouching (5)
+                float torsoTwist = isAimingState ? (_AnimStaticParamsEnabled ? _AnimStaticParams[1].x : 0.2) : 0.0;
+                float bodyLean = isCrouchingState ? (_AnimStaticParamsEnabled ? _AnimStaticParams[4].x : 0.0) : 0.0;
+                float bodyLower = isCrouchingState ? (_AnimStaticParamsEnabled ? _AnimStaticParams[3].z : 0.0) : 0.0;
+                float modelLower = isCrouchingState ? (_AnimStaticParamsEnabled ? _AnimStaticParams[3].w : 4.0) : 0.0;
+                bool hasBodyRot = (torsoTwist != 0.0) || (bodyLean != 0.0);
+
+                float3x3 bodyRot = float3x3(1,0,0, 0,1,0, 0,0,1);
+                if (hasBodyRot) {
+                    if (bodyLean != 0.0) bodyRot = mul(RotationX(bodyLean), bodyRot);
+                    if (torsoTwist != 0.0) bodyRot = mul(RotationY(torsoTwist), bodyRot);
+                }
+                float3 bodyPivot = GetGroupPivotRaw(0u, dims) * voxelSize;
+                float3 bodyOffset = float3(0, -bodyLower - modelLower, 0) * voxelSize;
+
+                // Group 0 (body)
+                if (groupID == 0u) {
+                    if (hasBodyRot) {
+                        result.chain[0].pivot = bodyPivot;
+                        result.chain[0].rot = bodyRot;
+                        result.chainLength = 1;
+                    }
+                    result.offset = bodyOffset;
+                    return hasBodyRot || (bodyLower != 0.0) || (modelLower != 0.0);
+                }
+
+                // Parent mapping
+                uint parentGid = 0u;
+                bool hasParent = false;
+                if (groupID == 8u) { parentGid = 2u; hasParent = true; }
+                else if (groupID == 9u) { parentGid = 3u; hasParent = true; }
+                else if (groupID == 6u) { parentGid = 4u; hasParent = true; }
+                else if (groupID == 7u) { parentGid = 5u; hasParent = true; }
+
+                // Compute own rotation
+                float3x3 ownRot;
+                bool hasOwnRot = ComputeOwnRotation(groupID, dims, voxelSize, animState, animTime, animSpeed, ownRot);
+
+                // Compute parent rotation (if child)
+                float3x3 parentRot;
+                bool hasParentRot = false;
+                if (hasParent) {
+                    hasParentRot = ComputeOwnRotation(parentGid, dims, voxelSize, animState, animTime, animSpeed, parentRot);
+                }
+
+                // Check if body transform applies to this group or its parent
+                bool bodyApplies = hasBodyRot && (
+                    (!hasParent && (groupID == 1u || groupID == 2u || groupID == 3u)) ||
+                    (hasParent && (parentGid == 2u || parentGid == 3u))
+                );
+
+                if (!hasOwnRot && !hasParentRot && !bodyApplies) {
+                    // Still might have offset
+                    result.offset = ComputeGroupOffset(groupID, hasParent, parentGid, bodyLower, modelLower, voxelSize);
+                    return result.offset.x != 0.0 || result.offset.y != 0.0 || result.offset.z != 0.0;
+                }
+
+                // Build chain: [own, parent_own, body]
+                // Chain order matches CPU: own first, then parent's chain, then body (outermost)
+                // All indices are compile-time constants — HLSL requires this for local arrays.
+                if (hasOwnRot && hasParentRot && bodyApplies) {
+                    result.chain[0].pivot = GetGroupPivotRaw(groupID, dims) * voxelSize; result.chain[0].rot = ownRot;
+                    result.chain[1].pivot = GetGroupPivotRaw(parentGid, dims) * voxelSize; result.chain[1].rot = parentRot;
+                    result.chain[2].pivot = bodyPivot; result.chain[2].rot = bodyRot;
+                    result.chainLength = 3;
+                } else if (hasOwnRot && hasParentRot) {
+                    result.chain[0].pivot = GetGroupPivotRaw(groupID, dims) * voxelSize; result.chain[0].rot = ownRot;
+                    result.chain[1].pivot = GetGroupPivotRaw(parentGid, dims) * voxelSize; result.chain[1].rot = parentRot;
+                    result.chainLength = 2;
+                } else if (hasOwnRot && bodyApplies) {
+                    result.chain[0].pivot = GetGroupPivotRaw(groupID, dims) * voxelSize; result.chain[0].rot = ownRot;
+                    result.chain[1].pivot = bodyPivot; result.chain[1].rot = bodyRot;
+                    result.chainLength = 2;
+                } else if (hasParentRot && bodyApplies) {
+                    result.chain[0].pivot = GetGroupPivotRaw(parentGid, dims) * voxelSize; result.chain[0].rot = parentRot;
+                    result.chain[1].pivot = bodyPivot; result.chain[1].rot = bodyRot;
+                    result.chainLength = 2;
+                } else if (hasOwnRot) {
+                    result.chain[0].pivot = GetGroupPivotRaw(groupID, dims) * voxelSize; result.chain[0].rot = ownRot;
+                    result.chainLength = 1;
+                } else if (hasParentRot) {
+                    result.chain[0].pivot = GetGroupPivotRaw(parentGid, dims) * voxelSize; result.chain[0].rot = parentRot;
+                    result.chainLength = 1;
+                } else if (bodyApplies) {
+                    result.chain[0].pivot = bodyPivot; result.chain[0].rot = bodyRot;
+                    result.chainLength = 1;
+                } else {
+                    result.chainLength = 0;
+                }
+
+                // Compute offset
+                result.offset = ComputeGroupOffset(groupID, hasParent, parentGid, bodyLower, modelLower, voxelSize);
+
+                return true;
+            }
+
+            // ---- Inverse transform: posedPos -> restPos offset ----
+            // Used in the DDA loop to sample voxel data at rest positions.
+            // Applies inverse of the full transform chain (body, parent, own) in reverse order,
+            // then subtracts the offset. Matches CPU PoseVoxels inverse.
+            float3 InverseGroupTransformOffset(
+                uint groupID, float3 voxelLocalPos, float3 dims, float voxelSize,
+                float animState, float animTime, float animSpeed)
+            {
+                if (groupID == 0u) {
+                    // Body group: inverse of body transform + offset
+                    GroupTransformResult r;
+                    if (!ComputeGroupRotation(0u, dims, voxelSize, animState, animTime, animSpeed, r))
+                        return float3(0, 0, 0);
+                    float3 restPos = voxelLocalPos - r.offset;
+                    if (2 < r.chainLength) { float3 rel = restPos - r.chain[2].pivot; restPos = mul(transpose(r.chain[2].rot), rel) + r.chain[2].pivot; }
+                    if (1 < r.chainLength) { float3 rel = restPos - r.chain[1].pivot; restPos = mul(transpose(r.chain[1].rot), rel) + r.chain[1].pivot; }
+                    if (0 < r.chainLength) { float3 rel = restPos - r.chain[0].pivot; restPos = mul(transpose(r.chain[0].rot), rel) + r.chain[0].pivot; }
+                    return restPos - voxelLocalPos;
+                }
+
+                GroupTransformResult result;
+                if (!ComputeGroupRotation(groupID, dims, voxelSize, animState, animTime, animSpeed, result))
+                    return float3(0, 0, 0);
+
+                // Inverse: subtract offset first, then apply inverse chain in reverse order
+                float3 restPos = voxelLocalPos - result.offset;
+                if (2 < result.chainLength) { float3 rel = restPos - result.chain[2].pivot; restPos = mul(transpose(result.chain[2].rot), rel) + result.chain[2].pivot; }
+                if (1 < result.chainLength) { float3 rel = restPos - result.chain[1].pivot; restPos = mul(transpose(result.chain[1].rot), rel) + result.chain[1].pivot; }
+                if (0 < result.chainLength) { float3 rel = restPos - result.chain[0].pivot; restPos = mul(transpose(result.chain[0].rot), rel) + result.chain[0].pivot; }
+                return restPos - voxelLocalPos;
+            }
+
+            // Forward transform: restPos -> posedPos offset (kept for reference/debugging)
             float3 GroupTransformOffset(
                 uint groupID, float3 voxelLocalPos, float3 dims, float voxelSize,
                 float animState, float animTime, float animSpeed)
             {
                 if (groupID == 0u) return float3(0, 0, 0);
-                float3 pivot; float3x3 rot;
-                if (!ComputeGroupRotation(groupID, dims, voxelSize, animState, animTime, animSpeed, pivot, rot))
+                GroupTransformResult result;
+                if (!ComputeGroupRotation(groupID, dims, voxelSize, animState, animTime, animSpeed, result))
                     return float3(0, 0, 0);
-                float3 relPos = voxelLocalPos - pivot;
-                float3 transformedPos = mul(rot, relPos) + pivot;
-                return transformedPos - voxelLocalPos;
+                float3 pos = voxelLocalPos;
+                if (0 < result.chainLength) { float3 rel = pos - result.chain[0].pivot; pos = mul(result.chain[0].rot, rel) + result.chain[0].pivot; }
+                if (1 < result.chainLength) { float3 rel = pos - result.chain[1].pivot; pos = mul(result.chain[1].rot, rel) + result.chain[1].pivot; }
+                if (2 < result.chainLength) { float3 rel = pos - result.chain[2].pivot; pos = mul(result.chain[2].rot, rel) + result.chain[2].pivot; }
+                pos += result.offset;
+                return pos - voxelLocalPos;
             }
 
-            // PARENT_OF map for FK chains: child → parent
-            // 8 (L Forearm) → 2 (L Arm), 9 (R Forearm) → 3 (R Arm)
-            // 6 (L Shin) → 4 (L Leg), 7 (R Shin) → 5 (R Leg)
+            // PARENT_OF map for FK chains: child -> parent
             uint ParentOfGroup(uint gid)
             {
                 if (gid == 8u) return 2u;
@@ -503,41 +745,6 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 if (gid == 6u) return 4u;
                 if (gid == 7u) return 5u;
                 return 0u; // no parent (body or unknown)
-            }
-
-            // Inverse transform: posedPos → restPos offset
-            // Used in the DDA loop to sample voxel data at rest positions while stepping through posed space.
-            // For rotation matrices, inverse = transpose.
-            // Handles FK chains: child groups inverse-transform through their own rotation,
-            // then through their parent's rotation (reverse order of forward application).
-            float3 InverseGroupTransformOffset(
-                uint groupID, float3 voxelLocalPos, float3 dims, float voxelSize,
-                float animState, float animTime, float animSpeed)
-            {
-                if (groupID == 0u) return float3(0, 0, 0);
-
-                // Get this group's own transform
-                float3 pivot; float3x3 rot;
-                if (!ComputeGroupRotation(groupID, dims, voxelSize, animState, animTime, animSpeed, pivot, rot))
-                    return float3(0, 0, 0);
-
-                // Inverse-transform through own rotation first
-                float3 relPos = voxelLocalPos - pivot;
-                float3 restPos = mul(transpose(rot), relPos) + pivot;
-
-                // If this is a child group, also inverse-transform through parent's rotation
-                uint parentGid = ParentOfGroup(groupID);
-                if (parentGid != 0u)
-                {
-                    float3 parentPivot; float3x3 parentRot;
-                    if (ComputeGroupRotation(parentGid, dims, voxelSize, animState, animTime, animSpeed, parentPivot, parentRot))
-                    {
-                        float3 parentRel = restPos - parentPivot;
-                        restPos = mul(transpose(parentRot), parentRel) + parentPivot;
-                    }
-                }
-
-                return restPos - voxelLocalPos;
             }
 
             // ---- Lighting (ported from compute shader) ----
@@ -595,7 +802,13 @@ Shader "SteelCity/VoxelProxyRaymarch"
                     float4 instData = _InstanceOffsets[unity_InstanceID];
                     output.volumeOffset = instData.xyz;
                     output.yaw = instData.w;
-                    output.instMeta = float4(0.0, _VolumeDims.x, _VolumeDims.y, _VolumeDims.z);
+                    // When compute pose is active (_GroupIDsEnabled == 0), each instance has
+                    // its own posed voxel slice at offset = instanceID * totalVoxels.
+                    // When inverse-transform sampling is active (_GroupIDsEnabled != 0),
+                    // all instances share the same rest buffer (offset = 0).
+                    uint totalVoxels = (uint)(_VolumeDims.x * _VolumeDims.y * _VolumeDims.z);
+                    uint posedOffset = (_GroupIDsEnabled == 0) ? (unity_InstanceID * totalVoxels) : 0u;
+                    output.instMeta = float4((float)posedOffset, _VolumeDims.x, _VolumeDims.y, _VolumeDims.z);
                     output.voxelSize = _VoxelSize;
                     // Read animation data from second half of instance buffer
                     float4 animData = _InstanceOffsets[unity_InstanceID + _InstanceCount];
@@ -664,11 +877,14 @@ Shader "SteelCity/VoxelProxyRaymarch"
                     float3x3 volRot = float3x3(yc, 0, -ys, 0, 1, 0, ys, 0, yc);
                     float3x3 volInvRot = float3x3(yc, 0, ys, 0, 1, 0, -ys, 0, yc);
                     dims = VolumeDimsInt();
+                    // Read per-instance posed buffer offset (set in vertex shader)
+                    bufferOffset = (uint)input.instMeta.x;
 
                     // Body bob + weight shift (walking states only, keyframe system enabled)
+                    // Skip when compute pose is active (_GroupIDsEnabled == 0) — already baked into posed buffer
                     bool isWalkingState = (input.animState > 0.5 && input.animState < 1.5) ||
                                           (input.animState > 2.5 && input.animState < 3.5);
-                    if (isWalkingState && _WalkKeyframesEnabled != 0)
+                    if (isWalkingState && _WalkKeyframesEnabled != 0 && _GroupIDsEnabled != 0)
                     {
                         float phase = GetWalkCyclePhase(input.animTime, input.animSpeed);
                         // Body bob: -cos(phase * 4π) → lowest at contact (0, 0.5), highest at mid-stance (0.25, 0.75)
@@ -731,7 +947,6 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 float4 hitColor = _BackgroundColor;
                 float3 worldHit = float3(0, 0, 0);
 
-                [loop]
                 for (int i = 0; i < _MaxSteps; ++i)
                 {
                     if (!InBounds(voxel, dims))
@@ -744,7 +959,6 @@ Shader "SteelCity/VoxelProxyRaymarch"
                     if (_GroupIDsEnabled != 0)
                     {
                         uint gid = _GroupIDs[bufferOffset + VoxelIndex(voxel, dims)];
-                        if (gid > 0u)
                         {
                             float3 voxelLocalPos = (float3(voxel) + 0.5) * voxelSize;
                             float3 restOffset = InverseGroupTransformOffset(
@@ -828,7 +1042,6 @@ Shader "SteelCity/VoxelProxyRaymarch"
                             else shadowSideDist.z = (float(shadowVoxel.z + 1) - shadowLocal.z) * shadowDelta.z;
 
                             float shadowFactor = 1.0;
-                            [loop]
                             for (int s = 0; s < _ShadowMaxSteps && _ShadowEnabled; s++)
                             {
                                 if (!InBounds(shadowVoxel, dims))

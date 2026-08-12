@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Steel City — Animation Pipeline Overview</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background:#0a0a14; color:#ddd; font-family:'Segoe UI',system-ui,sans-serif;
+  line-height:1.6; padding:20px; max-width:1400px; margin:0 auto;
+}
+h1 { color:#0ff; font-size:28px; margin-bottom:4px; }
+h2 { color:#0ff; font-size:20px; margin:32px 0 12px; border-bottom:1px solid #333; padding-bottom:6px; }
+h3 { color:#fa0; font-size:15px; margin:20px 0 8px; }
+p { margin:8px 0; font-size:13px; }
+.subtitle { color:#888; font-size:13px; margin-bottom:24px; }
+
+/* Nav */
+#nav { position:sticky; top:0; background:rgba(10,10,20,0.95); padding:8px 0; z-index:100; border-bottom:1px solid #333; margin-bottom:24px; }
+#nav a { color:#888; text-decoration:none; font-size:12px; margin-right:16px; transition:color 0.2s; }
+#nav a:hover { color:#0ff; }
+
+/* Cards */
+.card {
+  background:rgba(255,255,255,0.04); border:1px solid #333; border-radius:8px;
+  padding:16px; margin:12px 0;
+}
+.card.green { border-color:#0c6; background:rgba(0,170,68,0.06); }
+.card.red { border-color:#c44; background:rgba(204,68,68,0.06); }
+.card.yellow { border-color:#fa0; background:rgba(250,170,0,0.06); }
+.card.blue { border-color:#06a; background:rgba(0,102,170,0.06); }
+
+/* Flow chart boxes */
+.flow {
+  display:flex; flex-direction:column; align-items:center; gap:0; margin:20px 0;
+}
+.flow-row {
+  display:flex; align-items:center; gap:16px; flex-wrap:wrap; justify-content:center;
+}
+.flow-box {
+  background:#1a1a2e; border:2px solid #444; border-radius:8px; padding:12px 16px;
+  text-align:center; min-width:140px; max-width:220px; font-size:12px;
+  transition:all 0.2s;
+}
+.flow-box:hover { border-color:#0ff; transform:translateY(-2px); }
+.flow-box.tool { border-color:#06a; background:rgba(0,102,170,0.15); }
+.flow-box.data { border-color:#fa0; background:rgba(250,170,0,0.1); }
+.flow-box.shader { border-color:#a0f; background:rgba(170,0,255,0.1); }
+.flow-box.csharp { border-color:#0a4; background:rgba(0,170,68,0.1); }
+.flow-box.unity { border-color:#0c6; background:rgba(0,170,68,0.15); }
+.flow-box.problem { border-color:#c44; background:rgba(204,68,68,0.15); }
+.flow-box .title { font-weight:bold; font-size:13px; color:#fff; margin-bottom:4px; }
+.flow-box .desc { color:#aaa; font-size:11px; }
+.flow-box .file { color:#0f0; font-size:10px; font-family:monospace; margin-top:4px; }
+.flow-arrow {
+  font-size:24px; color:#555; margin:4px 0;
+}
+.flow-arrow.h { font-size:20px; margin:0 4px; }
+
+/* Tables */
+table { width:100%; border-collapse:collapse; margin:12px 0; font-size:12px; }
+th { background:#1a1a2e; color:#0ff; padding:8px 10px; text-align:left; border:1px solid #333; }
+td { padding:8px 10px; border:1px solid #333; color:#ccc; }
+tr:hover td { background:rgba(255,255,255,0.03); }
+
+/* Badges */
+.badge {
+  display:inline-block; padding:2px 8px; border-radius:4px; font-size:10px;
+  font-weight:bold; text-transform:uppercase; margin:0 2px;
+}
+.badge.done { background:#0a4; color:#fff; }
+.badge.wip { background:#fa0; color:#000; }
+.badge.todo { background:#c44; color:#fff; }
+.badge.broken { background:#f00; color:#fff; }
+
+/* Group tree */
+.tree { font-family:monospace; font-size:13px; line-height:1.8; color:#ccc; padding:12px; background:rgba(0,0,0,0.3); border-radius:6px; }
+.tree .gid { color:#0ff; font-weight:bold; }
+.tree .parent { color:#fa0; }
+.tree .child { color:#0f0; }
+
+/* Code blocks */
+code { background:#111; color:#0f0; padding:2px 6px; border-radius:3px; font-family:monospace; font-size:11px; }
+pre { background:#111; border:1px solid #333; border-radius:6px; padding:12px; overflow-x:auto; font-size:11px; color:#ccc; margin:8px 0; }
+pre .kw { color:#0ff; } pre .str { color:#0f0; } pre .cmt { color:#666; }
+
+/* Comparison columns */
+.cols { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:16px 0; }
+.col { padding:0; }
+
+/* SVG diagram container */
+.svg-wrap { background:rgba(0,0,0,0.3); border:1px solid #333; border-radius:8px; padding:16px; margin:12px 0; overflow-x:auto; }
+.svg-wrap svg { display:block; margin:0 auto; }
+
+/* Hotkey table */
+.hotkey-group { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:12px 0; }
+.hotkey-card { background:rgba(0,0,0,0.3); border:1px solid #333; border-radius:6px; padding:12px; }
+.hotkey-card h4 { color:#0ff; font-size:13px; margin-bottom:8px; }
+.hotkey-card .key { display:inline-block; background:#2a2a3e; border:1px solid #555; border-radius:4px; padding:2px 8px; font-family:monospace; font-size:11px; color:#0f0; margin:2px; }
+.hotkey-card .desc { font-size:11px; color:#aaa; }
+
+/* Status banner */
+.banner {
+  padding:12px 16px; border-radius:8px; margin:12px 0; font-size:13px; font-weight:bold;
+}
+.banner.problem { background:rgba(204,68,68,0.15); border:1px solid #c44; color:#f88; }
+.banner.solution { background:rgba(0,170,68,0.15); border:1px solid #0c6; color:#8f8; }
+
+/* File list */
+.file-list { list-style:none; padding:0; }
+.file-list li { padding:6px 0; border-bottom:1px solid #222; font-size:12px; }
+.file-list .fname { color:#0f0; font-family:monospace; }
+.file-list .fdesc { color:#888; }
+.file-list .fstatus { float:right; }
+
+/* Responsive */
+@media (max-width:900px) {
+  .cols { grid-template-columns:1fr; }
+  .hotkey-group { grid-template-columns:1fr; }
+}
+</style>
+</head>
+<body>
+
+<h1>Steel City — Character Animation Pipeline Overview</h1>
+<p class="subtitle">Visual guide to the voxel character animation system: authoring, export, rendering, and the current blocker</p>
+
+<div id="nav">
+  <a href="#summary">Summary</a>
+  <a href="#asset-flow">Asset Flow</a>
+  <a href="#two-paths">Two Render Paths</a>
+  <a href="#data-files">Data Files</a>
+  <a href="#fk-hierarchy">FK Hierarchy</a>
+  <a href="#the-problem">The Problem</a>
+  <a href="#the-solution">The Solution</a>
+  <a href="#component-map">Component Map</a>
+  <a href="#hotkeys">Hotkeys</a>
+  <a href="#phases">Phases</a>
+</div>
+
+<!-- ==================== SUMMARY ==================== -->
+<h2 id="summary">Executive Summary</h2>
+
+<div class="card blue">
+  <h3>What We Have</h3>
+  <p>A complete <b>voxel character animation pipeline</b> with two rendering paths:</p>
+  <ul style="margin:8px 0 8px 20px; font-size:13px;">
+    <li><b>C# Forward-Transform Test Rig</b> — CPU poses voxels each frame, uploads to GPU for pure raymarch display. <span class="badge done">VERIFIED</span></li>
+    <li><b>GPU Shader Inverse-Transform</b> — Shader applies per-group rotations during raymarch using inverse sampling. <span class="badge wip">IN PROGRESS</span></li>
+  </ul>
+  <p>Both paths share the same animation math (Catmull-Rom keyframes, FK chains, pivots) — one in C#, one in HLSL.</p>
+</div>
+
+<div class="card yellow">
+  <h3>What's Broken</h3>
+  <p>The production character <code>character_hoodlum_0</code> has a <code>.groups</code> file where <b>all 2304 voxels are assigned groupID = 0</b> (Body). No voxels are tagged as head, arms, legs, etc. — so the shader has nothing to articulate. The animation system is working; the <b>model's group data is missing</b>.</p>
+</div>
+
+<div class="card green">
+  <h3>What We Need To Do</h3>
+  <p><b>Re-paint group IDs</b> on the <code>character_hoodlum_0</code> model in the Voxel Editor, then re-export. The animation code (C# animator, shader keyframe interp, pivot buffer) is already implemented and working — it just needs a model with correct group assignments.</p>
+</div>
+
+<!-- ==================== ASSET FLOW ==================== -->
+<h2 id="asset-flow">Asset Pipeline: Authoring → Export → Unity</h2>
+
+<div class="svg-wrap">
+<svg width="1300" height="380" viewBox="0 0 1300 380" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#555"/>
+    </marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#0c6"/>
+    </marker>
+  </defs>
+
+  <!-- Row 1: Authoring Tools -->
+  <rect x="30" y="20" width="180" height="70" rx="8" fill="rgba(0,102,170,0.15)" stroke="#06a" stroke-width="2"/>
+  <text x="120" y="45" text-anchor="middle" fill="#fff" font-size="13" font-weight="bold">Voxel Editor</text>
+  <text x="120" y="62" text-anchor="middle" fill="#aaa" font-size="10">Paint voxels + materials</text>
+  <text x="120" y="78" text-anchor="middle" fill="#0f0" font-size="9" font-family="monospace">voxel_editor.html</text>
+
+  <rect x="280" y="20" width="180" height="70" rx="8" fill="rgba(0,102,170,0.15)" stroke="#06a" stroke-width="2"/>
+  <text x="370" y="45" text-anchor="middle" fill="#fff" font-size="13" font-weight="bold">Character Animator</text>
+  <text x="370" y="62" text-anchor="middle" fill="#aaa" font-size="10">Paint groups, set pivots,</text>
+  <text x="370" y="74" text-anchor="middle" fill="#aaa" font-size="10">tune keyframes, preview</text>
+  <text x="370" y="86" text-anchor="middle" fill="#0f0" font-size="9" font-family="monospace">character_animator.html</text>
+
+  <!-- Arrow row 1 -->
+  <line x1="210" y1="55" x2="280" y2="55" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="245" y="48" text-anchor="middle" fill="#888" font-size="9">.stasset</text>
+
+  <!-- Row 2: Export -->
+  <rect x="530" y="20" width="200" height="70" rx="8" fill="rgba(250,170,0,0.1)" stroke="#fa0" stroke-width="2"/>
+  <text x="630" y="45" text-anchor="middle" fill="#fff" font-size="13" font-weight="bold">Export (Python or Unity)</text>
+  <text x="630" y="62" text-anchor="middle" fill="#aaa" font-size="10">export_character_all.py</text>
+  <text x="630" y="76" text-anchor="middle" fill="#aaa" font-size="10">OR Tools &gt; Voxel Import</text>
+  <text x="630" y="88" text-anchor="middle" fill="#0f0" font-size="9" font-family="monospace">ImportCharacterJSON.cs</text>
+
+  <!-- Arrow from animator to export -->
+  <line x1="460" y1="55" x2="530" y2="55" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="495" y="48" text-anchor="middle" fill="#888" font-size="9">Project JSON</text>
+
+  <!-- Row 3: Output files -->
+  <rect x="800" y="10" width="140" height="40" rx="6" fill="rgba(250,170,0,0.1)" stroke="#fa0" stroke-width="2"/>
+  <text x="870" y="28" text-anchor="middle" fill="#fff" font-size="12" font-weight="bold">.stasset</text>
+  <text x="870" y="42" text-anchor="middle" fill="#aaa" font-size="9">Binary voxel data</text>
+
+  <rect x="800" y="60" width="140" height="40" rx="6" fill="rgba(250,170,0,0.1)" stroke="#fa0" stroke-width="2"/>
+  <text x="870" y="78" text-anchor="middle" fill="#fff" font-size="12" font-weight="bold">.groups</text>
+  <text x="870" y="92" text-anchor="middle" fill="#aaa" font-size="9">Per-voxel groupID</text>
+
+  <rect x="800" y="110" width="140" height="40" rx="6" fill="rgba(250,170,0,0.1)" stroke="#fa0" stroke-width="2"/>
+  <text x="870" y="128" text-anchor="middle" fill="#fff" font-size="12" font-weight="bold">.anim.json</text>
+  <text x="870" y="142" text-anchor="middle" fill="#aaa" font-size="9">Pivots + keyframes</text>
+
+  <!-- Arrows from export to files -->
+  <line x1="730" y1="35" x2="800" y2="30" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="730" y1="55" x2="800" y2="80" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="730" y1="75" x2="800" y2="130" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Row 4: StreamingAssets -->
+  <rect x="1000" y="60" width="220" height="50" rx="8" fill="rgba(0,170,68,0.1)" stroke="#0c6" stroke-width="2"/>
+  <text x="1110" y="82" text-anchor="middle" fill="#fff" font-size="12" font-weight="bold">StreamingAssets/</text>
+  <text x="1110" y="98" text-anchor="middle" fill="#aaa" font-size="10">voxel_characters/</text>
+
+  <!-- Arrows from files to StreamingAssets -->
+  <line x1="940" y1="30" x2="1000" y2="70" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="940" y1="80" x2="1000" y2="80" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="940" y1="130" x2="1000" y2="95" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Row 5: Unity Runtime - Two Paths -->
+  <line x1="1110" y1="110" x2="1110" y2="150" stroke="#555" stroke-width="2"/>
+  <line x1="1110" y1="150" x2="700" y2="150" stroke="#555" stroke-width="2"/>
+  <line x1="700" y1="150" x2="700" y2="180" stroke="#0c6" stroke-width="2" marker-end="url(#arrow-green)"/>
+  <line x1="1110" y1="150" x2="1110" y2="180" stroke="#0c6" stroke-width="2" marker-end="url(#arrow-green)"/>
+
+  <rect x="560" y="185" width="280" height="80" rx="8" fill="rgba(0,170,68,0.1)" stroke="#0c6" stroke-width="2"/>
+  <text x="700" y="210" text-anchor="middle" fill="#fff" font-size="13" font-weight="bold">Test Rig (C# Forward Transform)</text>
+  <text x="700" y="226" text-anchor="middle" fill="#aaa" font-size="10">VoxelCharacterAnimator.PoseVoxels()</text>
+  <text x="700" y="240" text-anchor="middle" fill="#aaa" font-size="10">→ scatter to grid → pure raymarch</text>
+  <text x="700" y="256" text-anchor="middle" fill="#0f0" font-size="9" font-family="monospace">ForwardTransformTestRig.cs</text>
+
+  <rect x="970" y="185" width="280" height="80" rx="8" fill="rgba(170,0,255,0.1)" stroke="#a0f" stroke-width="2"/>
+  <text x="1110" y="210" text-anchor="middle" fill="#fff" font-size="13" font-weight="bold">Production (GPU Shader)</text>
+  <text x="1110" y="226" text-anchor="middle" fill="#aaa" font-size="10">Inverse-transform in raymarch</text>
+  <text x="1110" y="240" text-anchor="middle" fill="#aaa" font-size="10">→ per-group rotation in DDA loop</text>
+  <text x="1110" y="256" text-anchor="middle" fill="#0f0" font-size="9" font-family="monospace">VoxelProxyRaymarch.shader</text>
+
+  <!-- Row 6: Output -->
+  <line x1="700" y1="265" x2="700" y2="295" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="1110" y1="265" x2="1110" y2="295" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <rect x="560" y="300" width="280" height="50" rx="8" fill="rgba(255,255,255,0.04)" stroke="#444" stroke-width="2"/>
+  <text x="700" y="322" text-anchor="middle" fill="#fff" font-size="12" font-weight="bold">Raymarched Character</text>
+  <text x="700" y="338" text-anchor="middle" fill="#aaa" font-size="10">CPU-posed, GPU-rendered</text>
+
+  <rect x="970" y="300" width="280" height="50" rx="8" fill="rgba(255,255,255,0.04)" stroke="#444" stroke-width="2"/>
+  <text x="1110" y="322" text-anchor="middle" fill="#fff" font-size="12" font-weight="bold">Instanced Characters</text>
+  <text x="1110" y="338" text-anchor="middle" fill="#aaa" font-size="10">GPU-animated, GPU-rendered</text>
+
+  <!-- Labels -->
+  <text x="400" y="175" text-anchor="middle" fill="#0c6" font-size="11" font-weight="bold">Path A: Verify (W key)</text>
+  <text x="1110" y="175" text-anchor="middle" fill="#a0f" font-size="11" font-weight="bold">Path B: Production (1-9 keys)</text>
+</svg>
+</div>
+
+<!-- ==================== TWO PATHS ==================== -->
+<h2 id="two-paths">Two Rendering Paths</h2>
+
+<div class="cols">
+  <div class="col">
+    <div class="card green">
+      <h3>Path A: C# Forward-Transform Test Rig</h3>
+      <p><span class="badge done">WORKING</span></p>
+      <table>
+        <tr><th>Step</th><th>What happens</th></tr>
+        <tr><td>1. Load</td><td>Read <code>.stasset</code>, <code>.groups</code>, <code>.anim.json</code> from disk</td></tr>
+        <tr><td>2. Pose</td><td><code>VoxelCharacterAnimator.PoseVoxels()</code> transforms each voxel to posed position using FK chains + Catmull-Rom interpolation</td></tr>
+        <tr><td>3. Scatter</td><td>Round posed positions to nearest grid cell in a padded grid</td></tr>
+        <tr><td>4. Upload</td><td>Write padded grid to <code>ComputeBuffer</code>, register with <code>VoxelChunkManager</code></td></tr>
+        <tr><td>5. Render</td><td>Shader does <b>pure raymarching</b> — no group IDs, no animation logic. Just renders the posed voxel cloud.</td></tr>
+      </table>
+      <p style="margin-top:8px;"><b>Controls:</b> <code>W</code>=Walk, <code>T</code>=TPose, <code>I</code>=Idle, <code>A</code>=Aim, <code>C</code>=Crouch, <code>Space</code>=Play/Pause</p>
+      <p><b>File:</b> <code>ForwardTransformTestRig.cs</code></p>
+      <p><b>Purpose:</b> Verify the C# animation math is correct before porting to HLSL.</p>
+    </div>
+  </div>
+  <div class="col">
+    <div class="card blue">
+      <h3>Path B: GPU Shader Inverse-Transform</h3>
+      <p><span class="badge wip">IN PROGRESS</span></p>
+      <table>
+        <tr><th>Step</th><th>What happens</th></tr>
+        <tr><td>1. Load</td><td><code>VoxelCharacter</code> loads <code>.stasset</code> + <code>.groups</code>, registers as instanced character</td></tr>
+        <tr><td>2. Params</td><td><code>VoxelCharacter.LoadAndApplyAnimParams()</code> loads <code>.anim.json</code>, pushes keyframes + pivots to shader buffers</td></tr>
+        <tr><td>3. Drive</td><td><code>CharacterAnimation</code> pushes <code>animState/animTime/animSpeed</code> per instance</td></tr>
+        <tr><td>4. Render</td><td>Shader raymarches through posed space. At each step, <b>inverse-transforms</b> the sample position back to rest space to read the voxel grid.</td></tr>
+        <tr><td>5. Animate</td><td><code>ComputeGroupRotation()</code> in HLSL computes per-group rotation matrices from keyframe buffers + pivot buffer</td></tr>
+      </table>
+      <p style="margin-top:8px;"><b>Controls:</b> <code>1</code>=Idle, <code>2</code>=Walking, <code>3</code>=Looking, <code>4</code>=Checking, <code>5</code>=Aiming, <code>6</code>=Crouching</p>
+      <p><b>File:</b> <code>VoxelProxyRaymarch.shader</code>, <code>VoxelCharacter.cs</code>, <code>CharacterAnimation.cs</code></p>
+      <p><b>Purpose:</b> Production — render hundreds of instanced characters with GPU-side animation.</p>
+    </div>
+  </div>
+</div>
+
+<div class="card yellow">
+  <h3>Key Insight: Same Math, Different Direction</h3>
+  <p>Both paths use the same animation math (Catmull-Rom keyframes, FK parent-child chains, pivot-based rotation). The difference is <b>direction</b>:</p>
+  <ul style="margin:8px 0 0 20px; font-size:13px;">
+    <li><b>Path A (Test Rig):</b> <i>Forward</i> — transform rest voxels → posed voxels → render posed cloud</li>
+    <li><b>Path B (Shader):</b> <i>Inverse</i> — ray steps through posed space → inverse-transform back to rest → sample rest grid</li>
+  </ul>
+  <p>Path A is for verification. Path B is for production (instancing, performance).</p>
+</div>
+
+<!-- ==================== DATA FILES ==================== -->
+<h2 id="data-files">Data Files</h2>
+
+<table>
+  <tr>
+    <th>Extension</th><th>Format</th><th>Contents</th><th>Consumed By</th><th>Status</th>
+  </tr>
+  <tr>
+    <td><code>.stasset</code></td>
+    <td>Binary (STAS header + ushort grid)</td>
+    <td>Voxel material IDs in a W×H×D grid. <code>0</code> = air, <code>100+</code> = material index.</td>
+    <td>Both paths (Test Rig + Production)</td>
+    <td><span class="badge done">OK</span></td>
+  </tr>
+  <tr>
+    <td><code>.groups</code></td>
+    <td>Binary (STAG header + ushort grid)</td>
+    <td>Per-voxel group ID (0-9). Same dimensions as .stasset. <b>Critical for animation.</b></td>
+    <td>Both paths</td>
+    <td><span class="badge broken">BROKEN</span> for character_hoodlum_0</td>
+  </tr>
+  <tr>
+    <td><code>.anim.json</code></td>
+    <td>JSON (text)</td>
+    <td>Pivots (10 entries), walkKeyframes (4 KFs), jointConfig (axis/sign/rest), aiming/crouching params</td>
+    <td>Both paths (Test Rig via <code>LoadFromAnimJson</code>, Production via <code>LoadAndApplyAnimParams</code>)</td>
+    <td><span class="badge done">OK</span></td>
+  </tr>
+</table>
+
+<div class="card red">
+  <h3>The .groups File Is The Blocker</h3>
+  <p>The <code>character_hoodlum_0.groups</code> file contains <b>all zeros</b> — every voxel is groupID 0 (Body). This means:</p>
+  <ul style="margin:8px 0 0 20px; font-size:13px;">
+    <li>The shader sees only "body" voxels — no limbs to rotate</li>
+    <li>The test rig sees only "body" voxels — no limbs to pose</li>
+    <li>Animation states (Walking, Aiming, etc.) have <b>no visible effect</b> because there are no arm/leg/head groups to transform</li>
+  </ul>
+  <p>The fix is NOT in the code — it's in the <b>model data</b>. The model needs to be re-painted with group IDs in the Voxel Editor, then re-exported.</p>
+</div>
+
+<!-- ==================== FK HIERARCHY ==================== -->
+<h2 id="fk-hierarchy">Forward Kinematics (FK) Hierarchy</h2>
+
+<p>Both the C# animator and the HLSL shader use this same 10-group hierarchy. Each group is a body part that rotates around its pivot point. Child groups inherit their parent's transform chain.</p>
+
+<div class="cols">
+  <div class="col">
+    <div class="tree">
+<span class="gid">Group 0</span>: Body (root)          <span style="color:#666;">— torso twist, crouch lean</span>
+├── <span class="gid">Group 1</span>: Head              <span style="color:#666;">— yaw + pitch + tilt</span>
+├── <span class="gid">Group 2</span>: Left Arm          <span style="color:#666;">— shoulder swing</span>
+│   └── <span class="gid">Group 8</span>: Left Forearm  <span style="color:#666;">— elbow hinge</span>
+├── <span class="gid">Group 3</span>: Right Arm         <span style="color:#666;">— shoulder swing</span>
+│   └── <span class="gid">Group 9</span>: Right Forearm <span style="color:#666;">— elbow hinge</span>
+├── <span class="gid">Group 4</span>: Left Leg          <span style="color:#666;">— hip stride</span>
+│   └── <span class="gid">Group 6</span>: Left Shin     <span style="color:#666;">— knee hinge</span>
+└── <span class="gid">Group 5</span>: Right Leg         <span style="color:#666;">— hip stride</span>
+    └── <span class="gid">Group 7</span>: Right Shin    <span style="color:#666;">— knee hinge</span>
+    </div>
+  </div>
+  <div class="col">
+    <h3>Pivot Points (normalized 0.0-1.0 of model dims)</h3>
+    <table>
+      <tr><th>GID</th><th>Part</th><th>Default Pivot</th></tr>
+      <tr><td>0</td><td>Body/Waist</td><td>(0.5, 0.4, 0.5)</td></tr>
+      <tr><td>1</td><td>Head/Neck</td><td>(0.5, 0.78, 0.5)</td></tr>
+      <tr><td>2</td><td>L Shoulder</td><td>(0.25, 0.75, 0.5)</td></tr>
+      <tr><td>3</td><td>R Shoulder</td><td>(0.75, 0.75, 0.5)</td></tr>
+      <tr><td>4</td><td>L Hip</td><td>(0.375, 0.34, 0.5)</td></tr>
+      <tr><td>5</td><td>R Hip</td><td>(0.625, 0.34, 0.5)</td></tr>
+      <tr><td>6</td><td>L Knee</td><td>(0.375, 0.20, 0.5)</td></tr>
+      <tr><td>7</td><td>R Knee</td><td>(0.625, 0.20, 0.5)</td></tr>
+      <tr><td>8</td><td>L Elbow</td><td>(0.25, 0.75, 0.5)</td></tr>
+      <tr><td>9</td><td>R Elbow</td><td>(0.75, 0.75, 0.5)</td></tr>
+    </table>
+    <p style="margin-top:8px; font-size:11px; color:#888;">Pivots are authored in the Character Animator and exported in <code>.anim.json</code>. The shader uses them via the <code>_Pivots</code> StructuredBuffer (recently added).</p>
+  </div>
+</div>
+
+<!-- ==================== THE PROBLEM ==================== -->
+<h2 id="the-problem">The Problem: All Voxels = Group 0</h2>
+
+<div class="banner problem">
+  DIAGNOSIS: character_hoodlum_0.groups contains Counter({0: 2304}) — all 2304 voxels are groupID 0 (Body)
+</div>
+
+<div class="svg-wrap">
+<svg width="900" height="200" viewBox="0 0 900 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- Left: What we have -->
+  <rect x="20" y="20" width="380" height="160" rx="8" fill="rgba(204,68,68,0.08)" stroke="#c44" stroke-width="2"/>
+  <text x="210" y="45" text-anchor="middle" fill="#f88" font-size="14" font-weight="bold">Current: character_hoodlum_0</text>
+  
+  <!-- Single block -->
+  <rect x="80" y="60" width="260" height="40" rx="4" fill="rgba(204,68,68,0.2)" stroke="#c44" stroke-width="1"/>
+  <text x="210" y="85" text-anchor="middle" fill="#fff" font-size="12">Group 0: Body (2304 voxels)</text>
+  
+  <text x="210" y="120" text-anchor="middle" fill="#aaa" font-size="11">No head, arms, legs, shins, or forearms</text>
+  <text x="210" y="138" text-anchor="middle" fill="#aaa" font-size="11">→ Shader applies body rotation only</text>
+  <text x="210" y="156" text-anchor="middle" fill="#aaa" font-size="11">→ Walk cycle has NO visible limb motion</text>
+
+  <!-- Right: What we need -->
+  <rect x="500" y="20" width="380" height="160" rx="8" fill="rgba(0,170,68,0.08)" stroke="#0c6" stroke-width="2"/>
+  <text x="690" y="45" text-anchor="middle" fill="#8f8" font-size="14" font-weight="bold">Required: 10-Group Model</text>
+  
+  <!-- Multiple blocks -->
+  <rect x="520" y="55" width="100" height="22" rx="3" fill="rgba(136,136,136,0.3)" stroke="#888" stroke-width="1"/>
+  <text x="570" y="71" text-anchor="middle" fill="#fff" font-size="10">G0: Body</text>
+  
+  <rect x="630" y="55" width="80" height="22" rx="3" fill="rgba(255,107,107,0.2)" stroke="#f66" stroke-width="1"/>
+  <text x="670" y="71" text-anchor="middle" fill="#fff" font-size="10">G1: Head</text>
+  
+  <rect x="720" y="55" width="70" height="22" rx="3" fill="rgba(0,255,136,0.2)" stroke="#0f8" stroke-width="1"/>
+  <text x="755" y="71" text-anchor="middle" fill="#fff" font-size="10">G2: L Arm</text>
+  
+  <rect x="800" y="55" width="70" height="22" rx="3" fill="rgba(0,221,255,0.2)" stroke="#0df" stroke-width="1"/>
+  <text x="835" y="71" text-anchor="middle" fill="#fff" font-size="10">G3: R Arm</text>
+
+  <rect x="520" y="85" width="70" height="22" rx="3" fill="rgba(255,170,0,0.2)" stroke="#fa0" stroke-width="1"/>
+  <text x="555" y="101" text-anchor="middle" fill="#fff" font-size="10">G4: L Leg</text>
+  
+  <rect x="600" y="85" width="70" height="22" rx="3" fill="rgba(255,102,0,0.2)" stroke="#f60" stroke-width="1"/>
+  <text x="635" y="101" text-anchor="middle" fill="#fff" font-size="10">G5: R Leg</text>
+  
+  <rect x="680" y="85" width="70" height="22" rx="3" fill="rgba(255,255,0,0.15)" stroke="#ff0" stroke-width="1"/>
+  <text x="715" y="101" text-anchor="middle" fill="#fff" font-size="10">G6: L Shin</text>
+  
+  <rect x="760" y="85" width="70" height="22" rx="3" fill="rgba(136,255,0,0.15)" stroke="#8f0" stroke-width="1"/>
+  <text x="795" y="101" text-anchor="middle" fill="#fff" font-size="10">G7: R Shin</text>
+  
+  <rect x="520" y="115" width="70" height="22" rx="3" fill="rgba(255,0,255,0.15)" stroke="#f0f" stroke-width="1"/>
+  <text x="555" y="131" text-anchor="middle" fill="#fff" font-size="10">G8: L Fore</text>
+  
+  <rect x="600" y="115" width="70" height="22" rx="3" fill="rgba(170,0,255,0.15)" stroke="#a0f" stroke-width="1"/>
+  <text x="635" y="131" text-anchor="middle" fill="#fff" font-size="10">G9: R Fore</text>
+
+  <text x="690" y="160" text-anchor="middle" fill="#8f8" font-size="11">→ Each limb rotates independently</text>
+</svg>
+</div>
+
+<!-- ==================== THE SOLUTION ==================== -->
+<h2 id="the-solution">The Solution: Re-paint Groups &amp; Re-export</h2>
+
+<div class="banner solution">
+  FIX: Re-paint group IDs in the Voxel Editor → Save Project JSON → Export → Replace character_hoodlum_0 files
+</div>
+
+<div class="flow">
+  <div class="flow-row">
+    <div class="flow-box tool">
+      <div class="title">1. Open Voxel Editor</div>
+      <div class="desc">Load character_hoodlum_0 model</div>
+      <div class="file">voxel_editor.html</div>
+    </div>
+    <div class="flow-arrow h">→</div>
+    <div class="flow-box tool">
+      <div class="title">2. Paint Group IDs</div>
+      <div class="desc">Assign voxels to groups 0-9 using the group brush tool. Head=1, L Arm=2, R Arm=3, L Leg=4, R Leg=5, L Shin=6, R Shin=7, L Forearm=8, R Forearm=9</div>
+    </div>
+    <div class="flow-arrow h">→</div>
+    <div class="flow-box tool">
+      <div class="title">3. Open Animator</div>
+      <div class="desc">Load the painted model, verify pivots, preview walk cycle</div>
+      <div class="file">character_animator.html</div>
+    </div>
+  </div>
+  <div class="flow-arrow">↓</div>
+  <div class="flow-row">
+    <div class="flow-box tool">
+      <div class="title">4. Save Project JSON</div>
+      <div class="desc">Export → Save Project (includes voxels + groups + pivots + animParams)</div>
+    </div>
+    <div class="flow-arrow h">→</div>
+    <div class="flow-box data">
+      <div class="title">5. Export to Unity</div>
+      <div class="desc">Run export_character_all.py OR use Tools &gt; Voxel Import &gt; Character in Unity</div>
+      <div class="file">export_character_all.py</div>
+    </div>
+    <div class="flow-arrow h">→</div>
+    <div class="flow-box unity">
+      <div class="title">6. Verify in Play Mode</div>
+      <div class="desc">Press Play → HoodSpawner auto-spawns → press 2 for Walking → limbs should articulate</div>
+    </div>
+  </div>
+</div>
+
+<div class="card green">
+  <h3>What Does NOT Need To Change</h3>
+  <p>The following are already implemented and working — they just need a model with correct group data:</p>
+  <ul style="margin:8px 0 0 20px; font-size:13px;">
+    <li><b>Shader keyframe interpolation</b> — Catmull-Rom, mirror, body bob, weight shift <span class="badge done">DONE</span></li>
+    <li><b>Shader pivot buffer</b> — <code>_Pivots</code> StructuredBuffer with authored per-model pivots <span class="badge done">DONE</span></li>
+    <li><b>C# animator</b> — <code>VoxelCharacterAnimator.cs</code> with full FK chain, all states <span class="badge done">DONE</span></li>
+    <li><b>Animation parameter loading</b> — <code>VoxelCharacter.LoadAndApplyAnimParams()</code> pushes keyframes + pivots to GPU <span class="badge done">DONE</span></li>
+    <li><b>HoodSpawner</b> — Auto-spawns debug hood, provides 1-9 hotkeys <span class="badge done">DONE</span></li>
+    <li><b>CharacterAnimation</b> — Drives animState/animTime/animSpeed per instance <span class="badge done">DONE</span></li>
+  </ul>
+</div>
+
+<!-- ==================== COMPONENT MAP ==================== -->
+<h2 id="component-map">Component Map</h2>
+
+<h3>Authoring Tools (HTML/JS)</h3>
+<ul class="file-list">
+  <li><span class="fname">VoxelAssetStudio/voxel_editor.html</span> — <span class="fdesc">Paint voxels, assign materials, paint group IDs</span></li>
+  <li><span class="fname">VoxelAssetStudio/character_animator.html</span> — <span class="fdesc">Load model, set pivots, tune keyframes, preview animation, export project JSON</span></li>
+  <li><span class="fname">VoxelAssetStudio/character_pipeline.html</span> — <span class="fdesc">Wizard-style pipeline combining editor + animator</span></li>
+</ul>
+
+<h3>Export Tools</h3>
+<ul class="file-list">
+  <li><span class="fname">VoxelAssetStudio/export_character_all.py</span> — <span class="fdesc">Python script: Project JSON → .stasset + .groups + .anim.json</span></li>
+  <li><span class="fname">Assets/Editor/ImportCharacterJSON.cs</span> — <span class="fdesc">Unity Editor tool: Tools &gt; Voxel Import &gt; Character — same output as Python script</span></li>
+</ul>
+
+<h3>Unity Runtime — C# Components</h3>
+<ul class="file-list">
+  <li><span class="fname">Assets/Scripts/Sim/VoxelCharacterAnimator.cs</span> — <span class="fdesc">C# port of animator math. Catmull-Rom, FK chains, PoseVoxels(). Used by Test Rig.</span> <span class="badge done">DONE</span></li>
+  <li><span class="fname">Assets/Scripts/Sim/ForwardTransformTestRig.cs</span> — <span class="fdesc">Test rig: loads files, poses voxels on CPU, uploads to GPU for pure raymarch. Hotkeys: W/I/T/L/A/C</span> <span class="badge done">DONE</span></li>
+  <li><span class="fname">Assets/Scripts/Sim/VoxelCharacter.cs</span> — <span class="fdesc">Production character component. Loads .stasset + .groups, registers as instanced, loads .anim.json params</span> <span class="badge done">DONE</span></li>
+  <li><span class="fname">Assets/Scripts/Sim/CharacterAnimation.cs</span> — <span class="fdesc">Drives animState/animTime/animSpeed on the instanced handle. Auto-detects walking from velocity.</span> <span class="badge done">DONE</span></li>
+  <li><span class="fname">Assets/Scripts/Sim/HoodSpawner.cs</span> — <span class="fdesc">Auto-spawns debug hood in empty plot. Hotkeys 1-9 cycle animation states. Auto-added by CityMap3D.</span> <span class="badge done">DONE</span></li>
+  <li><span class="fname">Assets/Scripts/UI/CityMap3D.cs</span> — <span class="fdesc">Builds the city, auto-adds HoodSpawner if none exists</span> <span class="badge done">DONE</span></li>
+  <li><span class="fname">Assets/Scripts/UI/VoxelChunkManager.cs</span> — <span class="fdesc">Manages instanced rendering, ComputeBuffers, shader property binding. SetWalkKeyframes() + SetPivots()</span> <span class="badge done">DONE</span></li>
+</ul>
+
+<h3>Unity Runtime — Shader</h3>
+<ul class="file-list">
+  <li><span class="fname">Assets/Resources/Shaders/VoxelProxyRaymarch.shader</span> — <span class="fdesc">HLSL raymarch shader. ComputeGroupRotation() applies per-group rotations. _Pivots buffer for authored pivots. _WalkKeyframes for Catmull-Rom interp.</span> <span class="badge wip">KEYFRAMES PORTED</span></li>
+</ul>
+
+<h3>Documentation</h3>
+<ul class="file-list">
+  <li><span class="fname">Assets/docs/systems/CHARACTER_ANIMATION_PIPELINE.md</span> — <span class="fdesc">Full design document: architecture, data flow, ragdoll, flinch, phases</span></li>
+</ul>
+
+<!-- ==================== HOTKEYS ==================== -->
+<h2 id="hotkeys">Hotkey Reference</h2>
+
+<div class="hotkey-group">
+  <div class="hotkey-card">
+    <h4>Test Rig (ForwardTransformTestRig)</h4>
+    <p style="font-size:11px; color:#888; margin-bottom:8px;">Controls the C# forward-transform test character</p>
+    <p><span class="key">W</span> <span class="desc">Walking (state 1)</span></p>
+    <p><span class="key">T</span> <span class="desc">T-Pose (state 9)</span></p>
+    <p><span class="key">I</span> <span class="desc">Idle (state 0)</span></p>
+    <p><span class="key">L</span> <span class="desc">Looking (state 2)</span></p>
+    <p><span class="key">A</span> <span class="desc">Aiming (state 4)</span></p>
+    <p><span class="key">C</span> <span class="desc">Crouching (state 5)</span></p>
+    <p><span class="key">R</span> <span class="desc">Reload files from disk</span></p>
+    <p><span class="key">Space</span> <span class="desc">Play/Pause animation</span></p>
+    <p><span class="key">+</span> / <span class="key">-</span> <span class="desc">Speed up / slow down</span></p>
+  </div>
+  <div class="hotkey-card">
+    <h4>HoodSpawner (Production Character)</h4>
+    <p style="font-size:11px; color:#888; margin-bottom:8px;">Controls the GPU-animated instanced character</p>
+    <p><span class="key">1</span> <span class="desc">Idle (state 0)</span></p>
+    <p><span class="key">2</span> <span class="desc">Walking (state 1)</span></p>
+    <p><span class="key">3</span> <span class="desc">Looking (state 2)</span></p>
+    <p><span class="key">4</span> <span class="desc">Checking (state 3)</span></p>
+    <p><span class="key">5</span> <span class="desc">Aiming (state 4)</span></p>
+    <p><span class="key">6</span> <span class="desc">Crouching (state 5)</span></p>
+    <p><span class="key">7</span> <span class="desc">Flinching (state 6)</span></p>
+    <p><span class="key">8</span> <span class="desc">Falling (state 7)</span></p>
+    <p><span class="key">9</span> <span class="desc">Down (state 8)</span></p>
+    <p><span class="key">0</span> <span class="desc">Idle (state 0)</span></p>
+  </div>
+</div>
+
+<div class="card yellow">
+  <h3>Do Not Confuse The Two!</h3>
+  <p><b>W</b> controls the <b>Test Rig</b> (C# forward-transform, CPU-posed).</p>
+  <p><b>2</b> controls the <b>HoodSpawner's character</b> (GPU shader, inverse-transform).</p>
+  <p>They are separate characters with separate animation drivers. The Test Rig is for verifying math; the HoodSpawner character is for testing the production shader path.</p>
+</div>
+
+<!-- ==================== PHASES ==================== -->
+<h2 id="phases">Implementation Phases</h2>
+
+<table>
+  <tr>
+    <th>Phase</th><th>Description</th><th>Status</th>
+  </tr>
+  <tr>
+    <td><b>Phase 1</b><br>Keyframe Shader Port</td>
+    <td>Port Catmull-Rom + mirror + walk pose to HLSL. Replace hardcoded <code>sin()</code> with keyframe buffer interpolation. Add body bob + weight shift. C# uploads keyframe data from <code>.anim.json</code>.</td>
+    <td><span class="badge wip">MOSTLY DONE</span><br>Keyframes + pivots ported. <b>Blocked by missing group data in character_hoodlum_0.</b></td>
+  </tr>
+  <tr>
+    <td><b>Phase 2</b><br>Angular Limits</td>
+    <td>Add joint type (Ball/Hinge/Root) + minAngle/maxAngle per joint to animator. Export in JSON. Feeds ragdoll ConfigurableJoint setup.</td>
+    <td><span class="badge todo">TODO</span></td>
+  </tr>
+  <tr>
+    <td><b>Phase 3</b><br>Flinch Keyframes</td>
+    <td>Add flinch keyframe sets to animator. Add flinch playback state to shader. Hit-event → flinch trigger in C#. Blend from flinch back to walk/idle.</td>
+    <td><span class="badge todo">TODO</span></td>
+  </tr>
+  <tr>
+    <td><b>Phase 4</b><br>Ragdoll Proxy Bones</td>
+    <td>Implement <code>VoxelGroupRagdoll.cs</code>. Create proxy bones from group data + pivots. Port joint config from Steel Tide. Per-group capsule colliders. Physics → transform buffer → shader.</td>
+    <td><span class="badge todo">TODO</span></td>
+  </tr>
+  <tr>
+    <td><b>Phase 5</b><br>Integration</td>
+    <td>Hit event system: damage → flinch or ragdoll based on force. Cleanup: ragdoll bones pooled. Performance: only combat participants have proxy bones.</td>
+    <td><span class="badge todo">TODO</span></td>
+  </tr>
+</table>
+
+<!-- ==================== AUTO-SPAWN ==================== -->
+<h2 id="auto-spawn">How HoodSpawner Gets Added To The Scene</h2>
+
+<div class="card blue">
+  <p><code>CityMap3D.cs</code> automatically adds a <code>HoodSpawner</code> during city generation if one doesn't already exist:</p>
+  <pre><span class="cmt">// CityMap3D.cs — during SpawnSceneCharacters()</span>
+<span class="kw">if</span> (FindFirstObjectByType&lt;HoodSpawner&gt;() == <span class="kw">null</span>)
+{
+    <span class="kw">var</span> hoodObj = <span class="kw">new</span> GameObject(<span class="str">"HoodSpawner"</span>);
+    hoodObj.transform.SetParent(mapRoot, <span class="kw">false</span>);
+    <span class="kw">var</span> hs = hoodObj.AddComponent&lt;HoodSpawner&gt;();
+    Debug.Log(<span class="str">"[CityMap3D] Added HoodSpawner to scene"</span>);
+}</pre>
+  <p style="margin-top:8px;">The <code>HoodSpawner</code> then:</p>
+  <ol style="margin:8px 0 0 20px; font-size:13px;">
+    <li>Waits 2 frames (for city build to complete)</li>
+    <li>Finds an empty plot block in the city layout</li>
+    <li>Ground-probes to find the surface Y</li>
+    <li>Creates a <code>GameObject</code> with <code>VoxelCharacter</code> + <code>CharacterAnimation</code> + <code>PedestrianLookAround</code></li>
+    <li>Sets <code>characterAsset = "character_hoodlum_0.stasset"</code></li>
+    <li>Focuses camera on the spawned character</li>
+  </ol>
+  <p style="margin-top:8px;">The <code>VoxelCharacter</code> component loads <code>.stasset</code> + <code>.groups</code> + <code>.anim.json</code> from <code>StreamingAssets/voxel_characters/</code> and registers with <code>VoxelChunkManager</code> for instanced raymarch rendering.</p>
+</div>
+
+<!-- ==================== FOOTER ==================== -->
+<hr style="border:0; border-top:1px solid #333; margin:32px 0;">
+<p style="color:#666; font-size:11px; text-align:center;">
+  Steel City: Mob Sim — Character Animation Pipeline Overview<br>
+  Generated from source code analysis of the SteelCityMobSim project<br>
+  <a href="character_animator.html" style="color:#0ff;">Open Character Animator</a> |
+  <a href="character_pipeline.html" style="color:#0ff;">Open Pipeline Wizard</a> |
+  <a href="voxel_editor.html" style="color:#0ff;">Open Voxel Editor</a>
+</p>
+
+</body>
+</html>

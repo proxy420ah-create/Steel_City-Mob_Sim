@@ -1448,17 +1448,20 @@ namespace SteelCity.Sim
             savedOrthoSize = cityMap.GetCameraOrthoSize();
             hasSavedCameraState = true;
 
+            cityMap.SetCameraPerspective(true);
             cityMap.SetCameraFocus(worldPos);
-            cityMap.SetCameraOrthoSize(8f);
+            cityMap.SetCameraOrthoSize(3f);
             cityMap.SetCameraYaw(45f);
             cityMap.SetCameraPitch(35.264f);
 
-            Debug.Log($"[GameUIController] 📷 Camera focused on HQ '{hqBlock.name}' at {worldPos}, ortho=8f (isometric)");
+            Debug.Log($"[GameUIController] 📷 Camera focused on HQ '{hqBlock.name}' at {worldPos}, perspective street view");
         }
 
         private void RestoreCameraFromHq()
         {
             if (cityMap == null) return;
+
+            cityMap.SetCameraPerspective(false);
 
             var character = cityMap?.SpawnedCharacter;
             if (character != null)

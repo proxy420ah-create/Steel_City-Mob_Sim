@@ -8,8 +8,8 @@ namespace SteelCity.Sim
     /// so the raymarch shader can apply per-group limb transforms.
     ///
     /// Animation states (must match shader GroupTransformOffset logic):
-    ///   0 = Idle, 1 = Walking, 2 = Looking, 3 = Checking,
-    ///   4 = Aiming, 5 = Crouching, 6 = Flinching, 7 = Falling, 8 = Down
+    ///   0 = Idle, 1 = Walking, 2 = Looking, 3 = AimWalk,
+    ///   4 = Aiming, 5 = Crouching, 6 = Flinching, 7 = Falling, 8 = Down, 9 = T-Pose
     /// </summary>
     public class CharacterAnimation : MonoBehaviour
     {
@@ -18,12 +18,13 @@ namespace SteelCity.Sim
             Idle = 0,
             Walking = 1,
             Looking = 2,
-            Checking = 3,
+            AimWalk = 3,
             Aiming = 4,
             Crouching = 5,
             Flinching = 6,
             Falling = 7,
-            Down = 8
+            Down = 8,
+            TPose = 9
         }
 
         [Header("Animation")]
@@ -66,7 +67,7 @@ namespace SteelCity.Sim
                 lastPos = transform.position;
                 float horSpeed = new Vector2(velocity.x, velocity.z).magnitude;
 
-                if (currentState != AnimState.Looking && currentState != AnimState.Checking)
+                if (currentState != AnimState.Looking && currentState != AnimState.AimWalk)
                 {
                     if (horSpeed > walkVelocityThreshold)
                     {

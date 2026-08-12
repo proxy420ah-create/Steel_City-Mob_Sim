@@ -1,0 +1,533 @@
+// CharacterPoseCompute.compute
+// Forward-transform voxel animation on GPU — direct port of CPU PoseVoxelsToBuffer + ScatterAndUpload.
+// Each thread: reads one rest voxel + its groupID, computes forward transform chain,
+// scatters into posed buffer at the transformed position.
+//
+// Dispatch: (ceil(totalRestVoxels / 64), instanceCount, 1)
+// totalRestVoxels = dimX * dimY * dimZ (rest volume, NOT posed volume)
+
+#pragma kernel CSPose
+
+// ---- Rest voxel data (shared across all instances of same asset) ----
+RWStructuredBuffer<uint> _RestVoxelData;     // [dimX*dimY*dimZ] — rest voxel materials (0=air)
+StructuredBuffer<uint> _GroupIDs;            // [dimX*dimY*dimZ] — per-voxel groupID
+
+// ---- Per-instance animation state ----
+// _InstanceAnimData[instanceIdx*2 + 0] = float4(animState, animTime, animSpeed, 0)
+// _InstanceAnimData[instanceIdx*2 + 1] = float4(posedBufferOffset, 0, 0, 0) — offset into posed buffer
+StructuredBuffer<float4> _InstanceAnimData;
+
+// ---- Posed voxel buffer (output) — RWStructuredBuffer ----
+// Layout: [instance0 posed slice][instance1 posed slice]...
+// Each slice = posedDimX * posedDimY * posedDimZ uints
+RWStructuredBuffer<uint> _PosedVoxelData;    // Cleared by a separate kernel before pose
+
+// ---- Dimensions ----
+// Rest dims = Posed dims (same-size buffer, no padding)
+int _RestDimX, _RestDimY, _RestDimZ;
+// Total rest voxels (for thread indexing)
+int _TotalRestVoxels;
+// Number of instances
+int _InstanceCount;
+// All transform math uses voxel units (voxelSize=1.0), matching CPU PoseVoxelsToBuffer.
+
+// ---- Shared animation params (per asset type) ----
+StructuredBuffer<float4> _Pivots;            // [10] — xyz = normalized pivot, w=unused
+int _PivotsEnabled;
+StructuredBuffer<float4> _WalkKeyframes;     // [10] — 4 keyframes per pose value
+int _WalkKeyframesEnabled;
+StructuredBuffer<float4> _JointConfig;       // [7] — axis/sign/rest per joint pair
+int _JointConfigEnabled;
+StructuredBuffer<float4> _AnimStaticParams;  // [12] — looking/aiming/crouching/jointOffset
+int _AnimStaticParamsEnabled;
+float4 _WalkConfig;                          // (cycleDuration, bodyBobAmp, weightShiftAmp, autoMirror)
+
+// ---- Constants ----
+#define PI 3.14159265358979
+#define MAX_CHAIN 3
+
+// ---- Matrix helpers ----
+float3x3 RotationX(float a) { float c=cos(a), s=sin(a); return float3x3(1,0,0, 0,c,-s, 0,s,c); }
+float3x3 RotationY(float a) { float c=cos(a), s=sin(a); return float3x3(c,0,-s, 0,1,0, s,0,c); }
+float3x3 RotationZ(float a) { float c=cos(a), s=sin(a); return float3x3(c,-s,0, s,c,0, 0,0,1); }
+float3x3 RotationByAxis(int axis, float a) {
+    if (axis == 1) return RotationY(a);
+    if (axis == 2) return RotationZ(a);
+    return RotationX(a);
+}
+float3x3 Mul3(float3x3 a, float3x3 b) { return mul(a, b); }
+float3 MulVec3(float3x3 m, float3 v) { return mul(m, v); }
+
+// ---- Walk keyframe interpolation ----
+float CatmullRom(float p0, float p1, float p2, float p3, float t) {
+    float t2 = t*t, t3 = t2*t;
+    return 0.5 * ((2.0*p1) + (-p0+p2)*t + (2.0*p0-5.0*p1+4.0*p2-p3)*t2 + (-p0+3.0*p1-3.0*p2+p3)*t3);
+}
+float Smoothstep01(float t) { return t*t*(3.0-2.0*t); }
+float CosineInterp(float t) { return 0.5 - 0.5*cos(t*PI); }
+
+float GetWalkCyclePhase(float animTime, float animSpeed) {
+    float cycleDur = _WalkConfig.x / max(0.01, animSpeed);
+    float phase = fmod(animTime, cycleDur);
+    if (phase < 0.0) phase += cycleDur;
+    return phase / cycleDur;
+}
+
+float GetWalkPoseValue(int poseIdx, float cyclePhase) {
+    float4 kfs = _WalkKeyframes[poseIdx];
+    float kf0=kfs.x, kf1=kfs.y, kf2=kfs.z, kf3=kfs.w;
+    float segPhase = cyclePhase * 4.0;
+    uint useg = (uint)floor(segPhase);
+    useg = useg % 4u; 
+    int seg = (int)useg;
+    float t = segPhase - floor(segPhase);
+    float p0, p1, p2, p3;
+    if (seg == 0) { p0=kf3; p1=kf0; p2=kf1; p3=kf2; }
+    else if (seg == 1) { p0=kf0; p1=kf1; p2=kf2; p3=kf3; }
+    else if (seg == 2) { p0=kf1; p1=kf2; p2=kf3; p3=kf0; }
+    else { p0=kf2; p1=kf3; p2=kf0; p3=kf1; }
+    return CatmullRom(p0, p1, p2, p3, t);
+}
+
+// ---- Pivot helper ----
+float3 GetGroupPivotRaw(uint groupID, float3 dims) {
+    if (_PivotsEnabled)
+        return _Pivots[groupID].xyz * dims;
+    if (groupID == 0u) return float3(0.5, 0.4, 0.5) * dims;
+    if (groupID == 1u) return float3(0.5, 0.78, 0.5) * dims;
+    if (groupID == 2u) return float3(0.25, 0.75, 0.5) * dims;
+    if (groupID == 3u) return float3(0.75, 0.75, 0.5) * dims;
+    if (groupID == 4u) return float3(0.375, 0.34, 0.5) * dims;
+    if (groupID == 5u) return float3(0.625, 0.34, 0.5) * dims;
+    if (groupID == 6u) return float3(0.375, 0.20, 0.5) * dims;
+    if (groupID == 7u) return float3(0.625, 0.20, 0.5) * dims;
+    if (groupID == 8u) return float3(0.25, 0.75, 0.5) * dims;
+    if (groupID == 9u) return float3(0.75, 0.75, 0.5) * dims;
+    return float3(0,0,0);
+}
+
+// ---- Static anim param helper ----
+float4 ASP(int idx) { return _AnimStaticParamsEnabled ? _AnimStaticParams[idx] : float4(0,0,0,0); }
+
+// ---- Transform chain struct (max 3: own + parent + body) ----
+struct TransformEntry {
+    float3 pivot;
+    float3x3 rot;
+};
+
+// ---- Compute single group's own rotation (no FK chain) ----
+// Direct port of CPU ComputeGroupRotation per-group rotation logic.
+// Always returns a rotation (identity if no transform needed for this state).
+float3x3 ComputeOwnRotation(
+    uint gid, float3 dims, float voxelSize,
+    float animState, float animTime, float animSpeed)
+{
+    float3x3 rot = float3x3(1,0,0, 0,1,0, 0,0,1);
+
+    bool isWalkState = animState > 0.5 && animState < 1.5;
+    bool isAimWalkState = animState > 2.5 && animState < 3.5;
+    bool isAimingState = animState > 2.5 && animState < 4.5;
+    bool isCrouchingState = animState > 4.5 && animState < 5.5;
+
+    float walkPhase = 0.0;
+    bool useKeyframesWalk = false;
+    bool useKeyframesWalkOrAimWalk = false;
+    if ((isWalkState || isAimWalkState) && _WalkKeyframesEnabled) {
+        walkPhase = GetWalkCyclePhase(animTime, animSpeed);
+        useKeyframesWalkOrAimWalk = true;
+        if (isWalkState) useKeyframesWalk = true;
+    }
+
+    float4 armCfg   = _JointConfigEnabled ? _JointConfig[0] : float4(0, 0, 1, 1);
+    float4 legCfg   = _JointConfigEnabled ? _JointConfig[1] : float4(0, 0, 1, 1);
+    float4 elbowCfg = _JointConfigEnabled ? _JointConfig[2] : float4(1, 1, 1, -1);
+    float4 kneeCfg  = _JointConfigEnabled ? _JointConfig[3] : float4(0, 0, 1, 1);
+    float4 twistCfg = _JointConfigEnabled ? _JointConfig[4] : float4(0, 0, 0, 0);
+    float4 restCfg  = _JointConfigEnabled ? _JointConfig[5] : float4(-1.5708, 1.5708, 0, 0);
+    float4 kneeRest = _JointConfigEnabled ? _JointConfig[6] : float4(0, 0, 0, 0);
+
+    float4 lookP   = ASP(0); if (!_AnimStaticParamsEnabled) lookP = float4(0.5, 2.0, 0.035, 1.3);
+    float4 aimP1   = ASP(1); if (!_AnimStaticParamsEnabled) aimP1 = float4(0.2, 0, -0.05, 0);
+    float4 aimP2   = ASP(2); if (!_AnimStaticParamsEnabled) aimP2 = float4(-1.4, 0, 0, 0);
+    float4 aimP3   = ASP(3); if (!_AnimStaticParamsEnabled) aimP3 = float4(0.3, 0, 0, 4);
+    float4 crouchP1= ASP(4); if (!_AnimStaticParamsEnabled) crouchP1 = float4(0, 0, 0, 0);
+    float4 crouchP2= ASP(5); if (!_AnimStaticParamsEnabled) crouchP2 = float4(-1.15, 0, 1.15, 1.40);
+    float2 elbowTw = ASP(6).xy; if (!_AnimStaticParamsEnabled) elbowTw = float2(0, 0);
+
+    if (gid == 1u) // Head
+    {
+        float headYaw=0, headPitch=0, headTilt=0;
+        if (animState > 1.5 && animState < 2.5) {
+            headYaw = sin(animTime * lookP.y) * lookP.x;
+            headPitch = sin(animTime * lookP.w) * lookP.z;
+        } else if (isAimingState) {
+            headYaw = aimP1.y; headPitch = aimP1.z; headTilt = aimP1.w;
+        } else if (isCrouchingState) {
+            headPitch = crouchP1.y;
+        }
+        // Idle: headYaw/Pitch/Tilt stay 0 → identity rotation
+        rot = mul(RotationY(headYaw), mul(RotationX(headPitch), RotationZ(headTilt)));
+    }
+    else if (gid == 2u) // Left arm
+    {
+        float swing=0, reach=0;
+        if (useKeyframesWalk) {
+            swing = armCfg.z * GetWalkPoseValue(0, walkPhase);
+        } else if (isAimingState) {
+            swing = armCfg.z * aimP2.x;
+            reach = aimP2.z;
+        } else if (isCrouchingState) {
+            swing = armCfg.z * crouchP1.z;
+        } else {
+            rot = RotationZ(restCfg.x); // Idle
+        }
+        if (useKeyframesWalk || isAimingState || isCrouchingState)
+            rot = mul(RotationY(reach), mul(RotationByAxis((int)armCfg.x, swing), RotationZ(restCfg.x)));
+    }
+    else if (gid == 3u) // Right arm
+    {
+        float swing=0, reach=0;
+        if (useKeyframesWalk) {
+            swing = armCfg.w * GetWalkPoseValue(1, walkPhase);
+        } else if (isAimingState) {
+            swing = armCfg.w * aimP2.y;
+            reach = aimP2.w;
+        } else if (isCrouchingState) {
+            swing = armCfg.w * crouchP1.w;
+        } else {
+            rot = RotationZ(restCfg.y); // Idle
+        }
+        if (useKeyframesWalk || isAimingState || isCrouchingState)
+            rot = mul(RotationY(reach), mul(RotationByAxis((int)armCfg.y, swing), RotationZ(restCfg.y)));
+    }
+    else if (gid == 4u) // Left leg
+    {
+        float twist = twistCfg.x;
+        float stride = 0;
+        if (useKeyframesWalkOrAimWalk) {
+            stride = legCfg.z * GetWalkPoseValue(2, walkPhase);
+        } else if (isCrouchingState) {
+            stride = legCfg.z * crouchP2.x;
+        } else {
+            rot = RotationY(twist); // Idle
+        }
+        if (useKeyframesWalkOrAimWalk || isCrouchingState)
+            rot = mul(RotationByAxis((int)legCfg.x, stride), RotationY(twist));
+    }
+    else if (gid == 5u) // Right leg
+    {
+        float twist = twistCfg.y;
+        float stride = 0;
+        if (useKeyframesWalkOrAimWalk) {
+            stride = legCfg.w * GetWalkPoseValue(3, walkPhase);
+        } else if (isCrouchingState) {
+            stride = legCfg.w * crouchP2.y;
+        } else {
+            rot = RotationY(twist); // Idle
+        }
+        if (useKeyframesWalkOrAimWalk || isCrouchingState)
+            rot = mul(RotationByAxis((int)legCfg.y, stride), RotationY(twist));
+    }
+    else if (gid == 8u) // Left forearm
+    {
+        float bend = elbowCfg.z * restCfg.z;
+        float twist = elbowTw.x;
+        if (useKeyframesWalk) {
+            bend = elbowCfg.z * GetWalkPoseValue(4, walkPhase);
+            twist = GetWalkPoseValue(8, walkPhase);
+        } else if (isAimingState) {
+            bend = elbowCfg.z * aimP3.x;
+        }
+        rot = RotationByAxis((int)elbowCfg.x, bend);
+        if (twist != 0.0) rot = mul(rot, RotationX(twist));
+    }
+    else if (gid == 9u) // Right forearm
+    {
+        float bend = elbowCfg.w * restCfg.w;
+        float twist = elbowTw.y;
+        if (useKeyframesWalk) {
+            bend = elbowCfg.w * GetWalkPoseValue(5, walkPhase);
+            twist = GetWalkPoseValue(9, walkPhase);
+        } else if (isAimingState) {
+            bend = elbowCfg.w * aimP3.y;
+        }
+        rot = RotationByAxis((int)elbowCfg.y, bend);
+        if (twist != 0.0) rot = mul(rot, RotationX(twist));
+    }
+    else if (gid == 6u) // Left shin
+    {
+        float bend = kneeCfg.z * kneeRest.x;
+        if (useKeyframesWalkOrAimWalk) {
+            bend = kneeCfg.z * GetWalkPoseValue(6, walkPhase);
+        } else if (isCrouchingState) {
+            bend += kneeCfg.z * crouchP2.z;
+        }
+        rot = RotationByAxis((int)kneeCfg.x, bend);
+    }
+    else if (gid == 7u) // Right shin
+    {
+        float bend = kneeCfg.w * kneeRest.y;
+        if (useKeyframesWalkOrAimWalk) {
+            bend = kneeCfg.w * GetWalkPoseValue(7, walkPhase);
+        } else if (isCrouchingState) {
+            bend += kneeCfg.w * crouchP2.w;
+        }
+        rot = RotationByAxis((int)kneeCfg.y, bend);
+    }
+
+    return rot;
+}
+
+// ---- Compute group offset (matches CPU offset logic) ----
+float3 ComputeGroupOffset(uint gid, bool hasParent, uint parentGid,
+    float bodyLower, float modelLower)
+{
+    float3 offset = float3(0,0,0);
+    if (hasParent) {
+        // Children inherit parent's offset (parent is root group 1-5)
+        int pJoIdx = 6 + (int)parentGid; // asp[7..11] for groups 1..5
+        if (_AnimStaticParamsEnabled)
+            offset = _AnimStaticParams[pJoIdx].xyz;
+        if (bodyLower != 0.0 && (parentGid == 1u || parentGid == 2u || parentGid == 3u))
+            offset.y -= bodyLower;
+        if (modelLower != 0.0 && (parentGid >= 1u && parentGid <= 5u))
+            offset.y -= modelLower;
+    } else if (gid >= 1u && gid <= 5u) {
+        int joIdx = 6 + (int)gid;
+        if (_AnimStaticParamsEnabled)
+            offset = _AnimStaticParams[joIdx].xyz;
+        if (bodyLower != 0.0 && (gid == 1u || gid == 2u || gid == 3u))
+            offset.y -= bodyLower;
+        if (modelLower != 0.0 && (gid >= 1u && gid <= 5u))
+            offset.y -= modelLower;
+    }
+    return offset; // voxel units
+}
+
+// ---- Parent mapping ----
+uint ParentOfGroup(uint gid) {
+    if (gid == 8u) return 2u;
+    if (gid == 9u) return 3u;
+    if (gid == 6u) return 4u;
+    if (gid == 7u) return 5u;
+    return 0u; // no parent
+}
+
+// ---- Compute full transform chain for a group (forward, matching CPU) ----
+// Returns chain (own first, then parent, then body) + offset.
+// Inlined (no recursion) — max depth is 2 (child -> parent -> body).
+void ComputeGroupRotation(
+    uint groupID, float3 dims,
+    float animState, float animTime, float animSpeed,
+    out TransformEntry chain[MAX_CHAIN], out int chainLength, out float3 offset)
+{
+    chainLength = 0;
+    offset = float3(0,0,0);
+    chain[0].pivot = float3(0,0,0); chain[0].rot = float3x3(1,0,0, 0,1,0, 0,0,1);
+    chain[1].pivot = float3(0,0,0); chain[1].rot = float3x3(1,0,0, 0,1,0, 0,0,1);
+    chain[2].pivot = float3(0,0,0); chain[2].rot = float3x3(1,0,0, 0,1,0, 0,0,1);
+
+    // Body transform
+    bool isAimingState = animState > 2.5 && animState < 4.5;
+    bool isCrouchingState = animState > 4.5 && animState < 5.5;
+    float torsoTwist = isAimingState ? (_AnimStaticParamsEnabled ? _AnimStaticParams[1].x : 0.2) : 0.0;
+    float bodyLean = isCrouchingState ? (_AnimStaticParamsEnabled ? _AnimStaticParams[4].x : 0.0) : 0.0;
+    float bodyLower = isCrouchingState ? (_AnimStaticParamsEnabled ? _AnimStaticParams[3].z : 0.0) : 0.0;
+    float modelLower = isCrouchingState ? (_AnimStaticParamsEnabled ? _AnimStaticParams[3].w : 4.0) : 0.0;
+    bool hasBodyRot = (torsoTwist != 0.0) || (bodyLean != 0.0);
+
+    float3x3 bodyRot = float3x3(1,0,0, 0,1,0, 0,0,1);
+    if (hasBodyRot) {
+        if (bodyLean != 0.0) bodyRot = mul(RotationX(bodyLean), bodyRot);
+        if (torsoTwist != 0.0) bodyRot = mul(RotationY(torsoTwist), bodyRot);
+    }
+    // Pivots in voxel units (voxelSize=1.0, matching CPU)
+    float3 bodyPivot = GetGroupPivotRaw(0u, dims);
+    float3 bodyOffset = float3(0, -bodyLower - modelLower, 0);
+
+    // Group 0 (body)
+    if (groupID == 0u) {
+        if (hasBodyRot) {
+            chain[0].pivot = bodyPivot;
+            chain[0].rot = bodyRot;
+            chainLength = 1;
+        }
+        offset = bodyOffset;
+        return;
+    }
+
+    // Parent mapping
+    uint parentGid = 0u;
+    bool hasParent = false;
+    if (groupID == 8u) { parentGid = 2u; hasParent = true; }
+    else if (groupID == 9u) { parentGid = 3u; hasParent = true; }
+    else if (groupID == 6u) { parentGid = 4u; hasParent = true; }
+    else if (groupID == 7u) { parentGid = 5u; hasParent = true; }
+
+    // Compute own rotation (always returns a rotation; identity if no transform)
+    float3x3 ownRot = ComputeOwnRotation(groupID, dims, 1.0, animState, animTime, animSpeed);
+    // Groups 1-9 always have some rotation (even if identity for idle head).
+    // Group 0 (body) is handled separately above.
+    bool hasOwnRot = (groupID >= 1u);
+
+    // Compute parent rotation
+    float3x3 parentRot = float3x3(1,0,0, 0,1,0, 0,0,1);
+    bool hasParentRot = false;
+    if (hasParent) {
+        parentRot = ComputeOwnRotation(parentGid, dims, 1.0, animState, animTime, animSpeed);
+        hasParentRot = true;
+    }
+
+    // Body applies to groups 1,2,3 and their children (8,9 via parent 2,3)
+    bool bodyApplies = hasBodyRot && (
+        (!hasParent && (groupID == 1u || groupID == 2u || groupID == 3u)) ||
+        (hasParent && (parentGid == 2u || parentGid == 3u))
+    );
+
+    // Offset
+    offset = ComputeGroupOffset(groupID, hasParent, parentGid, bodyLower, modelLower);
+
+    if (!hasOwnRot && !hasParentRot && !bodyApplies) return;
+
+    // Build chain: [own, parent_own, body]
+    if (hasOwnRot && hasParentRot && bodyApplies) {
+        chain[0].pivot = GetGroupPivotRaw(groupID, dims); chain[0].rot = ownRot;
+        chain[1].pivot = GetGroupPivotRaw(parentGid, dims); chain[1].rot = parentRot;
+        chain[2].pivot = bodyPivot; chain[2].rot = bodyRot;
+        chainLength = 3;
+    } else if (hasOwnRot && hasParentRot) {
+        chain[0].pivot = GetGroupPivotRaw(groupID, dims); chain[0].rot = ownRot;
+        chain[1].pivot = GetGroupPivotRaw(parentGid, dims); chain[1].rot = parentRot;
+        chainLength = 2;
+    } else if (hasOwnRot && bodyApplies) {
+        chain[0].pivot = GetGroupPivotRaw(groupID, dims); chain[0].rot = ownRot;
+        chain[1].pivot = bodyPivot; chain[1].rot = bodyRot;
+        chainLength = 2;
+    } else if (hasParentRot && bodyApplies) {
+        chain[0].pivot = GetGroupPivotRaw(parentGid, dims); chain[0].rot = parentRot;
+        chain[1].pivot = bodyPivot; chain[1].rot = bodyRot;
+        chainLength = 2;
+    } else if (hasOwnRot) {
+        chain[0].pivot = GetGroupPivotRaw(groupID, dims); chain[0].rot = ownRot;
+        chainLength = 1;
+    } else if (hasParentRot) {
+        chain[0].pivot = GetGroupPivotRaw(parentGid, dims); chain[0].rot = parentRot;
+        chainLength = 1;
+    } else if (bodyApplies) {
+        chain[0].pivot = bodyPivot; chain[0].rot = bodyRot;
+        chainLength = 1;
+    }
+}
+
+// ---- Voxel index helper (same dims for rest and posed) ----
+int VoxelIndex(int x, int y, int z) {
+    return x + y * _RestDimX + z * _RestDimX * _RestDimY;
+}
+
+// ---- Clear kernel: zero out posed buffer for one instance ----
+#pragma kernel CSClear
+
+[numthreads(64, 1, 1)]
+void CSClear(uint3 dtid : SV_DispatchThreadID)
+{
+    // dtid.x = voxel index within one instance's posed slice
+    // dtid.y = instance index
+    int sliceSize = _RestDimX * _RestDimY * _RestDimZ;
+    if (dtid.x >= (uint)sliceSize) return;
+    if (dtid.y >= (uint)_InstanceCount) return;
+
+    float4 instMeta = _InstanceAnimData[dtid.y * 2 + 1];
+    uint posedOffset = (uint)instMeta.x;
+    _PosedVoxelData[posedOffset + dtid.x] = 0u;
+}
+
+// ---- Pose kernel: forward-transform one rest voxel into posed buffer ----
+[numthreads(64, 1, 1)]
+void CSPose(uint3 dtid : SV_DispatchThreadID)
+{
+    // dtid.x = rest voxel linear index
+    // dtid.y = instance index
+    int restIdx = (int)dtid.x;
+    int instIdx = (int)dtid.y;
+    if (restIdx >= _TotalRestVoxels) return;
+    if (instIdx >= _InstanceCount) return;
+
+    // Read rest voxel material
+    uint mat = _RestVoxelData[restIdx];
+    if (mat == 0u) return; // air — skip
+
+    // Decode rest voxel position from linear index (use uint for fast mod/div)
+    uint uridx = (uint)restIdx;
+    int rx = (int)(uridx % (uint)_RestDimX);
+    int ry = (int)((uridx / (uint)_RestDimX) % (uint)_RestDimY);
+    int rz = (int)(uridx / ((uint)_RestDimX * (uint)_RestDimY));
+
+    // Read groupID
+    uint gid = _GroupIDs[restIdx];
+
+    // Read instance animation state
+    float4 animData = _InstanceAnimData[instIdx * 2];
+    float animState = animData.x;
+    float animTime = animData.y;
+    float animSpeed = animData.z;
+
+    float4 instMeta = _InstanceAnimData[instIdx * 2 + 1];
+    uint posedBufferOffset = (uint)instMeta.x;
+
+    float3 dims = float3((float)_RestDimX, (float)_RestDimY, (float)_RestDimZ);
+    // voxelSize = 1.0 for all transform math (matching CPU PoseVoxelsToBuffer)
+
+    // === Forward transform (matches CPU PoseVoxelsToBuffer) ===
+    float px = (float)rx - dims.x * 0.5;
+    float py = (float)ry;
+    float pz = (float)rz - dims.z * 0.5;
+
+    if (gid >= 0u)
+    {
+        TransformEntry chain[MAX_CHAIN];
+        int chainLength;
+        float3 off;
+        ComputeGroupRotation(gid, dims, animState, animTime, animSpeed, chain, chainLength, off);
+
+        if (chainLength > 0)
+        {
+            float3 pos = float3((float)rx, (float)ry, (float)rz);
+            // Apply chain in order: own first, then parent, then body
+            for (int c = 0; c < chainLength; c++) {
+                float3 rel = pos - chain[c].pivot;
+                float3 transformed = mul(chain[c].rot, rel);
+                pos = transformed + chain[c].pivot;
+            }
+            px = pos.x + off.x - dims.x * 0.5;
+            py = pos.y + off.y;
+            pz = pos.z + off.z - dims.z * 0.5;
+        }
+    }
+
+    // Body bob + weight shift for walk states (voxel units, matching CPU)
+    bool isWalkState = (animState > 0.5 && animState < 1.5) || (animState > 2.5 && animState < 3.5);
+    if (isWalkState && _WalkKeyframesEnabled) {
+        float phase = GetWalkCyclePhase(animTime, animSpeed);
+        float bobAmp = _WalkConfig.y;
+        float bobY = -cos(phase * 4.0 * PI) * bobAmp;
+        float shiftAmp = _WalkConfig.z;
+        float shiftX = sin(phase * 2.0 * PI) * shiftAmp;
+        px += shiftX;
+        py += bobY;
+    }
+
+    // === Scatter into posed buffer (matches CPU ScatterAndUpload) ===
+    // Convert from centered space back to grid coordinates (no padding, same dims)
+    int posedX = (int)round(px + dims.x * 0.5);
+    int posedY = (int)round(py);
+    int posedZ = (int)round(pz + dims.z * 0.5);
+
+    // Bounds check (same dims as rest)
+    if (posedX < 0 || posedX >= _RestDimX ||
+        posedY < 0 || posedY >= _RestDimY ||
+        posedZ < 0 || posedZ >= _RestDimZ)
+        return;
+
+    int posedIdx = posedBufferOffset + VoxelIndex(posedX, posedY, posedZ);
+    _PosedVoxelData[posedIdx] = mat;
+}

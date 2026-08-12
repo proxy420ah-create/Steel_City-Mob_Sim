@@ -35,6 +35,12 @@ namespace SteelCity.Sim
         private Mesh proxyCubeMesh;
         private RenderTexture proxyRT;
 
+        [Header("GPU Compute Pose (Forward-Transform Animation)")]
+        [Tooltip("Compute shader for forward-transforming rest voxels into posed voxels on GPU.")]
+        [SerializeField] private ComputeShader poseComputeShader;
+        private int kernelCSClear;
+        private int kernelCSPose;
+
         [SerializeField] private bool disableSectorCulling = true;
 
         // Coverage-aware dynamic resolution tuning
@@ -108,6 +114,10 @@ namespace SteelCity.Sim
             public int tightMinX, tightMinY, tightMinZ;
             public int tightMaxX, tightMaxY, tightMaxZ;
             public bool hasSolid;               // false if chunk is entirely air
+            // If true, skip frustum + screen-ratio culling for this chunk (always draw).
+            // Used by debug/test volumes (e.g. ForwardTransformTestRig) that need to match
+            // the "always visible" behavior of the instanced character render path.
+            public bool skipCulling;
         }
 
         private readonly List<VoxelChunk> chunks = new();
@@ -128,6 +138,10 @@ namespace SteelCity.Sim
         private static readonly int MaxMaterials = 130; // matches StAssetReader.MaterialCount
         private ComputeBuffer defaultTintBuffer; // all (1,1,1,1) — used when no custom tint set
         private ComputeBuffer dummyGroupIDBuffer; // single uint(0) — bound when no .groups file exists
+        private ComputeBuffer dummyWalkKeyframeBuffer; // 10 float4s of zeros — bound when walk keyframes disabled
+        private ComputeBuffer dummyJointConfigBuffer;   // 7 float4s of zeros — bound when walk keyframes disabled
+        private ComputeBuffer dummyPivotBuffer;         // 10 float4s of zeros — bound when authored pivots disabled
+        private ComputeBuffer dummyAnimStaticParamsBuffer; // 12 float4s of zeros — bound when anim static params disabled
 
         // --- Packed voxel cache: avoids re-reading + re-packing the same .stasset files ---
         // Includes pre-computed tight AABB so LoadChunkFromData can skip the scan.
@@ -326,6 +340,8 @@ namespace SteelCity.Sim
         private int propWalkKeyframes, propWalkKeyframesEnabled;
         private int propJointConfig, propJointConfigEnabled;
         private int propWalkConfig;
+        private int propPivots, propPivotsEnabled;
+        private int propAnimStaticParams, propAnimStaticParamsEnabled;
 
         // --- Perf tracking (event-driven, not timed) ---
         private bool distanceCullingEnabled = true;
@@ -384,6 +400,16 @@ namespace SteelCity.Sim
             CacheShaderIDs();
             CreateSharedMaterialBuffer();
             kernelCSRaymarch = raymarchShader.FindKernel("CSRaymarch");
+            if (poseComputeShader != null)
+            {
+                kernelCSClear = poseComputeShader.FindKernel("CSClear");
+                kernelCSPose = poseComputeShader.FindKernel("CSPose");
+                Debug.Log("[VoxelChunkManager] Pose compute shader kernels cached (CSClear, CSPose)");
+            }
+            else
+            {
+                Debug.LogWarning("[VoxelChunkManager] No pose compute shader assigned — GPU forward-transform animation disabled");
+            }
             InitProxyRender();
         }
 
@@ -395,6 +421,17 @@ namespace SteelCity.Sim
                 proxyShader = Resources.Load<Shader>("Shaders/VoxelProxyRaymarch");
                 if (proxyShader == null)
                     proxyShader = Shader.Find("SteelCity/VoxelProxyRaymarch");
+            }
+            // Auto-load pose compute shader if not assigned
+            if (poseComputeShader == null)
+            {
+                poseComputeShader = Resources.Load<ComputeShader>("Shaders/CharacterPoseCompute");
+                if (poseComputeShader != null)
+                {
+                    kernelCSClear = poseComputeShader.FindKernel("CSClear");
+                    kernelCSPose = poseComputeShader.FindKernel("CSPose");
+                    Debug.Log("[VoxelChunkManager] Pose compute shader auto-loaded from Resources");
+                }
             }
             if (proxyShader != null)
             {
@@ -466,6 +503,10 @@ namespace SteelCity.Sim
             if (sharedMaterialBuffer != null) { sharedMaterialBuffer.Release(); sharedMaterialBuffer = null; }
             if (defaultTintBuffer != null) { defaultTintBuffer.Release(); defaultTintBuffer = null; }
             if (dummyGroupIDBuffer != null) { dummyGroupIDBuffer.Release(); dummyGroupIDBuffer = null; }
+            if (dummyWalkKeyframeBuffer != null) { dummyWalkKeyframeBuffer.Release(); dummyWalkKeyframeBuffer = null; }
+            if (dummyJointConfigBuffer != null) { dummyJointConfigBuffer.Release(); dummyJointConfigBuffer = null; }
+            if (dummyPivotBuffer != null) { dummyPivotBuffer.Release(); dummyPivotBuffer = null; }
+            if (dummyAnimStaticParamsBuffer != null) { dummyAnimStaticParamsBuffer.Release(); dummyAnimStaticParamsBuffer = null; }
             if (displayMaterial != null) { Destroy(displayMaterial); displayMaterial = null; }
             if (displayQuad != null) { Destroy(displayQuad); displayQuad = null; }
             if (proxyMaterial != null) { Destroy(proxyMaterial); proxyMaterial = null; }
@@ -530,6 +571,10 @@ namespace SteelCity.Sim
             propJointConfig = Shader.PropertyToID("_JointConfig");
             propJointConfigEnabled = Shader.PropertyToID("_JointConfigEnabled");
             propWalkConfig = Shader.PropertyToID("_WalkConfig");
+            propPivots = Shader.PropertyToID("_Pivots");
+            propPivotsEnabled = Shader.PropertyToID("_PivotsEnabled");
+            propAnimStaticParams = Shader.PropertyToID("_AnimStaticParams");
+            propAnimStaticParamsEnabled = Shader.PropertyToID("_AnimStaticParamsEnabled");
         }
 
         private void CreateSharedMaterialBuffer()
@@ -555,6 +600,18 @@ namespace SteelCity.Sim
             // Bound when a group has no .groups file so D3D12 doesn't reject the draw call
             dummyGroupIDBuffer = new ComputeBuffer(1, sizeof(uint));
             dummyGroupIDBuffer.SetData(new uint[] { 0 });
+
+            // Dummy walk keyframe / joint config buffers: bound whenever walk keyframes are
+            // disabled so D3D12 doesn't reject the draw call (SRV must be bound at every
+            // declared shader slot, regardless of whether the shader logic reads it).
+            dummyWalkKeyframeBuffer = new ComputeBuffer(10, sizeof(float) * 4);
+            dummyWalkKeyframeBuffer.SetData(new Vector4[10]);
+            dummyJointConfigBuffer = new ComputeBuffer(7, sizeof(float) * 4);
+            dummyJointConfigBuffer.SetData(new Vector4[7]);
+            dummyPivotBuffer = new ComputeBuffer(10, sizeof(float) * 4);
+            dummyPivotBuffer.SetData(new Vector4[10]);
+            dummyAnimStaticParamsBuffer = new ComputeBuffer(12, sizeof(float) * 4);
+            dummyAnimStaticParamsBuffer.SetData(new Vector4[12]);
 
             // Debug: log key material colors to verify they're updated
             Debug.Log($"[VoxelChunkManager] Material buffer created ({MaxMaterials} entries). " +
@@ -973,6 +1030,24 @@ namespace SteelCity.Sim
         }
 
         /// <summary>
+        /// Update the tight AABB of a registered chunk. Used by ForwardTransformTestRig
+        /// to update proxy box bounds as voxels move due to forward-transform posing.
+        /// </summary>
+        public void UpdateChunkTightAABB(string name,
+            int minX, int minY, int minZ, int maxX, int maxY, int maxZ)
+        {
+            if (chunkLookup.TryGetValue(name, out var chunk))
+            {
+                chunk.tightMinX = minX;
+                chunk.tightMinY = minY;
+                chunk.tightMinZ = minZ;
+                chunk.tightMaxX = maxX;
+                chunk.tightMaxY = maxY;
+                chunk.tightMaxZ = maxZ;
+            }
+        }
+
+        /// <summary>
         /// Register an externally-managed voxel volume for rendering.
         /// The caller owns the ComputeBuffer and GameObject; VoxelChunkManager
         /// just renders it each frame. Similar to SteelTide's VoxelRenderer.RegisterVolume.
@@ -1008,7 +1083,8 @@ namespace SteelCity.Sim
                 tightMinZ = 0,
                 tightMaxX = Mathf.Max(0, dimsX - 1),
                 tightMaxY = Mathf.Max(0, dimsY - 1),
-                tightMaxZ = Mathf.Max(0, dimsZ - 1)
+                tightMaxZ = Mathf.Max(0, dimsZ - 1),
+                skipCulling = true
             };
 
             chunks.Add(chunk);
@@ -1069,16 +1145,18 @@ namespace SteelCity.Sim
             public bool visible = true;
             public string assetKey; // which InstancedGroup this instance belongs to
             // Animation state (voxel group system)
-            public float animState;   // AnimState enum cast to float (0=Idle, 1=Walking, 2=Looking, 3=Checking, 4=Aiming, 5=Crouching, 6=Flinching, 7=Falling, 8=Down)
+            public float animState;   // AnimState enum cast to float (0=Idle, 1=Walking, 2=Looking, 3=AimWalk, 4=Aiming, 5=Crouching, 6=Flinching, 7=Falling, 8=Down, 9=TPose)
             public float animTime;    // seconds since animation started
             public float animSpeed = 1.0f; // walk speed multiplier
         }
 
         private class InstancedGroup
         {
-            public ComputeBuffer sharedVoxelBuffer;
+            public ComputeBuffer sharedVoxelBuffer;   // rest voxel data (shared, read-only)
+            public ComputeBuffer posedVoxelBuffer;    // posed voxel data (per-instance slices, GPU compute output)
             public ComputeBuffer groupIDBuffer;     // per-voxel groupID (animation groups)
             public ComputeBuffer instanceOffsetBuffer;
+            public ComputeBuffer instanceAnimDataBuffer; // per-instance anim state (2 float4s each)
             public int dimX, dimY, dimZ;
             public float voxelSize;
             public readonly List<InstancedCharacter> instances = new();
@@ -1088,15 +1166,25 @@ namespace SteelCity.Sim
             public ComputeBuffer jointConfigBuffer;   // 7 float4s (axis/sign/rest per joint pair)
             public Vector4 walkConfig;                // (cycleDuration, bodyBobAmp, weightShiftAmp, autoMirror)
             public bool walkKeyframesEnabled = false;
+            // Authored per-model pivots (per character type, shared by all instances).
+            // 10 float4s, indexed by groupID (0=body,1=head,2/3=arms,4/5=legs,6/7=shins,8/9=forearms).
+            // xyz = normalized pivot fraction of dims (0.0-1.0), matching .anim.json "pivots" format.
+            public ComputeBuffer pivotBuffer;
+            public bool pivotsEnabled = false;
+            // Static animation parameters (looking/aiming/crouching/jointOffset)
+            public ComputeBuffer animStaticParamsBuffer; // 12 float4s
+            public bool animStaticParamsEnabled = false;
+            // GPU compute forward-transform
+            public bool useComputePose = false;  // true when groupIDBuffer is available
         }
 
         private readonly Dictionary<string, InstancedGroup> instancedGroups = new();
 
-        public InstancedCharacter RegisterInstancedCharacter(GameObject host, string assetFileName, float voxelSize)
+        public InstancedCharacter RegisterInstancedCharacter(GameObject host, string assetFileName, float voxelSize, string subfolder = "voxel_characters")
         {
             if (!instancedGroups.TryGetValue(assetFileName, out var group))
             {
-                string path = System.IO.Path.Combine(Application.streamingAssetsPath, "voxel_buildings", assetFileName);
+                string path = System.IO.Path.Combine(Application.streamingAssetsPath, subfolder, assetFileName);
                 if (!System.IO.File.Exists(path))
                 {
                     Debug.LogError($"[VoxelChunkManager] Instanced asset not found: {path}");
@@ -1135,7 +1223,8 @@ namespace SteelCity.Sim
                     {
                         group.groupIDBuffer = new ComputeBuffer(totalVoxels, sizeof(uint));
                         group.groupIDBuffer.SetData(groupIDs);
-                        Debug.Log($"[VoxelChunkManager] Animation groups loaded: {assetFileName} — {totalVoxels:N0} voxels tagged with groupIDs");
+                        group.useComputePose = true; // Enable GPU forward-transform pose
+                        Debug.Log($"[VoxelChunkManager] Animation groups loaded: {assetFileName} — {totalVoxels:N0} voxels tagged with groupIDs (compute pose enabled)");
                     }
                 }
                 
@@ -1222,6 +1311,68 @@ namespace SteelCity.Sim
         }
 
         /// <summary>
+        /// Set authored per-model joint pivots for an instanced character type, read from the
+        /// HTML animator's .anim.json "pivots" dict (auto-detected per-model in the editor).
+        /// Overrides the shader's hardcoded fractional pivot approximation, which only works
+        /// for proportions similar to the original hoodlum model (16x32x10).
+        ///
+        /// pivots: 10 Vector4s, indexed by groupID (xyz = normalized fraction of dims, 0.0-1.0):
+        ///   0=body, 1=head, 2=left arm, 3=right arm, 4=left leg, 5=right leg,
+        ///   6=left shin, 7=right shin, 8=left forearm, 9=right forearm.
+        /// Missing groupIDs should be passed as Vector4.zero (shader treats zero pivot as
+        /// volume-corner-relative, which callers should avoid by always supplying all 10 entries).
+        /// </summary>
+        public void SetPivots(string assetFileName, Vector4[] pivots)
+        {
+            if (!instancedGroups.TryGetValue(assetFileName, out var group))
+            {
+                Debug.LogWarning($"[VoxelChunkManager] SetPivots: group not found for {assetFileName}");
+                return;
+            }
+
+            if (pivots == null || pivots.Length != 10)
+            {
+                Debug.LogWarning($"[VoxelChunkManager] SetPivots: expected 10 pivot entries, got {(pivots == null ? "null" : pivots.Length.ToString())}");
+                return;
+            }
+
+            if (group.pivotBuffer != null) group.pivotBuffer.Release();
+
+            group.pivotBuffer = new ComputeBuffer(10, sizeof(float) * 4);
+            group.pivotBuffer.SetData(pivots);
+            group.pivotsEnabled = true;
+
+            Debug.Log($"[VoxelChunkManager] Authored pivots set for {assetFileName} (10 groups)");
+        }
+
+        /// <summary>
+        /// Set static animation parameters (looking/aiming/crouching/jointOffset) for an
+        /// instanced character type. All instances sharing the same assetFileName use these.
+        /// 12 Vector4s packed as described in the shader comments.
+        /// </summary>
+        public void SetAnimStaticParams(string assetFileName, Vector4[] animParams)
+        {
+            if (!instancedGroups.TryGetValue(assetFileName, out var group))
+            {
+                Debug.LogWarning($"[VoxelChunkManager] SetAnimStaticParams: group not found for {assetFileName}");
+                return;
+            }
+
+            if (animParams == null || animParams.Length != 12)
+            {
+                Debug.LogWarning($"[VoxelChunkManager] SetAnimStaticParams: expected 12 entries, got {(animParams == null ? "null" : animParams.Length.ToString())}");
+                return;
+            }
+
+            if (group.animStaticParamsBuffer != null) group.animStaticParamsBuffer.Release();
+            group.animStaticParamsBuffer = new ComputeBuffer(12, sizeof(float) * 4);
+            group.animStaticParamsBuffer.SetData(animParams);
+            group.animStaticParamsEnabled = true;
+
+            Debug.Log($"[VoxelChunkManager] Anim static params set for {assetFileName} (12 float4s)");
+        }
+
+        /// <summary>
         /// Load a .groups file (STAG format, same layout as .stasset but uint16 groupIDs).
         /// Returns uint[] of groupID per voxel, or null if file invalid.
         /// </summary>
@@ -1300,6 +1451,13 @@ namespace SteelCity.Sim
             Vector3 paddedSize = size + pad;
             Vector3 paddedHalf = paddedSize * 0.5f;
 
+            int totalVoxels = group.dimX * group.dimY * group.dimZ;
+            bool useComputePose = group.groupIDBuffer != null && poseComputeShader != null && group.useComputePose;
+
+            // Build per-instance offset buffer + anim data buffer
+            // For compute pose: also build instanceAnimData (2 float4s per instance)
+            var animData = useComputePose ? new Vector4[visibleCount * 2] : null;
+
             foreach (var ic in group.instances)
             {
                 if (!ic.visible) continue;
@@ -1311,6 +1469,12 @@ namespace SteelCity.Sim
                 // Center the proxy on the world-aligned AABB center
                 Vector3 centerPos = ic.worldOffset + paddedHalf;
                 matrices[writeIdx] = Matrix4x4.TRS(centerPos, rot, paddedSize);
+
+                if (useComputePose)
+                {
+                    animData[writeIdx * 2] = new Vector4(ic.animState, ic.animTime, ic.animSpeed, 0);
+                    animData[writeIdx * 2 + 1] = new Vector4(writeIdx * totalVoxels, 0, 0, 0); // posed buffer offset
+                }
                 writeIdx++;
             }
 
@@ -1321,6 +1485,69 @@ namespace SteelCity.Sim
             }
             group.instanceOffsetBuffer.SetData(offsets, 0, 0, bufferElements);
 
+            // --- GPU Compute Forward-Transform Pose ---
+            if (useComputePose)
+            {
+                // Ensure posed buffer is large enough
+                int posedSize = totalVoxels * visibleCount;
+                if (group.posedVoxelBuffer == null || group.posedVoxelBuffer.count < posedSize)
+                {
+                    if (group.posedVoxelBuffer != null) group.posedVoxelBuffer.Release();
+                    group.posedVoxelBuffer = new ComputeBuffer(posedSize, sizeof(uint));
+                    Debug.Log($"[VoxelChunkManager] Posed voxel buffer allocated: {posedSize} voxels for {visibleCount} instances");
+                }
+
+                // Ensure anim data buffer is large enough
+                if (group.instanceAnimDataBuffer == null || group.instanceAnimDataBuffer.count < visibleCount * 2)
+                {
+                    if (group.instanceAnimDataBuffer != null) group.instanceAnimDataBuffer.Release();
+                    group.instanceAnimDataBuffer = new ComputeBuffer(Mathf.Max(visibleCount * 2, 16), sizeof(float) * 4);
+                }
+                group.instanceAnimDataBuffer.SetData(animData, 0, 0, visibleCount * 2);
+
+                // Dispatch clear kernel: zero out posed buffer slices
+                int clearGroups = Mathf.CeilToInt((float)totalVoxels / 64f);
+                cmd.DispatchCompute(poseComputeShader, kernelCSClear, clearGroups, visibleCount, 1);
+
+                // Set compute shader params
+                cmd.SetComputeBufferParam(poseComputeShader, kernelCSPose, "_RestVoxelData", group.sharedVoxelBuffer);
+                cmd.SetComputeBufferParam(poseComputeShader, kernelCSPose, "_GroupIDs", group.groupIDBuffer);
+                cmd.SetComputeBufferParam(poseComputeShader, kernelCSPose, "_InstanceAnimData", group.instanceAnimDataBuffer);
+                cmd.SetComputeBufferParam(poseComputeShader, kernelCSPose, "_PosedVoxelData", group.posedVoxelBuffer);
+                cmd.SetComputeIntParam(poseComputeShader, "_RestDimX", group.dimX);
+                cmd.SetComputeIntParam(poseComputeShader, "_RestDimY", group.dimY);
+                cmd.SetComputeIntParam(poseComputeShader, "_RestDimZ", group.dimZ);
+                cmd.SetComputeIntParam(poseComputeShader, "_TotalRestVoxels", totalVoxels);
+                cmd.SetComputeIntParam(poseComputeShader, "_InstanceCount", visibleCount);
+
+                // Bind shared animation params
+                bool hasPivotsCS = group.pivotsEnabled && group.pivotBuffer != null;
+                cmd.SetComputeBufferParam(poseComputeShader, kernelCSPose, "_Pivots", hasPivotsCS ? group.pivotBuffer : dummyPivotBuffer);
+                cmd.SetComputeIntParam(poseComputeShader, "_PivotsEnabled", hasPivotsCS ? 1 : 0);
+                bool hasWalkCS = group.walkKeyframesEnabled && group.walkKeyframeBuffer != null;
+                cmd.SetComputeBufferParam(poseComputeShader, kernelCSPose, "_WalkKeyframes", hasWalkCS ? group.walkKeyframeBuffer : dummyWalkKeyframeBuffer);
+                cmd.SetComputeIntParam(poseComputeShader, "_WalkKeyframesEnabled", hasWalkCS ? 1 : 0);
+                bool hasJointCS = hasWalkCS && group.jointConfigBuffer != null;
+                cmd.SetComputeBufferParam(poseComputeShader, kernelCSPose, "_JointConfig", hasJointCS ? group.jointConfigBuffer : dummyJointConfigBuffer);
+                cmd.SetComputeIntParam(poseComputeShader, "_JointConfigEnabled", hasJointCS ? 1 : 0);
+                bool hasAnimCS = group.animStaticParamsEnabled && group.animStaticParamsBuffer != null;
+                cmd.SetComputeBufferParam(poseComputeShader, kernelCSPose, "_AnimStaticParams", hasAnimCS ? group.animStaticParamsBuffer : dummyAnimStaticParamsBuffer);
+                cmd.SetComputeIntParam(poseComputeShader, "_AnimStaticParamsEnabled", hasAnimCS ? 1 : 0);
+                cmd.SetComputeVectorParam(poseComputeShader, "_WalkConfig", hasWalkCS ? group.walkConfig : Vector4.zero);
+
+                // Also need to set params for CSClear kernel
+                cmd.SetComputeBufferParam(poseComputeShader, kernelCSClear, "_InstanceAnimData", group.instanceAnimDataBuffer);
+                cmd.SetComputeBufferParam(poseComputeShader, kernelCSClear, "_PosedVoxelData", group.posedVoxelBuffer);
+                cmd.SetComputeIntParam(poseComputeShader, "_RestDimX", group.dimX);
+                cmd.SetComputeIntParam(poseComputeShader, "_RestDimY", group.dimY);
+                cmd.SetComputeIntParam(poseComputeShader, "_RestDimZ", group.dimZ);
+                cmd.SetComputeIntParam(poseComputeShader, "_InstanceCount", visibleCount);
+
+                // Dispatch pose kernel: 1 thread per rest voxel per instance
+                int poseGroups = Mathf.CeilToInt((float)totalVoxels / 64f);
+                cmd.DispatchCompute(poseComputeShader, kernelCSPose, poseGroups, visibleCount, 1);
+            }
+
             // Use a MaterialPropertyBlock per group so each group's voxel buffer, dims,
             // and voxelSize are isolated. Without this, the shared proxyMaterial's
             // properties get overwritten by the last group drawn, causing earlier groups
@@ -1329,7 +1556,8 @@ namespace SteelCity.Sim
                 group.cachedPropBlock = new MaterialPropertyBlock();
             var block = group.cachedPropBlock;
             block.Clear();
-            block.SetBuffer(propVoxelData, group.sharedVoxelBuffer);
+            // When compute pose is active, bind posed buffer; otherwise bind rest buffer
+            block.SetBuffer(propVoxelData, useComputePose ? group.posedVoxelBuffer : group.sharedVoxelBuffer);
             block.SetBuffer(propInstanceOffsets, group.instanceOffsetBuffer);
             block.SetBuffer(propMaterialColors, sharedMaterialBuffer);
             block.SetBuffer(propChunkTints, defaultTintBuffer);
@@ -1341,22 +1569,31 @@ namespace SteelCity.Sim
             block.SetInt(propUnlitLod, 0);
             block.SetInt(propLodDebugEnabled, 0);
 
-            // Animation group bindings — always bind _GroupIDs (D3D12 requires SRV at declared index)
-            bool hasGroups = group.groupIDBuffer != null;
+            // When using compute pose, disable inverse-transform sampling in the shader.
+            // The posed buffer already contains forward-transformed voxels.
+            // When NOT using compute pose (no groupIDs), keep original behavior.
+            bool hasGroups = group.groupIDBuffer != null && !useComputePose;
             block.SetInt(propGroupIDsEnabled, hasGroups ? 1 : 0);
             block.SetInt(propInstanceCount, visibleCount);
             block.SetBuffer(propGroupIDs, hasGroups ? group.groupIDBuffer : dummyGroupIDBuffer);
 
-            // Walk keyframe bindings
-            block.SetInt(propWalkKeyframesEnabled, group.walkKeyframesEnabled ? 1 : 0);
-            if (group.walkKeyframesEnabled && group.walkKeyframeBuffer != null)
-            {
-                block.SetBuffer(propWalkKeyframes, group.walkKeyframeBuffer);
-                block.SetInt(propJointConfigEnabled, group.jointConfigBuffer != null ? 1 : 0);
-                if (group.jointConfigBuffer != null)
-                    block.SetBuffer(propJointConfig, group.jointConfigBuffer);
-                block.SetVector(propWalkConfig, group.walkConfig);
-            }
+            // Walk keyframe bindings — always bind buffers (D3D12 requires SRV at declared index)
+            // When using compute pose, these are still needed for body bob in the shader's DDA loop
+            bool hasWalkKeyframes = group.walkKeyframesEnabled && group.walkKeyframeBuffer != null;
+            block.SetInt(propWalkKeyframesEnabled, hasWalkKeyframes ? 1 : 0);
+            block.SetBuffer(propWalkKeyframes, hasWalkKeyframes ? group.walkKeyframeBuffer : dummyWalkKeyframeBuffer);
+            bool hasJointConfig = hasWalkKeyframes && group.jointConfigBuffer != null;
+            block.SetInt(propJointConfigEnabled, hasJointConfig ? 1 : 0);
+            block.SetBuffer(propJointConfig, hasJointConfig ? group.jointConfigBuffer : dummyJointConfigBuffer);
+            block.SetVector(propWalkConfig, hasWalkKeyframes ? group.walkConfig : Vector4.zero);
+            bool hasPivots = group.pivotsEnabled && group.pivotBuffer != null;
+            block.SetInt(propPivotsEnabled, hasPivots ? 1 : 0);
+            block.SetBuffer(propPivots, hasPivots ? group.pivotBuffer : dummyPivotBuffer);
+
+            // Anim static params (looking/aiming/crouching/jointOffset)
+            bool hasAnimParams = group.animStaticParamsEnabled && group.animStaticParamsBuffer != null;
+            block.SetInt(propAnimStaticParamsEnabled, hasAnimParams ? 1 : 0);
+            block.SetBuffer(propAnimStaticParams, hasAnimParams ? group.animStaticParamsBuffer : dummyAnimStaticParamsBuffer);
 
             cmd.DrawMeshInstanced(proxyCubeMesh, 0, proxyMaterial, 0, matrices, visibleCount, block);
 
@@ -1368,10 +1605,14 @@ namespace SteelCity.Sim
             foreach (var group in instancedGroups.Values)
             {
                 if (group.sharedVoxelBuffer != null) group.sharedVoxelBuffer.Release();
+                if (group.posedVoxelBuffer != null) group.posedVoxelBuffer.Release();
                 if (group.groupIDBuffer != null) group.groupIDBuffer.Release();
                 if (group.instanceOffsetBuffer != null) group.instanceOffsetBuffer.Release();
+                if (group.instanceAnimDataBuffer != null) group.instanceAnimDataBuffer.Release();
                 if (group.walkKeyframeBuffer != null) group.walkKeyframeBuffer.Release();
                 if (group.jointConfigBuffer != null) group.jointConfigBuffer.Release();
+                if (group.pivotBuffer != null) group.pivotBuffer.Release();
+                if (group.animStaticParamsBuffer != null) group.animStaticParamsBuffer.Release();
                 group.instances.Clear();
             }
             instancedGroups.Clear();
@@ -1610,10 +1851,18 @@ namespace SteelCity.Sim
                 // Non-instanced path reads _VoxelSize; instanced path uses per-instance voxel size from Varyings
                 sectorBlock.SetFloat(propVoxelSize, sector.voxelSize);
 
-                // Animation group bindings — sectors have no groups, but shader requires _GroupIDs SRV
+                // Animation group bindings — sectors have no groups, but shader requires these SRVs
                 sectorBlock.SetInt(propGroupIDsEnabled, 0);
                 sectorBlock.SetInt(propInstanceCount, 0);
                 sectorBlock.SetBuffer(propGroupIDs, dummyGroupIDBuffer);
+                sectorBlock.SetInt(propWalkKeyframesEnabled, 0);
+                sectorBlock.SetBuffer(propWalkKeyframes, dummyWalkKeyframeBuffer);
+                sectorBlock.SetInt(propJointConfigEnabled, 0);
+                sectorBlock.SetBuffer(propJointConfig, dummyJointConfigBuffer);
+                sectorBlock.SetInt(propPivotsEnabled, 0);
+                sectorBlock.SetBuffer(propPivots, dummyPivotBuffer);
+                sectorBlock.SetInt(propAnimStaticParamsEnabled, 0);
+                sectorBlock.SetBuffer(propAnimStaticParams, dummyAnimStaticParamsBuffer);
 
                 cmd.DrawMeshInstanced(proxyCubeMesh, 0, sectorMaterial, 0, matrices, sector.buildingCount, sectorBlock);
                 perfSectorsDrawn++;
@@ -1929,8 +2178,8 @@ namespace SteelCity.Sim
                     (chunk.tightMaxZ - chunk.tightMinZ + 1) * vs);
                 Bounds chunkBounds = new Bounds(tightCenter, tightSize);
 
-                // Frustum cull
-                if (!GeometryUtility.TestPlanesAABB(frustumPlanes, chunkBounds))
+                // Frustum cull — skipped for debug/test volumes (skipCulling)
+                if (!chunk.skipCulling && !GeometryUtility.TestPlanesAABB(frustumPlanes, chunkBounds))
                 {
                     perfLodCulled++;
                     continue;
@@ -1939,7 +2188,7 @@ namespace SteelCity.Sim
                 float dist = Vector3.Distance(tightCenter, camTransform.position);
 
                 // Perspective distance culling (Working mode)
-                if (!isOrtho && distanceCullingEnabled && maxRenderDistance > 0f && dist > maxRenderDistance)
+                if (!chunk.skipCulling && !isOrtho && distanceCullingEnabled && maxRenderDistance > 0f && dist > maxRenderDistance)
                 {
                     perfLodCulled++;
                     continue;
@@ -1960,8 +2209,8 @@ namespace SteelCity.Sim
                     screenRatio = boundsRadius / viewExtent;
                 }
 
-                // Screen-space culling — skip sub-pixel chunks
-                if (screenRatio < lodCullScreenRatio)
+                // Screen-space culling — skip sub-pixel chunks (skipped for debug/test volumes)
+                if (!chunk.skipCulling && screenRatio < lodCullScreenRatio)
                 {
                     perfLodCulled++;
                     continue;
@@ -2099,10 +2348,18 @@ namespace SteelCity.Sim
                 block.SetBuffer(propVoxelData, chunk.voxelBuffer);
                 block.SetBuffer(propMaterialColors, sharedMaterialBuffer);
                 block.SetBuffer(propChunkTints, chunk.tintBuffer ?? defaultTintBuffer);
-                // Animation group bindings — non-instanced chunks have no groups, but shader requires _GroupIDs SRV
+                // Animation group bindings — non-instanced chunks have no groups, but shader requires these SRVs
                 block.SetInt(propGroupIDsEnabled, 0);
                 block.SetInt(propInstanceCount, 0);
                 block.SetBuffer(propGroupIDs, dummyGroupIDBuffer);
+                block.SetInt(propWalkKeyframesEnabled, 0);
+                block.SetBuffer(propWalkKeyframes, dummyWalkKeyframeBuffer);
+                block.SetInt(propJointConfigEnabled, 0);
+                block.SetBuffer(propJointConfig, dummyJointConfigBuffer);
+                block.SetInt(propPivotsEnabled, 0);
+                block.SetBuffer(propPivots, dummyPivotBuffer);
+                block.SetInt(propAnimStaticParamsEnabled, 0);
+                block.SetBuffer(propAnimStaticParams, dummyAnimStaticParamsBuffer);
                 block.SetVector(propVolumeDims, new Vector4(chunk.dims.x, chunk.dims.y, chunk.dims.z, 0));
                 block.SetFloat(propVoxelSize, vs);
                 block.SetVector(propVolumeOffset, chunkWorldPos);

@@ -17,7 +17,7 @@ namespace SteelCity.Sim
         [Tooltip("If true, spawns a single hood in an empty plot on Start for quick visual verification.")]
         [SerializeField] private bool debugSpawnOnStart = true;
         [Tooltip("Character asset to spawn.")]
-        [SerializeField] private string characterAsset = "character_hoodlum_0.stasset";
+        [SerializeField] private string characterAsset = "animationtest1.stasset";
         [Tooltip("Show ground probe debug rays.")]
         [SerializeField] private bool showGroundProbe = true;
 
@@ -171,12 +171,13 @@ namespace SteelCity.Sim
             CharacterAnimation.AnimState.Idle,
             CharacterAnimation.AnimState.Walking,
             CharacterAnimation.AnimState.Looking,
-            CharacterAnimation.AnimState.Checking,
+            CharacterAnimation.AnimState.AimWalk,
             CharacterAnimation.AnimState.Aiming,
             CharacterAnimation.AnimState.Crouching,
             CharacterAnimation.AnimState.Flinching,
             CharacterAnimation.AnimState.Falling,
-            CharacterAnimation.AnimState.Down
+            CharacterAnimation.AnimState.Down,
+            CharacterAnimation.AnimState.TPose
         };
 
         void Update()

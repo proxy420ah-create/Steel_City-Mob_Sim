@@ -94,7 +94,7 @@ namespace SteelCity.Sim
                 return;
             }
 
-            instancedHandle = chunkManager.RegisterInstancedCharacter(gameObject, assetFileName, voxelSize);
+            instancedHandle = chunkManager.RegisterInstancedCharacter(gameObject, assetFileName, voxelSize, "voxel_buildings");
             if (instancedHandle == null)
                 Debug.LogWarning("[VoxelVehicle] Instanced registration failed — vehicle will not render.");
         }

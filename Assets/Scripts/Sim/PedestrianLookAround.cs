@@ -65,7 +65,7 @@ namespace SteelCity.Sim
         public IEnumerator CoastClearCheck(float duration = 3f)
         {
             isLooking = true;
-            anim.SetState(CharacterAnimation.AnimState.Checking);
+            anim.SetState(CharacterAnimation.AnimState.AimWalk);
             yield return new WaitForSeconds(duration);
             anim.SetState(CharacterAnimation.AnimState.Idle);
             isLooking = false;
