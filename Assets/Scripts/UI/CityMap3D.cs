@@ -731,7 +731,9 @@ namespace SteelCity.Sim
                 isRotating = false;
 
             // --- RMB: Pan ---
-            if (Mouse.current.rightButton.wasPressedThisFrame && overMap)
+            // In execution mode, only allow pan when F6 debug camera freedom is active
+            bool panAllowed = !IsExecutionMode || debugCameraFreedom;
+            if (Mouse.current.rightButton.wasPressedThisFrame && overMap && panAllowed)
             {
                 isPanning = true;
                 lastMousePos = mousePos;
@@ -746,12 +748,24 @@ namespace SteelCity.Sim
                 Vector2 delta = mousePos - lastMousePos;
                 // Pan in screen space, converted to world-space offset
                 float panScale = mapCamera.orthographic
-                    ? mapCamera.orthographicSize * 0.005f
-                    : mapCamera.fieldOfView * 0.01f;
+                    ? mapCamera.orthographicSize * 0.0025f
+                    : mapCamera.fieldOfView * 0.005f;
                 Vector3 right = mapCamera.transform.right * (-delta.x * panScale);
                 Vector3 up = mapCamera.transform.up * (-delta.y * panScale);
-                panOffset += right + up;
-                cameraFocus = mapRoot.position + panOffset;
+                Vector3 worldDelta = right + up;
+
+                if (IsExecutionMode)
+                {
+                    // In execution mode, route pan to EventPlayer as offset from character
+                    var ep = FindFirstObjectByType<EventPlayer>();
+                    if (ep != null && ep.IsRunning)
+                        ep.AddCameraPanOffset(worldDelta);
+                }
+                else
+                {
+                    panOffset += worldDelta;
+                    cameraFocus = mapRoot.position + panOffset;
+                }
                 lastMousePos = mousePos;
             }
             if (Mouse.current.rightButton.wasReleasedThisFrame)

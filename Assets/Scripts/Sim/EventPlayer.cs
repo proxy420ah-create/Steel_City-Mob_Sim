@@ -27,7 +27,9 @@ namespace SteelCity.Sim
         private bool running;
         private int visualPathIndex;
 
-        public int VisualPathIndex => visualPathIndex;
+        /// <summary>Visual path index for PDR beams. Offset by -1 so beams include
+        /// the segment Vinny is currently traversing, not just remaining nodes.</summary>
+        public int VisualPathIndex => Mathf.Max(0, visualPathIndex - 1);
 
         private float tickAccumulator;
 
@@ -52,7 +54,19 @@ namespace SteelCity.Sim
         private CityMap3D cachedCityMap;
         private CharacterAnimation charAnim;
 
+        // Continuous walk: track whether we're in a walking sequence
+        private bool isWalkingSequence;
+
+        // Camera pan offset relative to character (user-adjustable)
+        private Vector3 cameraPanOffset;
+
         public bool IsRunning => running;
+
+        /// <summary>Called by CityMap3D when user pans during execution. Adds delta to pan offset.</summary>
+        public void AddCameraPanOffset(Vector3 worldDelta)
+        {
+            cameraPanOffset += worldDelta;
+        }
 
         public void Initialize(SimulationManager manager, VoxelCharacter charComponent, Transform root)
         {
@@ -63,6 +77,8 @@ namespace SteelCity.Sim
             tickAccumulator = 0f;
             currentMoveEvent = null;
             visualPathIndex = 0;
+            isWalkingSequence = false;
+            cameraPanOffset = Vector3.zero;
             cachedCityMap = FindFirstObjectByType<CityMap3D>();
 
             // Initialize camera target from current camera focus to avoid a jarring snap
@@ -136,8 +152,9 @@ namespace SteelCity.Sim
                 if (t >= 1f)
                 {
                     currentMoveEvent = null;
-                    if (charAnim != null && simManager.State != SimState.WalkingToTarget && simManager.State != SimState.WalkingHome)
-                        charAnim.SetState(CharacterAnimation.AnimState.Idle);
+                    // Don't set Idle between walk segments — animTime must keep
+                    // accumulating for a continuous walk cycle. Idle is only set
+                    // when the simulation transitions away from walking states.
                 }
             }
 
@@ -152,22 +169,24 @@ namespace SteelCity.Sim
                 OnComplete?.Invoke();
             }
 
-            // Camera follow: smoothly track character position
+            // Camera follow: smoothly track character position + user pan offset
             if (cameraFollow && character != null)
             {
                 Vector3 charWorld = character.useWorldPosition
                     ? character.WorldCenter
                     : character.transform.localPosition + mapRoot.position;
 
+                Vector3 desiredTarget = charWorld + cameraPanOffset;
+
                 if (!hasCameraTarget)
                 {
-                    currentCameraTarget = charWorld;
+                    currentCameraTarget = desiredTarget;
                     hasCameraTarget = true;
                 }
                 else
                 {
                     currentCameraTarget = Vector3.Lerp(
-                        currentCameraTarget, charWorld,
+                        currentCameraTarget, desiredTarget,
                         cameraFollowSpeed * Time.deltaTime);
                 }
 
@@ -183,6 +202,14 @@ namespace SteelCity.Sim
         {
             var evt = simManager.Events.Dequeue();
             if (evt == null) return;
+
+            // Non-move events end the walking sequence — set Idle and reset flag
+            if (evt.type != SimEventType.HoodMove && isWalkingSequence)
+            {
+                isWalkingSequence = false;
+                if (charAnim != null)
+                    charAnim.SetState(CharacterAnimation.AnimState.Idle);
+            }
 
             switch (evt.type)
             {
@@ -255,11 +282,16 @@ namespace SteelCity.Sim
             moveElapsed = 0f;
             visualPathIndex++;
 
-            // Set walking animation with consistent speed
+            // Continuous walk cycle: only call SetState on the FIRST move of a
+            // walking sequence. Subsequent segments keep animTime accumulating
+            // so the procedural walk cycle never resets (no stitch).
             if (charAnim != null)
             {
-                charAnim.SetState(CharacterAnimation.AnimState.Walking);
-                // Keep animation speed stable — one value for all walk segments
+                if (!isWalkingSequence)
+                {
+                    charAnim.SetState(CharacterAnimation.AnimState.Walking);
+                    isWalkingSequence = true;
+                }
                 charAnim.walkSpeed = 1.0f;
             }
 
