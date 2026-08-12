@@ -37,9 +37,9 @@ namespace SteelCity.Sim
         [SerializeField] private float viewportWidth = 0.4f;
         [SerializeField] private bool mapOnRightSide = true;
         [Range(0f, 1f)]
-        [SerializeField] private float viewportYMin = 0.09f;
+        [SerializeField] private float viewportYMin = 0.08f;
         [Range(0f, 1f)]
-        [SerializeField] private float viewportYMax = 0.93f;
+        [SerializeField] private float viewportYMax = 0.954f;
         [SerializeField] private Color backgroundColor = new(0.063f, 0.063f, 0.106f);
 
         [Header("Voxel Raymarch")]
@@ -354,6 +354,36 @@ namespace SteelCity.Sim
         public float GroundTile => GroundTileSize;
         public float SidewalkW => sidewalkWidth;
         public Camera MapCamera => mapCamera;
+
+        private Rect savedCameraRect;
+        private bool hasSavedCameraRect = false;
+
+        /// <summary>Set map camera to fullscreen for execution phase.</summary>
+        public void SetCameraFullscreen()
+        {
+            if (mapCamera == null) return;
+            if (!hasSavedCameraRect)
+            {
+                savedCameraRect = mapCamera.rect;
+                hasSavedCameraRect = true;
+            }
+            mapCamera.rect = new Rect(0f, 0f, 1f, 1f);
+        }
+
+        /// <summary>Restore map camera to its planning-phase viewport.</summary>
+        public void RestoreCameraViewport()
+        {
+            if (mapCamera == null) return;
+            if (hasSavedCameraRect)
+            {
+                mapCamera.rect = savedCameraRect;
+                hasSavedCameraRect = false;
+            }
+            else
+            {
+                mapCamera.rect = new Rect(mapOnRightSide ? 1f - viewportWidth : 0f, viewportYMin, viewportWidth, viewportYMax - viewportYMin);
+            }
+        }
         public VoxelCharacter SpawnedCharacter { get; private set; }
         private CharacterAnimation spawnedAnim;
         private static readonly CharacterAnimation.AnimState[] debugAnimStates = new[]
@@ -1235,15 +1265,19 @@ namespace SteelCity.Sim
                 charParent = cp.transform;
             }
 
-            // Spawn GPUAnimationTestRig — clean GPU instanced test rig (no city baggage)
+            // Spawn CharacterRig — consolidated character controller + renderer
             // Hotkeys: T=TPose I=Idle W=Walk L=Look A=Aim C=Crouch Space=Pause +/-=Speed
-            if (FindFirstObjectByType<GPUAnimationTestRig>() == null)
+            CharacterRig rig = FindFirstObjectByType<CharacterRig>();
+            if (rig == null)
             {
-                var gpuObj = new GameObject("GPUAnimationTestRig");
-                gpuObj.transform.SetParent(charParent, false);
-                gpuObj.AddComponent<GPUAnimationTestRig>();
-                Debug.Log("[CityMap3D] Added GPUAnimationTestRig — clean GPU instanced test (hotkeys: T/I/W/L/A/C)");
+                var charObj = new GameObject("Vinny");
+                charObj.transform.SetParent(charParent, false);
+                rig = charObj.AddComponent<CharacterRig>();
+                Debug.Log("[CityMap3D] Added CharacterRig on 'Vinny' (hotkeys: T/I/W/L/A/C)");
             }
+
+            // Wire SpawnedCharacter once the rig's delayed init completes
+            StartCoroutine(WaitForCharacterSpawn(rig));
 
             // Spawn vehicle test spawner (auto-spawns a car near HQ on Start)
             if (FindFirstObjectByType<VehicleTestSpawner>() == null)
@@ -1252,6 +1286,27 @@ namespace SteelCity.Sim
                 vehObj.transform.SetParent(mapRoot, false);
                 var vts = vehObj.AddComponent<VehicleTestSpawner>();
                 Debug.Log("[CityMap3D] Added VehicleTestSpawner to scene — will auto-spawn vehicle near HQ.");
+            }
+        }
+
+        private System.Collections.IEnumerator WaitForCharacterSpawn(CharacterRig rig)
+        {
+            // CharacterRig inits after 3 frames (DelayedSpawn)
+            // Wait a few extra frames to be safe
+            int maxFrames = 30;
+            while (rig != null && rig.Character == null && maxFrames-- > 0)
+                yield return null;
+
+            if (rig != null && rig.Character != null)
+            {
+                SpawnedCharacter = rig.Character;
+                spawnedAnim = rig.Character.GetComponent<CharacterAnimation>();
+                Debug.Log($"[CityMap3D] SpawnedCharacter assigned from CharacterRig (asset={rig.Character.assetFileName})");
+            }
+            else
+            {
+                Debug.LogWarning("[CityMap3D] WaitForCharacterSpawn timed out — SpawnedCharacter is null. " +
+                                 "Check that CharacterRig has a valid asset and VoxelChunkManager.");
             }
         }
 

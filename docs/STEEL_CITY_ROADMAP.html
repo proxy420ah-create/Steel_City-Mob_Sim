@@ -368,6 +368,7 @@
   <p class="subtitle">Vertical Slice Development Roadmap</p>
   <div class="meta">
     <span style="color:var(--green);">● Foundations Complete</span> &nbsp;|&nbsp;
+    <span style="color:var(--green);">● GPU Animation Pipeline Complete</span> &nbsp;|&nbsp;
     <span style="color:var(--accent);">● Simulation In Progress</span> &nbsp;|&nbsp;
     <span style="color:var(--cyan);">● GPU Rendering Optimization In Progress</span> &nbsp;|&nbsp;
     <span style="color:var(--text-dim);">● Content Expansion Planned</span>
@@ -383,7 +384,7 @@
       <p style="margin: 4px 0 0 0; color: var(--text-dim); font-size: 0.9em;">
         This roadmap must be updated whenever new features are discussed, design documents are created, or phases change status.
         If you're working on a design doc or brainstorming a new system, update the corresponding phase here afterward.
-        Last review: <strong>Aug 9, 2026</strong> — Phase 4c (Voxel Group Animation) COMPLETE with Approach B inverse-transform sampling, combat/vehicle design doc, invariant computation audit, GPU rendering Phase 1, gang simulation architecture design doc + visual guide (Phase 4d).
+        Last review: <strong>Aug 12, 2026</strong> — GPU compute forward-transform animation pipeline COMPLETE (CharacterPoseCompute.compute, CSClear + CSPose kernels). T-Pose, Idle, Walking, Looking, Aiming verified on GPU. Phase 4c (Voxel Group Animation) evolved from Approach B inverse-transform to GPU compute forward-transform. Combat/vehicle design doc, invariant computation audit, GPU rendering Phase 1, gang simulation architecture design doc + visual guide (Phase 4d) all complete.
       </p>
     </div>
   </div>
@@ -392,9 +393,9 @@
 <!-- ========================= PROGRESS BAR ========================= -->
 <div class="progress-section">
   <div class="overall-bar">
-    <div class="overall-fill" style="width: 70%;">70%</div>
+    <div class="overall-fill" style="width: 75%;">75%</div>
   </div>
-  <div class="overall-label">Vertical Slice Completion — Foundations ✅ → Simulation 🔄 → Polish 🔲</div>
+  <div class="overall-label">Vertical Slice Completion — Foundations ✅ → GPU Animation ✅ → Simulation 🔄 → Polish 🔲</div>
 </div>
 
 <div class="container">
@@ -402,7 +403,7 @@
   <!-- ========================= STATS ========================= -->
   <div class="stats-grid">
     <div class="stat-card">
-      <div class="stat-num">39</div>
+      <div class="stat-num">45+</div>
       <div class="stat-label">C# Scripts</div>
     </div>
     <div class="stat-card">
@@ -410,34 +411,33 @@
       <div class="stat-label">Voxel Models</div>
     </div>
     <div class="stat-card">
-      <div class="stat-num">18</div>
+      <div class="stat-num">19</div>
       <div class="stat-label">Doc Files</div>
     </div>
     <div class="stat-card">
-      <div class="stat-num">100</div>
-      <div class="stat-label">City Blocks</div>
+      <div class="stat-num">5</div>
+      <div class="stat-label">Anim States</div>
     </div>
   </div>
 
   <!-- ========================= CURRENT WORK BANNER ========================= -->
   <div class="current-banner">
-    <h3><span class="pulse-dot"></span> Current Work — Gang Simulation Architecture Design + GPU Rendering Phase 2</h3>
+    <h3><span class="pulse-dot"></span> Current Work — GPU Animation Pipeline Complete + Pathfinding Integration Next</h3>
     <div class="desc">
-      <strong>Gang Simulation design complete:</strong> <code>GANG_SIMULATION_ARCHITECTURE.md</code> + <code>GANG_SIMULATION_VISUAL.html</code> created. Proposes merging StressTestAgent + SimulationManager into unified HoodAgent with per-hood order queues, tick budgets, and state machines based on Gangsters.exe RE findings. Awaiting approval before implementation.<br>
-      <strong>GPU Rendering:</strong> Phase 1 (TRS Cache) complete. Phase 2 (buffer pooling) next. 6 invariant computation candidates pending.<br>
-      <strong>Live simulation:</strong> NPCs navigate via waypoint graph with tick-based movement.
+      <strong>GPU Compute Animation Pipeline COMPLETE:</strong> <code>CharacterPoseCompute.compute</code> with CSClear + CSPose kernels forward-transforms rest voxels into posed space on GPU. Full FK chain (group rotation → parent rotation → pivot offset → body bob). Walk keyframes with Catmull-Rom interpolation. T-Pose, Idle, Walking, Looking, Aiming all verified on GPU. Crouching needs animator-side tuning.<br>
+      <strong>Next:</strong> Pathfinding + walk animation integration — spawn character on extortion mission, verify auto-walk activation via velocity detection.<br>
+      <strong>GPU Rendering:</strong> Phase 1 (TRS Cache) complete. Phase 2 (buffer pooling) pending. 6 invariant computation candidates pending.<br>
+      <strong>Gang Simulation:</strong> Design complete, awaiting implementation after pathfinding integration.
     </div>
     <div class="files">
-      <span class="file-chip">GANG_SIMULATION_ARCHITECTURE.md</span>
-      <span class="file-chip">GANG_SIMULATION_VISUAL.html</span>
-      <span class="file-chip">SimulationManager.cs</span>
-      <span class="file-chip">WaypointGraph.cs</span>
-      <span class="file-chip">Pathfinder.cs</span>
-      <span class="file-chip">VoxelCharacter.cs</span>
-      <span class="file-chip">VoxelCollisionWorld.cs</span>
-      <span class="file-chip">StressTestSpawner.cs</span>
-      <span class="file-chip">FollowCamera.cs</span>
-      <span class="file-chip">TickHUD.cs</span>
+      <span class="file-chip">CharacterPoseCompute.compute</span>
+      <span class="file-chip">VoxelProxyRaymarch.shader</span>
+      <span class="file-chip">VoxelChunkManager.cs</span>
+      <span class="file-chip">CharacterAnimation.cs</span>
+      <span class="file-chip">GPUAnimationTestRig.cs</span>
+      <span class="file-chip">VoxelCharacterAnimator.cs</span>
+      <span class="file-chip">character_animator.html</span>
+      <span class="file-chip">CHARACTER_ANIMATION_PIPELINE.md</span>
     </div>
   </div>
 
@@ -876,8 +876,8 @@
     <div class="phase-header">
       <div class="phase-icon done">✅</div>
       <div class="phase-title">
-        <h2>Phase 4c — Voxel Group Animation (Articulated Limbs)</h2>
-        <div class="dates">COMPLETE — ~6-10 hrs actual — Approach B inverse-transform sampling working</div>
+        <h2>Phase 4c — Voxel Group Animation (GPU Compute Pipeline)</h2>
+        <div class="dates">COMPLETE — Aug 11, 2026 — GPU compute forward-transform pipeline operational</div>
       </div>
       <div class="phase-status done">COMPLETE</div>
     </div>
@@ -885,17 +885,36 @@
       <div class="feature done">
         <div class="feature-head">
           <div class="feature-status-icon done">✅</div>
-          <div class="feature-name">Voxel Group System</div>
+          <div class="feature-name">GPU Compute Forward-Transform</div>
           <div class="feature-tag done">DONE</div>
         </div>
-        <div class="feature-desc">Tag voxels with groupID (head, torso, arms, legs) for per-limb procedural transforms in raymarch shader — see <code>VOXEL_GROUP_ANIMATION.md</code></div>
+        <div class="feature-desc"><code>CharacterPoseCompute.compute</code> — CSClear + CSPose kernels forward-transform rest voxels into posed space per frame</div>
         <ul class="feature-items">
-          <li class="done">Step 1: Tag character voxels with group IDs (programmatic partition, 4 .groups files created)</li>
-          <li class="done">Step 2: Expand instance buffer — add animState + animTime (16→32 bytes/instance)</li>
-          <li class="done">Step 3: Upload groupID buffer per InstancedGroup, bind as _GroupIDs in shader</li>
-          <li class="done">Step 4: Per-group transforms in VoxelProxyRaymarch.shader DDA loop — Approach B (inverse-transform sampling)</li>
-          <li class="done">Step 5: CharacterAnimation.cs — drive animState/animTime from C# (9 states: Idle, Walking, Looking, Checking, Aiming, Crouching, Flinching, Falling, Down)</li>
-          <li class="done">Step 6: PedestrianLookAround.cs — NPC random look-around, hood coast-clear check</li>
+          <li class="check">CSClear kernel — zeros per-instance posed voxel buffer slices</li>
+          <li class="check">CSPose kernel — full FK chain: group rotation → parent rotation → pivot offset → body bob/weight shift</li>
+          <li class="check">Walk keyframes with Catmull-Rom interpolation via GetWalkPoseValue()</li>
+          <li class="check">Per-instance posed voxel buffers allocated per InstancedGroup</li>
+          <li class="check">VoxelProxyRaymarch.shader samples posed buffer directly (no inverse-transform)</li>
+          <li class="check">VoxelChunkManager.cs dispatches compute per frame, anim data upload</li>
+          <li class="check">CharacterAnimation.cs pushes animState/animTime/animSpeed</li>
+          <li class="check">GPUAnimationTestRig.cs — test harness with hotkeys (T/I/W/L/A/C)</li>
+        </ul>
+      </div>
+
+      <div class="feature done">
+        <div class="feature-head">
+          <div class="feature-status-icon done">✅</div>
+          <div class="feature-name">Verified Animation States</div>
+          <div class="feature-tag done">DONE</div>
+        </div>
+        <div class="feature-desc">5 animation states verified rendering correctly on GPU</div>
+        <ul class="feature-items">
+          <li class="check">T-Pose — rest pose renders correctly</li>
+          <li class="check">Idle — static pose, no animation</li>
+          <li class="check">Walking — full walk cycle with arm swing, leg stride, knee bend</li>
+          <li class="check">Looking — head yaw/pitch oscillation</li>
+          <li class="check">Aiming — arm reach + head tilt</li>
+          <li class="warn">Crouching — needs animator-side tuning</li>
         </ul>
       </div>
 
@@ -914,17 +933,17 @@
         </ul>
       </div>
 
-      <div class="feature done">
+      <div class="feature partial">
         <div class="feature-head">
-          <div class="feature-status-icon done">✅</div>
+          <div class="feature-status-icon partial">⚠</div>
           <div class="feature-name">Combat Animation Poses</div>
-          <div class="feature-tag done">DONE</div>
+          <div class="feature-tag partial">PARTIAL</div>
         </div>
-        <div class="feature-desc">Per-limb poses for combat — extends group system with aim, crouch, flinch states (shader-implemented, pending AI integration)</div>
+        <div class="feature-desc">Per-limb poses for combat — extends group system with aim, crouch, flinch states</div>
         <ul class="feature-items">
-          <li class="done">Aiming: arm raises to -1.2rad, head pitch toward target</li>
-          <li class="done">Crouching: legs rotate 0.6rad, arms tuck ±0.3rad</li>
-          <li class="done">Flinch: arms recoil -1.5rad, head pitch 0.4rad</li>
+          <li class="check">Aiming: arm raises, head pitch toward target</li>
+          <li class="warn">Crouching: needs tuning — values not producing correct pose</li>
+          <li class="pending">Flinch: arms recoil, head pitch (Phase 3)</li>
           <li class="pending">Hybrid: procedural for 50+ ambient NPCs (cheap), voxel groups for 4-20 combat participants</li>
         </ul>
       </div>
@@ -1201,9 +1220,15 @@
       </div>
       <div class="tl-item">
         <div class="tl-dot current"></div>
-        <div class="tl-date">Aug 9, 2026 — NOW</div>
-        <div class="tl-title">GPU-Driven Rendering Phase 2 + Invariant Computation Fixes</div>
-        <div class="tl-desc">Next: buffer pooling (SubUpdates) or 6 pending invariant candidates (sector bounds, propblock clear, group size, chunk AABB, corners array, instanced arrays). See INVARIANT_COMPUTATION_PRINCIPLE.md. Simulation & pathfinding also in progress.</div>
+        <div class="tl-date">Aug 11, 2026 — MILESTONE</div>
+        <div class="tl-title">GPU Compute Animation Pipeline Complete</div>
+        <div class="tl-desc">CharacterPoseCompute.compute (CSClear + CSPose kernels) forward-transforms voxels on GPU. Full FK chain, walk keyframes, Catmull-Rom interpolation. T-Pose, Idle, Walking, Looking, Aiming verified on GPU. Commit 3bb4129.</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot current"></div>
+        <div class="tl-date">Aug 12, 2026 — NOW</div>
+        <div class="tl-title">Pathfinding + Walk Animation Integration</div>
+        <div class="tl-desc">Next: spawn character on extortion mission, verify auto-walk activation via velocity detection. GPU rendering Phase 2 + invariant computation fixes also pending. Gang simulation design complete, awaiting implementation.</div>
       </div>
       <div class="tl-item">
         <div class="tl-dot planned"></div>
@@ -1232,7 +1257,7 @@
   <p>Steel City: Mob Sim — Vertical Slice Roadmap</p>
   <p>Companion to <code>GAME_DESIGN_SKELETON.md</code> and <code>DOCUMENTATION_INDEX.md</code></p>
   <div class="update-note">
-    📝 Last updated: Aug 9, 2026 2:25 PM — Phase 4c (Voxel Group Animation) COMPLETE — Approach B inverse-transform sampling working, 9 animation states, debug key cycling
+    📝 Last updated: Aug 12, 2026 — GPU compute forward-transform animation pipeline COMPLETE. CharacterPoseCompute.compute (CSClear + CSPose) operational. T-Pose, Idle, Walking, Looking, Aiming verified on GPU. Next: pathfinding + walk animation integration.
   </div>
   <div style="margin-top: 10px; padding: 10px 14px; background: var(--surface2); border: 1px solid var(--yellow); border-radius: 6px; font-size: 0.85em; color: var(--text-dim);">
     ⚠️ <strong style="color: var(--yellow);">Keep this roadmap current.</strong>

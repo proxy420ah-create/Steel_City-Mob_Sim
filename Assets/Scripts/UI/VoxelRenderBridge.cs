@@ -24,6 +24,7 @@ namespace SteelCity.Sim
         private Camera _camera;
         private RawImage overlayImage;
         private bool initialized;
+        private Rect lastCamRect;
 
         void OnEnable()
         {
@@ -77,7 +78,23 @@ namespace SteelCity.Sim
         /// </summary>
         private void EnsureOverlayImage()
         {
-            if (initialized && overlayImage != null) return;
+            if (initialized && overlayImage != null)
+            {
+                // Camera viewport may change at runtime (e.g. fullscreen during execution phase).
+                // Re-sync the overlay's anchors if the rect has changed since last check.
+                var currentRect = _camera.rect;
+                if (currentRect != lastCamRect)
+                {
+                    var overlayRt = overlayImage.rectTransform;
+                    overlayRt.anchorMin = new Vector2(currentRect.xMin, currentRect.yMin);
+                    overlayRt.anchorMax = new Vector2(currentRect.xMax, currentRect.yMax);
+                    overlayRt.offsetMin = Vector2.zero;
+                    overlayRt.offsetMax = Vector2.zero;
+                    lastCamRect = currentRect;
+                    Debug.Log($"[VoxelRenderBridge] Overlay rect synced to camera viewport {currentRect}");
+                }
+                return;
+            }
 
             // Find the main canvas
             var canvas = FindFirstObjectByType<Canvas>();
@@ -108,6 +125,7 @@ namespace SteelCity.Sim
 
             overlayImage = img;
             initialized = true;
+            lastCamRect = camRect;
 
             Debug.Log($"[VoxelRenderBridge] Created RawImage overlay at viewport rect {camRect}");
         }

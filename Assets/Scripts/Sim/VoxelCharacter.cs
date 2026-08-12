@@ -23,11 +23,11 @@ namespace SteelCity.Sim
     {
         [Header("Asset")]
         [Tooltip("Filename relative to StreamingAssets/voxel_characters/")]
-        public string assetFileName = "character_hoodlum_0.stasset";
+        public string assetFileName = "Vinny.stasset";
 
         [Header("Voxel Grid")]
-        [Tooltip("World units per voxel. Buildings use 0.1, characters typically 0.015-0.05.")]
-        public float voxelSize = 0.015f;
+        [Tooltip("World units per voxel. Buildings use 0.1, characters use 0.02 (Vinny standard).")]
+        public float voxelSize = 0.02f;
 
         [Header("Rendering")]
         [Tooltip("Auto-find VoxelChunkManager in scene if not assigned.")]

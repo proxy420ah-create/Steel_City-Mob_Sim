@@ -4,23 +4,19 @@ using UnityEngine.InputSystem;
 namespace SteelCity.Sim
 {
     /// <summary>
-    /// Clean GPU instanced animation test rig.
-    /// Mirrors AnimationTestSpawner but uses the GPU instanced path
-    /// (VoxelCharacter + CharacterAnimation + shader inverse-transform).
+    /// Character animation rig — controls Vinny's animation state via hotkeys.
+    /// Uses GPU instanced rendering path (VoxelCharacter + CharacterAnimation).
     ///
-    /// No city integration, no ground probing, no camera tricks.
-    /// Places adjacent to HoodSpawner for side-by-side comparison.
-    ///
-    /// Hotkeys (same as AnimationTestSpawner):
+    /// Hotkeys:
     ///   T = T-Pose (9), I = Idle (0), W = Walking (1),
     ///   L = Looking (2), A = Aiming (4), C = Crouching (5)
-    ///   Space = Play/Pause, +/- = Speed, R = Reload
+    ///   Space = Play/Pause, +/- = Speed
     /// </summary>
-    public class GPUAnimationTestRig : MonoBehaviour
+    public class CharacterRig : MonoBehaviour
     {
-        [Header("Test Asset")]
+        [Header("Character Asset")]
         [Tooltip("Base filename in StreamingAssets/voxel_characters/ (without extension).")]
-        [SerializeField] private string assetBaseName = "animationtest1";
+        [SerializeField] private string assetBaseName = "Vinny";
 
         [Header("Rendering")]
         [Tooltip("Voxel size in world units. Must match authoring.")]
@@ -38,6 +34,9 @@ namespace SteelCity.Sim
         private float animSpeed = 1f;
         private float currentAnimState = 9f; // T-Pose
 
+        /// <summary>Exposes the VoxelCharacter for external systems (e.g. CityMap3D.SpawnedCharacter).</summary>
+        public VoxelCharacter Character => voxelChar;
+
         private static readonly string[] STATE_NAMES = {
             "Idle", "Walking", "Looking", "AimWalk", "Aiming",
             "Crouching", "???", "???", "Down", "T-Pose"
@@ -53,11 +52,10 @@ namespace SteelCity.Sim
 
         private System.Collections.IEnumerator DelayedSpawn()
         {
-            // Wait for city build + HoodSpawner to complete
             yield return null;
             yield return null;
             yield return null;
-            SpawnGPUCharacter();
+            InitCharacter();
         }
 
         void Update()
@@ -68,8 +66,6 @@ namespace SteelCity.Sim
 
             if (isPlaying)
             {
-                // CharacterAnimation.Update handles animTime internally,
-                // but we need to sync animSpeed
                 anim.walkSpeed = animSpeed;
             }
         }
@@ -89,21 +85,20 @@ namespace SteelCity.Sim
             if (kb.spaceKey.wasPressedThisFrame)
             {
                 isPlaying = !isPlaying;
-                Debug.Log($"[GPUAnim] {(isPlaying ? "Playing" : "Paused")}");
-                // Toggle by setting walkSpeed to 0 when paused
+                Debug.Log($"[CharRig] {(isPlaying ? "Playing" : "Paused")}");
                 anim.walkSpeed = isPlaying ? animSpeed : 0f;
             }
 
             if (kb.equalsKey.wasPressedThisFrame || kb.numpadPlusKey.wasPressedThisFrame)
             {
                 animSpeed = Mathf.Min(animSpeed + 0.25f, 4f);
-                Debug.Log($"[GPUAnim] Speed = {animSpeed}");
+                Debug.Log($"[CharRig] Speed = {animSpeed}");
                 if (isPlaying) anim.walkSpeed = animSpeed;
             }
             if (kb.minusKey.wasPressedThisFrame || kb.numpadMinusKey.wasPressedThisFrame)
             {
                 animSpeed = Mathf.Max(animSpeed - 0.25f, 0.1f);
-                Debug.Log($"[GPUAnim] Speed = {animSpeed}");
+                Debug.Log($"[CharRig] Speed = {animSpeed}");
                 if (isPlaying) anim.walkSpeed = animSpeed;
             }
         }
@@ -113,60 +108,48 @@ namespace SteelCity.Sim
             currentAnimState = state;
             int stateInt = Mathf.RoundToInt(state);
             var animState = (CharacterAnimation.AnimState)stateInt;
-            this.anim.SetState(animState);
-            Debug.Log($"[GPUAnim] State -> {STATE_NAMES[stateInt]} ({stateInt})");
+            anim.SetState(animState);
+            Debug.Log($"[CharRig] State -> {STATE_NAMES[stateInt]} ({stateInt})");
         }
 
-        void SpawnGPUCharacter()
+        /// <summary>
+        /// Adds VoxelCharacter + CharacterAnimation to this same GameObject.
+        /// No separate child object — everything lives on one entity.
+        /// </summary>
+        void InitCharacter()
         {
             if (chunkManager == null)
             {
-                Debug.LogError("[GPUAnim] No VoxelChunkManager found!");
+                Debug.LogError("[CharRig] No VoxelChunkManager found!");
                 return;
             }
 
-            Vector3 spawnPos = spawnPosition;
+            transform.position = spawnPosition;
 
-            // Parent under Characters hierarchy
-            var cityMap = FindFirstObjectByType<CityMap3D>();
-            Transform charParent = null;
-            if (cityMap != null && cityMap.MapRoot != null)
-            {
-                charParent = cityMap.MapRoot.Find("Characters");
-                if (charParent == null)
-                {
-                    var cp = new GameObject("Characters");
-                    cp.transform.SetParent(cityMap.MapRoot, false);
-                    charParent = cp.transform;
-                }
-            }
-
-            // Create character GameObject
-            var charObj = new GameObject($"GPU_AnimTest_{assetBaseName}");
-            if (charParent != null)
-                charObj.transform.SetParent(charParent, false);
-            charObj.transform.position = spawnPos;
-
-            // Add VoxelCharacter (GPU instanced path)
-            voxelChar = charObj.AddComponent<VoxelCharacter>();
+            // Add VoxelCharacter (GPU instanced path) on same GameObject
+            voxelChar = gameObject.GetComponent<VoxelCharacter>();
+            if (voxelChar == null)
+                voxelChar = gameObject.AddComponent<VoxelCharacter>();
             voxelChar.assetFileName = assetBaseName + ".stasset";
             voxelChar.voxelSize = voxelSize;
             voxelChar.chunkManager = chunkManager;
             voxelChar.useInstancing = true;
             voxelChar.useWorldPosition = false;
-            voxelChar.centerPosition = spawnPos;
+            voxelChar.centerPosition = spawnPosition;
             voxelChar.showGizmo = true;
             voxelChar.showGroundProbe = false;
 
-            // Add CharacterAnimation for state control
-            anim = charObj.AddComponent<CharacterAnimation>();
-            anim.autoDetectWalking = false; // manual control only
+            // Add CharacterAnimation for state control on same GameObject
+            anim = gameObject.GetComponent<CharacterAnimation>();
+            if (anim == null)
+                anim = gameObject.AddComponent<CharacterAnimation>();
+            anim.autoDetectWalking = false;
             anim.walkSpeed = animSpeed;
             anim.SetState(CharacterAnimation.AnimState.TPose);
 
-            Debug.Log($"[GPUAnim] Spawned GPU instanced character at {spawnPos} " +
+            Debug.Log($"[CharRig] Initialized character on '{gameObject.name}' at {spawnPosition} " +
                       $"(asset={assetBaseName}.stasset, voxelSize={voxelSize})");
-            Debug.Log("[GPUAnim] Hotkeys: T=TPose I=Idle W=Walk L=Look A=Aim C=Crouch " +
+            Debug.Log("[CharRig] Hotkeys: T=TPose I=Idle W=Walk L=Look A=Aim C=Crouch " +
                       "Space=Play/Pause +/-=Speed");
         }
     }

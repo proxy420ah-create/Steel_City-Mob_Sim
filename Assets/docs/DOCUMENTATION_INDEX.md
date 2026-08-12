@@ -1,7 +1,7 @@
 # 📚 Steel City: Mob Sim — Documentation Index
 
 **Purpose**: Central hub for all Mob Sim project documentation
-**Last Updated**: August 9, 2026
+**Last Updated**: August 12, 2026
 **Project**: Steel City — Mob Sim (Unity)
 
 ---
@@ -16,6 +16,7 @@
 | **Voxel Editor** | 1 doc | ✅ Complete |
 | **Voxel Rendering** | 4 docs | ✅ Complete |
 | **Rendering Systems** | 4 docs | ✅ Complete |
+| **Character Animation** | 1 doc | 🔄 Phase 1 Complete |
 | **Lighting Debug** | 1 doc | ✅ Complete |
 | **Scale Standard** | 1 doc | ⚠️ SEE MASTER DOC |
 | **Inspection Toolchain** | 1 doc | ✅ Complete |
@@ -216,15 +217,20 @@
   - Testing plan (6 phases), risks & mitigations, phase integration with combat design
   - Companion to `COMBAT_VEHICLE_DESIGN.md` (§5) and `COMBAT_VISUAL.html` (Technique 3)
 
-- **`docs/systems/CHARACTER_ANIMATION_PIPELINE.md`** — Unified animation & physics pipeline (Aug 10)
-  - Architecture: keyframe procedural + flinch reactions + ragdoll physics → one per-group transform pipeline
-  - Data flow: animator export JSON → Unity shader buffers (pivots, keyframes, axis/sign, leg twist, body bob)
-  - Keyframe shader port plan: Catmull-Rom spline in HLSL, structured buffers, replace hardcoded sin()
+- **`docs/systems/CHARACTER_ANIMATION_PIPELINE.md`** — Unified animation & physics pipeline (Aug 10, updated Aug 12)
+  - **Phase 1 COMPLETE**: GPU compute forward-transform pipeline operational
+  - Architecture: `CharacterPoseCompute.compute` with CSClear + CSPose kernels → forward-transform rest voxels into posed space
+  - `VoxelProxyRaymarch.shader` samples posed buffer directly (no inverse-transform)
+  - `VoxelChunkManager.cs` dispatches compute per frame, manages per-instance posed voxel buffers
+  - Data flow: animator export JSON → Unity compute shader buffers (pivots, keyframes, axis/sign, leg twist, body bob)
+  - Keyframe interpolation: Catmull-Rom spline in HLSL via `GetWalkPoseValue()`, structured buffers
+  - Full FK chain: group rotation → parent rotation → pivot offset → body bob/weight shift
+  - Verified states: T-Pose, Idle, Walking, Looking, Aiming ✅ | Crouching 🐛 needs tuning
   - Ragdoll design: invisible proxy bones with ConfigurableJoints, per-group capsule colliders, VoxelCollisionWorld probing
   - Steel Tide port mapping: VoxelActor2Joints (direct), VoxelActor2LimbDrive (direct), VoxelActor2Ground (adapt)
   - Flinch system: one-shot keyframe sequences by hit location/force, blend to ragdoll on high force
-  - 5 implementation phases: shader port → angular limits → flinch → ragdoll → integration
-  - Performance: normal NPCs = zero physics, combat participants = ~10 Rigidbodies each
+  - 5 implementation phases: ✅ shader port → 🔲 angular limits → 🔲 flinch → 🔲 ragdoll → 🔲 integration
+  - Performance: normal NPCs = zero physics (GPU compute only), combat participants = ~10 Rigidbodies each
 
 **Keywords**: instancing, ComputeBuffer, MaterialPropertyBlock, DrawMeshInstanced, DrawMeshInstancedIndirect, proxy cube, raymarch, buffer binding, sector baking, rendering tiers, GPU-driven, compute shader, frustum culling, LOD, terrain baking, collision world, combat, cover system, vehicle physics, raycast suspension, NPC animation, procedural animation, voxel groups, police escalation, traffic swarm, tier promotion, articulated limbs, groupID, pivot points, walk cycle, head tracking, Gangsters, keyframe, Catmull-Rom, spline, ragdoll, flinch, ConfigurableJoint, proxy bones, physics
 
@@ -377,6 +383,22 @@
 - [x] **Raymarch-only rendering** — all mesh-based rendering removed, raymarch always active
 - [x] **Rubble decorations** — scattered stone clusters on empty land plots
 
+### Character Animation 🔄 PHASE 1 COMPLETE
+- [x] **GPU compute forward-transform pipeline** — `CharacterPoseCompute.compute` (CSClear + CSPose kernels)
+- [x] **Full FK chain** — group rotation → parent rotation → pivot offset → body bob/weight shift
+- [x] **Walk keyframes** — Catmull-Rom interpolation in HLSL via `GetWalkPoseValue()`
+- [x] **Per-instance posed voxel buffers** — allocated per InstancedGroup, sampled directly by raymarch shader
+- [x] **VoxelChunkManager compute dispatch** — CSClear + CSPose per frame, anim data upload
+- [x] **VoxelProxyRaymarch posed buffer sampling** — no inverse-transform, per-instance buffer offsets via `instMeta.x`
+- [x] **CharacterAnimation.cs** — pushes animState/animTime/animSpeed to InstancedCharacter
+- [x] **CharacterRig.cs** — character controller with hotkeys (T/I/W/L/A/C), consolidated onto single GameObject
+- [x] Verified: T-Pose, Idle, Walking, Looking, Aiming render correctly on GPU
+- [ ] Crouching — needs animator-side tuning
+- [ ] Angular limits per joint (Phase 2)
+- [ ] Flinch keyframes (Phase 3)
+- [ ] Ragdoll proxy bones (Phase 4)
+- [ ] Hit event → flinch/ragdoll integration (Phase 5)
+
 ---
 
 ## 🎯 Common Tasks — Quick Links
@@ -447,6 +469,12 @@
 ### "I need the character animation & physics pipeline design"
 `docs/systems/CHARACTER_ANIMATION_PIPELINE.md`
 
+### "I need to understand the GPU compute animation pipeline"
+`docs/systems/CHARACTER_ANIMATION_PIPELINE.md` (Section 1 — GPU Compute Forward-Transform Pipeline, Section 7 — Phase 1)
+
+### "I need to work on character animations in the HTML animator"
+`VoxelAssetStudio/character_animator.html` — see `CHARACTER_ANIMATION_PIPELINE.md` Section 2 for data flow
+
 ---
 
 ## 🔧 For Coding Agents
@@ -465,8 +493,11 @@ NOTE:          The parent workspace (Cursor Workshop) is a SEPARATE git repo.
 Unity scripts:  Assets/Scripts/
   UI:           Assets/Scripts/UI/CityMap3D.cs, GameUIController.cs, VoxelChunkManager.cs, VoxelSun.cs
   Sim:          Assets/Scripts/Sim/StAssetReader.cs, VoxelBuildingMeshifier.cs, GameEngine.cs
+                CharacterAnimation.cs, VoxelCharacterAnimator.cs, CharacterRig.cs
   Bootstrap:    Assets/Scripts/GameBootstrap.cs
-Compute shader: Assets/Resources/Shaders/MobSimVoxelRaymarch.compute
+Compute shaders: Assets/Resources/Shaders/MobSimVoxelRaymarch.compute
+                 Assets/Resources/Shaders/CharacterPoseCompute.compute
+Raymarch shader: Assets/Resources/Shaders/VoxelProxyRaymarch.shader
 Voxel studio:   VoxelAssetStudio/
   Buildings:    procedural_mob_buildings.py
   Characters:   procedural_mob_characters.py
@@ -474,11 +505,13 @@ Voxel studio:   VoxelAssetStudio/
   Materials:    mob_materials.py
   I/O:          stasset_io.py
   Editor:       voxel_editor_html.py
+  Animator:     character_animator.html
   Inspector:    sc_inspector.py
   City gen:     generate_city_assets.py
   FE scripts:   shift_fe.py, fix_fe_spacing.py, bolt_fe_v2.py, analyze_fe.py
 City layout:    Assets/StreamingAssets/city_layout.json
 Voxel assets:   Assets/StreamingAssets/voxel_buildings/
+Character assets: Assets/StreamingAssets/voxel_characters/
 ```
 
 ### Key Values
@@ -518,6 +551,6 @@ The roadmap is the living visual summary of the project. If it's stale, new cont
 
 ---
 
-**Last Updated**: August 9, 2026
-**Version**: 1.5.0
+**Last Updated**: August 12, 2026
+**Version**: 1.6.0
 **Maintainer**: Development Team

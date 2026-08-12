@@ -1,6 +1,6 @@
 # Model Design Standard — Source of Truth
 
-**Version**: 1.0 | **Date**: August 8, 2026 | **Status**: 🔒 MASTER REFERENCE
+**Version**: 2.0 | **Date**: August 12, 2026 | **Status**: 🔒 MASTER REFERENCE
 
 ---
 
@@ -22,31 +22,59 @@ rules that were previously scattered across code docstrings and `COORDINATE_SYST
 
 ---
 
-## 1. The Scale Root: Vinny (NPC Wise Guy)
+## 1. The Scale Root: Vinny Moretti (NPC Wise Guy)
 
-All Mob Sim scale derives from one reference: the player character model, **"Vinny."**
+All Mob Sim scale derives from one reference: the player character model, **"Vinny Moretti."**
+
+The production model is `animationtest1.stasset` (identical to `character_hoodlum_0.stasset`),
+loaded at runtime by `CharacterRig` with `voxelSize = 0.02f`.
 
 | Property | Value |
 |---|---|
-| Character voxel grid | 16 × 32 × 10 (W×H×D) |
+| Character voxel grid (container) | **48 × 48 × 48** (W×H×D) |
+| Tight bounds (rest pose) | **34 × 31 × 6** (W×H×D) |
+| Tight bounds offset | (7, 0, 21) — character sits lower-left of grid |
 | Character voxel size | 0.02m/voxel |
-| Resulting height | 32 × 0.02 = **0.64m** |
-| Resulting width | 16 × 0.02 = 0.32m |
-| Resulting depth | 10 × 0.02 = 0.20m |
+| **Rest-pose height** | 31 × 0.02 = **0.62m** |
+| Rest-pose width | 34 × 0.02 = 0.68m |
+| Rest-pose depth | 6 × 0.02 = 0.12m |
+| Non-air voxels | 1,544 (1.4% of grid) |
+| Materials | 1 (mat 125 = Flesh) — prototype, will be expanded |
+| Skeleton | None yet (anim params in `animationtest1.anim.json`) |
+| Animation pivots | 10 (root, torso, L/R arm, L/R forearm, L/R leg, L/R shoulder) |
+
+### Why the grid is larger than the tight bounds
+
+The 48³ grid is **intentional**, not waste. The extra space provides **animation headroom** —
+when a character ragdolls, flinches, raises arms in T-pose, or splays limbs, the voxels extend
+beyond the rest-pose tight bounds. If the grid were cropped to 34×31×6, any animated limb
+extending outside that box would be clipped or culled during rendering.
+
+The 48³ grid provides:
+- **17 voxels above** the head (0.34m) — room for raised arms, jumping, ragdoll sprawl
+- **7 voxels padding** on each side (0.14m) — room for arms swinging outward
+- **21 voxels** front and back (0.42m each) — room for forward falls, backward ragdoll
+
+Additionally, all 10 animation pivots in `animationtest1.anim.json` are **normalized to the 48³
+grid** (e.g., root pivot = `(0.5, 0.365, 0.5)` = voxel `(24, 17.5, 24)`). Cropping the grid would
+require recalculating every pivot and joint offset.
+
+**Rule**: the grid dimensions are part of the model spec. Do not crop or resize the grid without
+recalculating all animation parameters.
 
 Everything else — building voxel size, door heights, vehicle size — must be sized so it reads
-correctly **next to Vinny at 0.64m tall**. This is why the barber shop and the apartment block
-(both built with an 8-voxel door at 0.1m/voxel = 0.8m) are the two currently-correct buildings:
-0.8m is 1.25× Vinny's height, which is a comfortable, believable doorway for a 0.64m-tall NPC to
+correctly **next to Vinny at 0.62m tall** (rest pose). This is why the barber shop and the apartment
+block (both built with an 8-voxel door at 0.1m/voxel = 0.8m) are the two currently-correct buildings:
+0.8m is 1.29× Vinny's height, which is a comfortable, believable doorway for a 0.62m-tall NPC to
 walk through without looking like a mouse-hole or a garage door.
 
 **Golden ratio check**: door height ÷ NPC height should land close to **1.2×–1.3×** for a
 normal pedestrian door. This is the test any new/reworked building door must pass.
 
 ```
-0.8m door ÷ 0.64m NPC = 1.25×   ✅ (barber, apartment_block)
-0.4m door ÷ 0.64m NPC = 0.625×  ❌ (apartments, speakeasy, hq side, diner — door is SHORTER than the NPC)
-0.5m door ÷ 0.64m NPC = 0.78×   ❌ (casino, police_station — still shorter than NPC)
+0.8m door ÷ 0.62m NPC = 1.29×   ✅ (barber, apartment_block)
+0.4m door ÷ 0.62m NPC = 0.65×   ❌ (apartments, speakeasy, hq side, diner — door is SHORTER than the NPC)
+0.5m door ÷ 0.62m NPC = 0.81×   ❌ (casino, police_station — still shorter than NPC)
 ```
 
 This is the concrete, numeric version of "I think other buildings need rework" — the 4v and 5v
@@ -61,7 +89,8 @@ doors are literally shorter than the NPC that has to walk through them.
 | `BUILDING_VOXEL_SIZE` | 0.1m | All building generators (`procedural_mob_buildings.py`) |
 | `CHAR_VOXEL_SIZE` | 0.02m | Character generators (`procedural_mob_characters.py`) — production scale |
 | `VEHICLE_VOXEL_SIZE` | 0.05m | Vehicle generators (`procedural_mob_vehicles.py`) |
-| `NPC_HEIGHT` | 0.64m | 32 character voxels, or 6.4 building voxels |
+| `NPC_HEIGHT` | 0.62m | 31 character voxels (rest-pose tight bounds), or 6.2 building voxels |
+| `NPC_GRID` | 48×48×48 | Character voxel grid container (provides animation headroom) |
 
 Three independent voxel grids exist (building/character/vehicle) at three different voxel sizes.
 This is intentional — it gives buildings coarse-but-large detail, characters fine detail at small
@@ -76,17 +105,17 @@ Mob Sim meters = building_voxels × 0.1  = character_voxels × 0.02  = vehicle_v
 
 ## 3. Door Standard (CORRECTED — replaces the table in MOB_SIM_SCALE_STANDARD.md)
 
-Doors must be sized relative to `NPC_HEIGHT` (0.64m), not picked arbitrarily per building.
+Doors must be sized relative to `NPC_HEIGHT` (0.62m), not picked arbitrarily per building.
 
 | Door Class | Height (voxels @ 0.1m) | Height (m) | Ratio to NPC | Width (voxels) | Use |
 |---|---|---|---|---|---|
-| **Pedestrian Standard** | **8v** | 0.8m | **1.25×** | 6v (0.6m) | Storefronts, apartments, HQ, speakeasy, diner — any door a walking NPC uses |
-| **Civic / Grand** | **10-12v** | 1.0-1.2m | 1.56-1.88× | 8-12v | Police station, casino, apartment_block grand entrance |
+| **Pedestrian Standard** | **8v** | 0.8m | **1.29×** | 6v (0.6m) | Storefronts, apartments, HQ, speakeasy, diner — any door a walking NPC uses |
+| **Civic / Grand** | **10-12v** | 1.0-1.2m | 1.61-1.94× | 8-12v | Police station, casino, apartment_block grand entrance |
 | **Vehicle Bay** | 6v (unchanged, not a pedestrian door) | 0.6m | n/a | 16v (1.6m) | Garage — sized for the vehicle, not Vinny |
 
 **Action required**: `apartments` (4v), `speakeasy` (4v), `diner` (4v), `hq` side door (4v),
 `casino` (5v), and `police_station` (5v) all need their door height corrected to 8v (or 10-12v for
-civic buildings) to pass the 1.25×+ ratio test. `butcher`, `bakery`, and `hq` storefront already
+civic buildings) to pass the 1.29×+ ratio test. `butcher`, `bakery`, and `hq` storefront already
 use 8v via the shared `_add_storefront()` default and pass. See Section 6 for the full audit.
 
 ---
@@ -122,7 +151,7 @@ for their own placement systems. Just be aware of it when authoring new models.
 
 | Model Type | Typical W×H×D (voxels) | Typical Real Size | Notes |
 |---|---|---|---|
-| Character (NPC) | 16×32×10 | 0.32m × 0.64m × 0.20m | Fixed reference scale |
+| Character (NPC) | 48³ grid (34×31×6 tight) | 0.68m × 0.62m × 0.12m (rest pose) | Vinny Moretti — grid oversized for animation headroom |
 | Small business (barber, bakery, diner) | 32×16-20×32-34 | 3.2m × 1.6-2.0m × 3.2-3.4m | Single story + small upper floor |
 | Apartments (small) | 32×36×32 | 3.2m × 3.6m × 3.2m | 4-story walk-up |
 | Apartment block (large tenement) | 96×44×96 | 9.6m × 4.4m × 9.6m | Full-block, 5-story, occupies 3×3 block footprint |
@@ -133,13 +162,13 @@ for their own placement systems. Just be aware of it when authoring new models.
 
 ## 6. Model Audit (Aug 8, 2026)
 
-Certified correct (door ratio ≥ 1.25× NPC height, proportions checked):
+Certified correct (door ratio ≥ 1.29× NPC height, proportions checked):
 
-- ✅ **`barber`** (`generate_barbershop`) — 8v door, 1.25× ratio
-- ✅ **`apartment_block`** (`generate_apartment_block`) — 8v door, 1.25× ratio, full-block scale intentional
+- ✅ **`barber`** (`generate_barbershop`) — 8v door, 1.29× ratio
+- ✅ **`apartment_block`** (`generate_apartment_block`) — 8v door, 1.29× ratio, full-block scale intentional
 - ✅ **`vehicle_civilian_car_0`** (touring car) — proportioned correctly per user review; roofline ≈ 0.8m aligns with NPC seated/standing scale in the cabin
 
-Needs rework (door height fails the 1.25× ratio test, pending user/tool confirmation):
+Needs rework (door height fails the 1.29× ratio test, pending user/tool confirmation):
 
 - ⚠️ `butcher`, `bakery` — use 8v via storefront default, likely OK but unverified against overall proportions (wall thickness, window scale)
 - ❌ `apartments` (small, 4v door)
@@ -177,6 +206,10 @@ Before merging any new or reworked model:
 - **Character generators**: `VoxelAssetStudio/procedural_mob_characters.py`
 - **Vehicle generators**: `VoxelAssetStudio/procedural_mob_vehicles.py`
 - **Unity voxel sizes**: `CityMap3D.cs` → `voxelSize = 0.1f`, `characterVoxelSize = 0.02f`; `VehicleTestSpawner.cs` → `vehicleVoxelSize = 0.05f`
+- **Vinny model**: `Assets/StreamingAssets/voxel_characters/Vinny.stasset` (renamed from `animationtest1.stasset`, identical to `character_hoodlum_0.stasset`)
+- **Vinny anim params**: `Assets/StreamingAssets/voxel_characters/Vinny.anim.json` (10 pivots, normalized to 48³ grid)
+- **Vinny group IDs**: `Assets/StreamingAssets/voxel_characters/Vinny.groups` (required for GPU compute pose — must match `.stasset` filename)
+- **Runtime spawner**: `CharacterRig.cs` → `assetBaseName = "Vinny"`, `voxelSize = 0.02f`
 - **Orientation detection**: `BuildingOrientation.cs` (`Analyze()`), `VehicleAgent` rotation via `Quaternion.LookRotation`
 - **Superseded doc**: `MOB_SIM_SCALE_STANDARD.md` (door table in that doc is now out of date — this document's Section 3 is authoritative)
 - **Related**: `VOXEL_BUILDING_METHODOLOGY.md` (construction pipeline), `COORDINATE_SYSTEM.md` (world-space placement), `docs/systems/DYNAMIC_OBJECT_RENDERING_TIERS.md` (future door animation, Tier 2)

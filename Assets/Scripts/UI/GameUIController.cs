@@ -4,6 +4,7 @@ using TMPro;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using SteelCity.UI;
 
 namespace SteelCity.Sim
 {
@@ -24,6 +25,7 @@ namespace SteelCity.Sim
         [SerializeField] private TMP_Text weekText;
         [SerializeField] private TMP_Text phaseText;
         [SerializeField] private TMP_Text treasuryText;
+        [SerializeField] private TMP_Text characterStatusText;
 
         [Header("=== INFO PANEL CONTAINERS ===")]
         [SerializeField] private Transform hoodList;
@@ -60,6 +62,11 @@ namespace SteelCity.Sim
         [Header("=== BOTTOM BAR ===")]
         [SerializeField] private Transform eventLogContent;
         [SerializeField] private Button runWeekButton;
+
+        [Header("=== PLANNING UI ROOTS (for execution phase hide/show) ===")]
+        [SerializeField] private GameObject topBarRoot;
+        [SerializeField] private GameObject infoPanelRoot;
+        [SerializeField] private GameObject bottomBarRoot;
 
         [Header("=== FPS COUNTER ===")]
         private float fpsAccumTime;
@@ -101,6 +108,10 @@ namespace SteelCity.Sim
         private WeekTransition weekTransition;
         private PathDebugRenderer pathDebugRenderer;
 
+        // --- Execution phase status badge ---
+        private GameObject executionStatusBadge;
+        private TMP_Text executionStatusText;
+
         private readonly Dictionary<string, GameObject> hoodCards = new();
         private readonly List<(string text, Color color)> eventLogBuffer = new();
         private Dictionary<string, Button> orderButtons;
@@ -112,6 +123,8 @@ namespace SteelCity.Sim
 
         void Start()
         {
+            ResolvePlanningUIRootsFallback();
+
             string dataDir = Application.streamingAssetsPath;
             var gameData = DataLoader.LoadAll(dataDir);
 
@@ -177,6 +190,10 @@ namespace SteelCity.Sim
 
             RefreshAll();
 
+            // --- CHARACTER STATUS ---
+            if (characterStatusText != null)
+                characterStatusText.text = "Vinny Moretti [ ON STREET ]";
+
             // --- PRE-FLIGHT CHECK: verify all critical UI references are wired ---
             RunPreflightCheck();
 
@@ -229,6 +246,7 @@ namespace SteelCity.Sim
             if (weekText == null) failures.Add("weekText");
             if (phaseText == null) failures.Add("phaseText");
             if (treasuryText == null) failures.Add("treasuryText");
+            if (characterStatusText == null) failures.Add("characterStatusText");
 
             // Info panel content containers
             if (hoodList == null) failures.Add("hoodList");
@@ -269,7 +287,7 @@ namespace SteelCity.Sim
             // --- Report ---
             if (failures.Count == 0)
             {
-                Debug.Log("[GameUIController] PRE-FLIGHT: All 28 UI references OK. Ready to play.");
+                Debug.Log("[GameUIController] PRE-FLIGHT: All 29 UI references OK. Ready to play.");
                 AddEventLogEntry("[SYSTEM] Pre-flight check PASSED — all UI references wired.", greenColor);
                 AddEventLogEntry("[SYSTEM] Game initialized. Awaiting orders...", goldColor);
             }
@@ -316,7 +334,7 @@ namespace SteelCity.Sim
                 }
             }
 
-            // Build City Editor panel the first time Orders tab is shown
+            // Build City Editor panel the first time Editor tab is shown
             if (index == 2 && !cityEditorBuilt && ordersPage != null && cityMap != null)
             {
                 BuildCityEditorPanel(ordersPage.transform);
@@ -334,9 +352,6 @@ namespace SteelCity.Sim
 
         private void BuildCityEditorPanel(Transform parent)
         {
-            // Don't clear existing children — the order button row (Extort, Collect, etc.)
-            // lives here too and must be preserved.
-
             // Scrollable container
             var scrollObj = new GameObject("CityEditorScroll");
             scrollObj.transform.SetParent(parent, false);
@@ -361,7 +376,7 @@ namespace SteelCity.Sim
             contentRT.offsetMin = Vector2.zero;
             contentRT.offsetMax = Vector2.zero;
             var vlg = contentObj.AddComponent<VerticalLayoutGroup>();
-            vlg.spacing = 6;
+            vlg.spacing = 4;
             vlg.padding = new RectOffset(8, 8, 8, 8);
             vlg.childControlWidth = true;
             vlg.childForceExpandWidth = true;
@@ -369,78 +384,162 @@ namespace SteelCity.Sim
             contentObj.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
             scrollRect.content = contentRT;
 
-            // Title
-            AddEditorHeader(contentObj.transform, "CITY EDITOR", goldColor);
-            AddEditorText(contentObj.transform, "Adjust parameters to reshape the city in real-time.", mutedColor);
+            // Accordion group
+            var groupObj = contentObj;
+            var accordionGroup = groupObj.AddComponent<AccordionGroup>();
 
-            // Sliders
-            AddEditorSlider(contentObj.transform, "Road Width", cityMap.GetRoadWidth(), 0.1f, 6f,
+            // --- Section 1: Road & Camera (expanded by default) ---
+            var roadSection = CreateAccordionSection(groupObj.transform, "ROAD & CAMERA", goldColor, startExpanded: true);
+            accordionGroup.AddSection(roadSection);
+            var roadContent = roadSection.Content;
+            AddEditorSlider(roadContent, "Road Width", cityMap.GetRoadWidth(), 0.1f, 6f,
                 cityMap.SetRoadWidth);
-            AddEditorSlider(contentObj.transform, "Sidewalk Width", cityMap.GetSidewalkWidth(), 0.1f, 4f,
+            AddEditorSlider(roadContent, "Sidewalk Width", cityMap.GetSidewalkWidth(), 0.1f, 4f,
                 cityMap.SetSidewalkWidth);
-            AddEditorSlider(contentObj.transform, "Camera Zoom", cityMap.GetCameraOrthoSize(), 3f, 40f,
+            AddEditorSlider(roadContent, "Camera Zoom", cityMap.GetCameraOrthoSize(), 3f, 40f,
                 cityMap.SetCameraOrthoSize);
-
-            // Camera controls are now mouse-based (MMB rotate, RMB pan, wheel zoom, LMB focus)
-            AddEditorButton(contentObj.transform, "RESET CAMERA", () => cityMap.ResetCamera(), goldColor);
-
-            // Integer stepper for buildings per block row
-            AddEditorStepper(contentObj.transform, "Buildings/Block Row", cityMap.GetBuildingsPerBlockRow(), 1, 5,
+            AddEditorButton(roadContent, "RESET CAMERA", () => cityMap.ResetCamera(), goldColor);
+            AddEditorStepper(roadContent, "Buildings/Block Row", cityMap.GetBuildingsPerBlockRow(), 1, 5,
                 cityMap.SetBuildingsPerBlockRow);
-
-            // Toggles
-            AddEditorToggle(contentObj.transform, "Show Road Names", cityMap.GetShowRoadNames(),
+            AddEditorToggle(roadContent, "Show Road Names", cityMap.GetShowRoadNames(),
                 cityMap.SetShowRoadNames);
-            AddEditorToggle(contentObj.transform, "Show Block Labels", cityMap.GetShowBlockLabels(),
+            AddEditorToggle(roadContent, "Show Block Labels", cityMap.GetShowBlockLabels(),
                 cityMap.SetShowBlockLabels);
-            AddEditorToggle(contentObj.transform, "Split Terrain", cityMap.GetUseSplitTerrain(),
+            AddEditorToggle(roadContent, "Split Terrain", cityMap.GetUseSplitTerrain(),
                 cityMap.SetUseSplitTerrain);
-            AddEditorToggle(contentObj.transform, "Proxy Render", cityMap.GetUseProxyRender(),
+            AddEditorToggle(roadContent, "Proxy Render", cityMap.GetUseProxyRender(),
                 cityMap.SetUseProxyRender);
+            AddEditorButton(roadContent, "REBUILD CITY", () => cityMap.RebuildCity(), goldColor);
 
-            // Rebuild button (manual trigger)
-            AddEditorButton(contentObj.transform, "REBUILD CITY", () => cityMap.RebuildCity(), goldColor);
-
-            // --- Material Brightness Controls ---
-            AddEditorHeader(contentObj.transform, "MATERIAL BRIGHTNESS", goldColor);
-            AddEditorSlider(contentObj.transform, "Tar (118)", cityMap.GetMaterialBrightness(118), 0.05f, 1.0f,
+            // --- Section 2: Material Brightness ---
+            var matSection = CreateAccordionSection(groupObj.transform, "MATERIAL BRIGHTNESS", goldColor, startExpanded: false);
+            accordionGroup.AddSection(matSection);
+            var matContent = matSection.Content;
+            AddEditorSlider(matContent, "Tar (118)", cityMap.GetMaterialBrightness(118), 0.05f, 1.0f,
                 (v) => cityMap.SetMaterialBrightness(118, v));
-            AddEditorSlider(contentObj.transform, "Dark Wood (106)", cityMap.GetMaterialBrightness(106), 0.05f, 1.0f,
+            AddEditorSlider(matContent, "Dark Wood (106)", cityMap.GetMaterialBrightness(106), 0.05f, 1.0f,
                 (v) => cityMap.SetMaterialBrightness(106, v));
-            AddEditorSlider(contentObj.transform, "Cobblestone (105)", cityMap.GetMaterialBrightness(105), 0.05f, 1.0f,
+            AddEditorSlider(matContent, "Cobblestone (105)", cityMap.GetMaterialBrightness(105), 0.05f, 1.0f,
                 (v) => cityMap.SetMaterialBrightness(105, v));
-            AddEditorSlider(contentObj.transform, "Stone (101)", cityMap.GetMaterialBrightness(101), 0.05f, 1.0f,
+            AddEditorSlider(matContent, "Stone (101)", cityMap.GetMaterialBrightness(101), 0.05f, 1.0f,
                 (v) => cityMap.SetMaterialBrightness(101, v));
-            AddEditorSlider(contentObj.transform, "Red Brick (100)", cityMap.GetMaterialBrightness(100), 0.05f, 1.0f,
+            AddEditorSlider(matContent, "Red Brick (100)", cityMap.GetMaterialBrightness(100), 0.05f, 1.0f,
                 (v) => cityMap.SetMaterialBrightness(100, v));
-            AddEditorSlider(contentObj.transform, "Asphalt (104)", cityMap.GetMaterialBrightness(104), 0.05f, 1.0f,
+            AddEditorSlider(matContent, "Asphalt (104)", cityMap.GetMaterialBrightness(104), 0.05f, 1.0f,
                 (v) => cityMap.SetMaterialBrightness(104, v));
 
-            // --- Shadow Debug Controls ---
-            AddEditorHeader(contentObj.transform, "SHADOW DEBUG", goldColor);
-            AddEditorToggle(contentObj.transform, "Shadows Enabled", cityMap.GetShadowEnabled(),
+            // --- Section 3: Shadow Debug ---
+            var shadowSection = CreateAccordionSection(groupObj.transform, "SHADOW DEBUG", goldColor, startExpanded: false);
+            accordionGroup.AddSection(shadowSection);
+            var shadowContent = shadowSection.Content;
+            AddEditorToggle(shadowContent, "Shadows Enabled", cityMap.GetShadowEnabled(),
                 cityMap.SetShadowEnabled);
-            AddEditorSlider(contentObj.transform, "Normal Nudge", cityMap.GetShadowNormalNudge(), 0.0f, 10.0f,
+            AddEditorSlider(shadowContent, "Normal Nudge", cityMap.GetShadowNormalNudge(), 0.0f, 10.0f,
                 cityMap.SetShadowNormalNudge);
-            AddEditorSlider(contentObj.transform, "Light Nudge", cityMap.GetShadowLightNudge(), 0.0f, 10.0f,
+            AddEditorSlider(shadowContent, "Light Nudge", cityMap.GetShadowLightNudge(), 0.0f, 10.0f,
                 cityMap.SetShadowLightNudge);
-            AddEditorStepper(contentObj.transform, "Skip Steps", cityMap.GetShadowSkipSteps(), 0, 16,
+            AddEditorStepper(shadowContent, "Skip Steps", cityMap.GetShadowSkipSteps(), 0, 16,
                 cityMap.SetShadowSkipSteps);
-            AddEditorStepper(contentObj.transform, "Max Steps", cityMap.GetShadowMaxSteps(), 1, 64,
+            AddEditorStepper(shadowContent, "Max Steps", cityMap.GetShadowMaxSteps(), 1, 64,
                 cityMap.SetShadowMaxSteps);
 
-            // --- Lighting Debug Controls ---
-            AddEditorHeader(contentObj.transform, "LIGHTING DEBUG", goldColor);
-            AddEditorToggle(contentObj.transform, "Sun Light (Half-Lambert)", cityMap.GetSunLightEnabled(),
+            // --- Section 4: Lighting Debug ---
+            var lightSection = CreateAccordionSection(groupObj.transform, "LIGHTING DEBUG", goldColor, startExpanded: false);
+            accordionGroup.AddSection(lightSection);
+            var lightContent = lightSection.Content;
+            AddEditorToggle(lightContent, "Sun Light (Half-Lambert)", cityMap.GetSunLightEnabled(),
                 cityMap.SetSunLightEnabled);
-            AddEditorToggle(contentObj.transform, "Ambient", cityMap.GetAmbientEnabled(),
+            AddEditorToggle(lightContent, "Ambient", cityMap.GetAmbientEnabled(),
                 cityMap.SetAmbientEnabled);
-            AddEditorToggle(contentObj.transform, "Fill Light", cityMap.GetFillEnabled(),
+            AddEditorToggle(lightContent, "Fill Light", cityMap.GetFillEnabled(),
                 cityMap.SetFillEnabled);
-            AddEditorToggle(contentObj.transform, "Camera Light", cityMap.GetCamLightEnabled(),
+            AddEditorToggle(lightContent, "Camera Light", cityMap.GetCamLightEnabled(),
                 cityMap.SetCamLightEnabled);
 
-            Debug.Log("[GameUIController] City Editor panel built in Orders tab.");
+            Debug.Log("[GameUIController] City Editor panel built with 4 accordion sections.");
+        }
+
+        /// <summary>Creates an accordion section with a clickable header and collapsible content area.</summary>
+        private AccordionSection CreateAccordionSection(Transform parent, string title, Color headerColor, bool startExpanded)
+        {
+            // Section root
+            var sectionObj = new GameObject($"Accordion_{title.Replace(" ", "_")}");
+            sectionObj.transform.SetParent(parent, false);
+            var sectionLE = sectionObj.AddComponent<LayoutElement>();
+            sectionLE.flexibleWidth = 1;
+
+            var sectionVLG = sectionObj.AddComponent<VerticalLayoutGroup>();
+            sectionVLG.spacing = 0;
+            sectionVLG.childControlWidth = true;
+            sectionVLG.childForceExpandWidth = true;
+            sectionVLG.childForceExpandHeight = false;
+
+            // Header button
+            var headerObj = new GameObject("Header");
+            headerObj.transform.SetParent(sectionObj.transform, false);
+            var headerImg = headerObj.AddComponent<Image>();
+            headerImg.color = new Color(0.15f, 0.15f, 0.22f, 1f);
+            var headerBtn = headerObj.AddComponent<Button>();
+            headerBtn.targetGraphic = headerImg;
+            var headerLE = headerObj.AddComponent<LayoutElement>();
+            headerLE.preferredHeight = 28;
+            headerLE.flexibleWidth = 1;
+
+            var headerHLG = headerObj.AddComponent<HorizontalLayoutGroup>();
+            headerHLG.spacing = 6;
+            headerHLG.padding = new RectOffset(8, 8, 0, 0);
+            headerHLG.childControlWidth = false;
+            headerHLG.childForceExpandWidth = false;
+            headerHLG.childForceExpandHeight = true;
+            headerHLG.childAlignment = TextAnchor.MiddleLeft;
+
+            // Arrow icon
+            var arrowObj = new GameObject("Arrow");
+            arrowObj.transform.SetParent(headerObj.transform, false);
+            var arrowText = arrowObj.AddComponent<TextMeshProUGUI>();
+            arrowText.text = startExpanded ? "▼" : "▶";
+            arrowText.fontSize = 12;
+            arrowText.color = headerColor;
+            arrowText.raycastTarget = false;
+            var arrowLE = arrowObj.AddComponent<LayoutElement>();
+            arrowLE.preferredWidth = 16;
+            arrowLE.preferredHeight = 20;
+
+            // Header label
+            var labelObj = new GameObject("Label");
+            labelObj.transform.SetParent(headerObj.transform, false);
+            var labelText = labelObj.AddComponent<TextMeshProUGUI>();
+            labelText.text = title;
+            labelText.fontSize = 13;
+            labelText.fontStyle = FontStyles.Bold;
+            labelText.color = headerColor;
+            labelText.alignment = TextAlignmentOptions.Left;
+            labelText.raycastTarget = false;
+            var labelLE = labelObj.AddComponent<LayoutElement>();
+            labelLE.flexibleWidth = 1;
+            labelLE.preferredHeight = 20;
+
+            // Content container (collapsible)
+            var contentObj = new GameObject("Content");
+            contentObj.transform.SetParent(sectionObj.transform, false);
+            var contentRT = contentObj.AddComponent<RectTransform>();
+            var contentVLG = contentObj.AddComponent<VerticalLayoutGroup>();
+            contentVLG.spacing = 4;
+            contentVLG.padding = new RectOffset(8, 8, 4, 4);
+            contentVLG.childControlWidth = true;
+            contentVLG.childForceExpandWidth = true;
+            contentVLG.childForceExpandHeight = false;
+            var contentLE = contentObj.AddComponent<LayoutElement>();
+            contentLE.flexibleWidth = 1;
+            contentLE.preferredHeight = startExpanded ? -1 : 0;
+
+            // Setup AccordionSection component
+            var section = sectionObj.AddComponent<AccordionSection>();
+            // Use reflection-free approach: set fields via serialized property or public methods
+            // Since we can't set [SerializeField] fields directly, we'll use a setup method
+            section.SetupAccordion(headerBtn, labelText, arrowText, contentRT, contentLE, startExpanded);
+
+            return section;
         }
 
         private void AddEditorHeader(Transform parent, string text, Color color)
@@ -721,11 +820,26 @@ namespace SteelCity.Sim
             FocusCameraOnHood(hoodId);
         }
 
-        /// <summary>Pans the planning-phase map camera to center on the block where the given hood is currently located.</summary>
+        /// <summary>Pans the planning-phase map camera to center on Vinny's character on the street.</summary>
         private void FocusCameraOnHood(string hoodId)
         {
-            if (cityMap == null || engine == null) return;
+            if (cityMap == null) return;
 
+            // Focus on Vinny's actual character position, not the hood's assigned block
+            var character = cityMap.SpawnedCharacter;
+            if (character != null)
+            {
+                Vector3 center = character.WorldCenter;
+                cityMap.SetCameraFocus(center);
+                Debug.Log($"[GameUIController] 📷 Camera focused on Vinny at {center}");
+            }
+            else
+            {
+                // Fallback: focus on HQ block if character not spawned yet
+                FocusCameraOnHq();
+            }
+
+            // Still auto-select the hood's block for info panel + highlights
             Hood hood = null;
             foreach (var gang in engine.gangs.Values)
             {
@@ -735,18 +849,12 @@ namespace SteelCity.Sim
                 }
                 if (hood != null) break;
             }
-
-            if (hood == null || string.IsNullOrEmpty(hood.currentBlockId)) return;
-            if (!engine.blocks.TryGetValue(hood.currentBlockId, out var block)) return;
-
-            Vector3 localPos = ComputeBlockCenterLocal(block);
-            Vector3 worldPos = cityMap.MapRoot.position + localPos;
-            cityMap.SetCameraFocus(worldPos);
-
-            // Auto-select the block too, so it's highlighted and its info panel shows
-            selectedBlockId = block.id;
-            RefreshBlockInfo();
-            RefreshMapHighlights();
+            if (hood != null && !string.IsNullOrEmpty(hood.currentBlockId) && engine.blocks.TryGetValue(hood.currentBlockId, out var block))
+            {
+                selectedBlockId = block.id;
+                RefreshBlockInfo();
+                RefreshMapHighlights();
+            }
         }
 
         private void TryEnableOrderButtons()
@@ -787,6 +895,119 @@ namespace SteelCity.Sim
 
         #endregion
 
+        #region --- EXECUTION PHASE UI ---
+
+        /// <summary>
+        /// Resolve topBarRoot/infoPanelRoot/bottomBarRoot if not wired in the Inspector.
+        /// Handles scenes built before these fields existed (auto-builder not re-run).
+        /// Walks up from known child references (weekText, hoodList, runWeekButton) to find
+        /// their panel roots, falling back to GameObject.Find by name.
+        /// </summary>
+        private void ResolvePlanningUIRootsFallback()
+        {
+            if (topBarRoot == null && weekText != null)
+                topBarRoot = weekText.transform.parent != null ? weekText.transform.parent.gameObject : null;
+            if (topBarRoot == null)
+                topBarRoot = GameObject.Find("TopBar");
+
+            if (infoPanelRoot == null && hoodList != null)
+            {
+                // hoodList -> HoodsPage -> ContentArea -> InfoPanel
+                var t = hoodList.parent;
+                while (t != null && t.name != "InfoPanel") t = t.parent;
+                if (t != null) infoPanelRoot = t.gameObject;
+            }
+            if (infoPanelRoot == null)
+                infoPanelRoot = GameObject.Find("InfoPanel");
+
+            if (bottomBarRoot == null && runWeekButton != null)
+                bottomBarRoot = runWeekButton.transform.parent != null ? runWeekButton.transform.parent.gameObject : null;
+            if (bottomBarRoot == null)
+                bottomBarRoot = GameObject.Find("BottomBar");
+
+            Debug.Log($"[GameUIController] Planning UI roots resolved: TopBar={(topBarRoot != null)} InfoPanel={(infoPanelRoot != null)} BottomBar={(bottomBarRoot != null)}");
+        }
+
+        /// <summary>Hide all planning-phase UI elements for fullscreen execution.</summary>
+        private void SetPlanningUIVisible(bool visible)
+        {
+            if (topBarRoot != null) topBarRoot.SetActive(visible);
+            if (infoPanelRoot != null) infoPanelRoot.SetActive(visible);
+            if (bottomBarRoot != null) bottomBarRoot.SetActive(visible);
+        }
+
+        /// <summary>Create a small status badge top-right during execution.</summary>
+        private void ShowExecutionStatusBadge()
+        {
+            if (executionStatusBadge != null)
+            {
+                executionStatusBadge.SetActive(true);
+                return;
+            }
+
+            var canvas = FindFirstObjectByType<Canvas>();
+            if (canvas == null) return;
+
+            executionStatusBadge = new GameObject("ExecutionStatusBadge");
+            executionStatusBadge.transform.SetParent(canvas.transform, false);
+            var rt = executionStatusBadge.AddComponent<RectTransform>();
+            rt.anchorMin = new Vector2(1f, 1f);
+            rt.anchorMax = new Vector2(1f, 1f);
+            rt.pivot = new Vector2(1f, 1f);
+            rt.anchoredPosition = new Vector2(-12, -12);
+            rt.sizeDelta = new Vector2(220, 56);
+
+            var bg = executionStatusBadge.AddComponent<Image>();
+            bg.color = new Color(0.05f, 0.05f, 0.08f, 0.75f);
+
+            var vlg = executionStatusBadge.AddComponent<VerticalLayoutGroup>();
+            vlg.spacing = 2;
+            vlg.padding = new RectOffset(10, 10, 6, 6);
+            vlg.childControlWidth = true;
+            vlg.childForceExpandWidth = true;
+            vlg.childForceExpandHeight = false;
+
+            var weekLine = new GameObject("StatusWeek");
+            weekLine.transform.SetParent(executionStatusBadge.transform, false);
+            var weekTmp = weekLine.AddComponent<TextMeshProUGUI>();
+            weekTmp.text = $"WEEK {engine.week}";
+            weekTmp.fontSize = 16;
+            weekTmp.color = goldColor;
+            weekTmp.fontStyle = FontStyles.Bold;
+            weekTmp.alignment = TextAlignmentOptions.Right;
+            weekTmp.raycastTarget = false;
+            var weekLE = weekLine.AddComponent<LayoutElement>();
+            weekLE.preferredHeight = 22;
+
+            var phaseLine = new GameObject("StatusPhase");
+            phaseLine.transform.SetParent(executionStatusBadge.transform, false);
+            executionStatusText = phaseLine.AddComponent<TextMeshProUGUI>();
+            executionStatusText.text = "EXECUTION";
+            executionStatusText.fontSize = 13;
+            executionStatusText.color = redColor;
+            executionStatusText.fontStyle = FontStyles.Bold;
+            executionStatusText.alignment = TextAlignmentOptions.Right;
+            executionStatusText.raycastTarget = false;
+            var phaseLE = phaseLine.AddComponent<LayoutElement>();
+            phaseLE.preferredHeight = 18;
+
+            Debug.Log("[GameUIController] Execution status badge created");
+        }
+
+        private void HideExecutionStatusBadge()
+        {
+            if (executionStatusBadge != null)
+                executionStatusBadge.SetActive(false);
+        }
+
+        public void UpdateExecutionStatus(string phaseName, int tickElapsed, int tickRemaining)
+        {
+            if (executionStatusText != null)
+                executionStatusText.text = $"{phaseName} | Tick {tickElapsed}";
+        }
+
+        #endregion
+
         #region --- RUN WEEK ---
 
         private void OnRunWeek()
@@ -819,7 +1040,12 @@ namespace SteelCity.Sim
 
             phase = GamePhase.Execution;
             if (phaseText != null) { phaseText.text = "EXECUTION"; phaseText.color = redColor; }
+            if (characterStatusText != null) characterStatusText.text = "Vinny Moretti [ WORKING ]";
             if (runWeekButton != null) runWeekButton.interactable = false;
+
+            // Hide planning UI for fullscreen execution
+            SetPlanningUIVisible(false);
+            ShowExecutionStatusBadge();
 
             AddEventLogEntry($"=== WEEK {engine.week} BEGIN ===", goldColor);
 
@@ -918,9 +1144,10 @@ namespace SteelCity.Sim
 
             // Focus camera on HQ block in isometric perspective
             FocusCameraOnHq();
+            cityMap.SetCameraFullscreen();
             cityMap.IsExecutionMode = true;
             cityMap.SetGranularLodMode(true);
-            Debug.Log("[GameUIController] Camera focused on HQ — working mode started");
+            Debug.Log("[GameUIController] Camera focused on HQ + fullscreen — working mode started");
 
             // Create HUD
             if (tickHUD == null)
@@ -946,6 +1173,7 @@ namespace SteelCity.Sim
             eventPlayer.OnStateChanged = (s, elapsed, remaining) =>
             {
                 tickHUD.UpdatePhase(s.ToString(), elapsed, remaining);
+                UpdateExecutionStatus(s.ToString(), elapsed, remaining);
             };
             eventPlayer.OnComplete = () =>
             {
@@ -1060,8 +1288,14 @@ namespace SteelCity.Sim
 
             // Restore camera to character (planning mode — animation work)
             RestoreCameraFromHq();
+            cityMap.RestoreCameraViewport();
             cityMap.IsExecutionMode = false;
             cityMap.SetGranularLodMode(false);
+
+            // Hide execution HUD and status badge
+            if (tickHUD != null)
+                tickHUD.Shutdown();
+            HideExecutionStatusBadge();
 
             // Shut down event player
             if (eventPlayer != null)
@@ -1095,7 +1329,11 @@ namespace SteelCity.Sim
         {
             phase = GamePhase.Planning;
             if (phaseText != null) { phaseText.text = "PLANNING"; phaseText.color = yellowColor; }
+            if (characterStatusText != null) characterStatusText.text = "Vinny Moretti [ ON STREET ]";
             if (runWeekButton != null) runWeekButton.interactable = true;
+
+            // Restore planning UI
+            SetPlanningUIVisible(true);
 
             selectedHoodId = null;
             selectedBlockId = null;

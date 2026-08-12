@@ -22,8 +22,8 @@ namespace SteelCity.Sim
 
         /// <summary>Block this hood is currently located at (starts at gang HQ).</summary>
         public string currentBlockId;
-        /// <summary>True while the hood is inside a building (not visible on the sidewalk). Starts true — exits through the door when the working week begins.</summary>
-        public bool isInsideBuilding = true;
+        /// <summary>True while the hood is inside a building (not visible on the sidewalk). Starts false — Vinny is on the street until we move him inside HQ.</summary>
+        public bool isInsideBuilding = false;
 
         public bool IsAvailable =>
             status == HoodStatus.Available && health != HoodHealth.BadlyWounded && health != HoodHealth.Dead;

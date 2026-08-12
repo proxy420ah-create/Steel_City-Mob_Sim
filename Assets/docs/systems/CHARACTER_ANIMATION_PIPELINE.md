@@ -2,7 +2,8 @@
 
 **Purpose**: Unified design for procedural keyframe animation, flinch reactions, and ragdoll physics in Steel City: Mob Sim
 **Created**: August 10, 2026
-**Status**: DESIGN — implementation in progress
+**Last Updated**: August 12, 2026
+**Status**: Phase 1 COMPLETE — GPU compute forward-transform pipeline operational
 
 ---
 
@@ -10,27 +11,40 @@
 
 Steel City uses a **GPU raymarch shader** (`VoxelProxyRaymarch.shader`) to render voxel characters. All voxels for a character live in a single ComputeBuffer — characters are NOT separate GameObjects per bone. Per-voxel `groupID` tags identify which limb each voxel belongs to (0=body, 1=head, 2=L arm, 3=R arm, 4=L leg, 5=R leg, 6=L shin, 7=R shin, 8=L forearm, 9=R forearm).
 
-The shader applies per-group rotations during the DDA raymarch loop using an **inverse transform** technique: the ray steps through posed space, and at each step it inverse-transforms the sample position back to rest space to read the voxel grid.
+### GPU Compute Forward-Transform Pipeline (Phase 1 — COMPLETE)
+
+The animation pipeline now uses a **GPU compute shader** (`CharacterPoseCompute.compute`) to forward-transform voxels from rest space into posed space each frame. Two kernels handle the work:
+
+- **CSClear** — Zeros per-instance posed voxel buffer slices before transform
+- **CSPose** — For each rest voxel × instance, computes the full FK transform chain (group rotation → parent rotation → pivot offset → body bob/weight shift) and scatters the posed voxel into the instance's buffer slice
+
+The raymarch shader (`VoxelProxyRaymarch.shader`) then samples the **posed buffer directly** — no inverse-transform needed during raymarching. The per-instance buffer offset is passed via `instMeta.x`.
+
+**Previous approach** (Approach B inverse-transform sampling) is deprecated. The forward-transform compute pipeline is cleaner, faster, and supports the full FK chain including parent rotations.
 
 ### Three animation drivers feed one transform pipeline
 
 ```
-ALIVE (procedural):     walkKeyframes → shader computes spline interp → per-group rotation
-HIT/FLINCH (reactive):  flinch keyframes → shader computes one-shot interp → per-group rotation
-DEAD/RAGDOLL (physics): proxy bone Rigidbodies → physics sim → transform buffer → shader applies
+ALIVE (procedural):     walkKeyframes → GPU compute shader → CSClear + CSPose → posed voxel buffer
+HIT/FLINCH (reactive):  flinch keyframes → compute shader one-shot interp → posed voxel buffer
+DEAD/RAGDOLL (physics): proxy bone Rigidbodies → physics sim → transform buffer → compute shader applies
 ```
 
-All three produce **per-group rotation matrices** that the shader consumes. The shader does not care where the matrices came from.
+All three produce **per-group rotation matrices** that the compute shader consumes. The shader does not care where the matrices came from.
 
 ### Current state vs target
 
-| Component | Current | Target |
-|-----------|---------|--------|
-| Animator (HTML) | Keyframe system complete (spline interp, leg twist, body bob) | Add angular limits, flinch keyframes, export pipeline |
-| Shader | Hardcoded `sin()` animation | Keyframe buffer + spline interp in HLSL |
-| C# driver | Pushes only `animState/animTime/animSpeed` | Pushes keyframe data, pivot data, per-group transforms |
-| Ragdoll | None | Proxy bone physics → transform upload |
-| Flinch | None | One-shot keyframe playback on hit event |
+| Component | Status | Details |
+|-----------|--------|---------|
+| Animator (HTML) | ✅ Complete | Keyframe system (spline interp, leg twist, body bob), export pipeline to JSON |
+| GPU Compute Shader | ✅ Complete | `CharacterPoseCompute.compute` — CSClear + CSPose kernels, full FK chain, walk keyframes, pivots, body bob |
+| Raymarch Shader | ✅ Complete | `VoxelProxyRaymarch.shader` — samples posed buffer directly, per-instance buffer offsets |
+| C# Driver | ✅ Complete | `VoxelChunkManager.cs` dispatches compute per frame, `CharacterAnimation.cs` pushes animState/animTime/animSpeed |
+| Walk/Idle/Look/Aim | ✅ Verified | T-Pose, Idle, Walking, Looking, Aiming all render correctly on GPU |
+| Crouching | 🐛 Needs tuning | Values not producing correct pose — animator-side adjustment needed |
+| Ragdoll | 🔲 Planned | Proxy bone physics → transform upload |
+| Flinch | 🔲 Planned | One-shot keyframe playback on hit event |
+| Angular Limits | 🔲 Planned | Per-joint min/max angles for ragdoll joints |
 
 ---
 
@@ -137,16 +151,16 @@ Child groups inherit their parent's transform chain. The child's own rotation is
 
 This hierarchy is used by:
 - The animator's `computeGroupRotation()` (JavaScript)
-- The shader's `ComputeGroupRotation()` (HLSL) — needs updating to support chains
+- The compute shader's `ComputeOwnRotation()` (HLSL) — full FK chain with parent rotation cascade
 - The ragdoll's ConfigurableJoint parent-child connections (C#)
 
 ---
 
-## 4. Keyframe Shader Port (Option A)
+## 4. Keyframe Shader Port (Option A) ✅ COMPLETE
 
-### 4.1 Goal
+### 4.1 Goal — ACHIEVED
 
-Replace the shader's hardcoded `sin(animTime * 6.0 * animSpeed) * 0.3` walk logic with keyframe interpolation that matches the animator.
+Replace the shader's hardcoded `sin(animTime * 6.0 * animSpeed) * 0.3` walk logic with keyframe interpolation that matches the animator. **This is now implemented in `CharacterPoseCompute.compute`** using `GetWalkPoseValue()` which reads from the `_WalkKeyframes` structured buffer and performs Catmull-Rom interpolation.
 
 ### 4.2 HLSL functions to implement
 
@@ -198,13 +212,13 @@ WalkPose GetWalkPose(float cyclePhase, WalkPose kf[4], bool autoMirror) {
 - `_InstanceOffsets[i]` — float4 (pos.xyz, yaw)
 - `_InstanceOffsets[i + N]` — float4 (animState, animTime, animSpeed, 0)
 
-### 4.4 Shader changes
+### 4.4 Shader changes ✅ DONE
 
-Replace `ComputeGroupRotation()` walking branch:
-- Current: `swing = sin(animTime * 6.0 * animSpeed) * 0.3`
-- Target: `swing = signL * GetWalkPose(phase, kf, autoMirror).armSwingL`
+Replaced `ComputeGroupRotation()` walking branch in the compute shader:
+- **Before**: `swing = sin(animTime * 6.0 * animSpeed) * 0.3`
+- **After**: `swing = signL * GetWalkPoseValue(kfIndex, walkPhase)` — reads from `_WalkKeyframes` structured buffer with Catmull-Rom interpolation
 
-Add body bob + weight shift to the raymarch origin or volume offset.
+Body bob + weight shift are applied in the `CSPose` kernel after the FK transform chain, modifying the final posed voxel position.
 
 ---
 
@@ -328,13 +342,20 @@ Force scales the amplitude of the keyframe values. Direction determines which ke
 
 ## 7. Implementation Phases
 
-### Phase 1: Keyframe Shader Port (current)
-- Add walkKeyframes structured buffer to shader
-- Port Catmull-Rom, mirror, getWalkPose to HLSL
-- Replace hardcoded sin() in ComputeGroupRotation
-- Add body bob + weight shift in shader
-- C# code to upload keyframe data from loaded .anim.json
-- Verify: Unity walk matches animator walk
+### Phase 1: GPU Compute Forward-Transform Pipeline ✅ COMPLETE (Aug 11, 2026)
+- ✅ `CharacterPoseCompute.compute` — CSClear + CSPose kernels
+- ✅ Full FK chain: group rotation → parent rotation → pivot offset → body bob/weight shift
+- ✅ Walk keyframes with Catmull-Rom interpolation in HLSL
+- ✅ Per-instance posed voxel buffer allocation and management
+- ✅ `VoxelChunkManager.cs` — compute dispatch per frame, anim data upload
+- ✅ `VoxelProxyRaymarch.shader` — posed buffer sampling (no inverse-transform)
+- ✅ `CharacterAnimation.cs` — pushes animState/animTime/animSpeed to InstancedCharacter
+- ✅ `CharacterRig.cs` — character controller with hotkeys (T/I/W/L/A/C), consolidated onto single GameObject with VoxelCharacter + CharacterAnimation
+- ✅ Verified: T-Pose, Idle, Walking, Looking, Aiming render correctly on GPU
+- 🐛 Crouching needs animator-side tuning
+- ✅ fxc uninitialized variable warnings eliminated (single exit point pattern)
+
+> **Critical dependency**: The `.groups` file must exist alongside the `.stasset` file with a matching filename (e.g. `Vinny.stasset` requires `Vinny.groups`). Without it, `VoxelChunkManager` cannot load group IDs, `useComputePose` stays `false`, and the compute shader never poses the character — animation state is set in C# but never applied to the GPU. This was the root cause of the "walking animation not cycling" bug (Aug 12, 2026) after renaming the asset from `animationtest1` to `Vinny` without copying the `.groups` file.
 
 ### Phase 2: Angular Limits in Animator
 - Add joint type (Ball/Hinge/Root) per group
@@ -367,19 +388,24 @@ Force scales the amplitude of the keyframe values. Direction determines which ke
 
 ### Existing files (modified)
 
-| File | Role | Changes needed |
-|------|------|---------------|
-| `VoxelAssetStudio/character_animator.html` | Animator/preview tool | Add angular limits, flinch keyframes, export improvements |
-| `Assets/Resources/Shaders/VoxelProxyRaymarch.shader` | Raymarch renderer | Keyframe interp, per-group transform buffer, body bob |
-| `Assets/Scripts/Sim/CharacterAnimation.cs` | Animation driver | Upload keyframe data, flinch triggers, ragdoll handoff |
-| `Assets/Scripts/Sim/VoxelCharacter.cs` | Character loader | Load animParams, expose group data |
+| File | Role | Status |
+|------|------|--------|
+| `VoxelAssetStudio/character_animator.html` | Animator/preview tool | ✅ Keyframe system complete, export pipeline |
+| `Assets/Resources/Shaders/VoxelProxyRaymarch.shader` | Raymarch renderer | ✅ Posed buffer sampling, per-instance offsets |
+| `Assets/Scripts/Sim/CharacterAnimation.cs` | Animation driver | ✅ Pushes animState/animTime/animSpeed |
+| `Assets/Scripts/Sim/VoxelCharacter.cs` | Character loader | ✅ Loads animParams, exposes group data |
+| `Assets/Scripts/UI/VoxelChunkManager.cs` | Compute dispatch | ✅ CSClear + CSPose dispatch, buffer management |
 
-### New files (to create)
+### New files (created)
 
-| File | Purpose |
-|------|---------|
-| `Assets/Scripts/Sim/VoxelGroupRagdoll.cs` | Proxy bone physics → transform upload |
-| `Assets/Scripts/Sim/VoxelGroupData.cs` | Group voxel bounds, collider sizing utility |
+| File | Purpose | Status |
+|------|---------|--------|
+| `Assets/Resources/Shaders/CharacterPoseCompute.compute` | GPU compute shader (CSClear + CSPose) | ✅ Complete |
+| `Assets/Scripts/Sim/VoxelCharacterAnimator.cs` | CPU reference implementation | ✅ Complete |
+| `Assets/Scripts/Sim/CharacterRig.cs` | Character controller with hotkeys (consolidated) | ✅ Complete |
+| `Assets/Editor/ImportCharacterJSON.cs` | Unity editor import for character JSON | ✅ Complete |
+| `Assets/Scripts/Sim/VoxelGroupRagdoll.cs` | Proxy bone physics → transform upload | 🔲 Phase 4 |
+| `Assets/Scripts/Sim/VoxelGroupData.cs` | Group voxel bounds, collider sizing utility | 🔲 Phase 4 |
 
 ### Steel Tide reference files (port source)
 
@@ -393,10 +419,11 @@ Force scales the amplitude of the keyframe values. Direction determines which ke
 
 ## 9. Performance Considerations
 
-- **Normal NPCs**: keyframe animation only — zero physics overhead, shader computes transforms from buffer
+- **Normal NPCs**: GPU compute forward-transform — zero physics overhead, compute shader transforms voxels from rest to posed space per frame. All instances share rest voxel buffer + keyframe buffers; per-instance data is just animState/animTime/animSpeed (16 bytes)
 - **Combat participants**: proxy bone physics — ~10 Rigidbodies + joints per character, only active during combat
-- **Instancing**: all instances of same character type share keyframe buffer; per-instance data is just animState/animTime/animSpeed
+- **Instancing**: all instances of same character type share rest voxel buffer + keyframe buffer; per-instance posed voxel buffer slices are allocated per InstancedGroup
 - **Ragdoll breaks instancing**: a ragdoll character needs individual proxy bones, so it drops out of the instanced batch and renders individually (same pattern as Steel Tide's tier system)
+- **GPU compute cost**: CSClear + CSPose dispatch per frame per group. Thread count = restVoxelCount × instanceCount. For 100 instances × 5000 voxels = 500K threads — well within GPU budget
 
 ---
 
@@ -404,5 +431,6 @@ Force scales the amplitude of the keyframe values. Direction determines which ke
 
 - Old saved projects (without walkKeyframes) load with defaults — deep-merge handles this
 - Old .stasset files (without group data) render as before — groupID defaults to 0 (body)
-- Shader falls back to hardcoded sin() if keyframe buffer not set — graceful degradation
+- Compute shader auto-loads from `Resources/Shaders/CharacterPoseCompute` — no manual inspector assignment needed
+- If compute shader not found, raymarch shader falls back to rest-pose rendering (no animation, but characters still visible)
 - Ragdoll is opt-in per character — no proxy bones unless combat trigger fires

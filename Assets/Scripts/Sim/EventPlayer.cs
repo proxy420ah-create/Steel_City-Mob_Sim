@@ -33,7 +33,7 @@ namespace SteelCity.Sim
 
         [Tooltip("Yaw offset in degrees to correct voxel model facing. 0 = model front faces +Z. " +
                  "If model faces -Z, use 180. If model faces +X, use -90. If model faces -X, use 90.")]
-        public float modelFacingOffset = 180f;
+        public float modelFacingOffset = 0f;
 
         private Quaternion targetRotation;
         private bool hasTargetRotation;
@@ -47,6 +47,7 @@ namespace SteelCity.Sim
         private Vector3 currentCameraTarget;
         private bool hasCameraTarget;
         private CityMap3D cachedCityMap;
+        private CharacterAnimation charAnim;
 
         public bool IsRunning => running;
 
@@ -60,11 +61,28 @@ namespace SteelCity.Sim
             currentMoveEvent = null;
             hasCameraTarget = false;
             cachedCityMap = FindFirstObjectByType<CityMap3D>();
+
+            // Get CharacterAnimation for manual state control during execution
+            if (character != null)
+            {
+                charAnim = character.GetComponent<CharacterAnimation>();
+                if (charAnim != null)
+                {
+                    // Manual control only — autoDetectWalking's velocity threshold can flip
+                    // state back to Idle on small per-frame movement deltas, fighting our
+                    // explicit SetState calls in StartMove/Update.
+                    charAnim.autoDetectWalking = false;
+                    charAnim.SetState(CharacterAnimation.AnimState.Idle);
+                    Debug.Log("[EventPlayer] CharacterAnimation manual control enabled, state set to Idle");
+                }
+            }
         }
 
         public void Shutdown()
         {
             running = false;
+            if (charAnim != null)
+                charAnim.SetState(CharacterAnimation.AnimState.Idle);
         }
 
         void Update()
@@ -103,6 +121,8 @@ namespace SteelCity.Sim
                 if (t >= 1f)
                 {
                     currentMoveEvent = null;
+                    if (charAnim != null && simManager.State != SimState.WalkingToTarget && simManager.State != SimState.WalkingHome)
+                        charAnim.SetState(CharacterAnimation.AnimState.Idle);
                 }
             }
 
@@ -218,6 +238,10 @@ namespace SteelCity.Sim
         {
             currentMoveEvent = evt;
             moveElapsed = 0f;
+
+            // Set walking animation
+            if (charAnim != null)
+                charAnim.SetState(CharacterAnimation.AnimState.Walking);
 
             currentFromWorld = evt.fromPos + mapRoot.position;
             currentToWorld = evt.toPos + mapRoot.position;

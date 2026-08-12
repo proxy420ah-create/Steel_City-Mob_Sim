@@ -408,7 +408,8 @@ namespace SteelCity.Sim
             }
             else
             {
-                Debug.LogWarning("[VoxelChunkManager] No pose compute shader assigned — GPU forward-transform animation disabled");
+                // Will be auto-loaded in InitProxyRender() if available in Resources
+                Debug.Log("[VoxelChunkManager] No pose compute shader assigned in inspector — will auto-load from Resources");
             }
             InitProxyRender();
         }
@@ -1505,11 +1506,7 @@ namespace SteelCity.Sim
                 }
                 group.instanceAnimDataBuffer.SetData(animData, 0, 0, visibleCount * 2);
 
-                // Dispatch clear kernel: zero out posed buffer slices
-                int clearGroups = Mathf.CeilToInt((float)totalVoxels / 64f);
-                cmd.DispatchCompute(poseComputeShader, kernelCSClear, clearGroups, visibleCount, 1);
-
-                // Set compute shader params
+                // Set compute shader params for CSPose kernel
                 cmd.SetComputeBufferParam(poseComputeShader, kernelCSPose, "_RestVoxelData", group.sharedVoxelBuffer);
                 cmd.SetComputeBufferParam(poseComputeShader, kernelCSPose, "_GroupIDs", group.groupIDBuffer);
                 cmd.SetComputeBufferParam(poseComputeShader, kernelCSPose, "_InstanceAnimData", group.instanceAnimDataBuffer);
@@ -1542,6 +1539,10 @@ namespace SteelCity.Sim
                 cmd.SetComputeIntParam(poseComputeShader, "_RestDimY", group.dimY);
                 cmd.SetComputeIntParam(poseComputeShader, "_RestDimZ", group.dimZ);
                 cmd.SetComputeIntParam(poseComputeShader, "_InstanceCount", visibleCount);
+
+                // Dispatch clear kernel: zero out posed buffer slices
+                int clearGroups = Mathf.CeilToInt((float)totalVoxels / 64f);
+                cmd.DispatchCompute(poseComputeShader, kernelCSClear, clearGroups, visibleCount, 1);
 
                 // Dispatch pose kernel: 1 thread per rest voxel per instance
                 int poseGroups = Mathf.CeilToInt((float)totalVoxels / 64f);

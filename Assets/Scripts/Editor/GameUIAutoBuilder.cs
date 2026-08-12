@@ -4,6 +4,7 @@ using UnityEngine.UI;
 using UnityEditor;
 using TMPro;
 using SteelCity.Sim;
+using SteelCity.UI;
 
 namespace SteelCity.EditorTools
 {
@@ -107,14 +108,20 @@ namespace SteelCity.EditorTools
             phaseText.fontStyle = FontStyles.Bold;
 
             var treasuryText = CreateText("TreasuryText", topBar.transform, "$3000", 18, Green);
-            AnchorStretchVertical(treasuryText.rectTransform, 0.65f, 1f, 0, 15);
+            AnchorStretchVertical(treasuryText.rectTransform, 0.65f, 0.85f, 0, 15);
             treasuryText.alignment = TextAlignmentOptions.Right;
+
+            var charStatusText = CreateText("CharacterStatusText", topBar.transform, "Vinny Moretti [ ON STREET ]", 14, new Color(0.87f, 0.87f, 0.91f));
+            AnchorStretchVertical(charStatusText.rectTransform, 0.85f, 1f, 0, 15);
+            charStatusText.alignment = TextAlignmentOptions.Right;
 
             // --- Info Panel (tabbed, left side; map renders on the right) ---
             var infoPanel = CreatePanel("InfoPanel", canvasObj.transform, BgPanel);
             var ipRect = infoPanel.GetComponent<RectTransform>();
-            ipRect.anchorMin = new Vector2(0f, 0.09f);
-            ipRect.anchorMax = new Vector2(0.6f, 0.93f);
+            // yMax=0.954 matches TopBar bottom (50px / 1080 ≈ 0.046, 1-0.046=0.954)
+            // yMin=0.08 matches BottomBar top exactly
+            ipRect.anchorMin = new Vector2(0f, 0.08f);
+            ipRect.anchorMax = new Vector2(0.6f, 0.954f);
             ipRect.offsetMin = Vector2.zero;
             ipRect.offsetMax = Vector2.zero;
 
@@ -141,7 +148,7 @@ namespace SteelCity.EditorTools
 
             var hoodsTabBtn = CreateTabButton("HoodsTab", tabBar.transform, "Hoods");
             var blockTabBtn = CreateTabButton("BlockTab", tabBar.transform, "Block");
-            var ordersTabBtn = CreateTabButton("OrdersTab", tabBar.transform, "City Editor");
+            var ordersTabBtn = CreateTabButton("OrdersTab", tabBar.transform, "Editor");
             var financeTabBtn = CreateTabButton("FinanceTab", tabBar.transform, "Finance");
             var policeTabBtn = CreateTabButton("PoliceTab", tabBar.transform, "Police");
             var investTabBtn = CreateTabButton("InvestTab", tabBar.transform, "Invest");
@@ -161,9 +168,9 @@ namespace SteelCity.EditorTools
             // Event log page — uses CreateScrollablePage so entries scroll instead of compressing.
             var eventLogPage = CreateScrollablePage("EventLogPage", contentArea.transform, out var eventLogContent);
 
-            // Order buttons row
+            // Order buttons row — placed in Hoods page so player can select hood + assign order in one view
             var orderRow = new GameObject("OrderButtonRow");
-            orderRow.transform.SetParent(orderContent, false);
+            orderRow.transform.SetParent(hoodList, false);
             var hlg = orderRow.AddComponent<HorizontalLayoutGroup>();
             hlg.spacing = 6;
             hlg.childForceExpandWidth = true;
@@ -199,8 +206,8 @@ namespace SteelCity.EditorTools
             var mapSo = new SerializedObject(cityMap);
             var vpYMinProp = mapSo.FindProperty("viewportYMin");
             var vpYMaxProp = mapSo.FindProperty("viewportYMax");
-            if (vpYMinProp != null) vpYMinProp.floatValue = 0.09f;
-            if (vpYMaxProp != null) vpYMaxProp.floatValue = 0.93f;
+            if (vpYMinProp != null) vpYMinProp.floatValue = 0.08f;
+            if (vpYMaxProp != null) vpYMaxProp.floatValue = 0.954f;
             mapSo.ApplyModifiedProperties();
 
             // --- GameUIController ---
@@ -212,6 +219,7 @@ namespace SteelCity.EditorTools
             SetRef(so, "weekText", weekText);
             SetRef(so, "phaseText", phaseText);
             SetRef(so, "treasuryText", treasuryText);
+            SetRef(so, "characterStatusText", charStatusText);
             SetRef(so, "hoodList", hoodList);
             SetRef(so, "blockInfoContent", blockInfoContent);
             SetRef(so, "financeContent", financeContent);
@@ -238,6 +246,9 @@ namespace SteelCity.EditorTools
             SetRef(so, "policeTabButton", policeTabBtn.GetComponent<Button>());
             SetRef(so, "investigationTabButton", investTabBtn.GetComponent<Button>());
             SetRef(so, "eventLogTabButton", logTabBtn.GetComponent<Button>());
+            SetRef(so, "topBarRoot", topBar);
+            SetRef(so, "infoPanelRoot", infoPanel);
+            SetRef(so, "bottomBarRoot", bottomBar);
             so.ApplyModifiedProperties();
 
             Selection.activeGameObject = canvasObj;
@@ -294,6 +305,7 @@ namespace SteelCity.EditorTools
             img.color = color;
             var btn = obj.AddComponent<Button>();
             btn.targetGraphic = img;
+            obj.AddComponent<ButtonHoverEffect>();
 
             var textObj = CreateText("Text", obj.transform, label, 13, Color.black);
             textObj.alignment = TextAlignmentOptions.Center;
@@ -320,6 +332,7 @@ namespace SteelCity.EditorTools
             img.color = BgCard;
             var btn = obj.AddComponent<Button>();
             btn.targetGraphic = img;
+            obj.AddComponent<ButtonHoverEffect>();
 
             var textObj = CreateText("Text", obj.transform, label, 12, TextBright);
             textObj.alignment = TextAlignmentOptions.Center;

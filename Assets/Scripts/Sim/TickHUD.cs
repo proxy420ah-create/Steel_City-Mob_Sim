@@ -52,12 +52,12 @@ namespace SteelCity.Sim
             var panelObj = new GameObject("TickHUDPanel");
             panelObj.transform.SetParent(hudCanvas.transform, false);
             var panelRT = panelObj.AddComponent<RectTransform>();
-            panelRT.anchorMin = new Vector2(0.72f, 0.02f);
-            panelRT.anchorMax = new Vector2(0.98f, 0.98f);
+            panelRT.anchorMin = new Vector2(0.01f, 0.02f);
+            panelRT.anchorMax = new Vector2(0.22f, 0.98f);
             panelRT.offsetMin = Vector2.zero;
             panelRT.offsetMax = Vector2.zero;
             var panelImg = panelObj.AddComponent<Image>();
-            panelImg.color = bgColor;
+            panelImg.color = new Color(0.05f, 0.05f, 0.08f, 0.65f);
 
             var vlg = panelObj.AddComponent<VerticalLayoutGroup>();
             vlg.spacing = 6;
