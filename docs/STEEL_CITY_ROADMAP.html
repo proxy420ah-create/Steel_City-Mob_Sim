@@ -384,7 +384,7 @@
       <p style="margin: 4px 0 0 0; color: var(--text-dim); font-size: 0.9em;">
         This roadmap must be updated whenever new features are discussed, design documents are created, or phases change status.
         If you're working on a design doc or brainstorming a new system, update the corresponding phase here afterward.
-        Last review: <strong>Aug 12, 2026</strong> — GPU compute forward-transform animation pipeline COMPLETE (CharacterPoseCompute.compute, CSClear + CSPose kernels). T-Pose, Idle, Walking, Looking, Aiming verified on GPU. Phase 4c (Voxel Group Animation) evolved from Approach B inverse-transform to GPU compute forward-transform. Combat/vehicle design doc, invariant computation audit, GPU rendering Phase 1, gang simulation architecture design doc + visual guide (Phase 4d) all complete.
+        Last review: <strong>Aug 12, 2026</strong> — GPU compute animation pipeline COMPLETE + execution phase integration. CharacterRig consolidated (replaced GPUAnimationTestRig). Vinny.groups file fix (GPU compute pose). modelFacingOffset fix (180→0, Vinny faces +Z). Animated working week with walking character verified. Execution phase UI overhaul (fullscreen camera, minimal HUD, accordion panels). First coherent game-feel milestone reached.
       </p>
     </div>
   </div>
@@ -393,9 +393,9 @@
 <!-- ========================= PROGRESS BAR ========================= -->
 <div class="progress-section">
   <div class="overall-bar">
-    <div class="overall-fill" style="width: 75%;">75%</div>
+    <div class="overall-fill" style="width: 80%;">80%</div>
   </div>
-  <div class="overall-label">Vertical Slice Completion — Foundations ✅ → GPU Animation ✅ → Simulation 🔄 → Polish 🔲</div>
+  <div class="overall-label">Vertical Slice Completion — Foundations ✅ → GPU Animation ✅ → Simulation ✅ → Polish �</div>
 </div>
 
 <div class="container">
@@ -415,27 +415,27 @@
       <div class="stat-label">Doc Files</div>
     </div>
     <div class="stat-card">
-      <div class="stat-num">5</div>
+      <div class="stat-num">6</div>
       <div class="stat-label">Anim States</div>
     </div>
   </div>
 
   <!-- ========================= CURRENT WORK BANNER ========================= -->
   <div class="current-banner">
-    <h3><span class="pulse-dot"></span> Current Work — GPU Animation Pipeline Complete + Pathfinding Integration Next</h3>
+    <h3><span class="pulse-dot"></span> Current Work — Execution Phase Coherent + Polish Next</h3>
     <div class="desc">
-      <strong>GPU Compute Animation Pipeline COMPLETE:</strong> <code>CharacterPoseCompute.compute</code> with CSClear + CSPose kernels forward-transforms rest voxels into posed space on GPU. Full FK chain (group rotation → parent rotation → pivot offset → body bob). Walk keyframes with Catmull-Rom interpolation. T-Pose, Idle, Walking, Looking, Aiming all verified on GPU. Crouching needs animator-side tuning.<br>
-      <strong>Next:</strong> Pathfinding + walk animation integration — spawn character on extortion mission, verify auto-walk activation via velocity detection.<br>
+      <strong>Execution Phase Integration COMPLETE:</strong> Vinny walks with correct facing during working week simulation. CharacterRig consolidated onto single GameObject. Vinny.groups file fix restored GPU compute pose. modelFacingOffset fix (180→0) corrected backward walking. Execution phase UI overhaul: fullscreen camera, minimal TickHUD overlay, accordion panels. First coherent game-feel milestone reached.<br>
+      <strong>Next:</strong> Polish — UI refinements, more animation states, gang simulation implementation.<br>
       <strong>GPU Rendering:</strong> Phase 1 (TRS Cache) complete. Phase 2 (buffer pooling) pending. 6 invariant computation candidates pending.<br>
-      <strong>Gang Simulation:</strong> Design complete, awaiting implementation after pathfinding integration.
+      <strong>Gang Simulation:</strong> Design complete, awaiting implementation.
     </div>
     <div class="files">
       <span class="file-chip">CharacterPoseCompute.compute</span>
       <span class="file-chip">VoxelProxyRaymarch.shader</span>
       <span class="file-chip">VoxelChunkManager.cs</span>
       <span class="file-chip">CharacterAnimation.cs</span>
-      <span class="file-chip">GPUAnimationTestRig.cs</span>
-      <span class="file-chip">VoxelCharacterAnimator.cs</span>
+      <span class="file-chip">CharacterRig.cs</span>
+      <span class="file-chip">EventPlayer.cs</span>
       <span class="file-chip">character_animator.html</span>
       <span class="file-chip">CHARACTER_ANIMATION_PIPELINE.md</span>
     </div>
@@ -718,36 +718,42 @@
         </ul>
       </div>
 
-      <div class="feature partial">
+      <div class="feature current">
         <div class="feature-head">
-          <div class="feature-status-icon partial">⚠</div>
+          <div class="feature-status-icon current">●</div>
           <div class="feature-name">Event Playback</div>
-          <div class="feature-tag partial">PARTIAL</div>
+          <div class="feature-tag current">IN PROGRESS</div>
         </div>
-        <div class="feature-desc">Animated Run Week coroutine (currently instant)</div>
+        <div class="feature-desc">Animated working week with walking character — first coherent game-feel milestone</div>
         <ul class="feature-items">
-          <li class="check">EventPlayer.cs — event playback infrastructure</li>
+          <li class="check">EventPlayer.cs — event playback with character movement + rotation</li>
           <li class="check">SimEventStream.cs — event stream for sim → UI</li>
-          <li class="warn">Step-by-step playback (extortion → police → rival → economy)</li>
+          <li class="check">Animated working week — Vinny walks between locations with correct facing</li>
+          <li class="check">CharacterRig.cs — consolidated controller (replaced GPUAnimationTestRig)</li>
+          <li class="check">modelFacingOffset fix — Vinny faces +Z, walks forward (not backwards)</li>
+          <li class="check">Execution phase UI — fullscreen camera, minimal TickHUD, planning UI hidden</li>
           <li class="pending">Camera auto-pan to events</li>
           <li class="pending">Animation primitives (floating $, hood icons, territory colors)</li>
           <li class="pending">Speed controls (normal / fast / skip)</li>
         </ul>
       </div>
 
-      <div class="feature partial">
+      <div class="feature current">
         <div class="feature-head">
-          <div class="feature-status-icon partial">⚠</div>
+          <div class="feature-status-icon current">●</div>
           <div class="feature-name">UI Polish</div>
-          <div class="feature-tag partial">PARTIAL</div>
+          <div class="feature-tag current">IN PROGRESS</div>
         </div>
-        <div class="feature-desc">Block tab, orders tab, business selection wiring</div>
+        <div class="feature-desc">Execution phase UI overhaul, accordion panels, fullscreen camera</div>
         <ul class="feature-items">
+          <li class="check">Execution phase UI — fullscreen camera, planning UI hidden, minimal TickHUD</li>
+          <li class="check">AccordionGroup/AccordionSection — collapsible panel components</li>
+          <li class="check">ButtonHoverEffect — UI button feedback</li>
+          <li class="check">Lighting/shadow debug controls (toggles + sliders)</li>
           <li class="warn">Block tab — show all 9 businesses in sub-grid</li>
           <li class="warn">Orders tab — business-within-block selection</li>
           <li class="warn">Hoods tab — current assignment display</li>
           <li class="warn">Business selection state → GameUIController wiring</li>
-          <li class="check">Lighting/shadow debug controls (toggles + sliders)</li>
         </ul>
       </div>
     </div>
@@ -897,7 +903,7 @@
           <li class="check">VoxelProxyRaymarch.shader samples posed buffer directly (no inverse-transform)</li>
           <li class="check">VoxelChunkManager.cs dispatches compute per frame, anim data upload</li>
           <li class="check">CharacterAnimation.cs pushes animState/animTime/animSpeed</li>
-          <li class="check">GPUAnimationTestRig.cs — test harness with hotkeys (T/I/W/L/A/C)</li>
+          <li class="check">CharacterRig.cs — character controller with hotkeys (T/I/W/L/A/C), consolidated GameObject</li>
         </ul>
       </div>
 
@@ -1225,10 +1231,16 @@
         <div class="tl-desc">CharacterPoseCompute.compute (CSClear + CSPose kernels) forward-transforms voxels on GPU. Full FK chain, walk keyframes, Catmull-Rom interpolation. T-Pose, Idle, Walking, Looking, Aiming verified on GPU. Commit 3bb4129.</div>
       </div>
       <div class="tl-item">
+        <div class="tl-dot done"></div>
+        <div class="tl-date">Aug 12, 2026 — MILESTONE</div>
+        <div class="tl-title">Execution Phase Coherent — First Game-Feel</div>
+        <div class="tl-desc">CharacterRig consolidated (replaced GPUAnimationTestRig). Vinny.groups fix restored GPU compute pose. modelFacingOffset 180→0 fixed backward walking. Execution phase UI overhaul (fullscreen camera, minimal HUD, accordion panels). Animated working week with walking character verified. First coherent game-feel milestone. Commit 06fa710.</div>
+      </div>
+      <div class="tl-item">
         <div class="tl-dot current"></div>
         <div class="tl-date">Aug 12, 2026 — NOW</div>
-        <div class="tl-title">Pathfinding + Walk Animation Integration</div>
-        <div class="tl-desc">Next: spawn character on extortion mission, verify auto-walk activation via velocity detection. GPU rendering Phase 2 + invariant computation fixes also pending. Gang simulation design complete, awaiting implementation.</div>
+        <div class="tl-title">Polish & Gang Simulation Implementation</div>
+        <div class="tl-desc">Next: UI refinements, more animation states (crouch tuning), gang simulation implementation (HoodAgent + HoodSpawner). GPU rendering Phase 2 + invariant computation fixes also pending.</div>
       </div>
       <div class="tl-item">
         <div class="tl-dot planned"></div>
@@ -1257,7 +1269,7 @@
   <p>Steel City: Mob Sim — Vertical Slice Roadmap</p>
   <p>Companion to <code>GAME_DESIGN_SKELETON.md</code> and <code>DOCUMENTATION_INDEX.md</code></p>
   <div class="update-note">
-    📝 Last updated: Aug 12, 2026 — GPU compute forward-transform animation pipeline COMPLETE. CharacterPoseCompute.compute (CSClear + CSPose) operational. T-Pose, Idle, Walking, Looking, Aiming verified on GPU. Next: pathfinding + walk animation integration.
+    📝 Last updated: Aug 12, 2026 — Execution phase integration COMPLETE. CharacterRig consolidated, Vinny.groups fix, modelFacingOffset fix (180→0), execution phase UI overhaul. Animated working week with walking character — first coherent game-feel. Next: polish & gang simulation implementation.
   </div>
   <div style="margin-top: 10px; padding: 10px 14px; background: var(--surface2); border: 1px solid var(--yellow); border-radius: 6px; font-size: 0.85em; color: var(--text-dim);">
     ⚠️ <strong style="color: var(--yellow);">Keep this roadmap current.</strong>

@@ -120,7 +120,7 @@ namespace SteelCity.Sim
                 var node = waypointGraph.Nodes[currentNodeId];
 
                 // Determine link cost from previous node to this one
-                int linkCost = 1;
+                float linkCost = 1f;
                 string linkType = "walk";
                 if (pathIndex > 0)
                 {
@@ -141,11 +141,12 @@ namespace SteelCity.Sim
 
                 MoveCharacterToNode(node);
 
-                ticksElapsed += linkCost;
-                ticksRemaining -= linkCost;
+                int linkCostRounded = Mathf.RoundToInt(linkCost);
+                ticksElapsed += linkCostRounded;
+                ticksRemaining -= linkCostRounded;
 
                 string dir = phase == TickPhase.WalkingToTarget ? ">" : "<";
-                Log($"[Tick {ticksElapsed}] {dir} {node.id} ({node.type}) [+{linkCost} {linkType}]");
+                Log($"[Tick {ticksElapsed}] {dir} {node.id} ({node.type}) [+{linkCost:F1} {linkType}]");
 
                 pathIndex++;
 

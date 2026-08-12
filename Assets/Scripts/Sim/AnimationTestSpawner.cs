@@ -24,7 +24,7 @@ namespace SteelCity.Sim
     {
         [Header("Test Asset")]
         [Tooltip("Base filename in StreamingAssets/voxel_characters/ (without extension).")]
-        [SerializeField] private string assetBaseName = "animationtest1";
+        [SerializeField] private string assetBaseName = "Vinny";
 
         [Header("Rendering")]
         [Tooltip("Voxel size in world units. Must match authoring.")]

@@ -25,6 +25,9 @@ namespace SteelCity.Sim
         private Vector3 currentFromWorld;
         private Vector3 currentToWorld;
         private bool running;
+        private int visualPathIndex;
+
+        public int VisualPathIndex => visualPathIndex;
 
         private float tickAccumulator;
 
@@ -59,8 +62,20 @@ namespace SteelCity.Sim
             running = true;
             tickAccumulator = 0f;
             currentMoveEvent = null;
-            hasCameraTarget = false;
+            visualPathIndex = 0;
             cachedCityMap = FindFirstObjectByType<CityMap3D>();
+
+            // Initialize camera target from current camera focus to avoid a jarring snap
+            // when transitioning from HQ focus to Vinny follow
+            if (cachedCityMap != null)
+            {
+                currentCameraTarget = cachedCityMap.CameraFocusPoint;
+                hasCameraTarget = true;
+            }
+            else
+            {
+                hasCameraTarget = false;
+            }
 
             // Get CharacterAnimation for manual state control during execution
             if (character != null)
@@ -238,10 +253,15 @@ namespace SteelCity.Sim
         {
             currentMoveEvent = evt;
             moveElapsed = 0f;
+            visualPathIndex++;
 
-            // Set walking animation
+            // Set walking animation with consistent speed
             if (charAnim != null)
+            {
                 charAnim.SetState(CharacterAnimation.AnimState.Walking);
+                // Keep animation speed stable — one value for all walk segments
+                charAnim.walkSpeed = 1.0f;
+            }
 
             currentFromWorld = evt.fromPos + mapRoot.position;
             currentToWorld = evt.toPos + mapRoot.position;
@@ -261,7 +281,7 @@ namespace SteelCity.Sim
             }
 
             string dirSymbol = simManager.State == SimState.WalkingToTarget ? ">" : "<";
-            Log($"[Tick {evt.tickElapsed}] {dirSymbol} {evt.nodeId} [+{evt.tickCost} {evt.linkType}]");
+            Log($"[Tick {evt.tickElapsed}] {dirSymbol} {evt.nodeId} [+{evt.tickCost:F1} {evt.linkType}]");
 
             OnStateChanged?.Invoke(simManager.State, evt.tickElapsed, evt.tickRemaining);
         }

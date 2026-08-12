@@ -19,6 +19,12 @@ namespace SteelCity.Sim
 
         public float tickInterval = 0.08f;
 
+        // Ticks per world unit at base walk speed. This single constant drives both
+        // the weekly budget consumption (tick cost) and the visual movement duration
+        // (duration = cost * tickInterval). Future movement modes (run, crouch, drive)
+        // will apply a multiplier to this base rate.
+        public const float TicksPerWorldUnit = 3f;
+
         // Order action durations (in ticks) from original game data
         public static readonly Dictionary<string, int> OrderActionTicks = new()
         {
@@ -63,6 +69,7 @@ namespace SteelCity.Sim
         public int PathIndex => pathIndex;
         private int dialogTicksRemaining;
         private int dialogTotalTicks;
+        private bool entryMovePending;  // emit final move into building center after last waypoint
 
         private readonly SimEventStream eventStream = new();
 
@@ -119,6 +126,21 @@ namespace SteelCity.Sim
         {
             if (currentPath == null || pathIndex >= currentPath.Count)
             {
+                // Emit final move from last sidewalk waypoint into building center
+                if (state == SimState.WalkingToTarget && entryMovePending)
+                {
+                    Vector3 lastWaypointPos = CurrentPos();
+                    entryMovePending = false;
+                    float entryDist = Vector3.Distance(lastWaypointPos, targetPos);
+                    float entryCost = Mathf.Max(2f, entryDist * TicksPerWorldUnit);
+                    float entryDuration = entryCost * tickInterval;
+                    int entryCostRounded = Mathf.RoundToInt(entryCost);
+                    eventStream.Enqueue(SimEvent.Move(
+                        lastWaypointPos, targetPos, entryDuration, entryCost, "enter",
+                        "building_center", ticksElapsed + entryCostRounded, ticksRemaining - entryCostRounded));
+                    ticksElapsed += entryCostRounded;
+                    ticksRemaining -= entryCostRounded;
+                }
                 OnArrivedAtDestination();
                 return;
             }
@@ -131,7 +153,7 @@ namespace SteelCity.Sim
                 return;
             }
 
-            int linkCost = 1;
+            float linkCost = 1f;
             string linkType = "walk";
             Vector3 fromPos = CurrentPos();
 
@@ -152,16 +174,25 @@ namespace SteelCity.Sim
                     }
                 }
             }
+            else
+            {
+                // First node: no previous link, compute cost from actual distance
+                // (handles exit from building center when walking home)
+                float dist = Vector3.Distance(fromPos, node.localPos);
+                linkCost = Mathf.Max(2f, dist * TicksPerWorldUnit);
+                linkType = state == SimState.WalkingHome ? "exit" : "start";
+            }
 
             Vector3 toPos = node.localPos;
             float duration = linkCost * tickInterval;
+            int linkCostRounded = Mathf.RoundToInt(linkCost);
 
             eventStream.Enqueue(SimEvent.Move(
                 fromPos, toPos, duration, linkCost, linkType,
-                node.id, ticksElapsed + linkCost, ticksRemaining - linkCost));
+                node.id, ticksElapsed + linkCostRounded, ticksRemaining - linkCostRounded));
 
-            ticksElapsed += linkCost;
-            ticksRemaining -= linkCost;
+            ticksElapsed += linkCostRounded;
+            ticksRemaining -= linkCostRounded;
 
             pathIndex++;
 
@@ -179,6 +210,9 @@ namespace SteelCity.Sim
                 if (waypointGraph.Nodes.TryGetValue(currentPath[pathIndex - 1], out var n))
                     return n.localPos;
             }
+            // When walking home, Vinny starts from the target building center, not HQ
+            if (state == SimState.WalkingHome)
+                return targetPos;
             return startPos;
         }
 
@@ -205,6 +239,7 @@ namespace SteelCity.Sim
             }
 
             pathIndex = 0;
+            entryMovePending = true;  // need to walk into building center after last sidewalk waypoint
             eventStream.Enqueue(SimEvent.PathFoundEvent(currentPath.Count));
             LogPathTrace("to_target", startBlockId, targetBlockId, currentPath);
         }

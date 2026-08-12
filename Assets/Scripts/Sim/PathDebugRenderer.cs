@@ -33,6 +33,20 @@ namespace SteelCity.Sim
         [SerializeField] private float nodeMarkerHeight = 0.15f;
         [SerializeField] private bool showNodeMarkers = true;
 
+        [Header("Waypoint Graph Debug")]
+        [Tooltip("When true, renders ALL waypoint graph links and nodes as beams in the Game view.")]
+        public bool showWaypointGraph = false;
+        [SerializeField] private float graphLinkWidth = 0.04f;
+        [SerializeField] private Color graphSidewalkColor = new(0.2f, 0.5f, 1f, 0.4f);
+        [SerializeField] private Color graphCrosswalkColor = new(1f, 0.8f, 0.2f, 0.5f);
+        [SerializeField] private float graphNodeSize = 0.08f;
+        [SerializeField] private Color graphCornerColor = new(0f, 1f, 1f, 0.7f);
+        [SerializeField] private Color graphMidColor = new(0.5f, 1f, 0.5f, 0.7f);
+
+        private WaypointGraph debugGraph;
+
+        public void SetDebugGraph(WaypointGraph graph) => debugGraph = graph;
+
         [Header("Render")]
         [SerializeField] private Camera targetCamera;
 
@@ -155,7 +169,7 @@ namespace SteelCity.Sim
             // after voxel chunks are rendered into the RT.
             // If no VoxelRenderBridge is present, fall back to drawing here.
             if (mapRoot == null || boxMesh == null || beamMaterial == null) return;
-            if (activePaths.Count == 0) return;
+            if (activePaths.Count == 0 && !showWaypointGraph) return;
 
             var bridge = FindFirstObjectByType<VoxelRenderBridge>();
             if (bridge == null)
@@ -180,10 +194,10 @@ namespace SteelCity.Sim
                     Debug.Log($"[PathDebug] RenderBeamsIntoCamera SKIP: mapRoot={mapRoot != null}, boxMesh={boxMesh != null}, beamMat={beamMaterial != null}");
                 return;
             }
-            if (activePaths.Count == 0)
+            if (activePaths.Count == 0 && !showWaypointGraph)
             {
                 if (Time.frameCount % 120 == 0)
-                    Debug.Log("[PathDebug] RenderBeamsIntoCamera SKIP: no active paths");
+                    Debug.Log("[PathDebug] RenderBeamsIntoCamera SKIP: no active paths and graph debug off");
                 return;
             }
 
@@ -367,6 +381,55 @@ namespace SteelCity.Sim
                 }
             }
 
+            // --- Waypoint graph debug rendering (all links + nodes) ---
+            int graphSegCount = 0;
+            int graphNodeCount = 0;
+            if (showWaypointGraph && debugGraph != null && mapRoot != null)
+            {
+                Vector3 rootPos = mapRoot.position;
+
+                // Draw all sidewalk links (blue) and crosswalk links (yellow)
+                foreach (var kvp in debugGraph.Nodes)
+                {
+                    var node = kvp.Value;
+                    Vector3 from = node.localPos + rootPos;
+                    from.y = 0.15f;
+
+                    foreach (var link in node.links)
+                    {
+                        if (!debugGraph.Nodes.TryGetValue(link.targetId, out var target)) continue;
+                        // Only draw each link once (skip if target ID sorts before ours)
+                        if (string.Compare(link.targetId, kvp.Key) < 0) continue;
+
+                        if (graphSegCount >= MaxInstances) break;
+
+                        Vector3 to = target.localPos + rootPos;
+                        to.y = 0.15f;
+                        Vector3 mid = (from + to) * 0.5f;
+                        Vector3 dir = to - from;
+                        float len = dir.magnitude;
+                        if (len < 0.001f) continue;
+
+                        Quaternion rot = Quaternion.LookRotation(dir.normalized, Vector3.up);
+                        Vector3 scale = new Vector3(graphLinkWidth, graphLinkWidth, len);
+                        segmentMatrices[segCount + graphSegCount] = Matrix4x4.TRS(mid, rot, scale);
+                        graphSegCount++;
+                    }
+                }
+
+                // Draw node markers
+                foreach (var kvp in debugGraph.Nodes)
+                {
+                    if (graphNodeCount >= MaxInstances) break;
+                    var node = kvp.Value;
+                    Vector3 pos = node.localPos + rootPos;
+                    pos.y = 0.15f;
+                    Vector3 scale = new Vector3(graphNodeSize, graphNodeSize * 2f, graphNodeSize);
+                    markerMatrices[markerCount + graphNodeCount] = Matrix4x4.TRS(pos, Quaternion.identity, scale);
+                    graphNodeCount++;
+                }
+            }
+
             // Render segments batched by type (one draw call per type with single color)
             var cmd = new CommandBuffer { name = "PathDebugBeams" };
             if (targetRT != null)
@@ -406,6 +469,26 @@ namespace SteelCity.Sim
 
                 System.Array.Copy(markerMatrices, start, batchBuffer, 0, count);
                 cmd.DrawMeshInstanced(boxMesh, 0, beamMaterial, 0, batchBuffer, count, beamProps);
+                markerDrawCount++;
+            }
+
+            // Render waypoint graph debug links (all sidewalk + crosswalk links)
+            if (graphSegCount > 0)
+            {
+                beamProps.Clear();
+                beamProps.SetColor("_Color", graphSidewalkColor);
+                System.Array.Copy(segmentMatrices, segCount, batchBuffer, 0, graphSegCount);
+                cmd.DrawMeshInstanced(boxMesh, 0, beamMaterial, 0, batchBuffer, graphSegCount, beamProps);
+                segDrawCount++;
+            }
+
+            // Render waypoint graph debug nodes
+            if (graphNodeCount > 0)
+            {
+                beamProps.Clear();
+                beamProps.SetColor("_Color", graphCornerColor);
+                System.Array.Copy(markerMatrices, markerCount, batchBuffer, 0, graphNodeCount);
+                cmd.DrawMeshInstanced(boxMesh, 0, beamMaterial, 0, batchBuffer, graphNodeCount, beamProps);
                 markerDrawCount++;
             }
 

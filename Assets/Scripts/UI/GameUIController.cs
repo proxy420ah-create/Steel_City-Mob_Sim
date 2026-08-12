@@ -186,6 +186,15 @@ namespace SteelCity.Sim
                             cityMap.MapRoot.position);
                     }
                 }
+                // Wire graph to PathDebugRenderer for F7 beam display
+                var pdr = PathDebugRenderer.Instance;
+                if (pdr == null)
+                {
+                    var pdrObj = new GameObject("PathDebugRenderer");
+                    pdr = pdrObj.AddComponent<PathDebugRenderer>();
+                }
+                pdr.SetMapRoot(cityMap.MapRoot);
+                pdr.SetDebugGraph(waypointGraph);
             }
 
             RefreshAll();
@@ -1099,6 +1108,9 @@ namespace SteelCity.Sim
                     cityMap.GroundTile,
                     cityMap.SidewalkW,
                     cityMap.MapRoot.position);
+                // Wire graph to PathDebugRenderer for F7 beam display
+                var pdr = PathDebugRenderer.Instance;
+                if (pdr != null) pdr.SetDebugGraph(waypointGraph);
             }
 
             // Get the first pending order (PoC: single hood)
@@ -1195,6 +1207,7 @@ namespace SteelCity.Sim
                         pathDebugRenderer = pdrObj.AddComponent<PathDebugRenderer>();
                     }
                     pathDebugRenderer.SetMapRoot(cityMap.MapRoot);
+                    pathDebugRenderer.SetDebugGraph(waypointGraph);
                 }
                 pathDebugRenderer.ClearAllPaths();
                 pathDebugRenderer.RegisterPath(
@@ -1203,7 +1216,7 @@ namespace SteelCity.Sim
                     () => simManager.CurrentPath,
                     (nodeId) => simManager.Graph.Nodes.TryGetValue(nodeId, out var n) ? n.localPos : new Vector3(float.NaN, 0, 0),
                     PathDebugType.Pedestrian,
-                    () => simManager.PathIndex);
+                    () => eventPlayer.VisualPathIndex);
             }
 
             AddEventLogEntry($"[SIM] {hood.name} begins mission: {order.orderType} on {targetBlock.name}", goldColor);

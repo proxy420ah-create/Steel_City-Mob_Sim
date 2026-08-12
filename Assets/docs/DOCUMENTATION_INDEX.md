@@ -16,7 +16,7 @@
 | **Voxel Editor** | 1 doc | ✅ Complete |
 | **Voxel Rendering** | 4 docs | ✅ Complete |
 | **Rendering Systems** | 4 docs | ✅ Complete |
-| **Character Animation** | 1 doc | 🔄 Phase 1 Complete |
+| **Character Animation** | 1 doc | 🔄 Phase 1 Complete + Execution Integration |
 | **Lighting Debug** | 1 doc | ✅ Complete |
 | **Scale Standard** | 1 doc | ⚠️ SEE MASTER DOC |
 | **Inspection Toolchain** | 1 doc | ✅ Complete |
@@ -241,7 +241,7 @@
 - **`MODEL_DESIGN_STANDARD.md`** — 🔒 MASTER REFERENCE — source of truth for scale, doors, orientation, proportions
   - NPC ("Vinny") as the scale root, door-to-NPC-height ratio test (1.25×+)
   - Corrected door standard (supersedes the table below)
-  - Orientation convention per model type (buildings=Z0 front, vehicles=+Z front, characters=low-Z front)
+  - Orientation convention per model type (buildings=Z0 front, vehicles=+Z front, characters=+Z front in 48³ grid)
   - Proportion reference table, per-model audit (which buildings are certified vs need rework)
 - **`MOB_SIM_SCALE_STANDARD.md`** — Mob Sim universe scale system (⚠️ door table outdated, see master doc above)
   - Core scale constants (building voxel = 0.1m, char voxel = 0.02m, vehicle voxel = 0.05m)
@@ -383,7 +383,7 @@
 - [x] **Raymarch-only rendering** — all mesh-based rendering removed, raymarch always active
 - [x] **Rubble decorations** — scattered stone clusters on empty land plots
 
-### Character Animation 🔄 PHASE 1 COMPLETE
+### Character Animation 🔄 PHASE 1 COMPLETE + EXECUTION INTEGRATION
 - [x] **GPU compute forward-transform pipeline** — `CharacterPoseCompute.compute` (CSClear + CSPose kernels)
 - [x] **Full FK chain** — group rotation → parent rotation → pivot offset → body bob/weight shift
 - [x] **Walk keyframes** — Catmull-Rom interpolation in HLSL via `GetWalkPoseValue()`
@@ -393,6 +393,9 @@
 - [x] **CharacterAnimation.cs** — pushes animState/animTime/animSpeed to InstancedCharacter
 - [x] **CharacterRig.cs** — character controller with hotkeys (T/I/W/L/A/C), consolidated onto single GameObject
 - [x] Verified: T-Pose, Idle, Walking, Looking, Aiming render correctly on GPU
+- [x] **Execution phase integration** — Vinny walks with correct facing during working week simulation (Aug 12)
+- [x] **modelFacingOffset fix** — changed 180→0 in EventPlayer.cs (Vinny faces +Z in 48³ grid)
+- [x] **.groups file dependency** — Vinny.groups required for GPU compute pose (was missing after asset rename)
 - [ ] Crouching — needs animator-side tuning
 - [ ] Angular limits per joint (Phase 2)
 - [ ] Flinch keyframes (Phase 3)
@@ -552,5 +555,5 @@ The roadmap is the living visual summary of the project. If it's stale, new cont
 ---
 
 **Last Updated**: August 12, 2026
-**Version**: 1.6.0
+**Version**: 1.7.0
 **Maintainer**: Development Team

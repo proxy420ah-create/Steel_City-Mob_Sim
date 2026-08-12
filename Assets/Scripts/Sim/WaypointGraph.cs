@@ -15,11 +15,11 @@ namespace SteelCity.Sim
     public class WaypointLink
     {
         public string targetId;
-        public int baseTickCost;
+        public float baseTickCost;
         public float riskWeight;
         public WaypointType type;
 
-        public WaypointLink(string targetId, int cost, float risk, WaypointType type)
+        public WaypointLink(string targetId, float cost, float risk, WaypointType type)
         {
             this.targetId = targetId;
             this.baseTickCost = cost;
@@ -114,7 +114,7 @@ namespace SteelCity.Sim
                     blockNodeIndex[b.block_id].Add(cornerId);
                     blockNodeIndex[b.block_id].Add(midId);
 
-                    int cost = Mathf.Max(2, Mathf.RoundToInt(Vector3.Distance(cornerPos, midPos) * 3f));
+                    float cost = Mathf.Max(2f, Vector3.Distance(cornerPos, midPos) * 3f);
                     nodes[cornerId].links.Add(new WaypointLink(midId, cost, 0f, WaypointType.SidewalkMid));
                     nodes[midId].links.Add(new WaypointLink(cornerId, cost, 0f, WaypointType.SidewalkCorner));
                 }
@@ -126,7 +126,7 @@ namespace SteelCity.Sim
                     string mid = $"{b.block_id}_m{e}";
                     string nextCorner = $"{b.block_id}_c{(e + 1) % 4}";
 
-                    int cost = Mathf.Max(2, Mathf.RoundToInt(Vector3.Distance(nodes[mid].localPos, nodes[nextCorner].localPos) * 3f));
+                    float cost = Mathf.Max(2f, Vector3.Distance(nodes[mid].localPos, nodes[nextCorner].localPos) * 3f);
                     nodes[mid].links.Add(new WaypointLink(nextCorner, cost, 0f, WaypointType.SidewalkCorner));
                     nodes[nextCorner].links.Add(new WaypointLink(mid, cost, 0f, WaypointType.SidewalkMid));
                 }
@@ -154,8 +154,9 @@ namespace SteelCity.Sim
                     string m2 = $"{b2.block_id}_m{e2}";
 
                     // Mid-edge crosswalk: straight across at the middle of the block edge
-                    nodes[m1].links.Add(new WaypointLink(m2, 16, 0f, WaypointType.CrosswalkCorner));
-                    nodes[m2].links.Add(new WaypointLink(m1, 16, 0f, WaypointType.CrosswalkCorner));
+                    float midCrossCost = Mathf.Max(2f, Vector3.Distance(nodes[m1].localPos, nodes[m2].localPos) * 3f);
+                    nodes[m1].links.Add(new WaypointLink(m2, midCrossCost, 0f, WaypointType.CrosswalkCorner));
+                    nodes[m2].links.Add(new WaypointLink(m1, midCrossCost, 0f, WaypointType.CrosswalkCorner));
 
                     // Corner crosswalks: connect matching corners straight across the street.
                     // Corners go clockwise: c0=NW, c1=NE, c2=SE, c3=SW.
@@ -171,12 +172,13 @@ namespace SteelCity.Sim
                     string c2a = $"{b2.block_id}_c{e2}";              // first corner of b2's edge
                     string c2b = $"{b2.block_id}_c{(e2 + 1) % 4}";    // second corner of b2's edge
 
-                    // First corner of b1 ↔ SECOND corner of b2 (same side of street)
-                    nodes[c1a].links.Add(new WaypointLink(c2b, 16, 0f, WaypointType.CrosswalkCorner));
-                    nodes[c2b].links.Add(new WaypointLink(c1a, 16, 0f, WaypointType.CrosswalkCorner));
-                    // Second corner of b1 ↔ FIRST corner of b2 (same side of street)
-                    nodes[c1b].links.Add(new WaypointLink(c2a, 16, 0f, WaypointType.CrosswalkCorner));
-                    nodes[c2a].links.Add(new WaypointLink(c1b, 16, 0f, WaypointType.CrosswalkCorner));
+                    // Corner crosswalks: distance-proportional cost (same formula as sidewalk links)
+                    float cornerCrossCost1 = Mathf.Max(2f, Vector3.Distance(nodes[c1a].localPos, nodes[c2b].localPos) * 3f);
+                    nodes[c1a].links.Add(new WaypointLink(c2b, cornerCrossCost1, 0f, WaypointType.CrosswalkCorner));
+                    nodes[c2b].links.Add(new WaypointLink(c1a, cornerCrossCost1, 0f, WaypointType.CrosswalkCorner));
+                    float cornerCrossCost2 = Mathf.Max(2f, Vector3.Distance(nodes[c1b].localPos, nodes[c2a].localPos) * 3f);
+                    nodes[c1b].links.Add(new WaypointLink(c2a, cornerCrossCost2, 0f, WaypointType.CrosswalkCorner));
+                    nodes[c2a].links.Add(new WaypointLink(c1b, cornerCrossCost2, 0f, WaypointType.CrosswalkCorner));
                 }
             }
 

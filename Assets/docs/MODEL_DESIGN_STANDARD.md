@@ -26,7 +26,7 @@ rules that were previously scattered across code docstrings and `COORDINATE_SYST
 
 All Mob Sim scale derives from one reference: the player character model, **"Vinny Moretti."**
 
-The production model is `animationtest1.stasset` (identical to `character_hoodlum_0.stasset`),
+The production model is `Vinny.stasset` (identical to `character_hoodlum_0.stasset`),
 loaded at runtime by `CharacterRig` with `voxelSize = 0.02f`.
 
 | Property | Value |
@@ -40,7 +40,7 @@ loaded at runtime by `CharacterRig` with `voxelSize = 0.02f`.
 | Rest-pose depth | 6 × 0.02 = 0.12m |
 | Non-air voxels | 1,544 (1.4% of grid) |
 | Materials | 1 (mat 125 = Flesh) — prototype, will be expanded |
-| Skeleton | None yet (anim params in `animationtest1.anim.json`) |
+| Skeleton | None yet (anim params in `Vinny.anim.json`) |
 | Animation pivots | 10 (root, torso, L/R arm, L/R forearm, L/R leg, L/R shoulder) |
 
 ### Why the grid is larger than the tight bounds
@@ -55,7 +55,7 @@ The 48³ grid provides:
 - **7 voxels padding** on each side (0.14m) — room for arms swinging outward
 - **21 voxels** front and back (0.42m each) — room for forward falls, backward ragdoll
 
-Additionally, all 10 animation pivots in `animationtest1.anim.json` are **normalized to the 48³
+Additionally, all 10 animation pivots in `Vinny.anim.json` are **normalized to the 48³
 grid** (e.g., root pivot = `(0.5, 0.365, 0.5)` = voxel `(24, 17.5, 24)`). Cropping the grid would
 require recalculating every pivot and joint offset.
 
@@ -135,7 +135,7 @@ a common source of confusion:
 |---|---|---|
 | **Buildings** | **Z = 0** (low Z) | Storefront/door/awning are built on the `z < WALL_T` face. This is the face that must face the street. |
 | **Vehicles** | **+Z (high Z)** | Per `procedural_mob_vehicles.py` header comment: "Front of vehicle faces +Z (high Z values) to match Unity's LookRotation forward." Headlights, grille, hood are at high Z. |
-| **Characters** | **Z = low** (front of body) | Sunglasses/face are placed at low Z (e.g., `grid[..., 2]` in `generate_hoodlum`); hair/back of head at high Z (`grid[..., 6:8]`). |
+| **Characters** | **+Z (high Z)** in 48³ grid | The 48³ grid model (Vinny) faces +Z. Confirmed Aug 12, 2026: `modelFacingOffset = 0` in `EventPlayer.cs` produces correct forward-facing movement. The original 16×32×10 `generate_hoodlum` grid had face at low Z, but the re-authored 48³ model flipped to +Z front. |
 
 **Buildings and vehicles use OPPOSITE Z conventions.** This is not a bug — it's because buildings
 are placed by `BuildingOrientation.Analyze()` which checks the Z=0 face against street material,

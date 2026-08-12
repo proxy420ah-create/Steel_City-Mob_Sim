@@ -93,7 +93,7 @@ namespace SteelCity.Sim
             var path = FindPath(startNode, endNode);
             if (path != null)
             {
-                int totalTicks = 0;
+                float totalTicks = 0f;
                 for (int i = 0; i < path.Count - 1; i++)
                 {
                     var node = graph.Nodes[path[i]];
@@ -107,7 +107,7 @@ namespace SteelCity.Sim
                     }
                 }
                 Debug.Log($"[Pathfinder] Path {startBlockId} to {endBlockId}: " +
-                    $"{path.Count} nodes, ~{totalTicks} ticks, " +
+                    $"{path.Count} nodes, ~{totalTicks:F1} ticks, " +
                     $"start={startNode}, end={endNode}");
             }
             return path;

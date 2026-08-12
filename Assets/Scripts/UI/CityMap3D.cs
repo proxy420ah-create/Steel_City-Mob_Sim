@@ -81,6 +81,10 @@ namespace SteelCity.Sim
         [SerializeField] private int labelFontSize = 3;
         [SerializeField] private Color labelColor = Color.white;
 
+        [Header("Debug Waypoints")]
+        [Tooltip("Toggle F7. Renders all waypoint graph links/nodes as beams in Game view via PathDebugRenderer.")]
+        public bool showWaypoints = false;
+
         public event Action<string> OnBlockClicked;
 
         // === City Editor API (runtime parameter adjustment) ===
@@ -188,6 +192,9 @@ namespace SteelCity.Sim
             if (mapCamera != null)
                 mapCamera.orthographicSize = 18f;
         }
+
+        /// <summary>Current camera focus point in world space.</summary>
+        public Vector3 CameraFocusPoint => cameraFocus;
 
         /// <summary>Set the world-space point the camera orbits around.</summary>
         public void SetCameraFocus(Vector3 worldPos)
@@ -571,16 +578,7 @@ namespace SteelCity.Sim
                 frameTimeAvg = sum / frameTimeCount;
             }
 
-            if (IsExecutionMode)
-            {
-                // Working mode: skip planning-only interactions (click, road ticker)
-                // but allow camera controls (mouse orbit/zoom) and camera transform updates
-                HandleMouseCamera();
-                UpdateCameraTransform();
-                return;
-            }
-
-            // Debug hotkey: F6 toggles camera freedom + debris scatter (with rebake)
+            // Debug hotkeys work in both planning and execution modes
             var kb = Keyboard.current;
             if (kb != null && kb.f6Key.wasPressedThisFrame)
             {
@@ -588,6 +586,30 @@ namespace SteelCity.Sim
                 ProceduralDebrisScatterer.Enabled = !debugCameraFreedom;
                 RebakeEmptyPlotChunks();
                 Debug.Log($"[CityMap3D] 🎛️ Debug toggles: cameraFreedom={debugCameraFreedom}, debrisScatter={!debugCameraFreedom}");
+            }
+
+            if (kb != null && kb.f7Key.wasPressedThisFrame)
+            {
+                showWaypoints = !showWaypoints;
+                var pdr = PathDebugRenderer.Instance;
+                if (pdr != null)
+                {
+                    pdr.showWaypointGraph = showWaypoints;
+                    Debug.Log($"[CityMap3D] 📍 Waypoint graph beams (Game view): {showWaypoints}");
+                }
+                else
+                {
+                    Debug.Log("[CityMap3D] 📍 PathDebugRenderer not found — waypoint beams unavailable");
+                }
+            }
+
+            if (IsExecutionMode)
+            {
+                // Working mode: skip planning-only interactions (click, road ticker)
+                // but allow camera controls (mouse orbit/zoom) and camera transform updates
+                HandleMouseCamera();
+                UpdateCameraTransform();
+                return;
             }
 
             HandleMouseCamera();
@@ -675,7 +697,7 @@ namespace SteelCity.Sim
                 {
                     if (mapCamera.orthographic)
                     {
-                        float zoomSpeed = debugCameraFreedom ? 0.04f : 0.08f;
+                        float zoomSpeed = debugCameraFreedom ? 0.3f : 0.5f;
                         float minZoom = debugCameraFreedom ? 0.1f : 3f;
                         float newSize = mapCamera.orthographicSize - scroll * zoomSpeed;
                         mapCamera.orthographicSize = Mathf.Clamp(newSize, minZoom, 40f);
@@ -683,9 +705,9 @@ namespace SteelCity.Sim
                     else
                     {
                         // Perspective: adjust FOV
-                        float zoomSpeed = 0.03f;
+                        float zoomSpeed = 0.3f;
                         float newFov = mapCamera.fieldOfView - scroll * zoomSpeed;
-                        mapCamera.fieldOfView = Mathf.Clamp(newFov, 20f, 80f);
+                        mapCamera.fieldOfView = Mathf.Clamp(newFov, 15f, 80f);
                     }
                 }
             }

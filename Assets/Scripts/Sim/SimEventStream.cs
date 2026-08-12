@@ -28,7 +28,7 @@ namespace SteelCity.Sim
         public Vector3 fromPos;
         public Vector3 toPos;
         public float duration;
-        public int tickCost;
+        public float tickCost;
         public string linkType;
         public string nodeId;
         public string blockId;
@@ -41,7 +41,7 @@ namespace SteelCity.Sim
         public int dialogTotalTicks;
         public string message;
 
-        public static SimEvent Move(Vector3 from, Vector3 to, float duration, int tickCost, string linkType,
+        public static SimEvent Move(Vector3 from, Vector3 to, float duration, float tickCost, string linkType,
                                      string nodeId, int tickElapsed, int tickRemaining)
         {
             return new SimEvent
