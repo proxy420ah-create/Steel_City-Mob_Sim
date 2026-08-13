@@ -1,0 +1,1173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Steel City — Zoning Falloff Sandbox</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#0a0a14; color:#eee; font-family:'Segoe UI',system-ui,sans-serif; overflow:hidden; user-select:none; }
+
+#canvas-container { position:absolute; top:0; left:0; width:100vw; height:100vh; }
+
+#controls {
+  position:fixed; top:8px; left:8px; width:280px;
+  background:rgba(0,0,0,0.85); border-radius:8px; padding:14px;
+  z-index:100; max-height:calc(100vh - 24px); overflow-y:auto;
+}
+#controls h2 { font-size:14px; color:#0ff; margin-bottom:12px; }
+#controls h3 { font-size:12px; color:#0ff; margin:12px 0 6px; }
+#controls label { display:block; font-size:11px; color:#aaa; margin:6px 0 2px; }
+#controls select, #controls input[type=range] { width:100%; }
+#controls select { background:#2a2a3e; color:#eee; border:1px solid #444; border-radius:4px; padding:4px; font-size:11px; }
+.val { font-size:10px; color:#0f0; font-family:monospace; }
+.row { display:flex; align-items:center; gap:8px; }
+.row .val { min-width:40px; text-align:right; }
+
+#legend {
+  position:fixed; bottom:8px; right:8px;
+  background:rgba(0,0,0,0.8); border-radius:8px; padding:10px;
+  z-index:100; font-size:10px;
+}
+.legend-item { display:flex; align-items:center; gap:6px; margin:4px 0; }
+.legend-swatch { width:16px; height:16px; border-radius:3px; }
+
+#stats {
+  position:fixed; top:8px; right:8px;
+  background:rgba(0,0,0,0.8); border-radius:8px; padding:10px;
+  z-index:100; font-size:10px; font-family:monospace;
+}
+.stat-row { color:#aaa; }
+.stat-row .v { color:#0f0; }
+
+.seed-row { display:flex; gap:4px; align-items:center; }
+.seed-row input { flex:1; background:#2a2a3e; color:#eee; border:1px solid #444; border-radius:4px; padding:4px; font-size:11px; font-family:monospace; }
+.seed-btn { padding:4px 8px; border:1px solid #444; border-radius:4px; background:#2a2a3e; color:#aaa; cursor:pointer; font-size:11px; }
+.seed-btn:hover { background:#3a3a5e; color:#fff; }
+
+.toggle-row { display:flex; align-items:center; gap:6px; margin:6px 0; font-size:11px; color:#aaa; cursor:pointer; }
+.toggle-row input { cursor:pointer; }
+
+.btn {
+  display:block; width:100%; padding:8px; margin:6px 0;
+  border:1px solid #444; border-radius:6px; background:#2a2a3e;
+  color:#ccc; cursor:pointer; font-size:11px; text-align:center;
+}
+.btn:hover { background:#3a3a5e; color:#fff; }
+.btn.primary { background:#0a4; border-color:#0c6; color:#fff; }
+
+.preset-row { display:flex; gap:4px; align-items:center; margin:4px 0; }
+.preset-row .preset-name { flex:1; background:#2a2a3e; color:#eee; border:1px solid #444; border-radius:4px; padding:3px 6px; font-size:10px; }
+.preset-btn { padding:3px 6px; border:1px solid #444; border-radius:4px; background:#2a2a3e; color:#aaa; cursor:pointer; font-size:10px; white-space:nowrap; }
+.preset-btn:hover { background:#3a3a5e; color:#fff; }
+.preset-btn.save { color:#0f0; }
+.preset-btn.load { color:#0ff; }
+.preset-btn.del { color:#f44; }
+</style>
+</head>
+<body>
+
+<div id="canvas-container"></div>
+
+<div id="controls">
+  <h2>Zoning Falloff Sandbox</h2>
+
+  <h3>Seed</h3>
+  <div class="seed-row">
+    <input type="text" id="seed-input" value="42">
+    <button class="seed-btn" id="seed-random">🎲</button>
+    <button class="seed-btn" id="seed-apply">Apply</button>
+  </div>
+
+  <h3>Falloff Function</h3>
+  <label>Zone boundary blending mode</label>
+  <select id="falloff-type">
+    <option value="linear">Linear — constant rate</option>
+    <option value="gaussian">Gaussian — bell curve (soft)</option>
+    <option value="exponential" selected>Exponential — sharp center, long tail</option>
+  </select>
+
+  <h3>Zone Parameters</h3>
+
+  <label>Economic Core Radius <span class="val" id="ec-radius-val">4</span></label>
+  <input type="range" id="ec-radius" min="1" max="8" value="4" step="1">
+
+  <label>Commercial Outer Radius <span class="val" id="ec-outer-radius-val">9</span></label>
+  <input type="range" id="ec-outer-radius" min="2" max="15" value="9" step="1">
+
+  <label>EC Floor (residential default threshold) <span class="val" id="ec-floor-val">0.00</span></label>
+  <input type="range" id="ec-floor" min="0" max="0.5" value="0" step="0.01">
+
+  <label>Gang HQ Border Buffer <span class="val" id="hq-buffer-val">3</span></label>
+  <input type="range" id="hq-buffer" min="0" max="8" value="3" step="1">
+
+  <label>Industrial Inner Offset (gap from EC) <span class="val" id="ind-inner-val">7</span></label>
+  <input type="range" id="ind-inner" min="0" max="15" value="7" step="1">
+
+  <label>Zone Dithering (EC<->IZ blend) <span class="val" id="ind-dither-val">0.20</span></label>
+  <input type="range" id="ind-dither" min="0" max="1" value="0.20" step="0.05">
+
+  <label>Industrial Zone Depth (columns outward) <span class="val" id="ind-depth-val">10</span></label>
+  <input type="range" id="ind-depth" min="1" max="15" value="10" step="1">
+
+  <label>Industrial N Stretch <span class="val" id="ind-stretch-n-val">0.35</span></label>
+  <input type="range" id="ind-stretch-n" min="0.2" max="1" value="0.35" step="0.05">
+
+  <label>Industrial S Stretch <span class="val" id="ind-stretch-s-val">0.35</span></label>
+  <input type="range" id="ind-stretch-s" min="0.2" max="1" value="0.35" step="0.05">
+
+  <label>Industrial Side</label>
+  <select id="ind-side">
+    <option value="random">Random (seed-determined)</option>
+    <option value="east">East (fixed)</option>
+    <option value="west">West (fixed)</option>
+  </select>
+
+  <label>Residential Edge Width <span class="val" id="res-edge-val">6</span></label>
+  <input type="range" id="res-edge" min="1" max="8" value="6" step="1">
+
+  <label>Base Industrial Weight <span class="val" id="w-ind-val">0.35</span></label>
+  <input type="range" id="w-ind" min="0" max="1" value="0.35" step="0.05">
+
+  <label>Base EC (Core) Weight <span class="val" id="w-com-val">0.40</span></label>
+  <input type="range" id="w-com" min="0" max="1" value="0.40" step="0.05">
+
+  <label>Base Commercial (Outer) Weight <span class="val" id="ec-outer-weight-val">0.05</span></label>
+  <input type="range" id="ec-outer-weight" min="0" max="1" value="0.05" step="0.05">
+
+  <label>Base Residential Weight <span class="val" id="w-res-val">0.50</span></label>
+  <input type="range" id="w-res" min="0" max="1" value="0.50" step="0.05">
+
+  <h3>Fine Tuning (Exponential)</h3>
+
+  <label>Industrial Sharpness <span class="val" id="exp-sharp-ind-val">5.0</span></label>
+  <input type="range" id="exp-sharp-ind" min="0.5" max="12" value="5.0" step="0.1">
+
+  <label>EC (Core) Sharpness <span class="val" id="exp-sharp-com-val">1.5</span></label>
+  <input type="range" id="exp-sharp-com" min="0.5" max="12" value="1.5" step="0.1">
+
+  <label>Commercial (Outer) Sharpness <span class="val" id="exp-sharp-com-outer-val">0.50</span></label>
+  <input type="range" id="exp-sharp-com-outer" min="0.5" max="12" value="0.5" step="0.1">
+
+  <label>Residential Sharpness <span class="val" id="exp-sharp-res-val">3.0</span></label>
+  <input type="range" id="exp-sharp-res" min="0.5" max="12" value="3.0" step="0.1">
+
+  <label>EC Suppresses Industrial <span class="val" id="ec-suppress-val">0.00</span></label>
+  <input type="range" id="ec-suppress" min="0" max="1" value="0" step="0.05">
+
+  <label>Industrial Suppresses EC <span class="val" id="ind-suppress-val">0.00</span></label>
+  <input type="range" id="ind-suppress" min="0" max="1" value="0" step="0.05">
+
+  <label>Mixed Zone Threshold <span class="val" id="mix-thresh-val">0.20</span></label>
+  <input type="range" id="mix-thresh" min="0.20" max="0.80" value="0.20" step="0.05">
+
+  <h3>Display</h3>
+  <label class="toggle-row"><input type="checkbox" id="show-river" checked> Show River</label>
+  <label class="toggle-row"><input type="checkbox" id="show-gang-hq" checked> Show Gang HQ</label>
+  <label class="toggle-row"><input type="checkbox" id="show-rail" checked> Show Rail Line</label>
+  <label class="toggle-row"><input type="checkbox" id="show-grid"> Show Grid Lines</label>
+  <label class="toggle-row"><input type="checkbox" id="show-weights"> Show Raw Weights (debug)</label>
+  <label class="toggle-row"><input type="checkbox" id="show-quadrants"> Show Quadrant Outlines</label>
+  <label class="toggle-row"><input type="checkbox" id="show-hq-buffer"> Show HQ Buffer Zones</label>
+
+  <h3>Grid Size</h3>
+  <select id="grid-size">
+    <option value="16">16x16</option>
+    <option value="20">20x20</option>
+    <option value="24" selected>24x24</option>
+    <option value="32">32x32</option>
+  </select>
+
+  <button class="btn" id="regenerate-seed">↺ Regenerate (Same Seed)</button>
+  <button class="btn primary" id="regenerate-fresh">🎲 Regenerate (New Layout)</button>
+
+  <h3>Macro Map</h3>
+  <button class="btn" id="load-macro">📂 Load MacroMap.json</button>
+  <button class="btn" id="clear-macro">✖ Clear Macro Map</button>
+  <div style="font-size:10px; color:#888; margin-top:4px;" id="macro-status">No macro map loaded — using synthetic grid</div>
+
+  <h3>Presets</h3>
+  <div id="preset-list"></div>
+  <button class="btn" id="preset-add">+ Add New Preset Slot</button>
+</div>
+
+<div id="legend">
+  <div class="legend-item"><div class="legend-swatch" style="background:#00cccc;"></div> Economic Core (inner)</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#9933ff;"></div> Commercial (outer ring)</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#ff8800;"></div> Industrial</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#22cc44;"></div> Residential</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#1a5abf;"></div> Water (River)</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#fa0;"></div> Gang HQ</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#fff;"></div> Rail Line</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#12121e;"></div> Main Street</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#4a3a2a;"></div> Bridge</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#050508;"></div> Out of Bounds</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#00ffff;"></div> Quadrant Outline</div>
+</div>
+
+<div id="stats">
+  <div class="stat-row">Seed: <span class="v" id="stat-seed">42</span></div>
+  <div class="stat-row">Industrial: <span class="v" id="stat-side">East</span></div>
+  <div class="stat-row">Industrial blocks: <span class="v" id="stat-ind">0</span></div>
+  <div class="stat-row">Core blocks: <span class="v" id="stat-core">0</span></div>
+  <div class="stat-row">Commercial blocks: <span class="v" id="stat-com">0</span></div>
+  <div class="stat-row">Residential blocks: <span class="v" id="stat-res">0</span></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// --- Seeded RNG (mulberry32) ---
+function mulberry32(seed) {
+  return function() {
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = seed;
+    t = Math.imul(t ^ t >>> 15, t | 1);
+    t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+let currentSeed = 42;
+let rng = mulberry32(currentSeed);
+let cachedZones = null; // cached zone data — only recomputed on seed/param change
+let macroMapData = null; // loaded MacroMap.json data — when present, zoning applies to real map
+
+// --- Embedded MacroMap (compact format) ---
+const EMBEDDED_MACRO_MAP = { width: 32, height: 32, type: 'replica', compact: '################################|#......M....M........M.......M.#|#......M....M........M.......M.#|#......M....M........M.......M.#|#......M....M........M.......M.#|#MMMMMMMMMMMMMMMMMMMMMMMMMMMMMM#|#......M....M........M.......M.#|#......M....M........M.......M.#|#......M....M........M.......M.#|#......M....M........M.......M.#|#......M....M........M.......M.#|#......M....M........M.......M.#|#MMMMMMMMMMMMMMMMMMMMMMMMMMMMMM#|#......M....M........M.......M.#|#......M....M........M.......M.#|#......M..~~B~~~~~...M.~~~~~.M.#|#~~~~..M..~.M....~~~~B~~...~~B~#|#...~..M..~.M........M.......M.#|#...~~~B~~~.M........M.......M.#|#......M....M........M.......M.#|#......M....M........M.......M.#|#MMMMMMMMMMMMMMMMMMMMMMMMMMMMMM#|#......M....M........M.......M.#|#......M....M........M.......M.#|#......M....M........M.......M.#|#......M....M........M.......M.#|#MMMMMMMMMMMMMMMMMMMMMMMMMMMMMM#|#......M....M........M.......M.#|#......M....M........M.......M.#|#......M....M........M.......M.#|#......M....M........M.......M.#|################################' };
+const CHAR_TO_TILE = { '.': 'block', 'M': 'mainst', '~': 'river', 'B': 'bridge', '#': 'oob' };
+
+function decodeEmbeddedMap(embedded) {
+  const rows = embedded.compact.split('|');
+  const tiles = [];
+  for (let y = 0; y < embedded.height; y++) {
+    for (let x = 0; x < embedded.width; x++) {
+      const ch = rows[y][x];
+      tiles.push({ x, y, t: CHAR_TO_TILE[ch] || 'oob' });
+    }
+  }
+  return { width: embedded.width, height: embedded.height, type: embedded.type, tiles };
+}
+
+// --- Params ---
+const params = {
+  gridSize: 24,
+  falloff: 'exponential',
+  ecRadius: 4,
+  ecOuterRadius: 9,
+  ecOuterWeight: 0.05,
+  ecFloor: 0.00,
+  hqBuffer: 3,
+  indDepth: 10,
+  indInner: 7,
+  indDither: 0.20,
+  indSide: 'random',
+  indStretchN: 0.35,
+  indStretchS: 0.35,
+  resEdge: 6,
+  wInd: 0.35,
+  wCom: 0.40,
+  wRes: 0.50,
+  expSharpInd: 5.0,
+  expSharpCom: 1.5,
+  expSharpComOuter: 0.5,
+  expSharpRes: 3.0,
+  ecSuppress: 0.10,
+  indSuppress: 0.30,
+  mixThreshold: 0.50,
+  showRiver: true,
+  showGangHQ: true,
+  showRail: true,
+  showGrid: false,
+  showWeights: false,
+  showQuadrants: false,
+  showHQBuffer: false,
+};
+
+// --- Three.js setup ---
+const container = document.getElementById('canvas-container');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0a14);
+const camera = new THREE.OrthographicCamera(-20, 20, 20, -20, 0.1, 100);
+camera.position.set(0, 30, 0);
+camera.lookAt(0, 0, 0);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+container.appendChild(renderer.domElement);
+
+const cityGroup = new THREE.Group();
+scene.add(cityGroup);
+
+// --- Materials ---
+const matCore = new THREE.MeshBasicMaterial({ color: 0x00cccc });
+const matCommercial = new THREE.MeshBasicMaterial({ color: 0x9933ff });
+const matIndustrial = new THREE.MeshBasicMaterial({ color: 0xff8800 });
+const matResidential = new THREE.MeshBasicMaterial({ color: 0x22cc44 });
+const matWater = new THREE.MeshBasicMaterial({ color: 0x1a5abf });
+const matGangHQ = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
+const matRail = new THREE.MeshBasicMaterial({ color: 0xffffff });
+const matRailTrack = new THREE.MeshBasicMaterial({ color: 0x3a3a4a });
+const matRailSupport = new THREE.MeshBasicMaterial({ color: 0x4a4a5a });
+const matGrid = new THREE.LineBasicMaterial({ color: 0x333344, transparent: true, opacity: 0.3 });
+const matQuadrant = new THREE.LineBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.6 });
+const matMainSt = new THREE.MeshBasicMaterial({ color: 0x12121e });
+const matBridge = new THREE.MeshBasicMaterial({ color: 0x4a3a2a });
+const matOOB = new THREE.MeshBasicMaterial({ color: 0x050508 });
+
+// Weight visualization materials (debug) — dynamic per-tile colors
+const matWeightDebug = new THREE.MeshBasicMaterial({ color: 0x000000 });
+
+// --- Falloff functions ---
+function falloffLinear(dist, radius) {
+  if (dist >= radius) return 0;
+  return 1 - (dist / radius);
+}
+
+function falloffGaussian(dist, radius) {
+  const sigma = radius / 2.5;
+  return Math.exp(-(dist * dist) / (2 * sigma * sigma));
+}
+
+function falloffExponential(dist, radius, sharpness) {
+  const lambda = (sharpness !== undefined ? sharpness : params.expSharpInd) / radius;
+  return Math.exp(-lambda * dist);
+}
+
+function getFalloff(dist, radius, sharpness) {
+  if (params.falloff === 'gaussian') return falloffGaussian(dist, radius);
+  if (params.falloff === 'exponential') return falloffExponential(dist, radius, sharpness);
+  return falloffLinear(dist, radius);
+}
+
+// --- Zone computation (synthetic grid) ---
+function computeZones() {
+  if (macroMapData) return computeZonesFromMacro();
+
+  const size = params.gridSize;
+  const riverRow = Math.floor(size / 2) - 1;
+  const centerRow = Math.floor(size / 2);
+  const centerCol = Math.floor(size / 2);
+
+  // Determine industrial side
+  let indSide;
+  if (params.indSide === 'random') {
+    indSide = rng() < 0.5 ? 'east' : 'west';
+  } else {
+    indSide = params.indSide;
+    rng(); // consume RNG for consistency
+  }
+
+  // Zone data per block
+  const zones = [];
+  for (let r = 0; r < size; r++) {
+    zones[r] = [];
+    for (let c = 0; c < size; c++) {
+      const isWater = params.showRiver && r >= riverRow && r <= riverRow + 1;
+
+      // Distance from EC center
+      const distEC = Math.sqrt((r - centerRow) ** 2 + (c - centerCol) ** 2);
+
+      // Industrial: emanates from EC center outward toward edge
+      const distFromECSideways = indSide === 'east' ? (c - centerCol) : (centerCol - c);
+
+      // Industrial N/S stretch — clamp industrial weight outside stretch range
+      const indNorthLimit = Math.floor(size * (1 - params.indStretchN) / 2);
+      const indSouthLimit = size - 1 - Math.floor(size * (1 - params.indStretchS) / 2);
+      const inIndStretch = r >= indNorthLimit && r <= indSouthLimit;
+      const distFromIndStretch = inIndStretch ? 0 : (r < indNorthLimit ? indNorthLimit - r : r - indSouthLimit);
+
+      // Distance from outer edge (for residential)
+      const edgeDist = Math.min(r, c, size - 1 - r, size - 1 - c);
+
+      // Weights — industrial spawns from inside (near EC) outward
+      // dither controls how much industrial bleeds inward and EC bleeds outward across the boundary
+      const ditherRange = params.indDither * (params.indInner + params.indDepth);
+      let wI = 0;
+      if (distFromECSideways >= params.indInner - ditherRange) {
+        const distIntoIndustrial = distFromECSideways - params.indInner;
+        if (distIntoIndustrial >= 0) {
+          wI = params.wInd * getFalloff(distIntoIndustrial, params.indDepth, params.expSharpInd);
+        } else {
+          wI = params.wInd * getFalloff(0, params.indDepth, params.expSharpInd) * getFalloff(-distIntoIndustrial, ditherRange, params.expSharpInd);
+        }
+        if (distFromIndStretch > 0) wI *= getFalloff(distFromIndStretch, Math.ceil(size * 0.15), params.expSharpInd);
+      }
+
+      // Dual EC: inner core (dense, high weight) + outer commercial ring (sparse, low weight)
+      let wCore = params.wCom * getFalloff(distEC, params.ecRadius, params.expSharpCom);
+      let wCom = 0;
+      if (distEC > params.ecRadius) {
+        const distOuter = distEC - params.ecRadius;
+        wCom = params.ecOuterWeight * getFalloff(distOuter, params.ecOuterRadius - params.ecRadius, params.expSharpComOuter);
+      }
+      // EC bleeds outward into industrial zone: reduce suppression based on dither
+      if (distFromECSideways >= params.indInner && distFromECSideways < params.indInner + ditherRange) {
+        const distPastBoundary = distFromECSideways - params.indInner;
+        wCom *= 1 - getFalloff(distPastBoundary, ditherRange, params.expSharpComOuter) * (1 - params.indSuppress);
+      } else if (distFromECSideways >= params.indInner + ditherRange) {
+        wCom *= params.indSuppress;
+        wCore *= params.indSuppress;
+      }
+      let wR = params.wRes * getFalloff(edgeDist, params.resEdge + 1, params.expSharpRes);
+
+      // EC suppresses industrial near core
+      if (distEC < params.ecRadius) wI *= params.ecSuppress;
+
+      // No normalization — use raw weights with floor
+      // If all weights are below floor, default to residential
+      const wTotal = wI + wCore + wCom + wR;
+      let zoneType;
+      if (isWater) {
+        zoneType = 'water';
+      } else if (wTotal < params.ecFloor) {
+        zoneType = 'residential';
+      } else {
+        // Weighted roll using raw weights (no normalization)
+        const roll = rng() * wTotal;
+        if (roll < wI) zoneType = 'industrial';
+        else if (roll < wI + wCore) zoneType = 'core';
+        else if (roll < wI + wCore + wCom) zoneType = 'commercial';
+        else zoneType = 'residential';
+      }
+
+      zones[r][c] = {
+        type: zoneType,
+        tileType: 'block',
+        weights: { industrial: wI, core: wCore, commercial: wCom, residential: wR },
+        isWater,
+      };
+    }
+  }
+
+  // Gang HQ placement — one per quadrant, not in EC or industrial
+  const gangHQs = [];
+  const quadrants = [
+    { name: 'NW', rMin: 0, rMax: riverRow - 1, cMin: 0, cMax: centerCol - 1 },
+    { name: 'NE', rMin: 0, rMax: riverRow - 1, cMin: centerCol + 1, cMax: size - 1 },
+    { name: 'SW', rMin: riverRow + 2, rMax: size - 1, cMin: 0, cMax: centerCol - 1 },
+    { name: 'SE', rMin: riverRow + 2, rMax: size - 1, cMin: centerCol + 1, cMax: size - 1 },
+  ];
+
+  for (const q of quadrants) {
+    const buf = params.hqBuffer;
+    const rMin = Math.max(0, q.rMin + buf);
+    const rMax = Math.min(size - 1, q.rMax - buf);
+    const cMin = Math.max(0, q.cMin + buf);
+    const cMax = Math.min(size - 1, q.cMax - buf);
+    let attempts = 0;
+    while (attempts < 50) {
+      const r = Math.floor(rng() * (rMax - rMin + 1)) + rMin;
+      const c = Math.floor(rng() * (cMax - cMin + 1)) + cMin;
+      if (r >= 0 && r < size && c >= 0 && c < size && !zones[r][c].isWater) {
+        const zt = zones[r][c].type;
+        if (zt !== 'industrial' && zt !== 'core') {
+          gangHQs.push({ r, c, quadrant: q.name });
+          break;
+        }
+      }
+      attempts++;
+    }
+  }
+
+  return { zones, indSide, gangHQs, riverRow, centerRow, centerCol, isMacro: false };
+}
+
+// --- Zone computation from real MacroMap data ---
+function computeZonesFromMacro() {
+  const size = macroMapData.width; // use macro map dimensions
+  const tiles = {};
+  for (const t of macroMapData.tiles) {
+    tiles[t.x + ',' + t.y] = t.t;
+  }
+
+  // Find river rows (any row containing 'river' tiles)
+  const riverRows = new Set();
+  for (const t of macroMapData.tiles) {
+    if (t.t === 'river') riverRows.add(t.y);
+  }
+  const riverRowArr = [...riverRows].sort((a, b) => a - b);
+  const riverRow = riverRowArr.length > 0 ? riverRowArr[Math.floor(riverRowArr.length / 2)] : Math.floor(size / 2) - 1;
+
+  // Find center — intersection of main streets (approximate)
+  const centerRow = Math.floor(size / 2);
+  const centerCol = Math.floor(size / 2);
+
+  // Determine industrial side
+  let indSide;
+  if (params.indSide === 'random') {
+    indSide = rng() < 0.5 ? 'east' : 'west';
+  } else {
+    indSide = params.indSide;
+    rng();
+  }
+
+  const zones = [];
+  for (let r = 0; r < size; r++) {
+    zones[r] = [];
+    for (let c = 0; c < size; c++) {
+      const tileType = tiles[c + ',' + r] || 'oob';
+      const isWater = tileType === 'river';
+      const isBlock = tileType === 'block';
+      const isOOB = tileType === 'oob';
+      const isMainSt = tileType === 'mainst';
+      const isBridge = tileType === 'bridge';
+
+      let zoneType = tileType; // default: use tile type as zone type
+      let weights = { industrial: 0, commercial: 0, residential: 0 };
+
+      if (isBlock) {
+        // Apply zoning only to buildable blocks
+        const distEC = Math.sqrt((r - centerRow) ** 2 + (c - centerCol) ** 2);
+        const distFromECSideways = indSide === 'east' ? (c - centerCol) : (centerCol - c);
+
+        // Industrial N/S stretch
+        const indNorthLimit = Math.floor(size * (1 - params.indStretchN) / 2);
+        const indSouthLimit = size - 1 - Math.floor(size * (1 - params.indStretchS) / 2);
+        const inIndStretch = r >= indNorthLimit && r <= indSouthLimit;
+        const distFromIndStretch = inIndStretch ? 0 : (r < indNorthLimit ? indNorthLimit - r : r - indSouthLimit);
+        const edgeDist = Math.min(r, c, size - 1 - r, size - 1 - c);
+
+        let wI = 0;
+        const ditherRange = params.indDither * (params.indInner + params.indDepth);
+        if (distFromECSideways >= params.indInner - ditherRange) {
+          const distIntoIndustrial = distFromECSideways - params.indInner;
+          if (distIntoIndustrial >= 0) {
+            wI = params.wInd * getFalloff(distIntoIndustrial, params.indDepth, params.expSharpInd);
+          } else {
+            wI = params.wInd * getFalloff(0, params.indDepth, params.expSharpInd) * getFalloff(-distIntoIndustrial, ditherRange, params.expSharpInd);
+          }
+          if (distFromIndStretch > 0) wI *= getFalloff(distFromIndStretch, Math.ceil(size * 0.15), params.expSharpInd);
+        }
+
+        // Dual EC: inner core + outer commercial ring
+        let wCore = params.wCom * getFalloff(distEC, params.ecRadius, params.expSharpCom);
+        let wCom = 0;
+        if (distEC > params.ecRadius) {
+          const distOuter = distEC - params.ecRadius;
+          wCom = params.ecOuterWeight * getFalloff(distOuter, params.ecOuterRadius - params.ecRadius, params.expSharpComOuter);
+        }
+        if (distFromECSideways >= params.indInner && distFromECSideways < params.indInner + ditherRange) {
+          const distPastBoundary = distFromECSideways - params.indInner;
+          wCom *= 1 - getFalloff(distPastBoundary, ditherRange, params.expSharpComOuter) * (1 - params.indSuppress);
+        } else if (distFromECSideways >= params.indInner + ditherRange) {
+          wCom *= params.indSuppress;
+          wCore *= params.indSuppress;
+        }
+        let wR = params.wRes * getFalloff(edgeDist, params.resEdge + 1, params.expSharpRes);
+
+        if (distEC < params.ecRadius) wI *= params.ecSuppress;
+
+        const wTotal = wI + wCore + wCom + wR;
+        if (wTotal < params.ecFloor) {
+          zoneType = 'residential';
+        } else {
+          const roll = rng() * wTotal;
+          if (roll < wI) zoneType = 'industrial';
+          else if (roll < wI + wCore) zoneType = 'core';
+          else if (roll < wI + wCore + wCom) zoneType = 'commercial';
+          else zoneType = 'residential';
+        }
+        weights = { industrial: wI, core: wCore, commercial: wCom, residential: wR };
+      }
+
+      zones[r][c] = {
+        type: zoneType,
+        tileType,
+        weights,
+        isWater,
+      };
+    }
+  }
+
+  // Gang HQ — one per quadrant, only on block tiles, not industrial/core
+  const gangHQs = [];
+  const quadrants = [
+    { name: 'NW', rMin: 0, rMax: riverRow - 1, cMin: 0, cMax: centerCol - 1 },
+    { name: 'NE', rMin: 0, rMax: riverRow - 1, cMin: centerCol + 1, cMax: size - 1 },
+    { name: 'SW', rMin: riverRow + 2, rMax: size - 1, cMin: 0, cMax: centerCol - 1 },
+    { name: 'SE', rMin: riverRow + 2, rMax: size - 1, cMin: centerCol + 1, cMax: size - 1 },
+  ];
+
+  for (const q of quadrants) {
+    const buf = params.hqBuffer;
+    const rMin = Math.max(0, q.rMin + buf);
+    const rMax = Math.min(size - 1, q.rMax - buf);
+    const cMin = Math.max(0, q.cMin + buf);
+    const cMax = Math.min(size - 1, q.cMax - buf);
+    let attempts = 0;
+    while (attempts < 100) {
+      const r = Math.floor(rng() * (rMax - rMin + 1)) + rMin;
+      const c = Math.floor(rng() * (cMax - cMin + 1)) + cMin;
+      if (r >= 0 && r < size && c >= 0 && c < size) {
+        const z = zones[r][c];
+        if (z.tileType === 'block' && z.type !== 'industrial' && z.type !== 'core') {
+          gangHQs.push({ r, c, quadrant: q.name });
+          break;
+        }
+      }
+      attempts++;
+    }
+  }
+
+  return { zones, indSide, gangHQs, riverRow, centerRow, centerCol, isMacro: true, macroSize: size };
+}
+
+// --- Build visualization ---
+function buildCity() {
+  // Recompute zones only if cache is stale
+  if (!cachedZones) {
+    cachedZones = computeZones();
+  }
+  renderCity(cachedZones);
+}
+
+function renderCity(data) {
+  while (cityGroup.children.length > 0) cityGroup.remove(cityGroup.children[0]);
+
+  const { zones, indSide, gangHQs, riverRow, centerCol, isMacro } = data;
+  const size = isMacro ? data.macroSize : params.gridSize;
+  const tileSize = 1;
+  const totalW = size * tileSize;
+  const totalD = size * tileSize;
+  const offsetX = -totalW / 2;
+  const offsetZ = -totalD / 2;
+
+  // Shared geometry for all tiles (reused across grid)
+  const tileGeom = new THREE.PlaneGeometry(tileSize * 0.95, tileSize * 0.95);
+  tileGeom.rotateX(-Math.PI / 2);
+
+  // Cache for weight-debug materials (keyed by color int)
+  const weightMatCache = {};
+
+  let indCount = 0, coreCount = 0, comCount = 0, resCount = 0;
+
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      const z = zones[r][c];
+      let mat;
+      if (z.type === 'water' || z.tileType === 'river') mat = matWater;
+      else if (z.tileType === 'mainst') mat = matMainSt;
+      else if (z.tileType === 'bridge') mat = matBridge;
+      else if (z.tileType === 'oob') mat = matOOB;
+      else if (z.type === 'industrial') { mat = matIndustrial; indCount++; }
+      else if (z.type === 'core') { mat = matCore; coreCount++; }
+      else if (z.type === 'commercial') { mat = matCommercial; comCount++; }
+      else if (z.type === 'residential') { mat = matResidential; resCount++; }
+      else { mat = matResidential; resCount++; }
+
+      // Debug: show weights as zone-colored intensity
+      if (params.showWeights && z.tileType === 'block') {
+        const w = z.weights;
+        const rI = Math.floor((w.industrial || 0) * 255);
+        const gI = Math.floor((w.industrial || 0) * 136);
+        const bI = 0;
+        const rC = 0;
+        const gC = Math.floor((w.core || 0) * 204);
+        const bC = Math.floor((w.core || 0) * 204);
+        const rM = Math.floor((w.commercial || 0) * 153);
+        const gM = Math.floor((w.commercial || 0) * 51);
+        const bM = Math.floor((w.commercial || 0) * 255);
+        const rR = Math.floor((w.residential || 0) * 34);
+        const gR = Math.floor((w.residential || 0) * 204);
+        const bR = Math.floor((w.residential || 0) * 68);
+        const rv = Math.min(255, rI + rC + rM + rR);
+        const gv = Math.min(255, gI + gC + gM + gR);
+        const bv = Math.min(255, bI + bC + bM + bR);
+        const colorInt = (rv << 16) | (gv << 8) | bv;
+        if (!weightMatCache[colorInt]) {
+          weightMatCache[colorInt] = new THREE.MeshBasicMaterial({ color: colorInt });
+        }
+        mat = weightMatCache[colorInt];
+      }
+
+      const mesh = new THREE.Mesh(tileGeom, mat);
+      mesh.position.set(offsetX + c * tileSize + tileSize / 2, 0, offsetZ + r * tileSize + tileSize / 2);
+      cityGroup.add(mesh);
+    }
+  }
+
+  // Grid lines
+  if (params.showGrid) {
+    for (let i = 0; i <= size; i++) {
+      const gH = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(offsetX, 0.01, offsetZ + i * tileSize),
+        new THREE.Vector3(offsetX + totalW, 0.01, offsetZ + i * tileSize)
+      ]);
+      cityGroup.add(new THREE.Line(gH, matGrid));
+      const gV = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(offsetX + i * tileSize, 0.01, offsetZ),
+        new THREE.Vector3(offsetX + i * tileSize, 0.01, offsetZ + totalD)
+      ]);
+      cityGroup.add(new THREE.Line(gV, matGrid));
+    }
+  }
+
+  // Quadrant outlines
+  if (params.showQuadrants) {
+    const centerRowQ = Math.floor(size / 2);
+    const centerColQ = Math.floor(size / 2);
+    const riverRowQ = riverRow;
+    // Horizontal line (river center)
+    const hLine = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(offsetX, 0.03, offsetZ + riverRowQ * tileSize + tileSize),
+      new THREE.Vector3(offsetX + totalW, 0.03, offsetZ + riverRowQ * tileSize + tileSize)
+    ]);
+    cityGroup.add(new THREE.Line(hLine, matQuadrant));
+    // Vertical line (center column)
+    const vLine = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(offsetX + centerColQ * tileSize + tileSize / 2, 0.03, offsetZ),
+      new THREE.Vector3(offsetX + centerColQ * tileSize + tileSize / 2, 0.03, offsetZ + totalD)
+    ]);
+    cityGroup.add(new THREE.Line(vLine, matQuadrant));
+    // Quadrant labels (as small colored markers at center of each quadrant)
+    const quadCenters = [
+      { r: Math.floor(riverRowQ / 2), c: Math.floor(centerColQ / 2), label: 'NW' },
+      { r: Math.floor(riverRowQ / 2), c: Math.floor((centerColQ + size) / 2), label: 'NE' },
+      { r: Math.floor((riverRowQ + 2 + size) / 2), c: Math.floor(centerColQ / 2), label: 'SW' },
+      { r: Math.floor((riverRowQ + 2 + size) / 2), c: Math.floor((centerColQ + size) / 2), label: 'SE' },
+    ];
+    for (const q of quadCenters) {
+      const dotGeom = new THREE.PlaneGeometry(tileSize * 0.3, tileSize * 0.3);
+      dotGeom.rotateX(-Math.PI / 2);
+      const dot = new THREE.Mesh(dotGeom, matQuadrant);
+      dot.position.set(offsetX + q.c * tileSize + tileSize / 2, 0.04, offsetZ + q.r * tileSize + tileSize / 2);
+      cityGroup.add(dot);
+    }
+  }
+
+  // HQ buffer zones — show valid placement area per quadrant
+  if (params.showHQBuffer) {
+    // Darken all tiles for visibility
+    const darkMat = new THREE.MeshBasicMaterial({ color: 0x111122, transparent: true, opacity: 0.7 });
+    const darkGeom = new THREE.PlaneGeometry(totalW, totalD);
+    darkGeom.rotateX(-Math.PI / 2);
+    const darkMesh = new THREE.Mesh(darkGeom, darkMat);
+    darkMesh.position.set(offsetX + totalW / 2, 0.015, offsetZ + totalD / 2);
+    cityGroup.add(darkMesh);
+
+    const buf = params.hqBuffer;
+    const quadDefs = [
+      { rMin: 0, rMax: riverRow - 1, cMin: 0, cMax: centerCol - 1 },
+      { rMin: 0, rMax: riverRow - 1, cMin: centerCol + 1, cMax: size - 1 },
+      { rMin: riverRow + 2, rMax: size - 1, cMin: 0, cMax: centerCol - 1 },
+      { rMin: riverRow + 2, rMax: size - 1, cMin: centerCol + 1, cMax: size - 1 },
+    ];
+    const matHQBuffer = new THREE.MeshBasicMaterial({ color: 0xff00ff, transparent: true, opacity: 0.25 });
+    for (const q of quadDefs) {
+      const rMin = Math.max(0, q.rMin + buf);
+      const rMax = Math.min(size - 1, q.rMax - buf);
+      const cMin = Math.max(0, q.cMin + buf);
+      const cMax = Math.min(size - 1, q.cMax - buf);
+      if (rMax < rMin || cMax < cMin) continue;
+      const w = (cMax - cMin + 1) * tileSize;
+      const d = (rMax - rMin + 1) * tileSize;
+      const geom = new THREE.PlaneGeometry(w, d);
+      geom.rotateX(-Math.PI / 2);
+      const mesh = new THREE.Mesh(geom, matHQBuffer);
+      mesh.position.set(offsetX + cMin * tileSize + w / 2, 0.02, offsetZ + rMin * tileSize + d / 2);
+      cityGroup.add(mesh);
+    }
+  }
+
+  // Gang HQ markers
+  if (params.showGangHQ) {
+    for (const hq of gangHQs) {
+      const geom = new THREE.PlaneGeometry(tileSize * 0.5, tileSize * 0.5);
+      geom.rotateX(-Math.PI / 2);
+      const mesh = new THREE.Mesh(geom, matGangHQ);
+      mesh.position.set(offsetX + hq.c * tileSize + tileSize / 2, 0.02, offsetZ + hq.r * tileSize + tileSize / 2);
+      cityGroup.add(mesh);
+    }
+  }
+
+  // Rail line
+  if (params.showRail) {
+    const railElev = 0.35;
+    const railW = 0.6;
+    const railX = indSide === 'east'
+      ? offsetX + totalW + tileSize * 0.3
+      : offsetX - tileSize * 0.3;
+
+    // Track bed
+    const trackGeom = new THREE.PlaneGeometry(railW, totalD);
+    trackGeom.rotateX(-Math.PI / 2);
+    const trackMesh = new THREE.Mesh(trackGeom, matRailTrack);
+    trackMesh.position.set(railX, railElev, offsetZ + totalD / 2);
+    cityGroup.add(trackMesh);
+
+    // Rails
+    for (const side of [-1, 1]) {
+      const lg = new THREE.PlaneGeometry(0.04, totalD);
+      lg.rotateX(-Math.PI / 2);
+      const lm = new THREE.Mesh(lg, matRail);
+      lm.position.set(railX + side * 0.1, railElev + 0.01, offsetZ + totalD / 2);
+      cityGroup.add(lm);
+    }
+
+    // Support pillars
+    for (let z = 0; z < totalD; z += tileSize * 2) {
+      const pg = new THREE.BoxGeometry(0.1, railElev, 0.1);
+      const pm = new THREE.Mesh(pg, matRailSupport);
+      pm.position.set(railX, railElev / 2, offsetZ + z + tileSize);
+      cityGroup.add(pm);
+    }
+  }
+
+  // Update stats
+  document.getElementById('stat-seed').textContent = currentSeed;
+  document.getElementById('stat-side').textContent = indSide.charAt(0).toUpperCase() + indSide.slice(1);
+  document.getElementById('stat-ind').textContent = indCount;
+  document.getElementById('stat-core').textContent = coreCount;
+  document.getElementById('stat-com').textContent = comCount;
+  document.getElementById('stat-res').textContent = resCount;
+
+  // Fit camera — offset right to account for left control panel
+  const fit = Math.max(totalW, totalD) * 0.6;
+  const aspect = window.innerWidth / window.innerHeight;
+  const visibleW = fit * 2 * aspect;
+  const panelPx = 296; // 280px panel + 16px margins
+  const panelFrac = panelPx / window.innerWidth;
+  const panelWorldOffset = panelFrac * visibleW * 0.5;
+  camera.left = -fit - panelWorldOffset; camera.right = fit - panelWorldOffset;
+  camera.top = fit; camera.bottom = -fit;
+  camera.updateProjectionMatrix();
+}
+
+// --- Controls ---
+function bindSlider(id, paramKey, valId, isFloat) {
+  const el = document.getElementById(id);
+  const valEl = document.getElementById(valId);
+  el.addEventListener('input', () => {
+    params[paramKey] = isFloat ? parseFloat(el.value) : parseInt(el.value);
+    valEl.textContent = isFloat ? params[paramKey].toFixed(2) : params[paramKey];
+    cachedZones = null;
+    buildCity();
+  });
+}
+
+bindSlider('ec-radius', 'ecRadius', 'ec-radius-val', false);
+bindSlider('ec-outer-radius', 'ecOuterRadius', 'ec-outer-radius-val', false);
+bindSlider('ec-outer-weight', 'ecOuterWeight', 'ec-outer-weight-val', true);
+bindSlider('ec-floor', 'ecFloor', 'ec-floor-val', true);
+bindSlider('hq-buffer', 'hqBuffer', 'hq-buffer-val', false);
+bindSlider('ind-inner', 'indInner', 'ind-inner-val', false);
+bindSlider('ind-dither', 'indDither', 'ind-dither-val', true);
+bindSlider('ind-depth', 'indDepth', 'ind-depth-val', false);
+bindSlider('ind-stretch-n', 'indStretchN', 'ind-stretch-n-val', true);
+bindSlider('ind-stretch-s', 'indStretchS', 'ind-stretch-s-val', true);
+bindSlider('res-edge', 'resEdge', 'res-edge-val', false);
+bindSlider('w-ind', 'wInd', 'w-ind-val', true);
+bindSlider('w-com', 'wCom', 'w-com-val', true);
+bindSlider('w-res', 'wRes', 'w-res-val', true);
+bindSlider('exp-sharp-ind', 'expSharpInd', 'exp-sharp-ind-val', true);
+bindSlider('exp-sharp-com', 'expSharpCom', 'exp-sharp-com-val', true);
+bindSlider('exp-sharp-com-outer', 'expSharpComOuter', 'exp-sharp-com-outer-val', true);
+bindSlider('exp-sharp-res', 'expSharpRes', 'exp-sharp-res-val', true);
+bindSlider('ec-suppress', 'ecSuppress', 'ec-suppress-val', true);
+bindSlider('ind-suppress', 'indSuppress', 'ind-suppress-val', true);
+bindSlider('mix-thresh', 'mixThreshold', 'mix-thresh-val', true);
+
+// Param changes — invalidate cache (zones depend on these)
+document.getElementById('falloff-type').addEventListener('change', (e) => {
+  params.falloff = e.target.value;
+  cachedZones = null;
+  buildCity();
+});
+
+document.getElementById('ind-side').addEventListener('change', (e) => {
+  params.indSide = e.target.value;
+  cachedZones = null;
+  buildCity();
+});
+
+document.getElementById('grid-size').addEventListener('change', (e) => {
+  params.gridSize = parseInt(e.target.value);
+  cachedZones = null;
+  buildCity();
+});
+
+// Display-only toggles — don't invalidate cache
+document.getElementById('show-river').addEventListener('change', (e) => { params.showRiver = e.target.checked; buildCity(); });
+document.getElementById('show-gang-hq').addEventListener('change', (e) => { params.showGangHQ = e.target.checked; buildCity(); });
+document.getElementById('show-rail').addEventListener('change', (e) => { params.showRail = e.target.checked; buildCity(); });
+document.getElementById('show-grid').addEventListener('change', (e) => { params.showGrid = e.target.checked; buildCity(); });
+document.getElementById('show-weights').addEventListener('change', (e) => { params.showWeights = e.target.checked; buildCity(); });
+document.getElementById('show-quadrants').addEventListener('change', (e) => { params.showQuadrants = e.target.checked; buildCity(); });
+document.getElementById('show-hq-buffer').addEventListener('change', (e) => { params.showHQBuffer = e.target.checked; buildCity(); });
+
+// Seed changes — invalidate cache
+document.getElementById('seed-random').addEventListener('click', () => {
+  currentSeed = Math.floor(Math.random() * 99999);
+  document.getElementById('seed-input').value = currentSeed;
+  rng = mulberry32(currentSeed);
+  cachedZones = null;
+  buildCity();
+});
+
+document.getElementById('seed-apply').addEventListener('click', () => {
+  currentSeed = parseInt(document.getElementById('seed-input').value) || 42;
+  rng = mulberry32(currentSeed);
+  cachedZones = null;
+  buildCity();
+});
+
+document.getElementById('regenerate-seed').addEventListener('click', () => {
+  rng = mulberry32(currentSeed);
+  cachedZones = null;
+  buildCity();
+});
+
+document.getElementById('regenerate-fresh').addEventListener('click', () => {
+  cachedZones = null;
+  buildCity();
+});
+
+document.getElementById('clear-macro').addEventListener('click', () => {
+  macroMapData = null;
+  cachedZones = null;
+  buildCity();
+  document.getElementById('macro-status').textContent = 'No macro map loaded — using synthetic grid';
+});
+
+document.getElementById('load-macro').addEventListener('click', () => {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.onchange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (data.type === 'replica' && data.tiles) {
+          macroMapData = data;
+          cachedZones = null;
+          buildCity();
+          document.getElementById('macro-status').textContent = `Loaded: ${data.width}x${data.height} — ${data.tiles.length} tiles`;
+        } else {
+          document.getElementById('macro-status').textContent = 'Invalid file — not a replica MacroMap';
+        }
+      } catch (err) {
+        document.getElementById('macro-status').textContent = 'Error loading file: ' + err.message;
+      }
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+});
+
+// --- Init ---
+macroMapData = decodeEmbeddedMap(EMBEDDED_MACRO_MAP);
+document.getElementById('macro-status').textContent = `Loaded: ${macroMapData.width}x${macroMapData.height} — ${macroMapData.tiles.length} tiles (embedded)`;
+
+// --- Presets ---
+const PRESET_KEYS = ['falloff','ecRadius','ecOuterRadius','ecOuterWeight','ecFloor','hqBuffer','indInner','indDither','indDepth','indSide','indStretchN','indStretchS','resEdge','wInd','wCom','wRes','expSharpInd','expSharpCom','expSharpComOuter','expSharpRes','ecSuppress','indSuppress','mixThreshold'];
+const DEFAULT_PRESETS = [
+  { name: 'Baseline Exponential', params: { falloff:'exponential', ecRadius:4, ecOuterRadius:9, ecOuterWeight:0.05, ecFloor:0.00, hqBuffer:3, indInner:7, indDither:0.20, indDepth:10, indSide:'random', indStretchN:0.35, indStretchS:0.35, resEdge:6, wInd:0.35, wCom:0.40, wRes:0.50, expSharpInd:5.0, expSharpCom:1.5, expSharpComOuter:0.5, expSharpRes:3.0, ecSuppress:0.00, indSuppress:0.00, mixThreshold:0.20 } },
+  { name: 'Default Linear', params: { falloff:'linear', ecRadius:3, ecOuterRadius:6, ecOuterWeight:0.20, ecFloor:0.05, hqBuffer:3, indInner:3, indDither:0.5, indDepth:4, indSide:'random', indStretchN:1.0, indStretchS:1.0, resEdge:3, wInd:0.70, wCom:0.60, wRes:0.50, expSharpInd:3.0, expSharpCom:3.0, expSharpComOuter:0.8, expSharpRes:3.0, ecSuppress:0.10, indSuppress:0.30, mixThreshold:0.50 } },
+  { name: '', params: null },
+  { name: '', params: null },
+  { name: '', params: null },
+];
+
+function loadPresets() {
+  try {
+    const saved = localStorage.getItem('zoning_presets');
+    if (saved) return JSON.parse(saved);
+  } catch(e) {}
+  return JSON.parse(JSON.stringify(DEFAULT_PRESETS));
+}
+
+function savePresetsToStorage(presets) {
+  try { localStorage.setItem('zoning_presets', JSON.stringify(presets)); } catch(e) {}
+}
+
+let presets = loadPresets();
+
+function syncUIFromParams() {
+  // Sync all sliders and selects to params values
+  const sliderMap = [
+    ['ec-radius','ecRadius','ec-radius-val',false],
+    ['ec-outer-radius','ecOuterRadius','ec-outer-radius-val',false],
+    ['ec-outer-weight','ecOuterWeight','ec-outer-weight-val',true],
+    ['ec-floor','ecFloor','ec-floor-val',true],
+    ['hq-buffer','hqBuffer','hq-buffer-val',false],
+    ['ind-inner','indInner','ind-inner-val',false],
+    ['ind-dither','indDither','ind-dither-val',true],
+    ['ind-depth','indDepth','ind-depth-val',false],
+    ['ind-stretch-n','indStretchN','ind-stretch-n-val',true],
+    ['ind-stretch-s','indStretchS','ind-stretch-s-val',true],
+    ['res-edge','resEdge','res-edge-val',false],
+    ['w-ind','wInd','w-ind-val',true],
+    ['w-com','wCom','w-com-val',true],
+    ['w-res','wRes','w-res-val',true],
+    ['exp-sharp-ind','expSharpInd','exp-sharp-ind-val',true],
+    ['exp-sharp-com','expSharpCom','exp-sharp-com-val',true],
+    ['exp-sharp-com-outer','expSharpComOuter','exp-sharp-com-outer-val',true],
+    ['exp-sharp-res','expSharpRes','exp-sharp-res-val',true],
+    ['ec-suppress','ecSuppress','ec-suppress-val',true],
+    ['ind-suppress','indSuppress','ind-suppress-val',true],
+    ['mix-thresh','mixThreshold','mix-thresh-val',true],
+  ];
+  for (const [id, key, valId, isFloat] of sliderMap) {
+    const el = document.getElementById(id);
+    const valEl = document.getElementById(valId);
+    if (el) { el.value = params[key]; }
+    if (valEl) { valEl.textContent = isFloat ? params[key].toFixed(2) : params[key]; }
+  }
+  document.getElementById('falloff-type').value = params.falloff;
+  document.getElementById('ind-side').value = params.indSide;
+}
+
+function renderPresetList() {
+  const container = document.getElementById('preset-list');
+  container.innerHTML = '';
+  presets.forEach((p, i) => {
+    const row = document.createElement('div');
+    row.className = 'preset-row';
+
+    const nameInput = document.createElement('input');
+    nameInput.className = 'preset-name';
+    nameInput.value = p.name || `Slot ${i+1}`;
+    nameInput.placeholder = `Slot ${i+1}`;
+    nameInput.addEventListener('change', () => {
+      presets[i].name = nameInput.value;
+      savePresetsToStorage(presets);
+    });
+
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'preset-btn save';
+    saveBtn.textContent = 'Save';
+    saveBtn.title = 'Save current settings to this slot';
+    saveBtn.addEventListener('click', () => {
+      presets[i].name = nameInput.value || `Slot ${i+1}`;
+      presets[i].params = {};
+      for (const k of PRESET_KEYS) presets[i].params[k] = params[k];
+      savePresetsToStorage(presets);
+      renderPresetList();
+    });
+
+    const loadBtn = document.createElement('button');
+    loadBtn.className = 'preset-btn load';
+    loadBtn.textContent = 'Load';
+    loadBtn.title = 'Load settings from this slot';
+    loadBtn.disabled = !p.params;
+    if (p.params) {
+      loadBtn.addEventListener('click', () => {
+        for (const k of PRESET_KEYS) {
+          if (p.params[k] !== undefined) params[k] = p.params[k];
+        }
+        syncUIFromParams();
+        cachedZones = null;
+        buildCity();
+      });
+    }
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'preset-btn del';
+    delBtn.textContent = '✖';
+    delBtn.title = 'Clear this slot';
+    delBtn.addEventListener('click', () => {
+      presets[i] = { name: '', params: null };
+      savePresetsToStorage(presets);
+      renderPresetList();
+    });
+
+    row.appendChild(nameInput);
+    row.appendChild(saveBtn);
+    row.appendChild(loadBtn);
+    row.appendChild(delBtn);
+    container.appendChild(row);
+  });
+}
+
+document.getElementById('preset-add').addEventListener('click', () => {
+  presets.push({ name: '', params: null });
+  savePresetsToStorage(presets);
+  renderPresetList();
+});
+
+renderPresetList();
+
+buildCity();
+
+// --- Camera controls (pan + zoom) ---
+let camZoom = 1.0;
+let camPanX = 0;
+let camPanZ = 0;
+let isPanning = false;
+let lastMouse = { x: 0, y: 0 };
+
+function updateCamera() {
+  const size = params.gridSize;
+  const baseFit = Math.max(size, size) * 0.6;
+  const fit = baseFit / camZoom;
+  const aspect = window.innerWidth / window.innerHeight;
+  const visibleW = fit * 2 * aspect;
+  const panelPx = 296;
+  const panelFrac = panelPx / window.innerWidth;
+  const panelWorldOffset = panelFrac * visibleW * 0.5;
+  camera.left = -fit - panelWorldOffset + camPanX;
+  camera.right = fit - panelWorldOffset + camPanX;
+  camera.top = fit - camPanZ;
+  camera.bottom = -fit - camPanZ;
+  camera.updateProjectionMatrix();
+}
+
+renderer.domElement.addEventListener('mousedown', (e) => {
+  if (e.target === renderer.domElement) {
+    isPanning = true;
+    lastMouse.x = e.clientX;
+    lastMouse.y = e.clientY;
+  }
+});
+
+window.addEventListener('mousemove', (e) => {
+  if (!isPanning) return;
+  const dx = e.clientX - lastMouse.x;
+  const dy = e.clientY - lastMouse.y;
+  lastMouse.x = e.clientX;
+  lastMouse.y = e.clientY;
+  const size = params.gridSize;
+  const baseFit = Math.max(size, size) * 0.6;
+  const fit = baseFit / camZoom;
+  const aspect = window.innerWidth / window.innerHeight;
+  const worldPerPixel = (fit * 2 * aspect) / window.innerWidth;
+  camPanX -= dx * worldPerPixel;
+  camPanZ -= dy * worldPerPixel;
+  updateCamera();
+});
+
+window.addEventListener('mouseup', () => { isPanning = false; });
+
+renderer.domElement.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const factor = e.deltaY > 0 ? 0.9 : 1.1;
+  camZoom = Math.max(0.3, Math.min(5, camZoom * factor));
+  updateCamera();
+}, { passive: false });
+
+// Override buildCity's camera fit with our pan/zoom system
+const _origBuildCity = buildCity;
+buildCity = function() {
+  if (!cachedZones) cachedZones = computeZones();
+  renderCity(cachedZones);
+  updateCamera();
+};
+
+// --- Resize ---
+window.addEventListener('resize', () => {
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  updateCamera();
+});
+
+// --- Render loop ---
+function animate() {
+  requestAnimationFrame(animate);
+  renderer.render(scene, camera);
+}
+animate();
+</script>
+</body>
+</html>
