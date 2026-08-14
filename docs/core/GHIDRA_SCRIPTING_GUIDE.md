@@ -651,5 +651,5 @@ DESCRIPTION: ...
 3. **Copy skeleton**: Start from the script skeleton (Section 1)
 4. **Add analysis parts**: Each part gets a `# PART N` header
 5. **Test**: Run in Ghidra Script Manager, check output file
-6. **Document**: Add to script inventory (Section 9) and update `DOCUMENTATION_INDEX.md`
+6. **Document**: Add to script inventory (Section 9) and update `docs/core/DOCUMENTATION_INDEX.md`
 7. **Update RE findings**: Add discoveries to `REVERSE_ENGINEERING_FINDINGS.md`

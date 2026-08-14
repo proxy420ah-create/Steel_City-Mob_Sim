@@ -65,7 +65,11 @@ storylines.
 ```
 SteelCityMobSim/
 ├── README.md                  — This file
-├── DOCUMENTATION_INDEX.md     — Python prototype doc hub
+├── docs/                      — All project documentation
+│   ├── core/DOCUMENTATION_INDEX.md — Central doc hub
+│   ├── core/                  — Design philosophy, RE, zoning, city layout
+│   ├── systems/               — System designs (combat, economy, etc.)
+│   └── STEEL_CITY_ROADMAP.html — Visual development roadmap
 ├── RECENT_CHANGES.md          — Change log
 ├── .gitignore
 ├── Assets/                    — Unity project (Unity 6, URP)

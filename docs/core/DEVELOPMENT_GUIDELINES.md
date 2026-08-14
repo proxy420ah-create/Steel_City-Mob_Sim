@@ -8,7 +8,7 @@
 
 ### Meta & Reference Rules (1-5)
 1. **Sequential Execution** - Execute rules in numbered order
-2. **Documentation-First** - Read DOCUMENTATION_INDEX.md BEFORE any work
+2. **Documentation-First** - Read `docs/core/DOCUMENTATION_INDEX.md` BEFORE any work
 3. **New Rules** - Add new rules in logical execution order
 4. **Utility Tools (Self-Scripting First!)** - Use for >50 lines OR 3+ edits
 5. **Large Document Creation** - Use Python scripts for documents >500 lines
@@ -44,7 +44,7 @@
 
 ## 2️⃣ Documentation-First Rule
 
-**Core**: 🚨 Read `DOCUMENTATION_INDEX.md` as FIRST ACTION before ANY code search/grep/implementation.
+**Core**: 🚨 Read `docs/core/DOCUMENTATION_INDEX.md` as FIRST ACTION before ANY code search/grep/implementation.
 
 **Execution Order**:
 1. Open `docs/core/DOCUMENTATION_INDEX.md`
@@ -55,7 +55,7 @@
 
 **File Sync Requirement**: When `global_rules.md` updated → ALWAYS copy to `docs/core/DEVELOPMENT_GUIDELINES.md`
 
-**Zero Tolerance**: First tool call MUST be `read_file` on DOCUMENTATION_INDEX.md. Violation = grep/code_search before docs.
+**Zero Tolerance**: First tool call MUST be `read_file` on `docs/core/DOCUMENTATION_INDEX.md`. Violation = grep/code_search before docs.
 
 ---
 
@@ -486,7 +486,7 @@ Uncertainty: "Are traffic signals dynamic or static?"
 1. User confirms testing complete
 2. User confirms ALL issues resolved
 3. Create ONE comprehensive doc (all fixes together)
-4. Update DOCUMENTATION_INDEX.md
+4. Update `docs/core/DOCUMENTATION_INDEX.md`
 5. Suggest git commit
 
 **Format**: Single doc with all fixes, solution overview, before/after, testing results.

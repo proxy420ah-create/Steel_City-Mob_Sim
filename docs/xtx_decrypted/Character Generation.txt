@@ -1,0 +1,330 @@
+# HOOD GENERATION		
+#		
+# Number of entries		
+18		
+#		
+###########################################		
+#		
+# Type - Poor Hood		
+#		
+# Weighting		
+25		
+#		
+64	64	# Intelligence
+0	40	# Organisation
+0	40	# Business
+0	40	# Firearms
+0	40	# Fists
+0	40	# Knives
+0	40	# Arson
+0	40	# Explosives
+0	40	# Intimidation
+0	40	# Driving
+0	40	# Stealth
+###########################################		
+#		
+# Type - Poor Lt		
+#		
+# Weighting		
+25		
+#		
+64	192	# Intelligence
+32	32	# Organisation
+0	40	# Business
+0	40	# Firearms
+0	40	# Fists
+0	40	# Knives
+0	40	# Arson
+0	40	# Explosives
+0	40	# Intimidation
+0	40	# Driving
+0	40	# Stealth
+###########################################		
+#		
+# Type - Average Hood		
+#		
+# Weighting		
+12		
+#		
+64	64	# Intelligence
+16	32	# Organisation
+16	32	# Business
+16	32	# Firearms
+16	32	# Fists
+16	32	# Knives
+16	32	# Arson
+16	32	# Explosives
+16	32	# Intimidation
+16	32	# Driving
+16	32	# Stealth
+###########################################		
+#		
+# Type - Average Lt		
+#		
+# Weighting		
+12		
+#		
+128	128	# Intelligence
+32	32	# Organisation
+16	32	# Business
+16	32	# Firearms
+16	32	# Fists
+16	32	# Knives
+16	32	# Arson
+16	32	# Explosives
+16	32	# Intimidation
+16	32	# Driving
+16	32	# Stealth
+###########################################		
+#		
+# Type - Superhood		
+#		
+# Weighting		
+1		
+#		
+160	96	# Intelligence
+40	24	# Organisation
+40	24	# Business
+40	24	# Firearms
+40	24	# Fists
+40	24	# Knives
+40	24	# Arson
+40	24	# Explosives
+40	24	# Intimidation
+40	24	# Driving
+40	24	# Stealth
+###########################################		
+#		
+# Type - Just recruiting and investigating		
+#		
+# Weighting		
+5		
+#		
+160	96	# Intelligence
+0	40	# Organisation
+0	40	# Business
+0	40	# Firearms
+0	40	# Fists
+0	40	# Knives
+0	40	# Arson
+0	40	# Explosives
+0	40	# Intimidation
+0	40	# Driving
+32	32	# Stealth
+###########################################		
+#		
+# Type - Business Hood		
+#		
+# Weighting		
+5		
+#		
+96	64	# Intelligence
+32	32	# Organisation
+32	32	# Business
+32	16	# Firearms
+0	40	# Fists
+0	40	# Knives
+0	40	# Arson
+0	40	# Explosives
+0	40	# Intimidation
+0	40	# Driving
+32	16	# Stealth
+###########################################		
+#		
+# Type - Business Lt		
+#		
+# Weighting		
+5		
+#		
+128	128	# Intelligence
+32	32	# Organisation
+32	32	# Business
+32	16	# Firearms
+0	40	# Fists
+0	40	# Knives
+0	40	# Arson
+0	40	# Explosives
+0	40	# Intimidation
+0	40	# Driving
+32	16	# Stealth
+###########################################		
+#		
+# Type - Extortion Hood		
+#		
+# Weighting		
+5		
+#		
+96	64	# Intelligence
+0	40	# Organisation
+0	40	# Business
+0	40	# Firearms
+0	40	# Fists
+0	40	# Knives
+0	40	# Arson
+0	40	# Explosives
+32	32	# Intimidation
+0	40	# Driving
+32	16	# Stealth
+###########################################		
+#		
+# Type - Extortion Lt		
+#		
+# Weighting		
+5		
+#		
+128	128	# Intelligence
+32	32	# Organisation
+0	40	# Business
+0	40	# Firearms
+0	40	# Fists
+0	40	# Knives
+0	40	# Arson
+0	40	# Explosives
+32	32	# Intimidation
+0	40	# Driving
+32	16	# Stealth
+###########################################		
+#		
+# Type - Arson Hood		
+#		
+# Weighting		
+5		
+#		
+96	64	# Intelligence
+0	40	# Organisation
+0	40	# Business
+0	40	# Firearms
+0	40	# Fists
+0	40	# Knives
+32	32	# Arson
+32	16	# Explosives
+0	40	# Intimidation
+0	40	# Driving
+32	32	# Stealth
+###########################################		
+#		
+# Type - Arson Lt		
+#		
+# Weighting		
+5		
+#		
+128	128	# Intelligence
+32	32	# Organisation
+0	40	# Business
+0	40	# Firearms
+0	40	# Fists
+0	40	# Knives
+32	32	# Arson
+32	16	# Explosives
+0	40	# Intimidation
+0	40	# Driving
+32	32	# Stealth
+###########################################		
+#		
+# Type - Explosives Hood		
+#		
+# Weighting		
+5		
+#		
+96	64	# Intelligence
+0	40	# Organisation
+0	40	# Business
+0	40	# Firearms
+0	40	# Fists
+0	40	# Knives
+32	16	# Arson
+32	32	# Explosives
+0	40	# Intimidation
+0	40	# Driving
+32	32	# Stealth
+###########################################		
+#		
+# Type - Explosives Lt		
+#		
+# Weighting		
+5		
+#		
+128	128	# Intelligence
+32	32	# Organisation
+0	40	# Business
+0	40	# Firearms
+0	40	# Fists
+0	40	# Knives
+32	16	# Arson
+32	32	# Explosives
+0	40	# Intimidation
+0	40	# Driving
+32	32	# Stealth
+###########################################		
+#		
+# Type - Firearms Hood		
+#		
+# Weighting		
+5		
+#		
+96	64	# Intelligence
+0	40	# Organisation
+0	40	# Business
+32	32	# Firearms
+0	40	# Fists
+0	40	# Knives
+0	40	# Arson
+0	40	# Explosives
+0	40	# Intimidation
+0	40	# Driving
+32	32	# Stealth
+###########################################		
+#		
+# Type - Firearms Lt		
+#		
+# Weighting		
+5		
+#		
+128	128	# Intelligence
+32	32	# Organisation
+0	40	# Business
+32	32	# Firearms
+0	40	# Fists
+0	40	# Knives
+0	40	# Arson
+0	40	# Explosives
+0	40	# Intimidation
+0	40	# Driving
+32	32	# Stealth
+###########################################		
+#		
+# Type - Fighting Hood		
+#		
+# Weighting		
+5		
+#		
+96	64	# Intelligence
+0	40	# Organisation
+0	40	# Business
+0	40	# Firearms
+32	32	# Fists
+32	32	# Knives
+0	40	# Arson
+0	40	# Explosives
+0	40	# Intimidation
+0	40	# Driving
+32	32	# Stealth
+###########################################		
+#		
+# Type - Fighting Lt		
+#		
+# Weighting		
+5		
+#		
+128	128	# Intelligence
+32	32	# Organisation
+0	40	# Business
+0	40	# Firearms
+32	32	# Fists
+32	32	# Knives
+0	40	# Arson
+0	40	# Explosives
+0	40	# Intimidation
+0	40	# Driving
+32	32	# Stealth
+##########################################s××

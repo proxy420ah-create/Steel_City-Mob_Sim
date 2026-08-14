@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Steel City — Alley Seam Layout Preview</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #1a1a2e;
+    color: #c4c4d4;
+    font-family: 'Segoe UI', Tahoma, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 30px 20px;
+    min-height: 100vh;
+  }
+  h1 {
+    color: #e8c170;
+    font-size: 1.6rem;
+    margin-bottom: 4px;
+    letter-spacing: 1px;
+  }
+  .subtitle {
+    color: #7a7a9a;
+    font-size: 0.85rem;
+    margin-bottom: 24px;
+    max-width: 700px;
+    text-align: center;
+    line-height: 1.5;
+  }
+  .map-container {
+    display: flex;
+    gap: 30px;
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 1400px;
+  }
+  .map-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .map-label {
+    color: #e8c170;
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+  }
+  .map-wrapper {
+    position: relative;
+    border: 2px solid #3a3a5a;
+    border-radius: 4px;
+    overflow: hidden;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  }
+  canvas { display: block; }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-top: 20px;
+    justify-content: center;
+    max-width: 900px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8rem;
+  }
+  .legend-swatch {
+    width: 18px;
+    height: 18px;
+    border-radius: 3px;
+    border: 1px solid #555;
+  }
+  .annotations {
+    margin-top: 28px;
+    max-width: 800px;
+    background: #232342;
+    border: 1px solid #3a3a5a;
+    border-radius: 6px;
+    padding: 20px 24px;
+  }
+  .annotations h2 {
+    color: #e8c170;
+    font-size: 1rem;
+    margin-bottom: 12px;
+  }
+  .annotations ul {
+    list-style: none;
+    padding: 0;
+  }
+  .annotations li {
+    padding: 6px 0;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    color: #b0b0c8;
+  }
+  .annotations li strong { color: #e8c170; }
+  .annotations .code {
+    background: #1a1a2e;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: 'Consolas', monospace;
+    font-size: 0.8rem;
+    color: #7ec8e3;
+  }
+</style>
+</head>
+<body>
+
+<h1>Steel City — Alley Seam Layout</h1>
+<p class="subtitle">
+  Top-down city map. <b style="color:#e8c170">BLOCKS</b> are the large grid units — each contains a 3x3 grid of building plots (8 buildings + center courtyard) surrounded by a sidewalk ring.
+  <b style="color:#e8c170">Roads and alleys run between BLOCKS</b>, never between individual buildings.
+</p>
+
+<div class="map-container">
+  <div class="map-section">
+    <div class="map-label">Current: Uniform Road Seams</div>
+    <div class="map-wrapper">
+      <canvas id="mapCurrent" width="620" height="620"></canvas>
+    </div>
+  </div>
+  <div class="map-section">
+    <div class="map-label">Proposed: Variable Seams (Road + Alley)</div>
+    <div class="map-wrapper">
+      <canvas id="mapAlley" width="620" height="620"></canvas>
+    </div>
+  </div>
+</div>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-swatch" style="background:#4a4a5a"></div>Building (8 per block)</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#2a2a35"></div>Courtyard (block center)</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#2a2a3a"></div>Sidewalk (block perimeter)</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#1a1a28"></div>Road (between blocks)</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#3d3528"></div>Alley (between blocks, narrow)</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#c4a050;opacity:0.8"></div>Waypoint Node</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#d4883a;opacity:0.8"></div>Alley Waypoint</div>
+</div>
+
+<div class="annotations">
+  <h2>How Alley Seams Work</h2>
+  <ul>
+    <li><strong>Block structure</strong>: Each BLOCK = 3x3 building plots (8 buildings + center courtyard). Surrounded by a sidewalk ring. <span class="code">groundTileSize = (BuildingVoxelWidth * buildingsPerBlockRow * voxelSize) + sidewalkWidth * 2</span></li>
+    <li><strong>Current system</strong>: Every seam between blocks is a <span class="code">roadWidth</span> road. Uniform spacing: <span class="code">spacing = groundTileSize + roadWidth</span></li>
+    <li><strong>Proposed system</strong>: Each seam is typed as <strong>Road</strong> or <strong>Alley</strong>. Alley seams use <span class="code">alleyWidth</span> (narrower, ~1-1.5m). Block positions computed from per-seam cumulative spacing.</li>
+    <li><strong>Scanner impact</strong>: Alley voxels painted with <span class="code">MAT_ALLEY (133)</span> — cobblestone material. Scanner picks them up as pathable nodes with higher tick cost (narrow, obstructed, slower).</li>
+    <li><strong>Pathfinding</strong>: Alleys create secondary routes — flanking, escape, concealment. Higher tick cost = AI prefers roads unless tactical advantage or roadblock forces detour.</li>
+    <li><strong>Tactical</strong>: Alleys are concealed from main street view. Crates/ash bins in alleys provide cover. Cars on roads provide cover.</li>
+    <li><strong>Layout control</strong>: <span class="code">CityLayout</span> gains per-seam type metadata. Generator can decide alley frequency (e.g., every 3rd seam is an alley, or random with seed).</li>
+  </ul>
+</div>
+
+<script>
+const COL = {
+  building: '#4a4a5a', buildingEdge: '#5a5a6a',
+  courtyard: '#2a2a35',
+  sidewalk: '#2a2a3a', sidewalkEdge: '#3a3a4a',
+  road: '#1a1a28', roadLine: '#444',
+  alley: '#3d3528', alleyEdge: '#4d4538',
+  waypoint: '#c4a050', waypointLink: 'rgba(90,138,90,0.4)',
+  waypointAlley: '#d4883a', waypointAlleyLink: 'rgba(180,120,50,0.3)',
+  label: '#8a8aaa', labelBg: 'rgba(20,20,40,0.75)',
+  blockLabel: '#7a7aaa',
+  blockBorder: '#5a5a7a'
+};
+
+// Draw a BLOCK: large square with sidewalk ring + 3x3 building plots inside
+function drawBlock(ctx, x, y, blockSize, sidewalkW, label) {
+  // Sidewalk ring (outer perimeter of block)
+  ctx.fillStyle = COL.sidewalk;
+  ctx.fillRect(x, y, blockSize, blockSize);
+
+  // Building area inside sidewalk
+  const bx = x + sidewalkW;
+  const by = y + sidewalkW;
+  const bw = blockSize - sidewalkW * 2;
+  const plotSize = bw / 3;
+
+  // 3x3 plots — center = courtyard, rest = buildings
+  for (let r = 0; r < 3; r++) {
+    for (let c = 0; c < 3; c++) {
+      const px = bx + c * plotSize;
+      const py = by + r * plotSize;
+      if (r === 1 && c === 1) {
+        ctx.fillStyle = COL.courtyard;
+        ctx.fillRect(px, py, plotSize, plotSize);
+        ctx.strokeStyle = 'rgba(60,60,80,0.4)';
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(px + 0.5, py + 0.5, plotSize - 1, plotSize - 1);
+      } else {
+        ctx.fillStyle = COL.building;
+        ctx.fillRect(px + 1, py + 1, plotSize - 2, plotSize - 2);
+        ctx.strokeStyle = COL.buildingEdge;
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(px + 1.5, py + 1.5, plotSize - 3, plotSize - 3);
+      }
+    }
+  }
+
+  // Thick block border to distinguish from building edges
+  ctx.strokeStyle = COL.blockBorder;
+  ctx.lineWidth = 2.5;
+  ctx.strokeRect(x + 1.25, y + 1.25, blockSize - 2.5, blockSize - 2.5);
+
+  // Sidewalk inner edge
+  ctx.strokeStyle = COL.sidewalkEdge;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x + sidewalkW - 0.5, y + sidewalkW - 0.5, bw + 1, bw + 1);
+
+  if (label) {
+    ctx.fillStyle = COL.blockLabel;
+    ctx.font = 'bold 9px Consolas';
+    ctx.textAlign = 'center';
+    ctx.fillText(label, x + blockSize / 2, y + 13);
+  }
+}
+
+function drawRoad(ctx, x1, y1, x2, y2, width, horizontal) {
+  ctx.fillStyle = COL.road;
+  if (horizontal) ctx.fillRect(x1, y1, x2 - x1, width);
+  else ctx.fillRect(x1, y1, width, y2 - y1);
+  ctx.strokeStyle = COL.roadLine;
+  ctx.lineWidth = 0.5;
+  ctx.setLineDash([6, 6]);
+  ctx.beginPath();
+  if (horizontal) { ctx.moveTo(x1, y1 + width / 2); ctx.lineTo(x2, y1 + width / 2); }
+  else { ctx.moveTo(x1 + width / 2, y1); ctx.lineTo(x1 + width / 2, y2); }
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function drawAlley(ctx, x1, y1, x2, y2, width, horizontal) {
+  // Sidewalk background
+  ctx.fillStyle = COL.sidewalk;
+  if (horizontal) ctx.fillRect(x1, y1, x2 - x1, width);
+  else ctx.fillRect(x1, y1, width, y2 - y1);
+  ctx.strokeStyle = COL.sidewalkEdge;
+  ctx.lineWidth = 1;
+  if (horizontal) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1 + 0.5); ctx.lineTo(x2, y1 + 0.5);
+    ctx.moveTo(x1, y1 + width - 0.5); ctx.lineTo(x2, y1 + width - 0.5);
+    ctx.stroke();
+  } else {
+    ctx.beginPath();
+    ctx.moveTo(x1 + 0.5, y1); ctx.lineTo(x1 + 0.5, y2);
+    ctx.moveTo(x1 + width - 0.5, y1); ctx.lineTo(x1 + width - 0.5, y2);
+    ctx.stroke();
+  }
+
+  // Cobblestone path down the middle
+  const pathWidth = Math.min(width * 0.4, 12);
+  const pathStart = (width - pathWidth) / 2;
+  ctx.fillStyle = COL.alley;
+  if (horizontal) ctx.fillRect(x1, y1 + pathStart, x2 - x1, pathWidth);
+  else ctx.fillRect(x1 + pathStart, y1, pathWidth, y2 - y1);
+  // Cobblestone texture
+  ctx.fillStyle = 'rgba(60,55,45,0.5)';
+  for (let i = 0; i < (horizontal ? x2 - x1 : y2 - y1); i += 6) {
+    for (let j = 0; j < pathWidth; j += 6) {
+      if ((i + j) % 12 === 0) {
+        if (horizontal) ctx.fillRect(x1 + i, y1 + pathStart + j, 2, 2);
+        else ctx.fillRect(x1 + pathStart + j, y1 + i, 2, 2);
+      }
+    }
+  }
+  // Path edges
+  ctx.strokeStyle = COL.alleyEdge;
+  ctx.lineWidth = 0.5;
+  ctx.beginPath();
+  if (horizontal) {
+    ctx.moveTo(x1, y1 + pathStart + 0.5); ctx.lineTo(x2, y1 + pathStart + 0.5);
+    ctx.moveTo(x1, y1 + pathStart + pathWidth - 0.5); ctx.lineTo(x2, y1 + pathStart + pathWidth - 0.5);
+  } else {
+    ctx.moveTo(x1 + pathStart + 0.5, y1); ctx.lineTo(x1 + pathStart + 0.5, y2);
+    ctx.moveTo(x1 + pathStart + pathWidth - 0.5, y1); ctx.lineTo(x1 + pathStart + pathWidth - 0.5, y2);
+  }
+  ctx.stroke();
+}
+
+function drawWaypoints(ctx, points, links) {
+  for (const [a, b] of links) {
+    const pa = points[a], pb = points[b];
+    ctx.strokeStyle = pa.alley || pb.alley ? COL.waypointAlleyLink : COL.waypointLink;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(pa.x, pa.y);
+    ctx.lineTo(pb.x, pb.y);
+    ctx.stroke();
+  }
+  for (const p of points) {
+    ctx.fillStyle = p.alley ? COL.waypointAlley : COL.waypoint;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawLabel(ctx, text, x, y, size) {
+  ctx.font = (size || 9) + 'px Consolas';
+  const w = ctx.measureText(text).width + 8;
+  ctx.fillStyle = COL.labelBg;
+  ctx.fillRect(x - w / 2, y - 7, w, 14);
+  ctx.fillStyle = COL.label;
+  ctx.textAlign = 'center';
+  ctx.fillText(text, x, y + 3);
+}
+
+// Compute block positions for a 3x3 grid of blocks with given seam widths
+// hSeams: array of 2 horizontal seam widths (between rows)
+// vSeams: array of 2 vertical seam widths (between cols)
+function computeBlockPositions(blockSize, offset, hSeams, vSeams) {
+  const positions = [];
+  let yPos = offset;
+  for (let r = 0; r < 3; r++) {
+    let xPos = offset;
+    for (let c = 0; c < 3; c++) {
+      positions.push({x: xPos, y: yPos});
+      xPos += blockSize + (c < 2 ? vSeams[c] : 0);
+    }
+    yPos += blockSize + (r < 2 ? hSeams[r] : 0);
+  }
+  return positions;
+}
+
+// Generate waypoint nodes and links for a block
+function blockWaypoints(p, blockSize, sidewalkW, base) {
+  const pts = [], links = [];
+  const sw = sidewalkW;
+  pts.push({x: p.x + sw, y: p.y + sw});
+  pts.push({x: p.x + blockSize - sw, y: p.y + sw});
+  pts.push({x: p.x + blockSize - sw, y: p.y + blockSize - sw});
+  pts.push({x: p.x + sw, y: p.y + blockSize - sw});
+  pts.push({x: p.x + blockSize / 2, y: p.y + sw});
+  pts.push({x: p.x + blockSize - sw, y: p.y + blockSize / 2});
+  pts.push({x: p.x + blockSize / 2, y: p.y + blockSize - sw});
+  pts.push({x: p.x + sw, y: p.y + blockSize / 2});
+  links.push([base+0,base+4]); links.push([base+4,base+1]);
+  links.push([base+1,base+5]); links.push([base+5,base+2]);
+  links.push([base+2,base+6]); links.push([base+6,base+3]);
+  links.push([base+3,base+7]); links.push([base+7,base+0]);
+  return {pts, links};
+}
+
+// --- Current Map: 3x3 blocks, all road seams ---
+function drawCurrentMap() {
+  const canvas = document.getElementById('mapCurrent');
+  const ctx = canvas.getContext('2d');
+  const W = 620;
+  ctx.fillStyle = '#0d0d18';
+  ctx.fillRect(0, 0, W, W);
+
+  const blockSize = 160;
+  const sidewalkW = 12;
+  const roadWidth = 30;
+  const offset = 25;
+
+  const hSeams = [roadWidth, roadWidth];
+  const vSeams = [roadWidth, roadWidth];
+  const positions = computeBlockPositions(blockSize, offset, hSeams, vSeams);
+
+  // Draw roads between blocks (horizontal seams)
+  for (let r = 0; r < 2; r++) {
+    const y = offset + (r + 1) * blockSize + r * roadWidth;
+    drawRoad(ctx, offset, y, offset + 3 * blockSize + 2 * roadWidth, y, roadWidth, true);
+  }
+  // Vertical seams
+  for (let c = 0; c < 2; c++) {
+    const x = offset + (c + 1) * blockSize + c * roadWidth;
+    drawRoad(ctx, x, offset, x, offset + 3 * blockSize + 2 * roadWidth, roadWidth, false);
+  }
+
+  // Draw blocks
+  const labels = ['B00','B01','B02','B10','B11','B12','B20','B21','B22'];
+  for (let i = 0; i < 9; i++)
+    drawBlock(ctx, positions[i].x, positions[i].y, blockSize, sidewalkW, labels[i]);
+
+  // Waypoints
+  const pts = [], links = [];
+  for (let i = 0; i < 9; i++) {
+    const bw = blockWaypoints(positions[i], blockSize, sidewalkW, pts.length);
+    pts.push(...bw.pts);
+    links.push(...bw.links);
+  }
+
+  // Cross-block links via road midpoints (E-W and N-S neighbors)
+  // Each block has 8 waypoints: 0=NW,1=NE,2=SE,3=SW,4=N-mid,5=E-mid,6=S-mid,7=W-mid
+  for (let r = 0; r < 3; r++) {
+    for (let c = 0; c < 3; c++) {
+      const idx = r * 3 + c;
+      const base = idx * 8;
+      // E neighbor
+      if (c < 2) {
+        links.push([base + 5, (idx + 1) * 8 + 7]);
+      }
+      // S neighbor
+      if (r < 2) {
+        links.push([base + 6, (idx + 3) * 8 + 4]);
+      }
+    }
+  }
+
+  drawWaypoints(ctx, pts, links);
+
+  // Road labels
+  ctx.fillStyle = '#555570';
+  ctx.font = 'italic 8px Consolas';
+  ctx.textAlign = 'center';
+  for (let r = 0; r < 2; r++) {
+    const y = offset + (r + 1) * blockSize + r * roadWidth;
+    ctx.fillText('ROAD', offset + 3 * blockSize / 2 + roadWidth, y + roadWidth / 2 + 3);
+  }
+  for (let c = 0; c < 2; c++) {
+    const x = offset + (c + 1) * blockSize + c * roadWidth;
+    ctx.save();
+    ctx.translate(x + roadWidth / 2, offset + 3 * blockSize / 2 + roadWidth);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillText('ROAD', 0, 3);
+    ctx.restore();
+  }
+
+  drawLabel(ctx, 'All seams = ROAD between BLOCKS', W / 2, W - 12, 10);
+}
+
+// --- Proposed Map: 3x3 blocks, some seams = alley, some = road ---
+function drawAlleyMap() {
+  const canvas = document.getElementById('mapAlley');
+  const ctx = canvas.getContext('2d');
+  const W = 620;
+  ctx.fillStyle = '#0d0d18';
+  ctx.fillRect(0, 0, W, W);
+
+  const blockSize = 160;
+  const sidewalkW = 12;
+  const roadWidth = 30;
+  const alleyWidth = 22;
+  const offset = 25;
+
+  // Seam types: hSeams between rows, vSeams between cols
+  // Pattern: vertical seam 0 = alley, vertical seam 1 = road
+  //          horizontal seam 0 = road, horizontal seam 1 = alley
+  const hSeamTypes = ['road', 'alley'];
+  const vSeamTypes = ['alley', 'road'];
+  const hSeams = hSeamTypes.map(t => t === 'alley' ? alleyWidth : roadWidth);
+  const vSeams = vSeamTypes.map(t => t === 'alley' ? alleyWidth : roadWidth);
+
+  const positions = computeBlockPositions(blockSize, offset, hSeams, vSeams);
+
+  // Draw horizontal seams
+  let yAccum = offset;
+  for (let r = 0; r < 2; r++) {
+    yAccum += blockSize;
+    const y = yAccum;
+    const totalW = offset + 3 * blockSize + vSeams[0] + vSeams[1];
+    if (hSeamTypes[r] === 'road') {
+      drawRoad(ctx, offset, y, totalW, y, hSeams[r], true);
+    } else {
+      drawAlley(ctx, offset, y, totalW, y, hSeams[r], true);
+    }
+    yAccum += hSeams[r];
+  }
+
+  // Draw vertical seams
+  let xAccum = offset;
+  for (let c = 0; c < 2; c++) {
+    xAccum += blockSize;
+    const x = xAccum;
+    const totalH = offset + 3 * blockSize + hSeams[0] + hSeams[1];
+    if (vSeamTypes[c] === 'road') {
+      drawRoad(ctx, x, offset, x, totalH, vSeams[c], false);
+    } else {
+      drawAlley(ctx, x, offset, x, totalH, vSeams[c], false);
+    }
+    xAccum += vSeams[c];
+  }
+
+  // Draw blocks
+  const labels = ['B00','B01','B02','B10','B11','B12','B20','B21','B22'];
+  for (let i = 0; i < 9; i++)
+    drawBlock(ctx, positions[i].x, positions[i].y, blockSize, sidewalkW, labels[i]);
+
+  // Waypoints
+  const pts = [], links = [];
+  for (let i = 0; i < 9; i++) {
+    const bw = blockWaypoints(positions[i], blockSize, sidewalkW, pts.length);
+    pts.push(...bw.pts);
+    links.push(...bw.links);
+  }
+
+  // Cross-block links
+  for (let r = 0; r < 3; r++) {
+    for (let c = 0; c < 3; c++) {
+      const idx = r * 3 + c;
+      const base = idx * 8;
+      // E neighbor (vertical seam c)
+      if (c < 2) {
+        if (vSeamTypes[c] === 'alley') {
+          // Alley: insert alley waypoint node in the seam
+          const seamX = positions[idx].x + blockSize + vSeams[c] / 2;
+          const midY = positions[idx].y + blockSize / 2;
+          const aIdx = pts.length;
+          pts.push({x: seamX, y: midY, alley: true});
+          links.push([base + 5, aIdx]);
+          links.push([aIdx, (idx + 1) * 8 + 7]);
+        } else {
+          links.push([base + 5, (idx + 1) * 8 + 7]);
+        }
+      }
+      // S neighbor (horizontal seam r)
+      if (r < 2) {
+        if (hSeamTypes[r] === 'alley') {
+          const seamY = positions[idx].y + blockSize + hSeams[r] / 2;
+          const midX = positions[idx].x + blockSize / 2;
+          const aIdx = pts.length;
+          pts.push({x: midX, y: seamY, alley: true});
+          links.push([base + 6, aIdx]);
+          links.push([aIdx, (idx + 3) * 8 + 4]);
+        } else {
+          links.push([base + 6, (idx + 3) * 8 + 4]);
+        }
+      }
+    }
+  }
+
+  drawWaypoints(ctx, pts, links);
+
+  // Seam labels
+  ctx.fillStyle = '#555570';
+  ctx.font = 'italic 8px Consolas';
+  ctx.textAlign = 'center';
+  // Horizontal seam labels
+  yAccum = offset;
+  for (let r = 0; r < 2; r++) {
+    yAccum += blockSize;
+    const totalW = offset + 3 * blockSize + vSeams[0] + vSeams[1];
+    const label = hSeamTypes[r].toUpperCase();
+    ctx.fillStyle = hSeamTypes[r] === 'alley' ? '#8a7a50' : '#555570';
+    ctx.fillText(label, totalW / 2, yAccum + hSeams[r] / 2 + 3);
+    yAccum += hSeams[r];
+  }
+  // Vertical seam labels
+  xAccum = offset;
+  for (let c = 0; c < 2; c++) {
+    xAccum += blockSize;
+    const totalH = offset + 3 * blockSize + hSeams[0] + hSeams[1];
+    const label = vSeamTypes[c].toUpperCase();
+    ctx.save();
+    ctx.translate(xAccum + vSeams[c] / 2, totalH / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillStyle = vSeamTypes[c] === 'alley' ? '#8a7a50' : '#555570';
+    ctx.fillText(label, 0, 3);
+    ctx.restore();
+    xAccum += vSeams[c];
+  }
+
+  drawLabel(ctx, 'Mixed seams: ROAD + ALLEY between BLOCKS', W / 2, W - 12, 10);
+}
+
+drawCurrentMap();
+drawAlleyMap();
+</script>
+
+</body>
+</html>

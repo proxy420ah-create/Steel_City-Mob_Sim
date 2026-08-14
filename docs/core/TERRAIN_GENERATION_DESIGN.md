@@ -50,23 +50,24 @@ Steel City Mob Sim evolves the Gangsters formula visually while preserving its c
 
 ---
 
-### 3. Trolley System: Functional Transit
+### 3. Trolley System: Functional Transit (Main Street Seam Type)
 
-**Decision**: Trolley tracks are a road variant that enables hood movement.
+**Decision**: Trolley tracks are embedded in **Main Street** seam types — wider roads that serve as city arteries.
 
-- Trolley tracks are embedded in road tiles (visual: rail material on road surface)
-- Trolley tracks function as roads for navigation purposes
+- Main Street seams are ~2.8x wider than standard roads (4.5m vs 1.6m)
+- Trolley tracks are drawn as dual metal rails on the main street surface
+- Main streets function as roads for navigation, with trolley stop waypoints at block centers
 - **Future mechanic**: Hoods can use trolley lines for faster city traversal
-- Trolley tracks follow fixed routes (predefined in city layout)
+- Trolley tracks follow fixed routes (painted as Main Street seams in city editor)
 - No trolley stations as separate buildings — stops are at road intersections
 
-**Rationale**: Gangsters had trolley tracks visually but they were non-functional. We keep the visual fidelity and add a gameplay purpose — rapid hood deployment across the city. This enhances an existing Gangsters concept without inventing new systems.
+**Rationale**: Gangsters had trolley tracks visually but they were non-functional. We keep the visual fidelity and add a gameplay purpose — rapid hood deployment across the city. Historical research confirms 1920s trolley lines ran on main arteries (66-100ft wide), not side streets.
 
 **Implementation**:
-- Trolley track blocks get a `"has_trolley": true` field in city layout
-- `VoxelTerrainBuilder` draws rail material on top of road material for trolley blocks
-- Waypoint graph treats trolley blocks as normal roads (for now)
-- Future: special "trolley travel" order for hoods
+- City editor exports `"mainstreet"` seam type in hSeams/vSeams arrays
+- `VoxelTerrainBuilder` paints `MAT_TROLLEY_TRACK (135)` rails on `MAT_ASPHALT (104)` base for main street seams
+- `VoxelWaypointScanner` generates trolley stop nodes (cyan) at block centers along main street seams
+- See `CITY_LAYOUT_PIPELINE.md` for full specification
 
 ---
 
@@ -83,15 +84,21 @@ Steel City Mob Sim evolves the Gangsters formula visually while preserving its c
 
 ---
 
-### 5. Road Types: Single Type
+### 5. Seam Types: Four-Tier Street Hierarchy
 
-**Decision**: One road type for now. No cobblestone/brick/asphalt variants.
+**Decision**: Four seam types replace the single road type, based on 1920s urban planning research.
 
-- All roads use the same material and visual treatment
-- Trolley tracks are an overlay on roads, not a separate road type
-- Road appearance is consistent across the entire city
+- **Road** — standard asphalt, 1.6m wide, normal pathing
+- **Alley** — cobblestone path between combined sidewalks, 1.8m wide, through-passage, concealed
+- **Main Street** — wide asphalt with dual trolley tracks, 4.5m wide, fastest transit
+- **Dead-End Alley** — dark red cobblestone, 1.8m wide, terminates at one side (no through-link), tactical chokepoint
 
-**Rationale**: Multiple road surfaces add visual variety but no gameplay value at this stage. Can be revisited later as a purely cosmetic enhancement.
+**Rationale**: Historical research confirms 1920s cities had distinct street hierarchies (primary/secondary/tertiary). The city editor (`city_editor.html`) supports painting all four types. See `CITY_LAYOUT_PIPELINE.md` for full specifications and material IDs.
+
+**Implementation**:
+- City editor exports seam types in JSON v2 format
+- `VoxelTerrainBuilder` paints per-seam materials (pending)
+- `VoxelWaypointScanner` generates type-specific waypoints (pending)
 
 ---
 

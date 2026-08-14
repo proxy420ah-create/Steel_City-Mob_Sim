@@ -7,7 +7,7 @@ description: Mandatory pre-implementation doc review before writing ANY Steel Ci
 **Use this workflow before writing or modifying ANY code in SteelCityMobSim.**
 
 ## Step 1: Read the Index
-- Read `DOCUMENTATION_INDEX.md` completely
+- Read `docs/core/DOCUMENTATION_INDEX.md` completely
 
 ## Step 2: Identify Governing Docs
 List every doc relevant to the task. When in doubt, include more.

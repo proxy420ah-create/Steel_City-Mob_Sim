@@ -28,7 +28,6 @@ The character pipeline is a **Portrait-First** workflow that generates 3D voxel 
 | `character_pipeline.html` | Portrait selection → feature refinement → full body generation → export |
 | `character_animator.html` | Load generated model → test animation states → export groups/params |
 | `voxel_editor.html` | General voxel editing (buildings, props) |
-| `voxel_editor_2x.html` | Double-resolution voxel editing |
 
 ---
 
