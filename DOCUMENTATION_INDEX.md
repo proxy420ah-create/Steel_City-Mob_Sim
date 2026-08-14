@@ -2,7 +2,7 @@
 
 **Purpose**: Central hub for all project documentation — helps coding agents find information fast and efficiently.
 
-**Last Updated**: August 8, 2026
+**Last Updated**: August 13, 2026
 **Project**: Steel City: Mob Sim — Organized Crime Simulation
 **Status**: 🔄 ALPHA — Vertical Slice Playable (Unity 6)
 
@@ -12,9 +12,9 @@
 
 | Category | Documents | Status |
 |----------|-----------|--------|
-| **Core Design** | 3 docs | ✅ Complete |
+| **Core Design** | 6 docs | ✅ Complete |
 | **Systems Design** | 11 docs | ✅ Complete |
-| **Data Reference** | 1 doc | ✅ Complete |
+| **Data Reference** | 2 docs | ✅ Complete |
 | **Source Analysis** | 2 docs | ✅ Complete |
 | **Unity Project** | 12 docs | ✅ Complete |
 | **VoxelAssetStudio** | 20+ docs | ✅ Complete |
@@ -58,12 +58,50 @@
   - Event queue design for batch processing at week end
   - Performance projections: 92s → ~20-30s load, 0ms week transitions with no changes
 
+**City Layout Pipeline:**
+- **`docs/core/CITY_LAYOUT_PIPELINE.md`** — Design tool to Unity implementation pipeline
+  - `city_editor.html` design tool (COMPLETE): 3-phase pipeline — Macro → Granular (zones+alleys) → Buildings
+  - Phase 1: Gangsters 32×32 macro map (embedded replica1_data.js, macro tile painter with undo)
+  - Phase 2: Distance-field zones, alley system (25% per commercial/core, 3-lane debris|path|debris), elevated rail line at seed-determined railCol (avoids EC), live color picker (41 materials), LOD system, compute/render split for performance
+  - Phase 3: Building footprints (3×3 per block), emoji overlays (civic, municipal, gang HQs, terminal, docks), train animation (north → station → south loop)
+  - JSON v3 export with railLine data (railCol, direction, trainRunsPerWeek)
+  - Unity pending tasks: CityLayout variable seams, VoxelTerrainBuilder materials, VoxelWaypointScanner, dynamic cover
+  - 1920s urban planning research basis (street hierarchy, trolley lines, alley systems)
+  - Material IDs: MAT_ALLEY(133), MAT_TROLLEY_TRACK(135, proposed), MAT_COVER_CRATE(131), MAT_COVER_CAR(132)
+
 **Source Game Analysis:**
 - **`docs/core/SOURCE_GAME_ANALYSIS.md`** — Analysis of Gangsters: Organized Crime
   - .xtx file encoding (4-byte XOR key)
   - Decoded data tables summary
   - Original game architecture observations
   - What to preserve, what to polish
+
+**Extracted Game Data:**
+- **`docs/core/GANGSTERS_GAME_DATA.md`** — Comprehensive data extraction from 28 decrypted .xtx files
+  - Constants: city population (2000 civilians, 400 police, 100 FBI), fear/hostility/squeal tables, bribe prices, FBI suspicion formula, loyalty, recruit tests
+  - Economics: All 171 legal business types across 8 groups with full economic data
+  - Illegal Economics: All 14 illegal business types with goods flow data
+  - Export Ratio: Diminishing returns pricing (Counterfeit $1000, Stolen $200, Liquor $100 per case)
+  - Crime: All order types with time cost, suspicion, sentence, investigation, risk values
+  - Damage Table: 8 weapons × 7 ranges × 4 damage states
+  - Hit Table: 9 weapons × 8 range bands with hit probability formula
+  - Hoods: 40 predefined hoods with full stat blocks
+  - Character Generation: Hood type generation with skill weightings (includes known skill order bug)
+  - Cart: 16 combat attack types with animation result data
+  - Business Suspicion: Front suitability for all 15 illegal business types (2=ideal front, 0=poor front)
+  - Design implications for Steel City
+
+**Economy & Goods Design:**
+- **`docs/core/ECONOMY_DESIGN.md`** — Economy design informed by decrypted game data
+  - Three goods types (Counterfeit, Stolen, Liquor) with production/supply chains
+  - Warehouse mechanics (12 fixed, never bankrupt, 300+15 case capacity, FBI raid target)
+  - Export system (two export points: Docks + Railroad Terminal, diminishing returns)
+  - Counterfeit laundering cycle (press → legal businesses → warehouse → export)
+  - Business front suitability system (2=ideal cover, 0=poor cover)
+  - Illegal business economy (14 types, diminishing returns, profit groups)
+  - FBI suspicion system (income threshold $5000, accountant skill reducer)
+  - Bribe economy (power-scaled costs)
+  - Steel City adaptations: what to preserve, improve, simplify
 
 **Reverse Engineering Findings:**
 - **`docs/core/REVERSE_ENGINEERING_FINDINGS.md`** — Ghidra binary analysis of gangsters.exe (18 sections, 2400+ lines)
@@ -122,7 +160,17 @@
   - Common pitfalls (signed bytes, thunk resolution, SIB bytes, little-endian)
   - Workflow for adding new scripts
 
-**Keywords**: design, philosophy, principles, source, analysis, xtx, decoding, ghidra, reverse engineering, binary, decompilation, orders, vehicles, timing, combat, pathfinding, sim_tick, traffic, integration, engine, architecture, scripting, vtable, pattern scan
+**Zoning Design:**
+- **`docs/core/ZONING_DESIGN.md`** — Hub-and-spoke zoning with weighted influence zones
+  - Economic Core (EC) at center, Industrial on seed-determined side
+  - Rail line: seed-determined N-S column, cuts through any zones (not locked to industrial)
+  - Railroad Terminal: municipal building placed ON rail line (export destination)
+  - Docks: industrial business in industrial zone (export point + income + recruitment)
+  - 14 civic/municipal buildings from Economics.xtx Group 6
+  - Weighted influence model with configurable falloff (linear, gaussian, exponential)
+  - Export JSON format with zone metadata for Unity consumption
+
+**Keywords**: design, philosophy, principles, source, analysis, xtx, decoding, ghidra, reverse engineering, binary, decompilation, orders, vehicles, timing, combat, pathfinding, sim_tick, traffic, integration, engine, architecture, scripting, vtable, pattern scan, city layout, seam types, alley, main street, trolley, dead-end, waypoint scanner, material ids, city editor, game data, constants, economics, export, counterfeit, liquor, stolen goods, warehouse, docks, railroad terminal, business fronts, suspicion, FBI, bribes, fear, hostility, squeal, zoning, rail line, industrial, commercial, residential
 
 ---
 
@@ -239,7 +287,7 @@
 
 ### 3. Data Reference
 
-- **`docs/data/GAME_DATA_REFERENCE.md`** — Extracted data from original game
+- **`docs/data/GAME_DATA_REFERENCE.md`** — Extracted data from original game (legacy)
   - Constants (population, fear, squeal, bribes, FBI, elections)
   - Character generation archetypes
   - Crime table (all 30+ crimes)
@@ -249,6 +297,10 @@
   - Scenarios (10)
   - Market share decay curve
   - Profit/running cost tables
+
+- **`docs/core/GANGSTERS_GAME_DATA.md`** — Comprehensive decrypted game data (28 .xtx files)
+  - See Core Design section above for full description
+  - Supersedes GAME_DATA_REFERENCE.md with more complete data from decrypted files
 
 **Keywords**: data, reference, constants, crime, weapons, economics, businesses
 
@@ -296,6 +348,7 @@ All Unity-side documentation lives in `Assets/docs/`. See `Assets/docs/DOCUMENTA
 - **`VoxelAssetStudio/IMPROVEMENT_ROADMAP.md`** — V2.0 improvement plan (undo/redo, layers, selection tools)
 - **`VoxelAssetStudio/PHASE2_IMPLEMENTATION_PLAN.md`** — Skeleton rigging system plan
 - **`VoxelAssetStudio/INTERACTIVE_JOINTS_ROADMAP.md`** — Interactive joint manipulation
+- **`VoxelAssetStudio/city_editor.html`** — City Layout Editor (3-phase pipeline: Macro → Granular → Buildings, see `docs/core/CITY_LAYOUT_PIPELINE.md`)
 
 ### Vertical Slice
 - **`docs/VERTICAL_SLICE_DESIGN.md`** — End-to-end test design (9 blocks, 2 factions, 5-10 weeks)

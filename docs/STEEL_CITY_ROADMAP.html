@@ -384,7 +384,7 @@
       <p style="margin: 4px 0 0 0; color: var(--text-dim); font-size: 0.9em;">
         This roadmap must be updated whenever new features are discussed, design documents are created, or phases change status.
         If you're working on a design doc or brainstorming a new system, update the corresponding phase here afterward.
-        Last review: <strong>Aug 12, 2026</strong> — GPU compute animation pipeline COMPLETE + execution phase integration. CharacterRig consolidated (replaced GPUAnimationTestRig). Vinny.groups file fix (GPU compute pose). modelFacingOffset fix (180→0, Vinny faces +Z). Animated working week with walking character verified. Execution phase UI overhaul (fullscreen camera, minimal HUD, accordion panels). First coherent game-feel milestone reached.
+        Last review: <strong>Aug 13, 2026</strong> — City generation pipeline COMPLETE. 3-phase city_editor.html (Macro → Granular → Buildings). Alley system (25% per commercial/core, 3-lane debris|path|debris, block-layer). Rail line at seed-determined railCol (avoids EC) with train animation. Live color picker (41 materials). Compute/render split for performance. Commits 50430f4, e5ef7ed.
       </p>
     </div>
   </div>
@@ -425,6 +425,7 @@
     <h3><span class="pulse-dot"></span> Current Work — Execution Phase Coherent + Polish Next</h3>
     <div class="desc">
       <strong>Execution Phase Integration COMPLETE:</strong> Vinny walks with correct facing during working week simulation. CharacterRig consolidated onto single GameObject. Vinny.groups file fix restored GPU compute pose. modelFacingOffset fix (180→0) corrected backward walking. Execution phase UI overhaul: fullscreen camera, minimal TickHUD overlay, accordion panels. First coherent game-feel milestone reached.<br>
+      <strong>City Generation COMPLETE:</strong> 3-phase pipeline in city_editor.html — Macro → Granular (zones+alleys+rail) → Buildings. Alley system (25% per commercial/core, 3-lane debris|path|debris, block-layer infrastructure). Elevated rail line at seed-determined railCol (avoids EC) with train animation. Live color picker (41 materials). Compute/render split for performance.<br>
       <strong>Next:</strong> Polish — UI refinements, more animation states, gang simulation implementation.<br>
       <strong>GPU Rendering:</strong> Phase 1 (TRS Cache) complete. Phase 2 (buffer pooling) pending. 6 invariant computation candidates pending.<br>
       <strong>Gang Simulation:</strong> Design complete, awaiting implementation.
@@ -438,6 +439,8 @@
       <span class="file-chip">EventPlayer.cs</span>
       <span class="file-chip">character_animator.html</span>
       <span class="file-chip">CHARACTER_ANIMATION_PIPELINE.md</span>
+      <span class="file-chip">city_editor.html</span>
+      <span class="file-chip">CITY_LAYOUT_PIPELINE.md</span>
     </div>
   </div>
 
@@ -1237,8 +1240,14 @@
         <div class="tl-desc">CharacterRig consolidated (replaced GPUAnimationTestRig). Vinny.groups fix restored GPU compute pose. modelFacingOffset 180→0 fixed backward walking. Execution phase UI overhaul (fullscreen camera, minimal HUD, accordion panels). Animated working week with walking character verified. First coherent game-feel milestone. Commit 06fa710.</div>
       </div>
       <div class="tl-item">
+        <div class="tl-dot done"></div>
+        <div class="tl-date">Aug 13, 2026 — MILESTONE</div>
+        <div class="tl-title">City Generation Pipeline Complete</div>
+        <div class="tl-desc">3-phase pipeline in city_editor.html: Macro (Gangsters 32×32 map) → Granular (zones, alleys, rail line, block layout) → Buildings (civic/municipal footprints + emoji overlays). Alley system: 25% per commercial/core, 3-lane debris|path|debris at block layer. Rail line at seed-determined railCol (avoids EC) with train animation. Live color picker (41 materials). Compute/render split. Commits 50430f4, e5ef7ed.</div>
+      </div>
+      <div class="tl-item">
         <div class="tl-dot current"></div>
-        <div class="tl-date">Aug 12, 2026 — NOW</div>
+        <div class="tl-date">Aug 13, 2026 — NOW</div>
         <div class="tl-title">Polish & Gang Simulation Implementation</div>
         <div class="tl-desc">Next: UI refinements, more animation states (crouch tuning), gang simulation implementation (HoodAgent + HoodSpawner). GPU rendering Phase 2 + invariant computation fixes also pending.</div>
       </div>
@@ -1269,7 +1278,7 @@
   <p>Steel City: Mob Sim — Vertical Slice Roadmap</p>
   <p>Companion to <code>GAME_DESIGN_SKELETON.md</code> and <code>DOCUMENTATION_INDEX.md</code></p>
   <div class="update-note">
-    📝 Last updated: Aug 12, 2026 — Execution phase integration COMPLETE. CharacterRig consolidated, Vinny.groups fix, modelFacingOffset fix (180→0), execution phase UI overhaul. Animated working week with walking character — first coherent game-feel. Next: polish & gang simulation implementation.
+    📝 Last updated: Aug 13, 2026 — City generation pipeline COMPLETE. 3-phase city_editor.html (Macro → Granular → Buildings), alley system, rail line with train animation, live color picker. Execution phase integration complete. Next: polish & gang simulation implementation.
   </div>
   <div style="margin-top: 10px; padding: 10px 14px; background: var(--surface2); border: 1px solid var(--yellow); border-radius: 6px; font-size: 0.85em; color: var(--text-dim);">
     ⚠️ <strong style="color: var(--yellow);">Keep this roadmap current.</strong>
