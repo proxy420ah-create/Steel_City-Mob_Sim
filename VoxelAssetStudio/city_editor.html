@@ -301,14 +301,14 @@ body.ui-hidden #ui-hidden-hint { display:block; }
   <label class="toggle-row"><input type="checkbox" id="show-waypoints" checked> Show Waypoints</label>
   <label class="toggle-row"><input type="checkbox" id="show-labels"> Show Block Labels</label>
   <label class="toggle-row"><input type="checkbox" id="show-ruler"> Show Scale Ruler</label>
-  <label class="toggle-row"><input type="checkbox" id="show-buildings" checked> Show Building Plots</label>
+  <label class="toggle-row"><input type="checkbox" id="show-buildings" checked> Show Building Footprints</label>
   <label class="toggle-row"><input type="checkbox" id="show-rail-line" checked> Show Elevated Rail Line</label>
 </div>
 
 <!-- Layout presets panel -->
 <div id="presets-panel">
   <h3>Layout Presets</h3>
-  <div style="font-size:10px; color:#888; margin-bottom:8px;">Macro Editor → Granular → Zoning → Unity export</div>
+  <div style="font-size:10px; color:#888; margin-bottom:8px;">Macro Editor → Granular (zones+alleys) → Buildings → Unity export</div>
   <!-- Phase 1-5 presets commented out — using Macro Editor + Granular pipeline
   <button class="preset-btn" data-phase="1"><span class="preset-num">Phase 1</span> Control<span class="preset-desc">All roads — uniform grid</span></button>
   <button class="preset-btn" data-phase="2"><span class="preset-num">Phase 2</span> Basic<span class="preset-desc">Roads + alleys</span></button>
@@ -317,8 +317,8 @@ body.ui-hidden #ui-hidden-hint { display:block; }
   <button class="preset-btn" data-phase="5"><span class="preset-num">Phase 5</span> Full City<span class="preset-desc">+ zoning: central core, industrial, civic</span></button>
   -->
   <button class="preset-btn active" data-replica="1"><span class="preset-num">Macro</span> Gangsters Map<span class="preset-desc">32x32 — river + 5 bridges (macro seed)</span></button>
-  <button class="preset-btn" id="granular-btn" style="display:none;"><span class="preset-num">Granular</span> Phase 2<span class="preset-desc">Convert macro → seam layout</span></button>
-  <button class="preset-btn" id="zoning-btn" style="display:none;"><span class="preset-num">Zoning</span> Phase 3<span class="preset-desc">Distance-field zones + buildings</span></button>
+  <button class="preset-btn" id="granular-btn" style="display:none;"><span class="preset-num">Granular</span> Phase 2<span class="preset-desc">Zones + alleys + block layout</span></button>
+  <button class="preset-btn" id="zoning-btn" style="display:none;"><span class="preset-num">Buildings</span> Phase 3<span class="preset-desc">Civic, municipal + building footprints</span></button>
 </div>
 
 <!-- Right panel — info -->
@@ -1319,6 +1319,56 @@ function renderCity(group, data) {
         group.add(m);
       }
 
+      // Alley — block-level infrastructure (like sidewalks, not building plots)
+      // Rendered as one continuous strip through the middle row/column of the 3x3 grid
+      const alley = blockAlleys[r] && blockAlleys[r][c] ? blockAlleys[r][c] : null;
+      if (alley && !isWater && !isSimple) {
+        const ps = buildingPlotSize();
+        const innerX = bx + sw;
+        const innerZ = bz + sw;
+        const innerSize = ps * params.buildingsPerBlockRow;
+        const midIdx = Math.floor(params.buildingsPerBlockRow / 2);
+        const debrisW = ps * 0.25;
+        const pathW = ps * 0.5;
+
+        if (alley.dir === 'h') {
+          // Horizontal alley — continuous E-W strip through middle row
+          const alleyZ = innerZ + midIdx * ps;
+          // Debris on N and S sides (full inner width)
+          const dN = new THREE.Mesh(sharedPlane(innerSize, debrisW), matAlleyDebris);
+          dN.position.set(innerX + innerSize / 2, 0.015, alleyZ + debrisW / 2);
+          group.add(dN);
+          const dS = new THREE.Mesh(sharedPlane(innerSize, debrisW), matAlleyDebris);
+          dS.position.set(innerX + innerSize / 2, 0.015, alleyZ + ps - debrisW / 2);
+          group.add(dS);
+          // Center path (full inner width, continuous)
+          const path = new THREE.Mesh(sharedPlane(innerSize, pathW), pathMat);
+          path.position.set(innerX + innerSize / 2, 0.012, alleyZ + ps / 2);
+          group.add(path);
+        } else {
+          // Vertical alley — continuous N-S strip through middle column
+          const alleyX = innerX + midIdx * ps;
+          // Debris on E and W sides (full inner height)
+          const dW = new THREE.Mesh(sharedPlane(debrisW, innerSize), matAlleyDebris);
+          dW.position.set(alleyX + debrisW / 2, 0.015, innerZ + innerSize / 2);
+          group.add(dW);
+          const dE = new THREE.Mesh(sharedPlane(debrisW, innerSize), matAlleyDebris);
+          dE.position.set(alleyX + ps - debrisW / 2, 0.015, innerZ + innerSize / 2);
+          group.add(dE);
+          // Center path (full inner height, continuous)
+          const path = new THREE.Mesh(sharedPlane(pathW, innerSize), pathMat);
+          path.position.set(alleyX + ps / 2, 0.012, innerZ + innerSize / 2);
+          group.add(path);
+        }
+        // Center plot: purchasable empty land marker
+        const centerX = innerX + midIdx * ps + ps / 2;
+        const centerZ = innerZ + midIdx * ps + ps / 2;
+        const cGeom = sharedPlane(ps * 0.3, ps * 0.3);
+        const cMesh = new THREE.Mesh(cGeom, matCourtyard);
+        cMesh.position.set(centerX, 0.02, centerZ);
+        group.add(cMesh);
+      }
+
       // Zone edge for visual definition
       if (isZoned && lodLevel === 0) {
         const zEdgeGeom = sharedEdges(gt, gt);
@@ -1353,63 +1403,27 @@ function renderCity(group, data) {
         }
       }
 
-      // Building plots
-      if (showBuildings) {
+      // Building plots (phase 3 — cosmetic building footprints on zoned land)
+      if (showBuildings && buildingsActive) {
         const ps = buildingPlotSize();
         const innerX = bx + sw;
         const innerZ = bz + sw;
         const midIdx = Math.floor(params.buildingsPerBlockRow / 2);
-        const alley = blockAlleys[r] && blockAlleys[r][c] ? blockAlleys[r][c] : null;
+        const blockAlley = blockAlleys[r] && blockAlleys[r][c] ? blockAlleys[r][c] : null;
 
         for (let br = 0; br < params.buildingsPerBlockRow; br++) {
           for (let bc = 0; bc < params.buildingsPerBlockRow; bc++) {
             const px = innerX + bc * ps;
             const pz = innerZ + br * ps;
 
-            // Check if this plot is part of an alley
-            const isAlleyPlot = alley && (
-              (alley.dir === 'h' && br === midIdx) ||
-              (alley.dir === 'v' && bc === midIdx)
+            // Skip alley plots — alley is already rendered at block layer
+            const isAlleyPlot = blockAlley && (
+              (blockAlley.dir === 'h' && br === midIdx) ||
+              (blockAlley.dir === 'v' && bc === midIdx)
             );
-            const isAlleyCenter = isAlleyPlot && br === midIdx && bc === midIdx;
+            if (isAlleyPlot) continue;
 
-            if (isAlleyPlot) {
-              // Alley: full plot width with 3 lanes — [debris] [path] [debris]
-              // Center path uses sidewalk/zone color so it visually connects to the street sidewalk
-              // Entities walk down center path; debris/decor provides cover for firefights
-              const debrisW = ps * 0.25;
-              const pathW = ps * 0.5;
-              if (alley.dir === 'h') {
-                // Horizontal alley — lanes run E-W, debris on N and S sides
-                const dN = new THREE.Mesh(sharedPlane(ps, debrisW), matAlleyDebris);
-                dN.position.set(px + ps / 2, 0.015, pz + debrisW / 2);
-                group.add(dN);
-                const dS = new THREE.Mesh(sharedPlane(ps, debrisW), matAlleyDebris);
-                dS.position.set(px + ps / 2, 0.015, pz + ps - debrisW / 2);
-                group.add(dS);
-                const path = new THREE.Mesh(sharedPlane(ps, pathW), pathMat);
-                path.position.set(px + ps / 2, 0.012, pz + ps / 2);
-                group.add(path);
-              } else {
-                // Vertical alley — lanes run N-S, debris on E and W sides
-                const dW = new THREE.Mesh(sharedPlane(debrisW, ps), matAlleyDebris);
-                dW.position.set(px + debrisW / 2, 0.015, pz + ps / 2);
-                group.add(dW);
-                const dE = new THREE.Mesh(sharedPlane(debrisW, ps), matAlleyDebris);
-                dE.position.set(px + ps - debrisW / 2, 0.015, pz + ps / 2);
-                group.add(dE);
-                const path = new THREE.Mesh(sharedPlane(pathW, ps), pathMat);
-                path.position.set(px + ps / 2, 0.012, pz + ps / 2);
-                group.add(path);
-              }
-              // Center plot: purchasable empty land marker
-              if (isAlleyCenter) {
-                const cGeom = sharedPlane(ps * 0.3, ps * 0.3);
-                const cMesh = new THREE.Mesh(cGeom, matCourtyard);
-                cMesh.position.set(px + ps / 2, 0.02, pz + ps / 2);
-                group.add(cMesh);
-              }
-            } else if (br === midIdx && bc === midIdx && params.buildingsPerBlockRow >= 3) {
+            if (br === midIdx && bc === midIdx && params.buildingsPerBlockRow >= 3) {
               // Courtyard (non-alley blocks)
               const cyGeom = sharedPlane(ps, ps);
               const cyMesh = new THREE.Mesh(cyGeom, matCourtyard);
@@ -1444,12 +1458,15 @@ function renderCity(group, data) {
     }
   }
 
-  // Elevated rail line — runs N-S along east edge of city
+  // Elevated rail line — runs N-S along railCol (seed-determined, avoids EC) when zoning is active,
+  // otherwise along east edge of city
   if (showRailLine && !isReplicaMode) {
     const railGroup = new THREE.Group();
     const railElev = 0.35;
     const railW = Math.max(0.8, gt * 0.15);
-    const railX = offsetX + totalW + rw * 0.5;
+    const railX = zoningData && zoningData.railCol !== undefined
+      ? offsetX + xBlocks[zoningData.railCol] + gt / 2
+      : offsetX + totalW + rw * 0.5;
 
     // Track bed (elevated plane)
     const trackGeom = sharedPlane(railW, totalD);
@@ -1543,6 +1560,8 @@ function renderCity(group, data) {
   group.userData.offsetX = offsetX;
   group.userData.offsetZ = offsetZ;
   group.userData.blockTypes = blockTypes;
+  group.userData.yBlocks = yBlocks;
+  group.userData.railroadTerminal = zoningData ? zoningData.railroadTerminal : null;
 }
 
 function buildWaypoints(group, xBlocks, yBlocks, xSeamInfo, ySeamInfo, offsetX, offsetZ, gt, sw, useAlleySeams) {
@@ -1697,8 +1716,8 @@ function rebuild() {
   buildRuler();
   updateInfo();
 
-  // Re-render zoning overlays if zoning was applied
-  if (zoningData) renderZoningOverlays();
+  // Re-render building overlays if buildings phase is active
+  if (zoningData && buildingsActive) renderZoningOverlays();
 }
 
 // --- Phase layout generators ---
@@ -2247,7 +2266,7 @@ document.getElementById('export-btn').addEventListener('click', () => {
     blockTypes: ['land', 'water', 'mainstreet', 'bridge', 'oob'],
     hSeams: hSeams,
     vSeams: vSeams,
-    railLine: { enabled: showRailLine, direction: 'N-S', position: 'east-edge', trainRunsPerWeek: 3 },
+    railLine: { enabled: showRailLine, direction: 'N-S', position: zoningData && zoningData.railCol !== undefined ? `col-${zoningData.railCol}` : 'east-edge', railCol: zoningData ? zoningData.railCol : undefined, trainRunsPerWeek: 3 },
     blocks: [],
   };
   for (let r = 0; r < params.gridSize; r++) {
@@ -2503,34 +2522,46 @@ function animate() {
     if (rulerGroup.userData.crossV) rulerGroup.userData.crossV.visible = false;
   }
 
-  // Animate elevated train (cosmetic preview — slow loop)
+  // Animate elevated train
+  // Sequence: enter from north → travel south to station → pause at station → continue south off-map → loop
   if (trainMesh && railLineGroup) {
-    trainAnimTime += dt * 0.0001;
+    trainAnimTime += dt * 0.00008;
     const cycle = trainAnimTime % 1.0;
     const totalD = cityGroup.userData.totalD || 40;
     const offsetZ = cityGroup.userData.offsetZ || -20;
-    // Train travels S→N, pauses at edges, then repeats
+    const yBlocks = cityGroup.userData.yBlocks || [];
+    const terminal = cityGroup.userData.railroadTerminal;
+
+    // Station Z position (terminal row center), or middle of city if no terminal
+    const stationZ = terminal && yBlocks[terminal.r] !== undefined
+      ? offsetZ + yBlocks[terminal.r] + (cityGroup.userData.totalW / params.gridSize) / 2
+      : offsetZ + totalD / 2;
+
+    // Off-map margins
+    const northStart = offsetZ - totalD * 0.15;  // enters from above the map
+    const southEnd = offsetZ + totalD + totalD * 0.15;  // exits below the map
+
+    // Phase timing (fractions of cycle):
+    // 0.00–0.35: travel from north start to station
+    // 0.35–0.55: pause at station
+    // 0.55–0.90: travel from station to south off-map
+    // 0.90–1.00: invisible (off-map reset)
     let trainZ;
-    if (cycle < 0.4) {
-      // Moving S→N
-      const t = cycle / 0.4;
-      trainZ = offsetZ + t * totalD;
+    if (cycle < 0.35) {
+      const t = cycle / 0.35;
+      trainZ = northStart + t * (stationZ - northStart);
       trainMesh.visible = true;
-    } else if (cycle < 0.5) {
-      // Pause at N edge
-      trainZ = offsetZ + totalD;
+    } else if (cycle < 0.55) {
+      trainZ = stationZ;
       trainMesh.visible = true;
-    } else if (cycle < 0.9) {
-      // Moving N→S
-      const t = (cycle - 0.5) / 0.4;
-      trainZ = offsetZ + (1 - t) * totalD;
+    } else if (cycle < 0.90) {
+      const t = (cycle - 0.55) / 0.35;
+      trainZ = stationZ + t * (southEnd - stationZ);
       trainMesh.visible = true;
     } else {
-      // Pause at S edge
-      trainZ = offsetZ;
-      trainMesh.visible = true;
+      trainMesh.visible = false;
     }
-    trainMesh.position.z = trainZ;
+    if (trainMesh.visible) trainMesh.position.z = trainZ;
   }
 
   renderer.render(scene, camera);
@@ -2961,6 +2992,59 @@ function generateGranularFromMacro() {
     }
   }
 
+  // Compute zones + alleys (land-use infrastructure, phase 2)
+  if (!zoningParams) {
+    if (window.CITYGEN1_DATA) {
+      zoningParams = window.CITYGEN1_DATA;
+      console.log('✅ Loaded CityGen1.js for zoning:', zoningParams);
+    } else {
+      zoningParams = { hqBuffer: 3, dfEcRadius: 7, dfComWidth: 3, dfIndWidth: 6, dfIndHeight: 50, dfIndGap: 0, dfIndSide: 'west', dfNoiseEcCom: 3, dfNoiseComRes: 5, dfNoiseIndCom: 0, dfNoiseIndOob: 0.5, dfNoiseScale: 1, seed: 42 };
+      console.log('⚠️ CityGen1.js not found, using default params');
+    }
+  }
+  zoningData = computeZonesFromReplica(zoningParams);
+
+  // Update blockTypes with zone info
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      const z = zoningData.zones[r][c];
+      if (z.tileType === 'block') {
+        if (z.type === 'core') blockTypes[r][c] = 'core';
+        else if (z.type === 'industrial') blockTypes[r][c] = 'industrial';
+        else if (z.type === 'commercial') blockTypes[r][c] = 'commercial';
+        else if (z.type === 'residential') blockTypes[r][c] = 'residential';
+      }
+    }
+  }
+
+  // Generate alleys: 25% chance per commercial/core block
+  const fullBlockBuildings = new Set();
+  for (const cb of zoningData.civicBuildings) fullBlockBuildings.add(cb.r + ',' + cb.c);
+  for (const ib of zoningData.industrialBuildings) fullBlockBuildings.add(ib.r + ',' + ib.c);
+  for (const cs of zoningData.churchesAndSchools) fullBlockBuildings.add(cs.r + ',' + cs.c);
+  if (zoningData.railroadTerminal) fullBlockBuildings.add(zoningData.railroadTerminal.r + ',' + zoningData.railroadTerminal.c);
+  if (zoningData.docks) fullBlockBuildings.add(zoningData.docks.r + ',' + zoningData.docks.c);
+  for (const wh of zoningData.warehouses) fullBlockBuildings.add(wh.r + ',' + wh.c);
+  for (const mb of zoningData.mediaBuildings) fullBlockBuildings.add(mb.r + ',' + mb.c);
+
+  blockAlleys = [];
+  for (let r = 0; r < size; r++) blockAlleys.push(new Array(size).fill(null));
+  const alleyRng = mulberry32(zoningParams.seed || 42);
+  let alleyCount = 0;
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      const bt = blockTypes[r][c];
+      if (bt === 'commercial' || bt === 'core') {
+        if (fullBlockBuildings.has(r + ',' + c)) continue;
+        if (alleyRng() < 0.25) {
+          blockAlleys[r][c] = { dir: alleyRng() < 0.5 ? 'h' : 'v' };
+          alleyCount++;
+        }
+      }
+    }
+  }
+  console.log(`🏙️ Zones + Alleys: ${alleyCount} blocks with alleys (25% of eligible commercial/core, ${fullBlockBuildings.size} blocks excluded)`);
+
   // Exit replica mode — switch to seam editor view
   isReplicaMode = false;
   document.querySelector('.preset-btn[data-replica]').classList.remove('active');
@@ -2998,8 +3082,15 @@ function generateGranularFromMacro() {
       else if (blockTypes[r][c] === 'land') landCount++;
     }
   }
+  // Count zone types
+  const zd = zoningData;
+  const counts = { core: 0, commercial: 0, industrial: 0, residential: 0 };
+  for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) {
+    const z = zd.zones[r][c];
+    if (z.tileType === 'block' && counts[z.type] !== undefined) counts[z.type]++;
+  }
   document.getElementById('status-info').textContent =
-    `Granular: ${size}x${size} | Land:${landCount} MainSt:${mainStCount} Water:${waterCount} Bridge:${bridgeCount}`;
+    `Granular: ${size}x${size} | Land:${landCount} MainSt:${mainStCount} Water:${waterCount} Bridge:${bridgeCount} | Zones: Core:${counts.core} Com:${counts.commercial} Ind:${counts.industrial} Res:${counts.residential} | Alleys:${alleyCount}`;
 }
 
 // Wire up granular button
@@ -3008,12 +3099,14 @@ document.getElementById('granular-btn').addEventListener('click', () => {
   generateGranularFromMacro();
 });
 
-// --- Phase 3: Zoning (distance-field zones + building placement) ---
+// --- Phase 3: Buildings (civic, municipal, footprints on top of zoned land) ---
 let zoningOverlayGroup = null;
+let buildingsActive = false;
 
-// Clear zoning data and overlays — called when rolling back to Granular or Macro
+// Clear building overlays + zoning data — called when rolling back to Macro
 function clearZoning() {
   if (zoningOverlayGroup) { cityGroup.remove(zoningOverlayGroup); zoningOverlayGroup = null; }
+  buildingsActive = false;
   zoningData = null;
   blockAlleys = [];
   document.getElementById('zoning-btn').classList.remove('active');
@@ -3434,87 +3527,39 @@ function computeZonesFromReplica(zp) {
   return { zones, indSide, gangHQs, riverRow, riverMin, riverMax, centerRow, centerCol, size, railCol, railroadTerminal, docks, civicBuildings, industrialBuildings, warehouses, mediaBuildings, churchesAndSchools };
 }
 
-// --- Apply zoning to blockTypes + render building overlays ---
+// --- Apply buildings: place civic/municipal/special building overlays on zoned land ---
 
 function applyZoning() {
-  if (!zoningParams) {
-    // Use embedded CityGen1.js data (works with file:// protocol)
-    if (window.CITYGEN1_DATA) {
-      zoningParams = window.CITYGEN1_DATA;
-      console.log('✅ Loaded CityGen1.js:', zoningParams);
-    } else {
-      // Fallback defaults
-      zoningParams = { hqBuffer: 3, dfEcRadius: 7, dfComWidth: 3, dfIndWidth: 6, dfIndHeight: 50, dfIndGap: 0, dfIndSide: 'west', dfNoiseEcCom: 3, dfNoiseComRes: 5, dfNoiseIndCom: 0, dfNoiseIndOob: 0.5, dfNoiseScale: 1, seed: 42 };
-      console.log('⚠️ CityGen1.js not found, using default params');
-    }
-    applyZoning();
+  if (!zoningData) {
+    console.warn('⚠️ No zoning data — run Granular phase first');
     return;
   }
 
   const size = params.gridSize;
-  zoningData = computeZonesFromReplica(zoningParams);
-
-  // Update blockTypes with zone info
-  for (let r = 0; r < size; r++) {
-    for (let c = 0; c < size; c++) {
-      const z = zoningData.zones[r][c];
-      if (z.tileType === 'block') {
-        if (z.type === 'core') blockTypes[r][c] = 'core';
-        else if (z.type === 'industrial') blockTypes[r][c] = 'industrial';
-        else if (z.type === 'commercial') blockTypes[r][c] = 'commercial';
-        else if (z.type === 'residential') blockTypes[r][c] = 'residential';
-      }
-    }
-  }
-
-  // Generate alleys: 25% chance per commercial/core block
-  // Alley occupies a full row (h) or column (v) through the center of the 3x3 grid
-  // All 3 plots in the alley line are empty land — center plot is purchasable for illegal business
-  // Exclude blocks with municipal/civic/church/school buildings — those are full-block occupancies
-  const fullBlockBuildings = new Set();
-  for (const cb of zoningData.civicBuildings) fullBlockBuildings.add(cb.r + ',' + cb.c);
-  for (const ib of zoningData.industrialBuildings) fullBlockBuildings.add(ib.r + ',' + ib.c);
-  for (const cs of zoningData.churchesAndSchools) fullBlockBuildings.add(cs.r + ',' + cs.c);
-  if (zoningData.railroadTerminal) fullBlockBuildings.add(zoningData.railroadTerminal.r + ',' + zoningData.railroadTerminal.c);
-  if (zoningData.docks) fullBlockBuildings.add(zoningData.docks.r + ',' + zoningData.docks.c);
-  for (const wh of zoningData.warehouses) fullBlockBuildings.add(wh.r + ',' + wh.c);
-  for (const mb of zoningData.mediaBuildings) fullBlockBuildings.add(mb.r + ',' + mb.c);
-
-  blockAlleys = [];
-  for (let r = 0; r < size; r++) blockAlleys.push(new Array(size).fill(null));
-  const alleyRng = mulberry32(zoningParams.seed || 42);
-  let alleyCount = 0;
-  for (let r = 0; r < size; r++) {
-    for (let c = 0; c < size; c++) {
-      const bt = blockTypes[r][c];
-      if (bt === 'commercial' || bt === 'core') {
-        if (fullBlockBuildings.has(r + ',' + c)) continue;
-        if (alleyRng() < 0.25) {
-          blockAlleys[r][c] = { dir: alleyRng() < 0.5 ? 'h' : 'v' };
-          alleyCount++;
-        }
-      }
-    }
-  }
-  console.log(`🏙️ Alleys: ${alleyCount} blocks with alleys (25% of eligible commercial/core, ${fullBlockBuildings.size} blocks excluded as full-block occupancies)`);
+  const zd = zoningData;
+  buildingsActive = true;
 
   // Update button states
   document.getElementById('granular-btn').classList.remove('active');
   document.getElementById('zoning-btn').classList.add('active');
   document.getElementById('zoning-legend').style.display = '';
 
-  // Rebuild city with zone colors (also re-renders zoning overlays)
+  // Rebuild city with building footprints
   rebuild();
 
+  // Render building emoji overlays (civic, industrial, warehouses, media, churches, gang HQs, terminal, docks)
+  renderZoningOverlays();
+
   // Update status
-  const zd = zoningData;
   const counts = { core: 0, commercial: 0, industrial: 0, residential: 0 };
   for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) {
     const z = zd.zones[r][c];
     if (z.tileType === 'block' && counts[z.type] !== undefined) counts[z.type]++;
   }
+  let alleyCount = 0;
+  for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) if (blockAlleys[r] && blockAlleys[r][c]) alleyCount++;
   document.getElementById('status-info').textContent =
-    `Zoning: Core:${counts.core} Com:${counts.commercial} Ind:${counts.industrial} Res:${counts.residential} | Alleys:${alleyCount} | Civic:${zd.civicBuildings.length} Wh:${zd.warehouses.length} Media:${zd.mediaBuildings.length} Ch+Sch:${zd.churchesAndSchools.length}`;
+    `Buildings: Core:${counts.core} Com:${counts.commercial} Ind:${counts.industrial} Res:${counts.residential} | Alleys:${alleyCount} | Civic:${zd.civicBuildings.length} Wh:${zd.warehouses.length} Media:${zd.mediaBuildings.length} Ch+Sch:${zd.churchesAndSchools.length}`;
 }
 
 function renderZoningOverlays() {
