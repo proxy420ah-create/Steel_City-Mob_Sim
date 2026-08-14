@@ -1,0 +1,3589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Steel City — City Layout Editor</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#0a0a14; color:#eee; font-family:'Segoe UI',system-ui,sans-serif; overflow:hidden; user-select:none; }
+#canvas-container { position:absolute; top:0; left:0; width:100vw; height:100vh; }
+
+/* Editor nav */
+#editor-nav { position:fixed; top:8px; right:8px; z-index:9999; display:flex; gap:4px; }
+#editor-nav a { padding:4px 10px; border-radius:4px; font-size:11px; text-decoration:none; background:rgba(0,0,0,0.7); color:#888; border:1px solid #333; transition:all 0.15s; font-family:'Segoe UI',sans-serif; }
+#editor-nav a:hover { background:rgba(0,170,68,0.3); color:#fff; border-color:#0c6; }
+#editor-nav a.current { background:#0a4; color:#fff; border-color:#0c6; }
+
+/* Top toolbar */
+#toolbar {
+  position:fixed; top:0; left:0; right:0; height:48px;
+  background:rgba(0,0,0,0.85); display:flex; align-items:center;
+  padding:0 12px; gap:4px; z-index:100; border-bottom:1px solid #333;
+}
+.tool-btn {
+  width:36px; height:36px; border:1px solid #444; border-radius:6px;
+  background:#2a2a3e; color:#aaa; cursor:pointer; font-size:16px;
+  display:flex; align-items:center; justify-content:center;
+  transition:all 0.15s;
+}
+.tool-btn:hover { background:#3a3a5e; color:#fff; }
+.tool-btn.active { background:#0a4; color:#fff; border-color:#0c6; }
+.tool-sep { width:1px; height:32px; background:#333; margin:0 4px; }
+.tool-label { font-size:11px; color:#888; margin-right:4px; white-space:nowrap; }
+
+select.styled { background:#2a2a3e; color:#eee; border:1px solid #444; border-radius:4px; padding:3px 6px; font-size:11px; }
+
+/* Left panel — parameters */
+#left-panel {
+  position:fixed; top:56px; left:8px; width:260px;
+  background:rgba(0,0,0,0.8); border-radius:8px; padding:12px;
+  z-index:90; max-height:calc(100vh - 120px); overflow-y:auto;
+}
+#left-panel h3 { font-size:12px; color:#0ff; margin-bottom:8px; }
+#left-panel label { display:block; font-size:11px; margin:8px 0 2px; color:#aaa; }
+#left-panel input[type=range] { width:100%; }
+#left-panel .val { font-size:10px; color:#0f0; font-family:monospace; }
+.param-row { display:flex; align-items:center; gap:8px; }
+.param-row .val { min-width:50px; text-align:right; }
+
+/* Seam type buttons */
+.seam-types { display:flex; gap:6px; margin:8px 0; }
+.seam-btn {
+  flex:1; padding:8px; border:1px solid #444; border-radius:6px;
+  background:#2a2a3e; color:#aaa; cursor:pointer; font-size:11px;
+  text-align:center; transition:all 0.15s;
+}
+.seam-btn:hover { background:#3a3a5e; }
+.seam-btn.active { border-width:2px; }
+.seam-btn.road.active { background:#1a1a28; color:#fff; border-color:#55a; }
+.seam-btn.mainstreet.active { background:#1a2a3a; color:#fff; border-color:#3aa; }
+.seam-btn.bridge { background:#2a2a1a; border-color:#6a5a4a; }
+.seam-btn.bridge.active { background:#4a3a2a; color:#fff; border-color:#8a7a6a; }
+.seam-types { flex-wrap:wrap; }
+
+/* Right panel — info & export */
+#right-panel {
+  position:fixed; top:56px; right:8px; width:260px;
+  background:rgba(0,0,0,0.8); border-radius:8px; padding:12px;
+  z-index:90; max-height:calc(100vh - 120px); overflow-y:auto;
+}
+#right-panel h3 { font-size:12px; color:#0ff; margin-bottom:8px; }
+.info-row { font-size:11px; color:#aaa; margin:4px 0; }
+.info-row .val { color:#0f0; font-family:monospace; }
+
+/* Layout presets panel */
+#presets-panel {
+  position:fixed; top:56px; right:276px; width:200px;
+  background:rgba(0,0,0,0.8); border-radius:8px; padding:12px;
+  z-index:90; max-height:calc(100vh - 120px); overflow-y:auto;
+}
+#presets-panel h3 { font-size:12px; color:#0ff; margin-bottom:8px; }
+.preset-btn {
+  display:block; width:100%; padding:10px 12px; margin:6px 0;
+  border:1px solid #444; border-radius:6px; background:#2a2a3e;
+  color:#ccc; cursor:pointer; font-size:11px; text-align:left;
+  transition:all 0.15s;
+}
+.preset-btn:hover { background:#3a3a5e; color:#fff; }
+.preset-btn.active { background:#0a4; color:#fff; border-color:#0c6; }
+.preset-btn .preset-num { font-weight:bold; color:#0ff; margin-right:6px; }
+.preset-btn.active .preset-num { color:#fff; }
+.preset-btn .preset-desc { display:block; font-size:10px; color:#888; margin-top:2px; }
+.preset-btn.active .preset-desc { color:#cfc; }
+
+/* Toggles */
+.toggle-row { display:flex; align-items:center; gap:6px; margin:6px 0; font-size:11px; color:#aaa; cursor:pointer; }
+.toggle-row input { cursor:pointer; }
+
+/* Color picker panel */
+#color-panel {
+  position:fixed; right:8px; bottom:40px; width:220px; max-height:60vh;
+  overflow-y:auto; background:#1a1a2e; border:1px solid #444; border-radius:8px;
+  padding:8px; z-index:150; font-size:10px; display:none;
+}
+#color-panel.open { display:block; }
+#color-panel h4 { margin:0 0 4px; color:#0ff; font-size:11px; }
+.color-row { display:flex; align-items:center; gap:4px; margin:3px 0; }
+.color-row label { flex:1; color:#aaa; }
+.color-row input[type=color] { width:28px; height:20px; border:none; background:none; cursor:pointer; padding:0; }
+.color-row .hex-log { color:#666; font-family:monospace; font-size:9px; min-width:56px; }
+
+/* Export modal */
+#export-modal {
+  position:fixed; top:0; left:0; width:100vw; height:100vh;
+  background:rgba(0,0,0,0.7); display:none; align-items:center; justify-content:center;
+  z-index:200;
+}
+#export-box {
+  background:#1e1e2e; border:1px solid #444; border-radius:12px;
+  padding:24px; max-width:600px; width:90%;
+}
+#export-box h2 { color:#0ff; margin-bottom:16px; font-size:16px; }
+#export-box textarea {
+  width:100%; height:240px; background:#111; color:#0f0;
+  border:1px solid #333; border-radius:6px; padding:8px; font-family:monospace;
+  font-size:11px; resize:vertical;
+}
+#export-box .btn-row { display:flex; gap:8px; margin-top:12px; }
+.export-btn {
+  background:#2a2a3e; color:#eee; border:1px solid #555; padding:8px 16px;
+  border-radius:6px; cursor:pointer; font-size:12px;
+}
+.export-btn:hover { background:#3a3a5e; }
+.export-btn.primary { background:#0a4; border-color:#0c6; }
+
+/* Bottom status bar */
+#status-bar {
+  position:fixed; bottom:0; left:0; right:0; height:28px;
+  background:rgba(0,0,0,0.85); display:flex; align-items:center;
+  padding:0 12px; font-size:11px; color:#888; z-index:100;
+  border-top:1px solid #333; gap:16px;
+}
+#status-coords { color:#0f0; min-width:200px; font-family:monospace; }
+#status-tool { color:#0ff; min-width:100px; }
+#status-info { color:#888; }
+#status-fps { margin-left:auto; color:#666; }
+
+/* UI hide toggle (press H) — hides all panels for unobstructed view */
+body.ui-hidden #toolbar,
+body.ui-hidden #left-panel,
+body.ui-hidden #right-panel,
+body.ui-hidden #presets-panel,
+body.ui-hidden #status-bar,
+body.ui-hidden #compass { display:none !important; }
+
+/* Hotkey reference panel — visible only when UI is hidden */
+#hotkey-panel {
+  position:fixed; top:8px; left:8px; z-index:90;
+  font-size:11px; color:#ccc; background:rgba(0,0,0,0.9);
+  padding:10px 14px; border-radius:8px; pointer-events:none;
+  display:none; border:1px solid #444; line-height:1.7;
+  font-family:monospace;
+}
+#hotkey-panel .hk-title { color:#0ff; font-weight:bold; margin-bottom:6px; font-size:12px; }
+#hotkey-panel .hk-row { display:flex; justify-content:space-between; gap:16px; }
+#hotkey-panel .hk-key { color:#0f0; min-width:60px; font-weight:bold; text-shadow:0 0 4px rgba(0,255,0,0.4); }
+#hotkey-panel .hk-desc { color:#ccc; }
+body.ui-hidden #hotkey-panel { display:block; }
+#ui-hidden-hint {
+  position:fixed; bottom:10px; right:10px; z-index:90;
+  font-size:11px; color:#888; background:#1a1a2e;
+  padding:4px 8px; border-radius:4px; pointer-events:none;
+  display:none; border:1px solid #333;
+}
+body.ui-hidden #ui-hidden-hint { display:block; }
+
+/* Tooltip */
+#tooltip {
+  position:fixed; background:rgba(0,0,0,0.9); border:1px solid #444;
+  border-radius:4px; padding:4px 8px; font-size:11px; color:#ddd;
+  pointer-events:none; z-index:300; display:none;
+}
+
+/* Compass */
+#compass { position:fixed; bottom:36px; right:12px; z-index:90; font-size:10px; color:#888; background:rgba(0,0,0,0.6); padding:4px 8px; border-radius:4px; }
+#compass .n { color:#e33; font-weight:bold; }
+#compass .s { color:#33e; font-weight:bold; }
+
+/* Zoning Legend */
+#zoning-legend {
+  position:fixed; bottom:8px; right:8px;
+  background:rgba(0,0,0,0.8); border-radius:8px; padding:10px;
+  z-index:100; font-size:10px; display:none;
+  max-height:80vh; overflow-y:auto;
+}
+#zoning-legend h4 { margin:0 0 6px 0; color:#aaa; font-size:11px; }
+.legend-item { display:flex; align-items:center; gap:6px; margin:3px 0; }
+.legend-swatch { width:14px; height:14px; border-radius:3px; flex-shrink:0; }
+.legend-emoji { width:18px; height:18px; font-size:14px; text-align:center; line-height:18px; flex-shrink:0; }
+</style>
+</head>
+<body>
+
+<div id="editor-nav">
+  <a href="pipeline_overview.html">Pipeline</a>
+  <a href="voxel_editor.html">Voxel Editor</a>
+  <a href="character_animator.html">Animator</a>
+  <a href="city_editor.html" class="current">City Editor</a>
+</div>
+
+<div id="canvas-container"></div>
+
+<!-- Toolbar -->
+<div id="toolbar">
+  <span class="tool-label">Tool:</span>
+  <button class="tool-btn active" data-tool="select" title="Select / Inspect (S)">🖱</button>
+  <button class="tool-btn" data-tool="seam" title="Paint Seam Type (T)">🛣</button>
+  <div class="tool-sep"></div>
+  <span class="tool-label">View:</span>
+  <button class="tool-btn" data-tool="zoomfit" title="Zoom to Fit (F)">⤢</button>
+  <div class="tool-sep"></div>
+  <span class="tool-label">Grid:</span>
+  <select id="grid-size" class="styled" title="City grid size">
+    <option value="2">2x2</option>
+    <option value="3" selected>3x3</option>
+    <option value="4">4x4</option>
+    <option value="5">5x5</option>
+    <option value="6">6x6</option>
+    <option value="7">7x7</option>
+    <option value="8">8x8</option>
+    <option value="10">10x10</option>
+    <option value="16">16x16</option>
+    <option value="20">20x20</option>
+    <option value="24">24x24</option>
+    <option value="32">32x32 (Production — 1,024 blocks)</option>
+  </select>
+  <div class="tool-sep"></div>
+  <button class="tool-btn" id="export-btn" title="Export Layout JSON">💾</button>
+  <button class="tool-btn" id="import-btn" title="Import Layout JSON">📂</button>
+  <div class="tool-sep"></div>
+  <button class="tool-btn" id="color-btn" title="Color Picker (RGB)">🎨</button>
+</div>
+
+<!-- Left panel — parameters -->
+<div id="left-panel">
+  <h3>City Parameters</h3>
+  <label>Voxel Size (m)</label>
+  <div class="param-row"><input type="range" id="p-voxelSize" min="0.01" max="0.1" step="0.005" value="0.05"><span class="val" id="v-voxelSize">0.050</span></div>
+
+  <label>Building Voxel Width</label>
+  <div class="param-row"><input type="range" id="p-bldgVoxelW" min="16" max="128" step="4" value="64"><span class="val" id="v-bldgVoxelW">64</span></div>
+
+  <label>Buildings Per Block Row</label>
+  <div class="param-row"><input type="range" id="p-bldgPerRow" min="1" max="5" step="1" value="3"><span class="val" id="v-bldgPerRow">3</span></div>
+
+  <label>Sidewalk Width (m)</label>
+  <div class="param-row"><input type="range" id="p-sidewalkW" min="0.2" max="3.0" step="0.1" value="1.0"><span class="val" id="v-sidewalkW">1.0</span></div>
+
+  <label>Road Width (m)</label>
+  <div class="param-row"><input type="range" id="p-roadW" min="0.5" max="5.0" step="0.1" value="1.6"><span class="val" id="v-roadW">1.6</span></div>
+
+  <label>Main Street Width (m)</label>
+  <div class="param-row"><input type="range" id="p-mainStW" min="2.0" max="8.0" step="0.2" value="4.5"><span class="val" id="v-mainStW">4.5</span></div>
+
+  <h3 style="margin-top:16px;">Seam Painter</h3>
+  <div class="seam-types" id="seam-painter">
+    <div class="seam-btn road active" data-seam="road">🛣 Road</div>
+    <div class="seam-btn mainstreet" data-seam="mainstreet">🚋 Main St</div>
+    <div class="seam-btn bridge" data-seam="bridge">🌉 Bridge</div>
+  </div>
+  <div style="font-size:10px; color:#888; margin-top:4px;" id="seam-painter-hint">
+    Click a seam between blocks to set its type. Drag to paint multiple.
+  </div>
+
+  <h3 style="margin-top:16px; display:none;" id="macro-painter-title">Macro Painter</h3>
+  <div class="seam-types" id="macro-painter" style="display:none;">
+    <div class="seam-btn road active" data-macro="mainst">🚋 Main St <span style="opacity:0.5; font-size:9px;">[1]</span></div>
+    <div class="seam-btn" data-macro="river" style="background:#1a5abf; color:#fff;">🌊 River <span style="opacity:0.5; font-size:9px;">[2]</span></div>
+    <div class="seam-btn" data-macro="block" style="background:#2a2a3a;">🏢 Block <span style="opacity:0.5; font-size:9px;">[3]</span></div>
+    <div class="seam-btn" data-macro="bridge" style="background:#4a3a2a;">🌉 Bridge <span style="opacity:0.5; font-size:9px;">[4]</span></div>
+    <div class="seam-btn" data-macro="oob" style="background:#050508; border:1px solid #660000;">🚧 OOB <span style="opacity:0.5; font-size:9px;">[5]</span></div>
+  </div>
+  <div style="font-size:10px; color:#888; margin-top:4px; display:none;" id="macro-painter-hint">
+    Keys: 1=MainSt 2=River 3=Block 4=Bridge 5=OOB | Q=Paint W=Line E=Row T=Col | Ctrl+Z=Undo F=Fit R=Ruler Esc=Reset
+  </div>
+  <div class="seam-types" id="macro-tools" style="display:none; margin-top:6px;">
+    <div class="seam-btn active" data-mtool="paint" style="font-size:11px;">✏ Paint <span style="opacity:0.5; font-size:9px;">[Q]</span></div>
+    <div class="seam-btn" data-mtool="line" style="font-size:11px;">📏 Line <span style="opacity:0.5; font-size:9px;">[W]</span></div>
+    <div class="seam-btn" data-mtool="row" style="font-size:11px;">↔ Row <span style="opacity:0.5; font-size:9px;">[E]</span></div>
+    <div class="seam-btn" data-mtool="col" style="font-size:11px;">↕ Col <span style="opacity:0.5; font-size:9px;">[T]</span></div>
+  </div>
+  <div style="font-size:10px; color:#888; margin-top:4px; display:none;" id="macro-tools-hint">
+    Paint=click/drag | Line=2 clicks | Row/Col=1 click fills line
+  </div>
+  <div style="margin-top:6px; display:none;" id="macro-undo-row">
+    <button class="export-btn" id="macro-undo-btn" style="font-size:11px; padding:4px 12px;">↩ Undo</button>
+    <span style="font-size:10px; color:#666; margin-left:8px;" id="macro-tool-status"></span>
+  </div>
+
+  <h3 style="margin-top:16px;">Display</h3>
+  <label class="toggle-row"><input type="checkbox" id="show-waypoints" checked> Show Waypoints</label>
+  <label class="toggle-row"><input type="checkbox" id="show-labels"> Show Block Labels</label>
+  <label class="toggle-row"><input type="checkbox" id="show-ruler"> Show Scale Ruler</label>
+  <label class="toggle-row"><input type="checkbox" id="show-buildings" checked> Show Building Plots</label>
+  <label class="toggle-row"><input type="checkbox" id="show-rail-line" checked> Show Elevated Rail Line</label>
+</div>
+
+<!-- Layout presets panel -->
+<div id="presets-panel">
+  <h3>Layout Presets</h3>
+  <div style="font-size:10px; color:#888; margin-bottom:8px;">Macro Editor → Granular → Zoning → Unity export</div>
+  <!-- Phase 1-5 presets commented out — using Macro Editor + Granular pipeline
+  <button class="preset-btn" data-phase="1"><span class="preset-num">Phase 1</span> Control<span class="preset-desc">All roads — uniform grid</span></button>
+  <button class="preset-btn" data-phase="2"><span class="preset-num">Phase 2</span> Basic<span class="preset-desc">Roads + alleys</span></button>
+  <button class="preset-btn" data-phase="3"><span class="preset-num">Phase 3</span> Layered<span class="preset-desc">+ mainstreet cross, dead-end alleys</span></button>
+  <button class="preset-btn" data-phase="4"><span class="preset-num">Phase 4</span> River<span class="preset-desc">+ E-W river, bridges across water</span></button>
+  <button class="preset-btn" data-phase="5"><span class="preset-num">Phase 5</span> Full City<span class="preset-desc">+ zoning: central core, industrial, civic</span></button>
+  -->
+  <button class="preset-btn active" data-replica="1"><span class="preset-num">Macro</span> Gangsters Map<span class="preset-desc">32x32 — river + 5 bridges (macro seed)</span></button>
+  <button class="preset-btn" id="granular-btn" style="display:none;"><span class="preset-num">Granular</span> Phase 2<span class="preset-desc">Convert macro → seam layout</span></button>
+  <button class="preset-btn" id="zoning-btn" style="display:none;"><span class="preset-num">Zoning</span> Phase 3<span class="preset-desc">Distance-field zones + buildings</span></button>
+</div>
+
+<!-- Right panel — info -->
+<div id="right-panel">
+  <h3>Layout Info</h3>
+  <div class="info-row">Grid: <span class="val" id="info-grid">3x3</span></div>
+  <div class="info-row">Blocks: <span class="val" id="info-blocks">9</span> <span class="val" id="info-blocks-target" style="color:#666;font-size:10px;">/ 1,000 target</span></div>
+  <div class="info-row">Ground Tile: <span class="val" id="info-tileSize">11.60m</span></div>
+  <div class="info-row">Spacing: <span class="val" id="info-spacing">13.20m</span></div>
+  <div class="info-row">Total Width: <span class="val" id="info-totalW">39.60m</span></div>
+  <div class="info-row">Total Depth: <span class="val" id="info-totalD">39.60m</span></div>
+  <div class="info-row">Road Seams: <span class="val" id="info-roads">12</span></div>
+  <div class="info-row">Main Street: <span class="val" id="info-mainstreets">0</span></div>
+  <div class="info-row">Bridges: <span class="val" id="info-bridges">0</span></div>
+  <div class="info-row">Water Blocks: <span class="val" id="info-water">0</span></div>
+  <div class="info-row">Waypoint Nodes: <span class="val" id="info-waypoints">72</span></div>
+  <div class="info-row">LOD: <span class="val" id="info-lod">Full</span></div>
+
+  <h3 style="margin-top:16px;">Selected</h3>
+  <div class="info-row" id="sel-info">Click a block or seam to inspect.</div>
+
+  <h3 style="margin-top:16px;">Computed Values</h3>
+  <div class="info-row">Building Plot: <span class="val" id="info-plotSize">3.20m</span></div>
+  <div class="info-row">Building Area: <span class="val" id="info-bldgArea">9.60m</span></div>
+  <div class="info-row">Sidewalk : Block: <span class="val" id="info-ratio-sw">8.6%</span></div>
+  <div class="info-row">Road : Block: <span class="val" id="info-ratio-rd">13.8%</span></div>
+</div>
+
+<!-- Export modal -->
+<div id="export-modal">
+  <div id="export-box">
+    <h2>Export City Layout JSON</h2>
+    <textarea id="export-text" readonly></textarea>
+    <div class="btn-row">
+      <button class="export-btn" id="copy-json">Copy to Clipboard</button>
+      <button class="export-btn" id="download-json">Download File</button>
+      <button class="export-btn primary" id="close-export">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Import modal -->
+<div id="export-modal" style="display:none;" id="import-modal">
+</div>
+
+<!-- Color picker panel -->
+<div id="color-panel">
+  <h4>Material Colors (RGB)</h4>
+  <div style="font-size:9px;color:#666;margin-bottom:6px;">Pick a color → live update. Hex logged to console. Press 🎨 to close.</div>
+  <div class="color-row"><label>Building</label><input type="color" data-mat="matBuilding"><span class="hex-log"></span></div>
+  <div class="color-row"><label>Building Edge</label><input type="color" data-mat="matBuildingEdge"><span class="hex-log"></span></div>
+  <div class="color-row"><label>Courtyard</label><input type="color" data-mat="matCourtyard"><span class="hex-log"></span></div>
+  <div class="color-row"><label>Alley Path</label><input type="color" data-mat="matAlleyPath"><span class="hex-log"></span></div>
+  <div class="color-row"><label>Alley Debris</label><input type="color" data-mat="matAlleyDebris"><span class="hex-log"></span></div>
+  <div class="color-row"><label>Sidewalk</label><input type="color" data-mat="matSidewalk"><span class="hex-log"></span></div>
+  <div class="color-row"><label>Sidewalk Edge</label><input type="color" data-mat="matSidewalkEdge"><span class="hex-log"></span></div>
+  <div class="color-row"><label>Road</label><input type="color" data-mat="matRoad"><span class="hex-log"></span></div>
+  <div class="color-row"><label>Main Street</label><input type="color" data-mat="matMainStreet"><span class="hex-log"></span></div>
+  <div class="color-row"><label>Trolley Track</label><input type="color" data-mat="matTrolleyTrack"><span class="hex-log"></span></div>
+  <div class="color-row"><label>Water</label><input type="color" data-mat="matWater"><span class="hex-log"></span></div>
+  <div class="color-row"><label>Water Edge</label><input type="color" data-mat="matWaterEdge"><span class="hex-log"></span></div>
+  <div class="color-row"><label>Riverside</label><input type="color" data-mat="matRiverside"><span class="hex-log"></span></div>
+  <div class="color-row"><label>Riverside Edge</label><input type="color" data-mat="matRiversideEdge"><span class="hex-log"></span></div>
+  <div class="color-row"><label>Core Zone</label><input type="color" data-mat="matCore"><span class="hex-log"></span></div>
+  <div class="color-row"><label>Core Edge</label><input type="color" data-mat="matCoreEdge"><span class="hex-log"></span></div>
+  <div class="color-row"><label>Industrial</label><input type="color" data-mat="matIndustrial"><span class="hex-log"></span></div>
+  <div class="color-row"><label>Industrial Edge</label><input type="color" data-mat="matIndustrialEdge"><span class="hex-log"></span></div>
+  <div class="color-row"><label>Civic</label><input type="color" data-mat="matCivic"><span class="hex-log"></span></div>
+  <div class="color-row"><label>Civic Edge</label><input type="color" data-mat="matCivicEdge"><span class="hex-log"></span></div>
+  <div class="color-row"><label>Commercial</label><input type="color" data-mat="matCommercial"><span class="hex-log"></span></div>
+  <div class="color-row"><label>Residential</label><input type="color" data-mat="matResidential"><span class="hex-log"></span></div>
+  <div class="color-row"><label>Municipal Tile</label><input type="color" data-mat="matMunicipalTile"><span class="hex-log"></span></div>
+  <div class="color-row"><label>Civil Tile</label><input type="color" data-mat="matCivilTile"><span class="hex-log"></span></div>
+  <div class="color-row"><label>Bridge</label><input type="color" data-mat="matBridge"><span class="hex-log"></span></div>
+  <div class="color-row"><label>Bridge Rail</label><input type="color" data-mat="matBridgeRail"><span class="hex-log"></span></div>
+  <div class="color-row"><label>OOB</label><input type="color" data-mat="matOOB"><span class="hex-log"></span></div>
+  <div class="color-row"><label>OOB Edge</label><input type="color" data-mat="matOOBEdge"><span class="hex-log"></span></div>
+  <div class="color-row"><label>Waypoint</label><input type="color" data-mat="matWaypoint"><span class="hex-log"></span></div>
+  <div class="color-row"><label>WP Main</label><input type="color" data-mat="matWaypointMain"><span class="hex-log"></span></div>
+  <div class="color-row"><label>WP Riverside</label><input type="color" data-mat="matWaypointRiverside"><span class="hex-log"></span></div>
+  <div class="color-row"><label>WP Link</label><input type="color" data-mat="matWaypointLink"><span class="hex-log"></span></div>
+  <div class="color-row"><label>Label</label><input type="color" data-mat="matLabel"><span class="hex-log"></span></div>
+  <div class="color-row"><label>Background</label><input type="color" data-mat="scene.background"><span class="hex-log"></span></div>
+  <button id="color-print" style="width:100%;margin-top:6px;padding:4px;font-size:10px;background:#2a2a4e;border:1px solid #444;color:#0ff;border-radius:4px;cursor:pointer;">Print All Hex to Console</button>
+</div>
+
+<!-- Status bar -->
+<div id="status-bar">
+  <span id="status-coords">x: 0.00  z: 0.00</span>
+  <span id="status-tool">Select</span>
+  <span id="status-info">Ready</span>
+  <span id="status-fps">60 FPS</span>
+</div>
+
+<div id="compass"><span class="n">N</span> ↑ / ↓ <span class="s">S</span></div>
+<div id="tooltip"></div>
+<div id="ui-hidden-hint">press H to show UI</div>
+
+<!-- Hotkey reference (visible only when UI hidden) -->
+<div id="hotkey-panel">
+  <div class="hk-title">⌨ Hotkeys</div>
+  <div class="hk-row"><span class="hk-key">H</span><span class="hk-desc">Toggle UI</span></div>
+  <div class="hk-row"><span class="hk-key">F</span><span class="hk-desc">Zoom fit</span></div>
+  <div class="hk-row"><span class="hk-key">1</span><span class="hk-desc">🚋 Main St</span></div>
+  <div class="hk-row"><span class="hk-key">2</span><span class="hk-desc">🌊 River</span></div>
+  <div class="hk-row"><span class="hk-key">3</span><span class="hk-desc">🏢 Block</span></div>
+  <div class="hk-row"><span class="hk-key">4</span><span class="hk-desc">🌉 Bridge</span></div>
+  <div class="hk-row"><span class="hk-key">5</span><span class="hk-desc">🚧 OOB</span></div>
+  <div class="hk-row"><span class="hk-key">Ctrl+Z</span><span class="hk-desc">Undo</span></div>
+  <div class="hk-row"><span class="hk-key">Wheel</span><span class="hk-desc">Zoom</span></div>
+  <div class="hk-row"><span class="hk-key">Mid-drag</span><span class="hk-desc">Pan</span></div>
+  <div class="hk-row"><span class="hk-key">R</span><span class="hk-desc">Toggle Ruler</span></div>
+  <div class="hk-row"><span class="hk-key">Q</span><span class="hk-desc">✏ Paint</span></div>
+  <div class="hk-row"><span class="hk-key">W</span><span class="hk-desc">📏 Line</span></div>
+  <div class="hk-row"><span class="hk-key">E</span><span class="hk-desc">↔ Row fill</span></div>
+  <div class="hk-row"><span class="hk-key">T</span><span class="hk-desc">↕ Col fill</span></div>
+  <div class="hk-row"><span class="hk-key">Esc</span><span class="hk-desc">Reset to Paint</span></div>
+</div>
+
+<div id="zoning-legend">
+  <h4>Zoning Legend</h4>
+  <div class="legend-item"><div class="legend-swatch" style="background:#4a4a6a;"></div> Economic Core (EC)</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#9933cc;"></div> Commercial</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#4a3a2a;"></div> Industrial</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#22aa44;"></div> Residential</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#ff69b4;"></div> Municipal Tile</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#ffeb3b;"></div> Civil/Charity Tile</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#1a5abf;"></div> Water (River)</div>
+  <div class="legend-item"><div class="legend-emoji">🔴</div> Gang HQ (NW)</div>
+  <div class="legend-item"><div class="legend-emoji">🟢</div> Gang HQ (NE)</div>
+  <div class="legend-item"><div class="legend-emoji">🔵</div> Gang HQ (SW)</div>
+  <div class="legend-item"><div class="legend-emoji">🟠</div> Gang HQ (SE)</div>
+  <div class="legend-item"><div class="legend-emoji">🚂</div> Railroad Terminal</div>
+  <div class="legend-item"><div class="legend-emoji">⚓</div> Docks</div>
+  <div class="legend-item"><div class="legend-emoji">🏛️</div> City Hall</div>
+  <div class="legend-item"><div class="legend-emoji">⚖️</div> Courthouse</div>
+  <div class="legend-item"><div class="legend-emoji">📋</div> Employment Exchange</div>
+  <div class="legend-item"><div class="legend-emoji">🕵️</div> F.B.I. Headquarters</div>
+  <div class="legend-item"><div class="legend-emoji">🚒</div> Fire Department</div>
+  <div class="legend-item"><div class="legend-emoji">🏥</div> Hospital</div>
+  <div class="legend-item"><div class="legend-emoji">🖼️</div> Museum</div>
+  <div class="legend-item"><div class="legend-emoji">👮</div> Police Headquarters</div>
+  <div class="legend-item"><div class="legend-emoji">🛊</div> Public Baths</div>
+  <div class="legend-item"><div class="legend-emoji">📮</div> US Post</div>
+  <div class="legend-item"><div class="legend-emoji">🏠</div> Orphanage</div>
+  <div class="legend-item"><div class="legend-emoji">⚡</div> Power Plant</div>
+  <div class="legend-item"><div class="legend-emoji">💧</div> Water Plant</div>
+  <div class="legend-item"><div class="legend-emoji">📦</div> Warehouses (12)</div>
+  <div class="legend-item"><div class="legend-emoji">📰</div> Newspaper (4)</div>
+  <div class="legend-item"><div class="legend-emoji">📻</div> Radio Station (4)</div>
+  <div class="legend-item"><div class="legend-emoji">⛪</div> Church (4)</div>
+  <div class="legend-item"><div class="legend-emoji">🏚️</div> Church Park (4)</div>
+  <div class="legend-item"><div class="legend-emoji">🏫</div> School (4)</div>
+</div>
+
+<script>
+window.REPLICA1_DATA = {"version": 4, "type": "replica", "width": 32, "height": 32, "tiles": [{"x": 0, "y": 0, "t": "oob"}, {"x": 1, "y": 0, "t": "oob"}, {"x": 2, "y": 0, "t": "oob"}, {"x": 3, "y": 0, "t": "oob"}, {"x": 4, "y": 0, "t": "oob"}, {"x": 5, "y": 0, "t": "oob"}, {"x": 6, "y": 0, "t": "oob"}, {"x": 7, "y": 0, "t": "oob"}, {"x": 8, "y": 0, "t": "oob"}, {"x": 9, "y": 0, "t": "oob"}, {"x": 10, "y": 0, "t": "oob"}, {"x": 11, "y": 0, "t": "oob"}, {"x": 12, "y": 0, "t": "oob"}, {"x": 13, "y": 0, "t": "oob"}, {"x": 14, "y": 0, "t": "oob"}, {"x": 15, "y": 0, "t": "oob"}, {"x": 16, "y": 0, "t": "oob"}, {"x": 17, "y": 0, "t": "oob"}, {"x": 18, "y": 0, "t": "oob"}, {"x": 19, "y": 0, "t": "oob"}, {"x": 20, "y": 0, "t": "oob"}, {"x": 21, "y": 0, "t": "oob"}, {"x": 22, "y": 0, "t": "oob"}, {"x": 23, "y": 0, "t": "oob"}, {"x": 24, "y": 0, "t": "oob"}, {"x": 25, "y": 0, "t": "oob"}, {"x": 26, "y": 0, "t": "oob"}, {"x": 27, "y": 0, "t": "oob"}, {"x": 28, "y": 0, "t": "oob"}, {"x": 29, "y": 0, "t": "oob"}, {"x": 30, "y": 0, "t": "oob"}, {"x": 31, "y": 0, "t": "oob"}, {"x": 0, "y": 1, "t": "oob"}, {"x": 1, "y": 1, "t": "block"}, {"x": 2, "y": 1, "t": "block"}, {"x": 3, "y": 1, "t": "block"}, {"x": 4, "y": 1, "t": "block"}, {"x": 5, "y": 1, "t": "block"}, {"x": 6, "y": 1, "t": "block"}, {"x": 7, "y": 1, "t": "mainst"}, {"x": 8, "y": 1, "t": "block"}, {"x": 9, "y": 1, "t": "block"}, {"x": 10, "y": 1, "t": "block"}, {"x": 11, "y": 1, "t": "block"}, {"x": 12, "y": 1, "t": "mainst"}, {"x": 13, "y": 1, "t": "block"}, {"x": 14, "y": 1, "t": "block"}, {"x": 15, "y": 1, "t": "block"}, {"x": 16, "y": 1, "t": "block"}, {"x": 17, "y": 1, "t": "block"}, {"x": 18, "y": 1, "t": "block"}, {"x": 19, "y": 1, "t": "block"}, {"x": 20, "y": 1, "t": "block"}, {"x": 21, "y": 1, "t": "mainst"}, {"x": 22, "y": 1, "t": "block"}, {"x": 23, "y": 1, "t": "block"}, {"x": 24, "y": 1, "t": "block"}, {"x": 25, "y": 1, "t": "block"}, {"x": 26, "y": 1, "t": "block"}, {"x": 27, "y": 1, "t": "block"}, {"x": 28, "y": 1, "t": "block"}, {"x": 29, "y": 1, "t": "mainst"}, {"x": 30, "y": 1, "t": "block"}, {"x": 31, "y": 1, "t": "oob"}, {"x": 0, "y": 2, "t": "oob"}, {"x": 1, "y": 2, "t": "block"}, {"x": 2, "y": 2, "t": "block"}, {"x": 3, "y": 2, "t": "block"}, {"x": 4, "y": 2, "t": "block"}, {"x": 5, "y": 2, "t": "block"}, {"x": 6, "y": 2, "t": "block"}, {"x": 7, "y": 2, "t": "mainst"}, {"x": 8, "y": 2, "t": "block"}, {"x": 9, "y": 2, "t": "block"}, {"x": 10, "y": 2, "t": "block"}, {"x": 11, "y": 2, "t": "block"}, {"x": 12, "y": 2, "t": "mainst"}, {"x": 13, "y": 2, "t": "block"}, {"x": 14, "y": 2, "t": "block"}, {"x": 15, "y": 2, "t": "block"}, {"x": 16, "y": 2, "t": "block"}, {"x": 17, "y": 2, "t": "block"}, {"x": 18, "y": 2, "t": "block"}, {"x": 19, "y": 2, "t": "block"}, {"x": 20, "y": 2, "t": "block"}, {"x": 21, "y": 2, "t": "mainst"}, {"x": 22, "y": 2, "t": "block"}, {"x": 23, "y": 2, "t": "block"}, {"x": 24, "y": 2, "t": "block"}, {"x": 25, "y": 2, "t": "block"}, {"x": 26, "y": 2, "t": "block"}, {"x": 27, "y": 2, "t": "block"}, {"x": 28, "y": 2, "t": "block"}, {"x": 29, "y": 2, "t": "mainst"}, {"x": 30, "y": 2, "t": "block"}, {"x": 31, "y": 2, "t": "oob"}, {"x": 0, "y": 3, "t": "oob"}, {"x": 1, "y": 3, "t": "block"}, {"x": 2, "y": 3, "t": "block"}, {"x": 3, "y": 3, "t": "block"}, {"x": 4, "y": 3, "t": "block"}, {"x": 5, "y": 3, "t": "block"}, {"x": 6, "y": 3, "t": "block"}, {"x": 7, "y": 3, "t": "mainst"}, {"x": 8, "y": 3, "t": "block"}, {"x": 9, "y": 3, "t": "block"}, {"x": 10, "y": 3, "t": "block"}, {"x": 11, "y": 3, "t": "block"}, {"x": 12, "y": 3, "t": "mainst"}, {"x": 13, "y": 3, "t": "block"}, {"x": 14, "y": 3, "t": "block"}, {"x": 15, "y": 3, "t": "block"}, {"x": 16, "y": 3, "t": "block"}, {"x": 17, "y": 3, "t": "block"}, {"x": 18, "y": 3, "t": "block"}, {"x": 19, "y": 3, "t": "block"}, {"x": 20, "y": 3, "t": "block"}, {"x": 21, "y": 3, "t": "mainst"}, {"x": 22, "y": 3, "t": "block"}, {"x": 23, "y": 3, "t": "block"}, {"x": 24, "y": 3, "t": "block"}, {"x": 25, "y": 3, "t": "block"}, {"x": 26, "y": 3, "t": "block"}, {"x": 27, "y": 3, "t": "block"}, {"x": 28, "y": 3, "t": "block"}, {"x": 29, "y": 3, "t": "mainst"}, {"x": 30, "y": 3, "t": "block"}, {"x": 31, "y": 3, "t": "oob"}, {"x": 0, "y": 4, "t": "oob"}, {"x": 1, "y": 4, "t": "block"}, {"x": 2, "y": 4, "t": "block"}, {"x": 3, "y": 4, "t": "block"}, {"x": 4, "y": 4, "t": "block"}, {"x": 5, "y": 4, "t": "block"}, {"x": 6, "y": 4, "t": "block"}, {"x": 7, "y": 4, "t": "mainst"}, {"x": 8, "y": 4, "t": "block"}, {"x": 9, "y": 4, "t": "block"}, {"x": 10, "y": 4, "t": "block"}, {"x": 11, "y": 4, "t": "block"}, {"x": 12, "y": 4, "t": "mainst"}, {"x": 13, "y": 4, "t": "block"}, {"x": 14, "y": 4, "t": "block"}, {"x": 15, "y": 4, "t": "block"}, {"x": 16, "y": 4, "t": "block"}, {"x": 17, "y": 4, "t": "block"}, {"x": 18, "y": 4, "t": "block"}, {"x": 19, "y": 4, "t": "block"}, {"x": 20, "y": 4, "t": "block"}, {"x": 21, "y": 4, "t": "mainst"}, {"x": 22, "y": 4, "t": "block"}, {"x": 23, "y": 4, "t": "block"}, {"x": 24, "y": 4, "t": "block"}, {"x": 25, "y": 4, "t": "block"}, {"x": 26, "y": 4, "t": "block"}, {"x": 27, "y": 4, "t": "block"}, {"x": 28, "y": 4, "t": "block"}, {"x": 29, "y": 4, "t": "mainst"}, {"x": 30, "y": 4, "t": "block"}, {"x": 31, "y": 4, "t": "oob"}, {"x": 0, "y": 5, "t": "oob"}, {"x": 1, "y": 5, "t": "mainst"}, {"x": 2, "y": 5, "t": "mainst"}, {"x": 3, "y": 5, "t": "mainst"}, {"x": 4, "y": 5, "t": "mainst"}, {"x": 5, "y": 5, "t": "mainst"}, {"x": 6, "y": 5, "t": "mainst"}, {"x": 7, "y": 5, "t": "mainst"}, {"x": 8, "y": 5, "t": "mainst"}, {"x": 9, "y": 5, "t": "mainst"}, {"x": 10, "y": 5, "t": "mainst"}, {"x": 11, "y": 5, "t": "mainst"}, {"x": 12, "y": 5, "t": "mainst"}, {"x": 13, "y": 5, "t": "mainst"}, {"x": 14, "y": 5, "t": "mainst"}, {"x": 15, "y": 5, "t": "mainst"}, {"x": 16, "y": 5, "t": "mainst"}, {"x": 17, "y": 5, "t": "mainst"}, {"x": 18, "y": 5, "t": "mainst"}, {"x": 19, "y": 5, "t": "mainst"}, {"x": 20, "y": 5, "t": "mainst"}, {"x": 21, "y": 5, "t": "mainst"}, {"x": 22, "y": 5, "t": "mainst"}, {"x": 23, "y": 5, "t": "mainst"}, {"x": 24, "y": 5, "t": "mainst"}, {"x": 25, "y": 5, "t": "mainst"}, {"x": 26, "y": 5, "t": "mainst"}, {"x": 27, "y": 5, "t": "mainst"}, {"x": 28, "y": 5, "t": "mainst"}, {"x": 29, "y": 5, "t": "mainst"}, {"x": 30, "y": 5, "t": "mainst"}, {"x": 31, "y": 5, "t": "oob"}, {"x": 0, "y": 6, "t": "oob"}, {"x": 1, "y": 6, "t": "block"}, {"x": 2, "y": 6, "t": "block"}, {"x": 3, "y": 6, "t": "block"}, {"x": 4, "y": 6, "t": "block"}, {"x": 5, "y": 6, "t": "block"}, {"x": 6, "y": 6, "t": "block"}, {"x": 7, "y": 6, "t": "mainst"}, {"x": 8, "y": 6, "t": "block"}, {"x": 9, "y": 6, "t": "block"}, {"x": 10, "y": 6, "t": "block"}, {"x": 11, "y": 6, "t": "block"}, {"x": 12, "y": 6, "t": "mainst"}, {"x": 13, "y": 6, "t": "block"}, {"x": 14, "y": 6, "t": "block"}, {"x": 15, "y": 6, "t": "block"}, {"x": 16, "y": 6, "t": "block"}, {"x": 17, "y": 6, "t": "block"}, {"x": 18, "y": 6, "t": "block"}, {"x": 19, "y": 6, "t": "block"}, {"x": 20, "y": 6, "t": "block"}, {"x": 21, "y": 6, "t": "mainst"}, {"x": 22, "y": 6, "t": "block"}, {"x": 23, "y": 6, "t": "block"}, {"x": 24, "y": 6, "t": "block"}, {"x": 25, "y": 6, "t": "block"}, {"x": 26, "y": 6, "t": "block"}, {"x": 27, "y": 6, "t": "block"}, {"x": 28, "y": 6, "t": "block"}, {"x": 29, "y": 6, "t": "mainst"}, {"x": 30, "y": 6, "t": "block"}, {"x": 31, "y": 6, "t": "oob"}, {"x": 0, "y": 7, "t": "oob"}, {"x": 1, "y": 7, "t": "block"}, {"x": 2, "y": 7, "t": "block"}, {"x": 3, "y": 7, "t": "block"}, {"x": 4, "y": 7, "t": "block"}, {"x": 5, "y": 7, "t": "block"}, {"x": 6, "y": 7, "t": "block"}, {"x": 7, "y": 7, "t": "mainst"}, {"x": 8, "y": 7, "t": "block"}, {"x": 9, "y": 7, "t": "block"}, {"x": 10, "y": 7, "t": "block"}, {"x": 11, "y": 7, "t": "block"}, {"x": 12, "y": 7, "t": "mainst"}, {"x": 13, "y": 7, "t": "block"}, {"x": 14, "y": 7, "t": "block"}, {"x": 15, "y": 7, "t": "block"}, {"x": 16, "y": 7, "t": "block"}, {"x": 17, "y": 7, "t": "block"}, {"x": 18, "y": 7, "t": "block"}, {"x": 19, "y": 7, "t": "block"}, {"x": 20, "y": 7, "t": "block"}, {"x": 21, "y": 7, "t": "mainst"}, {"x": 22, "y": 7, "t": "block"}, {"x": 23, "y": 7, "t": "block"}, {"x": 24, "y": 7, "t": "block"}, {"x": 25, "y": 7, "t": "block"}, {"x": 26, "y": 7, "t": "block"}, {"x": 27, "y": 7, "t": "block"}, {"x": 28, "y": 7, "t": "block"}, {"x": 29, "y": 7, "t": "mainst"}, {"x": 30, "y": 7, "t": "block"}, {"x": 31, "y": 7, "t": "oob"}, {"x": 0, "y": 8, "t": "oob"}, {"x": 1, "y": 8, "t": "block"}, {"x": 2, "y": 8, "t": "block"}, {"x": 3, "y": 8, "t": "block"}, {"x": 4, "y": 8, "t": "block"}, {"x": 5, "y": 8, "t": "block"}, {"x": 6, "y": 8, "t": "block"}, {"x": 7, "y": 8, "t": "mainst"}, {"x": 8, "y": 8, "t": "block"}, {"x": 9, "y": 8, "t": "block"}, {"x": 10, "y": 8, "t": "block"}, {"x": 11, "y": 8, "t": "block"}, {"x": 12, "y": 8, "t": "mainst"}, {"x": 13, "y": 8, "t": "block"}, {"x": 14, "y": 8, "t": "block"}, {"x": 15, "y": 8, "t": "block"}, {"x": 16, "y": 8, "t": "block"}, {"x": 17, "y": 8, "t": "block"}, {"x": 18, "y": 8, "t": "block"}, {"x": 19, "y": 8, "t": "block"}, {"x": 20, "y": 8, "t": "block"}, {"x": 21, "y": 8, "t": "mainst"}, {"x": 22, "y": 8, "t": "block"}, {"x": 23, "y": 8, "t": "block"}, {"x": 24, "y": 8, "t": "block"}, {"x": 25, "y": 8, "t": "block"}, {"x": 26, "y": 8, "t": "block"}, {"x": 27, "y": 8, "t": "block"}, {"x": 28, "y": 8, "t": "block"}, {"x": 29, "y": 8, "t": "mainst"}, {"x": 30, "y": 8, "t": "block"}, {"x": 31, "y": 8, "t": "oob"}, {"x": 0, "y": 9, "t": "oob"}, {"x": 1, "y": 9, "t": "block"}, {"x": 2, "y": 9, "t": "block"}, {"x": 3, "y": 9, "t": "block"}, {"x": 4, "y": 9, "t": "block"}, {"x": 5, "y": 9, "t": "block"}, {"x": 6, "y": 9, "t": "block"}, {"x": 7, "y": 9, "t": "mainst"}, {"x": 8, "y": 9, "t": "block"}, {"x": 9, "y": 9, "t": "block"}, {"x": 10, "y": 9, "t": "block"}, {"x": 11, "y": 9, "t": "block"}, {"x": 12, "y": 9, "t": "mainst"}, {"x": 13, "y": 9, "t": "block"}, {"x": 14, "y": 9, "t": "block"}, {"x": 15, "y": 9, "t": "block"}, {"x": 16, "y": 9, "t": "block"}, {"x": 17, "y": 9, "t": "block"}, {"x": 18, "y": 9, "t": "block"}, {"x": 19, "y": 9, "t": "block"}, {"x": 20, "y": 9, "t": "block"}, {"x": 21, "y": 9, "t": "mainst"}, {"x": 22, "y": 9, "t": "block"}, {"x": 23, "y": 9, "t": "block"}, {"x": 24, "y": 9, "t": "block"}, {"x": 25, "y": 9, "t": "block"}, {"x": 26, "y": 9, "t": "block"}, {"x": 27, "y": 9, "t": "block"}, {"x": 28, "y": 9, "t": "block"}, {"x": 29, "y": 9, "t": "mainst"}, {"x": 30, "y": 9, "t": "block"}, {"x": 31, "y": 9, "t": "oob"}, {"x": 0, "y": 10, "t": "oob"}, {"x": 1, "y": 10, "t": "block"}, {"x": 2, "y": 10, "t": "block"}, {"x": 3, "y": 10, "t": "block"}, {"x": 4, "y": 10, "t": "block"}, {"x": 5, "y": 10, "t": "block"}, {"x": 6, "y": 10, "t": "block"}, {"x": 7, "y": 10, "t": "mainst"}, {"x": 8, "y": 10, "t": "block"}, {"x": 9, "y": 10, "t": "block"}, {"x": 10, "y": 10, "t": "block"}, {"x": 11, "y": 10, "t": "block"}, {"x": 12, "y": 10, "t": "mainst"}, {"x": 13, "y": 10, "t": "block"}, {"x": 14, "y": 10, "t": "block"}, {"x": 15, "y": 10, "t": "block"}, {"x": 16, "y": 10, "t": "block"}, {"x": 17, "y": 10, "t": "block"}, {"x": 18, "y": 10, "t": "block"}, {"x": 19, "y": 10, "t": "block"}, {"x": 20, "y": 10, "t": "block"}, {"x": 21, "y": 10, "t": "mainst"}, {"x": 22, "y": 10, "t": "block"}, {"x": 23, "y": 10, "t": "block"}, {"x": 24, "y": 10, "t": "block"}, {"x": 25, "y": 10, "t": "block"}, {"x": 26, "y": 10, "t": "block"}, {"x": 27, "y": 10, "t": "block"}, {"x": 28, "y": 10, "t": "block"}, {"x": 29, "y": 10, "t": "mainst"}, {"x": 30, "y": 10, "t": "block"}, {"x": 31, "y": 10, "t": "oob"}, {"x": 0, "y": 11, "t": "oob"}, {"x": 1, "y": 11, "t": "block"}, {"x": 2, "y": 11, "t": "block"}, {"x": 3, "y": 11, "t": "block"}, {"x": 4, "y": 11, "t": "block"}, {"x": 5, "y": 11, "t": "block"}, {"x": 6, "y": 11, "t": "block"}, {"x": 7, "y": 11, "t": "mainst"}, {"x": 8, "y": 11, "t": "block"}, {"x": 9, "y": 11, "t": "block"}, {"x": 10, "y": 11, "t": "block"}, {"x": 11, "y": 11, "t": "block"}, {"x": 12, "y": 11, "t": "mainst"}, {"x": 13, "y": 11, "t": "block"}, {"x": 14, "y": 11, "t": "block"}, {"x": 15, "y": 11, "t": "block"}, {"x": 16, "y": 11, "t": "block"}, {"x": 17, "y": 11, "t": "block"}, {"x": 18, "y": 11, "t": "block"}, {"x": 19, "y": 11, "t": "block"}, {"x": 20, "y": 11, "t": "block"}, {"x": 21, "y": 11, "t": "mainst"}, {"x": 22, "y": 11, "t": "block"}, {"x": 23, "y": 11, "t": "block"}, {"x": 24, "y": 11, "t": "block"}, {"x": 25, "y": 11, "t": "block"}, {"x": 26, "y": 11, "t": "block"}, {"x": 27, "y": 11, "t": "block"}, {"x": 28, "y": 11, "t": "block"}, {"x": 29, "y": 11, "t": "mainst"}, {"x": 30, "y": 11, "t": "block"}, {"x": 31, "y": 11, "t": "oob"}, {"x": 0, "y": 12, "t": "oob"}, {"x": 1, "y": 12, "t": "mainst"}, {"x": 2, "y": 12, "t": "mainst"}, {"x": 3, "y": 12, "t": "mainst"}, {"x": 4, "y": 12, "t": "mainst"}, {"x": 5, "y": 12, "t": "mainst"}, {"x": 6, "y": 12, "t": "mainst"}, {"x": 7, "y": 12, "t": "mainst"}, {"x": 8, "y": 12, "t": "mainst"}, {"x": 9, "y": 12, "t": "mainst"}, {"x": 10, "y": 12, "t": "mainst"}, {"x": 11, "y": 12, "t": "mainst"}, {"x": 12, "y": 12, "t": "mainst"}, {"x": 13, "y": 12, "t": "mainst"}, {"x": 14, "y": 12, "t": "mainst"}, {"x": 15, "y": 12, "t": "mainst"}, {"x": 16, "y": 12, "t": "mainst"}, {"x": 17, "y": 12, "t": "mainst"}, {"x": 18, "y": 12, "t": "mainst"}, {"x": 19, "y": 12, "t": "mainst"}, {"x": 20, "y": 12, "t": "mainst"}, {"x": 21, "y": 12, "t": "mainst"}, {"x": 22, "y": 12, "t": "mainst"}, {"x": 23, "y": 12, "t": "mainst"}, {"x": 24, "y": 12, "t": "mainst"}, {"x": 25, "y": 12, "t": "mainst"}, {"x": 26, "y": 12, "t": "mainst"}, {"x": 27, "y": 12, "t": "mainst"}, {"x": 28, "y": 12, "t": "mainst"}, {"x": 29, "y": 12, "t": "mainst"}, {"x": 30, "y": 12, "t": "mainst"}, {"x": 31, "y": 12, "t": "oob"}, {"x": 0, "y": 13, "t": "oob"}, {"x": 1, "y": 13, "t": "block"}, {"x": 2, "y": 13, "t": "block"}, {"x": 3, "y": 13, "t": "block"}, {"x": 4, "y": 13, "t": "block"}, {"x": 5, "y": 13, "t": "block"}, {"x": 6, "y": 13, "t": "block"}, {"x": 7, "y": 13, "t": "mainst"}, {"x": 8, "y": 13, "t": "block"}, {"x": 9, "y": 13, "t": "block"}, {"x": 10, "y": 13, "t": "block"}, {"x": 11, "y": 13, "t": "block"}, {"x": 12, "y": 13, "t": "mainst"}, {"x": 13, "y": 13, "t": "block"}, {"x": 14, "y": 13, "t": "block"}, {"x": 15, "y": 13, "t": "block"}, {"x": 16, "y": 13, "t": "block"}, {"x": 17, "y": 13, "t": "block"}, {"x": 18, "y": 13, "t": "block"}, {"x": 19, "y": 13, "t": "block"}, {"x": 20, "y": 13, "t": "block"}, {"x": 21, "y": 13, "t": "mainst"}, {"x": 22, "y": 13, "t": "block"}, {"x": 23, "y": 13, "t": "block"}, {"x": 24, "y": 13, "t": "block"}, {"x": 25, "y": 13, "t": "block"}, {"x": 26, "y": 13, "t": "block"}, {"x": 27, "y": 13, "t": "block"}, {"x": 28, "y": 13, "t": "block"}, {"x": 29, "y": 13, "t": "mainst"}, {"x": 30, "y": 13, "t": "block"}, {"x": 31, "y": 13, "t": "oob"}, {"x": 0, "y": 14, "t": "oob"}, {"x": 1, "y": 14, "t": "block"}, {"x": 2, "y": 14, "t": "block"}, {"x": 3, "y": 14, "t": "block"}, {"x": 4, "y": 14, "t": "block"}, {"x": 5, "y": 14, "t": "block"}, {"x": 6, "y": 14, "t": "block"}, {"x": 7, "y": 14, "t": "mainst"}, {"x": 8, "y": 14, "t": "block"}, {"x": 9, "y": 14, "t": "block"}, {"x": 10, "y": 14, "t": "block"}, {"x": 11, "y": 14, "t": "block"}, {"x": 12, "y": 14, "t": "mainst"}, {"x": 13, "y": 14, "t": "block"}, {"x": 14, "y": 14, "t": "block"}, {"x": 15, "y": 14, "t": "block"}, {"x": 16, "y": 14, "t": "block"}, {"x": 17, "y": 14, "t": "block"}, {"x": 18, "y": 14, "t": "block"}, {"x": 19, "y": 14, "t": "block"}, {"x": 20, "y": 14, "t": "block"}, {"x": 21, "y": 14, "t": "mainst"}, {"x": 22, "y": 14, "t": "block"}, {"x": 23, "y": 14, "t": "block"}, {"x": 24, "y": 14, "t": "block"}, {"x": 25, "y": 14, "t": "block"}, {"x": 26, "y": 14, "t": "block"}, {"x": 27, "y": 14, "t": "block"}, {"x": 28, "y": 14, "t": "block"}, {"x": 29, "y": 14, "t": "mainst"}, {"x": 30, "y": 14, "t": "block"}, {"x": 31, "y": 14, "t": "oob"}, {"x": 0, "y": 15, "t": "oob"}, {"x": 1, "y": 15, "t": "block"}, {"x": 2, "y": 15, "t": "block"}, {"x": 3, "y": 15, "t": "block"}, {"x": 4, "y": 15, "t": "block"}, {"x": 5, "y": 15, "t": "block"}, {"x": 6, "y": 15, "t": "block"}, {"x": 7, "y": 15, "t": "mainst"}, {"x": 8, "y": 15, "t": "block"}, {"x": 9, "y": 15, "t": "block"}, {"x": 10, "y": 15, "t": "river"}, {"x": 11, "y": 15, "t": "river"}, {"x": 12, "y": 15, "t": "bridge"}, {"x": 13, "y": 15, "t": "river"}, {"x": 14, "y": 15, "t": "river"}, {"x": 15, "y": 15, "t": "river"}, {"x": 16, "y": 15, "t": "river"}, {"x": 17, "y": 15, "t": "river"}, {"x": 18, "y": 15, "t": "block"}, {"x": 19, "y": 15, "t": "block"}, {"x": 20, "y": 15, "t": "block"}, {"x": 21, "y": 15, "t": "mainst"}, {"x": 22, "y": 15, "t": "block"}, {"x": 23, "y": 15, "t": "river"}, {"x": 24, "y": 15, "t": "river"}, {"x": 25, "y": 15, "t": "river"}, {"x": 26, "y": 15, "t": "river"}, {"x": 27, "y": 15, "t": "river"}, {"x": 28, "y": 15, "t": "block"}, {"x": 29, "y": 15, "t": "mainst"}, {"x": 30, "y": 15, "t": "block"}, {"x": 31, "y": 15, "t": "oob"}, {"x": 0, "y": 16, "t": "oob"}, {"x": 1, "y": 16, "t": "river"}, {"x": 2, "y": 16, "t": "river"}, {"x": 3, "y": 16, "t": "river"}, {"x": 4, "y": 16, "t": "river"}, {"x": 5, "y": 16, "t": "block"}, {"x": 6, "y": 16, "t": "block"}, {"x": 7, "y": 16, "t": "mainst"}, {"x": 8, "y": 16, "t": "block"}, {"x": 9, "y": 16, "t": "block"}, {"x": 10, "y": 16, "t": "river"}, {"x": 11, "y": 16, "t": "block"}, {"x": 12, "y": 16, "t": "mainst"}, {"x": 13, "y": 16, "t": "block"}, {"x": 14, "y": 16, "t": "block"}, {"x": 15, "y": 16, "t": "block"}, {"x": 16, "y": 16, "t": "block"}, {"x": 17, "y": 16, "t": "river"}, {"x": 18, "y": 16, "t": "river"}, {"x": 19, "y": 16, "t": "river"}, {"x": 20, "y": 16, "t": "river"}, {"x": 21, "y": 16, "t": "bridge"}, {"x": 22, "y": 16, "t": "river"}, {"x": 23, "y": 16, "t": "river"}, {"x": 24, "y": 16, "t": "block"}, {"x": 25, "y": 16, "t": "block"}, {"x": 26, "y": 16, "t": "block"}, {"x": 27, "y": 16, "t": "river"}, {"x": 28, "y": 16, "t": "river"}, {"x": 29, "y": 16, "t": "bridge"}, {"x": 30, "y": 16, "t": "river"}, {"x": 31, "y": 16, "t": "oob"}, {"x": 0, "y": 17, "t": "oob"}, {"x": 1, "y": 17, "t": "block"}, {"x": 2, "y": 17, "t": "block"}, {"x": 3, "y": 17, "t": "block"}, {"x": 4, "y": 17, "t": "river"}, {"x": 5, "y": 17, "t": "block"}, {"x": 6, "y": 17, "t": "block"}, {"x": 7, "y": 17, "t": "mainst"}, {"x": 8, "y": 17, "t": "block"}, {"x": 9, "y": 17, "t": "block"}, {"x": 10, "y": 17, "t": "river"}, {"x": 11, "y": 17, "t": "block"}, {"x": 12, "y": 17, "t": "mainst"}, {"x": 13, "y": 17, "t": "block"}, {"x": 14, "y": 17, "t": "block"}, {"x": 15, "y": 17, "t": "block"}, {"x": 16, "y": 17, "t": "block"}, {"x": 17, "y": 17, "t": "block"}, {"x": 18, "y": 17, "t": "block"}, {"x": 19, "y": 17, "t": "block"}, {"x": 20, "y": 17, "t": "block"}, {"x": 21, "y": 17, "t": "mainst"}, {"x": 22, "y": 17, "t": "block"}, {"x": 23, "y": 17, "t": "block"}, {"x": 24, "y": 17, "t": "block"}, {"x": 25, "y": 17, "t": "block"}, {"x": 26, "y": 17, "t": "block"}, {"x": 27, "y": 17, "t": "block"}, {"x": 28, "y": 17, "t": "block"}, {"x": 29, "y": 17, "t": "mainst"}, {"x": 30, "y": 17, "t": "block"}, {"x": 31, "y": 17, "t": "oob"}, {"x": 0, "y": 18, "t": "oob"}, {"x": 1, "y": 18, "t": "block"}, {"x": 2, "y": 18, "t": "block"}, {"x": 3, "y": 18, "t": "block"}, {"x": 4, "y": 18, "t": "river"}, {"x": 5, "y": 18, "t": "river"}, {"x": 6, "y": 18, "t": "river"}, {"x": 7, "y": 18, "t": "bridge"}, {"x": 8, "y": 18, "t": "river"}, {"x": 9, "y": 18, "t": "river"}, {"x": 10, "y": 18, "t": "river"}, {"x": 11, "y": 18, "t": "block"}, {"x": 12, "y": 18, "t": "mainst"}, {"x": 13, "y": 18, "t": "block"}, {"x": 14, "y": 18, "t": "block"}, {"x": 15, "y": 18, "t": "block"}, {"x": 16, "y": 18, "t": "block"}, {"x": 17, "y": 18, "t": "block"}, {"x": 18, "y": 18, "t": "block"}, {"x": 19, "y": 18, "t": "block"}, {"x": 20, "y": 18, "t": "block"}, {"x": 21, "y": 18, "t": "mainst"}, {"x": 22, "y": 18, "t": "block"}, {"x": 23, "y": 18, "t": "block"}, {"x": 24, "y": 18, "t": "block"}, {"x": 25, "y": 18, "t": "block"}, {"x": 26, "y": 18, "t": "block"}, {"x": 27, "y": 18, "t": "block"}, {"x": 28, "y": 18, "t": "block"}, {"x": 29, "y": 18, "t": "mainst"}, {"x": 30, "y": 18, "t": "block"}, {"x": 31, "y": 18, "t": "oob"}, {"x": 0, "y": 19, "t": "oob"}, {"x": 1, "y": 19, "t": "block"}, {"x": 2, "y": 19, "t": "block"}, {"x": 3, "y": 19, "t": "block"}, {"x": 4, "y": 19, "t": "block"}, {"x": 5, "y": 19, "t": "block"}, {"x": 6, "y": 19, "t": "block"}, {"x": 7, "y": 19, "t": "mainst"}, {"x": 8, "y": 19, "t": "block"}, {"x": 9, "y": 19, "t": "block"}, {"x": 10, "y": 19, "t": "block"}, {"x": 11, "y": 19, "t": "block"}, {"x": 12, "y": 19, "t": "mainst"}, {"x": 13, "y": 19, "t": "block"}, {"x": 14, "y": 19, "t": "block"}, {"x": 15, "y": 19, "t": "block"}, {"x": 16, "y": 19, "t": "block"}, {"x": 17, "y": 19, "t": "block"}, {"x": 18, "y": 19, "t": "block"}, {"x": 19, "y": 19, "t": "block"}, {"x": 20, "y": 19, "t": "block"}, {"x": 21, "y": 19, "t": "mainst"}, {"x": 22, "y": 19, "t": "block"}, {"x": 23, "y": 19, "t": "block"}, {"x": 24, "y": 19, "t": "block"}, {"x": 25, "y": 19, "t": "block"}, {"x": 26, "y": 19, "t": "block"}, {"x": 27, "y": 19, "t": "block"}, {"x": 28, "y": 19, "t": "block"}, {"x": 29, "y": 19, "t": "mainst"}, {"x": 30, "y": 19, "t": "block"}, {"x": 31, "y": 19, "t": "oob"}, {"x": 0, "y": 20, "t": "oob"}, {"x": 1, "y": 20, "t": "block"}, {"x": 2, "y": 20, "t": "block"}, {"x": 3, "y": 20, "t": "block"}, {"x": 4, "y": 20, "t": "block"}, {"x": 5, "y": 20, "t": "block"}, {"x": 6, "y": 20, "t": "block"}, {"x": 7, "y": 20, "t": "mainst"}, {"x": 8, "y": 20, "t": "block"}, {"x": 9, "y": 20, "t": "block"}, {"x": 10, "y": 20, "t": "block"}, {"x": 11, "y": 20, "t": "block"}, {"x": 12, "y": 20, "t": "mainst"}, {"x": 13, "y": 20, "t": "block"}, {"x": 14, "y": 20, "t": "block"}, {"x": 15, "y": 20, "t": "block"}, {"x": 16, "y": 20, "t": "block"}, {"x": 17, "y": 20, "t": "block"}, {"x": 18, "y": 20, "t": "block"}, {"x": 19, "y": 20, "t": "block"}, {"x": 20, "y": 20, "t": "block"}, {"x": 21, "y": 20, "t": "mainst"}, {"x": 22, "y": 20, "t": "block"}, {"x": 23, "y": 20, "t": "block"}, {"x": 24, "y": 20, "t": "block"}, {"x": 25, "y": 20, "t": "block"}, {"x": 26, "y": 20, "t": "block"}, {"x": 27, "y": 20, "t": "block"}, {"x": 28, "y": 20, "t": "block"}, {"x": 29, "y": 20, "t": "mainst"}, {"x": 30, "y": 20, "t": "block"}, {"x": 31, "y": 20, "t": "oob"}, {"x": 0, "y": 21, "t": "oob"}, {"x": 1, "y": 21, "t": "mainst"}, {"x": 2, "y": 21, "t": "mainst"}, {"x": 3, "y": 21, "t": "mainst"}, {"x": 4, "y": 21, "t": "mainst"}, {"x": 5, "y": 21, "t": "mainst"}, {"x": 6, "y": 21, "t": "mainst"}, {"x": 7, "y": 21, "t": "mainst"}, {"x": 8, "y": 21, "t": "mainst"}, {"x": 9, "y": 21, "t": "mainst"}, {"x": 10, "y": 21, "t": "mainst"}, {"x": 11, "y": 21, "t": "mainst"}, {"x": 12, "y": 21, "t": "mainst"}, {"x": 13, "y": 21, "t": "mainst"}, {"x": 14, "y": 21, "t": "mainst"}, {"x": 15, "y": 21, "t": "mainst"}, {"x": 16, "y": 21, "t": "mainst"}, {"x": 17, "y": 21, "t": "mainst"}, {"x": 18, "y": 21, "t": "mainst"}, {"x": 19, "y": 21, "t": "mainst"}, {"x": 20, "y": 21, "t": "mainst"}, {"x": 21, "y": 21, "t": "mainst"}, {"x": 22, "y": 21, "t": "mainst"}, {"x": 23, "y": 21, "t": "mainst"}, {"x": 24, "y": 21, "t": "mainst"}, {"x": 25, "y": 21, "t": "mainst"}, {"x": 26, "y": 21, "t": "mainst"}, {"x": 27, "y": 21, "t": "mainst"}, {"x": 28, "y": 21, "t": "mainst"}, {"x": 29, "y": 21, "t": "mainst"}, {"x": 30, "y": 21, "t": "mainst"}, {"x": 31, "y": 21, "t": "oob"}, {"x": 0, "y": 22, "t": "oob"}, {"x": 1, "y": 22, "t": "block"}, {"x": 2, "y": 22, "t": "block"}, {"x": 3, "y": 22, "t": "block"}, {"x": 4, "y": 22, "t": "block"}, {"x": 5, "y": 22, "t": "block"}, {"x": 6, "y": 22, "t": "block"}, {"x": 7, "y": 22, "t": "mainst"}, {"x": 8, "y": 22, "t": "block"}, {"x": 9, "y": 22, "t": "block"}, {"x": 10, "y": 22, "t": "block"}, {"x": 11, "y": 22, "t": "block"}, {"x": 12, "y": 22, "t": "mainst"}, {"x": 13, "y": 22, "t": "block"}, {"x": 14, "y": 22, "t": "block"}, {"x": 15, "y": 22, "t": "block"}, {"x": 16, "y": 22, "t": "block"}, {"x": 17, "y": 22, "t": "block"}, {"x": 18, "y": 22, "t": "block"}, {"x": 19, "y": 22, "t": "block"}, {"x": 20, "y": 22, "t": "block"}, {"x": 21, "y": 22, "t": "mainst"}, {"x": 22, "y": 22, "t": "block"}, {"x": 23, "y": 22, "t": "block"}, {"x": 24, "y": 22, "t": "block"}, {"x": 25, "y": 22, "t": "block"}, {"x": 26, "y": 22, "t": "block"}, {"x": 27, "y": 22, "t": "block"}, {"x": 28, "y": 22, "t": "block"}, {"x": 29, "y": 22, "t": "mainst"}, {"x": 30, "y": 22, "t": "block"}, {"x": 31, "y": 22, "t": "oob"}, {"x": 0, "y": 23, "t": "oob"}, {"x": 1, "y": 23, "t": "block"}, {"x": 2, "y": 23, "t": "block"}, {"x": 3, "y": 23, "t": "block"}, {"x": 4, "y": 23, "t": "block"}, {"x": 5, "y": 23, "t": "block"}, {"x": 6, "y": 23, "t": "block"}, {"x": 7, "y": 23, "t": "mainst"}, {"x": 8, "y": 23, "t": "block"}, {"x": 9, "y": 23, "t": "block"}, {"x": 10, "y": 23, "t": "block"}, {"x": 11, "y": 23, "t": "block"}, {"x": 12, "y": 23, "t": "mainst"}, {"x": 13, "y": 23, "t": "block"}, {"x": 14, "y": 23, "t": "block"}, {"x": 15, "y": 23, "t": "block"}, {"x": 16, "y": 23, "t": "block"}, {"x": 17, "y": 23, "t": "block"}, {"x": 18, "y": 23, "t": "block"}, {"x": 19, "y": 23, "t": "block"}, {"x": 20, "y": 23, "t": "block"}, {"x": 21, "y": 23, "t": "mainst"}, {"x": 22, "y": 23, "t": "block"}, {"x": 23, "y": 23, "t": "block"}, {"x": 24, "y": 23, "t": "block"}, {"x": 25, "y": 23, "t": "block"}, {"x": 26, "y": 23, "t": "block"}, {"x": 27, "y": 23, "t": "block"}, {"x": 28, "y": 23, "t": "block"}, {"x": 29, "y": 23, "t": "mainst"}, {"x": 30, "y": 23, "t": "block"}, {"x": 31, "y": 23, "t": "oob"}, {"x": 0, "y": 24, "t": "oob"}, {"x": 1, "y": 24, "t": "block"}, {"x": 2, "y": 24, "t": "block"}, {"x": 3, "y": 24, "t": "block"}, {"x": 4, "y": 24, "t": "block"}, {"x": 5, "y": 24, "t": "block"}, {"x": 6, "y": 24, "t": "block"}, {"x": 7, "y": 24, "t": "mainst"}, {"x": 8, "y": 24, "t": "block"}, {"x": 9, "y": 24, "t": "block"}, {"x": 10, "y": 24, "t": "block"}, {"x": 11, "y": 24, "t": "block"}, {"x": 12, "y": 24, "t": "mainst"}, {"x": 13, "y": 24, "t": "block"}, {"x": 14, "y": 24, "t": "block"}, {"x": 15, "y": 24, "t": "block"}, {"x": 16, "y": 24, "t": "block"}, {"x": 17, "y": 24, "t": "block"}, {"x": 18, "y": 24, "t": "block"}, {"x": 19, "y": 24, "t": "block"}, {"x": 20, "y": 24, "t": "block"}, {"x": 21, "y": 24, "t": "mainst"}, {"x": 22, "y": 24, "t": "block"}, {"x": 23, "y": 24, "t": "block"}, {"x": 24, "y": 24, "t": "block"}, {"x": 25, "y": 24, "t": "block"}, {"x": 26, "y": 24, "t": "block"}, {"x": 27, "y": 24, "t": "block"}, {"x": 28, "y": 24, "t": "block"}, {"x": 29, "y": 24, "t": "mainst"}, {"x": 30, "y": 24, "t": "block"}, {"x": 31, "y": 24, "t": "oob"}, {"x": 0, "y": 25, "t": "oob"}, {"x": 1, "y": 25, "t": "block"}, {"x": 2, "y": 25, "t": "block"}, {"x": 3, "y": 25, "t": "block"}, {"x": 4, "y": 25, "t": "block"}, {"x": 5, "y": 25, "t": "block"}, {"x": 6, "y": 25, "t": "block"}, {"x": 7, "y": 25, "t": "mainst"}, {"x": 8, "y": 25, "t": "block"}, {"x": 9, "y": 25, "t": "block"}, {"x": 10, "y": 25, "t": "block"}, {"x": 11, "y": 25, "t": "block"}, {"x": 12, "y": 25, "t": "mainst"}, {"x": 13, "y": 25, "t": "block"}, {"x": 14, "y": 25, "t": "block"}, {"x": 15, "y": 25, "t": "block"}, {"x": 16, "y": 25, "t": "block"}, {"x": 17, "y": 25, "t": "block"}, {"x": 18, "y": 25, "t": "block"}, {"x": 19, "y": 25, "t": "block"}, {"x": 20, "y": 25, "t": "block"}, {"x": 21, "y": 25, "t": "mainst"}, {"x": 22, "y": 25, "t": "block"}, {"x": 23, "y": 25, "t": "block"}, {"x": 24, "y": 25, "t": "block"}, {"x": 25, "y": 25, "t": "block"}, {"x": 26, "y": 25, "t": "block"}, {"x": 27, "y": 25, "t": "block"}, {"x": 28, "y": 25, "t": "block"}, {"x": 29, "y": 25, "t": "mainst"}, {"x": 30, "y": 25, "t": "block"}, {"x": 31, "y": 25, "t": "oob"}, {"x": 0, "y": 26, "t": "oob"}, {"x": 1, "y": 26, "t": "mainst"}, {"x": 2, "y": 26, "t": "mainst"}, {"x": 3, "y": 26, "t": "mainst"}, {"x": 4, "y": 26, "t": "mainst"}, {"x": 5, "y": 26, "t": "mainst"}, {"x": 6, "y": 26, "t": "mainst"}, {"x": 7, "y": 26, "t": "mainst"}, {"x": 8, "y": 26, "t": "mainst"}, {"x": 9, "y": 26, "t": "mainst"}, {"x": 10, "y": 26, "t": "mainst"}, {"x": 11, "y": 26, "t": "mainst"}, {"x": 12, "y": 26, "t": "mainst"}, {"x": 13, "y": 26, "t": "mainst"}, {"x": 14, "y": 26, "t": "mainst"}, {"x": 15, "y": 26, "t": "mainst"}, {"x": 16, "y": 26, "t": "mainst"}, {"x": 17, "y": 26, "t": "mainst"}, {"x": 18, "y": 26, "t": "mainst"}, {"x": 19, "y": 26, "t": "mainst"}, {"x": 20, "y": 26, "t": "mainst"}, {"x": 21, "y": 26, "t": "mainst"}, {"x": 22, "y": 26, "t": "mainst"}, {"x": 23, "y": 26, "t": "mainst"}, {"x": 24, "y": 26, "t": "mainst"}, {"x": 25, "y": 26, "t": "mainst"}, {"x": 26, "y": 26, "t": "mainst"}, {"x": 27, "y": 26, "t": "mainst"}, {"x": 28, "y": 26, "t": "mainst"}, {"x": 29, "y": 26, "t": "mainst"}, {"x": 30, "y": 26, "t": "mainst"}, {"x": 31, "y": 26, "t": "oob"}, {"x": 0, "y": 27, "t": "oob"}, {"x": 1, "y": 27, "t": "block"}, {"x": 2, "y": 27, "t": "block"}, {"x": 3, "y": 27, "t": "block"}, {"x": 4, "y": 27, "t": "block"}, {"x": 5, "y": 27, "t": "block"}, {"x": 6, "y": 27, "t": "block"}, {"x": 7, "y": 27, "t": "mainst"}, {"x": 8, "y": 27, "t": "block"}, {"x": 9, "y": 27, "t": "block"}, {"x": 10, "y": 27, "t": "block"}, {"x": 11, "y": 27, "t": "block"}, {"x": 12, "y": 27, "t": "mainst"}, {"x": 13, "y": 27, "t": "block"}, {"x": 14, "y": 27, "t": "block"}, {"x": 15, "y": 27, "t": "block"}, {"x": 16, "y": 27, "t": "block"}, {"x": 17, "y": 27, "t": "block"}, {"x": 18, "y": 27, "t": "block"}, {"x": 19, "y": 27, "t": "block"}, {"x": 20, "y": 27, "t": "block"}, {"x": 21, "y": 27, "t": "mainst"}, {"x": 22, "y": 27, "t": "block"}, {"x": 23, "y": 27, "t": "block"}, {"x": 24, "y": 27, "t": "block"}, {"x": 25, "y": 27, "t": "block"}, {"x": 26, "y": 27, "t": "block"}, {"x": 27, "y": 27, "t": "block"}, {"x": 28, "y": 27, "t": "block"}, {"x": 29, "y": 27, "t": "mainst"}, {"x": 30, "y": 27, "t": "block"}, {"x": 31, "y": 27, "t": "oob"}, {"x": 0, "y": 28, "t": "oob"}, {"x": 1, "y": 28, "t": "block"}, {"x": 2, "y": 28, "t": "block"}, {"x": 3, "y": 28, "t": "block"}, {"x": 4, "y": 28, "t": "block"}, {"x": 5, "y": 28, "t": "block"}, {"x": 6, "y": 28, "t": "block"}, {"x": 7, "y": 28, "t": "mainst"}, {"x": 8, "y": 28, "t": "block"}, {"x": 9, "y": 28, "t": "block"}, {"x": 10, "y": 28, "t": "block"}, {"x": 11, "y": 28, "t": "block"}, {"x": 12, "y": 28, "t": "mainst"}, {"x": 13, "y": 28, "t": "block"}, {"x": 14, "y": 28, "t": "block"}, {"x": 15, "y": 28, "t": "block"}, {"x": 16, "y": 28, "t": "block"}, {"x": 17, "y": 28, "t": "block"}, {"x": 18, "y": 28, "t": "block"}, {"x": 19, "y": 28, "t": "block"}, {"x": 20, "y": 28, "t": "block"}, {"x": 21, "y": 28, "t": "mainst"}, {"x": 22, "y": 28, "t": "block"}, {"x": 23, "y": 28, "t": "block"}, {"x": 24, "y": 28, "t": "block"}, {"x": 25, "y": 28, "t": "block"}, {"x": 26, "y": 28, "t": "block"}, {"x": 27, "y": 28, "t": "block"}, {"x": 28, "y": 28, "t": "block"}, {"x": 29, "y": 28, "t": "mainst"}, {"x": 30, "y": 28, "t": "block"}, {"x": 31, "y": 28, "t": "oob"}, {"x": 0, "y": 29, "t": "oob"}, {"x": 1, "y": 29, "t": "block"}, {"x": 2, "y": 29, "t": "block"}, {"x": 3, "y": 29, "t": "block"}, {"x": 4, "y": 29, "t": "block"}, {"x": 5, "y": 29, "t": "block"}, {"x": 6, "y": 29, "t": "block"}, {"x": 7, "y": 29, "t": "mainst"}, {"x": 8, "y": 29, "t": "block"}, {"x": 9, "y": 29, "t": "block"}, {"x": 10, "y": 29, "t": "block"}, {"x": 11, "y": 29, "t": "block"}, {"x": 12, "y": 29, "t": "mainst"}, {"x": 13, "y": 29, "t": "block"}, {"x": 14, "y": 29, "t": "block"}, {"x": 15, "y": 29, "t": "block"}, {"x": 16, "y": 29, "t": "block"}, {"x": 17, "y": 29, "t": "block"}, {"x": 18, "y": 29, "t": "block"}, {"x": 19, "y": 29, "t": "block"}, {"x": 20, "y": 29, "t": "block"}, {"x": 21, "y": 29, "t": "mainst"}, {"x": 22, "y": 29, "t": "block"}, {"x": 23, "y": 29, "t": "block"}, {"x": 24, "y": 29, "t": "block"}, {"x": 25, "y": 29, "t": "block"}, {"x": 26, "y": 29, "t": "block"}, {"x": 27, "y": 29, "t": "block"}, {"x": 28, "y": 29, "t": "block"}, {"x": 29, "y": 29, "t": "mainst"}, {"x": 30, "y": 29, "t": "block"}, {"x": 31, "y": 29, "t": "oob"}, {"x": 0, "y": 30, "t": "oob"}, {"x": 1, "y": 30, "t": "block"}, {"x": 2, "y": 30, "t": "block"}, {"x": 3, "y": 30, "t": "block"}, {"x": 4, "y": 30, "t": "block"}, {"x": 5, "y": 30, "t": "block"}, {"x": 6, "y": 30, "t": "block"}, {"x": 7, "y": 30, "t": "mainst"}, {"x": 8, "y": 30, "t": "block"}, {"x": 9, "y": 30, "t": "block"}, {"x": 10, "y": 30, "t": "block"}, {"x": 11, "y": 30, "t": "block"}, {"x": 12, "y": 30, "t": "mainst"}, {"x": 13, "y": 30, "t": "block"}, {"x": 14, "y": 30, "t": "block"}, {"x": 15, "y": 30, "t": "block"}, {"x": 16, "y": 30, "t": "block"}, {"x": 17, "y": 30, "t": "block"}, {"x": 18, "y": 30, "t": "block"}, {"x": 19, "y": 30, "t": "block"}, {"x": 20, "y": 30, "t": "block"}, {"x": 21, "y": 30, "t": "mainst"}, {"x": 22, "y": 30, "t": "block"}, {"x": 23, "y": 30, "t": "block"}, {"x": 24, "y": 30, "t": "block"}, {"x": 25, "y": 30, "t": "block"}, {"x": 26, "y": 30, "t": "block"}, {"x": 27, "y": 30, "t": "block"}, {"x": 28, "y": 30, "t": "block"}, {"x": 29, "y": 30, "t": "mainst"}, {"x": 30, "y": 30, "t": "block"}, {"x": 31, "y": 30, "t": "oob"}, {"x": 0, "y": 31, "t": "oob"}, {"x": 1, "y": 31, "t": "oob"}, {"x": 2, "y": 31, "t": "oob"}, {"x": 3, "y": 31, "t": "oob"}, {"x": 4, "y": 31, "t": "oob"}, {"x": 5, "y": 31, "t": "oob"}, {"x": 6, "y": 31, "t": "oob"}, {"x": 7, "y": 31, "t": "oob"}, {"x": 8, "y": 31, "t": "oob"}, {"x": 9, "y": 31, "t": "oob"}, {"x": 10, "y": 31, "t": "oob"}, {"x": 11, "y": 31, "t": "oob"}, {"x": 12, "y": 31, "t": "oob"}, {"x": 13, "y": 31, "t": "oob"}, {"x": 14, "y": 31, "t": "oob"}, {"x": 15, "y": 31, "t": "oob"}, {"x": 16, "y": 31, "t": "oob"}, {"x": 17, "y": 31, "t": "oob"}, {"x": 18, "y": 31, "t": "oob"}, {"x": 19, "y": 31, "t": "oob"}, {"x": 20, "y": 31, "t": "oob"}, {"x": 21, "y": 31, "t": "oob"}, {"x": 22, "y": 31, "t": "oob"}, {"x": 23, "y": 31, "t": "oob"}, {"x": 24, "y": 31, "t": "oob"}, {"x": 25, "y": 31, "t": "oob"}, {"x": 26, "y": 31, "t": "oob"}, {"x": 27, "y": 31, "t": "oob"}, {"x": 28, "y": 31, "t": "oob"}, {"x": 29, "y": 31, "t": "oob"}, {"x": 30, "y": 31, "t": "oob"}, {"x": 31, "y": 31, "t": "oob"}]};
+</script>
+<script>
+window.CITYGEN1_DATA = {
+  "hqBuffer": 3,
+  "dfEcRadius": 7,
+  "dfComWidth": 3,
+  "dfIndWidth": 6,
+  "dfIndHeight": 50,
+  "dfIndGap": 0,
+  "dfIndSide": "west",
+  "dfNoiseEcCom": 3,
+  "dfNoiseComRes": 5,
+  "dfNoiseIndCom": 0,
+  "dfNoiseIndOob": 0.5,
+  "dfNoiseScale": 1,
+  "seed": 42
+};
+</script>
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+
+// ============================================================
+// CITY EDITOR — Top-down CAD style layout compositor
+// Uses real game proportions from CityMap3D.cs
+// ============================================================
+
+// --- Parameters (match CityMap3D defaults) ---
+const params = {
+  voxelSize: 0.05,
+  buildingVoxelWidth: 64,
+  buildingsPerBlockRow: 3,
+  sidewalkWidth: 1.0,
+  roadWidth: 1.6,
+  mainStreetWidth: 4.5,
+  gridSize: 3,
+};
+
+// Computed values
+function groundTileSize() { return (params.buildingVoxelWidth * params.buildingsPerBlockRow * params.voxelSize) + params.sidewalkWidth * 2; }
+function buildingPlotSize() { return params.buildingVoxelWidth * params.voxelSize; }
+function buildingArea() { return buildingPlotSize() * params.buildingsPerBlockRow; }
+
+// Seam types: 'road', 'mainstreet', 'bridge'
+// hSeams[row][col] = seam between block[row][col] and block[row+1][col]
+// vSeams[row][col] = seam between block[row][col] and block[row][col+1]
+// Block types: 'land', 'water'
+let hSeams = []; // [rows-1][cols]
+let vSeams = []; // [rows][cols-1]
+let blockTypes = []; // [rows][cols] — 'land' or 'water'
+let blockAlleys = []; // [rows][cols] — null or { dir: 'h' | 'v' }
+
+let currentTool = 'select';
+let currentSeamType = 'road';
+let currentMacroType = 'mainst'; // Macro paint type for replica mode
+
+// --- Shared geometry cache (avoids recreating identical geometries on every rebuild) ---
+const _geomCache = {};
+function sharedPlane(w, h) {
+  const key = 'p_' + w.toFixed(3) + '_' + h.toFixed(3);
+  if (!_geomCache[key]) {
+    const g = new THREE.PlaneGeometry(w, h);
+    g.rotateX(-Math.PI / 2);
+    _geomCache[key] = g;
+  }
+  return _geomCache[key];
+}
+function sharedEdges(w, h) {
+  const key = 'e_' + w.toFixed(3) + '_' + h.toFixed(3);
+  if (!_geomCache[key]) {
+    const g = new THREE.EdgesGeometry(new THREE.PlaneGeometry(w, h));
+    g.rotateX(-Math.PI / 2);
+    _geomCache[key] = g;
+  }
+  return _geomCache[key];
+}
+let currentMacroTool = 'paint'; // paint, line, row, col
+let macroLineStart = null; // {x, y} for line tool first click
+let currentPhase = 1; // Currently loaded phase preset
+let showWaypoints = true;
+let showLabels = false;
+let showRuler = false;
+let showBuildings = true;
+let showRailLine = true;
+let railLineGroup = null;
+let trainMesh = null;
+let trainAnimTime = 0;
+// LOD level: 0 = full detail, 1 = no buildings/edges, 2 = minimal (blocks + seams only)
+let lodLevel = 0;
+let hoveredSeam = null;
+let selectedObj = null;
+let uiHidden = false; // H key toggles — hides all panels for clean view
+
+// --- Three.js setup ---
+const container = document.getElementById('canvas-container');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0a14);
+
+const camera = new THREE.OrthographicCamera(-25, 25, 25, -25, 0.1, 1000);
+camera.position.set(0, 50, 0);
+camera.lookAt(0, 0, 0);
+camera.up.set(0, 0, -1); // Top-down with N up
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+container.appendChild(renderer.domElement);
+
+// --- Materials ---
+var matBuilding = new THREE.MeshBasicMaterial({ color: 0x4a4a5a });
+var matBuildingEdge = new THREE.LineBasicMaterial({ color: 0x5a5a6a });
+var matCourtyard = new THREE.MeshBasicMaterial({ color: 0x2a2a35 });
+var matAlleyPath = new THREE.MeshBasicMaterial({ color: 0x3a3a40 });
+var matAlleyDebris = new THREE.MeshBasicMaterial({ color: 0x2a2a30 });
+var matSidewalk = new THREE.MeshBasicMaterial({ color: 0x2a2a3a });
+var matSidewalkEdge = new THREE.LineBasicMaterial({ color: 0x3a3a4a });
+var matRoad = new THREE.MeshBasicMaterial({ color: 0x1a1a28 });
+var matMainStreet = new THREE.MeshBasicMaterial({ color: 0x12121e });
+var matTrolleyTrack = new THREE.MeshBasicMaterial({ color: 0xffffff });
+var matWater = new THREE.MeshBasicMaterial({ color: 0x1a5abf });
+var matWaterEdge = new THREE.LineBasicMaterial({ color: 0x4a8aff });
+var matRiverside = new THREE.MeshBasicMaterial({ color: 0x2a2a3a });
+var matRiversideEdge = new THREE.LineBasicMaterial({ color: 0x4a5a6a });
+var matCore = new THREE.MeshBasicMaterial({ color: 0x4a4a6a });
+var matCoreEdge = new THREE.LineBasicMaterial({ color: 0x6a6a9a });
+var matIndustrial = new THREE.MeshBasicMaterial({ color: 0x4a3a2a });
+var matIndustrialEdge = new THREE.LineBasicMaterial({ color: 0x6a5a3a });
+var matCivic = new THREE.MeshBasicMaterial({ color: 0x2a4a4a });
+var matCivicEdge = new THREE.LineBasicMaterial({ color: 0x3a6a6a });
+var matCommercial = new THREE.MeshBasicMaterial({ color: 0x9933cc });
+var matResidential = new THREE.MeshBasicMaterial({ color: 0x22aa44 });
+var matMunicipalTile = new THREE.MeshBasicMaterial({ color: 0xff69b4 });
+var matCivilTile = new THREE.MeshBasicMaterial({ color: 0xffeb3b });
+var matBridge = new THREE.MeshBasicMaterial({ color: 0x4a3a2a });
+var matBridgeRail = new THREE.MeshBasicMaterial({ color: 0x6a5a4a });
+var matOOB = new THREE.MeshBasicMaterial({ color: 0x050508 });
+var matOOBEdge = new THREE.LineBasicMaterial({ color: 0x660000, transparent: true, opacity: 0.6 });
+var matRailTrack = new THREE.MeshBasicMaterial({ color: 0x3a3a4a });
+var matRailTie = new THREE.MeshBasicMaterial({ color: 0x2a2a3a });
+var matRailSupport = new THREE.MeshBasicMaterial({ color: 0x4a4a5a });
+var matTrainBody = new THREE.MeshBasicMaterial({ color: 0x4a3a2a });
+var matTrainRoof = new THREE.MeshBasicMaterial({ color: 0x3a2a1a });
+var matTrainWindow = new THREE.MeshBasicMaterial({ color: 0x6a8aaa });
+var matSeamHover = new THREE.MeshBasicMaterial({ color: 0x0a4, transparent: true, opacity: 0.5 });
+var matMacroHover = new THREE.MeshBasicMaterial({ color: 0xffff00, transparent: true, opacity: 0.35 });
+var matSeamSelected = new THREE.MeshBasicMaterial({ color: 0xfa0, transparent: true, opacity: 0.5 });
+
+// --- Raycaster for accurate mouse picking ---
+const raycaster = new THREE.Raycaster();
+const mouseNDC = new THREE.Vector2();
+const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const groundIntersect = new THREE.Vector3();
+let hoveredMacroTile = null; // {x, y} in replica mode
+let cursorWorldPos = null; // {x, z} for ruler crosshair
+
+function getMouseWorldPos(e) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouseNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  mouseNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(mouseNDC, camera);
+  if (raycaster.ray.intersectPlane(groundPlane, groundIntersect)) {
+    return { x: groundIntersect.x, z: groundIntersect.z };
+  }
+  return null;
+}
+var matWaypoint = new THREE.MeshBasicMaterial({ color: 0xc4a050 });
+var matWaypointMain = new THREE.MeshBasicMaterial({ color: 0x3aadda });
+var matWaypointRiverside = new THREE.MeshBasicMaterial({ color: 0x4a8a9a });
+var matWaypointLink = new THREE.LineBasicMaterial({ color: 0x5a8a5a, transparent: true, opacity: 0.45 });
+var matWaypointMainLink = new THREE.LineBasicMaterial({ color: 0x3aadda, transparent: true, opacity: 0.4 });
+var matLabel = new THREE.MeshBasicMaterial({ color: 0x6a6a8a, transparent: true, opacity: 0.6 });
+
+// --- Ruler materials ---
+var matRulerLine = new THREE.LineBasicMaterial({ color: 0x4a4a6a, transparent: true, opacity: 0.6 });
+var matRulerText = new THREE.MeshBasicMaterial({ color: 0x8a8aaa, transparent: true, opacity: 0.8 });
+var matRulerMajor = new THREE.LineBasicMaterial({ color: 0x6a6a9a, transparent: true, opacity: 0.8 });
+var matRulerCross = new THREE.LineBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.7 });
+
+// --- Ruler group (separate from cityGroup, always on top) ---
+const rulerGroup = new THREE.Group();
+scene.add(rulerGroup);
+
+function makeTextSprite(text, color = '#8a8aaa') {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 32;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = color;
+  ctx.font = 'bold 20px monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 32, 16);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.minFilter = THREE.LinearFilter;
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(2, 1, 1);
+  return sprite;
+}
+
+function clearRuler() {
+  while (rulerGroup.children.length > 0) {
+    const child = rulerGroup.children[0];
+    if (child.material && child.material.map) child.material.map.dispose();
+    rulerGroup.remove(child);
+  }
+}
+
+function buildRuler() {
+  clearRuler();
+  if (!showRuler) return;
+
+  if (isReplicaMode) {
+    // Replica ruler — numbered tile cells
+    const rs = cityGroup.userData.replicaSize;
+    if (!rs) return;
+    const { w, h, tileSize, offsetX, offsetZ } = rs;
+    const totalW = w * tileSize;
+    const totalD = h * tileSize;
+    const rulerSize = tileSize; // one cell per tile
+    const labelY = 0.15;
+
+    // Top edge (X axis) — column numbers
+    for (let x = 0; x < w; x++) {
+      const cx = offsetX + x * tileSize + tileSize / 2;
+      // Cell border
+      const pts = [
+        new THREE.Vector3(offsetX + x * tileSize, labelY, offsetZ - rulerSize),
+        new THREE.Vector3(offsetX + (x + 1) * tileSize, labelY, offsetZ - rulerSize),
+        new THREE.Vector3(offsetX + (x + 1) * tileSize, labelY, offsetZ),
+        new THREE.Vector3(offsetX + x * tileSize, labelY, offsetZ),
+        new THREE.Vector3(offsetX + x * tileSize, labelY, offsetZ - rulerSize),
+      ];
+      const geom = new THREE.BufferGeometry().setFromPoints(pts);
+      const isMajor = x % 5 === 0;
+      rulerGroup.add(new THREE.Line(geom, isMajor ? matRulerMajor : matRulerLine));
+      // Number label
+      if (w <= 16 || x % 2 === 0 || isMajor) {
+        const sprite = makeTextSprite(String(x));
+        sprite.position.set(cx, labelY, offsetZ - rulerSize / 2);
+        sprite.scale.set(tileSize * 0.7, tileSize * 0.35, 1);
+        rulerGroup.add(sprite);
+      }
+    }
+
+    // Left edge (Z axis) — row numbers
+    for (let y = 0; y < h; y++) {
+      const cz = offsetZ + y * tileSize + tileSize / 2;
+      const pts = [
+        new THREE.Vector3(offsetX - rulerSize, labelY, offsetZ + y * tileSize),
+        new THREE.Vector3(offsetX, labelY, offsetZ + y * tileSize),
+        new THREE.Vector3(offsetX, labelY, offsetZ + (y + 1) * tileSize),
+        new THREE.Vector3(offsetX - rulerSize, labelY, offsetZ + (y + 1) * tileSize),
+        new THREE.Vector3(offsetX - rulerSize, labelY, offsetZ + y * tileSize),
+      ];
+      const geom = new THREE.BufferGeometry().setFromPoints(pts);
+      const isMajor = y % 5 === 0;
+      rulerGroup.add(new THREE.Line(geom, isMajor ? matRulerMajor : matRulerLine));
+      if (h <= 16 || y % 2 === 0 || isMajor) {
+        const sprite = makeTextSprite(String(y));
+        sprite.position.set(offsetX - rulerSize / 2, labelY, cz);
+        sprite.scale.set(tileSize * 0.7, tileSize * 0.35, 1);
+        rulerGroup.add(sprite);
+      }
+    }
+
+    // Corner box
+    const cornerPts = [
+      new THREE.Vector3(offsetX - rulerSize, labelY, offsetZ - rulerSize),
+      new THREE.Vector3(offsetX, labelY, offsetZ - rulerSize),
+      new THREE.Vector3(offsetX, labelY, offsetZ),
+      new THREE.Vector3(offsetX - rulerSize, labelY, offsetZ),
+      new THREE.Vector3(offsetX - rulerSize, labelY, offsetZ - rulerSize),
+    ];
+    rulerGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(cornerPts), matRulerMajor));
+
+  } else {
+    // Seam mode ruler — block numbers
+    const size = params.gridSize;
+    const gt = groundTileSize();
+    const rw = params.roadWidth;
+    const totalW = size * gt + (size - 1) * rw;
+    const totalD = totalW;
+    const offsetX = -totalW / 2;
+    const offsetZ = -totalD / 2;
+    const rulerSize = gt * 0.5;
+    const labelY = 0.15;
+
+    for (let c = 0; c < size; c++) {
+      const bx = offsetX + c * (gt + rw);
+      const cx = bx + gt / 2;
+      const pts = [
+        new THREE.Vector3(bx, labelY, offsetZ - rulerSize),
+        new THREE.Vector3(bx + gt, labelY, offsetZ - rulerSize),
+        new THREE.Vector3(bx + gt, labelY, offsetZ),
+        new THREE.Vector3(bx, labelY, offsetZ),
+        new THREE.Vector3(bx, labelY, offsetZ - rulerSize),
+      ];
+      rulerGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), matRulerLine));
+      const sprite = makeTextSprite(String(c));
+      sprite.position.set(cx, labelY, offsetZ - rulerSize / 2);
+      sprite.scale.set(gt * 0.4, gt * 0.2, 1);
+      rulerGroup.add(sprite);
+    }
+
+    for (let r = 0; r < size; r++) {
+      const bz = offsetZ + r * (gt + rw);
+      const cz = bz + gt / 2;
+      const pts = [
+        new THREE.Vector3(offsetX - rulerSize, labelY, bz),
+        new THREE.Vector3(offsetX, labelY, bz),
+        new THREE.Vector3(offsetX, labelY, bz + gt),
+        new THREE.Vector3(offsetX - rulerSize, labelY, bz + gt),
+        new THREE.Vector3(offsetX - rulerSize, labelY, bz),
+      ];
+      rulerGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), matRulerLine));
+      const sprite = makeTextSprite(String(r));
+      sprite.position.set(offsetX - rulerSize / 2, labelY, cz);
+      sprite.scale.set(gt * 0.4, gt * 0.2, 1);
+      rulerGroup.add(sprite);
+    }
+
+    const cornerPts = [
+      new THREE.Vector3(offsetX - rulerSize, labelY, offsetZ - rulerSize),
+      new THREE.Vector3(offsetX, labelY, offsetZ - rulerSize),
+      new THREE.Vector3(offsetX, labelY, offsetZ),
+      new THREE.Vector3(offsetX - rulerSize, labelY, offsetZ),
+      new THREE.Vector3(offsetX - rulerSize, labelY, offsetZ - rulerSize),
+    ];
+    rulerGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(cornerPts), matRulerMajor));
+  }
+}
+
+// --- City group ---
+const cityGroup = new THREE.Group();
+scene.add(cityGroup);
+
+// --- Seam storage ---
+function initSeams(size) {
+  hSeams = [];
+  vSeams = [];
+  blockTypes = [];
+  for (let r = 0; r < size - 1; r++) {
+    hSeams[r] = [];
+    for (let c = 0; c < size; c++) hSeams[r][c] = 'road';
+  }
+  for (let r = 0; r < size; r++) {
+    vSeams[r] = [];
+    for (let c = 0; c < size - 1; c++) vSeams[r][c] = 'road';
+  }
+  for (let r = 0; r < size; r++) {
+    blockTypes[r] = [];
+    for (let c = 0; c < size; c++) blockTypes[r][c] = 'land';
+  }
+}
+
+// --- Seam undo stack ---
+const seamUndoStack = [];
+const SEAM_UNDO_MAX = 50;
+
+function pushSeamUndo() {
+  seamUndoStack.push({
+    h: hSeams.map(row => row.slice()),
+    v: vSeams.map(row => row.slice()),
+    bt: blockTypes.map(row => row.slice()),
+  });
+  if (seamUndoStack.length > SEAM_UNDO_MAX) seamUndoStack.shift();
+}
+
+function undoSeam() {
+  if (seamUndoStack.length === 0) {
+    document.getElementById('status-info').textContent = 'Nothing to undo';
+    return;
+  }
+  const state = seamUndoStack.pop();
+  hSeams = state.h;
+  vSeams = state.v;
+  blockTypes = state.bt;
+  rebuild();
+  document.getElementById('status-info').textContent = `Undo — seam stack: ${seamUndoStack.length}`;
+}
+
+// --- City data cache (avoids recomputing block positions on display-only toggles) ---
+let _cityDataCache = null;
+
+function computeCityData(useAlleySeams) {
+  const size = params.gridSize;
+  const gt = groundTileSize();
+
+  // Build tile color overrides from zoning data (municipal=pink, civil=yellow)
+  const tileOverrides = new Map();
+  if (zoningData) {
+    const zd = zoningData;
+    // Municipal buildings: civic + industrial utility
+    for (const cb of zd.civicBuildings) tileOverrides.set(cb.r + ',' + cb.c, 'municipal');
+    for (const ib of zd.industrialBuildings) tileOverrides.set(ib.r + ',' + ib.c, 'municipal');
+    // Civil/charity buildings: churches, church parks, schools, orphanage
+    for (const cs of zd.churchesAndSchools) tileOverrides.set(cs.r + ',' + cs.c, 'civil');
+    // Orphanage is in civicBuildings but is charity (Group 5) — override to civil
+    for (const cb of zd.civicBuildings) {
+      if (cb.type === 'Orphanage') tileOverrides.set(cb.r + ',' + cb.c, 'civil');
+    }
+  }
+  const sw = params.sidewalkWidth;
+  const rw = params.roadWidth;
+  const mw = params.mainStreetWidth;
+
+  // Calculate block positions with per-seam widths
+  const xBlocks = [];
+  const xSeamInfo = []; // {x, width, type}
+  let cursor = 0;
+  for (let c = 0; c < size; c++) {
+    xBlocks.push(cursor);
+    cursor += gt;
+    if (c < size - 1) {
+      let seamType = 'road';
+      let seamW = rw;
+      if (useAlleySeams && vSeams[0] && vSeams[0][c]) {
+        seamType = vSeams[0][c];
+        seamW = seamType === 'mainstreet' ? mw : rw;
+        // Bridge uses road width
+      }
+      xSeamInfo.push({ x: cursor, width: seamW, type: seamType, orientation: 'v', col: c });
+      cursor += seamW;
+    }
+  }
+
+  const yBlocks = [];
+  const ySeamInfo = [];
+  cursor = 0;
+  for (let r = 0; r < size; r++) {
+    yBlocks.push(cursor);
+    cursor += gt;
+    if (r < size - 1) {
+      let seamType = 'road';
+      let seamW = rw;
+      if (useAlleySeams && hSeams[r] && hSeams[r][0]) {
+        seamType = hSeams[r][0];
+        seamW = seamType === 'mainstreet' ? mw : rw;
+        // Bridge uses road width
+      }
+      ySeamInfo.push({ y: cursor, width: seamW, type: seamType, orientation: 'h', row: r });
+      cursor += seamW;
+    }
+  }
+
+  // Center the city
+  const totalW = xBlocks[size - 1] + gt;
+  const totalD = yBlocks[size - 1] + gt;
+  const offsetX = -totalW / 2;
+  const offsetZ = -totalD / 2;
+
+  _cityDataCache = { size, gt, tileOverrides, sw, rw, mw, xBlocks, yBlocks, xSeamInfo, ySeamInfo, totalW, totalD, offsetX, offsetZ, useAlleySeams };
+  return _cityDataCache;
+}
+
+function renderCity(group, data) {
+  while (group.children.length > 0) group.remove(group.children[0]);
+  group.userData.hoverMesh = null;
+
+  const { size, gt, tileOverrides, sw, rw, mw, xBlocks, yBlocks, xSeamInfo, ySeamInfo, totalW, totalD, offsetX, offsetZ, useAlleySeams } = data;
+
+  // Draw seams
+  for (const s of xSeamInfo) {
+    const seamMat = s.type === 'mainstreet' ? matMainStreet : (s.type === 'river' ? matWater : matRoad);
+    const seamGeom = sharedPlane(s.width, totalD);
+    const seamMesh = new THREE.Mesh(seamGeom, seamMat);
+    seamMesh.position.set(offsetX + s.x + s.width / 2, s.type === 'river' ? 0.003 : 0, offsetZ + totalD / 2);
+    group.add(seamMesh);
+
+    if (s.type === 'mainstreet') {
+      // Two trolley tracks down the center
+      const trackOffset = s.width * 0.12;
+      const trackW = Math.max(0.06, s.width * 0.02);
+      for (const side of [-1, 1]) {
+        const trackGeom = sharedPlane(trackW, totalD);
+        const trackMesh = new THREE.Mesh(trackGeom, matTrolleyTrack);
+        trackMesh.position.set(offsetX + s.x + s.width / 2 + side * trackOffset, 0.01, offsetZ + totalD / 2);
+        group.add(trackMesh);
+      }
+    } else if (s.type === 'bridge') {
+      // Wooden bridge with rails
+      const bridgeGeom = sharedPlane(s.width, totalD);
+      const bridgeMesh = new THREE.Mesh(bridgeGeom, matBridge);
+      bridgeMesh.position.set(offsetX + s.x + s.width / 2, 0.02, offsetZ + totalD / 2);
+      group.add(bridgeMesh);
+      // Bridge rails (thin lines on each side)
+      const railW = Math.max(0.04, s.width * 0.03);
+      for (const side of [-1, 1]) {
+        const railGeom = sharedPlane(railW, totalD);
+        const railMesh = new THREE.Mesh(railGeom, matBridgeRail);
+        railMesh.position.set(offsetX + s.x + s.width / 2 + side * (s.width / 2 - railW / 2), 0.03, offsetZ + totalD / 2);
+        group.add(railMesh);
+      }
+    }
+  }
+
+  // Overlay river segments on vertical seams where the per-row seam type is 'river'
+  if (useAlleySeams) {
+    for (let c = 0; c < size - 1; c++) {
+      for (let r = 0; r < size; r++) {
+        if (vSeams[r] && vSeams[r][c] === 'river') {
+          const sx = offsetX + xBlocks[c] + gt;
+          const sz = offsetZ + yBlocks[r];
+          const riverGeom = sharedPlane(rw, gt);
+          const riverMesh = new THREE.Mesh(riverGeom, matWater);
+          riverMesh.position.set(sx + rw / 2, 0.003, sz + gt / 2);
+          group.add(riverMesh);
+
+          // Riverside sidewalk strips — full-width at any end where land is adjacent
+          // North end: if either block above is land
+          if (r > 0 && blockTypes[r-1] && (
+              (blockTypes[r-1][c] && blockTypes[r-1][c] !== 'water' && blockTypes[r-1][c] !== 'oob') ||
+              (blockTypes[r-1][c+1] && blockTypes[r-1][c+1] !== 'water' && blockTypes[r-1][c+1] !== 'oob'))) {
+            const swG = sharedPlane(rw, sw);
+            const swM = new THREE.Mesh(swG, matRiverside);
+            swM.position.set(sx + rw / 2, 0.005, sz + sw / 2);
+            group.add(swM);
+          }
+          // South end: if either block below is land
+          if (r < size - 1 && blockTypes[r+1] && (
+              (blockTypes[r+1][c] && blockTypes[r+1][c] !== 'water' && blockTypes[r+1][c] !== 'oob') ||
+              (blockTypes[r+1][c+1] && blockTypes[r+1][c+1] !== 'water' && blockTypes[r+1][c+1] !== 'oob'))) {
+            const swG = sharedPlane(rw, sw);
+            const swM = new THREE.Mesh(swG, matRiverside);
+            swM.position.set(sx + rw / 2, 0.005, sz + gt - sw / 2);
+            group.add(swM);
+          }
+        }
+      }
+    }
+  }
+
+  for (const s of ySeamInfo) {
+    const seamMat = s.type === 'mainstreet' ? matMainStreet : (s.type === 'river' ? matWater : matRoad);
+    const seamGeom = sharedPlane(totalW, s.width);
+    const seamMesh = new THREE.Mesh(seamGeom, seamMat);
+    seamMesh.position.set(offsetX + totalW / 2, s.type === 'river' ? 0.003 : 0, offsetZ + s.y + s.width / 2);
+    group.add(seamMesh);
+
+    if (s.type === 'mainstreet') {
+      const trackOffset = s.width * 0.12;
+      const trackW = Math.max(0.06, s.width * 0.02);
+      for (const side of [-1, 1]) {
+        const trackGeom = sharedPlane(totalW, trackW);
+        const trackMesh = new THREE.Mesh(trackGeom, matTrolleyTrack);
+        trackMesh.position.set(offsetX + totalW / 2, 0.01, offsetZ + s.y + s.width / 2 + side * trackOffset);
+        group.add(trackMesh);
+      }
+    } else if (s.type === 'bridge') {
+      // Wooden bridge with rails
+      const bridgeGeom = sharedPlane(totalW, s.width);
+      const bridgeMesh = new THREE.Mesh(bridgeGeom, matBridge);
+      bridgeMesh.position.set(offsetX + totalW / 2, 0.02, offsetZ + s.y + s.width / 2);
+      group.add(bridgeMesh);
+      // Bridge rails
+      const railW = Math.max(0.04, s.width * 0.03);
+      for (const side of [-1, 1]) {
+        const railGeom = sharedPlane(totalW, railW);
+        const railMesh = new THREE.Mesh(railGeom, matBridgeRail);
+        railMesh.position.set(offsetX + totalW / 2, 0.03, offsetZ + s.y + s.width / 2 + side * (s.width / 2 - railW / 2));
+        group.add(railMesh);
+      }
+    }
+  }
+
+  // Overlay river segments on horizontal seams where the per-column seam type is 'river'
+  if (useAlleySeams) {
+    for (let r = 0; r < size - 1; r++) {
+      for (let c = 0; c < size; c++) {
+        if (hSeams[r] && hSeams[r][c] === 'river') {
+          const sx = offsetX + xBlocks[c];
+          const sz = offsetZ + yBlocks[r] + gt;
+          const riverGeom = sharedPlane(gt, rw);
+          const riverMesh = new THREE.Mesh(riverGeom, matWater);
+          riverMesh.position.set(sx + gt / 2, 0.003, sz + rw / 2);
+          group.add(riverMesh);
+
+          // Riverside sidewalk strips — full-width at any end where land is adjacent
+          // West end: if either block to the left is land
+          if (c > 0 && blockTypes[r] && (
+              (blockTypes[r][c-1] && blockTypes[r][c-1] !== 'water' && blockTypes[r][c-1] !== 'oob') ||
+              (blockTypes[r+1] && blockTypes[r+1][c-1] && blockTypes[r+1][c-1] !== 'water' && blockTypes[r+1][c-1] !== 'oob'))) {
+            const swG = sharedPlane(sw, rw);
+            const swM = new THREE.Mesh(swG, matRiverside);
+            swM.position.set(sx + sw / 2, 0.005, sz + rw / 2);
+            group.add(swM);
+          }
+          // East end: if either block to the right is land
+          if (c < size - 1 && blockTypes[r] && (
+              (blockTypes[r][c+1] && blockTypes[r][c+1] !== 'water' && blockTypes[r][c+1] !== 'oob') ||
+              (blockTypes[r+1] && blockTypes[r+1][c+1] && blockTypes[r+1][c+1] !== 'water' && blockTypes[r+1][c+1] !== 'oob'))) {
+            const swG = sharedPlane(sw, rw);
+            const swM = new THREE.Mesh(swG, matRiverside);
+            swM.position.set(sx + gt - sw / 2, 0.005, sz + rw / 2);
+            group.add(swM);
+          }
+        }
+      }
+    }
+  }
+
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      const bx = offsetX + xBlocks[c];
+      const bz = offsetZ + yBlocks[r];
+
+      // Check block type
+      const blockType = useAlleySeams && blockTypes[r] && blockTypes[r][c] ? blockTypes[r][c] : 'land';
+      const isWater = blockType === 'water';
+      const isMainSt = blockType === 'mainstreet';
+      const isBridgeBlock = blockType === 'bridge';
+      const isOOB = blockType === 'oob';
+      const isSimple = isMainSt || isBridgeBlock || isOOB;
+      const isZoned = blockType === 'core' || blockType === 'industrial' || blockType === 'civic' || blockType === 'commercial' || blockType === 'residential';
+
+      if (isWater) {
+        // Water block — full block blue water with edge
+        const waterGeom = sharedPlane(gt, gt);
+        const waterMesh = new THREE.Mesh(waterGeom, matWater);
+        waterMesh.position.set(bx + gt / 2, 0.003, bz + gt / 2);
+        group.add(waterMesh);
+
+        // Water edge for visual definition
+        if (lodLevel <= 1) {
+          const wEdgeGeom = sharedEdges(gt, gt);
+          const wEdgeLine = new THREE.LineSegments(wEdgeGeom, matWaterEdge);
+          wEdgeLine.position.set(bx + gt / 2, 0.004, bz + gt / 2);
+          group.add(wEdgeLine);
+        }
+
+        // Directional sidewalks — river block gets sidewalk if it has road seam next to it
+        // North seam: hSeams[r-1][c], South seam: hSeams[r][c]
+        // West seam: vSeams[r][c-1], East seam: vSeams[r][c]
+        const seamN = r > 0 && hSeams[r-1] ? hSeams[r-1][c] : null;
+        const seamS = r < size - 1 && hSeams[r] ? hSeams[r][c] : null;
+        const seamE = c < size - 1 && vSeams[r] ? vSeams[r][c] : null;
+        const seamW = c > 0 && vSeams[r] ? vSeams[r][c-1] : null;
+        const rswN = seamN && seamN !== 'river';
+        const rswS = seamS && seamS !== 'river';
+        const rswE = seamE && seamE !== 'river';
+        const rswW = seamW && seamW !== 'river';
+        const swT = sw;
+        if (rswN) {
+          const g = sharedPlane(gt, swT);
+          const m = new THREE.Mesh(g, matRiverside);
+          m.position.set(bx + gt / 2, 0.005, bz + swT / 2);
+          group.add(m);
+        }
+        if (rswS) {
+          const g = sharedPlane(gt, swT);
+          const m = new THREE.Mesh(g, matRiverside);
+          m.position.set(bx + gt / 2, 0.005, bz + gt - swT / 2);
+          group.add(m);
+        }
+        if (rswE) {
+          const g = sharedPlane(swT, gt);
+          const m = new THREE.Mesh(g, matRiverside);
+          m.position.set(bx + gt - swT / 2, 0.005, bz + gt / 2);
+          group.add(m);
+        }
+        if (rswW) {
+          const g = sharedPlane(swT, gt);
+          const m = new THREE.Mesh(g, matRiverside);
+          m.position.set(bx + swT / 2, 0.005, bz + gt / 2);
+          group.add(m);
+        }
+
+        // Inside corner sidewalk pieces — stay within block bounds, road seam wraps the corner
+        // NE corner: seamN=river, seamE=river, diagonal (r-1,c+1) is land
+        if (!rswN && !rswE && r > 0 && c < size - 1 && blockTypes[r-1] && blockTypes[r-1][c+1] !== 'water' && blockTypes[r-1][c+1] !== 'oob') {
+          const g = sharedPlane(swT, swT);
+          const m = new THREE.Mesh(g, matRiverside);
+          m.position.set(bx + gt - swT / 2, 0.005, bz + swT / 2);
+          group.add(m);
+        }
+        // NW corner: seamN=river, seamW=river, diagonal (r-1,c-1) is land
+        if (!rswN && !rswW && r > 0 && c > 0 && blockTypes[r-1] && blockTypes[r-1][c-1] !== 'water' && blockTypes[r-1][c-1] !== 'oob') {
+          const g = sharedPlane(swT, swT);
+          const m = new THREE.Mesh(g, matRiverside);
+          m.position.set(bx + swT / 2, 0.005, bz + swT / 2);
+          group.add(m);
+        }
+        // SE corner: seamS=river, seamE=river, diagonal (r+1,c+1) is land
+        if (!rswS && !rswE && r < size - 1 && c < size - 1 && blockTypes[r+1] && blockTypes[r+1][c+1] !== 'water' && blockTypes[r+1][c+1] !== 'oob') {
+          const g = sharedPlane(swT, swT);
+          const m = new THREE.Mesh(g, matRiverside);
+          m.position.set(bx + gt - swT / 2, 0.005, bz + gt - swT / 2);
+          group.add(m);
+        }
+        // SW corner: seamS=river, seamW=river, diagonal (r+1,c-1) is land
+        if (!rswS && !rswW && r < size - 1 && c > 0 && blockTypes[r+1] && blockTypes[r+1][c-1] !== 'water' && blockTypes[r+1][c-1] !== 'oob') {
+          const g = sharedPlane(swT, swT);
+          const m = new THREE.Mesh(g, matRiverside);
+          m.position.set(bx + swT / 2, 0.005, bz + gt - swT / 2);
+          group.add(m);
+        }
+      } else if (isSimple) {
+        // Road / Bridge / OOB block — flat surface, no buildings
+        const simpleMat = isMainSt ? matMainStreet : (isBridgeBlock ? matBridge : matOOB);
+        const sGeom = sharedPlane(gt, gt);
+        const sMesh = new THREE.Mesh(sGeom, simpleMat);
+        sMesh.position.set(bx + gt / 2, isBridgeBlock ? 0.02 : 0.005, bz + gt / 2);
+        group.add(sMesh);
+
+        if (isMainSt) {
+          // Trolley tracks — direction depends on which neighbors are also mainstreet
+          const trackOffset = gt * 0.12;
+          const trackW = Math.max(0.06, gt * 0.02);
+          const isMainStN = r > 0 && blockTypes[r - 1] && blockTypes[r - 1][c] === 'mainstreet';
+          const isMainStS = r < size - 1 && blockTypes[r + 1] && blockTypes[r + 1][c] === 'mainstreet';
+          const isMainStE = c < size - 1 && blockTypes[r] && blockTypes[r][c + 1] === 'mainstreet';
+          const isMainStW = c > 0 && blockTypes[r] && blockTypes[r][c - 1] === 'mainstreet';
+          const hasVertical = isMainStN || isMainStS;   // part of N-S main street
+          const hasHorizontal = isMainStE || isMainStW;  // part of E-W main street
+
+          // Vertical tracks (run N-S) for vertical main streets and intersections
+          if (hasVertical || (hasHorizontal && hasVertical)) {
+            for (const side of [-1, 1]) {
+              const trackGeom = sharedPlane(trackW, gt);
+              const trackMesh = new THREE.Mesh(trackGeom, matTrolleyTrack);
+              trackMesh.position.set(bx + gt / 2 + side * trackOffset, 0.01, bz + gt / 2);
+              group.add(trackMesh);
+            }
+          }
+          // Horizontal tracks (run E-W) for horizontal main streets and intersections
+          if (hasHorizontal || (hasHorizontal && hasVertical)) {
+            for (const side of [-1, 1]) {
+              const trackGeom = sharedPlane(gt, trackW);
+              const trackMesh = new THREE.Mesh(trackGeom, matTrolleyTrack);
+              trackMesh.position.set(bx + gt / 2, 0.01, bz + gt / 2 + side * trackOffset);
+              group.add(trackMesh);
+            }
+          }
+          // Isolated mainstreet block (no mainstreet neighbors) — default to vertical
+          if (!hasVertical && !hasHorizontal) {
+            for (const side of [-1, 1]) {
+              const trackGeom = sharedPlane(trackW, gt);
+              const trackMesh = new THREE.Mesh(trackGeom, matTrolleyTrack);
+              trackMesh.position.set(bx + gt / 2 + side * trackOffset, 0.01, bz + gt / 2);
+              group.add(trackMesh);
+            }
+          }
+        }
+
+        if (isBridgeBlock) {
+          // Bridge rails on all 4 sides — thicker and brighter for visibility
+          const railW = Math.max(0.08, gt * 0.06);
+          for (const [dx, dz, w, h] of [[0, -1, gt, railW], [0, 1, gt, railW], [-1, 0, railW, gt], [1, 0, railW, gt]]) {
+            const rg = sharedPlane(w, h);
+            const rm = new THREE.Mesh(rg, matBridgeRail);
+            rm.position.set(bx + gt / 2 + dx * (gt / 2 - railW / 2), 0.03, bz + gt / 2 + dz * (gt / 2 - railW / 2));
+            group.add(rm);
+          }
+          // Trolley tracks continue across bridge — check neighbors for direction
+          const trackOffset = gt * 0.12;
+          const trackW = Math.max(0.06, gt * 0.02);
+          const isTrackN = r > 0 && blockTypes[r - 1] && ['mainstreet', 'bridge'].includes(blockTypes[r - 1][c]);
+          const isTrackS = r < size - 1 && blockTypes[r + 1] && ['mainstreet', 'bridge'].includes(blockTypes[r + 1][c]);
+          const isTrackE = c < size - 1 && blockTypes[r] && ['mainstreet', 'bridge'].includes(blockTypes[r][c + 1]);
+          const isTrackW = c > 0 && blockTypes[r] && ['mainstreet', 'bridge'].includes(blockTypes[r][c - 1]);
+          const hasVert = isTrackN || isTrackS;
+          const hasHoriz = isTrackE || isTrackW;
+          if (hasVert) {
+            for (const side of [-1, 1]) {
+              const tg = sharedPlane(trackW, gt);
+              const tm = new THREE.Mesh(tg, matTrolleyTrack);
+              tm.position.set(bx + gt / 2 + side * trackOffset, 0.035, bz + gt / 2);
+              group.add(tm);
+            }
+          }
+          if (hasHoriz) {
+            for (const side of [-1, 1]) {
+              const tg = sharedPlane(gt, trackW);
+              const tm = new THREE.Mesh(tg, matTrolleyTrack);
+              tm.position.set(bx + gt / 2, 0.035, bz + gt / 2 + side * trackOffset);
+              group.add(tm);
+            }
+          }
+        }
+
+        if (isOOB && lodLevel === 0) {
+          const oEdgeGeom = sharedEdges(gt, gt);
+          const oEdgeLine = new THREE.LineSegments(oEdgeGeom, matOOBEdge);
+          oEdgeLine.position.set(bx + gt / 2, 0.006, bz + gt / 2);
+          group.add(oEdgeLine);
+        }
+      } else {
+      // Directional sidewalks — per-edge based on neighbor type
+      const zoneMat = blockType === 'core' ? matCore : blockType === 'industrial' ? matIndustrial : blockType === 'civic' ? matCivic : blockType === 'commercial' ? matCommercial : blockType === 'residential' ? matResidential : matSidewalk;
+      const zoneEdgeMat = blockType === 'core' ? matCoreEdge : blockType === 'industrial' ? matIndustrialEdge : blockType === 'civic' ? matCivicEdge : blockType === 'commercial' ? matCoreEdge : blockType === 'residential' ? matSidewalkEdge : matSidewalkEdge;
+
+      // Apply tile color overrides for municipal/civil buildings
+      const tileOverride = tileOverrides.get(r + ',' + c);
+      const finalMat = tileOverride === 'municipal' ? matMunicipalTile : tileOverride === 'civil' ? matCivilTile : zoneMat;
+
+      // Determine which edges get sidewalks
+      function getNeighborType(dr, dc) {
+        const nr = r + dr, nc = c + dc;
+        if (nr < 0 || nr >= size || nc < 0 || nc >= size) return 'boundary';
+        if (!blockTypes[nr] || !blockTypes[nr][nc]) return 'land';
+        return blockTypes[nr][nc];
+      }
+      const nN = getNeighborType(-1, 0);
+      const nS = getNeighborType(1, 0);
+      const nE = getNeighborType(0, 1);
+      const nW = getNeighborType(0, -1);
+
+      // Sidewalk on edge if: not grid boundary, neighbor not oob, not (both sides water)
+      const swN = nN !== 'boundary' && nN !== 'oob' && !(blockType === 'water' && nN === 'water');
+      const swS = nS !== 'boundary' && nS !== 'oob' && !(blockType === 'water' && nS === 'water');
+      const swE = nE !== 'boundary' && nE !== 'oob' && !(blockType === 'water' && nE === 'water');
+      const swW = nW !== 'boundary' && nW !== 'oob' && !(blockType === 'water' && nW === 'water');
+
+      // Alley blocks: center path should match sidewalk (zone color), debris stays dark
+      const pathMat = finalMat;
+
+      // Draw sidewalk strips per edge
+      const swThickness = sw;
+      if (swN) {
+        const g = sharedPlane(gt, swThickness);
+        const m = new THREE.Mesh(g, finalMat);
+        m.position.set(bx + gt / 2, 0.005, bz + swThickness / 2);
+        group.add(m);
+      }
+      if (swS) {
+        const g = sharedPlane(gt, swThickness);
+        const m = new THREE.Mesh(g, finalMat);
+        m.position.set(bx + gt / 2, 0.005, bz + gt - swThickness / 2);
+        group.add(m);
+      }
+      if (swE) {
+        const g = sharedPlane(swThickness, gt);
+        const m = new THREE.Mesh(g, finalMat);
+        m.position.set(bx + gt - swThickness / 2, 0.005, bz + gt / 2);
+        group.add(m);
+      }
+      if (swW) {
+        const g = sharedPlane(swThickness, gt);
+        const m = new THREE.Mesh(g, finalMat);
+        m.position.set(bx + swThickness / 2, 0.005, bz + gt / 2);
+        group.add(m);
+      }
+
+      // Zone edge for visual definition
+      if (isZoned && lodLevel === 0) {
+        const zEdgeGeom = sharedEdges(gt, gt);
+        const zEdgeLine = new THREE.LineSegments(zEdgeGeom, zoneEdgeMat);
+        zEdgeLine.position.set(bx + gt / 2, 0.006, bz + gt / 2);
+        group.add(zEdgeLine);
+      }
+
+      // 3x3 land plot subdivision lines (granular mode, LOD 0)
+      if (lodLevel === 0 && !isWater && !isSimple) {
+        const ps = buildingPlotSize();
+        const innerX = bx + sw;
+        const innerZ = bz + sw;
+        const innerSize = ps * params.buildingsPerBlockRow;
+        // Vertical plot lines (2 lines dividing 3 columns)
+        for (let i = 1; i < params.buildingsPerBlockRow; i++) {
+          const lx = innerX + i * ps;
+          const vGeom = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(lx, 0.008, innerZ),
+            new THREE.Vector3(lx, 0.008, innerZ + innerSize),
+          ]);
+          group.add(new THREE.Line(vGeom, matSidewalkEdge));
+        }
+        // Horizontal plot lines (2 lines dividing 3 rows)
+        for (let i = 1; i < params.buildingsPerBlockRow; i++) {
+          const lz = innerZ + i * ps;
+          const hGeom = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(innerX, 0.008, lz),
+            new THREE.Vector3(innerX + innerSize, 0.008, lz),
+          ]);
+          group.add(new THREE.Line(hGeom, matSidewalkEdge));
+        }
+      }
+
+      // Building plots
+      if (showBuildings) {
+        const ps = buildingPlotSize();
+        const innerX = bx + sw;
+        const innerZ = bz + sw;
+        const midIdx = Math.floor(params.buildingsPerBlockRow / 2);
+        const alley = blockAlleys[r] && blockAlleys[r][c] ? blockAlleys[r][c] : null;
+
+        for (let br = 0; br < params.buildingsPerBlockRow; br++) {
+          for (let bc = 0; bc < params.buildingsPerBlockRow; bc++) {
+            const px = innerX + bc * ps;
+            const pz = innerZ + br * ps;
+
+            // Check if this plot is part of an alley
+            const isAlleyPlot = alley && (
+              (alley.dir === 'h' && br === midIdx) ||
+              (alley.dir === 'v' && bc === midIdx)
+            );
+            const isAlleyCenter = isAlleyPlot && br === midIdx && bc === midIdx;
+
+            if (isAlleyPlot) {
+              // Alley: full plot width with 3 lanes — [debris] [path] [debris]
+              // Center path uses sidewalk/zone color so it visually connects to the street sidewalk
+              // Entities walk down center path; debris/decor provides cover for firefights
+              const debrisW = ps * 0.25;
+              const pathW = ps * 0.5;
+              if (alley.dir === 'h') {
+                // Horizontal alley — lanes run E-W, debris on N and S sides
+                const dN = new THREE.Mesh(sharedPlane(ps, debrisW), matAlleyDebris);
+                dN.position.set(px + ps / 2, 0.015, pz + debrisW / 2);
+                group.add(dN);
+                const dS = new THREE.Mesh(sharedPlane(ps, debrisW), matAlleyDebris);
+                dS.position.set(px + ps / 2, 0.015, pz + ps - debrisW / 2);
+                group.add(dS);
+                const path = new THREE.Mesh(sharedPlane(ps, pathW), pathMat);
+                path.position.set(px + ps / 2, 0.012, pz + ps / 2);
+                group.add(path);
+              } else {
+                // Vertical alley — lanes run N-S, debris on E and W sides
+                const dW = new THREE.Mesh(sharedPlane(debrisW, ps), matAlleyDebris);
+                dW.position.set(px + debrisW / 2, 0.015, pz + ps / 2);
+                group.add(dW);
+                const dE = new THREE.Mesh(sharedPlane(debrisW, ps), matAlleyDebris);
+                dE.position.set(px + ps - debrisW / 2, 0.015, pz + ps / 2);
+                group.add(dE);
+                const path = new THREE.Mesh(sharedPlane(pathW, ps), pathMat);
+                path.position.set(px + ps / 2, 0.012, pz + ps / 2);
+                group.add(path);
+              }
+              // Center plot: purchasable empty land marker
+              if (isAlleyCenter) {
+                const cGeom = sharedPlane(ps * 0.3, ps * 0.3);
+                const cMesh = new THREE.Mesh(cGeom, matCourtyard);
+                cMesh.position.set(px + ps / 2, 0.02, pz + ps / 2);
+                group.add(cMesh);
+              }
+            } else if (br === midIdx && bc === midIdx && params.buildingsPerBlockRow >= 3) {
+              // Courtyard (non-alley blocks)
+              const cyGeom = sharedPlane(ps, ps);
+              const cyMesh = new THREE.Mesh(cyGeom, matCourtyard);
+              cyMesh.position.set(px + ps / 2, 0.02, pz + ps / 2);
+              group.add(cyMesh);
+            } else {
+              // Building
+              const bldgGeom = sharedPlane(ps - 0.05, ps - 0.05);
+              const bldgMesh = new THREE.Mesh(bldgGeom, matBuilding);
+              bldgMesh.position.set(px + ps / 2, 0.02, pz + ps / 2);
+              group.add(bldgMesh);
+
+              // Edge
+              const edgeGeom = sharedEdges(ps - 0.05, ps - 0.05);
+              const edgeLine = new THREE.LineSegments(edgeGeom, matBuildingEdge);
+              edgeLine.position.set(px + ps / 2, 0.03, pz + ps / 2);
+              group.add(edgeLine);
+            }
+          }
+        }
+      }
+
+      } // end non-water block
+
+      // Block label
+      if (showLabels) {
+        const labelGeom = sharedPlane(gt * 0.3, gt * 0.08);
+        const labelMesh = new THREE.Mesh(labelGeom, matLabel);
+        labelMesh.position.set(bx + gt / 2, 0.04, bz + gt / 2);
+        group.add(labelMesh);
+      }
+    }
+  }
+
+  // Elevated rail line — runs N-S along east edge of city
+  if (showRailLine && !isReplicaMode) {
+    const railGroup = new THREE.Group();
+    const railElev = 0.35;
+    const railW = Math.max(0.8, gt * 0.15);
+    const railX = offsetX + totalW + rw * 0.5;
+
+    // Track bed (elevated plane)
+    const trackGeom = sharedPlane(railW, totalD);
+    const trackMesh = new THREE.Mesh(trackGeom, matRailTrack);
+    trackMesh.position.set(railX, railElev, offsetZ + totalD / 2);
+    railGroup.add(trackMesh);
+
+    // Two rails (thin light lines on top of track bed)
+    const railOffset = railW * 0.2;
+    const railLineW = Math.max(0.04, railW * 0.06);
+    for (const side of [-1, 1]) {
+      const lineGeom = sharedPlane(railLineW, totalD);
+      const lineMesh = new THREE.Mesh(lineGeom, matTrolleyTrack);
+      lineMesh.position.set(railX + side * railOffset, railElev + 0.01, offsetZ + totalD / 2);
+      railGroup.add(lineMesh);
+    }
+
+    // Ties (crossbeams) — evenly spaced along track
+    const tieSpacing = gt * 0.3;
+    const tieW = railW * 0.85;
+    const tieD = Math.max(0.08, railW * 0.12);
+    for (let z = 0; z < totalD; z += tieSpacing) {
+      const tieGeom = sharedPlane(tieW, tieD);
+      const tieMesh = new THREE.Mesh(tieGeom, matRailTie);
+      tieMesh.position.set(railX, railElev + 0.005, offsetZ + z + tieD / 2);
+      railGroup.add(tieMesh);
+    }
+
+    // Support pillars every 2 blocks
+    const pillarSpacing = gt * 2;
+    const pillarW = Math.max(0.12, railW * 0.15);
+    for (let z = 0; z < totalD; z += pillarSpacing) {
+      const pillarGeom = new THREE.BoxGeometry(pillarW, railElev, pillarW);
+      const pillarMesh = new THREE.Mesh(pillarGeom, matRailSupport);
+      pillarMesh.position.set(railX, railElev / 2, offsetZ + z + pillarSpacing / 2);
+      railGroup.add(pillarMesh);
+    }
+
+    // Train mesh (cosmetic preview — animates in animate loop)
+    const trainLen = gt * 1.5;
+    const trainW = railW * 0.7;
+    const trainH = 0.15;
+    const trainGroup = new THREE.Group();
+    // Body
+    const bodyGeom = new THREE.BoxGeometry(trainW, trainH, trainLen);
+    const bodyMesh = new THREE.Mesh(bodyGeom, matTrainBody);
+    bodyMesh.position.set(0, trainH / 2, 0);
+    trainGroup.add(bodyMesh);
+    // Roof
+    const roofGeom = new THREE.BoxGeometry(trainW * 0.9, 0.04, trainLen * 0.95);
+    const roofMesh = new THREE.Mesh(roofGeom, matTrainRoof);
+    roofMesh.position.set(0, trainH + 0.02, 0);
+    trainGroup.add(roofMesh);
+    // Windows (small light strips on sides)
+    for (const side of [-1, 1]) {
+      const winGeom = new THREE.PlaneGeometry(trainLen * 0.8, trainH * 0.5);
+      winGeom.rotateY(Math.PI / 2);
+      const winMesh = new THREE.Mesh(winGeom, matTrainWindow);
+      winMesh.position.set(side * trainW * 0.5, trainH * 0.6, 0);
+      trainGroup.add(winMesh);
+    }
+    trainGroup.position.set(railX, railElev + 0.02, offsetZ + totalD / 2);
+    trainGroup.visible = false;
+    railGroup.add(trainGroup);
+
+    group.add(railGroup);
+    railLineGroup = railGroup;
+    trainMesh = trainGroup;
+    trainAnimTime = 0;
+  } else {
+    railLineGroup = null;
+    trainMesh = null;
+  }
+
+  // Waypoints
+  if (showWaypoints) {
+    buildWaypoints(group, xBlocks, yBlocks, xSeamInfo, ySeamInfo, offsetX, offsetZ, gt, sw, useAlleySeams);
+  }
+
+  // Store seam hit data for interaction
+  group.userData.seams = [...xSeamInfo.map(s => ({...s, worldX: offsetX + s.x, worldZ: offsetZ, totalW: s.width, totalD: totalD})),
+                          ...ySeamInfo.map(s => ({...s, worldY: offsetZ + s.y, worldX: offsetX, totalW: totalW, totalD: s.width}))];
+  group.userData.blocks = [];
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      group.userData.blocks.push({ row: r, col: c, x: offsetX + xBlocks[c], z: offsetZ + yBlocks[r], size: gt });
+    }
+  }
+  group.userData.totalW = totalW;
+  group.userData.totalD = totalD;
+  group.userData.offsetX = offsetX;
+  group.userData.offsetZ = offsetZ;
+  group.userData.blockTypes = blockTypes;
+}
+
+function buildWaypoints(group, xBlocks, yBlocks, xSeamInfo, ySeamInfo, offsetX, offsetZ, gt, sw, useAlleySeams) {
+  const size = params.gridSize;
+  const pts = [];
+  const links = [];
+  const blockBase = []; // blockBase[r][c] = base index in pts, or -1 if skipped
+
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      const isWater = useAlleySeams && blockTypes[r] && blockTypes[r][c] === 'water';
+      const isSimpleBlock = useAlleySeams && blockTypes[r] && ['mainstreet', 'bridge', 'oob'].includes(blockTypes[r][c]);
+      if (isSimpleBlock) { blockBase.push(-1); continue; }
+      const bx = offsetX + xBlocks[c];
+      const bz = offsetZ + yBlocks[r];
+      const base = pts.length;
+      blockBase.push(base);
+      // 4 corners + 4 mids (same for land and water — water has riverside walkway)
+      pts.push({ x: bx + sw, z: bz + sw, riverside: isWater });
+      pts.push({ x: bx + gt - sw, z: bz + sw, riverside: isWater });
+      pts.push({ x: bx + gt - sw, z: bz + gt - sw, riverside: isWater });
+      pts.push({ x: bx + sw, z: bz + gt - sw, riverside: isWater });
+      pts.push({ x: bx + gt / 2, z: bz + sw, riverside: isWater });
+      pts.push({ x: bx + gt - sw, z: bz + gt / 2, riverside: isWater });
+      pts.push({ x: bx + gt / 2, z: bz + gt - sw, riverside: isWater });
+      pts.push({ x: bx + sw, z: bz + gt / 2, riverside: isWater });
+      // Perimeter links
+      links.push([base+0,base+4]); links.push([base+4,base+1]);
+      links.push([base+1,base+5]); links.push([base+5,base+2]);
+      links.push([base+2,base+6]); links.push([base+6,base+3]);
+      links.push([base+3,base+7]); links.push([base+7,base+0]);
+    }
+  }
+
+  // Cross-seam links
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      const idx = blockBase[r * size + c];
+      if (idx < 0) continue;
+      // Vertical seam (E mid <-> W mid)
+      if (c < size - 1) {
+        const nextIdx = blockBase[r * size + (c + 1)];
+        if (nextIdx < 0) continue;
+        const seamType = useAlleySeams && vSeams[r] ? vSeams[r][c] : 'road';
+        const isWaterHere = useAlleySeams && blockTypes[r] && blockTypes[r][c] === 'water';
+        const isWaterNext = useAlleySeams && blockTypes[r] && blockTypes[r][c + 1] === 'water';
+        const waterBlocks = isWaterHere || isWaterNext;
+        if (seamType === 'mainstreet') {
+          // Trolley stop waypoint at each block center along the seam
+          const seamInfo = xSeamInfo.find(s => s.col === c);
+          if (seamInfo) {
+            const seamX = offsetX + seamInfo.x + seamInfo.width / 2;
+            const mIdx = pts.length;
+            pts.push({ x: seamX, z: offsetZ + yBlocks[r] + gt / 2, main: true });
+            links.push([idx + 5, mIdx]);
+            links.push([mIdx, nextIdx + 7]);
+          }
+        } else if (seamType === 'bridge') {
+          // Bridge — through-link connects both sides (even across water)
+          links.push([idx + 5, nextIdx + 7]);
+        } else {
+          // Road — only link if neither side is water (no crossing water without bridge)
+          if (!waterBlocks) links.push([idx + 5, nextIdx + 7]);
+        }
+      }
+      // Horizontal seam (S mid <-> N mid)
+      if (r < size - 1) {
+        const nextIdx = blockBase[(r + 1) * size + c];
+        if (nextIdx < 0) continue;
+        const seamType = useAlleySeams && hSeams[r] ? hSeams[r][c] : 'road';
+        const isWaterHere = useAlleySeams && blockTypes[r] && blockTypes[r][c] === 'water';
+        const isWaterNext = useAlleySeams && blockTypes[r + 1] && blockTypes[r + 1][c] === 'water';
+        const waterBlocks = isWaterHere || isWaterNext;
+        if (seamType === 'mainstreet') {
+          const seamInfo = ySeamInfo.find(s => s.row === r);
+          if (seamInfo) {
+            const seamZ = offsetZ + seamInfo.y + seamInfo.width / 2;
+            const mIdx = pts.length;
+            pts.push({ x: offsetX + xBlocks[c] + gt / 2, z: seamZ, main: true });
+            links.push([idx + 6, mIdx]);
+            links.push([mIdx, nextIdx + 4]);
+          }
+        } else if (seamType === 'bridge') {
+          // Bridge — through-link connects both sides (even across water)
+          links.push([idx + 6, nextIdx + 4]);
+        } else {
+          // Road — only link if neither side is water (no crossing water without bridge)
+          if (!waterBlocks) links.push([idx + 6, nextIdx + 4]);
+        }
+      }
+    }
+  }
+
+  // Draw links (skip at LOD 1+ for performance)
+  if (lodLevel === 0) {
+    for (const [a, b] of links) {
+    const pa = pts[a], pb = pts[b];
+    const geom = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(pa.x, 0.06, pa.z),
+      new THREE.Vector3(pb.x, 0.06, pb.z)
+    ]);
+    const linkMat = (pa.main || pb.main) ? matWaypointMainLink : matWaypointLink;
+    const line = new THREE.Line(geom, linkMat);
+    group.add(line);
+    }
+  }
+
+  // Draw nodes
+  const nodeGeom = new THREE.CircleGeometry(0.08, 8);
+  nodeGeom.rotateX(-Math.PI / 2);
+  for (const p of pts) {
+    const mat = p.main ? matWaypointMain : p.riverside ? matWaypointRiverside : matWaypoint;
+    const node = new THREE.Mesh(nodeGeom, mat);
+    node.position.set(p.x, 0.07, p.z);
+    group.add(node);
+  }
+
+  // Update waypoint count
+  document.getElementById('info-waypoints').textContent = pts.length;
+}
+
+// --- Build city (full: compute + render) ---
+function buildCity(group, useAlleySeams) {
+  const data = computeCityData(useAlleySeams);
+  renderCity(group, data);
+}
+
+// --- Rebuild display only (skips position computation, uses cached data) ---
+function rebuildDisplay() {
+  if (!_cityDataCache) { rebuild(); return; }
+  renderCity(cityGroup, _cityDataCache);
+  buildRuler();
+  updateInfo();
+  if (zoningData) renderZoningOverlays();
+}
+
+// --- Rebuild everything (single panel) ---
+function rebuild() {
+  // Determine LOD level based on grid size
+  const blockCount = params.gridSize * params.gridSize;
+  if (blockCount >= 576) lodLevel = 2;       // 24x24+ — minimal
+  else if (blockCount >= 144) lodLevel = 1;  // 12x12+ — no buildings
+  else lodLevel = 0;                          // small — full detail
+
+  // Auto-disable heavy features at high LOD, restore at LOD 0
+  if (document.getElementById('show-buildings').checked) showBuildings = true;
+  else showBuildings = false;
+  if (lodLevel >= 2) showWaypoints = false;
+  else if (document.getElementById('show-waypoints').checked) showWaypoints = true;
+
+  buildCity(cityGroup, true);
+  buildRuler();
+  updateInfo();
+
+  // Re-render zoning overlays if zoning was applied
+  if (zoningData) renderZoningOverlays();
+}
+
+// --- Phase layout generators ---
+// Each phase builds on the previous, adding complexity
+
+function generatePhaseLayout(phase) {
+  const size = params.gridSize;
+  currentPhase = phase;
+
+  // Update preset button active states
+  document.querySelectorAll('.preset-btn').forEach(b => {
+    b.classList.toggle('active', parseInt(b.dataset.phase) === phase);
+  });
+
+  if (phase === 1) {
+    // Phase 1: Control — all roads, all land
+    for (let r = 0; r < size - 1; r++) for (let c = 0; c < size; c++) hSeams[r][c] = 'road';
+    for (let r = 0; r < size; r++) for (let c = 0; c < size - 1; c++) vSeams[r][c] = 'road';
+    for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) blockTypes[r][c] = 'land';
+  } else if (phase === 2) {
+    // Phase 2: Basic — Phase 1 + alleys (N-S alley on east side)
+    for (let r = 0; r < size - 1; r++) for (let c = 0; c < size; c++) hSeams[r][c] = 'road';
+    for (let r = 0; r < size; r++) for (let c = 0; c < size - 1; c++) vSeams[r][c] = 'road';
+    const midCol = Math.floor(size / 2) - 1;
+    for (let r = 0; r < size; r++) vSeams[r][midCol + 1] = 'alley';
+    for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) blockTypes[r][c] = 'land';
+  } else if (phase === 3) {
+    // Phase 3: Layered — Phase 2 + mainstreet cross + dead-end
+    generateLayeredLayout();
+  } else if (phase === 4) {
+    // Phase 4: River — Phase 3 + E-W river + bridges
+    generateLayeredLayout();
+    addRiverToLayout();
+  } else if (phase === 5) {
+    // Phase 5: Full City — Phase 4 + zoning (central core, industrial, civic)
+    generateLayeredLayout();
+    addRiverToLayout();
+    addZoningToLayout();
+  }
+
+  rebuild();
+  zoomFit();
+  document.getElementById('status-info').textContent = `Phase ${phase} loaded — ${size*size} blocks`;
+}
+
+// Phase 4 addition: Add E-W river + bridges on top of existing layered layout
+function addRiverToLayout() {
+  const size = params.gridSize;
+  const riverRow = Math.floor(size / 2) - 1;
+  const midCol = Math.floor(size / 2) - 1;
+
+  // Set river row as water (keep all other blocks as-is from layered layout)
+  for (let c = 0; c < size; c++) blockTypes[riverRow][c] = 'water';
+
+  // Bridges — 2-3 spread across, skip alley columns
+  const alleyCol = midCol + 1;
+  const numBridges = Math.min(3, Math.max(2, Math.floor(size / 3)));
+  const bridgeCols = [];
+  for (let i = 0; i < numBridges; i++) {
+    const bc = Math.floor((i + 0.5) * size / numBridges);
+    if (bc === alleyCol) continue;
+    bridgeCols.push(bc);
+  }
+  if (bridgeCols.length < 2) {
+    for (let c = 0; c < size && bridgeCols.length < 2; c++) {
+      if (c !== alleyCol && !bridgeCols.includes(c)) bridgeCols.push(c);
+    }
+  }
+
+  // Override hSeams at river boundaries — bridges at bridge cols, roads elsewhere
+  // (mainstreet doesn't cross water — only bridges do)
+  for (let c = 0; c < size; c++) {
+    const isBridge = bridgeCols.includes(c);
+    if (riverRow > 0) hSeams[riverRow - 1][c] = isBridge ? 'bridge' : 'road';
+    if (riverRow < size - 1) hSeams[riverRow][c] = isBridge ? 'bridge' : 'road';
+  }
+}
+
+// Phase 5 addition: Add zoning on top of Phase 4 (river + layered)
+// Marks central core, industrial zone, and civic blocks
+function addZoningToLayout() {
+  const size = params.gridSize;
+  const riverRow = Math.floor(size / 2) - 1;
+  const midCol = Math.floor(size / 2) - 1;
+
+  // Central core: 2x2 cluster straddling the river at center
+  // (blocks adjacent to the centermost bridge)
+  const numBridges = Math.min(3, Math.max(2, Math.floor(size / 3)));
+  const centerBridgeCol = Math.floor((Math.floor(numBridges / 2) + 0.5) * size / numBridges);
+
+  // Mark zoning via blockTypes — extend with new types beyond 'land'/'water'
+  // Central core: blocks near the center bridge, both sides of river
+  for (let r = Math.max(0, riverRow - 1); r <= Math.min(size - 1, riverRow + 1); r++) {
+    for (let c = Math.max(0, centerBridgeCol - 1); c <= Math.min(size - 1, centerBridgeCol + 1); c++) {
+      if (blockTypes[r][c] !== 'water') blockTypes[r][c] = 'core';
+    }
+  }
+
+  // Industrial zone: bottom-right quadrant (south of river, east of mainstreet)
+  const industrialStartRow = Math.min(size - 1, Math.floor(size / 2) + 2);
+  const industrialStartCol = Math.min(size - 1, midCol + 2);
+  for (let r = industrialStartRow; r < size; r++) {
+    for (let c = industrialStartCol; c < size; c++) {
+      if (blockTypes[r][c] === 'land') blockTypes[r][c] = 'industrial';
+    }
+  }
+
+  // Civic blocks: top-left corner area (north of river, west of mainstreet)
+  const civicEndRow = Math.max(0, riverRow - 1);
+  const civicEndCol = Math.max(0, midCol - 1);
+  for (let r = 0; r <= civicEndRow; r++) {
+    for (let c = 0; c <= civicEndCol; c++) {
+      if (blockTypes[r][c] === 'land') blockTypes[r][c] = 'civic';
+    }
+  }
+}
+
+function updateInfo() {
+  const gt = groundTileSize();
+  const sp = gt + params.roadWidth;
+  const size = params.gridSize;
+  const totalW = size * gt + (size - 1) * params.roadWidth;
+
+  document.getElementById('info-grid').textContent = `${size}x${size}`;
+  const blockCount = size * size;
+  const blocksEl = document.getElementById('info-blocks');
+  blocksEl.textContent = blockCount.toLocaleString();
+  // Highlight production target proximity
+  if (blockCount >= 1024) blocksEl.style.color = '#0f0';
+  else if (blockCount >= 900) blocksEl.style.color = '#aa0';
+  else blocksEl.style.color = '#0f0';
+  document.getElementById('info-tileSize').textContent = gt.toFixed(2) + 'm';
+  document.getElementById('info-spacing').textContent = sp.toFixed(2) + 'm';
+  document.getElementById('info-totalW').textContent = totalW.toFixed(2) + 'm';
+  document.getElementById('info-totalD').textContent = totalW.toFixed(2) + 'm';
+
+  let roadCount = 0, mainCount = 0, bridgeCount = 0, waterCount = 0, oobCount = 0;
+  let coreCount = 0, industrialCount = 0, civicCount = 0;
+  for (let r = 0; r < hSeams.length; r++) for (let c = 0; c < hSeams[r].length; c++) {
+    if (hSeams[r][c] === 'road') roadCount++;
+    else if (hSeams[r][c] === 'mainstreet') mainCount++;
+    else if (hSeams[r][c] === 'bridge') bridgeCount++;
+  }
+  for (let r = 0; r < vSeams.length; r++) for (let c = 0; c < vSeams[r].length; c++) {
+    if (vSeams[r][c] === 'road') roadCount++;
+    else if (vSeams[r][c] === 'mainstreet') mainCount++;
+    else if (vSeams[r][c] === 'bridge') bridgeCount++;
+  }
+  for (let r = 0; r < blockTypes.length; r++) for (let c = 0; c < (blockTypes[r]||[]).length; c++) {
+    const bt = blockTypes[r][c];
+    if (bt === 'water') waterCount++;
+    else if (bt === 'core') coreCount++;
+    else if (bt === 'industrial') industrialCount++;
+    else if (bt === 'civic') civicCount++;
+    else if (bt === 'mainstreet') mainCount++;
+    else if (bt === 'bridge') bridgeCount++;
+    else if (bt === 'oob') oobCount++;
+  }
+  document.getElementById('info-roads').textContent = roadCount;
+  document.getElementById('info-mainstreets').textContent = mainCount;
+  document.getElementById('info-bridges').textContent = bridgeCount;
+  document.getElementById('info-water').textContent = waterCount + (coreCount || industrialCount || civicCount ? ` | Core:${coreCount} Ind:${industrialCount} Civic:${civicCount}` : '');
+
+  // LOD display
+  const lodLabels = ['Full', 'No Buildings/Edges', 'Minimal'];
+  document.getElementById('info-lod').textContent = lodLabels[lodLevel];
+  // Sync checkboxes with LOD-forced state
+  document.getElementById('show-buildings').checked = showBuildings;
+  document.getElementById('show-buildings').disabled = false;
+  document.getElementById('show-waypoints').checked = showWaypoints;
+  document.getElementById('show-waypoints').disabled = lodLevel >= 2;
+
+  const ps = buildingPlotSize();
+  const ba = buildingArea();
+  document.getElementById('info-plotSize').textContent = ps.toFixed(2) + 'm';
+  document.getElementById('info-bldgArea').textContent = ba.toFixed(2) + 'm';
+  document.getElementById('info-ratio-sw').textContent = ((params.sidewalkWidth / gt) * 100).toFixed(1) + '%';
+  document.getElementById('info-ratio-rd').textContent = ((params.roadWidth / gt) * 100).toFixed(1) + '%';
+}
+
+// --- Camera controls ---
+let camZoom = 1;
+let camPanX = 0, camPanZ = 0;
+let isPanning = false;
+let lastMouse = { x: 0, y: 0 };
+
+function updateCamera() {
+  const w = window.innerWidth / (2 * camZoom);
+  const h = window.innerHeight / (2 * camZoom);
+  camera.left = -w + camPanX;
+  camera.right = w + camPanX;
+  camera.top = h + camPanZ;
+  camera.bottom = -h + camPanZ;
+  camera.updateProjectionMatrix();
+}
+
+renderer.domElement.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const factor = e.deltaY > 0 ? 0.9 : 1.1;
+  camZoom *= factor;
+  camZoom = Math.max(0.3, Math.min(50, camZoom));
+  updateCamera();
+});
+
+let isMacroPainting = false;
+
+renderer.domElement.addEventListener('mousedown', (e) => {
+  if (e.button === 1 || (e.button === 0 && currentTool === 'select' && !hoveredSeam && !isReplicaMode)) {
+    isPanning = true;
+    lastMouse = { x: e.clientX, y: e.clientY };
+  }
+  // Macro tile painting in replica mode
+  if (e.button === 0 && isReplicaMode) {
+    if (currentMacroTool === 'paint') {
+      pushMacroUndo();
+      isMacroPainting = true;
+      paintMacroTile(e);
+    } else if (currentMacroTool === 'line') {
+      handleMacroLineClick(e);
+    } else if (currentMacroTool === 'row' || currentMacroTool === 'col') {
+      pushMacroUndo();
+      handleMacroRowColClick(e);
+    }
+  }
+});
+
+renderer.domElement.addEventListener('mousemove', (e) => {
+  const worldPos = getMouseWorldPos(e);
+  cursorWorldPos = worldPos;
+  const worldX = worldPos ? worldPos.x : 0;
+  const worldZ = worldPos ? worldPos.z : 0;
+
+  document.getElementById('status-coords').textContent = `x: ${worldX.toFixed(2)}  z: ${worldZ.toFixed(2)}`;
+
+  if (isPanning) {
+    const dx = (e.clientX - lastMouse.x) / camZoom;
+    const dy = (e.clientY - lastMouse.y) / camZoom;
+    camPanX -= dx;
+    camPanZ += dy;
+    lastMouse = { x: e.clientX, y: e.clientY };
+    updateCamera();
+  }
+
+  // Macro drag painting
+  if (isMacroPainting && isReplicaMode) {
+    paintMacroTile(e);
+  }
+
+  // Macro tile hover detection
+  hoveredMacroTile = null;
+  if (isReplicaMode && !isMacroPainting && worldPos) {
+    const rs = cityGroup.userData.replicaSize;
+    if (rs) {
+      const tx = Math.floor((worldX - rs.offsetX) / rs.tileSize);
+      const ty = Math.floor((worldZ - rs.offsetZ) / rs.tileSize);
+      if (tx >= 0 && tx < rs.w && ty >= 0 && ty < rs.h) {
+        hoveredMacroTile = { x: tx, y: ty };
+      }
+    }
+  }
+
+  // Seam hover detection
+  if (currentTool === 'seam' && cityGroup.userData.seams && !isReplicaMode) {
+    hoveredSeam = null;
+    for (const s of cityGroup.userData.seams) {
+      if (s.orientation === 'v') {
+        if (Math.abs(worldX - (s.worldX + s.totalW / 2)) < s.totalW / 2 + 1.5 &&
+            worldZ > s.worldZ - 0.5 && worldZ < s.worldZ + s.totalD + 0.5) {
+          hoveredSeam = s;
+          break;
+        }
+      } else {
+        if (Math.abs(worldZ - (s.worldY + s.totalD / 2)) < s.totalD / 2 + 1.5 &&
+            worldX > s.worldX - 0.5 && worldX < s.worldX + s.totalW + 0.5) {
+          hoveredSeam = s;
+          break;
+        }
+      }
+    }
+  }
+});
+
+renderer.domElement.addEventListener('mouseup', (e) => {
+  isPanning = false;
+  isMacroPainting = false;
+  if (e.button === 0 && currentTool === 'seam' && hoveredSeam && !isReplicaMode) {
+    // Paint seam
+    pushSeamUndo();
+    if (hoveredSeam.orientation === 'v') {
+      for (let r = 0; r < params.gridSize; r++) {
+        if (vSeams[r] && vSeams[r][hoveredSeam.col] !== undefined)
+          vSeams[r][hoveredSeam.col] = currentSeamType;
+      }
+    } else {
+      for (let c = 0; c < params.gridSize; c++) {
+        if (hSeams[hoveredSeam.row] && hSeams[hoveredSeam.row][c] !== undefined)
+          hSeams[hoveredSeam.row][c] = currentSeamType;
+      }
+    }
+    rebuild();
+    document.getElementById('status-info').textContent = `Painted ${currentSeamType} on ${hoveredSeam.orientation} seam`;
+  }
+});
+
+renderer.domElement.addEventListener('mouseleave', () => {
+  cursorWorldPos = null;
+  hoveredMacroTile = null;
+});
+
+renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
+
+// Keyboard shortcuts
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  switch (e.key.toLowerCase()) {
+    case 'h':
+      e.preventDefault();
+      uiHidden = !uiHidden;
+      document.body.classList.toggle('ui-hidden', uiHidden);
+      document.getElementById('status-info').textContent = uiHidden ? 'UI hidden — press H to show' : 'UI visible';
+      break;
+    case 'f':
+      e.preventDefault();
+      zoomFit();
+      break;
+    case 'z':
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        if (isReplicaMode) undoMacro();
+        else undoSeam();
+      }
+      break;
+    case '1':
+      if (isReplicaMode) { selectMacroType('mainst'); }
+      break;
+    case '2':
+      if (isReplicaMode) { selectMacroType('river'); }
+      break;
+    case '3':
+      if (isReplicaMode) { selectMacroType('block'); }
+      break;
+    case '4':
+      if (isReplicaMode) { selectMacroType('bridge'); }
+      break;
+    case '5':
+      if (isReplicaMode) { selectMacroType('oob'); }
+      break;
+    case 'r':
+      e.preventDefault();
+      showRuler = !showRuler;
+      document.getElementById('show-ruler').checked = showRuler;
+      if (isReplicaMode) { buildRuler(); } else { rebuild(); }
+      document.getElementById('status-info').textContent = showRuler ? 'Ruler on' : 'Ruler off';
+      break;
+    case 'q':
+      if (isReplicaMode) { selectMacroTool('paint'); }
+      break;
+    case 'w':
+      if (isReplicaMode) { selectMacroTool('line'); }
+      break;
+    case 'e':
+      if (isReplicaMode) { selectMacroTool('row'); }
+      break;
+    case 't':
+      if (isReplicaMode) { selectMacroTool('col'); }
+      break;
+    case 'escape':
+      if (isReplicaMode) {
+        e.preventDefault();
+        selectMacroTool('paint');
+      }
+      break;
+  }
+});
+
+function selectMacroType(type) {
+  currentMacroType = type;
+  document.querySelectorAll('.seam-btn[data-macro]').forEach(b => {
+    b.classList.toggle('active', b.dataset.macro === type);
+  });
+  document.getElementById('status-info').textContent = `Macro type: ${type}`;
+}
+
+function selectMacroTool(tool) {
+  currentMacroTool = tool;
+  macroLineStart = null;
+  document.querySelectorAll('.seam-btn[data-mtool]').forEach(b => {
+    b.classList.toggle('active', b.dataset.mtool === tool);
+  });
+  document.getElementById('macro-tool-status').textContent = '';
+  document.getElementById('status-info').textContent = `Macro tool: ${tool}`;
+}
+
+// --- Zoom to fit (single panel, centered) ---
+function zoomFit() {
+  const totalW = cityGroup.userData.totalW || 40;
+  const totalD = cityGroup.userData.totalD || 40;
+  const fitW = window.innerWidth / (totalW + 6);
+  const fitH = window.innerHeight / (totalD + 10);
+  camZoom = Math.min(fitW, fitH) * 0.9;
+  camPanX = 0;
+  camPanZ = 0;
+  updateCamera();
+}
+
+// --- UI bindings ---
+document.querySelectorAll('.tool-btn[data-tool]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const tool = btn.dataset.tool;
+    if (tool === 'zoomfit') {
+      zoomFit();
+      return;
+    }
+    document.querySelectorAll('.tool-btn[data-tool]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentTool = tool;
+    document.getElementById('status-tool').textContent = tool.charAt(0).toUpperCase() + tool.slice(1);
+  });
+});
+
+document.querySelectorAll('.seam-btn[data-seam]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.seam-btn[data-seam]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentSeamType = btn.dataset.seam;
+  });
+});
+
+document.getElementById('grid-size').addEventListener('change', (e) => {
+  params.gridSize = parseInt(e.target.value);
+  initSeams(params.gridSize);
+  generatePhaseLayout(currentPhase);
+});
+
+// Preset button clicks — load phase layout into editable canvas
+// Phase 1-5 buttons commented out — only Macro + Granular remain
+/*
+document.querySelectorAll('.preset-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const phase = parseInt(btn.dataset.phase);
+    generatePhaseLayout(phase);
+  });
+});
+*/
+
+// Parameter sliders
+const paramMap = {
+  'voxelSize': 'voxelSize', 'bldgVoxelW': 'buildingVoxelWidth', 'bldgPerRow': 'buildingsPerBlockRow',
+  'sidewalkW': 'sidewalkWidth', 'roadW': 'roadWidth', 'mainStW': 'mainStreetWidth'
+};
+for (const [id, key] of Object.entries(paramMap)) {
+  const slider = document.getElementById('p-' + id);
+  const valSpan = document.getElementById('v-' + id);
+  slider.addEventListener('input', () => {
+    let val = parseFloat(slider.value);
+    if (key === 'buildingsPerBlockRow') val = parseInt(val);
+    params[key] = val;
+    valSpan.textContent = key === 'voxelSize' ? val.toFixed(3) : val.toString();
+    rebuild();
+  });
+}
+
+// Display toggles
+document.getElementById('show-waypoints').addEventListener('change', (e) => { showWaypoints = e.target.checked; rebuildDisplay(); });
+document.getElementById('show-labels').addEventListener('change', (e) => { showLabels = e.target.checked; rebuildDisplay(); });
+document.getElementById('show-ruler').addEventListener('change', (e) => { showRuler = e.target.checked; if (isReplicaMode) { buildRuler(); } else { rebuildDisplay(); } });
+document.getElementById('show-buildings').addEventListener('change', (e) => { showBuildings = e.target.checked; rebuildDisplay(); });
+document.getElementById('show-rail-line').addEventListener('change', (e) => { showRailLine = e.target.checked; rebuildDisplay(); });
+
+// Color picker panel
+const colorPanel = document.getElementById('color-panel');
+document.getElementById('color-btn').addEventListener('click', () => {
+  colorPanel.classList.toggle('open');
+  if (colorPanel.classList.contains('open')) {
+    // Sync color inputs to current material colors
+    document.querySelectorAll('#color-panel input[type=color]').forEach(inp => {
+      const matName = inp.dataset.mat;
+      if (matName === 'scene.background') {
+        const c = scene.background;
+        inp.value = '#' + c.getHexString();
+      } else if (window[matName] && window[matName].color) {
+        inp.value = '#' + window[matName].color.getHexString();
+      }
+      const hexSpan = inp.parentElement.querySelector('.hex-log');
+      if (hexSpan) hexSpan.textContent = inp.value;
+    });
+  }
+});
+
+document.querySelectorAll('#color-panel input[type=color]').forEach(inp => {
+  inp.addEventListener('input', () => {
+    const matName = inp.dataset.mat;
+    const hex = inp.value;
+    const hexSpan = inp.parentElement.querySelector('.hex-log');
+    if (hexSpan) hexSpan.textContent = hex;
+    if (matName === 'scene.background') {
+      scene.background = new THREE.Color(hex);
+    } else if (window[matName] && window[matName].color) {
+      window[matName].color.set(hex);
+    }
+    console.log(`[COLOR] ${matName} = 0x${hex.slice(1).toUpperCase()}`);
+  });
+});
+
+document.getElementById('color-print').addEventListener('click', () => {
+  console.log('=== ALL MATERIAL HEX VALUES ===');
+  const matNames = ['matBuilding','matBuildingEdge','matCourtyard','matAlleyPath','matAlleyDebris','matSidewalk','matSidewalkEdge',
+    'matRoad','matMainStreet','matTrolleyTrack',
+    'matWater','matWaterEdge','matRiverside','matRiversideEdge',
+    'matCore','matCoreEdge','matIndustrial','matIndustrialEdge','matCivic','matCivicEdge',
+    'matCommercial','matResidential','matMunicipalTile','matCivilTile',
+    'matBridge','matBridgeRail','matOOB','matOOBEdge',
+    'matWaypoint','matWaypointMain','matWaypointRiverside',
+    'matWaypointLink','matLabel'];
+  for (const name of matNames) {
+    if (window[name] && window[name].color) {
+      console.log(`  ${name} = 0x${window[name].color.getHexString().toUpperCase()}`);
+    }
+  }
+  console.log(`  scene.background = 0x${scene.background.getHexString().toUpperCase()}`);
+  console.log('=== END ===');
+});
+
+// Export
+document.getElementById('export-btn').addEventListener('click', () => {
+  if (isReplicaMode) {
+    // Export replica tile data
+    const layout = {
+      version: 4,
+      type: 'replica',
+      width: replicaData.width,
+      height: replicaData.height,
+      tiles: replicaData.tiles,
+    };
+    document.getElementById('export-text').value = JSON.stringify(layout, null, 2);
+    document.getElementById('export-modal').style.display = 'flex';
+    return;
+  }
+  const layout = {
+    version: 3,
+    parameters: { ...params },
+    groundTileSize: groundTileSize(),
+    spacing: groundTileSize() + params.roadWidth,
+    gridSize: params.gridSize,
+    seamTypes: ['road', 'mainstreet', 'bridge'],
+    blockTypes: ['land', 'water', 'mainstreet', 'bridge', 'oob'],
+    hSeams: hSeams,
+    vSeams: vSeams,
+    railLine: { enabled: showRailLine, direction: 'N-S', position: 'east-edge', trainRunsPerWeek: 3 },
+    blocks: [],
+  };
+  for (let r = 0; r < params.gridSize; r++) {
+    for (let c = 0; c < params.gridSize; c++) {
+      layout.blocks.push({ row: r, col: c, block_id: `r${r}c${c}`, terrain: blockTypes[r] ? blockTypes[r][c] : 'land' });
+    }
+  }
+  document.getElementById('export-text').value = JSON.stringify(layout, null, 2);
+  document.getElementById('export-modal').style.display = 'flex';
+});
+
+document.getElementById('close-export').addEventListener('click', () => {
+  document.getElementById('export-modal').style.display = 'none';
+});
+
+document.getElementById('copy-json').addEventListener('click', () => {
+  const text = document.getElementById('export-text');
+  text.select();
+  document.execCommand('copy');
+  document.getElementById('status-info').textContent = 'JSON copied to clipboard';
+});
+
+document.getElementById('download-json').addEventListener('click', () => {
+  const text = document.getElementById('export-text').value;
+  const blob = new Blob([text], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = isReplicaMode ? 'replica_macro_map.json' : 'city_layout.json';
+  a.click();
+});
+
+// Import
+document.getElementById('import-btn').addEventListener('click', () => {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.onchange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        // Replica tile import
+        if (data.type === 'replica' && data.tiles) {
+          replicaData.width = data.width;
+          replicaData.height = data.height;
+          replicaData.tiles = data.tiles;
+          if (!isReplicaMode) loadReplicaMap();
+          else { buildReplicaMap(cityGroup); updateReplicaInfo(); }
+          document.getElementById('status-info').textContent = `Replica imported — ${data.width}x${data.height} tiles`;
+          return;
+        }
+        // Seam-based import
+        Object.assign(params, data.parameters);
+        hSeams = data.hSeams;
+        vSeams = data.vSeams;
+        params.gridSize = data.gridSize;
+        document.getElementById('grid-size').value = params.gridSize;
+        // Update sliders
+        for (const [id, key] of Object.entries(paramMap)) {
+          const slider = document.getElementById('p-' + id);
+          const valSpan = document.getElementById('v-' + id);
+          slider.value = params[key];
+          valSpan.textContent = key === 'voxelSize' ? params[key].toFixed(3) : params[key].toString();
+        }
+        rebuild();
+        document.getElementById('status-info').textContent = 'Layout imported successfully';
+      } catch (err) {
+        document.getElementById('status-info').textContent = 'Import failed: ' + err.message;
+      }
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+});
+
+// --- Resize ---
+window.addEventListener('resize', () => {
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  updateCamera();
+});
+
+// --- Animation loop ---
+let lastTime = performance.now();
+let fps = 60;
+function animate() {
+  requestAnimationFrame(animate);
+  const now = performance.now();
+  const dt = now - lastTime;
+  lastTime = now;
+  fps = fps * 0.95 + (1000 / dt) * 0.05;
+  document.getElementById('status-fps').textContent = Math.round(fps) + ' FPS';
+
+  // Draw hover highlight
+  if (hoveredSeam && currentTool === 'seam' && !isReplicaMode) {
+    if (!cityGroup.userData.hoverMesh) {
+      cityGroup.userData.hoverMesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(1, 1),
+        matSeamHover
+      );
+      cityGroup.userData.hoverMesh.geometry.rotateX(-Math.PI / 2);
+      cityGroup.add(cityGroup.userData.hoverMesh);
+    }
+    const hm = cityGroup.userData.hoverMesh;
+    hm.visible = true;
+    if (hoveredSeam.orientation === 'v') {
+      hm.scale.set(hoveredSeam.totalW + 0.4, 1, hoveredSeam.totalD + 0.4);
+      hm.position.set(hoveredSeam.worldX + hoveredSeam.totalW / 2, 0.08, hoveredSeam.worldZ + hoveredSeam.totalD / 2);
+    } else {
+      hm.scale.set(hoveredSeam.totalW + 0.4, 1, hoveredSeam.totalD + 0.4);
+      hm.position.set(hoveredSeam.worldX + hoveredSeam.totalW / 2, 0.08, hoveredSeam.worldY + hoveredSeam.totalD / 2);
+    }
+  } else if (cityGroup.userData.hoverMesh) {
+    cityGroup.userData.hoverMesh.visible = false;
+  }
+
+  // Macro tile hover highlight
+  if (isReplicaMode && hoveredMacroTile) {
+    if (!cityGroup.userData.macroHoverMesh) {
+      cityGroup.userData.macroHoverMesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(1, 1),
+        matMacroHover
+      );
+      cityGroup.userData.macroHoverMesh.geometry.rotateX(-Math.PI / 2);
+      cityGroup.add(cityGroup.userData.macroHoverMesh);
+    }
+    const mh = cityGroup.userData.macroHoverMesh;
+    const rs = cityGroup.userData.replicaSize;
+    if (rs) {
+      mh.visible = true;
+      if (currentMacroTool === 'row') {
+        // Highlight entire row
+        mh.scale.set(rs.w * rs.tileSize, 1, rs.tileSize);
+        mh.position.set(
+          rs.offsetX + rs.w * rs.tileSize / 2,
+          0.09,
+          rs.offsetZ + hoveredMacroTile.y * rs.tileSize + rs.tileSize / 2
+        );
+      } else if (currentMacroTool === 'col') {
+        // Highlight entire column
+        mh.scale.set(rs.tileSize, 1, rs.h * rs.tileSize);
+        mh.position.set(
+          rs.offsetX + hoveredMacroTile.x * rs.tileSize + rs.tileSize / 2,
+          0.09,
+          rs.offsetZ + rs.h * rs.tileSize / 2
+        );
+      } else {
+        // Single tile for paint/line modes
+        mh.scale.set(rs.tileSize, 1, rs.tileSize);
+        mh.position.set(
+          rs.offsetX + hoveredMacroTile.x * rs.tileSize + rs.tileSize / 2,
+          0.09,
+          rs.offsetZ + hoveredMacroTile.y * rs.tileSize + rs.tileSize / 2
+        );
+      }
+    }
+  } else if (cityGroup.userData.macroHoverMesh) {
+    cityGroup.userData.macroHoverMesh.visible = false;
+  }
+
+  // Line tool preview — ghost line from start to cursor
+  if (isReplicaMode && currentMacroTool === 'line' && macroLineStart && hoveredMacroTile) {
+    if (!rulerGroup.userData.linePreview) {
+      const geom = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0, 0.12, 0), new THREE.Vector3(0, 0.12, 0)
+      ]);
+      rulerGroup.userData.linePreview = new THREE.Line(geom, matRulerCross);
+      rulerGroup.add(rulerGroup.userData.linePreview);
+    }
+    const rs = cityGroup.userData.replicaSize;
+    const sx = rs.offsetX + macroLineStart.x * rs.tileSize + rs.tileSize / 2;
+    const sz = rs.offsetZ + macroLineStart.y * rs.tileSize + rs.tileSize / 2;
+    const ex = rs.offsetX + hoveredMacroTile.x * rs.tileSize + rs.tileSize / 2;
+    const ez = rs.offsetZ + hoveredMacroTile.y * rs.tileSize + rs.tileSize / 2;
+    const geom = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(sx, 0.12, sz), new THREE.Vector3(ex, 0.12, ez)
+    ]);
+    rulerGroup.userData.linePreview.geometry.dispose();
+    rulerGroup.userData.linePreview.geometry = geom;
+    rulerGroup.userData.linePreview.visible = true;
+  } else if (rulerGroup.userData.linePreview) {
+    rulerGroup.userData.linePreview.visible = false;
+  }
+
+  // Ruler crosshair — highlight intersection point on ruler edges
+  if (showRuler && cursorWorldPos) {
+    if (!rulerGroup.userData.crossH || !rulerGroup.userData.crossV) {
+      const crossGeomH = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0, 0.16, 0), new THREE.Vector3(0, 0.16, 0)
+      ]);
+      const crossGeomV = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0, 0.16, 0), new THREE.Vector3(0, 0.16, 0)
+      ]);
+      rulerGroup.userData.crossH = new THREE.Line(crossGeomH, matRulerCross);
+      rulerGroup.userData.crossV = new THREE.Line(crossGeomV, matRulerCross);
+      rulerGroup.add(rulerGroup.userData.crossH);
+      rulerGroup.add(rulerGroup.userData.crossV);
+    }
+
+    const cx = cursorWorldPos.x;
+    const cz = cursorWorldPos.z;
+
+    if (isReplicaMode) {
+      const rs = cityGroup.userData.replicaSize;
+      if (rs) {
+        const rulerSize = rs.tileSize;
+        // Horizontal line: from left ruler edge to map edge at cursor Z
+        const hGeom = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(rs.offsetX - rulerSize, 0.16, cz),
+          new THREE.Vector3(rs.offsetX + rs.w * rs.tileSize, 0.16, cz)
+        ]);
+        rulerGroup.userData.crossH.geometry.dispose();
+        rulerGroup.userData.crossH.geometry = hGeom;
+        rulerGroup.userData.crossH.visible = true;
+
+        // Vertical line: from top ruler edge to map edge at cursor X
+        const vGeom = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(cx, 0.16, rs.offsetZ - rulerSize),
+          new THREE.Vector3(cx, 0.16, rs.offsetZ + rs.h * rs.tileSize)
+        ]);
+        rulerGroup.userData.crossV.geometry.dispose();
+        rulerGroup.userData.crossV.geometry = vGeom;
+        rulerGroup.userData.crossV.visible = true;
+      }
+    } else {
+      const size = params.gridSize;
+      const gt = groundTileSize();
+      const rw = params.roadWidth;
+      const totalW = size * gt + (size - 1) * rw;
+      const offsetX = -totalW / 2;
+      const offsetZ = -totalW / 2;
+      const rulerSize = gt * 0.5;
+
+      const hGeom = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(offsetX - rulerSize, 0.16, cz),
+        new THREE.Vector3(offsetX + totalW, 0.16, cz)
+      ]);
+      rulerGroup.userData.crossH.geometry.dispose();
+      rulerGroup.userData.crossH.geometry = hGeom;
+      rulerGroup.userData.crossH.visible = true;
+
+      const vGeom = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(cx, 0.16, offsetZ - rulerSize),
+        new THREE.Vector3(cx, 0.16, offsetZ + totalW)
+      ]);
+      rulerGroup.userData.crossV.geometry.dispose();
+      rulerGroup.userData.crossV.geometry = vGeom;
+      rulerGroup.userData.crossV.visible = true;
+    }
+  } else {
+    if (rulerGroup.userData.crossH) rulerGroup.userData.crossH.visible = false;
+    if (rulerGroup.userData.crossV) rulerGroup.userData.crossV.visible = false;
+  }
+
+  // Animate elevated train (cosmetic preview — slow loop)
+  if (trainMesh && railLineGroup) {
+    trainAnimTime += dt * 0.0001;
+    const cycle = trainAnimTime % 1.0;
+    const totalD = cityGroup.userData.totalD || 40;
+    const offsetZ = cityGroup.userData.offsetZ || -20;
+    // Train travels S→N, pauses at edges, then repeats
+    let trainZ;
+    if (cycle < 0.4) {
+      // Moving S→N
+      const t = cycle / 0.4;
+      trainZ = offsetZ + t * totalD;
+      trainMesh.visible = true;
+    } else if (cycle < 0.5) {
+      // Pause at N edge
+      trainZ = offsetZ + totalD;
+      trainMesh.visible = true;
+    } else if (cycle < 0.9) {
+      // Moving N→S
+      const t = (cycle - 0.5) / 0.4;
+      trainZ = offsetZ + (1 - t) * totalD;
+      trainMesh.visible = true;
+    } else {
+      // Pause at S edge
+      trainZ = offsetZ;
+      trainMesh.visible = true;
+    }
+    trainMesh.position.z = trainZ;
+  }
+
+  renderer.render(scene, camera);
+}
+
+// --- Init ---
+initSeams(params.gridSize);
+
+// Auto-generate a layered layout using all 4 seam types
+// Design: main streets form a cross through the center,
+// alleys on one side, dead-ends on the other, roads fill the rest
+function generateLayeredLayout() {
+  const size = params.gridSize;
+  const midCol = Math.floor(size / 2) - 1;
+  const midRow = Math.floor(size / 2) - 1;
+
+  // Reset all blocks to land (clears any zoning from Phase 5)
+  for (let r = 0; r < size; r++)
+    for (let c = 0; c < size; c++)
+      blockTypes[r][c] = 'land';
+
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size - 1; c++) {
+      if (c === midCol) vSeams[r][c] = 'mainstreet';   // N-S main street through center
+      else if (c === midCol + 1) vSeams[r][c] = 'road';
+      else vSeams[r][c] = 'road';
+    }
+  }
+
+  for (let r = 0; r < size - 1; r++) {
+    for (let c = 0; c < size; c++) {
+      if (r === midRow) hSeams[r][c] = 'mainstreet';    // E-W main street through center
+      else if (r === midRow + 1) hSeams[r][c] = 'road';
+      else hSeams[r][c] = 'road';
+    }
+  }
+}
+
+// --- Replica Map: Gangsters full city layout ---
+// 32x32 tile grid — normalized to production target (1,024 tiles)
+// River runs E-W through center with S-bend on west side, 5 bridges
+
+const REP_W = 32, REP_H = 32;
+const repVRoadCols = [0, 5, 11, 16, 21, 27, 31];
+const repHRoadRows = [0, 8, 16, 24, 31];
+const repRiverRow = 15;
+const repBendCols = [1, 2, 3, 4];
+const repBendRows = [14, 16];
+const repBridgeCols = [5, 11, 16, 21, 27];
+
+function generateReplicaTiles() {
+  const tiles = [];
+  for (let y = 0; y < REP_H; y++) {
+    for (let x = 0; x < REP_W; x++) {
+      const isVMainSt = repVRoadCols.includes(x);
+      const isHMainSt = repHRoadRows.includes(y);
+      const isRiver = y === repRiverRow || (repBendRows.includes(y) && repBendCols.includes(x));
+      const isBridge = repBridgeCols.includes(x) && y === repRiverRow;
+      let type = 'block';
+      if (isBridge) type = 'bridge';
+      else if (isRiver) type = 'river';
+      else if (isVMainSt || isHMainSt) type = 'mainst';
+      tiles.push({ x, y, t: type });
+    }
+  }
+  return tiles;
+}
+
+const replicaData = {
+  width: REP_W,
+  height: REP_H,
+  tiles: generateReplicaTiles() // Fallback — overwritten by fetch on init
+};
+
+let isReplicaMode = false;
+
+function buildReplicaMap(group) {
+  // Save hover meshes before clearing
+  const savedHover = group.userData.hoverMesh || null;
+  const savedMacroHover = group.userData.macroHoverMesh || null;
+
+  while (group.children.length > 0) group.remove(group.children[0]);
+
+  // Re-add hover meshes
+  if (savedHover) group.add(savedHover);
+  if (savedMacroHover) group.add(savedMacroHover);
+
+  const w = replicaData.width;
+  const h = replicaData.height;
+  const tileSize = 2.0;
+  const totalW = w * tileSize;
+  const totalD = h * tileSize;
+  const offsetX = -totalW / 2;
+  const offsetZ = -totalD / 2;
+
+  for (const t of replicaData.tiles) {
+    const bx = offsetX + t.x * tileSize;
+    const bz = offsetZ + t.y * tileSize;
+    const cx = bx + tileSize / 2;
+    const cz = bz + tileSize / 2;
+
+    let mat, edgeMat = null;
+    const tileType = t.t === 'road' ? 'mainst' : t.t; // Backward compat: old exports used 'road'
+    if (tileType === 'mainst') {
+      mat = matMainStreet;
+    } else if (t.t === 'river') {
+      mat = matWater;
+      edgeMat = matWaterEdge;
+    } else if (t.t === 'bridge') {
+      mat = matBridge;
+      edgeMat = matBridgeRail;
+    } else if (t.t === 'oob') {
+      mat = matOOB;
+      edgeMat = matOOBEdge;
+    } else {
+      mat = matSidewalk;
+      edgeMat = matSidewalkEdge;
+    }
+
+    const geom = sharedPlane(tileSize, tileSize);
+    const mesh = new THREE.Mesh(geom, mat);
+    mesh.position.set(cx, t.t === 'river' ? 0.003 : 0.005, cz);
+    group.add(mesh);
+
+    if (edgeMat) {
+      const eGeom = sharedEdges(tileSize, tileSize);
+      const edge = new THREE.LineSegments(eGeom, edgeMat);
+      edge.position.set(cx, 0.006, cz);
+      group.add(edge);
+    }
+  }
+
+  group.userData.replicaTiles = replicaData.tiles;
+  group.userData.replicaSize = { w, h, tileSize, offsetX, offsetZ };
+  group.userData.totalW = totalW;
+  group.userData.totalD = totalD;
+  group.userData.isReplica = true;
+}
+
+function loadReplicaMap() {
+  isReplicaMode = true;
+  document.querySelectorAll('.preset-btn[data-phase]').forEach(b => b.classList.remove('active'));
+  document.querySelector('.preset-btn[data-replica]').classList.add('active');
+
+  // Show macro painter, hide seam painter
+  document.getElementById('seam-painter').style.display = 'none';
+  document.getElementById('seam-painter-hint').style.display = 'none';
+  document.getElementById('macro-painter').style.display = '';
+  document.getElementById('macro-painter-title').style.display = '';
+  document.getElementById('macro-painter-hint').style.display = '';
+  document.getElementById('macro-tools').style.display = 'flex';
+  document.getElementById('macro-tools-hint').style.display = '';
+  document.getElementById('macro-undo-row').style.display = '';
+  document.getElementById('granular-btn').style.display = '';
+  document.getElementById('zoning-btn').style.display = 'none';
+
+  buildReplicaMap(cityGroup);
+  buildRuler();
+  zoomFit();
+  document.getElementById('status-info').textContent = `Replica map loaded — ${replicaData.width}x${replicaData.height} tiles`;
+
+  const blockCount = replicaData.tiles.filter(t => t.t === 'block' || t.t === 'land').length;
+  const mainStCount = replicaData.tiles.filter(t => t.t === 'mainst' || t.t === 'road').length;
+  const riverCount = replicaData.tiles.filter(t => t.t === 'river').length;
+  const bridgeCount = replicaData.tiles.filter(t => t.t === 'bridge').length;
+
+  document.getElementById('info-grid').textContent = `${replicaData.width}x${replicaData.height} (tiles)`;
+  document.getElementById('info-blocks').textContent = blockCount;
+  document.getElementById('info-blocks').style.color = '#0f0';
+  document.getElementById('info-tileSize').textContent = '2.00m (tile)';
+  document.getElementById('info-spacing').textContent = '2.00m';
+  document.getElementById('info-totalW').textContent = (replicaData.width * 2.0).toFixed(2) + 'm';
+  document.getElementById('info-totalD').textContent = (replicaData.height * 2.0).toFixed(2) + 'm';
+  document.getElementById('info-roads').textContent = mainStCount;
+  document.getElementById('info-mainstreets').textContent = '—';
+  document.getElementById('info-bridges').textContent = bridgeCount;
+  document.getElementById('info-water').textContent = riverCount;
+  document.getElementById('info-waypoints').textContent = '—';
+  document.getElementById('info-lod').textContent = 'Replica';
+}
+
+// Wire up replica button
+document.querySelector('.preset-btn[data-replica]').addEventListener('click', () => {
+  clearZoning();
+  loadReplicaMap();
+});
+
+// Load Macro Editor on init — use embedded replica1_data.js (works with file:/// protocol)
+if (window.REPLICA1_DATA && window.REPLICA1_DATA.tiles && window.REPLICA1_DATA.width) {
+  replicaData.width = window.REPLICA1_DATA.width;
+  replicaData.height = window.REPLICA1_DATA.height;
+  replicaData.tiles = window.REPLICA1_DATA.tiles;
+  console.log('✅ Loaded replica1_data.js:', replicaData.width + 'x' + replicaData.height, 'tiles');
+} else {
+  console.log('⚠️ replica1_data.js not found, using hardcoded Gangsters Map');
+}
+loadReplicaMap();
+
+// --- Macro tile painting ---
+const macroUndoStack = [];
+const MACRO_UNDO_MAX = 50;
+
+function pushMacroUndo() {
+  macroUndoStack.push(replicaData.tiles.map(t => ({ ...t })));
+  if (macroUndoStack.length > MACRO_UNDO_MAX) macroUndoStack.shift();
+}
+
+function undoMacro() {
+  if (macroUndoStack.length === 0) {
+    document.getElementById('status-info').textContent = 'Nothing to undo';
+    return;
+  }
+  replicaData.tiles = macroUndoStack.pop();
+  buildReplicaMap(cityGroup);
+  buildRuler();
+  updateReplicaInfo();
+  document.getElementById('status-info').textContent = `Undo — stack: ${macroUndoStack.length}`;
+}
+
+function paintMacroTile(e) {
+  const worldPos = getMouseWorldPos(e);
+  if (!worldPos) return;
+
+  const rs = cityGroup.userData.replicaSize;
+  if (!rs) return;
+  const tileX = Math.floor((worldPos.x - rs.offsetX) / rs.tileSize);
+  const tileY = Math.floor((worldPos.z - rs.offsetZ) / rs.tileSize);
+  if (tileX < 0 || tileX >= rs.w || tileY < 0 || tileY >= rs.h) return;
+
+  // Find and update the tile
+  const tile = replicaData.tiles.find(t => t.x === tileX && t.y === tileY);
+  if (!tile || tile.t === currentMacroType) return;
+
+  // Save undo state on first paint of a stroke
+  tile.t = currentMacroType;
+
+  // Re-render the whole replica (simple but reliable for 1024 tiles)
+  buildReplicaMap(cityGroup);
+  buildRuler();
+  updateReplicaInfo();
+  document.getElementById('status-info').textContent = `Painted ${currentMacroType} at (${tileX}, ${tileY})`;
+}
+
+function getTileFromMouse(e) {
+  const worldPos = getMouseWorldPos(e);
+  if (!worldPos) return null;
+  const rs = cityGroup.userData.replicaSize;
+  if (!rs) return null;
+  const tx = Math.floor((worldPos.x - rs.offsetX) / rs.tileSize);
+  const ty = Math.floor((worldPos.z - rs.offsetZ) / rs.tileSize);
+  if (tx < 0 || tx >= rs.w || ty < 0 || ty >= rs.h) return null;
+  return { x: tx, y: ty };
+}
+
+function handleMacroLineClick(e) {
+  const tile = getTileFromMouse(e);
+  if (!tile) return;
+
+  if (!macroLineStart) {
+    macroLineStart = tile;
+    document.getElementById('macro-tool-status').textContent = `Line start: (${tile.x}, ${tile.y}) — click end point`;
+    document.getElementById('status-info').textContent = `Line start: (${tile.x}, ${tile.y})`;
+  } else {
+    pushMacroUndo();
+    const x0 = macroLineStart.x, y0 = macroLineStart.y;
+    const x1 = tile.x, y1 = tile.y;
+    const dx = x1 - x0, dy = y1 - y0;
+    const steps = Math.max(Math.abs(dx), Math.abs(dy));
+    for (let i = 0; i <= steps; i++) {
+      const t = steps === 0 ? 0 : i / steps;
+      const px = Math.round(x0 + dx * t);
+      const py = Math.round(y0 + dy * t);
+      const tileObj = replicaData.tiles.find(t => t.x === px && t.y === py);
+      if (tileObj) tileObj.t = currentMacroType;
+    }
+    buildReplicaMap(cityGroup);
+    buildRuler();
+    updateReplicaInfo();
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    document.getElementById('status-info').textContent = `Line: (${x0},${y0})→(${x1},${y1}) — ${steps + 1} tiles, dist ${dist.toFixed(1)}`;
+    document.getElementById('macro-tool-status').textContent = '';
+    macroLineStart = null;
+  }
+}
+
+function handleMacroRowColClick(e) {
+  const tile = getTileFromMouse(e);
+  if (!tile) return;
+  const rs = cityGroup.userData.replicaSize;
+
+  if (currentMacroTool === 'row') {
+    for (let x = 0; x < rs.w; x++) {
+      const t = replicaData.tiles.find(t => t.x === x && t.y === tile.y);
+      if (t) t.t = currentMacroType;
+    }
+    document.getElementById('status-info').textContent = `Filled row ${tile.y} with ${currentMacroType} (${rs.w} tiles)`;
+  } else if (currentMacroTool === 'col') {
+    for (let y = 0; y < rs.h; y++) {
+      const t = replicaData.tiles.find(t => t.x === tile.x && t.y === y);
+      if (t) t.t = currentMacroType;
+    }
+    document.getElementById('status-info').textContent = `Filled col ${tile.x} with ${currentMacroType} (${rs.h} tiles)`;
+  }
+
+  buildReplicaMap(cityGroup);
+  buildRuler();
+  updateReplicaInfo();
+}
+
+function updateReplicaInfo() {
+  const blockCount = replicaData.tiles.filter(t => t.t === 'block' || t.t === 'land').length;
+  const mainStCount = replicaData.tiles.filter(t => t.t === 'mainst' || t.t === 'road').length;
+  const riverCount = replicaData.tiles.filter(t => t.t === 'river').length;
+  const bridgeCount = replicaData.tiles.filter(t => t.t === 'bridge').length;
+  const oobCount = replicaData.tiles.filter(t => t.t === 'oob').length;
+  document.getElementById('info-blocks').textContent = blockCount;
+  document.getElementById('info-roads').textContent = mainStCount;
+  document.getElementById('info-bridges').textContent = bridgeCount;
+  document.getElementById('info-water').textContent = riverCount;
+  document.getElementById('status-info').textContent = `Blocks:${blockCount} MainSt:${mainStCount} River:${riverCount} Bridges:${bridgeCount} OOB:${oobCount}`;
+}
+
+// Macro paint type selection
+document.querySelectorAll('.seam-btn[data-macro]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.seam-btn[data-macro]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentMacroType = btn.dataset.macro;
+  });
+});
+
+// Macro tool selection (paint, line, row, col)
+document.querySelectorAll('.seam-btn[data-mtool]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.seam-btn[data-mtool]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentMacroTool = btn.dataset.mtool;
+    macroLineStart = null;
+    document.getElementById('macro-tool-status').textContent = '';
+    document.getElementById('status-info').textContent = `Macro tool: ${currentMacroTool}`;
+  });
+});
+
+// Macro undo button
+document.getElementById('macro-undo-btn').addEventListener('click', () => {
+  undoMacro();
+});
+
+// Override rebuild to handle replica mode — when phase buttons are clicked, exit replica mode
+const _originalGeneratePhaseLayout = generatePhaseLayout;
+generatePhaseLayout = function(phase) {
+  isReplicaMode = false;
+  document.querySelector('.preset-btn[data-replica]').classList.remove('active');
+  // Hide macro painter, show seam painter
+  document.getElementById('macro-painter').style.display = 'none';
+  document.getElementById('macro-painter-title').style.display = 'none';
+  document.getElementById('macro-painter-hint').style.display = 'none';
+  document.getElementById('macro-tools').style.display = 'none';
+  document.getElementById('macro-tools-hint').style.display = 'none';
+  document.getElementById('macro-undo-row').style.display = 'none';
+  document.getElementById('granular-btn').style.display = 'none';
+  document.getElementById('seam-painter').style.display = '';
+  document.getElementById('seam-painter-hint').style.display = '';
+  _originalGeneratePhaseLayout(phase);
+  buildRuler();
+};
+
+// --- Granular Phase 2: Convert macro tiles → seam/block layout ---
+function inferSeamType(typeA, typeB) {
+  if (typeA === 'mainst' || typeB === 'mainst') return 'mainstreet';
+  if (typeA === 'bridge' || typeB === 'bridge') return 'bridge';
+  // Only seam between two river tiles is river (water continues)
+  // River-to-land seam is a road (riverside road runs along the bank)
+  if (typeA === 'river' && typeB === 'river') return 'river';
+  return 'road';
+}
+
+function generateGranularFromMacro() {
+  const macroW = replicaData.width;
+  const macroH = replicaData.height;
+  const size = macroW; // Square grid assumed for now
+
+  // Build a lookup map for fast tile access
+  const tileMap = {};
+  for (const t of replicaData.tiles) {
+    tileMap[`${t.x},${t.y}`] = t.t;
+  }
+  function getTile(x, y) {
+    return tileMap[`${x},${y}`] || 'block';
+  }
+
+  // Set grid size to match macro dimensions
+  params.gridSize = size;
+  document.getElementById('grid-size').value = size;
+
+  // Initialize seam arrays
+  initSeams(size);
+
+  // Convert macro tiles → granular block types
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      const macroType = getTile(c, r) === 'road' ? 'mainst' : getTile(c, r); // Backward compat
+      if (macroType === 'river') {
+        blockTypes[r][c] = 'water';
+      } else if (macroType === 'mainst') {
+        blockTypes[r][c] = 'mainstreet';
+      } else if (macroType === 'bridge') {
+        blockTypes[r][c] = 'bridge';
+      } else if (macroType === 'oob') {
+        blockTypes[r][c] = 'oob';
+      } else {
+        blockTypes[r][c] = 'land';
+      }
+    }
+  }
+
+  function getTileNorm(x, y) { const t = getTile(x, y); return t === 'road' ? 'mainst' : t; }
+
+  // Infer seam types from adjacent macro tile types
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size - 1; c++) {
+      vSeams[r][c] = inferSeamType(getTileNorm(c, r), getTileNorm(c + 1, r));
+    }
+  }
+  for (let r = 0; r < size - 1; r++) {
+    for (let c = 0; c < size; c++) {
+      hSeams[r][c] = inferSeamType(getTileNorm(c, r), getTileNorm(c, r + 1));
+    }
+  }
+
+  // Exit replica mode — switch to seam editor view
+  isReplicaMode = false;
+  document.querySelector('.preset-btn[data-replica]').classList.remove('active');
+  document.getElementById('granular-btn').classList.add('active');
+  document.getElementById('zoning-btn').style.display = '';
+
+  // Show seam painter, hide macro painter
+  document.getElementById('macro-painter').style.display = 'none';
+  document.getElementById('macro-painter-title').style.display = 'none';
+  document.getElementById('macro-painter-hint').style.display = 'none';
+  document.getElementById('macro-tools').style.display = 'none';
+  document.getElementById('macro-tools-hint').style.display = 'none';
+  document.getElementById('macro-undo-row').style.display = 'none';
+  document.getElementById('seam-painter').style.display = '';
+  document.getElementById('seam-painter-hint').style.display = '';
+  seamUndoStack.length = 0; // fresh undo stack for seam editing
+  for (const [id, key] of Object.entries(paramMap)) {
+    const slider = document.getElementById('p-' + id);
+    const valSpan = document.getElementById('v-' + id);
+    slider.value = params[key];
+    valSpan.textContent = key === 'voxelSize' ? params[key].toFixed(3) : params[key].toString();
+  }
+
+  rebuild();
+  buildRuler();
+  zoomFit();
+
+  // Count granular features
+  let mainStCount = 0, roadCount = 0, bridgeCount = 0, waterCount = 0, landCount = 0;
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      if (blockTypes[r][c] === 'water') waterCount++;
+      else if (blockTypes[r][c] === 'mainstreet') mainStCount++;
+      else if (blockTypes[r][c] === 'bridge') bridgeCount++;
+      else if (blockTypes[r][c] === 'land') landCount++;
+    }
+  }
+  document.getElementById('status-info').textContent =
+    `Granular: ${size}x${size} | Land:${landCount} MainSt:${mainStCount} Water:${waterCount} Bridge:${bridgeCount}`;
+}
+
+// Wire up granular button
+document.getElementById('granular-btn').addEventListener('click', () => {
+  clearZoning();
+  generateGranularFromMacro();
+});
+
+// --- Phase 3: Zoning (distance-field zones + building placement) ---
+let zoningOverlayGroup = null;
+
+// Clear zoning data and overlays — called when rolling back to Granular or Macro
+function clearZoning() {
+  if (zoningOverlayGroup) { cityGroup.remove(zoningOverlayGroup); zoningOverlayGroup = null; }
+  zoningData = null;
+  blockAlleys = [];
+  document.getElementById('zoning-btn').classList.remove('active');
+  document.getElementById('zoning-legend').style.display = 'none';
+}
+
+// Emoji texture helper (ported from zoning_sandbox.html)
+const emojiTextureCache = {};
+function makeEmojiTexture(emoji, size) {
+  size = size || 64;
+  const key = emoji + '_' + size;
+  if (emojiTextureCache[key]) return emojiTextureCache[key];
+  const canvas = document.createElement('canvas');
+  canvas.width = size; canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.font = (size * 0.7) + 'px sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(emoji, size / 2, size / 2 + size * 0.05);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.minFilter = THREE.LinearFilter;
+  emojiTextureCache[key] = tex;
+  return tex;
+}
+
+// Seeded RNG (mulberry32)
+function mulberry32(seed) {
+  return function() {
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = seed;
+    t = Math.imul(t ^ t >>> 15, t | 1);
+    t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+// Value noise for distance-field zone boundaries
+function makeValueNoise(seed) {
+  const perm = new Uint8Array(512);
+  const p = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) p[i] = i;
+  let s = seed | 0;
+  for (let i = 255; i > 0; i--) {
+    s = (s * 1664525 + 1013904223) | 0;
+    const j = (s >>> 0) % (i + 1);
+    [p[i], p[j]] = [p[j], p[i]];
+  }
+  for (let i = 0; i < 512; i++) perm[i] = p[i & 255];
+  function hash(x, y) { return perm[(perm[x & 511] + y) & 511] / 255; }
+  function smooth(t) { return t * t * (3 - 2 * t); }
+  return function noise(x, y) {
+    const xi = Math.floor(x), yi = Math.floor(y);
+    const xf = x - xi, yf = y - yi;
+    const a = hash(xi, yi), b = hash(xi + 1, yi);
+    const c = hash(xi, yi + 1), d = hash(xi + 1, yi + 1);
+    const u = smooth(xf), v = smooth(yf);
+    return (a * (1 - u) + b * u) * (1 - v) + (c * (1 - u) + d * u) * v;
+  };
+}
+
+// Emoji constants
+const civicEmojis = {
+  'City Hall': '\u{1F3DB}\u{FE0F}', 'Courthouse': '\u{2696}\u{FE0F}',
+  'Employment Exchange': '\u{1F4CB}', 'F.B.I. Headquarters': '\u{1F575}\u{FE0F}',
+  'Fire Department': '\u{1F692}', 'Hospital': '\u{1F3E5}',
+  'Museum': '\u{1F5BC}\u{FE0F}', 'Police Headquarters': '\u{1F46E}',
+  'Public Baths': '\u{1F6CA}', 'US Post': '\u{1F4EE}', 'Orphanage': '\u{1F3E0}'
+};
+const industrialEmojis = { 'Power Plant': '\u{26A1}', 'Water Plant': '\u{1F4A7}' };
+const warehouseEmoji = '\u{1F4E6}';
+const terminalEmoji = '\u{1F682}';
+const docksEmoji = '\u{2693}';
+const gangHQEmojis = ['\u{1F534}', '\u{1F7E2}', '\u{1F535}', '\u{1F7E0}'];
+const mediaEmojis = { 'Newspaper': '\u{1F4F0}', 'Radio Station': '\u{1F4FB}' };
+const churchEmoji = '\u{26EA}';
+const churchParkEmoji = '\u{1F3DE}\u{FE0F}';
+const schoolEmoji = '\u{1F3EB}';
+
+// --- Placement functions (ported from zoning_sandbox.html) ---
+
+function placeCivicBuildings(zones, size, centerRow, centerCol, ecRadius, rng) {
+  const civicTypes = ['City Hall','Courthouse','Employment Exchange','F.B.I. Headquarters',
+    'Fire Department','Hospital','Museum','Police Headquarters','Public Baths','US Post','Orphanage'];
+  const ecBlocks = [];
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      const z = zones[r][c];
+      if (z.type === 'core' && z.tileType === 'block') {
+        const dist = Math.sqrt((r - centerRow) ** 2 + (c - centerCol) ** 2);
+        if (dist <= ecRadius) ecBlocks.push({ r, c });
+      }
+    }
+  }
+  for (let i = civicTypes.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [civicTypes[i], civicTypes[j]] = [civicTypes[j], civicTypes[i]];
+  }
+  const placed = []; const used = new Set();
+  for (let i = 0; i < civicTypes.length && i < ecBlocks.length; i++) {
+    let pickIdx = -1;
+    for (let attempts = 0; attempts < 50; attempts++) {
+      const candidate = Math.floor(rng() * ecBlocks.length);
+      if (!used.has(candidate)) { pickIdx = candidate; break; }
+    }
+    if (pickIdx < 0) { for (let w = 0; w < ecBlocks.length; w++) { if (!used.has(w)) { pickIdx = w; break; } } }
+    if (pickIdx < 0) break;
+    used.add(pickIdx);
+    placed.push({ r: ecBlocks[pickIdx].r, c: ecBlocks[pickIdx].c, type: civicTypes[i] });
+  }
+  return placed;
+}
+
+function findRiverBankIndustrial(zones, size) {
+  const banks = [];
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      if (zones[r][c].tileType !== 'block' || zones[r][c].type !== 'industrial') continue;
+      for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+        const nr = r + dr, nc = c + dc;
+        if (nr >= 0 && nr < size && nc >= 0 && nc < size && zones[nr][nc].tileType === 'river') {
+          banks.push({ r, c }); break;
+        }
+      }
+    }
+  }
+  return banks;
+}
+
+function placeIndustrialBuildings(zones, size, indSide, centerCol, indInner, indWidth, rng, usedTiles, riverBanks) {
+  const placed = [];
+  const indColRange = indSide === 'east'
+    ? { min: centerCol + Math.floor(indInner), max: size - 1 }
+    : { min: 0, max: centerCol - Math.floor(indInner) };
+  const waterCandidates = riverBanks.filter(p => !usedTiles.has(p.r + ',' + p.c));
+  for (let i = waterCandidates.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [waterCandidates[i], waterCandidates[j]] = [waterCandidates[j], waterCandidates[i]];
+  }
+  for (const p of waterCandidates) {
+    const key = p.r + ',' + p.c;
+    if (zones[p.r][p.c].tileType === 'block' && zones[p.r][p.c].type === 'industrial' && !usedTiles.has(key)) {
+      usedTiles.add(key); placed.push({ r: p.r, c: p.c, type: 'Water Plant' }); break;
+    }
+  }
+  if (placed.length === 0) {
+    for (let attempts = 0; attempts < 200; attempts++) {
+      const r = Math.floor(rng() * size);
+      const c = Math.floor(rng() * (indColRange.max - indColRange.min + 1)) + indColRange.min;
+      const key = r + ',' + c;
+      if (r >= 0 && r < size && c >= 0 && c < size && !usedTiles.has(key) && zones[r][c].type === 'industrial') {
+        usedTiles.add(key); placed.push({ r, c, type: 'Water Plant' }); break;
+      }
+    }
+  }
+  for (let attempts = 0; attempts < 200; attempts++) {
+    const r = Math.floor(rng() * size);
+    const c = Math.floor(rng() * (indColRange.max - indColRange.min + 1)) + indColRange.min;
+    const key = r + ',' + c;
+    if (r >= 0 && r < size && c >= 0 && c < size && !usedTiles.has(key) && zones[r][c].type === 'industrial') {
+      usedTiles.add(key); placed.push({ r, c, type: 'Power Plant' }); break;
+    }
+  }
+  return placed;
+}
+
+function placeWarehouses(zones, size, indSide, centerCol, indInner, rng, usedTiles) {
+  const placed = [];
+  const indColRange = indSide === 'east'
+    ? { min: centerCol + Math.floor(indInner), max: size - 1 }
+    : { min: 0, max: centerCol - Math.floor(indInner) };
+  for (let i = 0; i < 12; i++) {
+    for (let attempts = 0; attempts < 200; attempts++) {
+      const r = Math.floor(rng() * size);
+      const c = Math.floor(rng() * (indColRange.max - indColRange.min + 1)) + indColRange.min;
+      const key = r + ',' + c;
+      if (r >= 0 && r < size && c >= 0 && c < size && !usedTiles.has(key) && zones[r][c].type === 'industrial') {
+        usedTiles.add(key); placed.push({ r, c }); break;
+      }
+    }
+  }
+  return placed;
+}
+
+function placeMediaBuildings(zones, size, centerRow, centerCol, riverMin, riverMax, rng) {
+  const placed = []; const used = new Set();
+  const northH = riverMin, southH = size - 1 - riverMax;
+  const quadH = Math.min(northH, southH);
+  const westW = centerCol, eastW = size - 1 - centerCol;
+  const quadW = Math.min(westW, eastW);
+  const quadrants = [
+    { name: 'NW', rMin: 0, rMax: quadH - 1, cMin: 0, cMax: quadW - 1 },
+    { name: 'NE', rMin: 0, rMax: quadH - 1, cMin: size - quadW, cMax: size - 1 },
+    { name: 'SW', rMin: size - quadH, rMax: size - 1, cMin: 0, cMax: quadW - 1 },
+    { name: 'SE', rMin: size - quadH, rMax: size - 1, cMin: size - quadW, cMax: size - 1 },
+  ];
+  for (const q of quadrants) {
+    for (const mediaType of ['Newspaper', 'Radio Station']) {
+      const comBlocks = [];
+      for (let r = q.rMin; r <= q.rMax; r++) {
+        for (let c = q.cMin; c <= q.cMax; c++) {
+          if (r < 0 || r >= size || c < 0 || c >= size) continue;
+          const z = zones[r][c];
+          if (z.tileType === 'block' && z.type === 'commercial' && !used.has(r + ',' + c)) comBlocks.push({ r, c });
+        }
+      }
+      if (comBlocks.length === 0) continue;
+      const pick = comBlocks[Math.floor(rng() * comBlocks.length)];
+      used.add(pick.r + ',' + pick.c);
+      placed.push({ r: pick.r, c: pick.c, type: mediaType, quadrant: q.name });
+    }
+  }
+  return placed;
+}
+
+function placeChurchesAndSchools(zones, size, centerRow, centerCol, riverMin, riverMax, rng, usedTiles) {
+  const placed = [];
+  const northH = riverMin, southH = size - 1 - riverMax;
+  const quadH = Math.min(northH, southH);
+  const westW = centerCol, eastW = size - 1 - centerCol;
+  const quadW = Math.min(westW, eastW);
+  const quadrants = [
+    { name: 'NW', rMin: 0, rMax: quadH - 1, cMin: 0, cMax: quadW - 1 },
+    { name: 'NE', rMin: 0, rMax: quadH - 1, cMin: size - quadW, cMax: size - 1 },
+    { name: 'SW', rMin: size - quadH, rMax: size - 1, cMin: 0, cMax: quadW - 1 },
+    { name: 'SE', rMin: size - quadH, rMax: size - 1, cMin: size - quadW, cMax: size - 1 },
+  ];
+  const dirs = [[-1,0],[1,0],[0,-1],[0,1]];
+  for (const q of quadrants) {
+    const availBlocks = [];
+    for (let r = q.rMin; r <= q.rMax; r++) {
+      for (let c = q.cMin; c <= q.cMax; c++) {
+        if (r < 0 || r >= size || c < 0 || c >= size) continue;
+        if (zones[r][c].tileType === 'block' && !usedTiles.has(r + ',' + c)) availBlocks.push({ r, c });
+      }
+    }
+    if (availBlocks.length === 0) continue;
+    const shuffled = availBlocks.slice();
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    let churchPick = null, churchPark = null;
+    for (const block of shuffled) {
+      for (const [dr, dc] of dirs) {
+        const nr = block.r + dr, nc = block.c + dc;
+        if (nr < 0 || nr >= size || nc < 0 || nc >= size) continue;
+        const key = nr + ',' + nc;
+        if (usedTiles.has(key)) continue;
+        if (zones[nr][nc].tileType === 'block') { churchPick = block; churchPark = { r: nr, c: nc }; break; }
+      }
+      if (churchPick) break;
+    }
+    if (!churchPick) churchPick = shuffled[0];
+    usedTiles.add(churchPick.r + ',' + churchPick.c);
+    placed.push({ r: churchPick.r, c: churchPick.c, type: 'Church', quadrant: q.name, hasPark: !!churchPark });
+    if (churchPark) {
+      usedTiles.add(churchPark.r + ',' + churchPark.c);
+      placed.push({ r: churchPark.r, c: churchPark.c, type: 'Church Park', quadrant: q.name });
+    }
+    let schoolPick = null;
+    for (const block of shuffled) {
+      if (!usedTiles.has(block.r + ',' + block.c)) { schoolPick = block; break; }
+    }
+    if (schoolPick) {
+      usedTiles.add(schoolPick.r + ',' + schoolPick.c);
+      placed.push({ r: schoolPick.r, c: schoolPick.c, type: 'School', quadrant: q.name });
+    }
+  }
+  return placed;
+}
+
+// --- Compute zones from replicaData (macro map) ---
+let zoningData = null; // cached zoning result
+let zoningParams = null; // loaded CityGen params
+
+function computeZonesFromReplica(zp) {
+  const seed = zp.seed || 42;
+  const rng = mulberry32(seed);
+  const size = replicaData.width;
+  const tiles = {};
+  for (const t of replicaData.tiles) tiles[t.x + ',' + t.y] = t.t;
+
+  const riverRows = new Set();
+  for (const t of replicaData.tiles) { if (t.t === 'river') riverRows.add(t.y); }
+  const riverRowArr = [...riverRows].sort((a, b) => a - b);
+  const hasRiver = riverRowArr.length > 0;
+  const centerRow = Math.floor(size / 2);
+  const centerCol = Math.floor(size / 2);
+  const riverRow = hasRiver ? riverRowArr[Math.floor(riverRowArr.length / 2)] : centerRow - 1;
+  const riverMin = hasRiver ? riverRowArr[0] : centerRow;
+  const riverMax = hasRiver ? riverRowArr[riverRowArr.length - 1] : centerRow - 1;
+
+  const northH = riverMin, southH = size - 1 - riverMax;
+  const quadH = Math.min(northH, southH);
+  const westW = centerCol, eastW = size - 1 - centerCol;
+  const quadW = Math.min(westW, eastW);
+
+  let indSide;
+  if (zp.dfIndSide === 'random') { indSide = rng() < 0.5 ? 'east' : 'west'; }
+  else { indSide = zp.dfIndSide; rng(); }
+
+  const ecR = zp.dfEcRadius;
+  let railCol;
+  { let candidate; for (let attempts = 0; attempts < 50; attempts++) {
+    candidate = Math.floor(rng() * (size - 4)) + 2;
+    if (Math.abs(candidate - centerCol) > ecR + 1) break;
+  } railCol = candidate; }
+
+  const noiseEcCom = makeValueNoise(seed * 17 + 1);
+  const noiseComRes = makeValueNoise(seed * 17 + 2);
+  const noiseIndCom = makeValueNoise(seed * 17 + 3);
+  const noiseIndOob = makeValueNoise(seed * 17 + 4);
+
+  const ns = zp.dfNoiseScale;
+  const comR = ecR + zp.dfComWidth;
+  const indInner = ecR + zp.dfIndGap;
+  const indOuter = indInner + zp.dfIndWidth;
+  const indHeightFrac = zp.dfIndHeight / 100;
+  const indTop = Math.floor(size * (1 - indHeightFrac) / 2);
+  const indBottom = size - 1 - Math.floor(size * (1 - indHeightFrac) / 2);
+
+  const zones = [];
+  for (let r = 0; r < size; r++) {
+    zones[r] = [];
+    for (let c = 0; c < size; c++) {
+      const tileType = tiles[c + ',' + r] || 'oob';
+      let zoneType = tileType;
+      if (tileType === 'block') {
+        const distEC = Math.sqrt((r - centerRow) ** 2 + (c - centerCol) ** 2);
+        const distFromECSideways = indSide === 'east' ? (c - centerCol) : (centerCol - c);
+        const ecComNoise = (noiseEcCom(c / ns, r / ns) - 0.5) * 2 * zp.dfNoiseEcCom;
+        const comResNoise = (noiseComRes(c / ns, r / ns) - 0.5) * 2 * zp.dfNoiseComRes;
+        const indComNoise = (noiseIndCom(c / ns, r / ns) - 0.5) * 2 * zp.dfNoiseIndCom;
+        const indOobNoise = (noiseIndOob(c / ns, r / ns) - 0.5) * 2 * zp.dfNoiseIndOob;
+        const ecComBound = ecR + ecComNoise;
+        const comResBound = comR + comResNoise;
+        const indInnerBound = indInner + indComNoise;
+        const indOuterBound = indOuter + indOobNoise;
+        if (distEC <= ecComBound) zoneType = 'core';
+        else if (distEC <= comResBound) zoneType = 'commercial';
+        else if (distFromECSideways >= indInnerBound && distFromECSideways <= indOuterBound && r >= indTop && r <= indBottom) zoneType = 'industrial';
+        else zoneType = 'residential';
+        if (c === railCol) zoneType = 'residential';
+      }
+      zones[r][c] = { type: zoneType, tileType };
+    }
+  }
+
+  // Gang HQs
+  const gangHQs = [];
+  const quadrants = [
+    { name: 'NW', rMin: 0, rMax: quadH - 1, cMin: 0, cMax: quadW - 1 },
+    { name: 'NE', rMin: 0, rMax: quadH - 1, cMin: size - quadW, cMax: size - 1 },
+    { name: 'SW', rMin: size - quadH, rMax: size - 1, cMin: 0, cMax: quadW - 1 },
+    { name: 'SE', rMin: size - quadH, rMax: size - 1, cMin: size - quadW, cMax: size - 1 },
+  ];
+  for (const q of quadrants) {
+    const buf = zp.hqBuffer || 3;
+    const rMin = Math.max(0, q.rMin + buf), rMax = Math.min(size - 1, q.rMax - buf);
+    const cMin = Math.max(0, q.cMin + buf), cMax = Math.min(size - 1, q.cMax - buf);
+    for (let attempts = 0; attempts < 100; attempts++) {
+      const r = Math.floor(rng() * (rMax - rMin + 1)) + rMin;
+      const c = Math.floor(rng() * (cMax - cMin + 1)) + cMin;
+      if (r >= 0 && r < size && c >= 0 && c < size && zones[r][c].tileType === 'block' && zones[r][c].type === 'residential') {
+        gangHQs.push({ r, c, quadrant: q.name }); break;
+      }
+    }
+  }
+
+  // Railroad Terminal
+  let terminalRow = -1;
+  for (let attempts = 0; attempts < 50; attempts++) {
+    const candidateRow = Math.floor(rng() * (size - 4)) + 2;
+    if (candidateRow >= riverRow && candidateRow <= riverRow + 1) continue;
+    if (Math.sqrt((candidateRow - centerRow) ** 2 + (railCol - centerCol) ** 2) >= ecR + 1) { terminalRow = candidateRow; break; }
+  }
+  if (terminalRow < 0) terminalRow = (railCol > centerCol) ? 2 : size - 3;
+  const railroadTerminal = { r: terminalRow, c: railCol };
+
+  // Docks
+  const usedTiles = new Set();
+  let docks = null;
+  const riverBanks = findRiverBankIndustrial(zones, size);
+  const shuffledBanks = [...riverBanks];
+  for (let i = shuffledBanks.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [shuffledBanks[i], shuffledBanks[j]] = [shuffledBanks[j], shuffledBanks[i]];
+  }
+  for (const p of shuffledBanks) {
+    const key = p.r + ',' + p.c;
+    if (zones[p.r][p.c].tileType === 'block' && zones[p.r][p.c].type === 'industrial' && !usedTiles.has(key)) {
+      usedTiles.add(key); docks = { r: p.r, c: p.c }; break;
+    }
+  }
+  if (!docks) {
+    const indColRange = indSide === 'east' ? { min: centerCol + Math.floor(indInner), max: size - 1 } : { min: 0, max: centerCol - Math.floor(indInner) };
+    for (let attempts = 0; attempts < 100; attempts++) {
+      const r = Math.floor(rng() * size);
+      const c = Math.floor(rng() * (indColRange.max - indColRange.min + 1)) + indColRange.min;
+      const key = r + ',' + c;
+      if (r >= 0 && r < size && c >= 0 && c < size && !usedTiles.has(key) && zones[r][c].type === 'industrial') {
+        usedTiles.add(key); docks = { r, c }; break;
+      }
+    }
+  }
+  if (!docks) {
+    const fc = indSide === 'east' ? Math.min(size - 2, centerCol + Math.floor(indInner + zp.dfIndWidth / 2)) : Math.max(1, centerCol - Math.floor(indInner + zp.dfIndWidth / 2));
+    docks = { r: riverMax + 1 < size ? riverMax + 1 : riverMin - 1, c: fc };
+    usedTiles.add(docks.r + ',' + docks.c);
+  }
+
+  // Buildings
+  const civicBuildings = placeCivicBuildings(zones, size, centerRow, centerCol, ecR, rng);
+  const industrialBuildings = placeIndustrialBuildings(zones, size, indSide, centerCol, indInner, zp.dfIndWidth, rng, usedTiles, riverBanks);
+  const warehouses = placeWarehouses(zones, size, indSide, centerCol, indInner, rng, usedTiles);
+  const mediaBuildings = placeMediaBuildings(zones, size, centerRow, centerCol, riverMin, riverMax, rng);
+  const churchesAndSchools = placeChurchesAndSchools(zones, size, centerRow, centerCol, riverMin, riverMax, rng, usedTiles);
+
+  return { zones, indSide, gangHQs, riverRow, riverMin, riverMax, centerRow, centerCol, size, railCol, railroadTerminal, docks, civicBuildings, industrialBuildings, warehouses, mediaBuildings, churchesAndSchools };
+}
+
+// --- Apply zoning to blockTypes + render building overlays ---
+
+function applyZoning() {
+  if (!zoningParams) {
+    // Use embedded CityGen1.js data (works with file:// protocol)
+    if (window.CITYGEN1_DATA) {
+      zoningParams = window.CITYGEN1_DATA;
+      console.log('✅ Loaded CityGen1.js:', zoningParams);
+    } else {
+      // Fallback defaults
+      zoningParams = { hqBuffer: 3, dfEcRadius: 7, dfComWidth: 3, dfIndWidth: 6, dfIndHeight: 50, dfIndGap: 0, dfIndSide: 'west', dfNoiseEcCom: 3, dfNoiseComRes: 5, dfNoiseIndCom: 0, dfNoiseIndOob: 0.5, dfNoiseScale: 1, seed: 42 };
+      console.log('⚠️ CityGen1.js not found, using default params');
+    }
+    applyZoning();
+    return;
+  }
+
+  const size = params.gridSize;
+  zoningData = computeZonesFromReplica(zoningParams);
+
+  // Update blockTypes with zone info
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      const z = zoningData.zones[r][c];
+      if (z.tileType === 'block') {
+        if (z.type === 'core') blockTypes[r][c] = 'core';
+        else if (z.type === 'industrial') blockTypes[r][c] = 'industrial';
+        else if (z.type === 'commercial') blockTypes[r][c] = 'commercial';
+        else if (z.type === 'residential') blockTypes[r][c] = 'residential';
+      }
+    }
+  }
+
+  // Generate alleys: 25% chance per commercial/core block
+  // Alley occupies a full row (h) or column (v) through the center of the 3x3 grid
+  // All 3 plots in the alley line are empty land — center plot is purchasable for illegal business
+  // Exclude blocks with municipal/civic/church/school buildings — those are full-block occupancies
+  const fullBlockBuildings = new Set();
+  for (const cb of zoningData.civicBuildings) fullBlockBuildings.add(cb.r + ',' + cb.c);
+  for (const ib of zoningData.industrialBuildings) fullBlockBuildings.add(ib.r + ',' + ib.c);
+  for (const cs of zoningData.churchesAndSchools) fullBlockBuildings.add(cs.r + ',' + cs.c);
+  if (zoningData.railroadTerminal) fullBlockBuildings.add(zoningData.railroadTerminal.r + ',' + zoningData.railroadTerminal.c);
+  if (zoningData.docks) fullBlockBuildings.add(zoningData.docks.r + ',' + zoningData.docks.c);
+  for (const wh of zoningData.warehouses) fullBlockBuildings.add(wh.r + ',' + wh.c);
+  for (const mb of zoningData.mediaBuildings) fullBlockBuildings.add(mb.r + ',' + mb.c);
+
+  blockAlleys = [];
+  for (let r = 0; r < size; r++) blockAlleys.push(new Array(size).fill(null));
+  const alleyRng = mulberry32(zoningParams.seed || 42);
+  let alleyCount = 0;
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      const bt = blockTypes[r][c];
+      if (bt === 'commercial' || bt === 'core') {
+        if (fullBlockBuildings.has(r + ',' + c)) continue;
+        if (alleyRng() < 0.25) {
+          blockAlleys[r][c] = { dir: alleyRng() < 0.5 ? 'h' : 'v' };
+          alleyCount++;
+        }
+      }
+    }
+  }
+  console.log(`🏙️ Alleys: ${alleyCount} blocks with alleys (25% of eligible commercial/core, ${fullBlockBuildings.size} blocks excluded as full-block occupancies)`);
+
+  // Update button states
+  document.getElementById('granular-btn').classList.remove('active');
+  document.getElementById('zoning-btn').classList.add('active');
+  document.getElementById('zoning-legend').style.display = '';
+
+  // Rebuild city with zone colors (also re-renders zoning overlays)
+  rebuild();
+
+  // Update status
+  const zd = zoningData;
+  const counts = { core: 0, commercial: 0, industrial: 0, residential: 0 };
+  for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) {
+    const z = zd.zones[r][c];
+    if (z.tileType === 'block' && counts[z.type] !== undefined) counts[z.type]++;
+  }
+  document.getElementById('status-info').textContent =
+    `Zoning: Core:${counts.core} Com:${counts.commercial} Ind:${counts.industrial} Res:${counts.residential} | Alleys:${alleyCount} | Civic:${zd.civicBuildings.length} Wh:${zd.warehouses.length} Media:${zd.mediaBuildings.length} Ch+Sch:${zd.churchesAndSchools.length}`;
+}
+
+function renderZoningOverlays() {
+  if (!zoningData) return;
+  const zd = zoningData;
+  const size = params.gridSize;
+  const gt = groundTileSize();
+
+  // Remove old overlay group
+  if (zoningOverlayGroup) { cityGroup.remove(zoningOverlayGroup); }
+  zoningOverlayGroup = new THREE.Group();
+
+  // Calculate block positions (same as buildCity)
+  const xBlocks = []; let cursor = 0;
+  for (let c = 0; c < size; c++) { xBlocks.push(cursor); cursor += gt; if (c < size - 1) cursor += params.roadWidth; }
+  const yBlocks = []; cursor = 0;
+  for (let r = 0; r < size; r++) { yBlocks.push(cursor); cursor += gt; if (r < size - 1) cursor += params.roadWidth; }
+  const totalW = xBlocks[size - 1] + gt;
+  const totalD = yBlocks[size - 1] + gt;
+  const offsetX = -totalW / 2;
+  const offsetZ = -totalD / 2;
+
+  function addEmoji(emoji, r, c, scale) {
+    scale = scale || 0.5;
+    const tex = makeEmojiTexture(emoji);
+    const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true });
+    const geom = sharedPlane(gt * scale, gt * scale);
+    const mesh = new THREE.Mesh(geom, mat);
+    mesh.position.set(offsetX + xBlocks[c] + gt / 2, 0.05, offsetZ + yBlocks[r] + gt / 2);
+    zoningOverlayGroup.add(mesh);
+  }
+
+  // Civic buildings
+  for (const cb of zd.civicBuildings) addEmoji(civicEmojis[cb.type] || '\u{2753}', cb.r, cb.c);
+  // Industrial buildings
+  for (const ib of zd.industrialBuildings) addEmoji(industrialEmojis[ib.type] || '\u{2753}', ib.r, ib.c);
+  // Warehouses
+  for (const wh of zd.warehouses) addEmoji(warehouseEmoji, wh.r, wh.c, 0.45);
+  // Media buildings
+  for (const mb of zd.mediaBuildings) addEmoji(mediaEmojis[mb.type] || '\u{2753}', mb.r, mb.c);
+  // Churches + Schools
+  for (const cs of zd.churchesAndSchools) {
+    let emoji = '\u{2753}';
+    if (cs.type === 'Church') emoji = churchEmoji;
+    else if (cs.type === 'Church Park') emoji = churchParkEmoji;
+    else if (cs.type === 'School') emoji = schoolEmoji;
+    addEmoji(emoji, cs.r, cs.c);
+  }
+  // Gang HQs
+  const quadrantOrder = ['NW', 'NE', 'SW', 'SE'];
+  for (const hq of zd.gangHQs) {
+    const qi = quadrantOrder.indexOf(hq.quadrant);
+    addEmoji(gangHQEmojis[qi] || gangHQEmojis[0], hq.r, hq.c);
+  }
+  // Railroad Terminal
+  addEmoji(terminalEmoji, zd.railroadTerminal.r, zd.railroadTerminal.c);
+  // Docks
+  addEmoji(docksEmoji, zd.docks.r, zd.docks.c);
+
+  cityGroup.add(zoningOverlayGroup);
+}
+
+// Wire up zoning button
+document.getElementById('zoning-btn').addEventListener('click', () => {
+  applyZoning();
+});
+
+animate();
+
+</script>
+</body>
+</html>

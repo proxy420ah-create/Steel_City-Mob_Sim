@@ -152,6 +152,38 @@ Both event log systems silently drop old entries when the buffer is full. If you
 
 ---
 
+## 11. `file://` Protocol CORS Warnings (HTML City Editor Tools)
+
+**Affected**: `city_editor.html`, `zoning_sandbox.html`, and other HTML tools in `VoxelAssetStudio/`
+
+When opening HTML tools directly via `file://` protocol (double-clicking the file), Chrome/Edge emits console warnings:
+
+```
+Unsafe attempt to load URL file:///...city_editor.html from frame with URL
+file:///...city_editor.html. 'file:' URLs are treated as unique security origins.
+```
+
+**This is a harmless browser-level warning**, not a blocking error. The page still works. Browsers treat each `file://` load as a unique origin for security purposes.
+
+### What WILL break under `file://`
+
+- **External script tags** (`<script src="data.js">`) — blocked by CORS. Fix: inline the data directly in the HTML (e.g., `window.REPLICA1_DATA = {...}`).
+- **`fetch()` calls** to local files — blocked. Avoid or inline the data.
+- **ES module imports** (`import ... from './module.js'`) — blocked. Use inline scripts instead.
+
+### What will NOT break
+
+- Inline `<script>` blocks — work fine
+- CDN-loaded libraries (THREE.js, etc.) — work fine
+- `window.*` data assignments — work fine
+- All rendering, interaction, and export functionality
+
+### Best practice
+
+Keep all HTML tools self-contained (inline scripts + CDN libs). If a tool needs to load external data files, inline them as `window.*` assignments. The `file://` CORS warning in the console can be safely ignored.
+
+---
+
 ## Summary Checklist
 
 When modifying UI code:
@@ -164,3 +196,4 @@ When modifying UI code:
 - [ ] Cache `FindFirstObjectByType` references, don't call per-frame
 - [ ] Check Canvas sorting order doesn't conflict
 - [ ] Test that TickHUD event log is still visible after adding fields
+- [ ] For HTML tools: inline external data files, ignore `file://` CORS warnings
