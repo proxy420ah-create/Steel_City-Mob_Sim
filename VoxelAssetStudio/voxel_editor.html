@@ -1368,7 +1368,7 @@ let W = 96, H = 68, D = 96;
 
 // === ASSET TYPE (real-world voxel scale) ===
 // Per Assets/docs/MOB_SIM_SCALE_STANDARD.md: buildings and characters are
-// modeled at different real-world voxel sizes (0.1m/voxel vs 0.02m/voxel).
+// modeled at different real-world voxel sizes (0.1m/voxel vs 0.01m/voxel).
 // This was previously only known to Unity components (VoxelCharacter.voxelSize,
 // CityMap3D, etc.) as a hardcoded per-caller value — never carried in the
 // exported JSON itself. Store it here so a model is self-describing: the
@@ -1376,7 +1376,7 @@ let W = 96, H = 68, D = 96;
 // no longer has to guess scale from a filename or folder convention.
 const ASSET_TYPE_PRESETS = {
   building: { label: 'Building', icon: '🏢', voxelSize: 0.1, defaultDims: [96, 68, 96] },
-  character: { label: 'Character', icon: '🧍', voxelSize: 0.02, defaultDims: [16, 32, 10] },
+  character: { label: 'Character', icon: '🧍', voxelSize: 0.01, defaultDims: [48, 48, 48] },
   prop: { label: 'Item / Decor', icon: '🔫', voxelSize: 0.01, defaultDims: [24, 12, 6] },
 };
 let assetType = 'building'; // matches the startup W/H/D above
