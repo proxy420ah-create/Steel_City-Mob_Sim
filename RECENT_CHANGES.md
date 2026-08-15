@@ -1,6 +1,39 @@
 # Recent Changes — Steel City: Mob Sim
 
-**Last Updated**: August 14, 2026 (Per-instance clothing + consolidated character spawning)
+**Last Updated**: August 14, 2026 (Character upscale + voxelSize fix + cheap shading fix)
+
+---
+
+## August 14, 2026 — Character Model Upscale + VoxelSize Fix + Cheap Shading
+
+### Impact
+- **Character model upscaled 2× (48³→96³)** to fix raymarch see-through artifacts during leg animation
+- **voxelSize halved (0.02→0.01)** to maintain same physical size (0.96m) with doubled voxel density
+- **Cheap shading enabled for instanced characters** to fix black pixel darkening during head-turn animation
+
+### Changes
+
+#### Character Model Upscale (48³ → 96³)
+- **`Tools/upscale_character.py`**: New Python script to 2× nearest-neighbor upscale character JSON voxel models. Scales dims, voxels, groups, regions, jointOffset, and crouching.modelLower. Pivots (normalized 0-1) unchanged. Backs up original to `.original.json`
+- **`Civilian1.json`**: Upscaled from 48×48×48 to 96×96×96 (884,736 voxels). Fixes raymarch sampling gaps during walk/look animations
+
+#### VoxelSize Correction (0.02f → 0.01f)
+- **`VoxelCharacter.cs`**: Default `voxelSize` changed from `0.02f` to `0.01f`. Tooltip updated
+- **`CityMap3D.cs`**: `characterVoxelSize` changed from `0.02f` to `0.01f` (used by HoodSpawner + StressTestSpawner)
+- **`CharacterRig.cs`**: `voxelSize` default changed from `0.02f` to `0.01f`
+- **`AnimationTestSpawner.cs`**: `voxelSize` default changed from `0.02f` to `0.01f`
+- **`ForwardTransformTestRig.cs`**: `voxelSize` default changed from `0.02f` to `0.01f`
+- **`Archive/ClothingTestSpawner.cs`**: `voxelSize` default changed from `0.02f` to `0.01f`
+- **Note**: Existing scene prefabs/ScriptableObjects with serialized `voxelSize = 0.02` need manual Inspector update
+
+#### Cheap Shading Fix (Black Pixel Darkening)
+- **`VoxelChunkManager.cs:1664`**: `_CheapShading` set to `1` for instanced character renders
+- **Root cause**: After CSPose forward-transform scatters voxels, single-voxel gaps appear at group boundaries (neck, shoulders, hips). `SmoothNormal` samples these gaps → zero/skewed gradient → squared lighting crushes pixel to black
+- **Fix**: Skip `SmoothNormal` for instanced characters. Use raw DDA face normals (axis-aligned ±X/±Y/±Z). Visual impact negligible — art style is intentionally blocky
+
+#### Documentation
+- **`docs/systems/CHARACTER_SPAWNING_SYSTEM.md`**: New comprehensive doc covering spawning system, GPU instancing pipeline, component stack, spawner scripts, asset format, setup guide, upscaling, and architecture decisions
+- **`docs/core/DOCUMENTATION_INDEX.md`**: Added spawning system entry under Systems Design + keywords
 
 ---
 

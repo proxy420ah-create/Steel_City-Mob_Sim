@@ -23,7 +23,7 @@ namespace SteelCity.Sim
 
         [Header("Rendering")]
         [Tooltip("Voxel size in world units. Must match authoring.")]
-        [SerializeField] private float voxelSize = 0.02f;
+        [SerializeField] private float voxelSize = 0.01f;
         [Tooltip("VoxelChunkManager for raymarch rendering. Auto-found if not assigned.")]
         [SerializeField] private VoxelChunkManager chunkManager;
 

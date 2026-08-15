@@ -76,6 +76,19 @@
   - Original game architecture observations
   - What to preserve, what to polish
 
+**Differentiation from Original:**
+- **`docs/core/DIFFERENTIATION_FROM_ORIGINAL.md`** — Central reference for how Steel City departs from, polishes, and extends the 1998 original
+  - Rendering & visual style (2D sprites → 3D voxel raymarch)
+  - City generation (static → procedural)
+  - Simulation transparency (opaque → visible state)
+  - System interconnection (isolated → cascading consequences)
+  - Intelligence & fog of war (see everything → territory-based)
+  - Police reform (monolithic → individual beat officers)
+  - Mafia tycoon principle (economy as weapon, not management)
+  - Combat differentiations (environment, INT as tactical AI, morale, physical projectiles, cover, vehicle combat, police escalation)
+  - Technical architecture (Unity 6, GPU compute, spatial hash)
+  - What we preserve vs what we don't do
+
 **Extracted Game Data:**
 - **`docs/core/GANGSTERS_GAME_DATA.md`** — Comprehensive data extraction from 28 decrypted .xtx files
   - Constants: city population (2000 civilians, 400 police, 100 FBI), fear/hostility/squeal tables, bribe prices, FBI suspicion formula, loyalty, recruit tests
@@ -190,6 +203,17 @@
   - NPC personality: Fear, Hostility, Squeal (citizen metrics)
   - Gang member personality: Loyalty, relationships
 
+**Character Spawning & Instancing:**
+- **`docs/systems/CHARACTER_SPAWNING_SYSTEM.md`** — How character entities are spawned, instanced, and rendered
+  - Single model (Civilian1.json) shared across all entities via GPU instancing
+  - Four spawner scripts: HoodSpawner (debug), CharacterRig (GPU test), AnimationTestSpawner (CPU test), StressTestSpawner (perf test)
+  - Component stack: VoxelCharacter + CharacterAnimation + ClothingSystem + PedestrianLookAround
+  - GPU instancing pipeline: sharedVoxelBuffer (one per model), posedVoxelBuffer (per visible instance)
+  - Consolidated .character.json format (voxels + groups + regions + pivots + animParams in one file)
+  - Voxel scale standards: building 0.1m, character 0.02m, item/decor 0.01m (proposed)
+  - How to set up character entities (editor, code, spawner)
+  - Model upscaling tool for raymarch artifact fixes
+
 **Extortion & Territory:**
 - **`docs/systems/EXTORTION_TERRITORY.md`** — Core gameplay loop
   - Extort → Refusal → Escalation → Consequence chain
@@ -281,7 +305,7 @@
   - Architecture diagram: standard Unity pipeline vs Steel City voxel pipeline
   - Debugging tips for invisible/stuck/missing characters
 
-**Keywords**: systems, character, extortion, territory, intelligence, corruption, police, combat, crime, squeal, 3d, rendering, visualization, camera, playtesting, insights, fear, hostility, legal, diplomacy, path, debug, beams, commandbuffer, instanced, voxel, gotchas, pitfalls, collision, probe, terrain, flat-array, aliasing, animation, shader, raymarch, dda, inverse-transform, groupid, stance, characteranimation, refactoring, extraction, modular, file size, citymap, chunkmanager, buildingloader, sectorbakery, activeinhierarchy, drawmeshinstanced, computebuffer, unregister, frustum
+**Keywords**: systems, character, spawning, instancing, hoodspawner, characterrig, animationtest, stresstest, clothing, pedestrian, voxelcharacter, characteranimation, clothingsystem, pedestrianlookaround, gpu, sharedbuffer, posedbuffer, consolidated json, upscale, extortion, territory, intelligence, corruption, police, combat, crime, squeal, 3d, rendering, visualization, camera, playtesting, insights, fear, hostility, legal, diplomacy, path, debug, beams, commandbuffer, instanced, voxel, gotchas, pitfalls, collision, probe, terrain, flat-array, aliasing, animation, shader, raymarch, dda, inverse-transform, groupid, stance, characteranimation, refactoring, extraction, modular, file size, citymap, chunkmanager, buildingloader, sectorbakery, activeinhierarchy, drawmeshinstanced, computebuffer, unregister, frustum
 
 ---
 

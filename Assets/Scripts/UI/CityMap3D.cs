@@ -1250,7 +1250,7 @@ namespace SteelCity.Sim
 
         [Header("Characters")]
         [Tooltip("Character voxel size (smaller than buildings for proper person scale).")]
-        [SerializeField] private float characterVoxelSize = 0.02f;
+        [SerializeField] private float characterVoxelSize = 0.01f;
 
         private void SpawnSceneCharacters(
             Dictionary<string, Block> blocks,

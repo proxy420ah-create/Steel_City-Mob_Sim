@@ -32,7 +32,7 @@ namespace SteelCity.Sim
         [SerializeField] private string assetBaseName = "Civilian1";
 
         [Tooltip("Voxel size in world units. Must match authoring.")]
-        [SerializeField] private float voxelSize = 0.02f;
+        [SerializeField] private float voxelSize = 0.01f;
 
         [Header("Spawn Control")]
         [Tooltip("If true, spawns both test characters automatically on Start.")]

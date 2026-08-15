@@ -1661,7 +1661,7 @@ namespace SteelCity.Sim
             block.SetFloat(propVoxelSize, group.voxelSize);
 
             block.SetInt(propMaxSteps, maxSteps);
-            block.SetInt(propCheapShading, 0);
+            block.SetInt(propCheapShading, 1);
             block.SetInt(propUnlitLod, 0);
             block.SetInt(propLodDebugEnabled, 0);
 
