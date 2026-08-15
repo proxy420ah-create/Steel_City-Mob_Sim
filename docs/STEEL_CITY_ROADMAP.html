@@ -369,6 +369,7 @@
   <div class="meta">
     <span style="color:var(--green);">● Foundations Complete</span> &nbsp;|&nbsp;
     <span style="color:var(--green);">● GPU Animation Pipeline Complete</span> &nbsp;|&nbsp;
+    <span style="color:var(--green);">● Per-Instance Clothing Complete</span> &nbsp;|&nbsp;
     <span style="color:var(--accent);">● Simulation In Progress</span> &nbsp;|&nbsp;
     <span style="color:var(--cyan);">● GPU Rendering Optimization In Progress</span> &nbsp;|&nbsp;
     <span style="color:var(--text-dim);">● Content Expansion Planned</span>
@@ -384,7 +385,7 @@
       <p style="margin: 4px 0 0 0; color: var(--text-dim); font-size: 0.9em;">
         This roadmap must be updated whenever new features are discussed, design documents are created, or phases change status.
         If you're working on a design doc or brainstorming a new system, update the corresponding phase here afterward.
-        Last review: <strong>Aug 13, 2026</strong> — City generation pipeline COMPLETE. 3-phase city_editor.html (Macro → Granular → Buildings). Alley system (25% per commercial/core, 3-lane debris|path|debris, block-layer). Rail line at seed-determined railCol (avoids EC) with train animation. Live color picker (41 materials). Compute/render split for performance. Commits 50430f4, e5ef7ed.
+        Last review: <strong>Aug 14, 2026</strong> — Per-instance clothing system COMPLETE. Each instanced character can wear a unique outfit (material remap per instance, 1 draw call). Consolidated character spawning: Vinny → Civilians/Civilian_01+02. Debug HUD character selector for hotkey isolation. Commit 457393f.
       </p>
     </div>
   </div>
@@ -422,25 +423,27 @@
 
   <!-- ========================= CURRENT WORK BANNER ========================= -->
   <div class="current-banner">
-    <h3><span class="pulse-dot"></span> Current Work — Execution Phase Coherent + Polish Next</h3>
+    <h3><span class="pulse-dot"></span> Current Work — Per-Instance Clothing Complete + Gang Simulation Next</h3>
     <div class="desc">
-      <strong>Execution Phase Integration COMPLETE:</strong> Vinny walks with correct facing during working week simulation. CharacterRig consolidated onto single GameObject. Vinny.groups file fix restored GPU compute pose. modelFacingOffset fix (180→0) corrected backward walking. Execution phase UI overhaul: fullscreen camera, minimal TickHUD overlay, accordion panels. First coherent game-feel milestone reached.<br>
-      <strong>City Generation COMPLETE:</strong> 3-phase pipeline in city_editor.html — Macro → Granular (zones+alleys+rail) → Buildings. Alley system (25% per commercial/core, 3-lane debris|path|debris, block-layer infrastructure). Elevated rail line at seed-determined railCol (avoids EC) with train animation. Live color picker (41 materials). Compute/render split for performance.<br>
-      <strong>Next:</strong> Polish — UI refinements, more animation states, gang simulation implementation.<br>
+      <strong>Per-Instance Clothing System COMPLETE:</strong> Each instanced character can now wear a unique outfit — material remapping per instance, all in a single draw call. CSPose compute shader applies per-instance remap via instanceMaterialRemapBuffer. ClothingSystem rewritten to use per-instance API (SetInstanceOutfit) instead of shared buffer modification.<br>
+      <strong>Consolidated Character Spawning:</strong> Replaced singleton "Vinny" with <code>Characters/Civilians/Civilian_01 + Civilian_02</code>. Both get CharacterRig with Controllable flag for hotkey routing. Debug HUD has dual selectors: green (character hotkey routing) + blue (outfit instance). Verified: blue/brown suits render correctly side-by-side, 3 instances in 1 draw call.<br>
+      <strong>Execution Phase Integration COMPLETE:</strong> Character walks with correct facing during working week simulation. modelFacingOffset fix (180→0) corrected backward walking. Execution phase UI: fullscreen camera, minimal TickHUD, accordion panels.<br>
+      <strong>City Generation COMPLETE:</strong> 3-phase pipeline in city_editor.html — Macro → Granular (zones+alleys+rail) → Buildings.<br>
+      <strong>Next:</strong> Gang simulation implementation (HoodAgent + HoodSpawner), UI refinements, more animation states.<br>
       <strong>GPU Rendering:</strong> Phase 1 (TRS Cache) complete. Phase 2 (buffer pooling) pending. 6 invariant computation candidates pending.<br>
       <strong>Gang Simulation:</strong> Design complete, awaiting implementation.
     </div>
     <div class="files">
       <span class="file-chip">CharacterPoseCompute.compute</span>
-      <span class="file-chip">VoxelProxyRaymarch.shader</span>
       <span class="file-chip">VoxelChunkManager.cs</span>
-      <span class="file-chip">CharacterAnimation.cs</span>
+      <span class="file-chip">ClothingSystem.cs</span>
       <span class="file-chip">CharacterRig.cs</span>
+      <span class="file-chip">DebugHUDManager.cs</span>
+      <span class="file-chip">CityMap3D.cs</span>
+      <span class="file-chip">CharacterAnimation.cs</span>
       <span class="file-chip">EventPlayer.cs</span>
-      <span class="file-chip">character_animator.html</span>
-      <span class="file-chip">CHARACTER_ANIMATION_PIPELINE.md</span>
+      <span class="file-chip">PROCEDURAL_CLOTHING_CONCEPT.html</span>
       <span class="file-chip">city_editor.html</span>
-      <span class="file-chip">CITY_LAYOUT_PIPELINE.md</span>
     </div>
   </div>
 
@@ -731,9 +734,11 @@
         <ul class="feature-items">
           <li class="check">EventPlayer.cs — event playback with character movement + rotation</li>
           <li class="check">SimEventStream.cs — event stream for sim → UI</li>
-          <li class="check">Animated working week — Vinny walks between locations with correct facing</li>
-          <li class="check">CharacterRig.cs — consolidated controller (replaced GPUAnimationTestRig)</li>
-          <li class="check">modelFacingOffset fix — Vinny faces +Z, walks forward (not backwards)</li>
+          <li class="check">Animated working week — character walks between locations with correct facing</li>
+          <li class="check">CharacterRig.cs — consolidated controller with Controllable flag for multi-character</li>
+          <li class="check">modelFacingOffset fix — character faces +Z, walks forward (not backwards)</li>
+          <li class="check">Consolidated spawning: Vinny → Civilians/Civilian_01 + Civilian_02</li>
+          <li class="check">Per-instance clothing: unique outfits per character, 1 draw call preserved</li>
           <li class="check">Execution phase UI — fullscreen camera, minimal TickHUD, planning UI hidden</li>
           <li class="pending">Camera auto-pan to events</li>
           <li class="pending">Animation primitives (floating $, hood icons, territory colors)</li>
@@ -1246,10 +1251,16 @@
         <div class="tl-desc">3-phase pipeline in city_editor.html: Macro (Gangsters 32×32 map) → Granular (zones, alleys, rail line, block layout) → Buildings (civic/municipal footprints + emoji overlays). Alley system: 25% per commercial/core, 3-lane debris|path|debris at block layer. Rail line at seed-determined railCol (avoids EC) with train animation. Live color picker (41 materials). Compute/render split. Commits 50430f4, e5ef7ed.</div>
       </div>
       <div class="tl-item">
+        <div class="tl-dot done"></div>
+        <div class="tl-date">Aug 14, 2026 — MILESTONE</div>
+        <div class="tl-title">Per-Instance Clothing System + Consolidated Spawning</div>
+        <div class="tl-desc">Each instanced character can wear a unique outfit (material remap per instance, 1 draw call). CSPose compute shader applies per-instance remap. ClothingSystem rewritten to use SetInstanceOutfit API. Vinny → Civilians/Civilian_01+02 with Controllable flag for hotkey routing. Debug HUD dual selectors (green=character, blue=outfit). Blue/brown suits verified side-by-side. Commit 457393f.</div>
+      </div>
+      <div class="tl-item">
         <div class="tl-dot current"></div>
-        <div class="tl-date">Aug 13, 2026 — NOW</div>
-        <div class="tl-title">Polish & Gang Simulation Implementation</div>
-        <div class="tl-desc">Next: UI refinements, more animation states (crouch tuning), gang simulation implementation (HoodAgent + HoodSpawner). GPU rendering Phase 2 + invariant computation fixes also pending.</div>
+        <div class="tl-date">Aug 14, 2026 — NOW</div>
+        <div class="tl-title">Gang Simulation Implementation</div>
+        <div class="tl-desc">Next: HoodAgent + HoodSpawner, UI refinements, more animation states (crouch tuning). GPU rendering Phase 2 + invariant computation fixes also pending.</div>
       </div>
       <div class="tl-item">
         <div class="tl-dot planned"></div>
@@ -1278,7 +1289,7 @@
   <p>Steel City: Mob Sim — Vertical Slice Roadmap</p>
   <p>Companion to <code>GAME_DESIGN_SKELETON.md</code> and <code>docs/core/DOCUMENTATION_INDEX.md</code></p>
   <div class="update-note">
-    📝 Last updated: Aug 13, 2026 — City generation pipeline COMPLETE. 3-phase city_editor.html (Macro → Granular → Buildings), alley system, rail line with train animation, live color picker. Execution phase integration complete. Next: polish & gang simulation implementation.
+    📝 Last updated: Aug 14, 2026 — Per-instance clothing system COMPLETE. Each instanced character wears unique outfit (1 draw call). Consolidated spawning: Vinny → Civilians/Civilian_01+02. Debug HUD character selector. City generation + execution phase complete. Next: gang simulation implementation.
   </div>
   <div style="margin-top: 10px; padding: 10px 14px; background: var(--surface2); border: 1px solid var(--yellow); border-radius: 6px; font-size: 0.85em; color: var(--text-dim);">
     ⚠️ <strong style="color: var(--yellow);">Keep this roadmap current.</strong>

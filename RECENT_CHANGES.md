@@ -1,6 +1,59 @@
 # Recent Changes — Steel City: Mob Sim
 
-**Last Updated**: August 10, 2026 (Phase 1: Keyframe shader port — walk keyframes now run in Unity)
+**Last Updated**: August 14, 2026 (Per-instance clothing + consolidated character spawning)
+
+---
+
+## August 14, 2026 — Per-Instance Clothing System + Consolidated Character Spawning
+
+### Impact
+- **Each instanced character can now wear a unique outfit** — different material remapping per instance, all in a single draw call
+- **Consolidated hierarchy**: Replaced singleton "Vinny" with `Characters/Civilians/Civilian_01 + Civilian_02` — clean, consistent scene structure
+- **Debug HUD character selector**: Isolate hotkey controls to a specific character at runtime
+- **Clothing test verified**: Blue suit (Civilian_01) and brown suit (Civilian_02) render correctly side-by-side, 3 instances in 1 draw call
+
+### Changes
+
+#### Per-Instance Material Remap Pipeline
+- **`CharacterPoseCompute.compute`**: CSPose kernel now applies per-instance material remapping via `instanceMaterialRemapBuffer` — each instance looks up its own region→material mapping
+- **`VoxelChunkManager.cs`**: Added `instanceMaterialRemapBuffer` to `InstancedGroup`, built per-frame from `InstancedCharacter.materialRemap` arrays. New API: `SetInstanceOutfit()`, `GetInstanceOutfit()` for per-instance outfit management
+- **`ClothingSystem.cs`**: Rewritten to use per-instance remap API (`SetInstanceOutfit`) instead of modifying the shared voxel buffer — outfits are now per-instance, not shared
+
+#### Consolidated Character Spawning
+- **`CityMap3D.cs`**: Replaced Vinny singleton + ClothingTestSpawner with `Civilians/Civilian_01 + Civilian_02`. Both get `CharacterRig` with proper spawn positions. `ApplyCivilianOutfits()` coroutine waits for init then applies blue/brown suits
+- **`CharacterRig.cs`**: Added `Controllable` flag + `ActiveRig` static selector. Hotkeys only process when `Controllable == true`. `spawnPosition` made `internal` for CityMap3D access
+- **`GameUIController.cs`**: Updated "Vinny Moretti" status text to "Civilian_01"
+- **`EventPlayer.cs`**: Updated Vinny comment references to generic character terminology
+
+#### Debug HUD Character Selector
+- **`DebugHUDManager.cs`**: Added `CharacterRig` tracking alongside `ClothingSystem`. Clothing tab now has two selector rows:
+  - **Green buttons** (Character Control): Routes hotkeys (T/I/W/L/A/C/Space) to selected character
+  - **Blue buttons** (Clothing Instance): Selects which character's outfit to edit
+  - Periodic refresh of both lists (every 1 second)
+
+#### Archived
+- `ClothingTestSpawner.cs` → `Assets/Scripts/Sim/Archive/` (replaced by direct CityMap3D spawning)
+- `ClothingTestSpawnerEditor.cs` → `Assets/Scripts/Sim/Archive/`
+
+### Files Modified
+| File | Change |
+|---|---|
+| `CharacterPoseCompute.compute` | Per-instance material remap in CSPose kernel |
+| `VoxelChunkManager.cs` | `instanceMaterialRemapBuffer`, `SetInstanceOutfit`/`GetInstanceOutfit` API |
+| `ClothingSystem.cs` | Rewritten to use per-instance remap instead of shared buffer |
+| `CityMap3D.cs` | Consolidated spawning: Civilians/Civilian_01+02, `ApplyCivilianOutfits` coroutine |
+| `CharacterRig.cs` | `Controllable` flag, `ActiveRig` static, `spawnPosition` internal |
+| `DebugHUDManager.cs` | Character selector (green) + clothing selector (blue) in Clothing tab |
+| `GameUIController.cs` | Vinny → Civilian_01 status text |
+| `EventPlayer.cs` | Comment updates |
+
+### Testing Notes
+- Both civilians spawn inside HQ tenement block, side-by-side (0.8 units apart)
+- Civilian_01 wears blue suit (mat 126), Civilian_02 wears brown suit (mat 106)
+- Press `O` → Debug HUD → `Tab` to Clothing tab → green buttons switch hotkey control between characters
+- T/I/W/L/A/C hotkeys only affect the selected (green-highlighted) character
+- Blue buttons select which character's outfit to modify via preset buttons
+- All 3 instances (including any stress test agents) render in 1 draw call
 
 ---
 

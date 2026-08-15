@@ -2,7 +2,7 @@
 
 **Purpose**: Central hub for all project documentation — helps coding agents find information fast and efficiently.
 
-**Last Updated**: August 13, 2026
+**Last Updated**: August 14, 2026
 **Project**: Steel City: Mob Sim — Organized Crime Simulation
 **Status**: 🔄 ALPHA — Vertical Slice Playable (Unity 6)
 
@@ -341,8 +341,22 @@ All Unity-side documentation lives in `Assets/docs/`. See `Assets/docs/DOCUMENTA
 - **`EventPlayer.cs`** — Consumes SimEvents from SimulationManager, drives visual updates
 - **`SimEventStream.cs`** — Event stream with SimEvent factory methods
 - **`VoxelCharacter.cs`** — Voxel character rendering with WorldCenter property for camera aiming
+- **`ClothingSystem.cs`** — Per-instance clothing/outfit system. Uses VoxelChunkManager per-instance remap API (SetInstanceOutfit) to apply unique material remapping per character without breaking GPU instancing. Auto-adds to VoxelCharacter when useInstancing=true
+- **`CharacterRig.cs`** — Character animation controller with hotkeys (T/I/W/L/A/C). Controllable flag + ActiveRig static for multi-character hotkey routing. Uses GPU instanced rendering path (VoxelCharacter + CharacterAnimation)
+- **`DebugHUDManager.cs`** — In-game debug panel with tabs (Camera, Render, Clothing, Path). Clothing tab has dual selectors: green buttons for character hotkey routing, blue buttons for outfit instance selection
 - **`Pathfinder.cs`** — A* pathfinding on WaypointGraph
 - **`WaypointGraph.cs`** — Waypoint graph with sidewalk/crosswalk/jaywalk links
+
+### Per-Instance Clothing System
+- **`ClothingSystem.cs`** — Per-instance outfit remapping via VoxelChunkManager API
+  - Region-based remapping: outfits applied by remapping material IDs within voxel regions (Torso, Arms, Legs, Feet, etc.)
+  - Uses `SetInstanceOutfit()` / `GetInstanceOutfit()` — no shared buffer modification
+  - Auto-adds to VoxelCharacter when `useInstancing=true` and asset has regionDefs
+  - OutfitPresetType enum for quick preset selection
+- **`CharacterPoseCompute.compute`** — CSPose kernel applies per-instance material remap via `instanceMaterialRemapBuffer`
+- **`VoxelChunkManager.cs`** — `instanceMaterialRemapBuffer` per InstancedGroup, built per-frame from `InstancedCharacter.materialRemap` arrays
+- **`CityMap3D.cs`** — Consolidated spawning: `Characters/Civilians/Civilian_01 + Civilian_02` with `ApplyCivilianOutfits()` coroutine
+- **`docs/PROCEDURAL_CLOTHING_CONCEPT.html`** — Visual concept document for procedural clothing system
 
 ### VoxelAssetStudio Roadmaps
 - **`VoxelAssetStudio/IMPROVEMENT_ROADMAP.md`** — V2.0 improvement plan (undo/redo, layers, selection tools)
