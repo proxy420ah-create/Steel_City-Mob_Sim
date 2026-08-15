@@ -4,7 +4,7 @@ using UnityEngine.InputSystem;
 namespace SteelCity.Sim
 {
     /// <summary>
-    /// Character animation rig — controls Vinny's animation state via hotkeys.
+    /// Character animation rig — controls a character's animation state via hotkeys.
     /// Uses GPU instanced rendering path (VoxelCharacter + CharacterAnimation).
     ///
     /// Hotkeys:
@@ -16,7 +16,7 @@ namespace SteelCity.Sim
     {
         [Header("Character Asset")]
         [Tooltip("Base filename in StreamingAssets/voxel_characters/ (without extension).")]
-        [SerializeField] private string assetBaseName = "Vinny";
+        [SerializeField] private string assetBaseName = "Civilian1";
 
         [Header("Rendering")]
         [Tooltip("Voxel size in world units. Must match authoring.")]
@@ -26,7 +26,7 @@ namespace SteelCity.Sim
 
         [Header("Position")]
         [Tooltip("Fixed spawn position (world space). No ground probe.")]
-        [SerializeField] private Vector3 spawnPosition = new Vector3(0f, 0.1f, 0f);
+        [SerializeField] internal Vector3 spawnPosition = new Vector3(0f, 0.1f, 0f);
 
         private VoxelCharacter voxelChar;
         private CharacterAnimation anim;
@@ -37,6 +37,21 @@ namespace SteelCity.Sim
         /// <summary>Exposes the VoxelCharacter for external systems (e.g. CityMap3D.SpawnedCharacter).</summary>
         public VoxelCharacter Character => voxelChar;
 
+        /// <summary>When true, this rig processes hotkey input. Only one rig should be active at a time.</summary>
+        public bool Controllable
+        {
+            get => _controllable;
+            set
+            {
+                _controllable = value;
+                if (value) ActiveRig = this;
+            }
+        }
+        [SerializeField] private bool _controllable = true;
+
+        /// <summary>Currently active rig that receives hotkey input. Set via Controllable property.</summary>
+        public static CharacterRig ActiveRig { get; private set; }
+
         private static readonly string[] STATE_NAMES = {
             "Idle", "Walking", "Looking", "AimWalk", "Aiming",
             "Crouching", "???", "???", "Down", "T-Pose"
@@ -46,6 +61,9 @@ namespace SteelCity.Sim
         {
             if (chunkManager == null)
                 chunkManager = FindFirstObjectByType<VoxelChunkManager>();
+
+            if (_controllable && ActiveRig == null)
+                ActiveRig = this;
 
             StartCoroutine(DelayedSpawn());
         }
@@ -72,6 +90,8 @@ namespace SteelCity.Sim
 
         void HandleInput()
         {
+            if (!_controllable) return;
+
             var kb = Keyboard.current;
             if (kb == null) return;
 
@@ -130,7 +150,7 @@ namespace SteelCity.Sim
             voxelChar = gameObject.GetComponent<VoxelCharacter>();
             if (voxelChar == null)
                 voxelChar = gameObject.AddComponent<VoxelCharacter>();
-            voxelChar.assetFileName = assetBaseName + ".stasset";
+            voxelChar.assetFileName = assetBaseName + ".json";
             voxelChar.voxelSize = voxelSize;
             voxelChar.chunkManager = chunkManager;
             voxelChar.useInstancing = true;
@@ -148,7 +168,7 @@ namespace SteelCity.Sim
             anim.SetState(CharacterAnimation.AnimState.TPose);
 
             Debug.Log($"[CharRig] Initialized character on '{gameObject.name}' at {spawnPosition} " +
-                      $"(asset={assetBaseName}.stasset, voxelSize={voxelSize})");
+                      $"(asset={assetBaseName}.json, voxelSize={voxelSize})");
             Debug.Log("[CharRig] Hotkeys: T=TPose I=Idle W=Walk L=Look A=Aim C=Crouch " +
                       "Space=Play/Pause +/-=Speed");
         }

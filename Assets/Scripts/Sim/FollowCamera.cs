@@ -43,8 +43,8 @@ namespace SteelCity.Sim
         public float chasePitch = 30f;
 
         [Header("Debug Controls")]
-        [Tooltip("Show on-screen camera debug HUD.")]
-        public bool showDebugHUD = true;
+        [Tooltip("Show on-screen camera debug HUD. Disabled — use DebugHUDManager instead.")]
+        public bool showDebugHUD = false;
         [Tooltip("Distance from target (orbit mode).")]
         public float distance = 5f;
         [Tooltip("Height above target (orbit mode).")]
@@ -66,6 +66,19 @@ namespace SteelCity.Sim
         private Vector3 lastTargetPos;
         private float chaseYaw;
         private bool chaseYawInitialized;
+
+        // --- Public read-only properties for DebugHUDManager ---
+        public bool ChaseMode => chaseMode;
+        public bool FreeLook => freeLook;
+        public float FieldOfView => fieldOfView;
+        public float Distance => chaseMode ? chaseDistance : distance;
+        public float Height => chaseMode ? chaseHeight : height;
+        public float CurrentYaw => chaseMode ? chaseYaw : currentYaw;
+        public float CurrentPitch => chaseMode ? chasePitch : currentPitch;
+        public float FollowSpeed => followSpeed;
+        public float LookSpeed => lookSpeed;
+        public float LookYaw => lookYaw;
+        public float LookPitch => lookPitch;
 
         // --- Cached OnGUI resources (avoid per-frame allocation) ---
         private GUIStyle cachedLabelStyle;

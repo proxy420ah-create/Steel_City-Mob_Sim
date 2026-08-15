@@ -102,6 +102,22 @@ namespace SteelCity.Sim
         }
 
         /// <summary>
+        /// Load a consolidated .character.json file and return the voxel grid.
+        /// Returns null if the file cannot be parsed.
+        /// </summary>
+        public static ushort[,,] LoadVoxelsFromJson(string filepath)
+        {
+            if (!File.Exists(filepath))
+            {
+                Debug.LogError($"[StAssetReader] File not found: {filepath}");
+                return null;
+            }
+
+            CharacterJsonLoader.Load(filepath, out ushort[,,] voxels, out _, out _, out _);
+            return voxels;
+        }
+
+        /// <summary>
         /// Load a .stasset file from disk and return the raw voxel grid.
         /// </summary>
         public static ushort[,,] LoadVoxels(string filepath)

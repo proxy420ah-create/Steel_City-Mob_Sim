@@ -17,7 +17,7 @@ namespace SteelCity.Sim
         [Tooltip("If true, spawns a single hood in an empty plot on Start for quick visual verification.")]
         [SerializeField] private bool debugSpawnOnStart = true;
         [Tooltip("Character asset to spawn.")]
-        [SerializeField] private string characterAsset = "Vinny.stasset";
+        [SerializeField] private string characterAsset = "Civilian1.json";
         [Tooltip("Show ground probe debug rays.")]
         [SerializeField] private bool showGroundProbe = true;
 

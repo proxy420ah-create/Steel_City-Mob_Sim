@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Procedural Clothing — Concept Diagrams</title>
+<style>
+  :root {
+    --bg: #0d0d11;
+    --surface: #16161c;
+    --surface2: #1e1e26;
+    --border: #2a2a35;
+    --text: #e0e0e8;
+    --text-dim: #8888a0;
+    --accent: #0ff;
+    --green: #0f0;
+    --yellow: #ff0;
+    --orange: #f80;
+    --red: #f44;
+    --purple: #c6f;
+    --blue: #4af;
+    --pink: #f6c;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    line-height: 1.6;
+    padding: 20px;
+  }
+  h1 { font-size: 24px; margin-bottom: 4px; }
+  h2 { font-size: 18px; margin: 32px 0 12px; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  h3 { font-size: 14px; margin: 16px 0 8px; color: var(--yellow); }
+  p { font-size: 13px; color: var(--text-dim); margin-bottom: 12px; max-width: 900px; }
+  .subtitle { color: var(--text-dim); font-size: 13px; margin-bottom: 24px; }
+
+  .diagram-container {
+    max-width: 960px;
+    margin: 0 auto;
+  }
+
+  /* === PIPELINE FLOW DIAGRAM === */
+  .pipeline-flow {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    margin: 20px 0;
+    flex-wrap: wrap;
+  }
+  .flow-stage {
+    flex: 1;
+    min-width: 160px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    position: relative;
+    text-align: center;
+  }
+  .flow-stage::after {
+    content: '→';
+    position: absolute;
+    right: -14px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 22px;
+    color: var(--accent);
+    z-index: 1;
+  }
+  .flow-stage:last-child::after { display: none; }
+  .flow-stage .stage-icon { font-size: 28px; margin-bottom: 6px; }
+  .flow-stage .stage-title { font-size: 12px; font-weight: bold; color: var(--accent); margin-bottom: 4px; }
+  .flow-stage .stage-desc { font-size: 10px; color: var(--text-dim); }
+  .flow-stage.naked { border-color: var(--orange); }
+  .flow-stage.naked .stage-title { color: var(--orange); }
+  .flow-stage.regions { border-color: var(--blue); }
+  .flow-stage.regions .stage-title { color: var(--blue); }
+  .flow-stage.garments { border-color: var(--purple); }
+  .flow-stage.garments .stage-title { color: var(--purple); }
+  .flow-stage.variation { border-color: var(--green); }
+  .flow-stage.variation .stage-title { color: var(--green); }
+  .flow-stage.final { border-color: var(--yellow); }
+  .flow-stage.final .stage-title { color: var(--yellow); }
+
+  /* === BODY REGION MAP === */
+  .body-region-map {
+    display: flex;
+    gap: 32px;
+    align-items: flex-start;
+    margin: 20px 0;
+    flex-wrap: wrap;
+  }
+  .body-svg-wrap {
+    flex-shrink: 0;
+  }
+  .body-svg-wrap svg {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .region-legend {
+    flex: 1;
+    min-width: 280px;
+  }
+  .region-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 12px;
+  }
+  .region-swatch {
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    flex-shrink: 0;
+    border: 1px solid rgba(255,255,255,0.2);
+  }
+  .region-label { font-weight: bold; min-width: 70px; }
+  .region-detail { color: var(--text-dim); font-size: 11px; }
+
+  /* === GARMENT STENCIL DIAGRAM === */
+  .garment-stencil-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 12px;
+    margin: 16px 0;
+  }
+  .garment-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    text-align: center;
+  }
+  .garment-card .garment-preview {
+    width: 60px;
+    height: 60px;
+    margin: 0 auto 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    background: var(--surface2);
+    border-radius: 6px;
+  }
+  .garment-card .garment-name { font-size: 12px; font-weight: bold; color: var(--purple); }
+  .garment-card .garment-anchor { font-size: 10px; color: var(--text-dim); font-family: monospace; }
+  .garment-card .garment-mat { font-size: 10px; color: var(--accent); font-family: monospace; }
+
+  /* === COMPOSITION DIAGRAM === */
+  .composition-diagram {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 20px 0;
+    flex-wrap: wrap;
+  }
+  .comp-slot {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 14px;
+    text-align: center;
+    min-width: 100px;
+  }
+  .comp-slot .slot-label { font-size: 10px; color: var(--text-dim); margin-bottom: 4px; }
+  .comp-slot .slot-value { font-size: 12px; font-weight: bold; }
+  .comp-plus { font-size: 20px; color: var(--accent); }
+  .comp-equals { font-size: 20px; color: var(--yellow); }
+  .comp-result {
+    background: var(--surface2);
+    border: 2px solid var(--yellow);
+    border-radius: 8px;
+    padding: 14px 20px;
+    text-align: center;
+  }
+  .comp-result .result-label { font-size: 10px; color: var(--text-dim); }
+  .comp-result .result-name { font-size: 14px; font-weight: bold; color: var(--yellow); }
+
+  /* === RUNTIME SWAP DIAGRAM === */
+  .runtime-diagram {
+    display: flex;
+    gap: 24px;
+    margin: 20px 0;
+    flex-wrap: wrap;
+  }
+  .runtime-col {
+    flex: 1;
+    min-width: 260px;
+  }
+  .runtime-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    margin-bottom: 8px;
+  }
+  .runtime-box .rb-title { font-size: 12px; font-weight: bold; margin-bottom: 6px; }
+  .runtime-box .rb-content { font-size: 11px; color: var(--text-dim); font-family: monospace; white-space: pre-wrap; }
+  .runtime-arrow {
+    text-align: center;
+    font-size: 20px;
+    color: var(--green);
+    margin: 4px 0;
+  }
+
+  /* === PALETTE TABLE === */
+  .palette-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 12px;
+  }
+  .palette-table th {
+    background: var(--surface2);
+    color: var(--accent);
+    padding: 8px 10px;
+    text-align: left;
+    border-bottom: 2px solid var(--border);
+    font-size: 11px;
+  }
+  .palette-table td {
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-dim);
+  }
+  .palette-table .role-cell { font-weight: bold; color: var(--text); }
+  .mat-chip {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-family: monospace;
+    margin: 1px;
+  }
+
+  /* === LAYER STACK DIAGRAM === */
+  .layer-stack {
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 0;
+    margin: 20px auto;
+    max-width: 320px;
+  }
+  .layer {
+    padding: 12px 16px;
+    text-align: center;
+    font-size: 12px;
+    border: 1px solid var(--border);
+    position: relative;
+  }
+  .layer:first-child { border-radius: 0 0 8px 8px; }
+  .layer:last-child { border-radius: 8px 8px 0 0; }
+  .layer .layer-name { font-weight: bold; }
+  .layer .layer-detail { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+  .layer-base { background: #2a1a0a; border-color: var(--orange); }
+  .layer-base .layer-name { color: var(--orange); }
+  .layer-skin { background: #1a1a24; border-color: #666; }
+  .layer-skin .layer-name { color: #aaa; }
+  .layer-clothing { background: #0a1a2a; border-color: var(--blue); }
+  .layer-clothing .layer-name { color: var(--blue); }
+  .layer-accessory { background: #1a0a2a; border-color: var(--purple); }
+  .layer-accessory .layer-name { color: var(--purple); }
+  .layer-variation { background: #0a2a1a; border-color: var(--green); }
+  .layer-variation .layer-name { color: var(--green); }
+
+  .note-box {
+    background: var(--surface2);
+    border-left: 3px solid var(--yellow);
+    padding: 10px 14px;
+    margin: 16px 0;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  .note-box strong { color: var(--yellow); }
+
+  .footer {
+    margin-top: 40px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--text-dim);
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<div class="diagram-container">
+
+<h1>👕 Procedural Clothing — Concept Diagrams</h1>
+<p class="subtitle">Hybrid architecture: Region Materials + Garment Stencils + Color Variation → Runtime Swappable</p>
+
+<!-- ========================= DIAGRAM 1: PIPELINE FLOW ========================= -->
+<h2>1. Generation Pipeline Flow</h2>
+<p>Five-stage pipeline from naked base to final character. Each stage adds one layer of clothing data.</p>
+
+<div class="pipeline-flow">
+  <div class="flow-stage naked">
+    <div class="stage-icon">🧍</div>
+    <div class="stage-title">Naked Base</div>
+    <div class="stage-desc">character_base_naked.json<br>Skin materials only<br>40×34×10 grid</div>
+  </div>
+  <div class="flow-stage regions">
+    <div class="stage-icon">🗺️</div>
+    <div class="stage-title">Region Map</div>
+    <div class="stage-desc">Body split into regions:<br>head, torso, legs, arms,<br>feet, hands</div>
+  </div>
+  <div class="flow-stage garments">
+    <div class="stage-icon">🧥</div>
+    <div class="stage-title">Garment Stencils</div>
+    <div class="stage-desc">Stamp accessories:<br>hats, ties, badges,<br>glasses, overcoats</div>
+  </div>
+  <div class="flow-stage variation">
+    <div class="stage-icon">🎨</div>
+    <div class="stage-title">Color Variation</div>
+    <div class="stage-desc">Seeded RNG picks from<br>role palette options<br>per region</div>
+  </div>
+  <div class="flow-stage final">
+    <div class="stage-icon">🧑‍💼</div>
+    <div class="stage-title">Final Character</div>
+    <div class="stage-desc">Voxel grid with<br>material IDs ready<br>for Unity export</div>
+  </div>
+</div>
+
+<div class="note-box">
+  <strong>Key insight:</strong> Stages 2-4 are <em>data-driven</em>, not hardcoded. The same naked base produces infinite variety by changing palette selections and garment combinations.
+</div>
+
+<!-- ========================= DIAGRAM 2: BODY REGION MAP ========================= -->
+<h2>2. Body Region Map</h2>
+<p>The naked base template is divided into named 3D regions. Each region can receive a different material ID for clothing.</p>
+
+<div class="body-region-map">
+  <div class="body-svg-wrap">
+    <svg width="200" height="340" viewBox="0 0 200 340">
+      <!-- Hat region -->
+      <rect x="55" y="10" width="90" height="30" fill="#c6f" opacity="0.6" stroke="#c6f" stroke-width="1"/>
+      <text x="100" y="28" text-anchor="middle" fill="#c6f" font-size="10" font-weight="bold">HAT</text>
+
+      <!-- Head region -->
+      <rect x="65" y="40" width="70" height="50" fill="#f80" opacity="0.6" stroke="#f80" stroke-width="1"/>
+      <text x="100" y="68" text-anchor="middle" fill="#f80" font-size="10" font-weight="bold">HEAD</text>
+
+      <!-- Neck (part of head) -->
+      <rect x="85" y="90" width="30" height="10" fill="#f80" opacity="0.4" stroke="#f80" stroke-width="1"/>
+
+      <!-- Torso region -->
+      <rect x="50" y="100" width="100" height="80" fill="#4af" opacity="0.6" stroke="#4af" stroke-width="1"/>
+      <text x="100" y="143" text-anchor="middle" fill="#4af" font-size="10" font-weight="bold">TORSO</text>
+
+      <!-- Arms (left) -->
+      <rect x="30" y="100" width="20" height="80" fill="#0f0" opacity="0.5" stroke="#0f0" stroke-width="1"/>
+      <text x="40" y="143" text-anchor="middle" fill="#0f0" font-size="8" font-weight="bold" transform="rotate(-90 40 143)">ARMS</text>
+
+      <!-- Arms (right) -->
+      <rect x="150" y="100" width="20" height="80" fill="#0f0" opacity="0.5" stroke="#0f0" stroke-width="1"/>
+      <text x="160" y="143" text-anchor="middle" fill="#0f0" font-size="8" font-weight="bold" transform="rotate(90 160 143)">ARMS</text>
+
+      <!-- Hands -->
+      <rect x="30" y="180" width="20" height="12" fill="#f44" opacity="0.6" stroke="#f44" stroke-width="1"/>
+      <rect x="150" y="180" width="20" height="12" fill="#f44" opacity="0.6" stroke="#f44" stroke-width="1"/>
+      <text x="40" y="189" text-anchor="middle" fill="#f44" font-size="7" font-weight="bold">HAND</text>
+      <text x="160" y="189" text-anchor="middle" fill="#f44" font-size="7" font-weight="bold">HAND</text>
+
+      <!-- Legs -->
+      <rect x="55" y="192" width="40" height="100" fill="#ff0" opacity="0.5" stroke="#ff0" stroke-width="1"/>
+      <rect x="105" y="192" width="40" height="100" fill="#ff0" opacity="0.5" stroke="#ff0" stroke-width="1"/>
+      <text x="100" y="245" text-anchor="middle" fill="#ff0" font-size="10" font-weight="bold">LEGS</text>
+
+      <!-- Feet -->
+      <rect x="55" y="292" width="40" height="18" fill="#f6c" opacity="0.6" stroke="#f6c" stroke-width="1"/>
+      <rect x="105" y="292" width="40" height="18" fill="#f6c" opacity="0.6" stroke="#f6c" stroke-width="1"/>
+      <text x="75" y="304" text-anchor="middle" fill="#f6c" font-size="8" font-weight="bold">FEET</text>
+      <text x="125" y="304" text-anchor="middle" fill="#f6c" font-size="8" font-weight="bold">FEET</text>
+
+      <!-- Y-axis labels -->
+      <text x="10" y="25" fill="#555" font-size="8">Y31</text>
+      <text x="10" y="65" fill="#555" font-size="8">Y27</text>
+      <text x="10" y="105" fill="#555" font-size="8">Y22</text>
+      <text x="10" y="145" fill="#555" font-size="8">Y17</text>
+      <text x="10" y="195" fill="#555" font-size="8">Y12</text>
+      <text x="10" y="295" fill="#555" font-size="8">Y1</text>
+      <text x="10" y="315" fill="#555" font-size="8">Y0</text>
+
+      <!-- Grid outline -->
+      <rect x="25" y="5" width="150" height="310" fill="none" stroke="#333" stroke-width="1" stroke-dasharray="3,3"/>
+    </svg>
+  </div>
+
+  <div class="region-legend">
+    <h3>Region Definitions (16×32×10 grid)</h3>
+    <div class="region-row">
+      <div class="region-swatch" style="background: #c6f;"></div>
+      <div class="region-label">HAT</div>
+      <div class="region-detail">Y 28-31, X 0-15, Z 0-9 — optional, can be empty</div>
+    </div>
+    <div class="region-row">
+      <div class="region-swatch" style="background: #f80;"></div>
+      <div class="region-label">HEAD</div>
+      <div class="region-detail">Y 23-27, X 4-11, Z 2-7 — skin material, accessories overlay</div>
+    </div>
+    <div class="region-row">
+      <div class="region-swatch" style="background: #4af;"></div>
+      <div class="region-label">TORSO</div>
+      <div class="region-detail">Y 13-22, X 1-15, Z 1-8 — suit jacket, shirt, tie, coat</div>
+    </div>
+    <div class="region-row">
+      <div class="region-swatch" style="background: #0f0;"></div>
+      <div class="region-label">ARMS</div>
+      <div class="region-detail">Y 13-22, X 0-1 & 14-15, Z 2-8 — sleeves match torso</div>
+    </div>
+    <div class="region-row">
+      <div class="region-swatch" style="background: #f44;"></div>
+      <div class="region-label">HANDS</div>
+      <div class="region-detail">Y 13-14, X 0-1 & 14-15, Z 3-7 — skin, gloves override</div>
+    </div>
+    <div class="region-row">
+      <div class="region-swatch" style="background: #ff0;"></div>
+      <div class="region-label">LEGS</div>
+      <div class="region-detail">Y 2-12, X 3-5 & 10-12, Z 2-7 — pants, overcoat skirt</div>
+    </div>
+    <div class="region-row">
+      <div class="region-swatch" style="background: #f6c;"></div>
+      <div class="region-label">FEET</div>
+      <div class="region-detail">Y 0-1, X 3-5 & 10-12, Z 2-7 — shoes, boots</div>
+    </div>
+
+    <div class="note-box" style="margin-top: 12px;">
+      <strong>Clothing = material override per region.</strong> Naked base uses skin (103/122) for all regions. Applying an outfit just changes material IDs for torso, legs, arms, feet — no geometry change needed.
+    </div>
+  </div>
+</div>
+
+<!-- ========================= DIAGRAM 3: GARMENT STENCILS ========================= -->
+<h2>3. Garment Stencil Library</h2>
+<p>Accessories are small voxel sub-grids stamped onto the body at anchor positions. Each garment is independently authored and reusable across roles.</p>
+
+<div class="garment-stencil-grid">
+  <div class="garment-card">
+    <div class="garment-preview">🎩</div>
+    <div class="garment-name">Fedora</div>
+    <div class="garment-anchor">anchor: [0, 28, 0]</div>
+    <div class="garment-mat">mat: 126 (blue)</div>
+  </div>
+  <div class="garment-card">
+    <div class="garment-preview">🧢</div>
+    <div class="garment-name">Flat Cap</div>
+    <div class="garment-anchor">anchor: [2, 28, 1]</div>
+    <div class="garment-mat">mat: 106 (dark wood)</div>
+  </div>
+  <div class="garment-card">
+    <div class="garment-preview">👒</div>
+    <div class="garment-name">Boater</div>
+    <div class="garment-anchor">anchor: [0, 28, 0]</div>
+    <div class="garment-mat">mat: 107 (light wood)</div>
+  </div>
+  <div class="garment-card">
+    <div class="garment-preview">🧥</div>
+    <div class="garment-name">Overcoat</div>
+    <div class="garment-anchor">anchor: [0, 13, 0]</div>
+    <div class="garment-mat">mat: 108 (weathered)</div>
+  </div>
+  <div class="garment-card">
+    <div class="garment-preview">👔</div>
+    <div class="garment-name">Tie (Red)</div>
+    <div class="garment-anchor">anchor: [7, 15, 1]</div>
+    <div class="garment-mat">mat: 120 (painted red)</div>
+  </div>
+  <div class="garment-card">
+    <div class="garment-preview">🕶️</div>
+    <div class="garment-name">Sunglasses</div>
+    <div class="garment-anchor">anchor: [4, 26, 2]</div>
+    <div class="garment-mat">mat: 109 (dark iron)</div>
+  </div>
+  <div class="garment-card">
+    <div class="garment-preview">⭐</div>
+    <div class="garment-name">Badge</div>
+    <div class="garment-anchor">anchor: [6, 15, 1]</div>
+    <div class="garment-mat">mat: 108 (gold brass)</div>
+  </div>
+  <div class="garment-card">
+    <div class="garment-preview">🚬</div>
+    <div class="garment-name">Cigar</div>
+    <div class="garment-anchor">anchor: [10, 26, 2]</div>
+    <div class="garment-mat">mat: 108 (weathered)</div>
+  </div>
+</div>
+
+<div class="note-box">
+  <strong>Stencil mechanism:</strong> Each garment is a small array of [x, y, z, matId] offsets. To apply, add anchor position to each offset and set voxels. To remove, delete those voxel keys. This is essentially your current preset system but decomposed into individual reusable pieces.
+</div>
+
+<!-- ========================= DIAGRAM 4: COMPOSITION ========================= -->
+<h2>4. Outfit Composition (Mix & Match)</h2>
+<p>Characters are composed by selecting one item per slot. The same base body produces different roles through different compositions.</p>
+
+<h3>Civilian</h3>
+<div class="composition-diagram">
+  <div class="comp-slot">
+    <div class="slot-label">HAT</div>
+    <div class="slot-value" style="color: var(--purple);">Varies</div>
+  </div>
+  <div class="comp-plus">+</div>
+  <div class="comp-slot">
+    <div class="slot-label">TORSO</div>
+    <div class="slot-value" style="color: var(--blue);">Varies</div>
+  </div>
+  <div class="comp-plus">+</div>
+  <div class="comp-slot">
+    <div class="slot-label">SHIRT</div>
+    <div class="slot-value" style="color: var(--blue);">Varies</div>
+  </div>
+  <div class="comp-plus">+</div>
+  <div class="comp-slot">
+    <div class="slot-label">TIE</div>
+    <div class="slot-value" style="color: var(--purple);">Varies</div>
+  </div>
+  <div class="comp-plus">+</div>
+  <div class="comp-slot">
+    <div class="slot-label">EYES</div>
+    <div class="slot-value" style="color: var(--purple);">Varies</div>
+  </div>
+  <div class="comp-equals">=</div>
+  <div class="comp-result">
+    <div class="result-label">RESULT</div>
+    <div class="result-name">🧑 Civilian</div>
+  </div>
+</div>
+
+<h3>Police</h3>
+<div class="composition-diagram">
+  <div class="comp-slot">
+    <div class="slot-label">HAT</div>
+    <div class="slot-value" style="color: var(--purple);">Police Cap</div>
+  </div>
+  <div class="comp-plus">+</div>
+  <div class="comp-slot">
+    <div class="slot-label">TORSO</div>
+    <div class="slot-value" style="color: var(--blue);">Uniform Blue</div>
+  </div>
+  <div class="comp-plus">+</div>
+  <div class="comp-slot">
+    <div class="slot-label">SHIRT</div>
+    <div class="slot-value" style="color: var(--blue);">White Collar</div>
+  </div>
+  <div class="comp-plus">+</div>
+  <div class="comp-slot">
+    <div class="slot-label">BADGE</div>
+    <div class="slot-value" style="color: var(--purple);">Gold Badge</div>
+  </div>
+  <div class="comp-plus">+</div>
+  <div class="comp-slot">
+    <div class="slot-label">EYES</div>
+    <div class="slot-value" style="color: var(--text-dim);">(none)</div>
+  </div>
+  <div class="comp-equals">=</div>
+  <div class="comp-result">
+    <div class="result-label">RESULT</div>
+    <div class="result-name">👮 Police</div>
+  </div>
+</div>
+
+<div class="note-box">
+  <strong>Core design rule:</strong> Hoods and civilians share the same palette — no visual distinction. A hood is just a civilian with a gun and a mission. You cannot tell them apart by looking, and that's the point. Police are the only visually distinct role — identical uniform, no variation (for now).
+</div>
+
+<!-- ========================= DIAGRAM 5: LAYER STACK ========================= -->
+<h2>5. Voxel Layer Stack</h2>
+<p>How clothing data layers onto the naked base. Each layer is applied in order — later layers can override earlier ones.</p>
+
+<div class="layer-stack">
+  <div class="layer layer-base">
+    <div class="layer-name">Layer 0: Naked Base</div>
+    <div class="layer-detail">Skin voxels (mat 103/122) in all body regions. No clothing.</div>
+  </div>
+  <div class="layer layer-skin">
+    <div class="layer-name">Layer 1: Region Materials</div>
+    <div class="layer-detail">Override material IDs per region: torso→suit, legs→pants, feet→shoes, arms→sleeves</div>
+  </div>
+  <div class="layer layer-clothing">
+    <div class="layer-name">Layer 2: Garment Stencils</div>
+    <div class="layer-detail">Stamp accessory voxels: hat, tie, badge, glasses, cigar. Adds new voxels at anchor positions.</div>
+  </div>
+  <div class="layer layer-accessory">
+    <div class="layer-name">Layer 3: Color Variation</div>
+    <div class="layer-detail">Seeded RNG picks from role palette: suit color, hat color, tie color. Same role, different look.</div>
+  </div>
+  <div class="layer layer-variation">
+    <div class="layer-name">Layer 4: Final Character</div>
+    <div class="layer-detail">Baked voxel grid with material IDs. Ready for .stasset export or runtime material swap.</div>
+  </div>
+</div>
+
+<!-- ========================= DIAGRAM 6: RUNTIME SWAP ========================= -->
+<h2>6. Unity Runtime — Outfit Swapping</h2>
+<p>At runtime, swapping outfits is just changing material IDs on existing voxels. No geometry rebuild, no re-baking. The ComputeBuffer updates with new material IDs per region.</p>
+
+<div class="runtime-diagram">
+  <div class="runtime-col">
+    <div class="runtime-box" style="border-color: var(--orange);">
+      <div class="rb-title" style="color: var(--orange);">State A: Hoodlum (suit)</div>
+      <div class="rb-content">voxelMap:
+  [0,13,1] → 126  (suit blue)
+  [0,13,2] → 126  (suit blue)
+  [3,2,2]  → 126  (pants blue)
+  [0,28,0] → 126  (fedora blue)
+  [7,15,1] → 120  (red tie)
+  [4,26,2] → 109  (sunglasses)</div>
+    </div>
+  </div>
+
+  <div class="runtime-col" style="display:flex; flex-direction:column; justify-content:center; align-items:center;">
+    <div class="runtime-arrow">↔</div>
+    <div style="font-size: 11px; color: var(--green); text-align: center; max-width: 120px;">
+      Swap material IDs per region only. Same voxel positions, different colors.
+    </div>
+    <div class="runtime-arrow">↔</div>
+  </div>
+
+  <div class="runtime-col">
+    <div class="runtime-box" style="border-color: var(--green);">
+      <div class="rb-title" style="color: var(--green);">State B: Hoodlum (overcoat)</div>
+      <div class="rb-content">voxelMap:
+  [0,13,1] → 108  (overcoat)
+  [0,13,2] → 108  (overcoat)
+  [3,2,2]  → 126  (pants, same)
+  [0,28,0] → 126  (fedora, same)
+  [7,15,1] → 120  (red tie, same)
+  [4,26,2] → 109  (sunglasses, same)</div>
+    </div>
+  </div>
+</div>
+
+<div class="note-box">
+  <strong>Performance:</strong> Material ID swap = single ComputeBuffer.SetData call. No mesh rebuild, no re-baking, no GPU pose recompute. Could swap 100 characters' outfits in a single frame.
+</div>
+
+<!-- ========================= DIAGRAM 7: ROLE PALETTE ========================= -->
+<h2>7. Role-Based Color Palettes</h2>
+<p>Each role has a palette of acceptable materials per region. Seeded RNG picks from the palette to create visual variety within a role.</p>
+
+<table class="palette-table">
+  <thead>
+    <tr>
+      <th>Role</th>
+      <th>Torso (suit)</th>
+      <th>Legs (pants)</th>
+      <th>Hat</th>
+      <th>Accent (tie/shirt)</th>
+      <th>Accessories</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="role-cell">Civilian<br><span style="font-size:9px;color:var(--text-dim);">(includes hoods)</span></td>
+      <td><span class="mat-chip" style="background:#334;color:#fff;">126 blue</span> <span class="mat-chip" style="background:#4c2d19;color:#fff;">106 brown</span> <span class="mat-chip" style="background:#6b5b42;color:#fff;">108 weathered</span> <span class="mat-chip" style="background:#996b3f;color:#000;">107 light</span> <span class="mat-chip" style="background:#2d2d33;color:#fff;">104 dark</span></td>
+      <td><span class="mat-chip" style="background:#334;color:#fff;">126</span> <span class="mat-chip" style="background:#4c2d19;color:#fff;">106</span> <span class="mat-chip" style="background:#6b5b42;color:#fff;">108</span></td>
+      <td><span class="mat-chip" style="background:#334;color:#fff;">126 fedora</span> <span class="mat-chip" style="background:#4c2d19;color:#fff;">106 cap</span> <span class="mat-chip" style="background:#666;color:#fff;">none</span></td>
+      <td><span class="mat-chip" style="background:#934233;color:#fff;">120 red</span> <span class="mat-chip" style="background:#e5e0d1;color:#000;">127 white</span></td>
+      <td>sunglasses, cigar, glasses, (varies)</td>
+    </tr>
+    <tr>
+      <td class="role-cell">Police<br><span style="font-size:9px;color:var(--text-dim);">(identical, no variation)</span></td>
+      <td><span class="mat-chip" style="background:#264cf2;color:#fff;">painted blue</span></td>
+      <td><span class="mat-chip" style="background:#264cf2;color:#fff;">painted blue</span></td>
+      <td><span class="mat-chip" style="background:#264cf2;color:#fff;">cap</span></td>
+      <td><span class="mat-chip" style="background:#e5e0d1;color:#000;">127 white</span> <span class="mat-chip" style="background:#996b3f;color:#000;">108 badge</span></td>
+      <td>badge</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note-box">
+      <strong>Design rule:</strong> Hoods and civilians share the same palette — no visual distinction. Police are identical with no variation (for now). Two roles total: Civilian (varied) and Police (uniform).
+</div>
+
+<!-- ========================= SUMMARY ========================= -->
+<h2>Summary: How It All Fits Together</h2>
+
+<div class="pipeline-flow">
+  <div class="flow-stage naked">
+    <div class="stage-icon">🧍</div>
+    <div class="stage-title">1. Base</div>
+    <div class="stage-desc">One naked template<br>per body type</div>
+  </div>
+  <div class="flow-stage regions">
+    <div class="stage-icon">🗺️</div>
+    <div class="stage-title">2. Regions</div>
+    <div class="stage-desc">7 named regions<br>material override</div>
+  </div>
+  <div class="flow-stage garments">
+    <div class="stage-icon">🧥</div>
+    <div class="stage-title">3. Garments</div>
+    <div class="stage-desc">8+ stencils<br>mix & match</div>
+  </div>
+  <div class="flow-stage variation">
+    <div class="stage-icon">🎨</div>
+    <div class="stage-title">4. Palettes</div>
+    <div class="stage-desc">2 role palettes<br>civilian varies, police fixed</div>
+  </div>
+  <div class="flow-stage final">
+    <div class="stage-icon">⚡</div>
+    <div class="stage-title">5. Runtime</div>
+    <div class="stage-desc">Material ID swap<br>zero rebuild</div>
+  </div>
+</div>
+
+<div class="note-box">
+  <strong>Editor workflow:</strong> Load naked base → pick role → pick seed (or randomize) → preview generated outfit → fine-tune with paint tools → save as .stasset. The wardrobe tab becomes a <em>procedural outfit generator</em> instead of a manual paint tool.
+</div>
+
+<div class="footer">
+  Steel City: Mob Sim — Procedural Clothing Concept Diagrams<br>
+  Created: Aug 13, 2026 — Companion to CHARACTER_PIPELINE_REFERENCE.md
+</div>
+
+</div>
+</body>
+</html>

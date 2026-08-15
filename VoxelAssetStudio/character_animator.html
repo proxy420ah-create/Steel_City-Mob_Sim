@@ -307,18 +307,12 @@ body.ui-hidden #ui-hidden-hint { display:block; }
 
     <!-- PRIMARY: Export for Unity -->
     <div class="export-section primary">
-      <h3><span class="step-num">1</span>Export for Unity</h3>
-      <p>Saves a single Project JSON containing <b>voxels + groups + pivots + animation params</b>.</p>
-      <p style="color:#0c6;">After download, place the file in the appropriate folder:</p>
-      <p style="font-size:10px; padding-left:12px; line-height:1.8;">
-        <b>voxel_characters/</b> — animated characters (hoodlums, civilians, etc.)<br>
-        <b>voxel_buildings/</b> — static buildings and structures<br>
-        <b>voxel_accessories/</b> — hats, weapons, held items<br>
-        <b>voxel_decor/</b> — props, furniture, environmental items
-      </p>
-      <p>Then in Unity: <b>Tools &gt; Voxel Import &gt; [matching category]</b></p>
+      <h3><span class="step-num">1</span>Export Character for Unity</h3>
+      <p>Saves a single <b>.character.json</b> containing voxels + body part groups + clothing regions + pivots + animation params.</p>
+      <p style="color:#0c6;">After download, place in <b>voxel_characters/</b> folder.</p>
+      <p>Then in Unity: <b>Tools &gt; Voxel Import &gt; Characters</b></p>
       <div class="btn-row">
-        <button class="export-btn primary large" onclick="saveProject()">⬇ Export Project JSON (for Unity)</button>
+        <button class="export-btn primary large" onclick="saveProject()">⬇ Export .character.json (for Unity)</button>
       </div>
     </div>
 
@@ -886,6 +880,9 @@ function applyWeaponPreset(type) {
 let W = 16, H = 32, D = 10;
 const voxelMap = new Map();  // "x,y,z" -> materialId
 const groupMap = new Map();  // "x,y,z" -> groupId (default 0)
+const regionMap = new Map(); // "x,y,z" -> clothing regionId (from editor)
+let regionDefs = [];         // clothing region definitions from editor
+let bodyGroupDefs = GROUPS.map(g => ({ id: g.id, name: g.name, color: g.color }));
 
 // === SCENE ===
 const scene = new THREE.Scene();
@@ -2526,26 +2523,37 @@ window.exportAnimParams = () => {
 
 window.saveProject = () => {
   // Prompt for custom name
-  const defaultName = `character_project_${new Date().toISOString().slice(0,10)}`;
-  const customName = prompt('Enter export name (this will be the filename):', defaultName);
+  const defaultName = 'Vinny';
+  const customName = prompt('Enter character name (this will be the filename):', defaultName);
   if (!customName || customName.trim() === '') return;
-  const fileName = customName.trim().endsWith('.json') ? customName.trim() : customName.trim() + '.json';
+  const trimmed = customName.trim();
+  const fileName = trimmed.endsWith('.character.json') ? trimmed : trimmed + '.character.json';
+
+  // Build groups dict ("x,y,z": gid)
+  const groupsDict = {};
+  for (const [key, gid] of groupMap) groupsDict[key] = gid;
+
+  // Build regions dict ("x,y,z": rid) — preserved from editor import
+  const regionsDict = {};
+  for (const [key, rid] of regionMap.entries()) regionsDict[key] = rid;
 
   const data = {
-    format: 'character_animator_project',
+    format: 'steelcity_character',
     version: 1,
+    name: trimmed.replace(/\.character\.json$/, ''),
     dims: [W, H, D],
     materials: allMaterials,
     voxels: Array.from(voxelMap.entries()).map(([k, v]) => {
       const [x, y, z] = k.split(',').map(Number);
       return [x, y, z, v];
     }),
-    groups: Array.from(groupMap.entries()).map(([k, v]) => {
-      const [x, y, z] = k.split(',').map(Number);
-      return [x, y, z, v];
-    }),
+    groups: groupsDict,
+    bodyGroups: bodyGroupDefs,
+    regions: regionsDict,
+    regionDefs: regionDefs,
     pivots: pivots,
     animParams: animParams,
+    states: STATES,
     savedAt: new Date().toISOString(),
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -2553,7 +2561,9 @@ window.saveProject = () => {
   a.href = URL.createObjectURL(blob);
   a.download = fileName;
   a.click();
-  setStatus(`Exported "${fileName}" — ${data.voxels.length} voxels, ${data.groups.length} groups`);
+  const groupCount = Object.keys(groupsDict).length;
+  const regionCount = Object.keys(regionsDict).length;
+  setStatus(`Exported "${fileName}" — ${data.voxels.length} voxels, ${groupCount} groups, ${regionCount} regions, pivots + anim`);
 };
 
 window.loadProject = (event) => {
@@ -2567,8 +2577,29 @@ window.loadProject = (event) => {
       W = data.dims[0]; H = data.dims[1]; D = data.dims[2];
       voxelMap.clear();
       groupMap.clear();
+      regionMap.clear();
       for (const [x, y, z, mid] of data.voxels) voxelMap.set(`${x},${y},${z}`, mid);
-      if (data.groups) for (const [x, y, z, gid] of data.groups) groupMap.set(`${x},${y},${z}`, gid);
+      // Support both array and dict group formats
+      if (data.groups) {
+        if (Array.isArray(data.groups)) {
+          for (const [x, y, z, gid] of data.groups) groupMap.set(`${x},${y},${z}`, gid);
+        } else {
+          for (const [key, gid] of Object.entries(data.groups)) groupMap.set(key, gid);
+        }
+      }
+      for (const [key] of voxelMap) { if (!groupMap.has(key)) groupMap.set(key, 0); }
+      if (data.bodyGroups && data.bodyGroups.length > 0) {
+        GROUPS = data.bodyGroups;
+        bodyGroupDefs = data.bodyGroups;
+        rebuildGroupColors();
+      }
+      // Load regions from consolidated format
+      if (data.regions) {
+        for (const [key, rid] of Object.entries(data.regions)) regionMap.set(key, rid);
+      }
+      if (data.regionDefs && data.regionDefs.length > 0) {
+        regionDefs = data.regionDefs;
+      }
       if (data.pivots) pivots = data.pivots;
       if (data.animParams) {
         const defaults = JSON.parse(JSON.stringify(DEFAULT_PARAMS));
@@ -2925,7 +2956,17 @@ function loadCharacterData(data, sourceLabel) {
   // Override GROUPS if the editor sent custom bodyGroups (colors/names)
   if (data.bodyGroups && data.bodyGroups.length > 0) {
     GROUPS = data.bodyGroups;
+    bodyGroupDefs = data.bodyGroups;
     rebuildGroupColors();
+  }
+
+  // Load clothing regions if present
+  regionMap.clear();
+  if (data.regions) {
+    for (const [key, rid] of Object.entries(data.regions)) regionMap.set(key, rid);
+  }
+  if (data.regionDefs && data.regionDefs.length > 0) {
+    regionDefs = data.regionDefs;
   }
   if (data.animParams) {
     // Deep-merge with defaults so new param sections (e.g. legTwist) get
@@ -2967,7 +3008,8 @@ function loadCharacterData(data, sourceLabel) {
   buildPivotControls();
   buildParamControls();
 
-  setStatus(`Loaded ${sourceLabel}: ${voxelMap.size} voxels, ${groupMap.size} group assignments`);
+  const regionCount = regionMap.size;
+  setStatus(`Loaded ${sourceLabel}: ${voxelMap.size} voxels, ${groupMap.size} groups, ${regionCount} regions`);
 }
 
 // Check for data sent from the voxel editor via sessionStorage

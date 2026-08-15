@@ -312,7 +312,7 @@ body.ui-hidden #ui-hidden-hint { display:block; }
       <b>L</b>=Line &nbsp; <b>X</b>=Box<br>
       <b>S</b>=Select &nbsp; <b>J</b>=Extrude<br>
       <b>Ctrl+Click</b>=De-extrude &nbsp; <b>Shift+Drag</b>=Multi-extrude<br>
-      <b>G</b>=Body Part Paint<br>
+      <b>G</b>=Body Part Paint &nbsp; <b>C</b>=Clothing Region<br>
       <b>H</b>=Hide UI &nbsp; <b>R</b>=Ruler<br>
       <b>Ctrl+Z</b>=Undo &nbsp; <b>Ctrl+Y</b>=Redo<br>
       <b>Esc</b>=Cancel &nbsp; <b>Mid-drag</b>=Orbit<br>
@@ -371,6 +371,23 @@ body.ui-hidden #ui-hidden-hint { display:block; }
       <p style="font-size:10px;color:#666;margin:4px 0 0 0;">Loads character_base_naked.json as the starting point for clothing variation.</p>
     </div>
 
+    <!-- Clothing Region Painting -->
+    <div style="border-bottom:1px solid #333;padding-bottom:10px;margin-bottom:10px;">
+      <label style="font-size:11px;color:#aaa;display:block;margin-bottom:4px;">Clothing Regions</label>
+      <div style="display:flex;gap:4px;margin-bottom:6px;">
+        <button class="export-btn" style="flex:1;font-size:10px;padding:4px 6px;" id="view-region-mat-btn">🎨 Material</button>
+        <button class="export-btn" style="flex:1;font-size:10px;padding:4px 6px;" id="view-region-btn">🏷️ Region</button>
+      </div>
+      <div id="clothing-region-list" style="max-height:180px;overflow-y:auto;border:1px solid #333;border-radius:4px;padding:4px;margin-bottom:6px;"></div>
+      <div id="clothing-region-counts" style="margin-top:4px;padding-top:4px;border-top:1px solid #333;"></div>
+      <div style="display:flex;flex-direction:column;gap:4px;margin-top:6px;">
+        <button class="export-btn" style="font-size:10px;padding:6px 8px;" id="auto-assign-regions-btn">🤖 Auto-Assign Regions</button>
+        <button class="export-btn" style="font-size:10px;padding:6px 8px;" id="clear-regions-btn">🧹 Clear All Regions</button>
+        <button class="export-btn" style="font-size:10px;padding:6px 8px;" id="export-regions-btn">⬇ Export .regions.json</button>
+      </div>
+      <p style="font-size:10px;color:#666;margin:4px 0 0 0;">Paint each voxel with a clothing region tag. Press <b>C</b> to switch to region paint tool. These tags tell the procedural clothing system which material to apply where.</p>
+    </div>
+
     <!-- Preset Management -->
     <div style="border-bottom:1px solid #333;padding-bottom:10px;margin-bottom:10px;">
       <label style="font-size:11px;color:#aaa;display:block;margin-bottom:4px;">Clothing Presets</label>
@@ -400,10 +417,11 @@ body.ui-hidden #ui-hidden-hint { display:block; }
     <div id="preset-info" style="font-size:10px;color:#888;line-height:1.5;">
       <b>How it works:</b><br>
       1. Load the naked base template<br>
-      2. Paint clothes / place accessories<br>
-      3. Save as a clothing preset<br>
-      4. Load base + apply preset for new variants<br><br>
-      Presets store material swaps + added/removed voxels relative to the naked base, so they work on any body that shares the same anatomy.
+      2. Paint clothing regions (skin, face, hair, torso, arms, legs, feet)<br>
+      3. Auto-assign as starting point, then fine-tune with <b>C</b> tool<br>
+      4. Export .regions.json — saved with the base template<br>
+      5. Procedural clothing system reads regions to apply materials<br><br>
+      Regions are body-agnostic tags. Same region map works for any character sharing the same anatomy.
     </div>
   </div>
 </div>
@@ -441,10 +459,11 @@ body.ui-hidden #ui-hidden-hint { display:block; }
     </div>
     
     <div style="border-top:1px solid #333;padding-top:16px;margin-bottom:16px;">
-      <h3 style="font-size:13px;color:#0ff;margin-bottom:8px;">Export Final Model</h3>
-      <p style="font-size:11px;color:#aaa;margin-bottom:8px;">Export voxel data as JSON for conversion to .stasset via <code style="color:#0f0;">python json_to_stasset.py</code></p>
+      <h3 style="font-size:13px;color:#0ff;margin-bottom:8px;">Export Character</h3>
+      <p style="font-size:11px;color:#aaa;margin-bottom:8px;">Consolidated export — voxels, body part groups, clothing regions, and materials in one file. Load in animator or Unity.</p>
       <div class="btn-row">
-        <button class="export-btn primary" onclick="exportStassetJSON()">⬇ Export .stasset JSON</button>
+        <button class="export-btn primary" onclick="exportCharacter()">📦 Export .character JSON</button>
+        <button class="export-btn" onclick="exportStassetJSON()">⬇ Export .stasset JSON (legacy)</button>
         <button class="export-btn" onclick="exportRawJSON()">📋 View Raw JSON</button>
       </div>
       <textarea id="export-json" readonly style="display:none;margin-top:8px;"></textarea>
@@ -892,21 +911,182 @@ function exportGroupsJSON() {
 window.sendToAnimator = function() {
   const voxels = [];
   const groups = {};
+  const regions = {};
   for (const [key, mid] of voxelMap) {
     const [x, y, z] = key.split(',').map(Number);
     voxels.push({ x, y, z, m: mid });
     if (groupMap.has(key)) groups[key] = groupMap.get(key);
+    if (clothingRegionMap.has(key)) regions[key] = clothingRegionMap.get(key);
   }
   const data = {
-    dims: [W, H, D], // critical: animator's loadCharacterData centers voxels as x - W/2; without this it falls back to placeholder 16x32x10 and the model renders offset
+    format: 'steelcity_character',
+    version: 1,
+    dims: [W, H, D],
     voxels,
     groups,
-    materials: allMaterials,
     bodyGroups: BODY_GROUPS,
+    regions,
+    regionDefs: CLOTHING_REGIONS,
+    materials: allMaterials,
   };
   sessionStorage.setItem('animator_import', JSON.stringify(data));
   window.open('character_animator.html', '_blank');
-  setStatus(`Sent ${voxels.length} voxels with ${Object.keys(groups).length} group assignments to Animator`);
+  setStatus(`Sent ${voxels.length} voxels, ${Object.keys(groups).length} groups, ${Object.keys(regions).length} regions to Animator`);
+}
+
+// === CLOTHING REGION SYSTEM ===
+// Clothing regions tag each voxel with a body region for procedural clothing application.
+// Separate from animation groups — finer granularity (face vs head, hands vs arms).
+const CLOTHING_REGIONS = [
+  { id: 0, name: 'Skin',   color: '#e0c8a0', desc: 'Exposed skin (arms, neck, hands)' },
+  { id: 1, name: 'Face',   color: '#f5d0b0', desc: 'Face voxels (never clothing)' },
+  { id: 2, name: 'Hair',   color: '#4a3020', desc: 'Hair voxels' },
+  { id: 3, name: 'Torso',  color: '#4a90d9', desc: 'Chest, back, shoulders — suit/shirt' },
+  { id: 4, name: 'Arms',   color: '#50c878', desc: 'Upper + lower arms — sleeves' },
+  { id: 5, name: 'Hands',  color: '#e07070', desc: 'Hands — skin or gloves' },
+  { id: 6, name: 'Legs',   color: '#daa520', desc: 'Thighs + shins — pants' },
+  { id: 7, name: 'Feet',   color: '#ce5c5c', desc: 'Shoes/boots' },
+];
+const CLOTHING_REGION_COLORS = {};
+for (const r of CLOTHING_REGIONS) CLOTHING_REGION_COLORS[r.id] = r.color;
+const clothingRegionMap = new Map(); // "x,y,z" -> regionId
+let selectedClothingRegion = 3; // default to Torso
+let clothingRegionViewMode = false; // when true, render by region color
+
+function updateClothingRegionCounts() {
+  const counts = {};
+  for (const r of CLOTHING_REGIONS) counts[r.id] = 0;
+  for (const [key, rid] of clothingRegionMap) {
+    if (voxelMap.has(key)) counts[rid] = (counts[rid] || 0) + 1;
+  }
+  const container = document.getElementById('clothing-region-counts');
+  if (container) {
+    container.innerHTML = CLOTHING_REGIONS.map(r => {
+      const c = counts[r.id] || 0;
+      return `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:10px;">
+        <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${r.color};"></span>
+        <span style="flex:1;color:#ccc;">${r.name}</span>
+        <span style="color:#888;">${c}</span>
+      </div>`;
+    }).join('');
+  }
+}
+
+function autoAssignClothingRegions() {
+  clothingRegionMap.clear();
+  if (voxelMap.size === 0) { updateClothingRegionCounts(); return; }
+  let minY = Infinity, maxY = -Infinity, minX = Infinity, maxX = Infinity;
+  for (const [key] of voxelMap) {
+    const [x, y, z] = key.split(',').map(Number);
+    if (y < minY) minY = y; if (y > maxY) maxY = y;
+    if (x < minX) minX = x; if (x > maxX) maxX = x;
+  }
+  const height = maxY - minY + 1;
+  const width = maxX - minX + 1;
+  const centerX = (minX + maxX) / 2;
+  const headY = minY + Math.floor(height * 0.75);
+  const neckY = minY + Math.floor(height * 0.72);
+  const legTopY = minY + Math.floor(height * 0.50);
+  const kneeY = minY + Math.floor(height * 0.25);
+  const footY = minY + Math.floor(height * 0.06);
+  const armThreshold = Math.max(1, Math.floor(width * 0.35));
+  const handY = minY + Math.floor(height * 0.40); // hands at wrist level
+
+  for (const [key, mid] of voxelMap) {
+    const [x, y, z] = key.split(',').map(Number);
+    let rid = 0; // default skin
+
+    if (y >= headY) {
+      // Head region — split face vs hair vs scalp
+      const isFront = z < (voxelMap.has(key) ? Math.floor(D / 2) : D / 2);
+      rid = isFront ? 1 : 2; // face or hair (simplified)
+    } else if (y >= neckY && y < headY) {
+      rid = 0; // neck = skin
+    } else if (y < footY) {
+      rid = 7; // feet
+    } else if (y < kneeY) {
+      // Lower legs — check if outer edge (arms) vs inner (legs)
+      if (x < centerX - armThreshold || x > centerX + armThreshold) {
+        rid = 5; // hands (if at arm edges and low)
+      } else {
+        rid = 6; // legs
+      }
+    } else if (y < legTopY) {
+      // Upper legs
+      if (x < centerX - armThreshold || x > centerX + armThreshold) {
+        rid = 4; // arms (hanging at sides)
+      } else {
+        rid = 6; // legs
+      }
+    } else {
+      // Torso area — check arms vs torso
+      if (x < centerX - armThreshold || x > centerX + armThreshold) {
+        // At arm edges — check if hands (low) or arms
+        if (y < handY) {
+          rid = 5; // hands
+        } else {
+          rid = 4; // arms
+        }
+      } else {
+        rid = 3; // torso
+      }
+    }
+    clothingRegionMap.set(key, rid);
+  }
+  updateClothingRegionCounts();
+  if (clothingRegionViewMode) rebuildMesh();
+  setStatus(`Auto-assigned clothing regions to ${voxelMap.size} voxels`);
+}
+
+function clearAllClothingRegions() {
+  clothingRegionMap.clear();
+  updateClothingRegionCounts();
+  if (clothingRegionViewMode) rebuildMesh();
+  setStatus('Cleared all clothing region tags');
+}
+
+function populateClothingRegionList() {
+  const container = document.getElementById('clothing-region-list');
+  if (!container) return;
+  container.innerHTML = CLOTHING_REGIONS.map(r => {
+    const sel = r.id === selectedClothingRegion ? 'border-color:#0ff;background:#1a1a3e;' : '';
+    return `<div class="cregion-item" data-rid="${r.id}" style="display:flex;align-items:center;gap:6px;padding:4px 6px;cursor:pointer;border:1px solid #333;border-radius:4px;margin-bottom:2px;${sel}">
+      <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${r.color};"></span>
+      <span style="flex:1;font-size:10px;color:#ccc;">${r.name}</span>
+      <span style="font-size:9px;color:#666;">${r.desc}</span>
+    </div>`;
+  }).join('');
+  container.querySelectorAll('.cregion-item').forEach(item => {
+    item.addEventListener('click', () => {
+      selectedClothingRegion = parseInt(item.dataset.rid);
+      populateClothingRegionList();
+      if (currentTool !== 'clothingregion') setTool('clothingregion');
+      const rname = CLOTHING_REGIONS.find(r => r.id === selectedClothingRegion)?.name || selectedClothingRegion;
+      setStatus(`Selected clothing region: ${rname}`);
+    });
+  });
+}
+
+function exportClothingRegionsJSON() {
+  const regionsObj = {};
+  for (const [key, rid] of clothingRegionMap) {
+    if (voxelMap.has(key)) regionsObj[key] = rid;
+  }
+  const data = {
+    format: 'clothing_regions_export',
+    version: 1,
+    dims: [W, H, D],
+    regions: regionsObj,
+    regionDefs: CLOTHING_REGIONS,
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'character_base_naked.regions.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  setStatus(`Exported clothing regions (${Object.keys(regionsObj).length} voxels tagged) → character_base_naked.regions.json (copy to voxel_characters/Vinny.regions.json for Unity)`);
 }
 
 // === WARDROBE / CLOTHING PRESET SYSTEM ===
@@ -1373,6 +1553,7 @@ const TOOL_COLORS = {
   ruler: 0xffffff,    // white
   camera: 0x888888,   // gray
   bodypart: 0xff66ff, // pink/magenta
+  clothingregion: 0x00ffaa, // teal
 };
 
 function clearHighlight() {
@@ -1415,6 +1596,7 @@ const TOOL_DESC = {
   extrude: 'Click a face to extrude 1 layer | Shift+click+drag to extrude multiple | Ctrl+click to de-extrude (remove layer) | Ctrl+click+drag to remove multiple',
   ruler: 'Click two points to measure distance between them',
   bodypart: 'Click a voxel to assign it to the selected body part group',
+  clothingregion: 'Click a voxel to tag it with the selected clothing region',
   camera: 'Camera mode — mid-drag=orbit, right-drag=pan, scroll=zoom. No editing. (Esc)',
 };
 
@@ -1674,7 +1856,14 @@ function rebuildMesh() {
     const v = visible[i];
     dummyMatrix.setPosition(v.x + originOffsetX, v.y, v.z + originOffsetZ);
     instancedMesh.setMatrixAt(i, dummyMatrix);
-    if (groupViewMode) {
+    if (clothingRegionViewMode) {
+      const rid = clothingRegionMap.get(`${v.x},${v.y},${v.z}`);
+      if (rid !== undefined && CLOTHING_REGION_COLORS[rid]) {
+        color.set(CLOTHING_REGION_COLORS[rid]);
+      } else {
+        color.set(0x888888);
+      }
+    } else if (groupViewMode) {
       const gid = groupMap.get(`${v.x},${v.y},${v.z}`);
       if (gid !== undefined && GROUP_COLORS[gid]) {
         color.set(GROUP_COLORS[gid]);
@@ -1915,6 +2104,32 @@ function performTool(event) {
         setStatus(`Assigned (${hit.x},${hit.y},${hit.z}) to ${gname}`);
         updateGroupCounts();
         if (groupViewMode) rebuildMesh();
+      }
+      break;
+    
+    case 'clothingregion':
+      if (selectionActive && selVoxels.length > 0) {
+        for (const v of selVoxels) {
+          clothingRegionMap.set(`${v[0]},${v[1]},${v[2]}`, selectedClothingRegion);
+        }
+        const rname = CLOTHING_REGIONS.find(r => r.id === selectedClothingRegion)?.name || selectedClothingRegion;
+        setStatus(`Tagged ${selVoxels.length} selected voxels as ${rname}`);
+        updateClothingRegionCounts();
+        if (clothingRegionViewMode) rebuildMesh();
+        clearSelection();
+      } else if (hit.mid !== undefined) {
+        const key = `${hit.x},${hit.y},${hit.z}`;
+        clothingRegionMap.set(key, selectedClothingRegion);
+        for (const [mx, my, mz] of mirrorCandidates(hit.x, hit.y, hit.z)) {
+          if (mx < 0 || mx >= W || my < 0 || my >= H || mz < 0 || mz >= D) continue;
+          if (getVoxelAt(mx, my, mz) !== 0) {
+            clothingRegionMap.set(`${mx},${my},${mz}`, selectedClothingRegion);
+          }
+        }
+        const rname = CLOTHING_REGIONS.find(r => r.id === selectedClothingRegion)?.name || selectedClothingRegion;
+        setStatus(`Tagged (${hit.x},${hit.y},${hit.z}) as ${rname}`);
+        updateClothingRegionCounts();
+        if (clothingRegionViewMode) rebuildMesh();
       }
       break;
     
@@ -2480,6 +2695,18 @@ function updateHighlight(event) {
       }
       break;
     
+    case 'clothingregion':
+      if (hit.mid !== undefined) {
+        positions = [[hit.x, hit.y, hit.z]];
+        const rname = CLOTHING_REGIONS.find(r => r.id === selectedClothingRegion)?.name || selectedClothingRegion;
+        const rcol = CLOTHING_REGION_COLORS[selectedClothingRegion] || '#00ffaa';
+        color = parseInt(rcol.replace('#', ''), 16);
+        const curRegion = clothingRegionMap.get(`${hit.x},${hit.y},${hit.z}`);
+        const curName = curRegion !== undefined ? (CLOTHING_REGIONS.find(r => r.id === curRegion)?.name || curRegion) : 'none';
+        infoText = `Region: ${rname} | Current: ${curName} — click to tag`;
+      }
+      break;
+    
     case 'extrude':
       if (extrudeDragActive) {
         // Show preview of extruded/de-extruded layers based on current drag amount
@@ -2642,6 +2869,7 @@ document.querySelectorAll('.rp-tab').forEach(tab => {
 // View mode toggle (Material vs Group)
 document.getElementById('view-material-btn').addEventListener('click', () => {
   groupViewMode = false;
+  clothingRegionViewMode = false;
   document.getElementById('view-material-btn').style.background = '#0a4';
   document.getElementById('view-material-btn').style.color = '#fff';
   document.getElementById('view-group-btn').style.background = '';
@@ -2651,6 +2879,7 @@ document.getElementById('view-material-btn').addEventListener('click', () => {
 });
 document.getElementById('view-group-btn').addEventListener('click', () => {
   groupViewMode = true;
+  clothingRegionViewMode = false;
   document.getElementById('view-group-btn').style.background = '#0a4';
   document.getElementById('view-group-btn').style.color = '#fff';
   document.getElementById('view-material-btn').style.background = '';
@@ -2658,6 +2887,31 @@ document.getElementById('view-group-btn').addEventListener('click', () => {
   rebuildMesh();
   setStatus('View mode: Group colors');
 });
+
+// Clothing region view toggle (Material vs Region)
+document.getElementById('view-region-mat-btn').addEventListener('click', () => {
+  clothingRegionViewMode = false;
+  groupViewMode = false;
+  document.getElementById('view-region-mat-btn').style.background = '#0a4';
+  document.getElementById('view-region-mat-btn').style.color = '#fff';
+  document.getElementById('view-region-btn').style.background = '';
+  document.getElementById('view-region-btn').style.color = '';
+  rebuildMesh();
+  setStatus('View mode: Material colors');
+});
+document.getElementById('view-region-btn').addEventListener('click', () => {
+  clothingRegionViewMode = true;
+  groupViewMode = false;
+  document.getElementById('view-region-btn').style.background = '#0a4';
+  document.getElementById('view-region-btn').style.color = '#fff';
+  document.getElementById('view-region-mat-btn').style.background = '';
+  document.getElementById('view-region-mat-btn').style.color = '';
+  rebuildMesh();
+  setStatus('View mode: Clothing region colors');
+});
+document.getElementById('auto-assign-regions-btn').addEventListener('click', autoAssignClothingRegions);
+document.getElementById('clear-regions-btn').addEventListener('click', clearAllClothingRegions);
+document.getElementById('export-regions-btn').addEventListener('click', exportClothingRegionsJSON);
 
 // Undo/Redo buttons
 document.getElementById('undo-btn').addEventListener('click', undo);
@@ -3137,6 +3391,7 @@ document.addEventListener('keydown', (e) => {
     case 'r': setTool('ruler'); break;
     case 'j': setTool('extrude'); break;
     case 'g': setTool('bodypart'); break;
+    case 'c': setTool('clothingregion'); break;
     case 'v': moveSelection(); break;
     case 'h':
       // Toggle hide all UI panels (toolbar, left/right panels, status bar)
@@ -3748,6 +4003,10 @@ function getEditorData() {
   for (const [key, gid] of groupMap) {
     if (voxelMap.has(key)) groups[key] = gid;
   }
+  const regions = {};
+  for (const [key, rid] of clothingRegionMap) {
+    if (voxelMap.has(key)) regions[key] = rid;
+  }
   return {
     dims: [W, H, D],
     assetType,
@@ -3758,6 +4017,9 @@ function getEditorData() {
       return [x, y, z, v];
     }),
     groups: groups,
+    bodyGroups: BODY_GROUPS,
+    regions: regions,
+    regionDefs: CLOTHING_REGIONS,
     bgColor: document.getElementById('scene-bg-picker').value,
   };
 }
@@ -3833,6 +4095,14 @@ window.loadWIP = function(wipName) {
       }
       updateGroupCounts();
     }
+    clothingRegionMap.clear();
+    if (data.regions) {
+      for (const [key, rid] of Object.entries(data.regions)) {
+        clothingRegionMap.set(key, rid);
+      }
+    }
+    updateClothingRegionCounts();
+    populateClothingRegionList();
     rebuildMesh();
     buildMaterialList();
     populateGroupList();
@@ -3921,6 +4191,14 @@ window.loadProject = function(event) {
         }
         updateGroupCounts();
       }
+      clothingRegionMap.clear();
+      if (data.regions) {
+        for (const [key, rid] of Object.entries(data.regions)) {
+          clothingRegionMap.set(key, rid);
+        }
+      }
+      updateClothingRegionCounts();
+      populateClothingRegionList();
       if (data.bgColor) {
         scene.background = new THREE.Color(data.bgColor);
         document.getElementById('scene-bg-picker').value = data.bgColor;
@@ -3986,6 +4264,14 @@ window.importStasset = function(event) {
         }
         updateGroupCounts();
       }
+      clothingRegionMap.clear();
+      if (data.regions) {
+        for (const [key, rid] of Object.entries(data.regions)) {
+          clothingRegionMap.set(key, rid);
+        }
+      }
+      updateClothingRegionCounts();
+      populateClothingRegionList();
       if (data.bgColor) {
         scene.background = new THREE.Color(data.bgColor);
         document.getElementById('scene-bg-picker').value = data.bgColor;
@@ -4005,7 +4291,22 @@ window.importStasset = function(event) {
   event.target.value = '';
 };
 
-// Export .stasset-compatible JSON for Python conversion
+// Export consolidated .character JSON — voxels + groups + regions + materials in one file
+window.exportCharacter = function() {
+  const data = getEditorData();
+  data.format = 'steelcity_character';
+  data.version = 1;
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `Vinny.character.json`;
+  a.click();
+  const regionCount = data.regions ? Object.keys(data.regions).length : 0;
+  const groupCount = data.groups ? Object.keys(data.groups).length : 0;
+  setStatus(`Exported Vinny.character.json: ${data.voxels.length} voxels, ${groupCount} groups, ${regionCount} regions`);
+};
+
+// Export .stasset-compatible JSON for Python conversion (legacy)
 window.exportStassetJSON = function() {
   const data = getEditorData();
   data.format = 'stasset_export';
@@ -4014,7 +4315,7 @@ window.exportStassetJSON = function() {
   a.href = URL.createObjectURL(blob);
   a.download = `voxel_export_${new Date().toISOString().slice(0,10)}.json`;
   a.click();
-  setStatus(`Exported ${data.voxels.length} voxels to .stasset JSON`);
+  setStatus(`Exported ${data.voxels.length} voxels to .stasset JSON (legacy)`);
 };
 
 // Show raw JSON in textarea
@@ -4072,6 +4373,8 @@ function animate() {
 buildMaterialList();
 populateGroupList();
 updateGroupCounts();
+populateClothingRegionList();
+updateClothingRegionCounts();
 updateLayerInfo(); // sets initial "Model: WxHxD (voxel size)" label
 rebuildMesh();
 animate();

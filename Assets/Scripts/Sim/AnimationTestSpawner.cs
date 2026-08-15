@@ -8,14 +8,9 @@ using UnityEngine.InputSystem;
 namespace SteelCity.Sim
 {
     /// <summary>
-    /// Spawns animationtest1 in the city using the CPU forward-transform approach
-    /// (same as ForwardTransformTestRig) — NOT the shader's baked-in animation.
-    ///
-    /// Flow:
-    ///   1. Find empty plot in city, ground-probe for Y
-    ///   2. Load .stasset + .groups + .anim.json from StreamingAssets
-    ///   3. Each frame: VoxelCharacterAnimator.PoseVoxels() → scatter to grid → upload
-    ///   4. Shader does pure raymarching — no group IDs, no shader animation
+    /// CPU forward-transform animation test rig.
+    /// Loads .stasset/.json, poses on CPU, uploads per-frame.
+    /// NOTE: For GPU instanced clothing tests, use ClothingTestSpawner instead.
     ///
     /// Hotkeys: W=Walk, T=TPose, I=Idle, L=Look, A=Aim, C=Crouch,
     ///          Space=Play/Pause, +/-=Speed, R=Reload
@@ -24,7 +19,7 @@ namespace SteelCity.Sim
     {
         [Header("Test Asset")]
         [Tooltip("Base filename in StreamingAssets/voxel_characters/ (without extension).")]
-        [SerializeField] private string assetBaseName = "Vinny";
+        [SerializeField] private string assetBaseName = "Civilian1";
 
         [Header("Rendering")]
         [Tooltip("Voxel size in world units. Must match authoring.")]
@@ -159,6 +154,7 @@ namespace SteelCity.Sim
                 animSpeed = Mathf.Max(animSpeed - 0.25f, 0.1f);
                 Debug.Log($"[AnimTest] Speed = {animSpeed}");
             }
+
         }
 
         void SpawnAndLoad()
@@ -228,48 +224,102 @@ namespace SteelCity.Sim
 
             UnregisterFromChunkManager();
 
+            // Check for consolidated .character.json first, fall back to legacy .stasset
+            string jsonPath = Path.Combine(dir, assetBaseName + ".json");
             string stassetPath = Path.Combine(dir, assetBaseName + ".stasset");
-            if (!File.Exists(stassetPath))
-            {
-                Debug.LogError($"[AnimTest] .stasset not found: {stassetPath}");
-                return;
-            }
 
-            byte[] stassetData = File.ReadAllBytes(stassetPath);
-            restGrid = StAssetReader.ParseVoxels(stassetData);
-            if (restGrid == null)
+            if (File.Exists(jsonPath))
             {
-                Debug.LogError("[AnimTest] Failed to parse .stasset");
-                return;
-            }
+                // Consolidated .character.json path
+                CharacterJsonLoader.Load(jsonPath, out restGrid, out uint[] groupIDsFlat, out var pivotDict, out string animParamsRaw);
+                if (restGrid == null)
+                {
+                    Debug.LogError("[AnimTest] Failed to parse .character.json");
+                    return;
+                }
 
-            restDims = new Vector3Int(restGrid.GetLength(0), restGrid.GetLength(1), restGrid.GetLength(2));
-            Debug.Log($"[AnimTest] Loaded .stasset: {restDims.x}x{restDims.y}x{restDims.z}");
+                restDims = new Vector3Int(restGrid.GetLength(0), restGrid.GetLength(1), restGrid.GetLength(2));
+                Debug.Log($"[AnimTest] Loaded .character.json: {restDims.x}x{restDims.y}x{restDims.z}");
 
-            string groupsPath = Path.Combine(dir, assetBaseName + ".groups");
-            groupGrid = LoadGroupsBinary(groupsPath, restDims);
-            if (groupGrid == null)
-            {
-                Debug.LogWarning("[AnimTest] No .groups file — all voxels default to group 0 (body).");
+                // Convert flat groupIDs to 3D grid
                 groupGrid = new int[restDims.x, restDims.y, restDims.z];
-            }
+                if (groupIDsFlat != null)
+                {
+                    int w = restDims.x, h = restDims.y;
+                    for (int z = 0; z < restDims.z; z++)
+                        for (int y = 0; y < restDims.y; y++)
+                            for (int x = 0; x < restDims.x; x++)
+                                groupGrid[x, y, z] = (int)groupIDsFlat[x + y * w + z * w * h];
+                }
 
-            BuildPackedArrays();
+                BuildPackedArrays();
 
-            string animPath = Path.Combine(dir, assetBaseName + ".anim.json");
-            if (File.Exists(animPath))
-            {
-                string jsonText = File.ReadAllText(animPath);
-                animator = VoxelCharacterAnimator.LoadFromAnimJson(jsonText);
-                if (animator != null)
-                    Debug.Log($"[AnimTest] Loaded .anim.json — pivots: {animator.pivots.Count}, jointOffsets: {animator.jointOffsets.Count}");
+                // Load anim params from the same JSON
+                if (animParamsRaw != null || pivotDict != null)
+                {
+                    // Build synthetic anim JSON for VoxelCharacterAnimator.LoadFromAnimJson
+                    string syntheticAnim = "{";
+                    syntheticAnim += "\"format\":\"anim_params\",\"version\":1,";
+                    syntheticAnim += "\"pivots\":" + (pivotDict != null ? BuildPivotsJson(pivotDict) : "{}") + ",";
+                    syntheticAnim += "\"params\":" + (animParamsRaw ?? "{}");
+                    syntheticAnim += "}";
+                    animator = VoxelCharacterAnimator.LoadFromAnimJson(syntheticAnim);
+                    if (animator != null)
+                        Debug.Log($"[AnimTest] Loaded anim from .character.json — pivots: {animator.pivots.Count}, jointOffsets: {animator.jointOffsets.Count}");
+                    else
+                        Debug.LogWarning("[AnimTest] Failed to parse anim params — T-Pose only.");
+                }
                 else
-                    Debug.LogWarning("[AnimTest] Failed to parse .anim.json — T-Pose only.");
+                {
+                    Debug.Log("[AnimTest] No animParams in .character.json — T-Pose only.");
+                    animator = null;
+                }
             }
             else
             {
-                Debug.Log("[AnimTest] No .anim.json — T-Pose only.");
-                animator = null;
+                // Legacy .stasset + .groups + .anim.json path
+                if (!File.Exists(stassetPath))
+                {
+                    Debug.LogError($"[AnimTest] Neither .json nor .stasset found for '{assetBaseName}' in {dir}");
+                    return;
+                }
+
+                byte[] stassetData = File.ReadAllBytes(stassetPath);
+                restGrid = StAssetReader.ParseVoxels(stassetData);
+                if (restGrid == null)
+                {
+                    Debug.LogError("[AnimTest] Failed to parse .stasset");
+                    return;
+                }
+
+                restDims = new Vector3Int(restGrid.GetLength(0), restGrid.GetLength(1), restGrid.GetLength(2));
+                Debug.Log($"[AnimTest] Loaded .stasset: {restDims.x}x{restDims.y}x{restDims.z}");
+
+                string groupsPath = Path.Combine(dir, assetBaseName + ".groups");
+                groupGrid = LoadGroupsBinary(groupsPath, restDims);
+                if (groupGrid == null)
+                {
+                    Debug.LogWarning("[AnimTest] No .groups file — all voxels default to group 0 (body).");
+                    groupGrid = new int[restDims.x, restDims.y, restDims.z];
+                }
+
+                BuildPackedArrays();
+
+                string animPath = Path.Combine(dir, assetBaseName + ".anim.json");
+                if (File.Exists(animPath))
+                {
+                    string jsonText = File.ReadAllText(animPath);
+                    animator = VoxelCharacterAnimator.LoadFromAnimJson(jsonText);
+                    if (animator != null)
+                        Debug.Log($"[AnimTest] Loaded .anim.json — pivots: {animator.pivots.Count}, jointOffsets: {animator.jointOffsets.Count}");
+                    else
+                        Debug.LogWarning("[AnimTest] Failed to parse .anim.json — T-Pose only.");
+                }
+                else
+                {
+                    Debug.Log("[AnimTest] No .anim.json — T-Pose only.");
+                    animator = null;
+                }
             }
 
             BuildPosedGrid();
@@ -278,6 +328,21 @@ namespace SteelCity.Sim
             filesLoaded = true;
             Debug.Log($"[AnimTest] Ready. {restPositions.Length} voxels. State: {STATE_NAMES[Mathf.RoundToInt(animState)]}. " +
                       $"Hotkeys: T=TPose I=Idle W=Walk L=Look A=Aim C=Crouch R=Reload Space=Play/Pause +/-=Speed");
+        }
+
+        static string BuildPivotsJson(Dictionary<int, Vector3> pivots)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.Append("{");
+            bool first = true;
+            foreach (var kvp in pivots)
+            {
+                if (!first) sb.Append(",");
+                sb.Append($"\"{kvp.Key}\":{{\"x\":{kvp.Value.x.ToString(System.Globalization.CultureInfo.InvariantCulture)},\"y\":{kvp.Value.y.ToString(System.Globalization.CultureInfo.InvariantCulture)},\"z\":{kvp.Value.z.ToString(System.Globalization.CultureInfo.InvariantCulture)}}}");
+                first = false;
+            }
+            sb.Append("}");
+            return sb.ToString();
         }
 
         int[,,] LoadGroupsBinary(string path, Vector3Int dims)

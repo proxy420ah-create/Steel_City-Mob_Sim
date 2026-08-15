@@ -189,9 +189,10 @@ body { background:#0a0a14; color:#eee; font-family:'Segoe UI',monospace; overflo
     <h3>&#128230; Export</h3>
     <p style="font-size:11px;color:#aaa;margin-bottom:8px;">Your character is ready. Export the files for Unity.</p>
     <div class="btn-row" style="flex-direction:column;">
-      <button class="export-btn primary" onclick="exportStassetJSON()" style="width:100%;margin-bottom:4px;">&#11015; Export .stasset JSON</button>
-      <button class="export-btn primary" onclick="exportGroupsJSON()" style="width:100%;margin-bottom:4px;">&#11015; Export .groups JSON</button>
-      <button class="export-btn" onclick="exportAnimParams()" style="width:100%;margin-bottom:4px;">&#11015; Export .anim.json</button>
+      <button class="export-btn primary" onclick="exportCharacter()" style="width:100%;margin-bottom:4px;">&#128190; Export .character.json</button>
+      <button class="export-btn" onclick="exportStassetJSON()" style="width:100%;margin-bottom:4px;">&#11015; Export .stasset JSON (legacy)</button>
+      <button class="export-btn" onclick="exportGroupsJSON()" style="width:100%;margin-bottom:4px;">&#11015; Export .groups JSON (legacy)</button>
+      <button class="export-btn" onclick="exportAnimParams()" style="width:100%;margin-bottom:4px;">&#11015; Export .anim.json (legacy)</button>
       <button class="export-btn" onclick="saveProject()" style="width:100%;margin-bottom:4px;">&#128190; Save Project</button>
     </div>
   </div>
@@ -1752,6 +1753,24 @@ function updateSummary() {
 }
 
 // === EXPORT/IMPORT ===
+function exportCharacter() {
+  const voxels = [];
+  for (const [key, mid] of voxelMap) { const [x,y,z] = key.split(',').map(Number); voxels.push([x,y,z,mid]); }
+  const groupsDict = {};
+  for (const [key, gid] of groupMap) { if (gid > 0) groupsDict[key] = gid; }
+  const data = {
+    format: 'steelcity_character',
+    version: 1,
+    dims: [W,H,D],
+    voxels,
+    groups: groupsDict,
+    bodyGroups: GROUPS.map(g => ({ id: g.id, name: g.name, color: g.color })),
+    pivots,
+    animParams,
+    seed: parseInt(document.getElementById('seed-input').value) || 42,
+  };
+  downloadJSON(data, 'Vinny.character.json');
+}
 function exportStassetJSON() {
   const voxels = [];
   for (const [key, mid] of voxelMap) { const [x,y,z] = key.split(',').map(Number); voxels.push([x,y,z,mid]); }
@@ -1802,8 +1821,14 @@ function importStasset(event) {
     W = data.dims[0]; H = data.dims[1]; D = data.dims[2];
     voxelMap.clear(); groupMap.clear();
     for (const [x,y,z,mid] of data.voxels) voxelMap.set(`${x},${y},${z}`, mid);
-    if (data.groups) for (const [x,y,z,gid] of data.groups) groupMap.set(`${x},${y},${z}`, gid);
-    else autoAssignGroups();
+    // Support both array and dict group formats
+    if (data.groups) {
+      if (Array.isArray(data.groups)) {
+        for (const [x,y,z,gid] of data.groups) groupMap.set(`${x},${y},${z}`, gid);
+      } else {
+        for (const [key, gid] of Object.entries(data.groups)) groupMap.set(key, gid);
+      }
+    } else autoAssignGroups();
     realignSceneToDims();
     rebuildMesh(); updateGroupCounts(); pushHistory();
     document.getElementById('export-modal').style.display='none';
@@ -1820,7 +1845,14 @@ function loadProject(event) {
     W = data.dims[0]; H = data.dims[1]; D = data.dims[2];
     voxelMap.clear(); groupMap.clear();
     for (const [x,y,z,mid] of data.voxels) voxelMap.set(`${x},${y},${z}`, mid);
-    if (data.groups) for (const [x,y,z,gid] of data.groups) groupMap.set(`${x},${y},${z}`, gid);
+    // Support both array and dict group formats
+    if (data.groups) {
+      if (Array.isArray(data.groups)) {
+        for (const [x,y,z,gid] of data.groups) groupMap.set(`${x},${y},${z}`, gid);
+      } else {
+        for (const [key, gid] of Object.entries(data.groups)) groupMap.set(key, gid);
+      }
+    }
     if (data.pivots) pivots = data.pivots;
     if (data.animParams) animParams = data.animParams;
     if (data.seed) document.getElementById('seed-input').value = data.seed;

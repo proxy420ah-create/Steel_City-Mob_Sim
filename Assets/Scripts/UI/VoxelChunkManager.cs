@@ -90,8 +90,8 @@ namespace SteelCity.Sim
         [SerializeField] private bool debugForceAllBuildingsUltraLod = false;
         [Tooltip("DEBUG: solid-tint chunks by LOD tier (green=near, yellow=mid, orange=far, red=ultra) so tiers are visually obvious.")]
         [SerializeField] private bool debugColorizeLodTiers = false;
-        [Tooltip("Show perf + LOD HUD overlay on the ortho/planning camera.")]
-        [SerializeField] private bool showOrthoHud = true;
+        [Tooltip("Show perf + LOD HUD overlay on the ortho/planning camera. Disabled — use DebugHUDManager instead.")]
+        [SerializeField] private bool showOrthoHud = false;
 
         [Header("Debug")]
         [SerializeField] private bool debugChunkBounds = false;
@@ -142,6 +142,8 @@ namespace SteelCity.Sim
         private ComputeBuffer dummyJointConfigBuffer;   // 7 float4s of zeros — bound when walk keyframes disabled
         private ComputeBuffer dummyPivotBuffer;         // 10 float4s of zeros — bound when authored pivots disabled
         private ComputeBuffer dummyAnimStaticParamsBuffer; // 12 float4s of zeros — bound when anim static params disabled
+        private ComputeBuffer dummyRegionIDBuffer;       // single uint(0) — bound when no region data
+        private ComputeBuffer dummyMaterialRemapBuffer;  // single uint(0) — bound when no remap
 
         // --- Packed voxel cache: avoids re-reading + re-packing the same .stasset files ---
         // Includes pre-computed tight AABB so LoadChunkFromData can skip the scan.
@@ -508,6 +510,8 @@ namespace SteelCity.Sim
             if (dummyJointConfigBuffer != null) { dummyJointConfigBuffer.Release(); dummyJointConfigBuffer = null; }
             if (dummyPivotBuffer != null) { dummyPivotBuffer.Release(); dummyPivotBuffer = null; }
             if (dummyAnimStaticParamsBuffer != null) { dummyAnimStaticParamsBuffer.Release(); dummyAnimStaticParamsBuffer = null; }
+            if (dummyRegionIDBuffer != null) { dummyRegionIDBuffer.Release(); dummyRegionIDBuffer = null; }
+            if (dummyMaterialRemapBuffer != null) { dummyMaterialRemapBuffer.Release(); dummyMaterialRemapBuffer = null; }
             if (displayMaterial != null) { Destroy(displayMaterial); displayMaterial = null; }
             if (displayQuad != null) { Destroy(displayQuad); displayQuad = null; }
             if (proxyMaterial != null) { Destroy(proxyMaterial); proxyMaterial = null; }
@@ -613,6 +617,10 @@ namespace SteelCity.Sim
             dummyPivotBuffer.SetData(new Vector4[10]);
             dummyAnimStaticParamsBuffer = new ComputeBuffer(12, sizeof(float) * 4);
             dummyAnimStaticParamsBuffer.SetData(new Vector4[12]);
+            dummyRegionIDBuffer = new ComputeBuffer(1, sizeof(uint));
+            dummyRegionIDBuffer.SetData(new uint[] { 0 });
+            dummyMaterialRemapBuffer = new ComputeBuffer(1, sizeof(uint));
+            dummyMaterialRemapBuffer.SetData(new uint[] { 0 });
 
             // Debug: log key material colors to verify they're updated
             Debug.Log($"[VoxelChunkManager] Material buffer created ({MaxMaterials} entries). " +
@@ -1149,6 +1157,9 @@ namespace SteelCity.Sim
             public float animState;   // AnimState enum cast to float (0=Idle, 1=Walking, 2=Looking, 3=AimWalk, 4=Aiming, 5=Crouching, 6=Flinching, 7=Falling, 8=Down, 9=TPose)
             public float animTime;    // seconds since animation started
             public float animSpeed = 1.0f; // walk speed multiplier
+            // Per-instance material remap (clothing system): regionId → materialId (0 = no remap)
+            // Sized to match the group's maxRegions. Null = no remap for this instance.
+            public uint[] materialRemap;
         }
 
         private class InstancedGroup
@@ -1177,6 +1188,11 @@ namespace SteelCity.Sim
             public bool animStaticParamsEnabled = false;
             // GPU compute forward-transform
             public bool useComputePose = false;  // true when groupIDBuffer is available
+            // Per-instance material remap (clothing system)
+            public ComputeBuffer regionIDBuffer;          // [totalVoxels] per-voxel region ID (shared, read-only)
+            public ComputeBuffer instanceMaterialRemapBuffer; // [maxInstances * MaxRegions] per-instance remap
+            public int maxRegions = 0;                    // number of region IDs (0 = no region data)
+            public bool materialRemapEnabled = false;     // true when regionIDBuffer + remap buffer exist
         }
 
         private readonly Dictionary<string, InstancedGroup> instancedGroups = new();
@@ -1192,7 +1208,23 @@ namespace SteelCity.Sim
                     return null;
                 }
 
-                var voxelData = StAssetReader.LoadVoxels(path);
+                // Detect consolidated .character.json vs legacy .stasset
+                bool isJson = assetFileName.EndsWith(".json", System.StringComparison.OrdinalIgnoreCase);
+
+                ushort[,,] voxelData;
+                uint[] groupIDs = null;
+                Dictionary<string, int> regionMap = null;
+                List<RegionDef> regionDefs = null;
+
+                if (isJson)
+                {
+                    CharacterJsonLoader.Load(path, out voxelData, out groupIDs, out _, out _, out regionMap, out regionDefs);
+                }
+                else
+                {
+                    voxelData = StAssetReader.LoadVoxels(path);
+                }
+
                 if (voxelData == null)
                 {
                     Debug.LogError($"[VoxelChunkManager] Failed to load instanced asset: {path}");
@@ -1214,19 +1246,49 @@ namespace SteelCity.Sim
                 group = new InstancedGroup { dimX = dimX, dimY = dimY, dimZ = dimZ, voxelSize = voxelSize };
                 group.sharedVoxelBuffer = new ComputeBuffer(totalVoxels, sizeof(uint));
                 group.sharedVoxelBuffer.SetData(gpuData);
-                
-                // Load animation group IDs (.groups file) if it exists
-                string groupPath = path.Replace(".stasset", ".groups");
-                if (System.IO.File.Exists(groupPath))
+
+                // Build per-voxel region ID buffer if regions exist
+                if (regionMap != null && regionMap.Count > 0)
                 {
-                    var groupIDs = LoadGroupIDs(groupPath, totalVoxels);
-                    if (groupIDs != null)
+                    var regionIDs = new uint[totalVoxels];
+                    foreach (var kvp in regionMap)
                     {
-                        group.groupIDBuffer = new ComputeBuffer(totalVoxels, sizeof(uint));
-                        group.groupIDBuffer.SetData(groupIDs);
-                        group.useComputePose = true; // Enable GPU forward-transform pose
-                        Debug.Log($"[VoxelChunkManager] Animation groups loaded: {assetFileName} — {totalVoxels:N0} voxels tagged with groupIDs (compute pose enabled)");
+                        var parts = kvp.Key.Split(',');
+                        if (parts.Length == 3 &&
+                            int.TryParse(parts[0], out int rx) &&
+                            int.TryParse(parts[1], out int ry) &&
+                            int.TryParse(parts[2], out int rz))
+                        {
+                            int flat = rx + ry * dimX + rz * dimX * dimY;
+                            if (flat >= 0 && flat < totalVoxels)
+                                regionIDs[flat] = (uint)kvp.Value;
+                        }
                     }
+                    group.regionIDBuffer = new ComputeBuffer(totalVoxels, sizeof(uint));
+                    group.regionIDBuffer.SetData(regionIDs);
+                    int maxRid = 0;
+                    if (regionDefs != null)
+                        foreach (var rd in regionDefs)
+                            if (rd.id > maxRid) maxRid = rd.id;
+                    group.maxRegions = maxRid + 1;
+                    group.materialRemapEnabled = true;
+                    Debug.Log($"[VoxelChunkManager] Region data loaded: {assetFileName} — {regionMap.Count} region voxels, {group.maxRegions} regions (material remap enabled)");
+                }
+
+                // Load group IDs — from JSON directly, or from .groups binary file
+                if (groupIDs == null && !isJson)
+                {
+                    string groupPath = path.Replace(".stasset", ".groups");
+                    if (System.IO.File.Exists(groupPath))
+                        groupIDs = LoadGroupIDs(groupPath, totalVoxels);
+                }
+
+                if (groupIDs != null)
+                {
+                    group.groupIDBuffer = new ComputeBuffer(totalVoxels, sizeof(uint));
+                    group.groupIDBuffer.SetData(groupIDs);
+                    group.useComputePose = true;
+                    Debug.Log($"[VoxelChunkManager] Animation groups loaded: {assetFileName} — {totalVoxels:N0} voxels tagged with groupIDs (compute pose enabled)");
                 }
                 
                 instancedGroups[assetFileName] = group;
@@ -1532,6 +1594,39 @@ namespace SteelCity.Sim
                 cmd.SetComputeIntParam(poseComputeShader, "_AnimStaticParamsEnabled", hasAnimCS ? 1 : 0);
                 cmd.SetComputeVectorParam(poseComputeShader, "_WalkConfig", hasWalkCS ? group.walkConfig : Vector4.zero);
 
+                // Per-instance material remap (clothing system)
+                bool hasRemap = group.materialRemapEnabled && group.regionIDBuffer != null;
+                if (hasRemap)
+                {
+                    // Ensure remap buffer is large enough for current visible instance count
+                    int remapSize = visibleCount * group.maxRegions;
+                    if (group.instanceMaterialRemapBuffer == null || group.instanceMaterialRemapBuffer.count < remapSize)
+                    {
+                        if (group.instanceMaterialRemapBuffer != null) group.instanceMaterialRemapBuffer.Release();
+                        group.instanceMaterialRemapBuffer = new ComputeBuffer(Mathf.Max(remapSize, 16), sizeof(uint));
+                    }
+                    // Build remap data array from per-instance materialRemap, in visible instance order
+                    var remapData = new uint[Mathf.Max(remapSize, 16)];
+                    int remapWriteIdx = 0;
+                    foreach (var ic in group.instances)
+                    {
+                        if (!ic.visible) continue;
+                        if (ic.materialRemap != null)
+                        {
+                            int copyLen = Mathf.Min(ic.materialRemap.Length, group.maxRegions);
+                            System.Array.Copy(ic.materialRemap, 0, remapData, remapWriteIdx * group.maxRegions, copyLen);
+                        }
+                        remapWriteIdx++;
+                    }
+                    group.instanceMaterialRemapBuffer.SetData(remapData);
+                }
+                cmd.SetComputeBufferParam(poseComputeShader, kernelCSPose, "_RegionIDs",
+                    hasRemap ? group.regionIDBuffer : dummyRegionIDBuffer);
+                cmd.SetComputeBufferParam(poseComputeShader, kernelCSPose, "_InstanceMaterialRemap",
+                    hasRemap ? group.instanceMaterialRemapBuffer : dummyMaterialRemapBuffer);
+                cmd.SetComputeIntParam(poseComputeShader, "_MaxRegions", hasRemap ? group.maxRegions : 0);
+                cmd.SetComputeIntParam(poseComputeShader, "_MaterialRemapEnabled", hasRemap ? 1 : 0);
+
                 // Also need to set params for CSClear kernel
                 cmd.SetComputeBufferParam(poseComputeShader, kernelCSClear, "_InstanceAnimData", group.instanceAnimDataBuffer);
                 cmd.SetComputeBufferParam(poseComputeShader, kernelCSClear, "_PosedVoxelData", group.posedVoxelBuffer);
@@ -1614,6 +1709,8 @@ namespace SteelCity.Sim
                 if (group.jointConfigBuffer != null) group.jointConfigBuffer.Release();
                 if (group.pivotBuffer != null) group.pivotBuffer.Release();
                 if (group.animStaticParamsBuffer != null) group.animStaticParamsBuffer.Release();
+                if (group.regionIDBuffer != null) group.regionIDBuffer.Release();
+                if (group.instanceMaterialRemapBuffer != null) group.instanceMaterialRemapBuffer.Release();
                 group.instances.Clear();
             }
             instancedGroups.Clear();
@@ -2024,6 +2121,93 @@ namespace SteelCity.Sim
             }
         }
         public float CurrentResolutionScale => currentResolutionScale;
+
+        /// <summary>Get the flat GPU voxel data array for an instanced asset (read-only copy).</summary>
+        public uint[] GetSharedVoxelData(string assetFileName)
+        {
+            if (!instancedGroups.TryGetValue(assetFileName, out var group))
+                return null;
+            var data = new uint[group.dimX * group.dimY * group.dimZ];
+            group.sharedVoxelBuffer.GetData(data);
+            return data;
+        }
+
+        /// <summary>Write updated voxel data back to the shared GPU buffer (material ID swaps).</summary>
+        public void SetSharedVoxelData(string assetFileName, uint[] data)
+        {
+            if (!instancedGroups.TryGetValue(assetFileName, out var group))
+                return;
+            group.sharedVoxelBuffer.SetData(data);
+        }
+
+        /// <summary>Get voxel dimensions for an instanced asset.</summary>
+        public bool TryGetInstancedDims(string assetFileName, out int dimX, out int dimY, out int dimZ)
+        {
+            dimX = dimY = dimZ = 0;
+            if (!instancedGroups.TryGetValue(assetFileName, out var group))
+                return false;
+            dimX = group.dimX;
+            dimY = group.dimY;
+            dimZ = group.dimZ;
+            return true;
+        }
+
+        /// <summary>Get the max region count for an instanced asset (0 if no region data).</summary>
+        public int GetMaxRegions(string assetFileName)
+        {
+            if (!instancedGroups.TryGetValue(assetFileName, out var group))
+                return 0;
+            return group.maxRegions;
+        }
+
+        /// <summary>Look up the InstancedCharacter for a given GameObject + asset key.</summary>
+        public InstancedCharacter GetInstancedCharacter(string assetFileName, GameObject host)
+        {
+            if (!instancedGroups.TryGetValue(assetFileName, out var group))
+                return null;
+            foreach (var ic in group.instances)
+                if (ic.gameObject == host) return ic;
+            return null;
+        }
+
+        /// <summary>
+        /// Set per-instance outfit remap for a specific instance.
+        /// regionMaterials: regionId → newMaterialId (0 = keep original material).
+        /// The remap is stored on the InstancedCharacter and uploaded to GPU each frame.
+        /// </summary>
+        public void SetInstanceOutfit(InstancedCharacter ic, Dictionary<int, ushort> regionMaterials)
+        {
+            if (ic == null) return;
+            if (!instancedGroups.TryGetValue(ic.assetKey, out var group)) return;
+            if (group.maxRegions <= 0) return;
+
+            if (ic.materialRemap == null || ic.materialRemap.Length < group.maxRegions)
+                ic.materialRemap = new uint[group.maxRegions];
+            else
+                System.Array.Clear(ic.materialRemap, 0, ic.materialRemap.Length);
+
+            if (regionMaterials != null)
+            {
+                foreach (var kvp in regionMaterials)
+                {
+                    if (kvp.Key >= 0 && kvp.Key < group.maxRegions)
+                        ic.materialRemap[kvp.Key] = (uint)kvp.Value;
+                }
+            }
+        }
+
+        /// <summary>Get the current outfit remap for an instance (or null if none set).</summary>
+        public uint[] GetInstanceOutfit(InstancedCharacter ic)
+        {
+            return ic?.materialRemap;
+        }
+
+        /// <summary>Clear outfit remap for an instance (revert to original materials).</summary>
+        public void ClearInstanceOutfit(InstancedCharacter ic)
+        {
+            if (ic == null) return;
+            ic.materialRemap = null;
+        }
 
         private int CountActiveInstancedGroups()
         {

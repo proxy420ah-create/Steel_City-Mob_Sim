@@ -1301,19 +1301,51 @@ namespace SteelCity.Sim
                 charParent = cp.transform;
             }
 
-            // Spawn CharacterRig — consolidated character controller + renderer
-            // Hotkeys: T=TPose I=Idle W=Walk L=Look A=Aim C=Crouch Space=Pause +/-=Speed
-            CharacterRig rig = FindFirstObjectByType<CharacterRig>();
-            if (rig == null)
+            // Civilians parent
+            var civParent = charParent.Find("Civilians");
+            if (civParent == null)
             {
-                var charObj = new GameObject("Vinny");
-                charObj.transform.SetParent(charParent, false);
-                rig = charObj.AddComponent<CharacterRig>();
-                Debug.Log("[CityMap3D] Added CharacterRig on 'Vinny' (hotkeys: T/I/W/L/A/C)");
+                var civ = new GameObject("Civilians");
+                civ.transform.SetParent(charParent, false);
+                civParent = civ.transform;
             }
 
-            // Wire SpawnedCharacter once the rig's delayed init completes
-            StartCoroutine(WaitForCharacterSpawn(rig));
+            // Civilian_01 — primary controllable character (replaces Vinny)
+            CharacterRig rig1 = null;
+            var civ1Obj = civParent.Find("Civilian_01");
+            if (civ1Obj == null)
+            {
+                civ1Obj = new GameObject("Civilian_01").transform;
+                civ1Obj.SetParent(civParent, false);
+                rig1 = civ1Obj.gameObject.AddComponent<CharacterRig>();
+                rig1.Controllable = true;
+                rig1.spawnPosition = new Vector3(px, groundY + 0.1f, pz);
+                Debug.Log($"[CityMap3D] Spawned Civilian_01 at ({px}, {groundY + 0.1f}, {pz}) with CharacterRig (hotkeys: T/I/W/L/A/C)");
+            }
+            else
+            {
+                rig1 = civ1Obj.GetComponent<CharacterRig>();
+            }
+
+            // Civilian_02 — secondary character, spawned next to Civilian_01
+            CharacterRig rig2 = null;
+            var civ2Obj = civParent.Find("Civilian_02");
+            if (civ2Obj == null)
+            {
+                civ2Obj = new GameObject("Civilian_02").transform;
+                civ2Obj.SetParent(civParent, false);
+                rig2 = civ2Obj.gameObject.AddComponent<CharacterRig>();
+                rig2.Controllable = false;
+                rig2.spawnPosition = new Vector3(px + 0.8f, groundY + 0.1f, pz);
+                Debug.Log($"[CityMap3D] Spawned Civilian_02 at ({px + 0.8f}, {groundY + 0.1f}, {pz}) with CharacterRig (not controllable by default)");
+            }
+
+            // Wire SpawnedCharacter to Civilian_01 once the rig's delayed init completes
+            if (rig1 != null)
+                StartCoroutine(WaitForCharacterSpawn(rig1));
+
+            // Apply outfits after both characters initialize
+            StartCoroutine(ApplyCivilianOutfits(rig1, rig2));
 
             // Spawn vehicle test spawner (auto-spawns a car near HQ on Start)
             if (FindFirstObjectByType<VehicleTestSpawner>() == null)
@@ -1323,6 +1355,50 @@ namespace SteelCity.Sim
                 var vts = vehObj.AddComponent<VehicleTestSpawner>();
                 Debug.Log("[CityMap3D] Added VehicleTestSpawner to scene — will auto-spawn vehicle near HQ.");
             }
+        }
+
+        /// <summary>
+        /// Waits for both CharacterRigs to initialize their VoxelCharacters and ClothingSystems,
+        /// then applies default outfits (blue suit for Civilian_01, brown suit for Civilian_02).
+        /// </summary>
+        private System.Collections.IEnumerator ApplyCivilianOutfits(CharacterRig rig1, CharacterRig rig2)
+        {
+            // Wait for both rigs to initialize (CharacterRig uses 3-frame delayed spawn)
+            int maxFrames = 60;
+            while (maxFrames-- > 0)
+            {
+                if (rig1 != null && rig1.Character != null &&
+                    rig2 != null && rig2.Character != null)
+                    break;
+                yield return null;
+            }
+
+            // Wait for ClothingSystems to initialize
+            maxFrames = 60;
+            while (maxFrames-- > 0)
+            {
+                var cs1 = rig1?.Character?.GetComponent<ClothingSystem>();
+                var cs2 = rig2?.Character?.GetComponent<ClothingSystem>();
+                if (cs1 != null && cs1.IsInitialized &&
+                    cs2 != null && cs2.IsInitialized)
+                {
+                    cs1.SetOutfit(new Dictionary<int, ushort>
+                    {
+                        { 3, 126 }, { 4, 126 }, { 6, 126 }, { 7, 105 }
+                    });
+                    Debug.Log("[CityMap3D] Civilian_01 dressed: Suit Blue (mat 126)");
+
+                    cs2.SetOutfit(new Dictionary<int, ushort>
+                    {
+                        { 3, 106 }, { 4, 106 }, { 6, 106 }, { 7, 105 }
+                    });
+                    Debug.Log("[CityMap3D] Civilian_02 dressed: Suit Brown (mat 106)");
+                    yield break;
+                }
+                yield return null;
+            }
+
+            Debug.LogWarning("[CityMap3D] ApplyCivilianOutfits timed out — one or both ClothingSystems not initialized.");
         }
 
         private System.Collections.IEnumerator WaitForCharacterSpawn(CharacterRig rig)

@@ -28,7 +28,7 @@ namespace SteelCity.Sim
         private int visualPathIndex;
 
         /// <summary>Visual path index for PDR beams. Offset by -1 so beams include
-        /// the segment Vinny is currently traversing, not just remaining nodes.</summary>
+        /// the segment the character is currently traversing, not just remaining nodes.</summary>
         public int VisualPathIndex => Mathf.Max(0, visualPathIndex - 1);
 
         private float tickAccumulator;
@@ -82,7 +82,7 @@ namespace SteelCity.Sim
             cachedCityMap = FindFirstObjectByType<CityMap3D>();
 
             // Initialize camera target from current camera focus to avoid a jarring snap
-            // when transitioning from HQ focus to Vinny follow
+            // when transitioning from HQ focus to character follow
             if (cachedCityMap != null)
             {
                 currentCameraTarget = cachedCityMap.CameraFocusPoint;
@@ -170,7 +170,8 @@ namespace SteelCity.Sim
             }
 
             // Camera follow: smoothly track character position + user pan offset
-            if (cameraFollow && character != null)
+            // Only follow when NOT paused — during transition hold, camera stays on HQ
+            if (cameraFollow && character != null && !isPaused)
             {
                 Vector3 charWorld = character.useWorldPosition
                     ? character.WorldCenter

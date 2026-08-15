@@ -75,6 +75,33 @@ namespace SteelCity.EditorTools
             }
 
             string jsonText = File.ReadAllText(sourcePath);
+
+            string outDir = Path.Combine(Application.dataPath, "StreamingAssets", folder);
+            Directory.CreateDirectory(outDir);
+
+            // Check if this is already a consolidated .character.json — if so, copy as-is
+            if (jsonText.Contains("\"format\":") && jsonText.Contains("\"steelcity_character\""))
+            {
+                string directName = Path.GetFileNameWithoutExtension(sourcePath);
+                string directOutName = EditorInputDialog.Show(
+                    $"{label} Asset Name",
+                    $"Enter the {label.ToLower()} asset name (no extension):",
+                    directName);
+
+                if (string.IsNullOrEmpty(directOutName))
+                    return;
+
+                string directOutPath = Path.Combine(outDir, directOutName + ".json");
+                File.Copy(sourcePath, directOutPath, true);
+                AssetDatabase.Refresh();
+
+                EditorUtility.DisplayDialog($"{label} Import Complete",
+                    $"Copied consolidated .character.json to {folder}/{directOutName}.json\n\n" +
+                    $"No binary conversion needed — file is already in runtime format.\n" +
+                    $"Set assetFileName = \"{directOutName}.json\" on VoxelCharacter.", "OK");
+                return;
+            }
+
             var data = JsonUtility.FromJson<ProjectJSON>(jsonText);
 
             // Fallback: try manual parse if JsonUtility fails on nested arrays
@@ -116,9 +143,6 @@ namespace SteelCity.EditorTools
 
             if (string.IsNullOrEmpty(outputName))
                 return;
-
-            string outDir = Path.Combine(Application.dataPath, "StreamingAssets", folder);
-            Directory.CreateDirectory(outDir);
 
             string stassetPath = Path.Combine(outDir, outputName + ".stasset");
             string groupsPath = Path.Combine(outDir, outputName + ".groups");

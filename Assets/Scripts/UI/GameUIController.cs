@@ -201,7 +201,7 @@ namespace SteelCity.Sim
 
             // --- CHARACTER STATUS ---
             if (characterStatusText != null)
-                characterStatusText.text = "Vinny Moretti [ ON STREET ]";
+                characterStatusText.text = "Civilian_01 [ ON STREET ]";
 
             // --- PRE-FLIGHT CHECK: verify all critical UI references are wired ---
             RunPreflightCheck();
@@ -829,18 +829,18 @@ namespace SteelCity.Sim
             FocusCameraOnHood(hoodId);
         }
 
-        /// <summary>Pans the planning-phase map camera to center on Vinny's character on the street.</summary>
+        /// <summary>Pans the planning-phase map camera to center on the player character on the street.</summary>
         private void FocusCameraOnHood(string hoodId)
         {
             if (cityMap == null) return;
 
-            // Focus on Vinny's actual character position, not the hood's assigned block
+            // Focus on the player character's actual position, not the hood's assigned block
             var character = cityMap.SpawnedCharacter;
             if (character != null)
             {
                 Vector3 center = character.WorldCenter;
                 cityMap.SetCameraFocus(center);
-                Debug.Log($"[GameUIController] 📷 Camera focused on Vinny at {center}");
+                Debug.Log($"[GameUIController] 📷 Camera focused on character at {center}");
             }
             else
             {
@@ -1049,7 +1049,7 @@ namespace SteelCity.Sim
 
             phase = GamePhase.Execution;
             if (phaseText != null) { phaseText.text = "EXECUTION"; phaseText.color = redColor; }
-            if (characterStatusText != null) characterStatusText.text = "Vinny Moretti [ WORKING ]";
+            if (characterStatusText != null) characterStatusText.text = "Civilian_01 [ WORKING ]";
             if (runWeekButton != null) runWeekButton.interactable = false;
 
             // Hide planning UI for fullscreen execution
@@ -1147,19 +1147,20 @@ namespace SteelCity.Sim
             simManager = new SimulationManager(waypointGraph, engine);
             Debug.Log("[GameUIController] SimulationManager created");
 
+            // Focus camera on HQ block BEFORE creating EventPlayer,
+            // so EventPlayer.Initialize() captures HQ as the initial camera target.
+            FocusCameraOnHq();
+            cityMap.SetCameraFullscreen();
+            cityMap.IsExecutionMode = true;
+            cityMap.SetGranularLodMode(true);
+            Debug.Log("[GameUIController] Camera focused on HQ + fullscreen — working mode started");
+
             // Create EventPlayer (MonoBehaviour, drives VoxelCharacter)
             if (eventPlayer != null)
                 Destroy(eventPlayer);
             eventPlayer = gameObject.AddComponent<EventPlayer>();
             eventPlayer.Initialize(simManager, character, cityMap.MapRoot);
             Debug.Log("[GameUIController] EventPlayer created and initialized");
-
-            // Focus camera on HQ block in isometric perspective
-            FocusCameraOnHq();
-            cityMap.SetCameraFullscreen();
-            cityMap.IsExecutionMode = true;
-            cityMap.SetGranularLodMode(true);
-            Debug.Log("[GameUIController] Camera focused on HQ + fullscreen — working mode started");
 
             // Create HUD
             if (tickHUD == null)
@@ -1342,7 +1343,7 @@ namespace SteelCity.Sim
         {
             phase = GamePhase.Planning;
             if (phaseText != null) { phaseText.text = "PLANNING"; phaseText.color = yellowColor; }
-            if (characterStatusText != null) characterStatusText.text = "Vinny Moretti [ ON STREET ]";
+            if (characterStatusText != null) characterStatusText.text = "Civilian_01 [ ON STREET ]";
             if (runWeekButton != null) runWeekButton.interactable = true;
 
             // Restore planning UI

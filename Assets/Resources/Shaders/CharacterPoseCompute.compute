@@ -17,6 +17,14 @@ StructuredBuffer<uint> _GroupIDs;            // [dimX*dimY*dimZ] — per-voxel g
 // _InstanceAnimData[instanceIdx*2 + 1] = float4(posedBufferOffset, 0, 0, 0) — offset into posed buffer
 StructuredBuffer<float4> _InstanceAnimData;
 
+// ---- Per-instance material remap (clothing system) ----
+// _RegionIDs[restIdx] = region ID for this voxel (0 if no region data)
+StructuredBuffer<uint> _RegionIDs;           // [dimX*dimY*dimZ] — per-voxel region ID
+// _InstanceMaterialRemap[instanceIdx * MAX_REGIONS + regionId] = remapped material ID (0 = no remap)
+StructuredBuffer<uint> _InstanceMaterialRemap; // [instanceCount * MAX_REGIONS]
+int _MaxRegions;                              // max region IDs supported (e.g. 16)
+int _MaterialRemapEnabled;                    // 1 if region buffer + remap buffer are valid
+
 // ---- Posed voxel buffer (output) — RWStructuredBuffer ----
 // Layout: [instance0 posed slice][instance1 posed slice]...
 // Each slice = posedDimX * posedDimY * posedDimZ uints
@@ -455,6 +463,17 @@ void CSPose(uint3 dtid : SV_DispatchThreadID)
     // Read rest voxel material
     uint mat = _RestVoxelData[restIdx];
     if (mat == 0u) return; // air — skip
+
+    // Per-instance material remap (clothing system)
+    if (_MaterialRemapEnabled)
+    {
+        uint regionId = _RegionIDs[restIdx];
+        if (regionId < (uint)_MaxRegions)
+        {
+            uint remapMat = _InstanceMaterialRemap[instIdx * _MaxRegions + regionId];
+            if (remapMat != 0u) mat = remapMat;
+        }
+    }
 
     // Decode rest voxel position from linear index (use uint for fast mod/div)
     uint uridx = (uint)restIdx;

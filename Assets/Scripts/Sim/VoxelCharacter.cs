@@ -23,7 +23,7 @@ namespace SteelCity.Sim
     {
         [Header("Asset")]
         [Tooltip("Filename relative to StreamingAssets/voxel_characters/")]
-        public string assetFileName = "Vinny.stasset";
+        public string assetFileName = "Civilian1.json";
 
         [Header("Voxel Grid")]
         [Tooltip("World units per voxel. Buildings use 0.1, characters use 0.02 (Vinny standard).")]
@@ -105,6 +105,13 @@ namespace SteelCity.Sim
 
             FindCollisionWorld();
             initialized = true;
+
+            if (useInstancing && assetFileName.EndsWith(".json", System.StringComparison.OrdinalIgnoreCase))
+            {
+                var clothing = gameObject.GetComponent<ClothingSystem>();
+                if (clothing == null)
+                    clothing = gameObject.AddComponent<ClothingSystem>();
+            }
         }
 
         void FindCollisionWorld()
@@ -239,7 +246,11 @@ namespace SteelCity.Sim
                 return;
             }
 
-            voxelData = StAssetReader.LoadVoxels(path);
+            if (assetFileName.EndsWith(".json", System.StringComparison.OrdinalIgnoreCase))
+                voxelData = StAssetReader.LoadVoxelsFromJson(path);
+            else
+                voxelData = StAssetReader.LoadVoxels(path);
+
             if (voxelData == null)
             {
                 Debug.LogError($"[VoxelCharacter] Failed to load voxel data from {path}");
@@ -318,21 +329,64 @@ namespace SteelCity.Sim
         /// </summary>
         void LoadAndApplyAnimParams()
         {
-            // Expected file: character_hoodlum_0.anim.json (next to character_hoodlum_0.stasset)
-            string animFileName = Path.GetFileNameWithoutExtension(assetFileName) + ".anim.json";
-            string animPath = Path.Combine(Application.streamingAssetsPath, "voxel_characters", animFileName);
+            string jsonText = null;
 
-            if (!File.Exists(animPath))
+            if (assetFileName.EndsWith(".json", System.StringComparison.OrdinalIgnoreCase))
             {
-                Debug.Log($"[VoxelCharacter] No .anim.json found at {animPath} — using shader default animation.");
-                return;
+                // Consolidated .character.json — animParams and pivots are in the same file
+                string path = Path.Combine(Application.streamingAssetsPath, "voxel_characters", assetFileName);
+                if (File.Exists(path))
+                    jsonText = File.ReadAllText(path);
+
+                if (jsonText == null)
+                {
+                    Debug.Log($"[VoxelCharacter] Consolidated JSON not found at {path} — using shader default animation.");
+                    return;
+                }
+            }
+            else
+            {
+                // Legacy path: look for separate {name}.anim.json
+                string animFileName = Path.GetFileNameWithoutExtension(assetFileName) + ".anim.json";
+                string animPath = Path.Combine(Application.streamingAssetsPath, "voxel_characters", animFileName);
+
+                if (!File.Exists(animPath))
+                {
+                    Debug.Log($"[VoxelCharacter] No .anim.json found at {animPath} — using shader default animation.");
+                    return;
+                }
+
+                jsonText = File.ReadAllText(animPath);
             }
 
-            string jsonText = File.ReadAllText(animPath);
-            var jsonData = JsonUtility.FromJson<AnimParamsJson>(jsonText);
+            // For consolidated JSON, extract the animParams sub-object and wrap it
+            // in the format that AnimParamsJson expects: { format, version, pivots, params: {...} }
+            string animJsonText;
+            if (assetFileName.EndsWith(".json", System.StringComparison.OrdinalIgnoreCase))
+            {
+                string animParamsRaw = CharacterJsonLoader.ExtractAnimParamsRaw(jsonText);
+                string pivotsRaw = ExtractPivotsRaw(jsonText);
+                if (animParamsRaw == null && pivotsRaw == null)
+                {
+                    Debug.Log($"[VoxelCharacter] No animParams or pivots in consolidated JSON — using shader default animation.");
+                    return;
+                }
+                // Build a synthetic anim JSON that matches the old .anim.json format
+                animJsonText = "{";
+                animJsonText += "\"format\":\"anim_params\",\"version\":1,";
+                animJsonText += "\"pivots\":" + (pivotsRaw ?? "{}") + ",";
+                animJsonText += "\"params\":" + (animParamsRaw ?? "{}");
+                animJsonText += "}";
+            }
+            else
+            {
+                animJsonText = jsonText;
+            }
+
+            var jsonData = JsonUtility.FromJson<AnimParamsJson>(animJsonText);
             if (jsonData == null || jsonData.@params == null)
             {
-                Debug.LogWarning($"[VoxelCharacter] Failed to parse {animPath} — using default animation.");
+                Debug.LogWarning($"[VoxelCharacter] Failed to parse anim params — using default animation.");
                 return;
             }
 
@@ -340,7 +394,7 @@ namespace SteelCity.Sim
             var wkf = p.walkKeyframes;
             if (wkf == null)
             {
-                Debug.LogWarning($"[VoxelCharacter] {animFileName} has no walkKeyframes — using default animation.");
+                Debug.LogWarning($"[VoxelCharacter] No walkKeyframes in anim params — using default animation.");
                 return;
             }
 
@@ -423,12 +477,13 @@ namespace SteelCity.Sim
             var walkConfig = new Vector4(wkf.cycleDuration, bobAmp, shiftAmp, autoMirror ? 1f : 0f);
 
             chunkManager.SetWalkKeyframes(assetFileName, kfs, jc, walkConfig);
-            Debug.Log($"[VoxelCharacter] Animation parameters loaded from {animFileName} — keyframe walk enabled");
+            Debug.Log($"[VoxelCharacter] Animation parameters loaded — keyframe walk enabled");
 
             // Authored per-model pivots — JsonUtility can't parse the int-keyed "pivots" dict,
             // so parse it manually. Without this, the shader falls back to a hardcoded
             // fractional pivot approximation that only matches the original hoodlum proportions.
-            var pivotDict = ParsePivotsManual(jsonText);
+            // Use animJsonText (synthetic or legacy) so we parse the right section.
+            var pivotDict = ParsePivotsManual(animJsonText);
             if (pivotDict.Count > 0)
             {
                 // Fallback fractions matching the shader's hardcoded approximation — used for
@@ -454,12 +509,12 @@ namespace SteelCity.Sim
                         pivotArray[i] = new Vector4(fv.x, fv.y, fv.z, 0);
                 }
                 chunkManager.SetPivots(assetFileName, pivotArray);
-                Debug.Log($"[VoxelCharacter] Authored pivots loaded from {animFileName} — {pivotDict.Count} groups");
+                Debug.Log($"[VoxelCharacter] Authored pivots loaded — {pivotDict.Count} groups");
             }
 
             // Pack and upload static animation params (looking/aiming/crouching/jointOffset)
             // as 12 float4s for the GPU shader.
-            var jointOffsets = ParseJointOffsetsManual(jsonText);
+            var jointOffsets = ParseJointOffsetsManual(animJsonText);
             var asp = new Vector4[12];
             // [0] = looking params
             var lp = p.looking;
@@ -496,6 +551,25 @@ namespace SteelCity.Sim
             }
             chunkManager.SetAnimStaticParams(assetFileName, asp);
             Debug.Log($"[VoxelCharacter] Static anim params packed and uploaded (looking/aiming/crouching/jointOffset)");
+        }
+
+        /// <summary>
+        /// Extract the "pivots" sub-object as raw JSON string from a consolidated .character.json.
+        /// </summary>
+        private static string ExtractPivotsRaw(string json)
+        {
+            int idx = json.IndexOf("\"pivots\"");
+            if (idx < 0) return null;
+            int start = json.IndexOf('{', idx);
+            if (start < 0) return null;
+
+            int depth = 0;
+            for (int i = start; i < json.Length; i++)
+            {
+                if (json[i] == '{') depth++;
+                else if (json[i] == '}') { depth--; if (depth == 0) return json.Substring(start, i - start + 1); }
+            }
+            return null;
         }
 
         /// <summary>

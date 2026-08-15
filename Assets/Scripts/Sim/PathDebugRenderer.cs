@@ -47,6 +47,8 @@ namespace SteelCity.Sim
 
         public void SetDebugGraph(WaypointGraph graph) => debugGraph = graph;
 
+        public bool DebugEnabled => showWaypointGraph;
+
         [Header("Render")]
         [SerializeField] private Camera targetCamera;
 
