@@ -242,6 +242,16 @@
   - Environment factors (cover, crowds, time of day)
   - No player micromanagement — hoods use their stats
 
+**Weapon & Item Models:**
+- **`docs/systems/WEAPON_ITEM_MODEL_STANDARD.md`** — Voxel modeling standards for weapons, items, and props
+  - Voxel scale: 0.01m/voxel (same as upscaled characters)
+  - Weapon classes: revolver (base Pistol), M1911A1 (Twin Pistols), Tommy Gun, rifle, shotgun, melee
+  - Orientation conventions (barrel +X, grip +Y)
+  - Default dims [24, 16, 8] validated against character hand size
+  - Material palette for weapons (gunmetal, wood, brass)
+  - Character hand attachment approach (compositing vs separate render)
+  - Voxel editor "Item / Decor" asset type setup
+
 **Crime & Squeal:**
 - **`docs/systems/CRIME_SQUEAL.md`** — Crime escalation and consequences
   - Crime table with suspicion/sentence/investigation values
@@ -305,7 +315,7 @@
   - Architecture diagram: standard Unity pipeline vs Steel City voxel pipeline
   - Debugging tips for invisible/stuck/missing characters
 
-**Keywords**: systems, character, spawning, instancing, hoodspawner, characterrig, animationtest, stresstest, clothing, pedestrian, voxelcharacter, characteranimation, clothingsystem, pedestrianlookaround, gpu, sharedbuffer, posedbuffer, consolidated json, upscale, extortion, territory, intelligence, corruption, police, combat, crime, squeal, 3d, rendering, visualization, camera, playtesting, insights, fear, hostility, legal, diplomacy, path, debug, beams, commandbuffer, instanced, voxel, gotchas, pitfalls, collision, probe, terrain, flat-array, aliasing, animation, shader, raymarch, dda, inverse-transform, groupid, stance, characteranimation, refactoring, extraction, modular, file size, citymap, chunkmanager, buildingloader, sectorbakery, activeinhierarchy, drawmeshinstanced, computebuffer, unregister, frustum
+**Keywords**: systems, character, spawning, instancing, hoodspawner, characterrig, animationtest, stresstest, clothing, pedestrian, voxelcharacter, characteranimation, clothingsystem, pedestrianlookaround, gpu, sharedbuffer, posedbuffer, consolidated json, upscale, extortion, territory, intelligence, corruption, police, combat, crime, squeal, 3d, rendering, visualization, camera, playtesting, insights, fear, hostility, legal, diplomacy, path, debug, beams, commandbuffer, instanced, voxel, gotchas, pitfalls, collision, probe, terrain, flat-array, aliasing, animation, shader, raymarch, dda, inverse-transform, groupid, stance, characteranimation, refactoring, extraction, modular, file size, citymap, chunkmanager, buildingloader, sectorbakery, activeinhierarchy, drawmeshinstanced, computebuffer, unregister, frustum, weapon, item, prop, decor, revolver, pistol, m1911, tommy gun, rifle, shotgun, voxel editor, asset type, gunmetal, attachment, hand
 
 ---
 

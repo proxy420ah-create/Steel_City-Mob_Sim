@@ -216,6 +216,7 @@ body.ui-hidden #ui-hidden-hint { display:block; }
   <select id="asset-type-select" title="Asset Type — sets the real-world voxel size stored in this model's JSON (see MOB_SIM_SCALE_STANDARD.md)" style="background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:4px;padding:3px 6px;font-size:11px;">
     <option value="building">🏢 Building (0.1m/voxel)</option>
     <option value="character">🧍 Character (0.02m/voxel)</option>
+    <option value="prop">🔫 Item / Decor (0.01m/voxel)</option>
   </select>
   <div class="tool-sep"></div>
   <span class="tool-label">Tools:</span>
@@ -723,6 +724,9 @@ let allMaterials = [{"id": 100, "name": "Red Brick", "r": 147, "g": 66, "b": 51,
 function tagMaterialCategories(list) {
   for (const m of list) {
     if (m.category === undefined) m.category = m.id >= 125 ? 'character' : 'building';
+    // Materials useful for props/weapons (Dark Iron, Aged Metal, Gold/Brass, woods)
+    // are already in the building palette (ids 106-109, 123) and accessible via
+    // the 'Show all' checkbox. No separate prop material category needed.
   }
 }
 tagMaterialCategories(allMaterials);
@@ -739,7 +743,7 @@ let W = 96, H = 68, D = 96;
 const ASSET_TYPE_PRESETS = {
   building: { label: 'Building', icon: '🏢', voxelSize: 0.1, defaultDims: [96, 68, 96] },
   character: { label: 'Character', icon: '🧍', voxelSize: 0.02, defaultDims: [16, 32, 10] },
-  // 'prop' (weapons/items) intentionally not added yet — voxel size TBD.
+  prop: { label: 'Item / Decor', icon: '🔫', voxelSize: 0.01, defaultDims: [24, 16, 8] },
 };
 let assetType = 'building'; // matches the startup W/H/D above
 
@@ -748,7 +752,10 @@ let assetType = 'building'; // matches the startup W/H/D above
 // span a full city lot and are much larger. Not authoritative — the user can
 // always correct it via the selector.
 function inferAssetType(w, h, d) {
-  return Math.max(w, h, d) <= 40 ? 'character' : 'building';
+  const maxDim = Math.max(w, h, d);
+  if (maxDim <= 20) return 'prop';
+  if (maxDim <= 40) return 'character';
+  return 'building';
 }
 
 // World-space render origin for voxel index (0,0,0). X/Z are "centered" axes —
