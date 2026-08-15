@@ -252,6 +252,16 @@
   - Character hand attachment approach (compositing vs separate render)
   - Voxel editor "Item / Decor" asset type setup
 
+**Weapon Attachment & Grip Points:**
+- **`docs/systems/WEAPON_ATTACHMENT_SYSTEM.md`** — Voxel-painted attachment point system for weapon-to-hand alignment
+  - Painted marker voxels define named points (grip_right, muzzle, cheek_weld, etc.)
+  - Data-driven: stored as `attachmentPoints` in weapon and character JSON
+  - Runtime alignment: weapon grip point → character posed hand position via FK
+  - One-handed (pistol) and two-handed (rifle) alignment modes
+  - Rotation derived from muzzle→grip vector (forward) and grip_left→grip_right vector (up)
+  - Grip pose integration with existing AIM_WEAPON_PRESETS system
+  - Editor painting tool plan + Unity implementation phases
+
 **Crime & Squeal:**
 - **`docs/systems/CRIME_SQUEAL.md`** — Crime escalation and consequences
   - Crime table with suspicion/sentence/investigation values
