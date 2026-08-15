@@ -17,7 +17,7 @@ This document defines the voxel modeling standards for all non-building, non-cha
 |------------|-----------|--------------|---------|
 | Building | 0.1m/voxel | 96×68×96 | City structures |
 | Character | 0.01m/voxel | 96×96×96 | All character entities |
-| **Item / Decor** | **0.01m/voxel** | **24×16×8** (default) | Weapons, props, decorations |
+| **Item / Decor** | **0.01m/voxel** | **24×12×6** (default) | Weapons, props, decorations |
 
 **Why 0.01m/voxel for items:**
 - A Colt Detective Special revolver is ~17cm long → 17 voxels — enough resolution for cylinder, barrel, grip, trigger guard
@@ -25,10 +25,10 @@ This document defines the voxel modeling standards for all non-building, non-cha
 - At 0.01m/voxel, items get double the resolution while remaining small enough to model quickly
 - Characters and items share the same voxel scale → weapon models can be composited into character models without scale conversion
 
-**Default dims [24, 16, 8] at 0.01m/voxel:**
-- X=24 → 24cm (enough for a Tommy Gun barrel assembly or a rifle lying flat)
-- Y=16 → 16cm (enough for a revolver standing on its grip)
-- Z=8 → 8cm (depth — enough for a cylinder diameter or stock thickness)
+**Default dims [24, 12, 6] at 0.01m/voxel:**
+- X=24 → 24cm (barrel length — enough for a revolver or M1911A1 lying flat)
+- Y=12 → 12cm (side profile height — frame top to grip bottom)
+- Z=6 → 6cm (thickness — cylinder/grip width viewed from top)
 
 ---
 
@@ -88,30 +88,50 @@ The base "Pistol" in Steel City is a **Colt Detective Special** or **Smith & Wes
 
 ## 4. Orientation Conventions
 
-### Weapons (handheld)
+### Weapons (handheld) — Lying Flat (Canonical)
+
+Weapons are authored **lying flat on the ground plane** — this is the default world state for a dropped weapon and the easiest orientation to model (recognizable side silhouette in XY).
 
 ```
-        BARREL POINTS +X
-        ────────────────►
-        
-        Z (depth, thin)
-        │
-        │  ┌─────────────────┐
-        │ │                 │
-        │ │   CYLINDER      │  ← Y (height, grip vertical)
-        │ │                 │
-        │  └──┐         ┌───┘
-        │     │  GRIP   │
-        │     │  (angled)│
-        │     └─────────┘
-        │
-        └─── X (length, barrel direction)
+    SIDE PROFILE (XY plane — what you see looking down at the gun)
+    
+    Y (side profile height)
+    ↑
+    │   ┌──────┬───────────┐
+    │   │HAMMER│  BARREL   │
+    │   └──┬───┴───────────┘
+    │      │  CYLINDER      │
+    │   ┌──┴───────────────┐
+    │   │   FRAME / GRIP   │
+    │   └──────────────────┘
+    │
+    └─────────────────────────► X (length, barrel direction)
+    
+    Z (thickness — into the page, 4-6 voxels for a revolver)
 ```
 
-- **+X** = barrel/muzzle direction (forward)
-- **+Y** = grip up (top of weapon)
-- **+Z** = thin axis (side profile width)
+- **+X** = barrel/muzzle direction (forward) — length axis
+- **+Y** = side profile height (frame top to grip bottom) — visible from above
+- **+Z** = thickness (cylinder/grip width viewed from top) — thin axis
+- Bottom of model sits at Y=0 (floor-anchored, same as all other asset types)
 - Grip center should be at a known offset for attachment to character hand
+
+**Why lying flat:**
+- Dropped weapons lie flat — that's the default world state
+- Side profile is the recognizable silhouette (barrel, cylinder, grip) — easiest to model in XY
+- Hand attachment uses a transform rotation anyway — no extra cost vs standing orientation
+- Consistent with props convention: +Y is up, bottom at Y=0
+
+**Recommended dims per weapon class (lying flat):**
+
+| Weapon | Dims (X×Y×Z) | Notes |
+|--------|-------------|-------|
+| Revolver (S&W Model 10) | 24×12×6 | 17cm barrel length, 12cm side profile, 6cm thick |
+| M1911A1 | 24×14×6 | 21cm length, slightly taller slide profile |
+| Tommy Gun | 90×25×10 | 81cm with drum magazine, needs larger grid |
+| Rifle | 120×20×8 | 110cm long, thin profile |
+| Shotgun | 110×20×8 | 100cm long, similar to rifle |
+| Knife (open) | 25×8×3 | 25cm open, thin blade |
 
 ### Props (cover, decorations)
 
