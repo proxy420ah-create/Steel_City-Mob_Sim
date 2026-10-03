@@ -2,6 +2,7 @@
   "format": "steelcity_character",
   "version": 1,
   "name": "Vinny",
+  "voxelSize": 0.01,
   "dims": [
     96,
     96,

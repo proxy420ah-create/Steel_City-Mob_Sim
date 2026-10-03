@@ -21,8 +21,10 @@ What gets scaled:
     - voxels: [[x,y,z,mid], ...] -> each voxel becomes N^3 voxels
     - groups: {"x,y,z": gid} -> keys scaled by N
     - regions: {"x,y,z": rid} -> keys scaled by N
+    - itemParts: {"x,y,z": pid} -> keys scaled by N (attachment points on items)
     - jointOffset: voxel-space offsets -> multiplied by N
     - crouching.modelLower: voxel-space offset -> multiplied by N
+    - voxelSize: divided by N (world size stays constant as density rises)
 
 What stays the same (normalized 0-1 or angle-based):
     - pivots: {x,y,z} fractions of dims — already resolution-independent
@@ -106,6 +108,18 @@ def upscale(data, n):
         old_count = len(data["regions"])
         data["regions"] = upscale_key_dict(data["regions"], n)
         print(f"  Upscaling regions: {old_count} -> {len(data['regions'])}")
+
+    # Item parts (attachment points on weapons/props)
+    if "itemParts" in data and data["itemParts"]:
+        old_count = len(data["itemParts"])
+        data["itemParts"] = upscale_key_dict(data["itemParts"], n)
+        print(f"  Upscaling itemParts: {old_count} -> {len(data['itemParts'])}")
+
+    # voxelSize — physical size stays constant as voxel density increases
+    if isinstance(data.get("voxelSize"), (int, float)):
+        old_vs = data["voxelSize"]
+        data["voxelSize"] = old_vs / n
+        print(f"  voxelSize: {old_vs} -> {data['voxelSize']}")
 
     # Pivots — normalized 0-1, NO CHANGE
     # (Already resolution-independent)

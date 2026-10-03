@@ -878,6 +878,7 @@ function applyWeaponPreset(type) {
 
 // Voxel data
 let W = 16, H = 32, D = 10;
+let voxelSize = 0.01; // world units per voxel (matches Unity VoxelCharacter.cs)
 const voxelMap = new Map();  // "x,y,z" -> materialId
 const groupMap = new Map();  // "x,y,z" -> groupId (default 0)
 const regionMap = new Map(); // "x,y,z" -> clothing regionId (from editor)
@@ -888,8 +889,9 @@ let bodyGroupDefs = GROUPS.map(g => ({ id: g.id, name: g.name, color: g.color })
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0a0a14);
 
-const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 5000);
-camera.position.set(W * 3, H * 2, D * 3);
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.001, 500);
+// Camera frames the model at its real-world scale (dims * voxelSize)
+camera.position.set(W * voxelSize * 3, H * voxelSize * 2, D * voxelSize * 3);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -899,15 +901,15 @@ document.getElementById('canvas-container').appendChild(renderer.domElement);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.1;
-controls.target.set(0, H / 2, 0);
+controls.target.set(0, H * voxelSize / 2, 0);
 
 // Lighting
 scene.add(new THREE.AmbientLight(0x666688, 0.6));
 const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
-dirLight.position.set(W, H * 2, D);
+dirLight.position.set(W * voxelSize, H * voxelSize * 2, D * voxelSize);
 scene.add(dirLight);
 const dirLight2 = new THREE.DirectionalLight(0x88aaff, 0.4);
-dirLight2.position.set(-W, H, -D);
+dirLight2.position.set(-W * voxelSize, H * voxelSize, -D * voxelSize);
 scene.add(dirLight2);
 
 // Grid floor — rebuildable so it matches the CURRENT W/H/D after a model is
@@ -920,18 +922,13 @@ function buildGridHelper() {
     gridHelper.geometry.dispose();
     gridHelper.material.dispose();
   }
-  // Cell pitch MUST be 1 unit to match voxel size — divisions must equal
-  // size, otherwise cell width drifts from actual voxel spacing (this was
-  // the bug: size=max(W,D)*4, divisions=max(W,D) gave a 4-unit cell).
-  const gridExtent = Math.max(W, D) * 2;
-  gridHelper = new THREE.GridHelper(gridExtent, gridExtent, 0x444466, 0x222244);
-  // -0.5 on X/Z so grid lines land on voxel boundaries instead of centers
-  // (voxels are unit cubes centered on integer coords). -0.5 on Y so the
-  // grid sits at the BOTTOM FACE of Y=0 voxels (ground surface), not
-  // their center — matches the convention used in voxel_editor.html.
-  // The model is always rendered centered at world origin here (px = v.x
-  // - W/2), so the volume center is world (0,0,0) — no extra offset needed.
-  gridHelper.position.set(-0.5, -0.5, -0.5);
+  // Grid extent in world units = voxel count * voxelSize. Divisions = voxel
+  // count so each cell is exactly voxelSize wide (one voxel per cell).
+  const maxDim = Math.max(W, D);
+  const gridExtent = maxDim * voxelSize * 2;
+  gridHelper = new THREE.GridHelper(gridExtent, maxDim * 2, 0x444466, 0x222244);
+  // Offset by half a voxel so grid lines land on voxel boundaries.
+  gridHelper.position.set(-voxelSize * 0.5, -voxelSize * 0.5, -voxelSize * 0.5);
   scene.add(gridHelper);
 }
 let gridHelper = null;
@@ -942,11 +939,9 @@ let compassGroup = null;
 function buildCompass() {
   if (compassGroup) scene.remove(compassGroup);
   const grp = new THREE.Group();
-  // Sit at the volume's ground-level center (world origin here), with the
-  // same -0.5 correction as the grid so it lines up with the actual voxel
-  // bounds instead of drifting half a voxel off.
-  grp.position.set(-0.5, -0.5, -0.5);
-  const L = Math.max(W, H, D) * 0.5;
+  // Sit at the volume's ground-level center, offset by half a voxel.
+  grp.position.set(-voxelSize * 0.5, -voxelSize * 0.5, -voxelSize * 0.5);
+  const L = Math.max(W, H, D) * voxelSize * 0.5;
   const mkAxis = (color, dir) => {
     const geo = new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(0, 0, 0), dir.clone().multiplyScalar(L)
@@ -1005,9 +1000,14 @@ function showHighlight(positions, color) {
   const count = positions.length;
   const mat = new THREE.MeshBasicMaterial({ color, opacity: 0.35, transparent: true, depthWrite: false });
   hlMesh = new THREE.InstancedMesh(hlGeo, mat, count);
+  const vs = voxelSize;
   for (let i = 0; i < count; i++) {
     const [x, y, z] = positions[i];
-    dummyMatrix.setPosition(x - W / 2, y, z - D / 2);
+    dummyMatrix.compose(
+      new THREE.Vector3((x - W / 2) * vs, y * vs, (z - D / 2) * vs),
+      new THREE.Quaternion(),
+      new THREE.Vector3(vs, vs, vs)
+    );
     hlMesh.setMatrixAt(i, dummyMatrix);
   }
   hlMesh.instanceMatrix.needsUpdate = true;
@@ -1044,9 +1044,14 @@ function rebuildMesh() {
   instancedMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3);
 
   const color = new THREE.Color();
+  const vs = voxelSize;
   for (let i = 0; i < count; i++) {
     const v = voxels[i];
-    dummyMatrix.setPosition(v.x - W / 2, v.y, v.z - D / 2);
+    dummyMatrix.compose(
+      new THREE.Vector3((v.x - W / 2) * vs, v.y * vs, (v.z - D / 2) * vs),
+      new THREE.Quaternion(),
+      new THREE.Vector3(vs, vs, vs)
+    );
     instancedMesh.setMatrixAt(i, dummyMatrix);
     if (viewMode === 'group') {
       color.copy(GROUP_COLORS[v.gid] || GROUP_COLORS[0]);
@@ -1066,7 +1071,11 @@ function rebuildMesh() {
     edgesMesh = new THREE.InstancedMesh(edgesGeo, edgesMat, count);
     for (let i = 0; i < count; i++) {
       const v = voxels[i];
-      dummyMatrix.setPosition(v.x - W / 2, v.y, v.z - D / 2);
+      dummyMatrix.compose(
+        new THREE.Vector3((v.x - W / 2) * vs, v.y * vs, (v.z - D / 2) * vs),
+        new THREE.Quaternion(),
+        new THREE.Vector3(vs, vs, vs)
+      );
       edgesMesh.setMatrixAt(i, dummyMatrix);
     }
     edgesMesh.instanceMatrix.needsUpdate = true;
@@ -1091,12 +1100,12 @@ function buildPivotGizmos() {
     const g = getGroupById(gid);
     const color = g ? g.color : '#888';
     const isHinge = gid >= 6; // elbows/knees use smaller gizmos
-    const sphereR = isHinge ? 0.5 : 0.8;
-    const ringR = isHinge ? 1.0 : 1.5;
+    const sphereR = (isHinge ? 0.5 : 0.8) * voxelSize;
+    const ringR = (isHinge ? 1.0 : 1.5) * voxelSize;
 
-    const px = p.x * W - W / 2;
-    const py = p.y * H;
-    const pz = p.z * D - D / 2;
+    const px = (p.x * W - W / 2) * voxelSize;
+    const py = p.y * H * voxelSize;
+    const pz = (p.z * D - D / 2) * voxelSize;
 
     const sphereGeo = new THREE.SphereGeometry(sphereR, 8, 8);
     const sphereMat = new THREE.MeshBasicMaterial({ color });
@@ -1104,7 +1113,7 @@ function buildPivotGizmos() {
     sphere.position.set(px, py, pz);
     pivotGroup.add(sphere);
 
-    const ringGeo = new THREE.TorusGeometry(ringR, 0.15, 4, 16);
+    const ringGeo = new THREE.TorusGeometry(ringR, 0.15 * voxelSize, 4, 16);
     const ringMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.5 });
     const ring = new THREE.Mesh(ringGeo, ringMat);
     ring.position.set(px, py, pz);
@@ -1568,7 +1577,7 @@ function rebuildAnimatedMesh() {
 
   const color = new THREE.Color();
   const dims = [W, H, D];
-  const voxelSize = 1.0; // 1 unit per voxel in editor
+  const vs = voxelSize;
 
   for (let i = 0; i < count; i++) {
     const v = voxels[i];
@@ -1579,7 +1588,7 @@ function rebuildAnimatedMesh() {
     // Apply group transform (hierarchical transform chain for child groups).
     // gid >= 0 includes group 0 (body) which gets torso twist when aiming.
     if (v.gid >= 0) {
-      const result = computeGroupRotation(v.gid, dims, voxelSize, currentAnimState, animTime, animSpeed);
+      const result = computeGroupRotation(v.gid, dims, 1.0, currentAnimState, animTime, animSpeed);
       if (result && result.chain) {
         // Apply each transform in the chain in order (leaf to root).
         // This is forward kinematics: child bend first, then parent
@@ -1603,7 +1612,12 @@ function rebuildAnimatedMesh() {
       py += bodyBobY;
     }
 
-    dummyMatrix.setPosition(px, py, pz);
+    // Scale to world units and set matrix with voxelSize scale
+    dummyMatrix.compose(
+      new THREE.Vector3(px * vs, py * vs, pz * vs),
+      new THREE.Quaternion(),
+      new THREE.Vector3(vs, vs, vs)
+    );
     animMesh.setMatrixAt(i, dummyMatrix);
 
     if (viewMode === 'group') {
@@ -1648,7 +1662,11 @@ function rebuildAnimatedMesh() {
         py += bodyBobY;
       }
 
-      dummyMatrix.setPosition(px, py, pz);
+      dummyMatrix.compose(
+        new THREE.Vector3(px * vs, py * vs, pz * vs),
+        new THREE.Quaternion(),
+        new THREE.Vector3(vs, vs, vs)
+      );
       animEdgesMesh.setMatrixAt(i, dummyMatrix);
     }
     animEdgesMesh.instanceMatrix.needsUpdate = true;
@@ -1657,7 +1675,7 @@ function rebuildAnimatedMesh() {
 }
 
 // === RAYCASTING ===
-const planeGeo = new THREE.PlaneGeometry(W * 4, D * 4);
+const planeGeo = new THREE.PlaneGeometry(W * voxelSize * 4, D * voxelSize * 4);
 planeGeo.rotateX(-Math.PI / 2);
 const groundPlane = new THREE.Mesh(planeGeo, new THREE.MeshBasicMaterial({ visible: false }));
 groundPlane.position.set(0, 0, 0);
@@ -1681,8 +1699,8 @@ function raycastVoxel(event) {
   const hit = intersects[0];
   if (hit.object === groundPlane) {
     const p = hit.point;
-    const x = Math.floor(p.x + W / 2);
-    const z = Math.floor(p.z + D / 2);
+    const x = Math.floor(p.x / voxelSize + W / 2);
+    const z = Math.floor(p.z / voxelSize + D / 2);
     return { x, y: 0, z, normal: new THREE.Vector3(0, 1, 0) };
   }
 
@@ -2316,11 +2334,13 @@ document.getElementById('play-btn').onclick = function() {
   isPlaying = !isPlaying;
   this.textContent = isPlaying ? '▶' : '⏸';
   this.classList.toggle('active', isPlaying);
+  lastFrameTime = performance.now(); // prevent time jump after pause
 };
 
 document.getElementById('stop-btn').onclick = function() {
   isPlaying = false;
   animTime = 0;
+  lastFrameTime = performance.now();
   document.getElementById('play-btn').textContent = '▶';
   document.getElementById('play-btn').classList.remove('active');
   if (useAnimatedMesh) rebuildAnimatedMesh();
@@ -2333,6 +2353,7 @@ document.getElementById('speed-slider').oninput = function(e) {
 
 document.getElementById('timeline-slider').oninput = function(e) {
   animTime = parseFloat(e.target.value);
+  lastFrameTime = performance.now();
   document.getElementById('timeline-time').textContent = animTime.toFixed(2) + 's';
   if (useAnimatedMesh) rebuildAnimatedMesh();
 };
@@ -2346,8 +2367,8 @@ document.getElementById('grid-btn').onclick = function() {
 
 // Reset view
 document.getElementById('reset-btn').onclick = () => {
-  camera.position.set(W * 3, H * 2, D * 3);
-  controls.target.set(0, H / 2, 0);
+  camera.position.set(W * voxelSize * 3, H * voxelSize * 2, D * voxelSize * 3);
+  controls.target.set(0, H * voxelSize / 2, 0);
   controls.update();
 };
 
@@ -2542,6 +2563,7 @@ window.saveProject = () => {
     version: 1,
     name: trimmed.replace(/\.character\.json$/, ''),
     dims: [W, H, D],
+    voxelSize: voxelSize,
     materials: allMaterials,
     voxels: Array.from(voxelMap.entries()).map(([k, v]) => {
       const [x, y, z] = k.split(',').map(Number);
@@ -2575,6 +2597,7 @@ window.loadProject = (event) => {
       const data = JSON.parse(e.target.result);
       if (!data.dims || !data.voxels) throw new Error('Invalid project file');
       W = data.dims[0]; H = data.dims[1]; D = data.dims[2];
+      if (data.voxelSize) voxelSize = data.voxelSize;
       voxelMap.clear();
       groupMap.clear();
       regionMap.clear();
@@ -2614,6 +2637,11 @@ window.loadProject = (event) => {
       }
       buildPivotControls();
       buildParamControls();
+      buildGridHelper();
+      buildCompass();
+      camera.position.set(W * voxelSize * 3, H * voxelSize * 2, D * voxelSize * 3);
+      controls.target.set(0, H * voxelSize / 2, 0);
+      controls.update();
       if (useAnimatedMesh) rebuildAnimatedMesh(); else rebuildMesh();
       updateGroupCounts();
       setStatus(`Loaded project: ${data.voxels.length} voxels`);
@@ -2730,6 +2758,7 @@ window.addEventListener('resize', () => {
 // === FPS ===
 let lastTime = performance.now();
 let frameCount = 0;
+let lastFrameTime = performance.now(); // for delta time in animation
 
 // === GAIT INSPECTOR ===
 let gaitInspectorVisible = false;
@@ -2823,7 +2852,14 @@ function animate() {
   controls.update();
 
   if (isPlaying && useAnimatedMesh) {
-    animTime += 0.016 * animSpeed;
+    // Use real delta time (matching Unity's Time.deltaTime) so animation
+    // speed is frame-rate independent and consistent with the engine.
+    // animSpeed is NOT multiplied into animTime here — it only affects
+    // walk cycle duration via getWalkPose(), matching CharacterAnimation.cs.
+    const now = performance.now();
+    const dt = Math.min((now - lastFrameTime) / 1000, 0.1); // clamp to 100ms
+    lastFrameTime = now;
+    animTime += dt;
     document.getElementById('timeline-slider').value = animTime % 10;
     document.getElementById('timeline-time').textContent = (animTime % 10).toFixed(2) + 's';
     rebuildAnimatedMesh();
@@ -2925,6 +2961,7 @@ function createDefaultCharacter() {
 // alignment for free, with no chance of the two paths drifting apart again.
 function loadCharacterData(data, sourceLabel) {
   if (data.dims) { W = data.dims[0]; H = data.dims[1]; D = data.dims[2]; }
+  if (data.voxelSize) { voxelSize = data.voxelSize; }
 
   voxelMap.clear();
   if (data.voxels) {
@@ -2998,8 +3035,8 @@ function loadCharacterData(data, sourceLabel) {
   // placeholder dims, never matched a freshly imported model's actual size.
   buildGridHelper();
   buildCompass();
-  camera.position.set(W * 3, H * 2, D * 3);
-  controls.target.set(0, H / 2, 0);
+  camera.position.set(W * voxelSize * 3, H * voxelSize * 2, D * voxelSize * 3);
+  controls.target.set(0, H * voxelSize / 2, 0);
   controls.update();
 
   if (useAnimatedMesh) rebuildAnimatedMesh(); else rebuildMesh();

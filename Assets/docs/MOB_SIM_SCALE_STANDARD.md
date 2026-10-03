@@ -20,9 +20,9 @@ The Mob Sim has its own micro universe where NPC wise guys (0.64m tall) are the 
 | Constant | Value | Description |
 |---|---|---|
 | `BUILDING_VOXEL_SIZE` | 0.1m | World units per building voxel |
-| `CHAR_VOXEL_SIZE` | 0.02m | World units per character voxel |
+| `CHAR_VOXEL_SIZE` | 0.01m | World units per character voxel (halved Aug 14, 2026 when models upscaled 48³→96³; physical size unchanged) |
 | `SCALE_RATIO` | 3.75 | Real-world size ÷ Mob Sim size |
-| `NPC_HEIGHT` | 0.64m | Wise guy height (32 char voxels) |
+| `NPC_HEIGHT` | 0.64m | Wise guy height (64 char voxels) |
 | `NPC_HEIGHT` | 6.4 building voxels | Same height in building voxel grid |
 
 ## Conversion Formulas
@@ -30,7 +30,7 @@ The Mob Sim has its own micro universe where NPC wise guys (0.64m tall) are the 
 ```
 Mob Sim meters = Real meters ÷ 3.75
 Building voxels = Mob Sim meters ÷ 0.1
-Character voxels = Mob Sim meters ÷ 0.02
+Character voxels = Mob Sim meters ÷ 0.01
 ```
 
 ## Standard Door Sizes
@@ -45,7 +45,7 @@ Character voxels = Mob Sim meters ÷ 0.02
 
 | Object | Voxels | Mob Sim Size | Real Equivalent |
 |---|---|---|---|
-| 🧍 NPC Wise Guy | 3×5×2 (ref) / 16×32×10 (full) | 0.32m × 0.64m | 0.9m × 1.8m |
+| 🧍 NPC Wise Guy | 3×5×2 (ref) / 96³ volume, ~62 voxels tall (full) | 0.32m × 0.64m | 0.9m × 1.8m |
 | 🚪 Standard Door | 4×4×2 | 0.4m × 0.4m | 1.5m × 1.5m |
 | 🗑️ Trash Can | 5×3×5 | 0.4m × 0.3m | 0.6m × 1.0m |
 | 🪑 Bench | 8×1×3 | 0.8m × 0.1m | 3.0m × 0.5m |
@@ -72,7 +72,7 @@ Character voxels = Mob Sim meters ÷ 0.02
 
 ## Relationship to Steel Tide FPS Scale
 
-The VoxelAssetStudio has a separate reference system for the FPS game (8 voxels/meter, 1.8m human). The Mob Sim uses its own system (10 voxels/meter for buildings, 50 voxels/meter for characters, 0.64m NPC). These are **independent** — do not mix scales.
+The VoxelAssetStudio has a separate reference system for the FPS game (8 voxels/meter, 1.8m human). The Mob Sim uses its own system (10 voxels/meter for buildings, 100 voxels/meter for characters, 0.64m NPC). These are **independent** — do not mix scales.
 
 ## File References
 
@@ -80,4 +80,4 @@ The VoxelAssetStudio has a separate reference system for the FPS game (8 voxels/
 - **Building generators**: `VoxelAssetStudio/procedural_mob_buildings.py`
 - **Character generators**: `VoxelAssetStudio/procedural_mob_characters.py`
 - **Materials**: `VoxelAssetStudio/mob_materials.py`
-- **Unity voxel size**: `CityMap3D.cs` → `voxelSize = 0.1f`, `characterVoxelSize = 0.02f`
+- **Unity voxel size**: `CityMap3D.cs` → `voxelSize = 0.1f`, `characterVoxelSize = 0.01f`

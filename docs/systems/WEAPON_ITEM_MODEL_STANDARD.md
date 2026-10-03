@@ -7,7 +7,7 @@
 
 ## 1. Overview
 
-This document defines the voxel modeling standards for all non-building, non-character assets in Steel City: weapons, throwables, cover props, map decorations, and vehicle debris. These assets use a dedicated "Item / Decor" asset type in the voxel editor at 0.01m/voxel — the same voxel scale as upscaled characters (96³ at 0.01m/voxel), enabling direct compositing of weapon models into character hand regions without scale conversion.
+This document defines the voxel modeling standards for all non-building, non-character assets in Steel City: weapons, throwables, cover props, map decorations, and vehicle debris. These assets use a dedicated "Item / Decor" asset type in the voxel editor at 0.005m/voxel — twice the density of upscaled characters (96³ at 0.01m/voxel) — for detailed weapon modeling. Because item and character voxel scales differ, weapons attach to hands via **transform-based alignment** (attachment points + FK pose, see `WEAPON_ATTACHMENT_SYSTEM.md`) rather than direct buffer compositing. Every model file self-describes its scale via the `voxelSize` JSON field.
 
 ---
 
@@ -17,18 +17,18 @@ This document defines the voxel modeling standards for all non-building, non-cha
 |------------|-----------|--------------|---------|
 | Building | 0.1m/voxel | 96×68×96 | City structures |
 | Character | 0.01m/voxel | 96×96×96 | All character entities |
-| **Item / Decor** | **0.01m/voxel** | **24×12×6** (default) | Weapons, props, decorations |
+| **Item / Decor** | **0.005m/voxel** | **48×26×10** (default) | Weapons, props, decorations |
 
-**Why 0.01m/voxel for items:**
-- A Colt Detective Special revolver is ~17cm long → 17 voxels — enough resolution for cylinder, barrel, grip, trigger guard
-- At character scale (0.02m/voxel pre-upscale), the same pistol would be ~8 voxels — too blocky for a held weapon
-- At 0.01m/voxel, items get double the resolution while remaining small enough to model quickly
-- Characters and items share the same voxel scale → weapon models can be composited into character models without scale conversion
+**Why 0.005m/voxel for items (raised Oct 2, 2026):**
+- A S&W Model 10 (~24cm long) is 48 voxels — enough resolution for cylinder, ejector rod, hammer, trigger guard, front sight, and a shaped grip
+- At 0.01m/voxel the same pistol was 24 voxels — too coarse to distinguish the cylinder from the frame or fit a trigger inside the guard
+- Per-file `voxelSize` means item scale is a per-model decision, not a global constant — mixing 0.01 and 0.005 items is valid
+- Item scale differs from character scale on purpose: weapons align to hands via attachment-point transforms, so no scale conversion shortcut is needed
 
-**Default dims [24, 12, 6] at 0.01m/voxel:**
-- X=24 → 24cm (barrel length — enough for a revolver or M1911A1 lying flat)
-- Y=12 → 12cm (side profile height — frame top to grip bottom)
-- Z=6 → 6cm (thickness — cylinder/grip width viewed from top)
+**Default dims [48, 26, 10] at 0.005m/voxel:**
+- X=48 → 24cm (barrel length — enough for a revolver or M1911A1 lying flat)
+- Y=26 → 13cm (side profile height — frame top to grip bottom)
+- Z=10 → 5cm (thickness — cylinder is the widest part)
 
 ---
 
@@ -38,25 +38,28 @@ This document defines the voxel modeling standards for all non-building, non-cha
 
 | Weapon | Game Entry | Real-World Basis | Approx. Length | Voxel Length |
 |--------|-----------|-----------------|----------------|-------------|
-| Pistol | "Pistol" | Colt Detective Special / S&W Model 10 (revolver, .38 Special, 2" barrel) | ~17cm | ~17 voxels |
-| Twin Pistols | "Twin Pistols" | Dual Colt M1911A1 (semi-auto, .45 ACP) | ~21cm each | ~21 voxels each |
-| Tommy Gun | "Tommy Gun" | Thompson M1921/M1928 (.45 ACP, full auto) | ~81cm (w/ 10" barrel) | ~81 voxels |
-| Rifle | "Rifle" | Winchester Model 1895 or Springfield 1903 | ~110cm | ~110 voxels |
-| Shotgun | "Shotgun" | Winchester Model 1897 (pump-action, 12 gauge) | ~100cm | ~100 voxels |
-| Knife | "pistol whip" / melee | Switchblade or folding knife | ~25cm (open) | ~25 voxels |
-| Bat / Crowbar | melee | Baseball bat or standard crowbar | ~80cm | ~80 voxels |
+| Pistol | "Pistol" | Colt Detective Special / S&W Model 10 (revolver, .38 Special, 2" barrel) | ~17cm | ~34 voxels |
+| Twin Pistols | "Twin Pistols" | Dual Colt M1911A1 (semi-auto, .45 ACP) | ~21cm each | ~42 voxels each |
+| Tommy Gun | "Tommy Gun" | Thompson M1921/M1928 (.45 ACP, full auto) | ~81cm (w/ 10" barrel) | ~162 voxels |
+| Rifle | "Rifle" | Winchester Model 1895 or Springfield 1903 | ~110cm | ~220 voxels |
+| Shotgun | "Shotgun" | Winchester Model 1897 (pump-action, 12 gauge) | ~100cm | ~200 voxels |
+| Knife | "pistol whip" / melee | Switchblade or folding knife | ~25cm (open) | ~50 voxels |
+| Bat / Crowbar | melee | Baseball bat or standard crowbar | ~80cm | ~160 voxels |
 
 ### 3.2 Base "Pistol" — Colt Revolver
 
 The base "Pistol" in Steel City is a **Colt Detective Special** or **Smith & Wesson Model 10** — the ubiquitous civilian/police revolvers of the 1920s. Cheap, reliable, widespread. A revolver is simpler to voxelize than a semi-auto: cylinder + barrel + grip frame, no slide.
 
 **Key visual features for voxelization:**
-- ~17cm (6.7") overall length (snub nose 2" barrel)
-- Cylinder (6-shot, round) — the dominant middle feature
-- Barrel (short, thick cylinder on top front)
-- Grip frame (angled, ~110° from barrel axis)
-- Hammer (small, at rear top)
-- Trigger guard (small D-loop)
+- ~24cm (9.4") overall length for the 4"-barrel Model 10 service variant (current `SW_Model_10.json`); ~17cm for a snub-nose 2" variant if modeled later
+- Cylinder (6-shot, round) — the dominant middle feature, rendered in Aged Metal for contrast against the Dark Iron frame
+- Barrel (slim round tube) + top rib + separate ejector rod housing suspended below — the "two tubes" profile
+- Grip frame (angled, ~110° from barrel axis) — wood stocks with exposed metal backstrap
+- Hammer (exposed spur, rear top, behind the topstrap)
+- Trigger guard (D-loop) with brass trigger inside
+- Front sight blade at the muzzle — brass marks the "forward" end
+
+**Generator**: `Tools/gen_sw_model10.py` produces the current model parametrically — part positions/sizes are tunable constants; re-run to iterate.
 
 **"Twin Pistols"** = dual Colt M1911A1s — the gangster film trope. Semi-auto with slide, 7-round magazine, ~21cm overall length. Modeled as a separate weapon entry, not a duplicate of the revolver.
 
@@ -69,20 +72,20 @@ The base "Pistol" in Steel City is a **Colt Detective Special** or **Smith & Wes
 
 ### 3.4 Cover Props
 
-| Item | Approx. Size | Voxel Dims (at 0.01m) |
+| Item | Approx. Size | Voxel Dims (at 0.005m) |
 |------|-------------|----------------------|
-| Barrel (oil drum) | 60cm × 90cm | 60×90×60 |
-| Crate (wooden) | 50cm³ | 50×50×50 |
-| Dumpster | 150cm × 100cm × 80cm | 150×100×80 |
+| Barrel (oil drum) | 60cm × 90cm | 120×180×120 |
+| Crate (wooden) | 50cm³ | 100×100×100 |
+| Dumpster | 150cm × 100cm × 80cm | 300×200×160 |
 
 ### 3.5 Map Decorations
 
-| Item | Approx. Size | Voxel Dims (at 0.01m) |
+| Item | Approx. Size | Voxel Dims (at 0.005m) |
 |------|-------------|----------------------|
-| Street lamp | 400cm tall | 40×400×40 |
-| Fire hydrant | 50cm tall | 20×50×20 |
-| Trash can | 60cm × 80cm | 60×80×60 |
-| Phone booth | 90cm × 220cm × 90cm | 90×220×90 |
+| Street lamp | 400cm tall | 80×800×80 |
+| Fire hydrant | 50cm tall | 40×100×40 |
+| Trash can | 60cm × 80cm | 120×160×120 |
+| Phone booth | 90cm × 220cm × 90cm | 180×440×180 |
 
 ---
 
@@ -126,12 +129,12 @@ Weapons are authored **lying flat on the ground plane** — this is the default 
 
 | Weapon | Dims (X×Y×Z) | Notes |
 |--------|-------------|-------|
-| Revolver (S&W Model 10) | 24×12×6 | 17cm barrel length, 12cm side profile, 6cm thick |
-| M1911A1 | 24×14×6 | 21cm length, slightly taller slide profile |
-| Tommy Gun | 90×25×10 | 81cm with drum magazine, needs larger grid |
-| Rifle | 120×20×8 | 110cm long, thin profile |
-| Shotgun | 110×20×8 | 100cm long, similar to rifle |
-| Knife (open) | 25×8×3 | 25cm open, thin blade |
+| Revolver (S&W Model 10) | 48×26×10 | 24cm overall, 13cm side profile, 5cm thick |
+| M1911A1 | 48×28×12 | 21cm length, slightly taller slide profile |
+| Tommy Gun | 180×50×20 | 81cm with drum magazine, needs larger grid |
+| Rifle | 240×40×16 | 110cm long, thin profile |
+| Shotgun | 220×40×16 | 100cm long, similar to rifle |
+| Knife (open) | 50×16×6 | 25cm open, thin blade |
 
 ### Props (cover, decorations)
 
@@ -173,9 +176,9 @@ The character model (Civilian1.json, 96×96×96 at 0.01m/voxel) has a "Hands" re
 
 - **Hand width**: ~8-12 voxels at 0.01m/voxel = 8-12cm (real human hand is ~8-10cm)
 - **Hand position**: At the end of the forearm group (groups 8/9 — Left/Right Forearm)
-- **Grip capacity**: A revolver grip (~7cm = 7 voxels at item scale) fits comfortably in the 8-12 voxel hand space
+- **Grip capacity**: A revolver grip (~3cm wide = ~6 item voxels at 0.005m) fits comfortably in the 8-12cm hand space
 
-**Attachment approach**: When a character enters Aiming state (animation state 4), the weapon model is composited into the character's posed buffer at the hand position, aligned with the forearm rotation. The shared voxel scale (0.01m/voxel for both) means no scale conversion is needed — item voxels map directly to character buffer voxels.
+**Attachment approach**: When a character enters Aiming state (animation state 4), the weapon is aligned to the posed hand via **attachment points** (see `WEAPON_ATTACHMENT_SYSTEM.md`): the weapon's `grip_right` point is transformed to the character's posed `right_hand` position, and rotation comes from the muzzle→grip vector. Because item voxels (0.005m) are half the size of character voxels (0.01m), the weapon renders as its own instanced group at its declared `voxelSize` — no resampling, no detail loss. Buffer compositing is no longer used.
 
 ---
 
@@ -186,18 +189,19 @@ The character model (Civilian1.json, 96×96×96 at 0.01m/voxel) has a "Hands" re
 The voxel editor (`VoxelAssetStudio/voxel_editor.html`) now supports three asset types:
 
 1. **Building** (🏢, 0.1m/voxel, 96×68×96 default)
-2. **Character** (🧍, 0.02m/voxel, 16×32×10 default — note: characters are now authored at 96³ but the editor default remains the original hoodlum dims for backward compatibility)
-3. **Item / Decor** (🔫, 0.01m/voxel, 24×16×8 default)
+2. **Character** (🧍, 0.01m/voxel, 96×96×96 default — matches the upscaled Civilian1 standard)
+3. **Item / Decor** (🔫, 0.005m/voxel, 48×26×10 default)
 
 ### Modeling Workflow
 
 1. Open `voxel_editor.html` in a browser
 2. Select "Item / Decor" from the Asset dropdown
-3. The grid initializes at 24×16×8 with 0.01m/voxel
-4. For larger weapons (rifle, shotgun, Tommy Gun), use Set Volume Size to expand the grid (e.g., 120×20×12 for a rifle)
+3. The grid initializes at 48×26×10 with 0.005m/voxel (S&W Model 10 auto-loads as the reference default)
+4. For larger weapons (rifle, shotgun, Tommy Gun), use Set Volume Size to expand the grid (e.g., 240×40×16 for a rifle)
 5. Model the weapon following the orientation conventions (§4)
 6. Use "Show all" in the material palette to access weapon-appropriate materials (Dark Iron, Aged Metal, Gold/Brass, Dark Wood)
-7. Export as `.stasset` JSON (includes `assetType: "prop"` and `voxelSize: 0.01`)
+7. Paint attachment points with the Item Part tool (🔧): grip_right (required), grip_left (two-handed), muzzle
+8. Export as `.stasset` JSON (includes `assetType: "prop"` and `voxelSize: 0.005`)
 
 ### Auto-Detection
 
@@ -226,42 +230,38 @@ Same consolidated JSON format as characters:
   "version": 1,
   "name": "Colt Detective Special",
   "assetType": "prop",
-  "voxelSize": 0.01,
-  "dims": [24, 16, 8],
+  "voxelSize": 0.005,
+  "dims": [48, 26, 10],
   "materials": [...],
-  "voxels": [[x, y, z, materialId], ...]
+  "voxels": [[x, y, z, materialId], ...],
+  "itemParts": {"x,y,z": partId, ...}
 }
 ```
 
-Items do not need `groups`, `regions`, `pivots`, or `animParams` — they are static models (no skeletal animation). If an item needs simple animation (e.g., a spinning barrel on a discarded weapon), it can be handled as a transform rotation on the GameObject, not voxel-level animation.
+Items do not need `groups`, `regions`, `pivots`, or `animParams` — they are static models (no skeletal animation). If an item needs simple animation (e.g., a spinning barrel on a discarded weapon), it can be handled as a transform rotation on the GameObject, not voxel-level animation. `itemParts` holds painted attachment points (see `WEAPON_ATTACHMENT_SYSTEM.md` for part IDs and alignment semantics).
 
 ---
 
 ## 9. Attachment to Characters
 
-### Future: Compositing Approach
+### Transform-Based Attachment (Current Standard)
 
-When a character equips a weapon:
+With items at 0.005m/voxel and characters at 0.01m/voxel, weapons are **not** composited into the character's posed buffer. Instead:
 
 1. **Character enters Aiming state** (animation state 4)
-2. **Weapon model is composited** into the character's posed voxel buffer at the hand position
-3. **Position calculation**: Hand position = forearm pivot + forearm rotation × hand offset
-4. **Rotation**: Weapon barrel aligns with forearm forward direction
-5. **Voxel writing**: Weapon voxels are written into the posed buffer at the computed position, overwriting any character voxels in that region
+2. **Weapon renders as its own instanced group** at its declared `voxelSize` — full 0.005m detail preserved
+3. **Alignment via attachment points**: `grip_right` (weapon) → `right_hand` (character, computed via forearm FK), rotation from muzzle→grip vector
+4. One draw call per weapon type — still instanced, so N armed characters cost no extra draws
 
-This requires:
-- A known hand anchor point in the character model (per-group offset for forearm groups 8/9)
-- A known grip center in the weapon model (stored as metadata or convention: grip center = [0, 0, 0] local origin)
-- The CSPose compute shader to be extended with an optional item-composite pass
+This supersedes the earlier compositing plan, which relied on characters and items sharing 0.01m/voxel. The transform approach keeps full item detail and works for any per-model `voxelSize`.
 
-### Simpler Alternative: Separate Render
+### Deprecated: Buffer Compositing
 
-Until compositing is implemented, weapons can be rendered as separate instanced volumes:
-- Each weapon gets its own `InstancedGroup` in `VoxelChunkManager`
-- The weapon GameObject is parented to the character's forearm bone
-- The weapon renders as a separate raymarch volume, positioned at the hand
+The original plan wrote weapon voxels directly into the character's posed buffer at the hand position (requires identical voxel scale — only valid for legacy 0.01m items). Retained here for history:
 
-This is simpler but adds a draw call per weapon type (not per instance — still instanced).
+- Position = forearm pivot + forearm rotation × hand offset; weapon voxels overwrite character voxels in the hand region
+- Would have required a CSPose compute pass extension and a hand anchor convention
+- Not pursued: downsampling a 0.005m item to 0.01m at composite time destroys the detail the finer scale exists to provide
 
 ---
 

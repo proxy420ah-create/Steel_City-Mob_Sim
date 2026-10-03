@@ -130,13 +130,13 @@ function getWalkPose(animTime, animSpeed, params) {
     forearmTwistL: interpVal('forearmTwistL'), forearmTwistR: interpVal('forearmTwistR'),
   };
 
+  // Body bob: -cos(phase * 4π) → lowest at contact (0, 0.5), highest at mid-stance (0.25, 0.75)
   const bobAmp = wkf.bodyBob && wkf.bodyBob.enabled ? wkf.bodyBob.amplitude : 0;
-  const bobFn = bobAmp > 0 ? Math.sin(cyclePhase * 2 * Math.PI) : () => 0;
-  const bodyBobY = bobFn() * bobAmp;
+  const bodyBobY = -Math.cos(cyclePhase * 4 * Math.PI) * bobAmp;
 
+  // Weight shift: sin(phase * 2π) → shifts over stance leg at mid-stance
   const shiftAmp = wkf.weightShift && wkf.weightShift.enabled ? wkf.weightShift.amplitude : 0;
-  const shiftFn = shiftAmp > 0 ? Math.cos(cyclePhase * 2 * Math.PI) : () => 0;
-  const weightShiftX = shiftFn() * shiftAmp;
+  const weightShiftX = Math.sin(cyclePhase * 2 * Math.PI) * shiftAmp;
 
   const result = { pose, cyclePhase, kfAIdx, kfBIdx, interpT: t, bodyBobY, weightShiftX };
   _walkPoseCache = result;

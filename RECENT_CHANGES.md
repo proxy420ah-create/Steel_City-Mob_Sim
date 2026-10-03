@@ -1,6 +1,93 @@
 # Recent Changes — Steel City: Mob Sim
 
-**Last Updated**: August 14, 2026 (Character upscale + voxelSize fix + cheap shading fix)
+**Last Updated**: October 2, 2026 (Character-side attachment points + dual attachmentPoints format)
+
+---
+
+## October 2, 2026 — Character Attachment Points + Named `attachmentPoints` Export
+
+### Impact
+- **Attach Pts tab now works in Character mode** — paints `right_hand`, `left_hand`, `right_shoulder`, `cheek` (the character-side anchors from `WEAPON_ATTACHMENT_SYSTEM.md`). A painted region (e.g. 4×1×1 on the palm) exports as its centroid — one named point
+- **`attachmentPoints` named format is now emitted by every export** — the Unity-facing field. `itemParts` (painted voxel map) remains alongside it for editor round-trips; loaders reconstruct paint marks from `attachmentPoints` when `itemParts` is absent, so either field survives a round-trip
+- **`gen_sw_model10.py` emits both fields from one `ATTACH_POINTS` table** — single source of truth for generated weapons
+
+### Changes
+
+#### `VoxelAssetStudio/voxel_editor.html`
+- `CHAR_ATTACH_GROUPS` — character point list (ids shared with item list; `key` fields are the JSON names: `right_hand`, `left_hand`, `right_shoulder`, `cheek`)
+- `activePartGroups()` / `partColor()` / `partName()` helpers; all ITEM_PART_GROUPS/ITEM_PART_COLORS call sites switched
+- `buildAttachmentPoints()` — centroid-per-part export; `importAttachmentPoints()` — merges `itemParts` + `attachmentPoints` on load (used by all 3 load paths + default-model loader)
+- `getEditorData()` — writes `attachmentPoints` + `itemPartDefs: activePartGroups()` + `name`
+- `updateTabsForAssetType()` — Attach Pts tab visible for character; selection reset guard when the active list changes; export modal title per asset type
+- `.parts.json` export now carries named `attachmentPoints` + raw `parts` map + `partDefs`
+- `loadedModelName` — filename stem tracked on all load paths; consolidated export downloads as `<modelname>.json` (drop-in StreamingAssets replacement — was hardcoded `Vinny.character.json`) and writes the correct `format` per type (`steelcity_item`/`steelcity_stasset`/`steelcity_character`)
+- **`loadedAnimData`** — `pivots`/`animParams`/`states` preserved verbatim through load→export round-trips. Previously `getEditorData()` dropped them, so re-exported characters posed with default pivots → detached drifting arms (caught when Civilian1 was re-exported with painted hand points). Cleared on asset-type switch so stale data can't leak into a fresh model. Cataloged: `docs/known_issues/editor/EXPORT_DROPS_ANIM_METADATA.md`
+- **Attach preview** — Reference Preview gains 🔗→R / 🔗→L / ✖ buttons: renders a copy of the editable model bound to the reference character's `right_hand`/`left_hand` point via `attachItem()`. Hand point posed through `poseVoxels` with its forearm gid (looked up from the model's groups map, fallback gid 9/8); item rotation = cumulative chain rotation ∘ basis aligning item +X (muzzle) to the rest forearm axis; grip→hand coincidence in world units. Re-attaches on pose change and model edits. `parseCharacterData` now returns `attachmentPoints` (+ `itemParts`→named fallback) and `groupKeys`
+
+#### `Tools/gen_sw_model10.py`
+- `ATTACH_POINTS` / `ATTACH_IDS` tables drive both `attachmentPoints` and `itemParts`; regenerated `SW_Model_10.json` (same geometry — 1,872 voxels)
+
+#### Docs
+- `WEAPON_ATTACHMENT_SYSTEM.md` — JSON examples match reality (0.005m gun, dual fields, centroid rule); Painting Workflow marked IMPLEMENTED with the dual-mode (item/character) workflow; Phase 4 marked done except in-panel grip preview
+
+### Testing Notes
+- 🧪 **TEST NOW**: Character mode → load Civilian1 → Attach Pts tab → paint a 4×1×1 cluster on each hand's palm (`right_hand`/`left_hand`) → export → JSON contains `attachmentPoints.right_hand` at the cluster centroid
+- 🧪 Re-load that exported file → marks reappear in Parts view (round-trip via `itemParts`)
+
+---
+
+## October 2, 2026 — Animator voxelSize + Real-Time Animation + Preview Scale Consistency
+
+### Impact
+- **`character_animator.html` now renders at true world scale** — voxelSize-aware (0.01m default, read from JSON). Civilian1 displays at 0.62m instead of 62 units
+- **Animator timing matches Unity production** — real `performance.now()` delta time instead of fixed 0.016; `animSpeed` no longer double-applied (matches `CharacterAnimation.cs`: time accumulates raw, speed only divides `cycleDuration`)
+- **Voxel editor reference preview renders at true relative scale** — fixed stale 0.02m hardcode that made every preview model render 2× too large. Loading the same file as editable + preview now produces identical sizes
+- **Character preset defaultDims corrected** — 48³ → 96³, matching the upscaled character standard
+- **`voxelSize` field added to `Civilian1.json`** — files now self-describe their scale
+
+### Changes
+
+#### `VoxelAssetStudio/character_animator.html`
+- `voxelSize = 0.01` global; all mesh building uses `dummyMatrix.compose()` with world-scale positions + scaled box
+- `computeGroupRotation` gets `1.0` (voxel-space pivots); `compose()` handles world conversion
+- Camera, grid, compass, pivot gizmos, raycast plane all scale by `voxelSize`
+- `loadCharacterData()` / `loadProject()` read `voxelSize` from JSON; export writes it
+- Animation loop: `animTime += dt` (real delta, 100ms clamp); `lastFrameTime` reset on play/pause/stop/scrub
+
+#### `VoxelAssetStudio/voxel_editor.html`
+- `getCharScaleRatio()` — preview voxelSize from loaded JSON (or `assetType` preset, or character preset fallback) ÷ editable voxelSize; replaces hardcoded `0.02 / itemVoxelSize`
+- **Walk preview crash fix**: `getWalkPose` had `bobFn`/`shiftFn` assigned evaluated numbers then called (`TypeError: bobFn is not a function` whenever bodyBob enabled). Replaced with canonical `-cos(phase·4π)` bob / `sin(phase·2π)` shift — matching `character_animator.html` + Unity `VoxelCharacterAnimator.cs` (had also drifted to wrong frequencies/phases)
+- Same `bobFn` crash + drift fixed in `character_pose_engine.js` (duplicated copy)
+
+#### Item voxelSize raised to 0.005m + Model 10 rebuild
+- **Decision**: items/props moved from 0.01m to 0.005m/voxel (2× density) — same pattern as the character upscale. Per-file `voxelSize` makes it a per-model decision; attachment becomes transform-based (already the design in `WEAPON_ATTACHMENT_SYSTEM.md`), superseding buffer compositing
+- **`Tools/gen_sw_model10.py`**: new parametric generator — rebuilds `SW_Model_10.json` at 48×26×10 with proper anatomy: distinct Aged Metal cylinder, slim barrel + top rib, suspended ejector rod housing ("two tubes" profile), hammer spur, rear sight notch, D-loop trigger guard + brass trigger, angled wood grip with exposed metal backstrap, brass front sight. Also fixes orientation (original was muzzle −X, standard requires +X) and pre-seeds `itemParts` (grip_right, grip_left, muzzle). 1,872 voxels; original backed up to `.original.json`
+- **`voxel_editor.html`**: prop preset → `voxelSize: 0.005`, `defaultDims: [48,26,10]`; dropdown label updated
+- **`Tools/upscale_character.py`**: now scales `itemParts` keys and divides `voxelSize` by N — usable for future item upscales
+- **Docs**: `WEAPON_ITEM_MODEL_STANDARD.md` updated throughout (scale rationale, dims tables, transform-attachment section, deprecated compositing note); `DOCUMENTATION_INDEX.md` entries updated
+- `parseCharacterData()` returns `voxelSize` (explicit field → assetType preset → null)
+- Character preset `defaultDims` → `[96, 96, 96]`
+- Panel renamed "Reference Preview" (any model JSON works for scale comparison); "Sync Gun" → "Re-center"; info line shows resolved voxelSize + ×scale
+- (Earlier uncommitted work also included: Item Part Paint tool for attachment points, per-asset-type default model loading, `savedHistoryIndex` dirty tracking, tab visibility by asset type)
+
+#### `Assets/StreamingAssets/voxel_characters/Civilian1.json`
+- Added `"voxelSize": 0.01`
+
+#### Docs
+- `CHARACTER_SPAWNING_SYSTEM.md`, `WEAPON_ITEM_MODEL_STANDARD.md`, `DOCUMENTATION_INDEX.md`, `MOB_SIM_SCALE_STANDARD.md` — stale 0.02m character scale refs corrected to 0.01m
+- `docs/known_issues/` — created; first entry `editor/REFERENCE_PREVIEW_SCALE.md` (FIXED)
+
+### Known gaps
+- Unity doesn't read `voxelSize` from character JSON (`VoxelCharacter.cs` Inspector field only) — fine while standard is 0.01, flag for later
+- `voxel_editor.html` duplicates the pose engine inline instead of importing `character_pose_engine.js`
+
+### Testing Notes
+- 🧪 **TEST NOW**: voxel_editor → Character mode → load Civilian1 as editable + as preview → should be identical size
+- 🧪 **TEST NOW**: Item/Decor mode → gun in bounds + Civilian1 preview → character ~2.6× gun length (62 vs 24 voxels)
+- 🧪 **TEST NOW**: Load SW_Model_10 into the preview picker → same size as editable gun
+- 🧪 **TEST NOW**: character_animator → walk animation speed should match Unity playback rate regardless of browser FPS
+- 🧪 **TEST NOW**: Item/Decor mode → new SW_Model_10 (48×26×10 @ 0.005) loads; preview Civilian1 renders at ×2.0 in item voxel units (correct: same real-world size as before, since char = 0.01m/item = 0.005m)
+- 🧪 **TEST NOW**: Reference Preview info line shows `0.005m/voxel (×2.00 vs editable)` when gun loaded as reference in another mode
 
 ---
 

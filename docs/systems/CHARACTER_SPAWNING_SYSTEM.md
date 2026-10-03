@@ -328,7 +328,7 @@ The `CharacterJsonLoader` and `VoxelCharacter` handle both formats. New models s
 1. Create an empty GameObject in the scene
 2. Add `VoxelCharacter` component
    - Set `assetFileName` to your model (e.g., `"Civilian1.json"`)
-   - Set `voxelSize` to `0.02` (characters)
+   - Set `voxelSize` to `0.01` (characters)
    - Set `useInstancing` to `true`
    - Assign `chunkManager` (or leave auto-find)
 3. Add `CharacterAnimation` component
@@ -348,7 +348,7 @@ charObj.transform.SetParent(parentTransform, false);
 // Core component
 var vc = charObj.AddComponent<VoxelCharacter>();
 vc.assetFileName = "Civilian1.json";
-vc.voxelSize = 0.02f;
+vc.voxelSize = 0.01f;
 vc.chunkManager = chunkManager;  // assign or auto-find
 vc.collisionWorld = collisionWorld;  // assign or auto-find
 vc.centerPosition = new Vector3(spawnX, spawnY, spawnZ);
@@ -377,7 +377,7 @@ Add one of the spawner scripts (§4) to a GameObject in the scene and configure 
 ### Step 1: Author the Model
 
 Use `VoxelAssetStudio/voxel_editor.html` to create a new model:
-- Set Asset Type to "Character (0.02m/voxel)"
+- Set Asset Type to "Character (0.01m/voxel)"
 - Build the voxel model
 - Tag body groups (Body, Head, Arms, Legs, Forearms, Shins)
 - Tag regions (Skin, Face, Hair, Torso, Arms, Hands, Legs, Feet)

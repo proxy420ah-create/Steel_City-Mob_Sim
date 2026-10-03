@@ -60,19 +60,30 @@ character's posed hand point, inheriting rotation from the FK chain.
 
 ```json
 {
-  "format": "steelcity_stasset",
+  "format": "steelcity_item",
   "version": 1,
-  "name": "S&W Model 10 Revolver",
+  "name": "SW_Model_10",
   "assetType": "prop",
-  "voxelSize": 0.01,
-  "dims": [24, 12, 6],
+  "voxelSize": 0.005,
+  "dims": [48, 26, 10],
   "attachmentPoints": {
-    "grip_right": { "x": 2, "y": 5, "z": 2 },
-    "muzzle":     { "x": 23, "y": 5, "z": 2 }
+    "grip_right": { "x": 9, "y": 5, "z": 7 },
+    "grip_left":  { "x": 9, "y": 5, "z": 2 },
+    "muzzle":     { "x": 47, "y": 20, "z": 4 }
   },
+  "itemParts": { "9,5,7": 1, "9,5,2": 2, "47,20,4": 3 },
   "voxels": [...]
 }
 ```
+
+**Two related fields, one source of truth:**
+
+- `attachmentPoints` — named `{x,y,z}` points; **the runtime/Unity format**.
+- `itemParts` — `"x,y,z" → partId` painted-voxel map; the editor's working
+  format. Painting a small cluster (e.g. a 4×1×1 grip region) is fine —
+  export reduces each named point to the **centroid** of its painted voxels.
+  The editor reconstructs painted voxels from `attachmentPoints` when
+  `itemParts` is absent, so either field survives a round-trip.
 
 ### Character JSON (`Civilian1.json`)
 
@@ -81,6 +92,8 @@ character's posed hand point, inheriting rotation from the FK chain.
   "format": "steelcity_character",
   "version": 1,
   "name": "Vinny",
+  "assetType": "character",
+  "voxelSize": 0.01,
   "dims": [96, 96, 96],
   "attachmentPoints": {
     "right_hand": { "x": 72, "y": 54, "z": 48 }
@@ -136,26 +149,38 @@ defines forward.
 
 ---
 
-## Painting Workflow (Voxel Editor)
+## Painting Workflow (Voxel Editor) — IMPLEMENTED
 
-### Tool: Attachment Point Painter
+### Tool: Attachment Point Painter (🔧 / G key)
 
-1. Select "Attachment Point" tool from the toolbar (new tool mode)
-2. Select a named point type from a dropdown (e.g., `grip_right`, `muzzle`)
-3. Click a voxel on the model → that voxel coordinate is saved as the point
-4. Visual marker (colored sphere/icon) appears at the painted voxel
-5. Only one voxel per named point (clicking again moves the point)
-6. Points are saved to JSON on export
+1. Select the **🔧 Attach Pts** tool (G key)
+2. Open the **Attach Pts** right-panel tab and pick a named point
+   - **Item mode**: `grip_right`, `grip_left`, `muzzle`, `cheek_weld`,
+     `sling_mount`, `optics_mount`
+   - **Character mode**: `right_hand`, `left_hand`, `right_shoulder`, `cheek`
+3. Click voxels to tag them — a single voxel or a small region (e.g. a 4×1×1
+   grip zone on the hand). The painted region's **centroid** becomes the
+   exported `attachmentPoints` entry.
+4. **🔧 Parts** view mode colors tagged voxels by point type
+5. Points save into the model JSON as both `itemParts` (painted map) and
+   `attachmentPoints` (named centroids for Unity)
+
+### Character workflow
+
+Paint `right_hand` as a small cluster where the palm wraps a grip — the
+centroid lands on the hand's interior centerline, which is what the weapon
+`grip_right` point aligns to. Same for `left_hand` (two-handed weapons).
+`right_shoulder` and `cheek` are optional rifle-aiming anchors.
 
 ### Visual Feedback
 
-- Each point type gets a distinct color/icon:
-  - `grip_right`: green circle
-  - `grip_left`: blue circle
-  - `muzzle`: red arrow (forward direction)
-  - `cheek_weld`: yellow circle
-- Points render as small overlays (not voxels) so they don't affect the model
-- Hovering shows the point name and coordinates
+- **🔧 Parts** view mode recolors tagged voxels by point type:
+  - `grip_right` / `right_hand`: red, `grip_left` / `left_hand`: green,
+    `muzzle`: cyan, `cheek_weld`: amber, `sling_mount`: magenta,
+    `optics_mount` / `cheek`: yellow
+- Hovering a voxel shows its current tag (`Part: X | Current: Y`)
+- Markers are metadata on existing voxels — they never change the model's
+  silhouette or material colors
 
 ### Character Preview Integration
 
@@ -218,12 +243,18 @@ separate preset entries — the weapon self-describes its ideal grip pose.
 - Add `left_hand` attachment point to character model
 - Test with rifle weapon
 
-### Phase 4: Editor Painting Tool
+### Phase 4: Editor Painting Tool — ✅ DONE
 
-- Implement attachment point painter in voxel editor
-- Add visual markers for painted points
-- Add real-time grip preview in character preview panel
-- Export/import attachment points in JSON
+- ✅ Attachment point painter (🔧 / G) with Attach Pts tab — works in both
+  item mode (weapon anchors) and character mode (hand/shoulder/cheek anchors)
+- ✅ Part view mode colors tagged voxels by point
+- ✅ Export/import: `itemParts` painted map + `attachmentPoints` named
+  centroids, both round-tripped through JSON
+- ✅ Real-time grip preview — **🔗 → R/L hand** buttons in the Reference
+  Preview render a copy of the editable item bound to the reference model's
+  painted hand point: grip lands on the hand, forward axis continues the
+  rest forearm direction, pose rotations inherited through the FK chain.
+  Follows pose changes and model edits live.
 
 ---
 

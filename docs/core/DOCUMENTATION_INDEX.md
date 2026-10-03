@@ -210,7 +210,7 @@
   - Component stack: VoxelCharacter + CharacterAnimation + ClothingSystem + PedestrianLookAround
   - GPU instancing pipeline: sharedVoxelBuffer (one per model), posedVoxelBuffer (per visible instance)
   - Consolidated .character.json format (voxels + groups + regions + pivots + animParams in one file)
-  - Voxel scale standards: building 0.1m, character 0.02m, item/decor 0.01m (proposed)
+  - Voxel scale standards: building 0.1m, character 0.01m, item/decor 0.005m
   - How to set up character entities (editor, code, spawner)
   - Model upscaling tool for raymarch artifact fixes
 
@@ -244,12 +244,12 @@
 
 **Weapon & Item Models:**
 - **`docs/systems/WEAPON_ITEM_MODEL_STANDARD.md`** — Voxel modeling standards for weapons, items, and props
-  - Voxel scale: 0.01m/voxel (same as upscaled characters)
+  - Voxel scale: 0.005m/voxel (2× density vs upscaled characters; per-file `voxelSize` field)
   - Weapon classes: revolver (base Pistol), M1911A1 (Twin Pistols), Tommy Gun, rifle, shotgun, melee
   - Orientation conventions (barrel +X, grip +Y)
-  - Default dims [24, 16, 8] validated against character hand size
+  - Default dims [48, 26, 10]; `Tools/gen_sw_model10.py` parametric generator
   - Material palette for weapons (gunmetal, wood, brass)
-  - Character hand attachment approach (compositing vs separate render)
+  - Transform-based hand attachment (supersedes buffer compositing)
   - Voxel editor "Item / Decor" asset type setup
 
 **Weapon Attachment & Grip Points:**
