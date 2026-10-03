@@ -1,6 +1,16 @@
 # Recent Changes — Steel City: Mob Sim
 
-**Last Updated**: October 2, 2026 (Character-side attachment points + dual attachmentPoints format)
+**Last Updated**: October 3, 2026 (dummyMatrix scale leak fix — tools render 1×1×1 again)
+
+---
+
+## October 3, 2026 — Fix: Editable Voxels Rendering 2× After Preview Load
+
+### Impact
+- **Item mode tools appear correct again** — line/paint/highlight are 1×1×1. Root cause was not a brush: `rebuildCharMesh` leaves the preview scale (s=2 for char@0.01m vs item@0.005m) on the shared `dummyMatrix`; `rebuildMesh`'s `setPosition` preserved it → every editable voxel rendered double-size after any preview rebuild. Character mode was unaffected (s=1). Cataloged: `docs/known_issues/editor/DUMMY_MATRIX_SCALE_LEAK.md`
+
+### Changes
+- `voxel_editor.html` — all 5 `dummyMatrix.setPosition(...)` sites → `makeTranslation(...)` (highlight mesh, selection overlay, ruler frozen, editable instanced mesh, editable edges) — pure translation, no stale scale possible
 
 ---
 

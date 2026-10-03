@@ -2432,7 +2432,7 @@ function showHighlight(positions, color) {
   hlEdgesMesh = new THREE.InstancedMesh(edgesGeo, edgesMat, count);
   for (let i = 0; i < count; i++) {
     const [x, y, z] = positions[i];
-    dummyMatrix.setPosition(x + originOffsetX, y, z + originOffsetZ);
+    dummyMatrix.makeTranslation(x + originOffsetX, y, z + originOffsetZ);
     hlMesh.setMatrixAt(i, dummyMatrix);
     hlEdgesMesh.setMatrixAt(i, dummyMatrix);
   }
@@ -2493,7 +2493,7 @@ function showRulerFrozen(positions) {
   rulerFrozenEdges = new THREE.InstancedMesh(edgesGeo, edgesMat, count);
   for (let i = 0; i < count; i++) {
     const [x, y, z] = positions[i];
-    dummyMatrix.setPosition(x + originOffsetX, y, z + originOffsetZ);
+    dummyMatrix.makeTranslation(x + originOffsetX, y, z + originOffsetZ);
     rulerFrozenMesh.setMatrixAt(i, dummyMatrix);
     rulerFrozenEdges.setMatrixAt(i, dummyMatrix);
   }
@@ -2543,7 +2543,7 @@ function showSelectionOverlay() {
   const edgesMat = new THREE.LineBasicMaterial({ color: 0xff8800, transparent: true, opacity: 0.9 });
   selOverlayEdges = new THREE.InstancedMesh(edgesGeo, edgesMat, count);
   for (let i = 0; i < count; i++) {
-    dummyMatrix.setPosition(positions[i][0] + originOffsetX, positions[i][1], positions[i][2] + originOffsetZ);
+    dummyMatrix.makeTranslation(positions[i][0] + originOffsetX, positions[i][1], positions[i][2] + originOffsetZ);
     selOverlayMesh.setMatrixAt(i, dummyMatrix);
     selOverlayEdges.setMatrixAt(i, dummyMatrix);
   }
@@ -2719,7 +2719,7 @@ function rebuildMesh() {
   const color = new THREE.Color();
   for (let i = 0; i < count; i++) {
     const v = visible[i];
-    dummyMatrix.setPosition(v.x + originOffsetX, v.y, v.z + originOffsetZ);
+    dummyMatrix.makeTranslation(v.x + originOffsetX, v.y, v.z + originOffsetZ);
     instancedMesh.setMatrixAt(i, dummyMatrix);
     if (itemPartViewMode) {
       const pid = itemPartMap.get(`${v.x},${v.y},${v.z}`);
@@ -2758,7 +2758,7 @@ function rebuildMesh() {
     edgesMesh = new THREE.InstancedMesh(edgesGeo, edgesMat, count);
     for (let i = 0; i < count; i++) {
       const v = visible[i];
-      dummyMatrix.setPosition(v.x + originOffsetX, v.y, v.z + originOffsetZ);
+      dummyMatrix.makeTranslation(v.x + originOffsetX, v.y, v.z + originOffsetZ);
       edgesMesh.setMatrixAt(i, dummyMatrix);
     }
     edgesMesh.instanceMatrix.needsUpdate = true;
