@@ -325,6 +325,16 @@ body.ui-hidden #ui-hidden-hint { display:block; }
     <button class="char-btn" id="char-detach-btn" title="Remove attached model">✖</button>
   </div>
   <div class="char-btn-row">
+    <button class="char-btn attach-rot-btn" data-axis="0" data-deg="-90" title="Item-local X roll −90° (Shift: −15°)">X−</button>
+    <button class="char-btn attach-rot-btn" data-axis="0" data-deg="90" title="Item-local X roll +90° (Shift: +15°)">X+</button>
+    <button class="char-btn attach-rot-btn" data-axis="1" data-deg="-90" title="Item-local Y yaw −90° (Shift: −15°)">Y−</button>
+    <button class="char-btn attach-rot-btn" data-axis="1" data-deg="90" title="Item-local Y yaw +90° (Shift: +15°)">Y+</button>
+    <button class="char-btn attach-rot-btn" data-axis="2" data-deg="-90" title="Item-local Z pitch −90° (Shift: −15°)">Z−</button>
+    <button class="char-btn attach-rot-btn" data-axis="2" data-deg="90" title="Item-local Z pitch +90° (Shift: +15°)">Z+</button>
+    <button class="char-btn" id="attach-rot-reset" title="Reset attach rotation">⟲</button>
+  </div>
+  <div class="char-info" id="attach-rot-info" style="margin-bottom:6px;"></div>
+  <div class="char-btn-row">
     <button class="char-btn" id="char-sync-btn">↻ Re-center</button>
     <button class="char-btn" id="char-hide-btn">✕ Close</button>
   </div>
@@ -361,6 +371,10 @@ body.ui-hidden #ui-hidden-hint { display:block; }
     <div style="margin-top:12px;display:flex;align-items:center;gap:6px;">
       <label style="font-size:11px;color:#888;">BG:</label>
       <input type="color" id="scene-bg-picker" value="#1a1a2e" title="Change scene background color" style="width:24px;height:20px;border:1px solid #444;border-radius:3px;cursor:pointer;background:transparent;">
+      <input type="checkbox" id="show-grid-toggle" checked title="Toggle floor grid" style="cursor:pointer;margin-left:6px;">
+      <label for="show-grid-toggle" style="font-size:11px;color:#888;">Grid</label>
+      <input type="checkbox" id="show-axes-toggle" checked title="Toggle XYZ compass" style="cursor:pointer;margin-left:6px;">
+      <label for="show-axes-toggle" style="font-size:11px;color:#888;">Axes</label>
     </div>
     <h3 style="margin-top:12px;font-size:12px;color:#0ff;">Shortcuts</h3>
     <div style="font-size:10px;color:#888;line-height:1.6;">
@@ -368,6 +382,7 @@ body.ui-hidden #ui-hidden-hint { display:block; }
       <b>I</b>=Eyedropper &nbsp; <b>F</b>=Fill<br>
       <b>L</b>=Line &nbsp; <b>X</b>=Box<br>
       <b>S</b>=Select &nbsp; <b>J</b>=Extrude<br>
+      <b>Alt+Click</b>=Add to selection<br>
       <b>Ctrl+Click</b>=De-extrude &nbsp; <b>Shift+Drag</b>=Multi-extrude<br>
       <b>G</b>=Body Part Paint &nbsp; <b>C</b>=Clothing Region<br>
       <b>H</b>=Hide UI &nbsp; <b>R</b>=Ruler<br>
@@ -1022,11 +1037,11 @@ const DEFAULT_PARAMS = {
   },
   aiming: {
     weaponType: 'pistol',
-    torsoTwist: 0.2,
+    torsoTwist: -0.2,
     headYaw: 0.0, headPitch: -0.05, headTilt: 0.0,
-    armSwingL: -1.4, armSwingR: 0.0,
+    armSwingL: 0.0, armSwingR: -1.4,
     shoulderReachL: 0.0, shoulderReachR: 0.0,
-    elbowBendL: 0.3, elbowBendR: 0.0,
+    elbowBendL: 0.0, elbowBendR: 0.3,
   },
   crouching: {
     bodyLower: 0.0, modelLower: 4.0, bodyLean: 0.0,
@@ -1038,11 +1053,13 @@ const DEFAULT_PARAMS = {
 
 // === WEAPON PRESETS ===
 const AIM_WEAPON_PRESETS = {
+  // Right-handed single-arm aim — the dominant arm extends, torso blades
+  // the opposite way. Left-armed variants can mirror by swapping L/R values.
   pistol: {
-    torsoTwist: 0.2,
-    armSwingL: -1.4, armSwingR: 0.0,
+    torsoTwist: -0.2,
+    armSwingL: 0.0, armSwingR: -1.4,
     shoulderReachL: 0.0, shoulderReachR: 0.0,
-    elbowBendL: 0.3, elbowBendR: 0.0,
+    elbowBendL: 0.0, elbowBendR: 0.3,
     headYaw: 0.0, headPitch: -0.05, headTilt: 0.0,
   },
   dual: {
@@ -1851,6 +1868,7 @@ function updateItemPartCounts() {
 function clearAllItemParts() {
   itemPartMap.clear();
   updateItemPartCounts();
+  updateCentroidMarkers();
   if (itemPartViewMode) rebuildMesh();
   setStatus('Cleared all attachment point assignments');
 }
@@ -1886,6 +1904,11 @@ function exportItemPartsJSON() {
     version: 1,
     dims: [W, H, D],
     attachmentPoints: buildAttachmentPoints(),
+    attachRotation: {
+      x: itemAttachRot.x + attachRotOffset.x,
+      y: itemAttachRot.y + attachRotOffset.y,
+      z: itemAttachRot.z + attachRotOffset.z,
+    },
     parts: partsObj,
     partDefs: activePartGroups(),
   };
@@ -1897,6 +1920,53 @@ function exportItemPartsJSON() {
   a.click();
   URL.revokeObjectURL(url);
   setStatus(`Exported attachment points (${Object.keys(partsObj).length} voxels tagged)`);
+}
+
+// === CENTROID DEBUG MARKERS ===
+// Glowing sphere at the exact fractional centroid of each painted attachment
+// group — the true value the weld uses, before integer rounding. Parts view
+// only; depthTest off so interior cores (inside a fist/grip) show through.
+let centroidGroup = null;
+
+function updateCentroidMarkers() {
+  if (centroidGroup) {
+    centroidGroup.traverse(o => {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) o.material.dispose();
+    });
+    scene.remove(centroidGroup);
+    centroidGroup = null;
+  }
+  if (!itemPartViewMode) return;
+  const sums = {};
+  for (const [key, pid] of itemPartMap) {
+    if (!voxelMap.has(key)) continue;
+    const [x, y, z] = key.split(',').map(Number);
+    const s = sums[pid] || (sums[pid] = { x: 0, y: 0, z: 0, c: 0 });
+    s.x += x; s.y += y; s.z += z; s.c++;
+  }
+  if (!Object.keys(sums).length) return;
+  centroidGroup = new THREE.Group();
+  for (const [pid, s] of Object.entries(sums)) {
+    const col = new THREE.Color(partColor(parseInt(pid, 10)));
+    const px = s.x / s.c + originOffsetX;
+    const py = s.y / s.c;
+    const pz = s.z / s.c + originOffsetZ;
+    const halo = new THREE.Mesh(
+      new THREE.SphereGeometry(1.0, 16, 16),
+      new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.18, depthTest: false, depthWrite: false })
+    );
+    const core = new THREE.Mesh(
+      new THREE.SphereGeometry(0.5, 16, 16),
+      new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.95, depthTest: false, depthWrite: false })
+    );
+    halo.position.set(px, py, pz);
+    core.position.set(px, py, pz);
+    halo.renderOrder = 998;
+    core.renderOrder = 999;
+    centroidGroup.add(halo, core);
+  }
+  scene.add(centroidGroup);
 }
 
 // Named attachment points for Unity: centroid of each painted part group,
@@ -1926,6 +1996,12 @@ function buildAttachmentPoints() {
 // point re-tags its single voxel so hand-authored/generated files load).
 function importAttachmentPoints(data) {
   itemPartMap.clear();
+  // Per-item grip rotation correction (degrees) — stored on the file so each
+  // weapon carries its own orientation convention. Resets the live dial.
+  const ar = data.attachRotation;
+  itemAttachRot = { x: (ar && ar.x) || 0, y: (ar && ar.y) || 0, z: (ar && ar.z) || 0 };
+  attachRotOffset.x = attachRotOffset.y = attachRotOffset.z = 0;
+  updateAttachRotInfo();
   if (data.itemParts) {
     for (const [key, pid] of Object.entries(data.itemParts)) {
       itemPartMap.set(key, pid);
@@ -2197,6 +2273,23 @@ document.getElementById('scene-bg-picker').oninput = function() {
   scene.background = new THREE.Color(this.value);
   localStorage.setItem('voxelEditorBgColor', this.value);
 };
+// Floor grid visibility — persisted like the BG color, survives rebuilds
+// via buildGridHelper() which re-applies `showGrid`.
+let showGrid = localStorage.getItem('voxelEditorShowGrid') !== '0';
+document.getElementById('show-grid-toggle').checked = showGrid;
+document.getElementById('show-grid-toggle').onchange = function() {
+  showGrid = this.checked;
+  if (gridHelper) gridHelper.visible = showGrid;
+  localStorage.setItem('voxelEditorShowGrid', showGrid ? '1' : '0');
+};
+// XYZ compass visibility — same persisted-toggle pattern as the floor grid.
+let showAxes = localStorage.getItem('voxelEditorShowAxes') !== '0';
+document.getElementById('show-axes-toggle').checked = showAxes;
+document.getElementById('show-axes-toggle').onchange = function() {
+  showAxes = this.checked;
+  if (compassGroup) compassGroup.visible = showAxes;
+  localStorage.setItem('voxelEditorShowAxes', showAxes ? '1' : '0');
+};
 
 const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 5000);
 const initialCamPos = new THREE.Vector3(W * 2, H * 1.5, D * 2);
@@ -2286,6 +2379,7 @@ function buildGridHelper() {
   // bottom voxel layer, making models look like they were sinking through
   // the floor. Y=-0.5 aligns the grid with the actual ground surface.
   gridHelper.position.set(c.x - 0.5, -0.5, c.z - 0.5);
+  gridHelper.visible = showGrid;
   scene.add(gridHelper);
 }
 buildGridHelper();
@@ -2343,6 +2437,7 @@ function buildCompass() {
   grp.add(mkAxis(0xff3333, new THREE.Vector3(1, 0, 0)));
   grp.add(mkAxis(0x33ff33, new THREE.Vector3(0, 1, 0)));
   grp.add(mkAxis(0x3333ff, new THREE.Vector3(0, 0, 1)));
+  grp.visible = showAxes;
   scene.add(grp);
   compassGroup = grp;
 }
@@ -2556,6 +2651,18 @@ function clearSelectionOverlay() {
   if (selOverlayMesh) { scene.remove(selOverlayMesh); selOverlayMesh.material.dispose(); selOverlayMesh = null; }
   if (selOverlayEdges) { scene.remove(selOverlayEdges); selOverlayEdges.geometry.dispose(); selOverlayEdges.material.dispose(); selOverlayEdges = null; }
 }
+// Additive-select merge — unions voxels into selVoxels, deduped by position.
+// Returns how many were newly added (already-selected voxels are skipped).
+function mergeIntoSelection(voxels) {
+  const merged = new Map(selVoxels.map(v => [`${v[0]},${v[1]},${v[2]}`, v]));
+  let added = 0;
+  for (const v of voxels) {
+    const k = `${v[0]},${v[1]},${v[2]}`;
+    if (!merged.has(k)) { merged.set(k, v); added++; }
+  }
+  selVoxels = [...merged.values()];
+  return added;
+}
 let clipboard = []; // [(95, 67, 95, 123), ...]
 let pasteOffset = { x: 0, y: 0, z: 0 };
 let pasteMode = false; // when true, showing paste preview
@@ -2767,6 +2874,7 @@ function rebuildMesh() {
   
   document.getElementById('visible-count').textContent = count;
   document.getElementById('voxel-count').textContent = voxelMap.size;
+  updateCentroidMarkers();
   // Attached preview follows edits to the editable model
   if (attachHand) attachItem(attachHand);
 }
@@ -3138,52 +3246,73 @@ function performTool(event) {
     
     case 'select':
       if (hit.mid === undefined) {
-        setStatus('Click on a solid voxel to select connected mass | Shift=single | Ctrl=box');
+        setStatus('Click a solid voxel to select connected mass | Shift=single | Ctrl=box | Alt=ADD to selection');
         return;
       }
-      if (event.shiftKey) {
-        // Single voxel select — no flood fill
-        selVoxels = [[hit.x, hit.y, hit.z, hit.mid]];
-        selVoxels = mirrorVoxelPositions(selVoxels);
-        selectionActive = true;
-        showSelectionOverlay();
-        document.getElementById('sel-info').textContent = `Sel: ${selVoxels.length} voxel(s) (mat ${hit.mid})`;
-        setStatus(`Selected ${selVoxels.length} voxel(s) at (${hit.x},${hit.y},${hit.z})${selVoxels.length > 1 ? ' +mirror' : ''} — Shift+click for single, Ctrl+click+drag for box`);
-      } else if (event.ctrlKey) {
-        // Box select — select all non-air voxels within a 3D box from last click to this click
-        if (!boxStart || boxStart[3] !== 'select-box') {
-          boxStart = [hit.x, hit.y, hit.z, 'select-box'];
-          setStatus(`Box select start at (${hit.x},${hit.y},${hit.z}) — Ctrl+click end point`);
+      if (event.ctrlKey && !event.shiftKey) {
+        // Box select — all non-air voxels in a 3D box. Alt makes it additive.
+        const additive = event.altKey;
+        const tag = additive ? 'select-box-add' : 'select-box';
+        if (!boxStart || boxStart[3] !== tag) {
+          boxStart = [hit.x, hit.y, hit.z, tag];
+          setStatus(`Box select start at (${hit.x},${hit.y},${hit.z}) — ${additive ? 'Ctrl+Alt' : 'Ctrl'}+click end point`);
         } else {
           const [sx, sy, sz] = boxStart;
-          const ex = hit.x, ey = hit.y, ez = hit.z;
-          const minX = Math.min(sx, ex), maxX = Math.max(sx, ex);
-          const minY = Math.min(sy, ey), maxY = Math.max(sy, ey);
-          const minZ = Math.min(sz, ez), maxZ = Math.max(sz, ez);
-          selVoxels = [];
+          const minX = Math.min(sx, hit.x), maxX = Math.max(sx, hit.x);
+          const minY = Math.min(sy, hit.y), maxY = Math.max(sy, hit.y);
+          const minZ = Math.min(sz, hit.z), maxZ = Math.max(sz, hit.z);
+          const boxVox = [];
           for (let x = minX; x <= maxX; x++)
             for (let y = minY; y <= maxY; y++)
               for (let z = minZ; z <= maxZ; z++) {
                 const mid = getVoxelAt(x, y, z);
-                if (mid !== 0) selVoxels.push([x, y, z, mid]);
+                if (mid !== 0) boxVox.push([x, y, z, mid]);
               }
-          selVoxels = mirrorVoxelPositions(selVoxels);
+          const mirrored = mirrorVoxelPositions(boxVox);
+          if (additive) {
+            const added = mergeIntoSelection(mirrored);
+            document.getElementById('sel-info').textContent = `Sel: ${selVoxels.length} voxels (multi)`;
+            setStatus(`Added ${added} box voxels — ${selVoxels.length} total selected`);
+          } else {
+            selVoxels = mirrored;
+            document.getElementById('sel-info').textContent = `Sel: ${selVoxels.length} voxels (box)`;
+            setStatus(`Box selected ${selVoxels.length} voxels from (${minX},${minY},${minZ}) to (${maxX},${maxY},${maxZ})${selVoxels.length > boxVox.length ? ' +mirror' : ''} — Alt+Ctrl adds to selection`);
+          }
           selectionActive = true;
           showSelectionOverlay();
-          document.getElementById('sel-info').textContent = `Sel: ${selVoxels.length} voxels (box)`;
-          setStatus(`Box selected ${selVoxels.length} voxels from (${minX},${minY},${minZ}) to (${maxX},${maxY},${maxZ})${selVoxels.length > (maxX-minX+1)*(maxY-minY+1)*(maxZ-minZ+1) ? ' +mirror' : ''}`);
           boxStart = null;
         }
-      } else {
-        // Flood-fill connected same-material voxels
-        selVoxels = computeFloodFill(hit.x, hit.y, hit.z, hit.mid).map(p => [p[0], p[1], p[2], hit.mid]);
-        const preMirrorCount = selVoxels.length;
-        selVoxels = mirrorVoxelPositions(selVoxels);
+      } else if (event.shiftKey) {
+        // Single voxel (Alt: add it to the selection)
+        const newVox = mirrorVoxelPositions([[hit.x, hit.y, hit.z, hit.mid]]);
+        if (event.altKey) {
+          const added = mergeIntoSelection(newVox);
+          document.getElementById('sel-info').textContent = `Sel: ${selVoxels.length} voxels (multi)`;
+          setStatus(`Added ${added} voxel at (${hit.x},${hit.y},${hit.z}) — ${selVoxels.length} total selected`);
+        } else {
+          selVoxels = newVox;
+          document.getElementById('sel-info').textContent = `Sel: ${selVoxels.length} voxel(s) (mat ${hit.mid})`;
+          setStatus(`Selected ${selVoxels.length} voxel(s) at (${hit.x},${hit.y},${hit.z})${selVoxels.length > 1 ? ' +mirror' : ''} — Shift+click for single, Ctrl+click+drag for box`);
+        }
         selectionActive = true;
         showSelectionOverlay();
+      } else {
+        // Flood-fill connected same-material voxels (Alt: add to selection)
+        const newVox = mirrorVoxelPositions(
+          computeFloodFill(hit.x, hit.y, hit.z, hit.mid).map(p => [p[0], p[1], p[2], hit.mid])
+        );
         const matName = allMaterials.find(m => m.id === hit.mid);
-        document.getElementById('sel-info').textContent = `Sel: ${selVoxels.length} voxels (mat ${hit.mid})`;
-        setStatus(`Selected ${selVoxels.length} connected voxels (mat ${hit.mid}${matName ? ' ' + matName.name : ''})${selVoxels.length > preMirrorCount ? ' +mirror' : ''} — Shift=single, Ctrl=box`);
+        if (event.altKey) {
+          const added = mergeIntoSelection(newVox);
+          document.getElementById('sel-info').textContent = `Sel: ${selVoxels.length} voxels (multi)`;
+          setStatus(`Added ${added} connected voxels (mat ${hit.mid}${matName ? ' ' + matName.name : ''}) — ${selVoxels.length} total selected`);
+        } else {
+          selVoxels = newVox;
+          document.getElementById('sel-info').textContent = `Sel: ${selVoxels.length} voxels (mat ${hit.mid})`;
+          setStatus(`Selected ${selVoxels.length} connected voxels (mat ${hit.mid}${matName ? ' ' + matName.name : ''})${selVoxels.length > newVox.length ? ' +mirror' : ''} — Shift=single, Ctrl=box, Alt=add`);
+        }
+        selectionActive = true;
+        showSelectionOverlay();
       }
       break;
     
@@ -3385,6 +3514,10 @@ function computeBoxVoxels(x0, y0, z0, x1, y1, z1) {
   return result;
 }
 
+// Live Alt-key tracking — stored mousemove events carry a stale altKey, so
+// pressing/releasing Alt alone wouldn't refresh the additive-select preview.
+let altHeld = false;
+
 function updateHighlight(event) {
   if (currentTool === 'camera') {
     clearHighlight();
@@ -3533,16 +3666,29 @@ function updateHighlight(event) {
       break;
     
     case 'select':
-      if (selectionActive && selVoxels.length > 0) {
+      if ((event.altKey || altHeld) && hit.mid !== undefined) {
+        // Additive mode — preview the region about to merge in (the existing
+        // selection stays visible via the orange overlay; this shows what's
+        // coming, same as the first-click flood preview).
+        if (event.shiftKey) {
+          positions = [[hit.x, hit.y, hit.z]];
+          infoText = `Alt+Shift: add voxel @ (${hit.x},${hit.y},${hit.z}) to selection (${selVoxels.length} current)`;
+        } else {
+          const preview = computeFloodFill(hit.x, hit.y, hit.z, hit.mid);
+          positions = preview;
+          const m = allMaterials.find(m => m.id === hit.mid);
+          infoText = `Alt: add ${preview.length} voxels (mat ${hit.mid}${m ? ' ' + m.name : ''}) to selection (${selVoxels.length} current)`;
+        }
+      } else if (selectionActive && selVoxels.length > 0) {
         // Show frozen selection
         positions = selVoxels.map(v => [v[0], v[1], v[2]]);
-        infoText = `Selection: ${selVoxels.length} voxels — click another to reselect, or use Copy/Delete`;
+        infoText = `Selection: ${selVoxels.length} voxels — Alt+click adds regions, plain click reselects`;
       } else if (hit.mid !== undefined) {
         // Preview what would be selected (flood fill of same material)
         const preview = computeFloodFill(hit.x, hit.y, hit.z, hit.mid);
         positions = preview;
         const m = allMaterials.find(m => m.id === hit.mid);
-        infoText = `Will select ${preview.length} voxels (mat ${hit.mid}${m ? ' ' + m.name : ''}) — click to confirm`;
+        infoText = `Will select ${preview.length} voxels (mat ${hit.mid}${m ? ' ' + m.name : ''}) — click to select, Alt+click to add`;
       } else {
         infoText = `Click on a solid voxel to select connected mass`;
       }
@@ -4396,6 +4542,22 @@ renderer.domElement.addEventListener('mousemove', (e) => {
   updateHighlight(e);
 });
 
+// Refresh the additive-select preview when Alt is pressed/released without
+// the mouse moving (the stored mousemove event carries a stale altKey).
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Alt' && !altHeld) {
+    altHeld = true;
+    if (lastMouseEvent) updateHighlight(lastMouseEvent);
+  }
+});
+document.addEventListener('keyup', (e) => {
+  if (e.key === 'Alt') {
+    altHeld = false;
+    if (lastMouseEvent) updateHighlight(lastMouseEvent);
+  }
+});
+window.addEventListener('blur', () => { altHeld = false; });
+
 renderer.domElement.addEventListener('mouseup', (e) => {
   // Commit paint drag stroke — single history entry for the whole stroke
   if (paintDragActive) {
@@ -5139,6 +5301,15 @@ function getEditorData() {
     itemParts: itemParts,
     itemPartDefs: activePartGroups(),
     attachmentPoints: buildAttachmentPoints(),
+    // Per-item grip rotation correction (degrees, item-local, about the grip
+    // point). Written as file value + live dial-in so a verified nudge bakes
+    // in permanently on export; on reload it seeds itemAttachRot and the
+    // dial resets to zero.
+    attachRotation: {
+      x: itemAttachRot.x + attachRotOffset.x,
+      y: itemAttachRot.y + attachRotOffset.y,
+      z: itemAttachRot.z + attachRotOffset.z,
+    },
     bgColor: document.getElementById('scene-bg-picker').value,
   };
 }
@@ -5615,6 +5786,16 @@ function rebuildCharMesh() {
 // inherited from the forearm rotation.
 let attachMesh = null;
 let attachHand = null;   // 'right' | 'left'
+// Item-local rotation correction (degrees), applied about the grip anchor
+// after the FK+basis transform. Two layers:
+//   itemAttachRot   — the file's stored correction (`attachRotation` field),
+//                     baked by the model's author / generator
+//   attachRotOffset — live dial-in via the X/Y/Z nudge buttons, for finding
+//                     a new item's correction. getEditorData() writes the
+//                     SUM back as `attachRotation` so a verified nudge
+//                     becomes the file's permanent correction on export.
+let itemAttachRot = { x: 0, y: 0, z: 0 };
+const attachRotOffset = { x: 0, y: 0, z: 0 };
 const ATTACH_HANDS = {
   right: { charKey: 'right_hand', itemKey: 'grip_right', gid: 9 },
   left:  { charKey: 'left_hand',  itemKey: 'grip_left',  gid: 8 },
@@ -5657,31 +5838,45 @@ function attachItem(hand) {
   let R = [[1,0,0],[0,1,0],[0,0,1]];
   if (r && r.chain) for (const e of r.chain) R = matMul3(e.rot, R);
 
-  // Rest arm axis (pivot → hand, unposed) gives the weapon's forward target:
-  // item +X (muzzle) should continue the forearm direction. The posed arm
-  // direction is R · restDir, so total item rotation = R ∘ align(+X → restDir).
+  // Rest arm axis (unposed) gives the weapon's forward target: item +X
+  // (muzzle) should continue the forearm direction. The axis comes from the
+  // group's own geometry — pivot → group centroid — NOT the painted hand
+  // point, which can sit off the centerline (palm surface, asymmetric
+  // cluster) and would tilt the muzzle off parallel with the arm.
+  // The posed arm direction is R · restDir, so total item rotation =
+  // R ∘ align(+X → restDir).
   const pv = charData.pivots && charData.pivots[gid];
   let restDir = [hand === 'right' ? -1 : 1, 0, 0];  // fallback: arm axis guess
   if (pv) {
     const ppx = pv.x * charData.dims[0], ppy = pv.y * charData.dims[1], ppz = pv.z * charData.dims[2];
-    restDir = [cPt.x - ppx, cPt.y - ppy, cPt.z - ppz];
+    let gx = 0, gy = 0, gz = 0, gn = 0;
+    for (const v of charData.voxels) {
+      if (v.gid === gid) { gx += v.x; gy += v.y; gz += v.z; gn++; }
+    }
+    restDir = gn
+      ? [gx / gn - ppx, gy / gn - ppy, gz / gn - ppz]
+      : [cPt.x - ppx, cPt.y - ppy, cPt.z - ppz];   // no group voxels → old behavior
   }
   const dl = Math.hypot(restDir[0], restDir[1], restDir[2]) || 1;
   restDir = [restDir[0] / dl, restDir[1] / dl, restDir[2] / dl];
 
-  // Orthonormal basis: item X→restDir, item Z stays as horizontal as possible.
-  let zAxis = [restDir[2], 0, -restDir[0]];         // cross(restDir, up) — but (x,z) roll: cross((a,b,c),(0,1,0)) = (c,0,-a)
-  const zl = Math.hypot(zAxis[0], zAxis[2]);
-  if (zl < 1e-4) zAxis = [0, 0, 1]; else zAxis = [zAxis[0]/zl, 0, zAxis[2]/zl];
-  const yAxis = [                                   // cross(zAxis, restDir)
-    zAxis[1]*restDir[2] - zAxis[2]*restDir[1],
-    zAxis[2]*restDir[0] - zAxis[0]*restDir[2],
-    zAxis[0]*restDir[1] - zAxis[1]*restDir[0],
+  // Orthonormal basis: item +X → restDir (muzzle along arm), item +Y → world
+  // up projected perpendicular to the arm (sights stay up regardless of
+  // which side the arm extends to).
+  const fDot = restDir[1];                    // restDir · worldUp
+  let uAxis = [-restDir[0] * fDot, 1 - fDot * fDot, -restDir[2] * fDot];
+  let ul = Math.hypot(uAxis[0], uAxis[1], uAxis[2]);
+  if (ul < 1e-4) { uAxis = [0, 0, 1]; ul = 1; } // arm pointing straight up/down
+  uAxis = [uAxis[0] / ul, uAxis[1] / ul, uAxis[2] / ul];
+  const rAxis = [                             // restDir × uAxis
+    restDir[1] * uAxis[2] - restDir[2] * uAxis[1],
+    restDir[2] * uAxis[0] - restDir[0] * uAxis[2],
+    restDir[0] * uAxis[1] - restDir[1] * uAxis[0],
   ];
   const B = [
-    [restDir[0], yAxis[0], zAxis[0]],
-    [restDir[1], yAxis[1], zAxis[1]],
-    [restDir[2], yAxis[2], zAxis[2]],
+    [restDir[0], uAxis[0], rAxis[0]],
+    [restDir[1], uAxis[1], rAxis[1]],
+    [restDir[2], uAxis[2], rAxis[2]],
   ];
   const M = matMul3(R, B);
 
@@ -5702,6 +5897,15 @@ function attachItem(hand) {
       0, 0, 0, 1
     )
   );
+  // Grip orientation = file's stored correction + live dial-in nudge,
+  // rotated about the item's own axes at the grip anchor.
+  const qOff = new THREE.Quaternion().setFromEuler(new THREE.Euler(
+    (itemAttachRot.x + attachRotOffset.x) * Math.PI / 180,
+    (itemAttachRot.y + attachRotOffset.y) * Math.PI / 180,
+    (itemAttachRot.z + attachRotOffset.z) * Math.PI / 180,
+    'XYZ'
+  ));
+  q.multiply(qOff);
 
   detachItem();
   attachHand = hand;
@@ -5827,6 +6031,31 @@ document.getElementById('char-detach-btn').addEventListener('click', () => {
   detachItem();
   setStatus('Attachment preview removed');
 });
+
+// Attach rotation dial-in — ±90° per click, ±15° with Shift
+const ATTACH_ROT_AXES = ['x', 'y', 'z'];
+function updateAttachRotInfo() {
+  const el = document.getElementById('attach-rot-info');
+  if (el) el.textContent = `Attach rot: file X${itemAttachRot.x}° Y${itemAttachRot.y}° Z${itemAttachRot.z}°  +  dial X${attachRotOffset.x}° Y${attachRotOffset.y}° Z${attachRotOffset.z}°`;
+}
+document.querySelectorAll('.attach-rot-btn').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    const key = ATTACH_ROT_AXES[parseInt(btn.dataset.axis, 10)];
+    const deg = parseInt(btn.dataset.deg, 10) * (e.shiftKey ? 15 / 90 : 1);
+    attachRotOffset[key] = ((attachRotOffset[key] + deg) % 360 + 360) % 360;
+    updateAttachRotInfo();
+    if (attachHand) {
+      attachItem(attachHand);
+      setStatus(`Attach rot: X ${attachRotOffset.x}°  Y ${attachRotOffset.y}°  Z ${attachRotOffset.z}°`);
+    }
+  });
+});
+document.getElementById('attach-rot-reset').addEventListener('click', () => {
+  attachRotOffset.x = attachRotOffset.y = attachRotOffset.z = 0;
+  updateAttachRotInfo();
+  if (attachHand) attachItem(attachHand);
+});
+updateAttachRotInfo();
 
 // Sync gun — reposition character next to current item model
 document.getElementById('char-sync-btn').addEventListener('click', () => {

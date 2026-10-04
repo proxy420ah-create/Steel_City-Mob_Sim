@@ -1,13 +1,252 @@
 {
-  "format": "steelcity_character",
-  "version": 1,
-  "name": "Vinny",
-  "voxelSize": 0.01,
+  "name": "Civilian1Test",
   "dims": [
     96,
     96,
     96
   ],
+  "assetType": "character",
+  "pivots": {
+    "0": {
+      "x": 0.5,
+      "y": 0.3645833333333333,
+      "z": 0.5
+    },
+    "1": {
+      "x": 0.5,
+      "y": 0.5,
+      "z": 0.4895833333333333
+    },
+    "2": {
+      "x": 0.625,
+      "y": 0.4583333333333333,
+      "z": 0.4895833333333333
+    },
+    "3": {
+      "x": 0.3645833333333333,
+      "y": 0.4583333333333333,
+      "z": 0.4895833333333333
+    },
+    "4": {
+      "x": 0.5833333333333334,
+      "y": 0.2708333333333333,
+      "z": 0.5
+    },
+    "5": {
+      "x": 0.4166666666666667,
+      "y": 0.2708333333333333,
+      "z": 0.5
+    },
+    "6": {
+      "x": 0.5833333333333334,
+      "y": 0.125,
+      "z": 0.5
+    },
+    "7": {
+      "x": 0.4166666666666667,
+      "y": 0.125,
+      "z": 0.5
+    },
+    "8": {
+      "x": 0.7083333333333334,
+      "y": 0.4270833333333333,
+      "z": 0.4895833333333333
+    },
+    "9": {
+      "x": 0.28125,
+      "y": 0.4270833333333333,
+      "z": 0.4895833333333333
+    }
+  },
+  "animParams": {
+    "restPose": {
+      "leftArmZ": -1.5707963267948966,
+      "rightArmZ": 1.5707963267948966
+    },
+    "jointOffset": {
+      "1": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "2": {
+        "x": 6,
+        "y": 0,
+        "z": 0
+      },
+      "3": {
+        "x": -6,
+        "y": 0,
+        "z": 0
+      },
+      "4": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "5": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      }
+    },
+    "walk": {
+      "armSwing": 0.3,
+      "armFreq": 6,
+      "legStride": 0.4,
+      "legFreq": 6
+    },
+    "walkKeyframes": {
+      "autoMirror": true,
+      "cycleDuration": 1.2,
+      "interpolation": "spline",
+      "bodyBob": {
+        "enabled": true,
+        "amplitude": 0.6
+      },
+      "weightShift": {
+        "enabled": true,
+        "amplitude": 0.4
+      },
+      "kf0": {
+        "armSwingL": 0.3,
+        "armSwingR": -0.3,
+        "legStrideL": -0.4,
+        "legStrideR": 0.4,
+        "elbowBendL": 0.1,
+        "elbowBendR": 0.1,
+        "kneeBendL": 0,
+        "kneeBendR": 0,
+        "forearmTwistL": 0,
+        "forearmTwistR": 0
+      },
+      "kf1": {
+        "armSwingL": 0,
+        "armSwingR": 0,
+        "legStrideL": 0.3,
+        "legStrideR": -0.1,
+        "elbowBendL": 0.3,
+        "elbowBendR": 0.3,
+        "kneeBendL": 0.8,
+        "kneeBendR": 0.15,
+        "forearmTwistL": 0,
+        "forearmTwistR": 0
+      },
+      "kf2": null,
+      "kf3": null
+    },
+    "armSwing": {
+      "axisL": 0,
+      "axisR": 0,
+      "signL": 1,
+      "signR": 1
+    },
+    "legStride": {
+      "axisL": 0,
+      "axisR": 0,
+      "signL": -1,
+      "signR": -1
+    },
+    "legTwist": {
+      "leftRest": 0,
+      "rightRest": 0
+    },
+    "elbowBend": {
+      "leftRest": 0,
+      "rightRest": 0,
+      "walkAmp": 0.15,
+      "axisL": 1,
+      "axisR": 1,
+      "signL": 1,
+      "signR": -1,
+      "twistL": 0,
+      "twistR": 0,
+      "twistWalkAmp": 0.15
+    },
+    "kneeBend": {
+      "leftRest": 0,
+      "rightRest": 0,
+      "walkAmp": 0.42,
+      "axisL": 0,
+      "axisR": 0,
+      "signL": 1,
+      "signR": 1
+    },
+    "looking": {
+      "headYaw": 0.5,
+      "headYawFreq": 2,
+      "headPitch": 0.035,
+      "headPitchFreq": 1.3
+    },
+    "aiming": {
+      "weaponType": "pistol",
+      "torsoTwist": -0.2,
+      "headYaw": 0.0,
+      "headPitch": -0.05,
+      "headTilt": 0.0,
+      "armSwingL": 0.0,
+      "armSwingR": -1.4,
+      "shoulderReachL": 0.0,
+      "shoulderReachR": 0.0,
+      "elbowBendL": 0.0,
+      "elbowBendR": 0.3
+    },
+    "crouching": {
+      "bodyLower": 0,
+      "modelLower": 8,
+      "bodyLean": 0,
+      "headPitch": 0,
+      "armSwingL": 0,
+      "armSwingR": 0,
+      "legStrideL": -1.15,
+      "legStrideR": 0,
+      "kneeBendL": 1.15,
+      "kneeBendR": 1.4
+    }
+  },
+  "states": [
+    {
+      "id": 0,
+      "name": "Idle",
+      "desc": "Standing still"
+    },
+    {
+      "id": 1,
+      "name": "Walking",
+      "desc": "Walking cycle \u00e2\u20ac\u201d arms/legs swing"
+    },
+    {
+      "id": 2,
+      "name": "Looking",
+      "desc": "Head looking around \u00e2\u20ac\u201d scanning / checking environment"
+    },
+    {
+      "id": 3,
+      "name": "Aim Walk",
+      "desc": "Aiming pose (upper body) + walking gait (lower body)"
+    },
+    {
+      "id": 4,
+      "name": "Aiming",
+      "desc": "Static aiming pose \u00e2\u20ac\u201d arms raised, weapon-type presets"
+    },
+    {
+      "id": 5,
+      "name": "Crouching",
+      "desc": "Crouch pose \u00e2\u20ac\u201d legs bent, arms forward"
+    },
+    {
+      "id": 8,
+      "name": "Down",
+      "desc": "Lying down / defeated"
+    },
+    {
+      "id": 9,
+      "name": "T-Pose",
+      "desc": "Bind/rest pose \u00e2\u20ac\u201d raw rigging position as imported from the editor. No rotations applied. Use this to inspect the unmodified skeleton."
+    }
+  ],
+  "voxelSize": 0.01,
   "materials": [
     {
       "id": 100,
@@ -15,7 +254,8 @@
       "r": 147,
       "g": 66,
       "b": 51,
-      "hex": "#934233"
+      "hex": "#934233",
+      "category": "building"
     },
     {
       "id": 101,
@@ -23,7 +263,8 @@
       "r": 122,
       "g": 107,
       "b": 86,
-      "hex": "#7a6b56"
+      "hex": "#7a6b56",
+      "category": "building"
     },
     {
       "id": 102,
@@ -31,7 +272,8 @@
       "r": 147,
       "g": 147,
       "b": 137,
-      "hex": "#939389"
+      "hex": "#939389",
+      "category": "building"
     },
     {
       "id": 103,
@@ -39,7 +281,8 @@
       "r": 209,
       "g": 204,
       "b": 188,
-      "hex": "#d1ccbc"
+      "hex": "#d1ccbc",
+      "category": "building"
     },
     {
       "id": 104,
@@ -47,7 +290,8 @@
       "r": 45,
       "g": 45,
       "b": 51,
-      "hex": "#2d2d33"
+      "hex": "#2d2d33",
+      "category": "building"
     },
     {
       "id": 105,
@@ -55,7 +299,8 @@
       "r": 107,
       "g": 96,
       "b": 86,
-      "hex": "#6b6056"
+      "hex": "#6b6056",
+      "category": "building"
     },
     {
       "id": 106,
@@ -63,7 +308,8 @@
       "r": 76,
       "g": 45,
       "b": 25,
-      "hex": "#4c2d19"
+      "hex": "#4c2d19",
+      "category": "building"
     },
     {
       "id": 107,
@@ -71,7 +317,8 @@
       "r": 153,
       "g": 107,
       "b": 63,
-      "hex": "#996b3f"
+      "hex": "#996b3f",
+      "category": "building"
     },
     {
       "id": 108,
@@ -79,7 +326,8 @@
       "r": 107,
       "g": 91,
       "b": 66,
-      "hex": "#6b5b42"
+      "hex": "#6b5b42",
+      "category": "building"
     },
     {
       "id": 109,
@@ -87,7 +335,8 @@
       "r": 71,
       "g": 61,
       "b": 56,
-      "hex": "#473d38"
+      "hex": "#473d38",
+      "category": "building"
     },
     {
       "id": 110,
@@ -95,7 +344,8 @@
       "r": 107,
       "g": 102,
       "b": 91,
-      "hex": "#6b665b"
+      "hex": "#6b665b",
+      "category": "building"
     },
     {
       "id": 111,
@@ -103,7 +353,8 @@
       "r": 229,
       "g": 224,
       "b": 209,
-      "hex": "#e5e0d1"
+      "hex": "#e5e0d1",
+      "category": "building"
     },
     {
       "id": 112,
@@ -111,7 +362,8 @@
       "r": 114,
       "g": 140,
       "b": 165,
-      "hex": "#728ca5"
+      "hex": "#728ca5",
+      "category": "building"
     },
     {
       "id": 113,
@@ -119,7 +371,8 @@
       "r": 242,
       "g": 216,
       "b": 127,
-      "hex": "#f2d87f"
+      "hex": "#f2d87f",
+      "category": "building"
     },
     {
       "id": 114,
@@ -127,7 +380,8 @@
       "r": 140,
       "g": 165,
       "b": 178,
-      "hex": "#8ca5b2"
+      "hex": "#8ca5b2",
+      "category": "building"
     },
     {
       "id": 115,
@@ -135,7 +389,8 @@
       "r": 242,
       "g": 38,
       "b": 38,
-      "hex": "#f22626"
+      "hex": "#f22626",
+      "category": "building"
     },
     {
       "id": 116,
@@ -143,7 +398,8 @@
       "r": 38,
       "g": 76,
       "b": 242,
-      "hex": "#264cf2"
+      "hex": "#264cf2",
+      "category": "building"
     },
     {
       "id": 117,
@@ -151,7 +407,8 @@
       "r": 38,
       "g": 216,
       "b": 63,
-      "hex": "#26d83f"
+      "hex": "#26d83f",
+      "category": "building"
     },
     {
       "id": 118,
@@ -159,7 +416,8 @@
       "r": 71,
       "g": 61,
       "b": 51,
-      "hex": "#473d33"
+      "hex": "#473d33",
+      "category": "building"
     },
     {
       "id": 119,
@@ -167,7 +425,8 @@
       "r": 140,
       "g": 81,
       "b": 51,
-      "hex": "#8c5133"
+      "hex": "#8c5133",
+      "category": "building"
     },
     {
       "id": 120,
@@ -175,7 +434,8 @@
       "r": 114,
       "g": 30,
       "b": 25,
-      "hex": "#721e19"
+      "hex": "#721e19",
+      "category": "building"
     },
     {
       "id": 121,
@@ -183,7 +443,8 @@
       "r": 38,
       "g": 71,
       "b": 45,
-      "hex": "#26472d"
+      "hex": "#26472d",
+      "category": "building"
     },
     {
       "id": 122,
@@ -191,7 +452,8 @@
       "r": 56,
       "g": 30,
       "b": 20,
-      "hex": "#381e14"
+      "hex": "#381e14",
+      "category": "building"
     },
     {
       "id": 123,
@@ -199,7 +461,8 @@
       "r": 198,
       "g": 158,
       "b": 51,
-      "hex": "#c69e33"
+      "hex": "#c69e33",
+      "category": "building"
     },
     {
       "id": 124,
@@ -207,7 +470,8 @@
       "r": 255,
       "g": 216,
       "b": 127,
-      "hex": "#ffd87f"
+      "hex": "#ffd87f",
+      "category": "building"
     },
     {
       "id": 125,
@@ -215,7 +479,8 @@
       "r": 209,
       "g": 173,
       "b": 140,
-      "hex": "#d1ad8c"
+      "hex": "#d1ad8c",
+      "category": "character"
     },
     {
       "id": 126,
@@ -223,7 +488,8 @@
       "r": 15,
       "g": 15,
       "b": 17,
-      "hex": "#0f0f11"
+      "hex": "#0f0f11",
+      "category": "character"
     },
     {
       "id": 127,
@@ -231,7 +497,8 @@
       "r": 224,
       "g": 219,
       "b": 209,
-      "hex": "#e0dbd1"
+      "hex": "#e0dbd1",
+      "category": "character"
     },
     {
       "id": 128,
@@ -239,7 +506,8 @@
       "r": 30,
       "g": 20,
       "b": 15,
-      "hex": "#1e140f"
+      "hex": "#1e140f",
+      "category": "character"
     },
     {
       "id": 129,
@@ -247,7 +515,8 @@
       "r": 30,
       "g": 51,
       "b": 114,
-      "hex": "#1e3372"
+      "hex": "#1e3372",
+      "category": "character"
     }
   ],
   "voxels": [
@@ -99157,25 +99426,25 @@
       "id": 3,
       "name": "Torso",
       "color": "#4a90d9",
-      "desc": "Chest, back, shoulders \u2014 suit/shirt"
+      "desc": "Chest, back, shoulders \u00e2\u20ac\u201d suit/shirt"
     },
     {
       "id": 4,
       "name": "Arms",
       "color": "#50c878",
-      "desc": "Upper + lower arms \u2014 sleeves"
+      "desc": "Upper + lower arms \u00e2\u20ac\u201d sleeves"
     },
     {
       "id": 5,
       "name": "Hands",
       "color": "#e07070",
-      "desc": "Hands \u2014 skin or gloves"
+      "desc": "Hands \u00e2\u20ac\u201d skin or gloves"
     },
     {
       "id": 6,
       "name": "Legs",
       "color": "#daa520",
-      "desc": "Thighs + shins \u2014 pants"
+      "desc": "Thighs + shins \u00e2\u20ac\u201d pants"
     },
     {
       "id": 7,
@@ -99184,245 +99453,90 @@
       "desc": "Shoes/boots"
     }
   ],
-  "pivots": {
-    "0": {
-      "x": 0.5,
-      "y": 0.3645833333333333,
-      "z": 0.5
-    },
-    "1": {
-      "x": 0.5,
-      "y": 0.5,
-      "z": 0.4895833333333333
-    },
-    "2": {
-      "x": 0.625,
-      "y": 0.4583333333333333,
-      "z": 0.4895833333333333
-    },
-    "3": {
-      "x": 0.3541666666666667,
-      "y": 0.4583333333333333,
-      "z": 0.4895833333333333
-    },
-    "4": {
-      "x": 0.5833333333333334,
-      "y": 0.2708333333333333,
-      "z": 0.5
-    },
-    "5": {
-      "x": 0.4166666666666667,
-      "y": 0.2708333333333333,
-      "z": 0.5
-    },
-    "6": {
-      "x": 0.5833333333333334,
-      "y": 0.125,
-      "z": 0.5
-    },
-    "7": {
-      "x": 0.4166666666666667,
-      "y": 0.125,
-      "z": 0.5
-    },
-    "8": {
-      "x": 0.7083333333333334,
-      "y": 0.4270833333333333,
-      "z": 0.4895833333333333
-    },
-    "9": {
-      "x": 0.3125,
-      "y": 0.4270833333333333,
-      "z": 0.4895833333333333
-    }
+  "itemParts": {
+    "16,38,46": 1,
+    "16,38,47": 1,
+    "17,38,47": 1,
+    "17,38,46": 1,
+    "79,38,47": 2,
+    "79,38,46": 2,
+    "78,38,46": 2,
+    "78,38,47": 2,
+    "17,39,47": 1,
+    "16,39,46": 1,
+    "17,39,46": 1,
+    "16,39,47": 1,
+    "79,39,47": 2,
+    "79,39,46": 2,
+    "78,39,46": 2,
+    "78,39,47": 2,
+    "78,40,46": 2,
+    "78,40,47": 2,
+    "79,40,47": 2,
+    "79,40,46": 2,
+    "16,40,47": 1,
+    "16,40,46": 1,
+    "17,40,46": 1,
+    "17,40,47": 1,
+    "17,41,46": 1,
+    "17,41,47": 1,
+    "16,41,46": 1,
+    "16,41,47": 1,
+    "78,41,46": 2,
+    "78,41,47": 2,
+    "79,41,47": 2,
+    "79,41,46": 2
   },
-  "animParams": {
-    "restPose": {
-      "leftArmZ": -1.5707963267948966,
-      "rightArmZ": 1.5707963267948966
-    },
-    "jointOffset": {
-      "1": {
-        "x": 0,
-        "y": 0,
-        "z": 0
-      },
-      "2": {
-        "x": 6,
-        "y": 0,
-        "z": 0
-      },
-      "3": {
-        "x": -6,
-        "y": 0,
-        "z": 0
-      },
-      "4": {
-        "x": 0,
-        "y": 0,
-        "z": 0
-      },
-      "5": {
-        "x": 0,
-        "y": 0,
-        "z": 0
-      }
-    },
-    "walk": {
-      "armSwing": 0.3,
-      "armFreq": 6,
-      "legStride": 0.4,
-      "legFreq": 6
-    },
-    "walkKeyframes": {
-      "autoMirror": true,
-      "cycleDuration": 1.2,
-      "interpolation": "spline",
-      "bodyBob": {
-        "enabled": true,
-        "amplitude": 0.6
-      },
-      "weightShift": {
-        "enabled": true,
-        "amplitude": 0.4
-      },
-      "kf0": {
-        "armSwingL": 0.3,
-        "armSwingR": -0.3,
-        "legStrideL": -0.4,
-        "legStrideR": 0.4,
-        "elbowBendL": 0.1,
-        "elbowBendR": 0.1,
-        "kneeBendL": 0,
-        "kneeBendR": 0,
-        "forearmTwistL": 0,
-        "forearmTwistR": 0
-      },
-      "kf1": {
-        "armSwingL": 0,
-        "armSwingR": 0,
-        "legStrideL": 0.3,
-        "legStrideR": -0.1,
-        "elbowBendL": 0.3,
-        "elbowBendR": 0.3,
-        "kneeBendL": 0.8,
-        "kneeBendR": 0.15,
-        "forearmTwistL": 0,
-        "forearmTwistR": 0
-      },
-      "kf2": null,
-      "kf3": null
-    },
-    "armSwing": {
-      "axisL": 0,
-      "axisR": 0,
-      "signL": 1,
-      "signR": 1
-    },
-    "legStride": {
-      "axisL": 0,
-      "axisR": 0,
-      "signL": -1,
-      "signR": -1
-    },
-    "legTwist": {
-      "leftRest": 0,
-      "rightRest": 0
-    },
-    "elbowBend": {
-      "leftRest": 0,
-      "rightRest": 0,
-      "walkAmp": 0.15,
-      "axisL": 1,
-      "axisR": 1,
-      "signL": 1,
-      "signR": -1,
-      "twistL": 0,
-      "twistR": 0,
-      "twistWalkAmp": 0.15
-    },
-    "kneeBend": {
-      "leftRest": 0,
-      "rightRest": 0,
-      "walkAmp": 0.42,
-      "axisL": 0,
-      "axisR": 0,
-      "signL": 1,
-      "signR": 1
-    },
-    "looking": {
-      "headYaw": 0.5,
-      "headYawFreq": 2,
-      "headPitch": 0.035,
-      "headPitchFreq": 1.3
-    },
-    "aiming": {
-      "weaponType": "pistol",
-      "torsoTwist": 0.2,
-      "headYaw": 0,
-      "headPitch": -0.05,
-      "headTilt": 0,
-      "armSwingL": -1.4,
-      "armSwingR": 0,
-      "shoulderReachL": 0,
-      "shoulderReachR": 0,
-      "elbowBendL": 0.3,
-      "elbowBendR": 0
-    },
-    "crouching": {
-      "bodyLower": 0,
-      "modelLower": 8,
-      "bodyLean": 0,
-      "headPitch": 0,
-      "armSwingL": 0,
-      "armSwingR": 0,
-      "legStrideL": -1.15,
-      "legStrideR": 0,
-      "kneeBendL": 1.15,
-      "kneeBendR": 1.4
-    }
-  },
-  "states": [
+  "itemPartDefs": [
     {
       "id": 0,
-      "name": "Idle",
-      "desc": "Standing still"
+      "name": "Body",
+      "key": "body",
+      "color": "#888888",
+      "desc": "Unassigned"
     },
     {
       "id": 1,
-      "name": "Walking",
-      "desc": "Walking cycle \u2014 arms/legs swing"
+      "name": "Right Hand",
+      "key": "right_hand",
+      "color": "#ff6b6b",
+      "desc": "Primary grip anchor \u00e2\u20ac\u201d weapon grip_right lands here"
     },
     {
       "id": 2,
-      "name": "Looking",
-      "desc": "Head looking around \u2014 scanning / checking environment"
+      "name": "Left Hand",
+      "key": "left_hand",
+      "color": "#00ff88",
+      "desc": "Support grip \u00e2\u20ac\u201d two-handed weapons"
     },
     {
       "id": 3,
-      "name": "Aim Walk",
-      "desc": "Aiming pose (upper body) + walking gait (lower body)"
+      "name": "Right Shoulder",
+      "key": "right_shoulder",
+      "color": "#ffaa00",
+      "desc": "Stock weld when shouldering a rifle"
     },
     {
       "id": 4,
-      "name": "Aiming",
-      "desc": "Static aiming pose \u2014 arms raised, weapon-type presets"
-    },
-    {
-      "id": 5,
-      "name": "Crouching",
-      "desc": "Crouch pose \u2014 legs bent, arms forward"
-    },
-    {
-      "id": 8,
-      "name": "Down",
-      "desc": "Lying down / defeated"
-    },
-    {
-      "id": 9,
-      "name": "T-Pose",
-      "desc": "Bind/rest pose \u2014 raw rigging position as imported from the editor. No rotations applied. Use this to inspect the unmodified skeleton."
+      "name": "Cheek",
+      "key": "cheek",
+      "color": "#ffff00",
+      "desc": "Cheek weld position for aiming"
     }
   ],
-  "savedAt": "2026-08-15T01:36:17.793127+00:00"
+  "attachmentPoints": {
+    "right_hand": {
+      "x": 17,
+      "y": 40,
+      "z": 47
+    },
+    "left_hand": {
+      "x": 79,
+      "y": 40,
+      "z": 47
+    }
+  },
+  "bgColor": "#3e3e3e",
+  "format": "steelcity_character",
+  "version": 1
 }

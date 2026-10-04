@@ -11,6 +11,13 @@
 
 ### Changes
 - `voxel_editor.html` — all 5 `dummyMatrix.setPosition(...)` sites → `makeTranslation(...)` (highlight mesh, selection overlay, ruler frozen, editable instanced mesh, editable edges) — pure translation, no stale scale possible
+- `attachItem` roll fix — weapon "up" is now world-up projected ⊥ the rest arm axis (was `cross(up,forward)` which inverted the profile for both hands); gun now sits sights-up regardless of which side the arm extends
+- `attachItem` baked +90° roll about item X — the generated revolver's sights axis is -Z not +Y (dial-in verified via the new attach-rot nudge buttons); `attachRotOffset` remains as a live ±90/±15 nudge layer for future items
+- `attachRotation` JSON field replaces the hardcode — per-item grip correction stored on the file, dialed via nudge buttons, baked on export; loaded → seeds base + resets dial
+- Aiming preset mirrored to RIGHT arm (`armSwingR/elbowBendR/torsoTwist:-0.2`) in editor defaults, weapon preset, and both Civilian1 JSONs — right-handed weapons now aim right-handed
+- Right-arm joint pivots fixed in both Civilian1 files — gid 3 shoulder pivot was 1 voxel inboard of the arm's inner edge (visible arm↔torso gap), gid 9 elbow pivot was 3 voxels inside the upper arm (forearm swung around a point buried in the bicep); both now sit on their joint columns (x=35, x=27) matching the symmetric left side
+- Editor UX: additive selection (Alt = add flood region / Shift+Alt = add voxel / Ctrl+Alt = additive box, live preview on Alt), centroid glow markers in Parts view (fractional, shine-through), Grid + Axes toggles next to BG picker (localStorage-persisted)
+- Assets promoted: `Civilian1Test2.json` → `voxel_characters/Civilian1.json` (hand attachment points + right-arm aim + fixed pivots), `SW_Model_10FINAL.json` → `voxel_items/SW_Model_10.json` (remodel, 2734 voxels, grip_right/muzzle points, baked attachRotation X=270)
 
 ---
 
