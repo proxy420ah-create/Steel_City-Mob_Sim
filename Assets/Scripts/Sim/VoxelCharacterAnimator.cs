@@ -637,6 +637,52 @@ namespace SteelCity.Sim
         }
 
         /// <summary>
+        /// Pose a single FRACTIONAL rest-space point (e.g. an attachment centroid) through
+        /// the same pipeline as PoseVoxels: group chain, offsets, body bob + weight shift.
+        /// Returns the posed point in voxel units, centered on x/z (matching PoseVoxels output).
+        /// </summary>
+        public Vector3 PosePoint(
+            Vector3 restPos, int gid, Vector3Int dims,
+            float animState, float animTime, float animSpeed)
+        {
+            bool isWalkState = (animState > 0.5f && animState < 1.5f) || (animState > 2.5f && animState < 3.5f);
+            WalkPose walkPose = isWalkState ? GetWalkPose(animTime, animSpeed, paramsData) : default(WalkPose);
+            float bodyBobY = isWalkState ? walkPose.bodyBobY : 0f;
+            float weightShiftX = isWalkState ? walkPose.weightShiftX : 0f;
+
+            float px = restPos.x - dims.x * 0.5f;
+            float py = restPos.y;
+            float pz = restPos.z - dims.z * 0.5f;
+
+            if (gid >= 0)
+            {
+                var result = ComputeGroupRotation(gid, dims, 1.0f, animState, animTime, animSpeed);
+                if (result.HasValue && result.Value.chain != null && result.Value.chain.Length > 0)
+                {
+                    var pos = restPos;
+                    for (int c = 0; c < result.Value.chain.Length; c++)
+                    {
+                        var entry = result.Value.chain[c];
+                        var rel = pos - entry.pivot;
+                        pos = MatVec3(entry.rot, rel) + entry.pivot;
+                    }
+                    var off = result.Value.offset;
+                    px = pos.x + off.x - dims.x * 0.5f;
+                    py = pos.y + off.y;
+                    pz = pos.z + off.z - dims.z * 0.5f;
+                }
+            }
+
+            if (isWalkState)
+            {
+                px += weightShiftX;
+                py += bodyBobY;
+            }
+
+            return new Vector3(px, py, pz);
+        }
+
+        /// <summary>
         /// Convenience overload: pose voxels and return both positions and the rest-space
         /// voxel indices for building a posed voxel buffer (for raymarch sampling).
         /// Each posed position maps back to a rest-space voxel index for material lookup.

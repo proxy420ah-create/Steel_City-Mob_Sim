@@ -1,6 +1,41 @@
 # Recent Changes — Steel City: Mob Sim
 
-**Last Updated**: October 3, 2026 (dummyMatrix scale leak fix — tools render 1×1×1 again)
+**Last Updated**: October 3, 2026 (Unity weapon attachment — armed transit milestone)
+
+---
+
+## October 3, 2026 — Unity WeaponMount: Armed Character Transit (Phase 1–2)
+
+### Impact
+- **Characters can carry voxel weapons in Unity** — the item renders as its own raymarch volume (separate dims + voxelSize, never resampled) and is welded to the posed hand point every frame through the CPU FK port. Armed walk/aim/pathing = the M1 milestone: send Vinny on an extort mission and the Model 10 should track his right hand through the walk cycle.
+
+### Changes
+- `Assets/Scripts/Sim/WeaponMount.cs` — NEW component (on the character GO, `RequireComponent(VoxelCharacter)`): loads `voxel_items/*.json` → ComputeBuffer → `RegisterVolume`; per-frame CPU pose of the `right_hand` centroid (`animState/animTime/animSpeed` from the instanced handle) → weld `yaw ∘ R ∘ B ∘ attachRotation`; solves the item GO transform so the grip cell-center lands on the hand; exposes `MuzzleWorld`/`AimDirection` (projectile origin later). Coordinate bridge documented in-file: index space +0.5 → cell space.
+- `CharacterJsonLoader` — `ParseAttachmentPoints` (fractional + `gid`), `ParseVoxelSize`, `ParseEulerDeg`, `ExtractPivotsRaw`
+- `VoxelCharacterAnimator.PosePoint` — public fractional single-point pose (group chain + offsets + body bob/shift, identical output convention to `PoseVoxels`)
+- `CharacterRig.equipItem` — defaults to `SW_Model_10.json` (both scene civilians spawn armed for the test; clear the field to unarm)
+- `CharacterRig` — all rigs now start in **Idle** (T-Pose still reachable via the T hotkey for pose debugging); previously rig1 started T-posed → gun floated at the extended T-pose hand
+- `CityMap3D.SpawnSceneCharacters` — debug civilians now spawn in a fully-vacant (all-`empty_land`) lot adjacent to HQ (nearest vacant lot as fallback) instead of inside the tenement block
+- `SW_Model_10.json` — `attachRotation.x` 270→90 (180° roll compensation for the mirrored-arm weld basis)
+- `CharacterPoseCompute.compute` — state 9 (T-Pose) now early-outs entirely in `ComputeGroupRotation` (no rotation chains, no `jointOffset` translations) matching CPU `VoxelCharacterAnimator` line 278. Previously the compute path applied idle `restCfg` arm drops AND the ±6-voxel shoulder `jointOffset` (exists to seat dropped arms), which detached the arms in bind pose — fragment path already guarded at line 591
+- `PedestrianLookAround` — ambient look-around no longer stomps manually-set/driven states: only fidgets from Idle, and only restores Idle if it still owns the state (fixes T-pose/Aim hotkeys reverting to Idle)
+- **Handedness correction**: `Civilian1.json` — swapped `right_hand`↔`left_hand` attachment point names (right_hand := x=78.5, gid 8). The low-x arm renders as the anatomical left hand (verified top-down); labels now match rendered anatomy. Aim preset moved back to the high-x chain (`armSwingL=-1.4`, `elbowBendL=0.3`, `torsoTwist=0.2`) so aim arm = gun arm. Editor `aiming` defaults + `pistol` preset in `voxel_editor.html` synced to match (`character_pose_engine.js` was already correct).
+- `StressTestSpawner.equipItem` — empty by default; set in inspector to arm F8 extort-loop agents
+- `docs/systems/WEAPON_ATTACHMENT_SYSTEM.md` — Phase 1–2 marked implemented
+- 🧪 **TEST NOW**: play the scene — Civilian_01/_02 should spawn with the Model 10 welded to the right hand; run an extort mission → verify seat, orientation (sights-up, barrel along arm), scale (0.005 detail), and tracking through the walk cycle. Watch for: half-voxel seat offset, mirrored/rolled barrel, drift during bob/shift.
+
+---
+
+## October 3, 2026 — Fractional Attachment Centroids + Owning GID in Exports
+
+### Impact
+- **Sub-voxel attachment precision** — centroids no longer rounded to int on export; a painted 2×2 muzzle face now exports `{y:22.5, z:4.5}` instead of `{23,5}`, and the weld preview + centroid markers use the same fractional value the file carries
+- **Unity can pick the FK chain directly** — each character point now records its owning animation `gid` (majority across the painted cluster), removing the voxel-lookup guess that breaks once points are fractional
+
+### Changes
+- `voxel_editor.html` — `buildAttachmentPoints()` exports fractional centroids (3-decimal quantize) + majority `gid` from `groupMap`; `attachItem` prefers `cPt.gid` over the groupKeys lookup. Contract: points stay index-space (index = voxel center); Unity converts to cell space with `+0.5` per axis at the weld
+- `docs/systems/WEAPON_ATTACHMENT_SYSTEM.md` — documented index-space vs cell-space convention, `+0.5` weld rule, `gid` field; example updated to current Model 10 dims + `attachRotation`
+- **Action required**: re-export `Civilian1` and `SW_Model_10` from the editor to get fractional points + gid into StreamingAssets
 
 ---
 

@@ -336,6 +336,104 @@ namespace SteelCity.Sim
             return ExtractJsonObject(json, "\"animParams\"");
         }
 
+        /// <summary>Extract the "pivots" sub-object as raw JSON string (normalized coords per gid).</summary>
+        public static string ExtractPivotsRaw(string json)
+        {
+            return ExtractJsonObject(json, "\"pivots\"");
+        }
+
+        /// <summary>Parse top-level "voxelSize" field (world units per voxel).</summary>
+        public static float ParseVoxelSize(string json, float fallback)
+        {
+            int idx = json.IndexOf("\"voxelSize\"");
+            if (idx < 0) return fallback;
+            int colon = json.IndexOf(':', idx);
+            if (colon < 0) return fallback;
+            int end = colon + 1;
+            while (end < json.Length && json[end] != ',' && json[end] != '}' && json[end] != '\n')
+                end++;
+            if (float.TryParse(json.Substring(colon + 1, end - colon - 1).Trim(),
+                    NumberStyles.Float, CultureInfo.InvariantCulture, out float val) && val > 0f)
+                return val;
+            return fallback;
+        }
+
+        /// <summary>Parse a top-level {"x":..,"y":..,"z":..} object (degrees) — e.g. "attachRotation".</summary>
+        public static Vector3 ParseEulerDeg(string json, string key)
+        {
+            string raw = ExtractJsonObject(json, "\"" + key + "\"");
+            if (raw == null) return Vector3.zero;
+            ParseFloat(raw, "\"x\"", out float x);
+            ParseFloat(raw, "\"y\"", out float y);
+            ParseFloat(raw, "\"z\"", out float z);
+            return new Vector3(x, y, z);
+        }
+
+        /// <summary>
+        /// Named attachment point: fractional centroid in index space (voxel index = its center).
+        /// Unity converts to cell space by adding +0.5 per axis before multiplying by voxelSize.
+        /// gid = owning animation group (characters only; -1 when absent, e.g. items).
+        /// </summary>
+        public class AttachmentPoint
+        {
+            public Vector3 pos;
+            public int gid = -1;
+        }
+
+        /// <summary>
+        /// Parse "attachmentPoints": {"right_hand": {"x":..,"y":..,"z":..,"gid":..}, ...}
+        /// Returns name → AttachmentPoint. Values are fractional index-space centroids.
+        /// </summary>
+        public static Dictionary<string, AttachmentPoint> ParseAttachmentPoints(string json)
+        {
+            var result = new Dictionary<string, AttachmentPoint>();
+
+            int idx = json.IndexOf("\"attachmentPoints\"");
+            if (idx < 0) return result;
+            int start = json.IndexOf('{', idx);
+            if (start < 0) return result;
+
+            int depth = 0;
+            int end = start;
+            for (int i = start; i < json.Length; i++)
+            {
+                if (json[i] == '{') depth++;
+                else if (json[i] == '}') { depth--; if (depth == 0) { end = i; break; } }
+            }
+
+            string inner = json.Substring(start + 1, end - start - 1);
+            int pos = 0;
+            while (pos < inner.Length)
+            {
+                int q1 = inner.IndexOf('"', pos);
+                if (q1 < 0) break;
+                int q2 = inner.IndexOf('"', q1 + 1);
+                if (q2 < 0) break;
+
+                string name = inner.Substring(q1 + 1, q2 - q1 - 1);
+                int objStart = inner.IndexOf('{', q2);
+                if (objStart < 0) break;
+                int objEnd = inner.IndexOf('}', objStart);
+                if (objEnd < 0) break;
+
+                string obj = inner.Substring(objStart + 1, objEnd - objStart - 1);
+                ParseFloat(obj, "\"x\"", out float x);
+                ParseFloat(obj, "\"y\"", out float y);
+                ParseFloat(obj, "\"z\"", out float z);
+                int gid = -1;
+                if (obj.IndexOf("\"gid\"") >= 0)
+                {
+                    ParseFloat(obj, "\"gid\"", out float gidF);
+                    gid = (int)gidF;
+                }
+
+                result[name] = new AttachmentPoint { pos = new Vector3(x, y, z), gid = gid };
+                pos = objEnd + 1;
+            }
+
+            return result;
+        }
+
         static string ExtractJsonObject(string json, string key)
         {
             int idx = json.IndexOf(key);

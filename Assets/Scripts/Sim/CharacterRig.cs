@@ -24,6 +24,10 @@ namespace SteelCity.Sim
         [Tooltip("VoxelChunkManager for raymarch rendering. Auto-found if not assigned.")]
         [SerializeField] private VoxelChunkManager chunkManager;
 
+        [Header("Weapon")]
+        [Tooltip("Item file in StreamingAssets/voxel_items/ to weld to the right hand. Empty = unarmed.")]
+        [SerializeField] internal string equipItem = "SW_Model_10.json";
+
         [Header("Position")]
         [Tooltip("Fixed spawn position (world space). No ground probe.")]
         [SerializeField] internal Vector3 spawnPosition = new Vector3(0f, 0.1f, 0f);
@@ -165,7 +169,18 @@ namespace SteelCity.Sim
                 anim = gameObject.AddComponent<CharacterAnimation>();
             anim.autoDetectWalking = false;
             anim.walkSpeed = animSpeed;
-            anim.SetState(CharacterAnimation.AnimState.TPose);
+            // All rigs start Idle (normal NPC look). T-Pose remains reachable
+            // via the T hotkey on controllable rigs for pose debugging.
+            anim.SetState(CharacterAnimation.AnimState.Idle);
+
+            // Weapon attachment — welds the item volume to the posed hand each frame
+            if (!string.IsNullOrEmpty(equipItem))
+            {
+                var mount = gameObject.GetComponent<WeaponMount>();
+                if (mount == null)
+                    mount = gameObject.AddComponent<WeaponMount>();
+                mount.itemFileName = equipItem;
+            }
 
             Debug.Log($"[CharRig] Initialized character on '{gameObject.name}' at {spawnPosition} " +
                       $"(asset={assetBaseName}.json, voxelSize={voxelSize})");

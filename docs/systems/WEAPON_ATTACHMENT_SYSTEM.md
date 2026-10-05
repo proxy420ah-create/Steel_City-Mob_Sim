@@ -65,25 +65,43 @@ character's posed hand point, inheriting rotation from the FK chain.
   "name": "SW_Model_10",
   "assetType": "prop",
   "voxelSize": 0.005,
-  "dims": [48, 26, 10],
+  "dims": [60, 26, 10],
+  "attachRotation": { "x": 270, "y": 0, "z": 0 },
   "attachmentPoints": {
-    "grip_right": { "x": 9, "y": 5, "z": 7 },
-    "grip_left":  { "x": 9, "y": 5, "z": 2 },
-    "muzzle":     { "x": 47, "y": 20, "z": 4 }
+    "grip_right": { "x": 6, "y": 9, "z": 5 },
+    "muzzle":     { "x": 56, "y": 22.5, "z": 4.5 }
   },
-  "itemParts": { "9,5,7": 1, "9,5,2": 2, "47,20,4": 3 },
+  "itemParts": { "6,9,5": 1, "56,22,4": 3 },
   "voxels": [...]
 }
 ```
 
 **Two related fields, one source of truth:**
 
-- `attachmentPoints` — named `{x,y,z}` points; **the runtime/Unity format**.
+- `attachmentPoints` — named `{x,y,z,gid?}` points; **the runtime/Unity format**.
+  Values are **fractional centroids in index space** (voxel index = its center),
+  e.g. a 2×2 muzzle face exports `{x:56, y:22.5, z:4.5}`. `gid` (character
+  points only) records the owning animation group so Unity picks the correct
+  FK chain directly.
 - `itemParts` — `"x,y,z" → partId` painted-voxel map; the editor's working
   format. Painting a small cluster (e.g. a 4×1×1 grip region) is fine —
   export reduces each named point to the **centroid** of its painted voxels.
   The editor reconstructs painted voxels from `attachmentPoints` when
   `itemParts` is absent, so either field survives a round-trip.
+
+### Index Space vs. Cell Space (Unity conversion)
+
+The **editor** treats a voxel index as its center (instances sit at integer
+coords). The **Unity raymarcher** treats voxel `i` as the cell `[i·vs, (i+1)·vs]`
+— center at `(i+0.5)·vs` from the volume corner. Bridge once, at the weld:
+
+```
+point_world = volumeOrigin + (attachmentPoint + 0.5) · voxelSize
+```
+
+On the item side the offset cancels — weld deltas are `voxel − gripPoint`, so
+relative geometry needs no correction. Only absolute anchor points (the hand
+centroid landing in world space) take the `+0.5`.
 
 ### Character JSON (`Civilian1.json`)
 
@@ -223,18 +241,35 @@ separate preset entries — the weapon self-describes its ideal grip pose.
 
 ## Unity Implementation Plan
 
-### Phase 1: Data Loading
+### Phase 1: Data Loading — ✅ DONE
 
-- Extend `VoxelCharacter.cs` to load `attachmentPoints` from character JSON
-- Extend weapon loading (wherever items are loaded) to read `attachmentPoints`
-- Store points as `Dictionary<string, Vector3Int>` (voxel-local coords)
+- ✅ `CharacterJsonLoader`: `ParseAttachmentPoints` (fractional centroids +
+  owning `gid`), `ParseVoxelSize`, `ParseEulerDeg` (`attachRotation`),
+  `ExtractPivotsRaw`
+- ✅ Points stored as `Dictionary<string, AttachmentPoint>` — fractional
+  index-space centroids (index = voxel center; +0.5 converts to Unity cell
+  space)
 
-### Phase 2: One-Handed Alignment
+### Phase 2: One-Handed Alignment — ✅ implemented (pending playtest)
 
-- After posing, compute world position of `right_hand` point via FK
-- Position weapon so `grip_right` maps to `right_hand` world position
-- Inherit rotation from forearm group (gid 9)
-- Test with S&W Model 10 + Civilian1 in aiming pose
+- ✅ `WeaponMount.cs` (`Assets/Scripts/Sim/`) — component on the character GO:
+  - loads the item as its **own raymarch volume** via
+    `VoxelChunkManager.RegisterVolume` (separate dims + `voxelSize`, never
+    resampled into the character buffer; render path live-tracks the item
+    GameObject's transform each frame)
+  - per frame: CPU `VoxelCharacterAnimator` poses the `right_hand` centroid
+    through the same FK chain the GPU pose uses (`PosePoint`), reads
+    `animState`/`animTime`/`animSpeed` from the instanced handle
+  - weld: `itemWorld = handWorld + yaw ∘ R ∘ B ∘ attachRotation ∘ (voxel − grip)`
+    where `B` is the rest-pose basis (item +X → forearm axis from the group
+    centroid, +Y → projected world-up) — a direct port of the editor's
+    `attachItem()`
+  - exposes `MuzzleWorld` / `AimDirection` for future muzzle flash + projectiles
+- ✅ `VoxelCharacterAnimator.PosePoint` — fractional single-point pose incl.
+  body bob + weight shift (matches GPU pose output)
+- ✅ Spawn hooks: `CharacterRig.equipItem` (defaults to `SW_Model_10.json`),
+  `StressTestSpawner.equipItem` (empty by default)
+- 🧪 Playtest: armed walk/aim tracking, scale, orientation vs. editor preview
 
 ### Phase 3: Two-Handed Alignment
 

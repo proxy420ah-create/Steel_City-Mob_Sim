@@ -1037,11 +1037,11 @@ const DEFAULT_PARAMS = {
   },
   aiming: {
     weaponType: 'pistol',
-    torsoTwist: -0.2,
+    torsoTwist: 0.2,
     headYaw: 0.0, headPitch: -0.05, headTilt: 0.0,
-    armSwingL: 0.0, armSwingR: -1.4,
+    armSwingL: -1.4, armSwingR: 0.0,
     shoulderReachL: 0.0, shoulderReachR: 0.0,
-    elbowBendL: 0.0, elbowBendR: 0.3,
+    elbowBendL: 0.3, elbowBendR: 0.0,
   },
   crouching: {
     bodyLower: 0.0, modelLower: 4.0, bodyLean: 0.0,
@@ -1056,10 +1056,10 @@ const AIM_WEAPON_PRESETS = {
   // Right-handed single-arm aim — the dominant arm extends, torso blades
   // the opposite way. Left-armed variants can mirror by swapping L/R values.
   pistol: {
-    torsoTwist: -0.2,
-    armSwingL: 0.0, armSwingR: -1.4,
+    torsoTwist: 0.2,
+    armSwingL: -1.4, armSwingR: 0.0,
     shoulderReachL: 0.0, shoulderReachR: 0.0,
-    elbowBendL: 0.0, elbowBendR: 0.3,
+    elbowBendL: 0.3, elbowBendR: 0.0,
     headYaw: 0.0, headPitch: -0.05, headTilt: 0.0,
   },
   dual: {
@@ -1972,21 +1972,38 @@ function updateCentroidMarkers() {
 // Named attachment points for Unity: centroid of each painted part group,
 // keyed by the group's `key` field (e.g. grip_right, right_hand).
 // Per WEAPON_ATTACHMENT_SYSTEM.md — single {x,y,z} per point.
+// Centroids stay FRACTIONAL (index-space: voxel index = its center) — rounding
+// throws away half-voxel precision that matters for grip seats and 2×2 muzzle
+// faces. Unity converts to cell-boundary space by adding +0.5 to each axis
+// (its voxel i occupies [i*vs, (i+1)*vs], center at (i+0.5)*vs).
+// `gid` records which animation group owns the painted voxels (characters only;
+// items have no groups → gid omitted) so Unity can pick the correct FK chain
+// without guessing from voxel lookups.
 function buildAttachmentPoints() {
   const sums = {};
   for (const [key, pid] of itemPartMap) {
     if (!voxelMap.has(key)) continue;
     const [x, y, z] = key.split(',').map(Number);
-    const s = sums[pid] || (sums[pid] = { x: 0, y: 0, z: 0, c: 0 });
+    const s = sums[pid] || (sums[pid] = { x: 0, y: 0, z: 0, c: 0, gids: {} });
     s.x += x; s.y += y; s.z += z; s.c++;
+    const gid = groupMap.get(key);
+    if (gid !== undefined) s.gids[gid] = (s.gids[gid] || 0) + 1;
   }
   const defs = activePartGroups();
   const out = {};
+  const q = v => Math.round(v * 1000) / 1000;
   for (const [pid, s] of Object.entries(sums)) {
     if (s.c === 0) continue;
     const g = defs.find(d => d.id == pid);
     const name = (g && g.key) || `part_${pid}`;
-    out[name] = { x: Math.round(s.x / s.c), y: Math.round(s.y / s.c), z: Math.round(s.z / s.c) };
+    const pt = { x: q(s.x / s.c), y: q(s.y / s.c), z: q(s.z / s.c) };
+    // Majority gid across the painted cluster (usually unanimous).
+    let bestGid = null, bestN = 0;
+    for (const [gid, n] of Object.entries(s.gids)) {
+      if (n > bestN) { bestN = n; bestGid = parseInt(gid); }
+    }
+    if (bestGid !== null) pt.gid = bestGid;
+    out[name] = pt;
   }
   return out;
 }
@@ -2012,7 +2029,8 @@ function importAttachmentPoints(data) {
     for (const [name, p] of Object.entries(data.attachmentPoints)) {
       const g = defs.find(d => d.key === name);
       if (g && p && typeof p.x === 'number') {
-        itemPartMap.set(`${p.x},${p.y},${p.z}`, g.id);
+        // Fractional centroid → nearest voxel index for re-tagging
+        itemPartMap.set(`${Math.round(p.x)},${Math.round(p.y)},${Math.round(p.z)}`, g.id);
       }
     }
   }
@@ -5821,10 +5839,13 @@ function attachItem(hand) {
   if (!iPt) { setStatus(`Attach: editable model has no '${spec.itemKey}' — paint it via Attach Pts`); return; }
   if (voxelMap.size === 0) { setStatus('Attach: editable model is empty'); return; }
 
-  // Which animation group owns the hand point (its own group map, else the
-  // forearm it semantically belongs to).
+  // Which animation group owns the hand point: prefer the exported gid on the
+  // point itself, else look it up in the character's group map, else the
+  // forearm it semantically belongs to.
   let gid = spec.gid;
-  if (charData.groupKeys) {
+  if (cPt.gid !== undefined) {
+    gid = cPt.gid;
+  } else if (charData.groupKeys) {
     const g = charData.groupKeys.get(`${Math.round(cPt.x)},${Math.round(cPt.y)},${Math.round(cPt.z)}`);
     if (g !== undefined) gid = g;
   }

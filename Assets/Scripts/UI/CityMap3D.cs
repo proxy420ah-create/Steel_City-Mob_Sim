@@ -1280,7 +1280,18 @@ namespace SteelCity.Sim
                 blockCol = spawnBlock.col;
             }
 
-            Debug.Log($"[CityMap3D] Spawning character at {spawnBlock.id} (r{blockRow} c{blockCol})");
+            // Debug characters belong in the open — prefer a fully-vacant
+            // (all empty_land) lot ADJACENT to the spawn block, else the nearest
+            // vacant lot, else the spawn block itself.
+            var emptyLot = FindEmptyLotAdjacentOrNearest(blockRow, blockCol);
+            if (emptyLot != null)
+            {
+                Debug.Log($"[CityMap3D] Redirected character spawn from {spawnBlock.id} to empty lot {emptyLot.block_id} (r{emptyLot.row} c{emptyLot.col})");
+                blockRow = emptyLot.row;
+                blockCol = emptyLot.col;
+            }
+
+            Debug.Log($"[CityMap3D] Spawning character at r{blockRow} c{blockCol}");
 
             float bx = (blockCol - centerCol) * spacing;
             float bz = -(blockRow - centerRow) * spacing;
@@ -1728,6 +1739,37 @@ namespace SteelCity.Sim
             }
 
             Debug.Log($"[CityMap3D] 🔄 Rebaked {rebaked} empty-land chunks (debris scatter: {ProceduralDebrisScatterer.Enabled})");
+        }
+
+        /// <summary>
+        /// Find a fully-vacant lot (every building slot is empty_land) adjacent
+        /// (N/S/E/W) to a block, else the nearest vacant lot by Manhattan distance.
+        /// Returns null when no vacant lot exists in the layout.
+        /// </summary>
+        private CityLayoutBlock FindEmptyLotAdjacentOrNearest(float row, float col)
+        {
+            if (cachedLayout == null || cachedLayout.blocks == null) return null;
+
+            CityLayoutBlock adjacent = null;
+            CityLayoutBlock nearest = null;
+            int nearestDist = int.MaxValue;
+
+            foreach (var lb in cachedLayout.blocks)
+            {
+                if (lb.buildings == null || lb.buildings.Length == 0) continue;
+                bool allEmpty = true;
+                foreach (var b in lb.buildings)
+                {
+                    if (!IsEmptyLand(b.stasset)) { allEmpty = false; break; }
+                }
+                if (!allEmpty) continue;
+
+                int d = Mathf.Abs(lb.row - (int)row) + Mathf.Abs(lb.col - (int)col);
+                if (d == 1 && adjacent == null) adjacent = lb;
+                if (d > 0 && d < nearestDist) { nearestDist = d; nearest = lb; }
+            }
+
+            return adjacent ?? nearest;
         }
 
         /// <summary>Detect empty land stasset paths for procedural debris scattering.</summary>

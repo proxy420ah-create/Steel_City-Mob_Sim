@@ -18,6 +18,8 @@ namespace SteelCity.Sim
         [SerializeField] private float spawnDelay = 0.05f; // stagger spawns to avoid spike
         [SerializeField] private float atTargetDuration = 2f; // seconds to "extort" before returning
         [SerializeField] private int maxPathsPerFrame = 8; // time-sliced path computation
+        [Tooltip("Item file in StreamingAssets/voxel_items/ to weld to each agent's right hand. Empty = unarmed.")]
+        [SerializeField] private string equipItem = "";
 
         [Header("References")]
         [SerializeField] private CityMap3D cityMap;
@@ -265,6 +267,13 @@ namespace SteelCity.Sim
                 vc.useWorldPosition = false;
                 vc.showGizmo = false;
                 vc.showGroundProbe = false;
+
+                // Armed agents: weld an item volume to the right hand
+                if (!string.IsNullOrEmpty(equipItem))
+                {
+                    var mount = charObj.AddComponent<WeaponMount>();
+                    mount.itemFileName = equipItem;
+                }
 
                 // Create agent controller with real pathfinding
                 float walkSpeed = ResolveWalkSpeed();

@@ -43,7 +43,10 @@ namespace SteelCity.Sim
 
             if (!isLooking)
             {
-                lookTimer -= Time.deltaTime;
+                // Only fidget from Idle — don't interrupt driven or debug states
+                // (T-Pose, Aiming, Walking) or the restore below stomps them.
+                if (anim.currentState == CharacterAnimation.AnimState.Idle)
+                    lookTimer -= Time.deltaTime;
                 if (lookTimer <= 0f)
                 {
                     StartCoroutine(LookAround());
@@ -57,7 +60,8 @@ namespace SteelCity.Sim
             isLooking = true;
             anim.SetState(CharacterAnimation.AnimState.Looking);
             yield return new WaitForSeconds(Random.Range(minLookDuration, maxLookDuration));
-            anim.SetState(CharacterAnimation.AnimState.Idle);
+            if (anim.currentState == CharacterAnimation.AnimState.Looking)
+                anim.SetState(CharacterAnimation.AnimState.Idle);
             isLooking = false;
         }
 
@@ -67,7 +71,8 @@ namespace SteelCity.Sim
             isLooking = true;
             anim.SetState(CharacterAnimation.AnimState.AimWalk);
             yield return new WaitForSeconds(duration);
-            anim.SetState(CharacterAnimation.AnimState.Idle);
+            if (anim.currentState == CharacterAnimation.AnimState.AimWalk)
+                anim.SetState(CharacterAnimation.AnimState.Idle);
             isLooking = false;
         }
     }

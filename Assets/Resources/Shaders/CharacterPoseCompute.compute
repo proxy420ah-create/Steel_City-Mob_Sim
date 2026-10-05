@@ -132,6 +132,10 @@ float3x3 ComputeOwnRotation(
 {
     float3x3 rot = float3x3(1,0,0, 0,1,0, 0,0,1);
 
+    // T-Pose (state 9): raw bind pose — skip rest offsets (arm drop, leg
+    // twist, elbow bend) so the render matches the authored rest voxels.
+    if (animState > 8.5) return rot;
+
     bool isWalkState = animState > 0.5 && animState < 1.5;
     bool isAimWalkState = animState > 2.5 && animState < 3.5;
     bool isAimingState = animState > 2.5 && animState < 4.5;
@@ -334,6 +338,9 @@ void ComputeGroupRotation(
     chain[0].pivot = float3(0,0,0); chain[0].rot = float3x3(1,0,0, 0,1,0, 0,0,1);
     chain[1].pivot = float3(0,0,0); chain[1].rot = float3x3(1,0,0, 0,1,0, 0,0,1);
     chain[2].pivot = float3(0,0,0); chain[2].rot = float3x3(1,0,0, 0,1,0, 0,0,1);
+
+    // T-Pose (state 9): raw bind pose — no chains, no jointOffsets (matches CPU).
+    if (animState > 8.5 && animState < 9.5) return;
 
     // Body transform
     bool isAimingState = animState > 2.5 && animState < 4.5;
