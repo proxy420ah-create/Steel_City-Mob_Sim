@@ -16,7 +16,8 @@ namespace SteelCity.Sim
         TickBudgetExhausted,
         WeekComplete,
         PathFound,
-        NoPath
+        NoPath,
+        FaceTarget
     }
 
     public class SimEvent
@@ -40,6 +41,7 @@ namespace SteelCity.Sim
         public int dialogTicksRemaining;
         public int dialogTotalTicks;
         public string message;
+        public Vector3 facePos;   // map-local point to face (FaceTarget events)
 
         public static SimEvent Move(Vector3 from, Vector3 to, float duration, float tickCost, string linkType,
                                      string nodeId, int tickElapsed, int tickRemaining)
@@ -125,6 +127,18 @@ namespace SteelCity.Sim
                 type = SimEventType.WeekComplete,
                 tickElapsed = tickElapsed,
                 tickRemaining = 0
+            };
+        }
+
+        /// <summary>Stand and rotate to face a map-local point (e.g. a firing lane target).</summary>
+        public static SimEvent FaceTargetEvent(Vector3 facePosLocal, int tickElapsed, int tickRemaining)
+        {
+            return new SimEvent
+            {
+                type = SimEventType.FaceTarget,
+                facePos = facePosLocal,
+                tickElapsed = tickElapsed,
+                tickRemaining = tickRemaining
             };
         }
 

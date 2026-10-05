@@ -1,6 +1,53 @@
 # Recent Changes — Steel City: Mob Sim
 
-**Last Updated**: October 8, 2026 (angle-dependent building culling — fixed)
+**Last Updated**: October 4, 2026 (Debug HUD Keys tab + runtime spawn)
+
+---
+
+## October 4, 2026 — Debug HUD Keys Tab + Runtime Spawn (hotkey cheat-sheet)
+
+### Impact
+- **The debug HUD now actually appears during play and lists every live hotkey.** `DebugHUDManager` existed but was in no scene and nothing spawned it — the "All Hotkeys" footer it carried was unreachable and stale (listed deprecated `FollowCamera` keys, missing F6/F7/R/F10). It now auto-spawns like `VehicleTestSpawner`, opens on a new always-available **Keys** tab, and only lists hotkeys whose handler components are actually present in the scene.
+
+### Changes
+- `CityMap3D.Awake` — creates a `DebugHUDManager` GameObject when none exists (same ensure-spawn pattern as `VehicleTestSpawner`)
+- `DebugHUDManager` — new `Tab.Keys` + `DrawKeysTab()`: grouped cheat-sheet (This Panel / Map Camera / Scene & Render / Character Anim / Vehicles / Stress Test / Test Rigs); conditional sections driven by `FindFirstObjectByType` so inactive keys are never listed; `defaultTab` → Keys; footer rewritten to accurate essentials + pointer to Keys tab
+- `DebugHUDManager.Update` — `Tab`/`Y`/`M` now gated behind `visible` (previously responded while the panel was hidden)
+
+### Notes (discovered, not changed)
+- `CityMap3D.HandleAnimationHotkeys` (digits 1-9/0 anim states) is defined but never called — dead code; the live state keys are `CharacterRig`'s letter bindings.
+- `ClothingSystem` toggles a `debugPanelVisible` flag on `O` that nothing reads — vestigial; `O` and `` ` `` both still toggle this HUD.
+- `F7` is shared: waypoint beams (always) and stress-test beam-count cycle (while a test runs).
+- `R` conflicts with `CharacterTestRig`/test-rig reload keys if those components are ever added to the scene.
+
+### 🧪 TEST NOW
+- Play `Planning_and_Working_Scene` (or `MainScene`) → the debug HUD should appear top-left on the **Keys** tab showing the categorized hotkey list.
+- Press `` ` `` or `O` → panel hides; press again → returns on the same tab. `Tab`/`Y`/`M` should do nothing while hidden.
+- Footer under any tab shows the compact essentials line; spot-check listed keys (mouse on map, `R` render scale, `F6`/`F7`, `I/W/L/A/C/T` on the green-selected rig, `Space`, `=`/`-`, `F10` vehicles).
+
+---
+
+## October 8, 2026 — Target Practice Order + Building Attachment-Point Runtime
+
+### Impact
+- **The building event-point pipeline is now live end-to-end in Unity.** Painted `firing_position`/`firing_target` centroids in `shooting_range.stasset`'s SKEL tail are parsed at runtime, resolved to world space through the registered building address, and drive a new order: select hood → select the range block → Target Practice → run week → Vinny walks the sidewalk graph to the block, enters at the painted firing position, turns to face downrange, and holds the aim stance for the action phase. `firearms` skill +2 on resolution.
+- Same machinery generalizes to `door`/`spawn`/`prop_slot`/`cover`/`decor` — the deferred "prop auto-placement layer" now has its resolution primitive.
+
+### Changes
+- `StAssetReader` — `LoadAttachmentPoints(path)`: parses v2 SKEL tail blocks (`'SKEL'`+len+JSON), scoped `attachmentPoints` extraction → `name → Vector3` voxel centroids
+- `CityMap3D.TryGetBuildingPointLocal(blockId, name, out localPos)` — centroid → map-local via `addressRegistry` worldCenter/size; per-stasset cache; vs derived from footprint `size/dims`
+- `SimEventType.FaceTarget` + `facePos` — new facing directive event (map-local point)
+- `SimulationManager` — `StartSimulation` gains optional `faceTargetLocal`; emits `FaceTarget` after arrival before dialog; `OrderActionTicks["target_practice"]=166`; resolution bumps `hood.skills["firearms"]` +2; **`targetPracticeDwells`** (default on): new `SimState.Dwelling` — order resolves but the week stays OPEN (no ticks consumed, sim never completes) until `ReleaseDwell()` via **Enter key** in `EventPlayer.Update` — extended weapons-testing sessions at the line
+- `EventPlayer` — handles `FaceTarget` (rotation slerp now runs while standing too, not only mid-move); practice holds **Idle** pose during the action phase (base for future IK-driven dynamic aiming — `Aiming` intentionally not used); **fixed corner-vs-center placement bug** — `useWorldPosition=false` branch (the path `CharacterRig`-spawned characters take) landed the volume corner on targets, offsetting body ~0.72m diagonal on EVERY waypoint + arrival; now subtracts half-size XZ (also fixed same pattern in `TickSimulation`)
+- `CityMap3D.TryGetBuildingPointLocal` — `+0.5` per axis on centroids (index→cell-center convention, matching WeaponMount's bridge)
+- `GameUIController` — `targetPracticeButton` serialized field + `["target_practice"]` binding; execution start resolves `firing_position` (walk-to target) + `firing_target` (facing), falls back to block center with a warning when absent
+- `docs/systems/WEAPON_ATTACHMENT_SYSTEM.md` — "Building Event Points — Runtime Consumption" section
+
+### 🧪 TEST NOW
+- No scene edit needed — when `targetPracticeButton` is unassigned, the controller clones the Lie Low button at startup (teal, labeled "Target Practice") and the normal order-button wiring picks it up. Assign the serialized field later if you want a permanent scene button.
+- Select Vinny → click `block_46` (Central Block 46, the range) → Target Practice → Run Week
+- Expected: path to the block → walks the last segment to the painted firing spot (~0.5m left of block center, 4.3m short side) → turns to face the target lane → aim stance during the action ticks → resolves "firearms +2" → walks home
+- Watch for: correct final facing (+Z toward the backstop, not toward the sidewalk he entered from); aim stance holding through dialog; no stuck-at-sidewalk regression on extort orders
 
 ---
 

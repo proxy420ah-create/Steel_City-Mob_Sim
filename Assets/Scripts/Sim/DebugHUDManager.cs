@@ -9,19 +9,20 @@ namespace SteelCity.Sim
     /// Unified debug HUD — single IMGUI window with tabs for all debug overlays.
     /// Replaces the scattered OnGUI() methods in FollowCamera and CityMap3D.
     ///
-    /// Tabs: [Camera] [Render] [Clothing] [Path]
+    /// Tabs: [Camera] [Render] [Clothing] [Path] [Keys]
     /// Toggle: Backquote (`) key or O key
     ///
     /// Auto-finds FollowCamera, VoxelChunkManager, CityMap3D, and ClothingSystem
-    /// in the scene. Missing components just skip their tab.
+    /// in the scene. Missing components just skip their tab. The Keys tab is always
+    /// available and lists only the hotkeys whose handlers currently exist.
     /// </summary>
     public class DebugHUDManager : MonoBehaviour
     {
-        public enum Tab { Camera, Render, Clothing, Path }
+        public enum Tab { Camera, Render, Clothing, Path, Keys }
         public enum Corner { TopLeft, TopRight, BottomLeft, BottomRight }
 
         [Header("Config")]
-        [SerializeField] private Tab defaultTab = Tab.Camera;
+        [SerializeField] private Tab defaultTab = Tab.Keys;
         [SerializeField] private bool showOnStart = true;
         [SerializeField] private float windowW = 380f;
         [SerializeField] private float windowH = 440f;
@@ -56,6 +57,14 @@ namespace SteelCity.Sim
         private CityMap3D cityMap;
         private ClothingSystem clothingSystem; // currently selected
         private PathDebugRenderer pathDebug;
+
+        // Optional test/debug components — used by the Keys tab to show only
+        // hotkeys whose handlers actually exist in the scene right now.
+        private VehicleTestSpawner vehicleTest;
+        private StressTestSpawner stressTest;
+        private StressTestDiagnostics stressDiag;
+        private HoodSpawner hoodSpawner;
+        private bool testRigPresent;
 
         // Clothing system multi-instance tracking
         private List<ClothingSystem> allClothingSystems = new();
@@ -135,6 +144,10 @@ namespace SteelCity.Sim
             if (chunkManager == null) chunkManager = FindFirstObjectByType<VoxelChunkManager>();
             if (cityMap == null) cityMap = FindFirstObjectByType<CityMap3D>();
             if (pathDebug == null) pathDebug = FindFirstObjectByType<PathDebugRenderer>();
+            if (vehicleTest == null) vehicleTest = FindFirstObjectByType<VehicleTestSpawner>();
+            if (stressTest == null) stressTest = FindFirstObjectByType<StressTestSpawner>();
+            if (stressDiag == null) stressDiag = FindFirstObjectByType<StressTestDiagnostics>();
+            if (hoodSpawner == null) hoodSpawner = FindFirstObjectByType<HoodSpawner>();
         }
 
         void RefreshClothingSystems()
@@ -160,6 +173,11 @@ namespace SteelCity.Sim
                     allCharacterRigs.Add(r);
             if (selectedRigIndex >= allCharacterRigs.Count)
                 selectedRigIndex = Mathf.Max(0, allCharacterRigs.Count - 1);
+
+            // Optional single-key test rigs — any one present means its keys are live
+            testRigPresent = FindFirstObjectByType<ForwardTransformTestRig>() != null
+                          || FindFirstObjectByType<AnimationTestSpawner>() != null
+                          || FindFirstObjectByType<CharacterTestRig>() != null;
         }
 
         System.Collections.Generic.List<Tab> GetAvailableTabs()
@@ -169,6 +187,7 @@ namespace SteelCity.Sim
             if (chunkManager != null) tabs.Add(Tab.Render);
             if (allClothingSystems.Count > 0) tabs.Add(Tab.Clothing);
             if (pathDebug != null) tabs.Add(Tab.Path);
+            tabs.Add(Tab.Keys);
             return tabs;
         }
 
@@ -182,18 +201,35 @@ namespace SteelCity.Sim
                 visible = !visible;
             }
 
-            // Tab cycling — only cycle through available tabs
-            if (kb.tabKey.wasPressedThisFrame)
+            // Remaining HUD keys only apply while the panel is visible
+            if (visible)
             {
-                RefreshReferences();
-                RefreshClothingSystems();
-                var avail = GetAvailableTabs();
-                if (avail.Count > 0)
+                // Tab cycling — only cycle through available tabs
+                if (kb.tabKey.wasPressedThisFrame)
                 {
-                    int idx = avail.IndexOf(activeTab);
-                    if (idx < 0) idx = 0;
-                    idx = (idx + 1) % avail.Count;
-                    activeTab = avail[idx];
+                    RefreshReferences();
+                    RefreshClothingSystems();
+                    var avail = GetAvailableTabs();
+                    if (avail.Count > 0)
+                    {
+                        int idx = avail.IndexOf(activeTab);
+                        if (idx < 0) idx = 0;
+                        idx = (idx + 1) % avail.Count;
+                        activeTab = avail[idx];
+                    }
+                }
+
+                // Corner cycling with Y key (resets custom position)
+                if (kb.yKey.wasPressedThisFrame)
+                {
+                    currentCorner = (Corner)(((int)currentCorner + 1) % 4);
+                    usingCustomPosition = false;
+                }
+
+                // Minimize toggle with M key
+                if (kb.mKey.wasPressedThisFrame)
+                {
+                    minimized = !minimized;
                 }
             }
 
@@ -203,19 +239,6 @@ namespace SteelCity.Sim
             {
                 clothingListRefreshTimer = 0f;
                 RefreshClothingSystems();
-            }
-
-            // Corner cycling with Y key (resets custom position)
-            if (kb.yKey.wasPressedThisFrame)
-            {
-                currentCorner = (Corner)(((int)currentCorner + 1) % 4);
-                usingCustomPosition = false;
-            }
-
-            // Minimize toggle with M key
-            if (kb.mKey.wasPressedThisFrame)
-            {
-                minimized = !minimized;
             }
 
             // Update IsMouseOverPanel flag using current mouse position vs panel rect.
@@ -398,8 +421,8 @@ namespace SteelCity.Sim
 
             if (!minimized)
             {
-                Tab[] tabs = { Tab.Camera, Tab.Render, Tab.Clothing, Tab.Path };
-                string[] tabNames = { "Camera", "Render", "Clothing", "Path" };
+                Tab[] tabs = { Tab.Camera, Tab.Render, Tab.Clothing, Tab.Path, Tab.Keys };
+                string[] tabNames = { "Camera", "Render", "Clothing", "Path", "Keys" };
 
                 for (int i = 0; i < tabs.Length; i++)
                 {
@@ -442,6 +465,7 @@ namespace SteelCity.Sim
                 case Tab.Render: DrawRenderTab(); break;
                 case Tab.Clothing: DrawClothingTab(); break;
                 case Tab.Path: DrawPathTab(); break;
+                case Tab.Keys: DrawKeysTab(); break;
             }
 
             GUILayout.EndScrollView();
@@ -455,6 +479,7 @@ namespace SteelCity.Sim
             if (chunkManager != null)    { availableTabs.Add(Tab.Render);   availableNames.Add("Render"); }
             if (allClothingSystems.Count > 0) { availableTabs.Add(Tab.Clothing); availableNames.Add("Clothing"); }
             if (pathDebug != null)      { availableTabs.Add(Tab.Path);     availableNames.Add("Path"); }
+            availableTabs.Add(Tab.Keys); availableNames.Add("Keys");
 
             int curIdx = availableTabs.IndexOf(activeTab);
             if (curIdx < 0) curIdx = 0;
@@ -466,14 +491,11 @@ namespace SteelCity.Sim
             GUILayout.Label($"<b>Current:</b> {curName}    <b>Next [Tab]:</b> {nextName}    <b>Pos [Y]:</b> {cornerName}", labelStyle);
 
             GUILayout.Space(6);
-            GUILayout.Label("<b>All Hotkeys</b>", boldStyle);
-            GUILayout.Label("[`] / [O] Toggle panel  [Tab] Next tab  [Y] Cycle corner  [M] Minimize", labelStyle);
-            GUILayout.Label("[T] Chase/Orbit  [Shift] Free-look  [Z] Reset camera", labelStyle);
-            GUILayout.Label("[Q/E] Distance  [R/F] Height  [+/-] FOV  [Arrows] Orbit/Look", labelStyle);
-            GUILayout.Label("[C] Capture  [P] Perf snapshot  [H] Toggle old camera HUD", labelStyle);
-            GUILayout.Label("[Space] Play/Pause anim  [+/-] Anim speed  [1-6] Debug states", labelStyle);
-            GUILayout.Label("[F8] Stress test spawn  [F10] Toggle vehicle driving", labelStyle);
-            GUILayout.Label("[Clothing Test] Use ClothingTestSpawner inspector to spawn/dress", labelStyle);
+            GUILayout.Label("<b>Hotkeys</b> — full list in [Keys] tab", boldStyle);
+            GUILayout.Label("[`] / [O] Hide  [Tab] Next tab  [Y] Corner  [M] Minimize", labelStyle);
+            GUILayout.Label("[LMB] Select/focus  [MMB] Rotate  [RMB] Pan  [Wheel] Zoom", labelStyle);
+            GUILayout.Label("[I/W/L/A/C/T] Character anim  [Space] Pause  [=/-] Speed", labelStyle);
+            GUILayout.Label("[R] Render scale  [F6] Free cam  [F7] Waypoints  [F10] Vehicles", labelStyle);
             GUILayout.Label("<i>Drag title bar to move. Click _ to minimize.</i>", labelStyle);
 
             GUILayout.EndVertical();
@@ -600,6 +622,70 @@ namespace SteelCity.Sim
                 clothingSystem.DrawClothingTab();
             else
                 GUILayout.Label("No instance selected.", labelStyle);
+        }
+
+        /// <summary>
+        /// Hotkey cheat-sheet. Sections only appear when the component that owns
+        /// those keys is actually present in the scene — stale keys are never listed.
+        /// </summary>
+        void DrawKeysTab()
+        {
+            GUILayout.Label("<b>This Panel</b>", boldStyle);
+            GUILayout.Label("[`] / [O]  Toggle panel      [Tab] Next tab", labelStyle);
+            GUILayout.Label("[Y]  Cycle corner            [M] Minimize", labelStyle);
+            GUILayout.Label("Drag title bar to reposition freely", labelStyle);
+
+            GUILayout.Space(6);
+            GUILayout.Label("<b>Map Camera</b> (mouse over map viewport)", boldStyle);
+            GUILayout.Label("[LMB] Click — select block / focus camera", labelStyle);
+            GUILayout.Label("[MMB] Drag — rotate (yaw + pitch)", labelStyle);
+            GUILayout.Label("[RMB] Drag — pan (execution mode needs [F6])", labelStyle);
+            GUILayout.Label("[Wheel] — zoom in / out", labelStyle);
+
+            GUILayout.Space(6);
+            GUILayout.Label("<b>Scene / Render Debug</b>", boldStyle);
+            GUILayout.Label("[F6] Free camera (also disables debris)", labelStyle);
+            GUILayout.Label("[F7] Waypoint graph beams", labelStyle);
+            GUILayout.Label("[R] Cycle render scale: 0.5 / 0.65 / 0.75 / 1.0", labelStyle);
+
+            if (allCharacterRigs.Count > 0)
+            {
+                GUILayout.Space(6);
+                GUILayout.Label("<b>Character Anim</b> (green rig, Clothing tab)", boldStyle);
+                GUILayout.Label("[I] Idle     [W] Walk     [L] Look", labelStyle);
+                GUILayout.Label("[A] Aim      [C] Crouch   [T] T-Pose", labelStyle);
+                GUILayout.Label("[Space] Play/pause    [=] / [-] Anim speed", labelStyle);
+            }
+
+            if (vehicleTest != null)
+            {
+                GUILayout.Space(6);
+                GUILayout.Label("<b>Vehicles</b>", boldStyle);
+                GUILayout.Label("[F10] Spawn parked cars / toggle driving", labelStyle);
+            }
+
+            if (stressTest != null || stressDiag != null)
+            {
+                GUILayout.Space(6);
+                GUILayout.Label("<b>Stress Test</b>", boldStyle);
+                if (stressTest != null)
+                {
+                    GUILayout.Label("[F8] Spawn agents and run test", labelStyle);
+                    GUILayout.Label("[F7] Cycle path-beam count (during test)", labelStyle);
+                }
+                if (stressDiag != null)
+                    GUILayout.Label("[F8] Start diagnostics    [F9] Stop", labelStyle);
+            }
+
+            if (hoodSpawner != null || testRigPresent)
+            {
+                GUILayout.Space(6);
+                GUILayout.Label("<b>Test Rigs</b>", boldStyle);
+                if (hoodSpawner != null)
+                    GUILayout.Label("[1-9,0] Force animation state", labelStyle);
+                if (testRigPresent)
+                    GUILayout.Label("[T/I/W/L/A/C] States  [R] Reload  [Space] Pause  [=/-] Speed", labelStyle);
+            }
         }
 
         void DrawPathTab()

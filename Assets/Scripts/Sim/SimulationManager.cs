@@ -10,7 +10,8 @@ namespace SteelCity.Sim
         DialogPhase,
         ResolvingOrder,
         WalkingHome,
-        Complete
+        Complete,
+        Dwelling
     }
 
     public class SimulationManager
@@ -36,7 +37,8 @@ namespace SteelCity.Sim
             { "torch", 333 },
             { "assault", 6000 },
             { "kill", 6000 },
-            { "stand", 0 }
+            { "stand", 0 },
+            { "target_practice", 166 }
         };
 
         public SimState State => state;
@@ -60,6 +62,7 @@ namespace SteelCity.Sim
         private string targetBlockId;
         private Vector3 startPos;
         private Vector3 targetPos;
+        private Vector3? faceTarget;   // optional map-local point to face on arrival
 
         private List<string> currentPath;
         private int pathIndex;
@@ -71,6 +74,21 @@ namespace SteelCity.Sim
         private int dialogTotalTicks;
         private bool entryMovePending;  // emit final move into building center after last waypoint
 
+        /// <summary>When true, target_practice resolves the order but holds the
+        /// week OPEN — the character dwells at the firing position in Idle and
+        /// the sim never completes until ReleaseDwell() (Enter) is called.
+        /// Debug weapons-testing phase.</summary>
+        public bool targetPracticeDwells = true;
+
+        /// <summary>Release a held week — completes the sim so the normal
+        /// week-end transition runs. No-op unless currently dwelling.</summary>
+        public void ReleaseDwell()
+        {
+            if (state != SimState.Dwelling) return;
+            eventStream.Enqueue(SimEvent.WeekCompleteEvent(ticksElapsed));
+            SetState(SimState.Complete);
+        }
+
         private readonly SimEventStream eventStream = new();
 
         public SimulationManager(WaypointGraph graph, GameEngine engine = null)
@@ -81,13 +99,15 @@ namespace SteelCity.Sim
         }
 
         public void StartSimulation(Order order, string startBlock, Vector3 startLocalPos,
-                                     string targetBlock, Vector3 targetLocalPos)
+                                     string targetBlock, Vector3 targetLocalPos,
+                                     Vector3? faceTargetLocal = null)
         {
             activeOrder = order;
             startBlockId = startBlock;
             targetBlockId = targetBlock;
             startPos = startLocalPos;
             targetPos = targetLocalPos;
+            faceTarget = faceTargetLocal;
             ticksElapsed = 0;
             ticksRemaining = TickBudget;
             pathIndex = 0;
@@ -277,6 +297,10 @@ namespace SteelCity.Sim
             {
                 eventStream.Enqueue(SimEvent.Arrive(targetBlockId, ticksElapsed, ticksRemaining));
 
+                // Facing directive (e.g. firing lane) — rotate before the action phase
+                if (faceTarget.HasValue)
+                    eventStream.Enqueue(SimEvent.FaceTargetEvent(faceTarget.Value, ticksElapsed, ticksRemaining));
+
                 // Enter dialog/action phase — original game spends ticks at target
                 int actionTicks = GetOrderActionTicks(activeOrder);
                 if (actionTicks > 0)
@@ -305,6 +329,16 @@ namespace SteelCity.Sim
         void OnArrivedAtTarget()
         {
             ResolveOrderAtTarget();
+
+            // Target practice dwell: order resolved, but hold the week OPEN —
+            // the character stays at the firing position in Idle and the sim
+            // consumes no ticks until ReleaseDwell() is called (Enter key).
+            if (activeOrder.orderType == "target_practice" && targetPracticeDwells)
+            {
+                SetState(SimState.Dwelling);
+                return;
+            }
+
             SetState(SimState.WalkingHome);
             FindPathHome();
         }
@@ -393,6 +427,18 @@ namespace SteelCity.Sim
 
                     eventStream.Enqueue(SimEvent.OrderResolved(
                         activeOrder.orderType, targetBlockId, success, details,
+                        ticksElapsed, ticksRemaining));
+                    break;
+
+                case "target_practice":
+                    // Range time: modest firearms bump, always "succeeds" —
+                    // the block supplies the firing_position/firing_target points.
+                    int before = hood.GetSkill("firearms");
+                    hood.skills["firearms"] = before + 2;
+                    string dwellNote = targetPracticeDwells ? " — dwelling at range (Enter ends week)" : "";
+                    eventStream.Enqueue(SimEvent.OrderResolved(
+                        activeOrder.orderType, targetBlockId, true,
+                        $"{hood.name} practiced marksmanship at the range (firearms {before} -> {before + 2}){dwellNote}",
                         ticksElapsed, ticksRemaining));
                     break;
 

@@ -340,6 +340,42 @@ separate preset entries — the weapon self-describes its ideal grip pose.
 
 ---
 
+## Building Event Points — Runtime Consumption (Unity) — IMPLEMENTED (Oct 8)
+
+The `attachmentPoints` painted on buildings ride the v2 `.stasset` SKEL tail
+(`'SKEL'` + uint32 JSON length + UTF-8 payload under `building.attachmentPoints`
+as `{"name": {"x","y","z"}}` centroids). The runtime side:
+
+- **`StAssetReader.LoadAttachmentPoints(path)`** — parses the SKEL tail
+  (walks all trailing blocks, scoped to the `attachmentPoints` object), returns
+  `name → Vector3` voxel-space centroids. Empty dict when absent.
+- **`CityMap3D.TryGetBuildingPointLocal(blockId, name, out localPos)`** —
+  resolves a centroid to map-local space through the building's registered
+  `BuildingAddress` (`worldCenter` + `size`, so correct for single, full-block,
+  and sub-grid placements). Voxel size derived per-building from
+  `size/dims`, not the global field. Cached per stasset path.
+- **`SimEventType.FaceTarget` + `SimEvent.facePos`** — emitted on arrival when
+  an order carries a `faceTarget`; `EventPlayer` slerps the character toward it
+  (rotation now runs while standing, not only during moves).
+- **`target_practice` order** — `OrderActionTicks: 166`. At execution start,
+  `firing_position` replaces the block-center target (walk-to point) and
+  `firing_target` becomes the facing. Resolution bumps
+  `hood.skills["firearms"] += 2`.
+- **Dwell mode (debug weapons-testing)** — `GameUIController.targetPracticeDwells`
+  (default on) → `SimulationManager.targetPracticeDwells`: the order resolves
+  (`firearms` +2) but the week stays **open** — `SimState.Dwelling` consumes
+  no ticks and never completes, so the character stands at the firing line in
+  **Idle** facing the lane for extended testing. `ReleaseDwell()` (Enter key,
+  wired in `EventPlayer.Update`) enqueues `WeekComplete` + `Complete` → the
+  normal week-end transition runs with him still in place. Idle is the
+  intended base pose for future IK-driven dynamic aiming (`Aiming` state is
+  intentionally *not* used here).
+
+Full-loop proof: paint in editor → `json_to_stasset.py` SKEL tail →
+`StAssetReader` → `TryGetBuildingPointLocal` → Vinny walks to the painted
+firing line and aims downrange. The same path now serves `door`, `spawn`,
+`prop_slot`, `cover`, `decor` for future systems.
+
 ## Open Questions
 
 1. **Hand shape**: Should the character's hand voxels change shape (open vs. closed grip)

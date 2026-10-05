@@ -387,7 +387,7 @@ All Unity-side documentation lives in `Assets/docs/`. See `Assets/docs/DOCUMENTA
 - **`VoxelCharacter.cs`** — Voxel character rendering with WorldCenter property for camera aiming
 - **`ClothingSystem.cs`** — Per-instance clothing/outfit system. Uses VoxelChunkManager per-instance remap API (SetInstanceOutfit) to apply unique material remapping per character without breaking GPU instancing. Auto-adds to VoxelCharacter when useInstancing=true
 - **`CharacterRig.cs`** — Character animation controller with hotkeys (T/I/W/L/A/C). Controllable flag + ActiveRig static for multi-character hotkey routing. Uses GPU instanced rendering path (VoxelCharacter + CharacterAnimation)
-- **`DebugHUDManager.cs`** — In-game debug panel with tabs (Camera, Render, Clothing, Path). Clothing tab has dual selectors: green buttons for character hotkey routing, blue buttons for outfit instance selection
+- **`DebugHUDManager.cs`** — In-game debug panel with tabs (Camera, Render, Clothing, Path, Keys). Auto-spawned by `CityMap3D` if absent; toggle with `` ` ``/O, Tab cycles tabs. Keys tab is a live hotkey cheat-sheet (only lists bindings whose handler components exist). Clothing tab has dual selectors: green buttons for character hotkey routing, blue buttons for outfit instance selection
 - **`Pathfinder.cs`** — A* pathfinding on WaypointGraph
 - **`WaypointGraph.cs`** — Waypoint graph with sidewalk/crosswalk/jaywalk links
 

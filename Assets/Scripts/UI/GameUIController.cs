@@ -58,6 +58,7 @@ namespace SteelCity.Sim
         [SerializeField] private Button patrolButton;
         [SerializeField] private Button intimidateButton;
         [SerializeField] private Button lieLowButton;
+        [SerializeField] private Button targetPracticeButton;
 
         [Header("=== BOTTOM BAR ===")]
         [SerializeField] private Transform eventLogContent;
@@ -79,6 +80,10 @@ namespace SteelCity.Sim
 
         [Header("=== CONFIG ===")]
         [SerializeField] private int randomSeed = -1;
+
+        [Header("=== ORDERS ===")]
+        [Tooltip("Target Practice: character dwells at the firing position and the week stays OPEN for weapons testing until Enter is pressed. Uncheck to have him walk home after the order.")]
+        [SerializeField] private bool targetPracticeDwells = true;
 
         [Header("=== COLORS ===")]
         [SerializeField] private Color playerColor = new(0.29f, 0.62f, 1.0f);
@@ -140,13 +145,27 @@ namespace SteelCity.Sim
             engine = new GameEngine(gameData);
             engine.Setup();
 
+            // Target Practice button — auto-create by cloning Lie Low when the
+            // serialized field is unassigned, so the order works with no scene edit.
+            if (targetPracticeButton == null && lieLowButton != null)
+            {
+                var clone = Instantiate(lieLowButton.gameObject, lieLowButton.transform.parent);
+                clone.name = "TargetPracticeButton";
+                targetPracticeButton = clone.GetComponent<Button>();
+                var label = clone.GetComponentInChildren<TMP_Text>();
+                if (label != null) label.text = "Target\nPractice";
+                var img = clone.GetComponent<Image>();
+                if (img != null) img.color = new Color(0.20f, 0.50f, 0.55f); // teal — distinct in the row
+            }
+
             orderButtons = new Dictionary<string, Button>
             {
                 ["extort"] = extortButton,
                 ["collect_protection"] = collectButton,
                 ["patrol"] = patrolButton,
                 ["intimidate"] = intimidateButton,
-                ["lie_low"] = lieLowButton
+                ["lie_low"] = lieLowButton,
+                ["target_practice"] = targetPracticeButton
             };
 
             foreach (var (orderType, btn) in orderButtons)
@@ -1130,6 +1149,19 @@ namespace SteelCity.Sim
             // Compute start and target local positions from LIVE character transform
             Vector3 startLocalPos = character.transform.position - cityMap.MapRoot.position;
             Vector3 targetLocalPos = ComputeBlockCenterLocal(targetBlock);
+            Vector3? faceTargetLocal = null;
+
+            // Target Practice: walk to the building's authored firing_position and
+            // face its firing_target — falls back to block center when absent.
+            if (order.orderType == "target_practice")
+            {
+                if (cityMap.TryGetBuildingPointLocal(order.blockId, "firing_position", out var firePos))
+                    targetLocalPos = firePos;
+                else
+                    AddEventLogEntry("[ORDER] No firing_position on target block — using block center", yellowColor);
+                if (cityMap.TryGetBuildingPointLocal(order.blockId, "firing_target", out var aimPos))
+                    faceTargetLocal = aimPos;
+            }
 
             // Find nearest block to character's actual current position (not fixed HQ)
             string startBlockId = FindNearestBlockId(startLocalPos);
@@ -1145,6 +1177,7 @@ namespace SteelCity.Sim
 
             // Create SimulationManager (pure logic, no rendering)
             simManager = new SimulationManager(waypointGraph, engine);
+            simManager.targetPracticeDwells = targetPracticeDwells;
             Debug.Log("[GameUIController] SimulationManager created");
 
             // Focus camera on HQ block BEFORE creating EventPlayer,
@@ -1194,7 +1227,7 @@ namespace SteelCity.Sim
             };
 
             // Start simulation!
-            simManager.StartSimulation(order, startBlockId, startLocalPos, order.blockId, targetLocalPos);
+            simManager.StartSimulation(order, startBlockId, startLocalPos, order.blockId, targetLocalPos, faceTargetLocal);
 
             // Show debug path overlay via PathDebugRenderer
             if (simManager.CurrentPath != null && simManager.CurrentPath.Count > 0)

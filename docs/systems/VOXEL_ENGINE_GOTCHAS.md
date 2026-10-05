@@ -225,6 +225,42 @@ The obvious floor "ray can cross at most the box diagonal" is **wrong**: the Euc
 
 ---
 
+## Gotcha #7: Corner-vs-Center Placement — Non-WorldPosition Branches Offset by Half-Volume
+
+**Date**: October 8, 2026
+**Severity**: HIGH — every placement off by ~0.72m diagonal when `useWorldPosition=false` (the default path for `CharacterRig`/`HoodSpawner`/`StressTestSpawner` characters, incl. spawned Vinny)
+**Files**: `EventPlayer.cs` (`PlaceCharacter`), `TickSimulation.cs` (waypoint placement), `VoxelCharacter.cs` (`PlaceAtCenter`)
+
+### Symptom
+
+Vinny arrives at `block_46` and stands ~0.7m off the painted `firing_position` centroid; on the way there he hugs one side of every sidewalk instead of walking the waypoint centers.
+
+### Root Cause
+
+`transform.position`/origin = the volume's **-X/-Z corner**; `PlaceAtCenter` exists to subtract half the volume so the *center* lands on the target. But the `useWorldPosition=false` branches skipped that:
+
+```csharp
+// EventPlayer.PlaceCharacter (before):
+character.transform.localPosition = worldCenter - mapRoot.position;
+// → CORNER lands on the point → body offset +0.5·WorldSize in +X/+Z
+```
+
+Every waypoint and every arrival was off by half a body-width diagonally — visible on sidewalks as off-center walking, at the range as missing the stand spot.
+
+### Fix
+
+Both `useWorldPosition=false` branches now subtract `new Vector3(half.x, 0, half.z)` from the target before assigning `localPosition` — XZ only, Y preserved (mirrors `PlaceAtCenter`).
+
+### Related (separate, smaller)
+
+`CityMap3D.TryGetBuildingPointLocal` now applies `+0.5` per axis — painted centroids are voxel-*index* means; cell centers sit half a voxel in (same index→cell bridge as `WeaponMount`).
+
+### Rule
+
+**Any code that positions a voxel volume must agree on corner-vs-center semantics.** `transform.position` is always the corner; "place at P" means `P - halfSizeXZ`. Check every `useWorldPosition` branch pair — they must produce the same world result.
+
+---
+
 ## Appendix: Key Voxel Engine Constants
 
 | Constant | Value | Location |

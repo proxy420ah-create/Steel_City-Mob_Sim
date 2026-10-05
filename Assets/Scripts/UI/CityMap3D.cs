@@ -465,6 +465,14 @@ namespace SteelCity.Sim
             if (sun == null)
                 sun = gameObject.AddComponent<VoxelSun>();
 
+            // Debug HUD (hotkey reference + debug tabs) — auto-create if not in scene
+            if (FindFirstObjectByType<DebugHUDManager>() == null)
+            {
+                var hudObj = new GameObject("DebugHUDManager");
+                hudObj.AddComponent<DebugHUDManager>();
+                Debug.Log("[CityMap3D] DebugHUDManager created — press ` or O to toggle, Keys tab lists all hotkeys.");
+            }
+
             SetupRoadTicker();
         }
 
@@ -1044,6 +1052,46 @@ namespace SteelCity.Sim
         }
         private readonly List<BuildingAddress> addressRegistry = new();
         public IReadOnlyList<BuildingAddress> Addresses => addressRegistry;
+
+        // Per-stasset attachment-point cache (name → voxel-space centroid)
+        private readonly Dictionary<string, Dictionary<string, Vector3>> buildingPointCache = new();
+
+        /// <summary>
+        /// Resolve a named building attachment point (e.g. "firing_position")
+        /// to a MAP-LOCAL position (subtract MapRoot.position for world).
+        /// Uses the building's registered worldCenter + dims, so it is correct
+        /// for single-building, full-block, and sub-grid placements alike.
+        /// Returns false when no building on the block defines the point.
+        /// </summary>
+        public bool TryGetBuildingPointLocal(string blockId, string pointName, out Vector3 localPos)
+        {
+            localPos = default;
+            foreach (var addr in addressRegistry)
+            {
+                if (addr.blockId != blockId || string.IsNullOrEmpty(addr.stassetPath)) continue;
+
+                if (!buildingPointCache.TryGetValue(addr.stassetPath, out var points))
+                {
+                    points = StAssetReader.LoadAttachmentPoints(addr.stassetPath);
+                    buildingPointCache[addr.stassetPath] = points;
+                }
+                if (points == null || !points.TryGetValue(pointName, out var centroid)) continue;
+
+                // LoadChunkCentered convention: volume center sits at worldCenter
+                // in XZ, floor-aligned in Y; voxel grid origin is the -X/-Z corner.
+                // Derive the voxel size from the registered footprint (size = dims*vs)
+                // so we match whatever vs the chunk actually loaded with.
+                var (w, _, _) = VoxelChunkManager.GetStassetDimensions(addr.stassetPath);
+                float vs = w > 0 ? addr.size.x / w : voxelSize;
+                Vector3 corner = addr.worldCenter - new Vector3(addr.size.x * 0.5f, 0f, addr.size.z * 0.5f);
+                // +0.5 per axis: centroids are voxel-INDEX means; cell centers sit
+                // half a voxel in (same index→cell bridge as WeaponMount).
+                Vector3 world = corner + (centroid + Vector3.one * 0.5f) * vs;
+                localPos = world - MapRoot.position;
+                return true;
+            }
+            return false;
+        }
 
         /// <summary>
         /// Generate all terrain (ground tiles + roads) as a single voxel chunk

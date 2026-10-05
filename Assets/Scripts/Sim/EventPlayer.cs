@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 namespace SteelCity.Sim
 {
@@ -120,6 +121,14 @@ namespace SteelCity.Sim
         {
             if (!running || simManager == null) return;
 
+            // Release a dwelling week (target practice holds the sim open for
+            // extended weapons testing — Enter ends it).
+            if (simManager.State == SimState.Dwelling && Keyboard.current.enterKey.wasPressedThisFrame)
+            {
+                simManager.ReleaseDwell();
+                Log("[Dwell] Week released — ending week");
+            }
+
             if (!isPaused)
             {
                 tickAccumulator += Time.deltaTime * playbackSpeed;
@@ -142,13 +151,6 @@ namespace SteelCity.Sim
                 pos.y = character.transform.position.y;
                 PlaceCharacter(pos);
 
-                // Rotate character to face movement direction
-                if (character != null && hasTargetRotation)
-                {
-                    character.transform.rotation = Quaternion.Slerp(
-                        character.transform.rotation, targetRotation, turnSpeed * Time.deltaTime);
-                }
-
                 if (t >= 1f)
                 {
                     currentMoveEvent = null;
@@ -156,6 +158,14 @@ namespace SteelCity.Sim
                     // accumulating for a continuous walk cycle. Idle is only set
                     // when the simulation transitions away from walking states.
                 }
+            }
+
+            // Rotate toward the current target rotation — runs during moves AND
+            // while standing, so FaceTarget events can aim an idle character.
+            if (character != null && hasTargetRotation)
+            {
+                character.transform.rotation = Quaternion.Slerp(
+                    character.transform.rotation, targetRotation, turnSpeed * Time.deltaTime);
             }
 
             while (currentMoveEvent == null && simManager.Events.Count > 0)
@@ -223,8 +233,26 @@ namespace SteelCity.Sim
                     OnStateChanged?.Invoke(simManager.State, evt.tickElapsed, evt.tickRemaining);
                     break;
 
+                case SimEventType.FaceTarget:
+                {
+                    Vector3 faceWorld = evt.facePos + mapRoot.position;
+                    Vector3 dir = faceWorld - character.transform.position;
+                    dir.y = 0f;
+                    if (dir.sqrMagnitude > 0.001f)
+                    {
+                        targetRotation = Quaternion.LookRotation(dir.normalized, Vector3.up) *
+                                         Quaternion.Euler(0f, modelFacingOffset, 0f);
+                        hasTargetRotation = true;
+                    }
+                    Log($"[Tick {evt.tickElapsed}] Turning to face target");
+                    break;
+                }
+
                 case SimEventType.DialogStart:
                     Log($"[Tick {evt.tickElapsed}] {evt.orderType.ToUpper()} dialog started at {evt.blockId} ({evt.dialogTotalTicks} ticks)");
+                    // NOTE: target_practice deliberately stays in Idle during the
+                    // action phase — Idle is the base pose for future IK-driven
+                    // dynamic aiming (the weapons-testing dwell phase).
                     OnStateChanged?.Invoke(simManager.State, evt.tickElapsed, evt.tickRemaining);
                     break;
 
@@ -326,7 +354,15 @@ namespace SteelCity.Sim
             if (character.useWorldPosition)
                 character.PlaceAtCenter(worldCenter);
             else
-                character.transform.localPosition = worldCenter - mapRoot.position;
+            {
+                // Both branches must land the volume CENTER on the point —
+                // placing the corner (transform origin) here offset the body
+                // by half the volume size (~0.72m diagonal at 96³×0.015).
+                // XZ only — Y is preserved/grounded, matching PlaceAtCenter.
+                Vector3 half = character.WorldSize * 0.5f;
+                Vector3 corner = worldCenter - new Vector3(half.x, 0f, half.z);
+                character.transform.localPosition = corner - mapRoot.position;
+            }
         }
 
         void Log(string msg)

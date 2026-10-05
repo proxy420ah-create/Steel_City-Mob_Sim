@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Text;
+using System.Text.RegularExpressions;
 using UnityEngine;
 
 namespace SteelCity.Sim
@@ -188,6 +191,80 @@ namespace SteelCity.Sim
             }
 
             return voxels;
+        }
+
+        /// <summary>
+        /// Read a v2 .stasset's SKEL metadata tail and extract
+        /// building.attachmentPoints as name → voxel-space centroid.
+        /// Returns an empty dict when absent — never throws.
+        /// </summary>
+        public static Dictionary<string, Vector3> LoadAttachmentPoints(string filepath)
+        {
+            var result = new Dictionary<string, Vector3>();
+            if (!File.Exists(filepath)) return result;
+
+            byte[] data = File.ReadAllBytes(filepath);
+            if (data.Length < 16) return result;
+
+            int width  = data[6]  | (data[7]  << 8);
+            int height = data[8]  | (data[9]  << 8);
+            int depth  = data[10] | (data[11] << 8);
+
+            // Trailing blocks start right after header + voxel data
+            int offset = 16 + width * height * depth * 2;
+            while (offset + 8 <= data.Length)
+            {
+                if (data[offset] != (byte)'S' || data[offset + 1] != (byte)'K' ||
+                    data[offset + 2] != (byte)'E' || data[offset + 3] != (byte)'L')
+                    break;
+                int jsonLen = data[offset + 4] | (data[offset + 5] << 8) |
+                              (data[offset + 6] << 16) | (data[offset + 7] << 24);
+                offset += 8;
+                if (jsonLen <= 0 || offset + jsonLen > data.Length) break;
+                string json = Encoding.UTF8.GetString(data, offset, jsonLen);
+                offset += jsonLen;
+                ParseAttachmentPointsJson(json, result);
+            }
+            return result;
+        }
+
+        // Matches  "name" : { "x" : 1.5, "y" : 2.0, "z" : 3.5 }
+        private static readonly Regex AttachPointRx = new Regex(
+            "\"(?<name>[^\"]+)\"\\s*:\\s*\\{\\s*\"x\"\\s*:\\s*(?<x>-?[0-9]+(?:\\.[0-9]+)?)\\s*," +
+            "\\s*\"y\"\\s*:\\s*(?<y>-?[0-9]+(?:\\.[0-9]+)?)\\s*," +
+            "\\s*\"z\"\\s*:\\s*(?<z>-?[0-9]+(?:\\.[0-9]+)?)\\s*\\}",
+            RegexOptions.Compiled);
+
+        private static void ParseAttachmentPointsJson(string json, Dictionary<string, Vector3> result)
+        {
+            // Scope to the attachmentPoints object — other SKEL sections
+            // (bones, joints) may carry their own x/y/z objects.
+            string section = ExtractJsonObject(json, "\"attachmentPoints\"");
+            if (section == null) return;
+            foreach (Match m in AttachPointRx.Matches(section))
+            {
+                float x = float.Parse(m.Groups["x"].Value, System.Globalization.CultureInfo.InvariantCulture);
+                float y = float.Parse(m.Groups["y"].Value, System.Globalization.CultureInfo.InvariantCulture);
+                float z = float.Parse(m.Groups["z"].Value, System.Globalization.CultureInfo.InvariantCulture);
+                result[m.Groups["name"].Value] = new Vector3(x, y, z);
+            }
+        }
+
+        /// <summary>Return the balanced {...} object following the given JSON key, or null.</summary>
+        private static string ExtractJsonObject(string json, string quotedKey)
+        {
+            int ki = json.IndexOf(quotedKey, StringComparison.Ordinal);
+            if (ki < 0) return null;
+            int open = json.IndexOf('{', ki);
+            if (open < 0) return null;
+            int depth = 0;
+            for (int i = open; i < json.Length; i++)
+            {
+                if (json[i] == '{') depth++;
+                else if (json[i] == '}' && --depth == 0)
+                    return json.Substring(open, i - open + 1);
+            }
+            return null;
         }
 
         /// <summary>

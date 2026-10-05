@@ -289,7 +289,12 @@ namespace SteelCity.Sim
             if (character.useWorldPosition)
                 character.PlaceAtCenter(worldPos);
             else
-                character.transform.localPosition = node.localPos;
+            {
+                // Center the volume on the waypoint, not its corner — XZ only,
+                // Y is preserved (matches PlaceAtCenter's convention).
+                Vector3 half = character.WorldSize * 0.5f;
+                character.transform.localPosition = node.localPos - new Vector3(half.x, 0f, half.z);
+            }
 
             // Rotate character to face movement direction
             Vector3 moveDir = worldPos - prevPos;
