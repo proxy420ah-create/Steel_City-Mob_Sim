@@ -1,6 +1,19 @@
 # Recent Changes — Steel City: Mob Sim
 
-**Last Updated**: October 5, 2026 (editor mode-switch cleanup fix)
+**Last Updated**: October 6, 2026 (selection-move tag-layer fix)
+
+---
+
+## October 6, 2026 — Transform/Tag-Layer Integrity
+
+### Changes
+- **Selection Move carries ALL voxel layers (FIXED)** — moving a selected limb previously relocated only `voxelMap`, orphaning body-group, wardrobe-region, and attach-part tags (`pivot_N` clusters, `right_hand`, grip points) at the old coords — export then derived attachment points and pivots from the stale locations. `moveSelection()` clipboard entries now capture each cell's `gid`/`rid`/`pid`; `confirmPaste()` clears all layers at origins and restores them at destinations (a moved cell fully replaces the destination's layers). Copy/paste deliberately untouched — a pasted arm must not spawn a duplicate `pivot_N` cluster (two blobs corrupt the joint centroid).
+- **Whole-group moves translate authored pivots** — when every voxel of a body group travels and no painted `pivot_N` cluster survives for that gid, `loadedAnimData.pivots[gid]` shifts by the normalized delta so the limb doesn't re-export rotating about its old joint. Partial moves leave the pivot (rigid-body correct). `snapshot()`/`applySnapshot` now include `loadedAnimData.pivots` so undo restores these too.
+- **Same bug class fixed at every other transform/delete site** — single-voxel erase (`setVoxel` mid=0), erase-entire-selection, Delete Selection, clothing-preset `removedVoxels`, and volume-resize clamping all cleared tags per deleted cell; Expand Volume index-shift and Center Model now remap all four coord-keyed maps + translate authored pivots (expand re-normalizes across the new dims). `stripToBase` wiped `groupMap` with no restore — now restores base groups from new `baseTemplateGroupMap` (captured at base load) and clears `clothingRegionMap`. Bug entry: `docs/known_issues/editor/TRANSFORMS_ORPHAN_TAG_LAYERS.md`.
+
+### 🧪 TEST NOW
+- Editor → select a tagged limb (S tool) → **Move** → arrows/Enter → group colors, wardrobe region, `pivot_N` cluster, and hand tags all land on the moved limb; mirror re-poses around the moved joint; nothing left at the old coords. Undo restores everything.
+- Erase or delete a tagged cell → no ghost tag. Expand/Center → all layers stay glued; export shows `groups`/`regions`/`itemParts`/`pivots` consistent.
 
 ---
 

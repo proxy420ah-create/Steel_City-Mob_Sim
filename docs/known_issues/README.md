@@ -11,3 +11,4 @@ Bug tracker per Development Guidelines Rule 13. Bugs are cataloged by category i
 | [Angle-Dependent Building Culling](rendering/ANGLE_DEPENDENT_BUILDING_CULLING.md) | rendering | 🟢 FIXED | 🔴 CRITICAL | 2026-10-08 |
 | [Ctrl+Z After Tag Painting Removes Model](editor/UNDO_DESTROYS_MODEL_ON_TAG_STROKES.md) | editor | 🟢 FIXED | 🔴 CRITICAL | 2026-10-04 |
 | [Reference Preview Survives Asset-Type Switch](editor/REFERENCE_PREVIEW_SURVIVES_MODE_SWITCH.md) | editor | 🟢 FIXED | 🟢 MEDIUM | 2026-10-05 |
+| [Transforms Orphan Tag Layers](editor/TRANSFORMS_ORPHAN_TAG_LAYERS.md) | editor | 🟢 FIXED | 🟡 HIGH | 2026-10-06 |

@@ -2571,6 +2571,7 @@ function importAttachmentPoints(data) {
 // }
 
 let baseTemplateSnapshot = null; // snapshot of naked base for diffing
+let baseTemplateGroupMap = null; // base body-group map for stripToBase restore
 let clothingPresets = [];        // loaded presets (in-memory)
 let selectedPresetIdx = -1;
 
@@ -2627,11 +2628,12 @@ function applyClothingPreset(preset) {
   for (const [x, y, z, mid] of preset.addedVoxels) {
     voxelMap.set(`${x},${y},${z}`, mid);
   }
-  // Remove voxels (e.g. bare areas where clothing replaces skin)
+  // Remove voxels (e.g. bare areas where clothing replaces skin) — clear all
+  // tag layers too; a tag on an empty coord is a dangling reference
   for (const [x, y, z] of preset.removedVoxels) {
     const key = `${x},${y},${z}`;
     voxelMap.delete(key);
-    groupMap.delete(key);
+    groupMap.delete(key); clothingRegionMap.delete(key); itemPartMap.delete(key);
   }
   pushHistory();
   rebuildMesh();
@@ -2647,12 +2649,19 @@ function stripToBase() {
   }
   voxelMap.clear();
   groupMap.clear();
+  clothingRegionMap.clear(); // garment-region tags die with the stripped cells
   for (const [key, mid] of Object.entries(baseTemplateSnapshot)) {
     voxelMap.set(key, mid);
+  }
+  // Restore the base's body groups — clearing them without a restore would
+  // strip the model of all joint/pivot animation assignments
+  if (baseTemplateGroupMap) {
+    for (const [key, gid] of baseTemplateGroupMap) groupMap.set(key, gid);
   }
   pushHistory();
   rebuildMesh();
   updateGroupCounts();
+  updateClothingRegionCounts();
   setStatus('Stripped to naked base template');
 }
 
@@ -2687,6 +2696,7 @@ function loadBaseTemplate() {
         }
         // Snapshot the base state for clothing diffing
         baseTemplateSnapshot = snapshotVoxelMap();
+        baseTemplateGroupMap = new Map(groupMap);
         originOffsetX = -W / 2;
         originOffsetZ = -D / 2;
         rebuildVolumeVisuals();
@@ -3287,6 +3297,8 @@ function snapshot() {
     grp: new Map(groupMap),
     parts: new Map(itemPartMap),
     regions: new Map(clothingRegionMap),
+    // Authored (normalized) pivots — selection moves can translate them
+    animPivots: JSON.parse(JSON.stringify(loadedAnimData.pivots || {})),
   };
 }
 
@@ -3295,6 +3307,7 @@ function applySnapshot(s) {
   groupMap.clear();         for (const [k, v] of s.grp) groupMap.set(k, v);
   itemPartMap.clear();      for (const [k, v] of s.parts) itemPartMap.set(k, v);
   clothingRegionMap.clear(); for (const [k, v] of s.regions) clothingRegionMap.set(k, v);
+  if (s.animPivots !== undefined) loadedAnimData.pivots = JSON.parse(JSON.stringify(s.animPivots));
 }
 
 function pushHistory() {
@@ -3479,7 +3492,10 @@ function setVoxel(x, y, z, mid) {
   for (const [px, py, pz] of positions) {
     if (px < 0 || px >= W || py < 0 || py >= H || pz < 0 || pz >= D) continue;
     if (mid === 0) {
-      voxelMap.delete(`${px},${py},${pz}`);
+      const key = `${px},${py},${pz}`;
+      voxelMap.delete(key);
+      // Tags die with the cell — a tag on an empty coord is a dangling ref
+      groupMap.delete(key); clothingRegionMap.delete(key); itemPartMap.delete(key);
     } else {
       voxelMap.set(`${px},${py},${pz}`, mid);
     }
@@ -3599,9 +3615,11 @@ function performTool(event) {
     
     case 'erase':
       if (selectionActive && selVoxels.length > 0) {
-        // Erase entire selection
+        // Erase entire selection — voxels AND all tag layers on those cells
         for (const v of selVoxels) {
-          voxelMap.delete(`${v[0]},${v[1]},${v[2]}`);
+          const key = `${v[0]},${v[1]},${v[2]}`;
+          voxelMap.delete(key);
+          groupMap.delete(key); clothingRegionMap.delete(key); itemPartMap.delete(key);
         }
         pushHistory();
         rebuildMesh();
@@ -5316,7 +5334,15 @@ window.moveSelection = function() {
   if (selVoxels.length === 0) { setStatus('Select voxels first (S tool)'); return; }
   let minX = Infinity, minY = Infinity, minZ = Infinity;
   for (const v of selVoxels) { minX = Math.min(minX, v[0]); minY = Math.min(minY, v[1]); minZ = Math.min(minZ, v[2]); }
-  clipboard = selVoxels.map(v => ({ x: v[0] - minX, y: v[1] - minY, z: v[2] - minZ, mid: v[3] }));
+  // Move carries ALL per-cell layers: body-group gid, wardrobe region, and
+  // item-part tag (attach points / pivot clusters). Copy deliberately does
+  // NOT — a pasted arm must not duplicate a pivot_N cluster (two blobs would
+  // corrupt the joint centroid).
+  clipboard = selVoxels.map(v => {
+    const key = `${v[0]},${v[1]},${v[2]}`;
+    return { x: v[0] - minX, y: v[1] - minY, z: v[2] - minZ, mid: v[3],
+             gid: groupMap.get(key), rid: clothingRegionMap.get(key), pid: itemPartMap.get(key) };
+  });
   pasteOrigin = { x: minX, y: minY, z: minZ };
   pasteOffset = { x: 0, y: 0, z: 0 };
   pasteMode = true; moveMode = true;
@@ -5346,16 +5372,48 @@ window.confirmPaste = function() {
   const bx = pasteOrigin.x + pasteOffset.x;
   const by = pasteOrigin.y + pasteOffset.y;
   const bz = pasteOrigin.z + pasteOffset.z;
-  // In move mode: delete original voxels first
+  // In move mode: delete original voxels AND their tag-layer entries first
   if (moveMode) {
-    for (const v of selVoxels) { voxelMap.delete(`${v[0]},${v[1]},${v[2]}`); }
+    for (const v of selVoxels) {
+      const key = `${v[0]},${v[1]},${v[2]}`;
+      voxelMap.delete(key);
+      groupMap.delete(key); clothingRegionMap.delete(key); itemPartMap.delete(key);
+    }
   }
   let placed = 0;
   for (const v of clipboard) {
     const px = bx + v.x, py = by + v.y, pz = bz + v.z;
     if (px >= 0 && px < W && py >= 0 && py < H && pz >= 0 && pz < D) {
-      voxelMap.set(`${px},${py},${pz}`, v.mid);
+      const nkey = `${px},${py},${pz}`;
+      voxelMap.set(nkey, v.mid);
+      // Restore the cell's tags on the new coords (move mode only). A moved
+      // cell fully replaces whatever sat at the destination — layers it does
+      // not carry are cleared rather than left stale on the new occupant.
+      if (moveMode) {
+        if (v.gid !== undefined) groupMap.set(nkey, v.gid); else groupMap.delete(nkey);
+        if (v.rid !== undefined) clothingRegionMap.set(nkey, v.rid); else clothingRegionMap.delete(nkey);
+        if (v.pid !== undefined) itemPartMap.set(nkey, v.pid); else itemPartMap.delete(nkey);
+      }
       placed++;
+    }
+  }
+  if (moveMode) {
+    // Whole-group move: when every voxel of a body group travelled, its authored
+    // (normalized) pivot rides along — otherwise the limb re-exports rotating
+    // about its OLD joint position. Painted pivot_N clusters already moved with
+    // the cells and always win at export, so only cluster-less pivots shift.
+    const movedGids = {};
+    for (const v of clipboard) if (v.gid !== undefined) movedGids[v.gid] = (movedGids[v.gid] || 0) + 1;
+    const gidTotals = {};
+    for (const [, gid] of groupMap) gidTotals[gid] = (gidTotals[gid] || 0) + 1;
+    const defs = activePartGroups();
+    for (const [gidStr, moved] of Object.entries(movedGids)) {
+      const gid = parseInt(gidStr, 10);
+      if (moved !== gidTotals[gid]) continue; // partial move — joint stays put
+      const pdef = defs.find(d => d.key === `pivot_${gid}`);
+      if (pdef && [...itemPartMap.values()].includes(pdef.id)) continue; // painted cluster owns it
+      const ap = loadedAnimData.pivots && loadedAnimData.pivots[gid];
+      if (ap) { ap.x += pasteOffset.x / W; ap.y += pasteOffset.y / H; ap.z += pasteOffset.z / D; }
     }
   }
   pushHistory();
@@ -5376,7 +5434,11 @@ window.cancelPaste = function() {
 window.deleteSelection = function() {
   if (selVoxels.length === 0) return;
   for (const v of selVoxels) {
-    voxelMap.delete(`${v[0]},${v[1]},${v[2]}`);
+    const key = `${v[0]},${v[1]},${v[2]}`;
+    voxelMap.delete(key);
+    // Clear tag layers too — a tag on an empty cell is a dangling reference
+    // (e.g. a right_hand point welding a weapon to empty air)
+    groupMap.delete(key); clothingRegionMap.delete(key); itemPartMap.delete(key);
   }
   pushHistory();
   rebuildMesh();
@@ -5625,25 +5687,30 @@ window.doExpand = function() {
     document.getElementById('volume-modal').style.display = 'none';
     return;
   }
-  // Shift existing voxels by (xn, yn, zn) to open room on the "-" sides
+  // Shift existing voxels by (xn, yn, zn) to open room on the "-" sides —
+  // every coordinate-keyed layer rides along (groups, wardrobe, part tags)
   if (xn > 0 || yn > 0 || zn > 0) {
-    const entries = Array.from(voxelMap.entries());
-    voxelMap.clear();
-    for (const [key, mid] of entries) {
-      const [x, y, z] = key.split(',').map(Number);
-      voxelMap.set(`${x + xn},${y + yn},${z + zn}`, mid);
-    }
-    const gEntries = Array.from(groupMap.entries());
-    groupMap.clear();
-    for (const [key, gid] of gEntries) {
-      const [x, y, z] = key.split(',').map(Number);
-      groupMap.set(`${x + xn},${y + yn},${z + zn}`, gid);
+    for (const map of [voxelMap, groupMap, clothingRegionMap, itemPartMap]) {
+      const entries = Array.from(map.entries());
+      map.clear();
+      for (const [key, val] of entries) {
+        const [x, y, z] = key.split(',').map(Number);
+        map.set(`${x + xn},${y + yn},${z + zn}`, val);
+      }
     }
   }
   const oldW = W, oldH = H, oldD = D;
   W += xn + xp;
   H += yn + yp;
   D += zn + zp;
+  // Authored pivots are normalized by dims — re-express the same index-space
+  // shift under the new dimensions so joints stay glued to their limbs
+  if ((xn > 0 || yn > 0 || zn > 0) && loadedAnimData.pivots) {
+    for (const p of Object.values(loadedAnimData.pivots)) {
+      if (!p) continue;
+      p.x = (p.x * oldW + xn) / W; p.y = (p.y * oldH + yn) / H; p.z = (p.z * oldD + zn) / D;
+    }
+  }
   // Compensate the origin so existing (now possibly re-indexed) voxels keep
   // the exact same world position — this is the fix for the +X/-X asymmetry bug.
   originOffsetX -= xn;
@@ -5685,20 +5752,22 @@ window.centerModel = function(skipHistoryAndMesh) {
     if (!skipHistoryAndMesh) setStatus('Model already centered');
     return;
   }
-  // Shift voxels
+  // Shift voxels AND every coordinate-keyed layer (groups, wardrobe, part tags)
   if (dx !== 0 || dy !== 0 || dz !== 0) {
-    const vEntries = Array.from(voxelMap.entries());
-    voxelMap.clear();
-    for (const [key, mid] of vEntries) {
-      const [x, y, z] = key.split(',').map(Number);
-      voxelMap.set(`${x + dx},${y + dy},${z + dz}`, mid);
+    for (const map of [voxelMap, groupMap, clothingRegionMap, itemPartMap]) {
+      const entries = Array.from(map.entries());
+      map.clear();
+      for (const [key, val] of entries) {
+        const [x, y, z] = key.split(',').map(Number);
+        map.set(`${x + dx},${y + dy},${z + dz}`, val);
+      }
     }
-    // Shift group assignments too
-    const gEntries = Array.from(groupMap.entries());
-    groupMap.clear();
-    for (const [key, gid] of gEntries) {
-      const [x, y, z] = key.split(',').map(Number);
-      groupMap.set(`${x + dx},${y + dy},${z + dz}`, gid);
+    // Authored pivots are normalized — apply the same delta (dims unchanged)
+    if (loadedAnimData.pivots) {
+      for (const p of Object.values(loadedAnimData.pivots)) {
+        if (!p) continue;
+        p.x += dx / W; p.y += dy / H; p.z += dz / D;
+      }
     }
   }
   // Re-anchor the world origin to the volume center — fixes any drift from asymmetric Expand
@@ -5804,7 +5873,7 @@ window.applyVolumeSize = function() {
     }
     for (const key of toDelete) {
       voxelMap.delete(key);
-      groupMap.delete(key);
+      groupMap.delete(key); clothingRegionMap.delete(key); itemPartMap.delete(key);
     }
   }
   const oldW = W, oldH = H, oldD = D;
