@@ -109,6 +109,9 @@ namespace SteelCity.Sim
         private WaypointGraph waypointGraph;
         private SimulationManager simManager;
         private EventPlayer eventPlayer;
+
+        /// <summary>Live simulation manager (null until a game week starts). Used by DebugHUD Range tab.</summary>
+        public SimulationManager Sim => simManager;
         private TickHUD tickHUD;
         private WeekTransition weekTransition;
         private PathDebugRenderer pathDebugRenderer;

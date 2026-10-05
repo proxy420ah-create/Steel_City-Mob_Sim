@@ -58,6 +58,13 @@ namespace SteelCity.Sim
 
         private readonly List<ActivePath> activePaths = new();
 
+        // Free-form world-space debug beams (muzzle rays, IK sight lines, etc).
+        // Rendered through the same RT-composite pipeline as path beams.
+        private readonly Dictionary<string, (Vector3 a, Vector3 b, float width, Color color)> customBeams = new();
+        public void SetCustomBeam(string key, Vector3 a, Vector3 b, float width, Color color)
+            => customBeams[key] = (a, b, width, color);
+        public void ClearCustomBeam(string key) => customBeams.Remove(key);
+
         // Per-instance data buffers (reused each frame, no allocation)
         private const int MaxInstances = 2048;
         private readonly Matrix4x4[] segmentMatrices = new Matrix4x4[MaxInstances];
@@ -171,7 +178,7 @@ namespace SteelCity.Sim
             // after voxel chunks are rendered into the RT.
             // If no VoxelRenderBridge is present, fall back to drawing here.
             if (mapRoot == null || boxMesh == null || beamMaterial == null) return;
-            if (activePaths.Count == 0 && !showWaypointGraph) return;
+            if (activePaths.Count == 0 && !showWaypointGraph && customBeams.Count == 0) return;
 
             var bridge = FindFirstObjectByType<VoxelRenderBridge>();
             if (bridge == null)
@@ -196,10 +203,10 @@ namespace SteelCity.Sim
                     Debug.Log($"[PathDebug] RenderBeamsIntoCamera SKIP: mapRoot={mapRoot != null}, boxMesh={boxMesh != null}, beamMat={beamMaterial != null}");
                 return;
             }
-            if (activePaths.Count == 0 && !showWaypointGraph)
+            if (activePaths.Count == 0 && !showWaypointGraph && customBeams.Count == 0)
             {
                 if (Time.frameCount % 120 == 0)
-                    Debug.Log("[PathDebug] RenderBeamsIntoCamera SKIP: no active paths and graph debug off");
+                    Debug.Log("[PathDebug] RenderBeamsIntoCamera SKIP: no active paths, graph debug off, no custom beams");
                 return;
             }
 
@@ -492,6 +499,23 @@ namespace SteelCity.Sim
                 System.Array.Copy(markerMatrices, markerCount, batchBuffer, 0, graphNodeCount);
                 cmd.DrawMeshInstanced(boxMesh, 0, beamMaterial, 0, batchBuffer, graphNodeCount, beamProps);
                 markerDrawCount++;
+            }
+
+            // Free-form custom beams — one draw each (debug volume is tiny)
+            foreach (var beam in customBeams.Values)
+            {
+                Vector3 dir = beam.b - beam.a;
+                float len = dir.magnitude;
+                if (len < 0.001f) continue;
+                // LookRotation degenerates when dir ≈ ±up — swap the up ref
+                Vector3 upRef = Mathf.Abs(dir.normalized.y) > 0.98f ? Vector3.forward : Vector3.up;
+                Quaternion rot = Quaternion.LookRotation(dir.normalized, upRef);
+                batchBuffer[0] = Matrix4x4.TRS((beam.a + beam.b) * 0.5f, rot,
+                    new Vector3(beam.width, beam.width, len));
+                beamProps.Clear();
+                beamProps.SetColor("_Color", beam.color);
+                cmd.DrawMeshInstanced(boxMesh, 0, beamMaterial, 0, batchBuffer, 1, beamProps);
+                segDrawCount++;
             }
 
             Graphics.ExecuteCommandBuffer(cmd);

@@ -484,6 +484,19 @@ namespace SteelCity.Sim
             // fractional pivot approximation that only matches the original hoodlum proportions.
             // Use animJsonText (synthetic or legacy) so we parse the right section.
             var pivotDict = ParsePivotsManual(animJsonText);
+
+            // Painted joint pivots: "pivot_N" attachment centroids override/supply
+            // group pivots (visual joint authoring — see CHAR_ATTACH_GROUPS).
+            // attachmentPoints only exist on the consolidated character JSON.
+            if (jsonText != null && assetFileName.EndsWith(".json", System.StringComparison.OrdinalIgnoreCase))
+            {
+                var attachPts = CharacterJsonLoader.ParseAttachmentPoints(jsonText);
+                int nPivots = CharacterJsonLoader.ApplyPivotOverrides(pivotDict, attachPts,
+                    new Vector3(Dims.x, Dims.y, Dims.z));
+                if (nPivots > 0)
+                    Debug.Log($"[VoxelCharacter] {nPivots} painted joint pivot(s) applied (pivot_N attachments)");
+            }
+
             if (pivotDict.Count > 0)
             {
                 // Fallback fractions matching the shader's hardcoded approximation — used for

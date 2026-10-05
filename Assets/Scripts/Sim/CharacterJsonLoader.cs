@@ -434,6 +434,30 @@ namespace SteelCity.Sim
             return result;
         }
 
+        /// <summary>
+        /// Painted joint pivots: attachment points named "pivot_N" override the authored
+        /// "pivots" entry for group N. Centroids are fractional index space (0..dims) —
+        /// pivots are normalized (0..1) — so divide by dims. Lets joints be authored
+        /// visually (paint a blob at the joint center) instead of hand-editing floats.
+        /// Returns the number of overrides applied.
+        /// </summary>
+        public static int ApplyPivotOverrides(Dictionary<int, Vector3> pivots,
+            Dictionary<string, AttachmentPoint> attachPoints, Vector3 dims)
+        {
+            if (pivots == null || attachPoints == null) return 0;
+            if (dims.x <= 0f || dims.y <= 0f || dims.z <= 0f) return 0;
+            int applied = 0;
+            foreach (var kv in attachPoints)
+            {
+                if (!kv.Key.StartsWith("pivot_") || kv.Key.Length <= 6) continue;
+                if (!int.TryParse(kv.Key.Substring(6), out int gid)) continue;
+                var p = kv.Value.pos;
+                pivots[gid] = new Vector3(p.x / dims.x, p.y / dims.y, p.z / dims.z);
+                applied++;
+            }
+            return applied;
+        }
+
         static string ExtractJsonObject(string json, string key)
         {
             int idx = json.IndexOf(key);

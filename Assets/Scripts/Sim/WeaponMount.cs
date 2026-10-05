@@ -36,6 +36,10 @@ namespace SteelCity.Sim
         [Header("Debug")]
         public bool showGizmo = true;
         public bool debugLogs = true;
+        [Tooltip("Render a long beam from the muzzle along the bore axis in Game view (via PathDebugRenderer)")]
+        public bool showMuzzleRay = true;
+        public float muzzleRayLength = 60f;
+        public Color muzzleRayColor = new Color(1f, 0.15f, 0.15f, 0.9f);
 
         // Character data
         private VoxelCharacter character;
@@ -56,6 +60,7 @@ namespace SteelCity.Sim
         private float itemVoxelSize;
         private Vector3 gripPoint;      // index-space centroid on the item
         private Vector3 muzzlePoint;    // index-space; NaN when absent
+        private Vector3 boreRootPoint;  // index-space breech end of bore axis; NaN when absent
         private Quaternion itemAttachRot = Quaternion.identity;
 
         // Static rest-pose basis (item +X → forearm axis) in character voxel space
@@ -64,12 +69,26 @@ namespace SteelCity.Sim
         private bool equipped = false;
         private Vector3 lastMuzzleWorld;
         private Vector3 lastAimDir = Vector3.forward;
+        private string muzzleBeamKey; // per-instance PathDebugRenderer beam id
+        private Vector3 boreAxisLocal = Vector3.right; // item-space bore axis; +X fallback when bore_root unpainted
 
         /// <summary>World-space muzzle position from the last weld update (projectile origin).</summary>
         public Vector3 MuzzleWorld => lastMuzzleWorld;
-        /// <summary>World-space barrel direction (+X of the item, posed).</summary>
+        /// <summary>World-space barrel direction — measured bore axis (muzzle−bore_root) when authored, else item +X convention.</summary>
         public Vector3 AimDirection => lastAimDir;
         public bool IsEquipped => equipped;
+
+        // --- IK solver context (read-only, consumed by ArmAimSolver) ---
+        public VoxelCharacterAnimator Animator => animator;
+        public IReadOnlyDictionary<int, Vector3> Pivots => pivots;
+        public Vector3Int Dims => dims;
+        public float CharVoxelSize => voxelSize;
+        public Vector3 HandPoint => handPoint;
+        public int HandGid => handGid;
+        public Quaternion BasisB => basisB;
+        public Quaternion ItemAttachRot => itemAttachRot;
+        public string ItemFileName => itemFileName;
+        public Vector3 BoreAxisLocal => boreAxisLocal;
 
         IEnumerator Start()
         {
@@ -105,6 +124,8 @@ namespace SteelCity.Sim
         public void Unequip()
         {
             equipped = false;
+            var pdr = PathDebugRenderer.Instance;
+            if (pdr != null && muzzleBeamKey != null) pdr.ClearCustomBeam(muzzleBeamKey);
             if (!string.IsNullOrEmpty(itemVolumeName) && chunkManager != null)
                 chunkManager.UnregisterVolume(itemVolumeName);
             itemVolumeName = null;
@@ -141,6 +162,9 @@ namespace SteelCity.Sim
             voxelSize = CharacterJsonLoader.ParseVoxelSize(json, character.voxelSize);
 
             var pts = CharacterJsonLoader.ParseAttachmentPoints(json);
+            // Painted "pivot_N" attachment centroids override authored pivots —
+            // solver (L1/L2 bone lengths) and weld both read this same dict.
+            CharacterJsonLoader.ApplyPivotOverrides(this.pivots, pts, dims);
             string handKey = hand == Hand.Right ? "right_hand" : "left_hand";
             if (!pts.TryGetValue(handKey, out var ap))
             {
@@ -170,6 +194,9 @@ namespace SteelCity.Sim
                     "\"pivots\":" + (pivotsRaw ?? "{}") + "," +
                     "\"params\":" + (animParamsRaw ?? "{}") + "}";
                 animator = VoxelCharacterAnimator.LoadFromAnimJson(animJson);
+                // Share the (possibly pivot_N-overridden) pivot dict so the weld
+                // animator uses the same joints as the solver and GPU pose.
+                if (animator != null) animator.pivots = this.pivots;
             }
             return true;
         }
@@ -201,7 +228,20 @@ namespace SteelCity.Sim
             }
             gripPoint = grip.pos;
             muzzlePoint = pts.TryGetValue("muzzle", out var m) ? m.pos : new Vector3(float.NaN, 0, 0);
-            itemAttachRot = Quaternion.Euler(CharacterJsonLoader.ParseEulerDeg(json, "attachRotation"));
+            boreRootPoint = pts.TryGetValue("bore_root", out var br) ? br.pos : new Vector3(float.NaN, 0, 0);
+            // Measured bore axis (bore_root → muzzle) when authored; +X convention otherwise.
+            boreAxisLocal = Vector3.right;
+            if (!float.IsNaN(muzzlePoint.x) && !float.IsNaN(boreRootPoint.x))
+            {
+                Vector3 axis = muzzlePoint - boreRootPoint;
+                if (axis.sqrMagnitude > 1e-6f) boreAxisLocal = axis.normalized;
+            }
+            // attachRotation is authored for grip_right (primary-hand convention,
+            // same as the editor's attachItem). A left-hand weld is the mirror
+            // image — compensate with +180° roll about the grip axis.
+            var e = CharacterJsonLoader.ParseEulerDeg(json, "attachRotation");
+            if (hand == Hand.Left) e.x += 180f;
+            itemAttachRot = Quaternion.Euler(e);
 
             // GPU buffer + registered volume on a dedicated GameObject
             UnequipVolumeOnly();
@@ -337,7 +377,20 @@ namespace SteelCity.Sim
             {
                 lastMuzzleWorld = handWorld;
             }
-            lastAimDir = (qWorld * Vector3.right).normalized;
+            // Barrel direction: measured bore axis resolved at parse time (boreAxisLocal).
+            lastAimDir = (qWorld * boreAxisLocal).normalized;
+
+            // Live muzzle beam in Game view — true aim ray out of the barrel.
+            var pdr = PathDebugRenderer.Instance;
+            if (pdr != null)
+            {
+                if (muzzleBeamKey == null) muzzleBeamKey = $"muzzle_ray_{GetInstanceID()}";
+                if (showMuzzleRay && !float.IsNaN(muzzlePoint.x))
+                    pdr.SetCustomBeam(muzzleBeamKey, lastMuzzleWorld,
+                        lastMuzzleWorld + lastAimDir * muzzleRayLength, 0.015f, muzzleRayColor);
+                else
+                    pdr.ClearCustomBeam(muzzleBeamKey);
+            }
         }
 
         static Quaternion QuatFromMat3(float[,] m)

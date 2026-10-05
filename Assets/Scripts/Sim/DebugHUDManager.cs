@@ -18,7 +18,7 @@ namespace SteelCity.Sim
     /// </summary>
     public class DebugHUDManager : MonoBehaviour
     {
-        public enum Tab { Camera, Render, Clothing, Path, Keys }
+        public enum Tab { Camera, Render, Clothing, Path, Range, Keys }
         public enum Corner { TopLeft, TopRight, BottomLeft, BottomRight }
 
         [Header("Config")]
@@ -55,8 +55,14 @@ namespace SteelCity.Sim
         private FollowCamera followCamera;
         private VoxelChunkManager chunkManager;
         private CityMap3D cityMap;
+        private GameUIController gameUI;
         private ClothingSystem clothingSystem; // currently selected
         private PathDebugRenderer pathDebug;
+
+        // Range tab state — set by clicking a range block while sim is Dwelling
+        private string rangeBlockId;
+        private ArmAimSolver solver;
+        private bool blockClickHooked;
 
         // Optional test/debug components — used by the Keys tab to show only
         // hotkeys whose handlers actually exist in the scene right now.
@@ -143,6 +149,12 @@ namespace SteelCity.Sim
             if (followCamera == null) followCamera = FindFirstObjectByType<FollowCamera>();
             if (chunkManager == null) chunkManager = FindFirstObjectByType<VoxelChunkManager>();
             if (cityMap == null) cityMap = FindFirstObjectByType<CityMap3D>();
+            if (gameUI == null) gameUI = FindFirstObjectByType<GameUIController>();
+            if (cityMap != null && !blockClickHooked)
+            {
+                cityMap.OnBlockClicked += HandleBlockClicked;
+                blockClickHooked = true;
+            }
             if (pathDebug == null) pathDebug = FindFirstObjectByType<PathDebugRenderer>();
             if (vehicleTest == null) vehicleTest = FindFirstObjectByType<VehicleTestSpawner>();
             if (stressTest == null) stressTest = FindFirstObjectByType<StressTestSpawner>();
@@ -187,6 +199,7 @@ namespace SteelCity.Sim
             if (chunkManager != null) tabs.Add(Tab.Render);
             if (allClothingSystems.Count > 0) tabs.Add(Tab.Clothing);
             if (pathDebug != null) tabs.Add(Tab.Path);
+            if (cityMap != null) tabs.Add(Tab.Range);
             tabs.Add(Tab.Keys);
             return tabs;
         }
@@ -281,6 +294,8 @@ namespace SteelCity.Sim
 
         void OnDestroy()
         {
+            if (cityMap != null && blockClickHooked)
+                cityMap.OnBlockClicked -= HandleBlockClicked;
             if (blockerCanvasGO != null)
                 DestroyImmediate(blockerCanvasGO);
         }
@@ -421,8 +436,8 @@ namespace SteelCity.Sim
 
             if (!minimized)
             {
-                Tab[] tabs = { Tab.Camera, Tab.Render, Tab.Clothing, Tab.Path, Tab.Keys };
-                string[] tabNames = { "Camera", "Render", "Clothing", "Path", "Keys" };
+                Tab[] tabs = { Tab.Camera, Tab.Render, Tab.Clothing, Tab.Path, Tab.Range, Tab.Keys };
+                string[] tabNames = { "Camera", "Render", "Clothing", "Path", "Range", "Keys" };
 
                 for (int i = 0; i < tabs.Length; i++)
                 {
@@ -430,6 +445,7 @@ namespace SteelCity.Sim
                     if (tabs[i] == Tab.Render && chunkManager == null) continue;
                     if (tabs[i] == Tab.Clothing && allClothingSystems.Count == 0) continue;
                     if (tabs[i] == Tab.Path && pathDebug == null) continue;
+                    if (tabs[i] == Tab.Range && cityMap == null) continue;
 
                     var style = activeTab == tabs[i] ? tabActiveStyle : tabStyle;
                     if (GUILayout.Button(tabNames[i], style, GUILayout.Height(20)))
@@ -465,6 +481,7 @@ namespace SteelCity.Sim
                 case Tab.Render: DrawRenderTab(); break;
                 case Tab.Clothing: DrawClothingTab(); break;
                 case Tab.Path: DrawPathTab(); break;
+                case Tab.Range: DrawRangeTab(); break;
                 case Tab.Keys: DrawKeysTab(); break;
             }
 
@@ -479,6 +496,7 @@ namespace SteelCity.Sim
             if (chunkManager != null)    { availableTabs.Add(Tab.Render);   availableNames.Add("Render"); }
             if (allClothingSystems.Count > 0) { availableTabs.Add(Tab.Clothing); availableNames.Add("Clothing"); }
             if (pathDebug != null)      { availableTabs.Add(Tab.Path);     availableNames.Add("Path"); }
+            if (cityMap != null)        { availableTabs.Add(Tab.Range);    availableNames.Add("Range"); }
             availableTabs.Add(Tab.Keys); availableNames.Add("Keys");
 
             int curIdx = availableTabs.IndexOf(activeTab);
@@ -704,6 +722,158 @@ namespace SteelCity.Sim
             GUILayout.Label("voxel raymarch overlay (right panel).", labelStyle);
             GUILayout.Label("Paths are drawn during execution phase", labelStyle);
             GUILayout.Label("when characters/vehicles are moving.", labelStyle);
+        }
+
+        // ------------------------------------------------------------------
+        // Range tab — live firing-range tuning/debug.
+        // Opens automatically when a block with a firing_position is clicked
+        // while the sim is Dwelling (Target Practice hold-open state).
+        // ------------------------------------------------------------------
+
+        private void HandleBlockClicked(string blockId)
+        {
+            var sim = gameUI != null ? gameUI.Sim : null;
+            if (sim == null || sim.State != SimState.Dwelling) return;
+            if (cityMap == null) return;
+            bool hasPos = cityMap.TryGetBuildingPointLocal(blockId, "firing_position", out _);
+            Debug.Log($"[DebugHUD] 🔵 Dwell click on {blockId} — firing_position: {(hasPos ? "found" : "absent")}");
+            if (!hasPos) return;
+            OpenRangeTab(blockId);
+        }
+
+        /// <summary>Open the HUD on the Range tab for the given block.</summary>
+        public void OpenRangeTab(string blockId)
+        {
+            rangeBlockId = blockId;
+            activeTab = Tab.Range;
+            visible = true;
+            minimized = false;
+        }
+
+        void DrawRangeTab()
+        {
+            var sim = gameUI != null ? gameUI.Sim : null;
+            string simState = sim != null ? sim.State.ToString() : "no sim";
+            bool dwelling = sim != null && sim.State == SimState.Dwelling;
+
+            GUILayout.Label($"<b>RANGE</b>   sim: {simState}", boldStyle);
+
+            if (string.IsNullOrEmpty(rangeBlockId))
+            {
+                GUILayout.Space(4);
+                GUILayout.Label("Click a range block while the sim is", labelStyle);
+                GUILayout.Label("dwelling (Vinny standing at the line).", labelStyle);
+                return;
+            }
+
+            GUILayout.Label($"Block: <b>{rangeBlockId}</b>", labelStyle);
+            var pointNames = cityMap.GetBuildingPointNames(rangeBlockId);
+            GUILayout.Label($"Points: {(pointNames.Count > 0 ? string.Join(", ", pointNames) : "none")}", labelStyle);
+
+            bool hasPos = cityMap.TryGetBuildingPointLocal(rangeBlockId, "firing_position", out var posLocal);
+            bool hasTgt = cityMap.TryGetBuildingPointLocal(rangeBlockId, "firing_target", out var tgtLocal);
+            Vector3 posWorld = cityMap.MapRoot.position + posLocal;
+            Vector3 tgtWorld = cityMap.MapRoot.position + tgtLocal;
+            GUILayout.Label($"firing_position: {(hasPos ? "OK" : "<color=#ff6666>MISSING</color>")}   firing_target: {(hasTgt ? "OK" : "<color=#ff6666>MISSING</color>")}", labelStyle);
+
+            GUILayout.Space(6);
+
+            // --- Character / weapon status ---
+            var ch = cityMap.SpawnedCharacter;
+            if (ch == null)
+            {
+                GUILayout.Label("<color=#ff6666>No spawned character.</color>", labelStyle);
+                return;
+            }
+            var mount = ch.GetComponent<WeaponMount>();
+            if (solver == null || solver.gameObject != ch.gameObject)
+            {
+                solver = ch.GetComponent<ArmAimSolver>();
+                if (solver == null) solver = ch.gameObject.AddComponent<ArmAimSolver>();
+            }
+
+            // Position check — character transform is the volume corner; the
+            // firing position target is where the XZ center should sit.
+            if (mount != null && hasPos)
+            {
+                var d = mount.Dims; float vs = mount.CharVoxelSize;
+                Vector3 chCenter = ch.transform.position + new Vector3(d.x * vs * 0.5f, 0f, d.z * vs * 0.5f);
+                float offM = Vector3.Distance(new Vector3(chCenter.x, 0, chCenter.z), new Vector3(posWorld.x, 0, posWorld.z));
+                GUILayout.Label($"In position: {(offM < 0.35f ? "<color=#66ff66>YES</color>" : $"<color=#ffaa44>off {offM:F2}m</color>")}", labelStyle);
+            }
+            GUILayout.Label($"Weapon: {(mount != null && mount.IsEquipped ? mount.ItemFileName : "<color=#ff6666>none</color>")}", labelStyle);
+            if (mount != null && mount.IsEquipped)
+            {
+                GUILayout.Label($"  bore axis: {(mount.BoreAxisLocal != Vector3.right ? "measured" : "+X fallback")}  hand gid {mount.HandGid}", labelStyle);
+                mount.showMuzzleRay = GUILayout.Toggle(mount.showMuzzleRay, " muzzle ray (red) + sight line while aiming", labelStyle);
+            }
+
+            GUILayout.Space(6);
+
+            // --- IK Aim toggle ---
+            bool aiming = solver.IsAiming;
+            var btnStyle = aiming ? tabActiveStyle : tabStyle;
+            GUI.enabled = dwelling && hasPos && hasTgt && mount != null && mount.IsEquipped;
+            string btnLabel = aiming ? "IK AIM — ENGAGED (click to release)" : "IK AIM";
+            if (GUILayout.Button(btnLabel, btnStyle, GUILayout.Height(26)))
+            {
+                if (aiming) solver.Disarm();
+                else solver.Arm(tgtWorld);
+            }
+            GUI.enabled = true;
+            if (!dwelling)
+                GUILayout.Label("(available while sim is Dwelling)", labelStyle);
+            if (!string.IsNullOrEmpty(solver.LastError))
+                GUILayout.Label($"<color=#ff6666>solver: {solver.LastError}</color>", labelStyle);
+
+            // --- Telemetry ---
+            if (solver.Blend > 0f || aiming)
+            {
+                GUILayout.Space(4);
+                GUILayout.Label($"blend {solver.Blend:F2}   arm {solver.ArmGid} → fore {solver.ForearmGid}", labelStyle);
+                GUILayout.Label($"target dist: {solver.LastTargetDistanceM:F2}m   aim err: {solver.LastAngularErrorDeg:F1}°", labelStyle);
+                if (mount != null && mount.IsEquipped)
+                {
+                    GUILayout.Label($"muzzle: {mount.MuzzleWorld}", labelStyle);
+                    GUILayout.Label($"aim dir: {mount.AimDirection}", labelStyle);
+                }
+            }
+
+            GUILayout.Space(6);
+
+            // --- Tuning sliders (live) ---
+            GUILayout.Label("<b>Tuning</b>", labelStyle);
+            solver.torsoAssist = GUILayout.Toggle(solver.torsoAssist, " torso assist (turret yaw)", labelStyle);
+            if (solver.torsoAssist)
+            {
+                solver.torsoShare = HSlider("torso share", solver.torsoShare, 0f, 1f);
+                solver.maxTorsoYawDeg = HSlider("max torso °", solver.maxTorsoYawDeg, 0f, 120f);
+            }
+            solver.reachFraction = HSlider("reach fraction", solver.reachFraction, 0.5f, 1f);
+            solver.blendInSpeed = HSlider("blend in", solver.blendInSpeed, 0.5f, 8f);
+            solver.blendOutSpeed = HSlider("blend out", solver.blendOutSpeed, 0.5f, 8f);
+            solver.azimuthOffsetDeg = HSlider("azimuth °", solver.azimuthOffsetDeg, -45f, 45f);
+            solver.elevationOffsetDeg = HSlider("elevation °", solver.elevationOffsetDeg, -45f, 45f);
+            if (GUILayout.Button("Reset tuning", GUILayout.Height(20)))
+            {
+                solver.reachFraction = 0.97f;
+                solver.blendInSpeed = 2.5f;
+                solver.blendOutSpeed = 3.5f;
+                solver.azimuthOffsetDeg = 0f;
+                solver.elevationOffsetDeg = 0f;
+                solver.torsoShare = 0.6f;
+                solver.maxTorsoYawDeg = 70f;
+            }
+        }
+
+        private float HSlider(string name, float val, float min, float max)
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(name, labelStyle, GUILayout.Width(105));
+            float v = GUILayout.HorizontalSlider(val, min, max, GUILayout.ExpandWidth(true));
+            GUILayout.Label(v.ToString("F2"), labelStyle, GUILayout.Width(42));
+            GUILayout.EndHorizontal();
+            return v;
         }
     }
 }

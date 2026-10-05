@@ -30,6 +30,14 @@ namespace SteelCity.Sim
         {
             { 8, 2 }, { 9, 3 }, { 6, 4 }, { 7, 5 }
         };
+        public int GetParentGroup(int gid) => PARENT_OF.TryGetValue(gid, out var p) ? p : -1;
+
+        // --- IK override channel (solver-driven, e.g. ArmAimSolver) ---
+        // Model-space rotation that REPLACES a group's param-derived ownRot.
+        // Children still inherit through the FK chain; ikBlend ramps 0→1 for
+        // a smooth engage/release. GPU path mirrors this via _InstanceIKData.
+        public readonly Dictionary<int, Quaternion> ikOverrides = new Dictionary<int, Quaternion>();
+        public float ikBlend = 1f;
         private static readonly int[] CHILD_GROUPS = { 6, 7, 8, 9 };
         private static readonly int[] UPPER_BODY_GROUPS = { 1, 2, 3 };
         private static readonly int[] ROOT_PARENT_GROUPS = { 1, 2, 3, 4, 5 };
@@ -78,6 +86,58 @@ namespace SteelCity.Sim
                 m[1, 0] * v.x + m[1, 1] * v.y + m[1, 2] * v.z,
                 m[2, 0] * v.x + m[2, 1] * v.y + m[2, 2] * v.z
             );
+        }
+
+        /// <summary>float[,] 3x3 (row-major, MatVec3 convention) → Quaternion.</summary>
+        public static Quaternion QuatFromMat3(float[,] m)
+        {
+            float tr = m[0, 0] + m[1, 1] + m[2, 2];
+            float w, x, y, z;
+            if (tr > 0f)
+            {
+                float s = Mathf.Sqrt(tr + 1f) * 2f;
+                w = 0.25f * s;
+                x = (m[2, 1] - m[1, 2]) / s;
+                y = (m[0, 2] - m[2, 0]) / s;
+                z = (m[1, 0] - m[0, 1]) / s;
+            }
+            else if (m[0, 0] > m[1, 1] && m[0, 0] > m[2, 2])
+            {
+                float s = Mathf.Sqrt(1f + m[0, 0] - m[1, 1] - m[2, 2]) * 2f;
+                w = (m[2, 1] - m[1, 2]) / s;
+                x = 0.25f * s;
+                y = (m[0, 1] + m[1, 0]) / s;
+                z = (m[0, 2] + m[2, 0]) / s;
+            }
+            else if (m[1, 1] > m[2, 2])
+            {
+                float s = Mathf.Sqrt(1f + m[1, 1] - m[0, 0] - m[2, 2]) * 2f;
+                w = (m[0, 2] - m[2, 0]) / s;
+                x = (m[0, 1] + m[1, 0]) / s;
+                y = 0.25f * s;
+                z = (m[1, 2] + m[2, 1]) / s;
+            }
+            else
+            {
+                float s = Mathf.Sqrt(1f + m[2, 2] - m[0, 0] - m[1, 1]) * 2f;
+                w = (m[1, 0] - m[0, 1]) / s;
+                x = (m[0, 2] + m[2, 0]) / s;
+                y = (m[1, 2] + m[2, 1]) / s;
+                z = 0.25f * s;
+            }
+            return new Quaternion(x, y, z, w).normalized;
+        }
+
+        /// <summary>Quaternion → float[,] 3x3 (row-major, matches RotationX/Y/Z convention).</summary>
+        public static float[,] Mat3FromQuat(Quaternion q)
+        {
+            float x = q.x, y = q.y, z = q.z, w = q.w;
+            return new float[,]
+            {
+                { 1f - 2f * (y * y + z * z), 2f * (x * y - z * w),     2f * (x * z + y * w)     },
+                { 2f * (x * y + z * w),     1f - 2f * (x * x + z * z), 2f * (y * z - x * w)     },
+                { 2f * (x * z - y * w),     2f * (y * z + x * w),     1f - 2f * (x * x + y * y) }
+            };
         }
 
         private static readonly float[,] IDENTITY = new float[,] { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } };
@@ -287,6 +347,10 @@ namespace SteelCity.Sim
             float bodyLower = isCrouchingState ? ap.crouching.bodyLower : 0f;
             float modelLower = isCrouchingState ? ap.crouching.modelLower : 0f;
             bool hasBodyRot = torsoTwist != 0f || bodyLean != 0f;
+            // Torso IK override (gid 0) — participates in bodyRot so it propagates
+            // through the same body-transform path into arm/forearm/head chains.
+            bool hasTorsoIk = ikOverrides.Count > 0 && ikOverrides.ContainsKey(0);
+            if (hasTorsoIk) hasBodyRot = true;
 
             float[,] GetBodyTransform()
             {
@@ -296,6 +360,8 @@ namespace SteelCity.Sim
                 float[,] rot = IDENTITY;
                 if (bodyLean != 0f) rot = MatMul3(RotationX(bodyLean), rot);
                 if (torsoTwist != 0f) rot = MatMul3(RotationY(torsoTwist), rot);
+                if (hasTorsoIk)
+                    rot = Mat3FromQuat(Quaternion.Slerp(QuatFromMat3(rot), ikOverrides[0], Mathf.Clamp01(ikBlend)));
                 return rot;
             }
 
@@ -533,6 +599,14 @@ namespace SteelCity.Sim
                     bend += kb.signR * ap.crouching.kneeBendR;
                 }
                 ownRot = RotationByAxis(kb.axisR, bend);
+            }
+
+            // IK override channel — solver-supplied model-space rotation replaces
+            // the param-derived ownRot for this group (arm aim, etc).
+            if (ikOverrides.Count > 0 && ikOverrides.TryGetValue(gid, out var ikQ))
+            {
+                var baseQ = ownRot != null ? QuatFromMat3(ownRot) : Quaternion.identity;
+                ownRot = Mat3FromQuat(Quaternion.Slerp(baseQ, ikQ, Mathf.Clamp01(ikBlend)));
             }
 
             if (ownRot == null) return parentResult;
@@ -777,9 +851,31 @@ namespace SteelCity.Sim
             if (p.looking == null)
                 p.looking = new LookingData { headYaw = 0.5f, headYawFreq = 2f, headPitch = 0.035f, headPitchFreq = 1.3f };
             if (p.aiming == null)
-                p.aiming = new AimingData { weaponType = "pistol", torsoTwist = 0.2f, headYaw = 0f, headPitch = -0.05f, headTilt = 0f, armSwingL = -1.4f, armSwingR = 0f, shoulderReachL = 0f, shoulderReachR = 0f, elbowBendL = 0.3f, elbowBendR = 0f };
+                p.aiming = new AimingData { weaponType = "pistol", torsoTwist = -0.2f, headYaw = 0f, headPitch = -0.05f, headTilt = 0f, armSwingL = 0f, armSwingR = -1.4f, shoulderReachL = 0f, shoulderReachR = 0f, elbowBendL = 0f, elbowBendR = 0.3f };
             if (p.crouching == null)
                 p.crouching = new CrouchingData { bodyLower = 0f, modelLower = 4f, bodyLean = 0f, headPitch = 0f, armSwingL = 0f, armSwingR = 0f, legStrideL = -1.15f, legStrideR = 0f, kneeBendL = 1.15f, kneeBendR = 1.40f };
+            // Sections below are dereferenced unconditionally in ComputeGroupRotation —
+            // they MUST be filled or a paramless/trimmed file throws NullReferenceException.
+            if (p.armSwing == null)
+                p.armSwing = new ArmSwingData { axisL = 0, axisR = 0, signL = 1, signR = 1 };
+            if (p.legStride == null)
+                p.legStride = new LegStrideData { axisL = 0, axisR = 0, signL = -1, signR = -1 };
+            if (p.legTwist == null)
+                p.legTwist = new LegTwistData { leftRest = 0f, rightRest = 0f };
+            if (p.elbowBend == null)
+                p.elbowBend = new ElbowBendData { axisL = 1, axisR = 1, signL = 1, signR = -1, leftRest = 0f, rightRest = 0f, twistL = 0f, twistR = 0f, twistWalkAmp = 0.15f };
+            if (p.kneeBend == null)
+                p.kneeBend = new KneeBendData { axisL = 0, axisR = 0, signL = 1, signR = 1, leftRest = 0f, rightRest = 0f, walkAmp = 0.42f };
+            if (p.walkKeyframes == null)
+                p.walkKeyframes = new WalkKeyframesData
+                {
+                    autoMirror = true, cycleDuration = 1.2f, interpolation = "spline",
+                    bodyBob = new BodyBobData { enabled = true, amplitude = 0.6f },
+                    weightShift = new WeightShiftData { enabled = true, amplitude = 0.4f },
+                    kf0 = new WalkKFPose { armSwingL = 0.3f, armSwingR = -0.3f, legStrideL = -0.4f, legStrideR = 0.4f, elbowBendL = 0.1f, elbowBendR = 0.1f, kneeBendL = 0f, kneeBendR = 0f, forearmTwistL = 0f, forearmTwistR = 0f },
+                    kf1 = new WalkKFPose { armSwingL = 0f, armSwingR = 0f, legStrideL = 0.3f, legStrideR = -0.1f, elbowBendL = 0.3f, elbowBendR = 0.3f, kneeBendL = 0.8f, kneeBendR = 0.15f, forearmTwistL = 0f, forearmTwistR = 0f },
+                    kf2 = null, kf3 = null,
+                };
 
             // Debug: verify walk keyframes parsed correctly
             if (p.walkKeyframes != null)

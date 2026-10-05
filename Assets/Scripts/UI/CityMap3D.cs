@@ -613,9 +613,12 @@ namespace SteelCity.Sim
 
             if (IsExecutionMode)
             {
-                // Working mode: skip planning-only interactions (click, road ticker)
-                // but allow camera controls (mouse orbit/zoom) and camera transform updates
+                // Working mode: skip planning-only interactions (road ticker) but keep
+                // camera controls, camera transform, and block clicks — subscribers
+                // gate themselves (planning selection ignores non-planning clicks;
+                // DebugHUD's Range tab only reacts while the sim is Dwelling).
                 HandleMouseCamera();
+                HandleClick();
                 UpdateCameraTransform();
                 return;
             }
@@ -779,17 +782,9 @@ namespace SteelCity.Sim
             if (Mouse.current.rightButton.wasReleasedThisFrame)
                 isPanning = false;
 
-            // --- LMB: Focus on clicked point ---
-            if (Mouse.current.leftButton.wasPressedThisFrame && overMap && !isRotating && !isPanning)
-            {
-                Ray ray = mapCamera.ScreenPointToRay(mousePos);
-                if (Physics.Raycast(ray, out RaycastHit hit, 200f))
-                {
-                    cameraFocus = hit.point;
-                    cameraFollowsCityCenter = false;
-                    panOffset = hit.point - mapRoot.position;
-                }
-            }
+            // LMB no longer centers the camera — click selects blocks only
+            // (OnBlockClicked via HandleClick). Camera focus moves through RMB
+            // pan and SetCameraFocus callers.
         }
 
         private Camera CreateIsometricCamera()
@@ -1055,6 +1050,25 @@ namespace SteelCity.Sim
 
         // Per-stasset attachment-point cache (name → voxel-space centroid)
         private readonly Dictionary<string, Dictionary<string, Vector3>> buildingPointCache = new();
+
+        /// <summary>Union of authored attachment-point names across all buildings on a block.</summary>
+        public List<string> GetBuildingPointNames(string blockId)
+        {
+            var names = new List<string>();
+            foreach (var addr in addressRegistry)
+            {
+                if (addr.blockId != blockId || string.IsNullOrEmpty(addr.stassetPath)) continue;
+                if (!buildingPointCache.TryGetValue(addr.stassetPath, out var points))
+                {
+                    points = StAssetReader.LoadAttachmentPoints(addr.stassetPath);
+                    buildingPointCache[addr.stassetPath] = points;
+                }
+                if (points == null) continue;
+                foreach (var k in points.Keys)
+                    if (!names.Contains(k)) names.Add(k);
+            }
+            return names;
+        }
 
         /// <summary>
         /// Resolve a named building attachment point (e.g. "firing_position")

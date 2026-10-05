@@ -264,7 +264,7 @@ body.ui-hidden #ui-hidden-hint { display:block; }
   <div class="state-grid" id="state-grid"></div>
 
   <div class="playback-row">
-    <button class="playback-btn active" id="play-btn" title="Play/Pause">▶</button>
+    <button class="playback-btn" id="play-btn" title="Play/Pause">▶</button>
     <button class="playback-btn" id="stop-btn" title="Stop">⏹</button>
     <span style="font-size:10px;color:#888;">Speed:</span>
     <input type="range" id="speed-slider" min="0.1" max="3" step="0.1" value="1" style="flex:1;">
@@ -282,6 +282,11 @@ body.ui-hidden #ui-hidden-hint { display:block; }
   <div style="margin-top:6px;">
     <button class="export-btn" onclick="resetPivots()" style="font-size:10px;padding:4px 8px;">Reset Pivots</button>
     <button class="export-btn" onclick="autoDetectPivots()" style="font-size:10px;padding:4px 8px;margin-left:4px;">Auto-Detect</button>
+  </div>
+  <div style="margin-top:6px;font-size:10px;color:#888;display:flex;gap:6px;align-items:center;flex-wrap:wrap" title="Voxel skinning — cells near a shoulder pivot rotate w·θ instead of rigidly; chest cells get a capped partial dose">
+    <label><input type="checkbox" id="blend-enabled"> skin blend</label>
+    <span>R</span><input type="range" id="blend-radius" min="2" max="16" step="0.5" value="6" style="width:64px">
+    <span>chest</span><input type="range" id="blend-cap" min="0" max="0.8" step="0.05" value="0.35" style="width:64px">
   </div>
 
   <h3 style="margin-top:12px;">Animation Parameters
@@ -660,6 +665,11 @@ const STATES = [
     "id": 9,
     "name": "T-Pose",
     "desc": "Bind/rest pose — raw rigging position as imported from the editor. No rotations applied. Use this to inspect the unmodified skeleton."
+  },
+  {
+    "id": 10,
+    "name": "Aim Sweep",
+    "desc": "Aiming pose — aiming arm(s) sweep left↔right (IK-aim shoulder exercise)"
   }
 ];
 
@@ -679,8 +689,9 @@ const DEFAULT_PIVOTS = {
   7: { x: 0.625, y: 0.20, z: 0.5 }, // Right shin (knee)
 };
 
-// Current pivots (editable)
-let pivots = JSON.parse(JSON.stringify(DEFAULT_PIVOTS));
+// Current pivots (editable) — starts EMPTY so a blank init draws no orphan
+// gizmos; filled on load by the file's pivots or autoDetectPivots().
+let pivots = {};
 
 // Default animation parameters (matching shader hardcoded values)
 const DEFAULT_PARAMS = {
@@ -770,8 +781,8 @@ const DEFAULT_PARAMS = {
   legStride: {
     axisL: 0,          // 0=X, 1=Y, 2=Z — rotation axis for left leg stride
     axisR: 0,          // 0=X, 1=Y, 2=Z — rotation axis for right leg stride
-    signL: 1,          // 1 or -1 — stride direction for left leg
-    signR: 1,          // 1 or -1 — stride direction for right leg
+    signL: -1,         // -1 = corrected convention (was +1 — legs swung backwards)
+    signR: -1,         // -1 = corrected convention — applies to ALL models on this skeleton
   },
   // Leg twist (hips, groups 4/5) — Y-axis yaw/toe-in-toe-out.
   // Rotates the entire leg in place around its vertical axis.
@@ -814,16 +825,23 @@ const DEFAULT_PARAMS = {
   },
   aiming: {
     weaponType: 'pistol',  // 'pistol' | 'dual' | 'rifle' — sets preset pose
-    torsoTwist: 0.2,        // Y rotation at waist (radians) — twists upper body
+    torsoTwist: -0.2,       // Y rotation at waist (radians) — blades left shoulder back (right-armed aim)
     headYaw: 0.0,           // looking at target (Y rotation)
     headPitch: -0.05,       // slight tilt down to sights (X rotation)
     headTilt: 0.0,          // head roll sideways — leaning into rifle sight (Z rotation)
-    armSwingL: -1.4,        // left arm raised forward (radians, X rotation)
-    armSwingR: 0.0,         // right arm at side (pistol one-hand)
+    armSwingL: 0.0,         // left arm at side (pistol one-hand)
+    armSwingR: -1.4,        // right arm raised forward (radians, X rotation)
     shoulderReachL: 0.0,    // left arm reach across body (radians, Y rotation)
     shoulderReachR: 0.0,    // right arm reach across body (radians, Y rotation)
-    elbowBendL: 0.3,        // left elbow slightly bent
-    elbowBendR: 0.0,        // right elbow straight
+    elbowBendL: 0.0,        // left elbow straight
+    elbowBendR: 0.3,        // right elbow slightly bent (signR=-1 mirrors the left's bend)
+  },
+  aimSweep: {
+    // State 10: aiming base pose + sinusoidal shoulder-yaw sweep — exercises
+    // the shoulder joint/blend across the same yaw range IK aiming drives.
+    amp: 0.55,              // sweep amplitude (radians, ~±32°)
+    freq: 1.6,              // sweep speed (rad/s)
+    headFollow: 0.6,        // fraction of sweep the head tracks (gaze follows gun)
   },
   crouching: {
     bodyLower: 0.0,       // Y offset for torso+upper body only (hip anchor)
@@ -846,10 +864,10 @@ let animParams = JSON.parse(JSON.stringify(DEFAULT_PARAMS));
 // aiming params update to match. Sliders remain for fine-tuning.
 const AIM_WEAPON_PRESETS = {
   pistol: {
-    torsoTwist: 0.2,   // slight mobster shoulder twist
-    armSwingL: -1.4,  armSwingR: 0.0,
+    torsoTwist: -0.2,  // blades the left shoulder back (right-handed aim)
+    armSwingL: 0.0,  armSwingR: -1.4,
     shoulderReachL: 0.0,  shoulderReachR: 0.0,
-    elbowBendL: 0.3,  elbowBendR: 0.0,
+    elbowBendL: 0.0,  elbowBendR: 0.3,
     headYaw: 0.0,  headPitch: -0.05,  headTilt: 0.0,
   },
   dual: {
@@ -1161,6 +1179,99 @@ function rotationByAxis(axis, angle) {
   return rotationX(angle);
 }
 
+// === SKIN BLEND (voxel skinning) ===
+// Cells near a blended joint's pivot take w·θ of that joint's rotation
+// instead of rigidly following it — spreads joint shear across a radius.
+// gid-0 (torso) cells near a shoulder additionally receive an injected
+// partial dose of that arm's own rotation (capped bump) so the chest
+// follows the arm slightly. Mirrors the voxel_editor test-pose blend.
+let blendEnabled = false, blendRadius = 6, blendTorsoCap = 0.35;
+const BLEND_JOINTS = { 2: true, 3: true }; // shoulder L/R (arm roots)
+const BLEND_IDENT = [[1,0,0],[0,1,0],[0,0,1]];
+
+// Rotation matrix → axis-angle → scale angle by w → matrix. Self-consistent
+// extraction/rebuild (same handedness in and out), so convention cancels.
+// NOTE: kept for reference — the live blend uses linear displacement (chord
+// path, lands inside the crease) rather than scaled-angle (arc path, smears
+// through space at large swings). See posedPos().
+function scaledRotMat(m, w) {
+  if (w <= 0.0001) return BLEND_IDENT;
+  if (w >= 0.9999) return m;
+  const cosA = Math.max(-1, Math.min(1, (m[0][0] + m[1][1] + m[2][2] - 1) / 2));
+  const a0 = Math.acos(cosA);
+  const s = 2 * Math.sin(a0);
+  if (Math.abs(s) < 1e-5) return w < 0.5 ? BLEND_IDENT : m; // θ≈0 or π
+  const ax = (m[2][1] - m[1][2]) / s;
+  const ay = (m[0][2] - m[2][0]) / s;
+  const az = (m[1][0] - m[0][1]) / s;
+  const ang = a0 * w, c = Math.cos(ang), sn = Math.sin(ang), ic = 1 - c;
+  return [
+    [c + ax*ax*ic,      ax*ay*ic - az*sn,  ax*az*ic + ay*sn],
+    [ay*ax*ic + az*sn,  c + ay*ay*ic,      ay*az*ic - ax*sn],
+    [az*ax*ic - ay*sn,  az*ay*ic + ax*sn,  c + az*az*ic    ],
+  ];
+}
+
+// Shoulder own-rotations, computed once per rebuild (per-voxel would rerun
+// the whole chain for every cell).
+let blendArmOwn = null;
+function blendArmTransform(jgid) {
+  if (blendArmOwn === null) {
+    blendArmOwn = {};
+    for (const j of [2, 3]) {
+      const res = computeGroupRotation(j, [W, H, D], 1.0, currentAnimState, animTime, animSpeed);
+      blendArmOwn[j] = res && res.chain && res.chain.length ? res.chain[0] : null;
+    }
+  }
+  return blendArmOwn[jgid];
+}
+
+// FK pose for one voxel: applies chain entries leaf→root, partial-dosing
+// blended joint entries by this cell's rest-distance to their pivot, and
+// injecting shoulder-lerp doses into torso cells near the joint.
+function posedPos(v) {
+  const result = computeGroupRotation(v.gid, [W, H, D], 1.0, currentAnimState, animTime, animSpeed);
+  let pos = [v.x, v.y, v.z], off = [0, 0, 0];
+  if (result && result.chain) {
+    let chain = result.chain;
+    if (blendEnabled) {
+      // Tag blended-joint entries with a per-voxel weight (rest distance to
+      // that joint's pivot, smoothstep ramp). Entry rot stays full — the
+      // blend lerps the displacement, not the angle.
+      chain = chain.map(e => {
+        if (!BLEND_JOINTS[e.jgid]) return e;
+        const d = Math.hypot(v.x - e.pivot[0], v.y - e.pivot[1], v.z - e.pivot[2]);
+        const w = smoothstep(Math.min(d / blendRadius, 1));
+        return w > 0.9999 ? e : { pivot: e.pivot, rot: e.rot, bw: w };
+      });
+      if (v.gid === 0) {
+        const extras = [];
+        for (const j of [2, 3]) {
+          const own = blendArmTransform(j);
+          if (!own) continue;
+          const d = Math.hypot(v.x - own.pivot[0], v.y - own.pivot[1], v.z - own.pivot[2]);
+          const t = Math.min(d / blendRadius, 1);
+          const w = blendTorsoCap * 4 * t * (1 - t);
+          if (w > 0.001) extras.push({ pivot: own.pivot, rot: own.rot, bw: w });
+        }
+        if (extras.length) chain = [...extras, ...chain];
+      }
+    }
+    for (const e of chain) {
+      const rel = [pos[0] - e.pivot[0], pos[1] - e.pivot[1], pos[2] - e.pivot[2]];
+      const t = matVec3(e.rot, rel);
+      const w = e.bw !== undefined ? e.bw : 1;
+      // Linear displacement blend: move w of the way toward the fully-rotated
+      // position — chord path through the joint interior, not the arc.
+      pos = [pos[0] + w * (t[0] + e.pivot[0] - pos[0]),
+             pos[1] + w * (t[1] + e.pivot[1] - pos[1]),
+             pos[2] + w * (t[2] + e.pivot[2] - pos[2])];
+    }
+    off = result.offset || [0, 0, 0];
+  }
+  return [pos[0] + off[0], pos[1] + off[1], pos[2] + off[2]];
+}
+
 // === WALK KEYFRAME INTERPOLATION ===
 // Smoothstep: S-curve interpolation (0→1) — avoids robotic linear motion.
 function smoothstep(t) { return t * t * (3 - 2 * t); }
@@ -1303,8 +1414,11 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
   // Two sources:
   //   - Aiming states (3, 4): torsoTwist (Y rotation) for mobster shoulder twist
   //   - Crouching state (6): bodyLean (X rotation, forward lean) + bodyLower (Y translation)
-  const isAimingState = (animState > 2.5 && animState < 4.5); // Aim Walk (3) or Aiming (4)
+  const isSweepState = animState === 10; // Aim Sweep — aiming pose + sweeping reach
+  const isAimingState = (animState > 2.5 && animState < 4.5) || isSweepState; // Aim Walk (3), Aiming (4), Aim Sweep (10)
   const isCrouchingState = (animState > 4.5 && animState < 5.5); // Crouching (5)
+  const sw = animParams.aimSweep;
+  const sweepYaw = (isSweepState && sw) ? Math.sin(animTime * sw.freq) * sw.amp : 0;
   const torsoTwist = isAimingState ? animParams.aiming.torsoTwist : 0;
   const bodyLean = isCrouchingState ? animParams.crouching.bodyLean : 0;
   const bodyLower = isCrouchingState ? animParams.crouching.bodyLower : 0;
@@ -1320,7 +1434,7 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
     let rot = identity;
     if (bodyLean !== 0) rot = matMul3(rotationX(bodyLean), rot);
     if (torsoTwist !== 0) rot = matMul3(rotationY(torsoTwist), rot);
-    return { pivot: bodyPivot, rot };
+    return { pivot: bodyPivot, rot, jgid: 0 };
   }
 
   // The body lower offset is applied to group 0 and upper body groups (1, 2, 3).
@@ -1383,9 +1497,10 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
       const p2 = animParams.looking;
       headYaw = Math.sin(animTime * p2.headYawFreq) * p2.headYaw;
       headPitch = Math.sin(animTime * p2.headPitchFreq) * p2.headPitch;
-    } else if (animState > 2.5 && animState < 4.5) { // Aim Walk (3) or Aiming (4)
+    } else if (isAimingState) { // Aim Walk (3), Aiming (4), Aim Sweep (10)
       const p2 = animParams.aiming;
-      headYaw = p2.headYaw; headPitch = p2.headPitch; headTilt = p2.headTilt;
+      headYaw = p2.headYaw + sweepYaw * (sw ? sw.headFollow : 0); // gaze follows the gun
+      headPitch = p2.headPitch; headTilt = p2.headTilt;
     } else if (animState > 4.5 && animState < 5.5) { // Crouching
       headPitch = animParams.crouching.headPitch;
     } else {
@@ -1400,9 +1515,9 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
     if (animState > 0.5 && animState < 1.5) { // Walking — keyframe pose
       const wp = getWalkPose(animTime, animSpeed, animParams);
       swing = as.signL * wp.pose.armSwingL;
-    } else if (animState > 2.5 && animState < 4.5) { // Aim Walk (3) or Aiming (4)
+    } else if (isAimingState) { // Aim Walk (3), Aiming (4), Aim Sweep (10)
       swing = as.signL * animParams.aiming.armSwingL; // static pose — no oscillation
-      reach = animParams.aiming.shoulderReachL; // cross-body reach
+      reach = animParams.aiming.shoulderReachL + (swing !== 0 ? sweepYaw : 0); // cross-body reach + sweep on aiming arms
     } else if (animState > 4.5 && animState < 5.5) { // Crouching
       swing = as.signL * animParams.crouching.armSwingL;
     } else {
@@ -1419,9 +1534,9 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
     if (animState > 0.5 && animState < 1.5) { // Walking — keyframe pose
       const wp = getWalkPose(animTime, animSpeed, animParams);
       swing = as.signR * wp.pose.armSwingR;
-    } else if (animState > 2.5 && animState < 4.5) { // Aim Walk (3) or Aiming (4)
+    } else if (isAimingState) { // Aim Walk (3), Aiming (4), Aim Sweep (10)
       swing = as.signR * animParams.aiming.armSwingR;
-      reach = animParams.aiming.shoulderReachR;
+      reach = animParams.aiming.shoulderReachR + (swing !== 0 ? sweepYaw : 0);
     } else if (animState > 4.5 && animState < 5.5) { // Crouching
       swing = as.signR * animParams.crouching.armSwingR;
     } else {
@@ -1465,7 +1580,7 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
       const wp = getWalkPose(animTime, animSpeed, animParams);
       bend = eb.signL * wp.pose.elbowBendL;
       twist = wp.pose.forearmTwistL;
-    } else if (animState > 2.5 && animState < 4.5) { // Aim Walk (3) or Aiming (4)
+    } else if (isAimingState) { // Aim Walk (3), Aiming (4), Aim Sweep (10)
       bend = eb.signL * animParams.aiming.elbowBendL;
     }
     ownRot = rotationByAxis(eb.axisL, bend);
@@ -1478,7 +1593,7 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
       const wp = getWalkPose(animTime, animSpeed, animParams);
       bend = eb.signR * wp.pose.elbowBendR;
       twist = wp.pose.forearmTwistR;
-    } else if (animState > 2.5 && animState < 4.5) { // Aim Walk (3) or Aiming (4)
+    } else if (isAimingState) { // Aim Walk (3), Aiming (4), Aim Sweep (10)
       bend = eb.signR * animParams.aiming.elbowBendR;
     }
     ownRot = rotationByAxis(eb.axisR, bend);
@@ -1518,7 +1633,7 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
   // done via the parent chain up to now).
   // rebuildAnimatedMesh applies chain entries in array order — so the
   // child's transform must come FIRST in the array.
-  const ownTransform = { pivot: ownPivot, rot: ownRot };
+  const ownTransform = { pivot: ownPivot, rot: ownRot, jgid: gid };
   let chain = parentResult ? [ownTransform, ...parentResult.chain] : [ownTransform];
 
   // Prepend body transform (torso twist / crouch lean) to upper body groups.
@@ -1537,7 +1652,7 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
 let currentAnimState = 9; // Start in T-Pose to match the model's raw bind pose on import
 let currentWalkKeyframe = 0; // Which walk keyframe is being edited (0-3)
 let animTime = 0;
-let isPlaying = true;
+let isPlaying = false;  // paused at blank init — auto-starts on first model load
 let animSpeed = 1.0;
 let useAnimatedMesh = false;
 
@@ -1561,6 +1676,7 @@ function rebuildAnimatedMesh() {
 
   // Invalidate walk pose cache so slider edits take effect immediately
   invalidateWalkPoseCache();
+  blendArmOwn = null; // recompute shoulder own-rots for skin blend
 
   const voxels = getVoxelList();
   const count = voxels.length;
@@ -1585,25 +1701,14 @@ function rebuildAnimatedMesh() {
     let py = v.y;
     let pz = v.z - D / 2;
 
-    // Apply group transform (hierarchical transform chain for child groups).
-    // gid >= 0 includes group 0 (body) which gets torso twist when aiming.
+    // Apply group transform (hierarchical transform chain for child groups)
+    // with skin blend — posedPos applies chain leaf→root, partial-dosing
+    // blended joint rotations by rest distance to their pivots.
     if (v.gid >= 0) {
-      const result = computeGroupRotation(v.gid, dims, 1.0, currentAnimState, animTime, animSpeed);
-      if (result && result.chain) {
-        // Apply each transform in the chain in order (leaf to root).
-        // This is forward kinematics: child bend first, then parent
-        // rotation cascades on top, then grandparent, etc.
-        let pos = [v.x, v.y, v.z];
-        for (const { pivot, rot } of result.chain) {
-          const rel = [pos[0] - pivot[0], pos[1] - pivot[1], pos[2] - pivot[2]];
-          const transformed = matVec3(rot, rel);
-          pos = [transformed[0] + pivot[0], transformed[1] + pivot[1], transformed[2] + pivot[2]];
-        }
-        const off = result.offset || [0, 0, 0];
-        px = pos[0] + off[0] - W / 2;
-        py = pos[1] + off[1];
-        pz = pos[2] + off[2] - D / 2;
-      }
+      const pp = posedPos(v);
+      px = pp[0] - W / 2;
+      py = pp[1];
+      pz = pp[2] - D / 2;
     }
 
     // Apply body bob (vertical) + weight shift (lateral) for walk states
@@ -1642,19 +1747,10 @@ function rebuildAnimatedMesh() {
       let py = v.y;
       let pz = v.z - D / 2;
       if (v.gid >= 0) {
-        const result = computeGroupRotation(v.gid, [W,H,D], 1.0, currentAnimState, animTime, animSpeed);
-        if (result && result.chain) {
-          let pos = [v.x, v.y, v.z];
-          for (const { pivot, rot } of result.chain) {
-            const rel = [pos[0] - pivot[0], pos[1] - pivot[1], pos[2] - pivot[2]];
-            const transformed = matVec3(rot, rel);
-            pos = [transformed[0] + pivot[0], transformed[1] + pivot[1], transformed[2] + pivot[2]];
-          }
-          const off = result.offset || [0, 0, 0];
-          px = pos[0] + off[0] - W / 2;
-          py = pos[1] + off[1];
-          pz = pos[2] + off[2] - D / 2;
-        }
+        const pp = posedPos(v);
+        px = pp[0] - W / 2;
+        py = pp[1];
+        pz = pp[2] - D / 2;
       }
       // Apply body bob (vertical) + weight shift (lateral) for walk states
       if (isWalkState) {
@@ -2137,6 +2233,19 @@ function buildParamControls() {
       ['aiming', 'elbowBendL', 'L Elbow Bend', 0, 1.5, 0.01],
       ['aiming', 'elbowBendR', 'R Elbow Bend', 0, 1.5, 0.01],
     ];
+  } else if (currentAnimState === 10) { // Aim Sweep — aiming pose + reach sweep
+    relevantParams = [
+      ['aimSweep', 'amp', 'Sweep Amplitude', 0, 1.5, 0.01],
+      ['aimSweep', 'freq', 'Sweep Freq', 0.2, 6, 0.1],
+      ['aimSweep', 'headFollow', 'Head Follow', 0, 1, 0.05],
+      ['aiming', 'torsoTwist', 'Torso Twist', -1.0, 1.0, 0.01],
+      ['aiming', 'armSwingL', 'L Arm Raise', -2, 0.5, 0.01],
+      ['aiming', 'armSwingR', 'R Arm Raise', -2, 0.5, 0.01],
+      ['aiming', 'shoulderReachL', 'L Shoulder Reach', -1.0, 1.0, 0.01],
+      ['aiming', 'shoulderReachR', 'R Shoulder Reach', -1.0, 1.0, 0.01],
+      ['aiming', 'elbowBendL', 'L Elbow Bend', 0, 1.5, 0.01],
+      ['aiming', 'elbowBendR', 'R Elbow Bend', 0, 1.5, 0.01],
+    ];
   } else if (currentAnimState === 5) { // Crouching
     relevantParams = [
       ['crouching', 'modelLower', 'Model Lower', 0, 15, 0.5],
@@ -2165,8 +2274,8 @@ function buildParamControls() {
     buildWalkKeyframeUI(container);
   }
 
-  // Weapon-type preset dropdown for Aiming (4) and Aim Walk (3)
-  if (currentAnimState === 3 || currentAnimState === 4) {
+  // Weapon-type preset dropdown for Aiming (4), Aim Walk (3), and Aim Sweep (10)
+  if (currentAnimState === 3 || currentAnimState === 4 || currentAnimState === 10) {
     const weaponDiv = document.createElement('div');
     weaponDiv.className = 'param-row';
     weaponDiv.style.marginBottom = '6px';
@@ -2542,6 +2651,29 @@ window.exportAnimParams = () => {
   setStatus('Exported animation parameters');
 };
 
+// Deep-compare two plain JSON values (objects, arrays, numbers, strings).
+function jsonEqual(a, b) {
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  const ka = Object.keys(a), kb = Object.keys(b);
+  if (ka.length !== kb.length) return false;
+  return ka.every(k => k in b && jsonEqual(a[k], b[k]));
+}
+
+// Export only animParams sections that differ from DEFAULT_PARAMS.
+// Every consumer falls back to defaults for omitted sections (animator merge,
+// editor merge, Unity section-fill), so a section equal to the default is
+// redundant — and worse, it freezes today's default into the file forever.
+// Trimmed files stay future-proof: they inherit default fixes automatically.
+function diffAnimParams(params, defaults) {
+  const out = {};
+  for (const [section, val] of Object.entries(params)) {
+    const def = defaults[section];
+    if (def === undefined || !jsonEqual(val, def)) out[section] = val;
+  }
+  return out;
+}
+
 window.saveProject = () => {
   // Prompt for custom name
   const defaultName = 'Vinny';
@@ -2558,6 +2690,7 @@ window.saveProject = () => {
   const regionsDict = {};
   for (const [key, rid] of regionMap.entries()) regionsDict[key] = rid;
 
+  const animDiff = diffAnimParams(animParams, DEFAULT_PARAMS);
   const data = {
     format: 'steelcity_character',
     version: 1,
@@ -2574,7 +2707,7 @@ window.saveProject = () => {
     regions: regionsDict,
     regionDefs: regionDefs,
     pivots: pivots,
-    animParams: animParams,
+    ...(Object.keys(animDiff).length ? { animParams: animDiff } : {}),
     states: STATES,
     savedAt: new Date().toISOString(),
   };
@@ -2585,7 +2718,9 @@ window.saveProject = () => {
   a.click();
   const groupCount = Object.keys(groupsDict).length;
   const regionCount = Object.keys(regionsDict).length;
-  setStatus(`Exported "${fileName}" — ${data.voxels.length} voxels, ${groupCount} groups, ${regionCount} regions, pivots + anim`);
+  const customCount = Object.keys(animDiff).length;
+  setStatus(`Exported "${fileName}" — ${data.voxels.length} voxels, ${groupCount} groups, ${regionCount} regions, pivots` +
+            (customCount ? `, ${customCount} custom anim sections` : ', default anim (no overrides)'));
 };
 
 window.loadProject = (event) => {
@@ -2766,6 +2901,17 @@ function toggleGaitInspector() {
   gaitInspectorVisible = !gaitInspectorVisible;
   document.getElementById('gait-inspector').style.display = gaitInspectorVisible ? 'block' : 'none';
 }
+// Skin-blend controls — live rebuild on change
+for (const id of ['blend-enabled', 'blend-radius', 'blend-cap']) {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('input', () => {
+    blendEnabled = document.getElementById('blend-enabled').checked;
+    blendRadius = parseFloat(document.getElementById('blend-radius').value);
+    blendTorsoCap = parseFloat(document.getElementById('blend-cap').value);
+    if (useAnimatedMesh) rebuildAnimatedMesh();
+  });
+}
+
 window.toggleGaitInspector = toggleGaitInspector;
 
 function updateGaitInspector() {
@@ -3045,6 +3191,14 @@ function loadCharacterData(data, sourceLabel) {
   buildPivotControls();
   buildParamControls();
 
+  // Auto-play once a real model is loaded (blank init starts paused)
+  if (voxelMap.size > 0 && !isPlaying) {
+    isPlaying = true;
+    const pb = document.getElementById('play-btn');
+    pb.textContent = '▶';
+    pb.classList.add('active');
+  }
+
   const regionCount = regionMap.size;
   setStatus(`Loaded ${sourceLabel}: ${voxelMap.size} voxels, ${groupMap.size} groups, ${regionCount} regions`);
 }
@@ -3058,22 +3212,20 @@ if (importedData) {
     sessionStorage.removeItem('animator_import');
   } catch (err) {
     console.error('Failed to load editor data:', err);
-    createDefaultCharacter();
     if (useAnimatedMesh) rebuildAnimatedMesh(); else rebuildMesh();
     updateGroupCounts();
     buildGroupList();
     buildPivotControls();
     buildParamControls();
-    setStatus('Failed to load editor data — using default character');
+    setStatus('Failed to load editor data — load a character to begin');
   }
 } else {
-  createDefaultCharacter();
   if (useAnimatedMesh) rebuildAnimatedMesh(); else rebuildMesh();
   updateGroupCounts();
   buildGroupList();
   buildPivotControls();
   buildParamControls();
-  setStatus('Character Animator ready — in T-Pose (raw bind pose). Select a state to preview animation.');
+  setStatus('Character Animator ready — load a character (file picker, or Send to Animator from the editor)');
 }
 animate();
 </script>

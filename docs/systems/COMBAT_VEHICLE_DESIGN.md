@@ -21,6 +21,7 @@
 11. [Impact on Existing Architecture](#11-impact-on-existing-architecture)
 12. [Implementation Priority & Phasing](#12-implementation-priority--phasing)
 13. [Physical Projectiles & Spatial Hash](#13-physical-projectiles--spatial-hash)
+14. [Character Physics-Feel vs Full Ragdoll](#14-character-physics-feel-vs-full-ragdoll)
 
 ---
 
@@ -1278,6 +1279,102 @@ Unity physics is designed for general-purpose collision with complex shapes, res
 
 ---
 
+## 14. Character Physics-Feel vs Full Ragdoll
+
+**Recorded**: Oct 8, 2026 — design decision informed by the SteelTide physics pipeline review (`SteelTide/docs/VOXEL_ACTOR_PHYSICS_DESIGN.md`, `RAGDOLL_PHYSICS_ITERATION_GUIDE.md`, `KINEMATIC_SPINE_ARCHITECTURE.html`) and port of `ArmIKDrive`/`ReachSphere`.
+
+### The Question
+
+Can/should characters get real PhysX — for emergent combat/fleeing, weapon recoil, aim sway, knockdowns? Premise examined: our characters are rigid voxel volumes posed per-frame by `CharacterPoseCompute` — no skeletal mesh needs bones, so physics *could* be bolted on. Should it?
+
+### The Decision
+
+**Kinematic posing + a spring-dynamics feel layer. Not PhysX on characters.** PhysX Rigidbodies are reserved for vehicles (§6) only.
+
+### Why Not Ragdoll — Evidence from the SteelTide Build
+
+SteelTide built exactly this (one hero character, full ragdoll). What it actually required:
+
+| Requirement | SteelTide reality | Steel City impact |
+|---|---|---|
+| Skeleton extraction | `.stasset` rig → bone hierarchy | Our `groups`/`pivots` give this free ✓ |
+| Per-bone bodies | ~10 Rigidbody + ConfigurableJoint per actor | ~10 bodies × N characters — blows the ~50-entity PhysX budget we reserve for vehicles |
+| Stability | 1-voxel legs = "stilts"; needed **re-authored wider bones**, voxel-bounds colliders, PID assist, contact sensors, phase machine — *just to stand* | Would force character re-authoring + a whole Sense/Think/Act stability stack |
+| Rendering | Per-frame **re-voxelization** from bone transforms | Incompatible with compute-shader posing — a second character render path |
+| Payoff | Emergent collapse/balance | Achievable procedurally for our camera distance & sim scale |
+
+Cost at our scale: weeks of pipeline work + solver cost × N characters, for outcomes the procedural layer produces directly. The SteelTide port gives us their *math* (2-bone IK, twist constraint, reach sphere) without their physics engine.
+
+### The Physics-Feel Layer (Spring Dynamics)
+
+One damped second-order spring per animatable channel — the Overgrowth-style procedural layer. Integrates position+velocity toward a target; impulses produce overshoot/recoil; stiffness+damping shape recovery.
+
+```csharp
+public struct Spring3
+{
+    public Vector3 pos, vel;
+    public Vector3 Step(Vector3 target, float stiffness, float damping, float dt)
+    {
+        Vector3 a = (target - pos) * stiffness - vel * damping;
+        vel += a * dt; pos += vel * dt; return pos;
+    }
+}
+```
+
+**Channels:**
+
+| Channel | Spring target | Impulse/noise source | Feel |
+|---|---|---|---|
+| Aim dir | IK-solved muzzle→target direction | Fire event = kick (up+back); Perlin sway at low freq | Recoil + breathing sway |
+| Body pitch | Neutral | Hit event = flinch impulse | Getting shot |
+| Arm raise | Engage blend 0→1 | — | Natural raise-arm instead of snap |
+| Knockdown | Down pose (anim state 8) | Lethal hit | Scripted fall, no ragdoll |
+
+**Skill-scaled steadiness** — one stat, three knobs, driven by the hood's `firearms` skill:
+
+```csharp
+float skill = hood.skills.firearms / 100f;              // 0..1
+swayAmp       = Mathf.Lerp(0.06f, 0.005f, skill);       // radians of wander
+recoilRecover = Mathf.Lerp(0.45f, 0.12f, skill);        // seconds to settle
+raiseTime     = Mathf.Lerp(0.8f, 0.3f, skill);          // engage speed
+```
+
+Jittery street hood wobbles and slaps the trigger; a made man is rock steady and recovers fast. Same mechanism also carries difficulty scaling for enemies.
+
+### Where It Plugs In
+
+- The **aim spring output** becomes the arm-group rotation override (gid 3 shoulder / gid 9 forearm) — the same channel the IK solver drives. IK computes the *ideal* aim; the spring sits between ideal and applied, so recoil/sway are automatic offsets on an exact solve.
+- **Weapon tracks for free** — `WeaponMount` re-welds to the posed hand every frame; `MuzzleWorld`/`BarrelDir` telemetry stays live for validation and muzzle-flash spawning.
+- **Flinch/knockdown** = impulses into the pose system + existing anim states (Down = state 8). Voxel-swap poses (§5 Technique 1) remain available for multi-frame falls.
+
+### What Still Uses Real Physics
+
+| System | Approach | Where |
+|---|---|---|
+| Combat vehicles | Tier B raycast suspension, PhysX Rigidbody | §6 |
+| Ambient traffic | Tier A rolling sphere | §6 |
+| Projectiles | **Not** PhysX — spatial hash | §13 |
+| Pedestrian hits | State change + procedural fall | §7 |
+| Characters (all) | **Kinematic + springs** (this section) | — |
+
+### Effort
+
+| Component | Effort |
+|---|---|
+| `Spring3` util + aim spring on override channel | ~4 hrs |
+| Recoil impulse + fire event hook | ~2 hrs |
+| Sway noise + skill scaling (`firearms`) | ~2 hrs |
+| Flinch/knockdown impulses | ~3 hrs |
+| Tuning pass (Range debug tab — live sliders) | ongoing |
+
+Order-of-magnitude cheaper than ragdoll, and it lands inside the pipeline we already have — no second render path, no asset re-authoring, no physics budget consumed.
+
+### Deferred
+
+Full ragdoll is permanently out of scope for crowd/sim characters. If a future hero-moment needs a spectacular death, authored voxel-swap poses (§5 Technique 1) or a scripted transform tumble are preferred — cheaper and art-directable.
+
+---
+
 ## Related Documents
 
 - **`docs/systems/DYNAMIC_OBJECT_RENDERING_TIERS.md`** — Tier 1/2/3 classification philosophy (needs update for Tier 2→3→1 vehicle pattern)
@@ -1286,6 +1383,7 @@ Unity physics is designed for general-purpose collision with complex shapes, res
 - **`docs/systems/INSTANCING_AND_BUFFERING.md`** — Current instancing architecture (instance buffer format will evolve)
 - **`docs/systems/GPU_DRIVEN_SECTOR_RENDERING.md`** — Sector baking details (roadblocks need sector rebake)
 - **`Assets/Scripts/Sim/VoxelVehicle.cs`** — Current vehicle implementation (Tier 2 instanced, no physics)
+- **SteelTide physics corpus** (sister project, informs §14): `SteelTide/docs/VOXEL_ACTOR_PHYSICS_DESIGN.md`, `RAGDOLL_SETUP_GUIDE.md`, `RAGDOLL_PHYSICS_ITERATION_GUIDE.md`, `KINEMATIC_SPINE_ARCHITECTURE.html`; IK math ported from `SteelTide/.../_obsolete/ArmIKDrive.cs` + `ReachSphere.cs`
 - **`Assets/Scripts/Sim/VehicleTestSpawner.cs`** — Test harness for vehicle spawning
 - **`Assets/Scripts/UI/VoxelChunkManager.cs`** — Rendering manager (RegisterInstancedCharacter, LoadChunk for Tier 3)
 - **`docs/systems/GANG_SIMULATION_ARCHITECTURE.md`** — Multi-hood simulation design (HoodAgent will integrate with spatial hash + projectile system)

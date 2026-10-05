@@ -1163,6 +1163,15 @@ namespace SteelCity.Sim
             // Per-instance material remap (clothing system): regionId → materialId (0 = no remap)
             // Sized to match the group's maxRegions. Null = no remap for this instance.
             public uint[] materialRemap;
+            // IK override channel (solver-driven, e.g. ArmAimSolver). Model-space
+            // quaternion overrides for up to two group IDs; mirrors CPU ikOverrides.
+            public bool ikEnabled;
+            public float ikBlend;
+            public int ikGidA = -1, ikGidB = -1;
+            public Quaternion ikQuatA = Quaternion.identity, ikQuatB = Quaternion.identity;
+            // Torso override (gid 0) — propagates through the body-transform path
+            public bool ikTorsoEnabled;
+            public Quaternion ikTorsoQuat = Quaternion.identity;
         }
 
         private class InstancedGroup
@@ -1172,6 +1181,7 @@ namespace SteelCity.Sim
             public ComputeBuffer groupIDBuffer;     // per-voxel groupID (animation groups)
             public ComputeBuffer instanceOffsetBuffer;
             public ComputeBuffer instanceAnimDataBuffer; // per-instance anim state (2 float4s each)
+            public ComputeBuffer instanceIKDataBuffer;   // per-instance IK overrides (4 float4s each)
             public int dimX, dimY, dimZ;
             public float voxelSize;
             public readonly List<InstancedCharacter> instances = new();
@@ -1523,6 +1533,8 @@ namespace SteelCity.Sim
             // Build per-instance offset buffer + anim data buffer
             // For compute pose: also build instanceAnimData (2 float4s per instance)
             var animData = useComputePose ? new Vector4[visibleCount * 2] : null;
+            // Per-instance IK override data (4 float4s each: quatA, quatB, quatTorso, meta)
+            var ikData = useComputePose ? new Vector4[visibleCount * 4] : null;
 
             foreach (var ic in group.instances)
             {
@@ -1540,6 +1552,11 @@ namespace SteelCity.Sim
                 {
                     animData[writeIdx * 2] = new Vector4(ic.animState, ic.animTime, ic.animSpeed, 0);
                     animData[writeIdx * 2 + 1] = new Vector4(writeIdx * totalVoxels, 0, 0, 0); // posed buffer offset
+                    ikData[writeIdx * 4] = new Vector4(ic.ikQuatA.x, ic.ikQuatA.y, ic.ikQuatA.z, ic.ikQuatA.w);
+                    ikData[writeIdx * 4 + 1] = new Vector4(ic.ikQuatB.x, ic.ikQuatB.y, ic.ikQuatB.z, ic.ikQuatB.w);
+                    ikData[writeIdx * 4 + 2] = new Vector4(ic.ikTorsoQuat.x, ic.ikTorsoQuat.y, ic.ikTorsoQuat.z, ic.ikTorsoQuat.w);
+                    float ikFlags = (ic.ikEnabled ? 1f : 0f) + (ic.ikTorsoEnabled ? 2f : 0f);
+                    ikData[writeIdx * 4 + 3] = new Vector4(ic.ikGidA, ic.ikGidB, ic.ikBlend, ikFlags);
                 }
                 writeIdx++;
             }
@@ -1571,6 +1588,14 @@ namespace SteelCity.Sim
                 }
                 group.instanceAnimDataBuffer.SetData(animData, 0, 0, visibleCount * 2);
 
+                // Ensure IK override buffer exists (always bound — meta.w=0 disables per instance)
+                if (group.instanceIKDataBuffer == null || group.instanceIKDataBuffer.count < visibleCount * 4)
+                {
+                    if (group.instanceIKDataBuffer != null) group.instanceIKDataBuffer.Release();
+                    group.instanceIKDataBuffer = new ComputeBuffer(Mathf.Max(visibleCount * 4, 16), sizeof(float) * 4);
+                }
+                group.instanceIKDataBuffer.SetData(ikData, 0, 0, visibleCount * 4);
+
                 // Set compute shader params for CSPose kernel
                 cmd.SetComputeBufferParam(poseComputeShader, kernelCSPose, "_RestVoxelData", group.sharedVoxelBuffer);
                 cmd.SetComputeBufferParam(poseComputeShader, kernelCSPose, "_GroupIDs", group.groupIDBuffer);
@@ -1596,6 +1621,8 @@ namespace SteelCity.Sim
                 cmd.SetComputeBufferParam(poseComputeShader, kernelCSPose, "_AnimStaticParams", hasAnimCS ? group.animStaticParamsBuffer : dummyAnimStaticParamsBuffer);
                 cmd.SetComputeIntParam(poseComputeShader, "_AnimStaticParamsEnabled", hasAnimCS ? 1 : 0);
                 cmd.SetComputeVectorParam(poseComputeShader, "_WalkConfig", hasWalkCS ? group.walkConfig : Vector4.zero);
+                cmd.SetComputeBufferParam(poseComputeShader, kernelCSPose, "_InstanceIKData", group.instanceIKDataBuffer);
+                cmd.SetComputeIntParam(poseComputeShader, "_IKDataEnabled", 1);
 
                 // Per-instance material remap (clothing system)
                 bool hasRemap = group.materialRemapEnabled && group.regionIDBuffer != null;
@@ -1708,6 +1735,7 @@ namespace SteelCity.Sim
                 if (group.groupIDBuffer != null) group.groupIDBuffer.Release();
                 if (group.instanceOffsetBuffer != null) group.instanceOffsetBuffer.Release();
                 if (group.instanceAnimDataBuffer != null) group.instanceAnimDataBuffer.Release();
+                if (group.instanceIKDataBuffer != null) group.instanceIKDataBuffer.Release();
                 if (group.walkKeyframeBuffer != null) group.walkKeyframeBuffer.Release();
                 if (group.jointConfigBuffer != null) group.jointConfigBuffer.Release();
                 if (group.pivotBuffer != null) group.pivotBuffer.Release();

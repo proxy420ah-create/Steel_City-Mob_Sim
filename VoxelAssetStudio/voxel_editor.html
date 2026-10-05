@@ -320,9 +320,7 @@ body.ui-hidden #ui-hidden-hint { display:block; }
     <button class="char-btn" id="char-disarm-btn">🔫 ARM</button>
   </div>
   <div class="char-btn-row">
-    <button class="char-btn" id="char-attach-r-btn" title="Attach editable model to the character's right_hand point">🔗 → R hand</button>
-    <button class="char-btn" id="char-attach-l-btn" title="Attach editable model to the character's left_hand point">🔗 → L hand</button>
-    <button class="char-btn" id="char-detach-btn" title="Remove attached model">✖</button>
+    <button class="char-btn" id="char-detach-btn" title="Remove attached model">✖ Detach item</button>
   </div>
   <div class="char-btn-row">
     <button class="char-btn attach-rot-btn" data-axis="0" data-deg="-90" title="Item-local X roll −90° (Shift: −15°)">X−</button>
@@ -337,6 +335,9 @@ body.ui-hidden #ui-hidden-hint { display:block; }
   <div class="char-btn-row">
     <button class="char-btn" id="char-sync-btn">↻ Re-center</button>
     <button class="char-btn" id="char-hide-btn">✕ Close</button>
+  </div>
+  <div class="char-btn-row">
+    <button class="char-btn" id="char-mirror-btn" title="Pose the editable model itself — sculpt/tag/pivot edits appear on the animated reference in real time">🔁 Mirror Editable</button>
   </div>
   <div class="char-info" id="char-info">No reference model loaded.</div>
 </div>
@@ -419,6 +420,36 @@ body.ui-hidden #ui-hidden-hint { display:block; }
     </div>
     <div id="group-list"></div>
     <div id="group-counts" style="margin-top:8px;padding-top:8px;border-top:1px solid #333;"></div>
+    <div style="margin-top:8px;padding-top:8px;border-top:1px solid #333;">
+      <div style="font-size:10px;color:#888;margin-bottom:4px;">Arm test pose — swings arms about the resolved pivot (painted <b>pivot_N</b> centroid → authored pivot → bbox center):</div>
+      <div style="display:flex;gap:3px;">
+        <button class="export-btn" style="flex:1;font-size:10px;padding:4px 2px;" onclick="setTestArmPose('down')" title="Arms point down (−Y)">⬇ Down</button>
+        <button class="export-btn" style="flex:1;font-size:10px;padding:4px 2px;" onclick="setTestArmPose('up')" title="Arms point up (+Y)">⬆ Up</button>
+        <button class="export-btn" style="flex:1;font-size:10px;padding:4px 2px;" onclick="setTestArmPose('fwd')" title="Arms point forward (+Z)">➡ Fwd</button>
+        <button class="export-btn" style="flex:1;font-size:10px;padding:4px 2px;" onclick="setTestArmPose('none')" title="Rest pose">✕ Off</button>
+      </div>
+      <div style="display:flex;gap:5px;align-items:center;margin-top:5px;font-size:9px;color:#888;">
+        <label title="Voxel skinning: voxels near the shoulder pivot rotate only a fraction of the swing — hinge gradient instead of a hard seam"><input type="checkbox" id="blend-enabled" onchange="setBlendParams()"> skin blend</label>
+        <span title="Blend radius in voxels — arm cells ramp 0→100% rotation across it">R</span>
+        <input type="range" id="blend-radius" min="2" max="16" step="0.5" value="6" style="flex:1;min-width:36px;" oninput="setBlendParams()">
+        <span title="Max fraction of the swing chest cells may follow (peaks at R/2, fades to 0 at both ends)">chest</span>
+        <input type="range" id="blend-cap" min="0" max="0.8" step="0.05" value="0.35" style="flex:1;min-width:36px;" oninput="setBlendParams()">
+      </div>
+      <div style="display:flex;gap:5px;align-items:center;margin-top:5px;font-size:9px;color:#888;">
+        <span title="Preview the editable model through the real animation pipeline — same pose math + blend as character_animator.html">Anim parity:</span>
+        <select id="anim-pose-state" onchange="setAnimPoseState(this.value)" style="flex:1;background:#111;color:#0f0;border:1px solid #333;border-radius:3px;font-size:9px;padding:2px;">
+          <option value="">off</option>
+          <option value="0">Idle</option>
+          <option value="1">Walk</option>
+          <option value="3">Aim Walk</option>
+          <option value="4">Aiming</option>
+          <option value="5">Crouch</option>
+          <option value="8">Down</option>
+          <option value="9">T-Pose</option>
+          <option value="10">Aim Sweep</option>
+        </select>
+      </div>
+    </div>
     <div style="margin-top:10px;display:flex;flex-direction:column;gap:4px;">
       <button class="export-btn" style="font-size:10px;padding:6px 8px;" onclick="autoAssignGroups()">🤖 Auto-Assign Groups</button>
       <button class="export-btn" style="font-size:10px;padding:6px 8px;" onclick="clearAllGroups()">🧹 Clear All Groups</button>
@@ -973,6 +1004,7 @@ const POSE_STATES = [
   { id: 5, name: 'Crouching', desc: 'Crouch pose' },
   { id: 8, name: 'Down', desc: 'Lying down / defeated' },
   { id: 9, name: 'T-Pose', desc: 'Bind/rest pose' },
+  { id: 10, name: 'Aim Sweep', desc: 'Aiming pose — aiming arm(s) sweep left↔right (IK-aim shoulder exercise)' },
 ];
 
 // === DEFAULT ANIMATION PARAMETERS ===
@@ -1017,7 +1049,7 @@ const DEFAULT_PARAMS = {
     axisL: 0, axisR: 0, signL: 1, signR: 1,
   },
   legStride: {
-    axisL: 0, axisR: 0, signL: 1, signR: 1,
+    axisL: 0, axisR: 0, signL: -1, signR: -1,
   },
   legTwist: {
     leftRest: 0.0, rightRest: 0.0,
@@ -1037,11 +1069,18 @@ const DEFAULT_PARAMS = {
   },
   aiming: {
     weaponType: 'pistol',
-    torsoTwist: 0.2,
+    torsoTwist: -0.2,
     headYaw: 0.0, headPitch: -0.05, headTilt: 0.0,
-    armSwingL: -1.4, armSwingR: 0.0,
+    armSwingL: 0.0, armSwingR: -1.4,
     shoulderReachL: 0.0, shoulderReachR: 0.0,
-    elbowBendL: 0.3, elbowBendR: 0.0,
+    elbowBendL: 0.0, elbowBendR: 0.3,
+  },
+  aimSweep: {
+    // State 10: aiming base pose + sinusoidal shoulder-yaw sweep — exercises
+    // the shoulder joint/blend across the same yaw range IK aiming drives.
+    amp: 0.55,        // sweep amplitude (radians, ~±32°)
+    freq: 1.6,        // sweep speed (rad/s)
+    headFollow: 0.6,  // fraction of sweep the head tracks (gaze follows gun)
   },
   crouching: {
     bodyLower: 0.0, modelLower: 4.0, bodyLean: 0.0,
@@ -1056,10 +1095,10 @@ const AIM_WEAPON_PRESETS = {
   // Right-handed single-arm aim — the dominant arm extends, torso blades
   // the opposite way. Left-armed variants can mirror by swapping L/R values.
   pistol: {
-    torsoTwist: 0.2,
-    armSwingL: -1.4, armSwingR: 0.0,
+    torsoTwist: -0.2,
+    armSwingL: 0.0, armSwingR: -1.4,
     shoulderReachL: 0.0, shoulderReachR: 0.0,
-    elbowBendL: 0.3, elbowBendR: 0.0,
+    elbowBendL: 0.0, elbowBendR: 0.3,
     headYaw: 0.0, headPitch: -0.05, headTilt: 0.0,
   },
   dual: {
@@ -1095,8 +1134,11 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
 
   if (animState === 9) return null;
 
-  const isAimingState = (animState > 2.5 && animState < 4.5);
+  const isSweepState = animState === 10; // Aim Sweep — aiming pose + sweeping reach
+  const isAimingState = (animState > 2.5 && animState < 4.5) || isSweepState;
   const isCrouchingState = (animState > 4.5 && animState < 5.5);
+  const sw = animParams.aimSweep;
+  const sweepYaw = (isSweepState && sw) ? Math.sin(animTime * sw.freq) * sw.amp : 0;
   const torsoTwist = isAimingState ? animParams.aiming.torsoTwist : 0;
   const bodyLean = isCrouchingState ? animParams.crouching.bodyLean : 0;
   const bodyLower = isCrouchingState ? animParams.crouching.bodyLower : 0;
@@ -1111,7 +1153,7 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
     let rot = identity;
     if (bodyLean !== 0) rot = matMul3(rotationX(bodyLean), rot);
     if (torsoTwist !== 0) rot = matMul3(rotationY(torsoTwist), rot);
-    return { pivot: bodyPivot, rot };
+    return { pivot: bodyPivot, rot, jgid: 0 };
   }
 
   const bodyOffset = [0, -bodyLower - modelLower, 0];
@@ -1157,9 +1199,11 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
       const p2 = animParams.looking;
       headYaw = Math.sin(animTime * p2.headYawFreq) * p2.headYaw;
       headPitch = Math.sin(animTime * p2.headPitchFreq) * p2.headPitch;
-    } else if (animState > 2.5 && animState < 4.5) {
+    } else if (isAimingState) {
       const p2 = animParams.aiming;
-      headYaw = p2.headYaw; headPitch = p2.headPitch; headTilt = p2.headTilt;
+      // Head tracks the sweep so the gaze follows the gun
+      headYaw = p2.headYaw + sweepYaw * (sw ? sw.headFollow : 0);
+      headPitch = p2.headPitch; headTilt = p2.headTilt;
     } else if (animState > 4.5 && animState < 5.5) {
       headPitch = animParams.crouching.headPitch;
     } else {
@@ -1173,9 +1217,10 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
     if (animState > 0.5 && animState < 1.5) {
       const wp = getWalkPose(animTime, animSpeed, animParams);
       swing = as.signL * wp.pose.armSwingL;
-    } else if (animState > 2.5 && animState < 4.5) {
+    } else if (isAimingState) {
       swing = as.signL * animParams.aiming.armSwingL;
-      reach = animParams.aiming.shoulderReachL;
+      // Sweep yaws only arms actually in the aim pose (swing ≠ 0)
+      reach = animParams.aiming.shoulderReachL + (swing !== 0 ? sweepYaw : 0);
     } else if (animState > 4.5 && animState < 5.5) {
       swing = as.signL * animParams.crouching.armSwingL;
     } else {
@@ -1191,9 +1236,9 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
     if (animState > 0.5 && animState < 1.5) {
       const wp = getWalkPose(animTime, animSpeed, animParams);
       swing = as.signR * wp.pose.armSwingR;
-    } else if (animState > 2.5 && animState < 4.5) {
+    } else if (isAimingState) {
       swing = as.signR * animParams.aiming.armSwingR;
-      reach = animParams.aiming.shoulderReachR;
+      reach = animParams.aiming.shoulderReachR + (swing !== 0 ? sweepYaw : 0);
     } else if (animState > 4.5 && animState < 5.5) {
       swing = as.signR * animParams.crouching.armSwingR;
     } else {
@@ -1236,7 +1281,7 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
       const wp = getWalkPose(animTime, animSpeed, animParams);
       bend = eb.signL * wp.pose.elbowBendL;
       twist = wp.pose.forearmTwistL;
-    } else if (animState > 2.5 && animState < 4.5) {
+    } else if (isAimingState) {
       bend = eb.signL * animParams.aiming.elbowBendL;
     }
     ownRot = rotationByAxis(eb.axisL, bend);
@@ -1249,7 +1294,7 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
       const wp = getWalkPose(animTime, animSpeed, animParams);
       bend = eb.signR * wp.pose.elbowBendR;
       twist = wp.pose.forearmTwistR;
-    } else if (animState > 2.5 && animState < 4.5) {
+    } else if (isAimingState) {
       bend = eb.signR * animParams.aiming.elbowBendR;
     }
     ownRot = rotationByAxis(eb.axisR, bend);
@@ -1278,7 +1323,7 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
 
   if (ownRot === null) return parentResult;
 
-  const ownTransform = { pivot: ownPivot, rot: ownRot };
+  const ownTransform = { pivot: ownPivot, rot: ownRot, jgid: gid };
   let chain = parentResult ? [ownTransform, ...parentResult.chain] : [ownTransform];
 
   if (hasBodyRot && (gid === 1 || gid === 2 || gid === 3)) {
@@ -1300,6 +1345,7 @@ function poseVoxels(voxels, dims, animState, animTime, animSpeed, animParams, pi
   const bodyBobY = walkPose ? walkPose.bodyBobY : 0;
   const weightShiftX = walkPose ? walkPose.weightShiftX : 0;
 
+  const smooth3 = (t) => t * t * (3 - 2 * t);
   const result = new Array(voxels.length);
   for (let i = 0; i < voxels.length; i++) {
     const v = voxels[i];
@@ -1311,10 +1357,37 @@ function poseVoxels(voxels, dims, animState, animTime, animSpeed, animParams, pi
       const r = computeGroupRotation(v.gid, dims, voxelSize, animState, animTime, animSpeed, animParams, pivots);
       if (r && r.chain) {
         let pos = [v.x, v.y, v.z];
-        for (const { pivot, rot } of r.chain) {
-          const rel = [pos[0] - pivot[0], pos[1] - pivot[1], pos[2] - pivot[2]];
-          const transformed = matVec3(rot, rel);
-          pos = [transformed[0] + pivot[0], transformed[1] + pivot[1], transformed[2] + pivot[2]];
+        let chain = r.chain;
+        if (blendEnabled) {
+          // Same model as posedPosEdit / the animator's posedPos: joint
+          // entries stay full-rotation; the blend lerps the displacement.
+          chain = chain.map(e => {
+            if (!BLEND_GIDS[e.jgid]) return e;
+            const d = Math.hypot(v.x - e.pivot[0], v.y - e.pivot[1], v.z - e.pivot[2]);
+            const w = smooth3(Math.min(d / blendRadius, 1));
+            return w > 0.9999 ? e : { pivot: e.pivot, rot: e.rot, bw: w };
+          });
+          if (v.gid === 0) {
+            const extras = [];
+            for (const j of [2, 3]) {
+              const arm = computeGroupRotation(j, dims, voxelSize, animState, animTime, animSpeed, animParams, pivots);
+              const own = arm && arm.chain && arm.chain.length ? arm.chain[0] : null;
+              if (!own) continue;
+              const d = Math.hypot(v.x - own.pivot[0], v.y - own.pivot[1], v.z - own.pivot[2]);
+              const t = Math.min(d / blendRadius, 1);
+              const w = blendTorsoCap * 4 * t * (1 - t);
+              if (w > 0.001) extras.push({ pivot: own.pivot, rot: own.rot, bw: w });
+            }
+            if (extras.length) chain = [...extras, ...chain];
+          }
+        }
+        for (const e of chain) {
+          const rel = [pos[0] - e.pivot[0], pos[1] - e.pivot[1], pos[2] - e.pivot[2]];
+          const t = matVec3(e.rot, rel);
+          const w = e.bw !== undefined ? e.bw : 1;
+          pos = [pos[0] + w * (t[0] + e.pivot[0] - pos[0]),
+                 pos[1] + w * (t[1] + e.pivot[1] - pos[1]),
+                 pos[2] + w * (t[2] + e.pivot[2] - pos[2])];
         }
         const off = r.offset || [0, 0, 0];
         px = pos[0] + off[0];
@@ -1497,6 +1570,8 @@ for (const g of BODY_GROUPS) GROUP_COLORS[g.id] = g.color;
 const groupMap = new Map(); // "x,y,z" -> groupId
 let selectedGroup = 1; // default to Head
 let groupViewMode = false; // when true, render by group color
+const groupVisible = new Map(); // gid -> bool — 👁 toggles in the group list
+for (const g of BODY_GROUPS) groupVisible.set(g.id, true);
 
 function updateGroupCounts() {
   const counts = {};
@@ -1583,10 +1658,12 @@ function populateGroupList() {
   if (!container) return;
   container.innerHTML = BODY_GROUPS.map(g => {
     const sel = g.id === selectedGroup ? 'border-color:#0ff;background:#1a1a3e;' : '';
+    const vis = groupVisible.get(g.id) !== false;
     return `<div class="group-item" data-gid="${g.id}" style="display:flex;align-items:center;gap:6px;padding:5px 6px;cursor:pointer;border:1px solid #333;border-radius:4px;margin-bottom:3px;${sel}">
       <span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:${g.color};"></span>
       <span style="flex:1;font-size:11px;color:#ccc;">${g.name}</span>
       <span style="font-size:9px;color:#666;">${g.desc}</span>
+      <span class="gvis" data-gvis="${g.id}" title="Show/hide this group's voxels (e.g. hide Body to reach interior joints)" style="cursor:pointer;font-size:11px;${vis ? '' : 'opacity:0.35;'}">${vis ? '👁' : '🚫'}</span>
     </div>`;
   }).join('');
   container.querySelectorAll('.group-item').forEach(item => {
@@ -1598,6 +1675,226 @@ function populateGroupList() {
       setStatus(`Selected body part: ${gname}`);
     });
   });
+  container.querySelectorAll('.gvis').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const gid = parseInt(el.dataset.gvis);
+      groupVisible.set(gid, groupVisible.get(gid) === false);
+      populateGroupList();
+      rebuildMesh();
+      const gname = BODY_GROUPS.find(g => g.id === gid)?.name || gid;
+      setStatus(`${groupVisible.get(gid) !== false ? '👁' : '🚫'} ${gname}`);
+    });
+  });
+}
+
+// === ARM TEST POSE (joint authoring aid) ===
+// Swings the arm groups about their resolved pivots so a painted pivot_N
+// blob can be checked empirically before export — the diamond marker should
+// sit at the point the limb rotates cleanly around (e.g. center of a buried
+// shoulder ball). Applied per-voxel in rebuildMesh, so painting stays live.
+//
+// Pivot resolution order for a group: painted "pivot_<gid>" attach centroid →
+// loadedAnimData.pivots[gid] (normalized×dims) → group bbox center.
+// Forearms (8/9) swing rigidly with their parent arm (2/3).
+let testArmPose = 'none'; // 'none' | 'down' | 'up' | 'fwd'
+const ARM_ROOT = { 2: 2, 3: 3, 8: 2, 9: 3 };
+let testPoseCache = null; // {L, R} -> {pivot, axis, ang} | null — rebuilt per rebuildMesh
+// Voxel-skinning experiment: cells within blendRadius of a shoulder pivot
+// rotate by w·θ instead of rigidly. Arm cells ramp smoothstep(d/R); chest
+// cells get a capped bump weight so the joint region follows a little.
+let blendEnabled = false, blendRadius = 6, blendTorsoCap = 0.35;
+
+function groupCentroidIdx(gid) {
+  let sx = 0, sy = 0, sz = 0, n = 0;
+  for (const [key, g] of groupMap) {
+    if (g !== gid || !voxelMap.has(key)) continue;
+    const [x, y, z] = key.split(',').map(Number);
+    sx += x; sy += y; sz += z; n++;
+  }
+  return n ? [sx / n, sy / n, sz / n] : null;
+}
+
+function pivotForGid(gid) {
+  const def = activePartGroups().find(d => d.key === `pivot_${gid}`);
+  if (def) {
+    let sx = 0, sy = 0, sz = 0, n = 0;
+    for (const [key, pid] of itemPartMap) {
+      if (pid !== def.id || !voxelMap.has(key)) continue;
+      const [x, y, z] = key.split(',').map(Number);
+      sx += x; sy += y; sz += z; n++;
+    }
+    if (n) return [sx / n, sy / n, sz / n];
+  }
+  const p = loadedAnimData.pivots && loadedAnimData.pivots[gid];
+  if (p) return [p.x * W, p.y * H, p.z * D];
+  let minX = W, maxX = -1, minY = H, maxY = -1, minZ = D, maxZ = -1, n = 0;
+  for (const [key, g] of groupMap) {
+    if (g !== gid || !voxelMap.has(key)) continue;
+    const [x, y, z] = key.split(',').map(Number);
+    minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+    minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z); n++;
+  }
+  return n ? [(minX + maxX + 1) / 2, (minY + maxY + 1) / 2, (minZ + maxZ + 1) / 2] : null;
+}
+
+function rotateAboutAxis(x, y, z, pivot, k, ang) {
+  // Rodrigues' rotation of (x,y,z) about `pivot` around unit axis `k` by `ang`
+  const px = x - pivot[0], py = y - pivot[1], pz = z - pivot[2];
+  const c = Math.cos(ang), s = Math.sin(ang), ic = 1 - c;
+  const dot = px * k[0] + py * k[1] + pz * k[2];
+  const cx = k[1] * pz - k[2] * py, cy = k[2] * px - k[0] * pz, cz = k[0] * py - k[1] * px;
+  return [
+    pivot[0] + px * c + cx * s + k[0] * dot * ic,
+    pivot[1] + py * c + cy * s + k[1] * dot * ic,
+    pivot[2] + pz * c + cz * s + k[2] * dot * ic,
+  ];
+}
+
+function testPoseTransform(x, y, z, key) {
+  return testPoseTransformGid(x, y, z, groupMap.get(key));
+}
+
+function testPoseTransformGid(x, y, z, gid) {
+  if (testArmPose === 'anim') return posedPosEdit(x, y, z, gid);
+  const root = ARM_ROOT[gid];
+  const isTorso = gid === 0;
+  if (root === undefined && !isTorso) return null;
+  if (!testPoseCache) testPoseCache = {};
+  const target = { down: [0, -1, 0], up: [0, 1, 0], fwd: [0, 0, 1] }[testArmPose];
+  if (!target) return null;
+  // Resolve each side's swing rotation once per rebuild: {pivot, axis, ang}
+  for (const [side, r] of [['L', 2], ['R', 3]]) {
+    if (side in testPoseCache) continue;
+    const pivot = pivotForGid(r);
+    const cent = groupCentroidIdx(r);
+    if (!pivot || !cent) { testPoseCache[side] = null; continue; }
+    const dx = cent[0] - pivot[0], dy = cent[1] - pivot[1], dz = cent[2] - pivot[2];
+    const dl = Math.hypot(dx, dy, dz) || 1;
+    const d = Math.max(-1, Math.min(1, (dx * target[0] + dy * target[1] + dz * target[2]) / dl));
+    if (d > 0.9999) { testPoseCache[side] = null; continue; }
+    let ax = dy * target[2] - dz * target[1];
+    let ay = dz * target[0] - dx * target[2];
+    let az = dx * target[1] - dy * target[0];
+    const al = Math.hypot(ax, ay, az);
+    if (al < 1e-6) { ax = 0; ay = 0; az = 1; } else { ax /= al; ay /= al; az /= al; }
+    testPoseCache[side] = { pivot, axis: [ax, ay, az], ang: Math.acos(d) };
+  }
+  // Pick the strongest shoulder influence and rotate by w·θ about its pivot
+  const smooth3 = (t) => t * t * (3 - 2 * t);
+  const sides = root !== undefined ? [root === 2 ? 'L' : 'R'] : ['L', 'R'];
+  let best = null, bestW = 0;
+  for (const side of sides) {
+    const e = testPoseCache[side];
+    if (!e) continue;
+    const d = Math.hypot(x - e.pivot[0], y - e.pivot[1], z - e.pivot[2]);
+    let w;
+    if (isTorso) {
+      if (!blendEnabled) continue;
+      const t = Math.min(d / blendRadius, 1);
+      w = blendTorsoCap * 4 * t * (1 - t);
+    } else {
+      w = blendEnabled ? smooth3(Math.min(d / blendRadius, 1)) : 1;
+    }
+    if (w > bestW) { bestW = w; best = e; }
+  }
+  if (!best || bestW <= 0) return null;
+  // Linear displacement blend (chord path — lands inside the joint crease;
+  // scaled-angle arc paths smear through space at large swings).
+  const t = rotateAboutAxis(x, y, z, best.pivot, best.axis, best.ang);
+  return [x + bestW * (t[0] - x), y + bestW * (t[1] - y), z + bestW * (t[2] - z)];
+}
+
+// === ANIM-STATE PARITY POSE ===
+// Runs the editable model through the SAME param pipeline + blend the
+// animator uses — what character_animator.html shows for a given animState
+// is exactly what the editor shows here. Chains cached per rebuild.
+let animPoseState = 0;          // animState id while testArmPose === 'anim'
+let animPoseChainCache = null;  // gid -> {chain,offset}|null
+const BLEND_GIDS = { 2: true, 3: true }; // shoulder L/R
+
+function animPoseChainFor(gid) {
+  if (!animPoseChainCache) animPoseChainCache = {};
+  if (!(gid in animPoseChainCache)) {
+    const ap = loadedAnimData.animParams;
+    animPoseChainCache[gid] = (gid >= 0 && ap)
+      ? computeGroupRotation(gid, [W, H, D], 1.0, animPoseState, 0, 1.0, ap, resolvedPivotsForExport())
+      : null;
+  }
+  return animPoseChainCache[gid];
+}
+
+function posedPosEdit(x, y, z, gid) {
+  const res = animPoseChainFor(gid);
+  if (!res || !res.chain) return null;
+  const smooth3 = (t) => t * t * (3 - 2 * t);
+  let pos = [x, y, z];
+  let chain = res.chain;
+  if (blendEnabled) {
+    // Partial-dose blended joint entries by this cell's rest distance to the
+    // joint pivot — entry rot stays full; the blend lerps the displacement.
+    chain = chain.map(e => {
+      if (!BLEND_GIDS[e.jgid]) return e;
+      const d = Math.hypot(x - e.pivot[0], y - e.pivot[1], z - e.pivot[2]);
+      const w = smooth3(Math.min(d / blendRadius, 1));
+      return w > 0.9999 ? e : { pivot: e.pivot, rot: e.rot, bw: w };
+    });
+    // Torso cells near a shoulder get a capped bump dose of the arm's own
+    // rotation, injected leaf-most — mirrors animator's posedPos exactly.
+    if (gid === 0) {
+      const extras = [];
+      for (const j of [2, 3]) {
+        const arm = animPoseChainFor(j);
+        const own = arm && arm.chain && arm.chain.length ? arm.chain[0] : null;
+        if (!own) continue;
+        const d = Math.hypot(x - own.pivot[0], y - own.pivot[1], z - own.pivot[2]);
+        const t = Math.min(d / blendRadius, 1);
+        const w = blendTorsoCap * 4 * t * (1 - t);
+        if (w > 0.001) extras.push({ pivot: own.pivot, rot: own.rot, bw: w });
+      }
+      if (extras.length) chain = [...extras, ...chain];
+    }
+  }
+  for (const e of chain) {
+    const rel = [pos[0] - e.pivot[0], pos[1] - e.pivot[1], pos[2] - e.pivot[2]];
+    const t = matVec3(e.rot, rel);
+    const w = e.bw !== undefined ? e.bw : 1;
+    pos = [pos[0] + w * (t[0] + e.pivot[0] - pos[0]),
+           pos[1] + w * (t[1] + e.pivot[1] - pos[1]),
+           pos[2] + w * (t[2] + e.pivot[2] - pos[2])];
+  }
+  const off = res.offset || [0, 0, 0];
+  pos = [pos[0] + off[0], pos[1] + off[1], pos[2] + off[2]];
+  // Walk bob/weight-shift — the animator applies it post-chain; match it.
+  const isWalk = (animPoseState > 0.5 && animPoseState < 1.5) || (animPoseState > 2.5 && animPoseState < 3.5);
+  if (isWalk) {
+    const wp = getWalkPose(0, 1.0, loadedAnimData.animParams);
+    if (wp) { pos[0] += wp.weightShiftX; pos[1] += wp.bodyBobY; }
+  }
+  return pos;
+}
+
+function setAnimPoseState(v) {
+  animPoseState = parseInt(v === '' ? '0' : v, 10);
+  testArmPose = v === '' ? 'none' : 'anim';
+  rebuildMesh();
+  setStatus(v === '' ? 'Anim parity off — rest pose' : `Anim parity: state ${animPoseState} (same pose pipeline + skin blend as the animator)`);
+}
+window.setAnimPoseState = setAnimPoseState;
+
+function setTestArmPose(mode) {
+  testArmPose = mode;
+  const sel = document.getElementById('anim-pose-state');
+  if (sel && mode !== 'anim') sel.value = '';
+  rebuildMesh();
+  if (mode === 'none') { setStatus('Test pose off — rest pose'); return; }
+  const src = (id) => {
+    const def = activePartGroups().find(d => d.key === `pivot_${id}`);
+    if (def && [...itemPartMap.values()].includes(def.id)) return 'painted pivot';
+    return (loadedAnimData.pivots && loadedAnimData.pivots[id]) ? 'authored pivot' : 'bbox center';
+  };
+  setStatus(`Test pose ${mode}: L arm ${src(2)}, R arm ${src(3)} — forearms swing rigidly`);
 }
 
 function exportGroupsJSON() {
@@ -1621,6 +1918,23 @@ function exportGroupsJSON() {
   setStatus(`Exported ${Object.keys(groupsObj).length} group assignments`);
 }
 
+// Module scripts don't expose top-level functions to inline onclick handlers —
+// everything reachable from HTML needs an explicit window.* alias.
+function setBlendParams() {
+  const en = document.getElementById('blend-enabled');
+  const r = document.getElementById('blend-radius');
+  const c = document.getElementById('blend-cap');
+  if (en) blendEnabled = en.checked;
+  if (r) blendRadius = parseFloat(r.value);
+  if (c) blendTorsoCap = parseFloat(c.value);
+  rebuildMesh();
+}
+window.setTestArmPose = setTestArmPose;
+window.setBlendParams = setBlendParams;
+window.autoAssignGroups = autoAssignGroups;
+window.clearAllGroups = clearAllGroups;
+window.exportGroupsJSON = exportGroupsJSON;
+
 window.sendToAnimator = function() {
   const voxels = [];
   const groups = {};
@@ -1641,6 +1955,10 @@ window.sendToAnimator = function() {
     regions,
     regionDefs: CLOTHING_REGIONS,
     materials: allMaterials,
+    // Resolved pivots (painted pivot_N centroids win over authored) so the
+    // animator poses around the real joints instead of bbox auto-detect.
+    pivots: resolvedPivotsForExport(),
+    attachmentPoints: buildAttachmentPoints(),
   };
   sessionStorage.setItem('animator_import', JSON.stringify(data));
   window.open('character_animator.html', '_blank');
@@ -1808,26 +2126,41 @@ function exportClothingRegionsJSON() {
 // Based on docs/systems/WEAPON_ATTACHMENT_SYSTEM.md.
 // `key` is the name written to the JSON `attachmentPoints` map for Unity.
 const ITEM_PART_GROUPS = [
-  { id: 0, name: 'Body',         key: 'body',         color: '#888888', desc: 'Main body / unassigned' },
+  { id: 0, name: 'Body / Erase', key: 'body',         color: '#888888', desc: 'Unassigned — painting with this clears a voxel\'s point tag (eraser)' },
   { id: 1, name: 'Grip Right',   key: 'grip_right',   color: '#ff6b6b', desc: 'Right hand grip point' },
   { id: 2, name: 'Grip Left',    key: 'grip_left',    color: '#00ff88', desc: 'Left hand grip (foregrip/stock)' },
   { id: 3, name: 'Muzzle',       key: 'muzzle',       color: '#00ddff', desc: 'Barrel tip — muzzle flash origin' },
+  { id: 7, name: 'Bore Root',    key: 'bore_root',    color: '#ff3333', desc: 'Breech end of bore axis — with muzzle painted, a glowing ray shows bore alignment (muzzle − bore_root → out the barrel)' },
   { id: 4, name: 'Cheek Weld',   key: 'cheek_weld',   color: '#ffaa00', desc: 'Cheek rest position on stock' },
   { id: 5, name: 'Sling Mount',  key: 'sling_mount',  color: '#ff00ff', desc: 'Sling attachment point' },
   { id: 6, name: 'Optics Mount', key: 'optics_mount', color: '#ffff00', desc: 'Sight/optic rail position' },
 ];
 const CHAR_ATTACH_GROUPS = [
-  { id: 0, name: 'Body',           key: 'body',           color: '#888888', desc: 'Unassigned' },
+  { id: 0, name: 'Body / Erase',   key: 'body',           color: '#888888', desc: 'Unassigned — painting with this clears a voxel\'s point tag (eraser)' },
   { id: 1, name: 'Right Hand',     key: 'right_hand',     color: '#ff6b6b', desc: 'Primary grip anchor — weapon grip_right lands here' },
   { id: 2, name: 'Left Hand',      key: 'left_hand',      color: '#00ff88', desc: 'Support grip — two-handed weapons' },
   { id: 3, name: 'Right Shoulder', key: 'right_shoulder', color: '#ffaa00', desc: 'Stock weld when shouldering a rifle' },
   { id: 4, name: 'Cheek',          key: 'cheek',          color: '#ffff00', desc: 'Cheek weld position for aiming' },
+  // Painted joint pivots — "pivot_N" centroid overrides group N's authored
+  // pivot (centroid ÷ dims → normalized). Paint a small blob AT the joint
+  // center; hide occluding parts to reach interior voxels (e.g. a shoulder
+  // ball buried inside the torso). Diamond markers in Parts view.
+  { id: 5,  name: 'Pivot Waist',      key: 'pivot_0', color: '#ff44ff', desc: 'Body/torso rotation center (waist) — gid 0' },
+  { id: 6,  name: 'Pivot Neck',       key: 'pivot_1', color: '#ff88ff', desc: 'Head/neck joint — gid 1' },
+  { id: 7,  name: 'Pivot Shoulder L', key: 'pivot_2', color: '#ffee44', desc: 'Left arm shoulder joint — gid 2' },
+  { id: 8,  name: 'Pivot Shoulder R', key: 'pivot_3', color: '#ffcc00', desc: 'Right arm shoulder joint — gid 3' },
+  { id: 9,  name: 'Pivot Hip L',      key: 'pivot_4', color: '#44ffee', desc: 'Left leg hip joint — gid 4' },
+  { id: 10, name: 'Pivot Hip R',      key: 'pivot_5', color: '#00ddaa', desc: 'Right leg hip joint — gid 5' },
+  { id: 11, name: 'Pivot Knee L',     key: 'pivot_6', color: '#4488ff', desc: 'Left shin knee joint — gid 6' },
+  { id: 12, name: 'Pivot Knee R',     key: 'pivot_7', color: '#2266ff', desc: 'Right shin knee joint — gid 7' },
+  { id: 13, name: 'Pivot Elbow L',    key: 'pivot_8', color: '#ff8844', desc: 'Left forearm elbow joint — gid 8' },
+  { id: 14, name: 'Pivot Elbow R',    key: 'pivot_9', color: '#ff6622', desc: 'Right forearm elbow joint — gid 9' },
 ];
 // Building event/position points — static-volume markers consumed by sim logic
 // (pathing destinations, facing references, aim targets). Same attachmentPoints
 // JSON contract as characters/items; no gid (buildings have no animation groups).
 const BUILDING_POINT_GROUPS = [
-  { id: 0, name: 'Body',            key: 'body',            color: '#888888', desc: 'Unassigned' },
+  { id: 0, name: 'Body / Erase',    key: 'body',            color: '#888888', desc: 'Unassigned — painting with this clears a voxel\'s point tag (eraser)' },
   { id: 1, name: 'Firing Position', key: 'firing_position', color: '#ff6b6b', desc: 'Character stand spot — pathing destination' },
   { id: 2, name: 'Firing Target',   key: 'firing_target',   color: '#00ddff', desc: 'Aim point — muzzle axis passes through centroid' },
   { id: 3, name: 'Backstop',        key: 'backstop',        color: '#ffaa00', desc: 'Facing reference — character orients toward centroid on arrival' },
@@ -1942,28 +2275,92 @@ function exportItemPartsJSON() {
 // Glowing sphere at the exact fractional centroid of each painted attachment
 // group — the true value the weld uses, before integer rounding. Parts view
 // only; depthTest off so interior cores (inside a fist/grip) show through.
+// The bore ray is separate (boreRayGroup) — it renders in EVERY view mode so
+// the barrel axis is verifiable while editing materials too.
 let centroidGroup = null;
+let boreRayGroup = null;
+let pivotGroup = null;
 
 function updateCentroidMarkers() {
-  if (centroidGroup) {
-    centroidGroup.traverse(o => {
+  for (const g of [centroidGroup, boreRayGroup, pivotGroup]) {
+    if (!g) continue;
+    g.traverse(o => {
       if (o.geometry) o.geometry.dispose();
       if (o.material) o.material.dispose();
     });
-    scene.remove(centroidGroup);
-    centroidGroup = null;
+    scene.remove(g);
   }
-  if (!itemPartViewMode) return;
+  centroidGroup = boreRayGroup = pivotGroup = null;
+
   const sums = {};
   for (const [key, pid] of itemPartMap) {
     if (!voxelMap.has(key)) continue;
     const [x, y, z] = key.split(',').map(Number);
-    const s = sums[pid] || (sums[pid] = { x: 0, y: 0, z: 0, c: 0 });
+    const s = sums[pid] || (sums[pid] = { x: 0, y: 0, z: 0, c: 0,
+      minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity });
     s.x += x; s.y += y; s.z += z; s.c++;
+    s.minX = Math.min(s.minX, x); s.maxX = Math.max(s.maxX, x);
+    s.minY = Math.min(s.minY, y); s.maxY = Math.max(s.maxY, y);
+    s.minZ = Math.min(s.minZ, z); s.maxZ = Math.max(s.maxZ, z);
   }
   if (!Object.keys(sums).length) return;
+  drawBoreRay(sums);
+
+  // Pivot joints render in EVERY view mode: a wireframe cube on EACH tagged
+  // voxel (shows exactly which cells feed the centroid — no AABB floating off
+  // clipped clusters) + a diamond at the centroid. The voxels keep their
+  // normal/group colors — the wireframe is the annotation.
+  pivotGroup = new THREE.Group();
+  let anyPivot = false;
+  for (const [pid, s] of Object.entries(sums)) {
+    const partDef = activePartGroups().find(d => d.id === parseInt(pid, 10));
+    if (!partDef || !partDef.key.startsWith('pivot_')) continue;
+    anyPivot = true;
+    const pidNum = parseInt(pid, 10);
+    const col = new THREE.Color(partColor(pidNum));
+    const cellEdgeGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
+    const lineMat = new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: 0.9, depthTest: false });
+    for (const [key, p] of itemPartMap) {
+      if (p !== pidNum || !voxelMap.has(key)) continue;
+      const [x, y, z] = key.split(',').map(Number);
+      // Cells follow their own group's pose — arm/forearm cells swing with the
+      // limb, torso cells stay. The diamond stays at rest: it marks the pivot
+      // (rotation center), which by definition doesn't move during the swing.
+      let px = x, py = y, pz = z;
+      if (testArmPose !== 'none') {
+        const t = testPoseTransformGid(x, y, z, groupMap.get(key));
+        if (t) { px = t[0]; py = t[1]; pz = t[2]; }
+      }
+      const cell = new THREE.LineSegments(cellEdgeGeo, lineMat);
+      cell.position.set(px + originOffsetX, py, pz + originOffsetZ);
+      cell.renderOrder = 998;
+      pivotGroup.add(cell);
+    }
+    // Diamond = the joint point itself. It transforms through the ancestor
+    // chain like any point fixed to the parent link: pivot_3 (shoulder)
+    // rotates about itself → stationary; pivot_9 (elbow) is carried by the
+    // arm's shoulder swing → translates. gid comes from the pivot_N key.
+    const pivotGid = parseInt(partDef.key.substring(6), 10);
+    let dx = s.x / s.c, dy = s.y / s.c, dz = s.z / s.c;
+    if (testArmPose !== 'none') {
+      const t = testPoseTransformGid(dx, dy, dz, pivotGid);
+      if (t) { dx = t[0]; dy = t[1]; dz = t[2]; }
+    }
+    const core = new THREE.Mesh(
+      new THREE.OctahedronGeometry(0.6),
+      new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.95, depthTest: false, depthWrite: false })
+    );
+    core.position.set(dx + originOffsetX, dy, dz + originOffsetZ);
+    core.renderOrder = 999;
+    pivotGroup.add(core);
+  }
+  if (anyPivot) scene.add(pivotGroup); else pivotGroup = null;
+
+  if (!itemPartViewMode) return;
   centroidGroup = new THREE.Group();
   for (const [pid, s] of Object.entries(sums)) {
+    const partDef = activePartGroups().find(d => d.id === parseInt(pid, 10));
+    if (partDef && partDef.key.startsWith('pivot_')) continue; // handled above
     const col = new THREE.Color(partColor(parseInt(pid, 10)));
     const px = s.x / s.c + originOffsetX;
     const py = s.y / s.c;
@@ -1985,6 +2382,57 @@ function updateCentroidMarkers() {
   scene.add(centroidGroup);
 }
 
+// === BORE RAY (alignment debug) ===
+// When both `bore_root` and `muzzle` points are painted on an item, draw the
+// measured bore axis: solid beam bore_root→muzzle, dashed projection continuing
+// out the barrel. Lets you verify the painted axis empirically before export —
+// Unity derives barrelDir = normalize(muzzle − bore_root) from these points.
+const BORE_RAY_EXTEND = 48; // voxels past the muzzle
+
+function drawBoreRay(sums) {
+  const groups = activePartGroups();
+  const pidFor = k => { const g = groups.find(d => d.key === k); return g ? g.id : -1; };
+  const rootPid = pidFor('bore_root'), muzzPid = pidFor('muzzle');
+  const rootS = sums[rootPid], muzzS = sums[muzzPid];
+  if (!rootS || !muzzS) return;
+
+  boreRayGroup = new THREE.Group();
+
+  const root = new THREE.Vector3(rootS.x / rootS.c + originOffsetX, rootS.y / rootS.c, rootS.z / rootS.c + originOffsetZ);
+  const muzz = new THREE.Vector3(muzzS.x / muzzS.c + originOffsetX, muzzS.y / muzzS.c, muzzS.z / muzzS.c + originOffsetZ);
+  const dir = muzz.clone().sub(root);
+  if (dir.lengthSq() < 1e-6) return; // points coincide — nothing to show
+  dir.normalize();
+  const tip = muzz.clone().addScaledVector(dir, BORE_RAY_EXTEND);
+
+  // Bore segment: solid bright beam between the two painted centroids
+  const segGeo = new THREE.BufferGeometry().setFromPoints([root, muzz]);
+  const seg = new THREE.Line(segGeo, new THREE.LineBasicMaterial({
+    color: 0xffe066, transparent: true, opacity: 1.0, depthTest: false, depthWrite: false
+  }));
+  seg.renderOrder = 1000;
+
+  // Projection: dashed cyan ray continuing out the barrel
+  const rayGeo = new THREE.BufferGeometry().setFromPoints([muzz, tip]);
+  const ray = new THREE.Line(rayGeo, new THREE.LineDashedMaterial({
+    color: 0x33eeff, dashSize: 1.2, gapSize: 0.8, transparent: true, opacity: 0.9,
+    depthTest: false, depthWrite: false
+  }));
+  ray.computeLineDistances(); // required for dashed material
+  ray.renderOrder = 1000;
+
+  // Small glowing sphere at the muzzle tip to mark ray origin
+  const tipGlow = new THREE.Mesh(
+    new THREE.SphereGeometry(0.7, 12, 12),
+    new THREE.MeshBasicMaterial({ color: 0x33eeff, transparent: true, opacity: 0.55, depthTest: false, depthWrite: false })
+  );
+  tipGlow.position.copy(muzz);
+  tipGlow.renderOrder = 999;
+
+  boreRayGroup.add(seg, ray, tipGlow);
+  scene.add(boreRayGroup);
+}
+
 // Named attachment points for Unity: centroid of each painted part group,
 // keyed by the group's `key` field (e.g. grip_right, right_hand).
 // Per WEAPON_ATTACHMENT_SYSTEM.md — single {x,y,z} per point.
@@ -1995,6 +2443,24 @@ function updateCentroidMarkers() {
 // `gid` records which animation group owns the painted voxels (characters only;
 // items have no groups → gid omitted) so Unity can pick the correct FK chain
 // without guessing from voxel lookups.
+// Canonical pivots for export: authored dict with painted pivot_N cluster
+// centroids folded in (index-space → normalized by dims). Same override rule
+// as CharacterJsonLoader.ApplyPivotOverrides on the Unity side — the HTML
+// animator, pipeline tool, and runtime then all see identical joints, and
+// pivot_N stays in attachmentPoints/itemParts for re-editing.
+function resolvedPivotsForExport() {
+  const out = {};
+  for (const [k, v] of Object.entries(loadedAnimData.pivots || {})) {
+    out[k] = { x: v.x, y: v.y, z: v.z };
+  }
+  const pts = buildAttachmentPoints();
+  for (const [name, p] of Object.entries(pts)) {
+    const m = /^pivot_(\d+)$/.exec(name);
+    if (m) out[m[1]] = { x: p.x / W, y: p.y / H, z: p.z / D };
+  }
+  return out;
+}
+
 function buildAttachmentPoints() {
   const sums = {};
   for (const [key, pid] of itemPartMap) {
@@ -2037,6 +2503,7 @@ function importAttachmentPoints(data) {
   updateAttachRotInfo();
   if (data.itemParts) {
     for (const [key, pid] of Object.entries(data.itemParts)) {
+      if (pid === 0) continue; // 'body'/unassigned ids are not real tags — erase semantics
       itemPartMap.set(key, pid);
     }
   }
@@ -2044,10 +2511,47 @@ function importAttachmentPoints(data) {
     const defs = activePartGroups();
     for (const [name, p] of Object.entries(data.attachmentPoints)) {
       const g = defs.find(d => d.key === name);
-      if (g && p && typeof p.x === 'number') {
+      if (g && g.id !== 0 && p && typeof p.x === 'number') {
         // Fractional centroid → nearest voxel index for re-tagging
         itemPartMap.set(`${Math.round(p.x)},${Math.round(p.y)},${Math.round(p.z)}`, g.id);
       }
+    }
+  }
+
+  // Materialize authored numeric pivots as painted pivot_N clusters so joints
+  // arrive visible/editable (diamond markers) instead of hidden normalized
+  // floats. Tags the small ball of occupied voxels nearest each pivot — the
+  // cluster centroid lands ~on the pivot. Painted pivot_N data wins if the
+  // file already carries it. No-op for non-character asset types (their part
+  // groups have no pivot_* keys).
+  if (data.pivots) {
+    const defs = activePartGroups();
+    for (const [gidStr, p] of Object.entries(data.pivots)) {
+      const gid = parseInt(gidStr, 10);
+      const def = defs.find(d => d.key === `pivot_${gid}`);
+      if (!def || !p || typeof p.x !== 'number') continue;
+      if ([...itemPartMap.values()].includes(def.id)) continue;
+      // pivots are normalized (0..1) → index-space target
+      const px = p.x * W, py = p.y * H, pz = p.z * D;
+      const near = [];
+      for (const key of voxelMap.keys()) {
+        if (itemPartMap.has(key)) continue; // don't clobber painted attach points
+        const [x, y, z] = key.split(',').map(Number);
+        const d2 = (x - px) ** 2 + (y - py) ** 2 + (z - pz) ** 2;
+        if (d2 <= 3.5) near.push(key); // ~1.9-voxel radius ball
+      }
+      if (!near.length) {
+        // Pivot sits in empty space — tag the single nearest untagged voxel
+        let best = null, bd = Infinity;
+        for (const key of voxelMap.keys()) {
+          if (itemPartMap.has(key)) continue;
+          const [x, y, z] = key.split(',').map(Number);
+          const d2 = (x - px) ** 2 + (y - py) ** 2 + (z - pz) ** 2;
+          if (d2 < bd) { bd = d2; best = key; }
+        }
+        if (best) near.push(best);
+      }
+      for (const key of near) itemPartMap.set(key, def.id);
     }
   }
 }
@@ -2585,7 +3089,7 @@ const TOOL_DESC = {
   ruler: 'Click two points to measure distance between them',
   bodypart: 'Click a voxel to assign it to the selected body part group',
   clothingregion: 'Click a voxel to tag it with the selected clothing region',
-  itempart: 'Click a voxel to tag an attachment point (item: grip/muzzle; character: hand/shoulder/cheek)',
+  itempart: 'Click a voxel to tag an attachment point (item: grip/muzzle; character: hand/shoulder/cheek/pivot_N) — select "Body / Erase" to clear a tag',
   camera: 'Camera mode — mid-drag=orbit, right-drag=pan, scroll=zoom. No editing. (Esc)',
 };
 
@@ -2775,7 +3279,22 @@ function isDirty() {
 }
 
 function snapshot() {
-  return new Map(voxelMap);
+  // All per-voxel state — voxels plus the tag maps (body group, clothing
+  // region, attach part). Undo must restore ALL of them or tag strokes leave
+  // stale data and a single Ctrl+Z can step back past a load to an empty map.
+  return {
+    vox: new Map(voxelMap),
+    grp: new Map(groupMap),
+    parts: new Map(itemPartMap),
+    regions: new Map(clothingRegionMap),
+  };
+}
+
+function applySnapshot(s) {
+  voxelMap.clear();         for (const [k, v] of s.vox) voxelMap.set(k, v);
+  groupMap.clear();         for (const [k, v] of s.grp) groupMap.set(k, v);
+  itemPartMap.clear();      for (const [k, v] of s.parts) itemPartMap.set(k, v);
+  clothingRegionMap.clear(); for (const [k, v] of s.regions) clothingRegionMap.set(k, v);
 }
 
 function pushHistory() {
@@ -2790,18 +3309,22 @@ function pushHistory() {
 function undo() {
   if (historyIndex <= 0) return;
   historyIndex--;
-  voxelMap.clear();
-  for (const [k, v] of history[historyIndex]) voxelMap.set(k, v);
+  applySnapshot(history[historyIndex]);
   rebuildMesh();
+  updateGroupCounts();
+  updateItemPartCounts();
+  updateClothingRegionCounts();
   updateUndoRedo();
 }
 
 function redo() {
   if (historyIndex >= history.length - 1) return;
   historyIndex++;
-  voxelMap.clear();
-  for (const [k, v] of history[historyIndex]) voxelMap.set(k, v);
+  applySnapshot(history[historyIndex]);
   rebuildMesh();
+  updateGroupCounts();
+  updateItemPartCounts();
+  updateClothingRegionCounts();
   updateUndoRedo();
 }
 
@@ -2822,6 +3345,8 @@ function getVisibleVoxels() {
     if (x < xMin || x > xMax) continue;
     if (z < zMin || z > zMax) continue;
     if (!matVisible.get(mid)) continue;
+    const gid = groupMap.get(key);
+    if (gid !== undefined && groupVisible.get(gid) === false) continue;
     result.push({ x, y, z, mid });
   }
   return result;
@@ -2838,7 +3363,15 @@ function rebuildMesh() {
   updateMirrorPlanes();
   const visible = getVisibleVoxels();
   const count = visible.length;
-  
+
+  // Live mirror: mark dirty on every edit and re-pose — placed before the
+  // empty-count early return so clearing the model clears the mirror too.
+  // (While playing, the anim loop rebuilds each frame and re-parses when dirty.)
+  if (mirrorEditable) {
+    mirrorDirty = true;
+    if (!charPlaying) rebuildCharMesh();
+  }
+
   if (instancedMesh) {
     scene.remove(instancedMesh);
     instancedMesh.dispose();
@@ -2858,14 +3391,24 @@ function rebuildMesh() {
   instancedMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3);
   
   const color = new THREE.Color();
+  testPoseCache = {};
+  animPoseChainCache = null;
   for (let i = 0; i < count; i++) {
     const v = visible[i];
-    dummyMatrix.makeTranslation(v.x + originOffsetX, v.y, v.z + originOffsetZ);
+    let px = v.x, py = v.y, pz = v.z;
+    if (testArmPose !== 'none') {
+      const t = testPoseTransform(v.x, v.y, v.z, `${v.x},${v.y},${v.z}`);
+      if (t) { px = t[0]; py = t[1]; pz = t[2]; }
+    }
+    dummyMatrix.makeTranslation(px + originOffsetX, py, pz + originOffsetZ);
     instancedMesh.setMatrixAt(i, dummyMatrix);
     if (itemPartViewMode) {
       const pid = itemPartMap.get(`${v.x},${v.y},${v.z}`);
-      if (pid !== undefined) {
+      const pd = pid !== undefined ? activePartGroups().find(d => d.id === pid) : null;
+      if (pd && !pd.key.startsWith('pivot_')) {
         color.set(partColor(pid));
+      } else if (pd) {
+        color.copy(getMatColor(v.mid)); // pivot_* voxels keep body color — the wireframe box annotates them
       } else {
         color.set(0x888888);
       }
@@ -2899,7 +3442,12 @@ function rebuildMesh() {
     edgesMesh = new THREE.InstancedMesh(edgesGeo, edgesMat, count);
     for (let i = 0; i < count; i++) {
       const v = visible[i];
-      dummyMatrix.makeTranslation(v.x + originOffsetX, v.y, v.z + originOffsetZ);
+      let px = v.x, py = v.y, pz = v.z;
+      if (testArmPose !== 'none') {
+        const t = testPoseTransform(v.x, v.y, v.z, `${v.x},${v.y},${v.z}`);
+        if (t) { px = t[0]; py = t[1]; pz = t[2]; }
+      }
+      dummyMatrix.makeTranslation(px + originOffsetX, py, pz + originOffsetZ);
       edgesMesh.setMatrixAt(i, dummyMatrix);
     }
     edgesMesh.instanceMatrix.needsUpdate = true;
@@ -3101,6 +3649,7 @@ function performTool(event) {
         for (const v of selVoxels) {
           groupMap.set(`${v[0]},${v[1]},${v[2]}`, selectedGroup);
         }
+        pushHistory();
         const gname = BODY_GROUPS.find(g => g.id === selectedGroup)?.name || selectedGroup;
         setStatus(`Assigned ${selVoxels.length} selected voxels to ${gname}`);
         updateGroupCounts();
@@ -3116,18 +3665,20 @@ function performTool(event) {
             groupMap.set(`${mx},${my},${mz}`, selectedGroup);
           }
         }
+        pushHistory();
         const gname = BODY_GROUPS.find(g => g.id === selectedGroup)?.name || selectedGroup;
         setStatus(`Assigned (${hit.x},${hit.y},${hit.z}) to ${gname}`);
         updateGroupCounts();
         if (groupViewMode) rebuildMesh();
       }
       break;
-    
+
     case 'clothingregion':
       if (selectionActive && selVoxels.length > 0) {
         for (const v of selVoxels) {
           clothingRegionMap.set(`${v[0]},${v[1]},${v[2]}`, selectedClothingRegion);
         }
+        pushHistory();
         const rname = CLOTHING_REGIONS.find(r => r.id === selectedClothingRegion)?.name || selectedClothingRegion;
         setStatus(`Tagged ${selVoxels.length} selected voxels as ${rname}`);
         updateClothingRegionCounts();
@@ -3142,6 +3693,7 @@ function performTool(event) {
             clothingRegionMap.set(`${mx},${my},${mz}`, selectedClothingRegion);
           }
         }
+        pushHistory();
         const rname = CLOTHING_REGIONS.find(r => r.id === selectedClothingRegion)?.name || selectedClothingRegion;
         setStatus(`Tagged (${hit.x},${hit.y},${hit.z}) as ${rname}`);
         updateClothingRegionCounts();
@@ -3150,18 +3702,24 @@ function performTool(event) {
       break;
     
     case 'itempart':
+      // Part id 0 ('Body' = unassigned) acts as an eraser — painting clears
+      // the tag instead of tagging, so no orphan 'Body' centroid orbs exist.
+      const erasePart = selectedItemPart === 0;
       if (selectionActive && selVoxels.length > 0) {
         for (const v of selVoxels) {
-          itemPartMap.set(`${v[0]},${v[1]},${v[2]}`, selectedItemPart);
+          const k = `${v[0]},${v[1]},${v[2]}`;
+          if (erasePart) itemPartMap.delete(k); else itemPartMap.set(k, selectedItemPart);
         }
-        setStatus(`Tagged ${selVoxels.length} selected voxels as ${partName(selectedItemPart)}`);
+        pushHistory();
+        setStatus(erasePart ? `Cleared part tag on ${selVoxels.length} selected voxels` : `Tagged ${selVoxels.length} selected voxels as ${partName(selectedItemPart)}`);
         updateItemPartCounts();
         if (itemPartViewMode) rebuildMesh();
         clearSelection();
       } else if (hit.mid !== undefined) {
         const key = `${hit.x},${hit.y},${hit.z}`;
-        itemPartMap.set(key, selectedItemPart);
-        setStatus(`Tagged (${hit.x},${hit.y},${hit.z}) as ${partName(selectedItemPart)}`);
+        if (erasePart) itemPartMap.delete(key); else itemPartMap.set(key, selectedItemPart);
+        pushHistory();
+        setStatus(erasePart ? `Cleared part tag at (${hit.x},${hit.y},${hit.z})` : `Tagged (${hit.x},${hit.y},${hit.z}) as ${partName(selectedItemPart)}`);
         updateItemPartCounts();
         if (itemPartViewMode) rebuildMesh();
       }
@@ -3939,6 +4497,21 @@ document.querySelectorAll('.tool-btn[data-tool]').forEach(btn => {
 });
 
 // Right panel tab switching
+// Highlight the six Material/View buttons to match the current mode flags.
+function syncViewButtons() {
+  const set = (id, on) => {
+    const b = document.getElementById(id);
+    if (b) { b.style.background = on ? '#0a4' : ''; b.style.color = on ? '#fff' : ''; }
+  };
+  const matOn = !groupViewMode && !clothingRegionViewMode && !itemPartViewMode;
+  set('view-material-btn', matOn);
+  set('view-group-btn', groupViewMode);
+  set('view-region-mat-btn', matOn);
+  set('view-region-btn', clothingRegionViewMode);
+  set('view-ipart-mat-btn', matOn);
+  set('view-ipart-btn', itemPartViewMode);
+}
+
 document.querySelectorAll('.rp-tab').forEach(tab => {
   tab.addEventListener('click', () => {
     document.querySelectorAll('.rp-tab').forEach(t => t.classList.remove('active'));
@@ -3947,49 +4520,41 @@ document.querySelectorAll('.rp-tab').forEach(tab => {
     const target = tab.dataset.rpTab;
     const panel = document.getElementById('rp-' + target);
     if (panel) panel.classList.add('active');
+    // View modes are mutually exclusive — switching tabs must clear the other
+    // panels' modes or a stale flag (e.g. itemPartViewMode) keeps overriding
+    // the color pass and leaves centroid markers drawn on the wrong tab.
+    if (target === 'itemparts') { itemPartViewMode = true; groupViewMode = false; clothingRegionViewMode = false; }
+    else if (target === 'bodyparts') { itemPartViewMode = false; clothingRegionViewMode = false; }
+    else if (target === 'wardrobe') { itemPartViewMode = false; groupViewMode = false; }
+    syncViewButtons();
+    if (target === 'itemparts' || target === 'bodyparts' || target === 'wardrobe') rebuildMesh();
   });
 });
 
-// View mode toggle (Material vs Group)
+// View mode toggle (Material vs Group) — flags only, syncViewButtons styles
 document.getElementById('view-material-btn').addEventListener('click', () => {
-  groupViewMode = false;
-  clothingRegionViewMode = false;
-  document.getElementById('view-material-btn').style.background = '#0a4';
-  document.getElementById('view-material-btn').style.color = '#fff';
-  document.getElementById('view-group-btn').style.background = '';
-  document.getElementById('view-group-btn').style.color = '';
+  groupViewMode = false; clothingRegionViewMode = false; itemPartViewMode = false;
+  syncViewButtons();
   rebuildMesh();
   setStatus('View mode: Material colors');
 });
 document.getElementById('view-group-btn').addEventListener('click', () => {
-  groupViewMode = true;
-  clothingRegionViewMode = false;
-  document.getElementById('view-group-btn').style.background = '#0a4';
-  document.getElementById('view-group-btn').style.color = '#fff';
-  document.getElementById('view-material-btn').style.background = '';
-  document.getElementById('view-material-btn').style.color = '';
+  groupViewMode = true; clothingRegionViewMode = false; itemPartViewMode = false;
+  syncViewButtons();
   rebuildMesh();
   setStatus('View mode: Group colors');
 });
 
 // Clothing region view toggle (Material vs Region)
 document.getElementById('view-region-mat-btn').addEventListener('click', () => {
-  clothingRegionViewMode = false;
-  groupViewMode = false;
-  document.getElementById('view-region-mat-btn').style.background = '#0a4';
-  document.getElementById('view-region-mat-btn').style.color = '#fff';
-  document.getElementById('view-region-btn').style.background = '';
-  document.getElementById('view-region-btn').style.color = '';
+  clothingRegionViewMode = false; groupViewMode = false; itemPartViewMode = false;
+  syncViewButtons();
   rebuildMesh();
   setStatus('View mode: Material colors');
 });
 document.getElementById('view-region-btn').addEventListener('click', () => {
-  clothingRegionViewMode = true;
-  groupViewMode = false;
-  document.getElementById('view-region-btn').style.background = '#0a4';
-  document.getElementById('view-region-btn').style.color = '#fff';
-  document.getElementById('view-region-mat-btn').style.background = '';
-  document.getElementById('view-region-mat-btn').style.color = '';
+  clothingRegionViewMode = true; groupViewMode = false; itemPartViewMode = false;
+  syncViewButtons();
   rebuildMesh();
   setStatus('View mode: Clothing region colors');
 });
@@ -3999,24 +4564,14 @@ document.getElementById('export-regions-btn').addEventListener('click', exportCl
 
 // Item parts view toggle (Material vs Parts)
 document.getElementById('view-ipart-mat-btn').addEventListener('click', () => {
-  itemPartViewMode = false;
-  groupViewMode = false;
-  clothingRegionViewMode = false;
-  document.getElementById('view-ipart-mat-btn').style.background = '#0a4';
-  document.getElementById('view-ipart-mat-btn').style.color = '#fff';
-  document.getElementById('view-ipart-btn').style.background = '';
-  document.getElementById('view-ipart-btn').style.color = '';
+  itemPartViewMode = false; groupViewMode = false; clothingRegionViewMode = false;
+  syncViewButtons();
   rebuildMesh();
   setStatus('View mode: Material colors');
 });
 document.getElementById('view-ipart-btn').addEventListener('click', () => {
-  itemPartViewMode = true;
-  groupViewMode = false;
-  clothingRegionViewMode = false;
-  document.getElementById('view-ipart-btn').style.background = '#0a4';
-  document.getElementById('view-ipart-btn').style.color = '#fff';
-  document.getElementById('view-ipart-mat-btn').style.background = '';
-  document.getElementById('view-ipart-mat-btn').style.color = '';
+  itemPartViewMode = true; groupViewMode = false; clothingRegionViewMode = false;
+  syncViewButtons();
   rebuildMesh();
   setStatus('View mode: Item part colors');
 });
@@ -4220,6 +4775,20 @@ assetTypeSelect.addEventListener('change', () => {
   itemPartMap.clear();
   loadedModelName = null;
   loadedAnimData = {};
+  // Fresh environment: drop the reference preview too — it belongs to the
+  // previous asset-type session (e.g. a character loaded beside a building).
+  charData = null;
+  charPlaying = false;
+  charArmed = false;
+  mirrorEditable = false;
+  charOffsetX = 0; charOffsetZ = 0;
+  detachItem();
+  rebuildCharMesh();
+  document.getElementById('char-info').textContent = 'No reference model loaded.';
+  document.getElementById('char-play-btn').textContent = '▶ Play';
+  document.getElementById('char-play-btn').classList.remove('active');
+  document.getElementById('char-disarm-btn').classList.remove('active');
+  document.getElementById('char-mirror-btn').classList.remove('active');
   rebuildVolumeVisuals();
   // Re-adjust camera and controls for new dims
   initialCamPos.set(W * 2, H * 1.5, D * 2);
@@ -5321,7 +5890,8 @@ function getEditorData() {
     name: loadedModelName || 'unnamed',
     dims: [W, H, D],
     assetType,
-    ...loadedAnimData,   // pivots / animParams / states preserved verbatim
+    ...loadedAnimData,   // animParams / states preserved verbatim
+    pivots: resolvedPivotsForExport(), // painted pivot_N centroids become the file's canonical pivots
     voxelSize: ASSET_TYPE_PRESETS[assetType] ? ASSET_TYPE_PRESETS[assetType].voxelSize : undefined,
     materials: allMaterials,
     voxels: Array.from(voxelMap.entries()).map(([k, v]) => {
@@ -5740,6 +6310,9 @@ function getCharScaleRatio() {
 }
 let charOffsetX = 0;         // world X offset to position character next to item
 let charOffsetZ = 0;         // world Z offset
+let mirrorEditable = false;  // reference = the editable model itself (live)
+let mirrorDirty = false;     // set by rebuildMesh — re-parse on next rebuild
+let charMarkerGroup = null;  // joint/attachment markers drawn on the mirror
 const charBoxGeo = new THREE.BoxGeometry(1, 1, 1);
 const charLambertMat = new THREE.MeshLambertMaterial();
 
@@ -5754,6 +6327,20 @@ function rebuildCharMesh() {
     charEdgesMesh.geometry.dispose();
     charEdgesMesh.material.dispose();
     charEdgesMesh = null;
+  }
+  if (charMarkerGroup) {
+    charMarkerGroup.traverse(o => {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) o.material.dispose();
+    });
+    scene.remove(charMarkerGroup);
+    charMarkerGroup = null;
+  }
+  if (mirrorEditable && (mirrorDirty || !charData)) {
+    // Reference source is the live editor state — re-parse so the pose runs
+    // on the latest voxels/groups/pivots/attachmentPoints, not a stale file.
+    charData = voxelMap.size ? parseCharacterData(getEditorData()) : null;
+    mirrorDirty = false;
   }
   if (!charData) return;
 
@@ -5784,12 +6371,36 @@ function rebuildCharMesh() {
   const charScaleVec = new THREE.Vector3(s, s, s);
   const charQuat = new THREE.Quaternion();
   const charPos = new THREE.Vector3();
+  const zeroMat = new THREE.Matrix4().makeScale(0, 0, 0);
   for (let i = 0; i < count; i++) {
     const v = posed[i];
+    const sv = charData.voxels[i]; // rest coords — the editor voxel's key
+    // Mirror follows the editable model's view state: a group hidden via the
+    // 👁 toggle stays hidden on the copy (zero-scale instance).
+    if (mirrorEditable) {
+      const g = groupMap.get(`${sv.x},${sv.y},${sv.z}`);
+      if (g !== undefined && groupVisible.get(g) === false) {
+        charMesh.setMatrixAt(i, zeroMat);
+        continue;
+      }
+    }
     charPos.set((v.x * s) + charOriginX, v.y * s, (v.z * s) + charOriginZ);
     dummyMatrix.compose(charPos, charQuat, charScaleVec);
     charMesh.setMatrixAt(i, dummyMatrix);
-    color.copy(getMatColor(v.mid));
+    if (mirrorEditable && itemPartViewMode) {
+      const pid = itemPartMap.get(`${sv.x},${sv.y},${sv.z}`);
+      const pd = pid !== undefined ? activePartGroups().find(d => d.id === pid) : null;
+      if (pd && !pd.key.startsWith('pivot_')) color.set(partColor(pid));
+      else color.copy(getMatColor(v.mid)); // untagged or pivot_* — wireframe marks pivots
+    } else if (mirrorEditable && clothingRegionViewMode) {
+      const rid = clothingRegionMap.get(`${sv.x},${sv.y},${sv.z}`);
+      color.set(rid !== undefined && CLOTHING_REGION_COLORS[rid] ? CLOTHING_REGION_COLORS[rid] : 0x888888);
+    } else if (mirrorEditable && groupViewMode) {
+      const gid = groupMap.get(`${sv.x},${sv.y},${sv.z}`);
+      color.set(gid !== undefined && GROUP_COLORS[gid] ? GROUP_COLORS[gid] : 0x888888);
+    } else {
+      color.copy(getMatColor(v.mid));
+    }
     charMesh.setColorAt(i, color);
   }
   charMesh.instanceMatrix.needsUpdate = true;
@@ -5802,6 +6413,14 @@ function rebuildCharMesh() {
   charEdgesMesh = new THREE.InstancedMesh(edgesGeo, edgesMat, count);
   for (let i = 0; i < count; i++) {
     const v = posed[i];
+    if (mirrorEditable) {
+      const sv = charData.voxels[i];
+      const g = groupMap.get(`${sv.x},${sv.y},${sv.z}`);
+      if (g !== undefined && groupVisible.get(g) === false) {
+        charEdgesMesh.setMatrixAt(i, zeroMat);
+        continue;
+      }
+    }
     charPos.set((v.x * s) + charOriginX, v.y * s, (v.z * s) + charOriginZ);
     dummyMatrix.compose(charPos, charQuat, charScaleVec);
     charEdgesMesh.setMatrixAt(i, dummyMatrix);
@@ -5809,8 +6428,95 @@ function rebuildCharMesh() {
   charEdgesMesh.instanceMatrix.needsUpdate = true;
   scene.add(charEdgesMesh);
 
+  // Mirrored annotations: pivot wireframes + joint diamonds + attach-point
+  // markers, drawn on the POSED copy. posed[i] ↔ charData.voxels[i] order
+  // (same array through poseVoxels), so key lookups find the posed cell.
+  if (mirrorEditable && itemPartMap.size) {
+    const posedByKey = new Map();
+    for (let i = 0; i < count; i++) {
+      const sv = charData.voxels[i];
+      posedByKey.set(`${sv.x},${sv.y},${sv.z}`, posed[i]);
+    }
+    charMarkerGroup = buildMirrorMarkers(posedByKey, s, charOriginX, charOriginZ);
+    if (charMarkerGroup) scene.add(charMarkerGroup);
+  }
+
   // Keep the attached item glued to the hand through pose changes
   if (attachHand) attachItem(attachHand);
+}
+
+// Per-part posed markers for the live mirror: pivot_N clusters get the same
+// per-cell wireframe + centroid diamond the editor model shows; other attach
+// points get a small sphere posed through their majority group.
+function buildMirrorMarkers(posedByKey, s, charOriginX, charOriginZ) {
+  const defs = activePartGroups();
+  const group = new THREE.Group();
+  const posePt = (x, y, z, gid) =>
+    poseVoxels([{ x, y, z, mid: 0, gid }], charData.dims, charState, charAnimTime, 1.0, charData.animParams, charData.pivots)[0];
+
+  // Per-part rest centroid + majority gid (for marker transform)
+  const acc = {};
+  for (const [key, pid] of itemPartMap) {
+    if (!posedByKey.has(key)) continue;
+    const [x, y, z] = key.split(',').map(Number);
+    const a = acc[pid] || (acc[pid] = { x: 0, y: 0, z: 0, c: 0, gids: {} });
+    a.x += x; a.y += y; a.z += z; a.c++;
+    const g = groupMap.get(key);
+    if (g !== undefined) a.gids[g] = (a.gids[g] || 0) + 1;
+  }
+
+  const boxG = new THREE.BoxGeometry(s, s, s);
+  const cellEdgeGeo = new THREE.EdgesGeometry(boxG);
+  boxG.dispose();
+
+  for (const [pid, a] of Object.entries(acc)) {
+    const pidNum = parseInt(pid, 10);
+    const def = defs.find(d => d.id === pidNum);
+    const isPivot = def && def.key.startsWith('pivot_');
+    const col = new THREE.Color(partColor(pidNum));
+    // gid the marker rides: pivot_N owns that joint's chain; other points use
+    // the majority group of their painted cells.
+    let gid;
+    if (isPivot) {
+      gid = parseInt(def.key.substring(6), 10);
+    } else {
+      let best = -1; gid = 0;
+      for (const [g, n] of Object.entries(a.gids)) if (n > best) { best = n; gid = parseInt(g, 10); }
+    }
+    const cx = a.x / a.c, cy = a.y / a.c, cz = a.z / a.c;
+    const posedC = posePt(cx, cy, cz, gid);
+
+    if (isPivot) {
+      // Wireframe each tagged cell at its POSED position — cells split across
+      // the seam reveal the group boundary exactly like the editor overlay.
+      const mat = new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: 0.9, depthTest: false });
+      for (const [key, p] of itemPartMap) {
+        if (p !== pidNum) continue;
+        const pp = posedByKey.get(key);
+        if (!pp) continue;
+        const cell = new THREE.LineSegments(cellEdgeGeo, mat);
+        cell.position.set(pp.x * s + charOriginX, pp.y * s, pp.z * s + charOriginZ);
+        cell.renderOrder = 998;
+        group.add(cell);
+      }
+      const core = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.6 * s),
+        new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.95, depthTest: false, depthWrite: false })
+      );
+      core.position.set(posedC.x * s + charOriginX, posedC.y * s, posedC.z * s + charOriginZ);
+      core.renderOrder = 999;
+      group.add(core);
+    } else {
+      const core = new THREE.Mesh(
+        new THREE.SphereGeometry(0.5 * s, 12, 12),
+        new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.9, depthTest: false, depthWrite: false })
+      );
+      core.position.set(posedC.x * s + charOriginX, posedC.y * s, posedC.z * s + charOriginZ);
+      core.renderOrder = 999;
+      group.add(core);
+    }
+  }
+  return group.children.length ? group : null;
 }
 
 // === ITEM-TO-HAND ATTACH PREVIEW ===
@@ -5846,6 +6552,7 @@ function detachItem() {
 
 function attachItem(hand) {
   const spec = ATTACH_HANDS[hand];
+  if (!spec) return;
   if (!charData) { setStatus('Attach: load a reference model first'); return; }
   const cPts = charData.attachmentPoints || {};
   const cPt = cPts[spec.charKey];
@@ -5936,8 +6643,12 @@ function attachItem(hand) {
   );
   // Grip orientation = file's stored correction + live dial-in nudge,
   // rotated about the item's own axes at the grip anchor.
+  // attachRotation is authored for the RIGHT hand (primary grip convention).
+  // A left-hand weld is the mirror image of the right-hand grip — compensate
+  // with +180° about the grip axis so the same file value works on both hands.
+  const mirrorX = hand === 'left' ? 180 : 0;
   const qOff = new THREE.Quaternion().setFromEuler(new THREE.Euler(
-    (itemAttachRot.x + attachRotOffset.x) * Math.PI / 180,
+    (itemAttachRot.x + attachRotOffset.x + mirrorX) * Math.PI / 180,
     (itemAttachRot.y + attachRotOffset.y) * Math.PI / 180,
     (itemAttachRot.z + attachRotOffset.z) * Math.PI / 180,
     'XYZ'
@@ -5984,6 +6695,10 @@ function loadCharacterFile(file) {
   reader.onload = (e) => {
     try {
       const data = JSON.parse(e.target.result);
+      // A picked file takes over the reference — mirror mode disengages so
+      // the next rebuild doesn't overwrite the loaded model with live state.
+      mirrorEditable = false;
+      document.getElementById('char-mirror-btn').classList.remove('active');
       charData = parseCharacterData(data);
       charState = 9; // T-Pose on load
       document.getElementById('char-pose-state').value = charState;
@@ -6008,7 +6723,9 @@ function loadCharacterFile(file) {
 // Toggle character preview panel
 document.getElementById('char-preview-btn').addEventListener('click', () => {
   const panel = document.getElementById('char-preview-panel');
-  const visible = panel.style.display !== 'none';
+  // Panel starts hidden via stylesheet (display:none) — the inline
+  // style.display reads '' there, so check computed style, not the attribute.
+  const visible = getComputedStyle(panel).display !== 'none';
   panel.style.display = visible ? 'none' : 'block';
   document.getElementById('char-preview-btn').classList.toggle('active', !visible);
   if (!visible && !charData) {
@@ -6021,6 +6738,37 @@ document.getElementById('char-file-input').addEventListener('change', (e) => {
   const file = e.target.files[0];
   if (file) loadCharacterFile(file);
   e.target.value = '';
+});
+
+// Mirror mode: the reference preview poses the live editable model — every
+// sculpt/tag/pivot edit is re-parsed and re-posed (edits when paused update
+// via rebuildMesh; while playing the anim loop picks them up per frame).
+document.getElementById('char-mirror-btn').addEventListener('click', () => {
+  mirrorEditable = !mirrorEditable;
+  const btn = document.getElementById('char-mirror-btn');
+  btn.classList.toggle('active', mirrorEditable);
+  if (mirrorEditable) {
+    if (voxelMap.size === 0) {
+      mirrorEditable = false;
+      btn.classList.remove('active');
+      setStatus('Mirror: editable model is empty');
+      return;
+    }
+    detachItem(); // hand-attach will re-bind against the mirrored model's points
+    charData = parseCharacterData(getEditorData());
+    charOffsetX = W / 2 + (charData.dims[0] * getCharScaleRatio()) / 2 + 4;
+    charOffsetZ = 0;
+    rebuildCharMesh();
+    document.getElementById('char-info').textContent =
+      `Mirroring editable model — ${voxelMap.size} voxels (live)`;
+    setStatus('Mirror ON — reference poses the editable model live');
+  } else {
+    charData = null;
+    detachItem();
+    rebuildCharMesh();
+    document.getElementById('char-info').textContent = 'No reference model loaded.';
+    setStatus('Mirror OFF — load a reference file to preview a static model');
+  }
 });
 
 // Pose state selector
@@ -6044,7 +6792,17 @@ document.getElementById('char-play-btn').addEventListener('click', () => {
   btn.classList.toggle('active', charPlaying);
 });
 
-// ARM toggle (switch to aiming state with weapon preset)
+// Pick the weld hand from the item's own grip metadata: grip_right is the
+// primary hand (our right-arm convention); grip_left alone means left-handed.
+function autoAttachHand() {
+  const pts = buildAttachmentPoints();
+  if (pts.grip_right) return 'right';
+  if (pts.grip_left) return 'left';
+  setStatus('ARM: item has no grip_right/grip_left point — paint one via Attach Pts');
+  return null;
+}
+
+// ARM toggle (switch to aiming state with weapon preset + weld loaded item)
 document.getElementById('char-disarm-btn').addEventListener('click', () => {
   charArmed = !charArmed;
   const btn = document.getElementById('char-disarm-btn');
@@ -6054,16 +6812,17 @@ document.getElementById('char-disarm-btn').addEventListener('click', () => {
     document.getElementById('char-pose-state').value = '4';
     const wp = document.getElementById('char-weapon-preset').value;
     if (charData) applyWeaponPreset(wp, charData.animParams);
+    // Weld whatever item is loaded, to the hand its grip metadata prescribes
+    if (assetType === 'prop' && voxelMap.size > 0) attachItem(autoAttachHand());
   } else {
     charState = 0; // Idle
     document.getElementById('char-pose-state').value = '0';
+    detachItem();
   }
   if (!charPlaying) rebuildCharMesh();
 });
 
-// Attach item to hand points / detach
-document.getElementById('char-attach-r-btn').addEventListener('click', () => attachItem('right'));
-document.getElementById('char-attach-l-btn').addEventListener('click', () => attachItem('left'));
+// Detach item
 document.getElementById('char-detach-btn').addEventListener('click', () => {
   detachItem();
   setStatus('Attachment preview removed');
