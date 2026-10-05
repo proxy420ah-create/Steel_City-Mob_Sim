@@ -322,6 +322,7 @@ namespace SteelCity.Sim
         // --- Shader property IDs ---
         private int propVoxelData, propOutput, propDepthBuffer, propMaterialColors;
         private int propMaterialCount, propVolumeDims, propVoxelSize, propVolumeOffset;
+        private int propTightBoundsMin, propTightBoundsMax;
         private int propVolumeRotation, propVolumeInvRotation;
         private int propCameraOrigin, propCameraToWorld, propInvProjection;
         private int propProxyCamOrigin, propProxyCamToWorld, propProxyInvProj;
@@ -533,6 +534,8 @@ namespace SteelCity.Sim
             propVolumeDims = Shader.PropertyToID("_VolumeDims");
             propVoxelSize = Shader.PropertyToID("_VoxelSize");
             propVolumeOffset = Shader.PropertyToID("_VolumeOffset");
+            propTightBoundsMin = Shader.PropertyToID("_TightBoundsMin");
+            propTightBoundsMax = Shader.PropertyToID("_TightBoundsMax");
             propVolumeRotation = Shader.PropertyToID("_VolumeRotation");
             propVolumeInvRotation = Shader.PropertyToID("_VolumeInvRotation");
             propCameraOrigin = Shader.PropertyToID("_CameraOrigin");
@@ -2548,6 +2551,11 @@ namespace SteelCity.Sim
                 block.SetVector(propVolumeDims, new Vector4(chunk.dims.x, chunk.dims.y, chunk.dims.z, 0));
                 block.SetFloat(propVoxelSize, vs);
                 block.SetVector(propVolumeOffset, chunkWorldPos);
+                // Tight content AABB (voxel units, Max exclusive) — the DDA marches
+                // this region instead of the full container, skipping empty space
+                // above flat content. Unset on other paths = full container bounds.
+                block.SetVector(propTightBoundsMin, new Vector4(chunk.tightMinX, chunk.tightMinY, chunk.tightMinZ, 0));
+                block.SetVector(propTightBoundsMax, new Vector4(chunk.tightMaxX + 1, chunk.tightMaxY + 1, chunk.tightMaxZ + 1, 0));
 
                 // --- Unified screen-space LOD ---
                 // Compute screen ratio from the same formula used in culling.
@@ -2615,7 +2623,14 @@ namespace SteelCity.Sim
                     else lodDebugColor = new Color(0.2f, 0.9f, 0.2f);                                                        // green
                 }
 
-                block.SetInt(propMaxSteps, lodSteps);
+                // Floor the step budget at the voxel-cell crossing bound — the
+                // DDA counts plane crossings, so worst case is sx+sy+sz cells,
+                // not the Euclidean diagonal. Shader also self-floors; this keeps
+                // the CPU-side intent explicit.
+                int cellSteps = (chunk.tightMaxX - chunk.tightMinX + 1)
+                              + (chunk.tightMaxY - chunk.tightMinY + 1)
+                              + (chunk.tightMaxZ - chunk.tightMinZ + 1) + 4;
+                block.SetInt(propMaxSteps, Mathf.Max(lodSteps, cellSteps));
                 block.SetInt(propCheapShading, cheapShading);
                 block.SetInt(propUnlitLod, unlitLod);
                 block.SetInt(propLodDebugEnabled, lodDebugEnabled);

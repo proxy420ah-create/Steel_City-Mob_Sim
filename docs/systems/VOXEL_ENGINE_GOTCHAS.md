@@ -193,6 +193,38 @@ Added `CharacterAnimation` and `PedestrianLookAround` components to the spawned 
 
 ---
 
+## Gotcha #6: DDA Step Budget Sized in Distance, Not Cell Crossings
+
+**Date**: October 8, 2026
+**Severity**: CRITICAL — buildings cull geometry at grazing camera angles
+**Files**: `VoxelChunkManager.cs` (LOD step tiers), `VoxelProxyRaymarch.shader` (`_MaxSteps` loop bound)
+
+### Symptom
+
+Flat volumes (shooting_range, 192×120×192 container with content only y=0–36) dropped their floor at shallow camera angles; tall features (tenement water tower) caused holes in *neighboring* pixels when viewed from above. Wall/tower survived, mid-field/empty regions vanished.
+
+### Root Cause
+
+Two coupled problems:
+
+1. The DDA `RayAABB`+march was bounded by the **full container** while content filled only its bottom ~30% — every pixel traversed ~80+ empty container cells before reaching content.
+2. `_MaxSteps` was a **fixed LOD constant** (264/48/24/12) blind to volume size. A ray needing >264 crossings exited mid-volume → discard → hole. Tall content made it worse by inflating the marched box for all neighbors.
+
+### The Trap (why a first fix still left ~5%)
+
+The obvious floor "ray can cross at most the box diagonal" is **wrong**: the Euclidean diagonal `√(sx²+sy²+sz²)` ≈ 274 for the range, but the DDA counts **plane crossings** — worst case `sx+sy+sz` = 421. A near-axis-parallel ray at the lowest camera angle crosses ~385 cells; the diagonal budget still starved it.
+
+### Fix
+
+- CPU passes `_TightBoundsMin/Max` (voxel units, Max exclusive); shader marches the tight content AABB — indexing still uses container dims (stride unchanged).
+- Shader floors the loop bound itself: `stepCap = max(_MaxSteps, marchSX+marchSY+marchSZ+4)` derived from the *marched* bounds — every draw path (chunk/instanced/sector) self-protects.
+
+### Rule
+
+**Bound a DDA loop in cell crossings (`sx+sy+sz`), never in distance or diagonal.** And prefer deriving it from the marched bounds in-shader over CPU constants — it can't drift when the marched region changes.
+
+---
+
 ## Appendix: Key Voxel Engine Constants
 
 | Constant | Value | Location |

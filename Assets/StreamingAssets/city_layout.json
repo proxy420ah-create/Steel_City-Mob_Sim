@@ -2750,58 +2750,10 @@
       "col": 5,
       "buildings": [
         {
-          "type": "empty_land",
+          "type": "shooting_range",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land.stasset",
+          "stasset": "voxel_buildings/shooting_range.stasset",
           "slot": 0
-        },
-        {
-          "type": "empty_land",
-          "illegal": false,
-          "stasset": "voxel_buildings/empty_land.stasset",
-          "slot": 1
-        },
-        {
-          "type": "empty_land",
-          "illegal": false,
-          "stasset": "voxel_buildings/empty_land.stasset",
-          "slot": 2
-        },
-        {
-          "type": "empty_land",
-          "illegal": false,
-          "stasset": "voxel_buildings/empty_land.stasset",
-          "slot": 3
-        },
-        {
-          "type": "empty_land",
-          "illegal": false,
-          "stasset": "voxel_buildings/empty_land.stasset",
-          "slot": 4
-        },
-        {
-          "type": "empty_land",
-          "illegal": false,
-          "stasset": "voxel_buildings/empty_land.stasset",
-          "slot": 5
-        },
-        {
-          "type": "empty_land",
-          "illegal": false,
-          "stasset": "voxel_buildings/empty_land.stasset",
-          "slot": 6
-        },
-        {
-          "type": "empty_land",
-          "illegal": false,
-          "stasset": "voxel_buildings/empty_land.stasset",
-          "slot": 7
-        },
-        {
-          "type": "empty_land",
-          "illegal": false,
-          "stasset": "voxel_buildings/empty_land.stasset",
-          "slot": 8
         }
       ]
     },
@@ -3062,7 +3014,7 @@
         {
           "type": "tenement_block",
           "illegal": false,
-          "stasset": "voxel_buildings/tenement_block_1.stasset",
+          "stasset": "voxel_buildings/tenement_block_0.stasset",
           "slot": 0
         }
       ]
@@ -6108,14 +6060,19 @@
   ],
   "building_types": {
     "empty_land": [
-      32,
-      4,
-      32
+      64,
+      8,
+      64
     ],
     "tenement_block": [
-      96,
-      44,
-      96
+      192,
+      120,
+      192
+    ],
+    "shooting_range": [
+      192,
+      120,
+      192
     ]
   }
 }

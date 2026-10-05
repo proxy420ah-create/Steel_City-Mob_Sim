@@ -52,6 +52,41 @@ character's posed hand point, inheriting rotation from the FK chain.
 | `right_shoulder`| Shoulder stock position (rifle shouldering)      | No       |
 | `cheek`         | Face/cheek position for aiming weld              | No       |
 
+### Building-Side Points (event/position markers)
+
+Buildings use the same `attachmentPoints` map — painted clusters → fractional
+centroids — but no `gid` (no animation groups). These are sim-facing markers,
+not item welds:
+
+| Point             | Purpose                                              |
+|-------------------|------------------------------------------------------|
+| `firing_position` | Character stand spot — pathing destination           |
+| `firing_target`   | Aim point — IK solve places muzzle axis on centroid  |
+| `backstop`        | Facing reference — character orients toward centroid |
+| `door`            | Entry/exit point                                     |
+| `spawn`           | Character/prop spawn point                           |
+| `prop_slot`       | Auto-place prop (bench, crate, barrel)               |
+| `cover`           | Cover position for combat AI                         |
+| `decor`           | Decorative prop anchor (lamp, sign, plant)           |
+
+These keys export through the same 📦 Export Model JSON path —
+`attachmentPoints` centroids + `itemParts` painted map + `itemPartDefs`
+group table all land in the building JSON. `Tools/json_to_stasset.py`
+embeds `attachmentPoints` in the `.stasset` SKEL tail; runtime consumption
+(StAssetReader parsing the tail + a BuildingPointRegistry resolving
+local→world through the slot transform) is the pending Unity-side piece
+that enables prop auto-placement.
+
+First consumer: `shooting_range.json` (all three painted, collinear on lane
+center x=95.5). Building point types live in `BUILDING_POINT_GROUPS` in the
+editor's Attach tab (visible for `assetType: 'building'`).
+
+> **Handedness convention (verified Dec 2025)**: point names refer to **rendered**
+> anatomy, not file coordinates. `Civilian1` faces −Z but is chirality-flipped —
+> its rendered right arm is the **high-x** cluster, so `right_hand` = `{x≈78.5, gid:8}`
+> and `left_hand` = `{x≈16.5, gid:9}`. See `MODEL_DESIGN_STANDARD.md` §4 for the
+> full convention and verification method (aim hotkey `A`, never screen-side).
+
 ---
 
 ## JSON Format

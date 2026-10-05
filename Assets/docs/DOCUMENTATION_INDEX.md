@@ -15,7 +15,7 @@
 | **Voxel Buildings** | 3 docs | ✅ Complete |
 | **Voxel Editor** | 1 doc | ✅ Complete |
 | **Voxel Rendering** | 4 docs | ✅ Complete |
-| **Rendering Systems** | 4 docs | ✅ Complete |
+| **Rendering Systems** | 5 docs | ✅ Complete |
 | **Character Animation** | 1 doc | 🔄 Phase 1 Complete + Execution Integration |
 | **Lighting Debug** | 1 doc | ✅ Complete |
 | **Scale Standard** | 1 doc | ⚠️ SEE MASTER DOC |
@@ -191,6 +191,12 @@
   - Per-type batching with MaterialPropertyBlock color isolation
   - Composited into voxel render texture
 
+- **`docs/systems/RAYMARCH_TRAVERSAL_OPTIMIZATION.md`** — Per-pixel DDA march cost inside volumes (Oct 8)
+  - Phase 1 shipped: tight-AABB march + in-shader `stepCap` (sx+sy+sz cell-crossing bound) — fixed angle-dependent culling AND cut ~70% traversal on flat buildings
+  - Phase 2 deferred: column-occupancy skip grid (per-(x,z) intervals → jump interior air)
+  - Phase 3 deferred: sector-path tight bounds via a second instanced buffer
+  - Anti-pattern table: distance-vs-cells budget trap
+
 - **`docs/systems/COMBAT_VEHICLE_DESIGN.md`** — Street combat, vehicle chase, physics & NPC animation design (Aug 9)
   - Cover system: Approach A (collision world query) vs Approach B (dynamic cover props)
   - Vehicle physics: 3 tiers (sphere, raycast suspension, WheelCollider) — recommends sphere for civilians, raycast for combat
@@ -241,7 +247,7 @@
 - **`MODEL_DESIGN_STANDARD.md`** — 🔒 MASTER REFERENCE — source of truth for scale, doors, orientation, proportions
   - NPC ("Vinny") as the scale root, door-to-NPC-height ratio test (1.25×+)
   - Corrected door standard (supersedes the table below)
-  - Orientation convention per model type (buildings=Z0 front, vehicles=+Z front, characters=+Z front in 48³ grid)
+  - Orientation convention per model type (buildings=Z0 front, vehicles=+Z front, characters=−Z front in the 96³ `Civilian1` model — see MODEL_DESIGN_STANDARD §4)
   - Proportion reference table, per-model audit (which buildings are certified vs need rework)
 - **`MOB_SIM_SCALE_STANDARD.md`** — Mob Sim universe scale system (⚠️ door table outdated, see master doc above)
   - Core scale constants (building voxel = 0.1m, char voxel = 0.02m, vehicle voxel = 0.05m)
@@ -394,7 +400,7 @@
 - [x] **CharacterRig.cs** — character controller with hotkeys (T/I/W/L/A/C), consolidated onto single GameObject
 - [x] Verified: T-Pose, Idle, Walking, Looking, Aiming render correctly on GPU
 - [x] **Execution phase integration** — Vinny walks with correct facing during working week simulation (Aug 12)
-- [x] **modelFacingOffset fix** — changed 180→0 in EventPlayer.cs (Vinny faces +Z in 48³ grid)
+- [x] **modelFacingOffset fix** — changed 180→0 in EventPlayer.cs (Vinny faces +Z in 48³ grid). ⚠️ Superseded: the 96³ `Civilian1` faces −Z and needs offset=180 (TickSimulation defaults 180; EventPlayer's code default of 0 is stale for the current model)
 - [x] **.groups file dependency** — Vinny.groups required for GPU compute pose (was missing after asset rename)
 - [ ] Crouching — needs animator-side tuning
 - [ ] Angular limits per joint (Phase 2)

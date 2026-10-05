@@ -3,14 +3,19 @@
 #
 # Each generator produces a 3D numpy uint16 array using MOB material IDs.
 # Voxel layout: (width, height, depth) with Y as vertical axis.
-# All buildings are designed to sit on a 32x32 block tile.
+# Lot buildings sit on a single 64x64 lot (1/9 block); block buildings span 192x192.
 
 import numpy as np
 from mob_materials import *
 
-# Default block tile size
-BLOCK_W = 32
-BLOCK_D = 32
+# City grid contract (see Assets/docs/MOB_SIM_SCALE_STANDARD.md, CityMap3D):
+#   lot   = 64x64 voxels (6.4m x 6.4m) - one slot, 1/9 of a block
+#   block = 192x192 voxels (19.2m x 19.2m) - 3x3 grid of lots
+# Most buildings occupy a single lot; tenements/large structures take a block.
+LOT_W = 64
+LOT_D = 64
+BLOCK_W = 192
+BLOCK_D = 192
 WALL_T = 2      # wall thickness
 FLOOR_T = 2     # floor slab thickness
 
@@ -99,7 +104,7 @@ def _add_basement_foundation(grid, w, d, wt):
 # Business Generators
 # ============================================================================
 
-def generate_butcher_shop(w=BLOCK_W, h=20, d=BLOCK_D, seed=None):
+def generate_butcher_shop(w=LOT_W, h=20, d=LOT_D, seed=None):
     """Red brick storefront with awning, ground floor shop + small upper office."""
     if seed is not None: np.random.seed(seed)
     grid = np.zeros((w, h, d), dtype=np.uint16)
@@ -122,7 +127,7 @@ def generate_butcher_shop(w=BLOCK_W, h=20, d=BLOCK_D, seed=None):
     return grid
 
 
-def generate_bakery(w=BLOCK_W, h=18, d=BLOCK_D, seed=None):
+def generate_bakery(w=LOT_W, h=18, d=LOT_D, seed=None):
     """Cream stucco storefront with green awning protruding from front."""
     if seed is not None: np.random.seed(seed)
     grid = np.zeros((w, h, d), dtype=np.uint16)
@@ -148,7 +153,7 @@ def generate_bakery(w=BLOCK_W, h=18, d=BLOCK_D, seed=None):
     return padded
 
 
-def generate_barbershop(w=BLOCK_W, h=20, d=BLOCK_D, seed=None):
+def generate_barbershop(w=LOT_W, h=20, d=LOT_D, seed=None):
     """Small white stucco shop with barber pole and striped awning protruding from front.
     
     Scale: 20v tall (2.0m), 8v door (0.8m = 1.67x NPC height).
@@ -191,7 +196,7 @@ def generate_barbershop(w=BLOCK_W, h=20, d=BLOCK_D, seed=None):
     return padded, meta
 
 
-def generate_diner(w=BLOCK_W, h=16, d=BLOCK_D, seed=None):
+def generate_diner(w=LOT_W, h=16, d=LOT_D, seed=None):
     """Streamline diner: stainless steel look with large windows and neon sign."""
     if seed is not None: np.random.seed(seed)
     grid = np.zeros((w, h, d), dtype=np.uint16)
@@ -217,7 +222,7 @@ def generate_diner(w=BLOCK_W, h=16, d=BLOCK_D, seed=None):
     return grid
 
 
-def generate_garage(w=BLOCK_W, h=14, d=BLOCK_D, seed=None):
+def generate_garage(w=LOT_W, h=14, d=LOT_D, seed=None):
     """Industrial garage with corrugated metal walls and large vehicle door."""
     if seed is not None: np.random.seed(seed)
     grid = np.zeros((w, h, d), dtype=np.uint16)
@@ -241,7 +246,7 @@ def generate_garage(w=BLOCK_W, h=14, d=BLOCK_D, seed=None):
     return grid
 
 
-def generate_apartments(w=BLOCK_W, h=36, d=BLOCK_D, seed=None):
+def generate_apartments(w=LOT_W, h=36, d=LOT_D, seed=None):
     """4-story brick apartment building with fire escape."""
     if seed is not None: np.random.seed(seed)
     grid = np.zeros((w, h, d), dtype=np.uint16)
@@ -409,10 +414,10 @@ def _add_fe_stairs(padded, px, pz, pw, pd, y_low, y_high, direction,
                 padded[sxr:, y:y+1, sz:sz+sw] = mat
 
 
-def generate_apartment_block(w=88, h=44, d=88, seed=None, roof_buf=8):
+def generate_apartment_block(w=184, h=44, d=184, seed=None, roof_buf=8):
     """Full-block 5-story apartment building. Occupies an entire city block.
 
-    Core: 88x88 footprint, 4-voxel perimeter buffer → 96x96 total (fits block).
+    Core: 184x184 footprint, 4-voxel perimeter buffer → 192x192 total (full block).
     44v tall (4.4m Mob Sim). Standard 8v door (0.8m = 1.67x NPC height).
     roof_buf: extra voxels above roof for water tower, chimneys, parapet, etc.
     Features: grand entrance with columns, redesigned fire escapes with
@@ -424,9 +429,9 @@ def generate_apartment_block(w=88, h=44, d=88, seed=None, roof_buf=8):
 
     # --- Perimeter buffer: 4 voxels on all 4 sides ---
     BUF = 4
-    pw = w + BUF * 2   # 96
+    pw = w + BUF * 2   # 192
     ph = h + roof_buf  # 44 + 8 = 52 (extra room for roof decorations)
-    pd = d + BUF * 2   # 96
+    pd = d + BUF * 2   # 192
     padded = np.zeros((pw, ph, pd), dtype=np.uint16)
 
     # Build the core building in a sub-grid, then place it inside the buffer
@@ -603,7 +608,7 @@ def generate_apartment_block(w=88, h=44, d=88, seed=None, roof_buf=8):
     return padded, meta
 
 
-def generate_empty_land(w=BLOCK_W, h=4, d=BLOCK_D, seed=None):
+def generate_empty_land(w=LOT_W, h=8, d=LOT_D, seed=None):
     """Empty lot — flat cobblestone ground with scattered rubble."""
     if seed is not None: np.random.seed(seed)
     grid = np.zeros((w, h, d), dtype=np.uint16)
@@ -617,7 +622,7 @@ def generate_empty_land(w=BLOCK_W, h=4, d=BLOCK_D, seed=None):
     return grid
 
 
-def generate_casino(w=BLOCK_W, h=24, d=BLOCK_D, seed=None):
+def generate_casino(w=LOT_W, h=24, d=LOT_D, seed=None):
     """Casino with neon signs, large windows, and red carpet interior."""
     if seed is not None: np.random.seed(seed)
     grid = np.zeros((w, h, d), dtype=np.uint16)
@@ -653,7 +658,7 @@ def generate_casino(w=BLOCK_W, h=24, d=BLOCK_D, seed=None):
     return grid
 
 
-def generate_speakeasy(w=BLOCK_W, h=18, d=BLOCK_D, seed=None):
+def generate_speakeasy(w=LOT_W, h=18, d=LOT_D, seed=None):
     """Hidden speakeasy: looks like a nondescript storefront from outside."""
     if seed is not None: np.random.seed(seed)
     grid = np.zeros((w, h, d), dtype=np.uint16)
@@ -676,7 +681,7 @@ def generate_speakeasy(w=BLOCK_W, h=18, d=BLOCK_D, seed=None):
     return grid
 
 
-def generate_police_station(w=BLOCK_W, h=26, d=BLOCK_D, seed=None):
+def generate_police_station(w=LOT_W, h=26, d=LOT_D, seed=None):
     """Police station: stone facade, blue accents, imposing entrance with protruding columns."""
     if seed is not None: np.random.seed(seed)
     grid = np.zeros((w, h, d), dtype=np.uint16)
@@ -711,7 +716,7 @@ def generate_police_station(w=BLOCK_W, h=26, d=BLOCK_D, seed=None):
     return padded
 
 
-def generate_hq(w=BLOCK_W, h=28, d=BLOCK_D, seed=None):
+def generate_hq(w=LOT_W, h=28, d=LOT_D, seed=None):
     """Gang HQ: well-maintained brick building with gold trim accents."""
     if seed is not None: np.random.seed(seed)
     grid = np.zeros((w, h, d), dtype=np.uint16)
@@ -747,7 +752,7 @@ def generate_hq(w=BLOCK_W, h=28, d=BLOCK_D, seed=None):
     return grid
 
 
-def generate_road_tile(w=BLOCK_W, h=2, d=BLOCK_D, seed=None):
+def generate_road_tile(w=LOT_W, h=4, d=LOT_D, seed=None):
     """Road tile: asphalt with sidewalk borders."""
     grid = np.zeros((w, h, d), dtype=np.uint16)
     grid[:, 0, :] = ASPHALT

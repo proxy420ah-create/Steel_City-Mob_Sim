@@ -1,6 +1,29 @@
 # Recent Changes — Steel City: Mob Sim
 
-**Last Updated**: October 3, 2026 (Unity weapon attachment — armed transit milestone)
+**Last Updated**: October 8, 2026 (angle-dependent building culling — fixed)
+
+---
+
+## October 8, 2026 — Fix: Angle-Dependent Building Culling (Tight-Bounds DDA + Step Floor)
+
+### Impact
+- **Flat buildings and tall-feature neighborhoods no longer drop geometry at certain camera angles.** The shooting range floor and the tenement roof around the water tower were being discarded mid-march by a fixed step budget that couldn't cross the volume. Fix also cuts ~70% of per-pixel traversal on flat buildings — a bugfix that is also a perf win.
+
+### Root Cause (cataloged: `docs/known_issues/rendering/ANGLE_DEPENDENT_BUILDING_CULLING.md`)
+- The DDA marched **full container bounds** (192×120×192 for the range) while content filled only y=0–36 — every pixel paid ~80+ empty-voxel traversal before reaching the floor.
+- Step budgets were **fixed per LOD tier** (Near 264 / Mid 48 / Far 24 / Ultra 12), independent of volume size. Rays whose in-volume path exceeded `_MaxSteps` exited early → discard → holes. Tall features made it worse by inflating the marched box, lengthening the air traversal for every neighboring pixel ("tall objects cause the culling").
+
+### Changes
+- `VoxelChunkManager.cs` — chunk property block now sends `propTightBoundsMin/Max` (voxel units, Max exclusive); step budget floored at the voxel-cell crossing bound (`tightSX+SY+SZ + 4`).
+- `VoxelProxyRaymarch.shader` — new `_TightBoundsMin/Max` uniforms; `RayAABB`+DDA bound to the tight AABB when set (`_TightBoundsMax.x > 0`), full container otherwise. Voxel indexing still uses container `dims`/`volOffset` — stride unchanged. Loop bound is now `stepCap = max(_MaxSteps, marchSX+SY+SZ+4)` computed from the marched bounds — authoritative for every path.
+- **Correction caught in testing**: first pass floored at the Euclidean diagonal (~274 for the range) — wrong bound. The DDA counts cell crossings (≤ sx+sy+sz = 421), so near-axis-parallel rays at the lowest camera angle still starved. Fixed to the Manhattan bound; residual ~5% culling at extreme angles eliminated.
+- **Docs captured**: new `docs/systems/RAYMARCH_TRAVERSAL_OPTIMIZATION.md` (shipped Phase 1 + deferred Phase 2 column-occupancy skip grid design + Phase 3 sector-path adoption); `VOXEL_ENGINE_GOTCHAS.md` Gotcha #6 (distance-vs-cell-crossing budget trap); `DOCUMENTATION_INDEX.md` updated.
+- Instanced (`DrawMeshInstanced`) and sector-baked paths never set the uniforms → unchanged full-container behavior. Deferred: same tight-bounds treatment for sectors if the symptom appears there; column-occupancy skip grid as the long-term optimization.
+
+### 🧪 TEST NOW
+- Play the scene → look at `block_46` shooting range from low/grazing angles and overhead — floor should render at **every** angle, no mid-field holes.
+- Top-down view of the tenement blocks — the roof region **around** the water tower should stay solid.
+- Perf check: `[Perf]` log — `maxSteps` per-chunk now varies by LOD; draw calls unchanged. If a sector-baked block still shows holes, that's the deferred sector path.
 
 ---
 
@@ -17,6 +40,16 @@
 - `CharacterRig` — all rigs now start in **Idle** (T-Pose still reachable via the T hotkey for pose debugging); previously rig1 started T-posed → gun floated at the extended T-pose hand
 - `CityMap3D.SpawnSceneCharacters` — debug civilians now spawn in a fully-vacant (all-`empty_land`) lot adjacent to HQ (nearest vacant lot as fallback) instead of inside the tenement block
 - `SW_Model_10.json` — `attachRotation.x` 270→90 (180° roll compensation for the mirrored-arm weld basis)
+- **Shooting range placed in-world**: `shooting_range.stasset` generated (v2, 192×120×192, event points in SKEL tail) into `voxel_buildings/`; `block_46` (r4c5, 2 blocks south of player HQ block_26) converted from 9× empty_land → full-block `shooting_range` slot-0 entry; `building_types` registered
+- **Building point vocabulary extended**: `prop_slot`/`cover`/`decor` added to `BUILDING_POINT_GROUPS` (+ gen_shooting_range PART_DEFS + doc) — completes the marker set for future prop auto-placement layer. Verified export chain already carries building `attachmentPoints` end-to-end (paint → `itemParts`/`itemPartDefs`/`attachmentPoints` → `steelcity_stasset` JSON → SKEL tail)
+- **Tools/json_to_stasset.py** (new): JSON → binary `.stasset` return path — completes the authoring loop (stasset→json→editor→json→stasset). Writes v2 with `attachmentPoints` embedded in the SKEL tail. Round-trip verified: shooting_range.json → .stasset = 111,082 voxels identical + all 3 event points in tail. NOTE: `StAssetReader` doesn't parse the SKEL tail yet — Unity-side point consumption is pending work
+- **tenement_block_1 retired**: `block_51` (W Quarter) repointed → `tenement_block_0.stasset`; both tenement blocks now share the 192×120 building. `tenement_block_1.stasset`+meta moved to `VoxelAssetStudio/ARCHIVE/building_assets/`; stale `building_types` dims in city_layout.json corrected (32/96-era → 64/192)
+- **Tools/stasset_to_json.py** (new): binary `.stasset` → consolidated editor JSON converter; converted `tenement_block_0` (192×120×192, 765k voxels) + `tenement_block_1` (192×88×192, 876k) into `VoxelAssetStudio/JSON Models In Progress/` for editor review
+- **procedural_mob_buildings.py**: constants updated to city grid contract — `LOT_W/D=64` (1/9-block lot) + `BLOCK_W/D=192` (full block); all lot-building signatures → 64×64; `generate_apartment_block` core→184 so padded=192×192; `empty_land` h→8 / `road_tile` h→4 to match shipped binaries. Verified: all 5 registered generators produce standard dims
+- **voxel_editor.html cleanup**: removed 1.78MB baked-in "Roof Deco" tower scene (`initialVoxels`) — editor now opens on a blank 96×68×96 building volume instead of a leftover template scene; file shrank 2.05MB→271KB; retitled "Steel City - Voxel Editor"; building default dims → **64×40×64 = one city lot** (verified: `CityMap3D.BuildingVoxelWidth=64`, 9 lots/block in city_layout.json, `empty_land`/`road_tile` both 64×H×64; full-block buildings like tenements are the exception at 192×H×192)
+- **Building event points** (new): `BUILDING_POINT_GROUPS` added to editor Attach tab — `firing_position`, `firing_target`, `backstop`, `door`, `spawn` — buildings now paintable with the same `attachmentPoints` JSON contract as characters (no gid). Attach tab now visible for `assetType: 'building'`
+- `Tools/gen_shooting_range.py` — M2 Shooting Range block (192×120×192, tenement container): firing line + bench at z≈12, 4m lane with rails, 5m/10m/15m distance marks, target board + bullseye at z=169, brick backstop wall at z=184 — with all three event points painted: `firing_position (95.5,2,10.5)`, `firing_target (95.5,7.5,169)`, `backstop (95.5,11.5,184)` — collinear downrange on lane center
+- **Doc consistency pass**: `MODEL_DESIGN_STANDARD.md` §4 rewritten with verified facts — `Civilian1` (96³) faces −Z (face-region centroid proof), movement compensates via 180° yaw, `EventPlayer.modelFacingOffset` code-default of 0 flagged as stale; new handedness-convention subsection (labels = rendered anatomy; `right_hand` = high-x/gid 8). §1 notes Civilian1 as current production model. `WEAPON_ATTACHMENT_SYSTEM.md` + `DOCUMENTATION_INDEX.md` synced
 - `CharacterPoseCompute.compute` — state 9 (T-Pose) now early-outs entirely in `ComputeGroupRotation` (no rotation chains, no `jointOffset` translations) matching CPU `VoxelCharacterAnimator` line 278. Previously the compute path applied idle `restCfg` arm drops AND the ±6-voxel shoulder `jointOffset` (exists to seat dropped arms), which detached the arms in bind pose — fragment path already guarded at line 591
 - `PedestrianLookAround` — ambient look-around no longer stomps manually-set/driven states: only fidgets from Idle, and only restores Idle if it still owns the state (fixes T-pose/Aim hotkeys reverting to Idle)
 - **Handedness correction**: `Civilian1.json` — swapped `right_hand`↔`left_hand` attachment point names (right_hand := x=78.5, gid 8). The low-x arm renders as the anatomical left hand (verified top-down); labels now match rendered anatomy. Aim preset moved back to the high-x chain (`armSwingL=-1.4`, `elbowBendL=0.3`, `torsoTwist=0.2`) so aim arm = gun arm. Editor `aiming` defaults + `pistol` preset in `voxel_editor.html` synced to match (`character_pose_engine.js` was already correct).

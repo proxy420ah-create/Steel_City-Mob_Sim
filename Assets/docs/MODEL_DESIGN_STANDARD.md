@@ -24,6 +24,11 @@ rules that were previously scattered across code docstrings and `COORDINATE_SYST
 
 ## 1. The Scale Root: Vinny Moretti (NPC Wise Guy)
 
+> **Update (Dec 2025)**: the character that actually ships in the sim is now
+> **`Civilian1.json`** (96³ grid @ 0.01m/voxel, ~62 voxels ≈ 0.62m tall — same effective
+> height, finer voxels). Vinny.stasset remains the historical scale reference; all
+> height-derived rules below are unchanged since the NPC is the same physical size.
+
 All Mob Sim scale derives from one reference: the player character model, **"Vinny Moretti."**
 
 The production model is `Vinny.stasset` (identical to `character_hoodlum_0.stasset`),
@@ -135,7 +140,7 @@ a common source of confusion:
 |---|---|---|
 | **Buildings** | **Z = 0** (low Z) | Storefront/door/awning are built on the `z < WALL_T` face. This is the face that must face the street. |
 | **Vehicles** | **+Z (high Z)** | Per `procedural_mob_vehicles.py` header comment: "Front of vehicle faces +Z (high Z values) to match Unity's LookRotation forward." Headlights, grille, hood are at high Z. |
-| **Characters** | **+Z (high Z)** in 48³ grid | The 48³ grid model (Vinny) faces +Z. Confirmed Aug 12, 2026: `modelFacingOffset = 0` in `EventPlayer.cs` produces correct forward-facing movement. The original 16×32×10 `generate_hoodlum` grid had face at low Z, but the re-authored 48³ model flipped to +Z front. |
+| **Characters** | **−Z (low Z)** in 96³ grid | The current production model (`Civilian1.json`, 96³ @ 0.01m) faces **−Z**: the wardrobe `Face` region centroid sits at z≈45.9 (range 42–51 of 96), verified Dec 2025 in-engine. Movement code compensates with a 180° yaw: `LookRotation(dir) * Euler(0,180,0)` — `TickSimulation.modelFacingOffset = 180`, `StressTestSpawner` hardcodes 180. ⚠️ `EventPlayer.modelFacingOffset` *defaults to 0 in code* — the scene instance must carry 180 for the 96³ model (Vinny walks face-first in missions, so the serialized value is presumably 180 — verify if facing ever looks wrong). The old 48³ `Vinny.stasset` claimed +Z front; treat that as model-specific, not a type convention. |
 
 **Buildings and vehicles use OPPOSITE Z conventions.** This is not a bug — it's because buildings
 are placed by `BuildingOrientation.Analyze()` which checks the Z=0 face against street material,
@@ -144,6 +149,19 @@ while vehicles are rotated at runtime via `Quaternion.LookRotation` which expect
 for their own placement systems. Just be aware of it when authoring new models.
 
 **When authoring a new model of an existing type, match that type's existing convention.**
+
+### Handedness convention (verified Dec 2025)
+
+For a **−Z-facing** model, strict anatomy says right hand = −X (low-x). However, `Civilian1`'s
+rendered anatomy is **chirality-flipped** relative to its facing — the low-x arm reads as a left
+hand in-engine (verified via aim pose + thumb geometry). Likely a mirror introduced during
+authoring/upscaling; harmless once accounted for.
+
+**Rule**: attachment labels name the **rendered** anatomy. `right_hand` = the arm that renders
+as the character's right = **high-x** cluster (x≈78.5, gid 8); `left_hand` = low-x (x≈16.5,
+gid 9). The aim preset that raises the gun arm is `armSwingL`/`elbowBendL` (drives the gid-2/8
+chain). Verify handedness in-engine with the `A` (aim) hotkey, never by screen-side in the
+editor's front view — a facing character's right is on the viewer's left.
 
 ---
 

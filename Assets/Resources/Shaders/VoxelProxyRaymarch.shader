@@ -53,6 +53,11 @@ Shader "SteelCity/VoxelProxyRaymarch"
             float3 _VolumeDims;
             float  _VoxelSize;
             float3 _VolumeOffset;
+            // Tight content AABB in voxel units (Max exclusive). When set, the DDA
+            // marches this region instead of the full container — skips empty
+            // container space above flat content. Zero/unset = full bounds.
+            float3 _TightBoundsMin;
+            float3 _TightBoundsMax;
             float4x4 _VolumeRotation;
             float4x4 _VolumeInvRotation;
             int    _MaxSteps;
@@ -910,9 +915,11 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 float3 localRo = mul(volRot, ro - volumeCenter) + volumeCenter;
                 float3 localRd = mul(volRot, rd);
 
-                // Volume bounds
-                float3 volumeMin = volOffset;
-                float3 volumeMax = volOffset + float3(dims) * voxelSize;
+                // Volume bounds — tight content AABB when provided, else full
+                // container. Indexing below still uses container dims/origin.
+                bool useTight = _TightBoundsMax.x > 0.0;
+                float3 volumeMin = volOffset + (useTight ? _TightBoundsMin : float3(0, 0, 0)) * voxelSize;
+                float3 volumeMax = volOffset + (useTight ? _TightBoundsMax : (float3)dims) * voxelSize;
 
                 // Ray-box intersection
                 float tNear, tFar;
@@ -920,6 +927,12 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 {
                     discard;
                 }
+
+                // The DDA counts voxel-plane crossings, so the worst case to
+                // traverse the marched region is sizeX+sizeY+sizeZ cells — floor
+                // the budget there so LOD tiers can't starve long in-volume rays.
+                float3 marchSize = (volumeMax - volumeMin) / voxelSize;
+                int stepCap = max(_MaxSteps, (int)(marchSize.x + marchSize.y + marchSize.z) + 4);
 
                 // DDA setup
                 float tStart = max(tNear, 0.0);
@@ -947,7 +960,7 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 float4 hitColor = _BackgroundColor;
                 float3 worldHit = float3(0, 0, 0);
 
-                for (int i = 0; i < _MaxSteps; ++i)
+                for (int i = 0; i < stepCap; ++i)
                 {
                     if (!InBounds(voxel, dims))
                         break;
