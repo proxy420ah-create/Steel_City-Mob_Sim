@@ -262,6 +262,7 @@ namespace SteelCity.Sim
             entryMovePending = true;  // need to walk into building center after last sidewalk waypoint
             eventStream.Enqueue(SimEvent.PathFoundEvent(currentPath.Count));
             LogPathTrace("to_target", startBlockId, targetBlockId, currentPath);
+            ShowFlowFieldDebug();
         }
 
         void FindPathHome()
@@ -289,6 +290,22 @@ namespace SteelCity.Sim
             pathIndex = 0;
             eventStream.Enqueue(SimEvent.PathFoundEvent(currentPath.Count));
             LogPathTrace("to_home", targetBlockId, startBlockId, currentPath);
+            ShowFlowFieldDebug();
+        }
+
+        /// <summary>
+        /// Push the current goal's Dijkstra map into the debug renderer — paints every
+        /// node's next-hop toward wherever Vinny is headed (target on the way out, HQ on
+        /// the way home). Rendered only when pdr.showFlowField is on.
+        /// </summary>
+        void ShowFlowFieldDebug()
+        {
+            var pdr = PathDebugRenderer.Instance;
+            if (pdr == null || pathfinder.LastGoalNodeId == null) return;
+            pdr.SetDebugFlowField(pathfinder.GetFlowField(pathfinder.LastGoalNodeId),
+                nid => waypointGraph.Nodes.TryGetValue(nid, out var wn)
+                    ? wn.localPos
+                    : new Vector3(float.NaN, 0f, 0f));
         }
 
         void OnArrivedAtDestination()

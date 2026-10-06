@@ -143,7 +143,7 @@ namespace SteelCity.Sim
                         else if (a.state == AgentState.PathingToTarget) moving++;
                         else if (a.state == AgentState.PathingHome) returning++;
                     }
-                    hud.UpdatePerfStats($"Agents: {alive} alive ({awaiting} queued, {moving} outgoing, {returning} returning)\nPathfinder: {pathfinder.PendingRequests} pending | Cache: {pathfinder.CacheSize} paths, {pathfinder.CacheHits} hits / {pathfinder.CacheMisses} misses");
+                    hud.UpdatePerfStats($"Agents: {alive} alive ({awaiting} queued, {moving} outgoing, {returning} returning)\nPathfinder: {pathfinder.PendingRequests} pending | Cache: {pathfinder.CacheSize} paths, {pathfinder.CacheHits} hits / {pathfinder.CacheMisses} misses | FlowFields: {pathfinder.FlowFieldCount}");
                 }
             }
 

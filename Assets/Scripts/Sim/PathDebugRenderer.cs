@@ -49,12 +49,44 @@ namespace SteelCity.Sim
 
         public bool DebugEnabled => showWaypointGraph;
 
+        [Header("Flow Field Debug")]
+        [Tooltip("Draw a directional gradient segment at each node along its next hop — the hot tip points toward the goal; band color = remaining cost (green near → red far).")]
+        public bool showFlowField = false;
+        [SerializeField] private float flowStubWidth = 0.05f;
+        [SerializeField] private float flowStubY = 0.25f;
+
+        private FlowField debugFlowField;
+        private System.Func<string, Vector3> flowResolver;
+        private readonly List<Matrix4x4>[] flowBuckets = new List<Matrix4x4>[4]
+            { new(), new(), new(), new() };
+        private static readonly Color[] flowBandColors = new Color[4]
+        {
+            new Color(0.2f, 1f, 0.2f, 0.9f),   // near goal — green
+            new Color(1f, 1f, 0.2f, 0.85f),    // yellow
+            new Color(1f, 0.6f, 0.1f, 0.8f),   // orange
+            new Color(1f, 0.15f, 0.15f, 0.75f) // far — red
+        };
+
+        /// <summary>Show a flow field's direction map. Resolver returns LOCAL pos (mapRoot is added).</summary>
+        public void SetDebugFlowField(FlowField field, System.Func<string, Vector3> resolveLocalPos)
+        {
+            debugFlowField = field;
+            flowResolver = resolveLocalPos;
+        }
+
+        public void ClearDebugFlowField()
+        {
+            debugFlowField = null;
+            flowResolver = null;
+        }
+
         [Header("Render")]
         [SerializeField] private Camera targetCamera;
 
         private Transform mapRoot;
         private Mesh boxMesh;
         private Material beamMaterial;
+        private Material flowMaterial;   // gradient stubs (Unlit/FlowStub)
 
         private readonly List<ActivePath> activePaths = new();
 
@@ -110,6 +142,17 @@ namespace SteelCity.Sim
                 shader = Shader.Find("Sprites/Default");
             beamMaterial = new Material(shader);
             beamMaterial.enableInstancing = true;
+
+            var flowShader = Shader.Find("Unlit/FlowStub");
+            if (flowShader != null)
+            {
+                flowMaterial = new Material(flowShader);
+                flowMaterial.enableInstancing = true;
+            }
+            else
+            {
+                Debug.LogWarning("[PathDebug] Unlit/FlowStub shader not found — flow field will render flat");
+            }
             beamProps = new MaterialPropertyBlock();
 
             if (targetCamera == null)
@@ -544,6 +587,62 @@ namespace SteelCity.Sim
                 System.Array.Copy(markerMatrices, markerCount, batchBuffer, 0, graphNodeCount);
                 cmd.DrawMeshInstanced(boxMesh, 0, beamMaterial, 0, batchBuffer, graphNodeCount, beamProps);
                 markerDrawCount++;
+            }
+
+            // --- Flow field debug: per-node directional stub toward its next hop ---
+            if (showFlowField && debugFlowField != null && flowResolver != null && mapRoot != null)
+            {
+                foreach (var bucket in flowBuckets) bucket.Clear();
+                float maxCost = Mathf.Max(debugFlowField.MaxCost, 0.001f);
+                Vector3 rootPos = mapRoot.position;
+
+                foreach (var hop in debugFlowField.Hops)
+                {
+                    Vector3 a = flowResolver(hop.Key);
+                    Vector3 b = flowResolver(hop.Value);
+                    if (float.IsNaN(a.x) || float.IsNaN(b.x)) continue;
+                    a += rootPos; b += rootPos;
+                    a.y = flowStubY; b.y = flowStubY;
+
+                    Vector3 dir = b - a;
+                    float len = dir.magnitude;
+                    if (len < 0.001f) continue;
+
+                    int band = Mathf.Clamp(
+                        Mathf.FloorToInt(debugFlowField.CostFrom(hop.Key) / maxCost * flowBuckets.Length),
+                        0, flowBuckets.Length - 1);
+                    if (flowBuckets[band].Count >= MaxInstances) continue;
+
+                    // Full segment a→b; the FlowStub shader fades cold(-Z, node end) →
+                    // hot(+Z, hop end) — the bright tip is the direction tracer.
+                    flowBuckets[band].Add(Matrix4x4.TRS(
+                        (a + b) * 0.5f,
+                        Quaternion.LookRotation(dir.normalized, Vector3.up),
+                        new Vector3(flowStubWidth, flowStubWidth, len)));
+                }
+
+                var mat = flowMaterial != null ? flowMaterial : beamMaterial;
+                for (int band = 0; band < flowBuckets.Length; band++)
+                {
+                    if (flowBuckets[band].Count == 0) continue;
+                    flowBuckets[band].CopyTo(batchBuffer);
+                    beamProps.Clear();
+                    Color hot = flowBandColors[band];
+                    Color cold = hot * 0.35f;
+                    cold.a = 0.12f;
+                    if (mat == flowMaterial)
+                    {
+                        beamProps.SetColor("_ColdColor", cold);
+                        beamProps.SetColor("_HotColor", hot);
+                    }
+                    else
+                    {
+                        beamProps.SetColor("_Color", hot);
+                    }
+                    cmd.DrawMeshInstanced(boxMesh, 0, mat, 0, batchBuffer,
+                        flowBuckets[band].Count, beamProps);
+                    segDrawCount++;
+                }
             }
 
             // Free-form custom beams — one draw each (debug volume is tiny)

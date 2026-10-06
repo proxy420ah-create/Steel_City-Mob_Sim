@@ -13,10 +13,20 @@ namespace SteelCity.Sim
         private readonly Dictionary<(string, string), List<string>> pathCache = new();
         private int cacheHits, cacheMisses;
 
+        // --- Flow fields: one Dijkstra map per destination node, shared by every agent
+        // heading there. Path materialization is then O(path length) via next-hop walks.
+        private readonly Dictionary<string, FlowField> flowFields = new();
+        private readonly HashSet<string> parityChecked = new();
+        public bool validateWithAStar = true;   // one-shot parity log per field
+
         public int PendingRequests => pendingRequests.Count;
         public int CacheSize => pathCache.Count;
         public int CacheHits => cacheHits;
         public int CacheMisses => cacheMisses;
+        public int FlowFieldCount => flowFields.Count;
+
+        /// <summary>Goal node of the most recent path query — for debug field display.</summary>
+        public string LastGoalNodeId { get; private set; }
 
         public Pathfinder(WaypointGraph graph)
         {
@@ -90,7 +100,7 @@ namespace SteelCity.Sim
                 return null;
             }
 
-            var path = FindPath(startNode, endNode);
+            var path = FindPathViaFlowField(startNode, endNode);
             if (path != null)
             {
                 float totalTicks = 0f;
@@ -111,6 +121,82 @@ namespace SteelCity.Sim
                     $"start={startNode}, end={endNode}");
             }
             return path;
+        }
+
+        /// <summary>Get (or lazily build+cache) the Dijkstra map for a destination node.</summary>
+        public FlowField GetFlowField(string endNodeId)
+        {
+            if (!flowFields.TryGetValue(endNodeId, out var field))
+            {
+                field = FlowField.Build(graph, endNodeId);
+                if (field == null) return null;
+                flowFields[endNodeId] = field;
+            }
+            return field;
+        }
+
+        /// <summary>
+        /// O(1)-per-step routing: the neighbor to walk toward a destination.
+        /// Agents holding no baked path can query this at each node.
+        /// </summary>
+        public string NextHopToward(string fromNodeId, string endNodeId)
+        {
+            var field = GetFlowField(endNodeId);
+            return field?.Next(fromNodeId);
+        }
+
+        /// <summary>
+        /// Same output contract as FindPath, but sourced from the destination's flow field
+        /// (one Dijkstra shared by all queries to this goal). First use per field runs a
+        /// one-shot A* parity check so divergence shows in the log, not on screen.
+        /// </summary>
+        public List<string> FindPathViaFlowField(string startNodeId, string endNodeId)
+        {
+            if (!graph.Nodes.ContainsKey(startNodeId) || !graph.Nodes.ContainsKey(endNodeId))
+            {
+                Debug.LogWarning($"[Pathfinder] Invalid node IDs: {startNodeId} to {endNodeId}");
+                return null;
+            }
+
+            var field = GetFlowField(endNodeId);
+            var path = field?.Materialize(startNodeId);
+            LastGoalNodeId = endNodeId;
+
+            if (path != null && validateWithAStar && !parityChecked.Contains(endNodeId))
+            {
+                parityChecked.Add(endNodeId);
+                var refPath = FindPath(startNodeId, endNodeId);
+                float flowCost = field.CostFrom(startNodeId);
+                float aStarCost = refPath != null ? PathCost(refPath) : float.PositiveInfinity;
+                bool match = refPath != null && Mathf.Abs(flowCost - aStarCost) < 0.01f;
+                Debug.Log($"[Pathfinder] FlowField parity @{endNodeId}: field={field.ReachableCount} nodes reachable, " +
+                    $"path {path.Count} nodes cost {flowCost:F1} vs A* {(refPath?.Count ?? -1)} nodes cost {aStarCost:F1} " +
+                    $"→ {(match ? "MATCH" : "⚠ DIVERGENT")}");
+            }
+
+            if (path == null)
+            {
+                Debug.LogWarning($"[Pathfinder] No flow-field path {startNodeId} to {endNodeId}");
+                return FindPath(startNodeId, endNodeId);   // fallback — never worse than A*
+            }
+            return path;
+        }
+
+        private float PathCost(List<string> path)
+        {
+            float total = 0f;
+            for (int i = 0; i < path.Count - 1; i++)
+            {
+                foreach (var link in graph.Nodes[path[i]].links)
+                {
+                    if (link.targetId == path[i + 1])
+                    {
+                        total += link.baseTickCost;
+                        break;
+                    }
+                }
+            }
+            return total;
         }
 
         public void EnqueueRequest(string startBlockId, Vector3 startPos, string endBlockId, Vector3 endPos, System.Action<List<string>> callback)
