@@ -74,9 +74,12 @@ namespace SteelCity.Sim
             var buildingMeta = new Vector4[buildingCount];
             var buildingPositions = new Vector4[buildingCount];
 
-            // First pass: compute total voxel count and per-building offsets
+            // First pass: compute total voxel count and per-building offsets.
+            // Empty lots pool into NumVariants shared debris variants — buildings
+            // mapping to the same variant share one buffer region (meta.x offset).
             int totalVoxels = 0;
             var dimsList = new List<(int w, int h, int d)>(buildingCount);
+            var variantOffsets = new Dictionary<int, int>();
 
             for (int i = 0; i < buildingCount; i++)
             {
@@ -92,10 +95,25 @@ namespace SteelCity.Sim
                 }
 
                 int voxelCount = w * h * d;
-                buildingMeta[i] = new Vector4(totalVoxels, w, h, d);
+                int bufferOffset;
+                if (IsEmptyLand(info.stassetPath))
+                {
+                    int variant = ProceduralDebrisScatterer.GetVariantIndex(info.row, info.col, info.subIndex);
+                    if (!variantOffsets.TryGetValue(variant, out bufferOffset))
+                    {
+                        bufferOffset = totalVoxels;
+                        variantOffsets[variant] = bufferOffset;
+                        totalVoxels += voxelCount;
+                    }
+                }
+                else
+                {
+                    bufferOffset = totalVoxels;
+                    totalVoxels += voxelCount;
+                }
+                buildingMeta[i] = new Vector4(bufferOffset, w, h, d);
                 buildingPositions[i] = new Vector4(info.worldOffset.x, info.worldOffset.y, info.worldOffset.z, info.voxelSize);
                 dimsList.Add((w, h, d));
-                totalVoxels += voxelCount;
             }
 
             if (totalVoxels == 0)
@@ -118,18 +136,22 @@ namespace SteelCity.Sim
 
                 int voxelCount = w * h * d;
 
-                // For empty land: clone the cached data and apply procedural debris scatter
-                if (IsEmptyLand(info.stassetPath))
+                // Only write regions allocated in pass 1 — buildings sharing a
+                // pooled variant offset skip the copy (already written there).
+                if ((int)buildingMeta[i].x == writeOffset)
                 {
-                    var cloned = (uint[])packedData.Clone();
-                    ProceduralDebrisScatterer.Scatter(cloned, w, h, d, info.row, info.col, info.subIndex);
-                    System.Array.Copy(cloned, 0, mergedVoxelData, writeOffset, voxelCount);
+                    if (IsEmptyLand(info.stassetPath))
+                    {
+                        int variant = ProceduralDebrisScatterer.GetVariantIndex(info.row, info.col, info.subIndex);
+                        var variantData = ProceduralDebrisScatterer.GetVariantData(packedData, w, h, d, variant);
+                        System.Array.Copy(variantData, 0, mergedVoxelData, writeOffset, voxelCount);
+                    }
+                    else
+                    {
+                        System.Array.Copy(packedData, 0, mergedVoxelData, writeOffset, voxelCount);
+                    }
+                    writeOffset += voxelCount;
                 }
-                else
-                {
-                    System.Array.Copy(packedData, 0, mergedVoxelData, writeOffset, voxelCount);
-                }
-                writeOffset += voxelCount;
 
                 // Compute sector AABB from building world positions + sizes
                 float vs = info.voxelSize;

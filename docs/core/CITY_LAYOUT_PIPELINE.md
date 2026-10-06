@@ -27,6 +27,8 @@ See `ZONING_DESIGN.md` → "City Generation Pipeline" for zoning algorithm detai
 
 The design tool is **complete and functional**. The Unity runtime integration is **pending**.
 
+> **Scale status (2026-10-05)**: Unity now renders a **32×32 (1,024-block)** city built as a direct scale-up of the 10×10 test rig via `Tools/generate_city_layout.py` — same `groundTileSize` 11.6 m / `spacing` 13.2 m as this editor's export, so the grid dimensions line up. This proved the render path handles production size but does **not** yet consume this editor's export (seam types, water/bridge blocks, zones). See [`../systems/CITY_SCALE_ARCHITECTURE.md`](../systems/CITY_SCALE_ARCHITECTURE.md) for the scale findings, the per-sector render limits any new terrain/seam work must respect, and the M2 (river + bridge) plan that builds on pending tasks 1–2 below.
+
 ---
 
 ## Design Tool: `city_editor.html`

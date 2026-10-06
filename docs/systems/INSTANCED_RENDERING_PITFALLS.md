@@ -103,6 +103,21 @@ if (ic.gameObject == null || !ic.gameObject.activeInHierarchy) { ic.visible = fa
 
 **Fix**: Use `sector.active = false` or `UnregisterSector()` to hide baked sectors. The GameObject hierarchy is for organization/click detection only — it has no effect on rendering.
 
+### 6. A Sector Over Its Limits Renders Nothing — And Logs Nothing
+
+**Symptom**: Part of the city (e.g. half of the roads/sidewalks at 32×32) is simply missing. Hover/click logic still works because it runs off game data, not the render path. `Editor.log` shows a clean build.
+
+**Cause**: Every baked sector (terrain *or* building) has hard per-sector limits that fail silently:
+- ≤ **511** instances per `DrawMeshInstanced` (excess not drawn)
+- ≤ **2^24 − 1** voxels per sector — buffer offsets travel through a `float4` (`_BuildingMeta.x`), so they are integer-exact only below 2^24
+- ≤ **2^27** elements per structured-buffer SRV (D3D11)
+
+The 10×10 city was under all of these, so the bug only appeared at scale.
+
+**Fix**: Keep every sector under all three. Terrain is banded in `CityMap3D.BuildVoxelTerrain` (`MaxTerrainChunksPerSector`, `MaxTerrainVoxelsPerSector`); building sectors are ≤144 instances at `sectorSizeBlocks = 4`. After any layout/size change, check the `[VoxelChunkManager] Registered baked sector '...': <n> buildings, <voxels> voxels` log lines against the limits.
+
+**See**: `CITY_SCALE_ARCHITECTURE.md` (invariants table + backlog item O1, a loud guard) and `../known_issues/rendering/TERRAIN_SECTOR_OVERFLOW_AT_SCALE.md`.
+
 ---
 
 ## Architecture Diagram
@@ -161,3 +176,4 @@ Steel City Voxel Pipeline:
 | Date | Change |
 |---|---|
 | Aug 9, 2026 | Created — documented activeInHierarchy pitfall + general instanced rendering architecture |
+| Oct 5, 2026 | Added pitfall #6 — silent per-sector limit overflow (found at 32×32 terrain) |

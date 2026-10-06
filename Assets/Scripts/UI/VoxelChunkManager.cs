@@ -41,7 +41,7 @@ namespace SteelCity.Sim
         private int kernelCSClear;
         private int kernelCSPose;
 
-        [SerializeField] private bool disableSectorCulling = true;
+        [SerializeField] private bool disableSectorCulling = false;
 
         // Coverage-aware dynamic resolution tuning
         private const float CoverageHeuristicScale = 0.85f; // heuristic to map sum(r^2) → 0..1 coverage
@@ -125,6 +125,7 @@ namespace SteelCity.Sim
 
         // --- Reusable proxy draw list (avoids per-frame allocation) ---
         private readonly List<(VoxelChunk chunk, float dist)> proxyDrawList = new();
+        private readonly List<(BakedSector sector, float dist)> sectorDrawList = new();
 
         // --- Render targets ---
         private RenderTexture colorRT;
@@ -883,6 +884,40 @@ namespace SteelCity.Sim
             Vector3 cornerPos = centerPos - new Vector3(w * customVoxelSize * 0.5f, 0f, d * customVoxelSize * 0.5f);
 
             LoadChunkFromDataWithAABB(name, clonedData, w, h, d, cornerPos, customVoxelSize,
+                true, minX, minY, minZ, maxX, maxY, maxZ, hasSolid);
+
+            return new BuildingFootprint
+            {
+                center = centerPos,
+                size = new Vector3(w * customVoxelSize, h * customVoxelSize, d * customVoxelSize),
+                dims = new VoxelInt3(w, h, d)
+            };
+        }
+
+        /// <summary>
+        /// Load a chunk centered on centerPos from shared pre-built voxel data.
+        /// Unlike LoadChunkCenteredProcedural, the array is NOT cloned — callers
+        /// must treat it as read-only (e.g. ProceduralDebrisScatterer variants).
+        /// </summary>
+        public BuildingFootprint LoadChunkCenteredShared(
+            string name, uint[] data, int w, int h, int d, Vector3 centerPos)
+        {
+            return LoadChunkCenteredShared(name, data, w, h, d, centerPos, voxelSize);
+        }
+
+        public BuildingFootprint LoadChunkCenteredShared(
+            string name, uint[] data, int w, int h, int d, Vector3 centerPos, float customVoxelSize)
+        {
+            if (data == null) return null;
+
+            ComputeTightAABB(data, w, h, d,
+                out int minX, out int minY, out int minZ,
+                out int maxX, out int maxY, out int maxZ, out bool hasSolid);
+
+            // Offset so the CENTER of the voxel volume sits at centerPos
+            Vector3 cornerPos = centerPos - new Vector3(w * customVoxelSize * 0.5f, 0f, d * customVoxelSize * 0.5f);
+
+            LoadChunkFromDataWithAABB(name, data, w, h, d, cornerPos, customVoxelSize,
                 true, minX, minY, minZ, maxX, maxY, maxZ, hasSolid);
 
             return new BuildingFootprint
@@ -1962,6 +1997,9 @@ namespace SteelCity.Sim
                 return Mathf.Sqrt(dx * dx + dy * dy + dz * dz);
             }
 
+            // Collect visible sectors, then draw nearest-first — matches the
+            // per-chunk path and lets early-Z reject occluded sector fragments.
+            sectorDrawList.Clear();
             foreach (var sector in bakedSectors)
             {
                 if (!sector.active || sector.buildingCount == 0) continue;
@@ -1978,16 +2016,32 @@ namespace SteelCity.Sim
                 if (!disableSectorCulling)
                 {
                     if (!GeometryUtility.TestPlanesAABB(frustumPlanes, sectorBounds))
+                    {
+                        perfLodCulled++;
                         continue;
+                    }
 
-                    if (maxRenderDistance > 0f)
+                    // Distance culling is perspective-only — in ortho the camera's
+                    // vertical gap would cull sectors directly under the map camera.
+                    if (!isOrtho && maxRenderDistance > 0f)
                     {
                         float distToBox = DistanceToAABB(cam.transform.position, sector.sectorMin, sector.sectorMax);
                         if (distToBox > (maxRenderDistance + pad))
+                        {
+                            perfLodCulled++;
                             continue;
+                        }
                     }
                 }
 
+                float sortDist = DistanceToAABB(cam.transform.position, sector.sectorMin, sector.sectorMax);
+                sectorDrawList.Add((sector, sortDist));
+            }
+
+            sectorDrawList.Sort((a, b) => a.dist.CompareTo(b.dist));
+
+            foreach (var (sector, sortDist) in sectorDrawList)
+            {
                 // Per-building TRS matrices — pre-cached at RegisterSector time (buildings never move)
                 var matrices = sector.cachedMatrices;
 
@@ -2019,6 +2073,65 @@ namespace SteelCity.Sim
                 sectorBlock.SetBuffer(propPivots, dummyPivotBuffer);
                 sectorBlock.SetInt(propAnimStaticParamsEnabled, 0);
                 sectorBlock.SetBuffer(propAnimStaticParams, dummyAnimStaticParamsBuffer);
+
+                // --- Per-sector screen-space LOD (same tiers as the chunk path) ---
+                // Sectors are big, so screenRatio stays high — a sector spanning
+                // half the screen correctly keeps near quality; only distant
+                // small-coverage sectors drop tiers. The shader self-floors
+                // _MaxSteps at each instance's cell-crossing bound, so the wins
+                // here are cheap/unlit shading (skips shadow march + normal
+                // blend), not march length.
+                float boundsRadius = (sector.sectorMax - sector.sectorMin).magnitude * 0.5f;
+                float distToCenter = Vector3.Distance(
+                    (sector.sectorMin + sector.sectorMax) * 0.5f, cam.transform.position);
+                float screenRatio = isOrtho
+                    ? boundsRadius / Mathf.Max(orthoSize, 0.001f)
+                    : boundsRadius / (Mathf.Max(distToCenter, 0.001f) * perspHalfHeight);
+
+                bool forceUltra = debugForceAllBuildingsUltraLod;
+                int lodSteps, cheapShading = 0, unlitLod = 0, lodDebugEnabled = 0;
+                Color lodDebugColor = Color.white;
+
+                if (forceUltra || screenRatio < lodUltraScreenRatio)
+                {
+                    lodSteps = Mathf.Clamp(lodUltraFarSteps, 8, maxSteps);
+                    cheapShading = enableCheapShadingLod ? 1 : 0;
+                    unlitLod = enableUnlitLod ? 1 : 0;
+                    perfLodUltra++;
+                }
+                else if (screenRatio < lodFarScreenRatio)
+                {
+                    lodSteps = Mathf.Clamp(lodFarSteps, 8, maxSteps);
+                    cheapShading = enableCheapShadingLod ? 1 : 0;
+                    unlitLod = enableUnlitLod ? 1 : 0;
+                    perfLodFar++;
+                }
+                else if (screenRatio < lodMidScreenRatio)
+                {
+                    lodSteps = Mathf.Clamp(lodMidSteps, 8, maxSteps);
+                    cheapShading = enableCheapShadingLod ? 1 : 0;
+                    perfLodMid++;
+                }
+                else
+                {
+                    lodSteps = maxSteps;
+                    perfLodNear++;
+                }
+
+                if (debugColorizeLodTiers)
+                {
+                    lodDebugEnabled = 1;
+                    if (forceUltra || screenRatio < lodUltraScreenRatio) lodDebugColor = new Color(1f, 0.15f, 0.15f);      // red
+                    else if (screenRatio < lodFarScreenRatio) lodDebugColor = new Color(1f, 0.55f, 0f);                     // orange
+                    else if (screenRatio < lodNearScreenRatio) lodDebugColor = new Color(1f, 0.9f, 0.1f);                   // yellow
+                    else lodDebugColor = new Color(0.2f, 0.9f, 0.2f);                                                        // green
+                }
+
+                sectorBlock.SetInt(propMaxSteps, lodSteps);
+                sectorBlock.SetInt(propCheapShading, cheapShading);
+                sectorBlock.SetInt(propUnlitLod, unlitLod);
+                sectorBlock.SetInt(propLodDebugEnabled, lodDebugEnabled);
+                sectorBlock.SetVector(propLodDebugColor, lodDebugColor);
 
                 cmd.DrawMeshInstanced(proxyCubeMesh, 0, sectorMaterial, 0, matrices, sector.buildingCount, sectorBlock);
                 perfSectorsDrawn++;

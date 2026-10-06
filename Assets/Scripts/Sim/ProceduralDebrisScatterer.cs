@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace SteelCity.Sim
@@ -13,7 +14,59 @@ namespace SteelCity.Sim
     public static class ProceduralDebrisScatterer
     {
         /// <summary>Toggle to disable debris scatter on empty plots for debugging.</summary>
-        public static bool Enabled = true;
+        public static bool Enabled
+        {
+            get => _enabled;
+            set { if (_enabled != value) { _enabled = value; variantCache.Clear(); } }
+        }
+        private static bool _enabled = true;
+
+        /// <summary>
+        /// Number of distinct debris variants shared across all empty plots.
+        /// Lots hashing to the same variant share one voxel array (and one buffer
+        /// region under sector baking) instead of a unique copy per lot —
+        /// ~1.2 GB of duplicate data at 32x32 becomes ~2 MB.
+        /// </summary>
+        public const int NumVariants = 16;
+
+        // Shared scattered-variant pool. Cached arrays are READ-ONLY for callers.
+        // Invalidated if the base array reference changes (e.g. different stasset).
+        private static readonly Dictionary<int, uint[]> variantCache = new Dictionary<int, uint[]>();
+        private static uint[] variantCacheBase;
+
+        /// <summary>
+        /// Deterministically map a lot's (row, col, subIndex) to a pooled variant index.
+        /// </summary>
+        public static int GetVariantIndex(int row, int col, int subIndex)
+        {
+            int hash = (row * 73856093) ^ (col * 19349663) ^ ((subIndex + 1) * 83492791);
+            hash = (hash ^ (hash >> 16)) & 0x7FFFFFFF;
+            return hash % NumVariants;
+        }
+
+        /// <summary>
+        /// Returns the shared scattered voxel array for a variant of baseData.
+        /// Scattered at most once per variant per base array; result is READ-ONLY.
+        /// </summary>
+        public static uint[] GetVariantData(uint[] baseData, int w, int h, int d, int variantIndex)
+        {
+            if (variantCacheBase != baseData)
+            {
+                variantCache.Clear();
+                variantCacheBase = baseData;
+            }
+
+            variantIndex %= NumVariants;
+            if (variantIndex < 0) variantIndex += NumVariants;
+
+            if (variantCache.TryGetValue(variantIndex, out var data))
+                return data;
+
+            var scattered = (uint[])baseData.Clone();
+            ScatterVariant(scattered, w, h, d, variantIndex);
+            variantCache[variantIndex] = scattered;
+            return scattered;
+        }
         // Material IDs (must match StAssetReader palette)
         private const ushort AIR = 0;
         private const ushort STONE = 101;
@@ -60,10 +113,27 @@ namespace SteelCity.Sim
         public static void Scatter(uint[] voxels, int w, int h, int d,
             int row, int col, int subIndex, float density = 0.03f)
         {
-            if (!Enabled) return;
-
             // Deterministic seed from grid position
             int seed = (row * 73856093) ^ (col * 19349663) ^ (subIndex * 83492791);
+            ScatterSeeded(voxels, w, h, d, seed, density);
+        }
+
+        /// <summary>
+        /// Scatter a pooled debris variant. The seed derives from the variant
+        /// index alone, so every lot sharing a variant gets identical data.
+        /// </summary>
+        public static void ScatterVariant(uint[] voxels, int w, int h, int d,
+            int variantIndex, float density = 0.03f)
+        {
+            // Golden-ratio stride keeps consecutive variant seeds decorrelated
+            ScatterSeeded(voxels, w, h, d, unchecked(variantIndex * (int)0x9E3779B1), density);
+        }
+
+        private static void ScatterSeeded(uint[] voxels, int w, int h, int d,
+            int seed, float density)
+        {
+            if (!Enabled) return;
+
             seed = seed & 0x7FFFFFFF; // ensure positive
             var rng = new System.Random(seed);
 

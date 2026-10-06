@@ -61,6 +61,10 @@ namespace SteelCity.Sim
         private float ComputedSpacing => GroundTileSize + roadWidth;
         private float voxelBlockSpacing => ComputedSpacing;
 
+        // Terrain sector banding limits (see BuildVoxelTerrain): instance cap 511, float-exact offsets < 2^24.
+        private const int MaxTerrainChunksPerSector = 256;
+        private const int MaxTerrainVoxelsPerSector = (1 << 24) - 1;
+
         [Header("Roads")]
         [Tooltip("Show road name labels on streets.")]
         [SerializeField] private bool showRoadNames = true;
@@ -1138,49 +1142,71 @@ namespace SteelCity.Sim
                     out blockAnchors);
                 tGen.Stop();
 
-                // Bake all terrain chunks into a single sector (1 ComputeBuffer, 1 draw call)
+                // Bake terrain chunks into sector(s) — 1 ComputeBuffer + 1 draw call each.
+                // A single terrain sector silently breaks at city scale (1024 chunks = 143M voxels):
+                //   - DrawMeshInstanced caps at 511 instances (docs/systems/GPU_DRIVEN_SECTOR_RENDERING.md gap #3)
+                //   - buffer offsets travel through float4 meta (_BuildingMeta.x) -> exact only below 2^24 voxels
+                //   - D3D11 structured-buffer SRVs top out at 2^27 elements
+                // So chunks (row-major, contiguous) are banded into sectors under all three limits.
+                // A 10x10 city (100 chunks, 13.9M voxels) still yields exactly one sector.
                 var tUpload = Stopwatch.StartNew();
                 int chunkCount = terrainChunks.Count;
-                var terrainMeta = new Vector4[chunkCount];
-                var terrainPositions = new Vector4[chunkCount];
-                int totalVoxels = 0;
+                int totalVoxelsAll = 0;
+                int sectorCount = 0;
+                Vector3 terrainMinAll = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
+                Vector3 terrainMaxAll = new Vector3(float.MinValue, float.MinValue, float.MinValue);
 
-                // First pass: compute offsets and total size
-                for (int i = 0; i < chunkCount; i++)
+                int bandStart = 0;
+                while (bandStart < chunkCount)
                 {
-                    var tc = terrainChunks[i];
-                    int vc = tc.w * tc.h * tc.d;
-                    terrainMeta[i] = new Vector4(totalVoxels, tc.w, tc.h, tc.d);
-                    terrainPositions[i] = new Vector4(tc.worldOrigin.x, tc.worldOrigin.y, tc.worldOrigin.z, voxelSize);
-                    totalVoxels += vc;
+                    // Greedy band: extend until a limit would be exceeded (always take at least one chunk)
+                    int bandEnd = bandStart;
+                    int bandVoxels = 0;
+                    while (bandEnd < chunkCount && bandEnd - bandStart < MaxTerrainChunksPerSector)
+                    {
+                        var tcb = terrainChunks[bandEnd];
+                        int vcb = tcb.w * tcb.h * tcb.d;
+                        if (bandEnd > bandStart && bandVoxels + vcb > MaxTerrainVoxelsPerSector) break;
+                        bandVoxels += vcb;
+                        bandEnd++;
+                    }
+                    int bandCount = bandEnd - bandStart;
+
+                    var terrainMeta = new Vector4[bandCount];
+                    var terrainPositions = new Vector4[bandCount];
+                    var mergedTerrain = new uint[bandVoxels];
+                    Vector3 terrainMin = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
+                    Vector3 terrainMax = new Vector3(float.MinValue, float.MinValue, float.MinValue);
+                    int writeOffset = 0;
+
+                    for (int i = 0; i < bandCount; i++)
+                    {
+                        var tc = terrainChunks[bandStart + i];
+                        int vc = tc.w * tc.h * tc.d;
+                        terrainMeta[i] = new Vector4(writeOffset, tc.w, tc.h, tc.d);
+                        terrainPositions[i] = new Vector4(tc.worldOrigin.x, tc.worldOrigin.y, tc.worldOrigin.z, voxelSize);
+                        System.Array.Copy(tc.data, 0, mergedTerrain, writeOffset, vc);
+                        writeOffset += vc;
+
+                        // Register collision for this chunk
+                        collisionWorld.RegisterTerrainChunk(tc.data, tc.w, tc.h, tc.d, tc.worldOrigin, voxelSize);
+
+                        // Compute sector AABB
+                        Vector3 cMin = tc.worldOrigin;
+                        Vector3 cMax = tc.worldOrigin + new Vector3(tc.w * voxelSize, tc.h * voxelSize, tc.d * voxelSize);
+                        terrainMin = Vector3.Min(terrainMin, cMin);
+                        terrainMax = Vector3.Max(terrainMax, cMax);
+                    }
+
+                    chunkManager.RegisterSector($"terrain_sector_{sectorCount}", mergedTerrain, terrainMeta, terrainPositions,
+                        voxelSize, terrainMin, terrainMax);
+
+                    totalVoxelsAll += bandVoxels;
+                    terrainMinAll = Vector3.Min(terrainMinAll, terrainMin);
+                    terrainMaxAll = Vector3.Max(terrainMaxAll, terrainMax);
+                    sectorCount++;
+                    bandStart = bandEnd;
                 }
-
-                // Second pass: concatenate into one flat buffer
-                var mergedTerrain = new uint[totalVoxels];
-                int writeOffset = 0;
-                Vector3 terrainMin = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
-                Vector3 terrainMax = new Vector3(float.MinValue, float.MinValue, float.MinValue);
-
-                for (int i = 0; i < chunkCount; i++)
-                {
-                    var tc = terrainChunks[i];
-                    int vc = tc.w * tc.h * tc.d;
-                    System.Array.Copy(tc.data, 0, mergedTerrain, writeOffset, vc);
-                    writeOffset += vc;
-
-                    // Register collision for this chunk
-                    collisionWorld.RegisterTerrainChunk(tc.data, tc.w, tc.h, tc.d, tc.worldOrigin, voxelSize);
-
-                    // Compute sector AABB
-                    Vector3 cMin = tc.worldOrigin;
-                    Vector3 cMax = tc.worldOrigin + new Vector3(tc.w * voxelSize, tc.h * voxelSize, tc.d * voxelSize);
-                    terrainMin = Vector3.Min(terrainMin, cMin);
-                    terrainMax = Vector3.Max(terrainMax, cMax);
-                }
-
-                // Register as a single sector — 1 ComputeBuffer, 1 draw call
-                chunkManager.RegisterSector("terrain_sector", mergedTerrain, terrainMeta, terrainPositions,
-                    voxelSize, terrainMin, terrainMax);
                 tUpload.Stop();
 
                 string logPath = Path.Combine(Application.persistentDataPath, "buildmap_log.txt");
@@ -1188,11 +1214,11 @@ namespace SteelCity.Sim
                     File.AppendAllText(logPath,
                         $"[{DateTime.Now:HH:mm:ss.fff}] PHASE 1A (terrain gen parallel): {tGen.ElapsedMilliseconds}ms for {chunkCount} chunks\n");
                     File.AppendAllText(logPath,
-                        $"[{DateTime.Now:HH:mm:ss.fff}] PHASE 1B (terrain sector bake + collision): {tUpload.ElapsedMilliseconds}ms for {chunkCount} chunks, {totalVoxels:N0} voxels\n");
+                        $"[{DateTime.Now:HH:mm:ss.fff}] PHASE 1B (terrain sector bake + collision): {tUpload.ElapsedMilliseconds}ms for {chunkCount} chunks in {sectorCount} sector(s), {totalVoxelsAll:N0} voxels\n");
                 } catch { }
 
-                Debug.Log($"[CityMap3D] Terrain sector: {chunkCount} chunks baked into 1 sector, {totalVoxels:N0} total voxels, " +
-                    $"{blockAnchors.Count} block anchors, bounds {terrainMin}..{terrainMax}");
+                Debug.Log($"[CityMap3D] Terrain: {chunkCount} chunks baked into {sectorCount} sector(s), {totalVoxelsAll:N0} total voxels, " +
+                    $"{blockAnchors.Count} block anchors, bounds {terrainMinAll}..{terrainMaxAll}");
             }
             else
             {
@@ -1541,10 +1567,7 @@ namespace SteelCity.Sim
                     VoxelChunkManager.BuildingFootprint footprint;
                     if (IsEmptyLand(stasset))
                     {
-                        footprint = chunkManager.LoadChunkCenteredProcedural(
-                            chunkName, fullPath, anchorPos,
-                            (voxels, w, h, d) => ProceduralDebrisScatterer.Scatter(
-                                voxels, w, h, d, row, col, -1));
+                        footprint = LoadEmptyLotChunk(chunkName, fullPath, anchorPos, row, col, -1);
                     }
                     else
                     {
@@ -1596,10 +1619,7 @@ namespace SteelCity.Sim
                                 VoxelChunkManager.BuildingFootprint footprint;
                                 if (IsEmptyLand(stasset))
                                 {
-                                    footprint = chunkManager.LoadChunkCenteredProcedural(
-                                        chunkName, fullPath, anchorPos,
-                                        (voxels, w, h, d) => ProceduralDebrisScatterer.Scatter(
-                                            voxels, w, h, d, row, col, i));
+                                    footprint = LoadEmptyLotChunk(chunkName, fullPath, anchorPos, row, col, i);
                                 }
                                 else
                                 {
@@ -1641,10 +1661,7 @@ namespace SteelCity.Sim
                             VoxelChunkManager.BuildingFootprint footprint;
                             if (IsEmptyLand(stasset))
                             {
-                                footprint = chunkManager.LoadChunkCenteredProcedural(
-                                    chunkName, fullPath, buildingCenter,
-                                    (voxels, w, h, d) => ProceduralDebrisScatterer.Scatter(
-                                        voxels, w, h, d, row, col, i));
+                                footprint = LoadEmptyLotChunk(chunkName, fullPath, buildingCenter, row, col, i);
                             }
                             else
                             {
@@ -1691,6 +1708,21 @@ namespace SteelCity.Sim
                 label = tmp,
                 blockId = blockId
             };
+        }
+
+        /// <summary>
+        /// Load an empty-land chunk using a pooled debris variant — lots hashing
+        /// to the same variant share one scattered array (read-only, no clone).
+        /// </summary>
+        private VoxelChunkManager.BuildingFootprint LoadEmptyLotChunk(
+            string chunkName, string fullPath, Vector3 centerPos, int row, int col, int subIndex)
+        {
+            var (baseData, w, h, d) = VoxelChunkManager.GetPackedVoxels(fullPath);
+            if (baseData == null) return null;
+
+            int variant = ProceduralDebrisScatterer.GetVariantIndex(row, col, subIndex);
+            var data = ProceduralDebrisScatterer.GetVariantData(baseData, w, h, d, variant);
+            return chunkManager.LoadChunkCenteredShared(chunkName, data, w, h, d, centerPos);
         }
 
         /// <summary>
@@ -1787,10 +1819,9 @@ namespace SteelCity.Sim
                 VoxelChunkManager.BuildingFootprint footprint;
                 if (ProceduralDebrisScatterer.Enabled)
                 {
-                    footprint = chunkManager.LoadChunkCenteredProcedural(
+                    footprint = LoadEmptyLotChunk(
                         addr.chunkName, addr.stassetPath, addr.worldCenter,
-                        (voxels, w, h, d) => ProceduralDebrisScatterer.Scatter(
-                            voxels, w, h, d, addr.row, addr.col, addr.subIndex));
+                        addr.row, addr.col, addr.subIndex);
                 }
                 else
                 {

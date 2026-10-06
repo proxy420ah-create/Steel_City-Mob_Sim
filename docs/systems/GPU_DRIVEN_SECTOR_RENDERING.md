@@ -60,6 +60,8 @@ These are cheap to fix and should be done **before** attempting the larger GPU-d
 2. **No depth sort.** `RenderProxyChunks` sorts its draw list nearest-first for early-Z rejection. `bakedSectors` draws in registration order — occluded far sectors don't benefit from near sectors having written depth first.
 3. **1023-instance cap risk.** `DrawMeshInstanced` supports at most 511 (with `worldToObject` matrix) or 1023 instances (with `assumeuniformscaling`). A dense sector (large `sectorSizeBlocks` × many small buildings per block) could silently exceed this and fail to render — indistinguishable from a culling bug.
 
+   > **UPDATE 2026-10-05 — this gap bit us.** At 32×32 the single terrain sector (1,024 instances, 143M voxels) silently dropped about half the roads/sidewalks, with no log output. It was fixed by banding terrain into multiple sectors (`CityMap3D.BuildVoxelTerrain`). Two *additional* per-sector limits were identified at the same time — float-exact buffer offsets (≤ 2^24 voxels, since offsets travel through `float4 _BuildingMeta.x`) and the D3D11 2^27-element buffer ceiling. The full set of sector invariants, the measured numbers, and the still-missing **loud guard in `RegisterSector`** (backlog item O1) are in [`CITY_SCALE_ARCHITECTURE.md`](CITY_SCALE_ARCHITECTURE.md). Current building sectors are safe (≤144 instances, ≤8.8M voxels), but raising `sectorSizeBlocks` to 8 would give 576 instances and re-trigger the silent failure.
+
 ---
 
 ## Proposed Enhancement: GPU-Driven Indirect Rendering

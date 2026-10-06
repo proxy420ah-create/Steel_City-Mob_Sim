@@ -323,6 +323,15 @@
   - Trigger conditions for when to extract (not premature)
   - Anti-patterns to avoid (line count alone, during creative sessions, deep dependency chains)
 
+**City Scale Architecture (32×32):**
+- **`docs/systems/CITY_SCALE_ARCHITECTURE.md`** — Scaling the city from the 10×10 test rig to the 32×32 production blueprint
+  - Findings: terrain sector overflow (half the roads vanished silently), layout-generator schema drift
+  - Sector invariants (≤511 instances, ≤2^24−1 voxels, ≤2^27 elements per sector) — the rules new terrain/seam/building work must respect
+  - Measured build timings (10×10 ≈ 1.1 s vs 32×32 ≈ 14 s) and memory budget (~1.83 GB voxel data)
+  - Prioritized optimization backlog O1–O9 (loud sector guard, collision-grid regrow, empty-lot variant pool, terrain tile dedupe, sector LOD, …) with evidence + status
+  - Milestone plan M0–M4 (32×32 render → profile → river/bridge → zones→buildings → integration)
+  - Tooling: `Tools/generate_city_layout.py` (`--activate` / `--restore`), where the Unity/`buildmap_log.txt` logs live
+
 **Instanced Rendering Pitfalls:**
 - **`docs/systems/INSTANCED_RENDERING_PITFALLS.md`** — Non-obvious behaviors of the custom raymarch instancing pipeline
   - Why toggling GameObjects in Inspector doesn't hide them (CommandBuffer bypasses Unity culling)
