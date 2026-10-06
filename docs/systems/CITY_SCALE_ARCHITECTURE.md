@@ -162,11 +162,13 @@ Nothing has crashed, but these have only run at 10x10 and have **no evidence eit
 |---|---|---|---|
 | **M0** | Render 32x32 with current assets (direct scale-up of the 10x10) | Loads, whole map visible, no errors | ✅ Done — terrain overflow found + fixed; load ~14 s |
 | **M1** | Profile at scale | Profiler capture from the overview camera + a close-up: CPU ms, GPU ms, `perfSectorsDrawn`, VRAM; instrument 1B (O2b). Decide whether O2/O3/O5 are needed | 🔄 In progress — user reports ~110 FPS resting / >100 stabilized post-O3+O5; formal profiler capture still pending |
-| **M2** | River + bridge system | See below | 📐 Next |
+| **M2** | River + bridge system | Specified in [`RIVER_AND_BRIDGE_TILES.md`](RIVER_AND_BRIDGE_TILES.md) (smart-foundation recipe, neighbor mask, `MAT_WATER=137`, `Tools/generate_river_tile.py` prototype); summary below | 📐 Spec done — ready to implement |
 | **M3** | Blueprint → buildings bridge | Editor zones (core / commercial / industrial / residential, from `zoning_sandbox.html` params in `CityGen1.json`) drive which `.stasset` goes in each slot | ⏳ |
 | **M4** | Integration | Waypoint scanner (pipeline task 3), populated template (NPCs/businesses), combat/AI budgets measured against **real** frame cost | ⏳ |
 
 ### M2 — River + Bridge (design notes)
+
+> **Full spec**: [`RIVER_AND_BRIDGE_TILES.md`](RIVER_AND_BRIDGE_TILES.md) — supersedes/extends this section. Key decision captured there: **smart foundation** (carve depth only at the river channel; grade stays y=0) and block-scale water tiles with neighbor-mask edge recipes. Prototype `river_straight.json` authored via `Tools/generate_river_tile.py`.
 
 The editor already authors this: block `terrain: "land" | "water" | …`, seam types incl. `bridge`, exported as the v3 JSON documented in `CITY_LAYOUT_PIPELINE.md` (`blocks[{row,col,block_id,terrain}]`, `hSeams`, `vSeams`, `gridSize: 32`, `groundTileSize: 11.6`, `spacing: 13.2` — these already match the Unity numbers above). Pipeline tasks 1 and 2 are the prerequisite work:
 

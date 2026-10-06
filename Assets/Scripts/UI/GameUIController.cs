@@ -205,7 +205,8 @@ namespace SteelCity.Sim
                             cityMap.Spacing,
                             cityMap.GroundTile,
                             cityMap.SidewalkW,
-                            cityMap.MapRoot.position);
+                            cityMap.MapRoot.position,
+                            cityMap.GetComponent<VoxelCollisionWorld>());
                     }
                 }
                 // Wire graph to PathDebugRenderer for F7 beam display
@@ -423,8 +424,6 @@ namespace SteelCity.Sim
             var roadSection = CreateAccordionSection(groupObj.transform, "ROAD & CAMERA", goldColor, startExpanded: true);
             accordionGroup.AddSection(roadSection);
             var roadContent = roadSection.Content;
-            AddEditorSlider(roadContent, "Road Width", cityMap.GetRoadWidth(), 0.1f, 6f,
-                cityMap.SetRoadWidth);
             AddEditorSlider(roadContent, "Sidewalk Width", cityMap.GetSidewalkWidth(), 0.1f, 4f,
                 cityMap.SetSidewalkWidth);
             AddEditorSlider(roadContent, "Camera Zoom", cityMap.GetCameraOrthoSize(), 3f, 40f,
@@ -528,7 +527,7 @@ namespace SteelCity.Sim
             var arrowObj = new GameObject("Arrow");
             arrowObj.transform.SetParent(headerObj.transform, false);
             var arrowText = arrowObj.AddComponent<TextMeshProUGUI>();
-            arrowText.text = startExpanded ? "▼" : "▶";
+            arrowText.text = startExpanded ? "▼" : ">";
             arrowText.fontSize = 12;
             arrowText.color = headerColor;
             arrowText.raycastTarget = false;
@@ -1129,7 +1128,8 @@ namespace SteelCity.Sim
                     cityMap.Spacing,
                     cityMap.GroundTile,
                     cityMap.SidewalkW,
-                    cityMap.MapRoot.position);
+                    cityMap.MapRoot.position,
+                    cityMap.GetComponent<VoxelCollisionWorld>());
                 // Wire graph to PathDebugRenderer for F7 beam display
                 var pdr = PathDebugRenderer.Instance;
                 if (pdr != null) pdr.SetDebugGraph(waypointGraph);

@@ -74,7 +74,8 @@ namespace SteelCity.Sim
                 cityMap.Spacing,
                 cityMap.GroundTile,
                 cityMap.SidewalkW,
-                cityMap.MapRoot.position);
+                cityMap.MapRoot.position,
+                cityMap.GetComponent<VoxelCollisionWorld>());
             pathfinder = new Pathfinder(waypointGraph);
             Debug.Log($"[StressTest] WaypointGraph built: {waypointGraph.Nodes.Count} nodes");
         }

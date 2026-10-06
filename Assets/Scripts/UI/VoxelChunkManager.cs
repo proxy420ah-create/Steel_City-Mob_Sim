@@ -136,7 +136,7 @@ namespace SteelCity.Sim
 
         // --- Material color lookup (shared) ---
         private ComputeBuffer sharedMaterialBuffer;
-        private static readonly int MaxMaterials = 130; // matches StAssetReader.MaterialCount
+        private static readonly int MaxMaterials = StAssetReader.MaterialCount; // keep coupled — buffer must cover every material id
         private ComputeBuffer defaultTintBuffer; // all (1,1,1,1) — used when no custom tint set
         private ComputeBuffer dummyGroupIDBuffer; // single uint(0) — bound when no .groups file exists
         private ComputeBuffer dummyWalkKeyframeBuffer; // 10 float4s of zeros — bound when walk keyframes disabled

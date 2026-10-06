@@ -49,7 +49,10 @@ namespace SteelCity.Sim
         [Tooltip("World size of each voxel in the .stasset buildings.")]
         [SerializeField] private float voxelSize = 0.05f;
         [Tooltip("Width of the road between blocks (cars, trolleys).")]
-        [SerializeField] private float roadWidth = 1.6f;
+        // Road width is a hardcoded baseline (two 1.4 m lanes around the 1.0 m car +
+        // the 0.1 m cobble center stripe = dual-traffic divider). Not tunable at runtime —
+        // live-resizing forces a full RebuildCity per tick and destroys spawned entities.
+        private const float roadWidth = 3.0f;
         [Tooltip("Width of sidewalk strip around each building (in world units). ~10 building voxels = room for benches, foot traffic, cops on beat.")]
         [SerializeField] private float sidewalkWidth = 1.0f;
         [Tooltip("Number of building slots per block row (3 = 3×3 grid with center courtyard).")]
@@ -98,12 +101,6 @@ namespace SteelCity.Sim
         {
             if (cachedBlocks != null)
                 BuildMap(cachedBlocks);
-        }
-
-        public void SetRoadWidth(float width)
-        {
-            roadWidth = Mathf.Max(0.1f, width);
-            RebuildCity();
         }
 
         public void SetSidewalkWidth(float width)
@@ -1133,12 +1130,36 @@ namespace SteelCity.Sim
             if (useSplitTerrain)
             {
                 // === SPLIT TERRAIN: generate per-block, then bake into a single sector ===
+                // Terrain lookup: (row,col) -> "land"/"water"/"bridge"/"mainstreet"/"oob".
+                // Null/absent means land — fully backward-compatible with old layouts.
+                Dictionary<Vector2Int, string> terrainByCell = null;
+                string[][] hSeams = null, vSeams = null;
+                if (cachedLayout != null && cachedLayout.blocks != null)
+                {
+                    terrainByCell = new Dictionary<Vector2Int, string>(cachedLayout.blocks.Length);
+                    foreach (var lb in cachedLayout.blocks)
+                        terrainByCell[new Vector2Int(lb.col, lb.row)] = lb.terrain;
+                }
+                if (cachedLayout != null && cachedLayout.hSeamRows != null)
+                {
+                    hSeams = new string[cachedLayout.hSeamRows.Length][];
+                    for (int r = 0; r < cachedLayout.hSeamRows.Length; r++)
+                        hSeams[r] = cachedLayout.hSeamRows[r] != null ? cachedLayout.hSeamRows[r].cells : null;
+                }
+                if (cachedLayout != null && cachedLayout.vSeamRows != null)
+                {
+                    vSeams = new string[cachedLayout.vSeamRows.Length][];
+                    for (int r = 0; r < cachedLayout.vSeamRows.Length; r++)
+                        vSeams[r] = cachedLayout.vSeamRows[r] != null ? cachedLayout.vSeamRows[r].cells : null;
+                }
+
                 var tGen = Stopwatch.StartNew();
                 var terrainChunks = VoxelTerrainBuilder.GeneratePerBlockTerrain(
                     minRow, maxRow, minCol, maxCol,
                     centerRow, centerCol,
                     spacing, groundTile, roadWidth, voxelSize, sidewalkWidth,
                     mapRoot.position,
+                    terrainByCell, hSeams, vSeams,
                     out blockAnchors);
                 tGen.Stop();
 
@@ -1467,8 +1488,9 @@ namespace SteelCity.Sim
             int maxFrames = 60;
             while (maxFrames-- > 0)
             {
-                if (rig1 != null && rig1.Character != null &&
-                    rig2 != null && rig2.Character != null)
+                if (rig1 == null || rig2 == null)
+                    yield break; // destroyed mid-wait (e.g. RebuildCity) — respawn re-applies outfits
+                if (rig1.Character != null && rig2.Character != null)
                     break;
                 yield return null;
             }
@@ -1477,8 +1499,11 @@ namespace SteelCity.Sim
             maxFrames = 60;
             while (maxFrames-- > 0)
             {
-                var cs1 = rig1?.Character?.GetComponent<ClothingSystem>();
-                var cs2 = rig2?.Character?.GetComponent<ClothingSystem>();
+                if (rig1 == null || rig2 == null ||
+                    rig1.Character == null || rig2.Character == null)
+                    yield break; // destroyed mid-wait (e.g. RebuildCity)
+                var cs1 = rig1.Character.GetComponent<ClothingSystem>();
+                var cs2 = rig2.Character.GetComponent<ClothingSystem>();
                 if (cs1 != null && cs1.IsInitialized &&
                     cs2 != null && cs2.IsInitialized)
                 {
@@ -1638,8 +1663,11 @@ namespace SteelCity.Sim
                     {
                         int cols = Mathf.CeilToInt(Mathf.Sqrt(buildingCount));
                         int rows = Mathf.CeilToInt((float)buildingCount / cols);
-                        float subSize = GroundTileSize * 0.9f / cols;
-                        float subOffset = GroundTileSize * 0.45f - subSize * 0.5f;
+                        // Sub-lots span the building plot (tile minus sidewalk ring) —
+                        // 90%-of-tile pushed lot content over the sidewalk band.
+                        float plotSize = GroundTileSize - sidewalkWidth * 2f;
+                        float subSize = plotSize / cols;
+                        float subOffset = plotSize * 0.5f - subSize * 0.5f;
                         float buildingMeshWidth = BuildingVoxelWidth * voxelSize;
 
                         for (int i = 0; i < buildingCount; i++)
@@ -2132,6 +2160,18 @@ namespace SteelCity.Sim
     public class CityLayout
     {
         public CityLayoutBlock[] blocks;
+        // JsonUtility cannot parse raw nested arrays — the editor/generator emit
+        // wrapped rows: hSeamRows[r].cells[c] = seam between (r,c) and (r+1,c)
+        // (h = horizontal corridor, the block's S edge); vSeamRows[r].cells[c] =
+        // seam between (r,c) and (r,c+1) (v = vertical corridor, the E edge).
+        public CityLayoutSeamRow[] hSeamRows;
+        public CityLayoutSeamRow[] vSeamRows;
+    }
+
+    [Serializable]
+    public class CityLayoutSeamRow
+    {
+        public string[] cells;
     }
 
     [Serializable]
@@ -2141,6 +2181,7 @@ namespace SteelCity.Sim
         public string block_name;
         public int row;
         public int col;
+        public string terrain;          // "land" | "water" | "bridge" | "mainstreet" | "oob" (absent = land)
         public CityLayoutBuilding[] buildings;
     }
 

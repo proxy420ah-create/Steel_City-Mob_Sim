@@ -337,6 +337,15 @@ body.ui-hidden #ui-hidden-hint { display:block; }
     <button class="char-btn" id="char-hide-btn">✕ Close</button>
   </div>
   <div class="char-btn-row">
+    <button class="char-btn" id="char-path-btn" title="Draw walk path — click the model surface to drop waypoints (they stand on top of the voxel); click near a waypoint to remove it">🚩 Path</button>
+    <button class="char-btn" id="char-path-clear-btn" title="Clear all path waypoints">🧹 Clear</button>
+  </div>
+  <div class="char-btn-row">
+    <label style="font-size:10px;display:flex;align-items:center;gap:4px;cursor:pointer;" title="While playing, the reference walks the waypoint loop facing its direction of travel instead of standing at the spawn offset">
+      <input type="checkbox" id="char-path-follow" checked> Follow path (walk)
+    </label>
+  </div>
+  <div class="char-btn-row">
     <button class="char-btn" id="char-mirror-btn" title="Pose the editable model itself — sculpt/tag/pivot edits appear on the animated reference in real time">🔁 Mirror Editable</button>
   </div>
   <div class="char-info" id="char-info">No reference model loaded.</div>
@@ -3278,6 +3287,18 @@ const boxGeo = new THREE.BoxGeometry(1, 1, 1);
 const lambertMat = new THREE.MeshLambertMaterial();
 let instancedMesh = null;
 let edgesMesh = null;
+let voxelMeshCap = 0;          // allocated instance capacity (grow-only)
+let edgesMeshCap = 0;
+const EDGE_VOXEL_LIMIT = 60000; // skip per-voxel wireframe above this count
+
+// Coalesce rebuilds to at most one per animation frame — drag strokes and
+// batch ops otherwise trigger a full ~200k-instance rebuild per voxel.
+let _rebuildQueued = false;
+function scheduleRebuild() {
+  if (_rebuildQueued) return;
+  _rebuildQueued = true;
+  requestAnimationFrame(() => { _rebuildQueued = false; rebuildMesh(); });
+}
 let showEdges = true;
 
 // Material visibility
@@ -3290,6 +3311,7 @@ function ensureMatVisibility() {
   for (const m of allMaterials) {
     if (!matVisible.has(m.id)) matVisible.set(m.id, true);
   }
+  _matColorCache = null; // palette was replaced — rebuild on next getMatColor
 }
 
 let selectedMaterial = allMaterials.length > 0 ? allMaterials[0].id : 109;
@@ -3372,25 +3394,38 @@ function updateUndoRedo() {
 pushHistory();
 
 // === MESH BUILDING ===
+function isVoxelShown(x, y, z, mid) {
+  if (y < yMin || y > yMax) return false;
+  if (x < xMin || x > xMax) return false;
+  if (z < zMin || z > zMax) return false;
+  if (!matVisible.get(mid)) return false;
+  const gid = groupMap.get(`${x},${y},${z}`);
+  if (gid !== undefined && groupVisible.get(gid) === false) return false;
+  return true;
+}
+
 function getVisibleVoxels() {
   const result = [];
   for (const [key, mid] of voxelMap) {
     const [x, y, z] = key.split(',').map(Number);
-    if (y < yMin || y > yMax) continue;
-    if (x < xMin || x > xMax) continue;
-    if (z < zMin || z > zMax) continue;
-    if (!matVisible.get(mid)) continue;
-    const gid = groupMap.get(key);
-    if (gid !== undefined && groupVisible.get(gid) === false) continue;
+    if (!isVoxelShown(x, y, z, mid)) continue;
     result.push({ x, y, z, mid });
   }
   return result;
 }
 
+// Material color lookup — rebuilt lazily, invalidated in ensureMatVisibility.
+// Callers only read the returned Color (color.copy/setColorAt), never mutate.
+const FALLBACK_MAT_COLOR = new THREE.Color(0.8, 0.8, 0.8);
+let _matColorCache = null;
 function getMatColor(mid) {
-  const m = allMaterials.find(m => m.id === mid);
-  if (m) return new THREE.Color(m.r / 255, m.g / 255, m.b / 255);
-  return new THREE.Color(0.8, 0.8, 0.8);
+  if (_matColorCache === null) {
+    _matColorCache = new Map();
+    for (const m of allMaterials) {
+      _matColorCache.set(m.id, new THREE.Color(m.r / 255, m.g / 255, m.b / 255));
+    }
+  }
+  return _matColorCache.get(mid) || FALLBACK_MAT_COLOR;
 }
 
 function rebuildMesh() {
@@ -3407,24 +3442,28 @@ function rebuildMesh() {
     if (!charPlaying) rebuildCharMesh();
   }
 
-  if (instancedMesh) {
+  // Grow-only buffer reuse — dispose/realloc only when the visible count
+  // exceeds capacity; per-edit rebuilds just overwrite instances in place.
+  if (instancedMesh && count > voxelMeshCap) {
     scene.remove(instancedMesh);
     instancedMesh.dispose();
+    instancedMesh = null;
+    voxelMeshCap = 0;
   }
-  if (edgesMesh) {
-    scene.remove(edgesMesh);
-    edgesMesh.geometry.dispose();
-    edgesMesh.material.dispose();
+  if (!instancedMesh) {
+    voxelMeshCap = Math.max(count * 2, 4096);
+    instancedMesh = new THREE.InstancedMesh(boxGeo, lambertMat, voxelMeshCap);
+    instancedMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(voxelMeshCap * 3), 3);
   }
-  
+  instancedMesh.count = count;
+
   if (count === 0) {
     document.getElementById('visible-count').textContent = '0';
+    document.getElementById('voxel-count').textContent = voxelMap.size;
+    if (edgesMesh) { edgesMesh.count = 0; }
     return;
   }
-  
-  instancedMesh = new THREE.InstancedMesh(boxGeo, lambertMat, count);
-  instancedMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3);
-  
+
   const color = new THREE.Color();
   testPoseCache = {};
   animPoseChainCache = null;
@@ -3468,13 +3507,25 @@ function rebuildMesh() {
   }
   instancedMesh.instanceMatrix.needsUpdate = true;
   if (instancedMesh.instanceColor) instancedMesh.instanceColor.needsUpdate = true;
-  scene.add(instancedMesh);
-  
-  // Edges overlay
-  if (showEdges) {
-    const edgesGeo = new THREE.EdgesGeometry(boxGeo);
-    const edgesMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.25 });
-    edgesMesh = new THREE.InstancedMesh(edgesGeo, edgesMat, count);
+  if (!instancedMesh.parent) scene.add(instancedMesh);
+
+  // Edges overlay — skipped above EDGE_VOXEL_LIMIT: at large model sizes the
+  // per-voxel wireframe costs ~12 line segments per voxel (millions of segs).
+  if (showEdges && count <= EDGE_VOXEL_LIMIT) {
+    if (edgesMesh && count > edgesMeshCap) {
+      scene.remove(edgesMesh);
+      edgesMesh.geometry.dispose();
+      edgesMesh.material.dispose();
+      edgesMesh = null;
+      edgesMeshCap = 0;
+    }
+    if (!edgesMesh) {
+      edgesMeshCap = Math.max(count * 2, 4096);
+      const edgesGeo = new THREE.EdgesGeometry(boxGeo);
+      const edgesMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.25 });
+      edgesMesh = new THREE.InstancedMesh(edgesGeo, edgesMat, edgesMeshCap);
+    }
+    edgesMesh.count = count;
     for (let i = 0; i < count; i++) {
       const v = visible[i];
       let px = v.x, py = v.y, pz = v.z;
@@ -3486,7 +3537,9 @@ function rebuildMesh() {
       edgesMesh.setMatrixAt(i, dummyMatrix);
     }
     edgesMesh.instanceMatrix.needsUpdate = true;
-    scene.add(edgesMesh);
+    if (!edgesMesh.parent) scene.add(edgesMesh);
+  } else if (edgesMesh) {
+    edgesMesh.count = 0;
   }
   
   document.getElementById('visible-count').textContent = count;
@@ -3618,19 +3671,91 @@ function mirrorPositionsPreview(positions) {
 }
 
 function raycastVoxel(event) {
+  // Arm-pose test displaces rendered voxels away from grid cells — the grid
+  // march below can't see that, so fall back to instance raycasting there.
+  if (testArmPose !== 'none') return raycastVoxelMesh(event);
+
   pointer.set(
     (event.clientX / window.innerWidth) * 2 - 1,
     -(event.clientY / window.innerHeight) * 2 + 1
   );
   raycaster.setFromCamera(pointer, camera);
-  
+
+  // Amanatides-Woo DDA through the voxel map — replaces InstancedMesh.raycast,
+  // which tested every instance (~200k ray-box tests per mousemove).
+  // Cell (x,y,z) renders as a unit cube spanning
+  // [x+ox-0.5, x+ox+0.5) × [y-0.5, y+0.5) × [z+oz-0.5, z+oz+0.5).
+  const ro = raycaster.ray.origin, rd = raycaster.ray.direction;
+  const px = ro.x - originOffsetX + 0.5;
+  const py = ro.y + 0.5;
+  const pz = ro.z - originOffsetZ + 0.5;
+  let cx = Math.floor(px), cy = Math.floor(py), cz = Math.floor(pz);
+  const stepX = rd.x > 0 ? 1 : -1;
+  const stepY = rd.y > 0 ? 1 : -1;
+  const stepZ = rd.z > 0 ? 1 : -1;
+  const tDX = rd.x !== 0 ? Math.abs(1 / rd.x) : Infinity;
+  const tDY = rd.y !== 0 ? Math.abs(1 / rd.y) : Infinity;
+  const tDZ = rd.z !== 0 ? Math.abs(1 / rd.z) : Infinity;
+  let tMX = tDX === Infinity ? Infinity : (rd.x > 0 ? cx + 1 - px : px - cx) * tDX;
+  let tMY = tDY === Infinity ? Infinity : (rd.y > 0 ? cy + 1 - py : py - cy) * tDY;
+  let tMZ = tDZ === Infinity ? Infinity : (rd.z > 0 ? cz + 1 - pz : pz - cz) * tDZ;
+  let t = 0, axis = -1;
+  const maxT = (W + H + D) * 2; // generous bound in voxel units
+
+  for (let i = 0; i < 1024; i++) {
+    if (cx >= 0 && cx < W && cy >= 0 && cy < H && cz >= 0 && cz < D) {
+      const mid = getVoxelAt(cx, cy, cz);
+      if (mid !== 0 && isVoxelShown(cx, cy, cz, mid)) {
+        const n = new THREE.Vector3();
+        if (axis === 0) n.x = -stepX;
+        else if (axis === 1) n.y = -stepY;
+        else if (axis === 2) n.z = -stepZ;
+        else {
+          // Ray started inside the voxel — face it with the dominant axis.
+          const ax = Math.abs(rd.x), ay = Math.abs(rd.y), az = Math.abs(rd.z);
+          if (ax >= ay && ax >= az) n.x = -stepX;
+          else if (ay >= az) n.y = -stepY;
+          else n.z = -stepZ;
+        }
+        return {
+          x: cx, y: cy, z: cz, normal: n, mid,
+          placeX: cx + Math.round(n.x),
+          placeY: cy + Math.round(n.y),
+          placeZ: cz + Math.round(n.z),
+        };
+      }
+    }
+    if (tMX <= tMY && tMX <= tMZ) { cx += stepX; t = tMX; tMX += tDX; axis = 0; }
+    else if (tMY <= tMZ)          { cy += stepY; t = tMY; tMY += tDY; axis = 1; }
+    else                          { cz += stepZ; t = tMZ; tMZ += tDZ; axis = 2; }
+    if (t > maxT) break;
+  }
+
+  // Missed every voxel — ground plane fallback for empty-space placement.
+  const gp = raycaster.intersectObject(groundPlane, false);
+  if (gp.length === 0) return null;
+  const p = gp[0].point;
+  const x = Math.floor(p.x - originOffsetX);
+  const z = Math.floor(p.z - originOffsetZ);
+  return { x, y: 0, z, normal: new THREE.Vector3(0, 1, 0), placeY: 0 };
+}
+
+// Original mesh raycast — kept for testArmPose, where rendered positions are
+// displaced from grid cells and instance picking is the correct test.
+function raycastVoxelMesh(event) {
+  pointer.set(
+    (event.clientX / window.innerWidth) * 2 - 1,
+    -(event.clientY / window.innerHeight) * 2 + 1
+  );
+  raycaster.setFromCamera(pointer, camera);
+
   const objects = [];
   if (instancedMesh) objects.push(instancedMesh);
   objects.push(groundPlane);
-  
+
   const intersects = raycaster.intersectObjects(objects, false);
   if (intersects.length === 0) return null;
-  
+
   const hit = intersects[0];
   
   if (hit.object === groundPlane) {
@@ -4961,7 +5086,10 @@ assetTypeSelect.addEventListener('change', () => {
   charPlaying = false;
   charArmed = false;
   mirrorEditable = false;
-  charOffsetX = 0; charOffsetZ = 0;
+  charOffsetX = 0; charOffsetZ = 0; charOffsetY = 0;
+  charPath.length = 0; charPathDist = 0; pathDrawMode = false;
+  updatePathMarkers();
+  document.getElementById('char-path-btn').classList.remove('active');
   detachItem();
   rebuildCharMesh();
   document.getElementById('char-info').textContent = 'No reference model loaded.';
@@ -5232,6 +5360,22 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   if (e.button === 0) {
     mouseDownPos = { x: e.clientX, y: e.clientY };
     isDragging = false;
+    // Path draw mode: click the model surface to drop/remove waypoints —
+    // swallows the click so voxel tools never fire while drawing.
+    if (pathDrawMode) {
+      const hit = raycastVoxel(e);
+      if (hit && hit.mid !== undefined) {
+        const wp = { x: hit.x, y: hit.y + 1, z: hit.z };
+        const near = charPath.findIndex(p =>
+          Math.abs(p.x - wp.x) <= 1 && Math.abs(p.y - wp.y) <= 1 && Math.abs(p.z - wp.z) <= 1);
+        if (near >= 0) charPath.splice(near, 1); else charPath.push(wp);
+        updatePathMarkers();
+        if (!charPlaying) rebuildCharMesh(); // snap the preview to path point 0
+        setStatus(`Path: waypoint ${near >= 0 ? 'removed' : 'added'} — ${charPath.length} point(s)`);
+      }
+      isDragging = true;
+      return;
+    }
     // Paint tool: start drag-paint immediately (unless selection is active — that uses click-to-apply)
     if (currentTool === 'paint' && !selectionActive) {
       const hit = raycastVoxel(e);
@@ -5241,7 +5385,7 @@ renderer.domElement.addEventListener('mousedown', (e) => {
         paintDragVisited = new Set();
         isDragging = true; // prevent click-performTool on mouseup; drag handles it
         if (paintDragVoxel(hit)) {
-          rebuildMesh();
+          scheduleRebuild();
           setStatus(`Painting (drag)... ${paintDragCount} voxel(s)`);
         }
       }
@@ -5297,7 +5441,7 @@ renderer.domElement.addEventListener('mousemove', (e) => {
     const hit = raycastVoxel(e);
     if (hit && hit.mid !== undefined) {
       if (paintDragVoxel(hit)) {
-        rebuildMesh();
+        scheduleRebuild();
         setStatus(`Painting (drag)... ${paintDragCount} voxel(s)`);
       }
     }
@@ -5431,7 +5575,7 @@ renderer.domElement.addEventListener('mouseup', (e) => {
     isDragging = false;
     return;
   }
-  if (e.button === 0 && !isDragging && !pasteMode) {
+  if (e.button === 0 && !isDragging && !pasteMode && !pathDrawMode) {
     performTool(e);
   }
   mouseDownPos = null;
@@ -6599,6 +6743,94 @@ function getCharScaleRatio() {
 }
 let charOffsetX = 0;         // world X offset to position character next to item
 let charOffsetZ = 0;         // world Z offset
+let charOffsetY = 0;         // world Y offset — surface-snap so the ref stands
+                             // on sidewalks/terrain instead of clipping at y=0
+// Reference walk path — waypoints are editable-model cells the feet occupy
+// (the air cell just above the clicked surface voxel).
+let charPath = [];
+let pathDrawMode = false;
+let charPathDist = 0;        // distance walked along the loop (world units)
+let charPathGroup = null;    // waypoint pins + loop line
+const CHAR_PATH_SPEED_MPS = 1.4;
+const UP_AXIS = new THREE.Vector3(0, 1, 0);
+
+function charPathFollowOn() {
+  const el = document.getElementById('char-path-follow');
+  return el ? el.checked : false;
+}
+
+// Feet world-height of the surface under a world XZ (top face of the highest
+// shown voxel in that column) — 0 when the column is empty/off-volume.
+function surfaceYAt(wx, wz) {
+  const vx = Math.floor(wx - originOffsetX + 0.5);
+  const vz = Math.floor(wz - originOffsetZ + 0.5);
+  for (let y = Math.min(H - 1, yMax); y >= Math.max(0, yMin); y--) {
+    if (getVoxelAt(vx, y, vz) !== 0) return y + 0.5;
+  }
+  return 0;
+}
+
+// Position/yaw at a loop distance. Waypoint cell (x,y,z) maps to feet world
+// (x+ox, y-0.5, z+oz) — the top face of the surface voxel beneath it.
+function sampleCharPath(dist) {
+  const pts = charPath.map(p => ({ x: p.x + originOffsetX, y: p.y - 0.5, z: p.z + originOffsetZ }));
+  if (pts.length === 0) return null;
+  if (pts.length === 1) return { ...pts[0], yaw: 0 };
+  let total = 0;
+  const segs = [];
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length];
+    const len = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z);
+    segs.push({ a, b, len });
+    total += len;
+  }
+  if (total === 0) return { ...pts[0], yaw: 0 };
+  let u = ((dist % total) + total) % total;
+  for (let i = 0; i < segs.length; i++) {
+    const s = segs[i];
+    if (u <= s.len || i === segs.length - 1) {
+      const t = s.len > 0 ? u / s.len : 0;
+      return {
+        x: s.a.x + (s.b.x - s.a.x) * t,
+        y: s.a.y + (s.b.y - s.a.y) * t,
+        z: s.a.z + (s.b.z - s.a.z) * t,
+        yaw: Math.atan2(s.b.x - s.a.x, s.b.z - s.a.z), // models face +Z
+      };
+    }
+    u -= s.len;
+  }
+  return { ...pts[0], yaw: 0 };
+}
+
+function updatePathMarkers() {
+  if (charPathGroup) {
+    charPathGroup.traverse(o => {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) o.material.dispose();
+    });
+    scene.remove(charPathGroup);
+    charPathGroup = null;
+  }
+  if (!charPath.length) return;
+  charPathGroup = new THREE.Group();
+  const pinGeo = new THREE.SphereGeometry(0.3, 8, 6);
+  const pinMat = new THREE.MeshBasicMaterial({ color: 0x33ddff });
+  for (const p of charPath) {
+    const m = new THREE.Mesh(pinGeo, pinMat);
+    m.position.set(p.x + originOffsetX, p.y - 0.2, p.z + originOffsetZ);
+    charPathGroup.add(m);
+  }
+  if (charPath.length >= 2) {
+    const linePts = charPath.map(p =>
+      new THREE.Vector3(p.x + originOffsetX, p.y - 0.2, p.z + originOffsetZ));
+    linePts.push(linePts[0].clone()); // close the loop
+    charPathGroup.add(new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(linePts),
+      new THREE.LineBasicMaterial({ color: 0x33ddff })
+    ));
+  }
+  scene.add(charPathGroup);
+}
 let mirrorEditable = false;  // reference = the editable model itself (live)
 let mirrorDirty = false;     // set by rebuildMesh — re-parse on next rebuild
 let charMarkerGroup = null;  // joint/attachment markers drawn on the mirror
@@ -6654,11 +6886,20 @@ function rebuildCharMesh() {
   // The preview model is rendered at its true world scale relative to the
   // editable model: scale = preview voxelSize / editable voxelSize.
   const s = getCharScaleRatio();
-  const charOriginX = charOffsetX - (cw * s) / 2;
-  const charOriginZ = charOffsetZ - (cd * s) / 2;
+  // Walk path: when Follow is on and a path exists, the reference's feet
+  // track the waypoint loop yawed to face travel; otherwise it stands at the
+  // static offset (identity quat — same math as before either way).
+  let rootX = charOffsetX, rootY = charOffsetY, rootZ = charOffsetZ;
+  const charQuat = new THREE.Quaternion();
+  const pathPose = charPathFollowOn() ? sampleCharPath(charPathDist) : null;
+  if (pathPose) {
+    rootX = pathPose.x; rootY = pathPose.y; rootZ = pathPose.z;
+    charQuat.setFromAxisAngle(UP_AXIS, pathPose.yaw);
+  }
+  const charOriginX = rootX - (cw * s) / 2;
+  const charOriginZ = rootZ - (cd * s) / 2;
 
   const charScaleVec = new THREE.Vector3(s, s, s);
-  const charQuat = new THREE.Quaternion();
   const charPos = new THREE.Vector3();
   const zeroMat = new THREE.Matrix4().makeScale(0, 0, 0);
   for (let i = 0; i < count; i++) {
@@ -6673,7 +6914,9 @@ function rebuildCharMesh() {
         continue;
       }
     }
-    charPos.set((v.x * s) + charOriginX, v.y * s, (v.z * s) + charOriginZ);
+    charPos.set(v.x * s - (cw * s) / 2, v.y * s, v.z * s - (cd * s) / 2);
+    if (pathPose) charPos.applyQuaternion(charQuat);
+    charPos.x += rootX; charPos.y += rootY; charPos.z += rootZ;
     dummyMatrix.compose(charPos, charQuat, charScaleVec);
     charMesh.setMatrixAt(i, dummyMatrix);
     if (mirrorEditable && itemPartViewMode) {
@@ -6710,7 +6953,9 @@ function rebuildCharMesh() {
         continue;
       }
     }
-    charPos.set((v.x * s) + charOriginX, v.y * s, (v.z * s) + charOriginZ);
+    charPos.set(v.x * s - (cw * s) / 2, v.y * s, v.z * s - (cd * s) / 2);
+    if (pathPose) charPos.applyQuaternion(charQuat);
+    charPos.x += rootX; charPos.y += rootY; charPos.z += rootZ;
     dummyMatrix.compose(charPos, charQuat, charScaleVec);
     charEdgesMesh.setMatrixAt(i, dummyMatrix);
   }
@@ -7147,8 +7392,26 @@ document.getElementById('char-sync-btn').addEventListener('click', () => {
   if (!charData) return;
   charOffsetX = W / 2 + (charData.dims[0] * getCharScaleRatio()) / 2 + 4;
   charOffsetZ = 0;
+  charOffsetY = surfaceYAt(charOffsetX, charOffsetZ); // stand on terrain if any
   rebuildCharMesh();
   setStatus('Reference model re-centered next to editable model');
+});
+
+// Walk path drawing — click surfaces to drop waypoints the reference walks
+document.getElementById('char-path-btn').addEventListener('click', () => {
+  pathDrawMode = !pathDrawMode;
+  document.getElementById('char-path-btn').classList.toggle('active', pathDrawMode);
+  setStatus(pathDrawMode
+    ? 'Path draw ON — click the model surface to drop waypoints; click near one to remove'
+    : `Path draw OFF — ${charPath.length} waypoint(s)`);
+});
+
+document.getElementById('char-path-clear-btn').addEventListener('click', () => {
+  charPath.length = 0;
+  charPathDist = 0;
+  updatePathMarkers();
+  if (!charPlaying) rebuildCharMesh();
+  setStatus('Path cleared');
 });
 
 // Close panel
@@ -7174,6 +7437,10 @@ function animate() {
     const dt = (now - charLastTime) / 1000;
     charLastTime = now;
     charAnimTime += dt;
+    if (charPathFollowOn() && charPath.length >= 2) {
+      const itemVs = (ASSET_TYPE_PRESETS[assetType] && ASSET_TYPE_PRESETS[assetType].voxelSize) || 0.01;
+      charPathDist += dt * (CHAR_PATH_SPEED_MPS / itemVs);
+    }
     rebuildCharMesh();
   } else {
     charLastTime = performance.now();

@@ -23,8 +23,10 @@ namespace SteelCity.Sim
             InitMaterialColors();
         }
 
-        // Total defined materials (for tint buffer sizing)
-        public const int MaterialCount = 130;
+        // Total defined materials (for tint buffer sizing).
+        // 140 leaves headroom over the reserved gameplay block (130-139:
+        // crosswalk/cover/alley/obstacle/trolley/water — see CITY_LAYOUT_PIPELINE.md).
+        public const int MaterialCount = 140;
 
         private static void InitMaterialColors()
         {
@@ -78,6 +80,9 @@ namespace SteelCity.Sim
             MobColors[126] = new Color(0.06f, 0.06f, 0.07f, 1f);  // Black Fabric
             MobColors[127] = new Color(0.88f, 0.86f, 0.82f, 1f);  // White Fabric
             MobColors[128] = new Color(0.12f, 0.08f, 0.06f, 1f);  // Hair
+
+            // --- Terrain / gameplay (130-139) — reserved block ---
+            MobColors[137] = new Color(0.10f, 0.25f, 0.45f, 1f);  // Water — matches river tile palette #1A4073
 
             // Snapshot defaults so runtime modifications can be reset
             for (int i = 0; i < 256; i++)

@@ -329,8 +329,9 @@ namespace SteelCity.Sim
                             // Sub-grid placement
                             int cols = Mathf.CeilToInt(Mathf.Sqrt(buildingCount));
                             int rows = Mathf.CeilToInt((float)buildingCount / cols);
-                            float subSize = groundTileSize * 0.9f / cols;
-                            float subOffset = groundTileSize * 0.45f - subSize * 0.5f;
+                            float plotSize = groundTileSize - sidewalkWidth * 2f;
+                            float subSize = plotSize / cols;
+                            float subOffset = plotSize * 0.5f - subSize * 0.5f;
                             float buildingMeshWidth = buildingVoxelWidth * voxelSize;
 
                             for (int i = 0; i < buildingCount; i++)

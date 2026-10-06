@@ -2266,6 +2266,9 @@ document.getElementById('export-btn').addEventListener('click', () => {
     blockTypes: ['land', 'water', 'mainstreet', 'bridge', 'oob'],
     hSeams: hSeams,
     vSeams: vSeams,
+    // Unity JsonUtility can't parse raw nested arrays — wrapped rows are the runtime contract
+    hSeamRows: hSeams.map(r => ({ cells: r })),
+    vSeamRows: vSeams.map(r => ({ cells: r })),
     railLine: { enabled: showRailLine, direction: 'N-S', position: zoningData && zoningData.railCol !== undefined ? `col-${zoningData.railCol}` : 'east-edge', railCol: zoningData ? zoningData.railCol : undefined, trainRunsPerWeek: 3 },
     blocks: [],
   };

@@ -27,7 +27,7 @@ See `ZONING_DESIGN.md` → "City Generation Pipeline" for zoning algorithm detai
 
 The design tool is **complete and functional**. The Unity runtime integration is **pending**.
 
-> **Scale status (2026-10-05)**: Unity now renders a **32×32 (1,024-block)** city built as a direct scale-up of the 10×10 test rig via `Tools/generate_city_layout.py` — same `groundTileSize` 11.6 m / `spacing` 13.2 m as this editor's export, so the grid dimensions line up. This proved the render path handles production size but does **not** yet consume this editor's export (seam types, water/bridge blocks, zones). See [`../systems/CITY_SCALE_ARCHITECTURE.md`](../systems/CITY_SCALE_ARCHITECTURE.md) for the scale findings, the per-sector render limits any new terrain/seam work must respect, and the M2 (river + bridge) plan that builds on pending tasks 1–2 below.
+> **Scale status (2026-10-05)**: Unity now renders a **32×32 (1,024-block)** city built as a direct scale-up of the 10×10 test rig via `Tools/generate_city_layout.py` — same `groundTileSize` 11.6 m / `spacing` 13.2 m as this editor's export, so the grid dimensions line up. This proved the render path handles production size but does **not** yet consume this editor's export (seam types, water/bridge blocks, zones). See [`../systems/CITY_SCALE_ARCHITECTURE.md`](../systems/CITY_SCALE_ARCHITECTURE.md) for the scale findings, the per-sector render limits any new terrain/seam work must respect, and [`../systems/RIVER_AND_BRIDGE_TILES.md`](../systems/RIVER_AND_BRIDGE_TILES.md) for the concrete M2 spec that implements pending tasks 1–2 below (block-scale water first, seam-scale river deferred).
 
 ---
 
@@ -179,7 +179,7 @@ This creates a **trolley cross intersection** at the city center with service al
 - **Block type**: `water` (replaces `land`)
 - **Visual**: Blue surface with edge lines for definition
 - **Buildings**: None — water blocks are non-buildable
-- **Waypoints**: None — water is impassable for hoods/NPCs
+- **Waypoints**: Channel is impassable — but the authored river tile has **quayside promenades** along its land-facing edges that are walkable (see `RIVER_AND_BRIDGE_TILES.md` → *Navigation*). Impassable means "no path through/across the water" — the promenade lanes and bridge decks are where river crossing actually routes.
 - **Tactical**: Natural barrier dividing the city. Only crossable via bridge seams.
 - **Material ID**: `MAT_WATER (proposed 137)` — voxel water material with depth
 - **RE basis**: River runs E-W through center ~85% of games, divides N from S. ~15% no river variant. Docks only present when river exists.
@@ -230,6 +230,8 @@ This creates a **trolley cross intersection** at the city center with service al
 ### 3. VoxelWaypointScanner: Replace Math-Based WaypointGraph
 
 **Current state**: `WaypointGraph.cs` generates waypoints mathematically — uniform grid of sidewalk corners and crosswalk links. No awareness of seam types, alleys, or dead-ends.
+
+> **M2 interim step**: before the full scanner exists, `RIVER_AND_BRIDGE_TILES.md` → *Navigation — terrain-conditioned WaypointGraph* specifies making the math-based graph terrain-aware (water emits promenade lanes + corner continuations, bridges emit `BridgeDeck` links, `oob` emits none). The fixed node positions already land on river walk surfaces because tile footprints/pitch/grade are identical. When the scanner ships it should produce the same *effective* graph — promenade lanes at sidewalk lanes, bridge crossings as through-links — so AI/pathfinding code never depends on which generator ran.
 
 **Required changes**:
 - New `VoxelWaypointScanner` that reads material IDs from the voxel terrain

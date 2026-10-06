@@ -13,4 +13,5 @@ Bug tracker per Development Guidelines Rule 13. Bugs are cataloged by category i
 | [Reference Preview Survives Asset-Type Switch](editor/REFERENCE_PREVIEW_SURVIVES_MODE_SWITCH.md) | editor | 🟢 FIXED | 🟢 MEDIUM | 2026-10-05 |
 | [Transforms Orphan Tag Layers](editor/TRANSFORMS_ORPHAN_TAG_LAYERS.md) | editor | 🟢 FIXED | 🟡 HIGH | 2026-10-06 |
 | [Character Lifecycle Races — Weld/Pose Divergence](runtime/CHARACTER_LIFECYCLE_RACES.md) | runtime | 🟢 FIXED | 🔴 CRITICAL | 2026-10-05 |
-| [Terrain Sector Overflow at 32x32](rendering/TERRAIN_SECTOR_OVERFLOW_AT_SCALE.md) | rendering | � FIXED | 🟡 HIGH | 2026-10-05 |
+| [Terrain Sector Overflow at 32x32](rendering/TERRAIN_SECTOR_OVERFLOW_AT_SCALE.md) | rendering | 🟢 FIXED | 🟡 HIGH | 2026-10-05 |
+| [RoadGraph Links Across Open Water](runtime/ROADGRAPH_IGNORES_TERRAIN.md) | runtime | 🔴 ACTIVE | 🟡 HIGH | 2026-10-07 |

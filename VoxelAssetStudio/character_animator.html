@@ -984,6 +984,11 @@ const boxGeo = new THREE.BoxGeometry(1, 1, 1);
 const lambertMat = new THREE.MeshLambertMaterial();
 let instancedMesh = null;
 let edgesMesh = null;
+let voxelMeshCap = 0;           // grow-only instance capacities — reuse instead
+let edgesMeshCap = 0;           // of dispose+realloc+re-upload per rebuild
+let animMeshCap = 0;
+let animEdgesCap = 0;
+const EDGE_VOXEL_LIMIT = 60000; // skip per-voxel wireframe above this count
 let showEdges = true;
 let viewMode = 'material'; // 'material' or 'group'
 
@@ -997,11 +1002,18 @@ function rebuildGroupColors() {
 }
 rebuildGroupColors();
 
-// Material colors
+// Material colors — allMaterials is const, so the cache builds once.
+// Callers only read the returned Color (color.copy/setColorAt), never mutate.
+const FALLBACK_MAT_COLOR = new THREE.Color(0.8, 0.8, 0.8);
+let _matColorCache = null;
 function getMatColor(mid) {
-  const m = allMaterials.find(m => m.id === mid);
-  if (m) return new THREE.Color(m.r / 255, m.g / 255, m.b / 255);
-  return new THREE.Color(0.8, 0.8, 0.8);
+  if (_matColorCache === null) {
+    _matColorCache = new Map();
+    for (const m of allMaterials) {
+      _matColorCache.set(m.id, new THREE.Color(m.r / 255, m.g / 255, m.b / 255));
+    }
+  }
+  return _matColorCache.get(mid) || FALLBACK_MAT_COLOR;
 }
 
 // === HIGHLIGHT ===
@@ -1046,20 +1058,25 @@ function rebuildMesh() {
   const voxels = getVoxelList();
   const count = voxels.length;
 
-  if (instancedMesh) {
+  // Grow-only buffer reuse — rebuilds overwrite instances in place; only a
+  // count exceeding capacity reallocates.
+  if (instancedMesh && count > voxelMeshCap) {
     scene.remove(instancedMesh);
     instancedMesh.dispose();
+    instancedMesh = null;
+    voxelMeshCap = 0;
   }
-  if (edgesMesh) {
-    scene.remove(edgesMesh);
-    edgesMesh.geometry.dispose();
-    edgesMesh.material.dispose();
+  if (!instancedMesh) {
+    voxelMeshCap = Math.max(count * 2, 4096);
+    instancedMesh = new THREE.InstancedMesh(boxGeo, lambertMat, voxelMeshCap);
+    instancedMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(voxelMeshCap * 3), 3);
   }
+  instancedMesh.count = count;
 
-  if (count === 0) return;
-
-  instancedMesh = new THREE.InstancedMesh(boxGeo, lambertMat, count);
-  instancedMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3);
+  if (count === 0) {
+    if (edgesMesh) edgesMesh.count = 0;
+    return;
+  }
 
   const color = new THREE.Color();
   const vs = voxelSize;
@@ -1080,13 +1097,24 @@ function rebuildMesh() {
   }
   instancedMesh.instanceMatrix.needsUpdate = true;
   if (instancedMesh.instanceColor) instancedMesh.instanceColor.needsUpdate = true;
-  scene.add(instancedMesh);
+  if (!instancedMesh.parent) scene.add(instancedMesh);
 
-  // Edges
-  if (showEdges) {
-    const edgesGeo = new THREE.EdgesGeometry(boxGeo);
-    const edgesMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.2 });
-    edgesMesh = new THREE.InstancedMesh(edgesGeo, edgesMat, count);
+  // Edges — capped: per-voxel wireframe costs ~12 line segments per voxel.
+  if (showEdges && count <= EDGE_VOXEL_LIMIT) {
+    if (edgesMesh && count > edgesMeshCap) {
+      scene.remove(edgesMesh);
+      edgesMesh.geometry.dispose();
+      edgesMesh.material.dispose();
+      edgesMesh = null;
+      edgesMeshCap = 0;
+    }
+    if (!edgesMesh) {
+      edgesMeshCap = Math.max(count * 2, 4096);
+      const edgesGeo = new THREE.EdgesGeometry(boxGeo);
+      const edgesMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.2 });
+      edgesMesh = new THREE.InstancedMesh(edgesGeo, edgesMat, edgesMeshCap);
+    }
+    edgesMesh.count = count;
     for (let i = 0; i < count; i++) {
       const v = voxels[i];
       dummyMatrix.compose(
@@ -1097,7 +1125,9 @@ function rebuildMesh() {
       edgesMesh.setMatrixAt(i, dummyMatrix);
     }
     edgesMesh.instanceMatrix.needsUpdate = true;
-    scene.add(edgesMesh);
+    if (!edgesMesh.parent) scene.add(edgesMesh);
+  } else if (edgesMesh) {
+    edgesMesh.count = 0;
   }
 }
 
@@ -1657,19 +1687,9 @@ let animSpeed = 1.0;
 let useAnimatedMesh = false;
 
 function rebuildAnimatedMesh() {
-  if (animMesh) {
-    scene.remove(animMesh);
-    animMesh.dispose();
-    animMesh = null;
-  }
-  if (animEdgesMesh) {
-    scene.remove(animEdgesMesh);
-    animEdgesMesh.geometry.dispose();
-    animEdgesMesh.material.dispose();
-    animEdgesMesh = null;
-  }
-
   if (!useAnimatedMesh) {
+    if (animMesh) animMesh.count = 0;
+    if (animEdgesMesh) animEdgesMesh.count = 0;
     rebuildMesh();
     return;
   }
@@ -1680,7 +1700,11 @@ function rebuildAnimatedMesh() {
 
   const voxels = getVoxelList();
   const count = voxels.length;
-  if (count === 0) return;
+  if (count === 0) {
+    if (animMesh) animMesh.count = 0;
+    if (animEdgesMesh) animEdgesMesh.count = 0;
+    return;
+  }
 
   // Compute walk pose once for body bob + weight shift (Walking or Aim Walk)
   const isWalkState = (currentAnimState > 0.5 && currentAnimState < 1.5) || (currentAnimState > 2.5 && currentAnimState < 3.5);
@@ -1688,8 +1712,20 @@ function rebuildAnimatedMesh() {
   const bodyBobY = walkPose ? walkPose.bodyBobY : 0;
   const weightShiftX = walkPose ? walkPose.weightShiftX : 0;
 
-  animMesh = new THREE.InstancedMesh(boxGeo, lambertMat, count);
-  animMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3);
+  // Grow-only buffer reuse — this runs every frame while playing; the old
+  // dispose+realloc path churned two GPU buffers per frame.
+  if (animMesh && count > animMeshCap) {
+    scene.remove(animMesh);
+    animMesh.dispose();
+    animMesh = null;
+    animMeshCap = 0;
+  }
+  if (!animMesh) {
+    animMeshCap = Math.max(count * 2, 4096);
+    animMesh = new THREE.InstancedMesh(boxGeo, lambertMat, animMeshCap);
+    animMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(animMeshCap * 3), 3);
+  }
+  animMesh.count = count;
 
   const color = new THREE.Color();
   const dims = [W, H, D];
@@ -1734,13 +1770,24 @@ function rebuildAnimatedMesh() {
   }
   animMesh.instanceMatrix.needsUpdate = true;
   if (animMesh.instanceColor) animMesh.instanceColor.needsUpdate = true;
-  scene.add(animMesh);
+  if (!animMesh.parent) scene.add(animMesh);
 
-  // Edges
-  if (showEdges) {
-    const edgesGeo = new THREE.EdgesGeometry(boxGeo);
-    const edgesMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.15 });
-    animEdgesMesh = new THREE.InstancedMesh(edgesGeo, edgesMat, count);
+  // Edges — same per-voxel segment cost cap as the static mesh.
+  if (showEdges && count <= EDGE_VOXEL_LIMIT) {
+    if (animEdgesMesh && count > animEdgesCap) {
+      scene.remove(animEdgesMesh);
+      animEdgesMesh.geometry.dispose();
+      animEdgesMesh.material.dispose();
+      animEdgesMesh = null;
+      animEdgesCap = 0;
+    }
+    if (!animEdgesMesh) {
+      animEdgesCap = Math.max(count * 2, 4096);
+      const edgesGeo = new THREE.EdgesGeometry(boxGeo);
+      const edgesMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.15 });
+      animEdgesMesh = new THREE.InstancedMesh(edgesGeo, edgesMat, animEdgesCap);
+    }
+    animEdgesMesh.count = count;
     for (let i = 0; i < count; i++) {
       const v = voxels[i];
       let px = v.x - W / 2;
@@ -1766,7 +1813,9 @@ function rebuildAnimatedMesh() {
       animEdgesMesh.setMatrixAt(i, dummyMatrix);
     }
     animEdgesMesh.instanceMatrix.needsUpdate = true;
-    scene.add(animEdgesMesh);
+    if (!animEdgesMesh.parent) scene.add(animEdgesMesh);
+  } else if (animEdgesMesh) {
+    animEdgesMesh.count = 0;
   }
 }
 
@@ -1779,6 +1828,76 @@ scene.add(groundPlane);
 
 let unityView = false; // 'U' hotkey — mirrored (Unity-handedness) preview
 function raycastVoxel(event) {
+  // The animated (posed) mesh displaces voxels off their grid cells — the
+  // grid march below can't see that, so keep instance picking for it.
+  if (useAnimatedMesh) return raycastVoxelMesh(event);
+
+  pointer.set(
+    (unityView ? -1 : 1) * ((event.clientX / window.innerWidth) * 2 - 1),
+    -(event.clientY / window.innerHeight) * 2 + 1
+  );
+  raycaster.setFromCamera(pointer, camera);
+
+  // Amanatides-Woo DDA through voxelMap — replaces InstancedMesh.raycast plus
+  // a full getVoxelList() scan per mousemove (hover status).
+  // Cell (x,y,z) renders as a cube spanning
+  // [(x-W/2-0.5)vs, (x-W/2+0.5)vs) × [(y-0.5)vs, (y+0.5)vs) × [(z-D/2-0.5)vs, (z-D/2+0.5)vs).
+  const ro = raycaster.ray.origin, rd = raycaster.ray.direction;
+  const vs = voxelSize;
+  const px = ro.x / vs + W / 2 + 0.5;
+  const py = ro.y / vs + 0.5;
+  const pz = ro.z / vs + D / 2 + 0.5;
+  const dx = rd.x / vs, dy = rd.y / vs, dz = rd.z / vs;
+  let cx = Math.floor(px), cy = Math.floor(py), cz = Math.floor(pz);
+  const stepX = dx > 0 ? 1 : -1;
+  const stepY = dy > 0 ? 1 : -1;
+  const stepZ = dz > 0 ? 1 : -1;
+  const tDX = dx !== 0 ? Math.abs(1 / dx) : Infinity;
+  const tDY = dy !== 0 ? Math.abs(1 / dy) : Infinity;
+  const tDZ = dz !== 0 ? Math.abs(1 / dz) : Infinity;
+  let tMX = tDX === Infinity ? Infinity : (dx > 0 ? cx + 1 - px : px - cx) * tDX;
+  let tMY = tDY === Infinity ? Infinity : (dy > 0 ? cy + 1 - py : py - cy) * tDY;
+  let tMZ = tDZ === Infinity ? Infinity : (dz > 0 ? cz + 1 - pz : pz - cz) * tDZ;
+  let t = 0, axis = -1;
+  const maxT = (W + H + D) * 2;
+
+  for (let i = 0; i < 1024; i++) {
+    if (cx >= 0 && cx < W && cy >= 0 && cy < H && cz >= 0 && cz < D) {
+      const key = `${cx},${cy},${cz}`;
+      const mid = voxelMap.get(key) || 0;
+      if (mid !== 0) {
+        const n = new THREE.Vector3();
+        if (axis === 0) n.x = -stepX;
+        else if (axis === 1) n.y = -stepY;
+        else if (axis === 2) n.z = -stepZ;
+        else {
+          // Ray started inside the voxel — face it with the dominant axis.
+          const ax = Math.abs(dx), ay = Math.abs(dy), az = Math.abs(dz);
+          if (ax >= ay && ax >= az) n.x = -stepX;
+          else if (ay >= az) n.y = -stepY;
+          else n.z = -stepZ;
+        }
+        return { x: cx, y: cy, z: cz, normal: n, gid: groupMap.get(key) || 0, mid };
+      }
+    }
+    if (tMX <= tMY && tMX <= tMZ) { cx += stepX; t = tMX; tMX += tDX; axis = 0; }
+    else if (tMY <= tMZ)          { cy += stepY; t = tMY; tMY += tDY; axis = 1; }
+    else                          { cz += stepZ; t = tMZ; tMZ += tDZ; axis = 2; }
+    if (t > maxT) break;
+  }
+
+  // Missed every voxel — ground plane fallback.
+  const gp = raycaster.intersectObject(groundPlane, false);
+  if (gp.length === 0) return null;
+  const p = gp[0].point;
+  const x = Math.floor(p.x / voxelSize + W / 2);
+  const z = Math.floor(p.z / voxelSize + D / 2);
+  return { x, y: 0, z, normal: new THREE.Vector3(0, 1, 0) };
+}
+
+// Original mesh raycast — kept for the posed preview, where rendered voxels
+// are displaced from grid cells and instance picking is the correct test.
+function raycastVoxelMesh(event) {
   pointer.set(
     (unityView ? -1 : 1) * ((event.clientX / window.innerWidth) * 2 - 1),
     -(event.clientY / window.innerHeight) * 2 + 1

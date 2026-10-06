@@ -159,7 +159,7 @@ namespace SteelCity.UI
         private void UpdateArrow()
         {
             if (arrowLabel != null)
-                arrowLabel.text = isExpanded ? "▼" : "▶";
+                arrowLabel.text = isExpanded ? "▼" : ">";
         }
     }
 }

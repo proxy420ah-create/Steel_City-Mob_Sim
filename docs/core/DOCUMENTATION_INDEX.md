@@ -323,6 +323,24 @@
   - Trigger conditions for when to extract (not premature)
   - Anti-patterns to avoid (line count alone, during creative sessions, deep dependency chains)
 
+**River & Bridge Tiles (M2):**
+- **`docs/systems/RIVER_AND_BRIDGE_TILES.md`** — River + bridge spec for the 32×32 city
+  - "Smart foundation": depth only at the river channel — carved water tiles + quay walls, land stays a 2-voxel pancake
+  - Tile ownership: chunks own block + half-roads; water–water seams carve to continuous channel, water–land seams stay riverside roads
+  - Neighbor-mask recipe system (4 bits → straight/corner/cap/interior variants)
+  - New material `MAT_WATER=137` (needs `MaterialCount`/`MaxMaterials` ≥138)
+  - Prototype: `Tools/generate_river_tile.py` → `JSON Models In Progress/river_straight.json` (116×24×116 @ 0.1, 1.4m channel)
+  - Status: straight-river 10×10 playtested ✓; corner recipe + full replica run pending
+
+**Road Lanes & Traffic:**
+- **`docs/systems/ROAD_LANES_AND_TRAFFIC.md`** — Lane/traffic design + F10 two-car test plan
+  - `roadWidth` locked: `private const 3.0f` — two 1.4 m lanes around the 1.0 m `vehicle_civilian_car_0`
+  - Cobble center stripe (±0.05 m of corridor center) doubles as the dual-traffic divider; lane offset ±`roadWidth`/4
+  - "Slot cars" Phase A: fixed lane offset, intersection reservation, car following; Phase B: turn arcs, Dijkstra routing, trolley actor
+  - Main street = through-cell 4-lane spine with trolley track pair ±0.35 m + ±0.6 m rail buffer (cars may cross, never cruise/park)
+  - Open bug: `docs/known_issues/runtime/ROADGRAPH_IGNORES_TERRAIN.md` — RoadGraph links cross open water (step 1 of the plan)
+  - Editable mainstreet tiles: `Tools/generate_mainstreet_tile.py` → `mainstreet_ns/ew.json` (116×64×116 @ 0.1)
+
 **City Scale Architecture (32×32):**
 - **`docs/systems/CITY_SCALE_ARCHITECTURE.md`** — Scaling the city from the 10×10 test rig to the 32×32 production blueprint
   - Findings: terrain sector overflow (half the roads vanished silently), layout-generator schema drift
