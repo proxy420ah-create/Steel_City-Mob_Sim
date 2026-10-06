@@ -289,6 +289,42 @@ namespace SteelCity.Sim
             SetChunkTint(chunkName, tints);
         }
 
+        /// <summary>
+        /// Extracts terrain + seam lookup data from a CityLayout into the jagged-array
+        /// convention VoxelTerrainBuilder and RoadGraph share:
+        ///   terrainByCell[(col,row)] = "land"/"water"/"bridge"/"mainstreet"/"oob" (null = land)
+        ///   hSeams[r][c] = corridor between (r,c)-(r+1,c); vSeams[r][c] = between (r,c)-(r,c+1)
+        /// Null-safe: absent fields yield null outputs (legacy all-land/all-road downstream).
+        /// </summary>
+        public static void ExtractTerrainAndSeams(CityLayout layout,
+            out Dictionary<Vector2Int, string> terrainByCell,
+            out string[][] hSeams, out string[][] vSeams)
+        {
+            terrainByCell = null;
+            hSeams = null;
+            vSeams = null;
+            if (layout == null) return;
+
+            if (layout.blocks != null)
+            {
+                terrainByCell = new Dictionary<Vector2Int, string>(layout.blocks.Length);
+                foreach (var lb in layout.blocks)
+                    terrainByCell[new Vector2Int(lb.col, lb.row)] = lb.terrain;
+            }
+            if (layout.hSeamRows != null)
+            {
+                hSeams = new string[layout.hSeamRows.Length][];
+                for (int r = 0; r < layout.hSeamRows.Length; r++)
+                    hSeams[r] = layout.hSeamRows[r]?.cells;
+            }
+            if (layout.vSeamRows != null)
+            {
+                vSeams = new string[layout.vSeamRows.Length][];
+                for (int r = 0; r < layout.vSeamRows.Length; r++)
+                    vSeams[r] = layout.vSeamRows[r]?.cells;
+            }
+        }
+
         public float GetRoadWidth() => roadWidth;
         public float GetSidewalkWidth() => sidewalkWidth;
         public float GetVoxelSize() => voxelSize;
@@ -1132,26 +1168,9 @@ namespace SteelCity.Sim
                 // === SPLIT TERRAIN: generate per-block, then bake into a single sector ===
                 // Terrain lookup: (row,col) -> "land"/"water"/"bridge"/"mainstreet"/"oob".
                 // Null/absent means land — fully backward-compatible with old layouts.
-                Dictionary<Vector2Int, string> terrainByCell = null;
-                string[][] hSeams = null, vSeams = null;
-                if (cachedLayout != null && cachedLayout.blocks != null)
-                {
-                    terrainByCell = new Dictionary<Vector2Int, string>(cachedLayout.blocks.Length);
-                    foreach (var lb in cachedLayout.blocks)
-                        terrainByCell[new Vector2Int(lb.col, lb.row)] = lb.terrain;
-                }
-                if (cachedLayout != null && cachedLayout.hSeamRows != null)
-                {
-                    hSeams = new string[cachedLayout.hSeamRows.Length][];
-                    for (int r = 0; r < cachedLayout.hSeamRows.Length; r++)
-                        hSeams[r] = cachedLayout.hSeamRows[r] != null ? cachedLayout.hSeamRows[r].cells : null;
-                }
-                if (cachedLayout != null && cachedLayout.vSeamRows != null)
-                {
-                    vSeams = new string[cachedLayout.vSeamRows.Length][];
-                    for (int r = 0; r < cachedLayout.vSeamRows.Length; r++)
-                        vSeams[r] = cachedLayout.vSeamRows[r] != null ? cachedLayout.vSeamRows[r].cells : null;
-                }
+                ExtractTerrainAndSeams(cachedLayout,
+                    out Dictionary<Vector2Int, string> terrainByCell,
+                    out string[][] hSeams, out string[][] vSeams);
 
                 var tGen = Stopwatch.StartNew();
                 var terrainChunks = VoxelTerrainBuilder.GeneratePerBlockTerrain(

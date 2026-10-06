@@ -87,6 +87,7 @@ namespace SteelCity.Sim
             public System.Func<string, Vector3> resolveNodePos;
             public PathDebugType type;
             public System.Func<int> progressProvider;
+            public float lateralOffset;   // right-of-direction lane offset (cars); 0 = centered
         }
 
         public static PathDebugRenderer Instance { get; private set; }
@@ -141,7 +142,8 @@ namespace SteelCity.Sim
             System.Func<List<string>> routeProvider,
             System.Func<string, Vector3> resolveNodePos,
             PathDebugType type,
-            System.Func<int> progressProvider = null)
+            System.Func<int> progressProvider = null,
+            float lateralOffset = 0f)
         {
             if (entity == null || routeProvider == null || resolveNodePos == null) return;
 
@@ -154,7 +156,8 @@ namespace SteelCity.Sim
                 routeProvider = routeProvider,
                 resolveNodePos = resolveNodePos,
                 type = type,
-                progressProvider = progressProvider
+                progressProvider = progressProvider,
+                lateralOffset = lateralOffset
             });
         }
 
@@ -335,17 +338,49 @@ namespace SteelCity.Sim
                 }
 
                 // Build segment boxes between consecutive waypoints
+                Vector3 prevLaneEnd = Vector3.zero;
+                bool havePrevLaneEnd = false;
                 for (int j = 0; j < remainingCount - 1; j++)
                 {
                     if (segCount >= MaxInstances) break;
 
                     Vector3 a = worldPositions[j];
                     Vector3 b = worldPositions[j + 1];
-                    Vector3 mid = (a + b) * 0.5f;
                     Vector3 dir = b - a;
                     float len = dir.magnitude;
 
                     if (len < 0.001f) continue;
+
+                    // Lane offset: shift the segment right-of-direction so car beams sit
+                    // on the lane, not the corridor centerline. Per-segment → the beam
+                    // jogs through intersections the way a real lane does.
+                    if (ap.lateralOffset != 0f)
+                    {
+                        Vector3 side = Vector3.Cross(Vector3.up, dir.normalized) * ap.lateralOffset;
+                        a += side;
+                        b += side;
+                    }
+
+                    // Turn connector: when the lane jogs at the shared node (direction
+                    // changed), bridge incoming-lane end → outgoing-lane start so the
+                    // beam stays continuous through the intersection instead of leaving
+                    // a gap/overlap at the corner.
+                    if (havePrevLaneEnd && segCount < MaxInstances &&
+                        (a - prevLaneEnd).sqrMagnitude > 0.0004f)
+                    {
+                        Vector3 cdir = a - prevLaneEnd;
+                        float clen = cdir.magnitude;
+                        segmentMatrices[segCount] = Matrix4x4.TRS(
+                            (prevLaneEnd + a) * 0.5f,
+                            Quaternion.LookRotation(cdir / clen, Vector3.up),
+                            new Vector3(width, width, clen));
+                        segCount++;
+                        segRanges[typeIdx] = (segRanges[typeIdx].start, segRanges[typeIdx].count + 1);
+                    }
+                    prevLaneEnd = b;
+                    havePrevLaneEnd = true;
+
+                    Vector3 mid = (a + b) * 0.5f;
 
                     // Orient box: local Z axis maps to segment direction
                     Quaternion rot = Quaternion.LookRotation(dir.normalized, Vector3.up);
@@ -364,6 +399,16 @@ namespace SteelCity.Sim
                         if (markerCount >= MaxInstances) break;
 
                         Vector3 pos = worldPositions[j];
+                        // Lane-offset paths: markers ride the lane too. Interior/start nodes
+                        // take the outgoing segment's side vector; the last node takes the
+                        // incoming segment's (the lane it arrived on).
+                        if (ap.lateralOffset != 0f && remainingCount > 1)
+                        {
+                            int segIdx = j < remainingCount - 1 ? j : j - 1;
+                            Vector3 segDir = worldPositions[segIdx + 1] - worldPositions[segIdx];
+                            if (segDir.sqrMagnitude > 0.001f)
+                                pos += Vector3.Cross(Vector3.up, segDir.normalized) * ap.lateralOffset;
+                        }
                         Vector3 scale = new Vector3(width * 1.5f, nodeMarkerHeight, width * 1.5f);
 
                         markerMatrices[markerCount] = Matrix4x4.TRS(pos, Quaternion.identity, scale);

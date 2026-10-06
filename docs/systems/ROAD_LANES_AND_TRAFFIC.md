@@ -73,7 +73,7 @@ GenerateFromLayout(layout, spacing,
 Ordered by what's needed for the 2-car test vs. the full system:
 
 **Phase A — needed for the F10 two-car test:**
-- **Lane offset**: agents drive `lerp(from,to,t) + right·laneOffset`. Right-hand side per direction. Opposing traffic naturally separates — no more centerline head-ons.
+- **Lane offset**: agents drive `lerp(from,to,t) + right·laneOffset` (±`roadWidth`/4 = 0.75 m, right-hand side per direction) — IMPLEMENTED in `VehicleAgent` + `PathDebugRenderer.lateralOffset` (beam sits on the lane). Opposing directions offset to opposite sides automatically. Full *directed* links deferred — bidirectional links suffice for the slot-car phase (each agent picks its own right side regardless of which way it was routed).
 - **Intersection reservation**: nodes get a single-occupant reservation (timestamp + holder). An agent claims the next node before entering; on conflict, first-come wins, loser waits at the stop line. Prevents intersection collisions without full traffic rules.
 - **Car following**: raycast/sphere-check along the lane for a vehicle within `gap ≈ 1.2 m`; hold speed of the leader or stop. Prevents same-lane rear-ending.
 
@@ -108,8 +108,8 @@ Extend `VehicleTestSpawner`:
 
 ```
 0. Road width → 3.0 m                                           ✅ DONE (const, confirmed on-screen)
-1. RoadGraph terrain conditioning (links only over drivable seams)   ← correctness fix
-2. Directed links + laneOffset at agent                              ← lanes exist
+1. RoadGraph terrain conditioning (links only over drivable seams)   ✅ DONE — see ROADGRAPH_IGNORES_TERRAIN.md
+2. Directed links + laneOffset at agent                              ✅ DONE (lane offset variant — see below)
 3. Intersection reservation + car following                          ← no crashes
 4. Through-cell spines (mainstreet + bridge)                         ← trolley/boulevard
 5. F10 two-car scenario + acceptance run

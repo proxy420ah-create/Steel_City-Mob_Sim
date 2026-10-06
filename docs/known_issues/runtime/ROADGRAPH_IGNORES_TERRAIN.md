@@ -1,7 +1,7 @@
 # RoadGraph Generates Links Across Open Water / Non-Drivable Corridors
 
 **Date**: 2026-10-07
-**Status**: 🔴 ACTIVE
+**Status**: � FIXED (playtested — river corridors suppressed, cars stay on roads)
 **Severity**: 🟡 HIGH (correctness; only visible once vehicles drive near river/oob edges)
 
 ## Symptoms
@@ -24,4 +24,6 @@
 - `docs/systems/ROAD_LANES_AND_TRAFFIC.md` — design spec
 
 ## Resolution
-Planned: emit corridor links only where drivable seams exist (`road`/`mainstreet`/`bridge`), classify link type, add through-cell spines for `mainstreet`/`bridge` blocks. Tracked as step 1 of the traffic spec — not yet fixed.
+Fixed 2026-10-07 (step 1 of the traffic spec): `RoadGraph.GenerateFromLayout` takes optional `hSeams`/`vSeams` grids — a corridor link is emitted only when its seam is drivable (anything but `"river"`). E-W links read `hSeams[r-1][c]`, N-S links read `vSeams[r][c-1]`; out-of-range = perimeter road. `CityMap3D.ExtractTerrainAndSeams` is the shared extractor (terrain build + `VehicleTestSpawner.BuildRoadGraph`). Suppressed corridors logged.
+
+**Known consequence**: cars can't cross the river at all yet — bridge decks are through-cell traversals (step 4 spines), not corridors. Verify on Play: debug beam never enters the channel; `[RoadGraph] ... (N river corridors suppressed)` appears.

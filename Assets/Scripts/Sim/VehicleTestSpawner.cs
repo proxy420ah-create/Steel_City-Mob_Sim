@@ -119,31 +119,20 @@ namespace SteelCity.Sim
                         {
                             var vv = v.GetComponent<VoxelVehicle>();
 
-                            // Diagnostic logging
-                            var route = v.PlannedRoute;
-                            int rIdx = v.RouteIndex;
-                            Debug.Log($"[VehicleTest] RegisterPath: entity={v.gameObject.name}, routeCount={route?.Count ?? -1}, routeIndex={rIdx}, remaining={(route != null ? route.Count - rIdx : -1)}");
-                            if (route != null && route.Count > 0)
-                            {
-                                var sb = new System.Text.StringBuilder();
-                                for (int ri = 0; ri < route.Count; ri++)
-                                {
-                                    string nodeId = route[ri];
-                                    bool hasNode = roadGraph.Nodes.TryGetValue(nodeId, out var n);
-                                    Vector3 pos = hasNode ? n.localPos : new Vector3(float.NaN, 0, 0);
-                                    sb.Append($"\n  [{ri}] {nodeId} => {(hasNode ? pos.ToString("F2") : "NOT_FOUND")}");
-                                }
-                                Debug.Log($"[VehicleTest] Route details:{sb}");
-                            }
+                            Debug.Log($"[VehicleTest] RegisterPath: entity={v.gameObject.name}, lanePoints={v.LaneKeys.Count}, progress={v.LaneProgress}");
                             Debug.Log($"[VehicleTest] PDR Instance={pdr != null}, mapRoot={(cityMap != null ? cityMap.MapRoot : null)}, roadGraphNodes={roadGraph?.Nodes?.Count ?? -1}");
 
+                            // The agent's lane polyline is the shared source of truth —
+                            // beams draw exactly what the car drives (turn connectors and
+                            // 90° corners included), so no renderer-side offset.
                             pdr.RegisterPath(
                                 v.transform,
                                 vv != null ? vv.WorldSize : Vector3.one,
-                                () => v.PlannedRoute,
-                                (nodeId) => roadGraph.Nodes.TryGetValue(nodeId, out var n) ? n.localPos : new Vector3(float.NaN, 0, 0),
+                                () => v.LaneKeys,
+                                key => v.ResolveLanePoint(key),
                                 PathDebugType.Car,
-                                () => v.RouteIndex);
+                                () => v.LaneProgress,
+                                0f);
                             Debug.Log($"[VehicleTest] RegisterPath done. PDR activePaths={PathDebugRenderer.Instance?.ActivePathCount ?? -1}");
                         }
                         else
@@ -165,7 +154,8 @@ namespace SteelCity.Sim
                 return;
             }
             roadGraph = new RoadGraph();
-            roadGraph.GenerateFromLayout(layout, cityMap.Spacing);
+            CityMap3D.ExtractTerrainAndSeams(layout, out _, out var hSeams, out var vSeams);
+            roadGraph.GenerateFromLayout(layout, cityMap.Spacing, hSeams, vSeams);
         }
 
         public void SpawnVehicles()
@@ -221,7 +211,8 @@ namespace SteelCity.Sim
                 vv.centerPosition = startPos;
 
                 var agent = vehObj.AddComponent<VehicleAgent>();
-                agent.Initialize(roadGraph, startNode, driveSpeed);
+                float laneOffset = cityMap != null ? cityMap.GetRoadWidth() * 0.25f : 0f;
+                agent.Initialize(roadGraph, startNode, driveSpeed, laneOffset);
                 // Spawn PARKED — not driving until F10
                 agent.IsDriving = false;
 
@@ -308,9 +299,14 @@ namespace SteelCity.Sim
     }
 
     /// <summary>
-    /// Drives a VoxelVehicle in an endless random walk across the RoadGraph — pick a random
-    /// neighboring intersection (avoiding an immediate U-turn where possible), drive there,
-    /// repeat. Plans several segments ahead so the debug path beam has a visible route.
+    /// Drives a VoxelVehicle along a rolling lane-space polyline built from the RoadGraph.
+    /// The polyline (not the node route) is the single source of truth: the same points the
+    /// car drives are the points the debug beam draws. Route nodes append lazily as the car
+    /// advances — each new node finalizes the turn geometry at the previous tail node, so
+    /// the car only ever latches onto points that can no longer change.
+    /// Turn geometry: right turn = the lane centerlines cross before the node → one hard 90°
+    /// corner point; left turn = keep the 45° diagonal across the box (two points, so the
+    /// connector is its own segment and stays drawn until the car enters it).
     /// </summary>
     public class VehicleAgent : MonoBehaviour
     {
@@ -318,85 +314,180 @@ namespace SteelCity.Sim
         private float speed;
 
         private string currentNodeId;
-        private string previousNodeId;
         private Vector3 fromPos;
         private Vector3 toPos;
         private float segmentElapsed;
         private float segmentDuration;
+        private float laneOffset;
+        private VoxelVehicle vehicle;
 
+        // Node route exists only to pick neighbors; the lane polyline drives+draws.
         private readonly List<string> plannedRoute = new();
-        private int routeIndex;
+        private readonly List<Vector3> laneRoute = new();
+        private readonly List<string> laneKeys = new();                 // parallel to laneRoute (renderer ids)
+        private readonly Dictionary<string, Vector3> laneLookup = new();
+        private int laneIndex;        // next drive-target index in laneRoute
+        private int laneKeyCounter;
         private const int PlanAheadCount = 6;
 
         /// <summary>When false, the vehicle stays parked at its current position.</summary>
         public bool IsDriving { get; set; }
 
-        /// <summary>Current planned route as a list of upcoming road node IDs.</summary>
-        public List<string> PlannedRoute => plannedRoute;
+        /// <summary>Lane-polyline point keys in order — what the debug path renders.</summary>
+        public List<string> LaneKeys => laneKeys;
 
-        /// <summary>How many nodes in the planned route the vehicle has already passed.</summary>
-        public int RouteIndex => routeIndex;
+        /// <summary>Index of the point the car is driving toward (consumed = before it).</summary>
+        public int LaneProgress => Mathf.Max(0, laneIndex - 1);
 
-        public void Initialize(RoadGraph graph, string startNodeId, float speed)
+        public Vector3 ResolveLanePoint(string key)
+            => laneLookup.TryGetValue(key, out var p) ? p : new Vector3(float.NaN, 0, 0);
+
+        public void Initialize(RoadGraph graph, string startNodeId, float speed, float laneOffset = 0f)
         {
             this.graph = graph;
             this.speed = speed;
+            this.laneOffset = laneOffset;
+            vehicle = GetComponent<VoxelVehicle>();
             currentNodeId = startNodeId;
-            previousNodeId = null;
-            fromPos = transform.localPosition;
-            IsDriving = false;
-            PlanRoute();
-        }
-
-        private void PlanRoute()
-        {
             plannedRoute.Clear();
-            routeIndex = 0;
-
-            string cur = currentNodeId;
-            string prev = previousNodeId;
-
-            plannedRoute.Add(cur);
-
-            for (int i = 0; i < PlanAheadCount; i++)
-            {
-                string next = graph.RandomNeighbor(cur, prev);
-                if (next == null) break;
-                plannedRoute.Add(next);
-                prev = cur;
-                cur = next;
-            }
+            plannedRoute.Add(startNodeId);
+            laneRoute.Clear();
+            laneKeys.Clear();
+            laneLookup.Clear();
+            laneIndex = 0;
+            laneKeyCounter = 0;
+            fromPos = transform.localPosition;
+            toPos = transform.localPosition;
+            segmentElapsed = 0f;
+            segmentDuration = 0f;
+            IsDriving = false;
         }
 
-        private void PickNextTarget()
-        {
-            // Advance through the planned route
-            routeIndex++;
+        private Vector3 SideOf(Vector3 dir)
+            => dir.sqrMagnitude > 0.001f
+                ? Vector3.Cross(Vector3.up, dir.normalized) * laneOffset  // up×dir = right of travel
+                : Vector3.zero;
 
-            if (routeIndex >= plannedRoute.Count - 1)
+        private void PushLanePoint(Vector3 p)
+        {
+            string key = "lp" + laneKeyCounter++;
+            laneRoute.Add(p);
+            laneKeys.Add(key);
+            laneLookup[key] = p;
+        }
+
+        /// <summary>
+        /// Appends one random route node, then rewrites the tentative tail lane point into
+        /// the real turn geometry at the node whose directions are now both known.
+        /// </summary>
+        private bool ExtendRoute()
+        {
+            int n = plannedRoute.Count;
+            string tail = plannedRoute[n - 1];
+            string prev = n > 1 ? plannedRoute[n - 2] : null;
+            string next = graph.RandomNeighbor(tail, prev);
+            if (next == null && prev != null)
+                next = graph.RandomNeighbor(tail, null);   // dead end — allow a U-turn
+            if (next == null) return false;
+            plannedRoute.Add(next);
+            FinalizeTailTurn();
+            currentNodeId = tail;
+            return true;
+        }
+
+        private void FinalizeTailTurn()
+        {
+            int n = plannedRoute.Count;   // >= 2 (the node just appended)
+            Vector3 B = graph.Nodes[plannedRoute[n - 2]].localPos;
+            Vector3 C = graph.Nodes[plannedRoute[n - 1]].localPos;
+            Vector3 dOut = C - B;
+            dOut.y = 0f;
+            Vector3 sOut = SideOf(dOut);
+            float y = transform.localPosition.y;
+
+            // Drop the previous leg's tentative end point — replaced by real turn geometry.
+            if (laneRoute.Count > 0)
             {
-                // Route exhausted — plan a new one from the current node
-                currentNodeId = plannedRoute[plannedRoute.Count - 1];
-                previousNodeId = plannedRoute.Count > 1 ? plannedRoute[plannedRoute.Count - 2] : null;
-                PlanRoute();
-                routeIndex = 0;
+                laneLookup.Remove(laneKeys[laneKeys.Count - 1]);
+                laneRoute.RemoveAt(laneRoute.Count - 1);
+                laneKeys.RemoveAt(laneKeys.Count - 1);
             }
 
-            string fromId = plannedRoute[routeIndex];
-            string toId = plannedRoute[routeIndex + 1];
+            Vector3 p;
+            if (n >= 3)
+            {
+                Vector3 A = graph.Nodes[plannedRoute[n - 3]].localPos;
+                Vector3 dIn = B - A;
+                dIn.y = 0f;
+                Vector3 sIn = SideOf(dIn);
+                // Cross(dIn,dOut).y > 0 = clockwise = RIGHT turn (north→east = +1).
+                float crossY = Vector3.Cross(dIn.normalized, dOut.normalized).y;
+                const float eps = 0.01f;
+                if (crossY > eps)
+                {
+                    // Right turn: lane centerlines cross at the near corner before the
+                    // node — single hard 90° corner point, no connector triangle.
+                    p = B + sIn + sOut; p.y = y; PushLanePoint(p);
+                }
+                else if (crossY < -eps)
+                {
+                    // Left turn: keep the 45° diagonal through the box — two points, so
+                    // the connector is its own polyline segment (own waypoint + beam).
+                    p = B + sIn;  p.y = y; PushLanePoint(p);
+                    p = B + sOut; p.y = y; PushLanePoint(p);
+                }
+                else
+                {
+                    p = B + sIn; p.y = y; PushLanePoint(p);
+                }
+            }
+            else
+            {
+                // First leg — pull-in point at the start node.
+                p = B + sOut; p.y = y; PushLanePoint(p);
+            }
 
-            currentNodeId = toId;
+            // New tentative tail: lane end of the leg into C — may be rewritten when the
+            // next node appends, so the car never latches onto it (see AdvanceTarget).
+            p = C + sOut; p.y = y; PushLanePoint(p);
+        }
 
-            fromPos = graph.Nodes[fromId].localPos;
-            toPos = graph.Nodes[toId].localPos;
+        private void AdvanceTarget()
+        {
+            // Bound the lists — drop fully-consumed points (keep the current target).
+            if (laneIndex > 64)
+            {
+                for (int i = 0; i < laneIndex - 1; i++) laneLookup.Remove(laneKeys[i]);
+                laneRoute.RemoveRange(0, laneIndex - 1);
+                laneKeys.RemoveRange(0, laneIndex - 1);
+                laneIndex = 1;
+                int keepNodes = PlanAheadCount + 8;
+                if (plannedRoute.Count > keepNodes)
+                    plannedRoute.RemoveRange(0, plannedRoute.Count - keepNodes);
+            }
+
+            // Roll the polyline forward — the last lane point is tentative (the next node
+            // can still rewrite it into turn geometry), so it is never a drive target.
+            while (laneIndex >= laneRoute.Count - 1)
+            {
+                if (!ExtendRoute())
+                {
+                    Debug.Log("[VehicleTest] Route dead-ended — parking.");
+                    IsDriving = false;
+                    return;
+                }
+            }
+
+            StartLeg(laneRoute[laneIndex++]);
+        }
+
+        private void StartLeg(Vector3 target)
+        {
+            fromPos = toPos;
             fromPos.y = transform.localPosition.y;
-            toPos.y = transform.localPosition.y;
-
-            float distance = Vector3.Distance(fromPos, toPos);
-            segmentDuration = distance / Mathf.Max(speed, 0.01f);
+            toPos = target;
+            segmentDuration = Vector3.Distance(fromPos, toPos) / Mathf.Max(speed, 0.01f);
             segmentElapsed = 0f;
-
-            previousNodeId = fromId;
         }
 
         void Update()
@@ -405,18 +496,27 @@ namespace SteelCity.Sim
 
             if (segmentDuration <= 0f)
             {
-                PickNextTarget();
+                AdvanceTarget();
                 return;
             }
 
             segmentElapsed += Time.deltaTime;
             float t = Mathf.Clamp01(segmentElapsed / segmentDuration);
 
-            Vector3 pos = Vector3.Lerp(fromPos, toPos, t);
-            transform.localPosition = pos;
-
             Vector3 dir = toPos - fromPos;
             dir.y = 0f;
+            // Drive points are already in lane space (the polyline IS the path — same
+            // points the beam draws) — the lerp is the physical path, no runtime offset.
+            Vector3 center = Vector3.Lerp(fromPos, toPos, t);
+
+            // VoxelVehicle is corner-anchored (transform = volume corner) and the raymarch
+            // shader rotates about volumeCenter = worldOffset + halfDims — so the plain
+            // half-footprint keeps the volume's center on the lane under any yaw.
+            Vector3 corner = vehicle != null && vehicle.Dims.x > 0
+                ? new Vector3(vehicle.WorldSize.x, 0f, vehicle.WorldSize.z) * 0.5f
+                : Vector3.zero;
+            transform.localPosition = center - corner;
+
             if (dir.sqrMagnitude > 0.001f)
             {
                 // NOTE: adjust the extra rotation offset below to match the car model's authored
@@ -426,7 +526,7 @@ namespace SteelCity.Sim
             }
 
             if (t >= 1f)
-                PickNextTarget();
+                AdvanceTarget();
         }
     }
 }

@@ -49,8 +49,14 @@ namespace SteelCity.Sim
         /// <summary>
         /// Build the intersection grid from a CityLayout. Uses the same block spacing/centering
         /// convention as WaypointGraph.GenerateFromLayout so road nodes align with the rendered city.
+        ///
+        /// hSeams/vSeams (optional, same grid-indexed convention as VoxelTerrainBuilder):
+        ///   hSeams[r][c] = corridor between blocks (r,c)-(r+1,c); vSeams[r][c] = between (r,c)-(r,c+1).
+        ///   A link is emitted only when its corridor is drivable — anything but "river".
+        ///   Null/absent data = legacy all-road lattice.
         /// </summary>
-        public void GenerateFromLayout(CityLayout layout, float spacing)
+        public void GenerateFromLayout(CityLayout layout, float spacing,
+            string[][] hSeams = null, string[][] vSeams = null)
         {
             nodes.Clear();
 
@@ -84,22 +90,50 @@ namespace SteelCity.Sim
                 }
             }
 
-            // Connect each intersection to its East and South neighbor (reciprocal links added both ways).
+            // Connect each intersection to its East and South neighbor (reciprocal links added both ways),
+            // conditioned on the corridor actually being drivable.
+            int suppressed = 0;
             for (int r = minRow; r <= maxRow + 1; r++)
             {
                 for (int c = minCol; c <= maxCol + 1; c++)
                 {
                     string current = IntersectionId(r, c);
 
+                    // E-W link travels the corridor between block rows r-1 and r at column c.
                     if (c < maxCol + 1)
-                        LinkBothWays(current, IntersectionId(r, c + 1));
+                    {
+                        if (CorridorDrivable(hSeams, r - 1, c))
+                            LinkBothWays(current, IntersectionId(r, c + 1));
+                        else
+                            suppressed++;
+                    }
 
+                    // N-S link travels the corridor between block cols c-1 and c at row r.
                     if (r < maxRow + 1)
-                        LinkBothWays(current, IntersectionId(r + 1, c));
+                    {
+                        if (CorridorDrivable(vSeams, r, c - 1))
+                            LinkBothWays(current, IntersectionId(r + 1, c));
+                        else
+                            suppressed++;
+                    }
                 }
             }
 
-            Debug.Log($"[RoadGraph] Generated {nodes.Count} intersections, {CountLinks()} links for {layout.blocks.Length} blocks");
+            Debug.Log($"[RoadGraph] Generated {nodes.Count} intersections, {CountLinks()} links for {layout.blocks.Length} blocks" +
+                      (suppressed > 0 ? $" ({suppressed} river corridors suppressed)" : ""));
+        }
+
+        /// <summary>
+        /// A corridor is drivable unless its seam is open channel ("river" — today the only
+        /// undrivable type; "road"/"mainstreet"/null all pass). Out-of-range lookups are
+        /// perimeter roads or sparse-layout edges — drivable.
+        /// </summary>
+        private static bool CorridorDrivable(string[][] grid, int r, int c)
+        {
+            if (grid == null || r < 0 || r >= grid.Length) return true;
+            var row = grid[r];
+            if (row == null || c < 0 || c >= row.Length) return true;
+            return row[c] != "river";
         }
 
         private void LinkBothWays(string aId, string bId)
