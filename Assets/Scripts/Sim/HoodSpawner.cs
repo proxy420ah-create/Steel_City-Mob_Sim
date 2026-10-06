@@ -177,7 +177,8 @@ namespace SteelCity.Sim
             CharacterAnimation.AnimState.Flinching,
             CharacterAnimation.AnimState.Falling,
             CharacterAnimation.AnimState.Down,
-            CharacterAnimation.AnimState.TPose
+            CharacterAnimation.AnimState.TPose,
+            CharacterAnimation.AnimState.AimSweep
         };
 
         void Update()

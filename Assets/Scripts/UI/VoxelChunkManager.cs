@@ -141,7 +141,7 @@ namespace SteelCity.Sim
         private ComputeBuffer dummyWalkKeyframeBuffer; // 10 float4s of zeros — bound when walk keyframes disabled
         private ComputeBuffer dummyJointConfigBuffer;   // 7 float4s of zeros — bound when walk keyframes disabled
         private ComputeBuffer dummyPivotBuffer;         // 10 float4s of zeros — bound when authored pivots disabled
-        private ComputeBuffer dummyAnimStaticParamsBuffer; // 12 float4s of zeros — bound when anim static params disabled
+        private ComputeBuffer dummyAnimStaticParamsBuffer; // 13 float4s of zeros — bound when anim static params disabled
         private ComputeBuffer dummyRegionIDBuffer;       // single uint(0) — bound when no region data
         private ComputeBuffer dummyMaterialRemapBuffer;  // single uint(0) — bound when no remap
 
@@ -618,8 +618,8 @@ namespace SteelCity.Sim
             dummyJointConfigBuffer.SetData(new Vector4[7]);
             dummyPivotBuffer = new ComputeBuffer(10, sizeof(float) * 4);
             dummyPivotBuffer.SetData(new Vector4[10]);
-            dummyAnimStaticParamsBuffer = new ComputeBuffer(12, sizeof(float) * 4);
-            dummyAnimStaticParamsBuffer.SetData(new Vector4[12]);
+            dummyAnimStaticParamsBuffer = new ComputeBuffer(13, sizeof(float) * 4);
+            dummyAnimStaticParamsBuffer.SetData(new Vector4[13]);
             dummyRegionIDBuffer = new ComputeBuffer(1, sizeof(uint));
             dummyRegionIDBuffer.SetData(new uint[] { 0 });
             dummyMaterialRemapBuffer = new ComputeBuffer(1, sizeof(uint));
@@ -1197,7 +1197,7 @@ namespace SteelCity.Sim
             public ComputeBuffer pivotBuffer;
             public bool pivotsEnabled = false;
             // Static animation parameters (looking/aiming/crouching/jointOffset)
-            public ComputeBuffer animStaticParamsBuffer; // 12 float4s
+            public ComputeBuffer animStaticParamsBuffer; // 13 float4s
             public bool animStaticParamsEnabled = false;
             // GPU compute forward-transform
             public bool useComputePose = false;  // true when groupIDBuffer is available
@@ -1231,7 +1231,20 @@ namespace SteelCity.Sim
 
                 if (isJson)
                 {
-                    CharacterJsonLoader.Load(path, out voxelData, out groupIDs, out _, out _, out regionMap, out regionDefs);
+                    // Shared asset — the registry's single parse feeds the GPU
+                    // buffers too (CHARACTER_ASSET_LIFECYCLE.md gotcha G1).
+                    var asset = CharacterAssets.Get(assetFileName);
+                    if (asset != null)
+                    {
+                        voxelData = asset.Voxels;
+                        groupIDs = asset.GroupIDs;
+                        regionMap = asset.Regions;
+                        regionDefs = asset.RegionDefs;
+                    }
+                    else
+                    {
+                        voxelData = null;
+                    }
                 }
                 else
                 {
@@ -1350,6 +1363,20 @@ namespace SteelCity.Sim
         ///
         /// walkConfig = (cycleDuration, bodyBobAmplitude, weightShiftAmplitude, autoMirror(1/0))
         /// </summary>
+        /// <summary>
+        /// True when the live instanced group already holds pivots, walk/joint config and
+        /// static params. Group lifetime != asset-cache lifetime (groups are rebuilt on
+        /// scene reload), so uploads must be gated on THIS, never on a flag stored on the
+        /// cached asset.
+        /// </summary>
+        public bool HasAnimUploads(string assetFileName)
+        {
+            return instancedGroups.TryGetValue(assetFileName, out var g)
+                && g.walkKeyframesEnabled && g.walkKeyframeBuffer != null
+                && g.jointConfigBuffer != null && g.pivotBuffer != null
+                && g.animStaticParamsBuffer != null;
+        }
+
         public void SetWalkKeyframes(string assetFileName, Vector4[] walkKeyframes, Vector4[] jointConfig, Vector4 walkConfig)
         {
             if (!instancedGroups.TryGetValue(assetFileName, out var group))
@@ -1434,18 +1461,18 @@ namespace SteelCity.Sim
                 return;
             }
 
-            if (animParams == null || animParams.Length != 12)
+            if (animParams == null || animParams.Length != 13)
             {
-                Debug.LogWarning($"[VoxelChunkManager] SetAnimStaticParams: expected 12 entries, got {(animParams == null ? "null" : animParams.Length.ToString())}");
+                Debug.LogWarning($"[VoxelChunkManager] SetAnimStaticParams: expected 13 entries, got {(animParams == null ? "null" : animParams.Length.ToString())}");
                 return;
             }
 
             if (group.animStaticParamsBuffer != null) group.animStaticParamsBuffer.Release();
-            group.animStaticParamsBuffer = new ComputeBuffer(12, sizeof(float) * 4);
+            group.animStaticParamsBuffer = new ComputeBuffer(13, sizeof(float) * 4);
             group.animStaticParamsBuffer.SetData(animParams);
             group.animStaticParamsEnabled = true;
 
-            Debug.Log($"[VoxelChunkManager] Anim static params set for {assetFileName} (12 float4s)");
+            Debug.Log($"[VoxelChunkManager] Anim static params set for {assetFileName} (13 float4s)");
         }
 
         /// <summary>

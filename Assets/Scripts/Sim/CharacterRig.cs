@@ -58,7 +58,7 @@ namespace SteelCity.Sim
 
         private static readonly string[] STATE_NAMES = {
             "Idle", "Walking", "Looking", "AimWalk", "Aiming",
-            "Crouching", "???", "???", "Down", "T-Pose"
+            "Crouching", "???", "???", "Down", "T-Pose", "Aim Sweep"
         };
 
         void Start()
@@ -105,6 +105,7 @@ namespace SteelCity.Sim
             if (kb.lKey.wasPressedThisFrame) { SetState(2f); }
             if (kb.aKey.wasPressedThisFrame) { SetState(4f); }
             if (kb.cKey.wasPressedThisFrame) { SetState(5f); }
+            if (kb.sKey.wasPressedThisFrame) { SetState(10f); }
 
             if (kb.spaceKey.wasPressedThisFrame)
             {
@@ -132,7 +133,18 @@ namespace SteelCity.Sim
             currentAnimState = state;
             int stateInt = Mathf.RoundToInt(state);
             var animState = (CharacterAnimation.AnimState)stateInt;
-            anim.SetState(animState);
+            if (stateInt == (int)CharacterAnimation.AnimState.Idle)
+            {
+                // I = release any held debug pose, return to plain idle
+                anim.ReleasePose(CharacterAnimation.PRIORITY_DEBUG);
+                anim.SetState(CharacterAnimation.AnimState.Idle);
+            }
+            else
+            {
+                // Hotkey poses hold at DEBUG priority — LookAround timers and
+                // auto-detect can no longer stomp them back to idle.
+                anim.RequestPose(animState, CharacterAnimation.PRIORITY_DEBUG);
+            }
             Debug.Log($"[CharRig] State -> {STATE_NAMES[stateInt]} ({stateInt})");
         }
 
@@ -184,7 +196,7 @@ namespace SteelCity.Sim
 
             Debug.Log($"[CharRig] Initialized character on '{gameObject.name}' at {spawnPosition} " +
                       $"(asset={assetBaseName}.json, voxelSize={voxelSize})");
-            Debug.Log("[CharRig] Hotkeys: T=TPose I=Idle W=Walk L=Look A=Aim C=Crouch " +
+            Debug.Log("[CharRig] Hotkeys: T=TPose I=Idle W=Walk L=Look A=Aim C=Crouch S=AimSweep " +
                       "Space=Play/Pause +/-=Speed");
         }
     }

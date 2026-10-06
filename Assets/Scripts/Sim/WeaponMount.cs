@@ -1,4 +1,3 @@
-using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
@@ -51,6 +50,7 @@ namespace SteelCity.Sim
         private float voxelSize;
         private Vector3 handPoint;      // index-space centroid on the character
         private int handGid;
+        private bool mirroredRig;       // character promoted with the Unity L/R flip (handedness marker)
 
         // Item data
         private GameObject itemGO;
@@ -90,23 +90,27 @@ namespace SteelCity.Sim
         public string ItemFileName => itemFileName;
         public Vector3 BoreAxisLocal => boreAxisLocal;
 
-        IEnumerator Start()
+        void Start()
         {
             character = GetComponent<VoxelCharacter>();
-            while (!character.IsInitialized)
-                yield return null;
-
-            chunkManager = character.chunkManager != null
-                ? character.chunkManager
-                : FindFirstObjectByType<VoxelChunkManager>();
-            if (chunkManager == null)
+            // Atomic init ordering — WhenReady fires immediately if the character
+            // already initialized, else runs at the end of its Start. Replaces the
+            // coroutine that polled IsInitialized every frame (see
+            // CHARACTER_ASSET_LIFECYCLE.md, gotcha G2).
+            character.WhenReady(_ =>
             {
-                Debug.LogWarning("[WeaponMount] No VoxelChunkManager — item will not render.");
-                yield break;
-            }
+                chunkManager = character.chunkManager != null
+                    ? character.chunkManager
+                    : FindFirstObjectByType<VoxelChunkManager>();
+                if (chunkManager == null)
+                {
+                    Debug.LogWarning("[WeaponMount] No VoxelChunkManager — item will not render.");
+                    return;
+                }
 
-            if (equipOnStart)
-                Equip(itemFileName);
+                if (equipOnStart)
+                    Equip(itemFileName);
+            });
         }
 
         /// <summary>Load the item file and attach it to the configured hand.</summary>
@@ -141,36 +145,29 @@ namespace SteelCity.Sim
 
         bool LoadCharacterAttachData()
         {
-            string path = Path.Combine(Application.streamingAssetsPath, "voxel_characters", character.assetFileName);
-            if (!File.Exists(path))
+            // Shared asset — same parse that fed VoxelCharacter/chunk manager
+            // (CHARACTER_ASSET_LIFECYCLE.md gotcha G1). Attachment points and
+            // pivots (painted pivot_N applied + canonical fallback) are identical
+            // to what the GPU pose uses.
+            var asset = character.Asset ?? CharacterAssets.Get(character.assetFileName);
+            if (asset == null)
             {
-                Debug.LogError($"[WeaponMount] Character file not found: {path}");
+                Debug.LogError($"[WeaponMount] Character asset not loaded: {character.assetFileName}");
                 return false;
             }
-            string json = File.ReadAllText(path);
+            groupIDs = asset.GroupIDs;
+            pivots = asset.Pivots;
+            dims = new Vector3Int(asset.DimX, asset.DimY, asset.DimZ);
+            voxelSize = asset.VoxelSize;
 
-            // Voxel geometry + group map (for forearm centroid + gid fallback)
-            if (!CharacterJsonLoader.Load(path, out _, out uint[] groupIDs, out Dictionary<int, Vector3> pivots,
-                    out string animParamsRaw, out _, out _))
-            {
-                return false;
-            }
-            this.groupIDs = groupIDs;
-            this.pivots = pivots ?? new Dictionary<int, Vector3>();
-            var d = character.Dims;
-            dims = new Vector3Int(d.x, d.y, d.z);
-            voxelSize = CharacterJsonLoader.ParseVoxelSize(json, character.voxelSize);
-
-            var pts = CharacterJsonLoader.ParseAttachmentPoints(json);
-            // Painted "pivot_N" attachment centroids override authored pivots —
-            // solver (L1/L2 bone lengths) and weld both read this same dict.
-            CharacterJsonLoader.ApplyPivotOverrides(this.pivots, pts, dims);
+            var pts = asset.AttachPoints;
             string handKey = hand == Hand.Right ? "right_hand" : "left_hand";
             if (!pts.TryGetValue(handKey, out var ap))
             {
                 Debug.LogWarning($"[WeaponMount] Character has no '{handKey}' attachment point — paint it in the editor.");
                 return false;
             }
+            mirroredRig = asset.UnityHanded;
             handPoint = ap.pos;
             handGid = ap.gid >= 0 ? ap.gid : (hand == Hand.Right ? 9 : 8);
             if (ap.gid < 0 && groupIDs != null)
@@ -181,22 +178,14 @@ namespace SteelCity.Sim
                     handGid = (int)groupIDs[gi];
             }
 
-            // CPU animator for the pose chain (same params the GPU pose uses)
-            string pivotsRaw = CharacterJsonLoader.ExtractPivotsRaw(json);
-            if (animParamsRaw == null && pivotsRaw == null)
+            // Per-character pose context over the SHARED params/pivots table —
+            // the weld, the IK solver's ikOverrides, and the GPU upload all emit
+            // from the same defaults-filled AnimParamsData.
+            animator = asset.CreateAnimator();
+            if (animator == null || animator.paramsData == null)
             {
-                Debug.LogWarning("[WeaponMount] No animParams/pivots in character JSON — welding to rest pose only.");
+                Debug.LogWarning("[WeaponMount] No anim params table — welding to rest pose only.");
                 animator = null;
-            }
-            else
-            {
-                string animJson = "{\"format\":\"anim_params\",\"version\":1," +
-                    "\"pivots\":" + (pivotsRaw ?? "{}") + "," +
-                    "\"params\":" + (animParamsRaw ?? "{}") + "}";
-                animator = VoxelCharacterAnimator.LoadFromAnimJson(animJson);
-                // Share the (possibly pivot_N-overridden) pivot dict so the weld
-                // animator uses the same joints as the solver and GPU pose.
-                if (animator != null) animator.pivots = this.pivots;
             }
             return true;
         }
@@ -240,7 +229,9 @@ namespace SteelCity.Sim
             // same as the editor's attachItem). A left-hand weld is the mirror
             // image — compensate with +180° roll about the grip axis.
             var e = CharacterJsonLoader.ParseEulerDeg(json, "attachRotation");
-            if (hand == Hand.Left) e.x += 180f;
+            // On a Unity-handed rig (promoted L/R flip) the Unity "right" hand is the editor's
+            // LEFT-side mirror, so the compensation inverts: right needs the roll, left doesn't.
+            if ((hand == Hand.Left) != mirroredRig) e.x += 180f;
             itemAttachRot = Quaternion.Euler(e);
 
             // GPU buffer + registered volume on a dedicated GameObject

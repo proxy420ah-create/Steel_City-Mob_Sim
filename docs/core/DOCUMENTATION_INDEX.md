@@ -262,6 +262,14 @@
   - Grip pose integration with existing AIM_WEAPON_PRESETS system
   - Editor painting tool plan + Unity implementation phases
 
+**Character Asset Lifecycle & Pose Authority:**
+- **`docs/systems/CHARACTER_ASSET_LIFECYCLE.md`** — Atomic character-asset infrastructure
+  - `CharacterAssets` registry: single parse, shared truth for all consumers
+  - `VoxelCharacter.WhenReady`: explicit init ordering (replaces coroutine polling)
+  - `CharacterAnimation.RequestPose`: priority pose-override channel (no state stomping)
+  - Single defaults table: GPU pose upload emitted from the same `ParamsData` as CPU weld
+  - Gotchas catalog G1–G8 (divergent parses, race windows, contested state, stale handles)
+
 **Crime & Squeal:**
 - **`docs/systems/CRIME_SQUEAL.md`** — Crime escalation and consequences
   - Crime table with suspicion/sentence/investigation values

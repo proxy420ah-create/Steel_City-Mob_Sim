@@ -1,5 +1,5 @@
 {
-  "name": "Civilian1",
+  "name": "Civilian1JointTest02",
   "dims": [
     96,
     96,
@@ -66,23 +66,10 @@
       "headPitch": 0,
       "armSwingL": 0,
       "armSwingR": 0,
-      "legStrideL": 0,
-      "legStrideR": -1.15,
-      "kneeBendL": 1.4,
-      "kneeBendR": 1.15
-    },
-    "aiming": {
-      "weaponType": "pistol",
-      "torsoTwist": 0.2,
-      "headYaw": 0,
-      "headPitch": -0.05,
-      "headTilt": 0,
-      "armSwingL": -1.4,
-      "armSwingR": 0,
-      "shoulderReachL": 0,
-      "shoulderReachR": 0,
-      "elbowBendL": 0.3,
-      "elbowBendR": 0
+      "legStrideL": -1.15,
+      "legStrideR": 0,
+      "kneeBendL": 1.15,
+      "kneeBendR": 1.4
     }
   },
   "states": [
@@ -101162,13 +101149,13 @@
     }
   ],
   "attachmentPoints": {
-    "left_hand": {
+    "right_hand": {
       "x": 12.5,
       "y": 46.5,
       "z": 46.5,
       "gid": 9
     },
-    "right_hand": {
+    "left_hand": {
       "x": 82.5,
       "y": 46.5,
       "z": 46.5,
@@ -101242,6 +101229,5 @@
   },
   "bgColor": "#241b3f",
   "format": "steelcity_character",
-  "version": 1,
-  "handedness": "unity"
+  "version": 1
 }

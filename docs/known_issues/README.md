@@ -12,3 +12,4 @@ Bug tracker per Development Guidelines Rule 13. Bugs are cataloged by category i
 | [Ctrl+Z After Tag Painting Removes Model](editor/UNDO_DESTROYS_MODEL_ON_TAG_STROKES.md) | editor | 🟢 FIXED | 🔴 CRITICAL | 2026-10-04 |
 | [Reference Preview Survives Asset-Type Switch](editor/REFERENCE_PREVIEW_SURVIVES_MODE_SWITCH.md) | editor | 🟢 FIXED | 🟢 MEDIUM | 2026-10-05 |
 | [Transforms Orphan Tag Layers](editor/TRANSFORMS_ORPHAN_TAG_LAYERS.md) | editor | 🟢 FIXED | 🟡 HIGH | 2026-10-06 |
+| [Character Lifecycle Races — Weld/Pose Divergence](runtime/CHARACTER_LIFECYCLE_RACES.md) | runtime | 🟢 FIXED | 🔴 CRITICAL | 2026-10-05 |

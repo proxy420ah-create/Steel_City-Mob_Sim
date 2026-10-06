@@ -645,10 +645,11 @@ body.ui-hidden #ui-hidden-hint { display:block; }
       <button class="console-btn" onclick="movePaste(0,0,5)" style="padding:4px 8px;">Z+5</button>
     </div>
     <div class="adv-row" style="margin-top:6px;">
+      <button class="mirror-btn" id="mirror-move" title="Mirrored move: cells past an active mirror plane get the reflected delta — X+ pushes both sides of a mirrored selection outward">⇄ Mirror Move</button>
       <button class="console-btn run" onclick="confirmPaste()">✅ Confirm</button>
       <button class="console-btn" onclick="cancelPaste()">❌ Cancel</button>
     </div>
-    <div style="font-size:9px;color:#888;margin-top:4px;">Arrow keys move | Enter=confirm | Esc=cancel</div>
+    <div style="font-size:9px;color:#888;margin-top:4px;">Arrow keys move | Enter=confirm | Esc=cancel | ⇄ = mirrored deltas</div>
   </div>
 </div>
 
@@ -3166,6 +3167,15 @@ let mirrorHalf = false; // half-voxel offset: plane through voxel centers (W-x) 
 function mirrorCoord(c, size) {
   return mirrorHalf ? (size - c) : (size - 1 - c);
 }
+// Plane coordinate per axis — cells strictly past it are the "far" side.
+// Boundary mirror: plane at (size-1)/2; half-voxel mirror: plane at size/2.
+function mirrorPlaneX() { return mirrorHalf ? W / 2 : (W - 1) / 2; }
+function mirrorPlaneY() { return mirrorHalf ? H / 2 : (H - 1) / 2; }
+function mirrorPlaneZ() { return mirrorHalf ? D / 2 : (D - 1) / 2; }
+// ⇄ Mirror Move toggle (paste-controls): when on, cells on the far side of an
+// active mirror plane receive the axis-reflected nudge delta, so a mirrored
+// selection spreads/pinches symmetrically instead of translating uniformly.
+let mirrorMove = false;
 
 // Selection state — stores list of selected voxel positions
 let selVoxels = []; // [[x, y, z, mid], ...]
@@ -3498,7 +3508,25 @@ function setVoxel(x, y, z, mid) {
       groupMap.delete(key); clothingRegionMap.delete(key); itemPartMap.delete(key);
     } else {
       voxelMap.set(`${px},${py},${pz}`, mid);
+      stampActiveTag(px, py, pz, x);
     }
+  }
+}
+
+// While a tag view is active (Body Parts / Wardrobe / Attach Pts), every voxel
+// a geometry tool writes also receives that panel's selected tag — line, fill,
+// box, extrude, and paint strokes build tagged data, not just mass. Cells that
+// crossed the X midline via mirror get the opposite side's tag.
+function stampActiveTag(px, py, pz, srcX) {
+  const key = `${px},${py},${pz}`;
+  const crossed = px !== srcX;
+  if (itemPartViewMode) {
+    if (selectedItemPart === 0) itemPartMap.delete(key); // 'Body / Erase'
+    else itemPartMap.set(key, crossed ? mirroredPartId(selectedItemPart) : selectedItemPart);
+  } else if (clothingRegionViewMode) {
+    clothingRegionMap.set(key, selectedClothingRegion);
+  } else if (groupViewMode) {
+    groupMap.set(key, crossed ? mirroredGid(selectedGroup) : selectedGroup);
   }
 }
 
@@ -3514,6 +3542,28 @@ function mirrorCandidates(x, y, z) {
   if (mirrorZ && mirrorY) candidates.push([x, my, mz]);
   if (mirrorX && mirrorY && mirrorZ) candidates.push([mx, my, mz]);
   return candidates;
+}
+
+// === SIDE-AWARE MIRROR TAGS ===
+// X is the left/right axis: a mirrored write that crossed the midline should
+// carry the OTHER side's tag — painting Left Arm on one side tags Right Arm on
+// the mirrored cell, pivot_2 ↔ pivot_3, right_hand ↔ left_hand, grip_right ↔
+// grip_left, etc. Y/Z-mirrored cells (and midline/self cells) keep the value.
+const MIRROR_GID_PAIRS = { 2:3, 3:2, 4:5, 5:4, 6:7, 7:6, 8:9, 9:8 };
+function mirroredGid(gid) { return MIRROR_GID_PAIRS[gid] ?? gid; }
+function mirroredPartId(pid) {
+  const def = activePartGroups().find(d => d.id === pid);
+  if (!def) return pid;
+  let key = def.key;
+  const pm = /^pivot_(\d+)$/.exec(key);
+  if (pm) {
+    const pg = MIRROR_GID_PAIRS[+pm[1]];
+    key = pg !== undefined ? `pivot_${pg}` : key;
+  } else if (key.endsWith('_right')) key = key.slice(0, -6) + '_left';
+  else if (key.endsWith('_left')) key = key.slice(0, -5) + '_right';
+  else return pid;
+  const md = activePartGroups().find(d => d.key === key);
+  return md ? md.id : pid;
 }
 
 // Mirror a set of voxel positions, keeping only candidates that are occupied.
@@ -3595,6 +3645,16 @@ function raycastVoxel(event) {
 }
 
 // === TOOL ACTIONS ===
+// Line/box endpoint anchor: while a tag view is active the shape should run
+// THROUGH voxels — anchor on the hovered cell so stamps land on it. With no
+// tag view (or Shift held) anchor on the adjacent place-cell for geometry
+// extension into air.
+function anchorCell(hit, event) {
+  const tagMode = (groupViewMode || clothingRegionViewMode || itemPartViewMode) && !event.shiftKey;
+  if (!tagMode && hit.placeX !== undefined) return [hit.placeX, hit.placeY, hit.placeZ];
+  return [hit.x, hit.y, hit.z];
+}
+
 function performTool(event) {
   if (currentTool === 'camera') return;
   const hit = raycastVoxel(event);
@@ -3663,24 +3723,36 @@ function performTool(event) {
     
     case 'bodypart':
       if (selectionActive && selVoxels.length > 0) {
-        // Assign entire selection to the selected body group
+        // Assign entire selection to the selected body group — plus
+        // side-aware mirrored writes (Left Arm → Right Arm across the
+        // midline). Cells inside the selection keep their explicit tag.
+        const selKeys = new Set(selVoxels.map(v => `${v[0]},${v[1]},${v[2]}`));
+        for (const v of selVoxels) groupMap.set(`${v[0]},${v[1]},${v[2]}`, selectedGroup);
+        let mirrored = 0;
         for (const v of selVoxels) {
-          groupMap.set(`${v[0]},${v[1]},${v[2]}`, selectedGroup);
+          for (const [mx, my, mz] of mirrorCandidates(v[0], v[1], v[2])) {
+            if (mx < 0 || mx >= W || my < 0 || my >= H || mz < 0 || mz >= D) continue;
+            const mk = `${mx},${my},${mz}`;
+            if (selKeys.has(mk) || !voxelMap.has(mk)) continue;
+            groupMap.set(mk, mx !== v[0] ? mirroredGid(selectedGroup) : selectedGroup);
+            mirrored++;
+          }
         }
         pushHistory();
         const gname = BODY_GROUPS.find(g => g.id === selectedGroup)?.name || selectedGroup;
-        setStatus(`Assigned ${selVoxels.length} selected voxels to ${gname}`);
+        setStatus(`Assigned ${selVoxels.length} selected voxels to ${gname}${mirrored ? ` (+${mirrored} mirrored)` : ''}`);
         updateGroupCounts();
         if (groupViewMode) rebuildMesh();
         clearSelection();
       } else if (hit.mid !== undefined) {
         const key = `${hit.x},${hit.y},${hit.z}`;
         groupMap.set(key, selectedGroup);
-        // Mirror support — assign group to mirrored cells that are occupied
+        // Mirror support — assign group to mirrored cells that are occupied;
+        // an X-crossed cell gets the paired side's group (Left Arm → Right Arm)
         for (const [mx, my, mz] of mirrorCandidates(hit.x, hit.y, hit.z)) {
           if (mx < 0 || mx >= W || my < 0 || my >= H || mz < 0 || mz >= D) continue;
           if (getVoxelAt(mx, my, mz) !== 0) {
-            groupMap.set(`${mx},${my},${mz}`, selectedGroup);
+            groupMap.set(`${mx},${my},${mz}`, mx !== hit.x ? mirroredGid(selectedGroup) : selectedGroup);
           }
         }
         pushHistory();
@@ -3724,18 +3796,41 @@ function performTool(event) {
       // the tag instead of tagging, so no orphan 'Body' centroid orbs exist.
       const erasePart = selectedItemPart === 0;
       if (selectionActive && selVoxels.length > 0) {
+        const selKeys = new Set(selVoxels.map(v => `${v[0]},${v[1]},${v[2]}`));
         for (const v of selVoxels) {
           const k = `${v[0]},${v[1]},${v[2]}`;
           if (erasePart) itemPartMap.delete(k); else itemPartMap.set(k, selectedItemPart);
         }
+        // Side-aware mirrored writes — paint one armpit hinge, get both
+        let mirrored = 0;
+        for (const v of selVoxels) {
+          for (const [mx, my, mz] of mirrorCandidates(v[0], v[1], v[2])) {
+            if (mx < 0 || mx >= W || my < 0 || my >= H || mz < 0 || mz >= D) continue;
+            const mk = `${mx},${my},${mz}`;
+            if (selKeys.has(mk) || !voxelMap.has(mk)) continue;
+            if (erasePart) itemPartMap.delete(mk);
+            else itemPartMap.set(mk, mx !== v[0] ? mirroredPartId(selectedItemPart) : selectedItemPart);
+            mirrored++;
+          }
+        }
         pushHistory();
-        setStatus(erasePart ? `Cleared part tag on ${selVoxels.length} selected voxels` : `Tagged ${selVoxels.length} selected voxels as ${partName(selectedItemPart)}`);
+        setStatus(erasePart ? `Cleared part tag on ${selVoxels.length} selected voxels${mirrored ? ` (+${mirrored} mirrored)` : ''}` : `Tagged ${selVoxels.length} selected voxels as ${partName(selectedItemPart)}${mirrored ? ` (+${mirrored} mirrored)` : ''}`);
         updateItemPartCounts();
         if (itemPartViewMode) rebuildMesh();
         clearSelection();
       } else if (hit.mid !== undefined) {
         const key = `${hit.x},${hit.y},${hit.z}`;
         if (erasePart) itemPartMap.delete(key); else itemPartMap.set(key, selectedItemPart);
+        // Mirror support — X-crossed cells get the paired part (pivot_2 ↔
+        // pivot_3, right_hand ↔ left_hand, grip_right ↔ grip_left)
+        for (const [mx, my, mz] of mirrorCandidates(hit.x, hit.y, hit.z)) {
+          if (mx < 0 || mx >= W || my < 0 || my >= H || mz < 0 || mz >= D) continue;
+          if (getVoxelAt(mx, my, mz) !== 0) {
+            const mk = `${mx},${my},${mz}`;
+            if (erasePart) itemPartMap.delete(mk);
+            else itemPartMap.set(mk, mx !== hit.x ? mirroredPartId(selectedItemPart) : selectedItemPart);
+          }
+        }
         pushHistory();
         setStatus(erasePart ? `Cleared part tag at (${hit.x},${hit.y},${hit.z})` : `Tagged (${hit.x},${hit.y},${hit.z}) as ${partName(selectedItemPart)}`);
         updateItemPartCounts();
@@ -3798,21 +3893,11 @@ function performTool(event) {
     
     case 'line':
       if (!lineStart) {
-        // Set start point
-        if (hit.placeX !== undefined) {
-          lineStart = [hit.placeX, hit.placeY, hit.placeZ];
-        } else {
-          lineStart = [hit.x, hit.y, hit.z];
-        }
+        lineStart = anchorCell(hit, event);
         setStatus(`Line start set at (${lineStart[0]},${lineStart[1]},${lineStart[2]}) — click end point`);
       } else {
         // Place line
-        let endX, endY, endZ;
-        if (hit.placeX !== undefined) {
-          endX = hit.placeX; endY = hit.placeY; endZ = hit.placeZ;
-        } else {
-          endX = hit.x; endY = hit.y; endZ = hit.z;
-        }
+        const [endX, endY, endZ] = anchorCell(hit, event);
         const lineVoxels = computeLineVoxels(lineStart[0], lineStart[1], lineStart[2], endX, endY, endZ);
         for (const [lx, ly, lz] of lineVoxels) {
           if (lx >= 0 && lx < W && ly >= 0 && ly < H && lz >= 0 && lz < D) {
@@ -3828,19 +3913,10 @@ function performTool(event) {
     
     case 'box':
       if (!boxStart) {
-        if (hit.placeX !== undefined) {
-          boxStart = [hit.placeX, hit.placeY, hit.placeZ];
-        } else {
-          boxStart = [hit.x, hit.y, hit.z];
-        }
+        boxStart = anchorCell(hit, event);
         setStatus(`Box start set at (${boxStart[0]},${boxStart[1]},${boxStart[2]}) — click end point`);
       } else {
-        let endX, endY, endZ;
-        if (hit.placeX !== undefined) {
-          endX = hit.placeX; endY = hit.placeY; endZ = hit.placeZ;
-        } else {
-          endX = hit.x; endY = hit.y; endZ = hit.z;
-        }
+        const [endX, endY, endZ] = anchorCell(hit, event);
         const boxVoxels = computeBoxVoxels(boxStart[0], boxStart[1], boxStart[2], endX, endY, endZ);
         for (const [bx, by, bz] of boxVoxels) {
           if (bx >= 0 && bx < W && by >= 0 && by < H && bz >= 0 && bz < D) {
@@ -3856,7 +3932,7 @@ function performTool(event) {
     
     case 'select':
       if (hit.mid === undefined) {
-        setStatus('Click a solid voxel to select connected mass | Shift=single | Ctrl=box | Alt=ADD to selection');
+        setStatus('Click a solid voxel to select connected mass | Shift=single | Ctrl=box | Q=group | Alt=ADD');
         return;
       }
       if (event.ctrlKey && !event.shiftKey) {
@@ -3903,6 +3979,33 @@ function performTool(event) {
           selVoxels = newVox;
           document.getElementById('sel-info').textContent = `Sel: ${selVoxels.length} voxel(s) (mat ${hit.mid})`;
           setStatus(`Selected ${selVoxels.length} voxel(s) at (${hit.x},${hit.y},${hit.z})${selVoxels.length > 1 ? ' +mirror' : ''} — Shift+click for single, Ctrl+click+drag for box`);
+        }
+        selectionActive = true;
+        showSelectionOverlay();
+      } else if (qHeld) {
+        // Group select (hold Q) — every voxel sharing this cell's body-group
+        // gid, anywhere in the volume. Alt adds more groups to the selection.
+        const gid = groupMap.get(`${hit.x},${hit.y},${hit.z}`);
+        if (gid === undefined) {
+          setStatus(`No body group on (${hit.x},${hit.y},${hit.z}) — tag it via Body Parts first`);
+          return;
+        }
+        const cells = [];
+        for (const [key, g] of groupMap) {
+          if (g !== gid || !voxelMap.has(key)) continue;
+          const [x, y, z] = key.split(',').map(Number);
+          cells.push([x, y, z, voxelMap.get(key)]);
+        }
+        const newVox = mirrorVoxelPositions(cells);
+        const gname = BODY_GROUPS.find(g => g.id === gid)?.name || `gid ${gid}`;
+        if (event.altKey) {
+          const added = mergeIntoSelection(newVox);
+          document.getElementById('sel-info').textContent = `Sel: ${selVoxels.length} voxels (multi)`;
+          setStatus(`Added ${added} ${gname} voxels — ${selVoxels.length} total selected`);
+        } else {
+          selVoxels = newVox;
+          document.getElementById('sel-info').textContent = `Sel: ${selVoxels.length} voxels (${gname})`;
+          setStatus(`Selected ${selVoxels.length} ${gname} voxels${selVoxels.length > cells.length ? ' +mirror' : ''} — Alt+Q adds more groups`);
         }
         selectionActive = true;
         showSelectionOverlay();
@@ -4127,6 +4230,7 @@ function computeBoxVoxels(x0, y0, z0, x1, y1, z1) {
 // Live Alt-key tracking — stored mousemove events carry a stale altKey, so
 // pressing/releasing Alt alone wouldn't refresh the additive-select preview.
 let altHeld = false;
+let qHeld = false; // hold Q + click in select tool → pick the voxel's whole body-part group
 
 function updateHighlight(event) {
   if (currentTool === 'camera') {
@@ -4234,49 +4338,47 @@ function updateHighlight(event) {
     case 'line':
       if (lineStart) {
         // Show line from start to current hover
-        let endX, endY, endZ;
-        if (hit.placeX !== undefined) {
-          endX = hit.placeX; endY = hit.placeY; endZ = hit.placeZ;
-        } else {
-          endX = hit.x; endY = hit.y; endZ = hit.z;
-        }
+        const [endX, endY, endZ] = anchorCell(hit, event);
         positions = computeLineVoxels(lineStart[0], lineStart[1], lineStart[2], endX, endY, endZ);
         infoText = `Line: (${lineStart[0]},${lineStart[1]},${lineStart[2]}) → (${endX},${endY},${endZ}) = ${positions.length} voxels`;
       } else {
         // First click preview
-        if (hit.placeX !== undefined) {
-          positions = [[hit.placeX, hit.placeY, hit.placeZ]];
-          infoText = `Line start @ (${hit.placeX},${hit.placeY},${hit.placeZ}) — click to set`;
-        } else {
-          positions = [[hit.x, hit.y, hit.z]];
-          infoText = `Line start @ (${hit.x},${hit.y},${hit.z}) — click to set`;
-        }
+        const [ax, ay, az] = anchorCell(hit, event);
+        positions = [[ax, ay, az]];
+        infoText = `Line start @ (${ax},${ay},${az}) — click to set`;
       }
       break;
 
     case 'box':
       if (boxStart) {
-        let endX, endY, endZ;
-        if (hit.placeX !== undefined) {
-          endX = hit.placeX; endY = hit.placeY; endZ = hit.placeZ;
-        } else {
-          endX = hit.x; endY = hit.y; endZ = hit.z;
-        }
+        const [endX, endY, endZ] = anchorCell(hit, event);
         positions = computeBoxVoxels(boxStart[0], boxStart[1], boxStart[2], endX, endY, endZ);
         infoText = `Box: (${boxStart[0]},${boxStart[1]},${boxStart[2]}) → (${endX},${endY},${endZ}) = ${positions.length} voxels`;
       } else {
-        if (hit.placeX !== undefined) {
-          positions = [[hit.placeX, hit.placeY, hit.placeZ]];
-          infoText = `Box start @ (${hit.placeX},${hit.placeY},${hit.placeZ}) — click to set`;
-        } else {
-          positions = [[hit.x, hit.y, hit.z]];
-          infoText = `Box start @ (${hit.x},${hit.y},${hit.z}) — click to set`;
-        }
+        const [ax, ay, az] = anchorCell(hit, event);
+        positions = [[ax, ay, az]];
+        infoText = `Box start @ (${ax},${ay},${az}) — click to set`;
       }
       break;
     
     case 'select':
-      if ((event.altKey || altHeld) && hit.mid !== undefined) {
+      if (qHeld && hit.mid !== undefined) {
+        // Group-select preview — highlight every cell sharing the hovered gid
+        const gid = groupMap.get(`${hit.x},${hit.y},${hit.z}`);
+        if (gid === undefined) {
+          infoText = `Q+click: no body group on this voxel — tag it first`;
+        } else {
+          const cells = [];
+          for (const [key, g] of groupMap) {
+            if (g !== gid || !voxelMap.has(key)) continue;
+            const [x, y, z] = key.split(',').map(Number);
+            cells.push([x, y, z]);
+          }
+          positions = mirrorPositionsPreview(cells);
+          const gname = BODY_GROUPS.find(g => g.id === gid)?.name || `gid ${gid}`;
+          infoText = `Q+click: select ${gname} (${cells.length} voxels)${event.altKey || altHeld ? ' — Alt+Q adds to selection' : ''}`;
+        }
+      } else if ((event.altKey || altHeld) && hit.mid !== undefined) {
         // Additive mode — preview the region about to merge in (the existing
         // selection stays visible via the orange overlay; this shows what's
         // coming, same as the first-click flood preview).
@@ -4434,7 +4536,9 @@ function updateHighlight(event) {
     const bz = pasteOrigin.z + pasteOffset.z;
     const pastePositions = [];
     for (const v of clipboard) {
-      const px = bx + v.x, py = by + v.y, pz = bz + v.z;
+      const px = pasteOrigin.x + v.x + (v.ox || 0);
+      const py = pasteOrigin.y + v.y + (v.oy || 0);
+      const pz = pasteOrigin.z + v.z + (v.oz || 0);
       if (px >= 0 && px < W && py >= 0 && py < H && pz >= 0 && pz < D) {
         pastePositions.push([px, py, pz]);
       }
@@ -4560,7 +4664,7 @@ document.getElementById('view-group-btn').addEventListener('click', () => {
   groupViewMode = true; clothingRegionViewMode = false; itemPartViewMode = false;
   syncViewButtons();
   rebuildMesh();
-  setStatus('View mode: Group colors');
+  setStatus('View mode: Group colors — geometry tools also tag cells');
 });
 
 // Clothing region view toggle (Material vs Region)
@@ -4574,7 +4678,7 @@ document.getElementById('view-region-btn').addEventListener('click', () => {
   clothingRegionViewMode = true; groupViewMode = false; itemPartViewMode = false;
   syncViewButtons();
   rebuildMesh();
-  setStatus('View mode: Clothing region colors');
+  setStatus('View mode: Clothing region colors — geometry tools also tag cells');
 });
 document.getElementById('auto-assign-regions-btn').addEventListener('click', autoAssignClothingRegions);
 document.getElementById('clear-regions-btn').addEventListener('click', clearAllClothingRegions);
@@ -4591,7 +4695,7 @@ document.getElementById('view-ipart-btn').addEventListener('click', () => {
   itemPartViewMode = true; groupViewMode = false; clothingRegionViewMode = false;
   syncViewButtons();
   rebuildMesh();
-  setStatus('View mode: Item part colors');
+  setStatus('View mode: Item part colors — geometry tools also tag cells');
 });
 document.getElementById('clear-itemparts-btn').addEventListener('click', clearAllItemParts);
 document.getElementById('export-itemparts-btn').addEventListener('click', exportItemPartsJSON);
@@ -5177,7 +5281,21 @@ document.addEventListener('keyup', (e) => {
     if (lastMouseEvent) updateHighlight(lastMouseEvent);
   }
 });
-window.addEventListener('blur', () => { altHeld = false; });
+// Q held = group-select modifier for the select tool (live preview refresh,
+// same pattern as altHeld). 'g' itself is bound to the bodypart tool.
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.key === 'q' || e.key === 'Q') {
+    if (!qHeld) { qHeld = true; if (lastMouseEvent) updateHighlight(lastMouseEvent); }
+  }
+});
+document.addEventListener('keyup', (e) => {
+  if (e.key === 'q' || e.key === 'Q') {
+    qHeld = false;
+    if (lastMouseEvent) updateHighlight(lastMouseEvent);
+  }
+});
+window.addEventListener('blur', () => { altHeld = false; qHeld = false; });
 
 renderer.domElement.addEventListener('mouseup', (e) => {
   // Commit paint drag stroke — single history entry for the whole stroke
@@ -5341,7 +5459,8 @@ window.moveSelection = function() {
   clipboard = selVoxels.map(v => {
     const key = `${v[0]},${v[1]},${v[2]}`;
     return { x: v[0] - minX, y: v[1] - minY, z: v[2] - minZ, mid: v[3],
-             gid: groupMap.get(key), rid: clothingRegionMap.get(key), pid: itemPartMap.get(key) };
+             gid: groupMap.get(key), rid: clothingRegionMap.get(key), pid: itemPartMap.get(key),
+             ox: 0, oy: 0, oz: 0 }; // per-cell nudge offset (mirrored move)
   });
   pasteOrigin = { x: minX, y: minY, z: minZ };
   pasteOffset = { x: 0, y: 0, z: 0 };
@@ -5357,6 +5476,7 @@ window.pasteSelection = function() {
   // Start at copy origin so ghost appears where the original was
   pasteOrigin = { x: copyOrigin.x, y: copyOrigin.y, z: copyOrigin.z };
   pasteOffset = { x: 0, y: 0, z: 0 };
+  for (const v of clipboard) { v.ox = 0; v.oy = 0; v.oz = 0; }
   document.getElementById('paste-controls').style.display = 'block';
   setStatus(`Paste mode: ${clipboard.length} voxels — use buttons/arrow keys to move, Enter to confirm, Esc to cancel`);
 };
@@ -5364,6 +5484,16 @@ window.pasteSelection = function() {
 window.movePaste = function(dx, dy, dz) {
   if (!pasteMode) return;
   pasteOffset.x += dx; pasteOffset.y += dy; pasteOffset.z += dz;
+  const px = mirrorPlaneX(), py = mirrorPlaneY(), pz = mirrorPlaneZ();
+  for (const v of clipboard) {
+    // Per-cell offset; cells past an active mirror plane get the reflected
+    // component when ⇄ Mirror Move is on. Side is tested on the cell's
+    // ORIGINAL position so a cell crossing the plane mid-drag doesn't flip.
+    const wx = pasteOrigin.x + v.x, wy = pasteOrigin.y + v.y, wz = pasteOrigin.z + v.z;
+    v.ox = (v.ox || 0) + (mirrorMove && mirrorX && wx > px ? -dx : dx);
+    v.oy = (v.oy || 0) + (mirrorMove && mirrorY && wy > py ? -dy : dy);
+    v.oz = (v.oz || 0) + (mirrorMove && mirrorZ && wz > pz ? -dz : dz);
+  }
   if (lastMouseEvent) updateHighlight(lastMouseEvent);
 };
 
@@ -5382,7 +5512,9 @@ window.confirmPaste = function() {
   }
   let placed = 0;
   for (const v of clipboard) {
-    const px = bx + v.x, py = by + v.y, pz = bz + v.z;
+    const px = pasteOrigin.x + v.x + (v.ox || 0);
+    const py = pasteOrigin.y + v.y + (v.oy || 0);
+    const pz = pasteOrigin.z + v.z + (v.oz || 0);
     if (px >= 0 && px < W && py >= 0 && py < H && pz >= 0 && pz < D) {
       const nkey = `${px},${py},${pz}`;
       voxelMap.set(nkey, v.mid);
@@ -5402,18 +5534,29 @@ window.confirmPaste = function() {
     // (normalized) pivot rides along — otherwise the limb re-exports rotating
     // about its OLD joint position. Painted pivot_N clusters already moved with
     // the cells and always win at export, so only cluster-less pivots shift.
+    // Per-gid delta: ⇄ Mirror Move can give the two sides of a mirrored pair
+    // different offsets, so each gid's pivot follows its OWN cells' delta
+    // (skipped when a group straddles the plane and deltas disagree).
     const movedGids = {};
-    for (const v of clipboard) if (v.gid !== undefined) movedGids[v.gid] = (movedGids[v.gid] || 0) + 1;
+    for (const v of clipboard) {
+      if (v.gid === undefined) continue;
+      const d = `${v.ox || 0},${v.oy || 0},${v.oz || 0}`;
+      if (!(v.gid in movedGids)) movedGids[v.gid] = { n: 1, d };
+      else { movedGids[v.gid].n++; if (movedGids[v.gid].d !== d) movedGids[v.gid].d = null; }
+    }
     const gidTotals = {};
     for (const [, gid] of groupMap) gidTotals[gid] = (gidTotals[gid] || 0) + 1;
     const defs = activePartGroups();
-    for (const [gidStr, moved] of Object.entries(movedGids)) {
+    for (const [gidStr, info] of Object.entries(movedGids)) {
       const gid = parseInt(gidStr, 10);
-      if (moved !== gidTotals[gid]) continue; // partial move — joint stays put
+      if (info.n !== gidTotals[gid] || info.d === null) continue; // partial or straddling — joint stays put
       const pdef = defs.find(d => d.key === `pivot_${gid}`);
       if (pdef && [...itemPartMap.values()].includes(pdef.id)) continue; // painted cluster owns it
       const ap = loadedAnimData.pivots && loadedAnimData.pivots[gid];
-      if (ap) { ap.x += pasteOffset.x / W; ap.y += pasteOffset.y / H; ap.z += pasteOffset.z / D; }
+      if (ap) {
+        const [ddx, ddy, ddz] = info.d.split(',').map(Number);
+        ap.x += ddx / W; ap.y += ddy / H; ap.z += ddz / D;
+      }
     }
   }
   pushHistory();
@@ -5621,6 +5764,11 @@ document.getElementById('mirror-half').addEventListener('click', () => {
   document.getElementById('mirror-half').classList.toggle('active', mirrorHalf);
   updateMirrorPlanes();
   setStatus(`Mirror half-voxel offset: ${mirrorHalf ? 'ON (plane through centers)' : 'OFF (plane on boundaries)'}`);
+});
+document.getElementById('mirror-move').addEventListener('click', () => {
+  mirrorMove = !mirrorMove;
+  document.getElementById('mirror-move').classList.toggle('active', mirrorMove);
+  setStatus(`⇄ Mirror Move: ${mirrorMove ? 'ON — mirrored cells get reflected deltas' : 'OFF — uniform translation'}`);
 });
 
 // === REPLACE BUTTON ===

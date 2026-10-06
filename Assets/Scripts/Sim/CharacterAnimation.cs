@@ -9,7 +9,8 @@ namespace SteelCity.Sim
     ///
     /// Animation states (must match shader GroupTransformOffset logic):
     ///   0 = Idle, 1 = Walking, 2 = Looking, 3 = AimWalk,
-    ///   4 = Aiming, 5 = Crouching, 6 = Flinching, 7 = Falling, 8 = Down, 9 = T-Pose
+    ///   4 = Aiming, 5 = Crouching, 6 = Flinching, 7 = Falling, 8 = Down, 9 = T-Pose,
+    ///   10 = Aim Sweep
     /// </summary>
     public class CharacterAnimation : MonoBehaviour
     {
@@ -24,11 +25,12 @@ namespace SteelCity.Sim
             Flinching = 6,
             Falling = 7,
             Down = 8,
-            TPose = 9
+            TPose = 9,
+            AimSweep = 10   // aiming pose + shoulder-yaw sweep (must match animator/shader state)
         }
 
         [Header("Animation")]
-        [Tooltip("Current animation state. Drives shader per-group transforms.")]
+        [Tooltip("Base-lane animation state (locomotion: idle/walk). Drives shader per-group transforms when no pose override is held.")]
         public AnimState currentState = AnimState.Idle;
         [Tooltip("Walk speed multiplier. 1.0 = normal, 1.5 = jogging.")]
         public float walkSpeed = 1.0f;
@@ -37,8 +39,51 @@ namespace SteelCity.Sim
         [Tooltip("Minimum velocity magnitude to be considered walking.")]
         public float walkVelocityThreshold = 0.1f;
 
+        // --- Pose-override channel (CHARACTER_ASSET_LIFECYCLE.md, gotcha G3) ---
+        // Every writer used to SetState() the same field — auto-detect, LookAround
+        // timers, hotkeys — so a manually-set pose got stomped on the next tick.
+        // Now: SetState writes the BASE lane (locomotion); RequestPose holds an
+        // OVERRIDE lane that wins while held. autoDetectWalking pauses under an
+        // override; timed overrides auto-release, so nothing needs to "restore".
+        public const int PRIORITY_BEHAVIOR = 10;  // LookAround, CoastClearCheck, scripted beats
+        public const int PRIORITY_COMBAT = 30;    // aim/combat AI
+        public const int PRIORITY_DEBUG = 50;     // rigs, hotkeys — nothing stomps these
+
+        private bool overrideActive;
+        private AnimState overrideState;
+        private int overridePriority;
+        private float overrideExpiry = -1f; // <0 = persistent until ReleasePose
+
+        /// <summary>True while a pose override is held (base lane suspended).</summary>
+        public bool HasOverride => overrideActive;
+        /// <summary>The state actually pushed to the GPU this frame.</summary>
+        public AnimState EffectiveState => overrideActive ? overrideState : currentState;
+
+        /// <summary>
+        /// Hold a pose override. Higher or equal priority replaces the current hold;
+        /// lower priority is rejected. duration &lt; 0 = persistent until ReleasePose.
+        /// </summary>
+        public void RequestPose(AnimState s, int priority, float duration = -1f)
+        {
+            if (overrideActive && priority < overridePriority) return;
+            overrideActive = true;
+            overrideState = s;
+            overridePriority = priority;
+            overrideExpiry = duration >= 0f ? Time.time + duration : -1f;
+        }
+
+        /// <summary>
+        /// Release the override. priority &gt;= 0 only releases a hold AT or BELOW
+        /// that priority (a behavior can't release a debug pose). -1 releases any.
+        /// </summary>
+        public void ReleasePose(int priority = -1)
+        {
+            if (!overrideActive) return;
+            if (priority >= 0 && priority < overridePriority) return;
+            overrideActive = false;
+        }
+
         private VoxelCharacter voxelChar;
-        private VoxelChunkManager.InstancedCharacter instancedHandle;
         private float animTime = 0f;
         private AnimState prevState;
         private Vector3 lastPos;
@@ -52,19 +97,24 @@ namespace SteelCity.Sim
 
         void Update()
         {
-            if (instancedHandle == null && voxelChar != null)
-            {
-                // Try to get the handle from VoxelCharacter (it creates it in Start)
-                instancedHandle = voxelChar.GetInstancedHandle();
-            }
-
+            // Re-fetch EVERY frame (gotcha G7) — the handle object is swapped if the
+            // character re-registers; a cached handle would keep writing to a dead
+            // instance and the pose would silently freeze at the new handle's default.
+            var instancedHandle = voxelChar != null ? voxelChar.GetInstancedHandle() : null;
             if (instancedHandle == null) return;
 
-            // Auto-detect walking from movement
-            if (autoDetectWalking)
+            // Expire timed overrides — auto-release, no coroutine needed.
+            if (overrideActive && overrideExpiry >= 0f && Time.time >= overrideExpiry)
+                overrideActive = false;
+
+            // Auto-detect walking from movement — BASE LANE ONLY. Suspended while
+            // an override is held (this was the "Aim resets to idle" stomp).
+            // lastPos updates unconditionally so a held override doesn't leave a
+            // stale sample that spikes velocity the frame the override releases.
+            Vector3 velocity = (transform.position - lastPos) / Mathf.Max(Time.deltaTime, 1e-5f);
+            lastPos = transform.position;
+            if (autoDetectWalking && !overrideActive)
             {
-                Vector3 velocity = (transform.position - lastPos) / Time.deltaTime;
-                lastPos = transform.position;
                 float horSpeed = new Vector2(velocity.x, velocity.z).magnitude;
 
                 if (currentState != AnimState.Looking && currentState != AnimState.AimWalk)
@@ -83,29 +133,30 @@ namespace SteelCity.Sim
                 }
             }
 
+            AnimState effective = overrideActive ? overrideState : currentState;
+
             // Reset animTime on state change for clean transitions
-            if (currentState != prevState)
+            if (effective != prevState)
             {
                 animTime = 0f;
-                prevState = currentState;
+                prevState = effective;
             }
 
             animTime += Time.deltaTime;
 
-            // Push to GPU via instance buffer
-            instancedHandle.animState = (float)currentState;
+            // Push to GPU via instance buffer — single authoritative write.
+            instancedHandle.animState = (float)effective;
             instancedHandle.animTime = animTime;
             instancedHandle.animSpeed = walkSpeed;
         }
 
-        /// <summary>Set animation state. Resets animTime for clean transitions.</summary>
+        /// <summary>Set base-lane animation state (locomotion). Does not break a held pose override.</summary>
         public void SetState(AnimState newState)
         {
             if (currentState != newState)
             {
                 currentState = newState;
                 animTime = 0f;
-                prevState = newState;
             }
         }
 

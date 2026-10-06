@@ -54,7 +54,7 @@ StructuredBuffer<float4> _WalkKeyframes;     // [10] — 4 keyframes per pose va
 int _WalkKeyframesEnabled;
 StructuredBuffer<float4> _JointConfig;       // [7] — axis/sign/rest per joint pair
 int _JointConfigEnabled;
-StructuredBuffer<float4> _AnimStaticParams;  // [12] — looking/aiming/crouching/jointOffset
+StructuredBuffer<float4> _AnimStaticParams;  // [13] — looking/aiming/crouching/jointOffset/aimSweep
 int _AnimStaticParamsEnabled;
 float4 _WalkConfig;                          // (cycleDuration, bodyBobAmp, weightShiftAmp, autoMirror)
 
@@ -174,11 +174,13 @@ float3x3 ComputeOwnRotation(
 
     // T-Pose (state 9): raw bind pose — skip rest offsets (arm drop, leg
     // twist, elbow bend) so the render matches the authored rest voxels.
-    if (animState > 8.5) return rot;
+    // NB: bounded <9.5 so Aim Sweep (state 10) still poses.
+    if (animState > 8.5 && animState < 9.5) return rot;
 
     bool isWalkState = animState > 0.5 && animState < 1.5;
     bool isAimWalkState = animState > 2.5 && animState < 3.5;
-    bool isAimingState = animState > 2.5 && animState < 4.5;
+    bool isSweepState = animState > 9.5 && animState < 10.5;
+    bool isAimingState = (animState > 2.5 && animState < 4.5) || isSweepState;
     bool isCrouchingState = animState > 4.5 && animState < 5.5;
 
     float walkPhase = 0.0;
@@ -205,6 +207,11 @@ float3x3 ComputeOwnRotation(
     float4 crouchP1= ASP(4); if (!_AnimStaticParamsEnabled) crouchP1 = float4(0, 0, 0, 0);
     float4 crouchP2= ASP(5); if (!_AnimStaticParamsEnabled) crouchP2 = float4(-1.15, 0, 1.15, 1.40);
     float2 elbowTw = ASP(6).xy; if (!_AnimStaticParamsEnabled) elbowTw = float2(0, 0);
+    float4 sweepP  = ASP(12); if (!_AnimStaticParamsEnabled) sweepP = float4(0.55, 1.6, 0.6, 0);
+
+    // Aim Sweep (state 10): sinusoidal shoulder-yaw added to the ARMED arm's
+    // reach (the arm whose aim swing is non-zero); head follows at headFollow.
+    float sweepYaw = isSweepState ? sin(animTime * sweepP.y) * sweepP.x : 0.0;
 
     if (gid == 1u) // Head
     {
@@ -213,7 +220,7 @@ float3x3 ComputeOwnRotation(
             headYaw = sin(animTime * lookP.y) * lookP.x;
             headPitch = sin(animTime * lookP.w) * lookP.z;
         } else if (isAimingState) {
-            headYaw = aimP1.y; headPitch = aimP1.z; headTilt = aimP1.w;
+            headYaw = aimP1.y + sweepYaw * sweepP.z; headPitch = aimP1.z; headTilt = aimP1.w;
         } else if (isCrouchingState) {
             headPitch = crouchP1.y;
         }
@@ -227,7 +234,7 @@ float3x3 ComputeOwnRotation(
             swing = armCfg.z * GetWalkPoseValue(0, walkPhase);
         } else if (isAimingState) {
             swing = armCfg.z * aimP2.x;
-            reach = aimP2.z;
+            reach = aimP2.z + (swing != 0.0 ? sweepYaw : 0.0);
         } else if (isCrouchingState) {
             swing = armCfg.z * crouchP1.z;
         } else {
@@ -243,7 +250,7 @@ float3x3 ComputeOwnRotation(
             swing = armCfg.w * GetWalkPoseValue(1, walkPhase);
         } else if (isAimingState) {
             swing = armCfg.w * aimP2.y;
-            reach = aimP2.w;
+            reach = aimP2.w + (swing != 0.0 ? sweepYaw : 0.0);
         } else if (isCrouchingState) {
             swing = armCfg.w * crouchP1.w;
         } else {
@@ -384,7 +391,7 @@ void ComputeGroupRotation(
     if (animState > 8.5 && animState < 9.5) return;
 
     // Body transform
-    bool isAimingState = animState > 2.5 && animState < 4.5;
+    bool isAimingState = (animState > 2.5 && animState < 4.5) || (animState > 9.5 && animState < 10.5);
     bool isCrouchingState = animState > 4.5 && animState < 5.5;
     float torsoTwist = isAimingState ? (_AnimStaticParamsEnabled ? _AnimStaticParams[1].x : 0.2) : 0.0;
     float bodyLean = isCrouchingState ? (_AnimStaticParamsEnabled ? _AnimStaticParams[4].x : 0.0) : 0.0;

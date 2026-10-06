@@ -27,7 +27,6 @@ namespace SteelCity.Sim
 
         private CharacterAnimation anim;
         private float lookTimer;
-        private bool isLooking = false;
 
         void Start()
         {
@@ -41,39 +40,29 @@ namespace SteelCity.Sim
         {
             if (anim == null || !enableRandomLook) return;
 
-            if (!isLooking)
-            {
-                // Only fidget from Idle — don't interrupt driven or debug states
-                // (T-Pose, Aiming, Walking) or the restore below stomps them.
-                if (anim.currentState == CharacterAnimation.AnimState.Idle)
-                    lookTimer -= Time.deltaTime;
-                if (lookTimer <= 0f)
-                {
-                    StartCoroutine(LookAround());
-                    lookTimer = Random.Range(minLookInterval, maxLookInterval);
-                }
-            }
-        }
+            // Fidget only from an UNHELD base Idle. A pose override (debug pose,
+            // aim, crouch) means another system owns the pose — never stomp it.
+            // (Previously the LookAround coroutine could restore Idle over a
+            // state set mid-look — gotcha G3 in CHARACTER_ASSET_LIFECYCLE.md.)
+            if (anim.HasOverride || anim.currentState != CharacterAnimation.AnimState.Idle) return;
 
-        IEnumerator LookAround()
-        {
-            isLooking = true;
-            anim.SetState(CharacterAnimation.AnimState.Looking);
-            yield return new WaitForSeconds(Random.Range(minLookDuration, maxLookDuration));
-            if (anim.currentState == CharacterAnimation.AnimState.Looking)
-                anim.SetState(CharacterAnimation.AnimState.Idle);
-            isLooking = false;
+            lookTimer -= Time.deltaTime;
+            if (lookTimer <= 0f)
+            {
+                // Timed override — auto-releases; nothing to restore afterwards.
+                anim.RequestPose(CharacterAnimation.AnimState.Looking,
+                    CharacterAnimation.PRIORITY_BEHAVIOR,
+                    Random.Range(minLookDuration, maxLookDuration));
+                lookTimer = Random.Range(minLookInterval, maxLookInterval);
+            }
         }
 
         /// <summary>Trigger a coast-clear check (for hoods). Longer pause than civilian look-around.</summary>
         public IEnumerator CoastClearCheck(float duration = 3f)
         {
-            isLooking = true;
-            anim.SetState(CharacterAnimation.AnimState.AimWalk);
+            anim.RequestPose(CharacterAnimation.AnimState.AimWalk,
+                CharacterAnimation.PRIORITY_BEHAVIOR, duration);
             yield return new WaitForSeconds(duration);
-            if (anim.currentState == CharacterAnimation.AnimState.AimWalk)
-                anim.SetState(CharacterAnimation.AnimState.Idle);
-            isLooking = false;
         }
     }
 }

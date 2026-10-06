@@ -404,7 +404,8 @@ namespace SteelCity.Sim
             CharacterAnimation.AnimState.Flinching,
             CharacterAnimation.AnimState.Falling,
             CharacterAnimation.AnimState.Down,
-            CharacterAnimation.AnimState.TPose
+            CharacterAnimation.AnimState.TPose,
+            CharacterAnimation.AnimState.AimSweep
         };
         public Dictionary<string, Block> CachedBlocks => cachedBlocks;
         public float CharacterVoxelSize => characterVoxelSize;

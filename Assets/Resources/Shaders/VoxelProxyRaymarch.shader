@@ -129,8 +129,8 @@ Shader "SteelCity/VoxelProxyRaymarch"
             StructuredBuffer<float4> _Pivots;
             int _PivotsEnabled;
 
-            // --- Static animation parameters (looking/aiming/crouching/jointOffset) ---
-            // Packed as 12 float4s, uploaded once per character type:
+            // --- Static animation parameters (looking/aiming/crouching/jointOffset/aimSweep) ---
+            // Packed as 13 float4s, uploaded once per character type:
             // [0]  = (looking.headYaw, looking.headYawFreq, looking.headPitch, looking.headPitchFreq)
             // [1]  = (aiming.torsoTwist, aiming.headYaw, aiming.headPitch, aiming.headTilt)
             // [2]  = (aiming.armSwingL, aiming.armSwingR, aiming.shoulderReachL, aiming.shoulderReachR)
@@ -143,6 +143,7 @@ Shader "SteelCity/VoxelProxyRaymarch"
             // [9]  = (jointOffset_3.x, jointOffset_3.y, jointOffset_3.z, 0)  -- right arm
             // [10] = (jointOffset_4.x, jointOffset_4.y, jointOffset_4.z, 0)  -- left leg
             // [11] = (jointOffset_5.x, jointOffset_5.y, jointOffset_5.z, 0)  -- right leg
+            // [12] = (aimSweep.amp, aimSweep.freq, aimSweep.headFollow, 0)  -- Aim Sweep (state 10)
             StructuredBuffer<float4> _AnimStaticParams;
             int _AnimStaticParamsEnabled;
 
@@ -377,7 +378,8 @@ Shader "SteelCity/VoxelProxyRaymarch"
 
                 bool isWalkState = animState > 0.5 && animState < 1.5;       // Walking (1) only
                 bool isAimWalkState = animState > 2.5 && animState < 3.5;    // Aim Walk (3) only
-                bool isAimingState = animState > 2.5 && animState < 4.5;     // Aim Walk (3) or Aiming (4)
+                bool isSweepState = animState > 9.5 && animState < 10.5;     // Aim Sweep (10)
+                bool isAimingState = (animState > 2.5 && animState < 4.5) || isSweepState; // Aim Walk (3), Aiming (4), Aim Sweep (10)
                 bool isCrouchingState = animState > 4.5 && animState < 5.5;
 
                 float walkPhase = 0.0;
@@ -406,6 +408,11 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 float4 crouchP1= ASP(4); if (!_AnimStaticParamsEnabled) crouchP1 = float4(0, 0, 0, 0);
                 float4 crouchP2= ASP(5); if (!_AnimStaticParamsEnabled) crouchP2 = float4(-1.15, 0, 1.15, 1.40);
                 float2 elbowTw = ASP(6).xy; if (!_AnimStaticParamsEnabled) elbowTw = float2(0, 0);
+                float4 sweepP  = ASP(12); if (!_AnimStaticParamsEnabled) sweepP = float4(0.55, 1.6, 0.6, 0);
+
+                // Aim Sweep (state 10): sinusoidal shoulder-yaw on the ARMED arm's
+                // reach (the arm whose aim swing is non-zero); head follows at headFollow.
+                float sweepYaw = isSweepState ? sin(animTime * sweepP.y) * sweepP.x : 0.0;
 
                 if (gid == 1u) // Head
                 {
@@ -413,8 +420,8 @@ Shader "SteelCity/VoxelProxyRaymarch"
                     if (animState > 1.5 && animState < 2.5) { // Looking (state 2 only)
                         headYaw = sin(animTime * lookP.y) * lookP.x;
                         headPitch = sin(animTime * lookP.w) * lookP.z;
-                    } else if (isAimingState) { // Aim Walk (3) or Aiming (4)
-                        headYaw = aimP1.y;
+                    } else if (isAimingState) { // Aim Walk (3), Aiming (4), Aim Sweep (10)
+                        headYaw = aimP1.y + sweepYaw * sweepP.z;
                         headPitch = aimP1.z;
                         headTilt = aimP1.w;
                     } else if (isCrouchingState) { // Crouching (5)
@@ -433,7 +440,7 @@ Shader "SteelCity/VoxelProxyRaymarch"
                         swing = armCfg.z * GetWalkPoseValue(0, walkPhase, _WalkConfig.w > 0.5);
                     } else if (isAimingState) { // Aim Walk (3) or Aiming (4)
                         swing = armCfg.z * aimP2.x;       // signL * aiming.armSwingL
-                        reach = aimP2.z;                   // aiming.shoulderReachL
+                        reach = aimP2.z + (swing != 0.0 ? sweepYaw : 0.0); // aiming.shoulderReachL + sweep on armed arm
                     } else if (isCrouchingState) {
                         swing = armCfg.z * crouchP1.z;     // signL * crouching.armSwingL
                     } else {
@@ -452,7 +459,7 @@ Shader "SteelCity/VoxelProxyRaymarch"
                         swing = armCfg.w * GetWalkPoseValue(1, walkPhase, _WalkConfig.w > 0.5);
                     } else if (isAimingState) {
                         swing = armCfg.w * aimP2.y;        // signR * aiming.armSwingR
-                        reach = aimP2.w;                    // aiming.shoulderReachR
+                        reach = aimP2.w + (swing != 0.0 ? sweepYaw : 0.0); // aiming.shoulderReachR + sweep on armed arm
                     } else if (isCrouchingState) {
                         swing = armCfg.w * crouchP1.w;     // signR * crouching.armSwingR
                     } else {
@@ -596,7 +603,7 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 if (animState > 8.5 && animState < 9.5) return false;
 
                 // Body transform params
-                bool isAimingState = animState > 2.5 && animState < 4.5; // Aim Walk (3) or Aiming (4)
+                bool isAimingState = (animState > 2.5 && animState < 4.5) || (animState > 9.5 && animState < 10.5); // Aim Walk (3), Aiming (4), Aim Sweep (10)
                 bool isCrouchingState = animState > 4.5 && animState < 5.5; // Crouching (5)
                 float torsoTwist = isAimingState ? (_AnimStaticParamsEnabled ? _AnimStaticParams[1].x : 0.2) : 0.0;
                 float bodyLean = isCrouchingState ? (_AnimStaticParamsEnabled ? _AnimStaticParams[4].x : 0.0) : 0.0;

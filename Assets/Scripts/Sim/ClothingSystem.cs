@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.IO;
 using UnityEngine;
 
 namespace SteelCity.Sim
@@ -129,15 +128,16 @@ namespace SteelCity.Sim
                 return;
             }
 
-            string path = Path.Combine(Application.streamingAssetsPath, "voxel_characters", voxelChar.assetFileName);
-            if (!File.Exists(path))
+            // Shared asset — regions already parsed by the CharacterAssets
+            // registry (no second file read — CHARACTER_ASSET_LIFECYCLE.md G1).
+            var asset = voxelChar.Asset ?? CharacterAssets.Get(voxelChar.assetFileName);
+            if (asset == null)
             {
-                Debug.LogWarning($"[ClothingSystem] File not found: {path}");
+                Debug.LogWarning($"[ClothingSystem] Character asset not loaded: {voxelChar.assetFileName}");
                 return;
             }
-
-            // Load with regions
-            CharacterJsonLoader.Load(path, out _, out _, out _, out _, out regionMap, out regionDefs);
+            regionMap = asset.Regions;
+            regionDefs = asset.RegionDefs;
 
             if (regionMap == null || regionMap.Count == 0)
             {

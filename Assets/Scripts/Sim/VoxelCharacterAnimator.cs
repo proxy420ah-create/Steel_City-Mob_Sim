@@ -12,7 +12,7 @@ namespace SteelCity.Sim
     /// animation, replacing the shader's inverse-transform approach.
     ///
     /// HTML state IDs (used here, NOT Unity's CharacterAnimation enum):
-    ///   0=Idle, 1=Walking, 2=Looking, 3=AimWalk, 4=Aiming, 5=Crouching, 8=Down, 9=T-Pose
+    ///   0=Idle, 1=Walking, 2=Looking, 3=AimWalk, 4=Aiming, 5=Crouching, 8=Down, 9=T-Pose, 10=Aim Sweep
     /// </summary>
     public class VoxelCharacterAnimator
     {
@@ -183,13 +183,33 @@ namespace SteelCity.Sim
             };
         }
 
+        private static readonly WalkKFPose ZERO_WALK_POSE = new WalkKFPose();
+        private bool _warnedNullKf = false;
+
         private WalkKFPose GetWalkKfPose(int idx, WalkKeyframesData wkf)
         {
-            if (idx == 0) return wkf.kf0;
-            if (idx == 1) return wkf.kf1;
-            if (idx == 2) return wkf.kf2 ?? (wkf.autoMirror ? MirrorWalkPose(wkf.kf0) : wkf.kf0);
-            if (idx == 3) return wkf.kf3 ?? (wkf.autoMirror ? MirrorWalkPose(wkf.kf1) : wkf.kf1);
-            return wkf.kf0;
+            // kf0/kf1 CAN be null: JsonUtility materializes a non-null
+            // WalkKeyframesData for a partial "walkKeyframes" object, so the
+            // "section missing → default fill" check doesn't fire. A null slot
+            // must never reach GetKFPoseValue (per-frame NRE inside WeaponMount's
+            // LateUpdate = the weapon freezing at its last welded transform).
+            WalkKFPose kf;
+            if (idx == 0) kf = wkf.kf0;
+            else if (idx == 1) kf = wkf.kf1;
+            else if (idx == 2) kf = wkf.kf2 ?? (wkf.autoMirror && wkf.kf0 != null ? MirrorWalkPose(wkf.kf0) : wkf.kf0);
+            else if (idx == 3) kf = wkf.kf3 ?? (wkf.autoMirror && wkf.kf1 != null ? MirrorWalkPose(wkf.kf1) : wkf.kf1);
+            else kf = wkf.kf0;
+
+            if (kf == null)
+            {
+                if (!_warnedNullKf)
+                {
+                    Debug.LogWarning($"[VCA] walkKeyframes kf{idx} is null — using zero pose (animParams export is missing keyframes)");
+                    _warnedNullKf = true;
+                }
+                kf = ZERO_WALK_POSE;
+            }
+            return kf;
         }
 
         private WalkPose GetWalkPose(float animTime, float animSpeed, AnimParamsData p)
@@ -293,6 +313,7 @@ namespace SteelCity.Sim
 
         private static float GetKFPoseValue(WalkKFPose p, string key)
         {
+            if (p == null) return 0f;
             switch (key)
             {
                 case "armSwingL": return p.armSwingL;
@@ -340,7 +361,12 @@ namespace SteelCity.Sim
             var ap = paramsData;
 
             // === BODY TRANSFORM (torso twist + crouch lean + crouch lower) ===
-            bool isAimingState = animState > 2.5f && animState < 4.5f; // Aim Walk (3) or Aiming (4)
+            bool isSweepState = animState > 9.5f && animState < 10.5f;            // Aim Sweep (10)
+            bool isAimingState = (animState > 2.5f && animState < 4.5f) || isSweepState; // Aim Walk (3), Aiming (4), Aim Sweep (10)
+            // Aim Sweep: shoulder-yaw sinusoid on the aiming arm + gaze follow (port of
+            // character_animator.html state 10). Sweeps only the arm whose aim swing is
+            // non-zero, so it lands on the armed side regardless of handedness.
+            float sweepYaw = isSweepState ? Mathf.Sin(animTime * ap.aimSweep.freq) * ap.aimSweep.amp : 0f;
             bool isCrouchingState = animState > 4.5f && animState < 5.5f; // Crouching (5)
             float torsoTwist = isAimingState ? ap.aiming.torsoTwist : 0f;
             float bodyLean = isCrouchingState ? ap.crouching.bodyLean : 0f;
@@ -424,10 +450,10 @@ namespace SteelCity.Sim
                     headYaw = Mathf.Sin(animTime * lp.headYawFreq) * lp.headYaw;
                     headPitch = Mathf.Sin(animTime * lp.headPitchFreq) * lp.headPitch;
                 }
-                else if (animState > 2.5f && animState < 4.5f) // Aim Walk (3) or Aiming (4)
+                else if (isAimingState) // Aim Walk (3), Aiming (4), Aim Sweep (10)
                 {
                     var aim = ap.aiming;
-                    headYaw = aim.headYaw; headPitch = aim.headPitch; headTilt = aim.headTilt;
+                    headYaw = aim.headYaw + sweepYaw * ap.aimSweep.headFollow; headPitch = aim.headPitch; headTilt = aim.headTilt;
                 }
                 else if (animState > 4.5f && animState < 5.5f) // Crouching
                 {
@@ -450,10 +476,10 @@ namespace SteelCity.Sim
                     var wp = GetWalkPose(animTime, animSpeed, ap);
                     swing = asc.signL * wp.pose["armSwingL"];
                 }
-                else if (animState > 2.5f && animState < 4.5f) // Aim Walk (3) or Aiming (4)
+                else if (isAimingState) // Aim Walk (3), Aiming (4), Aim Sweep (10)
                 {
                     swing = asc.signL * ap.aiming.armSwingL;
-                    reach = ap.aiming.shoulderReachL;
+                    reach = ap.aiming.shoulderReachL + (swing != 0f ? sweepYaw : 0f);
                 }
                 else if (animState > 4.5f && animState < 5.5f) // Crouching
                 {
@@ -476,10 +502,10 @@ namespace SteelCity.Sim
                     var wp = GetWalkPose(animTime, animSpeed, ap);
                     swing = asc.signR * wp.pose["armSwingR"];
                 }
-                else if (animState > 2.5f && animState < 4.5f) // Aim Walk (3) or Aiming (4)
+                else if (isAimingState) // Aim Walk (3), Aiming (4), Aim Sweep (10)
                 {
                     swing = asc.signR * ap.aiming.armSwingR;
-                    reach = ap.aiming.shoulderReachR;
+                    reach = ap.aiming.shoulderReachR + (swing != 0f ? sweepYaw : 0f);
                 }
                 else if (animState > 4.5f && animState < 5.5f) // Crouching
                 {
@@ -545,7 +571,7 @@ namespace SteelCity.Sim
                     bend = eb.signL * wp.pose["elbowBendL"];
                     twist = wp.pose["forearmTwistL"];
                 }
-                else if (animState > 2.5f && animState < 4.5f) // Aim Walk (3) or Aiming (4)
+                else if (isAimingState) // Aim Walk (3), Aiming (4), Aim Sweep (10)
                 {
                     bend = eb.signL * ap.aiming.elbowBendL;
                 }
@@ -563,7 +589,7 @@ namespace SteelCity.Sim
                     bend = eb.signR * wp.pose["elbowBendR"];
                     twist = wp.pose["forearmTwistR"];
                 }
-                else if (animState > 2.5f && animState < 4.5f) // Aim Walk (3) or Aiming (4)
+                else if (isAimingState) // Aim Walk (3), Aiming (4), Aim Sweep (10)
                 {
                     bend = eb.signR * ap.aiming.elbowBendR;
                 }
@@ -846,6 +872,24 @@ namespace SteelCity.Sim
 
             // Fill defaults for missing optional sections
             var p = jsonData.@params;
+            // JsonUtility can hand back NON-null, zero-filled objects for sections that
+            // are absent from the JSON, so "== null" does not detect a missing section
+            // (restPose 0/0 = arms never drop = permanent T-pose; zero signs = frozen
+            // limbs). Presence is decided from the raw text; null is only a backstop.
+            bool Missing(string key) => jsonText.IndexOf("\"" + key + "\"", System.StringComparison.Ordinal) < 0;
+            if (Missing("restPose")) p.restPose = null;
+            if (Missing("looking")) p.looking = null;
+            if (Missing("aiming")) p.aiming = null;
+            if (Missing("crouching")) p.crouching = null;
+            if (Missing("armSwing")) p.armSwing = null;
+            if (Missing("legStride")) p.legStride = null;
+            if (Missing("legTwist")) p.legTwist = null;
+            if (Missing("elbowBend")) p.elbowBend = null;
+            if (Missing("kneeBend")) p.kneeBend = null;
+            if (Missing("walkKeyframes")) p.walkKeyframes = null;
+            if (Missing("aimSweep")) p.aimSweep = null;
+            if (p.aimSweep == null)
+                p.aimSweep = new AimSweepData { amp = 0.55f, freq = 1.6f, headFollow = 0.6f };
             if (p.restPose == null)
                 p.restPose = new RestPoseData { leftArmZ = -Mathf.PI / 2f, rightArmZ = Mathf.PI / 2f };
             if (p.looking == null)
@@ -866,7 +910,10 @@ namespace SteelCity.Sim
                 p.elbowBend = new ElbowBendData { axisL = 1, axisR = 1, signL = 1, signR = -1, leftRest = 0f, rightRest = 0f, twistL = 0f, twistR = 0f, twistWalkAmp = 0.15f };
             if (p.kneeBend == null)
                 p.kneeBend = new KneeBendData { axisL = 0, axisR = 0, signL = 1, signR = 1, leftRest = 0f, rightRest = 0f, walkAmp = 0.42f };
-            if (p.walkKeyframes == null)
+            if (p.walkKeyframes == null || (p.walkKeyframes.kf0 == null && p.walkKeyframes.kf1 == null))
+            {
+                // Section absent OR a partial JsonUtility-materialized object with
+                // no usable keyframes — install the full default gait.
                 p.walkKeyframes = new WalkKeyframesData
                 {
                     autoMirror = true, cycleDuration = 1.2f, interpolation = "spline",
@@ -876,6 +923,20 @@ namespace SteelCity.Sim
                     kf1 = new WalkKFPose { armSwingL = 0f, armSwingR = 0f, legStrideL = 0.3f, legStrideR = -0.1f, elbowBendL = 0.3f, elbowBendR = 0.3f, kneeBendL = 0.8f, kneeBendR = 0.15f, forearmTwistL = 0f, forearmTwistR = 0f },
                     kf2 = null, kf3 = null,
                 };
+            }
+            else
+            {
+                // Partial export (e.g. kf0 authored, kf1 trimmed) — fill the
+                // missing core keyframes + cycle helpers so spline eval never
+                // dereferences a null pose.
+                var w = p.walkKeyframes;
+                if (w.cycleDuration <= 0f) w.cycleDuration = 1.2f;
+                if (string.IsNullOrEmpty(w.interpolation)) w.interpolation = "spline";
+                if (w.bodyBob == null) w.bodyBob = new BodyBobData { enabled = true, amplitude = 0.6f };
+                if (w.weightShift == null) w.weightShift = new WeightShiftData { enabled = true, amplitude = 0.4f };
+                if (w.kf0 == null) w.kf0 = new WalkKFPose { armSwingL = 0.3f, armSwingR = -0.3f, legStrideL = -0.4f, legStrideR = 0.4f, elbowBendL = 0.1f, elbowBendR = 0.1f };
+                if (w.kf1 == null) w.kf1 = new WalkKFPose { armSwingL = 0f, armSwingR = 0f, legStrideL = 0.3f, legStrideR = -0.1f, elbowBendL = 0.3f, elbowBendR = 0.3f, kneeBendL = 0.8f, kneeBendR = 0.15f };
+            }
 
             // Debug: verify walk keyframes parsed correctly
             if (p.walkKeyframes != null)
@@ -1045,6 +1106,15 @@ namespace SteelCity.Sim
             public LookingData looking;
             public AimingData aiming;
             public CrouchingData crouching;
+            public AimSweepData aimSweep;
+        }
+
+        [System.Serializable]
+        public class AimSweepData
+        {
+            public float amp;         // sweep amplitude (radians)
+            public float freq;        // sweep speed (rad/s)
+            public float headFollow;  // fraction of sweep the head tracks
         }
 
         [System.Serializable]

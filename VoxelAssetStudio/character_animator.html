@@ -1777,9 +1777,10 @@ const groundPlane = new THREE.Mesh(planeGeo, new THREE.MeshBasicMaterial({ visib
 groundPlane.position.set(0, 0, 0);
 scene.add(groundPlane);
 
+let unityView = false; // 'U' hotkey — mirrored (Unity-handedness) preview
 function raycastVoxel(event) {
   pointer.set(
-    (event.clientX / window.innerWidth) * 2 - 1,
+    (unityView ? -1 : 1) * ((event.clientX / window.innerWidth) * 2 - 1),
     -(event.clientY / window.innerHeight) * 2 + 1
   );
   raycaster.setFromCamera(pointer, camera);
@@ -2859,6 +2860,14 @@ window.addEventListener('keydown', (e) => {
       uiHidden = !uiHidden;
       document.body.classList.toggle('ui-hidden', uiHidden);
       setStatus(uiHidden ? 'UI hidden — press H to show' : 'UI visible');
+      break;
+    case 'u':
+      // Unity-handedness preview: the editor is right-handed, Unity is left-handed, so the
+      // same voxel indices render MIRRORED in Unity (right hand = +X side for +Z-forward models).
+      // View-only mirror (CSS on the canvas) — model data is untouched. Orbit-drag X feels reversed.
+      unityView = !unityView;
+      renderer.domElement.style.transform = unityView ? 'scaleX(-1)' : '';
+      setStatus(unityView ? 'Unity-handedness preview ON (mirrored view) — what Unity will render' : 'Editor-handedness view');
       break;
     case '1': case '2': case '3': case '4': case '5': case '6':
       selectGroup(parseInt(e.key) - 1);
