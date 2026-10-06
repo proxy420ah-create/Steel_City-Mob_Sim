@@ -15,3 +15,4 @@ Bug tracker per Development Guidelines Rule 13. Bugs are cataloged by category i
 | [Character Lifecycle Races — Weld/Pose Divergence](runtime/CHARACTER_LIFECYCLE_RACES.md) | runtime | 🟢 FIXED | 🔴 CRITICAL | 2026-10-05 |
 | [Terrain Sector Overflow at 32x32](rendering/TERRAIN_SECTOR_OVERFLOW_AT_SCALE.md) | rendering | 🟢 FIXED | 🟡 HIGH | 2026-10-05 |
 | [RoadGraph Links Across Open Water](runtime/ROADGRAPH_IGNORES_TERRAIN.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-10-07 |
+| [Sector Frustum Cull Drops Visible Terrain](rendering/SECTOR_FRUSTUM_CULL.md) | rendering | 🟡 MITIGATED | 🟡 HIGH | 2026-10-08 |

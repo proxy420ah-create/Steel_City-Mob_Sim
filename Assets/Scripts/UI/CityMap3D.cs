@@ -48,11 +48,12 @@ namespace SteelCity.Sim
         private VoxelRenderBridge renderBridge;
         [Tooltip("World size of each voxel in the .stasset buildings.")]
         [SerializeField] private float voxelSize = 0.05f;
-        [Tooltip("Width of the road between blocks (cars, trolleys).")]
-        // Road width is a hardcoded baseline (two 1.4 m lanes around the 1.0 m car +
-        // the 0.1 m cobble center stripe = dual-traffic divider). Not tunable at runtime —
-        // live-resizing forces a full RebuildCity per tick and destroys spawned entities.
-        private const float roadWidth = 3.0f;
+        [Tooltip("Width of the road between blocks (cars, trolleys). Applies on city build — changing it mid-play does NOT re-space the grid until the next RebuildCity (a rebuild destroys spawned entities).")]
+        // Road width is serialized for inspector tuning (two lanes around the 1.0 m car +
+        // the 0.1 m cobble center stripe = dual-traffic divider). lane offsets and the
+        // ParkingMap all derive from it via GetRoadWidth(). No live-resize hook — that
+        // forces a RebuildCity per tick and destroys spawned entities.
+        [SerializeField][Min(0.5f)] private float roadWidth = 4.5f;
         [Tooltip("Width of sidewalk strip around each building (in world units). ~10 building voxels = room for benches, foot traffic, cops on beat.")]
         [SerializeField] private float sidewalkWidth = 1.0f;
         [Tooltip("Number of building slots per block row (3 = 3×3 grid with center courtyard).")]

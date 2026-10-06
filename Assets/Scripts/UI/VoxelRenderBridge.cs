@@ -19,6 +19,9 @@ namespace SteelCity.Sim
     [RequireComponent(typeof(Camera))]
     public class VoxelRenderBridge : MonoBehaviour
     {
+        [Tooltip("Verbose per-frame debug logging.")]
+        [SerializeField] private bool verboseLogging = false;
+
         public VoxelChunkManager chunkManager;
 
         private Camera _camera;
@@ -55,11 +58,11 @@ namespace SteelCity.Sim
             var pathDebug = PathDebugRenderer.Instance;
             if (pathDebug != null)
             {
-                if (Time.frameCount % 60 == 0)
+                if (verboseLogging && Time.frameCount % 60 == 0)
                     Debug.Log($"[VoxelRenderBridge] Calling RenderBeamsIntoCamera (PDR active, paths={pathDebug.ActivePathCount})");
                 pathDebug.RenderBeamsIntoCamera(_camera);
             }
-            else if (Time.frameCount % 120 == 0)
+            else if (verboseLogging && Time.frameCount % 120 == 0)
             {
                 Debug.Log("[VoxelRenderBridge] PathDebugRenderer.Instance is NULL — no beams to render");
             }

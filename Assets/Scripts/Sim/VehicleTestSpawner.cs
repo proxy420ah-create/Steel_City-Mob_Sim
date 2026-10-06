@@ -43,6 +43,16 @@ namespace SteelCity.Sim
 
         private readonly List<VehicleAgent> activeVehicles = new();
         private RoadGraph roadGraph;
+        private ParkingMap parkingMap;
+
+        [Header("Parking")]
+        [Tooltip("Extra curb offset (m) beyond the computed parked position — slides parked cars toward/past the curb. Live-adjustable while parked.")]
+        [Range(0f, 1.5f)] public float extraParkOffset = 0.25f;
+
+        void OnValidate()
+        {
+            parkingMap?.SetExtraOffset(extraParkOffset);
+        }
         private bool vehiclesSpawned;
         private bool isDriving;
 
@@ -100,11 +110,12 @@ namespace SteelCity.Sim
                 else
                 {
                     isDriving = !isDriving;
-                    Debug.Log($"[VehicleTest] {driveKey} pressed — {(isDriving ? "START DRIVING" : "STOPPED (parked)")}");
+                    Debug.Log($"[VehicleTest] {driveKey} pressed — {(isDriving ? "DEPART (pull out + cruise)" : "PARK (find nearest slot ahead)")}");
                     foreach (var v in activeVehicles)
                     {
                         if (v == null) continue;
-                        v.IsDriving = isDriving;
+                        if (isDriving) v.RequestDepart();
+                        else v.RequestPark();
 
                         var pdr = PathDebugRenderer.Instance;
                         if (pdr == null)
@@ -135,10 +146,9 @@ namespace SteelCity.Sim
                                 0f);
                             Debug.Log($"[VehicleTest] RegisterPath done. PDR activePaths={PathDebugRenderer.Instance?.ActivePathCount ?? -1}");
                         }
-                        else
-                        {
-                            pdr.UnregisterPath(v.transform);
-                        }
+                        // On park request the path stays registered: the beam drains as
+                        // the polyline is consumed, so the pull-in leg remains visible
+                        // (drawn == driven). The renderer drops the empty path itself.
                     }
                 }
             }
@@ -156,6 +166,11 @@ namespace SteelCity.Sim
             roadGraph = new RoadGraph();
             CityMap3D.ExtractTerrainAndSeams(layout, out _, out var hSeams, out var vSeams);
             roadGraph.GenerateFromLayout(layout, cityMap.Spacing, hSeams, vSeams);
+
+            // Curbside parking inventory — computed from the same links (measured
+            // vehicle_civilian_car_0 dims: 1.5 m long × 1.0 m wide @ 0.05 voxels).
+            parkingMap = ParkingMap.Build(roadGraph, cityMap.GetRoadWidth(), 1.5f, 1.0f, extraParkOffset);
+            Debug.Log($"[VehicleTest] ParkingMap: {parkingMap.Count} curbside slots generated");
         }
 
         public void SpawnVehicles()
@@ -201,18 +216,25 @@ namespace SteelCity.Sim
                 Vector3 startPos = roadGraph.Nodes[startNode].localPos;
                 startPos.y = groundY;
 
+                // Spawn PARKED in the nearest free curbside slot to HQ — not mid-intersection.
+                ParkingSpace space = parkingMap?.NearestFree(startPos);
+                Vector3 spawnPos = space != null ? space.pos : startPos;
+                spawnPos.y = groundY;
+
                 var vehObj = new GameObject($"TestVehicle_{i}");
                 vehObj.transform.SetParent(vehicleParent, false);
+                if (space != null && space.heading.sqrMagnitude > 0.001f)
+                    vehObj.transform.localRotation = Quaternion.LookRotation(space.heading, Vector3.up);
 
                 var vv = vehObj.AddComponent<VoxelVehicle>();
                 vv.assetFileName = vehicleAsset;
                 vv.voxelSize = vehicleVoxelSize;
                 vv.chunkManager = chunkManager;
-                vv.centerPosition = startPos;
+                vv.centerPosition = spawnPos;
 
                 var agent = vehObj.AddComponent<VehicleAgent>();
                 float laneOffset = cityMap != null ? cityMap.GetRoadWidth() * 0.25f : 0f;
-                agent.Initialize(roadGraph, startNode, driveSpeed, laneOffset);
+                agent.Initialize(roadGraph, startNode, driveSpeed, laneOffset, parkingMap, space);
                 // Spawn PARKED — not driving until F10
                 agent.IsDriving = false;
 
@@ -330,8 +352,20 @@ namespace SteelCity.Sim
         private int laneKeyCounter;
         private const int PlanAheadCount = 6;
 
+        // --- Parking state ---
+        private ParkingMap parkingMap;
+        private ParkingSpace parkedSpace;       // slot currently occupied
+        private ParkingSpace parkTarget;        // slot being driven to
+        private FlowField parkField;            // road field routed to parkTarget.fromId
+        private bool parkRequested;             // F10-off: keep cruising until a slot is spliced
+        private bool awaitingParkArrival;       // current drive leg ends IN the slot
+        private Vector3 parkFinalPoint;
+
         /// <summary>When false, the vehicle stays parked at its current position.</summary>
         public bool IsDriving { get; set; }
+
+        /// <summary>True when the car is pulled over in a ParkingSpace (parked pose).</summary>
+        public bool IsParked => parkedSpace != null;
 
         /// <summary>Lane-polyline point keys in order — what the debug path renders.</summary>
         public List<string> LaneKeys => laneKeys;
@@ -342,25 +376,143 @@ namespace SteelCity.Sim
         public Vector3 ResolveLanePoint(string key)
             => laneLookup.TryGetValue(key, out var p) ? p : new Vector3(float.NaN, 0, 0);
 
-        public void Initialize(RoadGraph graph, string startNodeId, float speed, float laneOffset = 0f)
+        /// <summary>World-lane center of the volume (inverse of the corner-anchored transform).</summary>
+        private Vector3 CurrentCenter
+        {
+            get
+            {
+                Vector3 half = vehicle != null && vehicle.Dims.x > 0
+                    ? new Vector3(vehicle.WorldSize.x, 0f, vehicle.WorldSize.z) * 0.5f
+                    : Vector3.zero;
+                return transform.localPosition + half;
+            }
+        }
+
+        private Vector3 CurrentDirXZ
+        {
+            get
+            {
+                var d = toPos - fromPos;
+                d.y = 0f;
+                return d.sqrMagnitude > 0.001f ? d.normalized : Vector3.forward;
+            }
+        }
+
+        public void Initialize(RoadGraph graph, string startNodeId, float speed,
+            float laneOffset = 0f, ParkingMap parking = null, ParkingSpace startSpace = null)
         {
             this.graph = graph;
             this.speed = speed;
             this.laneOffset = laneOffset;
+            parkingMap = parking;
             vehicle = GetComponent<VoxelVehicle>();
             currentNodeId = startNodeId;
             plannedRoute.Clear();
-            plannedRoute.Add(startNodeId);
             laneRoute.Clear();
             laneKeys.Clear();
             laneLookup.Clear();
             laneIndex = 0;
             laneKeyCounter = 0;
-            fromPos = transform.localPosition;
-            toPos = transform.localPosition;
+            parkedSpace = null;
+            parkTarget = null;
+            parkField = null;
+            parkRequested = false;
+            awaitingParkArrival = false;
             segmentElapsed = 0f;
             segmentDuration = 0f;
             IsDriving = false;
+
+            if (startSpace != null)
+            {
+                // Parked spawn: sit in the slot (curb lane), route seeded at the slot's
+                // link so Depart can drive it out along the correct incoming direction.
+                parkedSpace = startSpace;
+                parkingMap?.Occupy(startSpace, this);
+                plannedRoute.Add(startSpace.fromId);
+                plannedRoute.Add(startSpace.toId);
+                fromPos = toPos = startSpace.pos;
+            }
+            else
+            {
+                plannedRoute.Add(startNodeId);
+                fromPos = toPos = transform.localPosition;
+            }
+        }
+
+        /// <summary>
+        /// F10-on: leave the parked slot — diagonal pull-out into the lane, merge point
+        /// just ahead of the slot, then resume the rolling route from the link's end node.
+        /// Not parked → simply resumes driving.
+        /// </summary>
+        public void RequestDepart()
+        {
+            if (parkedSpace == null)
+            {
+                // Not parked — either already cruising or mid park-seek: cancel the
+                // parking intent and resume free cruising.
+                parkRequested = false;
+                parkTarget = null;
+                parkField = null;
+                awaitingParkArrival = false;
+                IsDriving = true;
+                return;
+            }
+            var space = parkedSpace;
+            parkingMap?.Release(space);
+            parkedSpace = null;
+
+            Vector3 dir = space.heading;
+            float y = transform.localPosition.y;
+            Vector3 mergePt = space.lanePos + dir * 1.2f;              // pull-out diagonal target
+            Vector3 laneEnd = graph.Nodes[space.toId].localPos + SideOf(dir);
+            mergePt.y = y;
+            laneEnd.y = y;
+
+            plannedRoute.Clear();
+            plannedRoute.Add(space.fromId);
+            plannedRoute.Add(space.toId);   // incoming dir at toId stays correct
+            laneRoute.Clear();
+            laneKeys.Clear();
+            laneLookup.Clear();
+            laneIndex = 0;
+            PushLanePoint(mergePt);          // driven + drawn — same polyline
+            PushLanePoint(laneEnd);
+            segmentDuration = 0f;            // force AdvanceTarget next frame
+            IsDriving = true;
+        }
+
+        /// <summary>
+        /// F10-off: don't freeze — find the nearest free slot ahead, build a road-graph
+        /// flow field to its entry node, and splice a pull-in leg when a lane passes it.
+        /// </summary>
+        public void RequestPark()
+        {
+            if (parkedSpace != null || !IsDriving) return;
+            parkRequested = true;
+            PickParkTarget();
+            TrySpliceParking();   // the in-flight leg may already cross the slot
+        }
+
+        private void PickParkTarget()
+        {
+            if (!parkRequested || parkingMap == null) return;
+            parkTarget = parkingMap.NearestFreeAhead(CurrentCenter, CurrentDirXZ);
+            parkField = parkTarget != null ? FlowField.Build(graph, parkTarget.fromId) : null;
+        }
+
+        private void FinishPark()
+        {
+            parkedSpace = parkTarget;
+            parkingMap?.Occupy(parkedSpace, this);
+            parkTarget = null;
+            parkField = null;
+            awaitingParkArrival = false;
+            parkRequested = false;
+            IsDriving = false;
+            // Aligned parked pose — the diagonal's residual slerp yaw gets squared away.
+            if (parkedSpace.heading.sqrMagnitude > 0.001f)
+                transform.localRotation = Quaternion.LookRotation(parkedSpace.heading, Vector3.up);
+            Debug.Log($"[VehicleTest] Parked at {parkedSpace.pos:F1} on link {parkedSpace.fromId}→{parkedSpace.toId}");
         }
 
         private Vector3 SideOf(Vector3 dir)
@@ -385,7 +537,23 @@ namespace SteelCity.Sim
             int n = plannedRoute.Count;
             string tail = plannedRoute[n - 1];
             string prev = n > 1 ? plannedRoute[n - 2] : null;
-            string next = graph.RandomNeighbor(tail, prev);
+
+            string next;
+            if (parkTarget != null && tail == parkTarget.fromId)
+            {
+                // At the slot's entry node — force traversal of the slot link itself.
+                next = parkTarget.toId;
+            }
+            else if (parkField != null)
+            {
+                // Heading to a parking slot: follow the road flow field toward the
+                // entry node (the same next-hop query peds will use on their graph).
+                next = parkField.Next(tail) ?? graph.RandomNeighbor(tail, prev);
+            }
+            else
+            {
+                next = graph.RandomNeighbor(tail, prev);
+            }
             if (next == null && prev != null)
                 next = graph.RandomNeighbor(tail, null);   // dead end — allow a U-turn
             if (next == null) return false;
@@ -466,9 +634,14 @@ namespace SteelCity.Sim
                     plannedRoute.RemoveRange(0, plannedRoute.Count - keepNodes);
             }
 
+            // Seeking a slot but lost it (overshot the link) — repick ahead of where we are.
+            if (parkRequested && parkTarget == null)
+                PickParkTarget();
+
             // Roll the polyline forward — the last lane point is tentative (the next node
             // can still rewrite it into turn geometry), so it is never a drive target.
-            while (laneIndex >= laneRoute.Count - 1)
+            // While a pull-in is spliced the slot IS the terminal point — do not extend.
+            while (laneIndex >= laneRoute.Count - 1 && !awaitingParkArrival)
             {
                 if (!ExtendRoute())
                 {
@@ -479,6 +652,67 @@ namespace SteelCity.Sim
             }
 
             StartLeg(laneRoute[laneIndex++]);
+            TrySpliceParking();
+        }
+
+        /// <summary>
+        /// If the just-started leg passes the target slot's lane position, retarget its
+        /// end to a lead-in point and insert the slot as the next polyline point — the
+        /// diagonal lane→curb jog becomes a real, drawn, driven segment.
+        /// </summary>
+        private void TrySpliceParking()
+        {
+            if (parkTarget == null || awaitingParkArrival) return;
+
+            Vector3 seg = toPos - fromPos;
+            float len = seg.magnitude;
+            if (len < 0.5f) return;
+            Vector3 dir = seg / len;
+
+            float t = Vector3.Dot(parkTarget.lanePos - fromPos, dir);   // slot station along leg
+            float carT = Vector3.Dot(CurrentCenter - fromPos, dir);     // car's progress along leg
+            const float lead = 1.2f;
+
+            // Lane match: the slot's lane pos must sit ON this leg's line.
+            Vector3 closest = fromPos + dir * Mathf.Clamp(t, 0f, len);
+            if ((parkTarget.lanePos - closest).sqrMagnitude > 0.04f) return;   // >20cm off-lane
+
+            if (t < carT - 0.1f)
+            {
+                // Slot already behind the car on this heading — overshot, repick.
+                parkTarget = null;
+                parkField = null;
+                return;
+            }
+            if (t - lead <= carT + 0.2f || t > len + 0.5f)
+                return;   // too late to pull in smoothly, or beyond this leg — keep seeking
+
+            Vector3 approach = parkTarget.lanePos - dir * lead;
+            approach.y = transform.localPosition.y;
+            toPos = approach;
+            segmentDuration = Vector3.Distance(fromPos, toPos) / Mathf.Max(speed, 0.01f);
+
+            InsertLanePoint(laneIndex, parkTarget.pos);   // next target = the slot itself
+
+            // The slot is terminal: drop every point after it so the beam ends at the
+            // curb instead of drawing the would-be route onward. Re-registers on depart.
+            for (int i = laneRoute.Count - 1; i > laneIndex; i--)
+            {
+                laneLookup.Remove(laneKeys[i]);
+                laneRoute.RemoveAt(i);
+                laneKeys.RemoveAt(i);
+            }
+
+            parkFinalPoint = parkTarget.pos;
+            awaitingParkArrival = true;
+        }
+
+        private void InsertLanePoint(int index, Vector3 p)
+        {
+            string key = "lp" + laneKeyCounter++;
+            laneRoute.Insert(index, p);
+            laneKeys.Insert(index, key);
+            laneLookup[key] = p;
         }
 
         private void StartLeg(Vector3 target)
@@ -492,7 +726,22 @@ namespace SteelCity.Sim
 
         void Update()
         {
-            if (graph == null || !IsDriving) return;
+            if (graph == null) return;
+
+            // Live re-snap a parked car when slot geometry is tuned (extraParkOffset slider).
+            if (!IsDriving)
+            {
+                if (parkedSpace != null)
+                {
+                    Vector3 parkedCorner = vehicle != null && vehicle.Dims.x > 0
+                        ? new Vector3(vehicle.WorldSize.x, 0f, vehicle.WorldSize.z) * 0.5f
+                        : Vector3.zero;
+                    Vector3 parkedCenter = parkedSpace.pos;
+                    parkedCenter.y = transform.localPosition.y;
+                    transform.localPosition = parkedCenter - parkedCorner;
+                }
+                return;
+            }
 
             if (segmentDuration <= 0f)
             {
@@ -526,7 +775,13 @@ namespace SteelCity.Sim
             }
 
             if (t >= 1f)
-                AdvanceTarget();
+            {
+                // Reached the pull-in leg's end — the car is in the slot.
+                if (awaitingParkArrival && (toPos - parkFinalPoint).sqrMagnitude < 0.0001f)
+                    FinishPark();
+                else
+                    AdvanceTarget();
+            }
         }
     }
 }

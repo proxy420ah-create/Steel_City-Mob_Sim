@@ -97,10 +97,46 @@ Extend `VehicleTestSpawner`:
   4. At least one traversal of a **main street** segment — car lanes clear of the rail buffer; if a trolley is present, no conflict on the envelope.
   5. No car ever enters a `river` corridor (regression check for the terrain-conditioning fix).
 
+## Parking (computed, not painted)
+
+Parking is **derived geometry**, not authored data. Every directed `RoadLink` (A→B) already knows its corridor, direction, and right-lane offset — slots generate per link at graph-build time, regenerate with the graph, and inherit river/bridge conditioning free.
+
+### Slot generation
+
+```
+keep-clear  ≈ 2.0 m from each intersection end   (nobody parks on the corner)
+usable      = linkLength − 2 × keep-clear        // ≈ 10.6 m @ 14.6 m spacing
+slot pitch  = carLength (1.5 m) + gap (0.5 m) = 2.0 m   // ~5 slots/corridor/side
+parkOffset  = roadWidth/2 − carWidth/2 ≈ 1.0 m   // right of the driving lane (0.75 m),
+                                                  // hard against the curb — slight curb
+                                                  // overlap acceptable at this stage
+```
+
+- `ParkingSpace { pos, heading, linkId, t, occupied, occupant }` — pos in lane space = point along link + `Cross(up, dir) × parkOffset`; heading = link direction (right-side parking only — parallel park on the driver's curb).
+- `ParkingMap` (runtime, mutable) is built FROM `RoadGraph` links — the graph stays static geometry, occupancy is live state.
+- **Exclusions**: no parking on `bridge` decks or `mainstreet` spines in v1 (rail buffer already forbids stopping there — consistent). Riverside `road` seams park normally.
+
+### Occupy / release
+
+- `NearestFreeSpace(pos, heading)` — prefer spaces on links whose direction matches travel (`dot ≥ 0`); right-side only.
+- `Occupy(spaceId, agent)` / `Release(spaceId)` — occupancy flips on pull-in completion / pull-out start. Deadlock-safe because parking never blocks the driving lane (parked cars sit at `parkOffset`, lane stays clear at `laneOffset`).
+
+### The maneuver — reuses the lane polyline, no new machinery
+
+- **Pull-out**: prepend `[parkPos, parkPos + heading × slotPitch × 0.7 @ laneOffset]` — the diagonal merge is geometrically the same connector idiom as the left-turn 45°.
+- **Pull-in**: append `[lane pos just short of slot, space.pos]` — same diagonal in reverse. Car arrives lane-side, jogs to curb, stops.
+- Both are ordinary lane-polyline segments → the debug beam draws them for free, body yaw slerps through naturally.
+
+### Spawn & F10 semantics
+
+- Spawn: `NearestFreeSpace(HQ block)` — car starts in **parked pose** at the curb, not on the intersection centerline.
+- F10 ON: pull-out legs, then normal drive.
+- F10 OFF: **does not freeze** — `NearestFreeSpace` ahead of current position → route there → pull-in → `IsParked` (a distinct parked state, not just stopped).
+
 ## Open questions
 
 - **Overtaking** on 2-lane streets: disallow for now (one lane per direction, no oncoming-lane passing in city driving).
-- **Parking**: defer — no dedicated lanes at 3.0 m. Parked cars in the test harness remain stationary props, not lane blockers.
+- **Parking**: ~~defer~~ — computed-slot model spec'd above; parkOffset ≈ 1.0 m puts the car against/at the curb. If on-screen it crowds the sidewalk, options: widen `roadWidth` (spacing const — global) or treat curb overlap as era flavor.
 - **Do river test bridges support 4-lane?** No — deck stays 2-lane; the replica's 4 `bridge` cells are the same recipe.
 - **Emergency/wrong-way driving**: out of scope for the test; the reservation system makes it survivable if ever needed.
 
@@ -111,6 +147,7 @@ Extend `VehicleTestSpawner`:
 1. RoadGraph terrain conditioning (links only over drivable seams)   ✅ DONE — see ROADGRAPH_IGNORES_TERRAIN.md
 2. Directed links + laneOffset at agent                              ✅ DONE (lane offset variant — see below)
 3. Intersection reservation + car following                          ← no crashes
+3.5. Parking: computed slots + pull-out/pull-in + F10 park           ← spec'd above
 4. Through-cell spines (mainstreet + bridge)                         ← trolley/boulevard
 5. F10 two-car scenario + acceptance run
 6. (later) turn arcs, speed classes, Dijkstra routing, trolley actor

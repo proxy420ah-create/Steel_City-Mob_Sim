@@ -17,6 +17,8 @@ namespace SteelCity.Sim
         public Transform mapRoot;
 
         public System.Action<string> OnLog;
+        /// <summary>Fires when a fresh path materializes (outbound AND return legs).</summary>
+        public System.Action OnPathFound;
         public System.Action<SimState, int, int> OnStateChanged;
         public System.Action OnComplete;
 
@@ -286,6 +288,10 @@ namespace SteelCity.Sim
                     break;
 
                 case SimEventType.PathFound:
+                    // New path materialized (outbound AND return each emit this) —
+                    // reset beam progress so the fresh CurrentPath draws from node 0.
+                    visualPathIndex = 0;
+                    OnPathFound?.Invoke();
                     Log($"[SIM] Path found: {evt.pathNodeCount} nodes");
                     break;
 

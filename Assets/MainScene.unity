@@ -2655,7 +2655,7 @@ MonoBehaviour:
   backgroundColor: {r: 0.063, g: 0.063, b: 0.106, a: 1}
   chunkManager: {fileID: 0}
   voxelSize: 0.1
-  roadWidth: 3
+  roadWidth: 4.5
   sidewalkWidth: 1
   buildingsPerBlockRow: 3
   showRoadNames: 1

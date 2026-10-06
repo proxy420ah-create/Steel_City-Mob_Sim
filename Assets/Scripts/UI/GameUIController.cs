@@ -1232,9 +1232,12 @@ namespace SteelCity.Sim
             // Start simulation!
             simManager.StartSimulation(order, startBlockId, startLocalPos, order.blockId, targetLocalPos, faceTargetLocal);
 
-            // Show debug path overlay via PathDebugRenderer
-            if (simManager.CurrentPath != null && simManager.CurrentPath.Count > 0)
+            // Show debug path overlay via PathDebugRenderer — re-registerable per leg:
+            // outbound = Pedestrian (orange), return = PedestrianReturn (cyan) so the
+            // fresh home beam can't be mistaken for an un-consumed outbound path.
+            void RegisterVinnyPath(PathDebugType type)
             {
+                if (simManager.CurrentPath == null || simManager.CurrentPath.Count == 0) return;
                 if (pathDebugRenderer == null)
                 {
                     pathDebugRenderer = FindFirstObjectByType<PathDebugRenderer>();
@@ -1246,15 +1249,24 @@ namespace SteelCity.Sim
                     pathDebugRenderer.SetMapRoot(cityMap.MapRoot);
                     pathDebugRenderer.SetDebugGraph(waypointGraph);
                 }
-                pathDebugRenderer.ClearAllPaths();
+                pathDebugRenderer.UnregisterPath(character.transform);  // scoped — keeps car/trolley beams alive
                 pathDebugRenderer.RegisterPath(
                     character.transform,
                     character.WorldSize,
                     () => simManager.CurrentPath,
                     (nodeId) => simManager.Graph.Nodes.TryGetValue(nodeId, out var n) ? n.localPos : new Vector3(float.NaN, 0, 0),
-                    PathDebugType.Pedestrian,
+                    type,
                     () => eventPlayer.VisualPathIndex);
             }
+            RegisterVinnyPath(PathDebugType.Pedestrian);
+
+            // When the home path materializes mid-mission, swap the beam to the return
+            // color — proves visually that the old path was consumed and this is leg 2.
+            eventPlayer.OnPathFound = () =>
+            {
+                if (simManager.State == SimState.WalkingHome)
+                    RegisterVinnyPath(PathDebugType.PedestrianReturn);
+            };
 
             AddEventLogEntry($"[SIM] {hood.name} begins mission: {order.orderType} on {targetBlock.name}", goldColor);
         }

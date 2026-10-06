@@ -6,9 +6,10 @@ namespace SteelCity.Sim
 {
     public enum PathDebugType
     {
-        Pedestrian, // thin orange
-        Car,        // thick purple
-        Trolley     // thickest green
+        Pedestrian,       // thin orange — outbound leg
+        Car,              // thick purple
+        Trolley,          // thickest green
+        PedestrianReturn  // thin cyan — same path data, distinct color for the walk home
     }
 
     /// <summary>
@@ -28,6 +29,8 @@ namespace SteelCity.Sim
 
         [SerializeField] private float trolleyWidth = 0.30f;
         [SerializeField] private Color trolleyColor = new(0.2f, 1f, 0.3f, 0.85f);
+
+        [SerializeField] private Color pedestrianReturnColor = new(0.2f, 0.9f, 1f, 0.85f);
 
         [Header("Node Markers")]
         [SerializeField] private float nodeMarkerHeight = 0.15f;
@@ -103,11 +106,21 @@ namespace SteelCity.Sim
         private readonly Matrix4x4[] markerMatrices = new Matrix4x4[MaxInstances];
 
         // Per-type batch tracking (up to 3 types: Pedestrian, Car, Trolley)
-        private const int MaxTypes = 3;
+        // Enum-driven so a new PathDebugType never silently folds into bucket 0.
+        private static readonly int MaxTypes = System.Enum.GetValues(typeof(PathDebugType)).Length;
         private int segCount, markerCount;
         private Vector3[] worldPositions = new Vector3[256];
         private Matrix4x4[] batchBuffer = new Matrix4x4[MaxInstances];
+        // DrawMeshInstanced silently clips past ~1023 instances per call (D3D11
+        // constant-buffer limit) — stage slices into this buffer to stay under.
+        private const int DrawChunk = 1023;
+        private readonly Matrix4x4[] chunkBuffer = new Matrix4x4[DrawChunk];
         private bool _hasLoggedEntry;
+
+        [Header("Diagnostics")]
+        [Tooltip("Verbose per-frame debug logging to the console/Editor.log — off by default to keep the log sane.")]
+        [SerializeField] private bool verboseLogging = false;
+        private void VLog(string msg) { if (verboseLogging) Debug.Log(msg); }
         private int segDrawCount, markerDrawCount;
         private MaterialPropertyBlock beamProps;
 
@@ -177,6 +190,7 @@ namespace SteelCity.Sim
                 PathDebugType.Pedestrian => (pedestrianWidth, pedestrianColor),
                 PathDebugType.Car => (carWidth, carColor),
                 PathDebugType.Trolley => (trolleyWidth, trolleyColor),
+                PathDebugType.PedestrianReturn => (pedestrianWidth, pedestrianReturnColor),
                 _ => (pedestrianWidth, pedestrianColor)
             };
         }
@@ -213,6 +227,18 @@ namespace SteelCity.Sim
             }
         }
 
+        /// <summary>DrawMeshInstanced hard-caps ~1023 matrices per call — slice larger batches.</summary>
+        private void DrawInstanced(CommandBuffer cmd, Matrix4x4[] src, int count,
+            Material mat, MaterialPropertyBlock props)
+        {
+            for (int s = 0; s < count; s += DrawChunk)
+            {
+                int n = Mathf.Min(DrawChunk, count - s);
+                System.Array.Copy(src, s, chunkBuffer, 0, n);
+                cmd.DrawMeshInstanced(boxMesh, 0, mat, 0, chunkBuffer, n, props);
+            }
+        }
+
         public void ClearAllPaths()
         {
             activePaths.Clear();
@@ -246,13 +272,13 @@ namespace SteelCity.Sim
             if (mapRoot == null || boxMesh == null || beamMaterial == null)
             {
                 if (Time.frameCount % 120 == 0)
-                    Debug.Log($"[PathDebug] RenderBeamsIntoCamera SKIP: mapRoot={mapRoot != null}, boxMesh={boxMesh != null}, beamMat={beamMaterial != null}");
+                    VLog($"[PathDebug] RenderBeamsIntoCamera SKIP: mapRoot={mapRoot != null}, boxMesh={boxMesh != null}, beamMat={beamMaterial != null}");
                 return;
             }
             if (activePaths.Count == 0 && !showWaypointGraph && customBeams.Count == 0)
             {
                 if (Time.frameCount % 120 == 0)
-                    Debug.Log("[PathDebug] RenderBeamsIntoCamera SKIP: no active paths, graph debug off, no custom beams");
+                    VLog("[PathDebug] RenderBeamsIntoCamera SKIP: no active paths, graph debug off, no custom beams");
                 return;
             }
 
@@ -282,13 +308,13 @@ namespace SteelCity.Sim
             if (!_hasLoggedEntry)
             {
                 _hasLoggedEntry = true;
-                Debug.Log($"[PathDebug] RenderBeamsInternal FIRST CALL: activePaths={activePaths.Count}, targetRT={(targetRT != null ? targetRT.name : "NULL")} ({(targetRT != null ? $"{targetRT.width}x{targetRT.height}" : "")}), cam={(cam != null ? cam.name : "NULL")}, mapRoot={(mapRoot != null ? mapRoot.position.ToString("F2") : "NULL")}, boxMesh={(boxMesh != null ? "OK" : "NULL")}, beamMat={(beamMaterial != null ? "OK" : "NULL")}");
+                VLog($"[PathDebug] RenderBeamsInternal FIRST CALL: activePaths={activePaths.Count}, targetRT={(targetRT != null ? targetRT.name : "NULL")} ({(targetRT != null ? $"{targetRT.width}x{targetRT.height}" : "")}), cam={(cam != null ? cam.name : "NULL")}, mapRoot={(mapRoot != null ? mapRoot.position.ToString("F2") : "NULL")}, boxMesh={(boxMesh != null ? "OK" : "NULL")}, beamMat={(beamMaterial != null ? "OK" : "NULL")}");
             }
 
             // Diagnostic: log state every 60 frames
             if (Time.frameCount % 60 == 0)
             {
-                Debug.Log($"[PathDebug] RenderBeamsInternal: activePaths={activePaths.Count}, targetRT={(targetRT != null ? targetRT.name : "NULL")}, cam={(cam != null ? cam.name : "NULL")}, mapRoot={(mapRoot != null ? mapRoot.position.ToString("F2") : "NULL")}, boxMesh={(boxMesh != null ? "OK" : "NULL")}, beamMat={(beamMaterial != null ? "OK" : "NULL")}");
+                VLog($"[PathDebug] RenderBeamsInternal: activePaths={activePaths.Count}, targetRT={(targetRT != null ? targetRT.name : "NULL")}, cam={(cam != null ? cam.name : "NULL")}, mapRoot={(mapRoot != null ? mapRoot.position.ToString("F2") : "NULL")}, boxMesh={(boxMesh != null ? "OK" : "NULL")}, beamMat={(beamMaterial != null ? "OK" : "NULL")}");
             }
             var segRanges = new (int start, int count)[MaxTypes];
             var markerRanges = new (int start, int count)[MaxTypes];
@@ -335,7 +361,7 @@ namespace SteelCity.Sim
                 {
                     var route = ap.routeProvider?.Invoke();
                     int prog = ap.progressProvider?.Invoke() ?? -1;
-                    Debug.Log($"[PathDebug] Path[{i}] type={ap.type}, entity={ap.entity?.name ?? "NULL"}, routeCount={route?.Count ?? -1}, progress={prog}, remaining={(route != null ? route.Count - prog : -1)}");
+                    VLog($"[PathDebug] Path[{i}] type={ap.type}, entity={ap.entity?.name ?? "NULL"}, routeCount={route?.Count ?? -1}, progress={prog}, remaining={(route != null ? route.Count - prog : -1)}");
                 }
 
                 int progressIndex = ap.progressProvider?.Invoke() ?? 0;
@@ -369,7 +395,7 @@ namespace SteelCity.Sim
                 if (!valid)
                 {
                     if (Time.frameCount % 60 == 0)
-                        Debug.Log($"[PathDebug] Path[{i}] INVALID — node position returned NaN, removing");
+                        VLog($"[PathDebug] Path[{i}] INVALID — node position returned NaN, removing");
                     activePaths.RemoveAt(i);
                     continue;
                 }
@@ -377,7 +403,7 @@ namespace SteelCity.Sim
                 // Diagnostic: log first few resolved positions
                 if (Time.frameCount % 60 == 0 && remainingCount > 0)
                 {
-                    Debug.Log($"[PathDebug] Path[{i}] resolved {remainingCount} positions. First={worldPositions[0].ToString("F2")}, Last={worldPositions[remainingCount - 1].ToString("F2")}");
+                    VLog($"[PathDebug] Path[{i}] resolved {remainingCount} positions. First={worldPositions[0].ToString("F2")}, Last={worldPositions[remainingCount - 1].ToString("F2")}");
                 }
 
                 // Build segment boxes between consecutive waypoints
@@ -470,11 +496,11 @@ namespace SteelCity.Sim
                     totalSeg += segRanges[t].count;
                     totalMarker += markerRanges[t].count;
                 }
-                Debug.Log($"[PathDebug] Batches: segCount={segCount}, markerCount={markerCount}, totalSeg={totalSeg}, totalMarker={totalMarker}");
+                VLog($"[PathDebug] Batches: segCount={segCount}, markerCount={markerCount}, totalSeg={totalSeg}, totalMarker={totalMarker}");
                 for (int t = 0; t < MaxTypes; t++)
                 {
                     if (segRanges[t].count > 0 || markerRanges[t].count > 0)
-                        Debug.Log($"[PathDebug] Type[{t}] segs={segRanges[t].count} (start={segRanges[t].start}), markers={markerRanges[t].count} (start={markerRanges[t].start})");
+                        VLog($"[PathDebug] Type[{t}] segs={segRanges[t].count} (start={segRanges[t].start}), markers={markerRanges[t].count} (start={markerRanges[t].start})");
                 }
             }
 
@@ -538,58 +564,9 @@ namespace SteelCity.Sim
             segDrawCount = 0;
             markerDrawCount = 0;
 
-            for (int t = 0; t < MaxTypes; t++)
-            {
-                int start = segRanges[t].start;
-                int count = segRanges[t].count;
-                if (count == 0) continue;
-
-                var (_, col) = GetStyle((PathDebugType)t);
-                beamProps.Clear();
-                beamProps.SetColor("_Color", col);
-
-                System.Array.Copy(segmentMatrices, start, batchBuffer, 0, count);
-                cmd.DrawMeshInstanced(boxMesh, 0, beamMaterial, 0, batchBuffer, count, beamProps);
-                segDrawCount++;
-            }
-
-            // Render markers batched by type
-            for (int t = 0; t < MaxTypes; t++)
-            {
-                int start = markerRanges[t].start;
-                int count = markerRanges[t].count;
-                if (count == 0) continue;
-
-                var (_, col) = GetStyle((PathDebugType)t);
-                beamProps.Clear();
-                beamProps.SetColor("_Color", col);
-
-                System.Array.Copy(markerMatrices, start, batchBuffer, 0, count);
-                cmd.DrawMeshInstanced(boxMesh, 0, beamMaterial, 0, batchBuffer, count, beamProps);
-                markerDrawCount++;
-            }
-
-            // Render waypoint graph debug links (all sidewalk + crosswalk links)
-            if (graphSegCount > 0)
-            {
-                beamProps.Clear();
-                beamProps.SetColor("_Color", graphSidewalkColor);
-                System.Array.Copy(segmentMatrices, segCount, batchBuffer, 0, graphSegCount);
-                cmd.DrawMeshInstanced(boxMesh, 0, beamMaterial, 0, batchBuffer, graphSegCount, beamProps);
-                segDrawCount++;
-            }
-
-            // Render waypoint graph debug nodes
-            if (graphNodeCount > 0)
-            {
-                beamProps.Clear();
-                beamProps.SetColor("_Color", graphCornerColor);
-                System.Array.Copy(markerMatrices, markerCount, batchBuffer, 0, graphNodeCount);
-                cmd.DrawMeshInstanced(boxMesh, 0, beamMaterial, 0, batchBuffer, graphNodeCount, beamProps);
-                markerDrawCount++;
-            }
-
             // --- Flow field debug: per-node directional stub toward its next hop ---
+            // Drawn FIRST: the unlit transparent pass obeys painter's order, so the
+            // field is the underlay — agent paths and markers composite on top of it.
             if (showFlowField && debugFlowField != null && flowResolver != null && mapRoot != null)
             {
                 foreach (var bucket in flowBuckets) bucket.Clear();
@@ -639,10 +616,60 @@ namespace SteelCity.Sim
                     {
                         beamProps.SetColor("_Color", hot);
                     }
-                    cmd.DrawMeshInstanced(boxMesh, 0, mat, 0, batchBuffer,
-                        flowBuckets[band].Count, beamProps);
+                    DrawInstanced(cmd, batchBuffer, flowBuckets[band].Count, mat, beamProps);
                     segDrawCount++;
                 }
+            }
+
+            for (int t = 0; t < MaxTypes; t++)
+            {
+                int start = segRanges[t].start;
+                int count = segRanges[t].count;
+                if (count == 0) continue;
+
+                var (_, col) = GetStyle((PathDebugType)t);
+                beamProps.Clear();
+                beamProps.SetColor("_Color", col);
+
+                System.Array.Copy(segmentMatrices, start, batchBuffer, 0, count);
+                DrawInstanced(cmd, batchBuffer, count, beamMaterial, beamProps);
+                segDrawCount++;
+            }
+
+            // Render markers batched by type
+            for (int t = 0; t < MaxTypes; t++)
+            {
+                int start = markerRanges[t].start;
+                int count = markerRanges[t].count;
+                if (count == 0) continue;
+
+                var (_, col) = GetStyle((PathDebugType)t);
+                beamProps.Clear();
+                beamProps.SetColor("_Color", col);
+
+                System.Array.Copy(markerMatrices, start, batchBuffer, 0, count);
+                DrawInstanced(cmd, batchBuffer, count, beamMaterial, beamProps);
+                markerDrawCount++;
+            }
+
+            // Render waypoint graph debug links (all sidewalk + crosswalk links)
+            if (graphSegCount > 0)
+            {
+                beamProps.Clear();
+                beamProps.SetColor("_Color", graphSidewalkColor);
+                System.Array.Copy(segmentMatrices, segCount, batchBuffer, 0, graphSegCount);
+                DrawInstanced(cmd, batchBuffer, graphSegCount, beamMaterial, beamProps);
+                segDrawCount++;
+            }
+
+            // Render waypoint graph debug nodes
+            if (graphNodeCount > 0)
+            {
+                beamProps.Clear();
+                beamProps.SetColor("_Color", graphCornerColor);
+                System.Array.Copy(markerMatrices, markerCount, batchBuffer, 0, graphNodeCount);
+                DrawInstanced(cmd, batchBuffer, graphNodeCount, beamMaterial, beamProps);
+                markerDrawCount++;
             }
 
             // Free-form custom beams — one draw each (debug volume is tiny)
@@ -658,7 +685,7 @@ namespace SteelCity.Sim
                     new Vector3(beam.width, beam.width, len));
                 beamProps.Clear();
                 beamProps.SetColor("_Color", beam.color);
-                cmd.DrawMeshInstanced(boxMesh, 0, beamMaterial, 0, batchBuffer, 1, beamProps);
+                DrawInstanced(cmd, batchBuffer, 1, beamMaterial, beamProps);
                 segDrawCount++;
             }
 
@@ -666,7 +693,7 @@ namespace SteelCity.Sim
             cmd.Dispose();
 
             if (Time.frameCount % 60 == 0)
-                Debug.Log($"[PathDebug] CommandBuffer executed. segDraws={segDrawCount}, markerDraws={markerDrawCount}");
+                VLog($"[PathDebug] CommandBuffer executed. segDraws={segDrawCount}, markerDraws={markerDrawCount}");
         }
     }
 }

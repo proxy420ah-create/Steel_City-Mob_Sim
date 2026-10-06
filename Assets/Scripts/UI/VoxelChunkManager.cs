@@ -41,7 +41,11 @@ namespace SteelCity.Sim
         private int kernelCSClear;
         private int kernelCSPose;
 
-        [SerializeField] private bool disableSectorCulling = false;
+        // Default ON — TestPlanesAABB false-culls the huge terrain-sector AABBs at
+        // oblique camera angles (block-sized terrain voids confirmed in playtest).
+        // Only ~9 sectors exist, so culling buys nothing. Re-enable only with a
+        // conservative bounds fix (see docs/known_issues/rendering/SECTOR_FRUSTUM_CULL.md).
+        [SerializeField] private bool disableSectorCulling = true;
 
         // Coverage-aware dynamic resolution tuning
         private const float CoverageHeuristicScale = 0.85f; // heuristic to map sum(r^2) → 0..1 coverage
