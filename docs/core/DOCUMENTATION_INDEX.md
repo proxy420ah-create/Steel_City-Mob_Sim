@@ -341,6 +341,14 @@
   - Open bug: `docs/known_issues/runtime/ROADGRAPH_IGNORES_TERRAIN.md` — RoadGraph links cross open water (step 1 of the plan)
   - Editable mainstreet tiles: `Tools/generate_mainstreet_tile.py` → `mainstreet_ns/ew.json` (116×64×116 @ 0.1)
 
+**Vehicle Voxel Assets:**
+- **`docs/systems/VEHICLE_VOXEL_ASSETS.md`** — How vehicles render (static shared-buffer instancing), the three buffer modes, articulation + paint roadmap
+  - Multi-instance OOB gotcha fixed via `_SharedRestBuffer` (Pitfall #7; `STATIC_INSTANCED_OOB.md`)
+  - Watch item: axis-aligned proxy cube ignores yaw — non-cubic cars can crop at 90° headings (Pitfall #8)
+  - Articulation = vehicle `.groups` + a vehicle pose mode in `CharacterPoseCompute.compute` (gid semantics are character-anatomy hardcoded today); doors/wheels for "Vinny uses the car"
+  - Paint via per-instance tint (free `.w` in `_InstanceOffsets`) — cheaper than posing; region remap only exists in the compute kernel
+  - Planned `vehicle` asset type in `voxel_editor.html` (`VEHICLE_PART_GROUPS`: wheel/door gids, axle/hinge pivots, seat/entry attach points); assets should move to `voxel_vehicles/` (currently `voxel_buildings`)
+
 **City Scale Architecture (32×32):**
 - **`docs/systems/CITY_SCALE_ARCHITECTURE.md`** — Scaling the city from the 10×10 test rig to the 32×32 production blueprint
   - Findings: terrain sector overflow (half the roads vanished silently), layout-generator schema drift

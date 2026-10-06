@@ -342,6 +342,7 @@ namespace SteelCity.Sim
         private int propInstanceOffsets;
         private int propGroupIDs;
         private int propGroupIDsEnabled;
+        private int propSharedRestBuffer;
         private int propInstanceCount;
         private int propBuildingMeta, propBuildingPositions;
         // Walk keyframe system
@@ -575,6 +576,7 @@ namespace SteelCity.Sim
             propInstanceOffsets = Shader.PropertyToID("_InstanceOffsets");
             propGroupIDs = Shader.PropertyToID("_GroupIDs");
             propGroupIDsEnabled = Shader.PropertyToID("_GroupIDsEnabled");
+            propSharedRestBuffer = Shader.PropertyToID("_SharedRestBuffer");
             propInstanceCount = Shader.PropertyToID("_InstanceCount");
             propBuildingMeta = Shader.PropertyToID("_BuildingMeta");
             propBuildingPositions = Shader.PropertyToID("_BuildingPositions");
@@ -1766,6 +1768,8 @@ namespace SteelCity.Sim
             // When NOT using compute pose (no groupIDs), keep original behavior.
             bool hasGroups = group.groupIDBuffer != null && !useComputePose;
             block.SetInt(propGroupIDsEnabled, hasGroups ? 1 : 0);
+            // Not compute-posed => the bound buffer is the single shared rest buffer: all instances read offset 0
+            block.SetInt(propSharedRestBuffer, useComputePose ? 0 : 1);
             block.SetInt(propInstanceCount, visibleCount);
             block.SetBuffer(propGroupIDs, hasGroups ? group.groupIDBuffer : dummyGroupIDBuffer);
 

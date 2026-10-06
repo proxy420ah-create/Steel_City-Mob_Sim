@@ -118,6 +118,30 @@ The 10×10 city was under all of these, so the bug only appeared at scale.
 
 **See**: `CITY_SCALE_ARCHITECTURE.md` (invariants table + backlog item O1, a loud guard) and `../known_issues/rendering/TERRAIN_SECTOR_OVERFLOW_AT_SCALE.md`.
 
+### 7. Assets Without GroupIDs Render Only Instance 0
+
+**Symptom**: Two `VoxelVehicle`s (same `vehicle_civilian_car_0.stasset`) spawn at verified-correct positions — GameObjects exist, slots correct — but only the first ever draws.
+
+**Cause**: `VoxelProxyRaymarch`'s vertex stage picks the per-instance voxel buffer offset as `_GroupIDsEnabled == 0 ? instanceID * totalVoxels : 0`. It overloads `_GroupIDsEnabled == 0` to mean "the bound `_VoxelData` is the per-instance *posed* buffer" (compute-pose path). An asset with **no `.groups` file** also gets `_GroupIDsEnabled = 0` in `RenderInstancedGroup`, but the buffer bound there is the single shared rest buffer (`totalVoxels` voxels, one copy). Instance 0 reads offset 0 → renders. Instance 1 reads `1 × totalVoxels` → one past the buffer end → empty read → invisible.
+
+There are actually **three** buffer modes and the flag only encoded two:
+
+| Mode | `groupIDBuffer` | `useComputePose` | Bound buffer | Instance offset |
+|---|---|---|---|---|
+| Posed per-instance (characters) | yes | yes | `posedVoxelBuffer` (N × totalVoxels) | `instanceID × totalVoxels` |
+| Inverse-transform groups | yes | no | `sharedVoxelBuffer` | 0 |
+| Static shared (vehicles — was broken) | no | no | `sharedVoxelBuffer` | 0 |
+
+**Fix**: `_SharedRestBuffer` uniform — `RenderInstancedGroup` sets it to `!useComputePose`; when 1 the shader forces offset 0 regardless of `_GroupIDsEnabled`. It defaults to 0 = legacy behavior, so chunk/sector/building property blocks that never set it are unchanged.
+
+**See**: `../known_issues/rendering/STATIC_INSTANCED_OOB.md`, `VEHICLE_VOXEL_ASSETS.md`. If this area is reopened, replace the implicit flag triple with one explicit mode uniform.
+
+### 8. The Proxy Cube Ignores Yaw (non-cubic volumes can clip)
+
+**Symptom (watch item, unverified)**: A vehicle driving an east-west street appears to have its nose/tail sliced off.
+
+**Cause**: `RenderInstancedGroup` builds each instance's proxy as an **axis-aligned** cube sized to the *unrotated* volume (`dims × voxelSize`, `Quaternion.identity`), while the shader rotates the ray in volume-local space around the volume center. For a 20×16×30 car that means a 90° heading needs a ~1.55 m X-extent proxy but only gets ~1.05 m — voxels outside the proxy never rasterize, so the car can be cropped front and rear on E-W headings. Not yet confirmed in a playtest; if seen, fix by rotating the proxy extents: `hx' = |c|·hx + |s|·hz`, `hz' = |s|·hx + |c|·hz` (c/s = cos/sin of yaw).
+
 ---
 
 ## Architecture Diagram
@@ -177,3 +201,4 @@ Steel City Voxel Pipeline:
 |---|---|
 | Aug 9, 2026 | Created — documented activeInHierarchy pitfall + general instanced rendering architecture |
 | Oct 5, 2026 | Added pitfall #6 — silent per-sector limit overflow (found at 32×32 terrain) |
+| Oct 5, 2026 | Added pitfall #7 — groupID-less assets read past the shared buffer (second vehicle invisible; `_SharedRestBuffer` fix) and watch-item #8 — axis-aligned proxy ignores yaw |

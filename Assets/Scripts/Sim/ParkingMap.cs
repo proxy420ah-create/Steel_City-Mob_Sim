@@ -130,6 +130,30 @@ namespace SteelCity.Sim
         }
 
         /// <summary>
+        /// Nearest free space on the OPPOSITE curb of the same street — slots on the
+        /// mirror link (fromId↔toId swapped) are strongly preferred; any other
+        /// antiparallel-heading slot is the fallback, so the second car lands across
+        /// the street rather than on a parallel street blocks away.
+        /// </summary>
+        public ParkingSpace NearestFreeOpposite(Vector3 pos, ParkingSpace reference)
+        {
+            if (reference == null) return null;
+            ParkingSpace best = null;
+            float bestD = float.MaxValue;
+            foreach (var s in spaces)
+            {
+                if (s.occupied) continue;
+                bool mirror = s.fromId == reference.toId && s.toId == reference.fromId;
+                bool antiparallel = Vector3.Dot(s.heading, reference.heading) < -0.5f;
+                if (!mirror && !antiparallel) continue;
+                float d = (s.pos - pos).sqrMagnitude;
+                if (!mirror) d *= 4f;   // same-street far curb wins over antiparallel elsewhere
+                if (d < bestD) { bestD = d; best = s; }
+            }
+            return best;
+        }
+
+        /// <summary>
         /// Nearest free space that is AHEAD of the car on a link matching its travel
         /// direction — right-side parking only, so opposite-direction slots are rejected
         /// by the heading test rather than inviting U-turns to the far curb.

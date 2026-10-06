@@ -118,8 +118,11 @@ namespace SteelCity.Sim
         private bool _hasLoggedEntry;
 
         [Header("Diagnostics")]
-        [Tooltip("Verbose per-frame debug logging to the console/Editor.log — off by default to keep the log sane.")]
-        [SerializeField] private bool verboseLogging = false;
+        [Tooltip("Verbose per-frame debug logging to the console/Editor.log — off by default to keep the log sane. Menu: Steel City/Debug/Verbose Path Logging.")]
+        [SerializeField] private bool verboseLogging = VerboseLoggingDefault;
+        /// <summary>Default for newly spawned renderers — set by the debug menu.</summary>
+        public static bool VerboseLoggingDefault;
+        public bool VerboseLogging { get => verboseLogging; set => verboseLogging = value; }
         private void VLog(string msg) { if (verboseLogging) Debug.Log(msg); }
         private int segDrawCount, markerDrawCount;
         private MaterialPropertyBlock beamProps;

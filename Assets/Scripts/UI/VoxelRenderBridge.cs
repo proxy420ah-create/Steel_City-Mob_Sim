@@ -19,8 +19,9 @@ namespace SteelCity.Sim
     [RequireComponent(typeof(Camera))]
     public class VoxelRenderBridge : MonoBehaviour
     {
-        [Tooltip("Verbose per-frame debug logging.")]
+        [Tooltip("Verbose per-frame debug logging. Menu: Steel City/Debug/Verbose Path Logging.")]
         [SerializeField] private bool verboseLogging = false;
+        public bool VerboseLogging { get => verboseLogging; set => verboseLogging = value; }
 
         public VoxelChunkManager chunkManager;
 

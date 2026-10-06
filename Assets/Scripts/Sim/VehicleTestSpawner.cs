@@ -22,7 +22,7 @@ namespace SteelCity.Sim
     public class VehicleTestSpawner : MonoBehaviour
     {
         [Header("Test Parameters")]
-        [SerializeField] private int vehicleCount = 1;
+        [SerializeField] private int vehicleCount = 2;
         [SerializeField] private string vehicleAsset = "vehicle_civilian_car_0.stasset";
         [SerializeField] private float vehicleVoxelSize = 0.05f;
         [SerializeField] private float driveSpeed = 3.0f;
@@ -205,6 +205,10 @@ namespace SteelCity.Sim
             // Find the road intersection nearest to the player HQ block
             string hqStartNode = FindNearestNodeToHq();
 
+            // First car takes the nearest curb; every subsequent car parks ACROSS the
+            // street (antiparallel heading = the opposite direction's right-side curb).
+            ParkingSpace firstSpace = null;
+
             for (int i = 0; i < vehicleCount; i++)
             {
                 string startNode = hqStartNode ?? roadGraph.RandomNodeId();
@@ -217,7 +221,12 @@ namespace SteelCity.Sim
                 startPos.y = groundY;
 
                 // Spawn PARKED in the nearest free curbside slot to HQ — not mid-intersection.
-                ParkingSpace space = parkingMap?.NearestFree(startPos);
+                ParkingSpace space = i == 0 || firstSpace == null
+                    ? parkingMap?.NearestFree(startPos)
+                    : parkingMap?.NearestFreeOpposite(startPos, firstSpace)
+                      ?? parkingMap?.NearestFree(startPos);
+                if (i == 0) firstSpace = space;
+                Debug.Log($"[VehicleTest] Car {i} slot: {(space == null ? "NONE" : $"{space.fromId}→{space.toId} @ {space.pos:F1}")}");
                 Vector3 spawnPos = space != null ? space.pos : startPos;
                 spawnPos.y = groundY;
 
@@ -449,10 +458,15 @@ namespace SteelCity.Sim
             if (parkedSpace == null)
             {
                 // Not parked — either already cruising or mid park-seek: cancel the
-                // parking intent and resume free cruising.
+                // parking intent and resume free cruising. A reserved-but-unreached
+                // target is still claimed — release it for other cars first.
+                if (parkTarget != null)
+                {
+                    parkingMap?.Release(parkTarget);
+                    parkTarget = null;
+                    parkField = null;
+                }
                 parkRequested = false;
-                parkTarget = null;
-                parkField = null;
                 awaitingParkArrival = false;
                 IsDriving = true;
                 return;
@@ -497,7 +511,13 @@ namespace SteelCity.Sim
         {
             if (!parkRequested || parkingMap == null) return;
             parkTarget = parkingMap.NearestFreeAhead(CurrentCenter, CurrentDirXZ);
-            parkField = parkTarget != null ? FlowField.Build(graph, parkTarget.fromId) : null;
+            if (parkTarget != null)
+            {
+                // Reserve immediately: occupied=true keeps every OTHER car's
+                // NearestFreeAhead from double-booking the slot while we approach.
+                parkingMap.Occupy(parkTarget, this);
+                parkField = FlowField.Build(graph, parkTarget.fromId);
+            }
         }
 
         private void FinishPark()
@@ -679,7 +699,9 @@ namespace SteelCity.Sim
 
             if (t < carT - 0.1f)
             {
-                // Slot already behind the car on this heading — overshot, repick.
+                // Slot already behind the car on this heading — overshot; release the
+                // reservation and repick ahead of where we are.
+                parkingMap?.Release(parkTarget);
                 parkTarget = null;
                 parkField = null;
                 return;

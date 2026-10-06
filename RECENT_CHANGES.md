@@ -1,6 +1,28 @@
 # Recent Changes — Steel City: Mob Sim
 
-**Last Updated**: October 5, 2026 (character asset lifecycle refactor)
+**Last Updated**: October 5, 2026 (two-car traffic + slot reservation)
+
+---
+
+## October 5, 2026 — Second Vehicle + Parking-Slot Reservation
+
+### Changes
+- **Second vehicle, opposite curb (NEW)** — `vehicleCount` default is now 2. Car 0 spawns parked in the nearest free slot to HQ as before; every subsequent car uses the new `ParkingMap.NearestFreeOpposite(pos, reference)` — slots on the **mirror link** (`fromId↔toId` swapped = same street, far curb) win; other antiparallel-heading slots are a 4×-penalized fallback so the car never lands on a parallel street blocks away. Both cars take the same F10 commands, rolling-route random walk, lane polylines, and debug beams via `activeVehicles`. Spawn now logs `Car N slot: from→to @ pos` (Editor.log confirmed mirrored links `i_r3_c5→i_r2_c5` / `i_r2_c5→i_r3_c5` at x = ±2.0).
+- **Second car invisible — static instanced assets read past the shared buffer (FIXED)** — `VoxelProxyRaymarch` vertex stage computed the per-instance voxel offset as `_GroupIDsEnabled == 0 ? instanceID * totalVoxels : 0`, i.e. it used `_GroupIDsEnabled == 0` to mean "bound buffer is the per-instance *posed* buffer". Assets with no `.groups` file (vehicles) also get `_GroupIDsEnabled = 0` but are bound to the single shared rest buffer (9,600 voxels), so instance 0 read offset 0 (rendered) while instance 1 read offset 9,600 = one past the end → out-of-bounds read = empty → car never drew (GameObject, slot, and registration were all correct). New `_SharedRestBuffer` uniform (set by `RenderInstancedGroup` as `!useComputePose`, default 0 = legacy behavior so chunk/sector/building blocks are untouched) forces offset 0 when the shared rest buffer is bound. Affects every instanced asset without groupIDs, not just vehicles.
+- **Parking-slot reservation (FIXED)** — `PickParkTarget` now `Occupy()`s the chosen slot immediately, so `NearestFreeAhead` can never hand the same slot to two cars approaching simultaneously (previously occupancy was only set on arrival — a true double-booking race). The reservation is released on every abandon path: `RequestDepart` mid-seek cancel and the `TrySpliceParking` overshoot-repick.
+- **Lane-bound parking confirmed** — slots were already restricted to the car's own side: `NearestFreeAhead` rejects any slot whose heading disagrees with travel direction (`Dot < 0.3`) or that isn't ahead of the car (`>1 m`). No U-turns across the street for parking, and no lane-changing exists anywhere — the only cross-lane motion is the pull-in/out diagonal.
+
+### 🧪 TEST NOW
+- **Shader changed** — let Unity recompile `VoxelProxyRaymarch` (watch the Console for shader errors on first Play).
+- Play → **both** cars visible, parked across the street from each other near HQ, facing opposite directions, each on its own right curb. Vinny + hoodlums unchanged (they use the compute-pose path, `_SharedRestBuffer = 0`).
+- Unverified watch item: `RenderInstancedGroup`'s proxy cube is axis-aligned and ignores yaw. For the non-cubic 20×16×30 car, a 90° heading (east-west streets) would crop nose/tail — if a car looks sliced on an E-W street, that's the proxy extents, not the shader offset.
+- F10 → both pull out on opposite-side diagonals and cruise in opposite lanes; on a straight street they pass each other correctly (right-hand traffic).
+- F10 again → both seek slots on *their* side only; if both converge on one slot the second car picks the next free one instead of stacking.
+
+### Docs
+- New: `docs/systems/VEHICLE_VOXEL_ASSETS.md` — vehicle render path, three buffer modes + `_SharedRestBuffer` truth table, V1–V6 gotcha catalog, articulation/paint decision rule, and the planned **`vehicle` asset-type submodule** for `voxel_editor.html` (wheel/door gids, axle/hinge pivots, seat/entry attach points, `.vehicle.json` contract).
+- `INSTANCED_RENDERING_PITFALLS.md` — added Pitfall #7 (groupID-less instances read OOB → invisible) + Pitfall #8 (axis-aligned proxy ignores yaw).
+- Bug entry: `docs/known_issues/rendering/STATIC_INSTANCED_OOB.md` (🟢 FIXED) + README row; index entry in `docs/core/DOCUMENTATION_INDEX.md`.
 
 ---
 

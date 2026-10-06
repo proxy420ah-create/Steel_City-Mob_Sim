@@ -98,6 +98,9 @@ Shader "SteelCity/VoxelProxyRaymarch"
             // --- Animation group IDs (per-voxel groupID for articulated limb transforms) ---
             StructuredBuffer<uint> _GroupIDs;
             int _GroupIDsEnabled;
+            // 1 = bound _VoxelData is ONE shared rest buffer (static instanced asset with no
+            // groupIDs, e.g. vehicles) so every instance reads offset 0. 0 = legacy behavior.
+            int _SharedRestBuffer;
 
             // --- Walk keyframe system (per-character-type, shared by all instances) ---
             // 4 keyframes × 10 pose values = 40 floats, packed as 10 float4s (one per pose value, 4 KFs each).
@@ -817,9 +820,11 @@ Shader "SteelCity/VoxelProxyRaymarch"
                     // When compute pose is active (_GroupIDsEnabled == 0), each instance has
                     // its own posed voxel slice at offset = instanceID * totalVoxels.
                     // When inverse-transform sampling is active (_GroupIDsEnabled != 0),
-                    // all instances share the same rest buffer (offset = 0).
+                    // all instances share the same rest buffer (offset = 0). Static assets with
+                    // no groupIDs also have _GroupIDsEnabled == 0 but a single shared buffer —
+                    // _SharedRestBuffer forces offset 0 for them (else instance >= 1 reads past the end).
                     uint totalVoxels = (uint)(_VolumeDims.x * _VolumeDims.y * _VolumeDims.z);
-                    uint posedOffset = (_GroupIDsEnabled == 0) ? (unity_InstanceID * totalVoxels) : 0u;
+                    uint posedOffset = (_GroupIDsEnabled == 0 && _SharedRestBuffer == 0) ? (unity_InstanceID * totalVoxels) : 0u;
                     output.instMeta = float4((float)posedOffset, _VolumeDims.x, _VolumeDims.y, _VolumeDims.z);
                     output.voxelSize = _VoxelSize;
                     // Read animation data from second half of instance buffer
