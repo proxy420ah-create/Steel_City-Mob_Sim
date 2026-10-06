@@ -1982,6 +1982,11 @@ const CLOTHING_REGIONS = [
 const CLOTHING_REGION_COLORS = {};
 for (const r of CLOTHING_REGIONS) CLOTHING_REGION_COLORS[r.id] = r.color;
 const clothingRegionMap = new Map(); // "x,y,z" -> regionId
+const UNASSIGNED_REGION_ID = -1; // picker sentinel — 'Unassigned' acts as an eraser (deletes the tag)
+function clothingRegionName(rid) {
+  if (rid === undefined || rid === UNASSIGNED_REGION_ID) return 'Unassigned';
+  return CLOTHING_REGIONS.find(r => r.id === rid)?.name || `region ${rid}`;
+}
 let selectedClothingRegion = 3; // default to Torso
 let clothingRegionViewMode = false; // when true, render by region color
 
@@ -1993,6 +1998,9 @@ function updateClothingRegionCounts() {
   }
   const container = document.getElementById('clothing-region-counts');
   if (container) {
+    let taggedTotal = 0;
+    for (const r of CLOTHING_REGIONS) taggedTotal += counts[r.id] || 0;
+    const untagged = voxelMap.size - taggedTotal;
     container.innerHTML = CLOTHING_REGIONS.map(r => {
       const c = counts[r.id] || 0;
       return `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:10px;">
@@ -2000,7 +2008,11 @@ function updateClothingRegionCounts() {
         <span style="flex:1;color:#ccc;">${r.name}</span>
         <span style="color:#888;">${c}</span>
       </div>`;
-    }).join('');
+    }).join('') + `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:10px;">
+        <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#2a2a2a;border:1px dashed #666;"></span>
+        <span style="flex:1;color:#888;">Unassigned</span>
+        <span style="color:#888;">${untagged}</span>
+      </div>`;
   }
 }
 
@@ -2080,10 +2092,11 @@ function clearAllClothingRegions() {
 function populateClothingRegionList() {
   const container = document.getElementById('clothing-region-list');
   if (!container) return;
-  container.innerHTML = CLOTHING_REGIONS.map(r => {
+  const UNASSIGNED_PICK = { id: UNASSIGNED_REGION_ID, name: 'Unassigned', color: '#2a2a2a', desc: 'Erase region tag' };
+  container.innerHTML = [UNASSIGNED_PICK, ...CLOTHING_REGIONS].map(r => {
     const sel = r.id === selectedClothingRegion ? 'border-color:#0ff;background:#1a1a3e;' : '';
     return `<div class="cregion-item" data-rid="${r.id}" style="display:flex;align-items:center;gap:6px;padding:4px 6px;cursor:pointer;border:1px solid #333;border-radius:4px;margin-bottom:2px;${sel}">
-      <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${r.color};"></span>
+      <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${r.color};${r.id === UNASSIGNED_REGION_ID ? 'border:1px dashed #666;' : ''}"></span>
       <span style="flex:1;font-size:10px;color:#ccc;">${r.name}</span>
       <span style="font-size:9px;color:#666;">${r.desc}</span>
     </div>`;
@@ -2093,8 +2106,7 @@ function populateClothingRegionList() {
       selectedClothingRegion = parseInt(item.dataset.rid);
       populateClothingRegionList();
       if (currentTool !== 'clothingregion') setTool('clothingregion');
-      const rname = CLOTHING_REGIONS.find(r => r.id === selectedClothingRegion)?.name || selectedClothingRegion;
-      setStatus(`Selected clothing region: ${rname}`);
+      setStatus(`Selected clothing region: ${clothingRegionName(selectedClothingRegion)}`);
     });
   });
 }
@@ -3095,7 +3107,7 @@ const TOOL_DESC = {
   fill: 'Click to fill — Cavity/Air/Replace modes | Shift=fill below clickY | Ctrl=fill above clickY',
   line: 'Click two points to draw a straight line of voxels',
   box: 'Click and drag to fill a rectangular volume',
-  select: 'Click to flood-fill select same material | Shift+click for single voxel | Ctrl+click two points for box select',
+  select: 'Click to flood-fill select same material | Shift+click for single voxel | Ctrl+click two points for box select | Q+click body group | W+click wardrobe region',
   extrude: 'Click a face to extrude 1 layer | Shift+click+drag to extrude multiple | Ctrl+click to de-extrude (remove layer) | Ctrl+click+drag to remove multiple',
   ruler: 'Click two points to measure distance between them',
   bodypart: 'Click a voxel to assign it to the selected body part group',
@@ -3524,7 +3536,8 @@ function stampActiveTag(px, py, pz, srcX) {
     if (selectedItemPart === 0) itemPartMap.delete(key); // 'Body / Erase'
     else itemPartMap.set(key, crossed ? mirroredPartId(selectedItemPart) : selectedItemPart);
   } else if (clothingRegionViewMode) {
-    clothingRegionMap.set(key, selectedClothingRegion);
+    if (selectedClothingRegion === UNASSIGNED_REGION_ID) clothingRegionMap.delete(key); // 'Unassigned' = erase
+    else clothingRegionMap.set(key, selectedClothingRegion);
   } else if (groupViewMode) {
     groupMap.set(key, crossed ? mirroredGid(selectedGroup) : selectedGroup);
   }
@@ -3765,27 +3778,33 @@ function performTool(event) {
 
     case 'clothingregion':
       if (selectionActive && selVoxels.length > 0) {
+        const erase = selectedClothingRegion === UNASSIGNED_REGION_ID;
         for (const v of selVoxels) {
-          clothingRegionMap.set(`${v[0]},${v[1]},${v[2]}`, selectedClothingRegion);
+          const k = `${v[0]},${v[1]},${v[2]}`;
+          if (erase) clothingRegionMap.delete(k); else clothingRegionMap.set(k, selectedClothingRegion);
         }
         pushHistory();
-        const rname = CLOTHING_REGIONS.find(r => r.id === selectedClothingRegion)?.name || selectedClothingRegion;
-        setStatus(`Tagged ${selVoxels.length} selected voxels as ${rname}`);
+        setStatus(erase
+          ? `Cleared region tags on ${selVoxels.length} selected voxels`
+          : `Tagged ${selVoxels.length} selected voxels as ${clothingRegionName(selectedClothingRegion)}`);
         updateClothingRegionCounts();
         if (clothingRegionViewMode) rebuildMesh();
         clearSelection();
       } else if (hit.mid !== undefined) {
+        const erase = selectedClothingRegion === UNASSIGNED_REGION_ID;
         const key = `${hit.x},${hit.y},${hit.z}`;
-        clothingRegionMap.set(key, selectedClothingRegion);
+        if (erase) clothingRegionMap.delete(key); else clothingRegionMap.set(key, selectedClothingRegion);
         for (const [mx, my, mz] of mirrorCandidates(hit.x, hit.y, hit.z)) {
           if (mx < 0 || mx >= W || my < 0 || my >= H || mz < 0 || mz >= D) continue;
           if (getVoxelAt(mx, my, mz) !== 0) {
-            clothingRegionMap.set(`${mx},${my},${mz}`, selectedClothingRegion);
+            const mk = `${mx},${my},${mz}`;
+            if (erase) clothingRegionMap.delete(mk); else clothingRegionMap.set(mk, selectedClothingRegion);
           }
         }
         pushHistory();
-        const rname = CLOTHING_REGIONS.find(r => r.id === selectedClothingRegion)?.name || selectedClothingRegion;
-        setStatus(`Tagged (${hit.x},${hit.y},${hit.z}) as ${rname}`);
+        setStatus(erase
+          ? `Cleared region tag on (${hit.x},${hit.y},${hit.z})`
+          : `Tagged (${hit.x},${hit.y},${hit.z}) as ${clothingRegionName(selectedClothingRegion)}`);
         updateClothingRegionCounts();
         if (clothingRegionViewMode) rebuildMesh();
       }
@@ -3979,6 +3998,32 @@ function performTool(event) {
           selVoxels = newVox;
           document.getElementById('sel-info').textContent = `Sel: ${selVoxels.length} voxel(s) (mat ${hit.mid})`;
           setStatus(`Selected ${selVoxels.length} voxel(s) at (${hit.x},${hit.y},${hit.z})${selVoxels.length > 1 ? ' +mirror' : ''} — Shift+click for single, Ctrl+click+drag for box`);
+        }
+        selectionActive = true;
+        showSelectionOverlay();
+      } else if (wHeld) {
+        // Region select (hold W) — every voxel sharing this cell's wardrobe
+        // region, anywhere in the volume. Untagged voxels form the 'Unassigned'
+        // pseudo-region. Alt adds more regions to the selection.
+        if (hit.mid === undefined) { setStatus('W+click needs a solid voxel'); return; }
+        const rid = clothingRegionMap.get(`${hit.x},${hit.y},${hit.z}`);
+        const rname = clothingRegionName(rid);
+        const cells = [];
+        for (const [key] of voxelMap) {
+          if (clothingRegionMap.get(key) !== rid) continue;
+          const [x, y, z] = key.split(',').map(Number);
+          cells.push([x, y, z, voxelMap.get(key)]);
+        }
+        if (cells.length === 0) { setStatus(`No ${rname} voxels`); return; }
+        const newVox = mirrorVoxelPositions(cells);
+        if (event.altKey) {
+          const added = mergeIntoSelection(newVox);
+          document.getElementById('sel-info').textContent = `Sel: ${selVoxels.length} voxels (multi)`;
+          setStatus(`Added ${added} ${rname} voxels — ${selVoxels.length} total selected`);
+        } else {
+          selVoxels = newVox;
+          document.getElementById('sel-info').textContent = `Sel: ${selVoxels.length} voxels (${rname})`;
+          setStatus(`Selected ${selVoxels.length} ${rname} voxels${selVoxels.length > cells.length ? ' +mirror' : ''} — Alt+W adds more regions`);
         }
         selectionActive = true;
         showSelectionOverlay();
@@ -4231,6 +4276,7 @@ function computeBoxVoxels(x0, y0, z0, x1, y1, z1) {
 // pressing/releasing Alt alone wouldn't refresh the additive-select preview.
 let altHeld = false;
 let qHeld = false; // hold Q + click in select tool → pick the voxel's whole body-part group
+let wHeld = false; // hold W + click in select tool → pick the voxel's whole wardrobe region
 
 function updateHighlight(event) {
   if (currentTool === 'camera') {
@@ -4362,7 +4408,19 @@ function updateHighlight(event) {
       break;
     
     case 'select':
-      if (qHeld && hit.mid !== undefined) {
+      if (wHeld && hit.mid !== undefined) {
+        // Region-select preview — highlight every cell sharing the hovered
+        // voxel's wardrobe region (untagged cells = 'Unassigned' region)
+        const rid = clothingRegionMap.get(`${hit.x},${hit.y},${hit.z}`);
+        const cells = [];
+        for (const [key] of voxelMap) {
+          if (clothingRegionMap.get(key) !== rid) continue;
+          const [x, y, z] = key.split(',').map(Number);
+          cells.push([x, y, z]);
+        }
+        positions = mirrorPositionsPreview(cells);
+        infoText = `W+click: select ${clothingRegionName(rid)} (${cells.length} voxels)${event.altKey || altHeld ? ' — Alt+W adds to selection' : ''}`;
+      } else if (qHeld && hit.mid !== undefined) {
         // Group-select preview — highlight every cell sharing the hovered gid
         const gid = groupMap.get(`${hit.x},${hit.y},${hit.z}`);
         if (gid === undefined) {
@@ -4448,12 +4506,12 @@ function updateHighlight(event) {
     case 'clothingregion':
       if (hit.mid !== undefined) {
         positions = [[hit.x, hit.y, hit.z]];
-        const rname = CLOTHING_REGIONS.find(r => r.id === selectedClothingRegion)?.name || selectedClothingRegion;
-        const rcol = CLOTHING_REGION_COLORS[selectedClothingRegion] || '#00ffaa';
+        const erase = selectedClothingRegion === UNASSIGNED_REGION_ID;
+        const rname = clothingRegionName(selectedClothingRegion);
+        const rcol = CLOTHING_REGION_COLORS[selectedClothingRegion] || '#555555';
         color = parseInt(rcol.replace('#', ''), 16);
-        const curRegion = clothingRegionMap.get(`${hit.x},${hit.y},${hit.z}`);
-        const curName = curRegion !== undefined ? (CLOTHING_REGIONS.find(r => r.id === curRegion)?.name || curRegion) : 'none';
-        infoText = `Region: ${rname} | Current: ${curName} — click to tag`;
+        const curName = clothingRegionName(clothingRegionMap.get(`${hit.x},${hit.y},${hit.z}`));
+        infoText = `Region: ${rname} | Current: ${curName} — click to ${erase ? 'clear' : 'tag'}`;
       }
       break;
     
@@ -5295,7 +5353,21 @@ document.addEventListener('keyup', (e) => {
     if (lastMouseEvent) updateHighlight(lastMouseEvent);
   }
 });
-window.addEventListener('blur', () => { altHeld = false; qHeld = false; });
+// W held = wardrobe-region-select modifier for the select tool (same pattern
+// as qHeld). 'w' itself has no binding in the tool-switch handler.
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.key === 'w' || e.key === 'W') {
+    if (!wHeld) { wHeld = true; if (lastMouseEvent) updateHighlight(lastMouseEvent); }
+  }
+});
+document.addEventListener('keyup', (e) => {
+  if (e.key === 'w' || e.key === 'W') {
+    wHeld = false;
+    if (lastMouseEvent) updateHighlight(lastMouseEvent);
+  }
+});
+window.addEventListener('blur', () => { altHeld = false; qHeld = false; wHeld = false; });
 
 renderer.domElement.addEventListener('mouseup', (e) => {
   // Commit paint drag stroke — single history entry for the whole stroke
