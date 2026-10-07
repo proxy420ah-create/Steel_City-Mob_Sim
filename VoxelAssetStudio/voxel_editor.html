@@ -231,6 +231,7 @@ body.ui-hidden #ui-hidden-hint { display:block; }
 <div id="editor-nav"><a href="character_pipeline.html">Pipeline</a><a href="voxel_editor.html" class="current">Voxel Editor</a><a href="character_animator.html">Animator</a><a href="city_editor.html">City Editor</a></div>
 <div id="canvas-container"></div>
 <div id="ui-hidden-hint">press H to show UI</div>
+<div id="unity-mirror-badge" style="display:none;position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:95;background:rgba(40,20,60,0.85);border:1px solid #a6f;color:#c9f;padding:3px 12px;border-radius:10px;font-size:11px;pointer-events:none;">◐ UNITY VIEW — mirrored like Unity renders (press U to exit)</div>
 
 <!-- Toolbar -->
 <div id="toolbar">
@@ -386,6 +387,8 @@ body.ui-hidden #ui-hidden-hint { display:block; }
       <label for="show-grid-toggle" style="font-size:11px;color:#888;">Grid</label>
       <input type="checkbox" id="show-axes-toggle" checked title="Toggle XYZ compass" style="cursor:pointer;margin-left:6px;">
       <label for="show-axes-toggle" style="font-size:11px;color:#888;">Axes</label>
+      <input type="checkbox" id="unity-mirror-toggle" title="Unity view — mirrors the viewport left↔right like Unity renders it. Orbit/editing stay normal. 'U' hotkey. Auto-on for vehicle/building/prop, off for character." style="cursor:pointer;margin-left:6px;">
+      <label for="unity-mirror-toggle" style="font-size:11px;color:#a6f;">Unity</label>
     </div>
     <h3 style="margin-top:12px;font-size:12px;color:#0ff;">Shortcuts</h3>
     <div style="font-size:10px;color:#888;line-height:1.6;">
@@ -399,7 +402,8 @@ body.ui-hidden #ui-hidden-hint { display:block; }
       <b>H</b>=Hide UI &nbsp; <b>R</b>=Ruler<br>
       <b>Ctrl+Z</b>=Undo &nbsp; <b>Ctrl+Y</b>=Redo<br>
       <b>Esc</b>=Cancel &nbsp; <b>Mid-drag</b>=Orbit<br>
-      <b>Scroll</b>=Zoom &nbsp; <b>Right-drag</b>=Pan
+      <b>Scroll</b>=Zoom &nbsp; <b>Right-drag</b>=Pan<br>
+      <b>U</b>=Unity view (mirror)
     </div>
     <h3 style="margin-top:12px;font-size:12px;color:#0ff;">Tool Colors</h3>
     <div style="font-size:10px;color:#888;line-height:1.6;">
@@ -2283,6 +2287,61 @@ let loadedModelName = null;
 // FK pose chain falls back to defaults and limbs drift.
 let loadedAnimData = {};
 
+// === HANDEDNESS: Unity-promoted runtime files → editor convention ===
+// tools/promote_character_to_unity.py flips attachment L/R names + the asymmetric anim
+// params for Unity and stamps handedness:'unity', but never touches the painted itemParts
+// tags. Loading such a file as-is re-tags one voxel per hand from the flipped
+// attachmentPoints and exports a hybrid that promotion then flips a second time. The flip
+// is its own inverse, so convert back on load: every export is editor convention again
+// (no stamp), ready to promote exactly once. Keep in sync with the Python flip functions.
+function hdSwapKeys(o, a, b) {
+  const ha = a in o, hb = b in o, va = o[a], vb = o[b];
+  if (ha && hb) { o[a] = vb; o[b] = va; }
+  else if (ha) { o[b] = va; delete o[a]; }
+  else if (hb) { o[a] = vb; delete o[b]; }
+}
+function hdNeg(o, k) { if (typeof o[k] === 'number') o[k] = -o[k]; }
+function hdFlipAttachmentNames(ap) {
+  const out = {};
+  for (const [k, v] of Object.entries(ap)) {
+    let k2 = k;
+    if (k.startsWith('right_')) k2 = 'left_' + k.slice(6);
+    else if (k.startsWith('left_')) k2 = 'right_' + k.slice(5);
+    else if (k.endsWith('_right')) k2 = k.slice(0, -6) + '_left';
+    else if (k.endsWith('_left')) k2 = k.slice(0, -5) + '_right';
+    out[k2] = v;
+  }
+  return out;
+}
+function hdFlipAnimParams(p) {
+  const a = p.aiming;
+  if (a) {
+    for (const base of ['armSwing', 'elbowBend', 'shoulderReach']) hdSwapKeys(a, base + 'L', base + 'R');
+    for (const k of ['torsoTwist', 'headYaw', 'headTilt', 'shoulderReachL', 'shoulderReachR']) hdNeg(a, k);
+  }
+  const c = p.crouching;
+  if (c) for (const base of ['armSwing', 'legStride', 'kneeBend']) hdSwapKeys(c, base + 'L', base + 'R');
+  const lt = p.legTwist;
+  if (lt) { hdSwapKeys(lt, 'leftRest', 'rightRest'); hdNeg(lt, 'leftRest'); hdNeg(lt, 'rightRest'); }
+  for (const sec of ['elbowBend', 'kneeBend']) { const s = p[sec]; if (s) hdSwapKeys(s, 'leftRest', 'rightRest'); }
+  const eb = p.elbowBend;
+  if (eb) hdSwapKeys(eb, 'twistL', 'twistR');
+}
+function demoteIfUnity(data) {
+  if (data.handedness !== 'unity') return false;
+  if (data.attachmentPoints) data.attachmentPoints = hdFlipAttachmentNames(data.attachmentPoints);
+  if (data.animParams) hdFlipAnimParams(data.animParams);
+  delete data.handedness;
+  console.info('[handedness] Unity-promoted file converted to editor convention on load');
+  // Deferred so it lands after the load path's own status line.
+  setTimeout(() => {
+    const el = document.getElementById('status-info');
+    if (el) el.textContent += ' — Unity-promoted file converted to editor convention (L/R flipped back); export, then promote once';
+  }, 0);
+  return true;
+}
+// === /HANDEDNESS ===
+
 function updateItemPartCounts() {
   const counts = {};
   for (const g of activePartGroups()) counts[g.id] = 0;
@@ -2766,6 +2825,7 @@ function loadBaseTemplate() {
       try {
         const data = JSON.parse(ev.target.result);
         if (!data.dims || !data.voxels) throw new Error('Invalid file');
+        demoteIfUnity(data);
         loadedModelName = file.name.replace(/\.(character\.)?json$/i, '');
         loadedAnimData = {};
         for (const k of ['pivots', 'animParams', 'states']) {
@@ -2926,6 +2986,46 @@ document.getElementById('show-axes-toggle').onchange = function() {
   if (compassGroup) compassGroup.visible = showAxes;
   localStorage.setItem('voxelEditorShowAxes', showAxes ? '1' : '0');
 };
+
+// === UNITY VIEW (mirrored preview) ===
+// The editor is right-handed and Unity left-handed, so the same voxel indices
+// render left↔right mirrored in Unity. This is a VIEW-ONLY mirror: the whole
+// scene renders through scene.scale.x = -1 (mirrored about the volume's center
+// plane) — model data is untouched and OrbitControls/panning still feel natural,
+// unlike the CSS canvas flip used by the animator's 'U' preview. Picking
+// un-mirrors the world-space ray inside raycastVoxel().
+let unityMirror = false;
+function unityMirrorPrefKey() { return 'voxelEditorUnityMirror_' + assetType; }
+function applyMirrorTransform() {
+  // Mirror about the volume's center plane (cx). cx is 0 whenever the origin
+  // sits at -W/2; the 2*cx shift also covers the resize-drift window.
+  const cx = volumeWorldCenter().x;
+  scene.scale.x = unityMirror ? -1 : 1;
+  scene.position.x = unityMirror ? 2 * cx : 0;
+}
+function setUnityMirror(on, save = true) {
+  unityMirror = on;
+  applyMirrorTransform();
+  document.getElementById('unity-mirror-toggle').checked = on;
+  document.getElementById('unity-mirror-badge').style.display = on ? 'block' : 'none';
+  if (save) localStorage.setItem(unityMirrorPrefKey(), on ? '1' : '0');
+}
+// Called from updateTabsForAssetType() so the default follows the asset type:
+// vehicles/buildings/props go to Unity un-promoted and render mirrored, so the
+// mirrored view is the authoring truth there. Characters promote their L/R
+// labels instead, so the unmirrored editor view stays canonical. Per-type prefs.
+function applyUnityMirrorDefault() {
+  const stored = localStorage.getItem(unityMirrorPrefKey());
+  setUnityMirror(stored === null ? assetType !== 'character' : stored === '1', false);
+}
+document.getElementById('unity-mirror-toggle').onchange = function() {
+  setUnityMirror(this.checked);
+  setStatus(this.checked ? 'Unity view ON — mirrored like Unity renders' : 'Editor view (authoring convention)');
+};
+// World→scene-space X under a mirrored scene (identity when the mirror is off).
+function unmirrorWorldX(wx) {
+  return unityMirror ? 2 * volumeWorldCenter().x - wx : wx;
+}
 
 const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 5000);
 const initialCamPos = new THREE.Vector3(W * 2, H * 1.5, D * 2);
@@ -3346,6 +3446,7 @@ function rebuildVolumeVisuals() {
   buildCompass();
   buildGroundPlane();
   updateMirrorPlanes();
+  applyMirrorTransform(); // keep the Unity-view mirror pinned to the new center
 }
 
 // === INSTANCED MESH ===
@@ -3752,17 +3853,22 @@ function raycastVoxel(event) {
   // Cell (x,y,z) renders as a unit cube spanning
   // [x+ox-0.5, x+ox+0.5) × [y-0.5, y+0.5) × [z+oz-0.5, z+oz+0.5).
   const ro = raycaster.ray.origin, rd = raycaster.ray.direction;
-  const px = ro.x - originOffsetX + 0.5;
+  // Unity-mirror: the scene renders mirrored about the volume's center plane,
+  // so un-mirror the world-space ray back into scene (grid) space before
+  // marching. The ground-plane fallback below still uses the untouched ray.
+  let roX = ro.x, rdX = rd.x;
+  if (unityMirror) { roX = unmirrorWorldX(roX); rdX = -rdX; }
+  const px = roX - originOffsetX + 0.5;
   const py = ro.y + 0.5;
   const pz = ro.z - originOffsetZ + 0.5;
   let cx = Math.floor(px), cy = Math.floor(py), cz = Math.floor(pz);
-  const stepX = rd.x > 0 ? 1 : -1;
+  const stepX = rdX > 0 ? 1 : -1;
   const stepY = rd.y > 0 ? 1 : -1;
   const stepZ = rd.z > 0 ? 1 : -1;
-  const tDX = rd.x !== 0 ? Math.abs(1 / rd.x) : Infinity;
+  const tDX = rdX !== 0 ? Math.abs(1 / rdX) : Infinity;
   const tDY = rd.y !== 0 ? Math.abs(1 / rd.y) : Infinity;
   const tDZ = rd.z !== 0 ? Math.abs(1 / rd.z) : Infinity;
-  let tMX = tDX === Infinity ? Infinity : (rd.x > 0 ? cx + 1 - px : px - cx) * tDX;
+  let tMX = tDX === Infinity ? Infinity : (rdX > 0 ? cx + 1 - px : px - cx) * tDX;
   let tMY = tDY === Infinity ? Infinity : (rd.y > 0 ? cy + 1 - py : py - cy) * tDY;
   let tMZ = tDZ === Infinity ? Infinity : (rd.z > 0 ? cz + 1 - pz : pz - cz) * tDZ;
   let t = 0, axis = -1;
@@ -3801,7 +3907,7 @@ function raycastVoxel(event) {
   const gp = raycaster.intersectObject(groundPlane, false);
   if (gp.length === 0) return null;
   const p = gp[0].point;
-  const x = Math.floor(p.x - originOffsetX);
+  const x = Math.floor(unmirrorWorldX(p.x) - originOffsetX);
   const z = Math.floor(p.z - originOffsetZ);
   return { x, y: 0, z, normal: new THREE.Vector3(0, 1, 0), placeY: 0 };
 }
@@ -3827,7 +3933,7 @@ function raycastVoxelMesh(event) {
   if (hit.object === groundPlane) {
     // Hit ground plane — return position for placement
     const p = hit.point;
-    const x = Math.floor(p.x - originOffsetX);
+    const x = Math.floor(unmirrorWorldX(p.x) - originOffsetX);
     const z = Math.floor(p.z - originOffsetZ);
     return { x, y: 0, z, normal: new THREE.Vector3(0, 1, 0), placeY: 0 };
   }
@@ -5031,6 +5137,7 @@ function updateTabsForAssetType() {
   updateGroupCounts();
   populateClothingRegionList();
   updateClothingRegionCounts();
+  applyUnityMirrorDefault(); // mirrored view follows the asset type's pref
 }
 
 // Undo/Redo buttons
@@ -5056,6 +5163,7 @@ document.getElementById('bounds-btn').addEventListener('click', () => {
 // Applies a loaded default model JSON to the editor scene.
 function applyDefaultModelData(data, sourceName) {
   if (!data.dims || !data.voxels) throw new Error('Invalid model file');
+  demoteIfUnity(data);
   loadedModelName = sourceName.replace(/.*\//, '').replace(/\.(character\.)?json$/i, '') || data.name || null;
   loadedAnimData = {};
   for (const k of ['pivots', 'animParams', 'states']) {
@@ -5725,6 +5833,10 @@ document.addEventListener('keydown', (e) => {
     case 'g': setTool('bodypart'); break;
     case 'c': setTool('clothingregion'); break;
     case 'v': moveSelection(); break;
+    case 'u':
+      // Unity view toggle — same key as the animator's mirrored preview.
+      document.getElementById('unity-mirror-toggle').click();
+      break;
     case 'h':
       // Toggle hide all UI panels (toolbar, left/right panels, status bar)
       // for unobstructed 3D inspection. Press H again to bring them back.
@@ -6596,6 +6708,7 @@ window.loadProject = function(event) {
     try {
       const data = JSON.parse(e.target.result);
       if (!data.dims || !data.voxels) throw new Error('Invalid project file');
+      demoteIfUnity(data);
       loadedModelName = file.name.replace(/\.(character\.)?json$/i, '');
       loadedAnimData = {};
       for (const k of ['pivots', 'animParams', 'states']) {
@@ -6679,6 +6792,7 @@ window.importStasset = function(event) {
     try {
       const data = JSON.parse(e.target.result);
       if (!data.dims || !data.voxels) throw new Error('Invalid stasset JSON');
+      demoteIfUnity(data);
       loadedModelName = file.name.replace(/\.(character\.)?json$/i, '');
       loadedAnimData = {};
       for (const k of ['pivots', 'animParams', 'states']) {
@@ -7540,8 +7654,11 @@ let charLastTime = performance.now();
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
-  // Camera-follow light tracks the camera position each frame
+  // Camera-follow light tracks the camera position each frame. camLight is a
+  // scene child, so under Unity view its local x must be un-mirrored to keep
+  // the light glued to the camera's world position.
   camLight.position.copy(camera.position);
+  if (unityMirror) camLight.position.x = unmirrorWorldX(camLight.position.x);
 
   // Character animation tick
   if (charPlaying && charData) {

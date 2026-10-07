@@ -18,3 +18,4 @@ Bug tracker per Development Guidelines Rule 13. Bugs are cataloged by category i
 | [Sector Frustum Cull Drops Visible Terrain](rendering/SECTOR_FRUSTUM_CULL.md) | rendering | 🟡 MITIGATED | 🟡 HIGH | 2026-10-08 |
 | [Static Instanced Asset OOB — 2nd Vehicle Invisible](rendering/STATIC_INSTANCED_OOB.md) | rendering | 🟢 FIXED | 🟡 HIGH | 2026-10-05 |
 | [Instanced Proxy Yaw Clip — Elongated Volumes](rendering/INSTANCED_PROXY_YAW_CLIP.md) | rendering | 🟢 FIXED | 🟡 HIGH | 2026-10-06 |
+| [Promoted-File Round Trip — Double Flip](editor/PROMOTED_FILE_ROUNDTRIP_DOUBLE_FLIP.md) | editor | 🟢 FIXED | 🟡 HIGH | 2026-10-06 |

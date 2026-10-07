@@ -79,6 +79,10 @@ vehicle: { label: 'Vehicle', icon: '🚗', voxelSize: 0.01,   // uniform lattice
 
 **Export**: `format: steelcity_vehicle`, `assetType: "vehicle"`, folder hint `voxel_vehicles/` (V3 resolved — loader probes it first). Vehicle materials = palette ids **140–147** (`MaterialCount` bumped to 148); id 140 "Vehicle Paint" is the per-instance remap contract.
 
+**Import to Unity**: `Tools → Voxel Import → Vehicle` — writes a **v2 .stasset** (attachments embedded in the SKEL tail), copies the source JSON beside it, and skips `.groups` (rigid body — a sidecar would fire the character pose kernel). CLI equivalent: `python Tools/json_to_stasset.py <json> <stasset>`.
+
+**Handedness (mirror)**: the editor (right-handed) and Unity (left-handed) read the same voxel indices, so Unity draws every asset as a mirror image of the editor view. Characters patch this with promotion (L/R labels + params); vehicles and buildings have nothing to promote — the geometry itself lands mirrored. The 490 puts `seat_driver` at x=19 and `exhaust_tip` at x=40: Unity draws that as left-hand drive (correct for 1920), the unmirrored editor view draws right-hand drive. **Use the "Unity" view toggle** (checkbox in the left panel, `U` hotkey — auto-on for vehicle/building/prop asset types, off for characters) to see the model exactly as Unity renders it while editing; data is untouched, orbit and picking work normally. The animator's `U` key is a view-only mirror of the same idea.
+
 **Mirror support**: `MIRROR_GID_PAIRS` still needs vehicle entries (wheel_l↔wheel_r, door_l↔door_r) or vehicles get literal-copy mirroring only. 📋 Open.
 
 ## 6. Authored Assets

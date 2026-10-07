@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Text;
 using UnityEditor;
@@ -11,7 +13,8 @@ namespace SteelCity.EditorTools
         Character,
         Building,
         Accessory,
-        Decor
+        Decor,
+        Vehicle
     }
 
     /// <summary>
@@ -33,12 +36,16 @@ namespace SteelCity.EditorTools
         [MenuItem("Tools/Voxel Import/Decor")]
         public static void ImportDecor() => Import(AssetType.Decor);
 
+        [MenuItem("Tools/Voxel Import/Vehicle")]
+        public static void ImportVehicle() => Import(AssetType.Vehicle);
+
         private static readonly string[] Folders =
         {
             "voxel_characters",
             "voxel_buildings",
             "voxel_accessories",
-            "voxel_decor"
+            "voxel_decor",
+            "voxel_vehicles"
         };
 
         private static readonly string[] Labels =
@@ -46,7 +53,8 @@ namespace SteelCity.EditorTools
             "Character",
             "Building",
             "Accessory",
-            "Decor"
+            "Decor",
+            "Vehicle"
         };
 
         public static void Import(AssetType type)
@@ -79,7 +87,11 @@ namespace SteelCity.EditorTools
             string outDir = Path.Combine(Application.dataPath, "StreamingAssets", folder);
             Directory.CreateDirectory(outDir);
 
-            // Check if this is already a consolidated .character.json — if so, copy as-is
+            // Consolidated .character.json — promote to the Unity runtime file.
+            // "Promotion" = the one-time editor→Unity handedness flip (right/left
+            // attachment names + anim L/R params + "handedness":"unity" stamp).
+            // The Python script owns that contract (including the double-flip
+            // abort) — shell out to it so there's a single implementation.
             if (jsonText.Contains("\"format\":") && jsonText.Contains("\"steelcity_character\""))
             {
                 string directName = Path.GetFileNameWithoutExtension(sourcePath);
@@ -92,12 +104,44 @@ namespace SteelCity.EditorTools
                     return;
 
                 string directOutPath = Path.Combine(outDir, directOutName + ".json");
-                File.Copy(sourcePath, directOutPath, true);
-                AssetDatabase.Refresh();
+                string script = Path.Combine(Directory.GetCurrentDirectory(),
+                                             "Tools", "promote_character_to_unity.py");
+                try
+                {
+                    var psi = new System.Diagnostics.ProcessStartInfo("python",
+                            $"\"{script}\" \"{sourcePath}\" \"{directOutPath}\"")
+                    {
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        CreateNoWindow = true,
+                    };
+                    using var proc = System.Diagnostics.Process.Start(psi);
+                    string stdout = proc.StandardOutput.ReadToEnd();
+                    string stderr = proc.StandardError.ReadToEnd();
+                    proc.WaitForExit();
+                    Debug.Log($"[VoxelImport] promote: {stdout}{stderr}");
 
+                    if (proc.ExitCode != 0)
+                    {
+                        EditorUtility.DisplayDialog("Promotion Failed",
+                            $"promote_character_to_unity.py exited {proc.ExitCode}.\n\n{stderr}\n\n" +
+                            "(Usually: the file is already Unity-handed — the script refuses to double-flip.)", "OK");
+                        return;
+                    }
+                }
+                catch (System.ComponentModel.Win32Exception)
+                {
+                    EditorUtility.DisplayDialog("Python Not Found",
+                        "Run the promotion manually:\n\n" +
+                        $"python Tools/promote_character_to_unity.py \"{sourcePath}\" \"{directOutPath}\"", "OK");
+                    return;
+                }
+
+                AssetDatabase.Refresh();
                 EditorUtility.DisplayDialog($"{label} Import Complete",
-                    $"Copied consolidated .character.json to {folder}/{directOutName}.json\n\n" +
-                    $"No binary conversion needed — file is already in runtime format.\n" +
+                    $"Promoted to {folder}/{directOutName}.json\n\n" +
+                    $"Handedness flipped for Unity + stamped — runtime loads this JSON directly.\n" +
                     $"Set assetFileName = \"{directOutName}.json\" on VoxelCharacter.", "OK");
                 return;
             }
@@ -128,6 +172,11 @@ namespace SteelCity.EditorTools
             data.voxels = ParseVoxelArray(jsonText) ?? data.voxels;
             data.groups = ParseGroupArray(jsonText) ?? data.groups;
 
+            // Named attachment points (attachmentPoints: {name: {x,y,z}} or
+            // {name: [x,y,z]}) — embedded in the v2 .stasset tail so vehicles,
+            // accessories, etc. carry their anchors in the binary itself.
+            var attachments = ParseAttachmentPoints(jsonText);
+
             int w = data.dims[0], h = data.dims[1], d = data.dims[2];
 
             // Ask for output name
@@ -150,12 +199,29 @@ namespace SteelCity.EditorTools
 
             // --- 1. Write .stasset ---
             int voxelCount = data.voxels != null ? data.voxels.Length : 0;
-            WriteStasset(stassetPath, w, h, d, data.voxels);
-            Debug.Log($"[VoxelImport] Wrote {stassetPath} ({voxelCount} voxels, {w}x{h}x{d})");
+            if (attachments != null && attachments.Count > 0)
+                WriteStassetV2(stassetPath, w, h, d, data.voxels, attachments);
+            else
+                WriteStasset(stassetPath, w, h, d, data.voxels);
+            Debug.Log($"[VoxelImport] Wrote {stassetPath} ({voxelCount} voxels, {w}x{h}x{d}" +
+                      $"{(attachments != null && attachments.Count > 0 ? $", v2 + {attachments.Count} attachments" : ", v1")})");
+
+            // Vehicles keep the source JSON beside the binary — the inspectable
+            // copy of record carrying groups/regions/itemParts metadata.
+            if (type == AssetType.Vehicle)
+            {
+                string jsonDest = Path.Combine(outDir, outputName + ".json");
+                if (!string.Equals(Path.GetFullPath(sourcePath), Path.GetFullPath(jsonDest),
+                                   StringComparison.OrdinalIgnoreCase))
+                    File.Copy(sourcePath, jsonDest, true);
+            }
 
             // --- 2. Write .groups ---
+            // Vehicles skip this deliberately: a .groups sidecar activates the
+            // character pose kernel, which is wrong for a rigid vehicle —
+            // group paint stays in the source JSON for future articulation.
             int groupCount = 0;
-            if (data.groups != null && data.groups.Length > 0)
+            if (data.groups != null && data.groups.Length > 0 && type != AssetType.Vehicle)
             {
                 groupCount = data.groups.Length;
                 WriteGroups(groupsPath, w, h, d, data.groups);
@@ -190,6 +256,8 @@ namespace SteelCity.EditorTools
                 summary += $"\n\nSet Asset Base Name = \"{outputName}\" on ForwardTransformTestRig.";
             else if (type == AssetType.Building)
                 summary += $"\n\nAsset will appear in city layout as '{outputName}.stasset'.";
+            else if (type == AssetType.Vehicle)
+                summary += $"\n\nSet vehicleAsset = \"{outputName}.stasset\" on the spawner component.";
             else
                 summary += $"\n\n{label} asset ready in StreamingAssets/{folder}/.";
 
@@ -225,6 +293,52 @@ namespace SteelCity.EditorTools
 
             for (int i = 0; i < grid.Length; i++)
                 bw.Write(grid[i]);
+        }
+
+        // v2 = v1 voxel block + appended SKEL tail ('SKEL' + uint32 json_len +
+        // UTF-8 payload) — same layout stasset_io.py writes. Used when the JSON
+        // carries attachmentPoints so anchors embed in the binary.
+        static void WriteStassetV2(string path, int w, int h, int d, VoxelEntry[] voxels,
+                                   List<AttachEntry> attachments)
+        {
+            var sb = new StringBuilder();
+            sb.Append("{\"version\":2,\"root_joint\":null,\"bones\":[],\"joints\":[],");
+            sb.Append("\"influence_map\":{},\"attachments\":[");
+            for (int i = 0; i < attachments.Count; i++)
+            {
+                var a = attachments[i];
+                sb.Append($"{{\"name\":\"{a.name}\",\"position\":[{a.x},{a.y},{a.z}]}}");
+                if (i < attachments.Count - 1) sb.Append(",");
+            }
+            sb.Append("],\"materials\":{},\"ams\":{}}");
+            byte[] payload = Encoding.UTF8.GetBytes(sb.ToString());
+
+            using var fs = new FileStream(path, FileMode.Create);
+            using var bw = new BinaryWriter(fs);
+
+            bw.Write((byte)'S'); bw.Write((byte)'T'); bw.Write((byte)'A'); bw.Write((byte)'S');
+            bw.Write((byte)2);   // version 2 = voxel block + skeleton/metadata tail
+            bw.Write((byte)0);   // flags
+            bw.Write((ushort)w);
+            bw.Write((ushort)h);
+            bw.Write((ushort)d);
+            bw.Write(0); // reserved
+
+            var grid = new ushort[w * h * d];
+            if (voxels != null)
+            {
+                foreach (var v in voxels)
+                {
+                    if (v.x >= 0 && v.x < w && v.y >= 0 && v.y < h && v.z >= 0 && v.z < d)
+                        grid[v.x + v.y * w + v.z * w * h] = (ushort)v.mid;
+                }
+            }
+            for (int i = 0; i < grid.Length; i++)
+                bw.Write(grid[i]);
+
+            bw.Write((byte)'S'); bw.Write((byte)'K'); bw.Write((byte)'E'); bw.Write((byte)'L');
+            bw.Write(payload.Length);
+            bw.Write(payload);
         }
 
         static void WriteGroups(string path, int w, int h, int d, GroupEntry[] groups)
@@ -493,6 +607,76 @@ namespace SteelCity.EditorTools
                 }
                 return list.ToArray();
             }
+        }
+
+        class AttachEntry { public string name; public float x, y, z; }
+
+        // attachmentPoints: {"name": {"x":N,"y":N,"z":N}, ...} — also tolerates
+        // the older {"name": [x,y,z]} array form. Returns null when absent.
+        static List<AttachEntry> ParseAttachmentPoints(string json)
+        {
+            int idx = json.IndexOf("\"attachmentPoints\"");
+            if (idx < 0) return null;
+            int start = json.IndexOf('{', idx);
+            if (start < 0) return null;
+            int depth = 0, end = start;
+            for (int i = start; i < json.Length; i++)
+            {
+                if (json[i] == '{') depth++;
+                else if (json[i] == '}') { depth--; if (depth == 0) { end = i; break; } }
+            }
+
+            string inner = json.Substring(start + 1, end - start - 1);
+            var list = new List<AttachEntry>();
+            int pos = 0;
+            while (pos < inner.Length)
+            {
+                int q1 = inner.IndexOf('"', pos); if (q1 < 0) break;
+                int q2 = inner.IndexOf('"', q1 + 1); if (q2 < 0) break;
+                string name = inner.Substring(q1 + 1, q2 - q1 - 1);
+                int colon = inner.IndexOf(':', q2); if (colon < 0) break;
+                int v = colon + 1;
+                while (v < inner.Length && char.IsWhiteSpace(inner[v])) v++;
+                if (v >= inner.Length) break;
+
+                float x = 0, y = 0, z = 0; bool ok;
+                if (inner[v] == '{')
+                {
+                    int vEnd = inner.IndexOf('}', v); if (vEnd < 0) break;
+                    string obj = inner.Substring(v, vEnd - v);
+                    ok = TryJsonNum(obj, "\"x\"", out x)
+                      && TryJsonNum(obj, "\"y\"", out y)
+                      && TryJsonNum(obj, "\"z\"", out z);
+                    pos = vEnd + 1;
+                }
+                else if (inner[v] == '[')
+                {
+                    int vEnd = inner.IndexOf(']', v); if (vEnd < 0) break;
+                    var parts = inner.Substring(v + 1, vEnd - v - 1).Split(',');
+                    ok = parts.Length >= 3
+                      && float.TryParse(parts[0].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out x)
+                      && float.TryParse(parts[1].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out y)
+                      && float.TryParse(parts[2].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out z);
+                    pos = vEnd + 1;
+                }
+                else break;
+                if (ok) list.Add(new AttachEntry { name = name, x = x, y = y, z = z });
+            }
+            return list.Count > 0 ? list : null;
+        }
+
+        static bool TryJsonNum(string obj, string key, out float val)
+        {
+            val = 0;
+            int idx = obj.IndexOf(key);
+            if (idx < 0) return false;
+            int colon = obj.IndexOf(':', idx);
+            if (colon < 0) return false;
+            int s = colon + 1;
+            while (s < obj.Length && char.IsWhiteSpace(obj[s])) s++;
+            int e = s;
+            while (e < obj.Length && (char.IsDigit(obj[e]) || obj[e] == '-' || obj[e] == '+' || obj[e] == '.' || obj[e] == 'e' || obj[e] == 'E')) e++;
+            return float.TryParse(obj.Substring(s, e - s), NumberStyles.Float, CultureInfo.InvariantCulture, out val);
         }
 
         static PivotEntry[] ParsePivotsArray(string json)

@@ -151,6 +151,21 @@ on an already-flipped file (no double flip). `CharacterAssets` warns at load if
 `right_hand.x` is on the −X side. Animator preview: press **U** to mirror the
 view (Unity-handedness preview). Never hand-edit runtime character JSON.
 
+### G11 — Promoted file round-tripped through the editor (HYBRID FILE)
+Promotion flips `attachmentPoints` + the asymmetric `animParams` but **not** the
+painted `itemParts` tags. Loading the promoted file into `voxel_editor.html` used
+to re-tag one voxel per hand from the flipped attachments (phantom "contaminated"
+hand clusters, right_hand centroid 12.5 → 16.875), then export a hybrid:
+attachments rebuilt from the tags (editor side), `animParams` carried verbatim
+(Unity side), `handedness` stamp dropped. Both promotion guards (stamp, which side
+`right_hand` is on) then saw an ordinary editor file and flipped again — right hand
+holds the gun, LEFT arm aims.
+**Fix**: the editor converts any `handedness:"unity"` file back to editor convention
+on load (`demoteIfUnity` — same flip as the Python, which is its own inverse), so
+exports are always editor convention and promotion runs exactly once.
+`character_animator.html` has no such handling — do not load promoted files there.
+Bug: `docs/known_issues/editor/PROMOTED_FILE_ROUNDTRIP_DOUBLE_FLIP.md`.
+
 ---
 
 ## Design

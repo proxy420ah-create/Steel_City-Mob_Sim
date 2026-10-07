@@ -339,6 +339,32 @@ save_stasset('Assets/StreamingAssets/voxel_vehicles/vehicle_490_touring.stasset'
              skeleton={'attachments': [
                  {'name': n, 'position': centroid(p)} for n, p in parts.items()]})
 
+# Editor-native shapes (voxel_editor.html): itemParts is "x,y,z" → numeric
+# partId keyed to VEHICLE_PART_GROUPS; attachmentPoints is name → {x,y,z};
+# itemPartDefs mirrors the editor's def records so the file round-trips.
+VEHICLE_PART_ID = {
+    'axle_fl': 1, 'axle_fr': 2, 'axle_rl': 3, 'axle_rr': 4,
+    'door_hinge_l': 5, 'door_hinge_r': 6, 'hood_hinge': 7, 'trunk_hinge': 8,
+    'seat_driver': 9, 'seat_passenger': 10, 'entry_l': 11, 'entry_r': 12,
+    'exhaust_tip': 13,
+}
+VEHICLE_PART_DEFS = [
+    {'id': 0,  'name': 'Body / Erase',   'key': 'body',           'color': '#888888', 'desc': 'Unassigned'},
+    {'id': 1,  'name': 'Axle FL',        'key': 'axle_fl',        'color': '#ff6b6b', 'desc': 'Front-left wheel spin pivot'},
+    {'id': 2,  'name': 'Axle FR',        'key': 'axle_fr',        'color': '#00ff88', 'desc': 'Front-right wheel spin pivot'},
+    {'id': 3,  'name': 'Axle RL',        'key': 'axle_rl',        'color': '#ffaa00', 'desc': 'Rear-left wheel spin pivot'},
+    {'id': 4,  'name': 'Axle RR',        'key': 'axle_rr',        'color': '#ff6600', 'desc': 'Rear-right wheel spin pivot'},
+    {'id': 5,  'name': 'Door Hinge L',   'key': 'door_hinge_l',   'color': '#00ddff', 'desc': 'Left door hinge line centroid'},
+    {'id': 6,  'name': 'Door Hinge R',   'key': 'door_hinge_r',   'color': '#00dd88', 'desc': 'Right door hinge line centroid'},
+    {'id': 7,  'name': 'Hood Hinge',     'key': 'hood_hinge',     'color': '#ff00ff', 'desc': 'Hood pivot'},
+    {'id': 8,  'name': 'Trunk Hinge',    'key': 'trunk_hinge',    'color': '#ffff00', 'desc': 'Trunk lid pivot'},
+    {'id': 9,  'name': 'Seat Driver',    'key': 'seat_driver',    'color': '#4488ff', 'desc': 'Driver mount — boarding character sits here'},
+    {'id': 10, 'name': 'Seat Passenger', 'key': 'seat_passenger', 'color': '#44ddff', 'desc': 'Passenger mount point'},
+    {'id': 11, 'name': 'Entry L',        'key': 'entry_l',        'color': '#8844ff', 'desc': 'Left side stand point to board/alight'},
+    {'id': 12, 'name': 'Entry R',        'key': 'entry_r',        'color': '#aa44ff', 'desc': 'Right side stand point to board/alight'},
+    {'id': 13, 'name': 'Exhaust Tip',    'key': 'exhaust_tip',    'color': '#ff8844', 'desc': 'Exhaust FX origin'},
+]
+
 doc = {
     'format': 'steelcity_vehicle',
     'assetType': 'vehicle',
@@ -348,17 +374,10 @@ doc = {
     'voxels': [[x, y, z, mid] for (x, y, z), mid in sorted(voxels.items())],
     'groups': [[x, y, z, g] for (x, y, z), g in sorted(groups.items())],
     'regions': [[x, y, z, r] for (x, y, z), r in sorted(regions.items())],
-    'itemParts': {n: p for n, p in parts.items()},
-    'attachmentPoints': {n: centroid(p) for n, p in parts.items()},
-    'itemPartDefs': [
-        {'id': 'axle_fl', 'label': 'Axle Front-L'}, {'id': 'axle_fr', 'label': 'Axle Front-R'},
-        {'id': 'axle_rl', 'label': 'Axle Rear-L'}, {'id': 'axle_rr', 'label': 'Axle Rear-R'},
-        {'id': 'door_hinge_l', 'label': 'Door Hinge L'}, {'id': 'door_hinge_r', 'label': 'Door Hinge R'},
-        {'id': 'hood_hinge', 'label': 'Hood Hinge'},
-        {'id': 'seat_driver', 'label': 'Seat Driver'}, {'id': 'seat_passenger', 'label': 'Seat Passenger'},
-        {'id': 'entry_l', 'label': 'Entry L'}, {'id': 'entry_r', 'label': 'Entry R'},
-        {'id': 'exhaust_tip', 'label': 'Exhaust Tip'},
-    ],
+    'itemParts': {f"{x},{y},{z}": VEHICLE_PART_ID[n] for n, pts in parts.items() for (x, y, z) in pts},
+    'attachmentPoints': {n: {'x': c[0], 'y': c[1], 'z': c[2]} for n, c in
+                         ((n, centroid(p)) for n, p in parts.items())},
+    'itemPartDefs': VEHICLE_PART_DEFS,
 }
 # Convention mirrors characters: WIP copy lives in JSON Models In Progress/,
 # the FINAL JSON also ships in StreamingAssets/voxel_vehicles/ — runtime reads

@@ -31,12 +31,17 @@ def main():
         grid[x, y, z] = mid
 
     building_meta = {}
-    if d.get('attachmentPoints'):
-        building_meta['attachmentPoints'] = d['attachmentPoints']
     if d.get('name'):
         building_meta['name'] = d['name']
 
-    save_stasset(dst, grid, building_meta=building_meta or None)
+    skeleton = None
+    if d.get('attachmentPoints'):
+        # Match gen_vehicle_490.py: named points go in payload['attachments']
+        skeleton = {'attachments': [
+            {'name': n, 'position': p if isinstance(p, list) else [p['x'], p['y'], p['z']]}
+            for n, p in d['attachmentPoints'].items()]}
+
+    save_stasset(dst, grid, skeleton=skeleton, building_meta=building_meta or None)
     if building_meta:
         print(f'   metadata tail: {list(building_meta.keys())}')
 
