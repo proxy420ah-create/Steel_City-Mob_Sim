@@ -363,7 +363,7 @@ namespace SteelCity.Sim
             {
                 // Both branches must land the volume CENTER on the point —
                 // placing the corner (transform origin) here offset the body
-                // by half the volume size (~0.72m diagonal at 96³×0.015).
+                // by half the volume size (~0.48m diagonal at 96³×0.01).
                 // XZ only — Y is preserved/grounded, matching PlaceAtCenter.
                 Vector3 half = character.WorldSize * 0.5f;
                 Vector3 corner = worldCenter - new Vector3(half.x, 0f, half.z);

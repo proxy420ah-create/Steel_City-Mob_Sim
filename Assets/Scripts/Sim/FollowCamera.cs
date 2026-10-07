@@ -261,44 +261,44 @@ namespace SteelCity.Sim
             {
                 // FREE LOOK: rotate camera view in-place (arrows = look around)
                 float lookYawDelta = 0f, lookPitchDelta = 0f;
-                if (kb.leftArrowKey.isPressed) lookYawDelta -= 90f * Time.deltaTime;
-                if (kb.rightArrowKey.isPressed) lookYawDelta += 90f * Time.deltaTime;
-                if (kb.upArrowKey.isPressed) lookPitchDelta += 45f * Time.deltaTime;
-                if (kb.downArrowKey.isPressed) lookPitchDelta -= 45f * Time.deltaTime;
+                if (kb.leftArrowKey.isPressed) lookYawDelta -= 90f * Time.unscaledDeltaTime;
+                if (kb.rightArrowKey.isPressed) lookYawDelta += 90f * Time.unscaledDeltaTime;
+                if (kb.upArrowKey.isPressed) lookPitchDelta += 45f * Time.unscaledDeltaTime;
+                if (kb.downArrowKey.isPressed) lookPitchDelta -= 45f * Time.unscaledDeltaTime;
 
                 lookYaw += lookYawDelta;
                 lookPitch = Mathf.Clamp(lookPitch + lookPitchDelta, -80f, 80f);
 
                 // Q/E still control distance, R/F height, +/- FOV
-                if (kb.qKey.isPressed) distance = Mathf.Max(1f, distance - 5f * Time.deltaTime);
-                if (kb.eKey.isPressed) distance = Mathf.Min(50f, distance + 5f * Time.deltaTime);
-                if (kb.rKey.isPressed) height = Mathf.Min(30f, height + 3f * Time.deltaTime);
-                if (kb.fKey.isPressed) height = Mathf.Max(-5f, height - 3f * Time.deltaTime);
+                if (kb.qKey.isPressed) distance = Mathf.Max(1f, distance - 5f * Time.unscaledDeltaTime);
+                if (kb.eKey.isPressed) distance = Mathf.Min(50f, distance + 5f * Time.unscaledDeltaTime);
+                if (kb.rKey.isPressed) height = Mathf.Min(30f, height + 3f * Time.unscaledDeltaTime);
+                if (kb.fKey.isPressed) height = Mathf.Max(-5f, height - 3f * Time.unscaledDeltaTime);
                 if (kb.equalsKey.isPressed || kb.numpadPlusKey.isPressed)
-                    fieldOfView = Mathf.Min(120f, fieldOfView + 20f * Time.deltaTime);
+                    fieldOfView = Mathf.Min(120f, fieldOfView + 20f * Time.unscaledDeltaTime);
                 if (kb.minusKey.isPressed || kb.numpadMinusKey.isPressed)
-                    fieldOfView = Mathf.Max(10f, fieldOfView - 20f * Time.deltaTime);
+                    fieldOfView = Mathf.Max(10f, fieldOfView - 20f * Time.unscaledDeltaTime);
             }
             else
             {
                 // ORBIT MODE: arrows orbit around target, look offsets persist
                 float yawDelta = 0f, pitchDelta = 0f;
-                if (kb.leftArrowKey.isPressed) yawDelta -= 60f * Time.deltaTime;
-                if (kb.rightArrowKey.isPressed) yawDelta += 60f * Time.deltaTime;
-                if (kb.upArrowKey.isPressed) pitchDelta += 30f * Time.deltaTime;
-                if (kb.downArrowKey.isPressed) pitchDelta -= 30f * Time.deltaTime;
+                if (kb.leftArrowKey.isPressed) yawDelta -= 60f * Time.unscaledDeltaTime;
+                if (kb.rightArrowKey.isPressed) yawDelta += 60f * Time.unscaledDeltaTime;
+                if (kb.upArrowKey.isPressed) pitchDelta += 30f * Time.unscaledDeltaTime;
+                if (kb.downArrowKey.isPressed) pitchDelta -= 30f * Time.unscaledDeltaTime;
 
                 currentYaw += yawDelta;
                 currentPitch = Mathf.Clamp(currentPitch + pitchDelta, -10f, 85f);
 
-                if (kb.qKey.isPressed) distance = Mathf.Max(1f, distance - 5f * Time.deltaTime);
-                if (kb.eKey.isPressed) distance = Mathf.Min(50f, distance + 5f * Time.deltaTime);
-                if (kb.rKey.isPressed) height = Mathf.Min(30f, height + 3f * Time.deltaTime);
-                if (kb.fKey.isPressed) height = Mathf.Max(-5f, height - 3f * Time.deltaTime);
+                if (kb.qKey.isPressed) distance = Mathf.Max(1f, distance - 5f * Time.unscaledDeltaTime);
+                if (kb.eKey.isPressed) distance = Mathf.Min(50f, distance + 5f * Time.unscaledDeltaTime);
+                if (kb.rKey.isPressed) height = Mathf.Min(30f, height + 3f * Time.unscaledDeltaTime);
+                if (kb.fKey.isPressed) height = Mathf.Max(-5f, height - 3f * Time.unscaledDeltaTime);
                 if (kb.equalsKey.isPressed || kb.numpadPlusKey.isPressed)
-                    fieldOfView = Mathf.Min(120f, fieldOfView + 20f * Time.deltaTime);
+                    fieldOfView = Mathf.Min(120f, fieldOfView + 20f * Time.unscaledDeltaTime);
                 if (kb.minusKey.isPressed || kb.numpadMinusKey.isPressed)
-                    fieldOfView = Mathf.Max(10f, fieldOfView - 20f * Time.deltaTime);
+                    fieldOfView = Mathf.Max(10f, fieldOfView - 20f * Time.unscaledDeltaTime);
             }
 
             if (cam != null) cam.fieldOfView = fieldOfView;
@@ -336,7 +336,7 @@ namespace SteelCity.Sim
                         // Camera should be behind movement, so add 180
                         float desiredChaseYaw = moveYaw + 180f;
                         // Smoothly interpolate yaw (lazy follow)
-                        chaseYaw = Mathf.LerpAngle(chaseYaw, desiredChaseYaw, chaseYawSpeed * Time.deltaTime);
+                        chaseYaw = Mathf.LerpAngle(chaseYaw, desiredChaseYaw, chaseYawSpeed * Time.unscaledDeltaTime);
                     }
                 }
                 lastTargetPos = currentPos;
@@ -348,13 +348,13 @@ namespace SteelCity.Sim
                     currentPos.y + chaseHeight,
                     currentPos.z + Mathf.Cos(yawRad) * chaseDistance);
 
-                transform.position = Vector3.SmoothDamp(transform.position, desiredPos, ref velocity, 1f / followSpeed);
+                transform.position = Vector3.SmoothDamp(transform.position, desiredPos, ref velocity, 1f / followSpeed, Mathf.Infinity, Time.unscaledDeltaTime);
 
                 // Look at character with slight pitch offset
                 Vector3 lookTarget = currentPos + Vector3.up * (chaseHeight * 0.3f);
                 Quaternion baseRot = Quaternion.LookRotation(lookTarget - transform.position);
                 Quaternion lookOffset = Quaternion.Euler(lookPitch, lookYaw, 0f);
-                transform.rotation = Quaternion.Slerp(transform.rotation, baseRot * lookOffset, lookSpeed * Time.deltaTime);
+                transform.rotation = Quaternion.Slerp(transform.rotation, baseRot * lookOffset, lookSpeed * Time.unscaledDeltaTime);
             }
             else
             {
@@ -368,12 +368,12 @@ namespace SteelCity.Sim
                     -horizDist * Mathf.Cos(yawRad));
 
                 Vector3 desiredPos = aimPoint + computedOffset;
-                transform.position = Vector3.SmoothDamp(transform.position, desiredPos, ref velocity, 1f / followSpeed);
+                transform.position = Vector3.SmoothDamp(transform.position, desiredPos, ref velocity, 1f / followSpeed, Mathf.Infinity, Time.unscaledDeltaTime);
 
                 // Look at aim point, then apply free-look offsets on top
                 Quaternion baseRot = Quaternion.LookRotation(aimPoint - transform.position);
                 Quaternion lookOffset = Quaternion.Euler(lookPitch, lookYaw, 0f);
-                transform.rotation = Quaternion.Slerp(transform.rotation, baseRot * lookOffset, lookSpeed * Time.deltaTime);
+                transform.rotation = Quaternion.Slerp(transform.rotation, baseRot * lookOffset, lookSpeed * Time.unscaledDeltaTime);
             }
 
             if (!loggedFirstFrame)

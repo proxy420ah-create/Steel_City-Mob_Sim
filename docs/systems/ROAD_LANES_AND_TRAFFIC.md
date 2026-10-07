@@ -32,11 +32,13 @@ Side effects of 1.6→3.0: spacing 13.2→14.6 m (~+10 % footprint), terrain vox
 
 Right-hand traffic. All offsets measured from the corridor/block **centerline**.
 
-### Two-lane street (regular corridors, `roadWidth` = 3.0 m)
+### Two-lane street (regular corridors, `roadWidth` = 4.5 m)
 
-- One lane per direction, offset **±`roadWidth`/4 = ±0.75 m** — the rendered cobble center stripe is the divider between them.
+- One lane per direction, offset **±`CityMap3D.GetLaneOffset()`** — base `roadWidth`/4 (±1.125 m at 4.5 m), narrowed toward the divider by the **Lane Convergence** slider: `lerp(roadWidth·0.25, carHalfWidth, laneConvergence)`. Convergence moves only the driving lanes — curbs, parking slots (`parkOffset`), and the cobble divider stripe stay put, so the lane↔parked-car gap grows as lanes pull inward.
+- The lane offset is single-sourced: `ParkingMap.Build` takes it as `laneOffsetOverride` (slot `lanePos` = pull-in target) and `VehicleAgent.Initialize` receives the same value (drive polyline + turn arcs + pull-out merge) — they can never disagree.
 - Directed links: corridor yields two graph edges, one per direction.
 - Parked-car margin lives inside the lane; no dedicated parking lane at this width.
+- **Street patrol test mode** (`VehicleTestSpawner.streetPatrol`, default on): F10 cars patrol the street car 0 parks on. The chain is built by **walking the road graph** (`WalkStraight` — each hop takes the neighbor most collinear with incoming travel, dot &gt; 0.9), so endpoints are the last intersections the street *actually connects to*, and every consecutive pair is a real directed link — a car can never be routed onto a node the street doesn't reach. At each end the chain direction flips and the reversal link produces a U-turn across the intersection box. If a tail ever leaves the chain, `RejoinPatrol` hops it back to an adjacent street node before random routing is allowed. `streetFillPercent` [0–1] fills that share of the street's free slots with static scenery cars (both curbs), so the patrol runs a parked-car canyon — exercises: same-direction parking legality against occupied slots, U-turn geometry, and multi-instance static rendering at ~90+ instances.
 
 ### Four-lane main street (`mainstreet` blocks — through-cell spines)
 

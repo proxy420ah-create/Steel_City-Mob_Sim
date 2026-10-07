@@ -513,7 +513,7 @@ namespace SteelCity.Sim
             GUILayout.Label("[`] / [O] Hide  [Tab] Next tab  [Y] Corner  [M] Minimize", labelStyle);
             GUILayout.Label("[LMB] Select/focus  [MMB] Rotate  [RMB] Pan  [Wheel] Zoom", labelStyle);
             GUILayout.Label("[I/W/L/A/C/T] Character anim  [Space] Pause  [=/-] Speed", labelStyle);
-            GUILayout.Label("[R] Render scale  [F6] Free cam  [F7] Waypoints  [F10] Vehicles", labelStyle);
+            GUILayout.Label("[R] Render scale  [F6] Free cam  [F7] Waypoints  [F8] Freeze  [F10] Vehicles", labelStyle);
             GUILayout.Label("<i>Drag title bar to move. Click _ to minimize.</i>", labelStyle);
 
             GUILayout.EndVertical();

@@ -261,7 +261,7 @@ namespace SteelCity.Sim
                 charObj.transform.SetParent(charParent, false);
                 var vc = charObj.AddComponent<VoxelCharacter>();
                 vc.assetFileName = characterAsset;
-                vc.voxelSize = cityMap.CharacterVoxelSize;
+                vc.voxelSize = 0.01f;   // uniform voxel lattice — matches CharacterRig/authored scale
                 vc.chunkManager = chunkManager;
                 vc.collisionWorld = FindFirstObjectByType<VoxelCollisionWorld>();
                 vc.centerPosition = new Vector3(spawnX, groundY, spawnZ);

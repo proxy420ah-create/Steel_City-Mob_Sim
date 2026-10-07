@@ -24,9 +24,10 @@ namespace SteelCity.Sim
         }
 
         // Total defined materials (for tint buffer sizing).
-        // 140 leaves headroom over the reserved gameplay block (130-139:
-        // crosswalk/cover/alley/obstacle/trolley/water — see CITY_LAYOUT_PIPELINE.md).
-        public const int MaterialCount = 140;
+        // 130-139 is the reserved gameplay block (crosswalk/cover/alley/obstacle/
+        // trolley/water — see CITY_LAYOUT_PIPELINE.md); 140-147 is the vehicle
+        // block (paint/accent/chrome/tire/lights/interior/auto-glass — VEHICLE_VOXEL_ASSETS.md).
+        public const int MaterialCount = 148;
 
         private static void InitMaterialColors()
         {
@@ -83,6 +84,16 @@ namespace SteelCity.Sim
 
             // --- Terrain / gameplay (130-139) — reserved block ---
             MobColors[137] = new Color(0.10f, 0.25f, 0.45f, 1f);  // Water — matches river tile palette #1A4073
+
+            // --- Vehicle (140-147) — VoxelAssetStudio "Vehicle" asset type palette ---
+            MobColors[140] = new Color(0.23f, 0.49f, 0.36f, 1f);  // Vehicle Paint — REMAPPABLE per-instance (faction/owner)
+            MobColors[141] = new Color(0.14f, 0.16f, 0.15f, 1f);  // Vehicle Accent — fenders, roof, pinstripe
+            MobColors[142] = new Color(0.75f, 0.78f, 0.82f, 1f);  // Chrome — bumpers, grille, trim
+            MobColors[143] = new Color(0.18f, 0.18f, 0.19f, 1f);  // Tire Rubber
+            MobColors[144] = new Color(0.96f, 0.90f, 0.69f, 1f);  // Headlight (warm cream)
+            MobColors[145] = new Color(0.71f, 0.16f, 0.14f, 1f);  // Taillight
+            MobColors[146] = new Color(0.42f, 0.29f, 0.18f, 1f);  // Interior Leather
+            MobColors[147] = new Color(0.59f, 0.67f, 0.73f, 0.6f);// Auto Glass (windshield/windows)
 
             // Snapshot defaults so runtime modifications can be reset
             for (int i = 0; i < 256; i++)

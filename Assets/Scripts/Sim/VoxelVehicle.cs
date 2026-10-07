@@ -18,12 +18,12 @@ namespace SteelCity.Sim
     public class VoxelVehicle : MonoBehaviour
     {
         [Header("Asset")]
-        [Tooltip("Filename relative to StreamingAssets/voxel_buildings/")]
-        public string assetFileName = "vehicle_civilian_car_0.stasset";
+        [Tooltip("Filename under StreamingAssets/ — voxel_vehicles/ is probed first, voxel_buildings/ is the legacy fallback")]
+        public string assetFileName = "vehicle_490_touring.stasset";
 
         [Header("Voxel Grid")]
         [Tooltip("World units per voxel.")]
-        public float voxelSize = 0.05f;
+        public float voxelSize = 0.01f;
 
         [Header("Rendering")]
         [Tooltip("Auto-find VoxelChunkManager in scene if not assigned.")]
@@ -54,12 +54,17 @@ namespace SteelCity.Sim
             initialized = true;
         }
 
+        /// <summary>StreamingAssets subfolder this asset resolves to (voxel_vehicles first, voxel_buildings legacy fallback).</summary>
+        private string assetFolder = "voxel_buildings";
+
         void LoadAssetDims()
         {
-            string path = Path.Combine(Application.streamingAssetsPath, "voxel_buildings", assetFileName);
+            string vehiclesPath = Path.Combine(Application.streamingAssetsPath, "voxel_vehicles", assetFileName);
+            assetFolder = File.Exists(vehiclesPath) ? "voxel_vehicles" : "voxel_buildings";
+            string path = Path.Combine(Application.streamingAssetsPath, assetFolder, assetFileName);
             if (!File.Exists(path))
             {
-                Debug.LogError($"[VoxelVehicle] Asset not found: {path}");
+                Debug.LogError($"[VoxelVehicle] Asset not found: {vehiclesPath} (or {path})");
                 return;
             }
 
@@ -94,7 +99,7 @@ namespace SteelCity.Sim
                 return;
             }
 
-            instancedHandle = chunkManager.RegisterInstancedCharacter(gameObject, assetFileName, voxelSize, "voxel_buildings");
+            instancedHandle = chunkManager.RegisterInstancedCharacter(gameObject, assetFileName, voxelSize, assetFolder);
             if (instancedHandle == null)
                 Debug.LogWarning("[VoxelVehicle] Instanced registration failed — vehicle will not render.");
         }

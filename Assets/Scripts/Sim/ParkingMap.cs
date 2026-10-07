@@ -56,14 +56,17 @@ namespace SteelCity.Sim
         }
 
         public static ParkingMap Build(RoadGraph graph, float roadWidth,
-            float carLength = 1.5f, float carWidth = 1.0f, float extraOffset = 0f)
+            float carLength = 1.5f, float carWidth = 1.0f, float extraOffset = 0f,
+            float laneOffsetOverride = -1f)
         {
             var map = new ParkingMap();
             if (graph == null) return map;
 
             float pitch = carLength + SlotGap;
             map.parkOffset = roadWidth * 0.5f - carWidth * 0.5f;   // ≈1.0 m — at the curb
-            map.laneOffset = roadWidth * 0.25f;                  // ≈0.75 m — driving lane
+            // Lane center comes from CityMap3D.GetLaneOffset() (laneConvergence slider);
+            // the roadWidth/4 fallback preserves callers that don't pass it.
+            map.laneOffset = laneOffsetOverride >= 0f ? laneOffsetOverride : roadWidth * 0.25f;
             map.extraOffset = extraOffset;
             float park = map.parkOffset + extraOffset;
 

@@ -2662,7 +2662,6 @@ MonoBehaviour:
   showBlockLabels: 0
   labelFontSize: 3
   labelColor: {r: 1, g: 1, b: 1, a: 1}
-  characterVoxelSize: 0.015
 --- !u!4 &1024248344
 Transform:
   m_ObjectHideFlags: 0

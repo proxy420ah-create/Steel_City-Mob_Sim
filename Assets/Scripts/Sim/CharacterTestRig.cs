@@ -21,7 +21,7 @@ namespace SteelCity.Sim
         [Tooltip("Asset base filename in Assets/StreamingAssets/voxel_characters/ (with .stasset extension).")]
         [SerializeField] private string characterAsset = "character_test_vehicle.stasset";
         [Tooltip("Voxel size in world units. Must match the size used when the model was authored.")]
-        [SerializeField] private float voxelSize = 0.015f;
+        [SerializeField] private float voxelSize = 0.01f;
 
         [Header("Placement")]
         [SerializeField] private Vector3 spawnPosition = new Vector3(0f, 0f, 0f);

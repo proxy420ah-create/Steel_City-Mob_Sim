@@ -27,10 +27,12 @@ def _json_default(obj):
 
 
 def _skeleton_has_content(skeleton):
-    """True if the skeleton dict contains any bones or joints worth persisting."""
+    """True if the skeleton dict contains any content worth persisting."""
     if not skeleton:
         return False
-    return bool(skeleton.get('bones')) or bool(skeleton.get('joints'))
+    return bool(skeleton.get('bones') or skeleton.get('joints')
+                or skeleton.get('attachments') or skeleton.get('materials')
+                or skeleton.get('ams'))
 
 
 def load_stasset_full(filepath):
@@ -90,7 +92,10 @@ def load_stasset_full(filepath):
                         f"Truncated skeleton block! Expected {json_len} bytes, got {len(json_bytes)}"
                     )
                 payload = json.loads(json_bytes.decode('utf-8'))
-                skeleton = payload if (payload.get('bones') or payload.get('joints')) else None
+                skeleton = payload if (payload.get('bones') or payload.get('joints')
+                                       or payload.get('attachments')
+                                       or payload.get('materials')
+                                       or payload.get('ams')) else None
                 building_meta = payload.get('building')
     
     print(f"✅ Loaded {filepath}")

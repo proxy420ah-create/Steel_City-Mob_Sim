@@ -54,6 +54,8 @@ namespace SteelCity.Sim
         // ParkingMap all derive from it via GetRoadWidth(). No live-resize hook — that
         // forces a RebuildCity per tick and destroys spawned entities.
         [SerializeField][Min(0.5f)] private float roadWidth = 4.5f;
+        [Tooltip("Pulls both driving lanes toward the centerline (0 = lane centers at roadWidth/4, centered in each half-road; 1 = inner edges meet the divider — opposing cars nearly mirror-to-mirror). Curbs and parking slots stay pinned; the lane↔parking gap grows. Same build-time caveat as Road Width.")]
+        [SerializeField][Range(0f, 1f)] private float laneConvergence = 0f;
         [Tooltip("Width of sidewalk strip around each building (in world units). ~10 building voxels = room for benches, foot traffic, cops on beat.")]
         [SerializeField] private float sidewalkWidth = 1.0f;
         [Tooltip("Number of building slots per block row (3 = 3×3 grid with center courtyard).")]
@@ -213,9 +215,10 @@ namespace SteelCity.Sim
             if (cameraFollowsCityCenter && mapRoot != null)
                 cameraFocus = mapRoot.position;
 
-            // Smooth interpolation toward target
-            cameraYaw = Mathf.LerpAngle(cameraYaw, targetYaw, Time.deltaTime * 5f);
-            cameraPitch = Mathf.Lerp(cameraPitch, targetPitch, Time.deltaTime * 5f);
+            // Smooth interpolation toward target — unscaled so the camera keeps
+            // orbiting while the sim is time-frozen (F8 inspection mode)
+            cameraYaw = Mathf.LerpAngle(cameraYaw, targetYaw, Time.unscaledDeltaTime * 5f);
+            cameraPitch = Mathf.Lerp(cameraPitch, targetPitch, Time.unscaledDeltaTime * 5f);
 
             // Compute camera position from yaw/pitch orbiting focus point
             float orbitDist = debugCameraFreedom ? debugCameraOrbitDistance : CameraOrbitDistance;
@@ -327,6 +330,19 @@ namespace SteelCity.Sim
         }
 
         public float GetRoadWidth() => roadWidth;
+
+        /// <summary>
+        /// Lane-center offset from the road centerline, honoring Lane Convergence.
+        /// At 0 the lane sits at roadWidth/4 (centered in each half-road); at 1 the
+        /// lane center is half a car width from the divider so opposing cars can get
+        /// adjacent without overlapping the centerline. ParkingMap slot lanePos and
+        /// VehicleAgent laneOffset both derive from this single value.
+        /// </summary>
+        public float GetLaneOffset()
+        {
+            const float carHalfWidth = 0.35f;  // vehicle_490_touring ≈ 0.66 m wide @ 0.01
+            return Mathf.Lerp(roadWidth * 0.25f, carHalfWidth, laneConvergence);
+        }
         public float GetSidewalkWidth() => sidewalkWidth;
         public float GetVoxelSize() => voxelSize;
         public int GetBuildingsPerBlockRow() => buildingsPerBlockRow;
@@ -446,7 +462,6 @@ namespace SteelCity.Sim
             CharacterAnimation.AnimState.AimSweep
         };
         public Dictionary<string, Block> CachedBlocks => cachedBlocks;
-        public float CharacterVoxelSize => characterVoxelSize;
 
         private readonly Dictionary<string, BlockView3D> views = new();
         private Transform mapRoot;
@@ -586,6 +601,9 @@ namespace SteelCity.Sim
         private Vector2 lastMousePos;
         private Vector3 panOffset = Vector3.zero;
 
+        // F8 time-freeze — remember the prior scale so a non-1 setting survives
+        private float timeScaleBeforeFreeze = 1f;
+
         // Set by GameUIController when entering/leaving Working mode
         public bool IsExecutionMode { get; set; } = false;
 
@@ -599,6 +617,8 @@ namespace SteelCity.Sim
         {
             gpuFrameTimeRecorder.Dispose();
             cpuFrameTimeRecorder.Dispose();
+            // timeScale persists across play-stop in the editor — always restore
+            if (Time.timeScale < 0.001f) Time.timeScale = timeScaleBeforeFreeze;
         }
 
         void Update()
@@ -648,6 +668,22 @@ namespace SteelCity.Sim
                 {
                     Debug.Log("[CityMap3D] 📍 PathDebugRenderer not found — waypoint beams unavailable");
                 }
+            }
+
+            // F8 — freeze sim time for inspection: cars/peds halt, cameras and HUD
+            // stay live (they run on unscaled time). Toggles back to the prior scale.
+            if (kb != null && kb.f8Key.wasPressedThisFrame)
+            {
+                if (Time.timeScale > 0.001f)
+                {
+                    timeScaleBeforeFreeze = Time.timeScale;
+                    Time.timeScale = 0f;
+                }
+                else
+                {
+                    Time.timeScale = timeScaleBeforeFreeze;
+                }
+                Debug.Log($"[CityMap3D] ⏸️ Time freeze {(Time.timeScale > 0f ? "OFF — resumed" : "ON — frozen")} (timeScale={Time.timeScale})");
             }
 
             if (IsExecutionMode)
@@ -1378,9 +1414,9 @@ namespace SteelCity.Sim
         // Character spawning (test)
         // ====================================================================
 
-        [Header("Characters")]
-        [Tooltip("Character voxel size (smaller than buildings for proper person scale).")]
-        [SerializeField] private float characterVoxelSize = 0.01f;
+        // Character scale lives on CharacterRig.voxelSize (0.01) — the live spawn path.
+        // A CityMap-level knob used to feed HoodSpawner/StressTestSpawner only; removed
+        // to eliminate the "0.015 render scale" confusion (everything renders at 0.01).
 
         private void SpawnSceneCharacters(
             Dictionary<string, Block> blocks,

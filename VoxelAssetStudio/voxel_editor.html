@@ -239,6 +239,7 @@ body.ui-hidden #ui-hidden-hint { display:block; }
     <option value="building">🏢 Building (0.1m/voxel)</option>
     <option value="character">🧍 Character (0.01m/voxel)</option>
     <option value="prop">🔫 Item / Decor (0.005m/voxel)</option>
+    <option value="vehicle">🚗 Vehicle (0.01m/voxel)</option>
   </select>
   <input type="file" id="default-model-file-input" accept=".json" style="display:none;">
   <div class="tool-sep"></div>
@@ -429,7 +430,7 @@ body.ui-hidden #ui-hidden-hint { display:block; }
     </div>
     <div id="group-list"></div>
     <div id="group-counts" style="margin-top:8px;padding-top:8px;border-top:1px solid #333;"></div>
-    <div style="margin-top:8px;padding-top:8px;border-top:1px solid #333;">
+    <div id="bodyparts-anim-section" style="margin-top:8px;padding-top:8px;border-top:1px solid #333;">
       <div style="font-size:10px;color:#888;margin-bottom:4px;">Arm test pose — swings arms about the resolved pivot (painted <b>pivot_N</b> centroid → authored pivot → bbox center):</div>
       <div style="display:flex;gap:3px;">
         <button class="export-btn" style="flex:1;font-size:10px;padding:4px 2px;" onclick="setTestArmPose('down')" title="Arms point down (−Y)">⬇ Down</button>
@@ -460,12 +461,12 @@ body.ui-hidden #ui-hidden-hint { display:block; }
       </div>
     </div>
     <div style="margin-top:10px;display:flex;flex-direction:column;gap:4px;">
-      <button class="export-btn" style="font-size:10px;padding:6px 8px;" onclick="autoAssignGroups()">🤖 Auto-Assign Groups</button>
+      <button class="export-btn" style="font-size:10px;padding:6px 8px;" id="auto-assign-groups-btn" onclick="autoAssignGroups()">🤖 Auto-Assign Groups</button>
       <button class="export-btn" style="font-size:10px;padding:6px 8px;" onclick="clearAllGroups()">🧹 Clear All Groups</button>
       <button class="export-btn" style="font-size:10px;padding:6px 8px;" onclick="exportGroupsJSON()">⬇ Export .groups JSON</button>
-      <button class="export-btn primary" style="font-size:11px;padding:8px 8px;" onclick="sendToAnimator()">🎬 Send to Animator</button>
+      <button class="export-btn primary" style="font-size:11px;padding:8px 8px;" id="send-animator-btn" onclick="sendToAnimator()">🎬 Send to Animator</button>
     </div>
-    <div style="margin-top:10px;font-size:10px;color:#888;line-height:1.5;">
+    <div id="bodyparts-hint" style="margin-top:10px;font-size:10px;color:#888;line-height:1.5;">
       Select a body part, then click voxels to assign.<br>
       Use <b>G</b> to switch to body part paint tool.<br>
       Export with groups → load in Animator.
@@ -474,10 +475,10 @@ body.ui-hidden #ui-hidden-hint { display:block; }
 
   <!-- Tab: Wardrobe -->
   <div class="rp-panel" id="rp-wardrobe">
-    <h3 style="font-size:12px;color:#0ff;margin-bottom:8px;">👕 Clothing & Accessories</h3>
+    <h3 id="wardrobe-title" style="font-size:12px;color:#0ff;margin-bottom:8px;">👕 Clothing & Accessories</h3>
 
     <!-- Load Base Template -->
-    <div style="border-bottom:1px solid #333;padding-bottom:10px;margin-bottom:10px;">
+    <div id="wardrobe-base-block" style="border-bottom:1px solid #333;padding-bottom:10px;margin-bottom:10px;">
       <label style="font-size:11px;color:#aaa;display:block;margin-bottom:4px;">Base Template</label>
       <button class="export-btn" style="font-size:10px;padding:6px 8px;width:100%;" id="load-base-btn">🧍 Load Naked Base Template</button>
       <p style="font-size:10px;color:#666;margin:4px 0 0 0;">Loads character_base_naked.json as the starting point for clothing variation.</p>
@@ -485,7 +486,7 @@ body.ui-hidden #ui-hidden-hint { display:block; }
 
     <!-- Clothing Region Painting -->
     <div style="border-bottom:1px solid #333;padding-bottom:10px;margin-bottom:10px;">
-      <label style="font-size:11px;color:#aaa;display:block;margin-bottom:4px;">Clothing Regions</label>
+      <label id="wardrobe-regions-label" style="font-size:11px;color:#aaa;display:block;margin-bottom:4px;">Clothing Regions</label>
       <div style="display:flex;gap:4px;margin-bottom:6px;">
         <button class="export-btn" style="flex:1;font-size:10px;padding:4px 6px;" id="view-region-mat-btn">🎨 Material</button>
         <button class="export-btn" style="flex:1;font-size:10px;padding:4px 6px;" id="view-region-btn">🏷️ Region</button>
@@ -497,11 +498,11 @@ body.ui-hidden #ui-hidden-hint { display:block; }
         <button class="export-btn" style="font-size:10px;padding:6px 8px;" id="clear-regions-btn">🧹 Clear All Regions</button>
         <button class="export-btn" style="font-size:10px;padding:6px 8px;" id="export-regions-btn">⬇ Export .regions.json</button>
       </div>
-      <p style="font-size:10px;color:#666;margin:4px 0 0 0;">Paint each voxel with a clothing region tag. Press <b>C</b> to switch to region paint tool. These tags tell the procedural clothing system which material to apply where.</p>
+      <p id="wardrobe-regions-desc" style="font-size:10px;color:#666;margin:4px 0 0 0;">Paint each voxel with a clothing region tag. Press <b>C</b> to switch to region paint tool. These tags tell the procedural clothing system which material to apply where.</p>
     </div>
 
     <!-- Preset Management -->
-    <div style="border-bottom:1px solid #333;padding-bottom:10px;margin-bottom:10px;">
+    <div id="wardrobe-presets-block" style="border-bottom:1px solid #333;padding-bottom:10px;margin-bottom:10px;">
       <label style="font-size:11px;color:#aaa;display:block;margin-bottom:4px;">Clothing Presets</label>
       <div id="preset-list" style="max-height:200px;overflow-y:auto;border:1px solid #333;border-radius:4px;padding:4px;margin-bottom:6px;">
         <div style="font-size:10px;color:#666;text-align:center;padding:8px;">No presets saved yet</div>
@@ -519,7 +520,7 @@ body.ui-hidden #ui-hidden-hint { display:block; }
     </div>
 
     <!-- Quick Actions -->
-    <div style="border-bottom:1px solid #333;padding-bottom:10px;margin-bottom:10px;">
+    <div id="wardrobe-quick-block" style="border-bottom:1px solid #333;padding-bottom:10px;margin-bottom:10px;">
       <label style="font-size:11px;color:#aaa;display:block;margin-bottom:4px;">Quick Actions</label>
       <button class="export-btn" style="font-size:10px;padding:6px 8px;width:100%;margin-bottom:4px;" id="strip-clothes-btn">↩ Strip to Naked (revert to base)</button>
       <p style="font-size:10px;color:#666;margin:4px 0 0 0;">Removes all clothing/accessory voxels and material swaps, restoring the naked base.</p>
@@ -1489,8 +1490,11 @@ function parseCharacterData(data) {
       acc.x += x; acc.y += y; acc.z += z; acc.c++;
     }
     attachmentPoints = {};
+    // Prefer the file's own part defs (vehicle/item/character exports carry
+    // itemPartDefs); CHAR_ATTACH_GROUPS is only the legacy-characters fallback.
+    const partDefs = data.itemPartDefs || CHAR_ATTACH_GROUPS;
     for (const [pid, acc] of Object.entries(sums)) {
-      const g = CHAR_ATTACH_GROUPS.find(d => d.id == pid);
+      const g = partDefs.find(d => d.id == pid);
       if (g) attachmentPoints[g.key] = { x: acc.x / acc.c, y: acc.y / acc.c, z: acc.z / acc.c };
     }
   }
@@ -1504,7 +1508,7 @@ const initialVoxels = []; // startup scene removed (was a 1.7MB baked-in tower);
 // NOTE: was `const` — but load*() functions below reassign this when a
 // project file carries its own material palette (data.materials), which
 // threw "invalid assignment to const" and aborted the whole load. Must be `let`.
-let allMaterials = [{"id": 100, "name": "Red Brick", "r": 147, "g": 66, "b": 51, "hex": "#934233"}, {"id": 101, "name": "Stone", "r": 122, "g": 107, "b": 86, "hex": "#7a6b56"}, {"id": 102, "name": "Concrete", "r": 147, "g": 147, "b": 137, "hex": "#939389"}, {"id": 103, "name": "Stucco", "r": 209, "g": 204, "b": 188, "hex": "#d1ccbc"}, {"id": 104, "name": "Asphalt", "r": 45, "g": 45, "b": 51, "hex": "#2d2d33"}, {"id": 105, "name": "Cobblestone", "r": 107, "g": 96, "b": 86, "hex": "#6b6056"}, {"id": 106, "name": "Dark Wood", "r": 76, "g": 45, "b": 25, "hex": "#4c2d19"}, {"id": 107, "name": "Light Wood", "r": 153, "g": 107, "b": 63, "hex": "#996b3f"}, {"id": 108, "name": "Weathered Wood", "r": 107, "g": 91, "b": 66, "hex": "#6b5b42"}, {"id": 109, "name": "Dark Iron", "r": 71, "g": 61, "b": 56, "hex": "#473d38"}, {"id": 110, "name": "Aged Metal", "r": 107, "g": 102, "b": 91, "hex": "#6b665b"}, {"id": 111, "name": "Painted Metal", "r": 229, "g": 224, "b": 209, "hex": "#e5e0d1"}, {"id": 112, "name": "Window Glass", "r": 114, "g": 140, "b": 165, "hex": "#728ca5"}, {"id": 113, "name": "Lit Window", "r": 242, "g": 216, "b": 127, "hex": "#f2d87f"}, {"id": 114, "name": "Storefront Glass", "r": 140, "g": 165, "b": 178, "hex": "#8ca5b2"}, {"id": 115, "name": "Neon Red", "r": 242, "g": 38, "b": 38, "hex": "#f22626"}, {"id": 116, "name": "Neon Blue", "r": 38, "g": 76, "b": 242, "hex": "#264cf2"}, {"id": 117, "name": "Neon Green", "r": 38, "g": 216, "b": 63, "hex": "#26d83f"}, {"id": 118, "name": "Tar", "r": 71, "g": 61, "b": 51, "hex": "#473d33"}, {"id": 119, "name": "Terracotta", "r": 140, "g": 81, "b": 51, "hex": "#8c5133"}, {"id": 120, "name": "Painted Red", "r": 114, "g": 30, "b": 25, "hex": "#721e19"}, {"id": 121, "name": "Painted Green", "r": 38, "g": 71, "b": 45, "hex": "#26472d"}, {"id": 122, "name": "Painted Brown", "r": 56, "g": 30, "b": 20, "hex": "#381e14"}, {"id": 123, "name": "Gold/Brass", "r": 198, "g": 158, "b": 51, "hex": "#c69e33"}, {"id": 124, "name": "Lamp Glow", "r": 255, "g": 216, "b": 127, "hex": "#ffd87f"}, {"id": 125, "name": "Flesh", "r": 209, "g": 173, "b": 140, "hex": "#d1ad8c"}, {"id": 126, "name": "Black Fabric", "r": 15, "g": 15, "b": 17, "hex": "#0f0f11"}, {"id": 127, "name": "White Fabric", "r": 224, "g": 219, "b": 209, "hex": "#e0dbd1"}, {"id": 128, "name": "Hair", "r": 30, "g": 20, "b": 15, "hex": "#1e140f"}, {"id": 129, "name": "Painted Blue", "r": 30, "g": 51, "b": 114, "hex": "#1e3372"}, {"id": 130, "name": "Red Fabric", "r": 160, "g": 30, "b": 30, "hex": "#a01e1e"}, {"id": 131, "name": "Brown Flesh", "r": 180, "g": 130, "b": 100, "hex": "#b48264"}, {"id": 132, "name": "Eye", "r": 20, "g": 20, "b": 35, "hex": "#141423"}, {"id": 133, "name": "Green Fabric", "r": 30, "g": 100, "b": 40, "hex": "#1e6428"}];
+let allMaterials = [{"id": 100, "name": "Red Brick", "r": 147, "g": 66, "b": 51, "hex": "#934233"}, {"id": 101, "name": "Stone", "r": 122, "g": 107, "b": 86, "hex": "#7a6b56"}, {"id": 102, "name": "Concrete", "r": 147, "g": 147, "b": 137, "hex": "#939389"}, {"id": 103, "name": "Stucco", "r": 209, "g": 204, "b": 188, "hex": "#d1ccbc"}, {"id": 104, "name": "Asphalt", "r": 45, "g": 45, "b": 51, "hex": "#2d2d33"}, {"id": 105, "name": "Cobblestone", "r": 107, "g": 96, "b": 86, "hex": "#6b6056"}, {"id": 106, "name": "Dark Wood", "r": 76, "g": 45, "b": 25, "hex": "#4c2d19"}, {"id": 107, "name": "Light Wood", "r": 153, "g": 107, "b": 63, "hex": "#996b3f"}, {"id": 108, "name": "Weathered Wood", "r": 107, "g": 91, "b": 66, "hex": "#6b5b42"}, {"id": 109, "name": "Dark Iron", "r": 71, "g": 61, "b": 56, "hex": "#473d38"}, {"id": 110, "name": "Aged Metal", "r": 107, "g": 102, "b": 91, "hex": "#6b665b"}, {"id": 111, "name": "Painted Metal", "r": 229, "g": 224, "b": 209, "hex": "#e5e0d1"}, {"id": 112, "name": "Window Glass", "r": 114, "g": 140, "b": 165, "hex": "#728ca5"}, {"id": 113, "name": "Lit Window", "r": 242, "g": 216, "b": 127, "hex": "#f2d87f"}, {"id": 114, "name": "Storefront Glass", "r": 140, "g": 165, "b": 178, "hex": "#8ca5b2"}, {"id": 115, "name": "Neon Red", "r": 242, "g": 38, "b": 38, "hex": "#f22626"}, {"id": 116, "name": "Neon Blue", "r": 38, "g": 76, "b": 242, "hex": "#264cf2"}, {"id": 117, "name": "Neon Green", "r": 38, "g": 216, "b": 63, "hex": "#26d83f"}, {"id": 118, "name": "Tar", "r": 71, "g": 61, "b": 51, "hex": "#473d33"}, {"id": 119, "name": "Terracotta", "r": 140, "g": 81, "b": 51, "hex": "#8c5133"}, {"id": 120, "name": "Painted Red", "r": 114, "g": 30, "b": 25, "hex": "#721e19"}, {"id": 121, "name": "Painted Green", "r": 38, "g": 71, "b": 45, "hex": "#26472d"}, {"id": 122, "name": "Painted Brown", "r": 56, "g": 30, "b": 20, "hex": "#381e14"}, {"id": 123, "name": "Gold/Brass", "r": 198, "g": 158, "b": 51, "hex": "#c69e33"}, {"id": 124, "name": "Lamp Glow", "r": 255, "g": 216, "b": 127, "hex": "#ffd87f"}, {"id": 125, "name": "Flesh", "r": 209, "g": 173, "b": 140, "hex": "#d1ad8c"}, {"id": 126, "name": "Black Fabric", "r": 15, "g": 15, "b": 17, "hex": "#0f0f11"}, {"id": 127, "name": "White Fabric", "r": 224, "g": 219, "b": 209, "hex": "#e0dbd1"}, {"id": 128, "name": "Hair", "r": 30, "g": 20, "b": 15, "hex": "#1e140f"}, {"id": 129, "name": "Painted Blue", "r": 30, "g": 51, "b": 114, "hex": "#1e3372"}, {"id": 130, "name": "Red Fabric", "r": 160, "g": 30, "b": 30, "hex": "#a01e1e"}, {"id": 131, "name": "Brown Flesh", "r": 180, "g": 130, "b": 100, "hex": "#b48264"}, {"id": 132, "name": "Eye", "r": 20, "g": 20, "b": 35, "hex": "#141423"}, {"id": 133, "name": "Green Fabric", "r": 30, "g": 100, "b": 40, "hex": "#1e6428"}, {"id": 140, "name": "Vehicle Paint", "r": 58, "g": 125, "b": 92, "hex": "#3a7d5c", "category": "vehicle"}, {"id": 141, "name": "Vehicle Accent", "r": 35, "g": 40, "b": 38, "hex": "#232826", "category": "vehicle"}, {"id": 142, "name": "Chrome", "r": 192, "g": 200, "b": 208, "hex": "#c0c8d0", "category": "vehicle"}, {"id": 143, "name": "Tire Rubber", "r": 45, "g": 45, "b": 48, "hex": "#2d2d30", "category": "vehicle"}, {"id": 144, "name": "Headlight", "r": 245, "g": 230, "b": 175, "hex": "#f5e6af", "category": "vehicle"}, {"id": 145, "name": "Taillight", "r": 180, "g": 40, "b": 35, "hex": "#b42823", "category": "vehicle"}, {"id": 146, "name": "Interior Leather", "r": 107, "g": 74, "b": 47, "hex": "#6b4a2f", "category": "vehicle"}, {"id": 147, "name": "Auto Glass", "r": 150, "g": 170, "b": 185, "hex": "#96aab9", "category": "vehicle"}];
 // Tag the legacy combined palette with a category (ids 100-124 were building
 // materials, 125-133 are character materials) so the material picker can
 // filter per Asset Type. This never removes an id from the lookup table —
@@ -1512,7 +1516,7 @@ let allMaterials = [{"id": 100, "name": "Red Brick", "r": 147, "g": 66, "b": 51,
 // even if it "belongs" to the other asset type's default palette.
 function tagMaterialCategories(list) {
   for (const m of list) {
-    if (m.category === undefined) m.category = m.id >= 125 ? 'character' : 'building';
+    if (m.category === undefined) m.category = m.id >= 140 ? 'vehicle' : m.id >= 125 ? 'character' : 'building';
     // Materials useful for props/weapons (Dark Iron, Aged Metal, Gold/Brass, woods)
     // are already in the building palette (ids 106-109, 123) and accessible via
     // the 'Show all' checkbox. No separate prop material category needed.
@@ -1533,6 +1537,12 @@ const ASSET_TYPE_PRESETS = {
   building: { label: 'Building', icon: '🏢', voxelSize: 0.1, defaultDims: [64, 40, 64], defaultModel: null },
   character: { label: 'Character', icon: '🧍', voxelSize: 0.01, defaultDims: [96, 96, 96], defaultModel: '../Assets/StreamingAssets/voxel_characters/Civilian1.json' },
   prop: { label: 'Item / Decor', icon: '🔫', voxelSize: 0.005, defaultDims: [48, 26, 10], defaultModel: '../Assets/StreamingAssets/voxel_items/SW_Model_10.json' },
+  // Vehicle at CHARACTER scale (0.01m): same voxel grain as the pedestrians standing
+  // next to it. 200×160×480 ≈ 2.0m × 1.6m × 4.8m — a period sedan with headroom.
+  // Item scale (0.005) was rejected: a 4.5m car → 900-long grid, and trains/ships
+  // would overflow the int32 flat index (~2.1B cells). Per-file voxelSize still
+  // overrides for hero assets.
+  vehicle: { label: 'Vehicle', icon: '🚗', voxelSize: 0.01, defaultDims: [110, 115, 240], defaultModel: null },
 };
 let assetType = 'building'; // matches the startup W/H/D above
 
@@ -1575,8 +1585,25 @@ const BODY_GROUPS = [
   { id: 6, name: 'Left Shin',      color: '#ffff00', desc: 'Left shin' },
   { id: 7, name: 'Right Shin',     color: '#88ff00', desc: 'Right shin' },
 ];
+// Vehicle gid parts — same role as BODY_GROUPS (articulation membership → .groups
+// export), but the "joints" are axles and hinges. gid 0 is always the rigid shell.
+const VEHICLE_GROUPS = [
+  { id: 0, name: 'Body',        color: '#888888', desc: 'Chassis / unassigned — rigid, never articulates' },
+  { id: 1, name: 'Wheel FL',    color: '#ff6b6b', desc: 'Front-left wheel — spins about axle_fl point' },
+  { id: 2, name: 'Wheel FR',    color: '#00ff88', desc: 'Front-right wheel — spins about axle_fr point' },
+  { id: 3, name: 'Wheel RL',    color: '#ffaa00', desc: 'Rear-left wheel — spins about axle_rl point' },
+  { id: 4, name: 'Wheel RR',    color: '#ff6600', desc: 'Rear-right wheel — spins about axle_rr point' },
+  { id: 5, name: 'Door L',      color: '#00ddff', desc: 'Left door — swings about door_hinge_l' },
+  { id: 6, name: 'Door R',      color: '#00dd88', desc: 'Right door — swings about door_hinge_r' },
+  { id: 7, name: 'Hood',        color: '#ff00ff', desc: 'Engine cover — lifts about hood_hinge' },
+  { id: 8, name: 'Trunk / Lid', color: '#ffff00', desc: 'Trunk/cargo cover — swings about trunk_hinge' },
+];
 const GROUP_COLORS = {};
 for (const g of BODY_GROUPS) GROUP_COLORS[g.id] = g.color;
+for (const g of VEHICLE_GROUPS) GROUP_COLORS[g.id] = g.color;
+function activeBodyGroups() {
+  return assetType === 'vehicle' ? VEHICLE_GROUPS : BODY_GROUPS;
+}
 const groupMap = new Map(); // "x,y,z" -> groupId
 let selectedGroup = 1; // default to Head
 let groupViewMode = false; // when true, render by group color
@@ -1585,7 +1612,7 @@ for (const g of BODY_GROUPS) groupVisible.set(g.id, true);
 
 function updateGroupCounts() {
   const counts = {};
-  for (const g of BODY_GROUPS) counts[g.id] = 0;
+  for (const g of activeBodyGroups()) counts[g.id] = 0;
   for (const [key, gid] of groupMap) {
     if (voxelMap.has(key)) {
       counts[gid] = (counts[gid] || 0) + 1;
@@ -1593,7 +1620,7 @@ function updateGroupCounts() {
   }
   const container = document.getElementById('group-counts');
   if (container) {
-    container.innerHTML = BODY_GROUPS.map(g => {
+    container.innerHTML = activeBodyGroups().map(g => {
       const c = counts[g.id] || 0;
       return `<div style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:11px;">
         <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${g.color};"></span>
@@ -1666,7 +1693,7 @@ function clearAllGroups() {
 function populateGroupList() {
   const container = document.getElementById('group-list');
   if (!container) return;
-  container.innerHTML = BODY_GROUPS.map(g => {
+  container.innerHTML = activeBodyGroups().map(g => {
     const sel = g.id === selectedGroup ? 'border-color:#0ff;background:#1a1a3e;' : '';
     const vis = groupVisible.get(g.id) !== false;
     return `<div class="group-item" data-gid="${g.id}" style="display:flex;align-items:center;gap:6px;padding:5px 6px;cursor:pointer;border:1px solid #333;border-radius:4px;margin-bottom:3px;${sel}">
@@ -1681,8 +1708,8 @@ function populateGroupList() {
       selectedGroup = parseInt(item.dataset.gid);
       populateGroupList();
       if (currentTool !== 'bodypart') setTool('bodypart');
-      const gname = BODY_GROUPS.find(g => g.id === selectedGroup)?.name || selectedGroup;
-      setStatus(`Selected body part: ${gname}`);
+      const gname = activeBodyGroups().find(g => g.id === selectedGroup)?.name || selectedGroup;
+      setStatus(`Selected part: ${gname}`);
     });
   });
   container.querySelectorAll('.gvis').forEach(el => {
@@ -1692,7 +1719,7 @@ function populateGroupList() {
       groupVisible.set(gid, groupVisible.get(gid) === false);
       populateGroupList();
       rebuildMesh();
-      const gname = BODY_GROUPS.find(g => g.id === gid)?.name || gid;
+      const gname = activeBodyGroups().find(g => g.id === gid)?.name || gid;
       setStatus(`${groupVisible.get(gid) !== false ? '👁' : '🚫'} ${gname}`);
     });
   });
@@ -1988,29 +2015,47 @@ const CLOTHING_REGIONS = [
   { id: 6, name: 'Legs',   color: '#daa520', desc: 'Thighs + shins — pants' },
   { id: 7, name: 'Feet',   color: '#ce5c5c', desc: 'Shoes/boots' },
 ];
+// Vehicle "Paint / Decal" regions — same role as CLOTHING_REGIONS (a second,
+// non-articulation voxel tag → `regions` export), but the zones are paint
+// targets and livery. Region 0 is the contract for per-instance paint remap:
+// the runtime swaps its material per car (faction colors, citizen-owned cars).
+const VEHICLE_REGIONS = [
+  { id: 0, name: 'Body Paint',   color: '#3a7d5c', desc: 'Primary paint — remappable per-instance (faction/owner color)' },
+  { id: 1, name: 'Accent Paint', color: '#c9a227', desc: 'Secondary paint — fenders, roof, pinstripe' },
+  { id: 2, name: 'Chrome/Trim',  color: '#c0c8d0', desc: 'Bumpers, grille, window trim' },
+  { id: 3, name: 'Glass',        color: '#728ca5', desc: 'Windshield + windows' },
+  { id: 4, name: 'Interior',     color: '#6b4a2f', desc: 'Seats, dash — visible through glass' },
+  { id: 5, name: 'Tires',        color: '#2d2d30', desc: 'Rubber contact surfaces' },
+  { id: 6, name: 'Lights',       color: '#f2d87f', desc: 'Headlights, taillights, markers' },
+  { id: 7, name: 'Decal',        color: '#ff4444', desc: 'Signs, numbers, logos — livery layer' },
+];
 const CLOTHING_REGION_COLORS = {};
 for (const r of CLOTHING_REGIONS) CLOTHING_REGION_COLORS[r.id] = r.color;
+for (const r of VEHICLE_REGIONS) CLOTHING_REGION_COLORS[r.id] = r.color;
+function activeClothingRegions() {
+  return assetType === 'vehicle' ? VEHICLE_REGIONS : CLOTHING_REGIONS;
+}
 const clothingRegionMap = new Map(); // "x,y,z" -> regionId
 const UNASSIGNED_REGION_ID = -1; // picker sentinel — 'Unassigned' acts as an eraser (deletes the tag)
 function clothingRegionName(rid) {
   if (rid === undefined || rid === UNASSIGNED_REGION_ID) return 'Unassigned';
-  return CLOTHING_REGIONS.find(r => r.id === rid)?.name || `region ${rid}`;
+  return activeClothingRegions().find(r => r.id === rid)?.name || `region ${rid}`;
 }
 let selectedClothingRegion = 3; // default to Torso
 let clothingRegionViewMode = false; // when true, render by region color
 
 function updateClothingRegionCounts() {
   const counts = {};
-  for (const r of CLOTHING_REGIONS) counts[r.id] = 0;
+  for (const r of activeClothingRegions()) counts[r.id] = 0;
   for (const [key, rid] of clothingRegionMap) {
     if (voxelMap.has(key)) counts[rid] = (counts[rid] || 0) + 1;
   }
   const container = document.getElementById('clothing-region-counts');
   if (container) {
     let taggedTotal = 0;
-    for (const r of CLOTHING_REGIONS) taggedTotal += counts[r.id] || 0;
+    for (const r of activeClothingRegions()) taggedTotal += counts[r.id] || 0;
     const untagged = voxelMap.size - taggedTotal;
-    container.innerHTML = CLOTHING_REGIONS.map(r => {
+    container.innerHTML = activeClothingRegions().map(r => {
       const c = counts[r.id] || 0;
       return `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:10px;">
         <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${r.color};"></span>
@@ -2102,7 +2147,7 @@ function populateClothingRegionList() {
   const container = document.getElementById('clothing-region-list');
   if (!container) return;
   const UNASSIGNED_PICK = { id: UNASSIGNED_REGION_ID, name: 'Unassigned', color: '#2a2a2a', desc: 'Erase region tag' };
-  container.innerHTML = [UNASSIGNED_PICK, ...CLOTHING_REGIONS].map(r => {
+  container.innerHTML = [UNASSIGNED_PICK, ...activeClothingRegions()].map(r => {
     const sel = r.id === selectedClothingRegion ? 'border-color:#0ff;background:#1a1a3e;' : '';
     return `<div class="cregion-item" data-rid="${r.id}" style="display:flex;align-items:center;gap:6px;padding:4px 6px;cursor:pointer;border:1px solid #333;border-radius:4px;margin-bottom:2px;${sel}">
       <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${r.color};${r.id === UNASSIGNED_REGION_ID ? 'border:1px dashed #666;' : ''}"></span>
@@ -2130,16 +2175,17 @@ function exportClothingRegionsJSON() {
     version: 1,
     dims: [W, H, D],
     regions: regionsObj,
-    regionDefs: CLOTHING_REGIONS,
+    regionDefs: activeClothingRegions(),
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'character_base_naked.regions.json';
+  const regFname = `${loadedModelName || 'model'}.regions.json`;
+  a.download = regFname;
   a.click();
   URL.revokeObjectURL(url);
-  setStatus(`Exported clothing regions (${Object.keys(regionsObj).length} voxels tagged) → character_base_naked.regions.json (copy to voxel_characters/Vinny.regions.json for Unity)`);
+  setStatus(`Exported regions (${Object.keys(regionsObj).length} voxels tagged) → ${regFname}`);
 }
 
 // === ITEM PART GROUPS (Attachment Points) ===
@@ -2156,6 +2202,25 @@ const ITEM_PART_GROUPS = [
   { id: 4, name: 'Cheek Weld',   key: 'cheek_weld',   color: '#ffaa00', desc: 'Cheek rest position on stock' },
   { id: 5, name: 'Sling Mount',  key: 'sling_mount',  color: '#ff00ff', desc: 'Sling attachment point' },
   { id: 6, name: 'Optics Mount', key: 'optics_mount', color: '#ffff00', desc: 'Sight/optic rail position' },
+];
+// Vehicle named points — centroid markers, same `attachmentPoints` export as
+// items/characters. Axle + hinge centroids are the pivots a future vehicle
+// pose mode reads; seat_*/entry_* are the character-boarding contract.
+const VEHICLE_PART_GROUPS = [
+  { id: 0,  name: 'Body / Erase',   key: 'body',           color: '#888888', desc: 'Unassigned — painting with this clears a voxel\'s point tag (eraser)' },
+  { id: 1,  name: 'Axle FL',        key: 'axle_fl',        color: '#ff6b6b', desc: 'Front-left wheel spin pivot — paint a small blob at the hub center' },
+  { id: 2,  name: 'Axle FR',        key: 'axle_fr',        color: '#00ff88', desc: 'Front-right wheel spin pivot' },
+  { id: 3,  name: 'Axle RL',        key: 'axle_rl',        color: '#ffaa00', desc: 'Rear-left wheel spin pivot' },
+  { id: 4,  name: 'Axle RR',        key: 'axle_rr',        color: '#ff6600', desc: 'Rear-right wheel spin pivot' },
+  { id: 5,  name: 'Door Hinge L',   key: 'door_hinge_l',   color: '#00ddff', desc: 'Left door hinge line centroid' },
+  { id: 6,  name: 'Door Hinge R',   key: 'door_hinge_r',   color: '#00dd88', desc: 'Right door hinge line centroid' },
+  { id: 7,  name: 'Hood Hinge',     key: 'hood_hinge',     color: '#ff00ff', desc: 'Hood pivot' },
+  { id: 8,  name: 'Trunk Hinge',    key: 'trunk_hinge',    color: '#ffff00', desc: 'Trunk lid pivot' },
+  { id: 9,  name: 'Seat Driver',    key: 'seat_driver',    color: '#4488ff', desc: 'Driver mount — boarding character sits here' },
+  { id: 10, name: 'Seat Passenger', key: 'seat_passenger', color: '#44ddff', desc: 'Passenger mount point' },
+  { id: 11, name: 'Entry L',        key: 'entry_l',        color: '#8844ff', desc: 'Left side stand point to board/alight' },
+  { id: 12, name: 'Entry R',        key: 'entry_r',        color: '#aa44ff', desc: 'Right side stand point to board/alight' },
+  { id: 13, name: 'Exhaust Tip',    key: 'exhaust_tip',    color: '#ff8844', desc: 'Exhaust FX origin' },
 ];
 const CHAR_ATTACH_GROUPS = [
   { id: 0, name: 'Body / Erase',   key: 'body',           color: '#888888', desc: 'Unassigned — painting with this clears a voxel\'s point tag (eraser)' },
@@ -2195,6 +2260,7 @@ const BUILDING_POINT_GROUPS = [
 function activePartGroups() {
   if (assetType === 'character') return CHAR_ATTACH_GROUPS;
   if (assetType === 'building') return BUILDING_POINT_GROUPS;
+  if (assetType === 'vehicle') return VEHICLE_PART_GROUPS;
   return ITEM_PART_GROUPS;
 }
 function partColor(pid) {
@@ -4892,7 +4958,7 @@ function updateTabsForAssetType() {
   const wardrobePanel = document.getElementById('rp-wardrobe');
   const itempartsPanel = document.getElementById('rp-itemparts');
 
-  if (assetType === 'character') {
+  if (assetType === 'character' || assetType === 'vehicle') {
     bodypartsTab.style.display = '';
     wardrobeTab.style.display = '';
     itempartsTab.style.display = '';
@@ -4906,6 +4972,35 @@ function updateTabsForAssetType() {
     itempartsTab.style.display = assetType === 'building' ? '' : 'none';
   }
 
+  // Vehicle layout reuses the three paint tabs under vehicle names:
+  // Body Parts → "Car Parts" (gid articulation membership — wheels/doors),
+  // Wardrobe → "Paint / Decal" (paint + livery regions), Attach Pts →
+  // axle/hinge/seat/entry named points. Character-only sub-sections hide.
+  const isVehicle = assetType === 'vehicle';
+  bodypartsTab.textContent = isVehicle ? 'Car Parts' : 'Body Parts';
+  wardrobeTab.textContent = isVehicle ? 'Paint / Decal' : 'Wardrobe';
+  const showEl = (id, on) => { const el = document.getElementById(id); if (el) el.style.display = on ? '' : 'none'; };
+  showEl('bodyparts-anim-section', !isVehicle);
+  showEl('auto-assign-groups-btn', !isVehicle);
+  showEl('send-animator-btn', !isVehicle);
+  showEl('wardrobe-base-block', !isVehicle);
+  showEl('wardrobe-presets-block', !isVehicle);
+  showEl('wardrobe-quick-block', !isVehicle);
+  showEl('auto-assign-regions-btn', !isVehicle);
+  showEl('preset-info', !isVehicle);
+  const wTitle = document.getElementById('wardrobe-title');
+  if (wTitle) wTitle.textContent = isVehicle ? '🎨 Paint & Decal Zones' : '👕 Clothing & Accessories';
+  const wLabel = document.getElementById('wardrobe-regions-label');
+  if (wLabel) wLabel.textContent = isVehicle ? 'Paint / Decal Regions' : 'Clothing Regions';
+  const wDesc = document.getElementById('wardrobe-regions-desc');
+  if (wDesc) wDesc.innerHTML = isVehicle
+    ? 'Paint each voxel with a zone tag. Press <b>C</b> for the region paint tool. <b>Body Paint</b> (id 0) is the per-instance remap target — runtime can re-color it per car.'
+    : 'Paint each voxel with a clothing region tag. Press <b>C</b> to switch to region paint tool. These tags tell the procedural clothing system which material to apply where.';
+  const bpHint = document.getElementById('bodyparts-hint');
+  if (bpHint) bpHint.innerHTML = isVehicle
+    ? 'Select a part, then click voxels to assign.<br>Use <b>G</b> to switch to part paint tool.<br>Wheels/doors articulate on their named pivots (Attach Pts tab).<br>Export with groups → Unity reads the .groups file.'
+    : 'Select a body part, then click voxels to assign.<br>Use <b>G</b> to switch to body part paint tool.<br>Export with groups → load in Animator.';
+
   // If the currently-active tab is now hidden, switch to Layers
   const activeTab = document.querySelector('.rp-tab.active');
   if (activeTab && activeTab.style.display === 'none') {
@@ -4916,16 +5011,26 @@ function updateTabsForAssetType() {
   }
 
   const exportTitle = document.getElementById('export-model-title');
-  if (exportTitle) exportTitle.textContent = `Export ${assetType === 'prop' ? 'Item' : assetType === 'building' ? 'Building' : 'Character'}`;
+  if (exportTitle) exportTitle.textContent = `Export ${assetType === 'prop' ? 'Item' : assetType === 'vehicle' ? 'Vehicle' : assetType === 'building' ? 'Building' : 'Character'}`;
 
-  // Populate attachment point list (items: grip/muzzle; characters: hands; buildings: event points)
-  if (assetType === 'prop' || assetType === 'character' || assetType === 'building') {
-    // The two lists share ids for different meanings — reset selection to a
+  // Populate attachment point list (items: grip/muzzle; characters: hands;
+  // buildings: event points; vehicles: axles/hinges/seats/entries)
+  if (assetType === 'prop' || assetType === 'character' || assetType === 'building' || assetType === 'vehicle') {
+    // The lists share ids for different meanings — reset selection to a
     // safe id when the active list changes so painted marks stay valid.
     if (!activePartGroups().find(g => g.id === selectedItemPart)) selectedItemPart = 1;
     populateItemPartList();
     updateItemPartCounts();
   }
+
+  // Group + region lists swap contents per asset type too — revalidate the
+  // selection against the active def set, then refresh both lists.
+  if (!activeBodyGroups().find(g => g.id === selectedGroup)) selectedGroup = assetType === 'character' ? 1 : 0;
+  if (!activeClothingRegions().find(r => r.id === selectedClothingRegion)) selectedClothingRegion = assetType === 'character' ? 3 : 0;
+  populateGroupList();
+  updateGroupCounts();
+  populateClothingRegionList();
+  updateClothingRegionCounts();
 }
 
 // Undo/Redo buttons
@@ -4996,7 +5101,7 @@ function applyDefaultModelData(data, sourceName) {
   updateClothingRegionCounts();
   populateGroupList();
   populateClothingRegionList();
-  if (assetType === 'prop' || assetType === 'character' || assetType === 'building') { populateItemPartList(); updateItemPartCounts(); }
+  if (assetType === 'prop' || assetType === 'character' || assetType === 'building' || assetType === 'vehicle') { populateItemPartList(); updateItemPartCounts(); }
   pushHistory();
   savedHistoryIndex = historyIndex;
   rebuildMesh();
@@ -6332,9 +6437,9 @@ function getEditorData() {
       return [x, y, z, v];
     }),
     groups: groups,
-    bodyGroups: BODY_GROUPS,
+    bodyGroups: activeBodyGroups(),
     regions: regions,
-    regionDefs: CLOTHING_REGIONS,
+    regionDefs: activeClothingRegions(),
     itemParts: itemParts,
     itemPartDefs: activePartGroups(),
     attachmentPoints: buildAttachmentPoints(),
@@ -6438,7 +6543,7 @@ window.loadWIP = function(wipName) {
     updateClothingRegionCounts();
     populateClothingRegionList();
     importAttachmentPoints(data);
-    if (assetType === 'prop' || assetType === 'character' || assetType === 'building') { populateItemPartList(); updateItemPartCounts(); }
+    if (assetType === 'prop' || assetType === 'character' || assetType === 'building' || assetType === 'vehicle') { populateItemPartList(); updateItemPartCounts(); }
     rebuildMesh();
     buildMaterialList();
     populateGroupList();
@@ -6543,7 +6648,7 @@ window.loadProject = function(event) {
       updateClothingRegionCounts();
       populateClothingRegionList();
       importAttachmentPoints(data);
-      if (assetType === 'prop' || assetType === 'character' || assetType === 'building') { populateItemPartList(); updateItemPartCounts(); }
+      if (assetType === 'prop' || assetType === 'character' || assetType === 'building' || assetType === 'vehicle') { populateItemPartList(); updateItemPartCounts(); }
       if (data.bgColor) {
         scene.background = new THREE.Color(data.bgColor);
         document.getElementById('scene-bg-picker').value = data.bgColor;
@@ -6625,7 +6730,7 @@ window.importStasset = function(event) {
       updateClothingRegionCounts();
       populateClothingRegionList();
       importAttachmentPoints(data);
-      if (assetType === 'prop' || assetType === 'character' || assetType === 'building') { populateItemPartList(); updateItemPartCounts(); }
+      if (assetType === 'prop' || assetType === 'character' || assetType === 'building' || assetType === 'vehicle') { populateItemPartList(); updateItemPartCounts(); }
       if (data.bgColor) {
         scene.background = new THREE.Color(data.bgColor);
         document.getElementById('scene-bg-picker').value = data.bgColor;
@@ -6652,6 +6757,7 @@ window.exportCharacter = function() {
   const data = getEditorData();
   data.format = assetType === 'prop' ? 'steelcity_item'
               : assetType === 'building' ? 'steelcity_stasset'
+              : assetType === 'vehicle' ? 'steelcity_vehicle'
               : 'steelcity_character';
   data.version = 1;
   const fname = `${loadedModelName || 'model'}.json`;
@@ -6663,7 +6769,7 @@ window.exportCharacter = function() {
   const regionCount = data.regions ? Object.keys(data.regions).length : 0;
   const groupCount = data.groups ? Object.keys(data.groups).length : 0;
   savedHistoryIndex = historyIndex;
-  const folder = assetType === 'prop' ? 'voxel_items' : assetType === 'building' ? 'voxel_buildings' : 'voxel_characters';
+  const folder = assetType === 'prop' ? 'voxel_items' : assetType === 'building' ? 'voxel_buildings' : assetType === 'vehicle' ? 'voxel_vehicles' : 'voxel_characters';
   setStatus(`Exported ${fname}: ${data.voxels.length} voxels, ${groupCount} groups, ${regionCount} regions — drop into Assets/StreamingAssets/${folder}/`);
 };
 
@@ -6736,9 +6842,15 @@ let charArmed = false;       // whether gun model is shown in hand
 // editable model's voxel size comes from the asset-type preset. The ratio
 // converts the preview model into the editable model's voxel units so both
 // appear at true real-world scale relative to each other.
+// Characters render in-game at their authored file voxelSize (0.01 — confirmed
+// on spawned civilians). This constant exists for the day a runtime render
+// scale diverges from file scale; keep it = the character file's voxelSize.
+const CHAR_RUNTIME_VOXEL_SIZE = 0.01;
 function getCharScaleRatio() {
   const itemVoxelSize = (ASSET_TYPE_PRESETS[assetType] && ASSET_TYPE_PRESETS[assetType].voxelSize) || 0.01;
-  const refVoxelSize = (charData && charData.voxelSize) || ASSET_TYPE_PRESETS.character.voxelSize;
+  const refVoxelSize = assetType === 'character'
+      ? ((charData && charData.voxelSize) || ASSET_TYPE_PRESETS.character.voxelSize)
+      : CHAR_RUNTIME_VOXEL_SIZE;
   return refVoxelSize / itemVoxelSize;
 }
 let charOffsetX = 0;         // world X offset to position character next to item

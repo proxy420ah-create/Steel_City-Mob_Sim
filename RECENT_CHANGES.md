@@ -1,6 +1,37 @@
 # Recent Changes — Steel City: Mob Sim
 
-**Last Updated**: October 5, 2026 (two-car traffic + slot reservation)
+**Last Updated**: October 6, 2026 (vehicle_490_touring asset)
+
+---
+
+## October 6, 2026 — vehicle_490_touring (1920 Chevrolet Series 490)
+
+### Changes
+- **New hero vehicle authored (NEW)** — `tools/gen_vehicle_490.py` procedurally generates a 1920 Chevrolet Series 490 Touring Car at 0.01 m/voxel, **character-relative sized on the 0.015 lattice** — chars render at `characterVoxelSize=0.015` ≈ 0.93 m, so the car is proportioned to him AND shares his in-world voxel grain (1:1 parity; a real-scale car would also hide seated occupants): **1.41 W × 1.35 H × 3.19 L m**, ~143k filled voxels in a 100×95×220 grid. Wood-spoke wheels (r30, rubber rim + felly + 12 spokes + hub), arced front/rear fenders with the signature forward sweep, running boards, upright radiator w/ chrome surround + brass lamps, louvered hood, two-pane raked windshield, canvas top with corner posts, door panels (4), leather benches, steering wheel/column, dash, mirror, taillight, exhaust. Emits `Assets/StreamingAssets/voxel_vehicles/vehicle_490_touring.stasset` **and** `VoxelAssetStudio/JSON Models In Progress/vehicle_490_touring.json` (editor-importable, carries groups/regions/itemParts).
+- **Char-reference preview scale fix** — `getCharScaleRatio()` used the char file's authored voxelSize (0.01 → 0.62 m) while the game renders characters at `characterVoxelSize=0.015` (0.93 m). The reference preview now uses the *rendered* size for non-character assets — building/vehicle interiors measured against it were ~33% underestimated.
+- **Metadata contract populated**: wheels gid 1–4, doors 5/6, hood 7 (no `.groups` sidecar shipped — it would force the character pose kernel on a rigid vehicle). Regions 0–6 painted (body on remappable Vehicle Paint id 140). 12 attachment points embedded in the v2 stasset **and** painted as fiducials: `axle_fl/fr/rl/rr`, `door_hinge_l/r`, `hood_hinge`, `seat_driver`/`seat_passenger` (pelvis anchors, y=72 — provisional until a sit pose exists), `entry_l/r` (running boards), `exhaust_tip`.
+- **`stasset_io` attachments fix** — `_skeleton_has_content`/`load_stasset_full` only counted bones/joints, so attachments-only payloads silently degraded to v1 / parsed as `None`. Both sides now treat `attachments`/`materials`/`ams` as v2-worthy.
+- **Wired into Unity — pending playtest.** `vehicleAsset`/`vehicleVoxelSize` → `vehicle_490_touring.stasset`/`0.01` (+ `VoxelVehicle` defaults), `CityMap3D.carHalfWidth` → 0.35 (car ~0.66 m wide), `ParkingMap.Build` pitch sized for the 1.5 m car, `MainScene.characterVoxelSize` → 0.01. **Convention settled: all voxel assets render at authored 0.01** — the earlier 0.015 assumption was a stale scene override; empirical check showed Vinny renders 0.62 m. stasset is scale-free (dims+materials only) — no file regen needed, only the component field.
+
+### Proportions pass 3 (photo-matched)
+- User eye-check vs period photos: standing Vinny's head should reach the windshield TOP. Regenerated at 70x75x155 grid — **79k voxels, ~1.0x1.08x2.25 m** (down from 143k/1.41x1.35x3.19 m). Standing head = windshield top (~62-64), beltline ~46 = chest, wheels ~knee-height, occupants sit deep in tub with a full torso above the beltline.
+
+### Scale-convention cleanup (dead-knob removal)
+- Deleted `CityMap3D.characterVoxelSize` + `CharacterVoxelSize` — it only fed `HoodSpawner`/`StressTestSpawner` (both absent from MainScene; dev tools via FindFirstObjectByType) and *implied* it controlled character scale, which actually lives on `CharacterRig.voxelSize` (0.01, live path). Orphaned scene YAML line removed. Both spawners now use `0.01f` directly; `CharacterTestRig` stale 0.015 default fixed; `VoxelChunkManager`/`EventPlayer` comments corrected.
+
+### Fix — instanced proxy yaw clip (found in playtest)
+- `RenderInstancedGroup` built axis-aligned proxies at *unrotated* dims; the shader yaw-rotates inside → elongated volumes (the 490's 2.33 m length) clipped ~0.64 m at ±90° yaw — cars truncated/shifted on Amsterdam, fine on 57th. Proxy now bounds the yawed footprint per instance (`|cos|·Sx+|sin|·Sz` extents). Old car masked it: near-square footprint. Logged `docs/known_issues/rendering/INSTANCED_PROXY_YAW_CLIP.md`.
+
+### Seating judgment (documented for later)
+- Seat points = pelvis anchors just above cushion top (y=43). Cushion 41 ≈ footwell 27 + shin ~14. A seated Civilian1 (62 vox — same lattice) puts head ≈ y 75–80: **above** beltline 55 (visible through open touring sides — good for combat readability) and **below** roof ~84. Verify once a `sit` pose exists.
+
+### 🧪 REVIEW FIRST (editor, not Unity)
+- Open `VoxelAssetStudio/voxel_editor.html` → Asset `🚗 Vehicle` → **Load** `vehicle_490_touring.json` (JSON Models In Progress) → inspect 3D + slices, Car Parts / Paint-Decal / Attach Pts tabs.
+- Quick static previews without the editor: `tools/preview_{iso,side,front}.png`.
+- After approval → flip the runtime fields above → Unity playtest (scale vs Vinny, lane fit, F8 cabin inspection).
+
+### Docs
+- `VEHICLE_VOXEL_ASSETS.md` §6 — as-built dims, seating math, attach-point contract, the no-`.groups` caveat.
 
 ---
 
@@ -18,6 +49,11 @@
 - Unverified watch item: `RenderInstancedGroup`'s proxy cube is axis-aligned and ignores yaw. For the non-cubic 20×16×30 car, a 90° heading (east-west streets) would crop nose/tail — if a car looks sliced on an E-W street, that's the proxy extents, not the shader offset.
 - F10 → both pull out on opposite-side diagonals and cruise in opposite lanes; on a straight street they pass each other correctly (right-hand traffic).
 - F10 again → both seek slots on *their* side only; if both converge on one slot the second car picks the next free one instead of stacking.
+
+- **Lane Convergence slider (NEW)** — `CityMap3D` → `Lane Convergence` [0–1] (under Road Width). Pulls both lane centers toward the divider: `GetLaneOffset() = lerp(roadWidth·0.25, carHalfWidth, t)` — at 0 the ±1.125 m lanes (unchanged), at 1 opposing cars are mirror-to-mirror at the centerline. Curbs, parking slots, and the cobble stripe don't move — the lane↔parked-car shoulder gap grows instead. Single-sourced into `ParkingMap.Build` (new `laneOffsetOverride` param → slot `lanePos` pull-in targets) and `VehicleAgent.Initialize` (drive polyline, turn arcs, pull-out merge).
+- **Vehicle editor submodule (NEW)** — `voxel_editor.html` gains a `vehicle` asset type (🚗, **0.015m** — Unity character render scale, 130×95×280 default volume). All three paint layers get vehicle def sets via `activeBodyGroups()`/`activeClothingRegions()`/`activePartGroups()`: **Car Parts** tab (gid articulation — wheels/doors/hood/trunk), **Paint / Decal** tab (region layer — Body Paint id 0 is the per-instance remap contract), **Attach Pts** (axle/hinge pivots + `seat_*`/`entry_*` boarding contract). Char-only blocks (auto-assign, pose test, wardrobe presets) hide for vehicles. Export → `steelcity_vehicle` + `voxel_vehicles/`; `VoxelVehicle` probes `voxel_vehicles/` then falls back to `voxel_buildings/`; palette ids 140–147 added (`MaterialCount` → 148), id 140 = remappable Vehicle Paint.
+- **F8 time-freeze for inspection (NEW)** — `CityMap3D` F8 toggles `Time.timeScale` 0↔saved (restores the prior scale, and `OnDisable` always unfreezes — `timeScale` survives play-stop in the editor). Cars/peds halt mid-motion while both cameras stay live: `CityMap3D.UpdateCameraTransform` smoothing and all of `FollowCamera` (orbit keys, Q/E/R/F, FOV, chase lerp, `SmoothDamp` — which silently defaults to scaled time) now run on `Time.unscaledDeltaTime`. HUD Keys tab updated.
+- **Amsterdam St patrol + scenery canyon (NEW)** — `VehicleTestSpawner` gains "Street Test" inspector group: **Street Patrol** (default on) makes the F10 cars patrol the street car 0 parks on instead of random routing. The patrol chain is built by **walking the road graph** — `WalkStraight` follows the most collinear neighbor (dot > 0.9) from each end of the spawn link — so endpoints are the last intersections the street truly connects to, and consecutive chain nodes are guaranteed linked (the first version collected nodes by id pattern, which let cars escape onto cross streets at graph gaps). `ExtendRoute` picks `PatrolNext` (chain neighbor; at the end the direction flips → reversal link → U-turn across the box); `RejoinPatrol` hops any off-chain tail back to an adjacent street node before random routing is allowed. Parking still wins over patrol via `parkField`. **Street Fill Percent** [0–1] (default 0.9) fills that fraction of the street's free slots — both curbs, both link directions — with static scenery `VoxelVehicle`s (no agents; they `Occupy` real slots so F10 parking can't book them, and they unregister cleanly on StopTest via the `sceneryCars` list).
 
 ### Docs
 - New: `docs/systems/VEHICLE_VOXEL_ASSETS.md` — vehicle render path, three buffer modes + `_SharedRestBuffer` truth table, V1–V6 gotcha catalog, articulation/paint decision rule, and the planned **`vehicle` asset-type submodule** for `voxel_editor.html` (wheel/door gids, axle/hinge pivots, seat/entry attach points, `.vehicle.json` contract).

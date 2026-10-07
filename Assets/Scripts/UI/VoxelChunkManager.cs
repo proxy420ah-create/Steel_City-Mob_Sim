@@ -112,7 +112,7 @@ namespace SteelCity.Sim
             public VoxelInt3 dims;               // voxel dimensions
             public Vector3 worldOffset;          // cached world-space position
             public Quaternion rotation;            // cached world-space rotation
-            public float voxelSize;              // per-chunk voxel size (buildings=0.1, characters=0.015)
+            public float voxelSize;              // per-chunk voxel size (buildings=0.1, characters=0.01)
             public bool active;
             // Tight AABB of solid voxels (in voxel coords, inclusive)
             public int tightMinX, tightMinY, tightMinZ;
@@ -1592,8 +1592,6 @@ namespace SteelCity.Sim
             Vector3 size = new Vector3(group.dimX, group.dimY, group.dimZ) * group.voxelSize;
             // Pad proxy by +1 voxel on each axis to ensure full coverage at perspective grazing angles
             Vector3 pad = new Vector3(group.voxelSize, group.voxelSize, group.voxelSize);
-            Vector3 paddedSize = size + pad;
-            Vector3 paddedHalf = paddedSize * 0.5f;
 
             int totalVoxels = group.dimX * group.dimY * group.dimZ;
             bool useComputePose = group.groupIDBuffer != null && poseComputeShader != null && group.useComputePose;
@@ -1610,11 +1608,20 @@ namespace SteelCity.Sim
                 offsets[writeIdx] = new Vector4(ic.worldOffset.x, ic.worldOffset.y, ic.worldOffset.z, ic.yaw);
                 // Second float4: animation data
                 offsets[writeIdx + visibleCount] = new Vector4(ic.animState, ic.animTime, ic.animSpeed, 0);
-                // IMPORTANT: Keep proxy cube axis-aligned in world (no rotation). Shader handles volume rotation.
-                Quaternion rot = Quaternion.identity;
-                // Center the proxy on the world-aligned AABB center
-                Vector3 centerPos = ic.worldOffset + paddedHalf;
-                matrices[writeIdx] = Matrix4x4.TRS(centerPos, rot, paddedSize);
+                // IMPORTANT: Keep proxy cube axis-aligned in world (no rotation). Shader handles volume rotation —
+                // so the axis-aligned proxy must bound the YAWED footprint: rotating the XZ extents by the
+                // instance yaw gives the exact conservative AABB. Cube-shaped volumes (characters) were
+                // rotation-invariant, which is why this never mattered before elongated vehicles.
+                float cosY = Mathf.Abs(Mathf.Cos(ic.yaw));
+                float sinY = Mathf.Abs(Mathf.Sin(ic.yaw));
+                Vector3 instSize = new Vector3(
+                    size.x * cosY + size.z * sinY,
+                    size.y,
+                    size.x * sinY + size.z * cosY) + pad;
+                // Rotation pivot is the volume center (volOffset + dims*voxelSize*0.5 in the shader),
+                // so the proxy centers on the unpadded volume center.
+                Vector3 centerPos = ic.worldOffset + size * 0.5f;
+                matrices[writeIdx] = Matrix4x4.TRS(centerPos, Quaternion.identity, instSize);
 
                 if (useComputePose)
                 {
@@ -2933,7 +2940,7 @@ namespace SteelCity.Sim
                     ? chunk.hostObject.transform.rotation
                     : Quaternion.identity;
 
-                // Per-chunk voxel size (buildings=0.1, characters=0.015)
+                // Per-chunk voxel size (buildings=0.1, characters=0.01)
                 float chunkVoxelSize = chunk.voxelSize;
 
                 // Frustum cull: skip chunks behind camera or outside view

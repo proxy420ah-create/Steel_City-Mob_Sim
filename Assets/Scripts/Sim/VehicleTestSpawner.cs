@@ -23,8 +23,8 @@ namespace SteelCity.Sim
     {
         [Header("Test Parameters")]
         [SerializeField] private int vehicleCount = 2;
-        [SerializeField] private string vehicleAsset = "vehicle_civilian_car_0.stasset";
-        [SerializeField] private float vehicleVoxelSize = 0.05f;
+        [SerializeField] private string vehicleAsset = "vehicle_490_touring.stasset";
+        [SerializeField] private float vehicleVoxelSize = 0.01f;
         [SerializeField] private float driveSpeed = 3.0f;
 
         [Header("Auto-Spawn")]
@@ -42,12 +42,19 @@ namespace SteelCity.Sim
         [SerializeField] private Key driveKey = Key.F10;
 
         private readonly List<VehicleAgent> activeVehicles = new();
+        private readonly List<GameObject> sceneryCars = new();   // static parked fill on the patrol street
         private RoadGraph roadGraph;
         private ParkingMap parkingMap;
 
         [Header("Parking")]
         [Tooltip("Extra curb offset (m) beyond the computed parked position — slides parked cars toward/past the curb. Live-adjustable while parked.")]
         [Range(0f, 1.5f)] public float extraParkOffset = 0.25f;
+
+        [Header("Street Test (patrol street = the one car 0 parks on)")]
+        [Tooltip("F10 cars patrol the street end-to-end with U-turns into the far lane instead of random routing.")]
+        [SerializeField] private bool streetPatrol = true;
+        [Tooltip("Fraction of the patrol street's free slots filled with static scenery cars (both curbs). Leave some gap so F10 re-parking still finds room.")]
+        [SerializeField][Range(0f, 1f)] private float streetFillPercent = 0.9f;
 
         void OnValidate()
         {
@@ -168,8 +175,8 @@ namespace SteelCity.Sim
             roadGraph.GenerateFromLayout(layout, cityMap.Spacing, hSeams, vSeams);
 
             // Curbside parking inventory — computed from the same links (measured
-            // vehicle_civilian_car_0 dims: 1.5 m long × 1.0 m wide @ 0.05 voxels).
-            parkingMap = ParkingMap.Build(roadGraph, cityMap.GetRoadWidth(), 1.5f, 1.0f, extraParkOffset);
+            // vehicle_490_touring dims: ~1.5 m long × ~0.66 m wide @ 0.01 voxels).
+            parkingMap = ParkingMap.Build(roadGraph, cityMap.GetRoadWidth(), 1.7f, 0.7f, extraParkOffset, cityMap.GetLaneOffset());
             Debug.Log($"[VehicleTest] ParkingMap: {parkingMap.Count} curbside slots generated");
         }
 
@@ -242,13 +249,22 @@ namespace SteelCity.Sim
                 vv.centerPosition = spawnPos;
 
                 var agent = vehObj.AddComponent<VehicleAgent>();
-                float laneOffset = cityMap != null ? cityMap.GetRoadWidth() * 0.25f : 0f;
+                float laneOffset = cityMap != null ? cityMap.GetLaneOffset() : 0f;
                 agent.Initialize(roadGraph, startNode, driveSpeed, laneOffset, parkingMap, space);
                 // Spawn PARKED — not driving until F10
                 agent.IsDriving = false;
 
                 activeVehicles.Add(agent);
             }
+
+            // Patrol street = the street car 0 parked on (the HQ-front street).
+            var patrolChain = BuildStreetChain(firstSpace);
+            if (streetPatrol && patrolChain != null)
+            {
+                foreach (var agent in activeVehicles) agent.SetPatrol(patrolChain);
+                Debug.Log($"[VehicleTest] Street patrol: {patrolChain.Count} intersections ({patrolChain[0]} … {patrolChain[patrolChain.Count - 1]})");
+            }
+            FillStreetParking(vehicleParent, patrolChain, groundY);
 
             Debug.Log($"[VehicleTest] Spawned {activeVehicles.Count} parked vehicle(s) at intersection {hqStartNode}. Press {driveKey} to start driving.");
         }
@@ -320,7 +336,97 @@ namespace SteelCity.Sim
                 }
             }
             activeVehicles.Clear();
+            foreach (var c in sceneryCars) if (c != null) Destroy(c);
+            sceneryCars.Clear();
             Debug.Log("[VehicleTest] Test stopped.");
+        }
+
+        /// <summary>
+        /// Ordered node ids forming the street that owns a slot's link — built by
+        /// WALKING the graph, not by id pattern: from each end of the slot's link,
+        /// repeatedly continue to the neighbor most collinear with incoming travel.
+        /// Chain endpoints are the last intersections the street actually reaches —
+        /// every consecutive pair is graph-linked, so patrols can never be routed
+        /// onto a node the street doesn't connect to.
+        /// </summary>
+        private List<string> BuildStreetChain(ParkingSpace s)
+        {
+            if (s == null || roadGraph == null) return null;
+            var before = WalkStraight(s.toId, s.fromId);    // nodes past fromId, near→far
+            var after = WalkStraight(s.fromId, s.toId);     // nodes past toId,  near→far
+            before.Reverse();
+            var chain = new List<string>(before.Count + after.Count + 2);
+            chain.AddRange(before);
+            chain.Add(s.fromId);
+            chain.Add(s.toId);
+            chain.AddRange(after);
+            return chain;
+        }
+
+        /// <summary>
+        /// Nodes continuing past `tail` away from `from`, following the directed
+        /// link most collinear with the incoming leg (dot &gt; 0.9 ≈ straight ahead —
+        /// a real street continuation, not a cross street). Stops at the street's
+        /// end (T-intersection, dead end, map edge) or on revisiting a node.
+        /// </summary>
+        private List<string> WalkStraight(string fromId, string tailId)
+        {
+            var result = new List<string>();
+            string prev = fromId, cur = tailId;
+            for (int guard = 0; guard < 64; guard++)
+            {
+                if (!roadGraph.Nodes.TryGetValue(cur, out var cn)) break;
+                Vector3 dIn = cn.localPos - roadGraph.Nodes[prev].localPos;
+                string best = null;
+                float bestDot = 0.9f;
+                foreach (var l in cn.links)
+                {
+                    if (l.targetId == prev || result.Contains(l.targetId)) continue;
+                    if (!roadGraph.Nodes.TryGetValue(l.targetId, out var tn)) continue;
+                    Vector3 dOut = tn.localPos - cn.localPos;
+                    float dot = Vector3.Dot(dIn.normalized, dOut.normalized);
+                    if (dot > bestDot) { bestDot = dot; best = l.targetId; }
+                }
+                if (best == null) break;
+                result.Add(best);
+                prev = cur; cur = best;
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Fill free slots on the patrol street (both curbs — a street link has BOTH
+        /// endpoints in the chain) with static scenery cars. They Occupy real slots so
+        /// agents can't book them, but carry no VehicleAgent — pure instanced fill.
+        /// streetFillPercent leaves a few gaps so F10 re-parking still finds room.
+        /// </summary>
+        private void FillStreetParking(Transform parent, List<string> chain, float groundY)
+        {
+            if (streetFillPercent <= 0f || chain == null || parkingMap == null) return;
+            var onStreet = new HashSet<string>(chain);
+            int filled = 0, total = 0;
+            foreach (var s in parkingMap.spaces)
+            {
+                if (s.occupied) continue;
+                if (!onStreet.Contains(s.fromId) || !onStreet.Contains(s.toId)) continue;
+                total++;
+                if (UnityEngine.Random.value > streetFillPercent) continue;
+
+                Vector3 pos = s.pos; pos.y = groundY;
+                var obj = new GameObject($"ParkedCar_{filled}");
+                obj.transform.SetParent(parent, false);
+                if (s.heading.sqrMagnitude > 0.001f)
+                    obj.transform.localRotation = Quaternion.LookRotation(s.heading, Vector3.up);
+                var vv = obj.AddComponent<VoxelVehicle>();
+                vv.assetFileName = vehicleAsset;
+                vv.voxelSize = vehicleVoxelSize;
+                vv.chunkManager = chunkManager;
+                vv.centerPosition = pos;
+                parkingMap.Occupy(s, null);
+                sceneryCars.Add(obj);
+                filled++;
+            }
+            Debug.Log($"[VehicleTest] Street parking: {filled}/{total} free slots filled with scenery cars");
         }
 
         void OnDestroy()
@@ -369,6 +475,10 @@ namespace SteelCity.Sim
         private bool parkRequested;             // F10-off: keep cruising until a slot is spliced
         private bool awaitingParkArrival;       // current drive leg ends IN the slot
         private Vector3 parkFinalPoint;
+
+        // --- Patrol state (assigned-street cruising, e.g. the Amsterdam St test) ---
+        private List<string> patrol;            // ordered node ids along the street
+        private int patrolDir = 1;              // chain-index step per extension
 
         /// <summary>When false, the vehicle stays parked at its current position.</summary>
         public bool IsDriving { get; set; }
@@ -507,6 +617,58 @@ namespace SteelCity.Sim
             TrySpliceParking();   // the in-flight leg may already cross the slot
         }
 
+        /// <summary>
+        /// Assign a street patrol: an ordered node-id chain (one row or column of
+        /// intersections). Cruising follows the chain in patrolDir; street ends and
+        /// unlinked chain neighbors flip patrolDir, producing U-turns. Initial
+        /// direction derives from the parked slot's link so the first leg continues
+        /// the parked heading.
+        /// </summary>
+        public void SetPatrol(List<string> chain)
+        {
+            if (chain == null || chain.Count < 2) { patrol = null; return; }
+            patrol = chain;
+            patrolDir = 1;
+            if (parkedSpace != null)
+            {
+                int iFrom = chain.IndexOf(parkedSpace.fromId);
+                int iTo = chain.IndexOf(parkedSpace.toId);
+                if (iFrom >= 0 && iTo >= 0) patrolDir = iTo > iFrom ? 1 : -1;
+            }
+        }
+
+        private string PatrolNext(string tail)
+        {
+            int idx = patrol.IndexOf(tail);
+            if (idx < 0) return null;                          // off-street — caller falls back
+            for (int attempt = 0; attempt < 2; attempt++)
+            {
+                int ni = idx + patrolDir;
+                if (ni < 0 || ni >= patrol.Count) patrolDir = -patrolDir;   // street end — U-turn
+                ni = idx + patrolDir;
+                if (ni >= 0 && ni < patrol.Count && HasLink(tail, patrol[ni]))
+                    return patrol[ni];
+                patrolDir = -patrolDir;                        // unlinked neighbor — reverse, retry
+            }
+            return null;
+        }
+
+        private bool HasLink(string fromId, string toId)
+        {
+            if (!graph.Nodes.TryGetValue(fromId, out var n)) return false;
+            foreach (var l in n.links) if (l.targetId == toId) return true;
+            return false;
+        }
+
+        /// <summary>Off-chain recovery — any graph neighbor that is on the patrol street.</summary>
+        private string RejoinPatrol(string tail)
+        {
+            if (!graph.Nodes.TryGetValue(tail, out var n)) return null;
+            foreach (var l in n.links)
+                if (patrol.Contains(l.targetId)) return l.targetId;
+            return null;
+        }
+
         private void PickParkTarget()
         {
             if (!parkRequested || parkingMap == null) return;
@@ -569,6 +731,14 @@ namespace SteelCity.Sim
                 // Heading to a parking slot: follow the road flow field toward the
                 // entry node (the same next-hop query peds will use on their graph).
                 next = parkField.Next(tail) ?? graph.RandomNeighbor(tail, prev);
+            }
+            else if (patrol != null)
+            {
+                // Assigned street: walk the chain; at an end it flips direction —
+                // next = the node we came from = reversal link = U-turn into the far lane.
+                // If the tail ever left the chain, hop back to an adjacent chain node —
+                // patrol cars stay bound to the street; random is the last resort.
+                next = PatrolNext(tail) ?? RejoinPatrol(tail) ?? graph.RandomNeighbor(tail, prev);
             }
             else
             {
