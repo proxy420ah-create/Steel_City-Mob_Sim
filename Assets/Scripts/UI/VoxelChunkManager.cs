@@ -1101,7 +1101,8 @@ namespace SteelCity.Sim
             {
                 center = centerPos,
                 size = new Vector3(w * customVoxelSize, h * customVoxelSize, d * customVoxelSize),
-                dims = new VoxelInt3(w, h, d)
+                dims = new VoxelInt3(w, h, d),
+                data = packedData
             };
         }
 
@@ -1147,7 +1148,8 @@ namespace SteelCity.Sim
             {
                 center = centerPos,
                 size = new Vector3(w * customVoxelSize, h * customVoxelSize, d * customVoxelSize),
-                dims = new VoxelInt3(w, h, d)
+                dims = new VoxelInt3(w, h, d),
+                data = clonedData
             };
         }
 
@@ -1181,7 +1183,8 @@ namespace SteelCity.Sim
             {
                 center = centerPos,
                 size = new Vector3(w * customVoxelSize, h * customVoxelSize, d * customVoxelSize),
-                dims = new VoxelInt3(w, h, d)
+                dims = new VoxelInt3(w, h, d),
+                data = data
             };
         }
 
@@ -1193,6 +1196,7 @@ namespace SteelCity.Sim
             public Vector3 center;     // World-space center of the building base
             public Vector3 size;       // World-space dimensions (width, height, depth)
             public VoxelInt3 dims;     // Voxel dimensions
+            public uint[] data;        // Voxel array the chunk was loaded from (shared with the cache / debris pool — read-only); used for collision registration
         }
 
         /// <summary>

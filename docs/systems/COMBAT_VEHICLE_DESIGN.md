@@ -94,7 +94,7 @@ Street combat is primarily an **AI and gameplay** problem, not a rendering probl
 
 #### Approach A: Cover Points (No Rendering Change)
 
-Cover is a **gameplay query** on the existing collision world. Buildings are already in `VoxelCollisionWorld` as a flat `byte[]` grid. Cover points are positions adjacent to solid voxel walls where a hood can crouch for protection.
+Cover is a **gameplay query** on the existing collision world. Terrain lives in `VoxelCollisionWorld` as a flat `byte[]` grid; buildings are registered as shared-array solid volumes (`RegisterVolume`) queried through `VoxelCollisionWorld.Raycast` — see `PROJECTILE_SYSTEM.md`. Cover points are positions adjacent to solid voxel walls where a hood can crouch for protection.
 
 **How it works**:
 1. At combat start (or at load time — cover points are invariant), scan the collision world around the engagement area
@@ -1185,7 +1185,7 @@ public struct Projectile
 2. `ttl -= deltaTime` — if <= 0, despawn
 3. Query spatial hash at `position` → check each nearby instance
 4. If instance hit (distance < instance radius) → resolve damage, despawn projectile
-5. If no instance hit, check `VoxelCollisionWorld.ProbeGround` for wall hit → despawn, spawn impact effect
+5. If no instance hit, sweep the segment with `VoxelCollisionWorld.Raycast` (terrain + building volumes; `ProbeGround` is downward-only) → despawn, spawn impact effect. *Implemented for world geometry in `ProjectileSystem` (`PROJECTILE_SYSTEM.md`); instance hits via the spatial hash are still to do.*
 
 ### Cost Analysis
 
@@ -1234,7 +1234,7 @@ The spatial hash also handles vehicle mayhem. A moving vehicle sweeps through gr
 | System | Integration |
 |---|---|
 | `VoxelCharacter` | Provides position for spatial hash. Takes damage from projectile hits. |
-| `VoxelCollisionWorld` | Wall/building hit detection for projectiles (existing `ProbeGround` method). |
+| `VoxelCollisionWorld` | Wall/building hit detection for projectiles — `Raycast` (3D voxel DDA over terrain + registered building volumes). `ProbeGround` remains the downward ground probe. |
 | `CrimeSystem` | Damage resolution, witness generation, police escalation triggers. |
 | `CharacterAnimation` | Hit reaction — set `animState = Flinch` or `Falling` on projectile hit. |
 | `HoodAgent` (future) | Combat AI triggers projectile spawn on fire action. Carries `sourceHoodId`. |

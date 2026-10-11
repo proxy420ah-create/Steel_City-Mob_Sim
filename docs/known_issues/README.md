@@ -23,4 +23,5 @@ Bug tracker per Development Guidelines Rule 13. Bugs are cataloged by category i
 | [IMGUI Debug HUD Frame Tax (120→40 FPS)](rendering/IMGUI_HUD_FRAME_TAX.md) | rendering | 🟢 FIXED | 🟡 HIGH | 2026-10-11 |
 | [Mid-Render ComputeBuffer Alloc Drops Sector SRV (`_BuildingMeta`)](rendering/MID_RENDER_BUFFER_ALLOC_SRV_DROP.md) | rendering | 🟢 FIXED | 🟡 HIGH | 2026-10-11 |
 | [Shared `proxyMaterial` DrawMesh/DrawMeshInstanced — Instanced Models Displaced/Invisible](rendering/SHARED_MATERIAL_INSTANCED_DRAWS.md) | rendering | 🟢 FIXED | 🔴 CRITICAL | 2026-10-11 |
+| [Sector Mode Leaves Building Address Registry Empty — Range Points Missing](runtime/SECTOR_MODE_ADDRESS_REGISTRY_EMPTY.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-10-11 |
 | [Single-Keyword `multi_compile` Always On — Instanced Models Invisible](rendering/MULTI_COMPILE_SINGLE_KEYWORD_ALWAYS_ON.md) | rendering | 🟡 FIX APPLIED (pending test) | 🔴 CRITICAL | 2026-10-11 |

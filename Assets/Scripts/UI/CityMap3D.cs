@@ -937,6 +937,7 @@ namespace SteelCity.Sim
                 chunkManager.ClearAllChunks();
             blockAnchors.Clear();
             addressRegistry.Clear();
+            if (collisionWorld != null) collisionWorld.ClearVolumes();
 
             // Destroy old roads if any
             var oldRoads = mapRoot.Find("Roads");
@@ -1035,6 +1036,11 @@ namespace SteelCity.Sim
                 int totalBuildings = 0;
                 foreach (var s in sectors) totalBuildings += s.buildingCount;
                 LogBuild($"PHASE 2B (sector bake): {t3.ElapsedMilliseconds}ms for {sectors.Count} sectors ({totalBuildings} buildings)");
+
+                // Sector baking replaces the per-building chunk loads, so the baker's placements are the
+                // only record of where each building sits — feed them to the address registry and the
+                // collision world (see RegisterSectorPlacements).
+                RegisterSectorPlacements(sectors, registerAddresses: true);
 
                 // Still create block root GameObjects for labels and game logic.
                 // Sector baking merges RENDERING into per-sector buffers, but click
@@ -1692,6 +1698,7 @@ namespace SteelCity.Sim
                     {
                         RegisterAddress(blockId, chunkName, anchorPos, footprint.size, row, col, -1,
                             fullPath, IsEmptyLand(stasset));
+                        RegisterBuildingVolume(chunkName, footprint);
                         // Suppress per-building centered log (too many at scale)
                     }
                 }
@@ -1744,6 +1751,7 @@ namespace SteelCity.Sim
                                 {
                                     RegisterAddress(blockId, chunkName, anchorPos, footprint.size, row, col, i,
                                         fullPath, IsEmptyLand(stasset));
+                                    RegisterBuildingVolume(chunkName, footprint);
                                 }
                                 break; // Only place one full-block building
                             }
@@ -1789,6 +1797,7 @@ namespace SteelCity.Sim
                             {
                                 RegisterAddress(blockId, chunkName, buildingCenter, footprint.size, row, col, i,
                                     fullPath, IsEmptyLand(stasset));
+                                RegisterBuildingVolume(chunkName, footprint);
                             }
                         }
                     }
@@ -1882,6 +1891,61 @@ namespace SteelCity.Sim
             // Suppress per-address registration log (too many at scale)
         }
 
+        /// <summary>
+        /// Per-building path: make a loaded chunk shootable. The footprint carries the exact voxel array the
+        /// renderer was given; corner = center - half the XZ footprint (the LoadChunkCentered convention).
+        /// </summary>
+        private void RegisterBuildingVolume(string id, VoxelChunkManager.BuildingFootprint fp)
+        {
+            if (collisionWorld == null || fp == null || fp.data == null || fp.dims.x <= 0) return;
+            float vs = fp.size.x / fp.dims.x;
+            Vector3 corner = fp.center - new Vector3(fp.size.x * 0.5f, 0f, fp.size.z * 0.5f);
+            collisionWorld.RegisterVolume(id, fp.data, fp.dims.x, fp.dims.y, fp.dims.z, corner, vs);
+        }
+
+        /// <summary>
+        /// Sector path: turn the baker's placements into (a) address-registry entries — building attachment
+        /// points such as firing_position / firing_target resolve through TryGetBuildingPointLocal, which
+        /// only reads that registry — and (b) collision volumes for projectile raycasts. Conventions match
+        /// the per-building path (subIndex -1 = the block's only building; chunk-style ids) so both modes
+        /// produce the same addresses. registerAddresses is false on a rebake: the buildings did not move,
+        /// only their (debris) voxel arrays changed, so just the volumes are refreshed by id.
+        /// </summary>
+        private void RegisterSectorPlacements(List<SectorBaker.SectorData> sectors, bool registerAddresses)
+        {
+            if (sectors == null || cachedBlocks == null) return;
+
+            var blockIdByCell = new Dictionary<(int, int), string>();
+            foreach (var kv in cachedBlocks) blockIdByCell[(kv.Value.row, kv.Value.col)] = kv.Key;
+
+            int addresses = 0, volumes = 0;
+            foreach (var sector in sectors)
+            {
+                if (sector == null || sector.placements == null) continue;
+                foreach (var p in sector.placements)
+                {
+                    if (!blockIdByCell.TryGetValue((p.row, p.col), out string blockId)) continue;
+
+                    int subIndex = p.buildingsInBlock == 1 ? -1 : p.subIndex;
+                    string chunkName = subIndex < 0 ? $"{blockId}_building" : $"{blockId}_building_{subIndex}";
+                    Vector3 size = new Vector3(p.w * p.voxelSize, p.h * p.voxelSize, p.d * p.voxelSize);
+
+                    if (registerAddresses)
+                    {
+                        Vector3 center = p.corner + new Vector3(size.x * 0.5f, 0f, size.z * 0.5f);
+                        RegisterAddress(blockId, chunkName, center, size, p.row, p.col, subIndex, p.stassetPath, p.isEmptyLand);
+                        addresses++;
+                    }
+                    if (collisionWorld != null)
+                    {
+                        collisionWorld.RegisterVolume(chunkName, p.voxels, p.w, p.h, p.d, p.corner, p.voxelSize);
+                        volumes++;
+                    }
+                }
+            }
+            Debug.Log($"[CityMap3D] Sector placements registered: {addresses} addresses, {volumes} collision volumes");
+        }
+
         private readonly Dictionary<string, float> heightCache = new();
 
         private float GetBuildingHeight(string relativePath)
@@ -1923,6 +1987,7 @@ namespace SteelCity.Sim
                     sidewalkWidth, roadWidth, voxelSize,
                     (int)cachedCenterRow, (int)cachedCenterCol, cachedSpacing);
 
+                RegisterSectorPlacements(sectors, registerAddresses: false);
                 Debug.Log($"[CityMap3D] 🔄 Rebaked {sectors.Count} sectors (debris scatter: {ProceduralDebrisScatterer.Enabled})");
                 return;
             }
@@ -1947,7 +2012,10 @@ namespace SteelCity.Sim
                 }
 
                 if (footprint != null)
+                {
                     rebaked++;
+                    RegisterBuildingVolume(addr.chunkName, footprint);
+                }
             }
 
             Debug.Log($"[CityMap3D] 🔄 Rebaked {rebaked} empty-land chunks (debris scatter: {ProceduralDebrisScatterer.Enabled})");

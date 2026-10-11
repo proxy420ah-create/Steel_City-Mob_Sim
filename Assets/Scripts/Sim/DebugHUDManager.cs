@@ -863,6 +863,8 @@ namespace SteelCity.Sim
             if (!string.IsNullOrEmpty(solver.LastError))
                 GUILayout.Label($"<color=#ff6666>solver: {solver.LastError}</color>", labelStyle);
 
+            DrawFireControls(dwelling, mount, tgtWorld, hasTgt);
+
             // --- Telemetry ---
             if (solver.Blend > 0f || aiming)
             {
@@ -903,12 +905,61 @@ namespace SteelCity.Sim
             }
         }
 
-        private float HSlider(string name, float val, float min, float max)
+        /// <summary>
+        /// Firearm panel: shooter skill (1-10, default 10), cone slider, muzzle speed, FIRE and the last-shot
+        /// report. FIRE needs the IK aim fully raised (blend ≥ 0.98) so the shot goes where the gun actually
+        /// points; the report shows how far the shot line passed from firing_target and the solver's residual
+        /// aim error at the trigger pull. Physics + hit resolution live in ProjectileSystem.
+        /// </summary>
+        private void DrawFireControls(bool dwelling, WeaponMount mount, Vector3 targetWorld, bool hasTarget)
+        {
+            var proj = ProjectileSystem.GetOrCreate();
+
+            GUILayout.Space(6);
+            GUILayout.Label("<b>Firearm</b>", labelStyle);
+            proj.shooterSkill = Mathf.RoundToInt(HSlider("skill (1-10)", proj.shooterSkill, 1f, 10f, "F0"));
+            proj.baseConeDeg = HSlider("cone ° @10", proj.baseConeDeg, 0f, 5f);
+            proj.muzzleSpeed = HSlider("speed u/s", proj.muzzleSpeed, 5f, 150f, "F0");
+            GUILayout.Label($"effective cone ±{proj.EffectiveConeDeg:F2}°   (skill ×{ProjectileSystem.SkillSpreadMultiplier(proj.shooterSkill):F2})", labelStyle);
+
+            bool aimed = solver != null && solver.IsAiming && solver.Blend >= 0.98f;
+            bool canFire = dwelling && mount != null && mount.IsEquipped && aimed;
+            GUI.enabled = canFire;
+            if (GUILayout.Button("FIRE", canFire ? tabActiveStyle : tabStyle, GUILayout.Height(30)))
+                proj.Fire(mount, solver.LastAngularErrorDeg, hasTarget ? targetWorld : (Vector3?)null);
+            GUI.enabled = true;
+            if (!canFire)
+                GUILayout.Label("(engage IK AIM and wait for blend 1.00)", labelStyle);
+            if (proj.InFlight > 0)
+                GUILayout.Label($"in flight: {proj.InFlight}", labelStyle);
+
+            if (proj.HasShot)
+            {
+                var s = proj.LastShot;
+                GUILayout.Space(4);
+                GUILayout.Label($"<b>SHOT #{s.id}</b>  seed {s.seed:X8}  skill {s.skill}  cone ±{s.coneHalfDeg:F2}° (drew {s.spreadDeg:F2}°)", labelStyle);
+                if (s.hit)
+                {
+                    string glass = ProjectileSystem.IsGlassMaterial(s.material) ? " (glass)" : "";
+                    GUILayout.Label($"<color=#66ff66>HIT</color> {s.target}   mat {s.material}{glass}   cell {s.cell.x},{s.cell.y},{s.cell.z}", labelStyle);
+                    GUILayout.Label($"dist {s.distance:F2}m   flight {s.flightTime:F2}s", labelStyle);
+                }
+                else
+                {
+                    GUILayout.Label($"<color=#ffaa44>MISS</color> — expired after {s.distance:F1}m", labelStyle);
+                }
+                if (s.hasIntended)
+                    GUILayout.Label($"lateral miss {s.lateralMiss:F3}m   impact→target {s.impactOffset:F3}m", labelStyle);
+                GUILayout.Label($"aim err at trigger {s.aimErrorDeg:F1}°", labelStyle);
+            }
+        }
+
+        private float HSlider(string name, float val, float min, float max, string format = "F2")
         {
             GUILayout.BeginHorizontal();
             GUILayout.Label(name, labelStyle, GUILayout.Width(105));
             float v = GUILayout.HorizontalSlider(val, min, max, GUILayout.ExpandWidth(true));
-            GUILayout.Label(v.ToString("F2"), labelStyle, GUILayout.Width(42));
+            GUILayout.Label(v.ToString(format), labelStyle, GUILayout.Width(42));
             GUILayout.EndHorizontal();
             return v;
         }

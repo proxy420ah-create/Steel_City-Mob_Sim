@@ -1,6 +1,25 @@
 # Recent Changes — Steel City: Mob Sim
 
-**Last Updated**: October 11, 2026 (cleanup pass: dead render plumbing removed, heatmap restored behind a keyword)
+**Last Updated**: October 11, 2026 (projectiles v1: physical shots + voxel-DDA hits; sector-mode address-registry fix)
+
+---
+
+## October 11, 2026 (late) — Projectiles v1 (building DDA) + sector-mode address registry fix
+
+### Firearms: a shot from Vinny's gun now flies and hits (`docs/systems/PROJECTILE_SYSTEM.md`)
+- **`ProjectileSystem`** (new): FIRE spawns a physical projectile at `WeaponMount.MuzzleWorld` along the bore axis (`AimDirection` — the IK solver's real result, residual error included) perturbed by a **seeded cone** (`baseConeDeg × (1 + (10−skill)×0.75)`; skill 1–10 default **10**, base cone default 1.0°, speed 40 u/s). Each frame the covered segment is ray-cast, so fast bullets cannot tunnel. Resolves to a `ShotReport` (volume, voxel cell, material, normal, distance, flight time, lateral miss vs `firing_target`, IK aim err, seed). Tracer + impact tick via `PathDebugRenderer` beams.
+- **`VoxelDda`** (new, pure Amanatides–Woo, no Unity types) + **`SolidVolumeSet`** (new, shared-array building volumes with AABB broadphase and optional yaw) + **`VoxelCollisionWorld.Raycast / RegisterVolume / UnregisterVolume / ClearVolumes`**: nearest hit across the terrain grid and every building volume. Conventions mirror the renderer (`x + y·w + z·w·h`, solid = `voxel & 0x1FF`, cell → `corner + i·vs`). Volumes **reference** the already-resident voxel arrays (no copies) — the same shared-asset/per-instance shape as GPU instancing.
+- **Range tab → Firearm panel**: `skill (1-10)`, `cone ° @10`, `speed u/s`, effective-cone readout, **FIRE** (enabled only while Dwelling + IK AIM blend ≥ 0.98), last-shot report. (Trigger is a button for now.)
+- Docs corrected: `COMBAT_VEHICLE_DESIGN.md` claimed buildings were already in `VoxelCollisionWorld` (only terrain was; `ProbeGround` is downward-only) — fixed; `COMBAT_AUTOBATTLE.md` gets an implementation-status note.
+
+### FIX (regression from this session's sector-baking flip): sector mode left the building address registry empty
+- **Symptom**: with `useSectorBaking` ON the Range tab showed `Points: none` / `firing_position: MISSING`, IK AIM was disabled and Target Practice fell back to the block centre. **Root cause**: `RegisterAddress` was only called by the per-building path; `TryGetBuildingPointLocal` reads nothing else. Latent since sector baking was added, exposed when the scene default was flipped ON (commit `3439191`) without auditing consumers — the earlier "test passed" covered rendering only. See `docs/known_issues/runtime/SECTOR_MODE_ADDRESS_REGISTRY_EMPTY.md`.
+- **Fix**: `SectorBaker` exposes `SectorData.placements` (`PlacedBuilding`: placement + a *reference* to the array its sector region was filled from); `CityMap3D.RegisterSectorPlacements` registers addresses (same conventions as the per-building path) and collision volumes; the per-building path registers volumes too (`BuildingFootprint.data`). Rendering code paths are untouched (no shader changes; sector buffers/meta identical).
+
+### Verification
+- **Offline self-test (new, in repo)**: `Tools/dda_selftest/run.sh` — compiles `VoxelDda` + `SolidVolumeSet` with the editor-bundled Roslyn/.NET 6 and runs **148,016 checks** (108k random rays vs exhaustive brute force incl. cells/t/normals, axis-aligned + edge cases, registry, yawed volumes vs an independent oriented-box reference, real shots through `shooting_range.json`): ALL PASS. Dead-centre shot → Red Brick bullseye cell (96,8,169); ≈ 1.7 µs per shot.
+- Editor + Player-dev `Assembly-CSharp` compile clean with Unity's Roslyn (new files included).
+- 🧪 **Playtest PASSED (Oct 11)**: Vinny at the firing range — IK AIM → FIRE → physical projectile visibly strikes the target board; sector placements register (addresses + collision volumes); range attachment points resolve in sector mode.
 
 ---
 

@@ -32,6 +32,8 @@ namespace SteelCity.Sim
             public Vector3 sectorMin;
             public Vector3 sectorMax;
             public int buildingCount;
+            /// <summary>One record per building that made it into this sector (see PlacedBuilding).</summary>
+            public List<PlacedBuilding> placements = new List<PlacedBuilding>();
         }
 
         /// <summary>
@@ -45,6 +47,26 @@ namespace SteelCity.Sim
             public int row;              // block row (for procedural seeding)
             public int col;              // block col (for procedural seeding)
             public int subIndex;         // building index within block (for procedural seeding)
+            public int buildingsInBlock; // buildings on the layout block (1 = the block's only building)
+        }
+
+        /// <summary>
+        /// CPU-side record of one placed building: the placement this baker computed plus a REFERENCE to the
+        /// voxel array the sector buffer was filled from (shared asset data or pooled debris variant — never
+        /// copied, treat as read-only). CityMap3D turns these into the address registry and the collision
+        /// volumes, so sector mode resolves building attachment points and bullets exactly like the
+        /// per-building path does.
+        /// </summary>
+        public struct PlacedBuilding
+        {
+            public string stassetPath;
+            public int row, col, subIndex;
+            public int buildingsInBlock;
+            public Vector3 corner;       // world min corner of the voxel grid
+            public float voxelSize;
+            public int w, h, d;
+            public uint[] voxels;
+            public bool isEmptyLand;
         }
 
         /// <summary>Detect empty land stasset paths for procedural debris scattering.</summary>
@@ -124,6 +146,8 @@ namespace SteelCity.Sim
 
             // Second pass: concatenate voxel data into flat buffer
             var mergedVoxelData = new uint[totalVoxels];
+            var placements = new List<PlacedBuilding>(buildingCount);
+            var sourceByOffset = new Dictionary<int, uint[]>();   // buffer offset -> the array that region was filled from
             int writeOffset = 0;
             Vector3 sectorMin = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
             Vector3 sectorMax = new Vector3(float.MinValue, float.MinValue, float.MinValue);
@@ -138,20 +162,44 @@ namespace SteelCity.Sim
 
                 // Only write regions allocated in pass 1 — buildings sharing a
                 // pooled variant offset skip the copy (already written there).
+                // `source` is the array the region was filled from (the pooled debris variant
+                // for empty lots, the shared packed asset otherwise); a building that shares
+                // an offset reuses the writer's array — exactly what the renderer shows there.
+                bool emptyLand = IsEmptyLand(info.stassetPath);
+                uint[] source;
                 if ((int)buildingMeta[i].x == writeOffset)
                 {
-                    if (IsEmptyLand(info.stassetPath))
+                    if (emptyLand)
                     {
                         int variant = ProceduralDebrisScatterer.GetVariantIndex(info.row, info.col, info.subIndex);
-                        var variantData = ProceduralDebrisScatterer.GetVariantData(packedData, w, h, d, variant);
-                        System.Array.Copy(variantData, 0, mergedVoxelData, writeOffset, voxelCount);
+                        source = ProceduralDebrisScatterer.GetVariantData(packedData, w, h, d, variant);
                     }
                     else
                     {
-                        System.Array.Copy(packedData, 0, mergedVoxelData, writeOffset, voxelCount);
+                        source = packedData;
                     }
+                    System.Array.Copy(source, 0, mergedVoxelData, writeOffset, voxelCount);
+                    sourceByOffset[writeOffset] = source;
                     writeOffset += voxelCount;
                 }
+                else if (!sourceByOffset.TryGetValue((int)buildingMeta[i].x, out source))
+                {
+                    source = packedData;
+                }
+
+                placements.Add(new PlacedBuilding
+                {
+                    stassetPath = info.stassetPath,
+                    row = info.row,
+                    col = info.col,
+                    subIndex = info.subIndex,
+                    buildingsInBlock = info.buildingsInBlock,
+                    corner = info.worldOffset,
+                    voxelSize = info.voxelSize,
+                    w = w, h = h, d = d,
+                    voxels = source,
+                    isEmptyLand = emptyLand
+                });
 
                 // Compute sector AABB from building world positions + sizes
                 float vs = info.voxelSize;
@@ -170,7 +218,8 @@ namespace SteelCity.Sim
                 voxelSize = buildings[0].voxelSize,
                 sectorMin = sectorMin,
                 sectorMax = sectorMax,
-                buildingCount = buildingCount
+                buildingCount = buildingCount,
+                placements = placements
             };
 
             Debug.Log($"[SectorBaker] Baked sector '{sectorName}': {buildingCount} buildings, {totalVoxels:N0} voxels, bounds {sectorMin}..{sectorMax}");
@@ -281,7 +330,8 @@ namespace SteelCity.Sim
                             voxelSize = voxelSize,
                             row = lb.row,
                             col = lb.col,
-                            subIndex = 0
+                            subIndex = 0,
+                            buildingsInBlock = buildingCount
                         });
                     }
                     else
@@ -318,7 +368,8 @@ namespace SteelCity.Sim
                                         voxelSize = voxelSize,
                                         row = lb.row,
                                         col = lb.col,
-                                        subIndex = i
+                                        subIndex = i,
+                                        buildingsInBlock = buildingCount
                                     });
                                     break;
                                 }
@@ -356,7 +407,8 @@ namespace SteelCity.Sim
                                     voxelSize = voxelSize * scale,
                                     row = lb.row,
                                     col = lb.col,
-                                    subIndex = i
+                                    subIndex = i,
+                                    buildingsInBlock = buildingCount
                                 });
                             }
                         }

@@ -257,6 +257,10 @@
   - Skills determine effectiveness
   - Environment factors (cover, crowds, time of day)
   - No player micromanagement — hoods use their stats
+- **`docs/systems/PROJECTILE_SYSTEM.md`** — Physical projectiles + voxel raycasts (v1 implemented + playtested)
+  - Muzzle → bore axis → seeded cone (skill 1–10 × base cone) → swept flight → nearest hit with exact volume / voxel / material
+  - `VoxelCollisionWorld.Raycast`: pure 3D DDA over the terrain grid + shared-array building volumes (sector and per-building paths)
+  - ShotReport payload for glass puncture / cover / damage; Range tab FIRE controls; offline self-test `Tools/dda_selftest/run.sh`
 
 **Weapon & Item Models:**
 - **`docs/systems/WEAPON_ITEM_MODEL_STANDARD.md`** — Voxel modeling standards for weapons, items, and props
@@ -395,7 +399,7 @@
   - Architecture diagram: standard Unity pipeline vs Steel City voxel pipeline
   - Debugging tips for invisible/stuck/missing characters
 
-**Keywords**: systems, character, spawning, instancing, hoodspawner, characterrig, animationtest, stresstest, clothing, pedestrian, voxelcharacter, characteranimation, clothingsystem, pedestrianlookaround, gpu, sharedbuffer, posedbuffer, consolidated json, upscale, extortion, territory, intelligence, corruption, police, combat, crime, squeal, 3d, rendering, visualization, camera, playtesting, insights, fear, hostility, legal, diplomacy, path, debug, beams, commandbuffer, instanced, voxel, gotchas, pitfalls, collision, probe, terrain, flat-array, aliasing, animation, shader, raymarch, dda, inverse-transform, groupid, stance, characteranimation, refactoring, extraction, modular, file size, citymap, chunkmanager, buildingloader, sectorbakery, activeinhierarchy, drawmeshinstanced, computebuffer, unregister, frustum, weapon, item, prop, decor, revolver, pistol, m1911, tommy gun, rifle, shotgun, voxel editor, asset type, gunmetal, attachment, hand, glass, transparency, alpha, emissive, windows, windshield, lit window, shatter, destruction, bullet hole, cracked halo, shard particles, pane gid
+**Keywords**: systems, character, spawning, instancing, hoodspawner, characterrig, animationtest, stresstest, clothing, pedestrian, voxelcharacter, characteranimation, clothingsystem, pedestrianlookaround, gpu, sharedbuffer, posedbuffer, consolidated json, upscale, extortion, territory, intelligence, corruption, police, combat, crime, squeal, 3d, rendering, visualization, camera, playtesting, insights, fear, hostility, legal, diplomacy, path, debug, beams, commandbuffer, instanced, voxel, gotchas, pitfalls, collision, probe, terrain, flat-array, aliasing, animation, shader, raymarch, dda, inverse-transform, groupid, stance, characteranimation, refactoring, extraction, modular, file size, citymap, chunkmanager, buildingloader, sectorbakery, activeinhierarchy, drawmeshinstanced, computebuffer, unregister, frustum, weapon, item, prop, decor, revolver, pistol, m1911, tommy gun, rifle, shotgun, voxel editor, asset type, gunmetal, attachment, hand, glass, transparency, alpha, emissive, windows, windshield, lit window, shatter, destruction, bullet hole, cracked halo, shard particles, pane gid, projectile, ballistics, raycast, voxel dda, cone of fire, firing range, collision volumes, shot report
 
 ---
 

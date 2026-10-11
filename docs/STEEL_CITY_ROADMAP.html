@@ -430,6 +430,7 @@
       <strong>Rendering hardened (Oct 11):</strong> glass two-pass composite verified — <code>Cull Front</code> + proxy cube winding fix kills the outside-volume double blend; <code>V</code> cycles keyword-gated debug views (iteration heat / step channels / miss waste — zero cost when off); <code>BUILDING_INSTANCING</code> single-keyword pragma fix restores cars/characters in builds; dead occupancy/jitter plumbing removed.<br>
       <strong>Next (seat alignment):</strong> port SKEL attachment reader to C# → align character <code>seat</code> → vehicle <code>seat_*</code> (position + facing) → dev hotkey to park Vinny in the driver seat → dynamic seat assignment. Benches drop out free (static "vehicle" with seat points).<br>
       <strong>Parallel: 490 detailing</strong> — hand-authored in the editor's Unity-view mirror (<code>U</code>), real-voxel attach tagging (no marker blobs), iterative JSON→stasset loop.<br>
+      <strong>Firearms &amp; projectiles (v1 LANDED, playtested):</strong> Range tab FIRE → physical projectile from the measured muzzle along the IK bore axis + seeded cone (shooter skill 1–10, default 10; cone slider), swept voxel-DDA hits against terrain <em>and every building volume</em> (<code>VoxelCollisionWorld.Raycast</code>, shared-array volumes — no copies), full shot report (volume / voxel / material / lateral miss). Offline self-test: 148k checks. Next: character &amp; vehicle hits (spatial hash), penetration + glass puncture, hood Firearms stat binding. Also fixed: sector mode left the building address registry empty (range points missing). See <code>docs/systems/PROJECTILE_SYSTEM.md</code>.<br>
       <strong>Perf gate:</strong> hold ~120 fps before further city expansion. GPU Rendering Phase 2+ (buffer pooling, indirect draws, GPU culling) still the lever.<br>
       <strong>Gang sim continues:</strong> first real order live (Target Practice — walk → painted firing position → aim stance → firearms +2). Flow-field Dijkstra nav infrastructure in.
     </div>
@@ -444,6 +445,9 @@
       <span class="file-chip">voxel_editor.html</span>
       <span class="file-chip">character_animator.html</span>
       <span class="file-chip">VEHICLE_VOXEL_ASSETS.md</span>
+      <span class="file-chip">ProjectileSystem.cs</span>
+      <span class="file-chip">VoxelCollisionWorld.cs</span>
+      <span class="file-chip">PROJECTILE_SYSTEM.md</span>
     </div>
   </div>
 
