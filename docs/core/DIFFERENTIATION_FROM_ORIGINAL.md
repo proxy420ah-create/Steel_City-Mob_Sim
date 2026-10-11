@@ -42,6 +42,7 @@ This document catalogs every known differentiation — both by design intent and
 | **Rail line** | Not modeled | Elevated rail at seed-determined column, train animation | ✅ Implemented |
 | **Trolley** | Not modeled | Trolley tracks as future transit layer | 📝 Planned |
 | **Block density** | Fixed | 3×3 business sub-grid per block (target: 81 businesses from ~13) | 📝 Planned |
+| **Building visuals** | ~7 sprites for 171 business types (BRef column — every BRef=1 type drew the identical storefront) | Per-type generators producing **structurally unique buildings** per seed — massing, setbacks, floor plans vary; only the lot (64v/192v) is invariant. BRef survives as placement contract + coverage fallback, never a visual plan | 📐 In progress |
 
 **Design doc reference**: `SOURCE_GAME_ANALYSIS.md` — "Static city → Replace with procedural generation"
 

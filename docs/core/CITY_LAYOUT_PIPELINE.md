@@ -135,6 +135,25 @@ This creates a **trolley cross intersection** at the city center with service al
 
 ---
 
+## Canonical Block Dimensions for Voxel Assets
+
+The same constants appear on both sides of the pipeline — the design tool exports them (`buildingVoxelWidth`, `buildingsPerBlockRow`) and `CityMap3D.cs` hard-codes them (`BuildingVoxelWidth = 64`, `buildingsPerBlockRow = 3`):
+
+| Quantity | Value | Derivation |
+|---|---|---|
+| **Building slot** | **64 × 64 voxels** | `BuildingVoxelWidth` — one building's maximum single-lot footprint |
+| **City block** | **192 × 192 voxels** | 3 × 3 slots of 64v + sidewalks → 11.6m ground tile |
+| **Height** | **free-form** | Blocks bound *footprint only* — each asset sets its own `h` (tenement: 120v; apartment_block generator: 44v+8 roof buf) |
+| **Full-block occupation** | 192 × 192 | A mega-building spanning all 9 slots (e.g. `tenement_block_0`). Carries its *own* courtyard in-asset — matching the 3×3-with-center-courtyard convention. The alley generator already excludes full-block buildings. |
+
+**Asset authoring implications**:
+- Single-lot buildings must fit **64 × 64** including any perimeter buffer (protrusions overhang into air, not neighboring slots).
+- Full-block buildings target exactly **192 × 192** — a 193-wide asset bleeds 1v into the seam/sidewalk.
+- `analyze_building.py` validates against these numbers (previously used a stale 96v block).
+- Window panes are **1 voxel thick with an air-filled bore** — baked into `procedural_mob_buildings._add_windows_all_sides` / `gen_scaled_tenement.add_windows` + all direct glass writes (see `docs/systems/VOXEL_GLASS_TRANSPARENCY.md`).
+
+**Relation to incoming city generation**: when the Unity runtime consumes the city editor export (pending tasks above), buildings spawn per-slot — so asset footprints must be slot multiples (64v). The conventions here are the contract between `generate_city_assets.py` output and the future slot-placer: get the assets right now and the city generator slots them in unchanged.
+
 ## Seam Type Specifications
 
 ### Road

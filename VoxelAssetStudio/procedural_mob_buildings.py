@@ -26,19 +26,28 @@ def _hollow_interior(grid, w, h, d, wt, floor_t):
 
 
 def _add_windows_all_sides(grid, w, h, d, wt, y_start, y_end, spacing=6, win_size=2, material=WINDOW_GLASS):
-    """Add windows on all four walls at the given Y range."""
+    """Add windows on all four walls at the given Y range.
+
+    Pane convention (settled): glass occupies the outermost cell only; the rest
+    of the wall-depth bore is AIR so the pane is backed by interior space, not
+    opaque wall. One pane = one blend event (uniform alpha everywhere).
+    """
     for x in range(wt + spacing, w - wt - win_size, spacing + win_size):
         for y in range(y_start, min(y_end, h - 1)):
-            # Front wall (z=0)
-            grid[x:x+win_size, y, :wt] = material
-            # Back wall (z=max)
-            grid[x:x+win_size, y, d-wt:d] = material
+            # Front wall (z=0): pane at z=0, air through 1..wt-1
+            grid[x:x+win_size, y, 0] = material
+            grid[x:x+win_size, y, 1:wt] = AIR
+            # Back wall (z=max): pane at z=d-1, air through d-wt..d-2
+            grid[x:x+win_size, y, d-1] = material
+            grid[x:x+win_size, y, d-wt:d-1] = AIR
     for z in range(wt + spacing, d - wt - win_size, spacing + win_size):
         for y in range(y_start, min(y_end, h - 1)):
-            # Left wall (x=0)
-            grid[:wt, y, z:z+win_size] = material
-            # Right wall (x=max)
-            grid[w-wt:w, y, z:z+win_size] = material
+            # Left wall (x=0): pane at x=0, air through 1..wt-1
+            grid[0, y, z:z+win_size] = material
+            grid[1:wt, y, z:z+win_size] = AIR
+            # Right wall (x=max): pane at x=w-1, air through w-wt..w-2
+            grid[w-1, y, z:z+win_size] = material
+            grid[w-wt:w-1, y, z:z+win_size] = AIR
 
 
 def _add_doorway(grid, w, d, wt, door_h=8, door_w=3, material=PAINTED_BROWN):
@@ -71,7 +80,8 @@ def _add_storefront(grid, w, d, wt, awning_mat=PAINTED_RED, door_h=8, door_w=3):
     """
     glass_top = door_h + 1
     # Large storefront windows (ground floor, flanking door)
-    grid[wt:w-wt, 2:glass_top, :wt] = STOREFRONT_GLASS
+    grid[wt:w-wt, 2:glass_top, 0] = STOREFRONT_GLASS
+    grid[wt:w-wt, 2:glass_top, 1:wt] = AIR
     # Window frame top/bottom
     grid[wt:w-wt, 1:2, :wt] = DARK_WOOD
     grid[wt:w-wt, glass_top:glass_top+1, :wt] = DARK_WOOD
@@ -205,7 +215,8 @@ def generate_diner(w=LOT_W, h=16, d=LOT_D, seed=None):
     _add_basement_foundation(grid, w, d, WALL_T)
     _hollow_interior(grid, w, h, d, WALL_T, FLOOR_T)
     # Large storefront windows (diner style - almost full front)
-    grid[WALL_T:w-WALL_T, 2:10, :WALL_T] = STOREFRONT_GLASS
+    grid[WALL_T:w-WALL_T, 2:10, 0] = STOREFRONT_GLASS
+    grid[WALL_T:w-WALL_T, 2:10, 1:WALL_T] = AIR
     grid[WALL_T:w-WALL_T, 1:2, :WALL_T] = WINDOW_FRAME
     grid[WALL_T:w-WALL_T, 10:11, :WALL_T] = WINDOW_FRAME
     # Neon sign above
@@ -238,7 +249,8 @@ def generate_garage(w=LOT_W, h=14, d=LOT_D, seed=None):
     grid[dx+16:dx+17, 1:8, :WALL_T] = DARK_WOOD
     grid[dx:dx+16, 7:8, :WALL_T] = DARK_WOOD
     # Small office window
-    grid[22:26, 4:7, :WALL_T] = WINDOW_GLASS
+    grid[22:26, 4:7, 0] = WINDOW_GLASS
+    grid[22:26, 4:7, 1:WALL_T] = AIR
     # Side windows (high, small)
     _add_windows_all_sides(grid, w, h, d, WALL_T, 8, 12, spacing=10, win_size=2)
     # Metal roof
@@ -468,8 +480,10 @@ def generate_apartment_block(w=184, h=44, d=184, seed=None, roof_buf=8):
     grid[dx-3:dx+door_w+3, 0:1, :WALL_T] = STONE
 
     # --- Storefront windows flanking entrance (ground floor) ---
-    grid[WALL_T:dx-3, 2:ground_h, :WALL_T] = STOREFRONT_GLASS
-    grid[dx+door_w+3:w-WALL_T, 2:ground_h, :WALL_T] = STOREFRONT_GLASS
+    grid[WALL_T:dx-3, 2:ground_h, 0] = STOREFRONT_GLASS
+    grid[WALL_T:dx-3, 2:ground_h, 1:WALL_T] = AIR
+    grid[dx+door_w+3:w-WALL_T, 2:ground_h, 0] = STOREFRONT_GLASS
+    grid[dx+door_w+3:w-WALL_T, 2:ground_h, 1:WALL_T] = AIR
     grid[WALL_T:w-WALL_T, ground_h:ground_h+1, :WALL_T] = DARK_WOOD
     grid[WALL_T:w-WALL_T, 1:2, :WALL_T] = DARK_WOOD
 
@@ -631,7 +645,8 @@ def generate_casino(w=LOT_W, h=24, d=LOT_D, seed=None):
     _add_basement_foundation(grid, w, d, WALL_T)
     _hollow_interior(grid, w, h, d, WALL_T, FLOOR_T)
     # Large storefront windows
-    grid[WALL_T:w-WALL_T, 2:8, :WALL_T] = STOREFRONT_GLASS
+    grid[WALL_T:w-WALL_T, 2:8, 0] = STOREFRONT_GLASS
+    grid[WALL_T:w-WALL_T, 2:8, 1:WALL_T] = AIR
     grid[WALL_T:w-WALL_T, 1:2, :WALL_T] = DARK_WOOD
     grid[WALL_T:w-WALL_T, 8:9, :WALL_T] = DARK_WOOD
     # Neon signs (red and blue)
@@ -647,7 +662,7 @@ def generate_casino(w=LOT_W, h=24, d=LOT_D, seed=None):
     # Interior: red carpet floor
     grid[WALL_T:w-WALL_T, FLOOR_T:FLOOR_T+1, WALL_T:d-WALL_T] = PAINTED_RED
     # Upper floor windows
-    _add_windows_all_sides(grid, w, h, d, WALL_T, 14, 20, spacing=6, win_size=2, material=LIT_WINDOW)
+    _add_windows_all_sides(grid, w, h, d, WALL_T, 14, 20, spacing=6, win_size=2, material=WINDOW_GLASS)
     # Roof
     _add_flat_roof(grid, w, h, d, WALL_T, TAR)
     # Gold accent on parapet
@@ -667,7 +682,8 @@ def generate_speakeasy(w=LOT_W, h=18, d=LOT_D, seed=None):
     _add_basement_foundation(grid, w, d, WALL_T)
     _hollow_interior(grid, w, h, d, WALL_T, FLOOR_T)
     # Small window (not obvious)
-    grid[w//2-2:w//2+2, 4:7, :WALL_T] = WINDOW_GLASS
+    grid[w//2-2:w//2+2, 4:7, 0] = WINDOW_GLASS
+    grid[w//2-2:w//2+2, 4:7, 1:WALL_T] = AIR
     # Plain door (standard 4v tall, 4v wide)
     dx = w // 2 - 2
     grid[dx:dx+4, 1:5, :WALL_T] = PAINTED_GREEN
@@ -675,7 +691,7 @@ def generate_speakeasy(w=LOT_W, h=18, d=LOT_D, seed=None):
     # Dark interior
     grid[WALL_T:w-WALL_T, FLOOR_T:FLOOR_T+1, WALL_T:d-WALL_T] = DARK_WOOD
     # Small upper windows (lit)
-    _add_windows_all_sides(grid, w, h, d, WALL_T, 10, 15, spacing=10, win_size=2, material=LIT_WINDOW)
+    _add_windows_all_sides(grid, w, h, d, WALL_T, 10, 15, spacing=10, win_size=2, material=WINDOW_GLASS)
     # Roof
     _add_flat_roof(grid, w, h, d, WALL_T, TAR)
     return grid

@@ -162,8 +162,11 @@ def analyze_building(btype, seed=42):
     print(f"\n  {'─'*56}")
     print(f"  BLOCK FIT ANALYSIS")
     print(f"  {'─'*56}")
-    block_w = 96  # 3 * 32
-    block_d = 96
+    # Canonical city block (CityMap3D.cs): 3x3 grid of 64v building slots
+    # + sidewalk border = 192v side. Assets at 192x192 are full-block
+    # mega-buildings (e.g. tenement_block); single-lot buildings fit one 64v slot.
+    block_w = 192  # 3 * 64
+    block_d = 192
     if w > block_w or d > block_d:
         print(f"  ⚠️  OVERSIZED: {w}x{d} exceeds block {block_w}x{block_d}")
         print(f"     Overrun: {w - block_w}v X, {d - block_d}v Z")

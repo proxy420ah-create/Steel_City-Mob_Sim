@@ -369,9 +369,10 @@
   <div class="meta">
     <span style="color:var(--green);">● Foundations Complete</span> &nbsp;|&nbsp;
     <span style="color:var(--green);">● GPU Animation Pipeline Complete</span> &nbsp;|&nbsp;
-    <span style="color:var(--green);">● Per-Instance Clothing Complete</span> &nbsp;|&nbsp;
-    <span style="color:var(--accent);">● Simulation In Progress</span> &nbsp;|&nbsp;
-    <span style="color:var(--cyan);">● GPU Rendering Optimization In Progress</span> &nbsp;|&nbsp;
+    <span style="color:var(--green);">● 32×32 City Live</span> &nbsp;|&nbsp;
+    <span style="color:var(--green);">● Asset Lifecycle + Toolchain Complete</span> &nbsp;|&nbsp;
+    <span style="color:var(--accent);">● Vehicles &amp; Seating In Progress</span> &nbsp;|&nbsp;
+    <span style="color:var(--accent);">● Gang Simulation In Progress</span> &nbsp;|&nbsp;
     <span style="color:var(--text-dim);">● Content Expansion Planned</span>
   </div>
 </div>
@@ -385,7 +386,7 @@
       <p style="margin: 4px 0 0 0; color: var(--text-dim); font-size: 0.9em;">
         This roadmap must be updated whenever new features are discussed, design documents are created, or phases change status.
         If you're working on a design doc or brainstorming a new system, update the corresponding phase here afterward.
-        Last review: <strong>Aug 14, 2026</strong> — Per-instance clothing system COMPLETE. Each instanced character can wear a unique outfit (material remap per instance, 1 draw call). Consolidated character spawning: Vinny → Civilians/Civilian_01+02. Debug HUD character selector for hotkey isolation. Commit 457393f.
+        Last review: <strong>Oct 9, 2026</strong> — Full refresh after ~8 weeks of unrecorded work. New since Aug 14: character asset lifecycle pipeline (handedness promote/demote contract, CharacterAssets registry, attachment points + weapon mount + IK aim), voxel editor toolchain (vehicle asset type, Unity-view mirror, real-voxel attach tagging), vehicle system (490 touring, parking map, lane convergence, patrol), FlowField navigation, first real order (Target Practice), Sitting pose + seat anchors. Next: runtime seat alignment, then continue gang sim / 120 fps perf target.
       </p>
     </div>
   </div>
@@ -394,9 +395,9 @@
 <!-- ========================= PROGRESS BAR ========================= -->
 <div class="progress-section">
   <div class="overall-bar">
-    <div class="overall-fill" style="width: 80%;">80%</div>
+    <div class="overall-fill" style="width: 85%;">85%</div>
   </div>
-  <div class="overall-label">Vertical Slice Completion — Foundations ✅ → GPU Animation ✅ → Simulation ✅ → Polish �</div>
+  <div class="overall-label">Vertical Slice Completion — Foundations ✅ → GPU Animation ✅ → Asset Pipeline ✅ → Vehicles/Seating 🔄 → Gang Sim 🔄 → Polish �</div>
 </div>
 
 <div class="container">
@@ -404,46 +405,44 @@
   <!-- ========================= STATS ========================= -->
   <div class="stats-grid">
     <div class="stat-card">
-      <div class="stat-num">45+</div>
+      <div class="stat-num">65+</div>
       <div class="stat-label">C# Scripts</div>
     </div>
     <div class="stat-card">
-      <div class="stat-num">230+</div>
-      <div class="stat-label">Voxel Models</div>
+      <div class="stat-num">40+</div>
+      <div class="stat-label">Voxel Assets</div>
     </div>
     <div class="stat-card">
-      <div class="stat-num">19</div>
+      <div class="stat-num">60+</div>
       <div class="stat-label">Doc Files</div>
     </div>
     <div class="stat-card">
-      <div class="stat-num">6</div>
+      <div class="stat-num">12</div>
       <div class="stat-label">Anim States</div>
     </div>
   </div>
 
   <!-- ========================= CURRENT WORK BANNER ========================= -->
   <div class="current-banner">
-    <h3><span class="pulse-dot"></span> Current Work — Per-Instance Clothing Complete + Gang Simulation Next</h3>
+    <h3><span class="pulse-dot"></span> Current Work — Vehicle Seating + Character Seat Anchor</h3>
     <div class="desc">
-      <strong>Per-Instance Clothing System COMPLETE:</strong> Each instanced character can now wear a unique outfit — material remapping per instance, all in a single draw call. CSPose compute shader applies per-instance remap via instanceMaterialRemapBuffer. ClothingSystem rewritten to use per-instance API (SetInstanceOutfit) instead of shared buffer modification.<br>
-      <strong>Consolidated Character Spawning:</strong> Replaced singleton "Vinny" with <code>Characters/Civilians/Civilian_01 + Civilian_02</code>. Both get CharacterRig with Controllable flag for hotkey routing. Debug HUD has dual selectors: green (character hotkey routing) + blue (outfit instance). Verified: blue/brown suits render correctly side-by-side, 3 instances in 1 draw call.<br>
-      <strong>Execution Phase Integration COMPLETE:</strong> Character walks with correct facing during working week simulation. modelFacingOffset fix (180→0) corrected backward walking. Execution phase UI: fullscreen camera, minimal TickHUD, accordion panels.<br>
-      <strong>City Generation COMPLETE:</strong> 3-phase pipeline in city_editor.html — Macro → Granular (zones+alleys+rail) → Buildings.<br>
-      <strong>Next:</strong> Gang simulation implementation (HoodAgent + HoodSpawner), UI refinements, more animation states.<br>
-      <strong>GPU Rendering:</strong> Phase 1 (TRS Cache) complete. Phase 2 (buffer pooling) pending. 6 invariant computation candidates pending.<br>
-      <strong>Gang Simulation:</strong> Design complete, awaiting implementation.
+      <strong>Sitting vertical slice LANDED:</strong> anim state 11 <code>Sit</code> (thighs forward ~83°, shins down, upright torso) wired end-to-end — <code>animParams.sitting</code> → CPU FK in <code>VoxelCharacterAnimator</code> → GPU kernels in both <code>CharacterPoseCompute.compute</code> and <code>VoxelProxyRaymarch.shader</code> (<code>_AnimStaticParams</code> grown 13→15 float4s). Character-side <code>seat</code> attachment anchor tagged on real pelvis voxels — the contract half of vehicle <code>seat_*</code> points. Flip parity in promote + demote.<br>
+      <strong>Next (seat alignment):</strong> port SKEL attachment reader to C# → align character <code>seat</code> → vehicle <code>seat_*</code> (position + facing) → dev hotkey to park Vinny in the driver seat → dynamic seat assignment. Benches drop out free (static "vehicle" with seat points).<br>
+      <strong>Parallel: 490 detailing</strong> — hand-authored in the editor's Unity-view mirror (<code>U</code>), real-voxel attach tagging (no marker blobs), iterative JSON→stasset loop.<br>
+      <strong>Perf gate:</strong> hold ~120 fps before further city expansion. GPU Rendering Phase 2+ (buffer pooling, indirect draws, GPU culling) still the lever.<br>
+      <strong>Gang sim continues:</strong> first real order live (Target Practice — walk → painted firing position → aim stance → firearms +2). Flow-field Dijkstra nav infrastructure in.
     </div>
     <div class="files">
+      <span class="file-chip">VoxelCharacterAnimator.cs</span>
       <span class="file-chip">CharacterPoseCompute.compute</span>
-      <span class="file-chip">VoxelChunkManager.cs</span>
-      <span class="file-chip">ClothingSystem.cs</span>
-      <span class="file-chip">CharacterRig.cs</span>
-      <span class="file-chip">DebugHUDManager.cs</span>
-      <span class="file-chip">CityMap3D.cs</span>
-      <span class="file-chip">CharacterAnimation.cs</span>
-      <span class="file-chip">EventPlayer.cs</span>
-      <span class="file-chip">PROCEDURAL_CLOTHING_CONCEPT.html</span>
-      <span class="file-chip">city_editor.html</span>
+      <span class="file-chip">VoxelProxyRaymarch.shader</span>
+      <span class="file-chip">CharacterAssets.cs</span>
+      <span class="file-chip">WeaponMount.cs</span>
+      <span class="file-chip">ArmAimSolver.cs</span>
+      <span class="file-chip">ParkingMap.cs</span>
+      <span class="file-chip">voxel_editor.html</span>
+      <span class="file-chip">character_animator.html</span>
+      <span class="file-chip">VEHICLE_VOXEL_ASSETS.md</span>
     </div>
   </div>
 
@@ -921,13 +920,16 @@
           <div class="feature-name">Verified Animation States</div>
           <div class="feature-tag done">DONE</div>
         </div>
-        <div class="feature-desc">5 animation states verified rendering correctly on GPU</div>
+        <div class="feature-desc">9 states shipped in Civilian1.json (12 enum slots; 6/7 Flinch/Fall reserved, 10 Aim Sweep)</div>
         <ul class="feature-items">
           <li class="check">T-Pose — rest pose renders correctly</li>
           <li class="check">Idle — static pose, no animation</li>
           <li class="check">Walking — full walk cycle with arm swing, leg stride, knee bend</li>
+          <li class="check">Aim Walk — armed locomotion variant</li>
           <li class="check">Looking — head yaw/pitch oscillation</li>
-          <li class="check">Aiming — arm reach + head tilt</li>
+          <li class="check">Aiming — arm reach + head tilt; IK aim solver overlays it live</li>
+          <li class="check">Down — prone/dead pose</li>
+          <li class="check">Sit (11) — thighs forward, shins down, upright torso; bench/vehicle seating</li>
           <li class="warn">Crouching — needs animator-side tuning</li>
         </ul>
       </div>
@@ -964,15 +966,15 @@
     </div>
   </div>
 
-  <!-- ========================= PHASE 4d: GANG SIMULATION (PLANNED) ========================= -->
+  <!-- ========================= PHASE 4d: GANG SIMULATION (IN PROGRESS) ========================= -->
   <div class="phase">
     <div class="phase-header">
-      <div class="phase-icon planned">🔲</div>
+      <div class="phase-icon current">�</div>
       <div class="phase-title">
         <h2>Phase 4d — Multi-Hood Gang Simulation</h2>
-        <div class="dates">Planned — ~40-50 hrs — Design doc + visual guide complete</div>
+        <div class="dates">In Progress — order pipeline live, first authored order shipped</div>
       </div>
-      <div class="phase-status planned">PLANNED</div>
+      <div class="phase-status current">IN PROGRESS</div>
     </div>
     <div class="features">
       <div class="feature planned">
@@ -1092,6 +1094,22 @@
           <li class="pending">1 DrawMeshInstanced call for all doors city-wide (no per-door draw calls)</li>
           <li class="pending">Swing state driven by sim events (NPCs entering/exiting buildings)</li>
           <li class="pending">Door voxel models separated from building .stasset files</li>
+        </ul>
+      </div>
+
+      <div class="feature planned">
+        <div class="feature-head">
+          <div class="feature-status-icon planned">○</div>
+          <div class="feature-name">Voxel Glass Shatter</div>
+          <div class="feature-tag planned">PLANNED</div>
+        </div>
+        <div class="feature-desc">Seeded bullet-hole + pane-cascade destruction — no physics, voxel→shard particles. Spec: <code>docs/systems/GLASS_SHATTER_MECHANIC.md</code></div>
+        <ul class="feature-items">
+          <li class="pending">P0 puncture: bullet hits pane → impact + ring-falloff removal (seeded), dirty-cell refresh</li>
+          <li class="pending">P1 dressing: shard burst from removal delta, cracked-halo material, sound by count</li>
+          <li class="pending">P2 pane semantics: gid pane tags → cascade-release; blast radius over gid clusters</li>
+          <li class="pending">P3 sim hooks: noise alert, LOS opening, persistent damage map, smash-and-grab hook</li>
+          <li class="pending">Generators emit pane gids (authoring contract); reinforced flag for unbreakable glass</li>
         </ul>
       </div>
 

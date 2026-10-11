@@ -105,6 +105,8 @@ body.ui-hidden #left-panel,
 body.ui-hidden #right-panel,
 body.ui-hidden #status-bar,
 body.ui-hidden #adv-panel { display:none !important; }
+body.ui-hidden #ruler-panel { display:none !important; }
+body.ui-hidden #paste-controls { display:none !important; }
 #ui-hidden-hint {
   position:fixed; bottom:10px; right:10px; z-index:90;
   font-size:11px; color:#888; background:#1a1a2e;
@@ -228,10 +230,14 @@ body.ui-hidden #ui-hidden-hint { display:block; }
 </style>
 </head>
 <body>
-<div id="editor-nav"><a href="character_pipeline.html">Pipeline</a><a href="voxel_editor.html" class="current">Voxel Editor</a><a href="character_animator.html">Animator</a><a href="city_editor.html">City Editor</a></div>
+<div id="editor-nav"><a href="voxel_editor.html" class="current">Voxel Editor</a><a href="character_animator.html">Animator</a><a href="city_editor.html">City Editor</a></div>
 <div id="canvas-container"></div>
 <div id="ui-hidden-hint">press H to show UI</div>
-<div id="unity-mirror-badge" style="display:none;position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:95;background:rgba(40,20,60,0.85);border:1px solid #a6f;color:#c9f;padding:3px 12px;border-radius:10px;font-size:11px;pointer-events:none;">◐ UNITY VIEW — mirrored like Unity renders (press U to exit)</div>
+<div id="ruler-labels" style="position:fixed;inset:0;z-index:94;pointer-events:none;overflow:hidden;"></div>
+<div id="top-badges" style="position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:95;display:flex;gap:8px;pointer-events:none;">
+  <div id="file-badge" style="background:rgba(20,40,60,0.85);border:1px solid #48f;color:#bdf;padding:3px 12px;border-radius:10px;font-size:11px;">— no file loaded —</div>
+  <div id="unity-mirror-badge" style="display:none;background:rgba(40,20,60,0.85);border:1px solid #a6f;color:#c9f;padding:3px 12px;border-radius:10px;font-size:11px;">◐ UNITY VIEW — mirrored like Unity renders (press U to exit)</div>
+</div>
 
 <!-- Toolbar -->
 <div id="toolbar">
@@ -272,7 +278,7 @@ body.ui-hidden #ui-hidden-hint { display:block; }
   <button class="tool-btn" onclick="copySelection()" title="Copy Selection">📋</button>
   <button class="tool-btn" onclick="pasteSelection()" title="Paste (preview + move)">📌</button>
   <button class="tool-btn" onclick="moveSelection()" title="Move Selection (V)">↭</button>
-  <button class="tool-btn" onclick="deleteSelection()" title="Delete Selection">🗑</button>
+  <button class="tool-btn" onclick="deleteSelection()" title="Delete Selection (Del)">🗑</button>
   <div class="tool-sep"></div>
   <button class="tool-btn" id="mirror-btn" title="Mirror Settings">🪞</button>
   <button class="tool-btn" id="replace-btn" title="Replace Material">🔄</button>
@@ -385,11 +391,37 @@ body.ui-hidden #ui-hidden-hint { display:block; }
       <input type="color" id="scene-bg-picker" value="#1a1a2e" title="Change scene background color" style="width:24px;height:20px;border:1px solid #444;border-radius:3px;cursor:pointer;background:transparent;">
       <input type="checkbox" id="show-grid-toggle" checked title="Toggle floor grid" style="cursor:pointer;margin-left:6px;">
       <label for="show-grid-toggle" style="font-size:11px;color:#888;">Grid</label>
-      <input type="checkbox" id="show-axes-toggle" checked title="Toggle XYZ compass" style="cursor:pointer;margin-left:6px;">
-      <label for="show-axes-toggle" style="font-size:11px;color:#888;">Axes</label>
       <input type="checkbox" id="unity-mirror-toggle" title="Unity view — mirrors the viewport left↔right like Unity renders it. Orbit/editing stay normal. 'U' hotkey. Auto-on for vehicle/building/prop, off for character." style="cursor:pointer;margin-left:6px;">
       <label for="unity-mirror-toggle" style="font-size:11px;color:#a6f;">Unity</label>
     </div>
+    <div style="margin-top:6px;display:flex;align-items:center;gap:6px;">
+      <input type="checkbox" id="show-axes-toggle" checked title="Toggle XYZ compass" style="cursor:pointer;">
+      <label for="show-axes-toggle" style="font-size:11px;color:#888;">Axes</label>
+      <input type="number" id="axes-scale" min="0.5" max="10" step="0.5" value="1" title="Compass axis size — scales length and thickness together" style="width:44px;height:16px;font-size:10px;background:#222;color:#ccc;border:1px solid #444;border-radius:3px;">
+      <input type="checkbox" id="axes-xray-toggle" title="X-Ray — draw axes through the model" style="cursor:pointer;margin-left:4px;">
+      <label for="axes-xray-toggle" style="font-size:11px;color:#888;">X-Ray</label>
+    </div>
+    <h3 style="margin-top:12px;font-size:12px;color:#0ff;">🎥 Camera</h3>
+    <div class="adv-row" style="gap:4px;">
+      <button class="console-btn" onclick="frameView('sel')" title="Frame the selection (key 0)">⛶ Sel</button>
+      <button class="console-btn" onclick="frameView('model')" title="Frame the whole model">⛶ All</button>
+      <button class="console-btn" onclick="orbitToCursor()" title="Move the orbit pivot to the voxel under the cursor (key T)">◎ Orbit→Cursor</button>
+    </div>
+    <div class="adv-row" style="gap:4px;margin-top:4px;">
+      <button class="console-btn" onclick="viewAxis('front')" title="Front view (key 1)">Front</button>
+      <button class="console-btn" onclick="viewAxis('side')" title="Side view (key 3)">Side</button>
+      <button class="console-btn" onclick="viewAxis('top')" title="Top view (key 7)">Top</button>
+      <button class="console-btn" onclick="viewAxis('iso')" title="Isometric (key 9)">Iso</button>
+    </div>
+    <div class="adv-row" style="gap:4px;margin-top:4px;">
+      <button class="console-btn" onclick="dollyCam(0.75)" title="Dolly in toward orbit target">🔍+</button>
+      <button class="console-btn" onclick="dollyCam(1.33)" title="Dolly out">🔍−</button>
+      <button class="console-btn" onclick="camSlot(0,event)" title="Camera bookmark 1 — click to go, Shift+click to save">B1</button>
+      <button class="console-btn" onclick="camSlot(1,event)" title="Camera bookmark 2 — click to go, Shift+click to save">B2</button>
+      <button class="console-btn" onclick="camSlot(2,event)" title="Camera bookmark 3 — click to go, Shift+click to save">B3</button>
+      <button class="console-btn" onclick="camSlot(3,event)" title="Camera bookmark 4 — click to go, Shift+click to save">B4</button>
+    </div>
+    <div style="font-size:9px;color:#888;margin-top:4px;">Wheel zooms to cursor | Shift+arrows=pan | 0=frame | T=orbit to voxel | 1/3/7/9=views</div>
     <h3 style="margin-top:12px;font-size:12px;color:#0ff;">Shortcuts</h3>
     <div style="font-size:10px;color:#888;line-height:1.6;">
       <b>P</b>=Place &nbsp; <b>E</b>=Erase &nbsp; <b>B</b>=Paint<br>
@@ -460,6 +492,7 @@ body.ui-hidden #ui-hidden-hint { display:block; }
           <option value="5">Crouch</option>
           <option value="8">Down</option>
           <option value="9">T-Pose</option>
+          <option value="11">Sit</option>
           <option value="10">Aim Sweep</option>
         </select>
       </div>
@@ -566,6 +599,7 @@ body.ui-hidden #ui-hidden-hint { display:block; }
 </div>
 <div id="status-bar">
   <span id="status-tool">Tool: Place</span>
+  <span id="status-axes" title="Compass axis colors"><b style="color:#ff3333;">X</b> <b style="color:#33ff33;">Y</b> <b style="color:#3333ff;">Z</b></span>
   <span id="status-coords">---, ---, ---</span>
   <span id="status-info">Ready</span>
   <span id="status-fps">0 FPS</span>
@@ -578,10 +612,10 @@ body.ui-hidden #ui-hidden-hint { display:block; }
     
     <div style="margin-bottom:16px;">
       <h3 style="font-size:13px;color:#0ff;margin-bottom:8px;">Save / Load Project</h3>
-      <p style="font-size:11px;color:#aaa;margin-bottom:8px;">Save your work to a JSON file and load it back later to continue editing.</p>
+      <p style="font-size:11px;color:#aaa;margin-bottom:8px;">Save Project downloads a .json file. Save As WIP stores it in the browser list below <i>and</i> downloads a copy (list quota ~5-10MB — big models go to file only). Load opens any saved .json.</p>
       <div class="btn-row">
         <button class="export-btn primary" onclick="saveProject()">💾 Save Project (.json)</button>
-        <button class="export-btn" onclick="saveAsProject()">📝 Save As…</button>
+        <button class="export-btn" onclick="saveAsProject()">📝 Save As WIP…</button>
         <button class="export-btn" onclick="document.getElementById('load-file-input').click()">📂 Load Project</button>
         <input type="file" id="load-file-input" accept=".json" style="display:none" onchange="loadProject(event)">
       </div>
@@ -640,7 +674,12 @@ body.ui-hidden #ui-hidden-hint { display:block; }
   <div class="adv-row">
     <button class="console-btn" onclick="clearSelection()">Clear Sel</button>
   </div>
-  <div id="paste-controls" style="display:none;margin-top:8px;border:1px solid #444;border-radius:6px;padding:8px;">
+</div>
+
+<!-- Paste controls — standalone fixed panel shown during paste/move mode
+     (was nested inside #adv-panel, which is display:none until the mirror
+     button opens it — the panel only appeared if that was already open) -->
+<div id="paste-controls" style="display:none;position:fixed;top:56px;left:488px;width:252px;background:rgba(0,0,0,0.8);border-radius:8px;padding:12px;z-index:88;">
     <div style="font-size:10px;color:#0ff;margin-bottom:6px;">📋 Paste Preview — Move & Confirm</div>
     <div class="adv-row" style="gap:4px;">
       <button class="console-btn" onclick="movePaste(-1,0,0)" style="padding:4px 8px;">X-</button>
@@ -658,13 +697,31 @@ body.ui-hidden #ui-hidden-hint { display:block; }
       <button class="console-btn" onclick="movePaste(0,0,-5)" style="padding:4px 8px;">Z-5</button>
       <button class="console-btn" onclick="movePaste(0,0,5)" style="padding:4px 8px;">Z+5</button>
     </div>
+    <div class="adv-row" style="gap:4px;margin-top:4px;">
+      <button class="console-btn" onclick="rotatePaste('y',-1)" style="padding:4px 8px;" title="Yaw −90° about piece center (key: ,)">↺Y</button>
+      <button class="console-btn" onclick="rotatePaste('y',1)" style="padding:4px 8px;" title="Yaw +90° about piece center (key: .)">↻Y</button>
+      <button class="console-btn" onclick="rotatePaste('x',-1)" style="padding:4px 8px;" title="Pitch −90° about piece center (key: ;)">↺X</button>
+      <button class="console-btn" onclick="rotatePaste('x',1)" style="padding:4px 8px;" title="Pitch +90° about piece center (key: ')">↻X</button>
+      <button class="console-btn" onclick="rotatePaste('z',-1)" style="padding:4px 8px;" title="Roll −90° about piece center (key: o)">↺Z</button>
+      <button class="console-btn" onclick="rotatePaste('z',1)" style="padding:4px 8px;" title="Roll +90° about piece center (key: p)">↻Z</button>
+    </div>
     <div class="adv-row" style="margin-top:6px;">
       <button class="mirror-btn" id="mirror-move" title="Mirrored move: cells past an active mirror plane get the reflected delta — X+ pushes both sides of a mirrored selection outward">⇄ Mirror Move</button>
       <button class="console-btn run" onclick="confirmPaste()">✅ Confirm</button>
       <button class="console-btn" onclick="cancelPaste()">❌ Cancel</button>
     </div>
-    <div style="font-size:9px;color:#888;margin-top:4px;">Arrow keys move | Enter=confirm | Esc=cancel | ⇄ = mirrored deltas</div>
+    <div style="font-size:9px;color:#888;margin-top:4px;">Arrows=ground plane (fwd/back too) | PgUp/PgDn=height | ,.=yaw ;'=pitch op=roll | Enter=confirm | Esc=cancel | ⇄ = mirrored deltas</div>
   </div>
+
+<!-- Ruler plants panel — standalone fixed panel, shows while the ruler
+     tool is selected (independent of #adv-panel, which is mirror-toggled) -->
+<div id="ruler-panel" style="display:none;position:fixed;top:56px;left:488px;width:240px;background:rgba(0,0,0,0.8);border-radius:8px;padding:12px;z-index:88;">
+  <div style="font-size:10px;color:#0ff;margin-bottom:6px;">📏 Planted Rulers (max 4)</div>
+  <div id="ruler-list"></div>
+  <div class="adv-row" style="margin-top:4px;">
+    <button class="console-btn" onclick="clearAllRulers()" title="Remove every planted ruler">Clear All</button>
+  </div>
+  <div style="font-size:9px;color:#888;margin-top:4px;">Click start → click end = plant | Shift=Y Ctrl=Z Alt=X lock | Plants survive ESC — clear only from here</div>
 </div>
 
 <!-- Replace material modal -->
@@ -1020,6 +1077,7 @@ const POSE_STATES = [
   { id: 8, name: 'Down', desc: 'Lying down / defeated' },
   { id: 9, name: 'T-Pose', desc: 'Bind/rest pose' },
   { id: 10, name: 'Aim Sweep', desc: 'Aiming pose — aiming arm(s) sweep left↔right (IK-aim shoulder exercise)' },
+  { id: 11, name: 'Sit', desc: 'Seated — thighs forward, shins bent down, torso upright, arms at sides' },
 ];
 
 // === DEFAULT ANIMATION PARAMETERS ===
@@ -1103,6 +1161,15 @@ const DEFAULT_PARAMS = {
     legStrideL: -1.15, legStrideR: 0.0,
     kneeBendL: 1.15, kneeBendR: 1.40,
   },
+  sitting: {
+    // State 11 — generic bench/vehicle seat pose. Thighs swing forward ~90°,
+    // shins fold down, torso stays upright (no bodyLower/modelLower — the
+    // seat anchor transform positions the pelvis at runtime).
+    headPitch: 0.0,
+    armSwingL: 0.2, armSwingR: 0.2,
+    legStrideL: 1.45, legStrideR: 1.45,
+    kneeBendL: 1.45, kneeBendR: 1.45,
+  },
 };
 
 // === WEAPON PRESETS ===
@@ -1152,6 +1219,8 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
   const isSweepState = animState === 10; // Aim Sweep — aiming pose + sweeping reach
   const isAimingState = (animState > 2.5 && animState < 4.5) || isSweepState;
   const isCrouchingState = (animState > 4.5 && animState < 5.5);
+  const isSittingState = (animState > 10.5 && animState < 11.5); // Sit (11)
+  const sitP = animParams.sitting || DEFAULT_PARAMS.sitting; // older files may lack the section
   const sw = animParams.aimSweep;
   const sweepYaw = (isSweepState && sw) ? Math.sin(animTime * sw.freq) * sw.amp : 0;
   const torsoTwist = isAimingState ? animParams.aiming.torsoTwist : 0;
@@ -1221,6 +1290,8 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
       headPitch = p2.headPitch; headTilt = p2.headTilt;
     } else if (animState > 4.5 && animState < 5.5) {
       headPitch = animParams.crouching.headPitch;
+    } else if (isSittingState) {
+      headPitch = sitP.headPitch;
     } else {
       ownRot = identity;
     }
@@ -1238,6 +1309,8 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
       reach = animParams.aiming.shoulderReachL + (swing !== 0 ? sweepYaw : 0);
     } else if (animState > 4.5 && animState < 5.5) {
       swing = as.signL * animParams.crouching.armSwingL;
+    } else if (isSittingState) {
+      swing = as.signL * sitP.armSwingL;
     } else {
       ownRot = rotationZ(animParams.restPose.leftArmZ);
     }
@@ -1256,6 +1329,8 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
       reach = animParams.aiming.shoulderReachR + (swing !== 0 ? sweepYaw : 0);
     } else if (animState > 4.5 && animState < 5.5) {
       swing = as.signR * animParams.crouching.armSwingR;
+    } else if (isSittingState) {
+      swing = as.signR * sitP.armSwingR;
     } else {
       ownRot = rotationZ(animParams.restPose.rightArmZ);
     }
@@ -1271,6 +1346,8 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
       stride = ls.signL * wp.pose.legStrideL;
     } else if (animState > 4.5 && animState < 5.5) {
       stride = ls.signL * animParams.crouching.legStrideL;
+    } else if (isSittingState) {
+      stride = ls.signL * sitP.legStrideL;
     } else {
       ownRot = rotationY(twist);
     }
@@ -1284,6 +1361,8 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
       stride = ls.signR * wp.pose.legStrideR;
     } else if (animState > 4.5 && animState < 5.5) {
       stride = ls.signR * animParams.crouching.legStrideR;
+    } else if (isSittingState) {
+      stride = ls.signR * sitP.legStrideR;
     } else {
       ownRot = rotationY(twist);
     }
@@ -1322,6 +1401,8 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
       bend = kb.signL * wp.pose.kneeBendL;
     } else if (animState > 4.5 && animState < 5.5) {
       bend += kb.signL * animParams.crouching.kneeBendL;
+    } else if (isSittingState) {
+      bend += kb.signL * sitP.kneeBendL;
     }
     ownRot = rotationByAxis(kb.axisL, bend);
   } else if (gid === 7) {
@@ -1332,6 +1413,8 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
       bend = kb.signR * wp.pose.kneeBendR;
     } else if (animState > 4.5 && animState < 5.5) {
       bend += kb.signR * animParams.crouching.kneeBendR;
+    } else if (isSittingState) {
+      bend += kb.signR * sitP.kneeBendR;
     }
     ownRot = rotationByAxis(kb.axisR, bend);
   }
@@ -1512,7 +1595,7 @@ const initialVoxels = []; // startup scene removed (was a 1.7MB baked-in tower);
 // NOTE: was `const` — but load*() functions below reassign this when a
 // project file carries its own material palette (data.materials), which
 // threw "invalid assignment to const" and aborted the whole load. Must be `let`.
-let allMaterials = [{"id": 100, "name": "Red Brick", "r": 147, "g": 66, "b": 51, "hex": "#934233"}, {"id": 101, "name": "Stone", "r": 122, "g": 107, "b": 86, "hex": "#7a6b56"}, {"id": 102, "name": "Concrete", "r": 147, "g": 147, "b": 137, "hex": "#939389"}, {"id": 103, "name": "Stucco", "r": 209, "g": 204, "b": 188, "hex": "#d1ccbc"}, {"id": 104, "name": "Asphalt", "r": 45, "g": 45, "b": 51, "hex": "#2d2d33"}, {"id": 105, "name": "Cobblestone", "r": 107, "g": 96, "b": 86, "hex": "#6b6056"}, {"id": 106, "name": "Dark Wood", "r": 76, "g": 45, "b": 25, "hex": "#4c2d19"}, {"id": 107, "name": "Light Wood", "r": 153, "g": 107, "b": 63, "hex": "#996b3f"}, {"id": 108, "name": "Weathered Wood", "r": 107, "g": 91, "b": 66, "hex": "#6b5b42"}, {"id": 109, "name": "Dark Iron", "r": 71, "g": 61, "b": 56, "hex": "#473d38"}, {"id": 110, "name": "Aged Metal", "r": 107, "g": 102, "b": 91, "hex": "#6b665b"}, {"id": 111, "name": "Painted Metal", "r": 229, "g": 224, "b": 209, "hex": "#e5e0d1"}, {"id": 112, "name": "Window Glass", "r": 114, "g": 140, "b": 165, "hex": "#728ca5"}, {"id": 113, "name": "Lit Window", "r": 242, "g": 216, "b": 127, "hex": "#f2d87f"}, {"id": 114, "name": "Storefront Glass", "r": 140, "g": 165, "b": 178, "hex": "#8ca5b2"}, {"id": 115, "name": "Neon Red", "r": 242, "g": 38, "b": 38, "hex": "#f22626"}, {"id": 116, "name": "Neon Blue", "r": 38, "g": 76, "b": 242, "hex": "#264cf2"}, {"id": 117, "name": "Neon Green", "r": 38, "g": 216, "b": 63, "hex": "#26d83f"}, {"id": 118, "name": "Tar", "r": 71, "g": 61, "b": 51, "hex": "#473d33"}, {"id": 119, "name": "Terracotta", "r": 140, "g": 81, "b": 51, "hex": "#8c5133"}, {"id": 120, "name": "Painted Red", "r": 114, "g": 30, "b": 25, "hex": "#721e19"}, {"id": 121, "name": "Painted Green", "r": 38, "g": 71, "b": 45, "hex": "#26472d"}, {"id": 122, "name": "Painted Brown", "r": 56, "g": 30, "b": 20, "hex": "#381e14"}, {"id": 123, "name": "Gold/Brass", "r": 198, "g": 158, "b": 51, "hex": "#c69e33"}, {"id": 124, "name": "Lamp Glow", "r": 255, "g": 216, "b": 127, "hex": "#ffd87f"}, {"id": 125, "name": "Flesh", "r": 209, "g": 173, "b": 140, "hex": "#d1ad8c"}, {"id": 126, "name": "Black Fabric", "r": 15, "g": 15, "b": 17, "hex": "#0f0f11"}, {"id": 127, "name": "White Fabric", "r": 224, "g": 219, "b": 209, "hex": "#e0dbd1"}, {"id": 128, "name": "Hair", "r": 30, "g": 20, "b": 15, "hex": "#1e140f"}, {"id": 129, "name": "Painted Blue", "r": 30, "g": 51, "b": 114, "hex": "#1e3372"}, {"id": 130, "name": "Red Fabric", "r": 160, "g": 30, "b": 30, "hex": "#a01e1e"}, {"id": 131, "name": "Brown Flesh", "r": 180, "g": 130, "b": 100, "hex": "#b48264"}, {"id": 132, "name": "Eye", "r": 20, "g": 20, "b": 35, "hex": "#141423"}, {"id": 133, "name": "Green Fabric", "r": 30, "g": 100, "b": 40, "hex": "#1e6428"}, {"id": 140, "name": "Vehicle Paint", "r": 58, "g": 125, "b": 92, "hex": "#3a7d5c", "category": "vehicle"}, {"id": 141, "name": "Vehicle Accent", "r": 35, "g": 40, "b": 38, "hex": "#232826", "category": "vehicle"}, {"id": 142, "name": "Chrome", "r": 192, "g": 200, "b": 208, "hex": "#c0c8d0", "category": "vehicle"}, {"id": 143, "name": "Tire Rubber", "r": 45, "g": 45, "b": 48, "hex": "#2d2d30", "category": "vehicle"}, {"id": 144, "name": "Headlight", "r": 245, "g": 230, "b": 175, "hex": "#f5e6af", "category": "vehicle"}, {"id": 145, "name": "Taillight", "r": 180, "g": 40, "b": 35, "hex": "#b42823", "category": "vehicle"}, {"id": 146, "name": "Interior Leather", "r": 107, "g": 74, "b": 47, "hex": "#6b4a2f", "category": "vehicle"}, {"id": 147, "name": "Auto Glass", "r": 150, "g": 170, "b": 185, "hex": "#96aab9", "category": "vehicle"}];
+let allMaterials = [{"id": 100, "name": "Red Brick", "r": 147, "g": 66, "b": 51, "hex": "#934233"}, {"id": 101, "name": "Stone", "r": 122, "g": 107, "b": 86, "hex": "#7a6b56"}, {"id": 102, "name": "Concrete", "r": 147, "g": 147, "b": 137, "hex": "#939389"}, {"id": 103, "name": "Stucco", "r": 209, "g": 204, "b": 188, "hex": "#d1ccbc"}, {"id": 104, "name": "Asphalt", "r": 45, "g": 45, "b": 51, "hex": "#2d2d33"}, {"id": 105, "name": "Cobblestone", "r": 107, "g": 96, "b": 86, "hex": "#6b6056"}, {"id": 106, "name": "Dark Wood", "r": 76, "g": 45, "b": 25, "hex": "#4c2d19"}, {"id": 107, "name": "Light Wood", "r": 153, "g": 107, "b": 63, "hex": "#996b3f"}, {"id": 108, "name": "Weathered Wood", "r": 107, "g": 91, "b": 66, "hex": "#6b5b42"}, {"id": 109, "name": "Dark Iron", "r": 71, "g": 61, "b": 56, "hex": "#473d38"}, {"id": 110, "name": "Aged Metal", "r": 107, "g": 102, "b": 91, "hex": "#6b665b"}, {"id": 111, "name": "Painted Metal", "r": 229, "g": 224, "b": 209, "hex": "#e5e0d1"}, {"id": 112, "name": "Window Glass", "r": 114, "g": 140, "b": 165, "hex": "#728ca5"}, {"id": 113, "name": "Lit Window (deprecated)", "r": 114, "g": 140, "b": 165, "hex": "#728ca5"}, {"id": 114, "name": "Storefront Glass", "r": 140, "g": 165, "b": 178, "hex": "#8ca5b2"}, {"id": 115, "name": "Neon Red", "r": 242, "g": 38, "b": 38, "hex": "#f22626"}, {"id": 116, "name": "Neon Blue", "r": 38, "g": 76, "b": 242, "hex": "#264cf2"}, {"id": 117, "name": "Neon Green", "r": 38, "g": 216, "b": 63, "hex": "#26d83f"}, {"id": 118, "name": "Tar", "r": 71, "g": 61, "b": 51, "hex": "#473d33"}, {"id": 119, "name": "Terracotta", "r": 140, "g": 81, "b": 51, "hex": "#8c5133"}, {"id": 120, "name": "Painted Red", "r": 114, "g": 30, "b": 25, "hex": "#721e19"}, {"id": 121, "name": "Painted Green", "r": 38, "g": 71, "b": 45, "hex": "#26472d"}, {"id": 122, "name": "Painted Brown", "r": 56, "g": 30, "b": 20, "hex": "#381e14"}, {"id": 123, "name": "Gold/Brass", "r": 198, "g": 158, "b": 51, "hex": "#c69e33"}, {"id": 124, "name": "Lamp Glow", "r": 255, "g": 216, "b": 127, "hex": "#ffd87f"}, {"id": 125, "name": "Flesh", "r": 209, "g": 173, "b": 140, "hex": "#d1ad8c"}, {"id": 126, "name": "Black Fabric", "r": 15, "g": 15, "b": 17, "hex": "#0f0f11"}, {"id": 127, "name": "White Fabric", "r": 224, "g": 219, "b": 209, "hex": "#e0dbd1"}, {"id": 128, "name": "Hair", "r": 30, "g": 20, "b": 15, "hex": "#1e140f"}, {"id": 129, "name": "Painted Blue", "r": 30, "g": 51, "b": 114, "hex": "#1e3372"}, {"id": 130, "name": "Red Fabric", "r": 160, "g": 30, "b": 30, "hex": "#a01e1e"}, {"id": 131, "name": "Brown Flesh", "r": 180, "g": 130, "b": 100, "hex": "#b48264"}, {"id": 132, "name": "Eye", "r": 20, "g": 20, "b": 35, "hex": "#141423"}, {"id": 133, "name": "Green Fabric", "r": 30, "g": 100, "b": 40, "hex": "#1e6428"}, {"id": 140, "name": "Vehicle Paint", "r": 58, "g": 125, "b": 92, "hex": "#3a7d5c", "category": "vehicle"}, {"id": 141, "name": "Vehicle Accent", "r": 35, "g": 40, "b": 38, "hex": "#232826", "category": "vehicle"}, {"id": 142, "name": "Chrome", "r": 192, "g": 200, "b": 208, "hex": "#c0c8d0", "category": "vehicle"}, {"id": 143, "name": "Tire Rubber", "r": 45, "g": 45, "b": 48, "hex": "#2d2d30", "category": "vehicle"}, {"id": 144, "name": "Headlight", "r": 245, "g": 230, "b": 175, "hex": "#f5e6af", "category": "vehicle"}, {"id": 145, "name": "Taillight", "r": 180, "g": 40, "b": 35, "hex": "#b42823", "category": "vehicle"}, {"id": 146, "name": "Interior Leather", "r": 107, "g": 74, "b": 47, "hex": "#6b4a2f", "category": "vehicle"}, {"id": 147, "name": "Auto Glass", "r": 150, "g": 170, "b": 185, "hex": "#96aab9", "category": "vehicle"}];
 // Tag the legacy combined palette with a category (ids 100-124 were building
 // materials, 125-133 are character materials) so the material picker can
 // filter per Asset Type. This never removes an id from the lookup table —
@@ -1570,8 +1653,51 @@ function inferAssetType(w, h, d) {
 let originOffsetX = -W / 2;
 let originOffsetZ = -D / 2;
 
+// === EDIT TRACKING (dirty cells + undo delta) ===
+// Every write through the tracked maps marks the cell dirty so rebuildMesh()
+// can update only the touched instance slots on small edits instead of
+// re-uploading the whole mesh (~O(voxels) — hurt visibly at 765k).
+const voxDirty = new Set();
+let _voxForceFull = false;
+// _deltaPending records each cell's PRE-write voxel value between pushes so
+// history stores a delta instead of cloning the whole voxelMap per edit.
+// Suspended while undo/redo applies an entry. Tag maps are small — history
+// still clones them, tracking them only feeds the incremental mesh path.
+const ABSENT = Symbol('absent');
+let _suspendDelta = 0;
+let _deltaPending = new Map();
+class TrackedVoxelMap extends Map {
+  set(k, v) {
+    voxDirty.add(k);
+    if (!_suspendDelta && !_deltaPending.has(k)) _deltaPending.set(k, this.has(k) ? this.get(k) : ABSENT);
+    return super.set(k, v);
+  }
+  delete(k) {
+    voxDirty.add(k);
+    if (!_suspendDelta && !_deltaPending.has(k)) _deltaPending.set(k, this.has(k) ? this.get(k) : ABSENT);
+    return super.delete(k);
+  }
+  clear() {
+    _voxForceFull = true;
+    if (!_suspendDelta) for (const [k, v] of this) { if (!_deltaPending.has(k)) _deltaPending.set(k, v); }
+    return super.clear();
+  }
+}
+class TrackedTagMap extends Map {
+  set(k, v)    { voxDirty.add(k); return super.set(k, v); }
+  delete(k)    { voxDirty.add(k); return super.delete(k); }
+  clear()      { if (this.size) _voxForceFull = true; return super.clear(); }
+}
+// Visibility/mode maps don't change voxels, but a write invalidates every
+// untouched instance slot too — force the full-rebuild path.
+class FlagMap extends Map {
+  set(k, v)    { _voxForceFull = true; return super.set(k, v); }
+  delete(k)    { _voxForceFull = true; return super.delete(k); }
+  clear()      { _voxForceFull = true; return super.clear(); }
+}
+
 // Voxel store: Map of "x,y,z" -> materialId
-const voxelMap = new Map();
+const voxelMap = new TrackedVoxelMap();
 for (const v of initialVoxels) {
   voxelMap.set(`${v[0]},${v[1]},${v[2]}`, v[3]);
 }
@@ -1608,10 +1734,10 @@ for (const g of VEHICLE_GROUPS) GROUP_COLORS[g.id] = g.color;
 function activeBodyGroups() {
   return assetType === 'vehicle' ? VEHICLE_GROUPS : BODY_GROUPS;
 }
-const groupMap = new Map(); // "x,y,z" -> groupId
+const groupMap = new TrackedTagMap(); // "x,y,z" -> groupId
 let selectedGroup = 1; // default to Head
 let groupViewMode = false; // when true, render by group color
-const groupVisible = new Map(); // gid -> bool — 👁 toggles in the group list
+const groupVisible = new FlagMap(); // gid -> bool — 👁 toggles in the group list
 for (const g of BODY_GROUPS) groupVisible.set(g.id, true);
 
 function updateGroupCounts() {
@@ -1945,7 +2071,7 @@ function exportGroupsJSON() {
   }
   const data = {
     groups: groupsObj,
-    bodyGroups: BODY_GROUPS,
+    bodyGroups: activeBodyGroups(),
     materials: allMaterials,
   };
   const json = JSON.stringify(data, null, 2);
@@ -2039,7 +2165,7 @@ for (const r of VEHICLE_REGIONS) CLOTHING_REGION_COLORS[r.id] = r.color;
 function activeClothingRegions() {
   return assetType === 'vehicle' ? VEHICLE_REGIONS : CLOTHING_REGIONS;
 }
-const clothingRegionMap = new Map(); // "x,y,z" -> regionId
+const clothingRegionMap = new TrackedTagMap(); // "x,y,z" -> regionId
 const UNASSIGNED_REGION_ID = -1; // picker sentinel — 'Unassigned' acts as an eraser (deletes the tag)
 function clothingRegionName(rid) {
   if (rid === undefined || rid === UNASSIGNED_REGION_ID) return 'Unassigned';
@@ -2246,6 +2372,10 @@ const CHAR_ATTACH_GROUPS = [
   { id: 12, name: 'Pivot Knee R',     key: 'pivot_7', color: '#2266ff', desc: 'Right shin knee joint — gid 7' },
   { id: 13, name: 'Pivot Elbow L',    key: 'pivot_8', color: '#ff8844', desc: 'Left forearm elbow joint — gid 8' },
   { id: 14, name: 'Pivot Elbow R',    key: 'pivot_9', color: '#ff6622', desc: 'Right forearm elbow joint — gid 9' },
+  // Seat anchor — the character-side half of the seat contract. Paint a
+  // small cluster on the real butt/pelvis voxels; the centroid is where a
+  // vehicle/bench `seat_*` point aligns when the character sits (state 11).
+  { id: 15, name: 'Seat',             key: 'seat',    color: '#44aaff', desc: 'Pelvis/butt contact anchor — vehicle/bench seat_* aligns here while sitting' },
 ];
 // Building event/position points — static-volume markers consumed by sim logic
 // (pathing destinations, facing references, aim targets). Same attachmentPoints
@@ -2275,13 +2405,17 @@ function partName(pid) {
   const g = activePartGroups().find(d => d.id === pid);
   return g ? g.name : String(pid);
 }
-const itemPartMap = new Map(); // "x,y,z" -> partId
+const itemPartMap = new TrackedTagMap(); // "x,y,z" -> partId
 let selectedItemPart = 1; // default to Grip Right
 let itemPartViewMode = false;
 // Filename stem of the currently-loaded model (e.g. 'Civilian1', 'SW_Model_10').
 // Set by all load paths; drives `name` in exports + the download filename so
 // an exported file is a drop-in replacement for the file it came from.
 let loadedModelName = null;
+function updateFilePill() {
+  document.getElementById('file-badge').textContent =
+    loadedModelName ? '📄 ' + loadedModelName : '— no file loaded —';
+}
 // Animation metadata preserved from the loaded file (pivots / animParams /
 // states). The editor doesn't edit these, but exports must carry them or the
 // FK pose chain falls back to defaults and limbs drift.
@@ -2321,6 +2455,8 @@ function hdFlipAnimParams(p) {
   }
   const c = p.crouching;
   if (c) for (const base of ['armSwing', 'legStride', 'kneeBend']) hdSwapKeys(c, base + 'L', base + 'R');
+  const si = p.sitting;
+  if (si) for (const base of ['armSwing', 'legStride', 'kneeBend']) hdSwapKeys(si, base + 'L', base + 'R');
   const lt = p.legTwist;
   if (lt) { hdSwapKeys(lt, 'leftRest', 'rightRest'); hdNeg(lt, 'leftRest'); hdNeg(lt, 'rightRest'); }
   for (const sec of ['elbowBend', 'kneeBend']) { const s = p[sec]; if (s) hdSwapKeys(s, 'leftRest', 'rightRest'); }
@@ -2827,6 +2963,7 @@ function loadBaseTemplate() {
         if (!data.dims || !data.voxels) throw new Error('Invalid file');
         demoteIfUnity(data);
         loadedModelName = file.name.replace(/\.(character\.)?json$/i, '');
+        updateFilePill();
         loadedAnimData = {};
         for (const k of ['pivots', 'animParams', 'states']) {
           if (data[k] !== undefined) loadedAnimData[k] = data[k];
@@ -2848,7 +2985,7 @@ function loadBaseTemplate() {
         originOffsetX = -W / 2;
         originOffsetZ = -D / 2;
         rebuildVolumeVisuals();
-        initialCamPos.set(W * 2, H * 1.5, D * 2);
+        initialCamPos.set(W * 2, H * 1.5, -D * 2);
         camera.position.copy(initialCamPos);
         controls.target.set(0, H / 2, 0);
         controls.update();
@@ -2986,6 +3123,25 @@ document.getElementById('show-axes-toggle').onchange = function() {
   if (compassGroup) compassGroup.visible = showAxes;
   localStorage.setItem('voxelEditorShowAxes', showAxes ? '1' : '0');
 };
+// Compass axis scale — one spinner grows length AND thickness together
+// (thickness is proportional to length, so the axes keep their shape).
+let axisScale = parseFloat(localStorage.getItem('voxelEditorAxisScale') || '1') || 1;
+document.getElementById('axes-scale').value = axisScale;
+document.getElementById('axes-scale').oninput = function() {
+  const v = parseFloat(this.value);
+  if (!isFinite(v) || v <= 0) return;
+  axisScale = v;
+  localStorage.setItem('voxelEditorAxisScale', String(v));
+  buildCompass();
+};
+// X-Ray toggle — axes draw through the model instead of being occluded.
+let axesXRay = localStorage.getItem('voxelEditorAxesXRay') === '1';
+document.getElementById('axes-xray-toggle').checked = axesXRay;
+document.getElementById('axes-xray-toggle').onchange = function() {
+  axesXRay = this.checked;
+  localStorage.setItem('voxelEditorAxesXRay', axesXRay ? '1' : '0');
+  buildCompass();
+};
 
 // === UNITY VIEW (mirrored preview) ===
 // The editor is right-handed and Unity left-handed, so the same voxel indices
@@ -3028,7 +3184,7 @@ function unmirrorWorldX(wx) {
 }
 
 const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 5000);
-const initialCamPos = new THREE.Vector3(W * 2, H * 1.5, D * 2);
+const initialCamPos = new THREE.Vector3(W * 2, H * 1.5, -D * 2);
 camera.position.copy(initialCamPos);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -3039,6 +3195,7 @@ document.getElementById('canvas-container').appendChild(renderer.domElement);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.1;
+controls.zoomToCursor = true; // wheel dollies toward the point under the cursor
 controls.target.set(0, H / 2, 0);
 // Remap mouse buttons: Left=free for tools, Middle=Rotate, Right=Pan, Zoom=scroll only
 controls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.PAN };
@@ -3163,12 +3320,24 @@ function buildCompass() {
   // Y = -0.5 to sit on the ground surface (bottom face of Y=0 voxels), matching
   // the grid floor.
   grp.position.set(c.x - 0.5, -0.5, c.z - 0.5);
-  const L = Math.max(W, H, D) * 0.25;
+  const L = Math.max(W, H, D) * 0.25 * axisScale;
+  // Cylinders, not Lines — WebGL ignores line width, so a real mesh is needed
+  // for the spinner to thicken the axes. Radius tracks length (axisScale)
+  // so the triad scales uniformly.
+  const r = Math.max(0.04, L * 0.006);
+  const up = new THREE.Vector3(0, 1, 0);
   const mkAxis = (color, dir) => {
-    const geo = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(0, 0, 0), dir.clone().multiplyScalar(L)
-    ]);
-    return new THREE.Line(geo, new THREE.LineBasicMaterial({ color }));
+    const geo = new THREE.CylinderGeometry(r, r, L, 8);
+    // X-Ray: depthTest off alone isn't enough — the opaque model would still
+    // overdraw the axes wherever it's nearer. transparent:true moves the axes
+    // into the post-opaque pass and renderOrder keeps them under the
+    // selection-shell overlay (998/999).
+    const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+      color, depthTest: !axesXRay, transparent: axesXRay }));
+    if (axesXRay) mesh.renderOrder = 997;
+    mesh.quaternion.setFromUnitVectors(up, dir);
+    mesh.position.copy(dir).multiplyScalar(L / 2);
+    return mesh;
   };
   grp.add(mkAxis(0xff3333, new THREE.Vector3(1, 0, 0)));
   grp.add(mkAxis(0x33ff33, new THREE.Vector3(0, 1, 0)));
@@ -3223,11 +3392,13 @@ const pointer = new THREE.Vector2();
 const dummyMatrix = new THREE.Matrix4();
 
 // === HIGHLIGHT SYSTEM ===
-// Multi-voxel highlight using a separate InstancedMesh
-const hlGeo = new THREE.BoxGeometry(1.05, 1.05, 1.05);
+// Region highlights render as a surface "shell": a dim translucent fill of
+// the region's exterior faces plus a contour wireframe of only its outline
+// edges — instead of a per-voxel InstancedMesh pair (which rebuilt ~2×N
+// instances every mousemove and choked on large selections). Both layers
+// use depthTest:false so the highlight stays visible through the model.
 let hlMesh = null;
 let hlEdgesMesh = null;
-let hlEdgesMesh2 = null; // for selection overlay when using other tools
 
 const TOOL_COLORS = {
   place: 0x00ff00,    // green
@@ -3246,31 +3417,154 @@ const TOOL_COLORS = {
   itempart: 0x00ddff, // cyan
 };
 
+const HL_FILL_OPACITY = 0.12;
+// Above this voxel count, skip shell extraction and draw a plain bounding
+// box instead (e.g. box-tool previews spanning the whole volume).
+const HL_SHELL_LIMIT = 150000;
+
+// Per-face data for shell extraction: neighbor delta, the axis the face
+// normal runs along, and 4 perimeter corners (consecutive pairs = edges).
+const HL_FACES = [
+  { d: [ 1, 0, 0], axis: 0, corners: [[ .5,-.5,-.5],[ .5, .5,-.5],[ .5, .5, .5],[ .5,-.5, .5]] },
+  { d: [-1, 0, 0], axis: 0, corners: [[-.5,-.5,-.5],[-.5,-.5, .5],[-.5, .5, .5],[-.5, .5,-.5]] },
+  { d: [ 0, 1, 0], axis: 1, corners: [[-.5, .5,-.5],[-.5, .5, .5],[ .5, .5, .5],[ .5, .5,-.5]] },
+  { d: [ 0,-1, 0], axis: 1, corners: [[-.5,-.5,-.5],[ .5,-.5,-.5],[ .5,-.5, .5],[-.5,-.5, .5]] },
+  { d: [ 0, 0, 1], axis: 2, corners: [[-.5,-.5, .5],[ .5,-.5, .5],[ .5, .5, .5],[-.5, .5, .5]] },
+  { d: [ 0, 0,-1], axis: 2, corners: [[-.5,-.5,-.5],[-.5, .5,-.5],[ .5, .5,-.5],[ .5,-.5,-.5]] },
+];
+
+// Identity of the positions array currently drawn — a memoized preview that
+// resolves to the same array skips the rebuild entirely.
+let _hlShownRef = null;
+let _hlShownColor = -1;
+
 function clearHighlight() {
-  if (hlMesh) { scene.remove(hlMesh); hlMesh.dispose(); hlMesh = null; }
+  if (hlMesh) { scene.remove(hlMesh); hlMesh.geometry.dispose(); hlMesh.material.dispose(); hlMesh = null; }
   if (hlEdgesMesh) { scene.remove(hlEdgesMesh); hlEdgesMesh.geometry.dispose(); hlEdgesMesh.material.dispose(); hlEdgesMesh = null; }
-  if (hlEdgesMesh2) { scene.remove(hlEdgesMesh2); hlEdgesMesh2.geometry.dispose(); hlEdgesMesh2.material.dispose(); hlEdgesMesh2 = null; }
+  _hlShownRef = null;
+}
+
+// Builds the shell pair {fill, lines} for a set of voxel positions.
+// fill = translucent Mesh of exterior faces; lines = LineSegments of contour
+// edges only (interior grid lines between coplanar faces are deduped away).
+function buildShellMeshes(positions, color, fillOpacity) {
+  if (positions.length > HL_SHELL_LIMIT) return buildBoxMeshes(positions, color, fillOpacity);
+  // Membership on the shared epoch-marked grid — int reads instead of a
+  // Set<string> (the old version built ~n string keys + ~6n lookups per call).
+  const { buf, epoch } = beginMark();
+  const voxels = [];
+  for (const p of positions) {
+    const x = p[0], y = p[1], z = p[2];
+    if (x < 0 || x >= W || y < 0 || y >= H || z < 0 || z >= D) continue;
+    const ci = _cellIdx(x, y, z);
+    if (buf[ci] === epoch) continue;
+    buf[ci] = epoch;
+    voxels.push(p);
+  }
+  const ox = originOffsetX, oz = originOffsetZ;
+  const fillVerts = [];
+  // edgeKey -> { verts, planes, count }. An edge is drawn when it's on the
+  // boundary of the surface (count===1) or shared by faces on different
+  // planes (corner); edges between two coplanar faces are interior grid
+  // lines and are dropped.
+  const edgeMap = new Map();
+  for (const p of voxels) {
+    const x = p[0], y = p[1], z = p[2];
+    for (const f of HL_FACES) {
+      const nx = x + f.d[0], ny = y + f.d[1], nz = z + f.d[2];
+      if (nx >= 0 && nx < W && ny >= 0 && ny < H && nz >= 0 && nz < D &&
+          buf[_cellIdx(nx, ny, nz)] === epoch) continue;
+      const axisC = f.axis === 0 ? x : f.axis === 1 ? y : z;
+      const planeKey = f.axis + ':' + (2 * axisC + f.d[f.axis]);
+      const c = f.corners;
+      fillVerts.push(
+        x + c[0][0] + ox, y + c[0][1], z + c[0][2] + oz,
+        x + c[1][0] + ox, y + c[1][1], z + c[1][2] + oz,
+        x + c[2][0] + ox, y + c[2][1], z + c[2][2] + oz,
+        x + c[0][0] + ox, y + c[0][1], z + c[0][2] + oz,
+        x + c[2][0] + ox, y + c[2][1], z + c[2][2] + oz,
+        x + c[3][0] + ox, y + c[3][1], z + c[3][2] + oz);
+      for (let i = 0; i < 4; i++) {
+        const j = (i + 1) & 3;
+        // Doubled grid coords are exact integers — safe dedup key.
+        const ka = 2 * (x + c[i][0]) + ',' + 2 * (y + c[i][1]) + ',' + 2 * (z + c[i][2]);
+        const kb = 2 * (x + c[j][0]) + ',' + 2 * (y + c[j][1]) + ',' + 2 * (z + c[j][2]);
+        const key = ka < kb ? ka + '|' + kb : kb + '|' + ka;
+        let e = edgeMap.get(key);
+        if (!e) {
+          e = {
+            verts: [x + c[i][0] + ox, y + c[i][1], z + c[i][2] + oz,
+                    x + c[j][0] + ox, y + c[j][1], z + c[j][2] + oz],
+            planes: new Set(), count: 0
+          };
+          edgeMap.set(key, e);
+        }
+        e.planes.add(planeKey);
+        e.count++;
+      }
+    }
+  }
+  const lineVerts = [];
+  for (const e of edgeMap.values()) {
+    if (e.count === 1 || e.planes.size > 1) lineVerts.push(...e.verts);
+  }
+  const result = { fill: null, lines: null };
+  if (fillVerts.length) {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(fillVerts, 3));
+    result.fill = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+      color, transparent: true, opacity: fillOpacity,
+      depthTest: false, depthWrite: false, side: THREE.DoubleSide }));
+    result.fill.renderOrder = 998;
+  }
+  if (lineVerts.length) {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(lineVerts, 3));
+    result.lines = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({
+      color, transparent: true, opacity: 0.9,
+      depthTest: false, depthWrite: false }));
+    result.lines.renderOrder = 999;
+  }
+  return result;
+}
+
+// Fallback for huge position sets: a single bounding-box wireframe + fill.
+function buildBoxMeshes(positions, color, fillOpacity) {
+  let minX = Infinity, minY = Infinity, minZ = Infinity;
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  for (const p of positions) {
+    if (p[0] < minX) minX = p[0]; if (p[0] > maxX) maxX = p[0];
+    if (p[1] < minY) minY = p[1]; if (p[1] > maxY) maxY = p[1];
+    if (p[2] < minZ) minZ = p[2]; if (p[2] > maxZ) maxZ = p[2];
+  }
+  const geo = new THREE.BoxGeometry(maxX - minX + 1, maxY - minY + 1, maxZ - minZ + 1);
+  const cx = (minX + maxX) / 2 + originOffsetX;
+  const cy = (minY + maxY) / 2;
+  const cz = (minZ + maxZ) / 2 + originOffsetZ;
+  const fill = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+    color, transparent: true, opacity: fillOpacity,
+    depthTest: false, depthWrite: false, side: THREE.DoubleSide }));
+  fill.position.set(cx, cy, cz);
+  fill.renderOrder = 998;
+  const lines = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({
+    color, transparent: true, opacity: 0.9,
+    depthTest: false, depthWrite: false }));
+  lines.position.set(cx, cy, cz);
+  lines.renderOrder = 999;
+  return { fill, lines };
 }
 
 function showHighlight(positions, color) {
+  if (positions === _hlShownRef && color === _hlShownColor) return;
   clearHighlight();
+  _hlShownRef = positions;
+  _hlShownColor = color;
   if (positions.length === 0) return;
-  const count = positions.length;
-  const mat = new THREE.MeshBasicMaterial({ color, opacity: 0.35, transparent: true, depthWrite: false });
-  hlMesh = new THREE.InstancedMesh(hlGeo, mat, count);
-  const edgesGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
-  const edgesMat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.8 });
-  hlEdgesMesh = new THREE.InstancedMesh(edgesGeo, edgesMat, count);
-  for (let i = 0; i < count; i++) {
-    const [x, y, z] = positions[i];
-    dummyMatrix.makeTranslation(x + originOffsetX, y, z + originOffsetZ);
-    hlMesh.setMatrixAt(i, dummyMatrix);
-    hlEdgesMesh.setMatrixAt(i, dummyMatrix);
-  }
-  hlMesh.instanceMatrix.needsUpdate = true;
-  hlEdgesMesh.instanceMatrix.needsUpdate = true;
-  scene.add(hlMesh);
-  scene.add(hlEdgesMesh);
+  const m = buildShellMeshes(positions, color, HL_FILL_OPACITY);
+  hlMesh = m.fill;
+  hlEdgesMesh = m.lines;
+  if (hlMesh) scene.add(hlMesh);
+  if (hlEdgesMesh) scene.add(hlEdgesMesh);
 }
 
 // Tool descriptions for status bar
@@ -3283,8 +3577,8 @@ const TOOL_DESC = {
   line: 'Click two points to draw a straight line of voxels',
   box: 'Click and drag to fill a rectangular volume',
   select: 'Click to flood-fill select same material | Shift+click for single voxel | Ctrl+click two points for box select | Q+click body group | W+click wardrobe region',
-  extrude: 'Click a face to extrude 1 layer | Shift+click+drag to extrude multiple | Ctrl+click to de-extrude (remove layer) | Ctrl+click+drag to remove multiple',
-  ruler: 'Click two points to measure distance between them',
+  extrude: 'Click a face to extrude 1 layer | with a selection: every selected region +1 layer | Ctrl+click to de-extrude | Shift+click+drag for multi-layer drag | Ctrl+click+drag to remove multiple',
+  ruler: 'Click start → click end to plant a measurement (max 4, each its own color). Shift=Y Ctrl=Z Alt=X axis-lock. Plants survive ESC — clear from the ruler panel.',
   bodypart: 'Click a voxel to assign it to the selected body part group',
   clothingregion: 'Click a voxel to tag it with the selected clothing region',
   itempart: 'Click a voxel to tag an attachment point (item: grip/muzzle; character: hand/shoulder/cheek/pivot_N) — select "Body / Erase" to clear a tag',
@@ -3306,41 +3600,94 @@ let extrudeDragDeextrude = false; // true = remove layers (Ctrl), false = add la
 
 // Ruler state
 let rulerStart = null;
-// Frozen ruler measurement: after the second click, the measurement line
-// stays visible as a PERSISTENT overlay — independent of the normal highlight
-// system so other tools / mouse-off-model / tool switches never clear it.
-// Only cleared by ESC or starting a new ruler measurement.
-let rulerFrozen = null; // { positions, statusText }
-let rulerFrozenMesh = null;
-let rulerFrozenEdges = null;
-function showRulerFrozen(positions) {
-  clearRulerFrozenMesh();
-  if (positions.length === 0) return;
-  const count = positions.length;
-  const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, opacity: 0.35, transparent: true, depthWrite: false });
-  rulerFrozenMesh = new THREE.InstancedMesh(hlGeo, mat, count);
-  const edgesGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
-  const edgesMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 });
-  rulerFrozenEdges = new THREE.InstancedMesh(edgesGeo, edgesMat, count);
-  for (let i = 0; i < count; i++) {
-    const [x, y, z] = positions[i];
-    dummyMatrix.makeTranslation(x + originOffsetX, y, z + originOffsetZ);
-    rulerFrozenMesh.setMatrixAt(i, dummyMatrix);
-    rulerFrozenEdges.setMatrixAt(i, dummyMatrix);
+// Planted rulers: up to 4 persistent measurements, each in its own color.
+// Plants are deliberate objects — they survive ESC, tool switches, and all
+// general clear paths. Only the ruler panel (Clear / Clear All) or a model
+// reset removes them.
+const RULER_MAX = 4;
+const RULER_COLORS = [0x00ffcc, 0xffcc00, 0xff44ff, 0x77ff00];
+let rulerPlants = []; // { slot, positions, statusText, short, mesh, edges }
+function rulerFreeSlot() {
+  for (let i = 0; i < RULER_MAX; i++) if (!rulerPlants.some(p => p.slot === i)) return i;
+  return -1;
+}
+function plantRuler(positions, statusText, short) {
+  const slot = rulerFreeSlot();
+  if (slot === -1) return -1;
+  const m = buildShellMeshes(positions, RULER_COLORS[slot], HL_FILL_OPACITY);
+  // Screen-space label anchored at the measurement's end cell — the last
+  // entry of computeLineVoxels' start→end walk.
+  const endCell = positions[positions.length - 1];
+  const hex = '#' + RULER_COLORS[slot].toString(16).padStart(6, '0');
+  const label = document.createElement('div');
+  label.textContent = `R${slot + 1} · ${short.split(' ')[0]}`;
+  label.title = statusText;
+  label.style.cssText =
+    `position:absolute;display:none;padding:2px 6px;border-radius:4px;` +
+    `font-size:10px;font-weight:bold;white-space:nowrap;pointer-events:auto;` +
+    `background:rgba(0,0,0,0.75);border:1px solid ${hex};color:${hex};`;
+  document.getElementById('ruler-labels').appendChild(label);
+  const plant = { slot, positions, statusText, short, mesh: m.fill, edges: m.lines, endCell, label };
+  if (plant.mesh) scene.add(plant.mesh);
+  if (plant.edges) scene.add(plant.edges);
+  rulerPlants.push(plant);
+  renderRulerPanel();
+  return slot;
+}
+function removeRulerPlant(plant) {
+  for (const key of ['mesh', 'edges']) {
+    const obj = plant[key];
+    if (obj) { scene.remove(obj); obj.geometry.dispose(); obj.material.dispose(); }
   }
-  rulerFrozenMesh.instanceMatrix.needsUpdate = true;
-  rulerFrozenEdges.instanceMatrix.needsUpdate = true;
-  scene.add(rulerFrozenMesh);
-  scene.add(rulerFrozenEdges);
+  if (plant.label) plant.label.remove();
 }
-function clearRulerFrozenMesh() {
-  if (rulerFrozenMesh) { scene.remove(rulerFrozenMesh); rulerFrozenMesh.material.dispose(); rulerFrozenMesh = null; }
-  if (rulerFrozenEdges) { scene.remove(rulerFrozenEdges); rulerFrozenEdges.geometry.dispose(); rulerFrozenEdges.material.dispose(); rulerFrozenEdges = null; }
+// Per-frame screen projection for planted-ruler end labels (≤4 — trivial
+// cost). Label hides when its endpoint is behind the camera.
+const _rulerProj = new THREE.Vector3();
+function updateRulerLabels() {
+  for (const p of rulerPlants) {
+    _rulerProj.copy(cellToWorld(p.endCell[0], p.endCell[1], p.endCell[2])).project(camera);
+    if (_rulerProj.z > 1) { p.label.style.display = 'none'; continue; }
+    p.label.style.display = 'block';
+    p.label.style.left = ((_rulerProj.x + 1) / 2 * window.innerWidth + 10) + 'px';
+    p.label.style.top = ((-_rulerProj.y + 1) / 2 * window.innerHeight - 22) + 'px';
+  }
 }
-function clearRulerFrozen() {
-  if (rulerFrozen) {
-    rulerFrozen = null;
-    clearRulerFrozenMesh();
+window.clearRuler = function(slot) {
+  const i = rulerPlants.findIndex(p => p.slot === slot);
+  if (i === -1) return;
+  removeRulerPlant(rulerPlants[i]);
+  rulerPlants.splice(i, 1);
+  renderRulerPanel();
+  setStatus(`📏 R${slot + 1} cleared`);
+};
+window.clearAllRulers = function() {
+  if (!rulerPlants.length) { renderRulerPanel(); return; }
+  rulerPlants.forEach(removeRulerPlant);
+  rulerPlants = [];
+  renderRulerPanel();
+  setStatus('📏 All rulers cleared');
+};
+function renderRulerPanel() {
+  const panel = document.getElementById('ruler-panel');
+  if (!panel) return;
+  panel.style.display = currentTool === 'ruler' ? 'block' : 'none';
+  const list = document.getElementById('ruler-list');
+  list.innerHTML = '';
+  if (!rulerPlants.length) {
+    list.innerHTML = '<div style="font-size:10px;color:#666;">No planted rulers — click start then end to plant one</div>';
+    return;
+  }
+  for (const p of rulerPlants) {
+    const hex = '#' + RULER_COLORS[p.slot].toString(16).padStart(6, '0');
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:10px;color:#ccc;margin:3px 0;';
+    row.innerHTML =
+      `<span style="width:10px;height:10px;border-radius:2px;background:${hex};display:inline-block;flex-shrink:0;"></span>` +
+      `<b style="color:${hex};">R${p.slot + 1}</b> <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${p.short}</span>` +
+      `<button class="console-btn" style="margin-left:auto;padding:1px 6px;flex-shrink:0;" onclick="clearRuler(${p.slot})" title="Clear this ruler">✕</button>`;
+    row.title = p.statusText;
+    list.appendChild(row);
   }
 }
 
@@ -3364,6 +3711,18 @@ function mirrorPlaneZ() { return mirrorHalf ? D / 2 : (D - 1) / 2; }
 // selection spreads/pinches symmetrically instead of translating uniformly.
 let mirrorMove = false;
 
+// Reflect a bounds box [minX,minY,minZ,maxX,maxY,maxZ] across active mirrors.
+function mirrorBoundsBox(b) {
+  return [
+    mirrorX ? mirrorCoord(b[3], W) : b[0],
+    mirrorY ? mirrorCoord(b[4], H) : b[1],
+    mirrorZ ? mirrorCoord(b[5], D) : b[2],
+    mirrorX ? mirrorCoord(b[0], W) : b[3],
+    mirrorY ? mirrorCoord(b[1], H) : b[4],
+    mirrorZ ? mirrorCoord(b[2], D) : b[5],
+  ];
+}
+
 // Selection state — stores list of selected voxel positions
 let selVoxels = []; // [[x, y, z, mid], ...]
 let selectionActive = false;
@@ -3376,24 +3735,14 @@ function showSelectionOverlay() {
   clearSelectionOverlay();
   if (selVoxels.length === 0) return;
   const positions = selVoxels.map(v => [v[0], v[1], v[2]]);
-  const count = positions.length;
-  const mat = new THREE.MeshBasicMaterial({ color: 0xff8800, opacity: 0.25, transparent: true, depthWrite: false });
-  selOverlayMesh = new THREE.InstancedMesh(hlGeo, mat, count);
-  const edgesGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
-  const edgesMat = new THREE.LineBasicMaterial({ color: 0xff8800, transparent: true, opacity: 0.9 });
-  selOverlayEdges = new THREE.InstancedMesh(edgesGeo, edgesMat, count);
-  for (let i = 0; i < count; i++) {
-    dummyMatrix.makeTranslation(positions[i][0] + originOffsetX, positions[i][1], positions[i][2] + originOffsetZ);
-    selOverlayMesh.setMatrixAt(i, dummyMatrix);
-    selOverlayEdges.setMatrixAt(i, dummyMatrix);
-  }
-  selOverlayMesh.instanceMatrix.needsUpdate = true;
-  selOverlayEdges.instanceMatrix.needsUpdate = true;
-  scene.add(selOverlayMesh);
-  scene.add(selOverlayEdges);
+  const m = buildShellMeshes(positions, 0xff8800, 0.10);
+  selOverlayMesh = m.fill;
+  selOverlayEdges = m.lines;
+  if (selOverlayMesh) scene.add(selOverlayMesh);
+  if (selOverlayEdges) scene.add(selOverlayEdges);
 }
 function clearSelectionOverlay() {
-  if (selOverlayMesh) { scene.remove(selOverlayMesh); selOverlayMesh.material.dispose(); selOverlayMesh = null; }
+  if (selOverlayMesh) { scene.remove(selOverlayMesh); selOverlayMesh.geometry.dispose(); selOverlayMesh.material.dispose(); selOverlayMesh = null; }
   if (selOverlayEdges) { scene.remove(selOverlayEdges); selOverlayEdges.geometry.dispose(); selOverlayEdges.material.dispose(); selOverlayEdges = null; }
 }
 // Additive-select merge — unions voxels into selVoxels, deduped by position.
@@ -3453,10 +3802,46 @@ function rebuildVolumeVisuals() {
 const boxGeo = new THREE.BoxGeometry(1, 1, 1);
 const lambertMat = new THREE.MeshLambertMaterial();
 let instancedMesh = null;
-let edgesMesh = null;
 let voxelMeshCap = 0;          // allocated instance capacity (grow-only)
-let edgesMeshCap = 0;
-const EDGE_VOXEL_LIMIT = 60000; // skip per-voxel wireframe above this count
+
+// Grid lines drawn in the voxel shader — a fragment sits on a box edge when
+// ≥2 local coords are near ±0.5, which is exactly the 12-edge wireframe.
+// Replaces the old per-voxel InstancedMesh wireframe (silently disabled above
+// EDGE_VOXEL_LIMIT=60k; a 765k-voxel model needs ~9M instanced line segments).
+const voxGridUniform = { value: 1 }; // mirrors showEdges (default on)
+// Slice clip also lives in the shader: fragments outside [uVoxClipMin,
+// uVoxClipMax) discard, so slider drags update two uniforms instead of
+// rebuilding every instance per tick. Bounds are in model-local space
+// (voxel index + origin offset = instanceMatrix translation).
+const voxClipMinU = { value: new THREE.Vector3(-1e9, -1e9, -1e9) };
+const voxClipMaxU = { value: new THREE.Vector3(1e9, 1e9, 1e9) };
+lambertMat.onBeforeCompile = (shader) => {
+  shader.uniforms.uVoxGrid = voxGridUniform;
+  shader.uniforms.uVoxClipMin = voxClipMinU;
+  shader.uniforms.uVoxClipMax = voxClipMaxU;
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nvarying vec3 vVoxLocal;\nvarying vec3 vVoxOrigin;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvVoxLocal = position;\nvVoxOrigin = vec3(instanceMatrix[3]);');
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', '#include <common>\nvarying vec3 vVoxLocal;\nvarying vec3 vVoxOrigin;\nuniform float uVoxGrid;\nuniform vec3 uVoxClipMin;\nuniform vec3 uVoxClipMax;')
+    .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+      if (vVoxOrigin.x < uVoxClipMin.x || vVoxOrigin.y < uVoxClipMin.y || vVoxOrigin.z < uVoxClipMin.z ||
+          vVoxOrigin.x >= uVoxClipMax.x || vVoxOrigin.y >= uVoxClipMax.y || vVoxOrigin.z >= uVoxClipMax.z) discard;`)
+    .replace('#include <color_fragment>', `#include <color_fragment>
+      if (uVoxGrid > 0.5) {
+        vec3 lv = abs(vVoxLocal);
+        float edge = step(0.46, lv.x) + step(0.46, lv.y) + step(0.46, lv.z);
+        if (edge >= 2.0) diffuseColor.rgb *= 0.55;
+      }`);
+};
+lambertMat.customProgramCacheKey = () => 'voxgrid';
+
+// Follow the JS slice vars — called every frame in animate() so every
+// write site (sliders, resets, loads, resizes) is covered automatically.
+function updateClipUniforms() {
+  voxClipMinU.value.set(xMin + originOffsetX, yMin, zMin + originOffsetZ);
+  voxClipMaxU.value.set(xMax + 1 + originOffsetX, yMax + 1, zMax + 1 + originOffsetZ);
+}
 
 // Coalesce rebuilds to at most one per animation frame — drag strokes and
 // batch ops otherwise trigger a full ~200k-instance rebuild per voxel.
@@ -3469,7 +3854,7 @@ function scheduleRebuild() {
 let showEdges = true;
 
 // Material visibility
-const matVisible = new Map(); // materialId -> bool
+const matVisible = new FlagMap(); // materialId -> bool
 for (const m of allMaterials) matVisible.set(m.id, true);
 // Call after allMaterials is replaced/extended (e.g. loading a project with
 // its own material palette) so newly-introduced ids default to visible
@@ -3479,6 +3864,7 @@ function ensureMatVisibility() {
     if (!matVisible.has(m.id)) matVisible.set(m.id, true);
   }
   _matColorCache = null; // palette was replaced — rebuild on next getMatColor
+  _voxForceFull = true;  // colors changed under existing ids — full re-upload
 }
 
 let selectedMaterial = allMaterials.length > 0 ? allMaterials[0].id : 109;
@@ -3500,11 +3886,10 @@ function isDirty() {
 }
 
 function snapshot() {
-  // All per-voxel state — voxels plus the tag maps (body group, clothing
-  // region, attach part). Undo must restore ALL of them or tag strokes leave
-  // stale data and a single Ctrl+Z can step back past a load to an empty map.
+  // Tag maps + pivots are small — cloned per push (unchanged semantics).
+  // voxelMap is NOT cloned: its delta comes from _deltaPending, recorded
+  // automatically by TrackedVoxelMap on every write since the last push.
   return {
-    vox: new Map(voxelMap),
     grp: new Map(groupMap),
     parts: new Map(itemPartMap),
     regions: new Map(clothingRegionMap),
@@ -3513,18 +3898,45 @@ function snapshot() {
   };
 }
 
-function applySnapshot(s) {
-  voxelMap.clear();         for (const [k, v] of s.vox) voxelMap.set(k, v);
-  groupMap.clear();         for (const [k, v] of s.grp) groupMap.set(k, v);
-  itemPartMap.clear();      for (const [k, v] of s.parts) itemPartMap.set(k, v);
-  clothingRegionMap.clear(); for (const [k, v] of s.regions) clothingRegionMap.set(k, v);
+// Restore a tag map to a snapshot with per-key writes only where it differs —
+// keeps undo's dirty set small so the incremental mesh path still applies.
+function syncMapTo(map, snap) {
+  for (const k of [...map.keys()]) {
+    if (!snap.has(k)) map.delete(k);
+    else if (snap.get(k) !== map.get(k)) map.set(k, snap.get(k));
+  }
+  for (const [k, v] of snap) if (!map.has(k)) map.set(k, v);
+}
+
+function applyTagSnapshot(s) {
+  _suspendDelta++;
+  syncMapTo(groupMap, s.grp);
+  syncMapTo(itemPartMap, s.parts);
+  syncMapTo(clothingRegionMap, s.regions);
   if (s.animPivots !== undefined) loadedAnimData.pivots = JSON.parse(JSON.stringify(s.animPivots));
+  _suspendDelta--;
+}
+
+// dir: 0 = undo (restore pre-write value), 1 = redo (replay post-push value)
+function applyVoxDelta(voxDelta, dir) {
+  _suspendDelta++;
+  for (const [k, pair] of voxDelta) {
+    const v = pair[dir];
+    if (v === ABSENT) voxelMap.delete(k); else voxelMap.set(k, v);
+  }
+  _suspendDelta--;
 }
 
 function pushHistory() {
   // Truncate any redo states
   history.splice(historyIndex + 1);
-  history.push(snapshot());
+  const entry = snapshot();
+  entry.voxDelta = new Map();
+  for (const [k, oldMid] of _deltaPending) {
+    entry.voxDelta.set(k, [oldMid, voxelMap.has(k) ? voxelMap.get(k) : ABSENT]);
+  }
+  _deltaPending = new Map();
+  history.push(entry);
   if (history.length > MAX_HISTORY) history.shift();
   else historyIndex++;
   updateUndoRedo();
@@ -3532,8 +3944,9 @@ function pushHistory() {
 
 function undo() {
   if (historyIndex <= 0) return;
+  applyVoxDelta(history[historyIndex].voxDelta, 0); // step back this entry's writes
   historyIndex--;
-  applySnapshot(history[historyIndex]);
+  applyTagSnapshot(history[historyIndex]);          // tag state at the earlier entry
   rebuildMesh();
   updateGroupCounts();
   updateItemPartCounts();
@@ -3544,7 +3957,8 @@ function undo() {
 function redo() {
   if (historyIndex >= history.length - 1) return;
   historyIndex++;
-  applySnapshot(history[historyIndex]);
+  applyVoxDelta(history[historyIndex].voxDelta, 1); // replay this entry's writes
+  applyTagSnapshot(history[historyIndex]);
   rebuildMesh();
   updateGroupCounts();
   updateItemPartCounts();
@@ -3561,14 +3975,20 @@ function updateUndoRedo() {
 pushHistory();
 
 // === MESH BUILDING ===
+// Whether a voxel gets an INSTANCE (material/group visibility only). The
+// x/y/z slice clip is shader-side (uVoxClipMin/Max) — instances for clipped
+// voxels still exist so slice drags never rebuild the buffer.
 function isVoxelShown(x, y, z, mid) {
-  if (y < yMin || y > yMax) return false;
-  if (x < xMin || x > xMax) return false;
-  if (z < zMin || z > zMax) return false;
   if (!matVisible.get(mid)) return false;
   const gid = groupMap.get(`${x},${y},${z}`);
   if (gid !== undefined && groupVisible.get(gid) === false) return false;
   return true;
+}
+
+// Slice bounds — used by raycast/picking (shader-clipped voxels must not be
+// clickable) and by the visible-count readout.
+function inClipBounds(x, y, z) {
+  return x >= xMin && x <= xMax && y >= yMin && y <= yMax && z >= zMin && z <= zMax;
 }
 
 function getVisibleVoxels() {
@@ -3576,7 +3996,7 @@ function getVisibleVoxels() {
   for (const [key, mid] of voxelMap) {
     const [x, y, z] = key.split(',').map(Number);
     if (!isVoxelShown(x, y, z, mid)) continue;
-    result.push({ x, y, z, mid });
+    result.push({ x, y, z, mid, key });
   }
   return result;
 }
@@ -3595,9 +4015,158 @@ function getMatColor(mid) {
   return _matColorCache.get(mid) || FALLBACK_MAT_COLOR;
 }
 
+// === INCREMENTAL INSTANCE UPDATES ===
+// Slot bookkeeping lets small edits update only the touched instance slots
+// instead of re-uploading every instance on a 765k-voxel model.
+const slotByKey = new Map(); // voxel key -> instance index
+let slotKeys = [];           // instance index -> voxel key
+const INCR_EDIT_LIMIT = 8192; // beyond this many dirty cells, full rebuild wins
+let _rebuildSig = '';        // view-state signature captured at last full rebuild
+let _clipShownCount = 0;     // voxels that are instanced AND inside the slice —
+                           // the "Visible" readout (instancedMesh.count now
+                           // includes shader-clipped voxels, so can't be used)
+
+// Full O(n) recount — used on slice-slider release (the 'change' event);
+// during a drag the uniforms do the visual work and this stays stale.
+function refreshSliceCount() {
+  let n = 0;
+  for (const [key, mid] of voxelMap) {
+    const i1 = key.indexOf(','), i2 = key.lastIndexOf(',');
+    const x = +key.slice(0, i1), y = +key.slice(i1 + 1, i2), z = +key.slice(i2 + 1);
+    if (inClipBounds(x, y, z) && isVoxelShown(x, y, z, mid)) n++;
+  }
+  _clipShownCount = n;
+  document.getElementById('visible-count').textContent = n;
+}
+
+// Everything the instance buffer depends on that ISN'T a tracked map write —
+// clip bounds, view modes, pose params, origin, palette size, pivots. If any
+// differ, dirty slots alone can't be trusted → full rebuild.
+function viewSig() {
+  return [W, H, D, testArmPose, animPoseState, blendEnabled, blendRadius, blendTorsoCap,
+          groupViewMode, clothingRegionViewMode, itemPartViewMode,
+          originOffsetX, originOffsetZ, allMaterials.length,
+          JSON.stringify(loadedAnimData.pivots || {})].join('|');
+}
+
+const _instColor = new THREE.Color();
+function computeVoxelColor(x, y, z, mid, key) {
+  if (itemPartViewMode) {
+    const pid = itemPartMap.get(key);
+    const pd = pid !== undefined ? activePartGroups().find(d => d.id === pid) : null;
+    if (pd && !pd.key.startsWith('pivot_')) return _instColor.set(partColor(pid));
+    if (pd) return _instColor.copy(getMatColor(mid)); // pivot_* keeps body color
+    return _instColor.set(0x888888);
+  }
+  if (clothingRegionViewMode) {
+    const rid = clothingRegionMap.get(key);
+    if (rid !== undefined && CLOTHING_REGION_COLORS[rid]) return _instColor.set(CLOTHING_REGION_COLORS[rid]);
+    return _instColor.set(0x888888);
+  }
+  if (groupViewMode) {
+    const gid = groupMap.get(key);
+    if (gid !== undefined && GROUP_COLORS[gid]) return _instColor.set(GROUP_COLORS[gid]);
+    return _instColor.set(0x888888);
+  }
+  return _instColor.copy(getMatColor(mid));
+}
+
+function writeInstanceAt(i, x, y, z, mid, key) {
+  let px = x, py = y, pz = z;
+  if (testArmPose !== 'none') {
+    const t = testPoseTransform(x, y, z, key);
+    if (t) { px = t[0]; py = t[1]; pz = t[2]; }
+  }
+  dummyMatrix.makeTranslation(px + originOffsetX, py, pz + originOffsetZ);
+  instancedMesh.setMatrixAt(i, dummyMatrix);
+  instancedMesh.setColorAt(i, computeVoxelColor(x, y, z, mid, key));
+  slotByKey.set(key, i);
+  slotKeys[i] = key;
+}
+
+// Mark a touched slot for partial GPU upload — needsUpdate then re-sends only
+// these spans (64B matrix + 12B color per slot) instead of the whole buffer
+// (~58MB on the tenement). No-op on three versions without updateRanges —
+// needsUpdate alone degrades to today's full upload.
+function markSlotUpload(slot) {
+  const ma = instancedMesh.instanceMatrix, ca = instancedMesh.instanceColor;
+  if (ma.addUpdateRange) {
+    ma.addUpdateRange(slot * 16, 16);
+    if (ca) ca.addUpdateRange(slot * 3, 3);
+  }
+}
+
+// Apply only the writes recorded in voxDirty — append / color-rewrite /
+// swap-pop-remove on the matching instance slots. Returns false when a full
+// rebuild is required (view state changed, huge edit, no mesh, cap exceeded).
+function applyIncrementalEdits() {
+  if (!instancedMesh || _voxForceFull || _rebuildSig !== viewSig() ||
+      voxDirty.size > INCR_EDIT_LIMIT) return false;
+  const im = instancedMesh.instanceMatrix.array;
+  const ic = instancedMesh.instanceColor && instancedMesh.instanceColor.array;
+  for (const key of voxDirty) {
+    const mid = voxelMap.get(key); // undefined = deleted cell
+    const i1 = key.indexOf(','), i2 = key.lastIndexOf(',');
+    const x = +key.slice(0, i1), y = +key.slice(i1 + 1, i2), z = +key.slice(i2 + 1);
+    const slot = slotByKey.get(key);
+    const shown = mid !== undefined && isVoxelShown(x, y, z, mid);
+    if (inClipBounds(x, y, z)) _clipShownCount += (shown ? 1 : 0) - (slot !== undefined ? 1 : 0);
+    if (shown) {
+      if (slot === undefined) {
+        if (instancedMesh.count >= voxelMeshCap || !ic) return false; // grow via full path
+        const s = instancedMesh.count++;
+        writeInstanceAt(s, x, y, z, mid, key);
+        markSlotUpload(s);
+      } else {
+        writeInstanceAt(slot, x, y, z, mid, key);
+        markSlotUpload(slot);
+      }
+    } else if (slot !== undefined) {
+      // Swap-pop: move the last live instance into the freed slot.
+      const last = instancedMesh.count - 1;
+      const lastKey = slotKeys[last];
+      if (last !== slot) {
+        im.copyWithin(slot * 16, last * 16, last * 16 + 16);
+        if (ic) ic.copyWithin(slot * 3, last * 3, last * 3 + 3);
+        slotByKey.set(lastKey, slot);
+        slotKeys[slot] = lastKey;
+        markSlotUpload(slot); // slot now holds the moved instance
+      }
+      instancedMesh.count = last;
+      slotByKey.delete(key);
+      slotKeys.length = last;
+    }
+  }
+  instancedMesh.instanceMatrix.needsUpdate = true;
+  if (instancedMesh.instanceColor) instancedMesh.instanceColor.needsUpdate = true;
+  return true;
+}
+
 function rebuildMesh() {
   invalidateExteriorCache();
   updateMirrorPlanes();
+  _memberFloor = _markEpoch; // member marks from pre-edit fills are stale
+  _fillGen++;                // in-flight async fills discard their results
+  positionsMemo.clear();
+  // Fast path: only tracked map writes happened since the last build —
+  // update just those instance slots (O(edit) instead of O(model)).
+  if (applyIncrementalEdits()) {
+    voxDirty.clear();
+    if (mirrorEditable) {
+      mirrorDirty = true;
+      if (!charPlaying) rebuildCharMesh();
+    }
+    document.getElementById('visible-count').textContent = _clipShownCount;
+    document.getElementById('voxel-count').textContent = voxelMap.size;
+    updateCentroidMarkers();
+    if (attachHand) attachItem(attachHand);
+    return;
+  }
+  voxDirty.clear();
+  _voxForceFull = false;
+  slotByKey.clear();
+  slotKeys.length = 0;
+  _rebuildSig = viewSig();
   const visible = getVisibleVoxels();
   const count = visible.length;
 
@@ -3627,89 +4196,22 @@ function rebuildMesh() {
   if (count === 0) {
     document.getElementById('visible-count').textContent = '0';
     document.getElementById('voxel-count').textContent = voxelMap.size;
-    if (edgesMesh) { edgesMesh.count = 0; }
     return;
   }
 
-  const color = new THREE.Color();
   testPoseCache = {};
   animPoseChainCache = null;
+  _clipShownCount = 0;
   for (let i = 0; i < count; i++) {
     const v = visible[i];
-    let px = v.x, py = v.y, pz = v.z;
-    if (testArmPose !== 'none') {
-      const t = testPoseTransform(v.x, v.y, v.z, `${v.x},${v.y},${v.z}`);
-      if (t) { px = t[0]; py = t[1]; pz = t[2]; }
-    }
-    dummyMatrix.makeTranslation(px + originOffsetX, py, pz + originOffsetZ);
-    instancedMesh.setMatrixAt(i, dummyMatrix);
-    if (itemPartViewMode) {
-      const pid = itemPartMap.get(`${v.x},${v.y},${v.z}`);
-      const pd = pid !== undefined ? activePartGroups().find(d => d.id === pid) : null;
-      if (pd && !pd.key.startsWith('pivot_')) {
-        color.set(partColor(pid));
-      } else if (pd) {
-        color.copy(getMatColor(v.mid)); // pivot_* voxels keep body color — the wireframe box annotates them
-      } else {
-        color.set(0x888888);
-      }
-    } else if (clothingRegionViewMode) {
-      const rid = clothingRegionMap.get(`${v.x},${v.y},${v.z}`);
-      if (rid !== undefined && CLOTHING_REGION_COLORS[rid]) {
-        color.set(CLOTHING_REGION_COLORS[rid]);
-      } else {
-        color.set(0x888888);
-      }
-    } else if (groupViewMode) {
-      const gid = groupMap.get(`${v.x},${v.y},${v.z}`);
-      if (gid !== undefined && GROUP_COLORS[gid]) {
-        color.set(GROUP_COLORS[gid]);
-      } else {
-        color.set(0x888888);
-      }
-    } else {
-      color.copy(getMatColor(v.mid));
-    }
-    instancedMesh.setColorAt(i, color);
+    writeInstanceAt(i, v.x, v.y, v.z, v.mid, v.key);
+    if (inClipBounds(v.x, v.y, v.z)) _clipShownCount++;
   }
   instancedMesh.instanceMatrix.needsUpdate = true;
   if (instancedMesh.instanceColor) instancedMesh.instanceColor.needsUpdate = true;
   if (!instancedMesh.parent) scene.add(instancedMesh);
 
-  // Edges overlay — skipped above EDGE_VOXEL_LIMIT: at large model sizes the
-  // per-voxel wireframe costs ~12 line segments per voxel (millions of segs).
-  if (showEdges && count <= EDGE_VOXEL_LIMIT) {
-    if (edgesMesh && count > edgesMeshCap) {
-      scene.remove(edgesMesh);
-      edgesMesh.geometry.dispose();
-      edgesMesh.material.dispose();
-      edgesMesh = null;
-      edgesMeshCap = 0;
-    }
-    if (!edgesMesh) {
-      edgesMeshCap = Math.max(count * 2, 4096);
-      const edgesGeo = new THREE.EdgesGeometry(boxGeo);
-      const edgesMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.25 });
-      edgesMesh = new THREE.InstancedMesh(edgesGeo, edgesMat, edgesMeshCap);
-    }
-    edgesMesh.count = count;
-    for (let i = 0; i < count; i++) {
-      const v = visible[i];
-      let px = v.x, py = v.y, pz = v.z;
-      if (testArmPose !== 'none') {
-        const t = testPoseTransform(v.x, v.y, v.z, `${v.x},${v.y},${v.z}`);
-        if (t) { px = t[0]; py = t[1]; pz = t[2]; }
-      }
-      dummyMatrix.makeTranslation(px + originOffsetX, py, pz + originOffsetZ);
-      edgesMesh.setMatrixAt(i, dummyMatrix);
-    }
-    edgesMesh.instanceMatrix.needsUpdate = true;
-    if (!edgesMesh.parent) scene.add(edgesMesh);
-  } else if (edgesMesh) {
-    edgesMesh.count = 0;
-  }
-  
-  document.getElementById('visible-count').textContent = count;
+  document.getElementById('visible-count').textContent = _clipShownCount;
   document.getElementById('voxel-count').textContent = voxelMap.size;
   updateCentroidMarkers();
   // Attached preview follows edits to the editable model
@@ -3782,8 +4284,16 @@ function mirrorCandidates(x, y, z) {
 // carry the OTHER side's tag — painting Left Arm on one side tags Right Arm on
 // the mirrored cell, pivot_2 ↔ pivot_3, right_hand ↔ left_hand, grip_right ↔
 // grip_left, etc. Y/Z-mirrored cells (and midline/self cells) keep the value.
+// Character mirror pairs (Left Arm↔Right Arm, Left Leg↔Right Leg,
+// Left Shin↔Right Shin, Left Forearm↔Right Forearm).
 const MIRROR_GID_PAIRS = { 2:3, 3:2, 4:5, 5:4, 6:7, 7:6, 8:9, 9:8 };
-function mirroredGid(gid) { return MIRROR_GID_PAIRS[gid] ?? gid; }
+// Vehicle mirror pairs (Wheel FL↔FR, Wheel RL↔RR, Door L↔R; Body/Hood/Trunk
+// are centerline parts and mirror to themselves).
+const VEHICLE_MIRROR_GID_PAIRS = { 1:2, 2:1, 3:4, 4:3, 5:6, 6:5 };
+function mirroredGid(gid) {
+  const pairs = assetType === 'vehicle' ? VEHICLE_MIRROR_GID_PAIRS : MIRROR_GID_PAIRS;
+  return pairs[gid] ?? gid;
+}
 function mirroredPartId(pid) {
   const def = activePartGroups().find(d => d.id === pid);
   if (!def) return pid;
@@ -3794,6 +4304,14 @@ function mirroredPartId(pid) {
     key = pg !== undefined ? `pivot_${pg}` : key;
   } else if (key.endsWith('_right')) key = key.slice(0, -6) + '_left';
   else if (key.endsWith('_left')) key = key.slice(0, -5) + '_right';
+  // Vehicle key suffixes: _fl↔_fr, _rl↔_rr, _l↔_r (axle_fl, door_hinge_l,
+  // entry_r, seat_driver is a left-side seat but stays unpaired for now)
+  else if (key.endsWith('_fl')) key = key.slice(0, -3) + '_fr';
+  else if (key.endsWith('_fr')) key = key.slice(0, -3) + '_fl';
+  else if (key.endsWith('_rl')) key = key.slice(0, -3) + '_rr';
+  else if (key.endsWith('_rr')) key = key.slice(0, -3) + '_rl';
+  else if (key.endsWith('_l')) key = key.slice(0, -2) + '_r';
+  else if (key.endsWith('_r')) key = key.slice(0, -2) + '_l';
   else return pid;
   const md = activePartGroups().find(d => d.key === key);
   return md ? md.id : pid;
@@ -3823,14 +4341,18 @@ function mirrorVoxelPositions(positions) {
 // so empty cells show up (e.g. where a place/paint will land).
 function mirrorPositionsPreview(positions) {
   if (!mirrorX && !mirrorY && !mirrorZ) return positions;
+  const { buf, epoch } = beginMark();
   const result = [...positions];
-  const seen = new Set(positions.map(p => `${p[0]},${p[1]},${p[2]}`));
+  for (const p of positions) {
+    const x = p[0], y = p[1], z = p[2];
+    if (x >= 0 && x < W && y >= 0 && y < H && z >= 0 && z < D) buf[_cellIdx(x, y, z)] = epoch;
+  }
   for (const p of positions) {
     for (const [mx, my, mz] of mirrorCandidates(p[0], p[1], p[2])) {
       if (mx < 0 || mx >= W || my < 0 || my >= H || mz < 0 || mz >= D) continue;
-      const key = `${mx},${my},${mz}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
+      const i = _cellIdx(mx, my, mz);
+      if (buf[i] === epoch) continue;
+      buf[i] = epoch;
       result.push(p.length > 3 ? [mx, my, mz, p[3]] : [mx, my, mz]);
     }
   }
@@ -3877,7 +4399,7 @@ function raycastVoxel(event) {
   for (let i = 0; i < 1024; i++) {
     if (cx >= 0 && cx < W && cy >= 0 && cy < H && cz >= 0 && cz < D) {
       const mid = getVoxelAt(cx, cy, cz);
-      if (mid !== 0 && isVoxelShown(cx, cy, cz, mid)) {
+      if (mid !== 0 && inClipBounds(cx, cy, cz) && isVoxelShown(cx, cy, cz, mid)) {
         const n = new THREE.Vector3();
         if (axis === 0) n.x = -stepX;
         else if (axis === 1) n.y = -stepY;
@@ -3928,30 +4450,35 @@ function raycastVoxelMesh(event) {
   const intersects = raycaster.intersectObjects(objects, false);
   if (intersects.length === 0) return null;
 
-  const hit = intersects[0];
-  
-  if (hit.object === groundPlane) {
-    // Hit ground plane — return position for placement
-    const p = hit.point;
-    const x = Math.floor(unmirrorWorldX(p.x) - originOffsetX);
-    const z = Math.floor(p.z - originOffsetZ);
-    return { x, y: 0, z, normal: new THREE.Vector3(0, 1, 0), placeY: 0 };
+  // Walk hits nearest-first — instance slots exist for shader-clipped voxels
+  // too, so skip any hit whose cell is outside the slice or hidden.
+  for (const hit of intersects) {
+    if (hit.object === groundPlane) {
+      // Hit ground plane — return position for placement
+      const p = hit.point;
+      const x = Math.floor(unmirrorWorldX(p.x) - originOffsetX);
+      const z = Math.floor(p.z - originOffsetZ);
+      return { x, y: 0, z, normal: new THREE.Vector3(0, 1, 0), placeY: 0 };
+    }
+
+    // slotKeys (not getVisibleVoxels order) maps instanceId -> voxel key —
+    // incremental swap-pops reorder slots independently of map order.
+    const key = slotKeys[hit.instanceId];
+    if (!key) continue;
+    const i1 = key.indexOf(','), i2 = key.lastIndexOf(',');
+    const vx = +key.slice(0, i1), vy = +key.slice(i1 + 1, i2), vz = +key.slice(i2 + 1);
+    const vmid = voxelMap.get(key);
+    if (vmid === undefined || !inClipBounds(vx, vy, vz) || !isVoxelShown(vx, vy, vz, vmid)) continue;
+    const normal = hit.face.normal.clone();
+
+    // Position to place new voxel (adjacent in normal direction)
+    const placeX = vx + Math.round(normal.x);
+    const placeY = vy + Math.round(normal.y);
+    const placeZ = vz + Math.round(normal.z);
+
+    return { x: vx, y: vy, z: vz, normal, placeX, placeY, placeZ, mid: vmid };
   }
-  
-  // Hit instanced mesh — get instance ID
-  const instanceId = hit.instanceId;
-  const visible = getVisibleVoxels();
-  if (instanceId >= visible.length) return null;
-  
-  const v = visible[instanceId];
-  const normal = hit.face.normal.clone();
-  
-  // Position to place new voxel (adjacent in normal direction)
-  const placeX = v.x + Math.round(normal.x);
-  const placeY = v.y + Math.round(normal.y);
-  const placeZ = v.z + Math.round(normal.z);
-  
-  return { x: v.x, y: v.y, z: v.z, normal, placeX, placeY, placeZ, mid: v.mid };
+  return null;
 }
 
 // === TOOL ACTIONS ===
@@ -3968,7 +4495,9 @@ function anchorCell(hit, event) {
 function performTool(event) {
   if (currentTool === 'camera') return;
   const hit = raycastVoxel(event);
-  if (!hit) return;
+  // Ruler bypass: axis-locked measurement may legitimately end in empty
+  // space — the endpoint projects onto the axis-line, no voxel needed.
+  if (!hit && !(currentTool === 'ruler' && rulerStart && heldAxisLock(event))) return;
   
   switch (currentTool) {
     case 'place':
@@ -4049,7 +4578,7 @@ function performTool(event) {
           }
         }
         pushHistory();
-        const gname = BODY_GROUPS.find(g => g.id === selectedGroup)?.name || selectedGroup;
+        const gname = activeBodyGroups().find(g => g.id === selectedGroup)?.name || selectedGroup;
         setStatus(`Assigned ${selVoxels.length} selected voxels to ${gname}${mirrored ? ` (+${mirrored} mirrored)` : ''}`);
         updateGroupCounts();
         if (groupViewMode) rebuildMesh();
@@ -4066,7 +4595,7 @@ function performTool(event) {
           }
         }
         pushHistory();
-        const gname = BODY_GROUPS.find(g => g.id === selectedGroup)?.name || selectedGroup;
+        const gname = activeBodyGroups().find(g => g.id === selectedGroup)?.name || selectedGroup;
         setStatus(`Assigned (${hit.x},${hit.y},${hit.z}) to ${gname}`);
         updateGroupCounts();
         if (groupViewMode) rebuildMesh();
@@ -4212,8 +4741,9 @@ function performTool(event) {
         lineStart = anchorCell(hit, event);
         setStatus(`Line start set at (${lineStart[0]},${lineStart[1]},${lineStart[2]}) — click end point`);
       } else {
-        // Place line
-        const [endX, endY, endZ] = anchorCell(hit, event);
+        // Place line — Shift/Ctrl/Alt lock the endpoint to the Y/Z/X axis
+        const [ex, ey, ez] = anchorCell(hit, event);
+        const [endX, endY, endZ] = lineLockedEnd(lineStart[0], lineStart[1], lineStart[2], ex, ey, ez, event);
         const lineVoxels = computeLineVoxels(lineStart[0], lineStart[1], lineStart[2], endX, endY, endZ);
         for (const [lx, ly, lz] of lineVoxels) {
           if (lx >= 0 && lx < W && ly >= 0 && ly < H && lz >= 0 && lz < D) {
@@ -4222,7 +4752,7 @@ function performTool(event) {
         }
         pushHistory();
         rebuildMesh();
-        setStatus(`Drew line: ${lineVoxels.length} voxels`);
+        setStatus(`Drew line: ${lineVoxels.length} voxels${lineLockLabel(event)}`);
         lineStart = null;
       }
       break;
@@ -4329,7 +4859,11 @@ function performTool(event) {
         // gid, anywhere in the volume. Alt adds more groups to the selection.
         const gid = groupMap.get(`${hit.x},${hit.y},${hit.z}`);
         if (gid === undefined) {
-          setStatus(`No body group on (${hit.x},${hit.y},${hit.z}) — tag it via Body Parts first`);
+          const panelName = assetType === 'vehicle' ? 'Car Parts' : 'Body Parts';
+          const hint = (assetType === 'character' || assetType === 'vehicle')
+            ? `tag it via ${panelName} first`
+            : 'no group defs for this asset type yet — tag machinery stays live for future use (floors/zones)';
+          setStatus(`No group tag on (${hit.x},${hit.y},${hit.z}) — ${hint}`);
           return;
         }
         const cells = [];
@@ -4339,7 +4873,7 @@ function performTool(event) {
           cells.push([x, y, z, voxelMap.get(key)]);
         }
         const newVox = mirrorVoxelPositions(cells);
-        const gname = BODY_GROUPS.find(g => g.id === gid)?.name || `gid ${gid}`;
+        const gname = activeBodyGroups().find(g => g.id === gid)?.name || `gid ${gid}`;
         if (event.altKey) {
           const added = mergeIntoSelection(newVox);
           document.getElementById('sel-info').textContent = `Sel: ${selVoxels.length} voxels (multi)`;
@@ -4373,14 +4907,18 @@ function performTool(event) {
     
     case 'extrude':
       if (hit.mid !== undefined) {
-        if (event.ctrlKey) {
+        const nx = Math.round(hit.normal.x);
+        const ny = Math.round(hit.normal.y);
+        const nz = Math.round(hit.normal.z);
+        // Multi-selection active: apply to every selected region along the
+        // clicked axis — click = +1 layer per region, Ctrl = peel that layer.
+        if (selectionActive && selVoxels.length > 0 && !event.shiftKey) {
+          performSelectionExtrude(nx, ny, nz, event.ctrlKey);
+        } else if (event.ctrlKey) {
           // Ctrl+click: de-extrude 1 layer (remove face voxels)
           performDeExtrude(hit);
         } else if (event.shiftKey) {
           // Shift+click: start drag extrude — detect face, enter drag mode
-          const nx = Math.round(hit.normal.x);
-          const ny = Math.round(hit.normal.y);
-          const nz = Math.round(hit.normal.z);
           extrudeDragFace = computeExtrudeFace(hit.x, hit.y, hit.z, hit.mid, nx, ny, nz);
           extrudeDragNormal = [nx, ny, nz];
           extrudeDragMid = hit.mid;
@@ -4396,18 +4934,23 @@ function performTool(event) {
       break;
     
     case 'ruler':
-      // If a previous measurement is frozen, clear it before starting a new one.
-      if (rulerFrozen) clearRulerFrozen();
       if (!rulerStart) {
         if (hit.placeX !== undefined) {
           rulerStart = [hit.placeX, hit.placeY, hit.placeZ];
         } else {
           rulerStart = [hit.x, hit.y, hit.z];
         }
-        setStatus(`Ruler start: (${rulerStart[0]},${rulerStart[1]},${rulerStart[2]}) — click end point`);
+        setStatus(`Ruler start: (${rulerStart[0]},${rulerStart[1]},${rulerStart[2]}) — click end point (Shift=Y Ctrl=Z Alt=X lock)`);
       } else {
         let endX, endY, endZ;
-        if (hit.placeX !== undefined) {
+        const lockAxis = heldAxisLock(event);
+        const rayEnd = lockAxis ? axisLockEndFromRay(lockAxis, rulerStart[0], rulerStart[1], rulerStart[2]) : null;
+        if (rayEnd) {
+          [endX, endY, endZ] = rayEnd;
+        } else if (!hit) {
+          setStatus('📏 Ruler: ray parallel to axis — aim slightly off to plant');
+          break;
+        } else if (hit.placeX !== undefined) {
           endX = hit.placeX; endY = hit.placeY; endZ = hit.placeZ;
         } else {
           endX = hit.x; endY = hit.y; endZ = hit.z;
@@ -4416,14 +4959,17 @@ function performTool(event) {
         const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
         const manhattan = Math.abs(dx) + Math.abs(dy) + Math.abs(dz);
         const lineVoxels = computeLineVoxels(rulerStart[0], rulerStart[1], rulerStart[2], endX, endY, endZ);
-        const statusText = `📏 Distance: ${dist.toFixed(2)} | Voxels in line: ${lineVoxels.length} | Δ=(${dx},${dy},${dz}) | Manhattan: ${manhattan} | From (${rulerStart[0]},${rulerStart[1]},${rulerStart[2]}) to (${endX},${endY},${endZ}) — ESC to clear`;
-        // Freeze the measurement as a persistent overlay — survives tool
-        // switches, mouse-off-model, and other tool usage. Only ESC or a
-        // new ruler measurement clears it.
-        rulerFrozen = { positions: lineVoxels, statusText };
-        showRulerFrozen(lineVoxels);
-        setStatus(statusText);
-        rulerStart = null;
+        const statusText = `📏 Distance: ${dist.toFixed(2)} | Voxels in line: ${lineVoxels.length} | Δ=(${dx},${dy},${dz}) | Manhattan: ${manhattan} | From (${rulerStart[0]},${rulerStart[1]},${rulerStart[2]}) to (${endX},${endY},${endZ})`;
+        // Plant the measurement — it persists until cleared from the ruler
+        // panel. Refusing past 4 keeps the in-progress start so the user can
+        // clear a slot and click again.
+        const slot = plantRuler(lineVoxels, statusText, `${dist.toFixed(2)}v Δ(${dx},${dy},${dz})`);
+        if (slot === -1) {
+          setStatus(`📏 Ruler full — 4 planted. Clear one in the ruler panel (or ESC to cancel this measurement)`);
+        } else {
+          setStatus(`R${slot + 1} planted — ${statusText}`);
+          rulerStart = null;
+        }
       }
       break;
   }
@@ -4445,6 +4991,30 @@ function floodFill(x, y, z, targetMid, replaceMid) {
 }
 
 // === HIGHLIGHT PREVIEW ===
+// Shared epoch-marked scratch grid for flood fills / shell extraction —
+// replaces per-call Set<string> tracking (tens of thousands of string keys
+// per hover was a big part of the hitch). marks[idx] === epoch = "seen".
+// beginMark() is reentrant-safe via monotonically increasing epochs.
+let _markBuf = new Uint32Array(0);
+let _markEpoch = 0;
+function beginMark() {
+  const n = W * H * D;
+  if (_markBuf.length !== n) { _markBuf = new Uint32Array(n); _markEpoch = 0; }
+  return { buf: _markBuf, epoch: ++_markEpoch };
+}
+const _cellIdx = (x, y, z) => x + W * (y + H * z); // W/H read live — volume can resize
+
+// Member-marks live in a SEPARATE buffer from _markBuf: fills write their
+// epoch here for result cells only, so "was this cell in that region" is an
+// O(1) test for the hover memo. Separate buffer because mirrorPositionsPreview
+// reuses _markBuf and would otherwise clobber member marks every hover.
+// _memberFloor: epochs below it are stale (bumped on every rebuildMesh).
+// _fillGen: generation for in-flight async fills — bumped on rebuild so a
+// fill that started before an edit can't memoize stale results.
+let _memberBuf = new Uint32Array(0);
+let _memberFloor = 0;
+let _fillGen = 0;
+
 // Compute all "exterior" air cells: air reachable from the model grid boundary
 let _exteriorAirCache = null;
 let _exteriorAirVoxelCount = -1;
@@ -4485,23 +5055,37 @@ function computeExteriorAir() {
   return exterior;
 }
 
+// Sanity bound for flood fills — BFS is already volume-bounded via the epoch
+// grid (each cell is marked once), so this only guards memory on giant fills.
+// result.truncated is set when the cap fires so UI can warn instead of
+// silently under-selecting (was a hidden 10k/50k cap that chopped big slabs).
+const FLOOD_FILL_LIMIT = 2000000;
+
 function computeFloodFillAir(x, y, z) {
-  // Flood fill connected empty space (voxel value 0)
+  // Flood fill connected empty space (voxel value 0). Flat numeric stack +
+  // epoch-marked grid — no string keys or per-cell array churn.
   if (getVoxelAt(x, y, z) !== 0) return [];
-  const stack = [[x, y, z]];
-  const visited = new Set();
+  const { buf, epoch } = beginMark();
+  if (_memberBuf.length !== W * H * D) _memberBuf = new Uint32Array(W * H * D);
+  const stack = [];
+  const push = (cx, cy, cz) => {
+    if (cx < 0 || cx >= W || cy < 0 || cy >= H || cz < 0 || cz >= D) return;
+    const ci = _cellIdx(cx, cy, cz);
+    if (buf[ci] === epoch) return;
+    buf[ci] = epoch;
+    stack.push(cx, cy, cz);
+  };
+  push(x, y, z);
   const result = [];
   while (stack.length > 0) {
-    const [cx, cy, cz] = stack.pop();
-    const key = `${cx},${cy},${cz}`;
-    if (visited.has(key)) continue;
-    visited.add(key);
-    if (cx < 0 || cx >= W || cy < 0 || cy >= H || cz < 0 || cz >= D) continue;
+    const cz = stack.pop(), cy = stack.pop(), cx = stack.pop();
     if (getVoxelAt(cx, cy, cz) !== 0) continue;
+    _memberBuf[_cellIdx(cx, cy, cz)] = epoch;
     result.push([cx, cy, cz]);
-    if (result.length > 10000) break; // safety limit
-    stack.push([cx+1, cy, cz], [cx-1, cy, cz], [cx, cy+1, cz], [cx, cy-1, cz], [cx, cy, cz+1], [cx, cy, cz-1]);
+    if (result.length > FLOOD_FILL_LIMIT) { result.truncated = true; break; }
+    push(cx+1, cy, cz); push(cx-1, cy, cz); push(cx, cy+1, cz); push(cx, cy-1, cz); push(cx, cy, cz+1); push(cx, cy, cz-1);
   }
+  result._epoch = epoch;
   return result;
 }
 
@@ -4513,22 +5097,122 @@ function computeCavity(x, y, z) {
   return airCells.filter(([cx, cy, cz]) => !exterior.has(`${cx},${cy},${cz}`));
 }
 function computeFloodFill(x, y, z, targetMid) {
-  const stack = [[x, y, z]];
-  const visited = new Set();
+  // Flat numeric stack + epoch-marked grid — no string keys or per-cell array
+  // churn. Non-member cells are still marked so they're never re-pushed.
+  const { buf, epoch } = beginMark();
+  const stack = [];
+  const push = (cx, cy, cz) => {
+    if (cx < 0 || cx >= W || cy < 0 || cy >= H || cz < 0 || cz >= D) return;
+    const ci = _cellIdx(cx, cy, cz);
+    if (buf[ci] === epoch) return;
+    buf[ci] = epoch;
+    stack.push(cx, cy, cz);
+  };
+  push(x, y, z);
   const result = [];
+  if (_memberBuf.length !== W * H * D) _memberBuf = new Uint32Array(W * H * D);
   while (stack.length > 0) {
-    const [cx, cy, cz] = stack.pop();
-    const key = `${cx},${cy},${cz}`;
-    if (visited.has(key)) continue;
-    visited.add(key);
+    const cz = stack.pop(), cy = stack.pop(), cx = stack.pop();
     if (getVoxelAt(cx, cy, cz) !== targetMid) continue;
+    _memberBuf[_cellIdx(cx, cy, cz)] = epoch;
     result.push([cx, cy, cz]);
-    if (result.length > 50000) break; // safety limit
-    stack.push([cx+1, cy, cz], [cx-1, cy, cz], [cx, cy+1, cz], [cx, cy-1, cz], [cx, cy, cz+1], [cx, cy, cz-1]);
+    if (result.length > FLOOD_FILL_LIMIT) { result.truncated = true; break; }
+    push(cx+1, cy, cz); push(cx-1, cy, cz); push(cx, cy+1, cz); push(cx, cy-1, cz); push(cx, cy, cz+1); push(cx, cy, cz-1);
   }
+  result._epoch = epoch;
   return result;
 }
 
+// Cooperative flood fill — same BFS shape as computeFloodFill but sliced
+// across animation frames so hovering a 300k-voxel region never blocks the
+// page. accept(mid) picks member cells; onDone(result) fires only if the
+// model generation is unchanged since the fill started (_fillGen).
+const FILL_CHUNK = 30000; // cells per frame slice (~8-12ms)
+function fillChunked(x, y, z, accept, onDone) {
+  const gen = _fillGen;
+  const { buf, epoch } = beginMark();
+  if (_memberBuf.length !== W * H * D) _memberBuf = new Uint32Array(W * H * D);
+  const stack = [];
+  const push = (cx, cy, cz) => {
+    if (cx < 0 || cx >= W || cy < 0 || cy >= H || cz < 0 || cz >= D) return;
+    const ci = _cellIdx(cx, cy, cz);
+    if (buf[ci] === epoch) return;
+    buf[ci] = epoch;
+    stack.push(cx, cy, cz);
+  };
+  push(x, y, z);
+  const result = [];
+  function step() {
+    let budget = FILL_CHUNK;
+    while (budget-- > 0 && stack.length > 0) {
+      const cz = stack.pop(), cy = stack.pop(), cx = stack.pop();
+      if (!accept(getVoxelAt(cx, cy, cz))) continue;
+      _memberBuf[_cellIdx(cx, cy, cz)] = epoch;
+      result.push([cx, cy, cz]);
+      if (result.length > FLOOD_FILL_LIMIT) { result.truncated = true; stack.length = 0; break; }
+      push(cx+1, cy, cz); push(cx-1, cy, cz); push(cx, cy+1, cz); push(cx, cy-1, cz); push(cx, cy, cz+1); push(cx, cy, cz-1);
+    }
+    if (stack.length > 0) { requestAnimationFrame(step); return; }
+    result._epoch = epoch;
+    if (gen === _fillGen) onDone(result);
+  }
+  requestAnimationFrame(step);
+}
+
+// Axis-lock for the line tool: Shift=Y, Ctrl=Z, Alt=X. The locked axis keeps
+// its delta from the start cell; the other two components snap to the start's
+// — i.e. the endpoint projects onto the axis line through the start. Held-var
+// fallbacks keep the stored-mousemove preview live (its modifier keys go stale).
+function lineLockedEnd(sx, sy, sz, ex, ey, ez, event) {
+  const shift = event.shiftKey || shiftHeld;
+  const ctrl  = event.ctrlKey  || ctrlHeld;
+  const alt   = event.altKey   || altHeld;
+  if (shift) return [sx, ey, sz];   // Y lock
+  if (ctrl)  return [sx, sy, ez];   // Z lock
+  if (alt)   return [ex, sy, sz];   // X lock
+  return [ex, ey, ez];
+}
+function lineLockLabel(event) {
+  const shift = event.shiftKey || shiftHeld;
+  const ctrl  = event.ctrlKey  || ctrlHeld;
+  const alt   = event.altKey   || altHeld;
+  return shift ? ' [Y-locked]' : ctrl ? ' [Z-locked]' : alt ? ' [X-locked]' : '';
+}
+// Held axis-lock as an axis name ('y'|'z'|'x'|null) — same precedence as
+// lineLockedEnd (Shift > Ctrl > Alt).
+function heldAxisLock(event) {
+  if (event.shiftKey || shiftHeld) return 'y';
+  if (event.ctrlKey  || ctrlHeld)  return 'z';
+  if (event.altKey   || altHeld)   return 'x';
+  return null;
+}
+// Endpoint for an axis-locked measurement with no voxel under the cursor:
+// closest point on the axis line through `start` to the cursor ray
+// (line-line closest approach). Works in empty sky — that's the point of
+// it. Returns cell coords clamped to the volume, or null when the ray runs
+// parallel to the axis (degenerate — direction gives no unique point).
+function axisLockEndFromRay(axis, sx, sy, sz) {
+  const ro = raycaster.ray.origin, rd = raycaster.ray.direction;
+  // World → cell-index space (and un-mirror X under Unity view, same as
+  // raycastVoxel does before marching).
+  const ox = unmirrorWorldX(ro.x) - originOffsetX - 0.5;
+  const oy = ro.y - 0.5;
+  const oz = ro.z - originOffsetZ - 0.5;
+  const vx = unityMirror ? -rd.x : rd.x;
+  const vy = rd.y, vz = rd.z;
+  const ax = axis === 'x' ? 1 : 0, ay = axis === 'y' ? 1 : 0, az = axis === 'z' ? 1 : 0;
+  const b = ax * vx + ay * vy + az * vz;      // u·v
+  const d = ax * (sx - ox) + ay * (sy - oy) + az * (sz - oz); // u·w0
+  const e = vx * (sx - ox) + vy * (sy - oy) + vz * (sz - oz); // v·w0
+  const denom = 1 - b * b;
+  if (Math.abs(denom) < 1e-6) return null;
+  const s = (b * e - d) / denom;
+  return [
+    Math.min(W - 1, Math.max(0, Math.round(sx + ax * s))),
+    Math.min(H - 1, Math.max(0, Math.round(sy + ay * s))),
+    Math.min(D - 1, Math.max(0, Math.round(sz + az * s))),
+  ];
+}
 function computeLineVoxels(x0, y0, z0, x1, y1, z1) {
   const result = [];
   const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0), dz = Math.abs(z1 - z0);
@@ -4572,17 +5256,86 @@ function computeBoxVoxels(x0, y0, z0, x1, y1, z1) {
 // Live Alt-key tracking — stored mousemove events carry a stale altKey, so
 // pressing/releasing Alt alone wouldn't refresh the additive-select preview.
 let altHeld = false;
+let ctrlHeld = false; // hold Ctrl + click twice in select tool → box-select a volume
+let shiftHeld = false; // Shift axis-lock for the line tool (stored-mousemove shiftKey goes stale)
 let qHeld = false; // hold Q + click in select tool → pick the voxel's whole body-part group
 let wHeld = false; // hold W + click in select tool → pick the voxel's whole wardrobe region
 
+// === HOVER PREVIEW MEMO ===
+// Flood fills / region scans recompute per mousemove — on a large connected
+// region that stalls the page. Previews are deterministic per (aux + region),
+// and EVERY member cell yields the same set — so entries are keyed by aux
+// only and membership is validated in O(1): fill-derived entries check
+// _memberBuf[cellIdx] === entry.epoch (the fill epoch-marks members), while
+// scan-derived entries keep a member-key Set. Conservative invalidation:
+// cleared on any mutating gesture + _memberFloor bumps on rebuild.
+const positionsMemo = new Map();
+const POSITIONS_MEMO_CAP = 64; // aux entries — evict oldest past this
+function memoMirrorBits() {
+  return (mirrorX ? 1 : 0) | (mirrorY ? 2 : 0) | (mirrorZ ? 4 : 0) | (mirrorHalf ? 8 : 0);
+}
+// Entry = { arr: final (post-mirror) positions array, n: count, tr, epoch?, cells? }
+function previewMemoGet(aux, x, y, z) {
+  const e = positionsMemo.get(aux);
+  if (!e) return null;
+  if (e.epoch !== undefined) {
+    return (e.epoch >= _memberFloor && _memberBuf[_cellIdx(x, y, z)] === e.epoch) ? e : null;
+  }
+  return e.cells && e.cells.has(x + ',' + y + ',' + z) ? e : null;
+}
+function previewMemoSet(aux, e) {
+  if (positionsMemo.size >= POSITIONS_MEMO_CAP) {
+    positionsMemo.delete(positionsMemo.keys().next().value); // oldest first
+  }
+  positionsMemo.set(aux, e);
+}
+// Scan-derived entries (w/q tag scans — members aren't connected, so the
+// epoch-membership trick doesn't apply): keep the member-key Set inside the
+// entry. One Set per aux instead of per-cell Map entries.
+function previewMemoPutScan(aux, rawCells, e) {
+  e.cells = new Set(rawCells.map(p => p[0] + ',' + p[1] + ',' + p[2]));
+  previewMemoSet(aux, e);
+}
+// Async preview fills — one in flight per aux key; the completion memoizes
+// and re-runs the hover update so the highlight lands when the scan does.
+// Sliding across several regions queues each region's scan — the results
+// stay cached for the return pass.
+const _pendingPreviews = new Set();
+let _lastHoverSnapshot = null;
+function startPreviewFill(aux, x, y, z, mid, postFn) {
+  if (_pendingPreviews.has(aux)) return;
+  _pendingPreviews.add(aux);
+  const accept = mid === 0 ? (m => m === 0) : (m => m === mid);
+  fillChunked(x, y, z, accept, (raw) => {
+    _pendingPreviews.delete(aux);
+    const cells = postFn ? postFn(raw) : raw;
+    previewMemoSet(aux, {
+      arr: mirrorPositionsPreview(cells), n: cells.length,
+      tr: !!raw.truncated, epoch: raw._epoch });
+    if (_lastHoverSnapshot) updateHighlight(_lastHoverSnapshot);
+  });
+}
+document.addEventListener('pointerdown', () => positionsMemo.clear(), true);
+document.addEventListener('keydown', () => positionsMemo.clear(), true);
+document.addEventListener('click', () => positionsMemo.clear(), true);
+
 function updateHighlight(event) {
+  _lastHoverSnapshot = {
+    clientX: event.clientX, clientY: event.clientY,
+    shiftKey: !!event.shiftKey, ctrlKey: !!event.ctrlKey, altKey: !!event.altKey
+  };
   if (currentTool === 'camera') {
     clearHighlight();
     document.getElementById('tooltip').style.display = 'none';
     return;
   }
   const hit = raycastVoxel(event);
-  if (!hit) {
+  if (hit) lastHoverHit = hit;
+  // Ruler bypass: an in-progress measurement with a held axis-lock can end
+  // in empty space — the endpoint projects onto the axis-line instead of
+  // needing a voxel under the cursor.
+  const rulerOffVoxel = currentTool === 'ruler' && rulerStart && heldAxisLock(event);
+  if (!hit && !rulerOffVoxel) {
     clearHighlight();
     document.getElementById('tooltip').style.display = 'none';
     return;
@@ -4591,6 +5344,8 @@ function updateHighlight(event) {
   let color = TOOL_COLORS[currentTool] || 0x00ff00;
   let positions = [];
   let infoText = '';
+  let positionsPreMirrored = false; // memoized previews already include mirror
+  let previewBounds = null;         // [minX..maxZ] — box drag too big to enumerate
 
   // Always show material under cursor when hovering a solid voxel
   let matInfoStr = '';
@@ -4649,29 +5404,41 @@ function updateHighlight(event) {
           if (hit.placeX !== undefined) return [hit.placeX, hit.placeY, hit.placeZ];
           return [hit.x, hit.y, hit.z];
         }
+        const fillAux = (kind, seedMid) => 'fill|' + kind + '|' + seedMid + '|' + (yClamp || '') + '|' + clickY + '|' + memoMirrorBits();
+        const fillPreview = (aux, fx, fy, fz, fmid, makeText) => {
+          let e = previewMemoGet(aux, fx, fy, fz);
+          if (!e) {
+            startPreviewFill(aux, fx, fy, fz, fmid, (cells) => clampFilter(cells));
+            infoText = `Scanning fill…`;
+          } else {
+            positions = e.arr;
+            positionsPreMirrored = true;
+            infoText = makeText(e.n);
+          }
+        };
         if (mode === 'replace' && hit.mid !== undefined) {
-          const fillPositions = clampFilter(computeFloodFill(hit.x, hit.y, hit.z, hit.mid));
-          positions = fillPositions;
-          infoText = `Replace ${fillPositions.length} voxels (mat ${hit.mid} → ${selectedMaterial})${clampLabel}${modHint}`;
+          fillPreview(fillAux('r', hit.mid), hit.x, hit.y, hit.z, hit.mid,
+            (n) => `Replace ${n} voxels (mat ${hit.mid} → ${selectedMaterial})${clampLabel}${modHint}`);
         } else if ((mode === 'cavity' || mode === 'air') && (hit.placeX !== undefined || hit.mid !== undefined)) {
           const [ox, oy, oz] = getPreviewOrigin();
           if (getVoxelAt(ox, oy, oz) === 0) {
-            let fillCells = mode === 'cavity'
-              ? clampFilter(computeCavity(ox, oy, oz))
-              : clampFilter(computeFloodFillAir(ox, oy, oz));
-            positions = fillCells;
-            infoText = `${mode === 'cavity' ? 'Cavity' : 'Air'} fill: ${fillCells.length} voxels${clampLabel}${modHint}`;
+            if (mode === 'cavity') {
+              const fillCells = clampFilter(computeCavity(ox, oy, oz));
+              positions = fillCells;
+              infoText = `Cavity fill: ${fillCells.length} voxels${clampLabel}${modHint}`;
+            } else {
+              fillPreview(fillAux('a', 0), ox, oy, oz, 0,
+                (n) => `Air fill: ${n} voxels${clampLabel}${modHint}`);
+            }
           } else if (hit.mid !== undefined) {
-            const fillPositions = clampFilter(computeFloodFill(hit.x, hit.y, hit.z, hit.mid));
-            positions = fillPositions;
-            infoText = `Replace ${fillPositions.length} voxels (mat ${hit.mid} → ${selectedMaterial})${clampLabel} — switch to Replace or click${modHint}`;
+            fillPreview(fillAux('r', hit.mid), hit.x, hit.y, hit.z, hit.mid,
+              (n) => `Replace ${n} voxels (mat ${hit.mid} → ${selectedMaterial})${clampLabel} — switch to Replace or click${modHint}`);
           } else {
             infoText = `Click on a face to fill${modHint}`;
           }
         } else if (hit.mid !== undefined) {
-          const fillPositions = clampFilter(computeFloodFill(hit.x, hit.y, hit.z, hit.mid));
-          positions = fillPositions;
-          infoText = `Replace ${fillPositions.length} voxels (mat ${hit.mid} → ${selectedMaterial})${clampLabel}${modHint}`;
+          fillPreview(fillAux('r', hit.mid), hit.x, hit.y, hit.z, hit.mid,
+            (n) => `Replace ${n} voxels (mat ${hit.mid} → ${selectedMaterial})${clampLabel}${modHint}`);
         } else {
           infoText = `Click on a face to fill${modHint}`;
         }
@@ -4680,10 +5447,11 @@ function updateHighlight(event) {
 
     case 'line':
       if (lineStart) {
-        // Show line from start to current hover
-        const [endX, endY, endZ] = anchorCell(hit, event);
+        // Show line from start to current hover (axis-locked when Shift/Ctrl/Alt held)
+        const [ex, ey, ez] = anchorCell(hit, event);
+        const [endX, endY, endZ] = lineLockedEnd(lineStart[0], lineStart[1], lineStart[2], ex, ey, ez, event);
         positions = computeLineVoxels(lineStart[0], lineStart[1], lineStart[2], endX, endY, endZ);
-        infoText = `Line: (${lineStart[0]},${lineStart[1]},${lineStart[2]}) → (${endX},${endY},${endZ}) = ${positions.length} voxels`;
+        infoText = `Line: (${lineStart[0]},${lineStart[1]},${lineStart[2]}) → (${endX},${endY},${endZ}) = ${positions.length} voxels${lineLockLabel(event) || ' — Shift=Y Ctrl=Z Alt=X lock'}`;
       } else {
         // First click preview
         const [ax, ay, az] = anchorCell(hit, event);
@@ -4695,8 +5463,18 @@ function updateHighlight(event) {
     case 'box':
       if (boxStart) {
         const [endX, endY, endZ] = anchorCell(hit, event);
-        positions = computeBoxVoxels(boxStart[0], boxStart[1], boxStart[2], endX, endY, endZ);
-        infoText = `Box: (${boxStart[0]},${boxStart[1]},${boxStart[2]}) → (${endX},${endY},${endZ}) = ${positions.length} voxels`;
+        const total = (Math.abs(endX - boxStart[0]) + 1) * (Math.abs(endY - boxStart[1]) + 1) * (Math.abs(endZ - boxStart[2]) + 1);
+        if (total > HL_SHELL_LIMIT) {
+          // Don't enumerate millions of cells per mousemove — draw the bounds
+          // box directly (same thing buildShellMeshes would fall back to).
+          previewBounds = [
+            Math.min(boxStart[0], endX), Math.min(boxStart[1], endY), Math.min(boxStart[2], endZ),
+            Math.max(boxStart[0], endX), Math.max(boxStart[1], endY), Math.max(boxStart[2], endZ)];
+          infoText = `Box: (${boxStart[0]},${boxStart[1]},${boxStart[2]}) → (${endX},${endY},${endZ}) = ${total} voxels`;
+        } else {
+          positions = computeBoxVoxels(boxStart[0], boxStart[1], boxStart[2], endX, endY, endZ);
+          infoText = `Box: (${boxStart[0]},${boxStart[1]},${boxStart[2]}) → (${endX},${endY},${endZ}) = ${positions.length} voxels`;
+        }
       } else {
         const [ax, ay, az] = anchorCell(hit, event);
         positions = [[ax, ay, az]];
@@ -4705,57 +5483,107 @@ function updateHighlight(event) {
       break;
     
     case 'select':
-      if (wHeld && hit.mid !== undefined) {
+      if (boxStart && boxStart[3] && boxStart[3].indexOf('select-box') === 0) {
+        // Box-select in flight — preview the actual candidate box (was falling
+        // through to flood-region previews, which made the two-click state
+        // read as "selecting the region under the cursor").
+        const [endX, endY, endZ] = [hit.x, hit.y, hit.z];
+        const minX = Math.min(boxStart[0], endX), maxX = Math.max(boxStart[0], endX);
+        const minY = Math.min(boxStart[1], endY), maxY = Math.max(boxStart[1], endY);
+        const minZ = Math.min(boxStart[2], endZ), maxZ = Math.max(boxStart[2], endZ);
+        const total = (maxX - minX + 1) * (maxY - minY + 1) * (maxZ - minZ + 1);
+        if (total > HL_SHELL_LIMIT) {
+          previewBounds = [minX, minY, minZ, maxX, maxY, maxZ];
+        } else {
+          positions = computeBoxVoxels(boxStart[0], boxStart[1], boxStart[2], endX, endY, endZ);
+        }
+        const additive = boxStart[3] === 'select-box-add';
+        infoText = `Box select: (${boxStart[0]},${boxStart[1]},${boxStart[2]}) → (${endX},${endY},${endZ}) = ${total} cells — ${additive ? 'Ctrl+Alt' : 'Ctrl'}+click to ${additive ? 'add' : 'select'}`;
+      } else if (ctrlHeld && hit.mid !== undefined && !event.shiftKey) {
+        // Pre-start affordance — Ctrl held advertises the box-select gesture
+        positions = [[hit.x, hit.y, hit.z]];
+        infoText = `Ctrl+click = box select start @ (${hit.x},${hit.y},${hit.z})${altHeld || event.altKey ? ' — Ctrl+Alt adds to selection' : ''}`;
+      } else if (wHeld && hit.mid !== undefined) {
         // Region-select preview — highlight every cell sharing the hovered
         // voxel's wardrobe region (untagged cells = 'Unassigned' region)
         const rid = clothingRegionMap.get(`${hit.x},${hit.y},${hit.z}`);
-        const cells = [];
-        for (const [key] of voxelMap) {
-          if (clothingRegionMap.get(key) !== rid) continue;
-          const [x, y, z] = key.split(',').map(Number);
-          cells.push([x, y, z]);
+        const aux = 'w|' + rid + '|' + memoMirrorBits();
+        let e = previewMemoGet(aux, hit.x, hit.y, hit.z);
+        if (!e) {
+          const cells = [];
+          for (const [key] of voxelMap) {
+            if (clothingRegionMap.get(key) !== rid) continue;
+            const [x, y, z] = key.split(',').map(Number);
+            cells.push([x, y, z]);
+          }
+          e = { arr: mirrorPositionsPreview(cells), n: cells.length };
+          previewMemoPutScan(aux, cells, e);
         }
-        positions = mirrorPositionsPreview(cells);
-        infoText = `W+click: select ${clothingRegionName(rid)} (${cells.length} voxels)${event.altKey || altHeld ? ' — Alt+W adds to selection' : ''}`;
+        positions = e.arr;
+        positionsPreMirrored = true;
+        infoText = `W+click: select ${clothingRegionName(rid)} (${e.n} voxels)${event.altKey || altHeld ? ' — Alt+W adds to selection' : ''}`;
       } else if (qHeld && hit.mid !== undefined) {
         // Group-select preview — highlight every cell sharing the hovered gid
         const gid = groupMap.get(`${hit.x},${hit.y},${hit.z}`);
         if (gid === undefined) {
           infoText = `Q+click: no body group on this voxel — tag it first`;
         } else {
-          const cells = [];
-          for (const [key, g] of groupMap) {
-            if (g !== gid || !voxelMap.has(key)) continue;
-            const [x, y, z] = key.split(',').map(Number);
-            cells.push([x, y, z]);
+          const aux = 'q|' + gid + '|' + memoMirrorBits();
+          let e = previewMemoGet(aux, hit.x, hit.y, hit.z);
+          if (!e) {
+            const cells = [];
+            for (const [key, g] of groupMap) {
+              if (g !== gid || !voxelMap.has(key)) continue;
+              const [x, y, z] = key.split(',').map(Number);
+              cells.push([x, y, z]);
+            }
+            e = { arr: mirrorPositionsPreview(cells), n: cells.length };
+            previewMemoPutScan(aux, cells, e);
           }
-          positions = mirrorPositionsPreview(cells);
-          const gname = BODY_GROUPS.find(g => g.id === gid)?.name || `gid ${gid}`;
-          infoText = `Q+click: select ${gname} (${cells.length} voxels)${event.altKey || altHeld ? ' — Alt+Q adds to selection' : ''}`;
+          positions = e.arr;
+          positionsPreMirrored = true;
+          const gname = activeBodyGroups().find(g => g.id === gid)?.name || `gid ${gid}`;
+          infoText = `Q+click: select ${gname} (${e.n} voxels)${event.altKey || altHeld ? ' — Alt+Q adds to selection' : ''}`;
         }
       } else if ((event.altKey || altHeld) && hit.mid !== undefined) {
         // Additive mode — preview the region about to merge in (the existing
         // selection stays visible via the orange overlay; this shows what's
-        // coming, same as the first-click flood preview).
+        // coming, same as the first-click flood preview). Same positions as
+        // the plain preview → shared memo key.
         if (event.shiftKey) {
           positions = [[hit.x, hit.y, hit.z]];
           infoText = `Alt+Shift: add voxel @ (${hit.x},${hit.y},${hit.z}) to selection (${selVoxels.length} current)`;
         } else {
-          const preview = computeFloodFill(hit.x, hit.y, hit.z, hit.mid);
-          positions = preview;
-          const m = allMaterials.find(m => m.id === hit.mid);
-          infoText = `Alt: add ${preview.length} voxels (mat ${hit.mid}${m ? ' ' + m.name : ''}) to selection (${selVoxels.length} current)`;
+          const aux = 'sel|' + hit.mid + '|' + memoMirrorBits();
+          let e = previewMemoGet(aux, hit.x, hit.y, hit.z);
+          if (!e) {
+            startPreviewFill(aux, hit.x, hit.y, hit.z, hit.mid);
+            infoText = `Scanning region…`;
+          } else {
+            positions = e.arr;
+            positionsPreMirrored = true;
+            const m = allMaterials.find(m => m.id === hit.mid);
+            infoText = `Alt: add ${e.n}${e.tr ? '+' : ''} voxels (mat ${hit.mid}${m ? ' ' + m.name : ''}) to selection (${selVoxels.length} current)${e.tr ? ' — CAPPED' : ''}`;
+          }
         }
       } else if (selectionActive && selVoxels.length > 0) {
-        // Show frozen selection
-        positions = selVoxels.map(v => [v[0], v[1], v[2]]);
+        // Frozen selection — already drawn by the persistent orange overlay
+        // in the same color, so skip the per-mousemove hover rebuild.
+        positions = [];
         infoText = `Selection: ${selVoxels.length} voxels — Alt+click adds regions, plain click reselects`;
       } else if (hit.mid !== undefined) {
         // Preview what would be selected (flood fill of same material)
-        const preview = computeFloodFill(hit.x, hit.y, hit.z, hit.mid);
-        positions = preview;
-        const m = allMaterials.find(m => m.id === hit.mid);
-        infoText = `Will select ${preview.length} voxels (mat ${hit.mid}${m ? ' ' + m.name : ''}) — click to select, Alt+click to add`;
+        const aux = 'sel|' + hit.mid + '|' + memoMirrorBits();
+        let e = previewMemoGet(aux, hit.x, hit.y, hit.z);
+        if (!e) {
+          startPreviewFill(aux, hit.x, hit.y, hit.z, hit.mid);
+          infoText = `Scanning region…`;
+        } else {
+          positions = e.arr;
+          positionsPreMirrored = true;
+          const m = allMaterials.find(m => m.id === hit.mid);
+          infoText = `Will select ${e.n}${e.tr ? '+' : ''} voxels (mat ${hit.mid}${m ? ' ' + m.name : ''})${e.tr ? ' — CAPPED' : ''} — click to select, Alt+click to add`;
+        }
       } else {
         infoText = `Click on a solid voxel to select connected mass`;
       }
@@ -4764,7 +5592,18 @@ function updateHighlight(event) {
     case 'ruler':
       if (rulerStart) {
         let endX, endY, endZ;
-        if (hit.placeX !== undefined) {
+        const lockAxis = heldAxisLock(event);
+        const rayEnd = lockAxis ? axisLockEndFromRay(lockAxis, rulerStart[0], rulerStart[1], rulerStart[2]) : null;
+        if (rayEnd) {
+          // Locked: endpoint = closest point on the axis-line to the cursor
+          // ray — works off-voxel, uniform with the on-voxel case.
+          [endX, endY, endZ] = rayEnd;
+        } else if (!hit) {
+          // No hit and degenerate lock (ray parallel to axis) — preview start.
+          positions = [rulerStart];
+          infoText = `📏 Ruler start @ (${rulerStart[0]},${rulerStart[1]},${rulerStart[2]}) — aim off-axis`;
+          break;
+        } else if (hit.placeX !== undefined) {
           endX = hit.placeX; endY = hit.placeY; endZ = hit.placeZ;
         } else {
           endX = hit.x; endY = hit.y; endZ = hit.z;
@@ -4773,7 +5612,7 @@ function updateHighlight(event) {
         const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
         const manhattan = Math.abs(dx) + Math.abs(dy) + Math.abs(dz);
         positions = computeLineVoxels(rulerStart[0], rulerStart[1], rulerStart[2], endX, endY, endZ);
-        infoText = `📏 ${dist.toFixed(2)} dist | ${positions.length} voxels | Δ=(${dx},${dy},${dz}) | Manh: ${manhattan} — click to measure`;
+        infoText = `📏 ${dist.toFixed(2)} dist | ${positions.length} voxels | Δ=(${dx},${dy},${dz}) | Manh: ${manhattan} — click to plant${lineLockLabel(event)}`;
       } else {
         if (hit.placeX !== undefined) {
           positions = [[hit.placeX, hit.placeY, hit.placeZ]];
@@ -4783,19 +5622,20 @@ function updateHighlight(event) {
           infoText = `Ruler start @ (${hit.x},${hit.y},${hit.z}) — click to set`;
         }
       }
-      // If a frozen measurement exists, append its info to the tooltip so
-      // the user can still read it while hovering new points.
-      if (rulerFrozen) infoText = rulerFrozen.statusText + (infoText ? ' | ' + infoText : '');
+      // Planted rulers list their distances alongside the live preview.
+      if (rulerPlants.length) {
+        infoText = rulerPlants.map(p => `R${p.slot + 1}=${p.short}`).join(' | ') + (infoText ? ' || ' + infoText : '');
+      }
       break;
     
     case 'bodypart':
       if (hit.mid !== undefined) {
         positions = [[hit.x, hit.y, hit.z]];
-        const gname = BODY_GROUPS.find(g => g.id === selectedGroup)?.name || selectedGroup;
+        const gname = activeBodyGroups().find(g => g.id === selectedGroup)?.name || selectedGroup;
         const gcol = GROUP_COLORS[selectedGroup] || '#ff66ff';
         color = parseInt(gcol.replace('#', ''), 16);
         const curGroup = groupMap.get(`${hit.x},${hit.y},${hit.z}`);
-        const curName = curGroup !== undefined ? (BODY_GROUPS.find(g => g.id === curGroup)?.name || curGroup) : 'none';
+        const curName = curGroup !== undefined ? (activeBodyGroups().find(g => g.id === curGroup)?.name || curGroup) : 'none';
         infoText = `Paint: ${gname} | Current: ${curName} — click to assign`;
       }
       break;
@@ -4860,12 +5700,18 @@ function updateHighlight(event) {
           const facePreview = computeExtrudeFace(hit.x, hit.y, hit.z, hit.mid, nx, ny, nz);
           positions = facePreview;
           infoText = `De-extrude @ (${hit.x},${hit.y},${hit.z}) dir=(${nx},${ny},${nz}) — ${facePreview.length} face voxels will be removed [Ctrl+click]`;
+        } else if (event.shiftKey) {
+          // Shift held: preview the same face drag-extrude will pull —
+          // symmetric to the Ctrl preview (was missing: Shift only
+          // changed the hint text, the surface never highlighted).
+          const facePreview = computeExtrudeFace(hit.x, hit.y, hit.z, hit.mid, nx, ny, nz);
+          positions = facePreview;
+          infoText = `Drag-extrude @ (${hit.x},${hit.y},${hit.z}) dir=(${nx},${ny},${nz}) — ${facePreview.length} face voxels [Shift+click+drag]`;
         } else {
           if (hit.placeX !== undefined) {
             positions.push([hit.placeX, hit.placeY, hit.placeZ]);
           }
-          const shiftHint = event.shiftKey ? ' [Shift+click to drag-extrude]' : ' [Hold Shift to drag-extrude | Ctrl to de-extrude]';
-          infoText = `Extrude @ (${hit.x},${hit.y},${hit.z}) dir=(${nx},${ny},${nz})${shiftHint}`;
+          infoText = `Extrude @ (${hit.x},${hit.y},${hit.z}) dir=(${nx},${ny},${nz}) [Hold Shift to drag-extrude | Ctrl to de-extrude]`;
         }
       }
       break;
@@ -4873,8 +5719,9 @@ function updateHighlight(event) {
 
   // Apply mirror to the hover preview positions so the highlight shows where
   // edits will land on the mirrored side too. Skip when the select tool is
-  // showing an already-mirrored frozen selection (would double-mirror).
-  if (!(currentTool === 'select' && selectionActive)) {
+  // showing an already-mirrored frozen selection, or when positions came
+  // from the memo already mirrored (would double-mirror).
+  if (!(currentTool === 'select' && selectionActive) && !positionsPreMirrored) {
     positions = mirrorPositionsPreview(positions);
   }
 
@@ -4900,7 +5747,7 @@ function updateHighlight(event) {
     }
     // Show paste preview in cyan
     showHighlight(pastePositions, 0x00ffff);
-    infoText = `Paste preview: ${pastePositions.length} voxels at (${bx},${by},${bz}) — arrows=move | Enter=confirm | Esc=cancel`;
+    infoText = `Paste preview: ${pastePositions.length} voxels at (${bx},${by},${bz}) — arrows=XZ | PgUp/Dn=Y | ,.;'op=rotate | Enter=confirm | Esc=cancel`;
     // Update status coords
     document.getElementById('status-coords').textContent = `paste @ x:${bx} y:${by} z:${bz}`;
     if (infoText) {
@@ -4913,10 +5760,27 @@ function updateHighlight(event) {
     return; // skip normal highlight when in paste mode
   }
 
-  // Selection overlay is now persistent (selOverlayMesh/selOverlayEdges) —
-  // no need to rebuild it here on every mouse move. Just show the normal
-  // tool hover highlight.
-  showHighlight(positions, color);
+  if (previewBounds) {
+    // Giant box-drag preview — draw the bounds box directly (mirrored bounds
+    // merge into one enclosing box, good enough at this size).
+    clearHighlight();
+    let b = previewBounds;
+    if (mirrorX || mirrorY || mirrorZ) {
+      const mb = mirrorBoundsBox(b);
+      b = [Math.min(b[0], mb[0]), Math.min(b[1], mb[1]), Math.min(b[2], mb[2]),
+           Math.max(b[3], mb[3]), Math.max(b[4], mb[4]), Math.max(b[5], mb[5])];
+    }
+    const m = buildBoxMeshes([[b[0], b[1], b[2]], [b[3], b[4], b[5]]], color, HL_FILL_OPACITY);
+    hlMesh = m.fill;
+    hlEdgesMesh = m.lines;
+    if (hlMesh) scene.add(hlMesh);
+    if (hlEdgesMesh) scene.add(hlEdgesMesh);
+  } else {
+    // Selection overlay is now persistent (selOverlayMesh/selOverlayEdges) —
+    // no need to rebuild it here on every mouse move. Just show the normal
+    // tool hover highlight.
+    showHighlight(positions, color);
+  }
 
   // Update status coords
   if (hit.placeX !== undefined) {
@@ -4944,8 +5808,8 @@ function setTool(tool) {
   lineStart = null;
   boxStart = null;
   rulerStart = null;
-  // NOTE: frozen ruler measurements persist across tool switches — they're
-  // reference overlays, cleared only by ESC or starting a new measurement.
+  // NOTE: planted rulers persist across tool switches — they're reference
+  // overlays, cleared only from the ruler panel (or a model reset).
   extrudeDragActive = false;
   extrudeDragFace = [];
   extrudeDragLayers = 1;
@@ -4964,6 +5828,7 @@ function setTool(tool) {
     desc = `Selection active (${selVoxels.length} voxels) — click to apply to entire selection`;
   }
   document.getElementById('status-info').textContent = desc;
+  renderRulerPanel();
   clearHighlight();
   // Selection overlay is persistent — no need to rebuild it here. It stays
   // visible across tool switches via its own dedicated mesh.
@@ -5148,7 +6013,7 @@ document.getElementById('redo-btn').addEventListener('click', redo);
 document.getElementById('grid-btn').addEventListener('click', () => {
   showEdges = !showEdges;
   document.getElementById('grid-btn').classList.toggle('active', showEdges);
-  rebuildMesh();
+  voxGridUniform.value = showEdges ? 1 : 0; // shader-side, no rebuild needed
 });
 
 // Toggle volume bounds wireframe
@@ -5165,6 +6030,8 @@ function applyDefaultModelData(data, sourceName) {
   if (!data.dims || !data.voxels) throw new Error('Invalid model file');
   demoteIfUnity(data);
   loadedModelName = sourceName.replace(/.*\//, '').replace(/\.(character\.)?json$/i, '') || data.name || null;
+  updateFilePill();
+  clearAllRulers(); // planted measurements belong to the outgoing model
   loadedAnimData = {};
   for (const k of ['pivots', 'animParams', 'states']) {
     if (data[k] !== undefined) loadedAnimData[k] = data[k];
@@ -5180,7 +6047,7 @@ function applyDefaultModelData(data, sourceName) {
     voxelMap.set(`${x},${y},${z}`, mid);
   }
   rebuildVolumeVisuals();
-  initialCamPos.set(W * 2, H * 1.5, D * 2);
+  initialCamPos.set(W * 2, H * 1.5, -D * 2);
   camera.position.copy(initialCamPos);
   controls.target.set(0, H / 2, 0);
   controls.update();
@@ -5292,6 +6159,8 @@ assetTypeSelect.addEventListener('change', () => {
   clothingRegionMap.clear();
   itemPartMap.clear();
   loadedModelName = null;
+  updateFilePill();
+  clearAllRulers(); // planted measurements belong to the outgoing model
   loadedAnimData = {};
   // Fresh environment: drop the reference preview too — it belongs to the
   // previous asset-type session (e.g. a character loaded beside a building).
@@ -5312,7 +6181,7 @@ assetTypeSelect.addEventListener('change', () => {
   document.getElementById('char-mirror-btn').classList.remove('active');
   rebuildVolumeVisuals();
   // Re-adjust camera and controls for new dims
-  initialCamPos.set(W * 2, H * 1.5, D * 2);
+  initialCamPos.set(W * 2, H * 1.5, -D * 2);
   camera.position.copy(initialCamPos);
   controls.target.set(0, H / 2, 0);
   controls.update();
@@ -5351,11 +6220,9 @@ assetTypeSelect.addEventListener('change', () => {
 document.getElementById('mat-show-all').addEventListener('change', () => buildMaterialList());
 
 // Reset view
-document.getElementById('reset-btn').addEventListener('click', () => {
-  camera.position.copy(initialCamPos);
-  controls.target.set(0, H / 2, 0);
-  controls.update();
-});
+// () => wrapper: resetView is assigned later in the module; passing it bare
+// would evaluate the identifier at init time and crash before its assignment.
+document.getElementById('reset-btn').addEventListener('click', () => resetView());
 
 // Y-slice sliders
 const yMaxSlider = document.getElementById('ySliceMax');
@@ -5367,15 +6234,13 @@ yMaxSlider.addEventListener('input', () => {
   yMax = parseInt(yMaxSlider.value);
   yMaxVal.textContent = yMax;
   if (yMax < yMin) { yMin = yMax; yMinSlider.value = yMin; yMinVal.textContent = yMin; }
-  rebuildMesh();
-  updateLayerInfo();
+  updateLayerInfo(); // clip itself is a shader uniform, updated in animate()
 });
 
 yMinSlider.addEventListener('input', () => {
   yMin = parseInt(yMinSlider.value);
   yMinVal.textContent = yMin;
   if (yMin > yMax) { yMax = yMin; yMaxSlider.value = yMax; yMaxVal.textContent = yMax; }
-  rebuildMesh();
   updateLayerInfo();
 });
 
@@ -5389,7 +6254,6 @@ xMaxSlider.addEventListener('input', () => {
   xMax = parseInt(xMaxSlider.value);
   xMaxVal.textContent = xMax;
   if (xMax < xMin) { xMin = xMax; xMinSlider.value = xMin; xMinVal.textContent = xMin; }
-  rebuildMesh();
   updateLayerInfo();
 });
 
@@ -5397,7 +6261,6 @@ xMinSlider.addEventListener('input', () => {
   xMin = parseInt(xMinSlider.value);
   xMinVal.textContent = xMin;
   if (xMin > xMax) { xMax = xMin; xMaxSlider.value = xMax; xMaxVal.textContent = xMax; }
-  rebuildMesh();
   updateLayerInfo();
 });
 
@@ -5411,7 +6274,6 @@ zMaxSlider.addEventListener('input', () => {
   zMax = parseInt(zMaxSlider.value);
   zMaxVal.textContent = zMax;
   if (zMax < zMin) { zMin = zMax; zMinSlider.value = zMin; zMinVal.textContent = zMin; }
-  rebuildMesh();
   updateLayerInfo();
 });
 
@@ -5419,9 +6281,14 @@ zMinSlider.addEventListener('input', () => {
   zMin = parseInt(zMinSlider.value);
   zMinVal.textContent = zMin;
   if (zMin > zMax) { zMax = zMin; zMaxSlider.value = zMax; zMaxVal.textContent = zMax; }
-  rebuildMesh();
   updateLayerInfo();
 });
+
+// 'change' fires on slider release — one O(n) recount for the Visible readout
+// (kept off the per-tick 'input' path, which must stay free).
+for (const s of [yMaxSlider, yMinSlider, xMaxSlider, xMinSlider, zMaxSlider, zMinSlider]) {
+  s.addEventListener('change', refreshSliceCount);
+}
 
 function updateLayerInfo() {
   const dimsLabel = document.getElementById('model-dims-label');
@@ -5475,6 +6342,8 @@ function updateSliceRanges(oldW, oldH, oldD) {
   zMaxSlider.max = D - 1; zMaxSlider.value = zMax; zMaxVal.textContent = zMax;
   zMinSlider.max = D - 1; zMinSlider.value = zMin; zMinVal.textContent = zMin;
   updateLayerInfo();
+  refreshSliceCount(); // slice changed programmatically — uniforms follow in
+                       // animate(), but the Visible count needs a recount here
 }
 
 yMaxVal.textContent = yMax;
@@ -5618,7 +6487,7 @@ renderer.domElement.addEventListener('mousedown', (e) => {
         extrudeDragDeextrude = false;
         isDragging = true;
         controls.enabled = false; // prevent OrbitControls ctrl/shift+left = pan conflict
-        setStatus(`Extrude drag: ${extrudeDragFace.length} face voxels — drag along (${nx},${ny},${nz}), release to commit`);
+        setStatus(`Extrude drag: ${selectionActive && selVoxels.length ? `${selVoxels.length} selected` : `${extrudeDragFace.length} face voxels`} — drag along (${nx},${ny},${nz}), release to commit`);
       }
     }
     // If extrude tool + ctrl, start drag de-extrude (remove layers)
@@ -5636,7 +6505,7 @@ renderer.domElement.addEventListener('mousedown', (e) => {
         extrudeDragDeextrude = true;
         isDragging = true;
         controls.enabled = false; // prevent OrbitControls ctrl+left = pan conflict
-        setStatus(`De-extrude drag: ${extrudeDragFace.length} face voxels — drag along (${nx},${ny},${nz}), release to commit`);
+        setStatus(`De-extrude drag: ${selectionActive && selVoxels.length ? `${selVoxels.length} selected` : `${extrudeDragFace.length} face voxels`} — drag along (${nx},${ny},${nz}), release to commit`);
       }
     }
   }
@@ -5679,6 +6548,12 @@ renderer.domElement.addEventListener('mousemove', (e) => {
     const layers = Math.max(1, Math.round(projection / 15)); // 15px per layer
     extrudeDragLayers = Math.min(layers, 50); // cap at 50 layers
   }
+  // Any held button could be mid-edit (paint/tag drag) — clear the preview
+  // memo so stale results can't survive. Mid/right drags are camera ops
+  // (mouseButtons: LEFT:null, MIDDLE:rotate, RIGHT:pan) — freeze the current
+  // highlight instead of recomputing flood fills per move while orbiting.
+  if (e.buttons) positionsMemo.clear();
+  if (e.buttons & 6) return;
   updateHighlight(e);
 });
 
@@ -5724,7 +6599,34 @@ document.addEventListener('keyup', (e) => {
     if (lastMouseEvent) updateHighlight(lastMouseEvent);
   }
 });
-window.addEventListener('blur', () => { altHeld = false; qHeld = false; wHeld = false; });
+// Ctrl held = box-select modifier for the select tool (live hover affordance,
+// same pattern as altHeld — e.key is 'Control').
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Control' && !ctrlHeld) {
+    ctrlHeld = true;
+    if (lastMouseEvent) updateHighlight(lastMouseEvent);
+  }
+});
+document.addEventListener('keyup', (e) => {
+  if (e.key === 'Control') {
+    ctrlHeld = false;
+    if (lastMouseEvent) updateHighlight(lastMouseEvent);
+  }
+});
+// Shift held = axis-lock modifier for the line tool (same live-refresh pattern).
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Shift' && !shiftHeld) {
+    shiftHeld = true;
+    if (lastMouseEvent) updateHighlight(lastMouseEvent);
+  }
+});
+document.addEventListener('keyup', (e) => {
+  if (e.key === 'Shift') {
+    shiftHeld = false;
+    if (lastMouseEvent) updateHighlight(lastMouseEvent);
+  }
+});
+window.addEventListener('blur', () => { altHeld = false; ctrlHeld = false; shiftHeld = false; qHeld = false; wHeld = false; });
 
 renderer.domElement.addEventListener('mouseup', (e) => {
   // Commit paint drag stroke — single history entry for the whole stroke
@@ -5743,7 +6645,11 @@ renderer.domElement.addEventListener('mouseup', (e) => {
   }
   if (extrudeDragActive) {
     const [nx, ny, nz] = extrudeDragNormal;
-    if (extrudeDragDeextrude) {
+    if (selectionActive && selVoxels.length > 0) {
+      // Selection-aware commit: drag layers apply to every selected region's
+      // exposed face along the axis, not just the clicked face.
+      performSelectionExtrude(nx, ny, nz, extrudeDragDeextrude, extrudeDragLayers);
+    } else if (extrudeDragDeextrude) {
       // Commit drag de-extrude: remove layers going inward from the face
       let removed = 0;
       for (let layer = 0; layer < extrudeDragLayers; layer++) {
@@ -5804,19 +6710,44 @@ renderer.domElement.addEventListener('mouseleave', () => {
 document.addEventListener('keydown', (e) => {
   // Paste mode intercepts arrow keys, Enter, Escape
   if (pasteMode) {
+    // Arrows move in the GROUND plane (XZ): Up pushes away from the default
+    // camera (−Z, camera sits at +Z), Down pulls toward it. Vertical Y lives
+    // on PageUp/PageDown — "forward/back" was previously unbound while Up/Down
+    // raised/lowered the piece, which read as 4-direction movement only.
     if (e.key === 'ArrowLeft') { e.preventDefault(); movePaste(-1, 0, 0); if (lastMouseEvent) updateHighlight(lastMouseEvent); return; }
     if (e.key === 'ArrowRight') { e.preventDefault(); movePaste(1, 0, 0); if (lastMouseEvent) updateHighlight(lastMouseEvent); return; }
-    if (e.key === 'ArrowUp') { e.preventDefault(); movePaste(0, 1, 0); if (lastMouseEvent) updateHighlight(lastMouseEvent); return; }
-    if (e.key === 'ArrowDown') { e.preventDefault(); movePaste(0, -1, 0); if (lastMouseEvent) updateHighlight(lastMouseEvent); return; }
+    if (e.key === 'ArrowUp') { e.preventDefault(); movePaste(0, 0, -1); if (lastMouseEvent) updateHighlight(lastMouseEvent); return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); movePaste(0, 0, 1); if (lastMouseEvent) updateHighlight(lastMouseEvent); return; }
+    if (e.key === 'PageUp') { e.preventDefault(); movePaste(0, 1, 0); if (lastMouseEvent) updateHighlight(lastMouseEvent); return; }
+    if (e.key === 'PageDown') { e.preventDefault(); movePaste(0, -1, 0); if (lastMouseEvent) updateHighlight(lastMouseEvent); return; }
     if (e.key === 'Enter') { e.preventDefault(); confirmPaste(); return; }
     if (e.key === 'Escape') { e.preventDefault(); cancelPaste(); return; }
     if (e.key === '[') { e.preventDefault(); movePaste(0, 0, -1); if (lastMouseEvent) updateHighlight(lastMouseEvent); return; }
     if (e.key === ']') { e.preventDefault(); movePaste(0, 0, 1); if (lastMouseEvent) updateHighlight(lastMouseEvent); return; }
+    if (e.key === ',') { e.preventDefault(); rotatePaste('y', -1); return; }
+    if (e.key === '.') { e.preventDefault(); rotatePaste('y', 1); return; }
+    if (e.key === ';') { e.preventDefault(); rotatePaste('x', -1); return; }
+    if (e.key === "'") { e.preventDefault(); rotatePaste('x', 1); return; }
+    if (e.key === 'o') { e.preventDefault(); rotatePaste('z', -1); return; }
+    if (e.key === 'p') { e.preventDefault(); rotatePaste('z', 1); return; }
     return; // block other shortcuts during paste
   }
   if (e.ctrlKey || e.metaKey) {
     if (e.key === 'z') { e.preventDefault(); undo(); }
     if (e.key === 'y') { e.preventDefault(); redo(); }
+    return;
+  }
+  // Shift+arrows = camera pan (moves target+camera together in the ground
+  // plane, same XZ scheme as paste nudges; Ctrl+arrow = ×8 step). Guarded
+  // for inputs — Shift+arrows is text selection inside fields.
+  if (e.shiftKey && e.key.startsWith('Arrow') && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+    e.preventDefault();
+    const step = 1;
+    const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+    const dz = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+    camera.position.x += dx; controls.target.x += dx;
+    camera.position.z += dz; controls.target.z += dz;
+    controls.update();
     return;
   }
   switch (e.key.toLowerCase()) {
@@ -5833,6 +6764,24 @@ document.addEventListener('keydown', (e) => {
     case 'g': setTool('bodypart'); break;
     case 'c': setTool('clothingregion'); break;
     case 'v': moveSelection(); break;
+    case 'delete':
+    case 'backspace':
+      // Erase selection — guarded for inputs since Delete is a text-editing
+      // key; the switch otherwise fires on every field keystroke.
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') break;
+      if (selVoxels.length > 0) { e.preventDefault(); deleteSelection(); }
+      break;
+    case '0': // frame selection, or whole model when nothing selected
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') break;
+      frameView(selVoxels.length ? 'sel' : 'model'); break;
+    case '1': case '3': case '7': case '9': // axis views (Blender numpad-style)
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') break;
+      viewAxis({ '1': 'front', '3': 'side', '7': 'top', '9': 'iso' }[e.key]); break;
+    case 't': // orbit pivot → hovered voxel
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') break;
+      orbitToCursor(); break;
+    case 'home':
+      resetView(); break;
     case 'u':
       // Unity view toggle — same key as the animator's mirrored preview.
       document.getElementById('unity-mirror-toggle').click();
@@ -5849,7 +6798,8 @@ document.addEventListener('keydown', (e) => {
       lineStart = null;
       boxStart = null;
       rulerStart = null;
-      clearRulerFrozen();
+      // NOTE: planted rulers deliberately survive ESC — clear them from the
+      // ruler panel (visible while the ruler tool is selected).
       extrudeDragActive = false;
       extrudeDragFace = [];
       extrudeDragLayers = 1;
@@ -5930,6 +6880,43 @@ window.movePaste = function(dx, dy, dz) {
   if (lastMouseEvent) updateHighlight(lastMouseEvent);
 };
 
+// Rotate the clipboard 90° about an axis, around the piece's own bbox center,
+// then re-anchor so min offsets stay 0 — the piece spins in place instead of
+// swinging around the origin. Only quarter-turns are offered: they map every
+// cell onto an integer cell exactly (arbitrary angles would need destructive
+// resampling). Even-sized spans rotate about a half-cell center, so offsets
+// round to the nearest voxel — rotation is chirality-preserving, so gid
+// left/right names do NOT flip (only mirror ops do). Painted pivot_N/attach
+// cells rotate with the piece and their centroid follows automatically.
+// World-axis nudges (pasteOffset + ox/oy/oz) compose on top unchanged.
+window.rotatePaste = function(axis, dir) {
+  if (!pasteMode || clipboard.length === 0) return;
+  let maxX = 0, maxY = 0, maxZ = 0;
+  for (const v of clipboard) {
+    if (v.x > maxX) maxX = v.x;
+    if (v.y > maxY) maxY = v.y;
+    if (v.z > maxZ) maxZ = v.z;
+  }
+  const cx = maxX / 2, cy = maxY / 2, cz = maxZ / 2;
+  for (const v of clipboard) {
+    const x = v.x - cx, y = v.y - cy, z = v.z - cz;
+    let nx = x, ny = y, nz = z;
+    if (axis === 'y')      { nx =  dir * z; nz = -dir * x; }
+    else if (axis === 'x') { ny =  dir * z; nz = -dir * y; }
+    else if (axis === 'z') { nx =  dir * y; ny = -dir * x; }
+    v.x = Math.round(nx + cx);
+    v.y = Math.round(ny + cy);
+    v.z = Math.round(nz + cz);
+  }
+  let minX = Infinity, minY = Infinity, minZ = Infinity;
+  for (const v of clipboard) {
+    minX = Math.min(minX, v.x); minY = Math.min(minY, v.y); minZ = Math.min(minZ, v.z);
+  }
+  for (const v of clipboard) { v.x -= minX; v.y -= minY; v.z -= minZ; }
+  if (lastMouseEvent) updateHighlight(lastMouseEvent);
+  setStatus(`Rotated ${axis.toUpperCase()} ${dir > 0 ? '+' : '-'}90° — ${clipboard.length} voxels (arrows nudge, Enter confirms)`);
+};
+
 window.confirmPaste = function() {
   if (!pasteMode || clipboard.length === 0) return;
   const bx = pasteOrigin.x + pasteOffset.x;
@@ -6005,6 +6992,100 @@ window.cancelPaste = function() {
   pasteMode = false; moveMode = false;
   document.getElementById('paste-controls').style.display = 'none';
   setStatus('Paste cancelled');
+};
+
+// === CAMERA TOOLBOX ===
+let lastHoverHit = null; // last raycast cell under the cursor (orbit-to-cursor pivot)
+
+function cellToWorld(x, y, z) {
+  // Voxels render at the mirrored position under Unity view (scene.scale.x
+  // = -1), but raycast hits come back in un-mirrored grid space — flip X
+  // back to where the cell is actually drawn or the pivot lands on the
+  // opposite side of the model.
+  const wx = unmirrorWorldX(originOffsetX + x + 0.5);
+  return new THREE.Vector3(wx, y + 0.5, originOffsetZ + z + 0.5);
+}
+
+// Frame a world-space bbox: retarget orbit to its center and dolly to fit.
+function frameBounds(min, max) {
+  const center = new THREE.Vector3((min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2);
+  const radius = Math.max(Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]) / 2, 2);
+  const dir = camera.position.clone().sub(controls.target).normalize();
+  const dist = Math.max(radius / Math.tan(camera.fov * Math.PI / 360) * 1.15, 4);
+  controls.target.copy(center);
+  camera.position.copy(center).addScaledVector(dir, dist);
+  controls.update();
+}
+
+// 'sel' = selection bbox, 'model' = every voxel's bbox
+window.frameView = function(what) {
+  let min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+  let n = 0;
+  const feed = (x, y, z) => {
+    const w = [originOffsetX + x + 0.5, y + 0.5, originOffsetZ + z + 0.5];
+    for (let i = 0; i < 3; i++) { if (w[i] < min[i]) min[i] = w[i]; if (w[i] > max[i]) max[i] = w[i]; }
+    n++;
+  };
+  if (what === 'sel' && selVoxels.length) {
+    for (const v of selVoxels) feed(v[0], v[1], v[2]);
+  } else {
+    for (const key of voxelMap.keys()) { const [x, y, z] = key.split(',').map(Number); feed(x, y, z); }
+  }
+  if (!n) { setStatus('Nothing to frame'); return; }
+  frameBounds(min, max);
+  setStatus(`Framed ${what === 'sel' ? 'selection' : 'model'} (${n} voxels)`);
+};
+
+// Orbit pivot → the voxel under the cursor (keeps camera; damping eases the swap)
+window.orbitToCursor = function() {
+  if (!lastHoverHit) { setStatus('Hover a voxel first'); return; }
+  controls.target.copy(cellToWorld(lastHoverHit.x, lastHoverHit.y, lastHoverHit.z));
+  controls.update();
+  setStatus(`Orbit target → (${lastHoverHit.x},${lastHoverHit.y},${lastHoverHit.z})`);
+};
+
+// Axis views — keeps current distance + orbit target. "Front" = the z-MIN
+// face (the authoring convention: storefront/door/awning live at z≈0);
+// Iso frames the front-right corner so storefront + side detail both show.
+window.viewAxis = function(name) {
+  const t = controls.target;
+  const dist = camera.position.distanceTo(t);
+  if (name === 'front') camera.position.set(t.x, t.y, t.z - dist);
+  else if (name === 'side') camera.position.set(t.x + dist, t.y, t.z);
+  else if (name === 'top') camera.position.set(t.x, t.y + dist, t.z);
+  else if (name === 'iso') {
+    const d = new THREE.Vector3(1, 0.8, -1).normalize().multiplyScalar(dist);
+    camera.position.set(t.x + d.x, t.y + d.y, t.z + d.z);
+  }
+  controls.update();
+  setStatus(`View: ${name}`);
+};
+
+window.dollyCam = function(f) {
+  camera.position.sub(controls.target).multiplyScalar(f).add(controls.target);
+  controls.update();
+};
+
+// Bookmarks — click = recall, Shift+click = save current pose
+const camBookmarks = [null, null, null, null];
+window.camSlot = function(i, ev) {
+  if (ev && ev.shiftKey) {
+    camBookmarks[i] = { pos: camera.position.clone(), tgt: controls.target.clone() };
+    setStatus(`Camera slot B${i + 1} saved`);
+  } else if (camBookmarks[i]) {
+    camera.position.copy(camBookmarks[i].pos);
+    controls.target.copy(camBookmarks[i].tgt);
+    controls.update();
+    setStatus(`Camera slot B${i + 1}`);
+  } else {
+    setStatus(`B${i + 1} empty — Shift+click to save this view`);
+  }
+};
+
+window.resetView = function() {
+  camera.position.copy(initialCamPos);
+  controls.target.set(0, H / 2, 0);
+  controls.update();
 };
 
 window.deleteSelection = function() {
@@ -6117,6 +7198,79 @@ function performDeExtrude(hit) {
   pushHistory();
   rebuildMesh();
   setStatus(`De-extruded ${removed} voxels along (${nx},${ny},${nz})${(mirrorX||mirrorY||mirrorZ) ? ' +mirror' : ''}`);
+}
+
+// Selection-aware extrude/de-extrude: applies to every contiguous run of
+// selected voxels along the clicked face's axis. Each run contributes its
+// +n-facing surface layer — the cells whose +n neighbor is outside the
+// selection — so multi-selected panes on different walls all peel or grow
+// in the same global direction with a single click/drag.
+function performSelectionExtrude(nx, ny, nz, deextrude, layers = 1) {
+  const selSet = new Set(selVoxels.map(v => `${v[0]},${v[1]},${v[2]}`));
+  let affected = 0;
+  const removedCells = new Set(); // peeled cells leave the selection
+  const grownCells = new Map();   // cells joining the selection: grown cells
+                                  // (extrude) or next-solid anchors (de-extrude)
+  for (const v of selVoxels) {
+    const [x, y, z, mid] = v;
+    // Face cell: the +n neighbor is outside the selection (exposed surface).
+    if (selSet.has(`${x + nx},${y + ny},${z + nz}`)) continue;
+    if (deextrude) {
+      // Peel `layers` cells inward (−n) from the face — stop at bounds or the
+      // first cell that isn't this material so we don't eat into other walls.
+      let peeled = 0;
+      for (let l = 0; l < layers; l++) {
+        const px = x - nx * l, py = y - ny * l, pz = z - nz * l;
+        if (px < 0 || px >= W || py < 0 || py >= H || pz < 0 || pz >= D) break;
+        if (getVoxelAt(px, py, pz) !== mid) break;
+        setVoxel(px, py, pz, 0); affected++; peeled++;
+        removedCells.add(`${px},${py},${pz}`);
+      }
+      // Chain anchor: move this column's selection point inward to the next
+      // solid cell so the next click peels the next layer (the way repeated
+      // single-face de-extrudes re-click the newly exposed face). Skips up to
+      // 8 air cells — covers a 1-voxel pane + recessed air gap — then gives up.
+      if (peeled > 0) {
+        for (let i = peeled; i < peeled + 8; i++) {
+          const ax = x - nx * i, ay = y - ny * i, az = z - nz * i;
+          if (ax < 0 || ax >= W || ay < 0 || ay >= H || az < 0 || az >= D) break;
+          const amid = getVoxelAt(ax, ay, az);
+          if (amid !== 0) {
+            const key = `${ax},${ay},${az}`;
+            if (!removedCells.has(key)) grownCells.set(key, [ax, ay, az, amid]);
+            break;
+          }
+        }
+      }
+    } else {
+      for (let l = 1; l <= layers; l++) {
+        const px = x + nx * l, py = y + ny * l, pz = z + nz * l;
+        if (px < 0 || px >= W || py < 0 || py >= H || pz < 0 || pz >= D) break;
+        if (getVoxelAt(px, py, pz) !== 0) break;
+        setVoxel(px, py, pz, mid); affected++;
+        grownCells.set(`${px},${py},${pz}`, [px, py, pz, mid]);
+      }
+    }
+  }
+  if (!affected) { setStatus('Selection extrude: nothing to do along that direction'); return; }
+  // Sync the selection with the result so repeat clicks chain: without
+  // this, peeled cells stayed "selected" so the next de-extrude's face test
+  // saw them as neighbors and skipped the deeper layer — one-shot bug.
+  // Likewise grown cells join so the face boundary advances outward.
+  if (removedCells.size) {
+    selVoxels = selVoxels.filter(v => !removedCells.has(`${v[0]},${v[1]},${v[2]}`));
+  }
+  if (grownCells.size) {
+    const selKeys = new Set(selVoxels.map(v => `${v[0]},${v[1]},${v[2]}`));
+    for (const [k, cell] of grownCells) if (!selKeys.has(k)) selVoxels.push(cell);
+  }
+  if (!selVoxels.length) selectionActive = false;
+  document.getElementById('sel-info').textContent =
+    selVoxels.length ? `Sel: ${selVoxels.length} voxels` : 'No selection';
+  showSelectionOverlay();
+  pushHistory();
+  rebuildMesh();
+  setStatus(`${deextrude ? 'De-extruded' : 'Extruded'} ${affected} voxels (${layers} layer${layers > 1 ? 's' : ''} over ${selVoxels.length} selected) along (${nx},${ny},${nz})${(mirrorX||mirrorY||mirrorZ) ? ' +mirror' : ''}`);
 }
 
 // === MATERIAL REPLACE ===
@@ -6392,14 +7546,45 @@ document.getElementById('volume-btn').addEventListener('click', () => {
 document.getElementById('light-btn').addEventListener('click', () => {
   document.getElementById('light-modal').style.display = 'flex';
 });
-// Generic slider helper: update label text + apply lighting change
+// Generic slider helper: update label text + apply lighting change + persist
+const LIGHT_SETTINGS_KEY = 'voxelEditorLighting';
+const LIGHT_CONTROL_IDS = [
+  'amb-int', 'amb-color', 'key-int', 'key-color', 'key-az', 'key-el',
+  'fill-int', 'fill-color', 'fill-az', 'fill-el', 'cam-int', 'cam-color',
+];
+function saveLightSettings() {
+  const s = {};
+  for (const id of LIGHT_CONTROL_IDS) s[id] = document.getElementById(id).value;
+  try { localStorage.setItem(LIGHT_SETTINGS_KEY, JSON.stringify(s)); } catch {}
+}
+// Set control values AND apply to the actual lights — on page load the
+// browser restores input positions but nothing replays them into the
+// THREE light objects, so both halves must run together.
+function applyLightSettings(s) {
+  for (const id of LIGHT_CONTROL_IDS) {
+    if (s[id] === undefined) continue;
+    const el = document.getElementById(id);
+    el.value = s[id];
+    const valEl = document.getElementById(id + '-val');
+    if (valEl) valEl.textContent = s[id];
+  }
+  ambientLight.intensity = parseFloat(document.getElementById('amb-int').value);
+  ambientLight.color = new THREE.Color(document.getElementById('amb-color').value);
+  dirLight.intensity = parseFloat(document.getElementById('key-int').value);
+  dirLight.color = new THREE.Color(document.getElementById('key-color').value);
+  dirLight2.intensity = parseFloat(document.getElementById('fill-int').value);
+  dirLight2.color = new THREE.Color(document.getElementById('fill-color').value);
+  camLight.intensity = parseFloat(document.getElementById('cam-int').value);
+  camLight.color = new THREE.Color(document.getElementById('cam-color').value);
+  updateDirLightAngles();
+}
 function bindLightSlider(id, valId, fn) {
   const sl = document.getElementById(id);
   const vl = document.getElementById(valId);
-  sl.addEventListener('input', () => { vl.textContent = sl.value; fn(parseFloat(sl.value)); });
+  sl.addEventListener('input', () => { vl.textContent = sl.value; fn(parseFloat(sl.value)); saveLightSettings(); });
 }
 function bindLightColor(id, fn) {
-  document.getElementById(id).addEventListener('input', () => fn(document.getElementById(id).value));
+  document.getElementById(id).addEventListener('input', () => { fn(document.getElementById(id).value); saveLightSettings(); });
 }
 bindLightSlider('amb-int', 'amb-int-val', v => ambientLight.intensity = v);
 bindLightColor('amb-color', c => ambientLight.color = new THREE.Color(c));
@@ -6413,6 +7598,12 @@ bindLightSlider('fill-az', 'fill-az-val', () => updateDirLightAngles());
 bindLightSlider('fill-el', 'fill-el-val', () => updateDirLightAngles());
 bindLightSlider('cam-int', 'cam-int-val', v => camLight.intensity = v);
 bindLightColor('cam-color', c => camLight.color = new THREE.Color(c));
+// Replay persisted lighting on load — sliders restored by the browser alone
+// would otherwise show saved positions while the lights sit at defaults.
+try {
+  const savedLights = JSON.parse(localStorage.getItem(LIGHT_SETTINGS_KEY) || 'null');
+  if (savedLights) applyLightSettings(savedLights);
+} catch {}
 document.getElementById('light-reset-btn').addEventListener('click', () => {
   const defaults = {
     'amb-int': 0.6, 'amb-color': '#666688',
@@ -6431,6 +7622,7 @@ document.getElementById('light-reset-btn').addEventListener('click', () => {
   dirLight2.intensity = 0.4; dirLight2.color = new THREE.Color('#88aaff');
   camLight.intensity = 0; camLight.color = new THREE.Color('#ffffff');
   updateDirLightAngles();
+  saveLightSettings();
   setStatus('Lighting reset to defaults');
 });
 
@@ -6591,8 +7783,12 @@ function getWIPs() {
   catch { return {}; }
 }
 
+// Returns false on QuotaExceededError — big projects (tenement JSON ~40MB)
+// can never fit the ~5-10MB localStorage budget, and silent failure was the
+// "sometimes it saves to the list" bug.
 function setWIPs(wips) {
-  try { localStorage.setItem(WIP_KEY, JSON.stringify(wips)); } catch {}
+  try { localStorage.setItem(WIP_KEY, JSON.stringify(wips)); return true; }
+  catch { return false; }
 }
 
 window.saveAsProject = function() {
@@ -6607,15 +7803,19 @@ window.saveAsProject = function() {
   const jsonStr = JSON.stringify(data);
   const wips = getWIPs();
   wips[wipName] = { name: wipName, savedAt: data.savedAt, voxelCount: data.voxels.length, json: jsonStr };
-  setWIPs(wips);
-  // Also download the file
+  const stored = setWIPs(wips);
+  // Always download too — the file is the durable copy when the browser
+  // list can't hold the project (quota).
   const blob = new Blob([jsonStr], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = `voxel_${wipName.replace(/[^a-zA-Z0-9_\-]/g, '_')}.json`;
   a.click();
   savedHistoryIndex = historyIndex;
-  setStatus(`WIP saved as "${wipName}": ${data.voxels.length} voxels`);
+  const mb = (jsonStr.length / 1048576).toFixed(1);
+  setStatus(stored
+    ? `WIP "${wipName}" saved to list + downloaded (${data.voxels.length} voxels, ${mb}MB)`
+    : `"${wipName}" is ${mb}MB — too big for browser WIP storage (~5-10MB quota). Downloaded file is your only copy — reload it via Load Project.`);
   refreshWIPList();
 };
 
@@ -6627,6 +7827,7 @@ window.loadWIP = function(wipName) {
     const data = JSON.parse(wip.json);
     if (!data.dims || !data.voxels) throw new Error('Invalid WIP data');
     loadedModelName = data.name || wipName;
+    updateFilePill();
     loadedAnimData = {};
     for (const k of ['pivots', 'animParams', 'states']) {
       if (data[k] !== undefined) loadedAnimData[k] = data[k];
@@ -6683,7 +7884,7 @@ window.refreshWIPList = function() {
   const wips = getWIPs();
   const names = Object.keys(wips).sort((a, b) => wips[b].savedAt.localeCompare(wips[a].savedAt));
   if (names.length === 0) {
-    container.innerHTML = '<p style="font-size:11px;color:#666;padding:4px;">No saved WIPs yet. Use "Save As…" to create one.</p>';
+    container.innerHTML = '<p style="font-size:11px;color:#666;padding:4px;">No saved WIPs yet. Use "Save As WIP…" to create one (browser storage, ~5-10MB quota).</p>';
     return;
   }
   container.innerHTML = names.map(name => {
@@ -6710,6 +7911,7 @@ window.loadProject = function(event) {
       if (!data.dims || !data.voxels) throw new Error('Invalid project file');
       demoteIfUnity(data);
       loadedModelName = file.name.replace(/\.(character\.)?json$/i, '');
+      updateFilePill();
       loadedAnimData = {};
       for (const k of ['pivots', 'animParams', 'states']) {
         if (data[k] !== undefined) loadedAnimData[k] = data[k];
@@ -6728,7 +7930,7 @@ window.loadProject = function(event) {
       originOffsetZ = -D / 2;
       rebuildVolumeVisuals();
       // Re-adjust camera and controls
-      initialCamPos.set(W * 2, H * 1.5, D * 2);
+      initialCamPos.set(W * 2, H * 1.5, -D * 2);
       camera.position.copy(initialCamPos);
       controls.target.set(0, H / 2, 0);
       controls.update();
@@ -6794,6 +7996,7 @@ window.importStasset = function(event) {
       if (!data.dims || !data.voxels) throw new Error('Invalid stasset JSON');
       demoteIfUnity(data);
       loadedModelName = file.name.replace(/\.(character\.)?json$/i, '');
+      updateFilePill();
       loadedAnimData = {};
       for (const k of ['pivots', 'animParams', 'states']) {
         if (data[k] !== undefined) loadedAnimData[k] = data[k];
@@ -6811,7 +8014,7 @@ window.importStasset = function(event) {
       originOffsetZ = -D / 2;
       rebuildVolumeVisuals();
       // Re-adjust camera and controls
-      initialCamPos.set(W * 2, H * 1.5, D * 2);
+      initialCamPos.set(W * 2, H * 1.5, -D * 2);
       camera.position.copy(initialCamPos);
       controls.target.set(0, H / 2, 0);
       controls.update();
@@ -7659,6 +8862,9 @@ function animate() {
   // the light glued to the camera's world position.
   camLight.position.copy(camera.position);
   if (unityMirror) camLight.position.x = unmirrorWorldX(camLight.position.x);
+
+  updateClipUniforms(); // slice clip is shader-side — follow JS vars every frame
+  updateRulerLabels();
 
   // Character animation tick
   if (charPlaying && charData) {

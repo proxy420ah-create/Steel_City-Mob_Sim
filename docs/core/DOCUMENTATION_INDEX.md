@@ -74,6 +74,7 @@
   - Unity pending tasks: CityLayout variable seams, VoxelTerrainBuilder materials, VoxelWaypointScanner, dynamic cover
   - 1920s urban planning research basis (street hierarchy, trolley lines, alley systems)
   - Material IDs: MAT_ALLEY(133), MAT_TROLLEY_TRACK(135, proposed), MAT_COVER_CRATE(131), MAT_COVER_CAR(132)
+  - **Canonical block dimensions for voxel assets**: slot = 64×64v, block = 192×192v (3×3 slots + sidewalks = 11.6m tile), height free-form, full-block mega-buildings (tenement_block_0) carry own courtyard; asset/generator contract for the pending city-generation pipeline
 
 **Source Game Analysis:**
 - **`docs/core/SOURCE_GAME_ANALYSIS.md`** — Analysis of Gangsters: Organized Crime
@@ -179,6 +180,15 @@
   - Common pitfalls (signed bytes, thunk resolution, SIB bytes, little-endian)
   - Workflow for adding new scripts
 
+**Business Taxonomy → Asset Generation:**
+- **`docs/core/BUSINESS_TAXONOMY_ASSET_GENERATION.md`** — Cross-layer contract pinning the generator roadmap to RE business data
+  - 8 business groups → asset classes (commercial slots, industrial, residential, warehouses, charity, municipal, interactive tenements)
+  - **BRef discovery**: the original's own archetype column — 171 types collapse to 7 building visuals (BRef=1 storefront covers 101 types, BRef=4 factory covers all 33 industrials)
+  - NP (Number Present) priority ranking: tenements + residential ≈ 80% of city surface; storefront archetype next
+  - Slot semantics: center slot = illegal/concealment (RE Size=0), perimeter = legal fronts, full-block = Group 7 tenements
+  - Generator coverage map + NP-driven roadmap (tenement → storefront → residential → factory → venue → signatures)
+  - BREF_MAP type→archetype resolution + pipeline tie-in (Phase 2 zoning → Phase 3 seeding → city_template → generators)
+
 **Zoning Design:**
 - **`docs/core/ZONING_DESIGN.md`** — Hub-and-spoke zoning with weighted influence zones
   - Economic Core (EC) at center, Industrial on seed-determined side
@@ -189,7 +199,7 @@
   - Weighted influence model with configurable falloff (linear, gaussian, exponential)
   - Export JSON format with zone metadata for Unity consumption
 
-**Keywords**: design, philosophy, principles, source, analysis, xtx, decoding, ghidra, reverse engineering, binary, decompilation, orders, vehicles, timing, combat, pathfinding, sim_tick, traffic, integration, engine, architecture, scripting, vtable, pattern scan, city layout, seam types, alley, main street, trolley, dead-end, waypoint scanner, material ids, city editor, game data, constants, economics, export, counterfeit, liquor, stolen goods, warehouse, docks, railroad terminal, business fronts, suspicion, FBI, bribes, fear, hostility, squeal, zoning, rail line, industrial, commercial, residential, performance, optimization, GPU instancing, flood fill, epoch marks, dirty tracking, compute buffer, partial upload
+**Keywords**: design, philosophy, principles, source, analysis, xtx, decoding, ghidra, reverse engineering, binary, decompilation, orders, vehicles, timing, combat, pathfinding, sim_tick, traffic, integration, engine, architecture, scripting, vtable, pattern scan, city layout, seam types, alley, main street, trolley, dead-end, waypoint scanner, material ids, city editor, game data, constants, economics, export, counterfeit, liquor, stolen goods, warehouse, docks, railroad terminal, business fronts, suspicion, FBI, bribes, fear, hostility, squeal, zoning, rail line, industrial, commercial, residential, performance, optimization, GPU instancing, flood fill, epoch marks, dirty tracking, compute buffer, partial upload, business taxonomy, bref, building reference, asset archetypes, storefront, factory, tenement, number present, city capacity, slot semantics, illegal center, generator roadmap
 
 ---
 
@@ -466,6 +476,7 @@ All Unity-side documentation lives in `Assets/docs/`. See `Assets/docs/DOCUMENTA
 - **`VoxelAssetStudio/IMPROVEMENT_ROADMAP.md`** — V2.0 improvement plan (undo/redo, layers, selection tools)
 - **`VoxelAssetStudio/PHASE2_IMPLEMENTATION_PLAN.md`** — Skeleton rigging system plan
 - **`VoxelAssetStudio/INTERACTIVE_JOINTS_ROADMAP.md`** — Interactive joint manipulation
+- **`VoxelAssetStudio/GENERATOR_STUDIO_PLAN.md`** — Procedural generation as an editor sub-module: classic-script `gen_core.js` + per-archetype generators, param-schema sliders, preview→accept pipeline, lock-spec JSON shared with Python batch; implements the loose→locked→catalog lifecycle from `BUSINESS_TAXONOMY_ASSET_GENERATION.md`
 - **`VoxelAssetStudio/city_editor.html`** — City Layout Editor (3-phase pipeline: Macro → Granular → Buildings, see `docs/core/CITY_LAYOUT_PIPELINE.md`)
 
 ### Vertical Slice

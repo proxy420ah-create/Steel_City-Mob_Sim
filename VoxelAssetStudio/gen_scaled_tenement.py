@@ -43,17 +43,26 @@ PD = BLOCK_D + BUF * 2   # 40
 
 
 def add_windows(grid, w, h, d, wt, y_base, y_top, spacing, win_w, win_h, mat=WINDOW_GLASS):
-    """Add windows on all 4 walls at the given Y range."""
-    # Front and back walls (z=0 and z=d-wt)
+    """Add windows on all 4 walls at the given Y range.
+
+    Pane convention (settled): glass occupies the outermost cell only; the rest
+    of the wall-depth bore is AIR so the pane is backed by interior space, not
+    opaque wall. One pane = one blend event (uniform alpha everywhere).
+    """
+    # Front and back walls (z=0 and z=d-1)
     for x in range(wt + spacing, w - wt - win_w, spacing + win_w):
         for y in range(y_base, min(y_base + win_h, y_top)):
-            grid[x:x+win_w, y, :wt] = mat
-            grid[x:x+win_w, y, d-wt:d] = mat
-    # Left and right walls (x=0 and x=w-wt)
+            grid[x:x+win_w, y, 0] = mat
+            grid[x:x+win_w, y, 1:wt] = AIR
+            grid[x:x+win_w, y, d-1] = mat
+            grid[x:x+win_w, y, d-wt:d-1] = AIR
+    # Left and right walls (x=0 and x=w-1)
     for z in range(wt + spacing, d - wt - win_w, spacing + win_w):
         for y in range(y_base, min(y_base + win_h, y_top)):
-            grid[:wt, y, z:z+win_w] = mat
-            grid[w-wt:w, y, z:z+win_w] = mat
+            grid[0, y, z:z+win_w] = mat
+            grid[1:wt, y, z:z+win_w] = AIR
+            grid[w-1, y, z:z+win_w] = mat
+            grid[w-wt:w-1, y, z:z+win_w] = AIR
 
 
 def add_cornice(grid, w, h, d, wt, y, mat=PAINTED_METAL):
@@ -154,8 +163,10 @@ def generate_scaled_tenement():
 
     # --- Storefront windows flanking entrance (ground floor) ---
     glass_top = DOOR_H + 2
-    grid[WALL_T:dx-1, 3:glass_top, :WALL_T] = STOREFRONT_GLASS
-    grid[dx+DOOR_W+1:w-WALL_T, 3:glass_top, :WALL_T] = STOREFRONT_GLASS
+    grid[WALL_T:dx-1, 3:glass_top, 0] = STOREFRONT_GLASS
+    grid[WALL_T:dx-1, 3:glass_top, 1:WALL_T] = AIR
+    grid[dx+DOOR_W+1:w-WALL_T, 3:glass_top, 0] = STOREFRONT_GLASS
+    grid[dx+DOOR_W+1:w-WALL_T, 3:glass_top, 1:WALL_T] = AIR
     # Storefront frame
     grid[WALL_T:w-WALL_T, 2:3, :WALL_T] = DARK_WOOD
     grid[WALL_T:w-WALL_T, glass_top:glass_top+1, :WALL_T] = DARK_WOOD

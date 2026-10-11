@@ -31,7 +31,7 @@ MOB_MATERIALS = {
 
     # --- Glass (112-114) ---
     112: {"name": "Window Glass",     "color": (0.45, 0.55, 0.65, 0.6)},
-    113: {"name": "Lit Window",       "color": (0.95, 0.85, 0.50, 1.0)},   # emissive
+    113: {"name": "Lit Window",       "color": (0.45, 0.55, 0.65, 0.6)},   # DEPRECATED — aliases Window Glass; lit/unlit is runtime lighting now
     114: {"name": "Storefront Glass",  "color": (0.55, 0.65, 0.70, 0.5)},
 
     # --- Neon (115-117) — emissive ---
@@ -58,6 +58,19 @@ MOB_MATERIALS = {
     126: {"name": "Black Fabric",     "color": (0.06, 0.06, 0.07, 1.0)},
     127: {"name": "White Fabric",     "color": (0.88, 0.86, 0.82, 1.0)},
     128: {"name": "Hair",             "color": (0.12, 0.08, 0.06, 1.0)},
+
+    # --- Terrain / gameplay (130-139 reserved block) ---
+    137: {"name": "Water",            "color": (0.10, 0.25, 0.45, 1.0)},
+
+    # --- Vehicle (140-147) — VoxelAssetStudio "Vehicle" asset type palette ---
+    140: {"name": "Vehicle Paint",    "color": (0.23, 0.49, 0.36, 1.0)},   # REMAPPABLE per-instance
+    141: {"name": "Vehicle Accent",   "color": (0.14, 0.16, 0.15, 1.0)},   # fenders, roof, pinstripe
+    142: {"name": "Chrome",           "color": (0.75, 0.78, 0.82, 1.0)},   # bumpers, grille, trim
+    143: {"name": "Tire Rubber",      "color": (0.18, 0.18, 0.19, 1.0)},
+    144: {"name": "Headlight",        "color": (0.96, 0.90, 0.69, 1.0)},   # warm cream
+    145: {"name": "Taillight",        "color": (0.71, 0.16, 0.14, 1.0)},
+    146: {"name": "Interior Leather", "color": (0.42, 0.29, 0.18, 1.0)},
+    147: {"name": "Auto Glass",       "color": (0.59, 0.67, 0.73, 0.6)},   # windshield/windows
 }
 
 # --- Convenience constants for procedural generators ---
@@ -110,6 +123,19 @@ FLESH = 125
 BLACK_FABRIC = 126
 WHITE_FABRIC = 127
 HAIR = 128
+
+# Terrain / gameplay
+WATER = 137
+
+# Vehicle
+VEHICLE_PAINT = 140
+VEHICLE_ACCENT = 141
+CHROME = 142
+TIRE_RUBBER = 143
+HEADLIGHT = 144
+TAILLIGHT = 145
+INTERIOR_LEATHER = 146
+AUTO_GLASS = 147
 
 # --- Backward-compatible aliases (for gradual migration) ---
 STONE_FOUNDATION = STONE

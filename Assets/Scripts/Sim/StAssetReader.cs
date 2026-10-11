@@ -54,7 +54,7 @@ namespace SteelCity.Sim
 
             // --- Glass (112-114) ---
             MobColors[112] = new Color(0.45f, 0.55f, 0.65f, 0.6f); // Window Glass
-            MobColors[113] = new Color(0.95f, 0.85f, 0.50f, 1f);  // Lit Window (emissive)
+            MobColors[113] = new Color(0.45f, 0.55f, 0.65f, 0.6f); // Lit Window — DEPRECATED: aliases Window Glass (112); lit/unlit is a runtime lighting concern now
             MobColors[114] = new Color(0.55f, 0.65f, 0.70f, 0.5f); // Storefront Glass
 
             // --- Neon (115-117) — emissive ---

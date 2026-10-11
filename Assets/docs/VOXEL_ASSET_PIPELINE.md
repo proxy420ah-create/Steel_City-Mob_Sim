@@ -159,12 +159,28 @@ Assets/StreamingAssets/voxel_buildings/
 7. Verify in-game
 
 ### Hand-Editing a Model
-1. Launch VS via `run_voxel_studio.bat`
-2. Open .stasset from StreamingAssets
-3. Edit with paint/fill/shape tools
-4. Save back to .stasset
-5. Verify in-game
-6. Note: hand-edits are overwritten by next `generate_city_assets.py` run — update the procedural generator to make changes permanent
+The browser editor cannot read `.stasset` **binaries** — it imports the
+consolidated `.stasset JSON` format instead. Round-trip:
+
+1. Launch VS via `run_voxel_studio.bat` → `voxel_editor.html`
+2. **📥 Import .stasset JSON** button → point at the sidecar in
+   `VoxelAssetStudio/JSON Models In Progress/` (`tenement_block_0.json`,
+   `mainstreet_ew.json`, `river_straight.json`, etc.)
+3. Edit with paint/fill/shape/select tools
+4. Export the edited `.stasset JSON`, then convert back:
+   `python tools/json_to_stasset.py <file>.json "Assets/StreamingAssets/voxel_buildings/<name>.stasset"`
+5. Verify in-game (stassets load at scene build — restart Play)
+
+**Binary-only stassets** (no JSON sidecar — e.g. `empty_land`, `road_tile_0`,
+vehicles): convert first —
+`python tools/stasset_to_json.py "Assets/StreamingAssets/voxel_buildings/<name>.stasset" --type building --voxel-size 0.1`
+
+**Preserves**: V2 exports keep attachment points + building metadata in the SKEL
+tail — authored points survive the round-trip (spot-check `firing_position`
+points on first edit of a new asset).
+
+Note: hand-edits are overwritten by next `generate_city_assets.py` run — update
+the procedural generator to make changes permanent.
 
 ---
 

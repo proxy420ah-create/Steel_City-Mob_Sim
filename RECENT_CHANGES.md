@@ -4,6 +4,16 @@
 
 ---
 
+## October 11, 2026 — Concurrent-session work checkpoint (full tree commit)
+
+Committed the remaining working-tree changes from concurrent sessions so `master` matches the tested working state:
+
+- **Character sit pose (anim state 11) + `seat` attach point** — `SittingData` + `isSittingState` branch, `animParams.sitting`, `_AnimStaticParams` 13→15 float4s, pose-kernel branch in `CharacterPoseCompute.compute`, `seat` anchor (CHAR_ATTACH_GROUPS id 15) on tagged real voxels in Civilian1, state-11 controls in the animator editor. **Gap**: the matching pose-kernel branch in `VoxelProxyRaymarch.shader` was only ever in the shelved experiment — it's on `archive/occupancy-dda`, not on `master`. Nothing exercises state 11 at runtime yet; port the kernel when dynamic seating ships.
+- **Generator/editor**: `voxel_editor.html` expansion, `procedural_mob_buildings.py` / `gen_scaled_tenement.py` / `mob_materials.py` / `analyze_building.py` updates, `tenement_block_0.stasset` regenerated, `StAssetReader` material 113 (Lit Window) deprecated → aliases window glass, `VOXEL_ASSET_PIPELINE.md` .stasset↔JSON round-trip docs, `CITY_LAYOUT_PIPELINE.md` canonical block dimensions (64×64 slot / 192×192 block), new `GENERATOR_STUDIO_PLAN.md` + `BUSINESS_TAXONOMY_ASSET_GENERATION.md`, roadmap/lifecycle/vehicle docs.
+- **Settings churn**: `PC_RPAsset`, `URPGlobalSettings`, `ProjectSettings`, `UnityConnectSettings` — Unity auto-reserialization, no manual changes. (`DefaultVolumeProfile` migration was committed separately in `42e4a6f`.)
+
+---
+
 ## October 11, 2026 (night) — Cleanup pass: dead render plumbing removed, heatmap restored behind a keyword
 
 ### Removed (C#, ~225 lines — the shader half had already been rolled back)
