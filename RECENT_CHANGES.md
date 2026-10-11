@@ -1,6 +1,61 @@
 # Recent Changes — Steel City: Mob Sim
 
-**Last Updated**: October 11, 2026 (instanced-render fix + glass restoration + sector two-pass composite)
+**Last Updated**: October 11, 2026 (cleanup pass: dead render plumbing removed, heatmap restored behind a keyword)
+
+---
+
+## October 11, 2026 (night) — Cleanup pass: dead render plumbing removed, heatmap restored behind a keyword
+
+### Removed (C#, ~225 lines — the shader half had already been rolled back)
+- **Brick occupancy skip**: `GetOccupancy` / `ComputeOccupancy` / `DilateOccupancy` / `CreateOccupancyBuffer`, the per-chunk / per-group / per-sector occupancy buffers and caches, the `_OccupancyData` / `_HasOccupancy` / `_BuildingOccOffsets` bindings on all draw paths, `perfOccDraws` + the HUD `occ:N` readout, `useOccupancySkip`, the `F11` hotkey. Also removes a full voxel scan of every chunk/group/sector building at load.
+- **Ray jitter**: `useRayJitter`, `rayJitterPixels`, the per-frame `_RayJitter` computation, the `F12` hotkey. (The tommy-gun spray idea is separate gameplay code; nothing here was reusable.)
+- **Hunt probes**: `debugShowProxy` / `debugAabbHit` / `debugVolDump` and the per-draw `_DebugShowProxy` `SetInt` (`debugVolDump` defaulted to `true`).
+- **Kept (live)**: the `_BuildingMeta` / `_BuildingPositions` D3D12 SRV dummy bindings.
+- **Archived, then stash dropped**: branch `archive/occupancy-dda` (commit `08b2ac7`) holds the shelved shader — occupancy, jitter, the original heatmap, sitting-pose; the C# half is in commit `57fb572`. Local branch, not pushed.
+
+### Heatmap restored — keyword-gated (`V` key)
+- `#pragma multi_compile _ VOXEL_DEBUG_VIEW` on all three passes; the counters and color output sit inside seven `#if defined(VOXEL_DEBUG_VIEW)` blocks. **With the keyword off, the preprocessed shader is byte-for-byte the verified production shader** — checked mechanically: strip the guarded blocks and the three pragma lines, diff against the pre-edit file, identical.
+- C#: `V` cycles `iterVisMode` (Off / IterationHeat / StepChannels / MissWaste); `Shader.SetGlobalFloat(_IterVis)` plus `SyncDebugViewKeyword` enables/disables the global keyword on change (disabled again in `OnDestroy`).
+- Views: IterationHeat (blue <80 / green ~80-160 / red >160 total iterations), StepChannels (R voxel steps, B shadow steps — the brick channel left with occupancy), MissWaste (heat only on no-hit rays). Pass 2 (glass) discards in heat views so it can't hide the opaque-march heat.
+- Editor note: the first `V` press compiles the debug variants on demand, so the proxy volumes may blank for a few seconds; player builds precompile every variant.
+
+### Scene / repo hygiene
+- `useSectorBaking` flipped **ON** in `Planning_and_Working_Scene.unity`.
+- Deleted: `Assets/_Recovery/` (tracked Unity crash-recovery scenes), scratch tools (`_glass_graft.py`, `_balance_check.py`, `_stashed_work.diff`), stray `VoxelAssetStudio/nul`.
+- Docs: `PERFORMANCE_PATTERNS.md` #13 rewritten as shelved + new #14 (keyword-gated debug views); IMGUI / traversal / culling docs annotated; six previously uncommitted docs go into this commit.
+- Orphaned serialized values for the removed fields stay in the scene file until its next save (harmless).
+
+### Verification
+- Both `Assembly-CSharp` variants (Editor and Player-dev) compile clean with Unity's own Roslyn driven from the Bee response files; leftover-identifier scan clean; bracket balance unchanged.
+- 🧪 Play test: nothing visibly changes with `V` off (cars, Vinny, windows, sectors); `V` cycles heat / steps / miss-waste views and returns to normal on the fourth press; the HUD Keys tab shows the new `V` line and no `F11`/`F12`.
+
+---
+
+## October 11, 2026 (evening) — Glass double-blend root-caused and fixed; `BUILDING_INSTANCING` pragma regression corrected
+
+### Glass darkened when the camera was outside the volume (FIX, user-verified 🧪)
+- **Symptom**: uniform glass material + single-voxel-thick panes showed different apparent transparency depending on camera position — windows "cleared up" the instant the camera crossed into the tenement's proxy volume. `Debug Glass Layers` instrumentation showed identical layer counts on both sides — not an alpha or pane-count problem.
+- **Root cause**: pass 2 (glass) ran under `Cull Off` with `ZWrite Off` + alpha blend. A camera outside the volume rasterizes **both near and far proxy faces**, so every pixel ran the identical glass march twice and blended each pane twice; inside the volume only far faces exist → single blend. The brightness pop happened exactly at the volume boundary.
+- **Fix**: proxy cube winding corrected — 6 of 12 triangles had been inward-facing (harmless under `Cull Off`, fatal for selective culling) so all faces are now outward; `Cull Front` added to pass 2 only. Passes 0/1 untouched.
+- **Verified 🧪**: windows consistent inside and outside the volume; no brightness pop crossing the boundary.
+
+### `BUILDING_INSTANCING` pragma: single-keyword `multi_compile` knocked out instanced characters/vehicles (REGRESSION, fix applied — pending test 🧪)
+- **What happened**: `#pragma multi_compile_local BUILDING_INSTANCING` was re-applied on all three passes as build-stripping insurance. The user's next test showed cars and characters invisible again (buildings, terrain, glass fine) — a clean A/B: same working tree, only the pragma changed.
+- **Root cause**: a single-keyword `multi_compile` gets **no** "keyword disabled" variant (Unity manual: single-keyword `shader_feature` adds it automatically; `multi_compile` needs the `_` placeholder). Each pass compiled one program with `BUILDING_INSTANCING` always defined, so every instanced draw — groups included — ran the sector branch and read `_BuildingMeta`/`_BuildingPositions` slots group draws never fill. Chunks (non-instanced) and sectors were unaffected.
+- **Fix**: `#pragma multi_compile_local _ BUILDING_INSTANCING` on all three passes — both variants always compiled/shipped; keyword-less materials get the group path, `sectorMaterial` the sector path.
+- **Earlier hunt**: the stashed "tangled" shader carried the same single-keyword pragma on all three passes (never committed — `git log -S` finds no commit with it) and its symptoms match, so it is the probable true cause of the "second layer" in `SHARED_MATERIAL_INSTANCED_DRAWS.md` — unproven retroactively. The first standalone build's symptoms are consistent with it too (not recorded whether that build had the pragma).
+- Full write-up: `docs/known_issues/rendering/MULTI_COMPILE_SINGLE_KEYWORD_ALWAYS_ON.md`.
+- 🧪 Test: Editor Play — cars/Vinny/civilians render at correct positions, buildings/terrain/glass unchanged, no `_BuildingMeta` SRV warnings. Then a standalone build — the pragma exists for builds, so that is where it must be confirmed.
+
+### Instrumentation kept
+- `Debug Glass Layers` (`_GlassLayerVis`): black = no glass, cyan = 1 pane, green = 2, yellow = 3, red = 4+. Kept as an inspector debug tool — it correctly exonerated layer count as the darkening cause.
+
+### Ray jitter: briefly re-grafted, reverted by design call
+- `_RayJitter` was re-added to address distant sub-pixel windows (far opening < 1 pixel → rays land on frame voxels → window renders opaque). It worked — far windows became stippled see-through — but the stipple conflicted with the crisp voxel aesthetic, so it was rolled back. C# jitter plumbing (`useRayJitter`, per-frame `SetFloat`) was left bound to a uniform the shader no longer declared — removed in the cleanup pass (night entry above).
+
+### Files
+- `Assets/Resources/Shaders/VoxelProxyRaymarch.shader` — `Cull Front` on pass 2, `multi_compile_local _ BUILDING_INSTANCING` ×3, `_GlassLayerVis` debug path
+- `Assets/Scripts/UI/VoxelChunkManager.cs` — proxy cube winding fix, `Debug Glass Layers` toggle
 
 ---
 
@@ -14,7 +69,7 @@
   - `CGINCLUDE` + 3-pass structure alone → instancing fine (structure exonerated).
   - Glass set grafted: `_PaneIDs`, `_GlassForcedMat0-7`, `_FlaggedGlassAlpha`, `_GlassSpecular`, `_GlassMaxLayers`, `IsGlassVoxel`/`GlassLit`/`AdvanceDDA`, front-to-back accumulation + frosted-pane terminal, nearest-surface depth, passes 0/1/2.
   - **Deliberately excluded** (per scope call — the FPS hunt they belonged to was already resolved by sector baking): `_OccupancyData`/`BrickOccupied`/`BrickExitT`, `_RayJitter`, `_IterVis`, debug probes, sitting-pose anim changes (those were also the Vinny walk-speed regression — HEAD's anim path restored normal speed).
-  - ⚠️ The October 11 entry above documents occupancy/jitter/iterVis as if current — those features were **removed from the shader** here; the C# build/bind scaffolding remains but is now dead work (cleanup candidate).
+  - ⚠️ The October 11 entry above documents occupancy/jitter/iterVis as if current — those features were **removed from the shader** here; the C# build/bind scaffolding stayed as dead work until the cleanup pass (night entry above) removed it.
 
 ### Sector two-pass composite (buildings join cars on the full glass pipeline)
 - Sectors hardcoded pass 0 ("far LOD legacy path") — restored to composite: opaque draw emits `useGlassCompositePass ? 1 : 0`, glass pass-2 emitted far→near per sector.
@@ -33,11 +88,13 @@
 - Sector buildings on the same two-pass pipeline.
 
 ### Stash status
-- `stash@{0}` "bisect: revert proxy shader to last-working" still holds the removed occupancy/jitter/iterVis/sitting-pose work — recoverable if ever wanted; nothing in it is on the live shader.
+- Superseded: the removed occupancy/jitter/iterVis/sitting-pose shader work is archived as branch `archive/occupancy-dda`; the stash was dropped in the cleanup pass (night entry above).
 
 ---
 
 ## October 11, 2026 — Perf: 120→40 FPS regression traced, fixed, and a structural raymarch win
+
+> **Superseded (2026-10-11 night)**: occupancy skip and ray jitter were later shelved and removed; the heatmap was restored behind a shader keyword. See the top entries and `docs/core/PERFORMANCE_PATTERNS.md` #13-#14.
 
 ### The investigation (all findings measured)
 - Regression: ~120 → ~40 FPS before the working week and before the glass composite toggle. WASD/F6 camera suspected by timing — **exonerated** (nanoseconds per frame).
@@ -80,8 +137,8 @@
 
 ### Follow-up — D3D12 standalone build: `_BuildingMeta` SRV error + invisible instanced cars/characters
 - First dev build surfaced `d3d12: ... requires a buffer (SRV) "_BuildingMeta" ... Skipping draw calls`. Buildings/terrain rendered; instanced cars + Vinny spawned (registered, buffers initialized, `RenderInstancedGroup` invoked) but drew nothing. D3D12 validates every SRV the active variant references per draw; D3D11 tolerated gaps.
-- **Root cause (three layers)**: (a) `_BuildingMeta`/`_BuildingPositions` bound only in the sector path — missing everywhere else; (b) `shader_feature_local` let the build strip the runtime-enabled `BUILDING_INSTANCING` variant; (c) five `ComputeBuffer`s lazily allocated **inside `RenderInstancedGroup`** (which runs inside `endCameraRendering`) — mid-render GPU-resource creation drops recorded D3D12 SRV bindings. Log correlation: the error fired only on frames with `Posed voxel buffer allocated`.
-- **Fix**: `EnsureInstancedBuffers()` — a `LateUpdate` hook pre-sizes `instanceOffsetBuffer`, `posedVoxelBuffer`, `instanceAnimDataBuffer`, `instanceIKDataBuffer`, `instanceMaterialRemapBuffer` at `instances.Count` capacity (upper bound of `visibleCount`) before the render callback. In-render lazy branches kept as cold fallbacks. Plus `?? sharedMaterialBuffer` dummies on all three draw paths + `multi_compile_local` (user change) for all three passes.
+- **Root cause (two confirmed layers + one unconfirmed risk)**: (a) `_BuildingMeta`/`_BuildingPositions` bound only in the sector path — missing everywhere else; (b) `shader_feature_local` could have let the build strip the runtime-enabled `BUILDING_INSTANCING` variant — a plausible precautionary risk, never confirmed (sectors rendered fine in that same build); (c) five `ComputeBuffer`s lazily allocated **inside `RenderInstancedGroup`** (which runs inside `endCameraRendering`) — mid-render GPU-resource creation drops recorded D3D12 SRV bindings. Log correlation: the error fired only on frames with `Posed voxel buffer allocated`.
+- **Fix**: `EnsureInstancedBuffers()` — a `LateUpdate` hook pre-sizes `instanceOffsetBuffer`, `posedVoxelBuffer`, `instanceAnimDataBuffer`, `instanceIKDataBuffer`, `instanceMaterialRemapBuffer` at `instances.Count` capacity (upper bound of `visibleCount`) before the render callback. In-render lazy branches kept as cold fallbacks. Plus `?? sharedMaterialBuffer` dummies on all three draw paths + `multi_compile_local BUILDING_INSTANCING` (user change, single keyword — **later found to be a regression**: no "off" variant, so instanced groups ran the sector branch; corrected to `multi_compile_local _ BUILDING_INSTANCING`, see entry above). The buffer pre-sizing remains valid hardening, but it may not have been the sole cause of the invisible cars in that build.
 - Debug keys now work in builds: `V` cycles iterVisMode, `F11` occupancy, `F12` jitter.
 - 🧪 Test (dev build): no SRV warnings, cars/Vinny render, sectors still render; verify `V`/`F11`/`F12`/`R` toggles.
 

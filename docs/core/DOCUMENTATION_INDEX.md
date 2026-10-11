@@ -2,7 +2,7 @@
 
 **Purpose**: Central hub for all project documentation — helps coding agents find information fast and efficiently.
 
-**Last Updated**: August 14, 2026
+**Last Updated**: October 9, 2026
 **Project**: Steel City: Mob Sim — Organized Crime Simulation
 **Status**: 🔄 ALPHA — Vertical Slice Playable (Unity 6)
 
@@ -57,6 +57,12 @@
   - Building swap API for mid-week events (bomb, fire)
   - Event queue design for batch processing at week end
   - Performance projections: 92s → ~20-30s load, 0ms week transitions with no changes
+
+**Performance Patterns:**
+- **`docs/core/PERFORMANCE_PATTERNS.md`** — Editor-proven optimization techniques mapped to game systems
+  - 14 patterns (#13 brick-occupancy skip is shelved; #14 keyword-gated debug views): tracked-write maps, partial GPU uploads, delta history, shader-side clip, procedural shader detail, epoch-marked scratch grids, chunked cooperative scans, O(1) region membership, generation counters, slot bookkeeping, view-state signatures, swap-pop + grow-only buffers
+  - Each pattern: the real stall it fixed + concrete Steel City reuse (voxel edits, lit-window flips, influence BFS, GPU picking, async guards)
+  - Cross-cutting lessons + deliberately-rejected approaches (GPU flood fill, vertex culling)
 
 **City Layout Pipeline:**
 - **`docs/core/CITY_LAYOUT_PIPELINE.md`** — Design tool to Unity implementation pipeline
@@ -183,7 +189,7 @@
   - Weighted influence model with configurable falloff (linear, gaussian, exponential)
   - Export JSON format with zone metadata for Unity consumption
 
-**Keywords**: design, philosophy, principles, source, analysis, xtx, decoding, ghidra, reverse engineering, binary, decompilation, orders, vehicles, timing, combat, pathfinding, sim_tick, traffic, integration, engine, architecture, scripting, vtable, pattern scan, city layout, seam types, alley, main street, trolley, dead-end, waypoint scanner, material ids, city editor, game data, constants, economics, export, counterfeit, liquor, stolen goods, warehouse, docks, railroad terminal, business fronts, suspicion, FBI, bribes, fear, hostility, squeal, zoning, rail line, industrial, commercial, residential
+**Keywords**: design, philosophy, principles, source, analysis, xtx, decoding, ghidra, reverse engineering, binary, decompilation, orders, vehicles, timing, combat, pathfinding, sim_tick, traffic, integration, engine, architecture, scripting, vtable, pattern scan, city layout, seam types, alley, main street, trolley, dead-end, waypoint scanner, material ids, city editor, game data, constants, economics, export, counterfeit, liquor, stolen goods, warehouse, docks, railroad terminal, business fronts, suspicion, FBI, bribes, fear, hostility, squeal, zoning, rail line, industrial, commercial, residential, performance, optimization, GPU instancing, flood fill, epoch marks, dirty tracking, compute buffer, partial upload
 
 ---
 
@@ -307,6 +313,17 @@
   - Fallback behavior when no VoxelRenderBridge present
   - Diagnostic logging pipeline for troubleshooting
 
+**Voxel Glass & Transparency:**
+- **`docs/systems/VOXEL_GLASS_TRANSPARENCY.md`** — Per-cell alpha blending model, authoring & tuning guide
+  - Accumulation math: transmission = (1−a)^cells; **settled convention: panes are 1 voxel thick + air bore** (baked into all generators)
+  - Grazing-angle banding (inherent); tune face-on; emissive material list (113/115–117/124) + no-light-spill caveat
+  - Inspector knobs (alpha/specular/maxLayers) + `:WALL_T` vs `[:1]` authoring + hollow-interior lit rooms
+  - Windows↔projectiles design boundary: visual vs ballistic transparency → resolved by the shatter spec below
+- **`docs/systems/GLASS_SHATTER_MECHANIC.md`** — Glass destruction prototype proposal (no physics)
+  - Seeded bullet-hole model: impact + ring-falloff removal, cracked-halo material, gid pane-unit cascade
+  - Removed voxels = shard particle spawn list (voxel→particle 1:1); damage type → break radius table
+  - P0–P3 phased plan: puncture → dressing → pane semantics → sim hooks (noise/LOS/persistence)
+
 **Voxel Engine Gotchas:**
 - **`docs/systems/VOXEL_ENGINE_GOTCHAS.md`** — Non-obvious bugs and traps in the voxel rendering/collision/terrain system
   - ProbeGround flat-array index aliasing (vy out of bounds → false ground hit at Y=66)
@@ -368,7 +385,7 @@
   - Architecture diagram: standard Unity pipeline vs Steel City voxel pipeline
   - Debugging tips for invisible/stuck/missing characters
 
-**Keywords**: systems, character, spawning, instancing, hoodspawner, characterrig, animationtest, stresstest, clothing, pedestrian, voxelcharacter, characteranimation, clothingsystem, pedestrianlookaround, gpu, sharedbuffer, posedbuffer, consolidated json, upscale, extortion, territory, intelligence, corruption, police, combat, crime, squeal, 3d, rendering, visualization, camera, playtesting, insights, fear, hostility, legal, diplomacy, path, debug, beams, commandbuffer, instanced, voxel, gotchas, pitfalls, collision, probe, terrain, flat-array, aliasing, animation, shader, raymarch, dda, inverse-transform, groupid, stance, characteranimation, refactoring, extraction, modular, file size, citymap, chunkmanager, buildingloader, sectorbakery, activeinhierarchy, drawmeshinstanced, computebuffer, unregister, frustum, weapon, item, prop, decor, revolver, pistol, m1911, tommy gun, rifle, shotgun, voxel editor, asset type, gunmetal, attachment, hand
+**Keywords**: systems, character, spawning, instancing, hoodspawner, characterrig, animationtest, stresstest, clothing, pedestrian, voxelcharacter, characteranimation, clothingsystem, pedestrianlookaround, gpu, sharedbuffer, posedbuffer, consolidated json, upscale, extortion, territory, intelligence, corruption, police, combat, crime, squeal, 3d, rendering, visualization, camera, playtesting, insights, fear, hostility, legal, diplomacy, path, debug, beams, commandbuffer, instanced, voxel, gotchas, pitfalls, collision, probe, terrain, flat-array, aliasing, animation, shader, raymarch, dda, inverse-transform, groupid, stance, characteranimation, refactoring, extraction, modular, file size, citymap, chunkmanager, buildingloader, sectorbakery, activeinhierarchy, drawmeshinstanced, computebuffer, unregister, frustum, weapon, item, prop, decor, revolver, pistol, m1911, tommy gun, rifle, shotgun, voxel editor, asset type, gunmetal, attachment, hand, glass, transparency, alpha, emissive, windows, windshield, lit window, shatter, destruction, bullet hole, cracked halo, shard particles, pane gid
 
 ---
 

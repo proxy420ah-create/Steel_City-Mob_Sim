@@ -686,6 +686,40 @@ namespace SteelCity.Sim
                 Debug.Log($"[CityMap3D] ⏸️ Time freeze {(Time.timeScale > 0f ? "OFF — resumed" : "ON — frozen")} (timeScale={Time.timeScale})");
             }
 
+            // WASD free-look while F6 camera freedom is on: moves the focus
+            // point along the camera's view axes — W/S fly along view dir
+            // (pitch-aware), A/D strafe, Q/E descend/ascend, Shift = 3x speed.
+            if (kb != null && debugCameraFreedom && mapCamera != null)
+            {
+                Vector3 move = Vector3.zero;
+                if (kb.wKey.isPressed) move += mapCamera.transform.forward;
+                if (kb.sKey.isPressed) move -= mapCamera.transform.forward;
+                if (kb.dKey.isPressed) move += mapCamera.transform.right;
+                if (kb.aKey.isPressed) move -= mapCamera.transform.right;
+                if (kb.eKey.isPressed) move += Vector3.up;
+                if (kb.qKey.isPressed) move -= Vector3.up;
+                if (move.sqrMagnitude > 0f)
+                {
+                    float speed = mapCamera.orthographic
+                        ? mapCamera.orthographicSize * 1.5f
+                        : debugCameraOrbitDistance * 2f;
+                    if (kb.shiftKey.isPressed) speed *= 3f;
+                    Vector3 worldDelta = move.normalized * speed * Time.unscaledDeltaTime;
+                    cameraFollowsCityCenter = false;
+                    if (IsExecutionMode)
+                    {
+                        var ep = FindFirstObjectByType<EventPlayer>();
+                        if (ep != null && ep.IsRunning)
+                            ep.AddCameraPanOffset(worldDelta);
+                    }
+                    else
+                    {
+                        panOffset += worldDelta;
+                        cameraFocus = mapRoot.position + panOffset;
+                    }
+                }
+            }
+
             if (IsExecutionMode)
             {
                 // Working mode: skip planning-only interactions (road ticker) but keep

@@ -80,6 +80,8 @@ or pre-culled, so they were never affected.
 - **Column-occupancy skip grid** — the "real" long-term optimization:
   skip empty space per-column instead of linear-marching it. Would make
   the diagonal floor unnecessary again.
+  (A 4³ brick-occupancy variant was built and shelved 2026-10-11 — see
+  `docs/core/PERFORMANCE_PATTERNS.md` #13.)
 
 ## Related Files
 

@@ -162,6 +162,15 @@ Shader "SteelCity/VoxelProxyRaymarch"
             // sectors): pane index = bufferOffset + VoxelIndex. 0 = per-asset
             // pane buffer (chunks/instanced groups): local VoxelIndex only.
             int   _PaneMerged;
+            // Debug: visualize per-ray glass layer count (0=black, 1=cyan,
+            // 2=green, 3=yellow, 4+=red). Meaningful on passes 0/2 only —
+            // pass 1 drills glass as holes so the counter stays 0.
+            int   _GlassLayerVis;
+#if defined(VOXEL_DEBUG_VIEW)
+            // Debug heatmap (VOXEL_DEBUG_VIEW variant only): 0 off | 1 total
+            // iteration heat | 2 R=voxel steps, B=shadow steps | 3 miss-waste.
+            float _IterVis;
+#endif
 
             // ---- Bit layout ----
             #define VX_SHAPE_SHIFT     12
@@ -935,6 +944,10 @@ Shader "SteelCity/VoxelProxyRaymarch"
             FragOutput fragCore(Varyings input, int renderMode)
             {
                 FragOutput o;
+#if defined(VOXEL_DEBUG_VIEW)
+                // Heat views read the opaque march (passes 0/1); glass tint would hide them.
+                if (renderMode == 2) discard;
+#endif
                 UNITY_SETUP_INSTANCE_ID(input);
                 float voxelSize = input.voxelSize;
 
@@ -1066,9 +1079,16 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 float  glassFirstT = 0.0;  // nearest glass surface distance (for depth)
                 int    glassLayers = 0;
                 uint   lastPane = 0u;      // pane group already charged along this ray (0 = none)
+#if defined(VOXEL_DEBUG_VIEW)
+                int iterVox = 0;    // primary-march DDA steps
+                int iterShadow = 0; // shadow-march steps
+#endif
 
                 for (int i = 0; i < stepCap; ++i)
                 {
+#if defined(VOXEL_DEBUG_VIEW)
+                    ++iterVox;
+#endif
                     if (!InBounds(voxel, dims))
                         break;
 
@@ -1225,6 +1245,9 @@ Shader "SteelCity/VoxelProxyRaymarch"
                             float shadowFactor = 1.0;
                             for (int s = 0; s < _ShadowMaxSteps && _ShadowEnabled; s++)
                             {
+#if defined(VOXEL_DEBUG_VIEW)
+                                ++iterShadow;
+#endif
                                 if (!InBounds(shadowVoxel, dims))
                                     break;
 
@@ -1346,7 +1369,14 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 {
                     // Rays that saw only transparent voxels exit the volume —
                     // discard so the city pass content behind stays visible.
+#if defined(VOXEL_DEBUG_VIEW)
+                    // Heat views keep misses: a full-volume air march is the
+                    // expensive case they exist to expose.
+                    if (_IterVis <= 0.0) discard;
+                    worldHit = ro + rd * tFar;
+#else
                     discard;
+#endif
                 }
 
                 // Write depth for compositing
@@ -1354,6 +1384,34 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 float ndcZ = clip.z / clip.w;
 
                 o.color = hitColor;
+                if (_GlassLayerVis != 0)
+                {
+                    float3 lv = glassLayers == 0 ? float3(0, 0, 0)
+                              : glassLayers == 1 ? float3(0, 0.8, 1.0)
+                              : glassLayers == 2 ? float3(0.1, 1.0, 0.3)
+                              : glassLayers == 3 ? float3(1.0, 0.9, 0.1)
+                              : float3(1.0, 0.1, 0.1);
+                    o.color = float4(lv, 1.0);
+                }
+#if defined(VOXEL_DEBUG_VIEW)
+                // Debug views (V key):
+                //   1 = total iteration heat (blue<80 green~80-160 red>160)
+                //   2 = R voxel-march steps, B shadow-march steps
+                //   3 = miss-waste: heat only on rays that exited with no hit
+                if (_IterVis > 0.5)
+                {
+                    float h = saturate((float)(iterVox + iterShadow) / 160.0);
+                    float3 heat = h < 0.5
+                        ? lerp(float3(0.05, 0.2, 1.0), float3(0.1, 1.0, 0.3), h * 2.0)
+                        : lerp(float3(0.1, 1.0, 0.3), float3(1.0, 0.12, 0.0), (h - 0.5) * 2.0);
+                    if (_IterVis > 2.5)
+                        o.color = hit ? float4(0, 0, 0, 1) : float4(heat, 1.0);
+                    else if (_IterVis > 1.5)
+                        o.color = float4(saturate((float)iterVox / 128.0), 0.0, saturate((float)iterShadow / 96.0), 1.0);
+                    else
+                        o.color = float4(heat, 1.0);
+                }
+#endif
                 o.depth = ndcZ;
                 return o;
             }
@@ -1369,7 +1427,8 @@ Shader "SteelCity/VoxelProxyRaymarch"
             #pragma vertex vert
             #pragma fragment fragCombined
             #pragma multi_compile_instancing
-            #pragma shader_feature_local BUILDING_INSTANCING
+            #pragma multi_compile_local _ BUILDING_INSTANCING
+            #pragma multi_compile _ VOXEL_DEBUG_VIEW
             #pragma exclude_renderers gles gles3
 
             FragOutput fragCombined(Varyings input)
@@ -1390,7 +1449,8 @@ Shader "SteelCity/VoxelProxyRaymarch"
             #pragma vertex vert
             #pragma fragment fragOpaque
             #pragma multi_compile_instancing
-            #pragma shader_feature_local BUILDING_INSTANCING
+            #pragma multi_compile_local _ BUILDING_INSTANCING
+            #pragma multi_compile _ VOXEL_DEBUG_VIEW
             #pragma exclude_renderers gles gles3
 
             FragOutput fragOpaque(Varyings input)
@@ -1407,6 +1467,11 @@ Shader "SteelCity/VoxelProxyRaymarch"
         {
             Name "ProxyRaymarchGlass"
 
+            // Back faces only: with Cull Off a camera outside the volume
+            // rasterizes near + far faces, so every pixel runs this pass twice
+            // and blends each pane twice (darker than the same pane seen from
+            // inside the volume, where only far faces exist).
+            Cull Front
             ZWrite Off
             Blend SrcAlpha OneMinusSrcAlpha
 
@@ -1415,7 +1480,8 @@ Shader "SteelCity/VoxelProxyRaymarch"
             #pragma vertex vert
             #pragma fragment fragGlass
             #pragma multi_compile_instancing
-            #pragma shader_feature_local BUILDING_INSTANCING
+            #pragma multi_compile_local _ BUILDING_INSTANCING
+            #pragma multi_compile _ VOXEL_DEBUG_VIEW
             #pragma exclude_renderers gles gles3
 
             FragOutput fragGlass(Varyings input)

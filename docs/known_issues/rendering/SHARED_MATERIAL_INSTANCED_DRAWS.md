@@ -18,6 +18,8 @@
 
 Sectors never hit this because `sectorMaterial` is dedicated — instanced draws only. The group path had no equivalent.
 
+> **Update (2026-10-11 evening) — attribution now uncertain.** Re-applying the single-keyword pragma `multi_compile_local BUILDING_INSTANCING` to the working shader, on its own, reproduced "instanced groups invisible, chunks and sectors perfect" (`MULTI_COMPILE_SINGLE_KEYWORD_ALWAYS_ON.md`). The stashed shader that still failed after the material fix carried that same pragma, and "in-world but displaced along the street" is consistent with group draws reading sector `_BuildingPositions`. That pragma is the probable cause of the "second layer" below and may explain the original symptom too. `groupMaterial` stays (it mirrors the `sectorMaterial` pattern and is harmless), but the shared-material clobbering theory above is unproven.
+
 ## Diagnostic Trail (method notes worth keeping)
 
 1. **Reversed-Z trap**: the first rasterization probe wrote `depth = 0.0` — on D3D12's inverted depth that's the *farthest* value, so every legitimately-rendered city fragment overwrote the probe. "No magenta" meant "buried", not "absent". Diagnostic probes on this pipeline must write `depth = 1.0` (nearest).

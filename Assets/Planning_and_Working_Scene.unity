@@ -1434,7 +1434,7 @@ MonoBehaviour:
   buildingsPerBlockRow: 3
   showRoadNames: 1
   useSplitTerrain: 1
-  useSectorBaking: 0
+  useSectorBaking: 1
   sectorSizeBlocks: 4
   showBlockLabels: 0
   labelFontSize: 3

@@ -64,6 +64,13 @@ tower, courtyards.
 
 ## Phase 2 — ⏸ DEFERRED: Column-Occupancy Skip
 
+> **Update (2026-10-11)**: a different occupancy scheme — 4³ brick bitmasks with
+> a two-level DDA — was built and then shelved; see
+> `docs/core/PERFORMANCE_PATTERNS.md` #13. Its limit is the problem below:
+> a thin slab inside a brick poisons the whole brick, which a per-column
+> interval map would avoid. The grazing-angle drop itself was traced to overdraw
+> from stacked per-building volumes and fixed by sector baking, not traversal.
+
 **Goal**: skip interior air too — answer "is there content in my path?"
 per-column instead of per-cell.
 

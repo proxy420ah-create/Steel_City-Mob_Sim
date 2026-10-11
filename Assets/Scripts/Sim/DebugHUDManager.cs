@@ -98,6 +98,19 @@ namespace SteelCity.Sim
         private float fpsAccumTime;
         private int fpsAccumFrames;
 
+        // IMGUI cost control — OnGUI fires once per event (Layout + Repaint +
+        // every input event), so each widget runs several times per frame and
+        // scene-scanning every event is what tanked the frame rate. Text-only
+        // tabs rebuild into ONE cached rich-text string at ~4 Hz; interactive
+        // tabs (Clothing/Range) keep live widgets.
+        private readonly System.Text.StringBuilder hudSB = new();
+        private string tabText;
+        private string footerText;
+        private Tab lastBuiltTab = (Tab)(-1);
+        private float nextTabRefresh;
+        private float nextFooterRefresh;
+        private float nextRefsRefresh;
+
         void Awake()
         {
             activeTab = defaultTab;
@@ -371,7 +384,13 @@ namespace SteelCity.Sim
             if (!visible) return;
 
             InitStyles();
-            RefreshReferences();
+            // FindFirstObjectByType scans the scene — 8 of them per IMGUI
+            // event (~4-6 events/frame) was a measurable stall. Throttled.
+            if (Time.unscaledTime >= nextRefsRefresh)
+            {
+                nextRefsRefresh = Time.unscaledTime + 0.5f;
+                RefreshReferences();
+            }
 
             // Position window — custom drag position or corner snap
             float sw = Screen.width;
@@ -477,12 +496,14 @@ namespace SteelCity.Sim
 
             switch (activeTab)
             {
-                case Tab.Camera: DrawCameraTab(); break;
-                case Tab.Render: DrawRenderTab(); break;
                 case Tab.Clothing: DrawClothingTab(); break;
-                case Tab.Path: DrawPathTab(); break;
                 case Tab.Range: DrawRangeTab(); break;
-                case Tab.Keys: DrawKeysTab(); break;
+                default:
+                    if (activeTab != lastBuiltTab
+                            || Time.unscaledTime >= nextTabRefresh)
+                        RebuildTabText();
+                    GUILayout.Label(tabText, labelStyle);
+                    break;
             }
 
             GUILayout.EndScrollView();
@@ -490,92 +511,110 @@ namespace SteelCity.Sim
             // Footer — current tab + next tab + controls
             GUILayout.Space(4);
 
-            var availableTabs = new System.Collections.Generic.List<Tab>();
-            var availableNames = new System.Collections.Generic.List<string>();
-            if (followCamera != null)   { availableTabs.Add(Tab.Camera);   availableNames.Add("Camera"); }
-            if (chunkManager != null)    { availableTabs.Add(Tab.Render);   availableNames.Add("Render"); }
-            if (allClothingSystems.Count > 0) { availableTabs.Add(Tab.Clothing); availableNames.Add("Clothing"); }
-            if (pathDebug != null)      { availableTabs.Add(Tab.Path);     availableNames.Add("Path"); }
-            if (cityMap != null)        { availableTabs.Add(Tab.Range);    availableNames.Add("Range"); }
-            availableTabs.Add(Tab.Keys); availableNames.Add("Keys");
-
-            int curIdx = availableTabs.IndexOf(activeTab);
-            if (curIdx < 0) curIdx = 0;
-            string curName = curIdx < availableNames.Count ? availableNames[curIdx] : "?";
-            int nextIdx = (curIdx + 1) % availableTabs.Count;
-            string nextName = nextIdx < availableNames.Count ? availableNames[nextIdx] : "?";
-
-            string cornerName = usingCustomPosition ? "Dragged" : currentCorner.ToString();
-            GUILayout.Label($"<b>Current:</b> {curName}    <b>Next [Tab]:</b> {nextName}    <b>Pos [Y]:</b> {cornerName}", labelStyle);
-
-            GUILayout.Space(6);
-            GUILayout.Label("<b>Hotkeys</b> — full list in [Keys] tab", boldStyle);
-            GUILayout.Label("[`] / [O] Hide  [Tab] Next tab  [Y] Corner  [M] Minimize", labelStyle);
-            GUILayout.Label("[LMB] Select/focus  [MMB] Rotate  [RMB] Pan  [Wheel] Zoom", labelStyle);
-            GUILayout.Label("[I/W/L/A/C/T] Character anim  [Space] Pause  [=/-] Speed", labelStyle);
-            GUILayout.Label("[R] Render scale  [F6] Free cam  [F7] Waypoints  [F8] Freeze  [F10] Vehicles", labelStyle);
-            GUILayout.Label("<i>Drag title bar to move. Click _ to minimize.</i>", labelStyle);
+            if (Time.unscaledTime >= nextFooterRefresh)
+                RebuildFooterText();
+            GUILayout.Label(footerText ?? "", labelStyle);
 
             GUILayout.EndVertical();
             GUILayout.EndArea();
         }
 
-        void DrawCameraTab()
+        static string TabName(Tab t) => t.ToString();
+
+        // boldStyle colour inline — cached text carries no per-line style
+        static string H(string s) => $"<color=#19FFFF><b>{s}</b></color>";
+
+        /// <summary>
+        /// Rebuild the active text-only tab into one cached rich-text block —
+        /// a single GUILayout.Label per repaint instead of ~40 widgets per
+        /// IMGUI event. Interactive tabs stay live and skip this path.
+        /// </summary>
+        void RebuildTabText()
+        {
+            hudSB.Length = 0;
+            switch (activeTab)
+            {
+                case Tab.Camera: BuildCameraTab(hudSB); break;
+                case Tab.Render: BuildRenderTab(hudSB); break;
+                case Tab.Path: BuildPathTab(hudSB); break;
+                default: BuildKeysTab(hudSB); break;
+            }
+            tabText = hudSB.ToString();
+            lastBuiltTab = activeTab;
+            nextTabRefresh = Time.unscaledTime + 0.25f;
+        }
+
+        void RebuildFooterText()
+        {
+            var avail = GetAvailableTabs();
+            int curIdx = avail.IndexOf(activeTab);
+            if (curIdx < 0) curIdx = 0;
+            int nextIdx = (curIdx + 1) % avail.Count;
+            hudSB.Length = 0;
+            hudSB.AppendLine($"<b>Current:</b> {TabName(avail[curIdx])}    <b>Next [Tab]:</b> {TabName(avail[nextIdx])}    <b>Pos [Y]:</b> {(usingCustomPosition ? "Dragged" : currentCorner.ToString())}");
+            hudSB.Append('\n');
+            hudSB.AppendLine(H("Hotkeys") + " — full list in [Keys] tab");
+            hudSB.AppendLine("[`] / [O] Hide  [Tab] Next tab  [Y] Corner  [M] Minimize");
+            hudSB.AppendLine("[LMB] Select/focus  [MMB] Rotate  [RMB] Pan  [Wheel] Zoom");
+            hudSB.AppendLine("[I/W/L/A/C/T] Character anim  [Space] Pause  [=/-] Speed");
+            hudSB.AppendLine("[R] Render scale  [F6] Free cam  [F7] Waypoints  [F8] Freeze  [F10] Vehicles");
+            hudSB.AppendLine("<i>Drag title bar to move. Click _ to minimize.</i>");
+            footerText = hudSB.ToString();
+            nextFooterRefresh = Time.unscaledTime + 0.25f;
+        }
+
+        void BuildCameraTab(System.Text.StringBuilder sb)
         {
             if (followCamera == null)
             {
-                GUILayout.Label("No FollowCamera in scene.", labelStyle);
+                sb.AppendLine("No FollowCamera in scene.");
                 return;
             }
 
-            GUILayout.Label($"<b>Mode</b>: {(followCamera.ChaseMode ? "CHASE" : "ORBIT")}", labelStyle);
-            GUILayout.Label($"<b>Position</b>: {followCamera.transform.position}", labelStyle);
-            GUILayout.Label($"<b>FOV</b>: {followCamera.FieldOfView:F1}", labelStyle);
-            GUILayout.Label($"<b>Distance</b>: {followCamera.Distance:F2}", labelStyle);
-            GUILayout.Label($"<b>Height</b>: {followCamera.Height:F2}", labelStyle);
-            GUILayout.Label($"<b>Yaw</b>: {followCamera.CurrentYaw:F1} deg", labelStyle);
-            GUILayout.Label($"<b>Pitch</b>: {followCamera.CurrentPitch:F1} deg", labelStyle);
-            GUILayout.Label($"<b>Follow Speed</b>: {followCamera.FollowSpeed:F1}", labelStyle);
-            GUILayout.Label($"<b>Look Speed</b>: {followCamera.LookSpeed:F1}", labelStyle);
-
-            GUILayout.Space(8);
-            GUILayout.Label("<b>Controls</b>", boldStyle);
-            GUILayout.Label("[T] Chase/Orbit toggle", labelStyle);
-            GUILayout.Label("[Shift] Free-look", labelStyle);
-            GUILayout.Label("[Z] Reset camera", labelStyle);
-            GUILayout.Label("[Q/E] Distance  [R/F] Height", labelStyle);
-            GUILayout.Label("[C] Capture  [P] Perf log", labelStyle);
+            sb.AppendLine($"<b>Mode</b>: {(followCamera.ChaseMode ? "CHASE" : "ORBIT")}");
+            sb.AppendLine($"<b>Position</b>: {followCamera.transform.position}");
+            sb.AppendLine($"<b>FOV</b>: {followCamera.FieldOfView:F1}");
+            sb.AppendLine($"<b>Distance</b>: {followCamera.Distance:F2}");
+            sb.AppendLine($"<b>Height</b>: {followCamera.Height:F2}");
+            sb.AppendLine($"<b>Yaw</b>: {followCamera.CurrentYaw:F1} deg");
+            sb.AppendLine($"<b>Pitch</b>: {followCamera.CurrentPitch:F1} deg");
+            sb.AppendLine($"<b>Follow Speed</b>: {followCamera.FollowSpeed:F1}");
+            sb.AppendLine($"<b>Look Speed</b>: {followCamera.LookSpeed:F1}");
+            sb.Append('\n');
+            sb.AppendLine(H("Controls"));
+            sb.AppendLine("[T] Chase/Orbit toggle");
+            sb.AppendLine("[Shift] Free-look");
+            sb.AppendLine("[Z] Reset camera");
+            sb.AppendLine("[Q/E] Distance  [R/F] Height");
+            sb.AppendLine("[C] Capture  [P] Perf log");
         }
 
-        void DrawRenderTab()
+        void BuildRenderTab(System.Text.StringBuilder sb)
         {
             if (chunkManager == null)
             {
-                GUILayout.Label("No VoxelChunkManager in scene.", labelStyle);
+                sb.AppendLine("No VoxelChunkManager in scene.");
                 return;
             }
 
-            GUILayout.Label($"<b>FPS</b>: {fps:F0}  |  Frame: {frameTimeMs:F2}ms", labelStyle);
-            GUILayout.Label($"  min:{frameTimeMin:F2}  max:{frameTimeMax:F2}  avg:{frameTimeAvg:F2}", labelStyle);
-            GUILayout.Label($"<b>Resolution</b>: {chunkManager.RenderWidth}x{chunkManager.RenderHeight}", labelStyle);
-            GUILayout.Label($"<b>Ortho</b>: {chunkManager.IsOrtho}  Size: {chunkManager.CameraOrthoSize:F1}", labelStyle);
-
-            GUILayout.Space(6);
-            GUILayout.Label("<b>Draw Calls</b>", boldStyle);
-            GUILayout.Label($"  Total: {chunkManager.PerfTotalDrawCalls}", labelStyle);
-            GUILayout.Label($"  Sectors: {chunkManager.PerfSectorsDrawn}  Instanced chars: {chunkManager.InstancedCharacterCount}", labelStyle);
-            GUILayout.Label($"  Chunks: {chunkManager.PerfTotalChunks} total / {chunkManager.PerfActiveChunks} active / {chunkManager.PerfDrawnChunks} drawn", labelStyle);
-            GUILayout.Label($"  Baked: {chunkManager.BakedSectorCount} sectors / {chunkManager.BakedSectorBuildingCount} buildings", labelStyle);
-
-            GUILayout.Space(6);
-            GUILayout.Label("<b>LOD Tiers</b>", boldStyle);
-            GUILayout.Label($"  Near: {chunkManager.PerfLodNear}  Mid: {chunkManager.PerfLodMid}  Far: {chunkManager.PerfLodFar}", labelStyle);
-            GUILayout.Label($"  Ultra: {chunkManager.PerfLodUltra}  Culled: {chunkManager.PerfLodCulled}", labelStyle);
-            GUILayout.Label($"  ScreenRatio: {chunkManager.PerfMinScreenRatio:F4} - {chunkManager.PerfMaxScreenRatio:F4}", labelStyle);
-
-            GUILayout.Space(6);
-            GUILayout.Label("<b>CPU Timing</b>", boldStyle);
-            GUILayout.Label($"  Cull: {chunkManager.CpuCullMs:F2}ms  Draw: {chunkManager.CpuDrawMs:F2}ms  Total: {chunkManager.CpuTotalMs:F2}ms", labelStyle);
+            sb.AppendLine($"<b>FPS</b>: {fps:F0}  |  Frame: {frameTimeMs:F2}ms");
+            sb.AppendLine($"  min:{frameTimeMin:F2}  max:{frameTimeMax:F2}  avg:{frameTimeAvg:F2}");
+            sb.AppendLine($"<b>Resolution</b>: {chunkManager.RenderWidth}x{chunkManager.RenderHeight}");
+            sb.AppendLine($"<b>Ortho</b>: {chunkManager.IsOrtho}  Size: {chunkManager.CameraOrthoSize:F1}");
+            sb.Append('\n');
+            sb.AppendLine(H("Draw Calls"));
+            sb.AppendLine($"  Total: {chunkManager.PerfTotalDrawCalls}");
+            sb.AppendLine($"  Sectors: {chunkManager.PerfSectorsDrawn}  Instanced chars: {chunkManager.InstancedCharacterCount}");
+            sb.AppendLine($"  Chunks: {chunkManager.PerfTotalChunks} total / {chunkManager.PerfActiveChunks} active / {chunkManager.PerfDrawnChunks} drawn");
+            sb.AppendLine($"  Baked: {chunkManager.BakedSectorCount} sectors / {chunkManager.BakedSectorBuildingCount} buildings");
+            sb.Append('\n');
+            sb.AppendLine(H("LOD Tiers"));
+            sb.AppendLine($"  Near: {chunkManager.PerfLodNear}  Mid: {chunkManager.PerfLodMid}  Far: {chunkManager.PerfLodFar}");
+            sb.AppendLine($"  Ultra: {chunkManager.PerfLodUltra}  Culled: {chunkManager.PerfLodCulled}");
+            sb.AppendLine($"  ScreenRatio: {chunkManager.PerfMinScreenRatio:F4} - {chunkManager.PerfMaxScreenRatio:F4}");
+            sb.Append('\n');
+            sb.AppendLine(H("CPU Timing"));
+            sb.AppendLine($"  Cull: {chunkManager.CpuCullMs:F2}ms  Draw: {chunkManager.CpuDrawMs:F2}ms  Total: {chunkManager.CpuTotalMs:F2}ms");
         }
 
         void DrawClothingTab()
@@ -646,82 +685,80 @@ namespace SteelCity.Sim
         /// Hotkey cheat-sheet. Sections only appear when the component that owns
         /// those keys is actually present in the scene — stale keys are never listed.
         /// </summary>
-        void DrawKeysTab()
+        void BuildKeysTab(System.Text.StringBuilder sb)
         {
-            GUILayout.Label("<b>This Panel</b>", boldStyle);
-            GUILayout.Label("[`] / [O]  Toggle panel      [Tab] Next tab", labelStyle);
-            GUILayout.Label("[Y]  Cycle corner            [M] Minimize", labelStyle);
-            GUILayout.Label("Drag title bar to reposition freely", labelStyle);
-
-            GUILayout.Space(6);
-            GUILayout.Label("<b>Map Camera</b> (mouse over map viewport)", boldStyle);
-            GUILayout.Label("[LMB] Click — select block / focus camera", labelStyle);
-            GUILayout.Label("[MMB] Drag — rotate (yaw + pitch)", labelStyle);
-            GUILayout.Label("[RMB] Drag — pan (execution mode needs [F6])", labelStyle);
-            GUILayout.Label("[Wheel] — zoom in / out", labelStyle);
-
-            GUILayout.Space(6);
-            GUILayout.Label("<b>Scene / Render Debug</b>", boldStyle);
-            GUILayout.Label("[F6] Free camera (also disables debris)", labelStyle);
-            GUILayout.Label("[F7] Waypoint graph beams", labelStyle);
-            GUILayout.Label("[R] Cycle render scale: 0.5 / 0.65 / 0.75 / 1.0", labelStyle);
+            sb.AppendLine(H("This Panel"));
+            sb.AppendLine("[`] / [O]  Toggle panel      [Tab] Next tab");
+            sb.AppendLine("[Y]  Cycle corner            [M] Minimize");
+            sb.AppendLine("Drag title bar to reposition freely");
+            sb.Append('\n');
+            sb.AppendLine(H("Map Camera") + " (mouse over map viewport)");
+            sb.AppendLine("[LMB] Click — select block / focus camera");
+            sb.AppendLine("[MMB] Drag — rotate (yaw + pitch)");
+            sb.AppendLine("[RMB] Drag — pan (execution mode needs [F6])");
+            sb.AppendLine("[Wheel] — zoom in / out");
+            sb.Append('\n');
+            sb.AppendLine(H("Scene / Render Debug"));
+            sb.AppendLine("[F6] Free camera (also disables debris)");
+            sb.AppendLine("[F7] Waypoint graph beams");
+            sb.AppendLine("[R] Cycle render scale: 0.5 / 0.65 / 0.75 / 1.0");
+            sb.AppendLine("[V] Cycle ray-march heatmap: heat / steps / miss waste / off");
 
             if (allCharacterRigs.Count > 0)
             {
-                GUILayout.Space(6);
-                GUILayout.Label("<b>Character Anim</b> (green rig, Clothing tab)", boldStyle);
-                GUILayout.Label("[I] Idle     [W] Walk     [L] Look", labelStyle);
-                GUILayout.Label("[A] Aim      [C] Crouch   [T] T-Pose", labelStyle);
-                GUILayout.Label("[Space] Play/pause    [=] / [-] Anim speed", labelStyle);
+                sb.Append('\n');
+                sb.AppendLine(H("Character Anim") + " (green rig, Clothing tab)");
+                sb.AppendLine("[I] Idle     [W] Walk     [L] Look");
+                sb.AppendLine("[A] Aim      [C] Crouch   [T] T-Pose");
+                sb.AppendLine("[Space] Play/pause    [=] / [-] Anim speed");
             }
 
             if (vehicleTest != null)
             {
-                GUILayout.Space(6);
-                GUILayout.Label("<b>Vehicles</b>", boldStyle);
-                GUILayout.Label("[F10] Spawn parked cars / toggle driving", labelStyle);
+                sb.Append('\n');
+                sb.AppendLine(H("Vehicles"));
+                sb.AppendLine("[F10] Spawn parked cars / toggle driving");
             }
 
             if (stressTest != null || stressDiag != null)
             {
-                GUILayout.Space(6);
-                GUILayout.Label("<b>Stress Test</b>", boldStyle);
+                sb.Append('\n');
+                sb.AppendLine(H("Stress Test"));
                 if (stressTest != null)
                 {
-                    GUILayout.Label("[F8] Spawn agents and run test", labelStyle);
-                    GUILayout.Label("[F7] Cycle path-beam count (during test)", labelStyle);
+                    sb.AppendLine("[F8] Spawn agents and run test");
+                    sb.AppendLine("[F7] Cycle path-beam count (during test)");
                 }
                 if (stressDiag != null)
-                    GUILayout.Label("[F8] Start diagnostics    [F9] Stop", labelStyle);
+                    sb.AppendLine("[F8] Start diagnostics    [F9] Stop");
             }
 
             if (hoodSpawner != null || testRigPresent)
             {
-                GUILayout.Space(6);
-                GUILayout.Label("<b>Test Rigs</b>", boldStyle);
+                sb.Append('\n');
+                sb.AppendLine(H("Test Rigs"));
                 if (hoodSpawner != null)
-                    GUILayout.Label("[1-9,0] Force animation state", labelStyle);
+                    sb.AppendLine("[1-9,0] Force animation state");
                 if (testRigPresent)
-                    GUILayout.Label("[T/I/W/L/A/C] States  [R] Reload  [Space] Pause  [=/-] Speed", labelStyle);
+                    sb.AppendLine("[T/I/W/L/A/C] States  [R] Reload  [Space] Pause  [=/-] Speed");
             }
         }
 
-        void DrawPathTab()
+        void BuildPathTab(System.Text.StringBuilder sb)
         {
             if (pathDebug == null)
             {
-                GUILayout.Label("No PathDebugRenderer in scene.", labelStyle);
+                sb.AppendLine("No PathDebugRenderer in scene.");
                 return;
             }
 
-            GUILayout.Label($"<b>Active Paths</b>: {pathDebug.ActivePathCount}", labelStyle);
-            GUILayout.Label($"<b>Debug Enabled</b>: {pathDebug.DebugEnabled}", labelStyle);
-
-            GUILayout.Space(8);
-            GUILayout.Label("Path debug beams render into the", labelStyle);
-            GUILayout.Label("voxel raymarch overlay (right panel).", labelStyle);
-            GUILayout.Label("Paths are drawn during execution phase", labelStyle);
-            GUILayout.Label("when characters/vehicles are moving.", labelStyle);
+            sb.AppendLine($"<b>Active Paths</b>: {pathDebug.ActivePathCount}");
+            sb.AppendLine($"<b>Debug Enabled</b>: {pathDebug.DebugEnabled}");
+            sb.Append('\n');
+            sb.AppendLine("Path debug beams render into the");
+            sb.AppendLine("voxel raymarch overlay (right panel).");
+            sb.AppendLine("Paths are drawn during execution phase");
+            sb.AppendLine("when characters/vehicles are moving.");
         }
 
         // ------------------------------------------------------------------
