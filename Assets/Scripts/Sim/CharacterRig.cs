@@ -58,7 +58,7 @@ namespace SteelCity.Sim
 
         private static readonly string[] STATE_NAMES = {
             "Idle", "Walking", "Looking", "AimWalk", "Aiming",
-            "Crouching", "???", "???", "Down", "T-Pose", "Aim Sweep"
+            "Crouching", "???", "???", "Down", "T-Pose", "Aim Sweep", "Sit"
         };
 
         void Start()
@@ -106,6 +106,7 @@ namespace SteelCity.Sim
             if (kb.aKey.wasPressedThisFrame) { SetState(4f); }
             if (kb.cKey.wasPressedThisFrame) { SetState(5f); }
             if (kb.sKey.wasPressedThisFrame) { SetState(10f); }
+            if (kb.bKey.wasPressedThisFrame) { SetState(11f); }
 
             if (kb.spaceKey.wasPressedThisFrame)
             {

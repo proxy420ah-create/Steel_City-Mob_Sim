@@ -289,6 +289,32 @@ Pose:  writers → RequestPose/SetState → CharacterAnimation (arbiter)
 
 ---
 
+## Sit State + Seat Anchor
+
+`Sit` is anim state **11** (ids 6/7 are reserved Flinching/Falling). It is the
+generic bench/vehicle seat pose — thighs forward, shins folded down, upright
+torso, arms at sides. Wiring:
+
+- `animParams.sitting`: `headPitch`, `armSwingL/R`, `legStrideL/R`, `kneeBendL/R`.
+  No `bodyLower`/`modelLower`/`bodyLean` — the seated figure keeps authored
+  pelvis height; the seat transform positions the instance at runtime.
+- GPU: `_AnimStaticParams` grew 13 → **15** float4s — `[13]` legs/knees,
+  `[14]` arms/head — packed in `VoxelCharacter`, sized in `VoxelChunkManager`,
+  branched in `CharacterPoseCompute.compute` *and* `VoxelProxyRaymarch.shader`
+  (both carry the pose kernel — always patch both).
+- CPU: `SittingData` + `isSittingState` (10.5–11.5) branches in
+  `VoxelCharacterAnimator.ComputeGroupRotation`; `AnimState.Sitting = 11`.
+- Flip parity: `sitting` gets the same L/R swap as `crouching` in
+  `promote_character_to_unity.py` *and* the editor's `demoteIfUnity`.
+- Authoring: `Sit` appears in the animator's state list (params sliders for
+  state 11) and the editor's char-preview + anim-parity dropdowns.
+- `seat` attach point (CHAR_ATTACH_GROUPS id 15): tagged real-voxel cluster on
+  the pelvis contact surface — the character-side half of the `seat_*` contract
+  (`docs/systems/VEHICLE_VOXEL_ASSETS.md`). Dynamic seat assignment is not yet
+  implemented; the anchors + pose are the foundation.
+
+---
+
 ## Verification Checklist
 
 - [ ] Console: single `[CharacterAssets] Loaded` line per filename (not 5 parses)

@@ -70,6 +70,15 @@
       "legStrideR": 0,
       "kneeBendL": 1.15,
       "kneeBendR": 1.4
+    },
+    "sitting": {
+      "headPitch": 0.0,
+      "armSwingL": 0.2,
+      "armSwingR": 0.2,
+      "legStrideL": 1.45,
+      "legStrideR": 1.45,
+      "kneeBendL": 1.45,
+      "kneeBendR": 1.45
     }
   },
   "states": [
@@ -112,6 +121,11 @@
       "id": 9,
       "name": "T-Pose",
       "desc": "Bind/rest pose â€” raw rigging position as imported from the editor. No rotations applied. Use this to inspect the unmodified skeleton."
+    },
+    {
+      "id": 11,
+      "name": "Sit",
+      "desc": "Seated — thighs forward, shins bent down, torso upright, arms at sides"
     }
   ],
   "voxelSize": 0.01,
@@ -101411,7 +101425,13 @@
     "83,47,47": 2,
     "83,48,47": 2,
     "83,48,46": 2,
-    "72,48,47": 13
+    "72,48,47": 13,
+    "48,22,45": 15,
+    "47,22,45": 15,
+    "49,22,45": 15,
+    "48,22,44": 15,
+    "48,22,46": 15,
+    "48,23,45": 15
   },
   "itemPartDefs": [
     {
@@ -101518,6 +101538,13 @@
       "key": "pivot_9",
       "color": "#ff6622",
       "desc": "Right forearm elbow joint — gid 9"
+    },
+    {
+      "id": 15,
+      "name": "Seat",
+      "key": "seat",
+      "color": "#44aaff",
+      "desc": "Pelvis/butt contact anchor — vehicle/bench seat_* aligns here while sitting"
     }
   ],
   "attachmentPoints": {
@@ -101592,6 +101619,12 @@
       "y": 48,
       "z": 47,
       "gid": 9
+    },
+    "seat": {
+      "x": 48.0,
+      "y": 22.167,
+      "z": 45.0,
+      "gid": 0
     }
   },
   "attachRotation": {

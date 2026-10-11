@@ -121,16 +121,31 @@ char reference): a standing character's head sits at the windshield top edge
 in the tub — a full torso shows above the beltline, exactly like period
 touring-car drivers.
 
-**Seating math** (no sit pose exists yet — provisional): seat attach points are
-pelvis anchors just above cushion top (`seat_driver`/`seat_passenger`, y=28).
-Cushion y≈26, footwell floor 18. A seated Civilian1 (62 vox — same lattice)
-puts head ≈ y 64–68 — a full torso above beltline 46, under interior roof
-~66-69 (tight but valid — roof bows crown at cabin edges). Revisit once a
-`sit` pose exists; the seat point is the contract, not the pose.
+**Seating math**: seat attach points are pelvis anchors just above cushion top
+(`seat_driver`/`seat_passenger`, y=28). Cushion y≈26, footwell floor 18. The
+character-side half of the contract now exists: `Sit` is anim state **11**
+(`animParams.sitting` — thighs forward ~90°, shins down, upright torso, arms at
+sides) and the `seat` attachment point (CHAR_ATTACH_GROUPS id 15) is a tagged
+real-voxel cluster at the pelvis contact — Civilian1's sits at (48, 22.2, 45).
+Runtime seating = align character `seat` → vehicle `seat_*` centroid + face the
+seat's forward convention; the seat point is the contract, not the pose. A
+seated Civilian1 (62 vox — same lattice) puts head ≈ y 64–68 — a full torso
+above beltline 46, under interior roof ~66-69 (tight but valid — roof bows
+crown at cabin edges).
 
-**Attachment points** (embedded in the v2 `.stasset`, also painted as fiducial
-blobs in the JSON): `axle_fl/fr/rl/rr`, `door_hinge_l/r`, `hood_hinge`,
+**Attachment points** (embedded in the v2 `.stasset`, backed by `itemParts`
+tags in the JSON): `axle_fl/fr/rl/rr`, `door_hinge_l/r`, `hood_hinge`,
 `seat_driver/passenger`, `entry_l/r` (running boards), `exhaust_tip`.
+
+**Tagging convention** — same rule as characters: tags go on **real material
+voxels**, never foreign marker voxels. For a point that sits on geometry (seat
+cushion, hinge, running board) tag a small cluster of the real voxels at the
+anchor; the cluster's centroid is the exported point. For an intrinsic air
+point (`exhaust_tip`, a hollow axle center) tag the real voxels ringing the
+anchor (pipe rim, hub ring) so the centroid lands there. Never delete a tagged
+voxel without re-tagging — export re-derives `attachmentPoints` from tag
+centroids. (The generator's original 7-voxel mat-10 fiducial blobs are
+superseded — they shipped foreign material into the render.)
 
 **Groups painted**: wheels gid 1–4, doors 5/6, hood 7 — but **no `.groups`
 sidecar is shipped** (it would force the char pose kernel; see §4.2). Groups

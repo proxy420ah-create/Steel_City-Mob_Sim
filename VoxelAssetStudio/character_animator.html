@@ -477,11 +477,11 @@ const allMaterials = [
   },
   {
     "id": 113,
-    "name": "Lit Window",
-    "r": 242,
-    "g": 216,
-    "b": 127,
-    "hex": "#f2d87f"
+    "name": "Lit Window (deprecated)",
+    "r": 114,
+    "g": 140,
+    "b": 165,
+    "hex": "#728ca5"
   },
   {
     "id": 114,
@@ -670,6 +670,11 @@ const STATES = [
     "id": 10,
     "name": "Aim Sweep",
     "desc": "Aiming pose — aiming arm(s) sweep left↔right (IK-aim shoulder exercise)"
+  },
+  {
+    "id": 11,
+    "name": "Sit",
+    "desc": "Seated — thighs forward, shins bent down, torso upright, arms at sides"
   }
 ];
 
@@ -854,6 +859,18 @@ const DEFAULT_PARAMS = {
     legStrideR: 0.0,      // right thigh angle (locked at 0)
     kneeBendL: 1.15,      // left knee bend (locked)
     kneeBendR: 1.40,      // right knee bend (locked)
+  },
+  sitting: {
+    // State 11 — generic bench/vehicle seat pose. Thighs swing forward ~90°,
+    // shins fold down, torso stays upright (no bodyLower/modelLower — the
+    // seat anchor transform positions the pelvis at runtime).
+    headPitch: 0.0,       // head stays upright
+    armSwingL: 0.2,       // slight forward rest — hands clear the thighs
+    armSwingR: 0.2,
+    legStrideL: 1.45,     // thigh forward ~83°
+    legStrideR: 1.45,
+    kneeBendL: 1.45,      // shin folded down ~83°
+    kneeBendR: 1.45,
   },
 };
 
@@ -1447,6 +1464,8 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
   const isSweepState = animState === 10; // Aim Sweep — aiming pose + sweeping reach
   const isAimingState = (animState > 2.5 && animState < 4.5) || isSweepState; // Aim Walk (3), Aiming (4), Aim Sweep (10)
   const isCrouchingState = (animState > 4.5 && animState < 5.5); // Crouching (5)
+  const isSittingState = (animState > 10.5 && animState < 11.5); // Sit (11)
+  const sitP = animParams.sitting || DEFAULT_PARAMS.sitting; // older files may lack the section
   const sw = animParams.aimSweep;
   const sweepYaw = (isSweepState && sw) ? Math.sin(animTime * sw.freq) * sw.amp : 0;
   const torsoTwist = isAimingState ? animParams.aiming.torsoTwist : 0;
@@ -1533,6 +1552,8 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
       headPitch = p2.headPitch; headTilt = p2.headTilt;
     } else if (animState > 4.5 && animState < 5.5) { // Crouching
       headPitch = animParams.crouching.headPitch;
+    } else if (isSittingState) { // Sit
+      headPitch = sitP.headPitch;
     } else {
       ownRot = identity; // Idle: head at rest
     }
@@ -1550,6 +1571,8 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
       reach = animParams.aiming.shoulderReachL + (swing !== 0 ? sweepYaw : 0); // cross-body reach + sweep on aiming arms
     } else if (animState > 4.5 && animState < 5.5) { // Crouching
       swing = as.signL * animParams.crouching.armSwingL;
+    } else if (isSittingState) { // Sit
+      swing = as.signL * sitP.armSwingL;
     } else {
       ownRot = rotationZ(animParams.restPose.leftArmZ); // Idle: rest pose only
     }
@@ -1569,6 +1592,8 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
       reach = animParams.aiming.shoulderReachR + (swing !== 0 ? sweepYaw : 0);
     } else if (animState > 4.5 && animState < 5.5) { // Crouching
       swing = as.signR * animParams.crouching.armSwingR;
+    } else if (isSittingState) { // Sit
+      swing = as.signR * sitP.armSwingR;
     } else {
       ownRot = rotationZ(animParams.restPose.rightArmZ);
     }
@@ -1584,6 +1609,8 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
       stride = ls.signL * wp.pose.legStrideL;
     } else if (animState > 4.5 && animState < 5.5) { // Crouching
       stride = ls.signL * animParams.crouching.legStrideL;
+    } else if (isSittingState) { // Sit
+      stride = ls.signL * sitP.legStrideL;
     } else {
       ownRot = rotationY(twist); // Idle: straight + twist
     }
@@ -1598,6 +1625,8 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
       stride = ls.signR * wp.pose.legStrideR;
     } else if (animState > 4.5 && animState < 5.5) { // Crouching
       stride = ls.signR * animParams.crouching.legStrideR;
+    } else if (isSittingState) { // Sit
+      stride = ls.signR * sitP.legStrideR;
     } else {
       ownRot = rotationY(twist);
     }
@@ -1636,6 +1665,8 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
       bend = kb.signL * wp.pose.kneeBendL;
     } else if (animState > 4.5 && animState < 5.5) { // Crouching — static knee bend
       bend += kb.signL * animParams.crouching.kneeBendL;
+    } else if (isSittingState) { // Sit — static knee bend
+      bend += kb.signL * sitP.kneeBendL;
     }
     ownRot = rotationByAxis(kb.axisL, bend);
   } else if (gid === 7) { // Right shin (knee hinge)
@@ -1646,6 +1677,8 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
       bend = kb.signR * wp.pose.kneeBendR;
     } else if (animState > 4.5 && animState < 5.5) { // Crouching — static knee bend
       bend += kb.signR * animParams.crouching.kneeBendR;
+    } else if (isSittingState) { // Sit — static knee bend
+      bend += kb.signR * sitP.kneeBendR;
     }
     ownRot = rotationByAxis(kb.axisR, bend);
   }
@@ -2378,6 +2411,16 @@ function buildParamControls() {
       ['crouching', 'legStrideR', 'R Leg Swing', -1.5, 1.5, 0.01],
       ['crouching', 'kneeBendL', 'L Knee Bend', 0, 1.5, 0.01],
       ['crouching', 'kneeBendR', 'R Knee Bend', 0, 1.5, 0.01],
+    ];
+  } else if (currentAnimState === 11) { // Sit
+    relevantParams = [
+      ['sitting', 'headPitch', 'Head Pitch', -0.5, 0.5, 0.01],
+      ['sitting', 'armSwingL', 'L Arm Swing', -0.5, 1.5, 0.01],
+      ['sitting', 'armSwingR', 'R Arm Swing', -0.5, 1.5, 0.01],
+      ['sitting', 'legStrideL', 'L Thigh Forward', -0.5, 1.7, 0.01],
+      ['sitting', 'legStrideR', 'R Thigh Forward', -0.5, 1.7, 0.01],
+      ['sitting', 'kneeBendL', 'L Knee Bend', 0, 1.7, 0.01],
+      ['sitting', 'kneeBendR', 'R Knee Bend', 0, 1.7, 0.01],
     ];
   } else if (currentAnimState === 9) { // T-Pose
     container.innerHTML = '<div style="font-size:10px;color:#888;">T-Pose: raw bind pose, no rotations applied. Adjust rest-pose angles in the Idle state.</div>';

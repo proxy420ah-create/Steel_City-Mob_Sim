@@ -368,6 +368,7 @@ namespace SteelCity.Sim
             // non-zero, so it lands on the armed side regardless of handedness.
             float sweepYaw = isSweepState ? Mathf.Sin(animTime * ap.aimSweep.freq) * ap.aimSweep.amp : 0f;
             bool isCrouchingState = animState > 4.5f && animState < 5.5f; // Crouching (5)
+            bool isSittingState = animState > 10.5f && animState < 11.5f; // Sit (11)
             float torsoTwist = isAimingState ? ap.aiming.torsoTwist : 0f;
             float bodyLean = isCrouchingState ? ap.crouching.bodyLean : 0f;
             float bodyLower = isCrouchingState ? ap.crouching.bodyLower : 0f;
@@ -459,6 +460,10 @@ namespace SteelCity.Sim
                 {
                     headPitch = ap.crouching.headPitch;
                 }
+                else if (isSittingState) // Sit
+                {
+                    headPitch = ap.sitting.headPitch;
+                }
                 else
                 {
                     ownRot = IDENTITY; // Idle: head at rest
@@ -484,6 +489,10 @@ namespace SteelCity.Sim
                 else if (animState > 4.5f && animState < 5.5f) // Crouching
                 {
                     swing = asc.signL * ap.crouching.armSwingL;
+                }
+                else if (isSittingState) // Sit
+                {
+                    swing = asc.signL * ap.sitting.armSwingL;
                 }
                 else
                 {
@@ -511,6 +520,10 @@ namespace SteelCity.Sim
                 {
                     swing = asc.signR * ap.crouching.armSwingR;
                 }
+                else if (isSittingState) // Sit
+                {
+                    swing = asc.signR * ap.sitting.armSwingR;
+                }
                 else
                 {
                     ownRot = RotationZ(ap.restPose.rightArmZ); // Idle: rest pose only
@@ -532,6 +545,10 @@ namespace SteelCity.Sim
                 {
                     stride = ls.signL * ap.crouching.legStrideL;
                 }
+                else if (isSittingState) // Sit
+                {
+                    stride = ls.signL * ap.sitting.legStrideL;
+                }
                 else
                 {
                     ownRot = RotationY(twist); // Idle: straight + twist
@@ -552,6 +569,10 @@ namespace SteelCity.Sim
                 else if (animState > 4.5f && animState < 5.5f) // Crouching
                 {
                     stride = ls.signR * ap.crouching.legStrideR;
+                }
+                else if (isSittingState) // Sit
+                {
+                    stride = ls.signR * ap.sitting.legStrideR;
                 }
                 else
                 {
@@ -609,6 +630,10 @@ namespace SteelCity.Sim
                 {
                     bend += kb.signL * ap.crouching.kneeBendL;
                 }
+                else if (isSittingState) // Sit — static knee bend
+                {
+                    bend += kb.signL * ap.sitting.kneeBendL;
+                }
                 ownRot = RotationByAxis(kb.axisL, bend);
             }
             else if (gid == 7) // Right shin (knee hinge)
@@ -623,6 +648,10 @@ namespace SteelCity.Sim
                 else if (animState > 4.5f && animState < 5.5f) // Crouching — static knee bend
                 {
                     bend += kb.signR * ap.crouching.kneeBendR;
+                }
+                else if (isSittingState) // Sit — static knee bend
+                {
+                    bend += kb.signR * ap.sitting.kneeBendR;
                 }
                 ownRot = RotationByAxis(kb.axisR, bend);
             }
@@ -881,6 +910,7 @@ namespace SteelCity.Sim
             if (Missing("looking")) p.looking = null;
             if (Missing("aiming")) p.aiming = null;
             if (Missing("crouching")) p.crouching = null;
+            if (Missing("sitting")) p.sitting = null;
             if (Missing("armSwing")) p.armSwing = null;
             if (Missing("legStride")) p.legStride = null;
             if (Missing("legTwist")) p.legTwist = null;
@@ -898,6 +928,8 @@ namespace SteelCity.Sim
                 p.aiming = new AimingData { weaponType = "pistol", torsoTwist = -0.2f, headYaw = 0f, headPitch = -0.05f, headTilt = 0f, armSwingL = 0f, armSwingR = -1.4f, shoulderReachL = 0f, shoulderReachR = 0f, elbowBendL = 0f, elbowBendR = 0.3f };
             if (p.crouching == null)
                 p.crouching = new CrouchingData { bodyLower = 0f, modelLower = 4f, bodyLean = 0f, headPitch = 0f, armSwingL = 0f, armSwingR = 0f, legStrideL = -1.15f, legStrideR = 0f, kneeBendL = 1.15f, kneeBendR = 1.40f };
+            if (p.sitting == null)
+                p.sitting = new SittingData { headPitch = 0f, armSwingL = 0.2f, armSwingR = 0.2f, legStrideL = 1.45f, legStrideR = 1.45f, kneeBendL = 1.45f, kneeBendR = 1.45f };
             // Sections below are dereferenced unconditionally in ComputeGroupRotation —
             // they MUST be filled or a paramless/trimmed file throws NullReferenceException.
             if (p.armSwing == null)
@@ -1057,7 +1089,7 @@ namespace SteelCity.Sim
             // Find the next top-level params key after jointOffset to bound the search
             // The keys that follow jointOffset in the params object: walkKeyframes, armSwing, etc.
             int joEnd = jsonText.Length;
-            string[] nextKeys = { "\"walkKeyframes\"", "\"armSwing\"", "\"legStride\"", "\"legTwist\"", "\"elbowBend\"", "\"kneeBend\"", "\"looking\"", "\"aiming\"", "\"crouching\"" };
+            string[] nextKeys = { "\"walkKeyframes\"", "\"armSwing\"", "\"legStride\"", "\"legTwist\"", "\"elbowBend\"", "\"kneeBend\"", "\"looking\"", "\"aiming\"", "\"crouching\"", "\"sitting\"" };
             foreach (var key in nextKeys)
             {
                 int idx = jsonText.IndexOf(key, joStart);
@@ -1106,6 +1138,7 @@ namespace SteelCity.Sim
             public LookingData looking;
             public AimingData aiming;
             public CrouchingData crouching;
+            public SittingData sitting;
             public AimSweepData aimSweep;
         }
 
@@ -1249,6 +1282,20 @@ namespace SteelCity.Sim
             public float bodyLower;
             public float modelLower;
             public float bodyLean;
+            public float headPitch;
+            public float armSwingL;
+            public float armSwingR;
+            public float legStrideL;
+            public float legStrideR;
+            public float kneeBendL;
+            public float kneeBendR;
+        }
+
+        [System.Serializable]
+        public class SittingData
+        {
+            // State 11 — generic bench/vehicle seat pose. No bodyLower/modelLower:
+            // the seat anchor transform positions the pelvis at runtime.
             public float headPitch;
             public float armSwingL;
             public float armSwingR;

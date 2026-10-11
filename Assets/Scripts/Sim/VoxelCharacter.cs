@@ -515,9 +515,9 @@ namespace SteelCity.Sim
             Debug.Log($"[VoxelCharacter] Animation parameters loaded — keyframe walk enabled");
             }
 
-            // Pack and upload static animation params (looking/aiming/crouching/jointOffset/aimSweep)
-            // as 13 float4s for the GPU shader — same ParamsData source as above.
-            var asp = new Vector4[13];
+            // Pack and upload static animation params (looking/aiming/crouching/sitting/jointOffset/aimSweep)
+            // as 15 float4s for the GPU shader — same ParamsData source as above.
+            var asp = new Vector4[15];
             // [0] = looking params
             var lp = p.looking;
             asp[0] = new Vector4(lp.headYaw, lp.headYawFreq, lp.headPitch, lp.headPitchFreq);
@@ -547,6 +547,11 @@ namespace SteelCity.Sim
             // [12] = aim sweep (state 10): amplitude, frequency, headFollow
             var sw = p.aimSweep;
             asp[12] = new Vector4(sw.amp, sw.freq, sw.headFollow, 0);
+            // [13] = sitting (state 11) legs/knees
+            var st = p.sitting;
+            asp[13] = new Vector4(st.legStrideL, st.legStrideR, st.kneeBendL, st.kneeBendR);
+            // [14] = sitting arms/head
+            asp[14] = new Vector4(st.armSwingL, st.armSwingR, st.headPitch, 0);
             chunkManager.SetAnimStaticParams(assetFileName, asp);
             Debug.Log($"[VoxelCharacter] Static anim params packed and uploaded (looking/aiming/crouching/jointOffset)");
         }

@@ -10,7 +10,7 @@ namespace SteelCity.Sim
     /// Animation states (must match shader GroupTransformOffset logic):
     ///   0 = Idle, 1 = Walking, 2 = Looking, 3 = AimWalk,
     ///   4 = Aiming, 5 = Crouching, 6 = Flinching, 7 = Falling, 8 = Down, 9 = T-Pose,
-    ///   10 = Aim Sweep
+    ///   10 = Aim Sweep, 11 = Sit
     /// </summary>
     public class CharacterAnimation : MonoBehaviour
     {
@@ -26,7 +26,8 @@ namespace SteelCity.Sim
             Falling = 7,
             Down = 8,
             TPose = 9,
-            AimSweep = 10   // aiming pose + shoulder-yaw sweep (must match animator/shader state)
+            AimSweep = 10,  // aiming pose + shoulder-yaw sweep (must match animator/shader state)
+            Sitting = 11    // seated pose — thighs forward, shins down, upright torso (seat anchor contract)
         }
 
         [Header("Animation")]

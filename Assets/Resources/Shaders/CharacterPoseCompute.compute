@@ -54,7 +54,7 @@ StructuredBuffer<float4> _WalkKeyframes;     // [10] — 4 keyframes per pose va
 int _WalkKeyframesEnabled;
 StructuredBuffer<float4> _JointConfig;       // [7] — axis/sign/rest per joint pair
 int _JointConfigEnabled;
-StructuredBuffer<float4> _AnimStaticParams;  // [13] — looking/aiming/crouching/jointOffset/aimSweep
+StructuredBuffer<float4> _AnimStaticParams;  // [15] — looking/aiming/crouching/jointOffset/aimSweep/sitting
 int _AnimStaticParamsEnabled;
 float4 _WalkConfig;                          // (cycleDuration, bodyBobAmp, weightShiftAmp, autoMirror)
 
@@ -182,6 +182,7 @@ float3x3 ComputeOwnRotation(
     bool isSweepState = animState > 9.5 && animState < 10.5;
     bool isAimingState = (animState > 2.5 && animState < 4.5) || isSweepState;
     bool isCrouchingState = animState > 4.5 && animState < 5.5;
+    bool isSittingState = animState > 10.5 && animState < 11.5; // Sit (11)
 
     float walkPhase = 0.0;
     bool useKeyframesWalk = false;
@@ -208,6 +209,11 @@ float3x3 ComputeOwnRotation(
     float4 crouchP2= ASP(5); if (!_AnimStaticParamsEnabled) crouchP2 = float4(-1.15, 0, 1.15, 1.40);
     float2 elbowTw = ASP(6).xy; if (!_AnimStaticParamsEnabled) elbowTw = float2(0, 0);
     float4 sweepP  = ASP(12); if (!_AnimStaticParamsEnabled) sweepP = float4(0.55, 1.6, 0.6, 0);
+    // Sit (state 11): thighs forward, shins down, torso upright — generic
+    // bench/vehicle seat pose. No bodyLower/modelLower: the seat anchor
+    // transform positions the pelvis at runtime.
+    float4 sitP    = ASP(13); if (!_AnimStaticParamsEnabled) sitP = float4(1.45, 1.45, 1.45, 1.45);
+    float4 sitP2   = ASP(14); if (!_AnimStaticParamsEnabled) sitP2 = float4(0.2, 0.2, 0, 0);
 
     // Aim Sweep (state 10): sinusoidal shoulder-yaw added to the ARMED arm's
     // reach (the arm whose aim swing is non-zero); head follows at headFollow.
@@ -223,6 +229,8 @@ float3x3 ComputeOwnRotation(
             headYaw = aimP1.y + sweepYaw * sweepP.z; headPitch = aimP1.z; headTilt = aimP1.w;
         } else if (isCrouchingState) {
             headPitch = crouchP1.y;
+        } else if (isSittingState) {
+            headPitch = sitP2.z;
         }
         // Idle: headYaw/Pitch/Tilt stay 0 → identity rotation
         rot = mul(RotationY(headYaw), mul(RotationX(headPitch), RotationZ(headTilt)));
@@ -237,10 +245,12 @@ float3x3 ComputeOwnRotation(
             reach = aimP2.z + (swing != 0.0 ? sweepYaw : 0.0);
         } else if (isCrouchingState) {
             swing = armCfg.z * crouchP1.z;
+        } else if (isSittingState) {
+            swing = armCfg.z * sitP2.x;
         } else {
             rot = RotationZ(restCfg.x); // Idle
         }
-        if (useKeyframesWalk || isAimingState || isCrouchingState)
+        if (useKeyframesWalk || isAimingState || isCrouchingState || isSittingState)
             rot = mul(RotationY(reach), mul(RotationByAxis((int)armCfg.x, swing), RotationZ(restCfg.x)));
     }
     else if (gid == 3u) // Right arm
@@ -253,10 +263,12 @@ float3x3 ComputeOwnRotation(
             reach = aimP2.w + (swing != 0.0 ? sweepYaw : 0.0);
         } else if (isCrouchingState) {
             swing = armCfg.w * crouchP1.w;
+        } else if (isSittingState) {
+            swing = armCfg.w * sitP2.y;
         } else {
             rot = RotationZ(restCfg.y); // Idle
         }
-        if (useKeyframesWalk || isAimingState || isCrouchingState)
+        if (useKeyframesWalk || isAimingState || isCrouchingState || isSittingState)
             rot = mul(RotationY(reach), mul(RotationByAxis((int)armCfg.y, swing), RotationZ(restCfg.y)));
     }
     else if (gid == 4u) // Left leg
@@ -267,10 +279,12 @@ float3x3 ComputeOwnRotation(
             stride = legCfg.z * GetWalkPoseValue(2, walkPhase);
         } else if (isCrouchingState) {
             stride = legCfg.z * crouchP2.x;
+        } else if (isSittingState) {
+            stride = legCfg.z * sitP.x;
         } else {
             rot = RotationY(twist); // Idle
         }
-        if (useKeyframesWalkOrAimWalk || isCrouchingState)
+        if (useKeyframesWalkOrAimWalk || isCrouchingState || isSittingState)
             rot = mul(RotationByAxis((int)legCfg.x, stride), RotationY(twist));
     }
     else if (gid == 5u) // Right leg
@@ -281,10 +295,12 @@ float3x3 ComputeOwnRotation(
             stride = legCfg.w * GetWalkPoseValue(3, walkPhase);
         } else if (isCrouchingState) {
             stride = legCfg.w * crouchP2.y;
+        } else if (isSittingState) {
+            stride = legCfg.w * sitP.y;
         } else {
             rot = RotationY(twist); // Idle
         }
-        if (useKeyframesWalkOrAimWalk || isCrouchingState)
+        if (useKeyframesWalkOrAimWalk || isCrouchingState || isSittingState)
             rot = mul(RotationByAxis((int)legCfg.y, stride), RotationY(twist));
     }
     else if (gid == 8u) // Left forearm
@@ -320,6 +336,8 @@ float3x3 ComputeOwnRotation(
             bend = kneeCfg.z * GetWalkPoseValue(6, walkPhase);
         } else if (isCrouchingState) {
             bend += kneeCfg.z * crouchP2.z;
+        } else if (isSittingState) {
+            bend += kneeCfg.z * sitP.z;
         }
         rot = RotationByAxis((int)kneeCfg.x, bend);
     }
@@ -330,6 +348,8 @@ float3x3 ComputeOwnRotation(
             bend = kneeCfg.w * GetWalkPoseValue(7, walkPhase);
         } else if (isCrouchingState) {
             bend += kneeCfg.w * crouchP2.w;
+        } else if (isSittingState) {
+            bend += kneeCfg.w * sitP.w;
         }
         rot = RotationByAxis((int)kneeCfg.y, bend);
     }
