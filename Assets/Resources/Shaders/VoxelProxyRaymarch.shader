@@ -13,6 +13,12 @@
 // Depth compositing: writes SV_Depth so multiple volumes composite correctly
 // (far volumes drawn first, near volumes depth-test against them).
 // Rays that miss all solid voxels discard, leaving existing pixels intact.
+// Transparent materials (palette alpha < 1 — auto glass, window glass) blend
+// their tinted surface front-to-back while the march continues through them,
+// up to _GlassMaxLayers surfaces per ray; a ray whose glass budget is exhausted
+// terminates as a frosted pane (never an opaque wall voxel); glass-only rays
+// discard and preserve the content behind. Depth is written at the nearest
+// visible surface (glass face).
 //
 // Ported from MobSimVoxelRaymarch.compute — same DDA, lighting, and shadow logic.
 
@@ -30,24 +36,41 @@ Shader "SteelCity/VoxelProxyRaymarch"
         ZWrite On
         ZTest LEqual
 
-        Pass
-        {
-            Name "ProxyRaymarch"
-
-            CGPROGRAM
-            #pragma target 4.5
-            #pragma vertex vert
-            #pragma fragment frag
-            #pragma multi_compile_instancing
-            #pragma shader_feature_local BUILDING_INSTANCING
-            #pragma exclude_renderers gles gles3
-
+        // Shared raymarch implementation — the three passes below wrap fragCore:
+        //   0 = combined legacy (opaque + glass in one march)
+        //   1 = opaque only (glass cells treated as air)
+        //   2 = glass only (accumulated tint, alpha-blended over pass 1)
+        CGINCLUDE
             #include "UnityCG.cginc"
 
             // ---- Bindings (same as compute shader) ----
             StructuredBuffer<uint>   _VoxelData;
             StructuredBuffer<float4> _MaterialColors;
             StructuredBuffer<float4> _ChunkTints;
+            // Per-voxel glass pane group ids (0 = non-glass/ungrouped). A ray
+            // charges each contiguous pane's tint once, not per cell crossed.
+            StructuredBuffer<uint>   _PaneIDs;
+            // Two-level traversal: one bit per 4^3 brick — 1 = some solid
+            // voxel inside. All-air bricks are jumped in one step instead of
+            // ~11 cell iterations (MultiDDA brick-map style). Per-asset like
+            // _PaneIDs: no bufferOffset on the uniform/instanced paths.
+            StructuredBuffer<uint>   _OccupancyData;
+            int    _HasOccupancy;                    // 0 = bind ignored, flat DDA
+            // Sectors only: per-instance WORD offset into _OccupancyData so
+            // each merged building reads its own brick grid. Carried to the
+            // fragment stage on the otherwise-unused yaw varying.
+            StructuredBuffer<uint>   _BuildingOccOffsets;
+            // Sub-pixel ray dither amplitude in world units (0 = off) —
+            // lateral origin jitter so openings narrower than the pixel
+            // grid still get sampled (window-through-window bores).
+            float  _RayJitter;
+            float  _IterVis;    // debug vis: 0 off | 1 iter heat | 2 R=vox,G=skip,B=shadow | 3 miss-only heat
+            int    _DebugShowProxy; // debug: instanced frags render solid magenta, march bypassed
+            // Forced-glass material ids — glass even when palette alpha is
+            // opaque (an emissive/solid id that should still transmit). 0 = empty.
+            uint  _GlassForcedMat0; uint _GlassForcedMat1; uint _GlassForcedMat2; uint _GlassForcedMat3;
+            uint  _GlassForcedMat4; uint _GlassForcedMat5; uint _GlassForcedMat6; uint _GlassForcedMat7;
+            float _FlaggedGlassAlpha;   // transmission alpha for forced-glass mats
 
             int    _MaterialCount;
             float3 _VolumeDims;
@@ -79,6 +102,11 @@ Shader "SteelCity/VoxelProxyRaymarch"
             int   _ShadowSkipSteps;
             int   _ShadowMaxSteps;
             int   _ShadowEnabled;
+
+            // Glass/tuning globals — pushed from VoxelChunkManager.ApplyGlassSettings
+            // (Shader.SetGlobal*); 0/unset degrades to fully-opaque behavior.
+            float _GlassSpecular;
+            int   _GlassMaxLayers;
 
             int _SunLightEnabled;
             int _AmbientEnabled;
@@ -132,8 +160,8 @@ Shader "SteelCity/VoxelProxyRaymarch"
             StructuredBuffer<float4> _Pivots;
             int _PivotsEnabled;
 
-            // --- Static animation parameters (looking/aiming/crouching/jointOffset/aimSweep) ---
-            // Packed as 13 float4s, uploaded once per character type:
+            // --- Static animation parameters (looking/aiming/crouching/jointOffset/aimSweep/sitting) ---
+            // Packed as 15 float4s, uploaded once per character type:
             // [0]  = (looking.headYaw, looking.headYawFreq, looking.headPitch, looking.headPitchFreq)
             // [1]  = (aiming.torsoTwist, aiming.headYaw, aiming.headPitch, aiming.headTilt)
             // [2]  = (aiming.armSwingL, aiming.armSwingR, aiming.shoulderReachL, aiming.shoulderReachR)
@@ -147,6 +175,8 @@ Shader "SteelCity/VoxelProxyRaymarch"
             // [10] = (jointOffset_4.x, jointOffset_4.y, jointOffset_4.z, 0)  -- left leg
             // [11] = (jointOffset_5.x, jointOffset_5.y, jointOffset_5.z, 0)  -- right leg
             // [12] = (aimSweep.amp, aimSweep.freq, aimSweep.headFollow, 0)  -- Aim Sweep (state 10)
+            // [13] = (sitting.legStrideL, sitting.legStrideR, sitting.kneeBendL, sitting.kneeBendR)  -- Sit (state 11)
+            // [14] = (sitting.armSwingL, sitting.armSwingR, sitting.headPitch, 0)
             StructuredBuffer<float4> _AnimStaticParams;
             int _AnimStaticParamsEnabled;
 
@@ -224,6 +254,140 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 tFar  = min(min(tMax.x, tMax.y), tMax.z);
 
                 return tNear <= tFar && tFar >= 0.0;
+            }
+
+            // ---- DDA cell advance ----
+            // Steps the march into the next voxel along the ray, updating the
+            // hit distance and face normal. Shared by the loop tail and by the
+            // transparent-surface path (which steps past glass instead of
+            // terminating the march at it).
+            void AdvanceDDA(inout int3 voxel, inout float3 tMax,
+                            inout float currentT, inout float3 normal,
+                            int3 stepDir, float3 tDelta)
+            {
+                if (tMax.x < tMax.y)
+                {
+                    if (tMax.x < tMax.z)
+                    {
+                        voxel.x += stepDir.x;
+                        currentT = tMax.x;
+                        tMax.x += tDelta.x;
+                        normal = float3(-stepDir.x, 0, 0);
+                    }
+                    else
+                    {
+                        voxel.z += stepDir.z;
+                        currentT = tMax.z;
+                        tMax.z += tDelta.z;
+                        normal = float3(0, 0, -stepDir.z);
+                    }
+                }
+                else
+                {
+                    if (tMax.y < tMax.z)
+                    {
+                        voxel.y += stepDir.y;
+                        currentT = tMax.y;
+                        tMax.y += tDelta.y;
+                        normal = float3(0, -stepDir.y, 0);
+                    }
+                    else
+                    {
+                        voxel.z += stepDir.z;
+                        currentT = tMax.z;
+                        tMax.z += tDelta.z;
+                        normal = float3(0, 0, -stepDir.z);
+                    }
+                }
+            }
+
+            // ---- Cheap glass lighting ----
+            // Ambient + wrapped diffuse + optional sun glint. Shared by the
+            // accumulate-and-continue path and the terminal frosted-pane path.
+            float3 GlassLit(float3 normal, float3 localRd,
+                            float3x3 volRot, float3x3 volInvRot)
+            {
+                float3 glassN = normalize(mul(volInvRot, normal));
+                float gDot = dot(glassN, _LightDirection) * 0.5 + 0.5;
+                gDot *= gDot;
+                float3 gLit = float3(_AmbientIntensity, _AmbientIntensity, _AmbientIntensity * 1.03)
+                            + _LightColor * gDot * _LightIntensity;
+
+                // Sun glint: reflect the local view ray about the face
+                // normal; alignment with the local light dir = specular pop.
+                if (_GlassSpecular > 0.0)
+                {
+                    float3 lLocal = mul(volRot, _LightDirection);
+                    float spec = pow(saturate(dot(reflect(localRd, normal), lLocal)), 24.0);
+                    gLit += _LightColor.rgb * spec * _GlassSpecular;
+                }
+                return gLit;
+            }
+
+            // --- Two-level traversal: 4^3 brick occupancy skip ---
+            // _OccupancyData holds one bit per 4^3 voxel brick. An all-air
+            // brick is crossed in a single boundary jump instead of ~11
+            // voxel-cell DDA iterations — the dominant win on interior-heavy
+            // volumes (buildings are mostly air inside their tight AABB).
+            // 4³ over 8³: a thin slab only poisons the brick band it sits in,
+            // freeing the air above to skip (fixes "sub-brick crawl" on
+            // roofs/thin walls — visible in _IterVis mode 2 as pure-red).
+            static const int BRICK_SHIFT = 2;
+            static const int BRICK_SIZE  = 4;
+
+            bool BrickOccupied(int3 brick, int3 bdims, uint occWordOffset)
+            {
+                // Out-of-grid bricks (ray leaving the volume) walk normally —
+                // the caller's InBounds test ends the march next iteration.
+                if (any(brick < 0) || any(brick >= bdims)) return true;
+                int bidx = brick.x + brick.y * bdims.x + brick.z * bdims.x * bdims.y;
+                return ((_OccupancyData[occWordOffset + (uint)(bidx >> 5)] >> (bidx & 31)) & 1u) != 0u;
+            }
+
+            // t (local-space ray param) at which the ray exits `brick`, plus
+            // the exit-face normal = entry normal of the landing cell.
+            float BrickExitT(float3 posL, float3 rd, float3 volOffset, float voxelSize,
+                             int3 brick, out float3 exitNormal)
+            {
+                float3 bMin = volOffset + (float3)(brick << BRICK_SHIFT) * voxelSize;
+                float3 bMax = bMin + (float)BRICK_SIZE * voxelSize;
+                float3 face;
+                face.x = rd.x > 0.0 ? bMax.x : bMin.x;
+                face.y = rd.y > 0.0 ? bMax.y : bMin.y;
+                face.z = rd.z > 0.0 ? bMax.z : bMin.z;
+                // Parallel-to-axis rays get a huge t and lose the min() —
+                // same trick as the flat DDA's inf deltaDist.
+                float3 safeRd = abs(rd) < 1e-8 ? float3(1e-8, 1e-8, 1e-8) : rd;
+                float3 tb = (face - posL) / safeRd;
+                float t = min(min(tb.x, tb.y), tb.z);
+                if (tb.x <= tb.y && tb.x <= tb.z) exitNormal = float3(-sign(rd.x), 0, 0);
+                else if (tb.y <= tb.z)            exitNormal = float3(0, -sign(rd.y), 0);
+                else                              exitNormal = float3(0, 0, -sign(rd.z));
+                return t;
+            }
+
+            // Rebuild per-axis distance-to-next-plane after a brick jump
+            // teleports the ray — mirrors the DDA init at the top of the march.
+            float3 ResyncSideDist(float3 localStart, int3 voxel, float3 rd, float3 deltaDist)
+            {
+                float3 sideDist;
+                if (rd.x < 0) sideDist.x = (localStart.x - float(voxel.x)) * deltaDist.x;
+                else          sideDist.x = (float(voxel.x + 1) - localStart.x) * deltaDist.x;
+                if (rd.y < 0) sideDist.y = (localStart.y - float(voxel.y)) * deltaDist.y;
+                else          sideDist.y = (float(voxel.y + 1) - localStart.y) * deltaDist.y;
+                if (rd.z < 0) sideDist.z = (localStart.z - float(voxel.z)) * deltaDist.z;
+                else          sideDist.z = (float(voxel.z + 1) - localStart.z) * deltaDist.z;
+                return sideDist;
+            }
+
+            // ---- Glass gate: palette alpha OR forced-glass material id ----
+            bool IsGlassVoxel(uint mat, float baseAlpha)
+            {
+                if (baseAlpha < 0.99) return true;
+                return mat == _GlassForcedMat0 || mat == _GlassForcedMat1
+                    || mat == _GlassForcedMat2 || mat == _GlassForcedMat3
+                    || mat == _GlassForcedMat4 || mat == _GlassForcedMat5
+                    || mat == _GlassForcedMat6 || mat == _GlassForcedMat7;
             }
 
             // ---- Smooth normal from voxel neighbourhood ----
@@ -384,6 +548,7 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 bool isSweepState = animState > 9.5 && animState < 10.5;     // Aim Sweep (10)
                 bool isAimingState = (animState > 2.5 && animState < 4.5) || isSweepState; // Aim Walk (3), Aiming (4), Aim Sweep (10)
                 bool isCrouchingState = animState > 4.5 && animState < 5.5;
+                bool isSittingState = animState > 10.5 && animState < 11.5; // Sit (11)
 
                 float walkPhase = 0.0;
                 bool useKeyframesWalk = false;           // Walking only — for arms/forearms
@@ -412,6 +577,9 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 float4 crouchP2= ASP(5); if (!_AnimStaticParamsEnabled) crouchP2 = float4(-1.15, 0, 1.15, 1.40);
                 float2 elbowTw = ASP(6).xy; if (!_AnimStaticParamsEnabled) elbowTw = float2(0, 0);
                 float4 sweepP  = ASP(12); if (!_AnimStaticParamsEnabled) sweepP = float4(0.55, 1.6, 0.6, 0);
+                // Sit (state 11): thighs forward, shins down, torso upright
+                float4 sitP    = ASP(13); if (!_AnimStaticParamsEnabled) sitP = float4(1.45, 1.45, 1.45, 1.45);
+                float4 sitP2   = ASP(14); if (!_AnimStaticParamsEnabled) sitP2 = float4(0.2, 0.2, 0, 0);
 
                 // Aim Sweep (state 10): sinusoidal shoulder-yaw on the ARMED arm's
                 // reach (the arm whose aim swing is non-zero); head follows at headFollow.
@@ -429,6 +597,8 @@ Shader "SteelCity/VoxelProxyRaymarch"
                         headTilt = aimP1.w;
                     } else if (isCrouchingState) { // Crouching (5)
                         headPitch = crouchP1.y;
+                    } else if (isSittingState) { // Sit (11)
+                        headPitch = sitP2.z;
                     } else {
                         return false; // Idle: head at rest
                     }
@@ -446,6 +616,8 @@ Shader "SteelCity/VoxelProxyRaymarch"
                         reach = aimP2.z + (swing != 0.0 ? sweepYaw : 0.0); // aiming.shoulderReachL + sweep on armed arm
                     } else if (isCrouchingState) {
                         swing = armCfg.z * crouchP1.z;     // signL * crouching.armSwingL
+                    } else if (isSittingState) {
+                        swing = armCfg.z * sitP2.x;        // signL * sitting.armSwingL
                     } else {
                         rot = RotationZ(restCfg.x);        // Idle: restPose.leftArmZ
                         return true;
@@ -465,6 +637,8 @@ Shader "SteelCity/VoxelProxyRaymarch"
                         reach = aimP2.w + (swing != 0.0 ? sweepYaw : 0.0); // aiming.shoulderReachR + sweep on armed arm
                     } else if (isCrouchingState) {
                         swing = armCfg.w * crouchP1.w;     // signR * crouching.armSwingR
+                    } else if (isSittingState) {
+                        swing = armCfg.w * sitP2.y;        // signR * sitting.armSwingR
                     } else {
                         rot = RotationZ(restCfg.y);        // Idle: restPose.rightArmZ
                         return true;
@@ -480,6 +654,8 @@ Shader "SteelCity/VoxelProxyRaymarch"
                         stride = legCfg.z * GetWalkPoseValue(2, walkPhase, _WalkConfig.w > 0.5);
                     } else if (isCrouchingState) {
                         stride = legCfg.z * crouchP2.x;    // signL * crouching.legStrideL
+                    } else if (isSittingState) {
+                        stride = legCfg.z * sitP.x;        // signL * sitting.legStrideL
                     } else {
                         rot = RotationY(twist);            // Idle: straight + twist
                         return true;
@@ -496,6 +672,8 @@ Shader "SteelCity/VoxelProxyRaymarch"
                         stride = legCfg.w * GetWalkPoseValue(3, walkPhase, _WalkConfig.w > 0.5);
                     } else if (isCrouchingState) {
                         stride = legCfg.w * crouchP2.y;    // signR * crouching.legStrideR
+                    } else if (isSittingState) {
+                        stride = legCfg.w * sitP.y;        // signR * sitting.legStrideR
                     } else {
                         rot = RotationY(twist);
                         return true;
@@ -538,6 +716,8 @@ Shader "SteelCity/VoxelProxyRaymarch"
                         bend = kneeCfg.z * GetWalkPoseValue(6, walkPhase, _WalkConfig.w > 0.5);
                     } else if (isCrouchingState) {
                         bend += kneeCfg.z * crouchP2.z;    // signL * crouching.kneeBendL
+                    } else if (isSittingState) {
+                        bend += kneeCfg.z * sitP.z;        // signL * sitting.kneeBendL
                     }
                     rot = RotationByAxis((int)kneeCfg.x, bend);
                     return true;
@@ -549,6 +729,8 @@ Shader "SteelCity/VoxelProxyRaymarch"
                         bend = kneeCfg.w * GetWalkPoseValue(7, walkPhase, _WalkConfig.w > 0.5);
                     } else if (isCrouchingState) {
                         bend += kneeCfg.w * crouchP2.w;    // signR * crouching.kneeBendR
+                    } else if (isSittingState) {
+                        bend += kneeCfg.w * sitP.w;        // signR * sitting.kneeBendR
                     }
                     rot = RotationByAxis((int)kneeCfg.y, bend);
                     return true;
@@ -765,7 +947,9 @@ Shader "SteelCity/VoxelProxyRaymarch"
             // ---- Lighting (ported from compute shader) ----
             float3 GetLighting(float3 normal, uint mat)
             {
-                if (mat == 113u || mat == 115u || mat == 116u || mat == 117u || mat == 124u)
+                // Emissive mats skip shading. 113 Lit Window removed — palette
+                // now aliases it to Window Glass, so it never reaches this path.
+                if (mat == 115u || mat == 116u || mat == 117u || mat == 124u)
                     return float3(1.0, 1.0, 1.0);
 
                 if (mat == 112u || mat == 114u)
@@ -807,31 +991,28 @@ Shader "SteelCity/VoxelProxyRaymarch"
                     float4 meta = _BuildingMeta[unity_InstanceID];
                     float4 pos = _BuildingPositions[unity_InstanceID];
                     output.volumeOffset = pos.xyz;
-                    output.yaw = 0.0;
+                    // yaw is unused by buildings — it carries this instance's
+                    // WORD offset into the merged sector occupancy bitmask.
+                    output.yaw = (float)_BuildingOccOffsets[unity_InstanceID];
                     output.instMeta = meta; // (bufferOffset, dimsX, dimsY, dimsZ)
                     output.voxelSize = pos.w;
                     output.animState = 0.0;
                     output.animTime = 0.0;
                     output.animSpeed = 1.0;
                 #else
-                    float4 instData = _InstanceOffsets[unity_InstanceID];
-                    output.volumeOffset = instData.xyz;
-                    output.yaw = instData.w;
-                    // When compute pose is active (_GroupIDsEnabled == 0), each instance has
-                    // its own posed voxel slice at offset = instanceID * totalVoxels.
-                    // When inverse-transform sampling is active (_GroupIDsEnabled != 0),
-                    // all instances share the same rest buffer (offset = 0). Static assets with
-                    // no groupIDs also have _GroupIDsEnabled == 0 but a single shared buffer —
-                    // _SharedRestBuffer forces offset 0 for them (else instance >= 1 reads past the end).
-                    uint totalVoxels = (uint)(_VolumeDims.x * _VolumeDims.y * _VolumeDims.z);
-                    uint posedOffset = (_GroupIDsEnabled == 0 && _SharedRestBuffer == 0) ? (unity_InstanceID * totalVoxels) : 0u;
-                    output.instMeta = float4((float)posedOffset, _VolumeDims.x, _VolumeDims.y, _VolumeDims.z);
+                    // Per-instance SRV reads moved to fragCore: MPB-bound
+                    // StructuredBuffers reach the fragment stage but NOT the
+                    // vertex stage on this pipeline — VS reads returned zeros
+                    // (volOffset=0 → AABB at origin → instanced draws invisible).
+                    // input.instanceID still flows to frag via the instancing
+                    // varyings; frag does the _InstanceOffsets fetch itself.
+                    output.volumeOffset = float3(0, 0, 0);
+                    output.yaw = 0.0;
+                    output.instMeta = float4(0.0, _VolumeDims.x, _VolumeDims.y, _VolumeDims.z);
                     output.voxelSize = _VoxelSize;
-                    // Read animation data from second half of instance buffer
-                    float4 animData = _InstanceOffsets[unity_InstanceID + _InstanceCount];
-                    output.animState = animData.x;
-                    output.animTime = animData.y;
-                    output.animSpeed = animData.z;
+                    output.animState = 0.0;
+                    output.animTime = 0.0;
+                    output.animSpeed = 1.0;
                 #endif
             #else
                 output.volumeOffset = _VolumeOffset;
@@ -846,10 +1027,24 @@ Shader "SteelCity/VoxelProxyRaymarch"
             }
 
             // ---- Fragment shader ----
-            FragOutput frag(Varyings input)
+            // renderMode: 0 = combined legacy | 1 = opaque only | 2 = glass only
+            FragOutput fragCore(Varyings input, int renderMode)
             {
                 FragOutput o;
                 UNITY_SETUP_INSTANCE_ID(input);
+
+                // Debug probe: prove the instanced proxy rasterizes and frag
+                // runs — solid magenta at near depth, bypasses the whole march.
+                // Outside UNITY_INSTANCING_ENABLED so a non-instanced fallback
+                // variant still shows it (that's a failure mode on its own).
+                // depth=1.0: reversed-Z convention — NEAREST. (0.0 = farthest,
+                // would lose to every other fragment that draws over us.)
+                if (_DebugShowProxy == 1)
+                {
+                    o.color = float4(1.0, 0.0, 1.0, 1.0);
+                    o.depth = 1.0;
+                    return o;
+                }
                 float voxelSize = input.voxelSize;
 
                 // Ray origin and direction
@@ -876,34 +1071,68 @@ Shader "SteelCity/VoxelProxyRaymarch"
                     rd = normalize(input.worldPos - ro);
                 }
 
+                // Sub-pixel ray jitter — shifts the ray origin laterally
+                // inside its pixel so openings narrower than the pixel grid
+                // (aligned window bores) still get sampled. Static hash per
+                // pixel → stable stipple rather than temporal shimmer.
+                if (_RayJitter > 0.0)
+                {
+                    float j1 = frac(sin(dot(input.positionCS.xy, float2(127.1, 311.7))) * 43758.5453);
+                    float j2 = frac(sin(dot(input.positionCS.xy, float2(269.5, 183.3))) * 43758.5453);
+                    float3 tanX = normalize(abs(rd.y) < 0.99 ? cross(rd, float3(0, 1, 0)) : cross(rd, float3(1, 0, 0)));
+                    float3 tanY = cross(rd, tanX);
+                    ro += (tanX * (j1 - 0.5) + tanY * (j2 - 0.5)) * _RayJitter;
+                }
+
                 // --- Per-instance volume data (instancing) or uniforms (non-instanced) ---
                 uint bufferOffset = 0;
+                uint occWordOffset = 0u;   // sectors offset into _OccupancyData; 0 elsewhere
                 int3 dims;
+                // Fetched per-instance in the group-instanced branch (frag
+                // stage — VS-side MPB buffer reads return zero here); left at
+                // defaults on chunk/sector paths.
+                float animState = 0.0;
+                float animTime = 0.0;
+                float animSpeed = 1.0;
 
             #ifdef UNITY_INSTANCING_ENABLED
-                float3 volOffset = input.volumeOffset;
                 #if defined(BUILDING_INSTANCING)
+                    float3 volOffset = input.volumeOffset;
                     bufferOffset = (uint)input.instMeta.x;
+                    // Building-instancing: yaw carries the occupancy word offset.
+                    occWordOffset = (uint)input.yaw;
                     dims = int3((int)input.instMeta.y, (int)input.instMeta.z, (int)input.instMeta.w);
                     // Buildings are axis-aligned (no rotation in sector baking)
                     float3x3 volRot = float3x3(1, 0, 0, 0, 1, 0, 0, 0, 1);
                     float3x3 volInvRot = float3x3(1, 0, 0, 0, 1, 0, 0, 0, 1);
                 #else
-                    float yaw = input.yaw;
+                    // Fetch per-instance data here — frag-stage SRV reads work
+                    // (chunks' _VoxelData proves MPB buffers bind in FS); the
+                    // same read in vert returned zeros on this pipeline.
+                    float4 instData = _InstanceOffsets[input.instanceID];
+                    float3 volOffset = instData.xyz;
+                    float yaw = instData.w;
                     float yc = cos(yaw), ys = sin(yaw);
                     float3x3 volRot = float3x3(yc, 0, -ys, 0, 1, 0, ys, 0, yc);
                     float3x3 volInvRot = float3x3(yc, 0, ys, 0, 1, 0, -ys, 0, yc);
                     dims = VolumeDimsInt();
-                    // Read per-instance posed buffer offset (set in vertex shader)
-                    bufferOffset = (uint)input.instMeta.x;
+                    // Posed buffer slice for this instance (compute pose) or
+                    // shared rest buffer offset 0 — same logic vert used to do.
+                    uint instTotalVoxels = (uint)(_VolumeDims.x * _VolumeDims.y * _VolumeDims.z);
+                    bufferOffset = (_GroupIDsEnabled == 0 && _SharedRestBuffer == 0)
+                        ? (input.instanceID * instTotalVoxels) : 0u;
+                    float4 animData = _InstanceOffsets[input.instanceID + _InstanceCount];
+                    animState = animData.x;
+                    animTime = animData.y;
+                    animSpeed = animData.z;
 
                     // Body bob + weight shift (walking states only, keyframe system enabled)
                     // Skip when compute pose is active (_GroupIDsEnabled == 0) — already baked into posed buffer
-                    bool isWalkingState = (input.animState > 0.5 && input.animState < 1.5) ||
-                                          (input.animState > 2.5 && input.animState < 3.5);
+                    bool isWalkingState = (animState > 0.5 && animState < 1.5) ||
+                                          (animState > 2.5 && animState < 3.5);
                     if (isWalkingState && _WalkKeyframesEnabled != 0 && _GroupIDsEnabled != 0)
                     {
-                        float phase = GetWalkCyclePhase(input.animTime, input.animSpeed);
+                        float phase = GetWalkCyclePhase(animTime, animSpeed);
                         // Body bob: -cos(phase * 4π) → lowest at contact (0, 0.5), highest at mid-stance (0.25, 0.75)
                         float bobAmp = _WalkConfig.y;
                         float bobY = -cos(phase * 4.0 * 3.14159265) * bobAmp * voxelSize;
@@ -922,6 +1151,17 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 dims = VolumeDimsInt();
             #endif
 
+                // Probe mode 3: dump volOffset as color — world [-50,+50] → [0,1].
+                // Middle gray (0.5,0.5,0.5) = volOffset is ZERO (SRV read failed).
+                if (_DebugShowProxy == 3)
+                {
+                    o.color = float4(volOffset.x / 100.0 + 0.5,
+                                     volOffset.y / 100.0 + 0.5,
+                                     volOffset.z / 100.0 + 0.5, 1.0);
+                    o.depth = 1.0;
+                    return o;
+                }
+
                 // Transform ray into volume local space (handles rotation)
                 float3 volumeCenter = volOffset + float3(dims) * voxelSize * 0.5;
                 float3 localRo = mul(volRot, ro - volumeCenter) + volumeCenter;
@@ -938,6 +1178,16 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 if (!RayAABB(localRo, localRd, volumeMin, volumeMax, tNear, tFar))
                 {
                     discard;
+                }
+
+                // Probe mode 2: green where the ray ENTERS the volume AABB —
+                // validates volOffset/dims/voxelSize/yaw/camera uniforms before
+                // any voxel data is consulted.
+                if (_DebugShowProxy == 2)
+                {
+                    o.color = float4(0.0, 1.0, 0.0, 1.0);
+                    o.depth = 1.0;
+                    return o;
                 }
 
                 // The DDA counts voxel-plane crossings, so the worst case to
@@ -972,10 +1222,52 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 float4 hitColor = _BackgroundColor;
                 float3 worldHit = float3(0, 0, 0);
 
+                // Two-level traversal state — occupancy bit test happens once
+                // per brick entered, never per voxel step.
+                int3 brickDims = (dims + (BRICK_SIZE - 1)) >> BRICK_SHIFT;
+                int3 occBrick = int3(-2, -2, -2); // impossible start → forces first test
+
+                // Transparency: materials with palette alpha < 1 (auto glass,
+                // window glass) blend their tinted surface over whatever the
+                // ray continues to hit instead of terminating the march.
+                float3 glassAccum = float3(0, 0, 0);
+                float  throughput = 1.0;   // light fraction remaining behind the glass
+                float  glassFirstT = 0.0;  // nearest glass surface distance (for depth)
+                int    glassLayers = 0;
+                uint   lastPane = 0u;      // pane group already charged along this ray (0 = none)
+
+                int iterCount = 0; // _IterVis counters
+                int iterVox = 0;   // cell-level DDA steps taken (crawling)
+                int iterSkip = 0;  // brick-jump iterations (skipping)
+                int iterShadow = 0;
                 for (int i = 0; i < stepCap; ++i)
                 {
+                    ++iterCount;
                     if (!InBounds(voxel, dims))
                         break;
+
+                    // Brick skip — an all-air 4^3 brick is crossed in one
+                    // boundary jump instead of ~11 cell steps. Occupancy is
+                    // tested once per newly entered brick.
+                    if (_HasOccupancy != 0)
+                    {
+                        int3 brick = voxel >> BRICK_SHIFT;
+                        if (brick.x != occBrick.x || brick.y != occBrick.y || brick.z != occBrick.z)
+                        {
+                            occBrick = brick;
+                            if (!BrickOccupied(brick, brickDims, occWordOffset))
+                            {
+                                float3 posL = localRo + localRd * currentT;
+                                float tSkip = max(BrickExitT(posL, localRd, volOffset, voxelSize, brick, normal), currentT) + 0.0005;
+                                currentT = tSkip;
+                                float3 np = (localRo + localRd * currentT - volOffset) / voxelSize;
+                                voxel = (int3)floor(np);
+                                tMax = currentT + ResyncSideDist(np, voxel, localRd, deltaDist);
+                                ++iterSkip;
+                                continue;
+                            }
+                        }
+                    }
 
                     // Inverse-transform sampling: when groupIDs are enabled, sample voxel data
                     // at the REST position (inverse of the group transform). This makes the ray
@@ -988,7 +1280,7 @@ Shader "SteelCity/VoxelProxyRaymarch"
                             float3 voxelLocalPos = (float3(voxel) + 0.5) * voxelSize;
                             float3 restOffset = InverseGroupTransformOffset(
                                 gid, voxelLocalPos, float3(dims), voxelSize,
-                                input.animState, input.animTime, input.animSpeed);
+                                animState, animTime, animSpeed);
                             float3 restPos = voxelLocalPos + restOffset;
                             int3 restVoxel = (int3)floor(restPos / voxelSize);
                             if (InBounds(restVoxel, dims))
@@ -1008,6 +1300,67 @@ Shader "SteelCity/VoxelProxyRaymarch"
                         float4 baseColor = _MaterialColors[mat];
                         float4 tint = _ChunkTints[mat];
                         baseColor.rgb *= tint.rgb;
+
+                        // Transparent material (palette alpha < 1): accumulate the
+                        // tinted surface front-to-back and keep marching — a
+                        // windshield pixel resolves to whatever is behind it.
+                        // Cheap ambient lighting only; glass skips the smooth-normal
+                        // and shadow-ray work. Budget exhausted (layer cap hit or
+                        // <3% light left) terminates as a frosted pane below.
+                        if (IsGlassVoxel(mat, baseColor.a))
+                        {
+                            // Forced-glass materials may carry an opaque palette
+                            // alpha — fall back to the configured transmission alpha.
+                            float glassA = baseColor.a < 0.99 ? baseColor.a : _FlaggedGlassAlpha;
+                            if (renderMode == 1)
+                            {
+                                // Opaque pass: glass is a hole — the ray keeps
+                                // marching to real interior geometry behind it.
+                                AdvanceDDA(voxel, tMax, currentT, normal, stepDir, tDelta);
+                                continue;
+                            }
+                            // Pane dedup: a contiguous glass cluster is one
+                            // surface — charge it once, march through its other
+                            // cells for free (grazing a wide pane ≠ N tints).
+                            // Pane IDs are per-asset (volume-space) — no
+                            // bufferOffset, which is a per-instance/sector
+                            // offset into the merged voxel buffer.
+                            uint paneId = _PaneIDs[VoxelIndex(sampleVoxel, dims)];
+                            if (paneId != 0u && paneId == lastPane)
+                            {
+                                AdvanceDDA(voxel, tMax, currentT, normal, stepDir, tDelta);
+                                continue;
+                            }
+
+                            if (throughput > 0.03 && glassLayers < _GlassMaxLayers)
+                            {
+                                float3 gLit = GlassLit(normal, localRd, volRot, volInvRot);
+                                glassAccum += throughput * glassA * baseColor.rgb * gLit;
+                                if (glassLayers == 0) glassFirstT = currentT;
+                                throughput *= 1.0 - glassA;
+                                glassLayers++;
+                                lastPane = paneId;
+                                AdvanceDDA(voxel, tMax, currentT, normal, stepDir, tDelta);
+                                continue;
+                            }
+
+                            // Transmission budget exhausted: absorb the remaining
+                            // light as full-strength tint and stop — the pane reads
+                            // as frosted glass instead of an opaque wall voxel.
+                            hitColor = float4(glassAccum + throughput * (baseColor.rgb * GlassLit(normal, localRd, volRot, volInvRot)), 1.0);
+                            if (_LodDebugEnabled != 0)
+                                hitColor = float4(_LodDebugColor.rgb, hitColor.a);
+                            worldHit = ro + rd * (glassLayers > 0 ? glassFirstT : currentT);
+                            hit = true;
+                            break;
+                        }
+
+                        if (renderMode == 2)
+                        {
+                            // Glass-only pass: the first opaque voxel ends the
+                            // collection — pass 1 owns this surface already.
+                            break;
+                        }
 
                         // Blended normal (same as compute shader) — skipped entirely
                         // for cheap-shading LOD tier to avoid 6 extra buffer reads per pixel
@@ -1067,10 +1420,38 @@ Shader "SteelCity/VoxelProxyRaymarch"
                             else shadowSideDist.z = (float(shadowVoxel.z + 1) - shadowLocal.z) * shadowDelta.z;
 
                             float shadowFactor = 1.0;
+                            int3 sOccBrick = int3(-2, -2, -2); // forces first occupancy test
                             for (int s = 0; s < _ShadowMaxSteps && _ShadowEnabled; s++)
                             {
+                                ++iterCount;
+                                ++iterShadow;
                                 if (!InBounds(shadowVoxel, dims))
                                     break;
+
+                                // Brick skip — shadow rays get the same
+                                // all-air jump as the primary march.
+                                if (_HasOccupancy != 0)
+                                {
+                                    int3 sbrick = shadowVoxel >> BRICK_SHIFT;
+                                    if (sbrick.x != sOccBrick.x || sbrick.y != sOccBrick.y || sbrick.z != sOccBrick.z)
+                                    {
+                                        sOccBrick = sbrick;
+                                        if (!BrickOccupied(sbrick, brickDims, occWordOffset))
+                                        {
+                                            // sideDist−delta on each axis = t of that axis's
+                                            // last plane crossing; max() = current ray t.
+                                            float3 scrossed = shadowSideDist - shadowDelta;
+                                            float shadowT = max(0.0, max(max(scrossed.x, scrossed.y), scrossed.z));
+                                            float3 posL = shadowOrigin + shadowDir * shadowT;
+                                            float3 sExitN;
+                                            float tSkip = max(BrickExitT(posL, shadowDir, volOffset, voxelSize, sbrick, sExitN), shadowT) + 0.0005;
+                                            float3 npL = (shadowOrigin + shadowDir * tSkip - volOffset) / voxelSize;
+                                            shadowVoxel = (int3)floor(npL);
+                                            shadowSideDist = tSkip + ResyncSideDist(npL, shadowVoxel, shadowDir, shadowDelta);
+                                            continue;
+                                        }
+                                    }
+                                }
 
                                 if (s < _ShadowSkipSteps)
                                 {
@@ -1154,67 +1535,158 @@ Shader "SteelCity/VoxelProxyRaymarch"
                             shadowedLighting = max(shadowedLighting, float3(ambientFloor, ambientFloor, ambientFloor * 1.02));
                         }
 
-                        hitColor = float4(baseColor.rgb * shadowedLighting, baseColor.a);
+                        // Fold in glass tint accumulated en route — the pass
+                        // writes opaque coverage, so alpha resolves to 1.
+                        hitColor = float4(glassAccum + throughput * (baseColor.rgb * shadowedLighting), 1.0);
 
                         // Debug: solid-tint hit color by LOD tier so tiers are visible at a glance
                         if (_LodDebugEnabled != 0)
                             hitColor = float4(_LodDebugColor.rgb, hitColor.a);
 
-                        worldHit = ro + rd * currentT;
+                        // Depth = nearest visible surface (glass face when present)
+                        worldHit = ro + rd * (glassLayers > 0 ? glassFirstT : currentT);
 
                         hit = true;
                         break;
                     }
 
                     // Advance DDA
-                    if (tMax.x < tMax.y)
+                    ++iterVox;
+                    AdvanceDDA(voxel, tMax, currentT, normal, stepDir, tDelta);
+                }
+
+                if (renderMode == 2)
+                {
+                    if (!hit)
                     {
-                        if (tMax.x < tMax.z)
+                        // Ray exited or stopped at opaque content: emit the
+                        // accumulated tint; Blend(SrcAlpha,OneMinusSrcAlpha)
+                        // turns this into glassAccum + throughput * dst.
+                        if (glassLayers == 0)
                         {
-                            voxel.x += stepDir.x;
-                            currentT = tMax.x;
-                            tMax.x += tDelta.x;
-                            normal = float3(-stepDir.x, 0, 0);
+                            if (_IterVis <= 0.0) discard;
+                            worldHit = ro + rd * tFar; // marched air still costs — show it
                         }
                         else
                         {
-                            voxel.z += stepDir.z;
-                            currentT = tMax.z;
-                            tMax.z += tDelta.z;
-                            normal = float3(0, 0, -stepDir.z);
-                        }
-                    }
-                    else
-                    {
-                        if (tMax.y < tMax.z)
-                        {
-                            voxel.y += stepDir.y;
-                            currentT = tMax.y;
-                            tMax.y += tDelta.y;
-                            normal = float3(0, -stepDir.y, 0);
-                        }
-                        else
-                        {
-                            voxel.z += stepDir.z;
-                            currentT = tMax.z;
-                            tMax.z += tDelta.z;
-                            normal = float3(0, 0, -stepDir.z);
+                            hitColor = float4(glassAccum, 1.0 - throughput);
+                            worldHit = ro + rd * glassFirstT;
                         }
                     }
                 }
-
-                if (!hit)
+                else if (!hit)
                 {
-                    discard;
+                    // Rays that saw only transparent voxels exit the volume —
+                    // discard so the city pass content behind stays visible.
+                    // _IterVis keeps them: a full-volume air march is the
+                    // expensive case this view exists to expose.
+                    if (_IterVis <= 0.0) discard;
+                    worldHit = ro + rd * tFar;
                 }
 
                 // Write depth for compositing
                 float4 clip = mul(UNITY_MATRIX_VP, float4(worldHit, 1.0));
                 float ndcZ = clip.z / clip.w;
 
-                o.color = hitColor;
+                // _IterVis debug views:
+                //   1 = total iteration heat (blue<80 green~80-160 red>160)
+                //   2 = channel split: R voxel-DDA steps, G brick jumps, B shadow
+                //       steps — green-dominant = skipping, red = crawling cells
+                //   3 = miss-waste: heat only on rays that exited with no hit
+                //       (pure wasted march); hits render black
+                if (_IterVis > 0.5)
+                {
+                    float h = saturate((float)iterCount / 160.0);
+                    float3 heat = h < 0.5
+                        ? lerp(float3(0.05, 0.2, 1.0), float3(0.1, 1.0, 0.3), h * 2.0)
+                        : lerp(float3(0.1, 1.0, 0.3), float3(1.0, 0.12, 0.0), (h - 0.5) * 2.0);
+                    if (_IterVis > 2.5)
+                    {
+                        o.color = hit ? float4(0, 0, 0, 1) : float4(heat, 1.0);
+                    }
+                    else if (_IterVis > 1.5)
+                    {
+                        o.color = float4(
+                            saturate((float)iterVox / 128.0),
+                            saturate((float)iterSkip / 24.0),
+                            saturate((float)iterShadow / 96.0), 1.0);
+                    }
+                    else
+                    {
+                        o.color = float4(heat, 1.0);
+                    }
+                }
+                else
+                {
+                    o.color = hitColor;
+                }
                 o.depth = ndcZ;
                 return o;
+            }
+        ENDCG
+
+        // Pass 0 — legacy combined path (default; unchanged behavior)
+        Pass
+        {
+            Name "ProxyRaymarch"
+
+            CGPROGRAM
+            #pragma target 4.5
+            #pragma vertex vert
+            #pragma fragment fragCombined
+            #pragma multi_compile_instancing
+            #pragma multi_compile_local BUILDING_INSTANCING
+            #pragma exclude_renderers gles gles3
+
+            FragOutput fragCombined(Varyings input)
+            {
+                return fragCore(input, 0);
+            }
+            ENDCG
+        }
+
+        // Pass 1 — opaque only (composite mode): glass cells treated as air so
+        // window openings render real interior geometry for pass 2 to tint.
+        Pass
+        {
+            Name "ProxyRaymarchOpaque"
+
+            CGPROGRAM
+            #pragma target 4.5
+            #pragma vertex vert
+            #pragma fragment fragOpaque
+            #pragma multi_compile_instancing
+            #pragma multi_compile_local BUILDING_INSTANCING
+            #pragma exclude_renderers gles gles3
+
+            FragOutput fragOpaque(Varyings input)
+            {
+                return fragCore(input, 1);
+            }
+            ENDCG
+        }
+
+        // Pass 2 — glass only (composite mode): accumulated pane tint blended
+        // over pass 1's pixels. ZWrite Off keeps depth owned by the opaque
+        // pass while ZTest still occludes glass hidden behind walls.
+        Pass
+        {
+            Name "ProxyRaymarchGlass"
+
+            ZWrite Off
+            Blend SrcAlpha OneMinusSrcAlpha
+
+            CGPROGRAM
+            #pragma target 4.5
+            #pragma vertex vert
+            #pragma fragment fragGlass
+            #pragma multi_compile_instancing
+            #pragma multi_compile_local BUILDING_INSTANCING
+            #pragma exclude_renderers gles gles3
+
+            FragOutput fragGlass(Varyings input)
+            {
+                return fragCore(input, 2);
             }
             ENDCG
         }
