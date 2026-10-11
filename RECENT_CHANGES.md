@@ -1,6 +1,397 @@
 # Recent Changes — Steel City: Mob Sim
 
-**Last Updated**: October 6, 2026 (vehicle_490_touring asset)
+**Last Updated**: October 11, 2026 (instanced-render fix + glass restoration + sector two-pass composite)
+
+---
+
+## October 11, 2026 (later) — Instanced invisibility root-caused; glass restored on the proven base
+
+### The bug hunt (evidence-first, all findings verified)
+- **Symptom**: instanced cars + characters invisible; scene gizmos at correct positions; CPU matrices valid (`nanMats=0`), draws emitted with `instancing=True`.
+- **Diagnostic trap**: the first rasterization probe wrote `depth = 0.0` — farthest value under D3D12 reversed-Z, so every city fragment legally buried it. "No magenta" never meant "no draw".
+- **Root cause 1 — shared `proxyMaterial`**: one material served both non-instanced chunk `DrawMesh` (hundreds/frame) and instanced group `DrawMeshInstanced` — per-draw instancing constant-buffer state got clobbered between draws; instances read stale matrices (the "displaced north up the street" sighting). **Fix**: dedicated `groupMaterial` (same pattern as `sectorMaterial`) with per-frame `CopyPropertiesFromMaterial`. Rasterization + correct positions restored immediately.
+- **Root cause 2 — tangled shader diff**: even with delivery fixed, the accumulated uncommitted shader (glass + occupancy-DDA + jitter + iterVis + sitting-pose + CGINCLUDE refactor + probes) marched nothing at instanced offsets. Rather than keep patching, the shader was **reverted to last-known-good HEAD**; instancing confirmed working, then glass was **re-grafted incrementally**:
+  - `CGINCLUDE` + 3-pass structure alone → instancing fine (structure exonerated).
+  - Glass set grafted: `_PaneIDs`, `_GlassForcedMat0-7`, `_FlaggedGlassAlpha`, `_GlassSpecular`, `_GlassMaxLayers`, `IsGlassVoxel`/`GlassLit`/`AdvanceDDA`, front-to-back accumulation + frosted-pane terminal, nearest-surface depth, passes 0/1/2.
+  - **Deliberately excluded** (per scope call — the FPS hunt they belonged to was already resolved by sector baking): `_OccupancyData`/`BrickOccupied`/`BrickExitT`, `_RayJitter`, `_IterVis`, debug probes, sitting-pose anim changes (those were also the Vinny walk-speed regression — HEAD's anim path restored normal speed).
+  - ⚠️ The October 11 entry above documents occupancy/jitter/iterVis as if current — those features were **removed from the shader** here; the C# build/bind scaffolding remains but is now dead work (cleanup candidate).
+
+### Sector two-pass composite (buildings join cars on the full glass pipeline)
+- Sectors hardcoded pass 0 ("far LOD legacy path") — restored to composite: opaque draw emits `useGlassCompositePass ? 1 : 0`, glass pass-2 emitted far→near per sector.
+- `BakedSector.paneBuffer`: per-building pane flood-fill scattered into a merged array in `mergedVoxelData` index space; per-building ids offset `b<<16` to prevent cross-building `lastPane` collisions.
+- `_PaneMerged` shader flag: sectors index `_PaneIDs[bufferOffset + VoxelIndex]`; chunks/groups keep asset-local indexing. Pass-2 emission gated on `paneBuffer != default` → glass-free sectors cost nothing.
+- `useGlassCompositePass` default **false → true**.
+
+### Files
+- `Assets/Scripts/UI/VoxelChunkManager.cs` — `groupMaterial`, composite default, sector pane build/bind/release/pass-2, `propPaneMerged`
+- `Assets/Resources/Shaders/VoxelProxyRaymarch.shader` — HEAD + glass graft + `_PaneMerged`
+- `docs/known_issues/rendering/SHARED_MATERIAL_INSTANCED_DRAWS.md` — full diagnostic trail + reversed-Z probe lesson
+
+### Verified by user 🧪
+- Instanced cars at road positions + Vinny walking at normal speed.
+- Car glass composites (two-pass); `useGlassCompositePass` toggle ON by default.
+- Sector buildings on the same two-pass pipeline.
+
+### Stash status
+- `stash@{0}` "bisect: revert proxy shader to last-working" still holds the removed occupancy/jitter/iterVis/sitting-pose work — recoverable if ever wanted; nothing in it is on the live shader.
+
+---
+
+## October 11, 2026 — Perf: 120→40 FPS regression traced, fixed, and a structural raymarch win
+
+### The investigation (all findings measured)
+- Regression: ~120 → ~40 FPS before the working week and before the glass composite toggle. WASD/F6 camera suspected by timing — **exonerated** (nanoseconds per frame).
+- Profiler truth: `Scripts` total **0.98ms**, `VoxelChunkManager` **1.5ms** (0.73 cull + 0.75 draw, 788 registered / 64 drawn) — renderer innocent. `DebugHUDManager.OnGUI` topped GC contributors; the real cost billed to **EditorLoop/Others**.
+- **Cause 1 — IMGUI per-event tax**: `OnGUI` runs once per event (Layout + Repaint + input ≈ 4–6×/frame). The HUD rebuilt ~60 widgets AND ran 8 `FindFirstObjectByType` scans on every event. A/B: **32 FPS open → 120 FPS minimized**.
+- **Cause 2 — angle-dependent march depth (GPU, ~11ms)**: top-down rays hit roofs in a few DDA steps; angled views march through mostly-air interiors at voxel granularity.
+
+### Fix 1 — `DebugHUDManager.cs`
+- Text-only tabs (Camera/Render/Path/Keys) rebuild into ONE cached rich-text string at ~4 Hz → single `GUILayout.Label` per repaint instead of ~40 widgets × ~5 events/frame. Interactive tabs (Clothing buttons, Range sliders) stay live.
+- `RefreshReferences` (8 scene scans) throttled to 0.5s; footer strings cached likewise. Visuals preserved — headers carried via inline rich-text color.
+
+### Fix 2 — two-level DDA brick occupancy skip (`useOccupancySkip`, default ON)
+- `_OccupancyData`: one bit per 8³ brick, set iff the brick holds any non-air voxel. The march tests occupancy **once per entered brick**; all-air bricks cross in one boundary jump (`BrickExitT` + `ResyncSideDist`) instead of ~21 cell iterations. Same skip in the **shadow march**.
+- `VoxelChunkManager`: `GetOccupancy`/`ComputeOccupancy`/`DilateOccupancy` at registration, cached by packed-array ref (siblings of the pane-ID cache); ~1 bit per 64 voxels. Wired for chunks, instanced groups, and merged sectors — sector buildings each carry a word offset into the concatenated bitmask via `_BuildingOccOffsets` (rides the unused `yaw` varying).
+- Group-animated assets get a **1-brick dilation** so posed limbs can't overstep rest-air bricks. Literature match: MultiDDA/two-level grids show ~4.7× ray throughput on sparse-interior volumes.
+
+### Fix 3 — sub-pixel ray jitter (`useRayJitter`, default ON, ±0.5px)
+- `_RayJitter` world-units lateral origin dither (static hash per pixel → stable stipple). C# computes one render pixel's world size per frame (exact in ortho; median drawn distance in perspective). Fixes the earlier window-through-window drop: aligned window bores narrower than the pixel grid now get sampled.
+
+### Files
+- `Assets/Resources/Shaders/VoxelProxyRaymarch.shader` — `_OccupancyData`/`_HasOccupancy`/`_BuildingOccOffsets`/`_RayJitter` bindings, `BrickOccupied`/`BrickExitT`/`ResyncSideDist` helpers, skip in primary + shadow marches, jitter block, occupancy offset on building `yaw`.
+- `Assets/Scripts/UI/VoxelChunkManager.cs` — occupancy build/cache/bind/release at all registration sites, `_HasOccupancy` per-draw flag, `_RayJitter` amplitude per frame, new inspector fields (`useOccupancySkip`, `useRayJitter`, `rayJitterPixels`).
+- `Assets/Scripts/Sim/DebugHUDManager.cs` — cached tab/footer strings, throttled reference scans.
+- `docs/core/PERFORMANCE_PATTERNS.md` — pattern 13 (two-level DDA) + cross-cutting lesson 6 (IMGUI per-event billing).
+- `docs/known_issues/rendering/IMGUI_HUD_FRAME_TAX.md` — full diagnostic trail + exonerated suspects.
+
+### Expected behavior 🧪
+- Debug HUD open should no longer tank the frame rate (was 32 open / 120 minimized).
+- Angled views should gain substantially vs. before (interior air now jumps 8 voxels per iteration); top-down unchanged.
+- `useOccupancySkip` OFF returns the flat DDA — A/B checkpoint for correctness: the picture must be **pixel-identical** at the same camera (except intentional ±0.5px jitter stipple; toggle `useRayJitter` off for a strict diff).
+- Watch for missing content at volume edges or posed characters (dilation guard covers limbs — report any limb tips vanishing at angle).
+
+### Follow-up — grazing-angle drop isolated to per-building chunk count + debug tools
+- User A/B confirmed: HUD fix verified (120 FPS with panel open, was 32). Angle drop persists → root cause identified: **`useSectorBaking = false`** means every building loads as its own chunk (`LoadChunkCentered`) — ~780 per-building volumes drawing 1:1. Terrain is already sector-baked (the 5 HUD sectors), characters instanced — only buildings go unbatched.
+- Mechanism: proxy shader writes depth manually → no early-Z → at ~5° pitch a dozen building AABBs stack on the same pixels → N full-volume marches per pixel (overdraw), which occupancy can't reduce — the ray marches EVERY overlapping volume, not one.
+- New diagnostics: `iterVisMode` inspector dropdown → per-pixel iteration heatmap with three views — `IterationHeat` (blue <80 / green ~80-160 / red >160 total march+shadow iters; misses render instead of discarding so air-march cost is visible), `StepChannels` (R=voxel-DDA steps, G=brick-jumps, B=shadow steps — green-dominant = occupancy skipping, red = cell crawling), `MissWaste` (heat only on no-hit rays — pure wasted march; hits render black). `PerfOccDraws` counter → HUD Chunks line shows `occ:N` submissions running with `_HasOccupancy=1` (0 = binding bug, N = skip engaged).
+- First heatmap reading: tenement roofs, river channel, and shooting-range asset glow red → **sub-brick air crawling** — an 8³ brick holding a slab + air reads "occupied" so a ray skimming the air portion voxel-DDAs the whole length. StepChannels confirmed: fire escapes/range walls/lot debris render pure red (voxel steps, no jumps); roads render black (fast hits) ✓ occupancy working, granularity too coarse.
+- Fix applied: **bricks shrunk 8³ → 4³** (`BRICK_SHIFT 2`, `BRICK_SIZE 4` in shader; `shift=2` in `ComputeOccupancy`). A thin slab now poisons only the 4-voxel band it sits in — air above becomes free bricks → ~4× less crawl surface + the mixed slab/air boundary narrows. Map memory 8× up but still trivial (~8.6KB per 4.4M-voxel building). Animated-group dilation radius 1→2 bricks to keep the ~8-voxel limb margin. If StepChannels still shows red on ultra-thin structures (1-voxel railings poison any brick size), next rung is a distance map or sector-baking removing the overdraw multiplier.
+- 🧪 Test: flip `useSectorBaking` on CityMap3D → buildings collapse into sector draws (occupancy keeps working via per-instance word offsets) → grazing overdraw should collapse with it. Then `debugIterVis` on at the same camera → red zones should shrink to the buildings themselves.
+
+### Follow-up — D3D12 standalone build: `_BuildingMeta` SRV error + invisible instanced cars/characters
+- First dev build surfaced `d3d12: ... requires a buffer (SRV) "_BuildingMeta" ... Skipping draw calls`. Buildings/terrain rendered; instanced cars + Vinny spawned (registered, buffers initialized, `RenderInstancedGroup` invoked) but drew nothing. D3D12 validates every SRV the active variant references per draw; D3D11 tolerated gaps.
+- **Root cause (three layers)**: (a) `_BuildingMeta`/`_BuildingPositions` bound only in the sector path — missing everywhere else; (b) `shader_feature_local` let the build strip the runtime-enabled `BUILDING_INSTANCING` variant; (c) five `ComputeBuffer`s lazily allocated **inside `RenderInstancedGroup`** (which runs inside `endCameraRendering`) — mid-render GPU-resource creation drops recorded D3D12 SRV bindings. Log correlation: the error fired only on frames with `Posed voxel buffer allocated`.
+- **Fix**: `EnsureInstancedBuffers()` — a `LateUpdate` hook pre-sizes `instanceOffsetBuffer`, `posedVoxelBuffer`, `instanceAnimDataBuffer`, `instanceIKDataBuffer`, `instanceMaterialRemapBuffer` at `instances.Count` capacity (upper bound of `visibleCount`) before the render callback. In-render lazy branches kept as cold fallbacks. Plus `?? sharedMaterialBuffer` dummies on all three draw paths + `multi_compile_local` (user change) for all three passes.
+- Debug keys now work in builds: `V` cycles iterVisMode, `F11` occupancy, `F12` jitter.
+- 🧪 Test (dev build): no SRV warnings, cars/Vinny render, sectors still render; verify `V`/`F11`/`F12`/`R` toggles.
+
+---
+
+## October 10, 2026 — Render: Two-Pass Glass Composite Prototype (FEATURE, opt-in)
+
+### Design
+- `VoxelChunkManager.useGlassCompositePass` (default OFF — legacy single-pass renderer is untouched and remains the default).
+- Pass 1 (opaque): glass voxels treated as air — window openings render real interior geometry; car cabins, rooms, and any volume behind glass land in the framebuffer.
+- Pass 2 (glass): rays accumulate `glassAccum`/`throughput` through panes (pane-dedup applies), stop at first opaque voxel, emit `(glassAccum, 1−throughput)`; `Blend SrcAlpha OneMinusSrcAlpha` produces `glassAccum + throughput * behind`. `ZWrite Off` + `ZTest LEqual`: glass occluded by walls is culled, depth stays owned by the opaque pass. Drawn far→near so nearer glass composites over already-blended far glass.
+- Fixes the per-volume transparency ceiling: other volumes get tinted through glass, objects sandwiched between pane and wall render, and interiors are visible through window bores.
+
+### Changes
+- **`VoxelProxyRaymarch.shader`** — raymarch moved to `CGINCLUDE` `fragCore(input, renderMode)` shared by three thin passes: `ProxyRaymarch` (0 = legacy combined), `ProxyRaymarchOpaque` (1 = glass-as-air), `ProxyRaymarchGlass` (2 = glass-only, `ZWrite Off` + alpha blend). Sectors and all non-composite draws stay on pass 0.
+- **`VoxelChunkManager.cs`** — `useGlassCompositePass` inspector toggle; per-chunk `lastDrawTRS` cache; `RenderInstancedCharacters/RenderInstancedGroup` take a shader-pass arg; pass-2 emits far→near for chunks with real pane buffers (glass-free volumes skipped) + instanced groups; pose-compute dispatch gated to non-glass passes so it isn't re-dispatched.
+- **`VoxelProxyRaymarch.shader` (fix)** — pane lookup dropped `bufferOffset` (per-instance/sector voxel offset): `_PaneIDs` is per-asset, so instanced groups read OOB for instance ≥1 and silently lost dedup — vehicle pane dedup was effectively off for every car after the first.
+- **Forced-glass material gate** — the glass test was `palette alpha < 0.99` alone, so any glass-intended material with opaque palette alpha could never enter the glass path in either pass. New `_GlassForcedMat0..7` globals (8 id slots, `Forced Glass Material Ids` inspector list) OR with the alpha test in `IsGlassVoxel`; forced-glass mats with opaque alpha transmit at `flaggedGlassAlpha` (default 0.6). `IsGlassMaterial` shares the same id list so flagged panes get flood-fill dedup too. (Globals used because `Shader.SetGlobalIntArray`/`Material.SetIntArray` don't exist in this Unity version.)
+- **113 Lit Window deprecated** — obsolete per the "all windows are just glass" convention (lit/unlit becomes a runtime lighting concern). Redirected rather than deleted: `StAssetReader.MobColors[113]` + `mob_materials.py` + both editor palettes now alias 113 to Window Glass (112) color/alpha — every already-baked `.stasset` with 113 voxels renders as normal transparent glass with no regen required. Removed 113 from the shader's emissive `GetLighting` list; generators' two `LIT_WINDOW` bake sites (casino, speakeasy upper floors) now write `WINDOW_GLASS`; `IsGlassMaterial` includes 113 so legacy panes still flood-fill into pane groups.
+- 🧪 Verify: enable `Use Glass Composite Pass` on VoxelChunkManager → windows show real interiors; cars/buildings tinted through glass; sandwich objects visible; `Glass Max Layers` still caps to frosted; toggle off → identical legacy render. Sectors keep legacy combined look (known far-LOD divergence). Add `113` to Forced Glass Material Ids → lit windows become see-through at 60% transmission (still warm-tinted).
+
+---
+
+## October 10, 2026 — Tools: Vehicle Palette in mob_materials.py (FIX)
+
+### Root cause
+- `.stasset → JSON` exports of vehicles emitted white `ID 14x` placeholder materials — `MOB_MATERIALS` had no 140-147 vehicle range, so the editor's palette import (`allMaterials = data.materials`) stomped the editor's own correct defaults → the whole car rendered near-white/brass.
+
+### Changes
+- **`mob_materials.py`** — added 137 Water + the full vehicle block 140-147 (Vehicle Paint, Accent, Chrome, Tire Rubber, Headlight, Taillight, Interior Leather, Auto Glass) matching `StAssetReader` colors exactly, plus convenience constants.
+- 🧪 Verify: re-export a vehicle via `stasset_to_json.py` → materials carry real names/colors → editor shows the green body / dark fenders / chrome grille the runtime shows.
+- Note: `vehicle_490_touring.stasset` also contains 84 voxels of material **10** — undefined in every palette (renders white in Unity too). Probably stray voxels in the source asset; flag for cleanup.
+
+---
+
+## October 10, 2026 — Render: Pane Group Dedup for Glass (FEATURE)
+
+### Design
+- Spec'd in `docs/systems/GLASS_SHATTER_MECHANIC.md` ("Pane Groups as a Render Primitive") + `docs/systems/VOXEL_GLASS_TRANSPARENCY.md` — one gid pane unit, two consumers: render (single-tint surface) + shatter (P2 cascade unit).
+- Same-pane cells skipped also skip `_GlassMaxLayers`/throughput accounting — a grazing ray through one wide pane costs one layer slot, not N.
+
+### Changes
+- **`VoxelChunkManager.cs`** — `ComputePaneIDs`: 6-connected flood fill over glass materials (112/114/147) → per-voxel pane ids (0 = non-glass), cached by packed-data reference (cloned/procedural arrays recompute automatically). `paneBuffer` on VoxelChunk **and** InstancedGroup (vehicles/characters share the instanced path — vehicle windshields get dedup too) + `defaultPaneBuffer` dummy bound on all paths lacking pane data (sectors, external volumes) per the SRV-every-slot rule. Released alongside voxelBuffer everywhere.
+- **`VoxelProxyRaymarch.shader`** — `StructuredBuffer<uint> _PaneIDs` + `lastPane` per-ray state: same-pane glass cells march through without re-tinting; `paneId == 0` (ungrouped glass) falls back to per-voxel accumulation.
+- 🧪 Verify: grazing view along the storefront band → one tint charge instead of stacked cells (clearer, less milky); straight-on views unchanged; buildings without glass unaffected.
+
+---
+
+## October 10, 2026 — Shader: Glass Budget Exhaustion → Frosted Pane (FIX)
+
+### Root cause
+- `VoxelProxyRaymarch.shader` — when the glass transmission budget was exhausted (`glassLayers >= _GlassMaxLayers` or `throughput <= 0.03`), the voxel **fell through to the opaque wall-shading path** — the N+1th glass surface rendered as a lit solid brick. Visible at grazing angles across window grids, and as solid slabs at `Glass Max Layers = 1`.
+
+### Changes
+- **`VoxelProxyRaymarch.shader`** — extracted glass lighting into `GlassLit()` helper (ambient + wrapped diffuse + sun glint, shared by both paths). The glass gate is now `baseColor.a < 0.99` alone; a glass voxel that fails the budget check terminates the march as a **frosted pane**: absorbs remaining throughput as full-strength tint (`glassAccum + throughput * tint`), writes depth at the first glass face, and gets the `_LodDebugColor` override like the opaque path.
+- `MobSimVoxelRaymarch.compute` untouched — it never had the accumulate path (glass is opaque-emissive there by design).
+- 🧪 Verify: `Glass Max Layers = 1` on the tenement facade → second+ panes render as frosted glass tint (still glass-colored), never solid wall. Grazing facade views cap at a frosted ceiling instead of solid brick streaks.
+
+---
+
+## October 10, 2026 — Runtime: WASD Free-Look in F6 Mode (FEATURE)
+
+### Changes
+- **`CityMap3D.cs`** — WASD fly movement while `debugCameraFreedom` (F6) is on: moves `cameraFocus` along the camera's live view axes — W/S fly along view direction (pitch-aware), A/D strafe, Q/E descend/ascend, Shift = ×3 speed. Speed scales with `orthographicSize` (ortho) or `debugCameraOrbitDistance` (perspective). Runs on `Time.unscaledDeltaTime` so it works under F8 time freeze.
+- Same routing as RMB pan: `ep.AddCameraPanOffset` in execution mode, direct `panOffset`/`cameraFocus` in planning — so behavior stays consistent with the existing pan model.
+- 🧪 Verify: F6 → WASD flies the camera through the city; E/Q for height; Shift boost; turning via MMB-rotate still works and WASD follows the new view direction.
+
+---
+
+## October 9, 2026 — Editor: Ruler Upgrade — Planted Measurements (FEATURE)
+
+### Changes
+- **`voxel_editor.html`** — ruler reworked from single freeze-on-measure to up to **4 planted rulers**, each its own color (R1 cyan, R2 amber, R3 magenta, R4 lime):
+  - Click start → click end = **plant** (dedicated overlay meshes, independent of the highlight system).
+  - **Axis-lock modifiers** — same as the line tool (`lineLockedEnd`/`lineLockLabel` reused): `Shift`=Y, `Ctrl`=Z, `Alt`=X; live in both the click commit and the hover preview, with `[Y/Z/X-locked]` tooltip labels.
+  - **Persistence contract** — plants survive `ESC`, tool switches, and every general clear path. `ESC` only cancels an *in-progress* measurement (`rulerStart`). Clearing happens exclusively from the new **📏 ruler panel** (per-ruler ✕ + Clear All), shown in the left panel while the ruler tool is selected.
+  - **Full queue behavior** — planting a 5th refuses with a status prompt; the in-progress start is kept so the user can clear a slot and retry.
+  - Hover tooltip now lists planted distances (`R1=… | R2=…`) alongside the live preview.
+  - **Model resets still clear plants** — `applyDefaultModelData` + new-project reset call `clearAllRulers()` (a measurement from model A is meaningless on model B).
+  - Replaces the old single `rulerFrozen` overlay + its ESC-clear semantics; all `rulerFrozen*` machinery removed.
+  - **Endpoint labels** — each plant emits a small color-matched chip (`R1 · 34.2v`) anchored at its end cell, projected to screen space every frame in `animate()` (hides when the endpoint is behind the camera). `pointer-events:auto` + `title` make it a real hover tooltip with the full measurement line; container stays `pointer-events:none` so labels never eat voxel clicks outside the chip.
+  - **Selection extrude chaining (BUG FIX)** — `performSelectionExtrude` never synced `selVoxels` with results: peeled cells stayed "selected," so the next de-extrude's face test saw them as neighbors and skipped every deeper cell (one-shot dead end). Now: peeled cells leave the selection, grown cells join it, and **de-extrude columns re-anchor to the next solid cell inward** (skipping ≤8 air cells — covers 1-voxel pane + recessed gap), so repeated Ctrl+clicks keep peeling deeper like re-clicking the freshly exposed face. `sel-info`/overlay refresh each pass; empty result clears `selectionActive`.
+  - **Paste-controls visibility (BUG FIX)** — same `#adv-panel` burial: the move/rotate/confirm panel only appeared if the mirror panel was already open. Extracted to a standalone fixed panel (left:488px) shown during paste/move mode; also hidden with `H`.
+  - **Ruler panel visibility (BUG FIX)** — `#ruler-panel` was nested inside `#adv-panel`, which is `display:none` until the 🪞 mirror button opens it. Extracted to a standalone fixed panel (left:488px, next to the adv-panel slot) that renders whenever the ruler tool is selected; also hidden with `H` (ui-hidden) like other panels.
+  - **Off-voxel locked endpoints (BUG FIX)** — with an axis-lock held, the ruler endpoint now projects onto the locked axis-line via `axisLockEndFromRay` (line-line closest approach, in cell space with Unity-mirror unflip). Previously the endpoint required a voxel under the cursor, so vertical measurements died the moment the cursor passed the roofline or left the wall face. `updateHighlight`/`performTool` `!hit` early-returns bypass when `ruler + rulerStart + heldAxisLock`; degenerate parallel rays fall back gracefully. Locked behavior is now uniform: same endpoint whether hovering a wall or open sky.
+- 🧪 Verify: R → click two points → colored plant stays after ESC and after switching to paint; 4 plants = refusal message; panel ✕ frees the slot and re-colors reuse correctly.
+
+---
+
+## October 9, 2026 — Editor: Camera Toolbox (FEATURE)
+
+### Changes
+- **`voxel_editor.html`** — new "🎥 Camera" section in the Layers & View tab + full keyboard/hotkey support:
+  - **Cursor-centered zoom** — `controls.zoomToCursor = true` (three.js 0.160): the wheel dollies toward the voxel under the cursor instead of the orbit target. Most intuitive way to dive into a detail area.
+  - **Orbit pivot** — `T` / `◎ Orbit→Cursor` retargets the orbit point to the hovered voxel (tracked via `lastHoverHit` in `updateHighlight`); damping eases the retarget.
+  - **Framing** — `⛶ Sel` / `⛶ All` / `0` key: computes the world-space bbox of the selection (or all voxels) and dollies to fit, keeping the current view direction.
+  - **Axis views** — Front/Side/Top/Iso buttons + `1`/`3`/`7`/`9` keys (Blender numpad convention), preserving distance + orbit target.
+  - **Dolly buttons** — 🔍+/🔍− scale the camera↔target distance ×0.75/×1.33.
+  - **Camera bookmarks** — B1–B4: click to recall a pose, Shift+click to save (position + target).
+  - **Keyboard pan** — `Shift+arrows` nudges target+camera together in the ground plane (XZ, same scheme as paste nudges); input-guarded since Shift+arrows is text selection.
+  - **`Home`** = reset view (reuses the 🎯 reset-btn handler, now factored as `window.resetView`).
+  - **Front-facing convention fix** — `viewAxis('front')` and Iso now point at the **z-MIN face** (the authoring convention: storefront/door/awning at z≈0); previously Front showed the building's rear. `initialCamPos` flipped to the front-right-top corner across all 6 init/reset/load sites so first-load and Home also open on the storefront corner.
+  - **Unity-mirror pivot fix** — `cellToWorld` now applies `unmirrorWorldX`: raycast hits return in un-mirrored grid space but voxels render mirrored (`scene.scale.x = -1`), so `T`/Orbit→Cursor previously parked the pivot on the opposite X side and the camera yawed *away* from the cursor. `frameView` needed no fix (bbox center + radius are mirror-invariant).
+  - **Init-order crash fix** — `addEventListener('click', () => resetView())` wraps the identifier: passing `resetView` bare evaluated it at registration (~line 6067) before its later assignment, killing the module and leaving `paintDragActive` (6268) in TDZ — every `setTool` then crashed.
+  - **Pipeline nav link removed** — `character_pipeline.html` link dropped from `#editor-nav` (obsolete; it floated over the toolbar's Load button). Animator + City Editor links remain.
+  - **Loaded-file pill** — new `#file-badge` sits beside the Unity View pill (shared `#top-badges` flex row): shows `📄 <name>` once a project/template/WIP loads, `— no file loaded —` otherwise. `updateFilePill()` hooked at all 6 `loadedModelName` assignment sites (file loads, WIP load, new-project reset).
+- All digit/view keys guarded for INPUT/TEXTAREA so typing in fields doesn't jump the camera.
+- 🧪 Verify: wheel-zoom now homes to the cursor voxel; hover a voxel → `T` → MMB-rotate orbits that voxel; `0` frames selection; `1/3/7/9` snap views; B1 Shift+click then rotate away then click B1 → returns.
+
+---
+
+## October 9, 2026 — Docs: Business Taxonomy → Asset Generation Contract
+
+### Changes
+- **`docs/core/BUSINESS_TAXONOMY_ASSET_GENERATION.md` (NEW)** — pins the generator roadmap to RE data. Key discovery: `Economics.xtx` column 23 (`building reference`) is the original's own visual-archetype system — **171 business types collapse to 7 building visuals** (BRef=1 storefront serves 101 types; BRef=4 factory serves all 33 industrials; BRef=0 = 17 civic signatures; BRef=5 = residential+tenement). NP (Number Present) data grounds the priority: tenements + residential ≈ 80% of city surface → `gen_tenement_block` first, parametric `gen_storefront` second. Also documents: center-slot = illegal/concealment semantics (RE Size=0), the 8-group → asset-class mapping, generator coverage gaps, roadmap order, BREF_MAP resolution, and the Phase 2→3→city_template→generator pipeline contract. Registered in `DOCUMENTATION_INDEX.md` under Core Design.
+- Raw extraction run: `docs/xtx_decrypted/Economics.txt` parsed for Type/BRef/NP distributions (179 business rows, group headers `117 0` etc.).
+- **Design decision recorded**: BRef is the fallback floor, not the ceiling — Steel City adds per-type identity presets + per-instance seeded variants so businesses are individually distinguishable (three-tier variety: signature presets → parametric family → seed jitter; identity work applied in NP order). Captured in the taxonomy doc + `DIFFERENTIATION_FROM_ORIGINAL.md` §2.
+
+---
+
+## October 9, 2026 — Editor: Save/Load/Export Consistency (BUG FIX)
+
+### Root causes found
+- Three divergent behaviors: Save Project = download-only, Save As = list+download (double action littered downloads), Load = never registered to list.
+- **Silent quota bug**: `setWIPs` swallowed `QuotaExceededError` — projects over ~5-10MB (tenement JSON ~40MB) can NEVER persist to the browser WIP list. "Sometimes it saves" was quota-driven and invisible.
+
+### Changes
+- `setWIPs` returns success; Save As now reports *where* it saved: `saved to list + downloaded (N voxels, X.XMB)` vs `"name" is X.XMB — too big for browser WIP storage, downloaded file is your only copy`.
+- Dialog copy states the contract up front (file vs browser-list, quota); button relabeled `Save As…` → `Save As WIP…`; empty-list hint updated.
+- Load still reads files only — file-on-disk is already the durable copy (list = in-browser scratchpad).
+- 🧪 Verify: Save As on a small model → appears in list + downloads; on the tenement → status reports download-only (no silent no-op); reload → WIP persists.
+
+---
+
+## October 9, 2026 — Editor: Del Key Erases Selection (FEATURE)
+
+### Changes
+- **`Del`/`Backspace` bound to `deleteSelection()`** in the main keydown switch — input/TEXTAREA-guarded (Delete is a text-editing key and the switch otherwise fires on field keystrokes) and no-ops when `selVoxels` is empty. Toolbar 🗑 button title updated to advertise the key.
+- 🧪 Verify: select voxels → Del → cells delete + pushHistory; typing in a text field → Delete edits text, selection untouched.
+
+---
+
+## October 9, 2026 — Editor: Line Tool Axis-Lock (FEATURE)
+
+### Changes
+- **`lineLockedEnd()`** — line endpoint projects onto the locked axis through the start: **Shift=Y, Ctrl=Z, Alt=X** (free component keeps its delta, other two snap to start). Applied in both the click commit and the hover preview, so the dashed preview shows the locked line live.
+- **`shiftHeld` tracking** — added to match `altHeld`/`ctrlHeld`/`wHeld`/`qHeld` (keydown/keyup + blur reset + live `updateHighlight`); stored mousemove events carry stale modifier keys.
+- **Status text** — hover shows `— Shift=Y Ctrl=Z Alt=X lock` when no lock held, or `[Y-locked]`/`[Z-locked]`/`[X-locked]` while locking; commit status echoes the lock.
+- 🧪 Verify: Line tool → click start → hold Shift → endpoint snaps to a vertical line through the start; same for Ctrl (Z) and Alt (X); releasing the modifier restores free 3D end.
+
+---
+
+## October 9, 2026 — Editor: Extrude Shift-Hover Face Preview (BUG FIX)
+
+### Changes
+- **Extrude Shift+hover** — Ctrl+hover previewed the full de-extrude face via `computeExtrudeFace`, but Shift+hover only changed the hint text and never highlighted the surface it was about to drag. Shift now shows the same face preview (`Drag-extrude @ … — N face voxels [Shift+click+drag]`), symmetric with Ctrl's de-extrude preview.
+- 🧪 Verify: extrude tool → hold Shift over a wall → whole face highlights (was: only the hovered cell); Ctrl still shows the removal face.
+
+---
+
+## October 9, 2026 — Editor: Paste/Move Rotation (FEATURE)
+
+### Changes
+- **`rotatePaste(axis, dir)`** — paste/move preview now supports quarter-turn rotation on all three axes, about the clipboard's own bbox center with re-anchor so the piece spins in place. Only 90° steps offered (they map cells to integer cells exactly; arbitrary angles would need destructive resampling). Even-sized spans rotate about half-cell centers via Math.round. Tags (gid/rid/pid) ride the cells; painted pivot clusters follow automatically. Chirality preserved — L/R gid names don't flip (correct: rotation ≠ mirror). Composes with existing nudges/mirror-move.
+- **UI**: rotate button row in paste-controls (↺/↻ per axis) + keys `,`/`.` yaw, `;`/`'` pitch, `o`/`p` roll (only inside paste mode) + updated status hint text.
+- **Arrow remap (same change, later fix)**: arrows now move in the GROUND plane XZ (Up = away from camera / "forward", Down = toward) instead of X/Y — the missing "forward/back" was Z, previously only on `[`/`]`. Vertical Y moved to `PageUp`/`PageDown`.
+- 🧪 Verify: box-select → Copy → Paste → `,`/`.` spins the ghost preview about its center; repeated presses walk 90°/180°/270°; Confirm places the rotated result; Move mode (V) rotates + relocates originals with tags intact.
+
+---
+
+## October 9, 2026 — Design: Glass Shatter Mechanic Prototype Spec (DOC)
+
+### Changes
+- **`docs/systems/GLASS_SHATTER_MECHANIC.md` (new)** — resolves the "Shattering" option from the glass doc's design boundary. Seeded bullet-hole model: impact cell + ring-falloff removal, cracked-halo material, gid pane-unit cascade for blasts, removed voxels = shard particle spawn list (1:1), damage-type → break-radius table, **no rigidbody physics** (choreographed randomness + one GPU particle system). P0–P3 phased plan; engineering cost lives in the dirty-cell → raymarch → LOS chain, not physics.
+- **`VOXEL_GLASS_TRANSPARENCY.md`** — design-boundary section now links the resolved spec; debris-vs-air question carried into the doc's open questions (prototype answer: AIR first).
+- **`STEEL_CITY_ROADMAP.html`** — Phase 5 feature card "Voxel Glass Shatter" after Tier 2 Door Leaves, listing the P0–P3 milestones + generator pane-gid contract.
+- **`DOCUMENTATION_INDEX.md`** — glass cluster entry added; stale "4-deep pane" note corrected to the 1-voxel convention; keywords extended (shatter/destruction/bullet hole/cracked halo/pane gid).
+
+---
+
+## October 9, 2026 — Editor: Per-Asset-Type Consistency Audit + Vehicle Fixes (BUG FIX)
+
+### Audit verdict
+All four asset types (Building/Character/Item/Vehicle) share ONE editor core — edit tools, selection ops, undo, lighting, slice/mirror all behave identically. Divergence lives in def tables, tab visibility, voxel scale, and export format — by design. The audit surfaced three real bugs in the vehicle metadata path:
+
+### Changes
+- **Group name resolution** — `BODY_GROUPS.find` was hardcoded in 6 places (Q+click select status, G-paint assign status, hover preview). On vehicles these reported character names ("Left Arm" instead of "Wheel FL"). All now use `activeBodyGroups()`.
+- **`exportGroupsJSON`** — shipped `BODY_GROUPS` defs regardless of asset type; a vehicle `.groups` file would label wheel gids as body parts. Now exports `activeBodyGroups()`.
+- **Vehicle mirror pair table** — `MIRROR_GID_PAIRS` was character-only; on a vehicle, Wheel FR(2)→Wheel RL(3) and FL(1) didn't mirror at all. Added `VEHICLE_MIRROR_GID_PAIRS` (FL↔FR, RL↔RR, Door L↔R; centerline parts self-map) and `mirroredGid` now picks the table by asset type.
+- **`mirroredPartId` vehicle keys** — only handled `_left`/`_right`/`pivot_N`; vehicle keys (`axle_fl`, `door_hinge_l`, `entry_r`) never mirrored. Added `_fl↔_fr`, `_rl↔_rr`, `_l↔_r` suffix handling.
+- **Q/W left live on building/prop (intentional)** — group/region tag machinery stays enabled for future building metadata (floor/zone/breakable tags); only the Q+click miss message was rewritten to say the defs are dormant rather than referencing a hidden tab.
+- 🧪 Verify: Vehicle asset → G-paint Wheel FR with mirrorX on → mirrored cells should tag Wheel FL (was Wheel RL); Q+click a wheel → status says "Wheel FL/FR…" (was "Left Arm"); Export Groups → `bodyGroups` lists car parts.
+
+---
+
+## October 9, 2026 — Editor: Lighting Settings Persist (UX FIX)
+
+### Changes
+- **Lighting persistence** — sliders restored position on reload (browser form restoration) but nothing replayed them into the `THREE.Light` objects, so lights sat at defaults until a control was nudged. All 12 lighting controls now save to `localStorage['voxelEditorLighting']` on every change, and `applyLightSettings()` replays them on load — inputs, labels, light objects, and `updateDirLightAngles()` together. Reset Defaults also saves so the reset survives reload.
+- 🧪 Verify: change a color/slider → reload → scene lights match immediately without touching controls; Reset Defaults → reload → defaults still applied.
+
+---
+
+## October 9, 2026 — Editor: Box-Select Feedback (UX FIX)
+
+### Changes
+- **Box-select in-flight preview (UX)** — Ctrl+click box select existed but between the two clicks the hover showed the *wrong thing* (flood-region preview under the cursor, since the select hover chain had no `boxStart` branch). Now a `select-box`/`select-box-add` in-flight start previews the actual candidate box — full `computeBoxVoxels` cells under `HL_SHELL_LIMIT`, `previewBounds` wireframe above it — with live `Box select: (start) → (hover) = N cells — Ctrl[+Alt]+click to confirm/add` info text.
+- **`ctrlHeld` modifier tracking (UX)** — Ctrl now tracked like `altHeld`/`qHeld`/`wHeld` (keydown/keyup + blur reset + live `updateHighlight` refresh). Holding Ctrl over a solid voxel advertises the gesture: `Ctrl+click = box select start @ (x,y,z)` (Ctrl+Alt = additive). The affordance was previously invisible unless you already knew the chord.
+- 🧪 Verify: Select tool → hold Ctrl over a voxel → single-cell marker + start hint; Ctrl+click once → magenta box grows/shrinks with cursor + cell count; Ctrl+click again → selection commits; Ctrl+Alt variant adds to existing selection; plain flood-select/Alt-add/W/Q paths unchanged.
+
+---
+
+## October 9, 2026 — Plan: Generator Studio Editor Sub-Module
+
+### Changes
+- **`VoxelAssetStudio/GENERATOR_STUDIO_PLAN.md` (NEW)** — implementation plan to bring procedural generation into `voxel_editor.html` as a sub-module: classic-script `gen_core.js` (Grid3D + seeded RNG + param-schema→slider UI + preview pipeline) + per-archetype generator scripts (file:// CORS → classic scripts, never local ES modules). Regen previews never touch voxelMap — Accept = one history entry; Loose/Locked toggle maps the lifecycle to UI; **lock-spec JSON is the shared artifact** between JS authoring and Python batch emission (RNG parity explicitly not required — the spec is the artifact). Phases P0–P4 (prove loop → param UI → lock export → catalog preview → Python parity) + pitfalls list. Registered in `DOCUMENTATION_INDEX.md` under VoxelAssetStudio Roadmaps.
+
+---
+
+## October 9, 2026 — Generators: 1-Voxel Window Convention Baked In
+
+### Changes
+- **`procedural_mob_buildings._add_windows_all_sides` (BAKE)** — every pane now writes to the outermost wall cell only and AIR through the rest of the bore (`[...,0]`/`[w-1]`/`[d-1]` glass + `[1:wt]`-style air), replacing full-`:wt` glass fills. Covers all 4 call sites including the `LIT_WINDOW` variants (apartment block, HQ). Same convention applied to all 6 direct glass writes (storefront bands, barbershop/diner/casino/speakeasy windows).
+- **`gen_scaled_tenement.add_windows` + storefront writes (BAKE)** — same 1-cell + air-bore rewrite; upper-floor windows and ground-floor storefront both emit depth-1 panes.
+- **Verified empirically** — regenerated 6 assets and measured contiguous glass runs along wall normals + cell-behind-pane: scaled_tenement (1,313), diner (954), barbershop (584), speakeasy (168), hq (952), apartment_block (4,248) — **all depth-1, all AIR behind**. One pane = one blend event = uniform alpha with vehicle glass; bore recess opens into the hollow core (lit-room path ready).
+- **`analyze_building.py` stale convention fix** — block size was 96v; now canonical **192v** (3×3 grid of 64v slots, `BuildingVoxelWidth=64`/`buildingsPerBlockRow=3` in `CityMap3D.cs` → 11.6m ground tile). Fit report distinguishes single-slot (≤64v) vs full-block (≤192v) buildings.
+- **Docs** — `CITY_LAYOUT_PIPELINE.md` gains a "Canonical Block Dimensions for Voxel Assets" section (64v slot / 192v block / free height / full-block mega-buildings / the slot-multiple contract for pending city generation); `VOXEL_GLASS_TRANSPARENCY.md` authoring section now records the bake + don't-trust-`WALL_T` caveat; `DOCUMENTATION_INDEX.md` keywords updated.
+- ⚠️ Shipped `tenement_block_0` predates the bake — it's a **2×-upscaled relic** (`upscale_all_stassets.py` "already upscaled": original 96×60×96, WALL_T 2→4v, panes 2→4v — root cause of the 4-deep glass). Being hand-repaired as the reference asset. **Checked `generate_city_assets.py`: no overwrite risk** — `city_template.json` only contains `empty_land` entries and `block_type` is disabled (`None`), so it can't emit `tenement_block_0.stasset`. The real hazard: it rewrites `city_layout.json`, which currently references tenement_block_0 (2 blocks) + shooting_range (1) — a batch run would silently unload them. The current layout is bespoke (references `empty_land.stasset` unsuffixed; the runner emits `empty_land_{id}.stasset`) — preserve it.
+
+---
+
+## October 9, 2026 — Docs: Perf Patterns + Glass Transparency
+
+### Changes
+- **`docs/core/PERFORMANCE_PATTERNS.md` (NEW)** — the 12 optimization patterns proven in the editor this session (tracked-write maps, partial GPU uploads, delta history, shader-side clip, epoch-marked grids, chunked scans, member-marks, generation counters, slot bookkeeping, view signatures, swap-pop/grow-only), each mapped to concrete Steel City reuse (runtime voxel edits, lit-window flips, influence BFS, GPU picking). Registered in `DOCUMENTATION_INDEX.md` under Core Design.
+- **`docs/systems/VOXEL_GLASS_TRANSPARENCY.md` (NEW)** — everything learned about clear/emissive voxels: per-cell alpha accumulation `(1−a)^cells`, the 1-vs-4-cell windshield/window thickness discovery (verified: every `tenement_block_0` pane is a 4-deep run — ~40cm vs ~1cm, `a=0.6` → 2.6% transmission), grazing-angle banding, emissive material list (113/115–117/124, no light spill), inspector-as-bake knobs, `:WALL_T` vs `[:1]`+air authoring, and the windows↔projectiles design boundary (visual ≠ ballistic transparency; shattering now cheap via dirty-cell partial uploads). Also records the **settled convention — windows are 1 voxel thick** (uniform N=1 alpha everywhere, air-filled bore required) and the LIT_WINDOW role migration: emissive cells move from pane to interior contents, and are placeholders for future world-lighting emitter volumes (pane + hollow shell carry over unchanged). Registered under Systems Design.
+- **`Assets/docs/VOXEL_ASSET_PIPELINE.md`** — corrected the stale "open .stasset / save back to .stasset" claim: the editor imports consolidated JSON; documented the sidecar round-trip (`JSON Models In Progress/`, `stasset_to_json.py`, `json_to_stasset.py`, SKEL-tail preservation).
+
+---
+
+## October 9, 2026 — Editor: Hover Preview Hitch (PERF FIX)
+
+### Changes
+- **Chunked hover flood fill (PERF)** — entering a new connected region with the Select/Fill tools ran a full synchronous BFS + `mirrorPositionsPreview` + `previewMemoPut`, which wrote a `Map` entry for *every member cell* (~300k string-key `Map.set`s on the tenement floor — the hover hitch). `fillChunked` now slices the same epoch-marked BFS across rAF frames (~30k cells/slice), deduped per aux key; while scanning the tooltip shows `Scanning region…` and the highlight pops in on completion via a stored hover snapshot. Sliding across several regions queues each scan — results stay memoized for the return pass.
+- **O(1) memo membership (PERF)** — `positionsMemo` was keyed per-cell (`aux|x,y,z` — hence the 300k writes). Entries are now keyed by aux only: fill-derived entries validate membership via `_memberBuf[cellIdx] === entry.epoch` (fills mark member cells in a dedicated buffer — separate from `_markBuf` so `mirrorPositionsPreview` can't clobber marks); scan-derived entries (w/q tag scans) keep a per-entry member `Set`. Memo cap dropped 400k cell-entries → 64 aux entries.
+- **Staleness guards** — `_memberFloor` invalidates all member-marks and `positionsMemo.clear()` + `_fillGen++` discard cached/in-flight previews on every `rebuildMesh`, so a fill that started before an edit can't memoize stale results.
+- Fill tool `replace`/`air` previews share the async path (`clampFilter` applied post-fill inside the memo entry). `cavity` stays synchronous — it depends on the exterior-air chain, a separate cost center.
+- 🧪 Verify: Select tool → sweep cursor across the tenement → no hitch; crossing the 300k floor shows `Scanning region…` briefly then the full highlight; re-hovering the same region is instant; material boundaries still preview the correct region; after an edit, hovers recompute (no stale selections); click-commit selection unchanged.
+
+---
+
+## October 9, 2026 — Editor: Shader-Side Slice Clip (PERF FIX)
+
+### Changes
+- **Slice sliders no longer rebuild (PERF)** — every `input` tick on the Y/X/Z slice sliders ran a full `rebuildMesh` (~500ms × continuous ticks on the 765k tenement = the slicing hang). The clip is now a shader-side discard: `uVoxClipMin`/`uVoxClipMax` uniforms + a `vVoxOrigin` varying (the instanceMatrix translation column) reject fragments outside the slice in `lambertMat.onBeforeCompile` — same injection as the grid lines. `updateClipUniforms()` runs every frame in `animate()`, so ALL slice-var write sites (sliders, resets, loads, `updateSliceRanges`) are covered with no call-site wiring. Slice vars left `viewSig()` and `isVoxelShown()` no longer checks bounds — instances exist for clipped voxels, so dragging never touches the CPU path.
+- **Raycast/picking still respects the slice** — `raycastVoxel` checks `inClipBounds` + `isVoxelShown`; `raycastVoxelMesh` (pose-test path) now walks all intersects and maps `instanceId → slotKeys` (fixes a latent bug: it indexed `getVisibleVoxels()` by instanceId, which incremental swap-pops had already desynced) and skips clipped/hidden hits — shader-clipped voxels are never clickable.
+- **"Visible" count stays honest** — `instancedMesh.count` now includes clipped voxels, so `_clipShownCount` is maintained instead: counted in-clip during full rebuilds, adjusted ±1 per dirty cell in the incremental path, and fully recounted via `refreshSliceCount()` on slider `change` (release) + `updateSliceRanges`.
+- 🧪 Verify: drag Y-slice on the tenement → butter-smooth cutaway, layer-info + Visible count update on release; hover/click inside a sliced region → clipped voxels not selectable; place/erase while sliced → count tracks; Grid Lines still render inside the cut.
+
+---
+
+## October 9, 2026 — Editor: Per-Edit Rebuild Hang (PERF FIX)
+
+### Changes
+- **Incremental instance updates (PERF)** — every voxel edit paid a full `rebuildMesh`: `getVisibleVoxels` re-split 765k string keys + `isVoxelShown` string-concat per voxel + 765k `{x,y,z,mid}` allocations + a full instance-buffer rewrite (~400–600ms per click on the tenement). `voxelMap`/`groupMap`/`itemPartMap`/`clothingRegionMap` are now `TrackedMap` subclasses that mark every written key in `voxDirty`; `rebuildMesh` fast-paths through `applyIncrementalEdits()` — append / color-rewrite / swap-pop-remove on just the touched slots. Falls back to full rebuild when: dirty set > 8192, view-state signature changed (clip bounds, view modes, pose params, origin, palette size, pivots — `viewSig()`), `matVisible`/`groupVisible` (now `FlagMap`s) or `ensureMatVisibility` fired, or instance capacity is exceeded. Zero call-site changes needed — all 105 map-mutation sites auto-record. Shared per-voxel write extracted to `writeInstanceAt`/`computeVoxelColor` (full + incremental paths can't diverge).
+- **Partial GPU uploads (PERF)** — `instanceMatrix.needsUpdate` re-uploaded the WHOLE instanced buffer per edit (~58MB on the tenement for a 76-byte change). `applyIncrementalEdits` now records `addUpdateRange` spans per touched slot (appends, rewrites, swap-pop destinations) — `needsUpdate` then `bufferSubData`s only those ranges in three r160. Single-voxel edit ≈ 64B matrix + 12B color upload.
+- **Delta undo history (PERF/MEMORY)** — `pushHistory()` cloned all 765k voxels + 3 tag maps + a JSON pivot copy per edit (~50–150ms click tax, and ~150–250MB held across the 50-entry history). `TrackedVoxelMap` records each cell's pre-write value automatically; entries now store `voxDelta` (key → [old,new]) + tag-map snapshots (small) + pivots. `undo`/`redo` apply deltas via `applyVoxDelta`/`applyTagSnapshot` — undo of a small edit is itself a small edit → incremental mesh update covers it. `syncMapTo` restores tag maps by diff so undo doesn't force a full rebuild.
+- 🧪 Verify: tenement → place/erase/paint clicks feel instant; paint drag smooth; Ctrl+Z/Ctrl+Y across edits (incl. tag assignments and a selection-erase) restore correctly; material/group visibility toggles + Y-clip + pose modes still refresh correctly; selection multi-extrude undo in one step.
+
+---
+
+## October 9, 2026 — Editor: Grid Lines at Any Scale
+
+### Changes
+- **Voxel grid lines moved into the mesh shader (FIX/PERF)** — the grid toggle drove a per-voxel `InstancedMesh` wireframe that was silently skipped above `EDGE_VOXEL_LIMIT = 60000` (~9M line segments on the tenement) — the button lit green and drew nothing on large models. Replaced with an `onBeforeCompile` injection on the voxel `lambertMat`: a fragment darkens when ≥2 box-local coords are near ±0.5 (exactly the 12-edge wireframe, per-pixel on the existing mesh). Zero extra instances/draw calls at any voxel count; toggle now just flips a uniform (no rebuild). `edgesMesh`/`edgesMeshCap`/`EDGE_VOXEL_LIMIT` deleted. Character mesh keeps its own instanced edges. 🧪 Verify: tenement loaded → grid button → visible cell outlines at any zoom; toggle off/on instant.
+
+---
+
+## October 9, 2026 — Editor: Flood-Fill Selection Cap Fix
+
+### Changes
+- **Flood fills no longer silently chop big regions (FIX)** — `computeFloodFill` had a hard 50,000-cell cap and `computeFloodFillAir` a 10,000 cap left over from the pre-epoch-grid slow path; on the 765k-voxel tenement the entire connected dark-wood mass (all floor slabs + stairs + trim = >50k) could never fully select, so erasing/adjusting "the floor" left unselected voxels behind — the "beams" artifact. Both now share `FLOOD_FILL_LIMIT = 2,000,000` (memory guard only — BFS is already volume-bounded via `beginMark()` since each cell is marked once) and set `result.truncated` when the cap fires. Hover tooltips show `N+` plus `— CAPPED` so a partial selection is never silent again. Note: selections >150k positions still render as the bounding-box shell (`HL_SHELL_LIMIT`) — selection ops work fine, the preview is just coarser. 🧪 Verify: hover the tenement floor → `Will select ~300k voxels` (not 50001); click-select → erase/adjust leaves no remnant rows.
+
+---
+
+## October 9, 2026 — Editor: Selection-Aware Extrude/De-Extrude
+
+### Changes
+- **Extrude tool respects multi-selection (NEW)** — `performExtrude`/`performDeExtrude` only ever flood-filled the single face under the click, so Alt-adding window panes with Select then switching to Extrude did nothing to the group. New `performSelectionExtrude(nx,ny,nz,deextrude,layers)`: when `selectionActive && selVoxels.length > 0`, every contiguous run of selected voxels along the clicked face's axis contributes its `+n`-facing surface layer (cells whose `+n` neighbor isn't in the selection). Plain click = +1 layer per region; de-extrude peels `layers` cells inward stopping at bounds or a material change (won't eat the wall behind the glass). Second fix: the mousedown handler intercepts extrude+Ctrl into a *drag de-extrude* before `performTool` runs — that's why Ctrl+click ignored the selection. The drag-commit on mouseup now routes through `performSelectionExtrude` when a selection is active, so Ctrl+click AND Ctrl/Shift+drag apply the layer count to every selected region. De-extrude face detection reads the static selection set (order-safe); extrude placements check the grid but never re-expand. Tool description + drag status text updated. 🧪 Verify: Alt-select 2-thick windows on two walls → Ctrl+click a window face → all selected panes thin to 1 cell; Ctrl+drag → peel N layers from all; plain click → grow back.
+
+---
+
+## October 9, 2026 — Transparent Materials in Proxy Raymarch (auto glass)
+
+### Changes
+- **Transparent voxel materials in `VoxelProxyRaymarch.shader` (NEW)** — palette `alpha < 1` now means "blend this surface and keep marching" instead of terminating the DDA. On a translucent hit the ray accumulates the tinted surface front-to-back (`glassAccum`/`throughput`, cheap ambient+sky lighting only — glass skips smooth-normal and shadow-ray work), advances into the next cell via the new shared `AdvanceDDA` helper (extracted from the loop tail — no duplicated step code), and continues; the terminating opaque hit composites `accum + throughput * litColor` at alpha 1. Capped at 4 surfaces / 3% throughput → opaque fallback. Glass-only rays discard, preserving city-pass content behind. Depth writes at the **nearest visible surface** (glass face), so SV_Depth compositing vs. other volumes stays correct. **No data/palette/C# changes needed** — Auto Glass (147, `a=0.6` in `StAssetReader`) and Window/Storefront Glass (112/114) already authored alpha; `_MaterialColors` carried it as `float4`, the shader just never read `.a`. 🧪 Verify: `vehicle_490_touring` windshield now shows the leather-bench/dash interior tinted blue-grey; look-through-the-car pixels show the street behind; everything else renders identically. Tuning knob if glass reads too milky/faint: the `a` term in `StAssetReader.MobColors[147]` (0.6 = strong tint; ~0.35 ≈ clear windshield).
+- **Not touched** (deliberate scope): `MobSimVoxelRaymarch.compute` (building windows stay opaque — separate phase), shadow rays still treat glass as opaque blockers, editor 3D preview still draws glass opaque (single `InstancedMesh` + vertex colors carry no alpha — use group 👁 toggles for interior work).
+- **Live glass tuning on `VoxelChunkManager` inspector (NEW)** — "Glass / Transparency" header: `autoGlassColor`/`windowGlassColor`/`storefrontGlassColor` full `Color` pickers (tint **and** opacity in one field — picker alpha = transparency, 0 = invisible glass; defaults = authored palette), `glassSpecular` (sun-glint specular on glass faces, `pow(dot(reflect(rd,n), lLocal), 24)` in the shader's glass branch), `glassMaxLayers` (1–8). `OnValidate` → `ApplyGlassSettings()` writes colors into `StAssetReader` + `RefreshMaterialBuffer()` + `Shader.SetGlobal*` for the shader params; also called once in `Awake`. Context-menu "Reset glass to authored palette" restores defaults. Edits apply live during play. Unset `_GlassMaxLayers=0` degrades to fully-opaque rendering (safe fallback).
+- **Hardness/shatter properties: NOT exported today** — `material_properties.json` only carries `mass` for legacy material ids 0–21 (consumed by `material_library.py`, not Unity). A hardness table for projectile interaction/shatter is a future add — either extend that JSON or keep a Unity-side table alongside `StAssetReader`.
+
+---
+
+## October 9, 2026 — Editor Highlight Shell Rendering + Compass Axis Scaling
+
+### Changes
+- **Compass axis size spinner + status-bar axis labels (NEW)** — the XYZ compass axes were fixed-size 1px `THREE.Line`s (WebGL ignores line width), too faint on large volumes. They're now thin `CylinderGeometry` meshes driven by an `axes-scale` number spinner next to the Axes checkbox (0.5–10, step 0.5, persisted to `voxelEditorAxisScale`): one value grows length AND thickness together (radius tracks length). Bottom status bar also gained a static `X Y Z` legend in the matching compass colors (red/green/blue).
+- **Compass X-Ray toggle (NEW)** — `X-Ray` checkbox next to the axes spinner (persisted to `voxelEditorAxesXRay`) draws the axes through the model: `depthTest:false` + `transparent` (moves axes into the post-opaque pass, else the nearer model still overdraws them) + `renderOrder:997` (under the 998/999 selection shell).
+- **Selection/hover highlight reworked — wireframe shell instead of per-voxel instances (PERF FIX)** — `showHighlight` rebuilt two `THREE.InstancedMesh` objects (fill box + 12-edge wireframe box) sized to the whole target region **every mousemove**; a ~27.7k-voxel hover meant ~55k instance uploads/frame → visible hitches on large selections and while orbiting with an active selection. All three highlight paths (tool hover preview, persistent selection overlay, frozen ruler) now share `buildShellMeshes()`: a single `BufferGeometry` shell — dim translucent *exterior* faces + contour-only `LineSegments` wireframe (coplanar interior grid lines deduped away), both `depthTest:false` so the highlight reads through the model. >150k positions falls back to a single bounding-box wireframe. Frozen selections no longer rebuild a same-color hover duplicate per mousemove. Bug: `docs/known_issues/editor/HIGHLIGHT_INSTANCED_REBUILD_LAG.md`. 🧪 Verify in editor: hover the 27k Vehicle Paint region — smooth orbit, outline wireframe through the car; box-select large volume → bounding box; ruler/paste previews intact.
+- **Highlight hover memoization (PERF FIX, round 2)** — the shell swap fixed rendering but `updateHighlight` still recomputed the flood fill + rebuilt geometry every mousemove. `positionsMemo` now caches the final positions array under every member cell of a region (flood fills are start-invariant — every cell in a connected region yields the same set), so sliding across the 27k paint region costs one compute total; `showHighlight` skips the rebuild when the positions array identity is unchanged; mid/right camera drags freeze the highlight instead of recomputing; giant box-drag previews (>150k cells) draw the bounding box directly instead of enumerating. Memo cleared on pointerdown/keydown/click/button-held moves — never stale.
+- **Flood/shell hot loop deallocation (PERF FIX, round 3)** — `computeFloodFill`, `computeFloodFillAir`, `buildShellMeshes`, `mirrorPositionsPreview` moved from `Set<string>` visited marks + per-cell array churn to a shared epoch-marked `Uint32Array` scratch grid + flat numeric stacks (~3-5× faster per new-region hover, near-zero GC). Workers rejected: voxelMap isn't shareable and SharedArrayBuffer needs COOP/COEP headers unavailable on file://.
 
 ---
 
@@ -31,12 +422,19 @@
 - **Editor auto-converts Unity-promoted files on load (FIXED — double-flip trap)** — loading a promoted runtime character into `voxel_editor.html`, exporting, and promoting again flipped `animParams` twice (gun in the right hand, LEFT arm aimed). Promotion never flips painted `itemParts`, so the load re-tagged one voxel per hand from the flipped attachments (phantom cluster "contamination"), and the export rebuilt attachments from tags (editor side), carried Unity-side `animParams`, and dropped the `handedness` stamp — defeating both promotion guards. `demoteIfUnity()` now converts any `handedness:"unity"` file back to editor convention at every file/default/project/stasset load site (same flip as `promote_character_to_unity.py`, which is its own inverse). Verified offline: JS-vs-Python parity in headless Edge (real + synthetic every-branch inputs) and a load→export→promote replay that reproduces the working runtime file. Bug: `docs/known_issues/editor/PROMOTED_FILE_ROUNDTRIP_DOUBLE_FLIP.md`; lifecycle doc G11. 🧪 Verify in the editor: load `StreamingAssets/voxel_characters/Civilian1.json` (status bar shows the conversion note; right_hand centroid stays 12.5), export, promote once.
 - **`Tools/json_to_stasset.py` attach fix** — routed `attachmentPoints` to `payload['attachments']` (was `building_meta`, wrong key; tolerates `{x,y,z}` and `[x,y,z]` forms). Round-trip verified: JSON→stasset→`load_stasset_full` returns all 12 anchors.
 - **`gen_vehicle_490.py` metadata shape fix** — `itemParts`/`attachmentPoints`/`itemPartDefs` now emitted in the editor-native forms (`"x,y,z"→pid`, `{x,y,z}` objects, numeric def ids). Attach Pts tab now lists real counts (7 voxels each) instead of zeros.
+- **Vehicle attach-tagging convention settled** — tags go on real material voxels only (cluster centroid = the point; air points like `exhaust_tip` tag the surrounding rim voxels). Generator's mat-10 fiducial blobs superseded; user is clearing and re-tagging by hand. Documented in `VEHICLE_VOXEL_ASSETS.md` §6.
 - **"Unity view" mirror in `voxel_editor.html`** — `U` hotkey / "Unity" checkbox mirrors the whole viewport left↔right (what Unity renders) via `scene.scale.x = -1` about the volume center — a scene mirror, not the animator's CSS flip, so orbit/pan feel normal and every grid-anchored overlay (highlight, ruler, selection, mirror planes, char preview) stays aligned. Picking un-mirrors the world ray + ground-plane hits; `camLight` un-mirrors to stay glued to the camera. Auto-on for vehicle/building/prop (un-promoted assets render mirrored in Unity), auto-off for character (promotion owns L/R labels); per-type prefs in localStorage. Detail the car's asymmetric bits (driver side, exhaust, handles) in this view — what you see is what Unity shows. Verified: headless-Edge harness replaying the real functions (mirror/unmirror round-trip, drifted origin, per-type defaults) + full-script syntax parse.
 
 ### 🧪 REVIEW FIRST (editor, not Unity)
 - Open `VoxelAssetStudio/voxel_editor.html` → Asset `🚗 Vehicle` → **Load** `vehicle_490_touring.json` (JSON Models In Progress) → inspect 3D + slices, Car Parts / Paint-Decal / Attach Pts tabs.
 - Quick static previews without the editor: `tools/preview_{iso,side,front}.png`.
 - After approval → flip the runtime fields above → Unity playtest (scale vs Vinny, lane fit, F8 cabin inspection).
+
+### Sit pose + `seat` anchor (part a of the seating feature)
+- **New anim state 11 `Sit`** — generic bench/vehicle seat pose: thighs forward ~90° (`legStride +1.45` — positive stride = leg forward in the keyframe convention), shins folded down (`kneeBend +1.45`), upright torso, slight forward arm rest (0.2). Full vertical slice: `animParams.sitting` section + `SittingData` + `isSittingState` branches in `VoxelCharacterAnimator` (CPU FK), `AnimState.Sitting = 11` in `CharacterAnimation`, `_AnimStaticParams` grown 13→15 float4s ([13] legs/knees, [14] arms/head) in `VoxelCharacter`/`VoxelChunkManager`, and matching branches in **both** pose kernels (`CharacterPoseCompute.compute` + `VoxelProxyRaymarch.shader`). No `bodyLower`/`modelLower` — the seated figure keeps authored pelvis height; the seat transform will position the instance. Ids 6/7 skipped (reserved Flinching/Falling).
+- **`seat` attachment point (CHAR_ATTACH_GROUPS id 15)** — the character-side half of the `seat_*` contract: tagged real-voxel cross cluster on the pelvis contact → `attachmentPoints.seat` = (48, 22.2, 45) on Civilian1 (midline, so promote passes it through unchanged). Authored in `Civilian1JointTestFINAL.json` (def + 6 tags + point + `states`/`sitting` entries) and promoted to the runtime file — which otherwise still matches the working playtest version.
+- **Flip parity**: `sitting` gets the same L/R swap as `crouching` in `promote_character_to_unity.py` and the editor's `demoteIfUnity`.
+- **Authoring surfaces**: `Sit` appears in `character_animator.html`'s state list (with a 7-slider tuning block for state 11) and in the editor's char-preview `POSE_STATES` + the anim-parity dropdown. Verified offline: real `computeGroupRotation` at state 11 rotates thighs 1.45 rad, bends shins 1.45 rad (chain = knee + hip parent), arms/head respond; idle/crouch untouched; both HTML files parse clean; runtime JSON verified (sitting/seat/Sit present, right_hand still +X gid 8). 🧪 Visual check: pick **Sit** in the animator — Vinny should show thighs forward, shins down, upright torso, arms resting.
 
 ### Docs
 - `VEHICLE_VOXEL_ASSETS.md` §6 — as-built dims, seating math, attach-point contract, the no-`.groups` caveat.

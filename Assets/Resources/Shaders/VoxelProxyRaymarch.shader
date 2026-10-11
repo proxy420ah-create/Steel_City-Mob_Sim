@@ -30,18 +30,7 @@ Shader "SteelCity/VoxelProxyRaymarch"
         ZWrite On
         ZTest LEqual
 
-        Pass
-        {
-            Name "ProxyRaymarch"
-
-            CGPROGRAM
-            #pragma target 4.5
-            #pragma vertex vert
-            #pragma fragment frag
-            #pragma multi_compile_instancing
-            #pragma shader_feature_local BUILDING_INSTANCING
-            #pragma exclude_renderers gles gles3
-
+        CGINCLUDE
             #include "UnityCG.cginc"
 
             // ---- Bindings (same as compute shader) ----
@@ -155,6 +144,24 @@ Shader "SteelCity/VoxelProxyRaymarch"
             // _BuildingPositions[i] = (worldOffsetX, worldOffsetY, worldOffsetZ, 0)
             StructuredBuffer<float4> _BuildingMeta;
             StructuredBuffer<float4> _BuildingPositions;
+
+            // --- Glass/window compositing ---
+            // _PaneIDs: per-voxel pane group id (ASSET-LOCAL voxel index -- no
+            // bufferOffset). A contiguous glass cluster shares one pane id and is
+            // charged once per ray; 0 = not a pane. Assets without panes bind a
+            // 1-element zero buffer (OOB reads return 0 -> dedup simply off).
+            StructuredBuffer<uint> _PaneIDs;
+            // Material IDs forced to glass regardless of palette alpha (window
+            // voxels authored with opaque alpha); 0/unset = none.
+            uint  _GlassForcedMat0; uint _GlassForcedMat1; uint _GlassForcedMat2; uint _GlassForcedMat3;
+            uint  _GlassForcedMat4; uint _GlassForcedMat5; uint _GlassForcedMat6; uint _GlassForcedMat7;
+            float _FlaggedGlassAlpha;   // transmission alpha for forced-glass mats
+            float _GlassSpecular;       // sun-glint strength on glass faces (0 = off)
+            int   _GlassMaxLayers;      // max tinted surfaces accumulated per ray
+            // 1 = _PaneIDs is a MERGED buffer parallel to _VoxelData (baked
+            // sectors): pane index = bufferOffset + VoxelIndex. 0 = per-asset
+            // pane buffer (chunks/instanced groups): local VoxelIndex only.
+            int   _PaneMerged;
 
             // ---- Bit layout ----
             #define VX_SHAPE_SHIFT     12
@@ -845,8 +852,87 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 return output;
             }
 
+            // ---- DDA cell advance ----
+            // Steps the march into the next voxel along the ray, updating the
+            // hit distance and face normal. Shared by the loop tail and by the
+            // transparent-surface path (which steps past glass instead of
+            // terminating the march at it).
+            void AdvanceDDA(inout int3 voxel, inout float3 tMax,
+                            inout float currentT, inout float3 normal,
+                            int3 stepDir, float3 tDelta)
+            {
+                if (tMax.x < tMax.y)
+                {
+                    if (tMax.x < tMax.z)
+                    {
+                        voxel.x += stepDir.x;
+                        currentT = tMax.x;
+                        tMax.x += tDelta.x;
+                        normal = float3(-stepDir.x, 0, 0);
+                    }
+                    else
+                    {
+                        voxel.z += stepDir.z;
+                        currentT = tMax.z;
+                        tMax.z += tDelta.z;
+                        normal = float3(0, 0, -stepDir.z);
+                    }
+                }
+                else
+                {
+                    if (tMax.y < tMax.z)
+                    {
+                        voxel.y += stepDir.y;
+                        currentT = tMax.y;
+                        tMax.y += tDelta.y;
+                        normal = float3(0, -stepDir.y, 0);
+                    }
+                    else
+                    {
+                        voxel.z += stepDir.z;
+                        currentT = tMax.z;
+                        tMax.z += tDelta.z;
+                        normal = float3(0, 0, -stepDir.z);
+                    }
+                }
+            }
+
+            // ---- Cheap glass lighting ----
+            // Ambient + wrapped diffuse + optional sun glint. Shared by the
+            // accumulate-and-continue path and the terminal frosted-pane path.
+            float3 GlassLit(float3 normal, float3 localRd,
+                            float3x3 volRot, float3x3 volInvRot)
+            {
+                float3 glassN = normalize(mul(volInvRot, normal));
+                float gDot = dot(glassN, _LightDirection) * 0.5 + 0.5;
+                gDot *= gDot;
+                float3 gLit = float3(_AmbientIntensity, _AmbientIntensity, _AmbientIntensity * 1.03)
+                            + _LightColor * gDot * _LightIntensity;
+
+                // Sun glint: reflect the local view ray about the face
+                // normal; alignment with the local light dir = specular pop.
+                if (_GlassSpecular > 0.0)
+                {
+                    float3 lLocal = mul(volRot, _LightDirection);
+                    float spec = pow(saturate(dot(reflect(localRd, normal), lLocal)), 24.0);
+                    gLit += _LightColor.rgb * spec * _GlassSpecular;
+                }
+                return gLit;
+            }
+
+            // ---- Glass gate: palette alpha OR forced-glass material id ----
+            bool IsGlassVoxel(uint mat, float baseAlpha)
+            {
+                if (baseAlpha < 0.99) return true;
+                return mat == _GlassForcedMat0 || mat == _GlassForcedMat1
+                    || mat == _GlassForcedMat2 || mat == _GlassForcedMat3
+                    || mat == _GlassForcedMat4 || mat == _GlassForcedMat5
+                    || mat == _GlassForcedMat6 || mat == _GlassForcedMat7;
+            }
+
             // ---- Fragment shader ----
-            FragOutput frag(Varyings input)
+            // renderMode: 0 = combined legacy | 1 = opaque only | 2 = glass only
+            FragOutput fragCore(Varyings input, int renderMode)
             {
                 FragOutput o;
                 UNITY_SETUP_INSTANCE_ID(input);
@@ -972,6 +1058,15 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 float4 hitColor = _BackgroundColor;
                 float3 worldHit = float3(0, 0, 0);
 
+                // Transparency: materials with palette alpha < 1 (auto glass,
+                // window glass) blend their tinted surface over whatever the
+                // ray continues to hit instead of terminating the march.
+                float3 glassAccum = float3(0, 0, 0);
+                float  throughput = 1.0;   // light fraction remaining behind the glass
+                float  glassFirstT = 0.0;  // nearest glass surface distance (for depth)
+                int    glassLayers = 0;
+                uint   lastPane = 0u;      // pane group already charged along this ray (0 = none)
+
                 for (int i = 0; i < stepCap; ++i)
                 {
                     if (!InBounds(voxel, dims))
@@ -1008,6 +1103,67 @@ Shader "SteelCity/VoxelProxyRaymarch"
                         float4 baseColor = _MaterialColors[mat];
                         float4 tint = _ChunkTints[mat];
                         baseColor.rgb *= tint.rgb;
+
+                        // Transparent material (palette alpha < 1): accumulate the
+                        // tinted surface front-to-back and keep marching — a
+                        // windshield pixel resolves to whatever is behind it.
+                        // Cheap ambient lighting only; glass skips the smooth-normal
+                        // and shadow-ray work. Budget exhausted (layer cap hit or
+                        // <3% light left) terminates as a frosted pane below.
+                        if (IsGlassVoxel(mat, baseColor.a))
+                        {
+                            // Forced-glass materials may carry an opaque palette
+                            // alpha — fall back to the configured transmission alpha.
+                            float glassA = baseColor.a < 0.99 ? baseColor.a : _FlaggedGlassAlpha;
+                            if (renderMode == 1)
+                            {
+                                // Opaque pass: glass is a hole — the ray keeps
+                                // marching to real interior geometry behind it.
+                                AdvanceDDA(voxel, tMax, currentT, normal, stepDir, tDelta);
+                                continue;
+                            }
+                            // Pane dedup: a contiguous glass cluster is one
+                            // surface — charge it once, march through its other
+                            // cells for free (grazing a wide pane is not N tints).
+                            // Pane IDs are per-asset (volume-space) — merged
+                            // sector buffers add bufferOffset like _VoxelData.
+                            uint paneId = _PaneIDs[(_PaneMerged != 0 ? bufferOffset : 0u)
+                                                   + (uint)VoxelIndex(sampleVoxel, dims)];
+                            if (paneId != 0u && paneId == lastPane)
+                            {
+                                AdvanceDDA(voxel, tMax, currentT, normal, stepDir, tDelta);
+                                continue;
+                            }
+
+                            if (throughput > 0.03 && glassLayers < _GlassMaxLayers)
+                            {
+                                float3 gLit = GlassLit(normal, localRd, volRot, volInvRot);
+                                glassAccum += throughput * glassA * baseColor.rgb * gLit;
+                                if (glassLayers == 0) glassFirstT = currentT;
+                                throughput *= 1.0 - glassA;
+                                glassLayers++;
+                                lastPane = paneId;
+                                AdvanceDDA(voxel, tMax, currentT, normal, stepDir, tDelta);
+                                continue;
+                            }
+
+                            // Transmission budget exhausted: absorb the remaining
+                            // light as full-strength tint and stop — the pane reads
+                            // as frosted glass instead of an opaque wall voxel.
+                            hitColor = float4(glassAccum + throughput * (baseColor.rgb * GlassLit(normal, localRd, volRot, volInvRot)), 1.0);
+                            if (_LodDebugEnabled != 0)
+                                hitColor = float4(_LodDebugColor.rgb, hitColor.a);
+                            worldHit = ro + rd * (glassLayers > 0 ? glassFirstT : currentT);
+                            hit = true;
+                            break;
+                        }
+
+                        if (renderMode == 2)
+                        {
+                            // Glass-only pass: the first opaque voxel ends the
+                            // collection — pass 1 owns this surface already.
+                            break;
+                        }
 
                         // Blended normal (same as compute shader) — skipped entirely
                         // for cheap-shading LOD tier to avoid 6 extra buffer reads per pixel
@@ -1154,57 +1310,42 @@ Shader "SteelCity/VoxelProxyRaymarch"
                             shadowedLighting = max(shadowedLighting, float3(ambientFloor, ambientFloor, ambientFloor * 1.02));
                         }
 
-                        hitColor = float4(baseColor.rgb * shadowedLighting, baseColor.a);
+                        // Fold in glass tint accumulated en route — the pass
+                        // writes opaque coverage, so alpha resolves to 1.
+                        hitColor = float4(glassAccum + throughput * (baseColor.rgb * shadowedLighting), 1.0);
 
                         // Debug: solid-tint hit color by LOD tier so tiers are visible at a glance
                         if (_LodDebugEnabled != 0)
                             hitColor = float4(_LodDebugColor.rgb, hitColor.a);
 
-                        worldHit = ro + rd * currentT;
+                        // Depth = nearest visible surface (glass face when present)
+                        worldHit = ro + rd * (glassLayers > 0 ? glassFirstT : currentT);
 
                         hit = true;
                         break;
                     }
 
                     // Advance DDA
-                    if (tMax.x < tMax.y)
-                    {
-                        if (tMax.x < tMax.z)
-                        {
-                            voxel.x += stepDir.x;
-                            currentT = tMax.x;
-                            tMax.x += tDelta.x;
-                            normal = float3(-stepDir.x, 0, 0);
-                        }
-                        else
-                        {
-                            voxel.z += stepDir.z;
-                            currentT = tMax.z;
-                            tMax.z += tDelta.z;
-                            normal = float3(0, 0, -stepDir.z);
-                        }
-                    }
-                    else
-                    {
-                        if (tMax.y < tMax.z)
-                        {
-                            voxel.y += stepDir.y;
-                            currentT = tMax.y;
-                            tMax.y += tDelta.y;
-                            normal = float3(0, -stepDir.y, 0);
-                        }
-                        else
-                        {
-                            voxel.z += stepDir.z;
-                            currentT = tMax.z;
-                            tMax.z += tDelta.z;
-                            normal = float3(0, 0, -stepDir.z);
-                        }
-                    }
+                    AdvanceDDA(voxel, tMax, currentT, normal, stepDir, tDelta);
                 }
 
-                if (!hit)
+                if (renderMode == 2)
                 {
+                    if (!hit)
+                    {
+                        // Ray exited or stopped at opaque content: emit the
+                        // accumulated tint; Blend(SrcAlpha,OneMinusSrcAlpha)
+                        // turns this into glassAccum + throughput * dst.
+                        if (glassLayers == 0)
+                            discard;
+                        hitColor = float4(glassAccum, 1.0 - throughput);
+                        worldHit = ro + rd * glassFirstT;
+                    }
+                }
+                else if (!hit)
+                {
+                    // Rays that saw only transparent voxels exit the volume —
+                    // discard so the city pass content behind stays visible.
                     discard;
                 }
 
@@ -1215,6 +1356,71 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 o.color = hitColor;
                 o.depth = ndcZ;
                 return o;
+            }
+        ENDCG
+
+        // Pass 0 — legacy combined path (default; unchanged behavior)
+        Pass
+        {
+            Name "ProxyRaymarch"
+
+            CGPROGRAM
+            #pragma target 4.5
+            #pragma vertex vert
+            #pragma fragment fragCombined
+            #pragma multi_compile_instancing
+            #pragma shader_feature_local BUILDING_INSTANCING
+            #pragma exclude_renderers gles gles3
+
+            FragOutput fragCombined(Varyings input)
+            {
+                return fragCore(input, 0);
+            }
+            ENDCG
+        }
+
+        // Pass 1 — opaque only (composite mode): glass cells treated as air so
+        // window openings render real interior geometry for pass 2 to tint.
+        Pass
+        {
+            Name "ProxyRaymarchOpaque"
+
+            CGPROGRAM
+            #pragma target 4.5
+            #pragma vertex vert
+            #pragma fragment fragOpaque
+            #pragma multi_compile_instancing
+            #pragma shader_feature_local BUILDING_INSTANCING
+            #pragma exclude_renderers gles gles3
+
+            FragOutput fragOpaque(Varyings input)
+            {
+                return fragCore(input, 1);
+            }
+            ENDCG
+        }
+
+        // Pass 2 — glass only (composite mode): accumulated pane tint blended
+        // over pass 1's pixels. ZWrite Off keeps depth owned by the opaque
+        // pass while ZTest still occludes glass hidden behind walls.
+        Pass
+        {
+            Name "ProxyRaymarchGlass"
+
+            ZWrite Off
+            Blend SrcAlpha OneMinusSrcAlpha
+
+            CGPROGRAM
+            #pragma target 4.5
+            #pragma vertex vert
+            #pragma fragment fragGlass
+            #pragma multi_compile_instancing
+            #pragma shader_feature_local BUILDING_INSTANCING
+            #pragma exclude_renderers gles gles3
+
+            FragOutput fragGlass(Varyings input)
+            {
+                return fragCore(input, 2);
             }
             ENDCG
         }

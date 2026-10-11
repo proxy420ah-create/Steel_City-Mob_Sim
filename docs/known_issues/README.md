@@ -19,3 +19,7 @@ Bug tracker per Development Guidelines Rule 13. Bugs are cataloged by category i
 | [Static Instanced Asset OOB — 2nd Vehicle Invisible](rendering/STATIC_INSTANCED_OOB.md) | rendering | 🟢 FIXED | 🟡 HIGH | 2026-10-05 |
 | [Instanced Proxy Yaw Clip — Elongated Volumes](rendering/INSTANCED_PROXY_YAW_CLIP.md) | rendering | 🟢 FIXED | 🟡 HIGH | 2026-10-06 |
 | [Promoted-File Round Trip — Double Flip](editor/PROMOTED_FILE_ROUNDTRIP_DOUBLE_FLIP.md) | editor | 🟢 FIXED | 🟡 HIGH | 2026-10-06 |
+| [Hover Highlight Rebuilt ~2xN Instances Per Mousemove](editor/HIGHLIGHT_INSTANCED_REBUILD_LAG.md) | editor | 🟢 FIXED | 🟡 HIGH | 2026-10-09 |
+| [IMGUI Debug HUD Frame Tax (120→40 FPS)](rendering/IMGUI_HUD_FRAME_TAX.md) | rendering | 🟢 FIXED | 🟡 HIGH | 2026-10-11 |
+| [Mid-Render ComputeBuffer Alloc Drops Sector SRV (`_BuildingMeta`)](rendering/MID_RENDER_BUFFER_ALLOC_SRV_DROP.md) | rendering | 🟢 FIXED | 🟡 HIGH | 2026-10-11 |
+| [Shared `proxyMaterial` DrawMesh/DrawMeshInstanced — Instanced Models Displaced/Invisible](rendering/SHARED_MATERIAL_INSTANCED_DRAWS.md) | rendering | 🟢 FIXED | 🔴 CRITICAL | 2026-10-11 |
