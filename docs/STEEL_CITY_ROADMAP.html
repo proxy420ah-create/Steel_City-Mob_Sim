@@ -386,7 +386,7 @@
       <p style="margin: 4px 0 0 0; color: var(--text-dim); font-size: 0.9em;">
         This roadmap must be updated whenever new features are discussed, design documents are created, or phases change status.
         If you're working on a design doc or brainstorming a new system, update the corresponding phase here afterward.
-        Last review: <strong>Oct 9, 2026</strong> — Full refresh after ~8 weeks of unrecorded work. New since Aug 14: character asset lifecycle pipeline (handedness promote/demote contract, CharacterAssets registry, attachment points + weapon mount + IK aim), voxel editor toolchain (vehicle asset type, Unity-view mirror, real-voxel attach tagging), vehicle system (490 touring, parking map, lane convergence, patrol), FlowField navigation, first real order (Target Practice), Sitting pose + seat anchors. Next: runtime seat alignment, then continue gang sim / 120 fps perf target.
+        Last review: <strong>Oct 11, 2026</strong> — rendering hardening landed: glass double-blend fix verified (two-pass composite + Cull Front), <code>VOXEL_DEBUG_VIEW</code> keyword-gated heatmap (<code>V</code> key), <code>multi_compile_local _ BUILDING_INSTANCING</code> correction, ~220 lines of dead occupancy/jitter plumbing removed (archived on <code>archive/occupancy-dda</code>). Prior refresh <strong>Oct 9</strong> — full refresh after ~8 weeks of unrecorded work. New since Aug 14: character asset lifecycle pipeline (handedness promote/demote contract, CharacterAssets registry, attachment points + weapon mount + IK aim), voxel editor toolchain (vehicle asset type, Unity-view mirror, real-voxel attach tagging), vehicle system (490 touring, parking map, lane convergence, patrol), FlowField navigation, first real order (Target Practice), Sitting pose + seat anchors. Next: runtime seat alignment, then continue gang sim / 120 fps perf target.
       </p>
     </div>
   </div>
@@ -426,7 +426,8 @@
   <div class="current-banner">
     <h3><span class="pulse-dot"></span> Current Work — Vehicle Seating + Character Seat Anchor</h3>
     <div class="desc">
-      <strong>Sitting vertical slice LANDED:</strong> anim state 11 <code>Sit</code> (thighs forward ~83°, shins down, upright torso) wired end-to-end — <code>animParams.sitting</code> → CPU FK in <code>VoxelCharacterAnimator</code> → GPU kernels in both <code>CharacterPoseCompute.compute</code> and <code>VoxelProxyRaymarch.shader</code> (<code>_AnimStaticParams</code> grown 13→15 float4s). Character-side <code>seat</code> attachment anchor tagged on real pelvis voxels — the contract half of vehicle <code>seat_*</code> points. Flip parity in promote + demote.<br>
+      <strong>Sitting vertical slice MOSTLY LANDED:</strong> anim state 11 <code>Sit</code> (thighs forward ~83°, shins down, upright torso) — <code>animParams.sitting</code> → CPU FK in <code>VoxelCharacterAnimator</code> → GPU kernel in <code>CharacterPoseCompute.compute</code> (<code>_AnimStaticParams</code> grown 13→15 float4s). ⚠ The matching pose-kernel branch in <code>VoxelProxyRaymarch.shader</code> is <em>not on master</em> — it lives on <code>archive/occupancy-dda</code>; port it when seating ships (state 11 unused at runtime so far). Character-side <code>seat</code> attachment anchor tagged on real pelvis voxels — the contract half of vehicle <code>seat_*</code> points. Flip parity in promote + demote.<br>
+      <strong>Rendering hardened (Oct 11):</strong> glass two-pass composite verified — <code>Cull Front</code> + proxy cube winding fix kills the outside-volume double blend; <code>V</code> cycles keyword-gated debug views (iteration heat / step channels / miss waste — zero cost when off); <code>BUILDING_INSTANCING</code> single-keyword pragma fix restores cars/characters in builds; dead occupancy/jitter plumbing removed.<br>
       <strong>Next (seat alignment):</strong> port SKEL attachment reader to C# → align character <code>seat</code> → vehicle <code>seat_*</code> (position + facing) → dev hotkey to park Vinny in the driver seat → dynamic seat assignment. Benches drop out free (static "vehicle" with seat points).<br>
       <strong>Parallel: 490 detailing</strong> — hand-authored in the editor's Unity-view mirror (<code>U</code>), real-voxel attach tagging (no marker blobs), iterative JSON→stasset loop.<br>
       <strong>Perf gate:</strong> hold ~120 fps before further city expansion. GPU Rendering Phase 2+ (buffer pooling, indirect draws, GPU culling) still the lever.<br>
@@ -1056,13 +1057,14 @@
           <div class="feature-name">More Building Types</div>
           <div class="feature-tag planned">PLANNED</div>
         </div>
-        <div class="feature-desc">Expand from 11 to 30+ business types</div>
+        <div class="feature-desc">Expand from 11 to 30+ business types — loose creative generators first, then lock per-business catalog designs (<code>docs/core/BUSINESS_TAXONOMY_ASSET_GENERATION.md</code>, <code>VoxelAssetStudio/GENERATOR_STUDIO_PLAN.md</code>)</div>
         <ul class="feature-items">
           <li class="pending">Restaurant, hotel, nightclub, pharmacy</li>
           <li class="pending">Warehouse, drug den, protection front</li>
           <li class="pending">Betting parlor, jazz club, tailor</li>
           <li class="pending">Jewelry store, bank, union hall</li>
           <li class="pending">Import/export, trucking company, distillery, brewery</li>
+          <li class="pending">Canonical dims: 64×64 building slot / 192×192 city block (<code>docs/core/CITY_LAYOUT_PIPELINE.md</code>)</li>
         </ul>
       </div>
 
