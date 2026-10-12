@@ -35,9 +35,22 @@ namespace SteelCity.Sim
         [Tooltip("Bullet hits on glass carve the impact cell + seeded ring-1 into the volume's voxel array.")]
         public bool glassDamageEnabled = true;
         [Tooltip("Fraction of ring-1 glass neighbors removed per hit (seeded per cell — same shot seed reproduces the same scar).")]
-        [Range(0f, 1f)] public float ring1RemoveFraction = 0.8f;
+        [Range(0f, 1f)] public float ring1RemoveFraction = 0.2f;
         [Tooltip("Ring-1 survivors swap to this material so the puncture stays visible inside transparent glass.")]
         public int crackedMaterial = 134;
+
+        [Header("Shard burst (P1 dressing)")]
+        [Tooltip("Removed cells re-spawn as tiny velocity-stretched cube shards drawn via PathDebugRenderer beams.")]
+        public bool shardBurstEnabled = true;
+        public float shardSpeed = 2.5f;      // along the shot direction
+        public float shardSpread = 1.6f;     // lateral scatter
+        public float shardGravity = 9f;
+        public float shardLife = 0.7f;
+        public int maxShards = 192;
+
+        [Header("Glass audio (P1, synthesized — no assets)")]
+        public bool glassAudioEnabled = true;
+        [Range(0f, 1f)] public float glassAudioVolume = 0.6f;
 
         /// <summary>Last puncture's removed/cracked counts for the HUD report.</summary>
         public int LastRemoved { get; private set; }
@@ -56,6 +69,16 @@ namespace SteelCity.Sim
         }
         private readonly Dictionary<string, DamageState> cow = new();
         private readonly List<int> dirtyScratch = new();
+
+        // Shard sim — CPU-integrated, rendered as velocity-stretched PathDebugRenderer
+        // beams (an elongated box reads as a flying glass fragment; same pipeline as
+        // tracers, so it composites into the map RT for free).
+        private struct Shard { public Vector3 pos, vel; public float tEnd; public int beamId; }
+        private readonly List<Shard> shards = new();
+        private int shardCounter;
+        private readonly System.Random shardRng = new(0x5EED);
+
+        private readonly Dictionary<int, AudioClip> clipCache = new();
 
         private ProjectileSystem subscribed;
         private VoxelCollisionWorld world;
@@ -77,6 +100,7 @@ namespace SteelCity.Sim
                 subscribed = ProjectileSystem.Instance;
                 subscribed.ShotResolved += OnShotResolved;
             }
+            UpdateShards();
         }
 
         private void OnShotResolved(ProjectileSystem.ShotReport r)
@@ -120,7 +144,126 @@ namespace SteelCity.Sim
             LastRemoved = removed;
             LastCracked = cracked;
             chunkManager.UploadVoxelEdits(r.target, st.data, dirtyScratch);
+            EmitShards(st, r);
+            if (glassAudioEnabled && removed > 0)
+                AudioSource.PlayClipAtPoint(GlassClip(removed), r.point,
+                    glassAudioVolume * Mathf.Clamp01(0.4f + removed / 20f));
             Debug.Log($"[VoxelDamage] 🔨 {r.target} cell {r.cell} mat {r.material}: -{removed} glass cells, {cracked} cracked — hole persists");
+        }
+
+        /// <summary>
+        /// Removed cells are the dirty indices whose final value is AIR — each one
+        /// re-spawns as a shard at its world position, velocity = shotDir plus a
+        /// small scatter cone (design doc: the removed voxels ARE the particles).
+        /// </summary>
+        private void EmitShards(DamageState st, ProjectileSystem.ShotReport r)
+        {
+            if (!shardBurstEnabled) return;
+            float vs = st.vs;
+            Vector3 half = new Vector3(st.w, st.h, st.d) * (vs * 0.5f);
+            Vector3 center = st.corner + half;
+            float rad = st.yaw * Mathf.Deg2Rad, c = Mathf.Cos(rad), s = Mathf.Sin(rad);
+            Color col = StAssetReader.GetMaterialColor((ushort)r.material);
+            foreach (int idx in dirtyScratch)
+            {
+                if (st.data[idx] != 0) continue;   // cracked cells stay in place — only AIR flies
+                if (shards.Count >= maxShards) shards.RemoveAt(0);
+                int z = idx / (st.w * st.h), rem = idx - z * st.w * st.h, y = rem / st.w, x = rem - y * st.w;
+                Vector3 lp = new Vector3(x + 0.5f, y + 0.5f, z + 0.5f) * vs - half;
+                var sh = new Shard
+                {
+                    pos = center + new Vector3(lp.x * c + lp.z * s, lp.y, -lp.x * s + lp.z * c),
+                    vel = r.shotDir * shardSpeed * (0.7f + 0.6f * (float)shardRng.NextDouble())
+                        + new Vector3((float)(shardRng.NextDouble() - 0.5), (float)(shardRng.NextDouble() - 0.5) + 0.3f,
+                            (float)(shardRng.NextDouble() - 0.5)) * shardSpread,
+                    tEnd = Time.time + shardLife * (0.7f + 0.6f * (float)shardRng.NextDouble()),
+                    beamId = shardCounter++,
+                };
+                shards.Add(sh);
+            }
+            shardColor = col;
+        }
+
+        private Color shardColor = new Color(0.72f, 0.86f, 0.96f, 0.9f);
+
+        /// <summary>Integrate shard positions, draw each as a velocity-stretched beam, expire dead ones.</summary>
+        private void UpdateShards()
+        {
+            var pdr = PathDebugRenderer.Instance;
+            if (pdr == null || shards.Count == 0) return;
+            float dt = Time.deltaTime;
+            for (int i = shards.Count - 1; i >= 0; i--)
+            {
+                var s = shards[i];
+                s.pos += s.vel * dt;
+                s.vel.y -= shardGravity * dt;
+                bool dead = Time.time >= s.tEnd;
+                if (dead)
+                {
+                    pdr.ClearCustomBeam($"gshard_{s.beamId}");
+                    shards[i] = shards[shards.Count - 1];
+                    shards.RemoveAt(shards.Count - 1);
+                    continue;
+                }
+                float fade = (s.tEnd - Time.time) / shardLife;
+                var c = shardColor; c.a = Mathf.Lerp(0.15f, 0.9f, fade);
+                pdr.SetCustomBeam($"gshard_{s.beamId}", s.pos - s.vel * 0.035f, s.pos, 0.018f, c);
+                shards[i] = s;
+            }
+        }
+
+        /// <summary>
+        /// Synthesized glass sound — no audio assets in the project, so the clip is
+        /// generated: a sharp noise attack + inharmonic decaying partials (glass rings
+        /// non-harmonically). Removed-count picks the bucket: tink / crack / crash.
+        /// </summary>
+        private AudioClip GlassClip(int removed)
+        {
+            int bucket = removed <= 4 ? 0 : removed <= 15 ? 1 : 2;
+            if (clipCache.TryGetValue(bucket, out var clip)) return clip;
+            const int rate = 44100;
+            float dur = bucket == 0 ? 0.14f : bucket == 1 ? 0.28f : 0.55f;
+            float noiseAmp = bucket == 0 ? 0.3f : bucket == 1 ? 0.5f : 0.85f;
+            float decay = bucket == 0 ? 45f : bucket == 1 ? 24f : 10f;
+            float[] partials = bucket == 0
+                ? new[] { 5200f, 7400f }
+                : bucket == 1 ? new[] { 2800f, 3900f, 5600f } : new[] { 1500f, 2200f, 3100f, 4700f };
+            int n = (int)(rate * dur);
+            var smp = new float[n];
+            var rng = new System.Random(1337 + bucket);
+            for (int i = 0; i < n; i++)
+            {
+                float t = (float)i / rate;
+                float env = Mathf.Exp(-decay * t);
+                float v = (float)(rng.NextDouble() * 2 - 1) * noiseAmp * Mathf.Exp(-60f * t);   // attack click
+                for (int p = 0; p < partials.Length; p++)
+                    v += Mathf.Sin(2f * Mathf.PI * partials[p] * t + p * 1.7f) * (0.5f / (p + 1)) * env;
+                v += (float)(rng.NextDouble() * 2 - 1) * noiseAmp * 0.35f * env;                // noise tail
+                smp[i] = Mathf.Clamp(v, -1f, 1f) * 0.8f;
+            }
+            clip = AudioClip.Create($"glass_{bucket}", n, 1, rate, false);
+            clip.SetData(smp, 0);
+            clipCache[bucket] = clip;
+            return clip;
+        }
+
+        /// <summary>
+        /// Preview a synthesized glass clip AT the AudioListener — removes distance
+        /// rolloff from the equation so the planning-phase test answers "does audio
+        /// reach the mix at all". bucket: 0 = tink, 1 = crack, 2 = crash.
+        /// </summary>
+        public void PreviewGlassSound(int bucket)
+        {
+            var listener = FindFirstObjectByType<AudioListener>();
+            if (listener == null)
+            {
+                Debug.LogWarning("[VoxelDamage] 🔊 preview failed — no AudioListener in scene");
+                return;
+            }
+            int removed = bucket == 0 ? 2 : bucket == 1 ? 10 : 30;   // representative counts → clip bucket
+            var clip = GlassClip(removed);
+            AudioSource.PlayClipAtPoint(clip, listener.transform.position, glassAudioVolume);
+            Debug.Log($"[VoxelDamage] 🔊 preview bucket {bucket} — clip {clip.length:F2}s @ listener {listener.name} vol {glassAudioVolume:F2}");
         }
 
         /// <summary>How many volumes currently carry damage (for the HUD reset button).</summary>

@@ -114,6 +114,11 @@ namespace SteelCity.Sim
             if (audioListener == null)
                 gameObject.AddComponent<AudioListener>();
 
+            // Take over listening — the map camera's listener was only a
+            // planning-phase stand-in; two active listeners warn in console.
+            foreach (var other in FindObjectsByType<AudioListener>(FindObjectsSortMode.None))
+                if (other != audioListener) other.enabled = false;
+
             // Find chunk manager and swap render camera
             chunkManager = FindFirstObjectByType<VoxelChunkManager>();
             if (chunkManager != null)

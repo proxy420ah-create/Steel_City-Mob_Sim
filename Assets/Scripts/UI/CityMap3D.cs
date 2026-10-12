@@ -509,6 +509,12 @@ namespace SteelCity.Sim
             if (mapCamera == null)
                 mapCamera = CreateIsometricCamera();
 
+            // Positional audio needs an active listener during planning phase too —
+            // the FollowCamera only adds one once it spawns for the working week.
+            if (FindFirstObjectByType<AudioListener>() == null &&
+                mapCamera.GetComponent<AudioListener>() == null)
+                mapCamera.gameObject.AddComponent<AudioListener>();
+
             // Ensure chunk manager exists and has camera reference
             if (chunkManager == null)
                 chunkManager = GetComponent<VoxelChunkManager>();

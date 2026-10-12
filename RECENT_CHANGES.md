@@ -1,6 +1,27 @@
 # Recent Changes — Steel City: Mob Sim
 
-**Last Updated**: October 11, 2026 (glass puncture P0 playtested: pane-dedup fix, mold retainer relocated, week-start range spawn, bench toggles)
+**Last Updated**: October 11, 2026 (glass puncture P1 dressing: shard burst, synthesized SFX, AudioListener fix, sfx preview buttons)
+
+---
+
+## Glass puncture P1 dressing — shards + synthesized audio — Oct 11
+
+### Shard burst (voxel → particle 1:1)
+- `VoxelDamageSystem.EmitShards`: every **removed** cell (dirty idx → AIR) respawns as a shard at its world position via `cell → RotY(local − half)` around the volume center; velocity = `shotDir × shardSpeed` ±30% + lateral scatter + up bias; gravity + `shardLife` (0.7s ±30%).
+- Rendered as velocity-stretched `PathDebugRenderer` custom beams (tiny elongated boxes, fade-out) — rides the instanced beam pipeline, no new render path. Capped at `maxShards` (192), oldest evict first; tint = hit material's palette color.
+
+### Synthesized glass SFX — no audio assets
+- `VoxelDamageSystem.GlassClip(removed)`: `AudioClip.Create` + `SetData` fills an in-memory buffer with **noise attack + inharmonic decaying partials + noise tail** (each layer × `exp(-k·t)` envelope). Buckets: ≤4 = tink (0.14s, 5200/7400 Hz), ≤15 = crack (0.28s, mid partials), >15 = crash (0.55s, low + heavy noise). Cached per bucket.
+- `PlayClipAtPoint` at the hit point — positional 3D, `glassAudioVolume` × `clamp(0.4 + removed/20)`.
+- **`ring1RemoveFraction` default → 0.2** (small hole + wide cracked halo — user-preferred look).
+
+### AudioListener gap — the "no sound" root cause
+- `CityMap3D` map camera: auto-adds an `AudioListener` when none exists in the scene — the planning-phase listener the game never had (MapCamera is created without one; FollowCamera's only appears with the working week).
+- `FollowCamera`: disables every *other* listener when it takes over, avoiding the two-active-listeners warning.
+- `VoxelDamageSystem.PreviewGlassSound(bucket)` + **`sfx test: tink/crack/crash` buttons** at the top of the Range tab (above the Dwelling gate — usable in planning): plays at the listener's position so distance can't mask a pipeline failure; logs listener name + clip length.
+
+### Docs
+- `docs/systems/PROCEDURAL_AUDIO.md` (new): the synthesis recipe, sound-design space (gunshot/ricochet/footstep…), `SynthRecipe` parameterization, and the HTML audio editor feasibility sketch (Web Audio API reproduces the math 1:1; JSON recipe → Unity synth mirrors the JSON↔stasset pipeline). Indexed in `DOCUMENTATION_INDEX.md`.
 
 ---
 

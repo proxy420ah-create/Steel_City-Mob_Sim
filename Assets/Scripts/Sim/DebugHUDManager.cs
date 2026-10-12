@@ -836,6 +836,16 @@ namespace SteelCity.Sim
 
             GUILayout.Label($"<b>RANGE</b>   sim: {simState}", boldStyle);
 
+            // SFX preview — above the dwelling gate so it works in planning phase.
+            // Plays at the AudioListener, so distance can't mask a pipeline problem.
+            var dmgSys = VoxelDamageSystem.GetOrCreate();
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("sfx test:", labelStyle, GUILayout.Width(52));
+            if (GUILayout.Button("tink", tabStyle, GUILayout.Height(20))) dmgSys.PreviewGlassSound(0);
+            if (GUILayout.Button("crack", tabStyle, GUILayout.Height(20))) dmgSys.PreviewGlassSound(1);
+            if (GUILayout.Button("crash", tabStyle, GUILayout.Height(20))) dmgSys.PreviewGlassSound(2);
+            GUILayout.EndHorizontal();
+
             if (string.IsNullOrEmpty(rangeBlockId))
             {
                 GUILayout.Space(4);
@@ -1024,6 +1034,10 @@ namespace SteelCity.Sim
             {
                 dmg.ring1RemoveFraction = HSlider("ring removal", dmg.ring1RemoveFraction, 0f, 1f, "F2");
                 GUILayout.Label("  low = small hole + wide crack halo · high = chunk blown out", labelStyle);
+                dmg.shardBurstEnabled = GUILayout.Toggle(dmg.shardBurstEnabled, " shard burst (flying cubes)", toggleStyle);
+                dmg.glassAudioEnabled = GUILayout.Toggle(dmg.glassAudioEnabled, " glass sfx (synth tink/crash)", toggleStyle);
+                if (dmg.glassAudioEnabled)
+                    dmg.glassAudioVolume = HSlider("sfx volume", dmg.glassAudioVolume, 0f, 1f, "F2");
             }
             if (dmg.DamagedVolumeCount > 0 && GUILayout.Button($"RESET DAMAGE ({dmg.DamagedVolumeCount} volume{(dmg.DamagedVolumeCount > 1 ? "s" : "")}) — fresh glass", GUILayout.Height(22)))
                 dmg.ResetAllDamage();
