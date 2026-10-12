@@ -73,9 +73,10 @@ for dx in LANE_DX:
 # bottom row is index 4, the bench gets exactly two layers: legs at y3 and a
 # tabletop ring at y4 — the cube's bottom glass row fills the ring's hole, so
 # the block reads as socketed into the stand.
-# A 2x2x2 painted-metal core sits at the cube's exact center and is painted
-# "glass_target": the aim attachment lands on indestructible metal, so the
-# point survives the surrounding glass being shot out.
+# A 2x2x2 painted-metal retainer sits at the cube's BASE (y4-5) — out of the
+# bore axis so a level shot drills through all 8 glass layers unobstructed.
+# The "glass_target" painted region stays at the cube's center (now glass), so
+# the aim point lands mid-cube and the hole develops down the full depth.
 DX3 = LANE_DX[2]
 TX0, TX1 = 149, 163            # table footprint x149..162 (centroid 155.5)
 TZ0, TZ1 = 106, 120            # z106..119 (centroid 112.5, on the 10m mark)
@@ -89,8 +90,8 @@ put(TX0, TX0 + 1, 4, 5, TZ0, TZ1, PAINTED_METAL)                    #           
 put(TX1 - 1, TX1, 4, 5, TZ0, TZ1, PAINTED_METAL)                    #           right
 # glass mold 8x8x8 — bottom row embeds flush in the tabletop (socketed)
 put(152, 160, 4, 12, 109, 117, WINDOW_GLASS)                        # centroid (155.5, 7.5, 112.5)
-# metal aim core — replaces glass at the cube's exact center
-put(155, 157, 7, 9, 112, 114, PAINTED_METAL)                        # 2x2x2 at centroid
+# metal retainer — replaces glass at the cube's base, below the aim line
+put(155, 157, 4, 6, 112, 114, PAINTED_METAL)                        # 2x2x2 socket mount
 
 # --- backstop ---
 put(0, W, 0, 36, BACK_Z0, BACK_Z1, RED_BRICK)
@@ -120,7 +121,7 @@ PART_DEFS = [
     {"id": 16, "name": "Firing Target 3",   "key": "firing_target_3",   "color": "#7dff9e", "desc": "Lane 3 (right) aim point"},
     {"id": 17, "name": "Backstop 3",        "key": "backstop_3",        "color": "#ffd24d", "desc": "Lane 3 (right) facing reference"},
     # --- ballistics bench on lane 3 ---
-    {"id": 18, "name": "Glass Target",      "key": "glass_target",      "color": "#9ef0ff", "desc": "Aim point — metal core inside the glass mold (indestructible)"},
+    {"id": 18, "name": "Glass Target",      "key": "glass_target",      "color": "#9ef0ff", "desc": "Aim point — center of the glass mold (shots drill the full depth; metal retainer sits at the base)"},
     {"id": 19, "name": "Glass Mold",        "key": "glass_mold",        "color": "#728ca5", "desc": "8^3 ballistic glass cube — destructible test medium"},
     {"id": 20, "name": "Ballistics Bench",  "key": "ballistics_bench",  "color": "#8a6a45", "desc": "Stand hosting the glass mold at lane-3 mid-range"},
 ]

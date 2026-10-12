@@ -32,6 +32,7 @@ RSP="$OUT/build.rsp"
   echo "-r:\"$(win "$DATA/Managed/UnityEngine/UnityEngine.CoreModule.dll")\""
   echo "\"$(win "$ROOT/Assets/Scripts/Sim/VoxelDda.cs")\""
   echo "\"$(win "$ROOT/Assets/Scripts/Sim/SolidVolumeSet.cs")\""
+  echo "\"$(win "$ROOT/Assets/Scripts/Sim/VoxelDamageMath.cs")\""
   echo "\"$(win "$ROOT/Tools/dda_selftest/Program.cs")\""
 } > "$RSP"
 

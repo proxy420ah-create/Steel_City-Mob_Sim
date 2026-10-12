@@ -106,6 +106,19 @@ namespace SteelCity.Sim
                 BuildMap(cachedBlocks);
         }
 
+        /// <summary>Flip the sector-baking render path and rebuild — debug/tooling use (P0 voxel damage is per-building-chunk only).</summary>
+        public void SetSectorBaking(bool on)
+        {
+            useSectorBaking = on;
+            RebuildCity();
+        }
+
+        [ContextMenu("Rebuild — sector baking OFF (per-building chunks)")]
+        private void RebuildPerBuilding() => SetSectorBaking(false);
+
+        [ContextMenu("Rebuild — sector baking ON (merged sectors)")]
+        private void RebuildSectors() => SetSectorBaking(true);
+
         public void SetSidewalkWidth(float width)
         {
             sidewalkWidth = Mathf.Max(0.1f, width);

@@ -53,6 +53,10 @@ namespace SteelCity.Sim
         public float gravity = 0f;
 
         [Header("Visuals (PathDebugRenderer beams)")]
+        [Tooltip("Draw the in-flight tracer streak behind each bullet.")]
+        public bool showTracers = true;
+        [Tooltip("Draw red tick marks at impact points (last 8 kept).")]
+        public bool showImpactMarks = true;
         public float tracerLength = 0.4f;
         public float tracerWidth = 0.012f;
         public Color tracerColor = new Color(1f, 0.85f, 0.25f, 0.95f);
@@ -112,8 +116,8 @@ namespace SteelCity.Sim
         /// <summary>Skill 10 → ×1 (the base cone), skill 1 → ×7.75. Linear: each skill point below 10 adds 0.75× the base cone.</summary>
         public static float SkillSpreadMultiplier(int skill) => 1f + (10 - Mathf.Clamp(skill, 1, 10)) * 0.75f;
 
-        /// <summary>Palette ids that are see-through (StAssetReader: 112-114 window/storefront glass, 134 cracked glass, 147 auto glass). Display + future shatter hook only.</summary>
-        public static bool IsGlassMaterial(int mat) => mat == 112 || mat == 113 || mat == 114 || mat == 134 || mat == 147;
+        /// <summary>Palette ids that are see-through (StAssetReader: 112-114 window/storefront glass, 134 cracked glass, 147 auto glass). Display + shatter hook — single list lives in VoxelDamageMath.</summary>
+        public static bool IsGlassMaterial(int mat) => VoxelDamageMath.IsGlassMaterial(mat);
 
         private sealed class Live
         {
@@ -234,8 +238,13 @@ namespace SteelCity.Sim
             var pdr = PathDebugRenderer.Instance;
             if (pdr != null)
             {
-                Vector3 tail = p.pos - dir * Mathf.Min(tracerLength, p.traveled);
-                pdr.SetCustomBeam(p.beamKey, tail, p.pos, tracerWidth, tracerColor);
+                if (showTracers)
+                {
+                    Vector3 tail = p.pos - dir * Mathf.Min(tracerLength, p.traveled);
+                    pdr.SetCustomBeam(p.beamKey, tail, p.pos, tracerWidth, tracerColor);
+                }
+                else
+                    pdr.ClearCustomBeam(p.beamKey);
             }
             return false;
         }
@@ -258,7 +267,7 @@ namespace SteelCity.Sim
                 r.point = h.point;
                 r.normal = h.normal;
                 if (r.hasIntended) r.impactOffset = Vector3.Distance(h.point, r.intendedTarget);
-                ShowImpact(h.point, h.normal);
+                if (showImpactMarks) ShowImpact(h.point, h.normal);
             }
             p.report = r;
             LastShot = r;
@@ -414,15 +423,27 @@ namespace SteelCity.Sim
             markers[slot] = default;
         }
 
-        /// <summary>Remove all tracers, impact ticks and the spread cone (in-flight bullets are dropped).</summary>
-        public void ClearVisuals()
+        /// <summary>Hide tracer beams only — in-flight bullets keep simulating.</summary>
+        public void ClearTracers()
         {
             var pdr = PathDebugRenderer.Instance;
             if (pdr != null)
                 foreach (var p in live) pdr.ClearCustomBeam(p.beamKey);
-            live.Clear();
+        }
+
+        /// <summary>Hide all drawn impact tick marks.</summary>
+        public void ClearImpactMarks()
+        {
             for (int m = 0; m < MarkerSlots; m++) ClearMarker(m);
-            ClearCone(pdr);
+        }
+
+        /// <summary>Remove all tracers, impact ticks and the spread cone (in-flight bullets are dropped).</summary>
+        public void ClearVisuals()
+        {
+            ClearTracers();
+            live.Clear();
+            ClearImpactMarks();
+            ClearCone(PathDebugRenderer.Instance);
         }
     }
 }

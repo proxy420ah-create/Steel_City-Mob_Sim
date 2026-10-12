@@ -918,7 +918,8 @@ namespace SteelCity.Sim
             if (mount != null && mount.IsEquipped)
             {
                 GUILayout.Label($"  bore axis: {(mount.BoreAxisLocal != Vector3.right ? "measured" : "+X fallback")}  hand gid {mount.HandGid}", labelStyle);
-                mount.showMuzzleRay = GUILayout.Toggle(mount.showMuzzleRay, " muzzle ray (red) + sight line while aiming", toggleStyle);
+                mount.showMuzzleRay = GUILayout.Toggle(mount.showMuzzleRay, " muzzle ray (red bore axis)", toggleStyle);
+                solver.showSightBeam = GUILayout.Toggle(solver.showSightBeam, " sight line (cyan, while aiming)", toggleStyle);
             }
 
             GUILayout.Space(6);
@@ -1004,6 +1005,29 @@ namespace SteelCity.Sim
             GUILayout.Label($"effective cone ±{proj.EffectiveConeDeg:F2}°   (skill ×{ProjectileSystem.SkillSpreadMultiplier(proj.shooterSkill):F2})", labelStyle);
             proj.showSpreadCone = GUILayout.Toggle(proj.showSpreadCone, " spread cone (wireframe)", toggleStyle);
 
+            bool tr = GUILayout.Toggle(proj.showTracers, " tracers (in-flight streak)", toggleStyle);
+            if (tr != proj.showTracers)
+            {
+                proj.showTracers = tr;
+                if (!tr) proj.ClearTracers();
+            }
+            bool im = GUILayout.Toggle(proj.showImpactMarks, " impact marks (red ticks)", toggleStyle);
+            if (im != proj.showImpactMarks)
+            {
+                proj.showImpactMarks = im;
+                if (!im) proj.ClearImpactMarks();
+            }
+
+            var dmg = VoxelDamageSystem.GetOrCreate();
+            dmg.glassDamageEnabled = GUILayout.Toggle(dmg.glassDamageEnabled, " glass puncture (P0)", toggleStyle);
+            if (dmg.glassDamageEnabled)
+            {
+                dmg.ring1RemoveFraction = HSlider("ring removal", dmg.ring1RemoveFraction, 0f, 1f, "F2");
+                GUILayout.Label("  low = small hole + wide crack halo · high = chunk blown out", labelStyle);
+            }
+            if (dmg.DamagedVolumeCount > 0 && GUILayout.Button($"RESET DAMAGE ({dmg.DamagedVolumeCount} volume{(dmg.DamagedVolumeCount > 1 ? "s" : "")}) — fresh glass", GUILayout.Height(22)))
+                dmg.ResetAllDamage();
+
             if (solver != null)
             {
                 solver.feelSkill = proj.shooterSkill;   // placeholder for the hood's Firearms stat
@@ -1038,6 +1062,9 @@ namespace SteelCity.Sim
                     string glass = ProjectileSystem.IsGlassMaterial(s.material) ? " (glass)" : "";
                     GUILayout.Label($"<color=#66ff66>HIT</color> {s.target}   mat {s.material}{glass}   cell {s.cell.x},{s.cell.y},{s.cell.z}", labelStyle);
                     GUILayout.Label($"dist {s.distance:F2}m   flight {s.flightTime:F2}s", labelStyle);
+                    var dmgSys = VoxelDamageSystem.Instance;
+                    if (dmgSys != null && ProjectileSystem.IsGlassMaterial(s.material) && dmgSys.LastRemoved + dmgSys.LastCracked > 0)
+                        GUILayout.Label($"🔨 puncture: -{dmgSys.LastRemoved} cells, {dmgSys.LastCracked} cracked", labelStyle);
                 }
                 else
                 {

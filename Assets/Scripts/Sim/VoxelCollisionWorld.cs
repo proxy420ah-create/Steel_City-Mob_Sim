@@ -233,6 +233,11 @@ namespace SteelCity.Sim
 
         public bool UnregisterVolume(string id) => volumes.Unregister(id);
 
+        /// <summary>Fetch a registered volume's array + placement — the array is shared/read-only (see SolidVolumeSet.TryGetVolume).</summary>
+        public bool TryGetVolume(string id, out uint[] voxels, out int w, out int h, out int d,
+            out Vector3 corner, out float voxelSize, out float yawDegrees)
+            => volumes.TryGetVolume(id, out voxels, out w, out h, out d, out corner, out voxelSize, out yawDegrees);
+
         public void ClearVolumes() => volumes.Clear();
 
         /// <summary>

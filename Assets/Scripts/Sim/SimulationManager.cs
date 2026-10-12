@@ -80,6 +80,11 @@ namespace SteelCity.Sim
         /// Debug weapons-testing phase.</summary>
         public bool targetPracticeDwells = true;
 
+        /// <summary>Dev: collapse the target_practice action phase to zero ticks —
+        /// arrival resolves the order and dwells immediately (pairs with the
+        /// spawn-at-position skip-walk so the weapons bench is ready instantly).</summary>
+        public bool skipTargetPracticeActionTicks;
+
         /// <summary>Release a held week — completes the sim so the normal
         /// week-end transition runs. No-op unless currently dwelling.</summary>
         public void ReleaseDwell()
@@ -392,6 +397,7 @@ namespace SteelCity.Sim
         int GetOrderActionTicks(Order order)
         {
             if (order == null) return 0;
+            if (order.orderType == "target_practice" && skipTargetPracticeActionTicks) return 0;
             if (OrderActionTicks.TryGetValue(order.orderType, out int ticks))
                 return ticks;
             return 100; // default fallback for unknown orders

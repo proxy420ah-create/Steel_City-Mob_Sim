@@ -84,6 +84,8 @@ namespace SteelCity.Sim
         [Header("=== ORDERS ===")]
         [Tooltip("Target Practice: character dwells at the firing position and the week stays OPEN for weapons testing until Enter is pressed. Uncheck to have him walk home after the order.")]
         [SerializeField] private bool targetPracticeDwells = true;
+        [Tooltip("Target Practice: teleport the character onto the resolved firing_position at week start instead of walking there. Dev convenience for the weapons bench — the order still runs normally, the walk is just zero-length.")]
+        [SerializeField] private bool targetPracticeSkipWalk = true;
 
         [Header("=== COLORS ===")]
         [SerializeField] private Color playerColor = new(0.29f, 0.62f, 1.0f);
@@ -1168,7 +1170,23 @@ namespace SteelCity.Sim
                     && !cityMap.TryGetBuildingPointLocal(order.blockId, "firing_position", out firePos))
                     AddEventLogEntry("[ORDER] No firing_position on target block — using block center", yellowColor);
                 else
+                {
                     targetLocalPos = firePos;
+                    // Dev convenience: snap the character onto the firing spot so the
+                    // week's first move is zero-length and he dwells immediately.
+                    if (targetPracticeSkipWalk)
+                    {
+                        var mnt = character.GetComponent<WeaponMount>();
+                        Vector3 half = mnt != null
+                            ? new Vector3(mnt.Dims.x * mnt.CharVoxelSize * 0.5f, 0f, mnt.Dims.z * mnt.CharVoxelSize * 0.5f)
+                            : Vector3.zero;
+                        Vector3 snapWorld = cityMap.MapRoot.position + firePos - half;
+                        snapWorld.y = character.transform.position.y;
+                        character.transform.position = snapWorld;
+                        startLocalPos = snapWorld - cityMap.MapRoot.position;
+                        AddEventLogEntry($"[ORDER] Target Practice — spawned at {posName} (walk skipped)", goldColor);
+                    }
+                }
                 if (cityMap.TryGetBuildingPointLocal(order.blockId, tgtName, out var aimPos)
                     || cityMap.TryGetBuildingPointLocal(order.blockId, "firing_target", out aimPos))
                     faceTargetLocal = aimPos;
@@ -1189,6 +1207,7 @@ namespace SteelCity.Sim
             // Create SimulationManager (pure logic, no rendering)
             simManager = new SimulationManager(waypointGraph, engine);
             simManager.targetPracticeDwells = targetPracticeDwells;
+            simManager.skipTargetPracticeActionTicks = targetPracticeSkipWalk;
             Debug.Log("[GameUIController] SimulationManager created");
 
             // Focus camera on HQ block BEFORE creating EventPlayer,

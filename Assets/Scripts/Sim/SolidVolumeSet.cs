@@ -84,6 +84,25 @@ namespace SteelCity.Sim
             else { index[id] = volumes.Count; volumes.Add(v); }
         }
 
+        /// <summary>
+        /// Fetch a registered volume's voxel array + placement. The array is shared
+        /// (asset cache / debris pool) — treat it as read-only; damage paths clone it
+        /// (copy-on-write) then Register under the same id to swap the reference.
+        /// </summary>
+        public bool TryGetVolume(string id, out uint[] voxels, out int w, out int h, out int d,
+            out Vector3 corner, out float voxelSize, out float yawDegrees)
+        {
+            if (id != null && index.TryGetValue(id, out int i))
+            {
+                Volume v = volumes[i];
+                voxels = v.voxels; w = v.w; h = v.h; d = v.d;
+                corner = v.corner; voxelSize = v.vs; yawDegrees = v.yawDeg;
+                return true;
+            }
+            voxels = null; w = h = d = 0; corner = Vector3.zero; voxelSize = 0f; yawDegrees = 0f;
+            return false;
+        }
+
         public bool Unregister(string id)
         {
             if (id == null || !index.TryGetValue(id, out int i)) return false;

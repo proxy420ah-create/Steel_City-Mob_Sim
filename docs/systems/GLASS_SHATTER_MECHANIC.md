@@ -1,6 +1,6 @@
 # Glass Shatter Mechanic — Prototype Proposal
 
-**Status**: 📐 Proposed — design settled, no implementation yet
+**Status**: ✅ P0 implemented + playtested (per-building chunks only) — bullet puncture, cracked halo visible through glass shell, damage reset + mold bench tooling live; sector-bake + P1 dressing pending
 **Created**: October 9, 2026
 **Parent**: [`VOXEL_GLASS_TRANSPARENCY.md`](VOXEL_GLASS_TRANSPARENCY.md) §Windows ↔ Projectiles — this doc resolves the "Shattering" option that section framed
 **Depends on**: `groupMap` gid tagging (editor), runtime dirty-cell writes (`docs/core/PERFORMANCE_PATTERNS.md` #1–2), Tier 3 individual-mutation draw path
@@ -140,7 +140,7 @@ This is infrastructure work, and it's where feasibility actually lives.
 
 | Phase | Scope | Exit test |
 |-------|-------|-----------|
-| **P0** — puncture | Single test building; bullet ray hits 112 → impact cell + ring-1 removal (seeded), AIR swap, dirty-cell refresh | Shoot a window → hole appears, persists, ray passes through hole on second shot |
+| **P0** — puncture ✅ | Bullet ray hits glass → impact cell + ring-1 removal (seeded, `ring1RemoveFraction` tunable), AIR swap, COW array + dirty-cell upload to **voxel and pane buffers** (damaged cells get fresh pane ids — otherwise the shader dedups cracked cells into the intact pane and they never render through the shell). **Shipped as**: `VoxelDamageSystem` (ShotResolved → COW → `VoxelDamageMath.Puncture` → `VoxelChunkManager.UploadVoxelEdits`) + `VoxelCollisionWorld.TryGetVolume` + `ResetAllDamage`. Cracked-halo (134) pulled forward from P1 — a hole in a transparent mold is otherwise invisible. **Per-building chunks only** — sector-baked placements skip with a warning (sector damage = merged-buffer writes at `bufferOffset`, or overlay — P2 conversation). Verified offline + in playtest: `dda_selftest` [7] drills the mold — 8 shots / 58 cells → clean through-hole out the back face; metal **retainer** (relocated to the cube's base, off the bore axis) untouched | Shoot the mold → hole appears, persists, next shot goes deeper; ~8 shots punch clean through |
 | **P1** — dressing | Shard-burst particles fed by removal delta; cracked-halo material swap; tink/crash sound by count | Hole reads as "shattered glass," not "missing voxels" |
 | **P2** — pane semantics | gid pane tagging in editor → cascade-release + blast radius over gid clusters | Whole storefront crumbles on blast; bullet still punctures |
 | **P3** — sim hooks | Noise events → NPC reaction; LOS invalidation; damage map persistence; smash-and-grab order hook | Broken window = entry + alert + saved scar |

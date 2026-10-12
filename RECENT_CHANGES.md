@@ -1,8 +1,42 @@
 # Recent Changes — Steel City: Mob Sim
 
-**Last Updated**: October 11, 2026 (3-lane range + ballistics bench, Cracked Glass palette, attachment-point pipeline fix)
+**Last Updated**: October 11, 2026 (glass puncture P0 playtested: pane-dedup fix, mold retainer relocated, week-start range spawn, bench toggles)
 
 ---
+
+## Glass puncture P0 playtest fixes + bench tooling — Oct 11
+
+### Cracked cells were invisible through intact glass — pane-dedup fix
+- `VoxelChunkManager.UploadVoxelEdits` now writes the dirty spans into `paneBuffer` too: AIR cells → paneId 0, surviving glass (cracked 134) → a fresh per-edit pane id (high band 0x8000+). Previously the pane map was never updated, so a cracked cell embedded in the cube kept the intact pane's id and the shader deduped it into the front surface — rendered but invisible.
+- `RefreshChunkVoxels` (reset) also restores the pane map from `GetPaneIDs`'s reference-keyed cache (free — no re-flood).
+
+### Mold redesign — retainer moved out of the bore axis
+- `gen_shooting_range.py`: the 2³ Painted-Metal core moved from cube center (y7–9, dead on the aim line) to the **cube's base y4–5** — a socket retainer holding the block, below the bore axis. `glass_target`'s painted cells stay at cube center (now glass) so the aim point is unchanged; it's metadata, not geometry — survives the voxel under it being shot out.
+- Regenerated JSON + `.stasset`. Selftest [7] updated: 8 shots / 58 cells → clean through-hole, exits the back face and hits the lane-3 board; all 8 retainer cells intact; a ray hitting the retainer would FAIL the test.
+
+### Bench controls
+- Range tab toggles split: `tracers` / `impact marks` (was one `shot visuals` master — `ProjectileSystem.showTracers`/`showImpactMarks` + `ClearTracers`/`ClearImpactMarks`); `muzzle ray (red bore)` and `sight line (cyan)` separated — `ArmAimSolver.showSightBeam` gates the muzzle→target beam that the old label claimed but never controlled.
+- `RESET DAMAGE` button (appears once damage exists) → `VoxelDamageSystem.ResetAllDamage()`: restores pristine arrays, re-registers collision, full-buffer GPU refresh, clears damage bookkeeping.
+- `ring removal` slider → `VoxelDamageSystem.ring1RemoveFraction` live: low = small hole + wide crack halo, high = chunk blown out.
+- Week-start shortcut: `GameUIController.targetPracticeSpawnAtRange` (default on) teleports Vinny onto `firing_position_N` before the order resolves; `SimulationManager.skipTargetPracticeActionTicks` collapses the 166-tick DialogPhase — week opens already Dwelling at lane 2, IK AIM available immediately.
+- `CityMap3D` context menu: "Rebuild — sector baking OFF (per-building chunks)" — flips to live chunks in play mode (P0 damage can't reach merged sector buffers).
+
+### Verification
+- Selftest: ALL PASS (148,046 checks) — mold drill is a clean through-hole.
+- Editor `Assembly-CSharp` compiles clean.
+- 🧪 Playtest PASSED (Oct 11): holes + cracked halo render through the glass shell from all angles; reset restores a fresh mold; spawn-at-range puts Vinny dwelling at lane 2 instantly.
+
+---
+
+## Glass puncture P0 (per-building) — Oct 11
+
+- `VoxelDamageSystem` (new): ShotResolved → glass hits COW-clone the volume's voxel array, run `VoxelDamageMath.Puncture` (impact cell + seeded ring-1 ⊥ shotDir → AIR; survivors → 134 Cracked Glass so the wound is visible in transparent glass), re-register the collision volume by id, and `VoxelChunkManager.UploadVoxelEdits` pushes merged dirty spans to the GPU buffer (partial SetData — no re-upload).
+- `VoxelDamageMath` (new): Unity-free puncture math — the same file `dda_selftest` compiles, so the selftest runs the real code path.
+- `SolidVolumeSet.TryGetVolume` + `VoxelCollisionWorld.TryGetVolume`: shared-array access for COW.
+- `VoxelChunkManager.HasChunk` / `UploadVoxelEdits`: dirty-span GPU upload; sector-baked volumes (no chunk) are skipped with a warning — P0 is per-building only.
+- Range tab: "glass puncture (P0)" toggle + per-shot removed/cracked counts in the shot report.
+- Verified offline: selftest [7] fires down lane 3 into the mold — 3 shots remove 25 cells, hole deepens monotonically, the metal core (mat 111) stops the ray and survives a puncture centered on it. Editor Assembly-CSharp compiles clean.
+
 
 ## October 11, 2026 (late) — Firing range: 3 lanes + lane-3 glass ballistics bench
 

@@ -125,7 +125,7 @@ Cost: **≈ 1.7 µs per shot** through the 192×120×192 range grid; the linear 
 1. **Characters and vehicles are not hit yet.** Planned per `COMBAT_VEHICLE_DESIGN.md` §13: an instance spatial hash queried along the same swept segment; `Raycast` already provides the world-geometry half.
 2. **Aim parallax.** `ArmAimSolver` slams the bore axis parallel to the *shoulder→target* line, not muzzle→target, so a small residual (`aim err`, also shown in the report) is expected at close range. If it matters, iterate the solve from the muzzle position.
 3. **Shape bits ignored** (slopes/half-blocks count as full cubes) and **no penetration** — the bullet stops at the first non-air voxel; the report carries the material so penetration tables (`COMBAT_AUTOBATTLE.md` data schema) can slot in.
-4. **Glass puncture / bullet holes** (`GLASS_SHATTER_MECHANIC.md`): removing voxels means copy-on-write of the shared array + sector re-bake + `RegisterVolume` by id. The report already gives the pane voxel.
+4. **Glass puncture — P0 shipped (per-building chunks only)** (`GLASS_SHATTER_MECHANIC.md`): `VoxelDamageSystem` subscribes to `ShotResolved`; glass hits copy-on-write the volume array, run `VoxelDamageMath.Puncture` (impact + seeded ring-1 → AIR, survivors → 134 Cracked Glass), re-register the volume by id, and push dirty spans to the chunk buffer via `VoxelChunkManager.UploadVoxelEdits`. Sector-baked volumes are skipped (merged buffers unreachable) — sector damage is the next design problem.
 5. **Broadphase** is linear over volumes — fine for a few shots per frame; put a coarse grid in front of it before mass fire or per-frame LOS for crowds.
 6. **Gravity** exists (`gravity`, default 0). No ricochet, no suppression, no sound/noise events yet.
 

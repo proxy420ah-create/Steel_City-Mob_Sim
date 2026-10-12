@@ -63,6 +63,8 @@ namespace SteelCity.Sim
         [Range(0.6f, 1.6f)] public float dampingRatio = 1.05f;
         [Tooltip("Hard cap on aim offset (deg) — anti-windup; the arm can never be pushed further than this")]
         [Range(2f, 20f)] public float maxOffsetDeg = 11f;
+        [Tooltip("Draw the cyan muzzle→target sight beam while aiming (PathDebugRenderer).")]
+        public bool showSightBeam = true;
 
         // --- State ---
         public bool IsAiming { get; private set; }
@@ -401,7 +403,7 @@ namespace SteelCity.Sim
             if (pdr != null)
             {
                 if (sightBeamKey == null) sightBeamKey = $"aim_sight_{GetInstanceID()}";
-                if (IsAiming)
+                if (IsAiming && showSightBeam)
                     pdr.SetCustomBeam(sightBeamKey, mount.MuzzleWorld, TargetWorld,
                         0.006f, new Color(0.2f, 1f, 1f, 0.55f));
                 else

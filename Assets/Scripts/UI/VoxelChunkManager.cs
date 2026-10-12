@@ -1421,6 +1421,91 @@ namespace SteelCity.Sim
             Debug.Log($"[VoxelChunkManager] Unregistered external volume '{name}'");
         }
 
+        /// <summary>True when a chunk with this name is loaded on the per-chunk render path.</summary>
+        public bool HasChunk(string name) => name != null && chunkLookup.ContainsKey(name);
+
+        /// <summary>
+        /// Upload edited voxel cells to a chunk's GPU buffer — PERFORMANCE_PATTERNS #1-2:
+        /// the caller holds the authoritative uint[]; dirty flat indices
+        /// (x + y·w + z·w·h) are merged into contiguous spans and pushed via partial
+        /// ComputeBuffer.SetData, so a bullet hole costs bytes, not a chunk re-upload.
+        /// Returns false when the name isn't a live chunk — sector-baked placements
+        /// render from merged sector buffers and need the overlay path
+        /// (GLASS_SHATTER_MECHANIC.md; P0 damage is per-building only).
+        /// </summary>
+        // Pane ids handed to damage edits — kept in a high band so they rarely
+        // collide with authored flood-fill ids (which count up from 1). A
+        // collision only means two unrelated panes dedup — tint-only artifact.
+        private static uint nextDamagePaneId = 0x8000u;
+        private static uint[] paneScratch = new uint[0];
+
+        public bool UploadVoxelEdits(string chunkName, uint[] data, List<int> dirtyIndices)
+        {
+            if (!chunkLookup.TryGetValue(chunkName, out var chunk) || chunk.voxelBuffer == null)
+                return false;
+            if (data == null || dirtyIndices == null || dirtyIndices.Count == 0)
+                return true;
+
+            dirtyIndices.Sort();
+
+            // Pane bookkeeping: a cell whose material changed must leave its old
+            // pane — a cracked (still-glass) cell keeping the intact pane's id is
+            // deduped into the front surface and never renders. AIR cells → 0;
+            // cells that stayed glass → one fresh id shared across this edit, so
+            // the scar dedups as its own surface.
+            ComputeBuffer paneBuf = chunk.paneBuffer;
+            bool hasPane = paneBuf != null && paneBuf != defaultPaneBuffer && paneBuf.count == data.Length;
+            uint dmgPane = 0;
+            if (hasPane)
+            {
+                for (int i = 0; i < dirtyIndices.Count; i++)
+                    if (IsGlassMaterial(data[dirtyIndices[i]] & 0x1FFu)) { dmgPane = nextDamagePaneId; break; }
+                if (dmgPane != 0 && ++nextDamagePaneId > 0xFFFEu) nextDamagePaneId = 0x8000u;
+            }
+
+            int start = dirtyIndices[0], prev = start;
+            for (int i = 1; i <= dirtyIndices.Count; i++)
+            {
+                if (i < dirtyIndices.Count && dirtyIndices[i] == prev + 1) { prev = dirtyIndices[i]; continue; }
+                int len = prev - start + 1;
+                chunk.voxelBuffer.SetData(data, start, start, len);
+                if (hasPane)
+                {
+                    if (paneScratch.Length < len) paneScratch = new uint[len];
+                    for (int k = 0; k < len; k++)
+                        paneScratch[k] = IsGlassMaterial(data[start + k] & 0x1FFu) ? dmgPane : 0u;
+                    paneBuf.SetData(paneScratch, 0, start, len);
+                }
+                if (i < dirtyIndices.Count) start = prev = dirtyIndices[i];
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Full-buffer re-upload of a chunk's voxel data — used by VoxelDamageSystem
+        /// reset to restore a damaged volume to its pristine array. Returns false when
+        /// the name isn't a live chunk or the array doesn't match the buffer size.
+        /// </summary>
+        public bool RefreshChunkVoxels(string chunkName, uint[] data)
+        {
+            if (!chunkLookup.TryGetValue(chunkName, out var chunk) || chunk.voxelBuffer == null)
+                return false;
+            if (data == null || data.Length != chunk.voxelBuffer.count) return false;
+            chunk.voxelBuffer.SetData(data);
+
+            // Restore pane ids too — damage edits overwrote them (AIR cells → 0,
+            // cracked cells → fresh ids). The pristine array's pane map is cached
+            // by reference from chunk creation, so this is a lookup, not a re-flood.
+            if (chunk.paneBuffer != null && chunk.paneBuffer != defaultPaneBuffer
+                && chunk.paneBuffer.count == data.Length)
+            {
+                var pane = GetPaneIDs(data, chunk.dims.x, chunk.dims.y, chunk.dims.z);
+                if (pane != null && pane.Length == data.Length)
+                    chunk.paneBuffer.SetData(pane);
+            }
+            return true;
+        }
+
         /// <summary>
         /// Clear all chunks.
         /// </summary>

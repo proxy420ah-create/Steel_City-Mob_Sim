@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
@@ -320,7 +321,76 @@ static class Program
         sw.Stop();
         Console.WriteLine($"    200000 shots through 192x120x192 range: {sw.Elapsed.TotalMilliseconds:F0} ms total, {sw.Elapsed.TotalMilliseconds * 1000.0 / 200000:F2} us/shot, {hitsN} hits");
         Console.WriteLine("[6] range asset shots done");
+
+        TestGlassPuncture(w, h, d, corner, vs);
     }
+
+    /// <summary>
+    /// P0 glass puncture (GLASS_SHATTER_MECHANIC.md): fire the same ray into the lane-3
+    /// ballistics mold, apply VoxelDamageMath.Puncture on every glass hit, and keep
+    /// drilling until the ray exits the mold's back face and strikes the lane-3 target
+    /// downrange. Verifies: first hit is glass at the front face (z=109), each puncture
+    /// removes >0 cells, the hole deepens monotonically, and the Painted Metal retainer
+    /// at the cube's base (y4-5) is never touched by the level aim line.
+    /// </summary>
+    static void TestGlassPuncture(int w, int h, int d, Vector3 corner, float vs)
+    {
+        // Fresh copy of the asset — this test mutates it.
+        var g2 = LoadRange(rangePath, out int w2, out int h2, out int d2);
+        Check(w2 == w && h2 == h && d2 == d, "puncture grid dims match");
+        var set2 = new SolidVolumeSet();
+        set2.Register("range", g2, w, h, d, corner, vs);
+
+        // Level shot down lane 3 into the mold face: glass_target centroid (155.5,7.5,112.5), front face z=109.
+        Vector3 muzzle = corner + new Vector3(155.5f, 7.5f, 20f) * vs;
+        Vector3 aim = corner + new Vector3(155.5f, 7.5f, 112.5f) * vs;
+        Vector3 dir = (aim - muzzle).normalized;
+        var dirty = new List<int>();
+
+        int firstZ = -1, lastGlassZ = -1, shots = 0, totalRemoved = 0;
+        bool punchedThrough = false, monotonic = true;
+        for (; shots < 40; shots++)
+        {
+            Check(set2.Raycast(muzzle, dir, 80f, out VoxelRayHit r), $"puncture shot {shots}: ray hit nothing");
+            if (r.material == 111) { Check(false, $"puncture shot {shots}: hit metal retainer at {Describe2(r)} — it must be below the aim line"); break; }
+            if (!VoxelDamageMath.IsGlassMaterial(r.material))
+            {
+                // Clear through the mold — first non-glass hit must be PAST the cube's
+                // back face (z > 116): lane-3 target/backstop downrange.
+                punchedThrough = r.cell.z > 116;
+                Check(punchedThrough, $"puncture shot {shots}: ray stopped inside the mold at {Describe2(r)}");
+                break;
+            }
+            if (firstZ < 0) Check(r.cell.z == 109 && r.material == 112, $"first glass hit at front face z=109 mat 112, got {Describe2(r)}");
+            if (r.cell.z < lastGlassZ) monotonic = false;
+            lastGlassZ = r.cell.z;
+            if (firstZ < 0) firstZ = r.cell.z;
+            int removed = VoxelDamageMath.Puncture(g2, w, h, d, r.cell.x, r.cell.y, r.cell.z,
+                dir.x, dir.y, dir.z, 0xC0FFEE00u + (uint)shots, 0.8f, 134, dirty, out int cracked);
+            Check(removed > 0, $"puncture shot {shots}: removed 0 cells at {Describe2(r)}");
+            totalRemoved += removed;
+            dirty.Clear();
+            set2.Register("range", g2, w, h, d, corner, vs);   // COW path re-registers by id; same array here
+        }
+        Check(punchedThrough, $"ray punched through the mold back face after {shots} shots, {totalRemoved} cells removed");
+        Check(monotonic, "hole deepened monotonically along the shot line");
+
+        // The metal retainer at the cube's base must be intact — it sits below the
+        // y7.5 aim line (cells x155-156, y4-5, z112-113) and is indestructible anyway.
+        for (int x = 155; x <= 156; x++)
+            for (int y = 4; y <= 5; y++)
+                for (int z = 112; z <= 113; z++)
+                {
+                    int idx = x + y * w + z * w * h;
+                    Check((g2[idx] & VoxelDamageMath.MaterialMask) == 111,
+                        $"metal retainer cell ({x},{y},{z}) intact — got mat {g2[idx] & VoxelDamageMath.MaterialMask}");
+                }
+        Console.WriteLine($"    mold drilled: {shots} shots, {totalRemoved} cells removed, clean through-hole");
+        Console.WriteLine("[7] glass puncture drill done");
+    }
+
+    static string rangePath;
+    static string Describe2(VoxelRayHit r) => $"vol={r.volumeId} mat={r.material} cell=({r.cell.x},{r.cell.y},{r.cell.z}) dist={r.distance:F3}m";
 
     static int Main(string[] args)
     {
@@ -329,7 +399,8 @@ static class Program
         TestByteGrid();
         TestVolumeSet();
         TestYaw();
-        TestRange(args.Length > 0 ? args[0] : null);
+        rangePath = args.Length > 0 ? args[0] : null;
+        TestRange(rangePath);
         Console.WriteLine(fails == 0 ? $"ALL PASS ({checks} checks)" : $"{fails} FAILURES of {checks} checks");
         return fails == 0 ? 0 : 1;
     }
