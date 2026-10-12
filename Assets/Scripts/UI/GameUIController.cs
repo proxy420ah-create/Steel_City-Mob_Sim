@@ -1156,13 +1156,21 @@ namespace SteelCity.Sim
 
             // Target Practice: walk to the building's authored firing_position and
             // face its firing_target — falls back to block center when absent.
+            // Multi-lane ranges: the Range tab's lane/aim selection picks the
+            // suffixed point names (firing_position_1..3, glass_target, ...).
             if (order.orderType == "target_practice")
             {
-                if (cityMap.TryGetBuildingPointLocal(order.blockId, "firing_position", out var firePos))
-                    targetLocalPos = firePos;
-                else
+                int lane = Mathf.Clamp(DebugHUDManager.RangeLane, 1, 3);
+                string posName = $"firing_position_{lane}";
+                string tgtName = (DebugHUDManager.RangeAimMold && lane == 3)
+                    ? "glass_target" : $"firing_target_{lane}";
+                if (!cityMap.TryGetBuildingPointLocal(order.blockId, posName, out var firePos)
+                    && !cityMap.TryGetBuildingPointLocal(order.blockId, "firing_position", out firePos))
                     AddEventLogEntry("[ORDER] No firing_position on target block — using block center", yellowColor);
-                if (cityMap.TryGetBuildingPointLocal(order.blockId, "firing_target", out var aimPos))
+                else
+                    targetLocalPos = firePos;
+                if (cityMap.TryGetBuildingPointLocal(order.blockId, tgtName, out var aimPos)
+                    || cityMap.TryGetBuildingPointLocal(order.blockId, "firing_target", out aimPos))
                     faceTargetLocal = aimPos;
             }
 

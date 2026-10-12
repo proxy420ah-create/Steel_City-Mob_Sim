@@ -1,6 +1,42 @@
 # Recent Changes — Steel City: Mob Sim
 
-**Last Updated**: October 11, 2026 (projectiles v1: physical shots + voxel-DDA hits; sector-mode address-registry fix)
+**Last Updated**: October 11, 2026 (3-lane range + ballistics bench, Cracked Glass palette, attachment-point pipeline fix)
+
+---
+
+## October 11, 2026 (late) — Firing range: 3 lanes + lane-3 glass ballistics bench
+
+### The range is now a proper testbed
+- **`gen_shooting_range.py`** parameterized: the lane body (stand spot, bench, pad, rails, 5m/10m/15m marks, posts/board/bullseye) emits per-lane at `LANE_DX = (-60, 0, +60)` — lane 1 left (x16–55), lane 2 center (x76–115, identical to before), lane 3 right (x136–175). 128,930 voxels.
+- **Per-lane attachment points** `firing_position_1..3` / `firing_target_1..3` / `backstop_1..3`; lane 2 keeps the original unsuffixed names *and* `_2` aliases so older assets/code keep working. New part defs (ids 9–20) so the editor can paint lane variants.
+- **Lane-3 ballistics bench** at the 10 m mark: dark-wood table (legs y3, tabletop ring y4 with metal banding) hosting an **8³ Window Glass "mold"** whose centroid (155.5, 7.5, 112.5) matches the firing-target aim height — Vinny aims at it identically. A 2³ **Painted-Metal core sits at the exact center painted `glass_target`** — the aim attachment is on indestructible metal and survives the glass being destroyed (the user's design requirement). Painted parts: `glass_target` (core), `glass_mold` (the 504 surrounding glass cells), `ballistics_bench` (table).
+- **Cracked Glass material — palette id 134** (130-133 are taken by the editor's char palette; 134 is free inside the gameplay block): whiter + higher alpha than intact glass `(0.82, 0.88, 0.92, 0.8)` — lands in `mob_materials.py`, `StAssetReader.MobColors`, `ProjectileSystem.IsGlassMaterial`, `VoxelChunkManager` pane flood-fill, the shader's glass-lighting branch (flat 0.85), and the HTML editor palette. Alpha < 0.99 means the shader's `IsGlassVoxel` gate picks it up automatically — no forced-glass wiring needed.
+- **`Tools/json_to_stasset.py` fix (latent metadata loss)**: it wrote points to `skeleton.attachments`, a key `StAssetReader.LoadAttachmentPoints` never scans — regenerating a `.stasset` silently dropped all attachment points. Now writes `attachmentPoints` (+`itemParts`/`itemPartDefs`) into `building_meta` → `payload['building']`, matching the shipped asset. **`Tools/stasset_to_json.py`** round-trips them back (reads SKEL tail via `load_stasset_full`, restores attachmentPoints/itemParts/itemPartDefs) + the cp1252 stdout guard.
+- **HUD/gameplay**: Range tab gets **lane (1/2/3) + aim (lane target / glass mold)** selectors (`DebugHUDManager.RangeLane`/`RangeAimMold` statics); `GameUIController` target_practice resolves `firing_position_N`/`firing_target_N` (or `glass_target`) with unsuffixed fallback for old assets. Picking "glass mold" snaps the lane to 3. **`EventPlayer.DebugSnapTo`** — lane buttons teleport Vinny onto the selected lane's stand spot and face him downrange while Dwelling (same facing convention as FaceTarget; disarms IK AIM so he re-aims at the new lane's target).
+- **`voxel_editor.html`**: `activePartGroups()` now prefers the loaded file's `itemPartDefs` over the hardcoded lists — per-asset part sets (the range's 21 defs) render colored + labeled instead of grey, and `itemPartDefs` is preserved through load/export. New palette entry 134 Cracked Glass.
+
+### Verification
+- stasset regenerated (StreamingAssets + Build copy): SKEL tail carries all 15 points; glass = 504 cells x152–159/y4–11/z109–116; core cells all Painted Metal (111); all three lane pads/bullseyes byte-identical counts. JSON→stasset→JSON round-trip preserves points, parts and defs.
+- Editor + Player-dev `Assembly-CSharp` compile clean with Unity's Roslyn.
+- 🧪 **Playtest PASSED (Oct 11)**: three lanes render; JSON shows colored/labeled part markers in the editor; lane buttons teleport Vinny to the selected lane's stand spot; `glass_target`/`glass_mold` resolve; Vinny fired into the mold — projectile impacts the glass face (`mat 112`), stops at first cell as designed pre-shatter.
+
+---
+
+## October 11, 2026 (late) — Aim feel: sway + recoil spring + spread-cone wireframe
+
+### The gun now kicks — and follow-up shots inherit the deflection
+- **`AimFeelSpring`** (new, `AimFeelSpring.cs`): second-order spring on an angular aim offset (x = up, y = right). Equilibrium = wandering sway target; impulses = recoil. Semi-implicit Euler, gains derived from a desired settle time. Impulse while displaced → stacking wildness for free.
+- **`ArmAimSolver`**: spring output rotates `TargetWorld` about the muzzle **before** the IK solve — torso + elbow chase the perturbed point, `WeaponMount.AimDirection` (and therefore the *next* shot) physically deflects and recovers. Skill-scaled: sway amplitude ×`SkillSpreadMultiplier`, settle ~0.3×/missing skill point. `ShotFired` subscription seeds the kick's lateral component off the shot seed.
+- **`ProjectileSystem`**: new `ShotFired` event at trigger pull (the shot samples the pre-kick bore); `Hash01` now public; **spread-cone wireframe** — 6 edge rays + rim at `EffectiveConeDeg` around the live bore, dances with sway/recoil.
+- **Range tab**: `spread cone` toggle, `aim feel` toggle + `sway ° @10` / `kick °` / `settle s @10` sliders, live `aim offset` readout; `feelSkill` mirrors the skill slider (placeholder for hood Firearms stat).
+- Docs: `COMBAT_VEHICLE_DESIGN.md` §14 status note (aim channel implemented; flinch/raise/knockdown channels still pending).
+
+### Verification
+- Editor + Player-dev `Assembly-CSharp` compile clean (new file appended).
+- 🧪 **Playtest (pending)**: `spread cone` shows a wireframe cone around the muzzle; `aim feel` makes the bore/cone visibly wander (skill 1 wanders wide, skill 10 tight); FIRE → arm kicks up, recovers in `settle s`; rapid FIRE stacks deflection — follow-up shots land where the kicked barrel points.
+- **Anti-flail pass** (post-feedback): pos/vel hard clamps (`maxOffsetDeg` 11° default, the SteelTide `iMax` lesson), fixed 1/120 s substeps (explicit Euler on a stiff spring explodes on one hitchy frame), `dampingRatio` 0.8→1.05 (no visible ring), saturating impulse snap (stacking bounded), slower sway octaves (calm correction, not servo-jitter).
+
+---
 
 ---
 

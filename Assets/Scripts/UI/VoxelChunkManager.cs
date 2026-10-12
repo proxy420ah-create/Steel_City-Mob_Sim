@@ -312,7 +312,7 @@ namespace SteelCity.Sim
         private static readonly int[] forcedGlassIds = new int[8];
         private static bool IsGlassMaterial(uint mat)
         {
-            if (mat == 112u || mat == 113u || mat == 114u || mat == 147u) return true;
+            if (mat == 112u || mat == 113u || mat == 114u || mat == 134u || mat == 147u) return true;
             for (int i = 0; i < forcedGlassIds.Length; i++)
                 if (forcedGlassIds[i] != 0 && (int)mat == forcedGlassIds[i]) return true;
             return false;

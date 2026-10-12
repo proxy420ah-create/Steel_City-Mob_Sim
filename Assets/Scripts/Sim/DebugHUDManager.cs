@@ -61,6 +61,14 @@ namespace SteelCity.Sim
 
         // Range tab state — set by clicking a range block while sim is Dwelling
         private string rangeBlockId;
+
+        /// <summary>Selected firing lane (1=left, 2=center, 3=right). Read by
+        /// GameUIController when resolving per-lane point names for
+        /// target_practice orders.</summary>
+        public static int RangeLane = 2;
+        /// <summary>When true (lane 3 only), the aim point is the glass mold's
+        /// metal core ("glass_target") instead of the lane's firing_target.</summary>
+        public static bool RangeAimMold = false;
         private ArmAimSolver solver;
         private bool blockClickHooked;
 
@@ -83,6 +91,7 @@ namespace SteelCity.Sim
 
         // Cached styles
         private GUIStyle labelStyle;
+        private GUIStyle toggleStyle;
         private GUIStyle boldStyle;
         private GUIStyle tabStyle;
         private GUIStyle tabActiveStyle;
@@ -347,6 +356,16 @@ namespace SteelCity.Sim
                 richText = true,
                 fontStyle = FontStyle.Bold,
                 normal = { textColor = new Color(0.1f, 1f, 1f) }
+            };
+
+            // Toggles need the skin's toggle style — a label style renders the row
+            // clickable but with no checkbox glyph.
+            toggleStyle = new GUIStyle(GUI.skin.toggle)
+            {
+                fontSize = 12,
+                richText = true,
+                normal = { textColor = new Color(0.88f, 0.92f, 1f) },
+                onNormal = { textColor = new Color(0.88f, 0.92f, 1f) }
             };
 
             bgTex = new Texture2D(1, 1);
@@ -778,6 +797,28 @@ namespace SteelCity.Sim
             OpenRangeTab(blockId);
         }
 
+        /// <summary>
+        /// Debug snap: while dwelling at a range block, move the spawned
+        /// character onto lane N's firing_position and face him downrange at
+        /// that lane's firing_target. Teleports — no pathing (the dwell state
+        /// has no move queue, and lane-switching is a bench tool, not sim).
+        /// </summary>
+        private void MoveCharacterToLane(string blockId, int lane)
+        {
+            var sim = gameUI != null ? gameUI.Sim : null;
+            if (sim == null || sim.State != SimState.Dwelling) return;
+            var ch = cityMap.SpawnedCharacter;
+            var mount = ch != null ? ch.GetComponent<WeaponMount>() : null;
+            if (mount == null) return;
+            if (!cityMap.TryGetBuildingPointLocal(blockId, $"firing_position_{lane}", out var posLocal)) return;
+            if (solver != null && solver.IsAiming) solver.Disarm();
+            var ep = FindFirstObjectByType<EventPlayer>();
+            if (ep == null) return;
+            Vector3? faceWorld = cityMap.TryGetBuildingPointLocal(blockId, $"firing_target_{lane}", out var tgtLocal)
+                ? cityMap.MapRoot.position + tgtLocal : (Vector3?)null;
+            ep.DebugSnapTo(cityMap.MapRoot.position + posLocal, mount.Dims, mount.CharVoxelSize, faceWorld);
+        }
+
         /// <summary>Open the HUD on the Range tab for the given block.</summary>
         public void OpenRangeTab(string blockId)
         {
@@ -807,11 +848,46 @@ namespace SteelCity.Sim
             var pointNames = cityMap.GetBuildingPointNames(rangeBlockId);
             GUILayout.Label($"Points: {(pointNames.Count > 0 ? string.Join(", ", pointNames) : "none")}", labelStyle);
 
-            bool hasPos = cityMap.TryGetBuildingPointLocal(rangeBlockId, "firing_position", out var posLocal);
-            bool hasTgt = cityMap.TryGetBuildingPointLocal(rangeBlockId, "firing_target", out var tgtLocal);
+            // --- Lane + aim-point selection ---
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("lane:", labelStyle, GUILayout.Width(38));
+            for (int i = 1; i <= 3; i++)
+            {
+                if (GUILayout.Toggle(RangeLane == i, $" {i}", RangeLane == i ? tabActiveStyle : tabStyle, GUILayout.Height(20)))
+                {
+                    if (RangeLane != i)
+                    {
+                        RangeLane = i;
+                        MoveCharacterToLane(rangeBlockId, i);
+                    }
+                }
+            }
+            GUILayout.EndHorizontal();
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("aim:", labelStyle, GUILayout.Width(38));
+            if (GUILayout.Toggle(!RangeAimMold, " lane target", !RangeAimMold ? tabActiveStyle : tabStyle, GUILayout.Height(20)))
+                RangeAimMold = false;
+            bool moldAvailable = pointNames.Contains("glass_target");
+            GUI.enabled = moldAvailable;
+            if (GUILayout.Toggle(RangeAimMold, " glass mold", RangeAimMold ? tabActiveStyle : tabStyle, GUILayout.Height(20)))
+            {
+                RangeAimMold = true;
+                RangeLane = 3;   // the mold lives on lane 3
+            }
+            GUI.enabled = true;
+            GUILayout.EndHorizontal();
+            if (!moldAvailable && RangeAimMold) RangeAimMold = false;
+
+            string posName = $"firing_position_{RangeLane}";
+            string tgtName = RangeAimMold ? "glass_target" : $"firing_target_{RangeLane}";
+            // fall back to the pre-multilane names for older range assets
+            bool hasPos = cityMap.TryGetBuildingPointLocal(rangeBlockId, posName, out var posLocal)
+                       || cityMap.TryGetBuildingPointLocal(rangeBlockId, "firing_position", out posLocal);
+            bool hasTgt = cityMap.TryGetBuildingPointLocal(rangeBlockId, tgtName, out var tgtLocal)
+                       || cityMap.TryGetBuildingPointLocal(rangeBlockId, "firing_target", out tgtLocal);
             Vector3 posWorld = cityMap.MapRoot.position + posLocal;
             Vector3 tgtWorld = cityMap.MapRoot.position + tgtLocal;
-            GUILayout.Label($"firing_position: {(hasPos ? "OK" : "<color=#ff6666>MISSING</color>")}   firing_target: {(hasTgt ? "OK" : "<color=#ff6666>MISSING</color>")}", labelStyle);
+            GUILayout.Label($"{posName}: {(hasPos ? "OK" : "<color=#ff6666>MISSING</color>")}   {tgtName}: {(hasTgt ? "OK" : "<color=#ff6666>MISSING</color>")}", labelStyle);
 
             GUILayout.Space(6);
 
@@ -842,7 +918,7 @@ namespace SteelCity.Sim
             if (mount != null && mount.IsEquipped)
             {
                 GUILayout.Label($"  bore axis: {(mount.BoreAxisLocal != Vector3.right ? "measured" : "+X fallback")}  hand gid {mount.HandGid}", labelStyle);
-                mount.showMuzzleRay = GUILayout.Toggle(mount.showMuzzleRay, " muzzle ray (red) + sight line while aiming", labelStyle);
+                mount.showMuzzleRay = GUILayout.Toggle(mount.showMuzzleRay, " muzzle ray (red) + sight line while aiming", toggleStyle);
             }
 
             GUILayout.Space(6);
@@ -882,7 +958,7 @@ namespace SteelCity.Sim
 
             // --- Tuning sliders (live) ---
             GUILayout.Label("<b>Tuning</b>", labelStyle);
-            solver.torsoAssist = GUILayout.Toggle(solver.torsoAssist, " torso assist (turret yaw)", labelStyle);
+            solver.torsoAssist = GUILayout.Toggle(solver.torsoAssist, " torso assist (turret yaw)", toggleStyle);
             if (solver.torsoAssist)
             {
                 solver.torsoShare = HSlider("torso share", solver.torsoShare, 0f, 1f);
@@ -915,12 +991,31 @@ namespace SteelCity.Sim
         {
             var proj = ProjectileSystem.GetOrCreate();
 
+            // The cone wireframe follows this mount while the panel is up (stale-stamped, auto-clears).
+            proj.aimSource = mount;
+            proj.aimTarget = hasTarget ? targetWorld : (Vector3?)null;
+            proj.aimSourceStamp = Time.time;
+
             GUILayout.Space(6);
             GUILayout.Label("<b>Firearm</b>", labelStyle);
             proj.shooterSkill = Mathf.RoundToInt(HSlider("skill (1-10)", proj.shooterSkill, 1f, 10f, "F0"));
             proj.baseConeDeg = HSlider("cone ° @10", proj.baseConeDeg, 0f, 5f);
             proj.muzzleSpeed = HSlider("speed u/s", proj.muzzleSpeed, 5f, 150f, "F0");
             GUILayout.Label($"effective cone ±{proj.EffectiveConeDeg:F2}°   (skill ×{ProjectileSystem.SkillSpreadMultiplier(proj.shooterSkill):F2})", labelStyle);
+            proj.showSpreadCone = GUILayout.Toggle(proj.showSpreadCone, " spread cone (wireframe)", toggleStyle);
+
+            if (solver != null)
+            {
+                solver.feelSkill = proj.shooterSkill;   // placeholder for the hood's Firearms stat
+                solver.aimFeelEnabled = GUILayout.Toggle(solver.aimFeelEnabled, " aim feel (sway + recoil)", toggleStyle);
+                if (solver.aimFeelEnabled)
+                {
+                    solver.swayDeg = HSlider("sway ° @10", solver.swayDeg, 0f, 3f);
+                    solver.kickDeg = HSlider("kick °", solver.kickDeg, 0f, 5f);
+                    solver.settleSec = HSlider("settle s @10", solver.settleSec, 0.05f, 0.5f);
+                    GUILayout.Label($"aim offset now {solver.AimOffsetDeg:F2}°", labelStyle);
+                }
+            }
 
             bool aimed = solver != null && solver.IsAiming && solver.Blend >= 0.98f;
             bool canFire = dwelling && mount != null && mount.IsEquipped && aimed;

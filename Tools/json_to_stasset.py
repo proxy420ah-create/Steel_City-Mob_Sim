@@ -33,6 +33,17 @@ def main():
     building_meta = {}
     if d.get('name'):
         building_meta['name'] = d['name']
+    # StAssetReader.LoadAttachmentPoints regex-scans the SKEL payload for an
+    # "attachmentPoints" object — it must live under building_meta, which
+    # save_stasset emits as payload['building'].
+    if d.get('attachmentPoints'):
+        building_meta['attachmentPoints'] = {
+            n: (p if isinstance(p, dict) else {'x': p[0], 'y': p[1], 'z': p[2]})
+            for n, p in d['attachmentPoints'].items()}
+    # Painted part regions + defs ride along so stasset_to_json round-trips them.
+    for k in ('itemParts', 'itemPartDefs'):
+        if d.get(k):
+            building_meta[k] = d[k]
 
     skeleton = None
     if d.get('attachmentPoints'):

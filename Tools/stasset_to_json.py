@@ -10,28 +10,24 @@ Usage:
 """
 import json
 import os
-import struct
 import sys
 
+import numpy as np
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'VoxelAssetStudio'))
+# stasset_io prints emoji; cp1252 consoles (Windows default) can't encode them
+sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 from mob_materials import MOB_MATERIALS
+from stasset_io import load_stasset_full
 
 
 def read_stasset(path):
+    voxels, dims, skeleton, building_meta = load_stasset_full(path)
     data = open(path, 'rb').read()
-    assert data[:4] == b'STAS', 'not a .stasset file'
     version = data[4]
-    w, h, d = struct.unpack('<HHH', data[6:12])
-    vox = []
-    off = 16
-    for z in range(d):
-        for y in range(h):
-            for x in range(w):
-                mid = data[off] | (data[off + 1] << 8)
-                if mid:
-                    vox.append([x, y, z, mid])
-                off += 2
-    return version, (w, h, d), vox
+    vox = [[int(x), int(y), int(z), int(voxels[x, y, z])]
+           for x, y, z in zip(*np.nonzero(voxels))]
+    return version, dims, vox, skeleton, building_meta
 
 
 def main():
@@ -45,7 +41,7 @@ def main():
     if '--voxel-size' in sys.argv:
         voxel_size = float(sys.argv[sys.argv.index('--voxel-size') + 1])
 
-    version, dims, vox = read_stasset(src)
+    version, dims, vox, skeleton, building_meta = read_stasset(src)
     used_ids = sorted({v[3] for v in vox})
     def mat_entry(m):
         info = MOB_MATERIALS.get(m, {})
@@ -61,7 +57,10 @@ def main():
         "voxelSize": voxel_size,
         "dims": list(dims),
         "voxels": vox,
-        "groups": {}, "regions": {}, "attachmentPoints": {},
+        "groups": {}, "regions": {},
+        "attachmentPoints": (building_meta or {}).get('attachmentPoints', {}),
+        "itemParts": (building_meta or {}).get('itemParts', {}),
+        "itemPartDefs": (building_meta or {}).get('itemPartDefs', []),
         "materials": materials,
     }
     json.dump(out, open(dst, 'w'))

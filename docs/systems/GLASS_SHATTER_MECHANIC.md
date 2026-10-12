@@ -97,7 +97,10 @@ Directionality is free: debris direction = projectile ray direction
   velocity = rayDir + spread cone + gravity + fade. GPU-driven, no colliders.
 - **Cracked halo** — surviving ring cells swap to a "cracked glass" material
   variant (whiter, higher alpha). Persistent — the window looks wounded
-  until it fails.
+  until it fails. Palette id **134 "Cracked Glass"** now exists
+  (`mob_materials.py` + `StAssetReader.MobColors` + `IsGlassMaterial` +
+  shader glass-lighting branch); 130-133 were taken by the editor's char
+  palette.
 - **Cascade-release** — on pane failure, remaining cells don't pop in one
   frame: they release over ~0.3s radiating from the impact point
   (event-scheduled, not physics). The window *crumbles*.

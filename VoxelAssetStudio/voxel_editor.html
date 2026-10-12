@@ -1595,7 +1595,7 @@ const initialVoxels = []; // startup scene removed (was a 1.7MB baked-in tower);
 // NOTE: was `const` — but load*() functions below reassign this when a
 // project file carries its own material palette (data.materials), which
 // threw "invalid assignment to const" and aborted the whole load. Must be `let`.
-let allMaterials = [{"id": 100, "name": "Red Brick", "r": 147, "g": 66, "b": 51, "hex": "#934233"}, {"id": 101, "name": "Stone", "r": 122, "g": 107, "b": 86, "hex": "#7a6b56"}, {"id": 102, "name": "Concrete", "r": 147, "g": 147, "b": 137, "hex": "#939389"}, {"id": 103, "name": "Stucco", "r": 209, "g": 204, "b": 188, "hex": "#d1ccbc"}, {"id": 104, "name": "Asphalt", "r": 45, "g": 45, "b": 51, "hex": "#2d2d33"}, {"id": 105, "name": "Cobblestone", "r": 107, "g": 96, "b": 86, "hex": "#6b6056"}, {"id": 106, "name": "Dark Wood", "r": 76, "g": 45, "b": 25, "hex": "#4c2d19"}, {"id": 107, "name": "Light Wood", "r": 153, "g": 107, "b": 63, "hex": "#996b3f"}, {"id": 108, "name": "Weathered Wood", "r": 107, "g": 91, "b": 66, "hex": "#6b5b42"}, {"id": 109, "name": "Dark Iron", "r": 71, "g": 61, "b": 56, "hex": "#473d38"}, {"id": 110, "name": "Aged Metal", "r": 107, "g": 102, "b": 91, "hex": "#6b665b"}, {"id": 111, "name": "Painted Metal", "r": 229, "g": 224, "b": 209, "hex": "#e5e0d1"}, {"id": 112, "name": "Window Glass", "r": 114, "g": 140, "b": 165, "hex": "#728ca5"}, {"id": 113, "name": "Lit Window (deprecated)", "r": 114, "g": 140, "b": 165, "hex": "#728ca5"}, {"id": 114, "name": "Storefront Glass", "r": 140, "g": 165, "b": 178, "hex": "#8ca5b2"}, {"id": 115, "name": "Neon Red", "r": 242, "g": 38, "b": 38, "hex": "#f22626"}, {"id": 116, "name": "Neon Blue", "r": 38, "g": 76, "b": 242, "hex": "#264cf2"}, {"id": 117, "name": "Neon Green", "r": 38, "g": 216, "b": 63, "hex": "#26d83f"}, {"id": 118, "name": "Tar", "r": 71, "g": 61, "b": 51, "hex": "#473d33"}, {"id": 119, "name": "Terracotta", "r": 140, "g": 81, "b": 51, "hex": "#8c5133"}, {"id": 120, "name": "Painted Red", "r": 114, "g": 30, "b": 25, "hex": "#721e19"}, {"id": 121, "name": "Painted Green", "r": 38, "g": 71, "b": 45, "hex": "#26472d"}, {"id": 122, "name": "Painted Brown", "r": 56, "g": 30, "b": 20, "hex": "#381e14"}, {"id": 123, "name": "Gold/Brass", "r": 198, "g": 158, "b": 51, "hex": "#c69e33"}, {"id": 124, "name": "Lamp Glow", "r": 255, "g": 216, "b": 127, "hex": "#ffd87f"}, {"id": 125, "name": "Flesh", "r": 209, "g": 173, "b": 140, "hex": "#d1ad8c"}, {"id": 126, "name": "Black Fabric", "r": 15, "g": 15, "b": 17, "hex": "#0f0f11"}, {"id": 127, "name": "White Fabric", "r": 224, "g": 219, "b": 209, "hex": "#e0dbd1"}, {"id": 128, "name": "Hair", "r": 30, "g": 20, "b": 15, "hex": "#1e140f"}, {"id": 129, "name": "Painted Blue", "r": 30, "g": 51, "b": 114, "hex": "#1e3372"}, {"id": 130, "name": "Red Fabric", "r": 160, "g": 30, "b": 30, "hex": "#a01e1e"}, {"id": 131, "name": "Brown Flesh", "r": 180, "g": 130, "b": 100, "hex": "#b48264"}, {"id": 132, "name": "Eye", "r": 20, "g": 20, "b": 35, "hex": "#141423"}, {"id": 133, "name": "Green Fabric", "r": 30, "g": 100, "b": 40, "hex": "#1e6428"}, {"id": 140, "name": "Vehicle Paint", "r": 58, "g": 125, "b": 92, "hex": "#3a7d5c", "category": "vehicle"}, {"id": 141, "name": "Vehicle Accent", "r": 35, "g": 40, "b": 38, "hex": "#232826", "category": "vehicle"}, {"id": 142, "name": "Chrome", "r": 192, "g": 200, "b": 208, "hex": "#c0c8d0", "category": "vehicle"}, {"id": 143, "name": "Tire Rubber", "r": 45, "g": 45, "b": 48, "hex": "#2d2d30", "category": "vehicle"}, {"id": 144, "name": "Headlight", "r": 245, "g": 230, "b": 175, "hex": "#f5e6af", "category": "vehicle"}, {"id": 145, "name": "Taillight", "r": 180, "g": 40, "b": 35, "hex": "#b42823", "category": "vehicle"}, {"id": 146, "name": "Interior Leather", "r": 107, "g": 74, "b": 47, "hex": "#6b4a2f", "category": "vehicle"}, {"id": 147, "name": "Auto Glass", "r": 150, "g": 170, "b": 185, "hex": "#96aab9", "category": "vehicle"}];
+let allMaterials = [{"id": 100, "name": "Red Brick", "r": 147, "g": 66, "b": 51, "hex": "#934233"}, {"id": 101, "name": "Stone", "r": 122, "g": 107, "b": 86, "hex": "#7a6b56"}, {"id": 102, "name": "Concrete", "r": 147, "g": 147, "b": 137, "hex": "#939389"}, {"id": 103, "name": "Stucco", "r": 209, "g": 204, "b": 188, "hex": "#d1ccbc"}, {"id": 104, "name": "Asphalt", "r": 45, "g": 45, "b": 51, "hex": "#2d2d33"}, {"id": 105, "name": "Cobblestone", "r": 107, "g": 96, "b": 86, "hex": "#6b6056"}, {"id": 106, "name": "Dark Wood", "r": 76, "g": 45, "b": 25, "hex": "#4c2d19"}, {"id": 107, "name": "Light Wood", "r": 153, "g": 107, "b": 63, "hex": "#996b3f"}, {"id": 108, "name": "Weathered Wood", "r": 107, "g": 91, "b": 66, "hex": "#6b5b42"}, {"id": 109, "name": "Dark Iron", "r": 71, "g": 61, "b": 56, "hex": "#473d38"}, {"id": 110, "name": "Aged Metal", "r": 107, "g": 102, "b": 91, "hex": "#6b665b"}, {"id": 111, "name": "Painted Metal", "r": 229, "g": 224, "b": 209, "hex": "#e5e0d1"}, {"id": 112, "name": "Window Glass", "r": 114, "g": 140, "b": 165, "hex": "#728ca5"}, {"id": 113, "name": "Lit Window (deprecated)", "r": 114, "g": 140, "b": 165, "hex": "#728ca5"}, {"id": 114, "name": "Storefront Glass", "r": 140, "g": 165, "b": 178, "hex": "#8ca5b2"}, {"id": 115, "name": "Neon Red", "r": 242, "g": 38, "b": 38, "hex": "#f22626"}, {"id": 116, "name": "Neon Blue", "r": 38, "g": 76, "b": 242, "hex": "#264cf2"}, {"id": 117, "name": "Neon Green", "r": 38, "g": 216, "b": 63, "hex": "#26d83f"}, {"id": 118, "name": "Tar", "r": 71, "g": 61, "b": 51, "hex": "#473d33"}, {"id": 119, "name": "Terracotta", "r": 140, "g": 81, "b": 51, "hex": "#8c5133"}, {"id": 120, "name": "Painted Red", "r": 114, "g": 30, "b": 25, "hex": "#721e19"}, {"id": 121, "name": "Painted Green", "r": 38, "g": 71, "b": 45, "hex": "#26472d"}, {"id": 122, "name": "Painted Brown", "r": 56, "g": 30, "b": 20, "hex": "#381e14"}, {"id": 123, "name": "Gold/Brass", "r": 198, "g": 158, "b": 51, "hex": "#c69e33"}, {"id": 124, "name": "Lamp Glow", "r": 255, "g": 216, "b": 127, "hex": "#ffd87f"}, {"id": 125, "name": "Flesh", "r": 209, "g": 173, "b": 140, "hex": "#d1ad8c"}, {"id": 126, "name": "Black Fabric", "r": 15, "g": 15, "b": 17, "hex": "#0f0f11"}, {"id": 127, "name": "White Fabric", "r": 224, "g": 219, "b": 209, "hex": "#e0dbd1"}, {"id": 128, "name": "Hair", "r": 30, "g": 20, "b": 15, "hex": "#1e140f"}, {"id": 129, "name": "Painted Blue", "r": 30, "g": 51, "b": 114, "hex": "#1e3372"}, {"id": 130, "name": "Red Fabric", "r": 160, "g": 30, "b": 30, "hex": "#a01e1e"}, {"id": 131, "name": "Brown Flesh", "r": 180, "g": 130, "b": 100, "hex": "#b48264"}, {"id": 132, "name": "Eye", "r": 20, "g": 20, "b": 35, "hex": "#141423"}, {"id": 133, "name": "Green Fabric", "r": 30, "g": 100, "b": 40, "hex": "#1e6428"}, {"id": 134, "name": "Cracked Glass", "r": 209, "g": 224, "b": 235, "hex": "#d1e0eb"}, {"id": 140, "name": "Vehicle Paint", "r": 58, "g": 125, "b": 92, "hex": "#3a7d5c", "category": "vehicle"}, {"id": 141, "name": "Vehicle Accent", "r": 35, "g": 40, "b": 38, "hex": "#232826", "category": "vehicle"}, {"id": 142, "name": "Chrome", "r": 192, "g": 200, "b": 208, "hex": "#c0c8d0", "category": "vehicle"}, {"id": 143, "name": "Tire Rubber", "r": 45, "g": 45, "b": 48, "hex": "#2d2d30", "category": "vehicle"}, {"id": 144, "name": "Headlight", "r": 245, "g": 230, "b": 175, "hex": "#f5e6af", "category": "vehicle"}, {"id": 145, "name": "Taillight", "r": 180, "g": 40, "b": 35, "hex": "#b42823", "category": "vehicle"}, {"id": 146, "name": "Interior Leather", "r": 107, "g": 74, "b": 47, "hex": "#6b4a2f", "category": "vehicle"}, {"id": 147, "name": "Auto Glass", "r": 150, "g": 170, "b": 185, "hex": "#96aab9", "category": "vehicle"}];
 // Tag the legacy combined palette with a category (ids 100-124 were building
 // materials, 125-133 are character materials) so the material picker can
 // filter per Asset Type. This never removes an id from the lookup table —
@@ -2392,6 +2392,9 @@ const BUILDING_POINT_GROUPS = [
   { id: 8, name: 'Decor',           key: 'decor',           color: '#44ffcc', desc: 'Decorative prop anchor (lamp, sign, plant)' },
 ];
 function activePartGroups() {
+  // A file's own itemPartDefs wins — generators (e.g. the multi-lane range)
+  // ship per-asset part sets that the hardcoded lists don't know about.
+  if (loadedAnimData.itemPartDefs && loadedAnimData.itemPartDefs.length) return loadedAnimData.itemPartDefs;
   if (assetType === 'character') return CHAR_ATTACH_GROUPS;
   if (assetType === 'building') return BUILDING_POINT_GROUPS;
   if (assetType === 'vehicle') return VEHICLE_PART_GROUPS;
@@ -2965,7 +2968,7 @@ function loadBaseTemplate() {
         loadedModelName = file.name.replace(/\.(character\.)?json$/i, '');
         updateFilePill();
         loadedAnimData = {};
-        for (const k of ['pivots', 'animParams', 'states']) {
+        for (const k of ['pivots', 'animParams', 'states', 'itemPartDefs']) {
           if (data[k] !== undefined) loadedAnimData[k] = data[k];
         }
         W = data.dims[0]; H = data.dims[1]; D = data.dims[2];
@@ -6033,7 +6036,7 @@ function applyDefaultModelData(data, sourceName) {
   updateFilePill();
   clearAllRulers(); // planted measurements belong to the outgoing model
   loadedAnimData = {};
-  for (const k of ['pivots', 'animParams', 'states']) {
+  for (const k of ['pivots', 'animParams', 'states', 'itemPartDefs']) {
     if (data[k] !== undefined) loadedAnimData[k] = data[k];
   }
   W = data.dims[0]; H = data.dims[1]; D = data.dims[2];
@@ -7829,7 +7832,7 @@ window.loadWIP = function(wipName) {
     loadedModelName = data.name || wipName;
     updateFilePill();
     loadedAnimData = {};
-    for (const k of ['pivots', 'animParams', 'states']) {
+    for (const k of ['pivots', 'animParams', 'states', 'itemPartDefs']) {
       if (data[k] !== undefined) loadedAnimData[k] = data[k];
     }
     W = data.dims[0]; H = data.dims[1]; D = data.dims[2];
@@ -7913,7 +7916,7 @@ window.loadProject = function(event) {
       loadedModelName = file.name.replace(/\.(character\.)?json$/i, '');
       updateFilePill();
       loadedAnimData = {};
-      for (const k of ['pivots', 'animParams', 'states']) {
+      for (const k of ['pivots', 'animParams', 'states', 'itemPartDefs']) {
         if (data[k] !== undefined) loadedAnimData[k] = data[k];
       }
       W = data.dims[0]; H = data.dims[1]; D = data.dims[2];
@@ -7998,7 +8001,7 @@ window.importStasset = function(event) {
       loadedModelName = file.name.replace(/\.(character\.)?json$/i, '');
       updateFilePill();
       loadedAnimData = {};
-      for (const k of ['pivots', 'animParams', 'states']) {
+      for (const k of ['pivots', 'animParams', 'states', 'itemPartDefs']) {
         if (data[k] !== undefined) loadedAnimData[k] = data[k];
       }
       W = data.dims[0]; H = data.dims[1]; D = data.dims[2];

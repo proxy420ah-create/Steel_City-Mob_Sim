@@ -1367,6 +1367,8 @@ Jittery street hood wobbles and slaps the trigger; a made man is rock steady and
 | Flinch/knockdown impulses | ~3 hrs |
 | Tuning pass (Range debug tab — live sliders) | ongoing |
 
+> **Status (Oct 11, 2026):** the aim channel is implemented — `AimFeelSpring` + `ArmAimSolver` target perturbation, `ShotFired` recoil hook, skill-scaled sway/settle, wireframe spread cone (see `PROJECTILE_SYSTEM.md` "Aim feel"). Body-pitch flinch, arm-raise spring and knockdown impulses are still pending (they want character hit events).
+
 Order-of-magnitude cheaper than ragdoll, and it lands inside the pipeline we already have — no second render path, no asset re-authoring, no physics budget consumed.
 
 ### Deferred

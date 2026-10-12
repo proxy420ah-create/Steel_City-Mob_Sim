@@ -784,7 +784,7 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 if (mat == 113u || mat == 115u || mat == 116u || mat == 117u || mat == 124u)
                     return float3(1.0, 1.0, 1.0);
 
-                if (mat == 112u || mat == 114u)
+                if (mat == 112u || mat == 114u || mat == 134u)
                     return float3(0.85, 0.85, 0.85);
 
                 float sky = dot(normal, _LightDirection) * 0.5 + 0.5;

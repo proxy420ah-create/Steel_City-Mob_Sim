@@ -116,6 +116,8 @@ Cost: **≈ 1.7 µs per shot** through the 192×120×192 range grid; the linear 
 
 **Expected at the range:** muzzle→target ≈ 7.8 m, flight ≈ 0.2 s at 40 u/s; skill 10 / 1°: every shot on the paper, ≈ 2/3 on the bullseye (material 100, cells x94–97, y6–9, z169) when `aim err` is small; paper = material 127 (x84–107, y4–12); overshoots land on the red-brick backstop (z ≥ 184).
 
+**Multi-lane range + ballistics bench (Oct 11):** `gen_shooting_range.py` now emits **three identical lanes** (dx −60/0/+60 → interiors x16–55 / x76–115 / x136–175) with per-lane points `firing_position_1..3`, `firing_target_1..3`, `backstop_1..3` — the unsuffixed names stay as lane-2 aliases for back-compat. **Lane 3 (right) carries the glass test bench**: an 8³ Window Glass (112) "ballistics mold" socketed into a dark-wood table at the 10 m mark, centroid **(155.5, 7.5, 112.5)** — exactly the `firing_target` aim height — with a 2³ Painted-Metal core at the same point painted `glass_target`, so the aim attachment survives the glass being destroyed. The Range tab gets **lane (1-3) + aim (lane target / glass mold)** selectors; `target_practice` orders resolve the selected lane's point names. Glass still stops the bullet (first cell) until the shatter mechanic ships.
+
 ---
 
 ## Known limitations / next steps
@@ -126,3 +128,21 @@ Cost: **≈ 1.7 µs per shot** through the 192×120×192 range grid; the linear 
 4. **Glass puncture / bullet holes** (`GLASS_SHATTER_MECHANIC.md`): removing voxels means copy-on-write of the shared array + sector re-bake + `RegisterVolume` by id. The report already gives the pane voxel.
 5. **Broadphase** is linear over volumes — fine for a few shots per frame; put a coarse grid in front of it before mass fire or per-frame LOS for crowds.
 6. **Gravity** exists (`gravity`, default 0). No ricochet, no suppression, no sound/noise events yet.
+
+---
+
+## Aim feel — sway + recoil (COMBAT_VEHICLE_DESIGN.md §14, implemented)
+
+A second-order spring (`AimFeelSpring`) injects feel into the aim channel *inside* `ArmAimSolver`: the spring offsets the target point about the muzzle **before** the IK solve, so torso assist and the elbow both chase the perturbed point and `WeaponMount` reports the deflected bore axis.
+
+- **Sway**: two-octave Perlin wander of the spring equilibrium. Amplitude `swayDeg × SkillSpreadMultiplier(skill)` — a steady shooter sways less.
+- **Recoil**: `ProjectileSystem.ShotFired` (new event, fires at trigger pull) → `feelSpring.Impulse(kick)` — 65% instant displacement + velocity carry. Kick is mostly up with a shot-seeded lateral component. `settleSec` scales ~0.3× per missing skill point.
+- **Stacking, bounded**: an impulse while the spring is still displaced adds velocity to a non-zero position — rapid fire sprays progressively wider — but `pos`/`vel` are hard-clamped (`maxOffsetDeg`, anti-windup à la the SteelTide PID `iMax`) and the impulse snap scales by remaining headroom, so hammering FIRE saturates instead of flailing.
+- **Stability**: integration substeps at a fixed 1/120 s (explicit Euler on stiff springs explodes on a single hitchy frame — the PID ran in `FixedUpdate` for the same reason); `dampingRatio` defaults to slightly overdamped (1.05) so recovery deadens instead of ringing; the sway octaves are kept low-frequency so the arm corrects calmly rather than chasing jitter.
+- The trigger samples `AimDirection` *before* the impulse lands, so the kick only deflects follow-up shots.
+- **Live wobble**: `solver.AimOffsetDeg` (current spring offset) + `aimErrorDeg` in the shot report both rise while unsettled.
+- Range tab: `aim feel` toggle + `sway ° @10`, `kick °`, `settle s @10` sliders; `feelSkill` mirrors the skill slider until hood stats exist.
+
+## Spread cone viz
+
+`showSpreadCone` draws a wireframe cone (6 edge rays + rim ring) at `EffectiveConeDeg` around the live `AimDirection` via `PathDebugRenderer` beams. It follows the actual bore axis, so it dances with sway/recoil and reshapes as the sliders move — the spread envelope is finally visible.

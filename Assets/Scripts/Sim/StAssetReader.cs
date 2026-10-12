@@ -83,6 +83,8 @@ namespace SteelCity.Sim
             MobColors[128] = new Color(0.12f, 0.08f, 0.06f, 1f);  // Hair
 
             // --- Terrain / gameplay (130-139) — reserved block ---
+            // --- Gameplay block (130-139) ---
+            MobColors[134] = new Color(0.82f, 0.88f, 0.92f, 0.8f);// Cracked Glass — whiter + higher alpha than intact glass (shatter halo)
             MobColors[137] = new Color(0.10f, 0.25f, 0.45f, 1f);  // Water — matches river tile palette #1A4073
 
             // --- Vehicle (140-147) — VoxelAssetStudio "Vehicle" asset type palette ---

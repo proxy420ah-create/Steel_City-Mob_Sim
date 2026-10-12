@@ -119,6 +119,32 @@ namespace SteelCity.Sim
                 charAnim.SetState(CharacterAnimation.AnimState.Idle);
         }
 
+        /// <summary>
+        /// Debug teleport: snap the character's XZ center onto a world point and
+        /// (optionally) face him toward a world target — same facing convention
+        /// as FaceTarget events (modelFacingOffset applied). Used by the Range
+        /// tab's lane selector; the sim stays Dwelling, no pathing involved.
+        /// </summary>
+        public void DebugSnapTo(Vector3 posWorld, Vector3 dims, float voxelSize, Vector3? faceWorld)
+        {
+            if (character == null) return;
+            Vector3 half = new Vector3(dims.x * voxelSize * 0.5f, 0f, dims.z * voxelSize * 0.5f);
+            Vector3 target = posWorld - half;
+            target.y = character.transform.position.y;
+            character.transform.position = target;
+            if (faceWorld.HasValue)
+            {
+                Vector3 dir = faceWorld.Value - character.transform.position;
+                dir.y = 0f;
+                if (dir.sqrMagnitude > 0.001f)
+                {
+                    targetRotation = Quaternion.LookRotation(dir.normalized, Vector3.up) *
+                                     Quaternion.Euler(0f, modelFacingOffset, 0f);
+                    hasTargetRotation = true;
+                }
+            }
+        }
+
         void Update()
         {
             if (!running || simManager == null) return;

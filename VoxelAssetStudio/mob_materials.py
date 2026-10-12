@@ -60,6 +60,7 @@ MOB_MATERIALS = {
     128: {"name": "Hair",             "color": (0.12, 0.08, 0.06, 1.0)},
 
     # --- Terrain / gameplay (130-139 reserved block) ---
+    134: {"name": "Cracked Glass",    "color": (0.82, 0.88, 0.92, 0.8)},   # shatter halo — whiter + denser than intact glass (130-133 taken by editor char palette)
     137: {"name": "Water",            "color": (0.10, 0.25, 0.45, 1.0)},
 
     # --- Vehicle (140-147) — VoxelAssetStudio "Vehicle" asset type palette ---

@@ -60,6 +60,17 @@ namespace SteelCity.Sim
         public float impactSeconds = 12f;
         public Color impactColor = new Color(1f, 0.2f, 0.15f, 0.95f);
 
+        [Header("Spread cone viz (PathDebugRenderer)")]
+        [Tooltip("Draw a wireframe cone at EffectiveConeDeg around the live bore axis of aimSource — edge rays + rim. Updates with the sliders and dances with sway/recoil.")]
+        public bool showSpreadCone = true;
+        [Tooltip("Cone beam length override (world units). 0 = auto: to aimTarget, capped at 8 m.")]
+        public float coneVizLength = 0f;
+        public Color coneColor = new Color(1f, 0.7f, 0.2f, 0.55f);
+        /// <summary>Set by the HUD each frame while its panel is up — the mount the cone follows.</summary>
+        public WeaponMount aimSource;
+        public Vector3? aimTarget;
+        public float aimSourceStamp;
+
         /// <summary>Everything about one resolved (or in-flight) shot.</summary>
         public struct ShotReport
         {
@@ -91,6 +102,8 @@ namespace SteelCity.Sim
         public ShotReport LastShot { get; private set; }
         public int ShotsFired => shotCounter;
         public int InFlight => live.Count;
+        /// <summary>Fires at trigger pull (before flight) — recoil/sound hooks subscribe here. ShotResolved fires at impact.</summary>
+        public event Action<WeaponMount, ShotReport> ShotFired;
         public event Action<ShotReport> ShotResolved;
 
         /// <summary>Cone half-angle for the current skill + base cone.</summary>
@@ -99,8 +112,8 @@ namespace SteelCity.Sim
         /// <summary>Skill 10 → ×1 (the base cone), skill 1 → ×7.75. Linear: each skill point below 10 adds 0.75× the base cone.</summary>
         public static float SkillSpreadMultiplier(int skill) => 1f + (10 - Mathf.Clamp(skill, 1, 10)) * 0.75f;
 
-        /// <summary>Palette ids that are see-through (StAssetReader: 112-114 window/storefront glass, 147 auto glass). Display + future shatter hook only.</summary>
-        public static bool IsGlassMaterial(int mat) => mat == 112 || mat == 113 || mat == 114 || mat == 147;
+        /// <summary>Palette ids that are see-through (StAssetReader: 112-114 window/storefront glass, 134 cracked glass, 147 auto glass). Display + future shatter hook only.</summary>
+        public static bool IsGlassMaterial(int mat) => mat == 112 || mat == 113 || mat == 114 || mat == 134 || mat == 147;
 
         private sealed class Live
         {
@@ -177,6 +190,7 @@ namespace SteelCity.Sim
             if (r.hasIntended) r.lateralMiss = DistancePointToRay(r.intendedTarget, r.muzzle, dir);
             live1.report = r;
             live.Add(live1);
+            ShotFired?.Invoke(mount, r);   // after the direction is sampled — the kick only deflects FOLLOW-UP shots
             return true;
         }
 
@@ -188,6 +202,8 @@ namespace SteelCity.Sim
 
             for (int m = 0; m < MarkerSlots; m++)
                 if (markers[m].keys != null && Time.time >= markers[m].expireAt) ClearMarker(m);
+
+            UpdateConeViz();
         }
 
         /// <summary>Move one projectile by dt, sweeping the covered segment through the voxel world. True when finished.</summary>
@@ -277,8 +293,8 @@ namespace SteelCity.Sim
             return (axis * Mathf.Cos(theta) + (right * Mathf.Cos(phi) + up * Mathf.Sin(phi)) * Mathf.Sin(theta)).normalized;
         }
 
-        /// <summary>lowbias32 integer hash → [0,1).</summary>
-        private static float Hash01(uint x)
+        /// <summary>lowbias32 integer hash → [0,1). Public: seeded lateral recoil etc. hash off the shot seed.</summary>
+        public static float Hash01(uint x)
         {
             unchecked
             {
@@ -302,6 +318,68 @@ namespace SteelCity.Sim
         {
             float along = Vector3.Dot(p - origin, dir);
             return (p - (origin + dir * along)).magnitude;
+        }
+
+        // ------------------------------------------------------------------
+        // Spread cone viz — wireframe of EffectiveConeDeg around the live bore axis
+        // ------------------------------------------------------------------
+
+        private const int ConeEdges = 6;
+        /// <summary>Rim rings at full / half / quarter length — a single rim at the far end reads as a needle at range distances.</summary>
+        private static readonly float[] ConeRingFrac = { 1f, 0.5f, 0.25f };
+        private const float ConeBeamWidth = 0.008f;
+
+        /// <summary>
+        /// Draws 6 edge rays at the effective cone half-angle around aimSource.AimDirection plus a
+        /// rim ring at the tips. Because it follows the live bore axis, the cone visibly dances
+        /// with aim-feel sway/recoil and reshapes as the skill/cone sliders move.
+        /// </summary>
+        private void UpdateConeViz()
+        {
+            var pdr = PathDebugRenderer.Instance;
+            bool show = showSpreadCone && aimSource != null && aimSource.IsEquipped
+                        && Time.time - aimSourceStamp < 0.5f;
+            if (pdr == null || !show) { ClearCone(pdr); return; }
+
+            Vector3 o = aimSource.MuzzleWorld;
+            Vector3 f = aimSource.AimDirection.normalized;
+            float len = coneVizLength > 0f ? coneVizLength
+                : (aimTarget.HasValue ? Mathf.Min(Vector3.Distance(o, aimTarget.Value), 8f) : 4f);
+            float ang = EffectiveConeDeg;
+
+            Vector3 refUp = Mathf.Abs(f.y) < 0.99f ? Vector3.up : Vector3.right;
+            Vector3 right = Vector3.Cross(refUp, f).normalized;
+            Vector3 edge0 = Quaternion.AngleAxis(ang, right) * f;
+
+            for (int i = 0; i < ConeEdges; i++)
+                pdr.SetCustomBeam($"cone_e{i}", o,
+                    o + Quaternion.AngleAxis(i * (360f / ConeEdges), f) * edge0 * len,
+                    ConeBeamWidth, coneColor);
+
+            for (int j = 0; j < ConeRingFrac.Length; j++)
+            {
+                float r = len * ConeRingFrac[j];
+                Vector3 prev = default, first = default;
+                for (int i = 0; i < ConeEdges; i++)
+                {
+                    Vector3 tip = o + Quaternion.AngleAxis(i * (360f / ConeEdges), f) * edge0 * r;
+                    if (i == 0) first = tip;
+                    if (i > 0) pdr.SetCustomBeam($"cone_r{j}_{i}", prev, tip, ConeBeamWidth, coneColor);
+                    prev = tip;
+                }
+                pdr.SetCustomBeam($"cone_r{j}_0", prev, first, ConeBeamWidth, coneColor);   // close ring
+            }
+        }
+
+        private void ClearCone(PathDebugRenderer pdr)
+        {
+            if (pdr == null) return;
+            for (int i = 0; i < ConeEdges; i++)
+            {
+                pdr.ClearCustomBeam($"cone_e{i}");
+                for (int j = 0; j < ConeRingFrac.Length; j++)
+                    pdr.ClearCustomBeam($"cone_r{j}_{i}");
+            }
         }
 
         // ------------------------------------------------------------------
@@ -336,7 +414,7 @@ namespace SteelCity.Sim
             markers[slot] = default;
         }
 
-        /// <summary>Remove all tracers and impact ticks (in-flight bullets are dropped).</summary>
+        /// <summary>Remove all tracers, impact ticks and the spread cone (in-flight bullets are dropped).</summary>
         public void ClearVisuals()
         {
             var pdr = PathDebugRenderer.Instance;
@@ -344,6 +422,7 @@ namespace SteelCity.Sim
                 foreach (var p in live) pdr.ClearCustomBeam(p.beamKey);
             live.Clear();
             for (int m = 0; m < MarkerSlots; m++) ClearMarker(m);
+            ClearCone(pdr);
         }
     }
 }

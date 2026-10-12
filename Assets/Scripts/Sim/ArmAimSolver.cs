@@ -48,6 +48,22 @@ namespace SteelCity.Sim
         public float torsoYawSign = 1f;
         public bool debugLogs = false;
 
+        [Header("Aim Feel — sway + recoil (COMBAT_VEHICLE_DESIGN.md §14)")]
+        [Tooltip("Second-order spring offsets the target point before the IK solve: sway wanders the equilibrium, each shot imparts a recoil impulse. The bored direction — and therefore the next shot — physically deflects and recovers.")]
+        public bool aimFeelEnabled = true;
+        [Tooltip("Shooter steadiness 1-10 — placeholder for the hood's Firearms stat; same scale as ProjectileSystem.shooterSkill")]
+        [Range(1, 10)] public int feelSkill = 10;
+        [Tooltip("Sway amplitude at skill 10 (deg). Scales up ×SkillSpreadMultiplier as skill drops.")]
+        [Range(0f, 3f)] public float swayDeg = 1.5f;
+        [Tooltip("Recoil kick magnitude (deg of aim deflection) — a property of the weapon, not the shooter")]
+        [Range(0f, 6f)] public float kickDeg = 5f;
+        [Tooltip("Seconds to re-settle after a kick at skill 10; widens ~0.3× per missing skill point")]
+        [Range(0.05f, 0.6f)] public float settleSec = 0.5f;
+        [Tooltip("Damping ratio: <1 rings (lively but wobbly), 1 = critical, >1 overdamped (calm, no overshoot). Anti-flail lives here.")]
+        [Range(0.6f, 1.6f)] public float dampingRatio = 1.05f;
+        [Tooltip("Hard cap on aim offset (deg) — anti-windup; the arm can never be pushed further than this")]
+        [Range(2f, 20f)] public float maxOffsetDeg = 11f;
+
         // --- State ---
         public bool IsAiming { get; private set; }
         public float Blend { get; private set; }
@@ -63,6 +79,12 @@ namespace SteelCity.Sim
         private VoxelChunkManager.InstancedCharacter instHandle;
         private string sightBeamKey;
         private Quaternion torsoQuat = Quaternion.identity; // gid-0 override from torso assist
+        private AimFeelSpring feelSpring;
+        private Vector2 swaySeed;
+        private bool shotHooked;
+
+        /// <summary>Current spring offset magnitude in degrees — live wobble readout for the HUD.</summary>
+        public float AimOffsetDeg => feelSpring.pos.magnitude * Mathf.Rad2Deg;
 
         /// <summary>Engage the solver toward a world-space target. Call once per toggle-on.</summary>
         public bool Arm(Vector3 targetWorld)
@@ -77,6 +99,16 @@ namespace SteelCity.Sim
             TargetWorld = targetWorld;
             IsAiming = true;
             LastError = null;
+
+            // Recoil impulse source — subscribed once; kicks land via OnShotFired.
+            if (!shotHooked)
+            {
+                ProjectileSystem.GetOrCreate().ShotFired += OnShotFired;
+                shotHooked = true;
+                int h = GetInstanceID();
+                swaySeed = new Vector2((h * 2654435761u % 1000u) / 1000f * 37f, (h * 2246822519u % 1000u) / 1000f * 51f);
+            }
+
             if (debugLogs)
                 Debug.Log($"[ArmAimSolver] Engaged — arm gid {ArmGid}, forearm gid {ForearmGid}, target {targetWorld}");
             return true;
@@ -127,14 +159,20 @@ namespace SteelCity.Sim
             }
             else if (IsAiming) LastError = null;
 
+            if (aimFeelEnabled)
+                StepAimFeel();
+            else if (feelSpring.pos != Vector2.zero || feelSpring.vel != Vector2.zero)
+                feelSpring.Reset();
+
             if (Blend > 0.0001f && ForearmGid >= 0 && mount != null && mount.Animator != null)
             {
-                Solve(TargetWorld, out Quaternion qArm, out Quaternion qFore);
+                Solve(PerturbTarget(TargetWorld), out Quaternion qArm, out Quaternion qFore);
                 WriteChannels(qArm, qFore);
             }
 
             if (!IsAiming && Blend <= 0f)
             {
+                feelSpring.Reset();
                 if (mount != null && mount.Animator != null)
                 {
                     mount.Animator.ikOverrides.Clear();
@@ -142,6 +180,83 @@ namespace SteelCity.Sim
                 }
                 if (instHandle != null) { instHandle.ikEnabled = false; instHandle.ikTorsoEnabled = false; }
             }
+        }
+
+        // ------------------------------------------------------------------
+        // Aim feel — sway + recoil spring (COMBAT_VEHICLE_DESIGN.md §14)
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Integrate the spring toward a wandering sway offset. Both the wander amplitude and
+        /// the settle time scale with feelSkill — a steady shooter sways less and recovers faster.
+        /// </summary>
+        private void StepAimFeel()
+        {
+            // Lazy caps (struct can't field-init) — the anti-windup bounds.
+            if (feelSpring.maxPos <= 0f)
+            {
+                feelSpring.maxPos = maxOffsetDeg * Mathf.Deg2Rad;
+                feelSpring.maxVel = 5f;   // rad/s
+            }
+            else
+                feelSpring.maxPos = maxOffsetDeg * Mathf.Deg2Rad;   // live-tunable cap
+
+            float mult = ProjectileSystem.SkillSpreadMultiplier(feelSkill);           // sway amplitude
+            float settle = settleSec * (1f + (10 - Mathf.Clamp(feelSkill, 1, 10)) * 0.30f); // recovery time
+            float swayRad = swayDeg * Mathf.Deg2Rad * mult;
+            AimFeelSpring.Gains(settle, dampingRatio, out float k, out float c);
+            feelSpring.Step(SwayTarget(swayRad), k, c, Time.deltaTime);
+        }
+
+        /// <summary>
+        /// Two-octave Perlin wander, per-instance seeded. Slow breathing-scale drift plus a
+        /// gentler tremor component — frequencies kept low so the arm reads as a steady hand
+        /// correcting, not a servo chasing jitter. Returns radians on (x = up, y = right).
+        /// </summary>
+        private Vector2 SwayTarget(float amp)
+        {
+            if (amp <= 0f) return Vector2.zero;
+            float t = Time.time;
+            float x = (Mathf.PerlinNoise(t * 0.22f + swaySeed.x, 3.7f) * 2f - 1f)
+                    + (Mathf.PerlinNoise(t * 0.9f + swaySeed.x, 8.1f) * 2f - 1f) * 0.3f;
+            float y = (Mathf.PerlinNoise(3.7f, t * 0.19f + swaySeed.y) * 2f - 1f)
+                    + (Mathf.PerlinNoise(8.1f, t * 0.8f + swaySeed.y) * 2f - 1f) * 0.3f;
+            return new Vector2(x, y) * (amp / 1.4f);
+        }
+
+        /// <summary>
+        /// Rotate the aim point about the muzzle by the current spring offset (scaled by Blend),
+        /// upstream of the whole solve — torso assist and the elbow both chase the perturbed
+        /// point, and WeaponMount reports the deflected bore axis to the next shot.
+        /// </summary>
+        private Vector3 PerturbTarget(Vector3 target)
+        {
+            if (!aimFeelEnabled || mount == null) return target;
+            Vector2 o = feelSpring.pos * Blend;   // rad: x = up(+), y = right(+)
+            if (o.sqrMagnitude < 1e-10f) return target;
+
+            Vector3 to = target - mount.MuzzleWorld;
+            if (to.sqrMagnitude < 1e-6f) return target;
+            Vector3 right = Vector3.Cross(Vector3.up, to.normalized);
+            if (right.sqrMagnitude < 1e-6f) return target;
+            right.Normalize();
+
+            Quaternion off = Quaternion.AngleAxis(-o.x * Mathf.Rad2Deg, right)   // +x offset = muzzle up
+                           * Quaternion.AngleAxis(o.y * Mathf.Rad2Deg, Vector3.up);
+            return mount.MuzzleWorld + off * to;
+        }
+
+        /// <summary>
+        /// Recoil impulse from ProjectileSystem — subscribed in Arm(). Only kicks when this
+        /// solver's own weapon fired while aiming; lateral component seeded by the shot so
+        /// replayed seeds reproduce the same kick direction.
+        /// </summary>
+        private void OnShotFired(WeaponMount firedMount, ProjectileSystem.ShotReport shot)
+        {
+            if (firedMount != mount || !aimFeelEnabled) return;
+            float kickRad = kickDeg * Mathf.Deg2Rad;
+            float lateral = (ProjectileSystem.Hash01(shot.seed ^ 0xA5A5A5A5u) - 0.5f) * 2f * 0.4f;
+            feelSpring.Impulse(new Vector2(kickRad, kickRad * lateral));   // mostly up, slight seeded yaw
         }
 
         /// <summary>
