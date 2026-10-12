@@ -75,15 +75,18 @@ namespace SteelCity.Sim
         // Free-fire picks — voxel clicks armed from the Range tab. PICK STAND
         // teleports the character (DebugSnapTo) onto the hit surface; PICK AIM
         // overrides the lane/mold aim point so shots can target anything.
-        private enum PickSlot { None, Stand, Aim, Blast, Building }
+        private enum PickSlot { None, Stand, Aim, Blast, Building, Inspect }
         private PickSlot pickArmed = PickSlot.None;
         private Vector3? pickedStand, pickedAim;
+        private string inspectHud;                             // last voxel-inspect report (HUD)
+        private VoxelCollisionWorld World => world != null ? world : (world = cityMap != null ? cityMap.GetComponent<VoxelCollisionWorld>() : null);
+        private VoxelCollisionWorld world;
         // Demolition bench — surface pick + inward depth push puts the blast inside.
         private Vector3? pickedBlast;
         private Vector3 blastNormal;
         private string blastVolume;
         private bool blastAtVolumeCenter;
-        private float blastDepth = 0.8f, blastRadius = 20f, blastPower = 2.5f;
+        private float blastDepth = 0.8f, blastRadius = 6f, blastPower = 2f;
 
         // Optional test/debug components — used by the Keys tab to show only
         // hotkeys whose handlers actually exist in the scene right now.
@@ -901,7 +904,152 @@ namespace SteelCity.Sim
                 pdr?.SetCustomBeam("pick_blast3", bp + Vector3.forward * 0.3f, bp + Vector3.back * 0.3f, 0.06f, orange);
                 Debug.Log($"[DebugHUD] 🏢 BLDG picked {(blastAtVolumeCenter ? $"center @ {bp}" : $"surface @ {bp} — no volume")} ({blastVolume ?? "terrain"})");
             }
+            else if (pickArmed == PickSlot.Inspect)
+            {
+                InspectVoxel(hit);
+            }
             pickArmed = PickSlot.None;
+        }
+
+        private int inspectCount;
+
+        /// <summary>
+        /// Voxel inspector — full diagnostic dump for the picked cell: material/raw value, volume placement, damage
+        /// delta vs the pristine array (the cell + its 6 neighbours), the shader's smooth-normal inputs (flags
+        /// degenerate neighbourhoods) and a CPU replica of its sun + shadow-ray lighting. Marks the cell with a
+        /// yellow cube, shows a short HUD summary, logs the report and appends it to Logs/voxel_inspect.log
+        /// (survives editor restarts; Editor.log is too large to search).
+        /// </summary>
+        private void InspectVoxel(VoxelRayHit hit)
+        {
+            var pdr = PathDebugRenderer.Instance;
+            var dmg = VoxelDamageSystem.GetOrCreate();
+            int mat = hit.material;
+            string matName = StAssetReader.GetMaterialName(mat);
+            string vol = hit.volumeId ?? "terrain";
+            var sb = new System.Text.StringBuilder(1024);
+            sb.AppendLine($"🔍 VOXEL INSPECT #{++inspectCount}  t={Time.realtimeSinceStartup:F1}s frame={Time.frameCount}");
+            sb.AppendLine($"  cell     : [{vol}] {hit.cell}  mat {mat} '{matName}'  raw 0x{hit.voxel:X}  flags 0x{hit.voxel & ~0x1FFu:X}");
+            var cam = Camera.main;
+            sb.AppendLine($"  hit      : world {hit.point:F2}  face n{hit.normal:F2}  dist {hit.distance:F2}m"
+                + (cam != null ? $"  | camera {cam.transform.position:F1} fwd {cam.transform.forward:F2}" : ""));
+
+            uint[] vox = null; int w = 0, h = 0, d = 0; Vector3 corner = default; float vs = 0.05f, yaw = 0f;
+            bool isVol = !string.IsNullOrEmpty(hit.volumeId) && World != null
+                && World.TryGetVolume(hit.volumeId, out vox, out w, out h, out d, out corner, out vs, out yaw);
+            if (!isVol)
+            {
+                vs = World != null ? (World.VoxelGridToWorld(hit.cell + Vector3Int.right) - World.VoxelGridToWorld(hit.cell)).x : 0.05f;
+                yaw = 0f;
+            }
+
+            int MatAt(Vector3Int cc)
+            {
+                if (isVol)
+                    return cc.x >= 0 && cc.y >= 0 && cc.z >= 0 && cc.x < w && cc.y < h && cc.z < d
+                        ? (int)(vox[cc.x + cc.y * w + cc.z * w * h] & 0x1FFu) : -1;
+                return World != null ? World.GetVoxelAtGrid(cc) : -1;
+            }
+            bool damaged = isVol && dmg.TryGetOriginalVoxel(hit.volumeId, 0, out _);
+            int OrigMat(Vector3Int cc)
+            {
+                int cur = MatAt(cc);
+                if (!damaged || cur < 0) return cur;
+                return dmg.TryGetOriginalVoxel(hit.volumeId, cc.x + cc.y * w + cc.z * w * h, out uint o) ? (int)(o & 0x1FFu) : cur;
+            }
+
+            if (isVol)
+            {
+                var ext = new Vector3(w, h, d) * vs;
+                var loc = new Vector3(hit.cell.x + 0.5f, hit.cell.y + 0.5f, hit.cell.z + 0.5f) * vs;
+                sb.AppendLine($"  volume   : {w}×{h}×{d} cells  vs {vs}  yaw {yaw}  corner {corner:F2}  extent {ext:F2}m  cell-center (local) {loc:F2}m");
+            }
+            else sb.AppendLine($"  terrain  : grid cell {hit.cell}  vs {vs:F3}  voxel byte {MatAt(hit.cell)}");
+
+            int cellOrig = OrigMat(hit.cell);
+            sb.AppendLine("  damage   : " + (!isVol ? "terrain (no damage tracking)"
+                : !damaged ? "volume pristine (never damaged)"
+                : $"volume DAMAGED · this cell original {cellOrig} '{StAssetReader.GetMaterialName(cellOrig)}' {(cellOrig == mat ? "(unchanged)" : "→ CHANGED")}"));
+
+            string[] axes = { "-x", "+x", "-y", "+y", "-z", "+z" };
+            var dl = new Vector3Int[] { new(-1, 0, 0), new(1, 0, 0), new(0, -1, 0), new(0, 1, 0), new(0, 0, -1), new(0, 0, 1) };
+            var occ = new int[6];
+            var nb = new System.Text.StringBuilder();
+            int exposed = 0, changedNb = 0;
+            for (int i = 0; i < 6; i++)
+            {
+                var nc = hit.cell + dl[i];
+                int m = MatAt(nc), o = OrigMat(nc);
+                occ[i] = m > 0 ? 1 : 0;
+                if (m == 0) exposed++;
+                string nm = m < 0 ? "oob" : m == 0 ? "air" : $"{m} {StAssetReader.GetMaterialName(m)}";
+                if (m >= 0 && o != m) { nm += $" [was {o} {StAssetReader.GetMaterialName(o)} - REMOVED/CHANGED]"; changedNb++; }
+                nb.Append($"{axes[i]}:{nm}  ");
+            }
+            sb.AppendLine($"  neighbors: {nb}({exposed}/6 exposed, {changedNb} changed by damage)");
+
+            // Replica of the shader's shading inputs: hybrid normal = face normal (+ 30% SmoothNormal on side faces),
+            // sun term = half-Lambert², shadow = voxel march toward the light (first N steps skipped, soft edge).
+            float yr = -yaw * Mathf.Deg2Rad, ycos = Mathf.Cos(yr), ysin = Mathf.Sin(yr);
+            Vector3 ToLocal(Vector3 v) => new Vector3(v.x * ycos + v.z * ysin, v.y, -v.x * ysin + v.z * ycos);
+            Vector3 ToWorld(Vector3 v) => new Vector3(v.x * ycos - v.z * ysin, v.y, v.x * ysin + v.z * ycos);
+            Vector3 nL = ToLocal(hit.normal);
+            bool haveN = nL.sqrMagnitude > 0.5f;
+            Vector3 g = new Vector3(-(occ[1] - occ[0]), -(occ[3] - occ[2]), -(occ[5] - occ[4]));
+            bool sideFace = Mathf.Abs(nL.y) <= 0.5f, degenerate = g.sqrMagnitude < 1e-4f;
+            Vector3 blended = haveN && sideFace && !degenerate ? (nL * 0.7f + g.normalized * 0.3f).normalized : nL;
+            sb.AppendLine($"  shading  : face n(local) {nL:F2} → {(!haveN ? "unknown (ray started inside solid)" : sideFace ? "side face: smooth-normal blend applies" : "top/bottom face: raw normal, no blend")}");
+            sb.AppendLine($"             neighbour gradient sum {g:F0} → {(degenerate ? "DEGENERATE (opposite neighbours cancel: 1-voxel strand/sheet)" + (sideFace ? " — blend skipped, flat face normal used (before the 2026-10-12 shader fix: normalize(0)=NaN → near-black face)" : " — not used for this face") : "ok")}  blended n {blended:F2}");
+
+            string sunLine = "n/a (no lighting info)", sunShort = "n/a";
+            Vector3 L = chunkManager != null ? chunkManager.GetLightDirection() : Vector3.zero;
+            if (haveN && L.sqrMagnitude > 0.5f)
+            {
+                Vector3 sl = ToLocal(L);
+                float ndl = Vector3.Dot(blended, sl), sunTerm = Mathf.Pow(ndl * 0.5f + 0.5f, 2f);
+                int skip = chunkManager.GetShadowSkipSteps(), maxSteps = chunkManager.GetShadowMaxSteps();
+                float nn = chunkManager.GetShadowNormalNudge(), ln = chunkManager.GetShadowLightNudge();
+                string shadow;
+                if (chunkManager.GetShadowEnabled() == 0) shadow = "shadows disabled";
+                else
+                {
+                    float l1 = Mathf.Abs(sl.x) + Mathf.Abs(sl.y) + Mathf.Abs(sl.z);
+                    float skipM = skip / l1 * vs, maxM = maxSteps / l1 * vs;
+                    Vector3 org = hit.point + ToWorld(blended) * (vs * nn) + L * (vs * ln);
+                    shadow = World != null && World.Raycast(org + L * skipM, L, Mathf.Max(0.01f, maxM - skipM), out var sh)
+                        ? $"BLOCKED by [{sh.volumeId ?? "terrain"}] cell {sh.cell} mat {sh.material} '{StAssetReader.GetMaterialName(sh.material)}' ~{skipM + sh.distance:F2}m along the ray"
+                        : "CLEAR";
+                }
+                bool blockedS = shadow.StartsWith("BLOCKED");
+                sunShort = blockedS ? "SHADOWED" : ndl <= 0f ? "faces away" : "lit";
+                sunLine = $"to-light dir {L:F2}  N·L {ndl:F2}  half-Lambert² sun term {sunTerm:F2}\n"
+                    + $"             shadow ray (≈ skip {skip} / max {maxSteps} steps, nudges n×{nn} L×{ln} voxels): {shadow}\n"
+                    + $"             verdict: {(blockedS ? "SHADOWED — sun term removed, ambient only" : ndl <= 0f ? "faces away from the sun" : "sun-lit")}";
+            }
+            sb.AppendLine("  sun      : " + sunLine);
+
+            Vector3 markerPos; Quaternion markerRot;
+            if (isVol)
+            {
+                Vector3 half = new Vector3(w, h, d) * (vs * 0.5f);
+                Vector3 lc = new Vector3(hit.cell.x + 0.5f, hit.cell.y + 0.5f, hit.cell.z + 0.5f) * vs - half;
+                float rad = yaw * Mathf.Deg2Rad, rc = Mathf.Cos(rad), rs = Mathf.Sin(rad);
+                markerPos = corner + half + new Vector3(lc.x * rc - lc.z * rs, lc.y, lc.x * rs + lc.z * rc);
+                markerRot = Quaternion.Euler(0f, yaw, 0f);
+            }
+            else { markerPos = World != null ? World.VoxelGridToWorld(hit.cell) : hit.point; markerRot = Quaternion.identity; }
+            pdr?.SetCustomCube("inspect_cell", markerPos, markerRot, vs * 1.08f, new Color(1f, 0.9f, 0.1f, 0.95f));
+
+            inspectHud = $"🔍 {hit.cell} · {mat} {matName} · {vol}\n   {exposed}/6 exposed · normal {(degenerate && sideFace ? "degenerate→flat" : "ok")} · sun {sunShort}{(damaged && changedNb > 0 ? $" · {changedNb} nb changed" : "")}";
+            string report = sb.ToString().TrimEnd();
+            Debug.Log($"[DebugHUD] {report}");
+            try
+            {
+                string dir = System.IO.Path.GetFullPath(System.IO.Path.Combine(Application.dataPath, "..", "Logs"));
+                System.IO.Directory.CreateDirectory(dir);
+                System.IO.File.AppendAllText(System.IO.Path.Combine(dir, "voxel_inspect.log"), $"{System.DateTime.Now:yyyy-MM-dd HH:mm:ss}  {report}\n\n");
+            }
+            catch (System.Exception e) { Debug.LogWarning($"[DebugHUD] voxel_inspect.log write failed: {e.Message}"); }
         }
 
         /// <summary>Arm/cancel a voxel pick — the click is consumed by CityMap3D's pick mode.</summary>
@@ -953,7 +1101,19 @@ namespace SteelCity.Sim
             bool bldgArmed = pickArmed == PickSlot.Building;
             if (GUILayout.Button(bldgArmed ? "BLDG: click map…" : "PICK BLDG",
                     bldgArmed ? tabActiveStyle : tabStyle, GUILayout.Height(22))) ArmPick(PickSlot.Building);
+            bool inspArmed = pickArmed == PickSlot.Inspect;
+            if (GUILayout.Button(inspArmed ? "VOXEL: click map…" : "PICK VOXEL",
+                    inspArmed ? tabActiveStyle : tabStyle, GUILayout.Height(22))) ArmPick(PickSlot.Inspect);
             GUILayout.EndHorizontal();
+            if (inspectHud != null)
+            {
+                GUILayout.Label(inspectHud, labelStyle);
+                if (GUILayout.Button("clear inspect", GUILayout.Height(18)))
+                {
+                    inspectHud = null;
+                    PathDebugRenderer.Instance?.ClearCustomCube("inspect_cell");
+                }
+            }
             if (pickedStand.HasValue || pickedAim.HasValue || pickedBlast.HasValue)
             {
                 GUILayout.Label($"stand: {(pickedStand.HasValue ? pickedStand.Value.ToString("F1") : "—")}   aim: {(pickedAim.HasValue ? pickedAim.Value.ToString("F1") : "—")}   blast: {(pickedBlast.HasValue ? pickedBlast.Value.ToString("F1") : "—")}", labelStyle);

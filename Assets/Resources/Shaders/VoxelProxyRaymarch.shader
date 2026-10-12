@@ -257,9 +257,13 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 if (InBounds(nzp, dims)) cz += (VxMaterial(_VoxelData[bufferOffset + VoxelIndex(nzp, dims)]) != 0u) ? 1.0 : 0.0;
                 if (InBounds(nzm, dims)) cz -= (VxMaterial(_VoxelData[bufferOffset + VoxelIndex(nzm, dims)]) != 0u) ? 1.0 : 0.0;
 
-                float3 n = normalize(float3(-cx, -cy, -cz));
-                if (length(n) < 0.001) n = float3(0, 1, 0);
-                return n;
+                // Opposite neighbours cancel for 1-voxel strands/sheets -> zero gradient. normalize(0) is NaN and the
+                // old post-normalize length() guard can't catch it (NaN < x is false), which blacked out the face.
+                // Return zero instead; the caller skips the blend.
+                float3 g = float3(-cx, -cy, -cz);
+                float g2 = dot(g, g);
+                if (g2 < 0.0001) return float3(0, 0, 0);
+                return g * rsqrt(g2);
             }
 
             // ---- Animation group transform ----
@@ -1199,7 +1203,8 @@ Shader "SteelCity/VoxelProxyRaymarch"
                         else
                         {
                             float3 smoothN = SmoothNormal(sampleVoxel, dims, bufferOffset);
-                            blendedN = normalize(normal * 0.7 + smoothN * 0.3);
+                            blendedN = normal;
+                            if (dot(smoothN, smoothN) > 0.5) blendedN = normalize(normal * 0.7 + smoothN * 0.3);
                         }
                         blendedN = normalize(mul(volInvRot, blendedN));
 

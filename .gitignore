@@ -65,3 +65,6 @@ desktop.ini
 *.opendb
 *.VC.db
 .vsconfig
+
+# Local working export of the production tenement (hand-edited, not tracked)
+/VoxelAssetStudio/tenement_block_0.json

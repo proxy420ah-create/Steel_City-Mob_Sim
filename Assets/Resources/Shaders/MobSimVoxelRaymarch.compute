@@ -136,10 +136,12 @@ float3 SmoothNormal(int3 v)
     if (InBounds(nzm)) cz -= (VxMaterial(_VoxelData[VoxelIndex(nzm)]) != 0u) ? 1.0 : 0.0;
 
     // Gradient points from solid toward air = outward normal
-    float3 n = normalize(float3(-cx, -cy, -cz));
-    // Fallback if degenerate (isolated voxel)
-    if (length(n) < 0.001) n = float3(0, 1, 0);
-    return n;
+    // Degenerate (opposite neighbours cancel: 1-voxel strand/sheet) -> zero. normalize(0) is NaN and a
+    // post-normalize length() guard can't catch it; the caller skips the blend.
+    float3 g = float3(-cx, -cy, -cz);
+    float g2 = dot(g, g);
+    if (g2 < 0.0001) return float3(0, 0, 0);
+    return g * rsqrt(g2);
 }
 
 // ---- Lighting ---------------------------------------------------------------
@@ -324,7 +326,8 @@ void CSRaymarch(uint3 id : SV_DispatchThreadID)
             else
             {
                 // Side face — blend for softer wall appearance
-                blendedN = normalize(normal * 0.7 + smoothN * 0.3);
+                blendedN = normal;
+                if (dot(smoothN, smoothN) > 0.5) blendedN = normalize(normal * 0.7 + smoothN * 0.3);
             }
             // Transform normal from local to world space for lighting
             blendedN = normalize(mul((float3x3)_VolumeInvRotation, blendedN));

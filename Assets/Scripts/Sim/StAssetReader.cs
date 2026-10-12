@@ -109,6 +109,26 @@ namespace SteelCity.Sim
             return Color.white;
         }
 
+        /// <summary>Human-readable palette name for the voxel inspector/debug logs.</summary>
+        public static string GetMaterialName(int id) => id switch
+        {
+            0 => "Air",
+            100 => "Red Brick", 101 => "Stone", 102 => "Concrete", 103 => "Stucco",
+            104 => "Asphalt", 105 => "Cobblestone",
+            106 => "Dark Wood", 107 => "Light Wood", 108 => "Weathered Wood",
+            109 => "Dark Iron", 110 => "Aged Metal", 111 => "Painted Metal",
+            112 => "Window Glass", 113 => "Lit Window", 114 => "Storefront Glass",
+            115 => "Neon Red", 116 => "Neon Blue", 117 => "Neon Green",
+            118 => "Tar", 119 => "Terracotta",
+            120 => "Painted Red", 121 => "Painted Green", 122 => "Painted Brown", 129 => "Painted Blue",
+            123 => "Gold/Brass", 124 => "Lamp Glow",
+            125 => "Flesh", 126 => "Black Fabric", 127 => "White Fabric", 128 => "Hair",
+            134 => "Cracked Glass", 137 => "Water",
+            140 => "Vehicle Paint", 141 => "Vehicle Accent", 142 => "Chrome", 143 => "Tire Rubber",
+            144 => "Headlight", 145 => "Taillight", 146 => "Interior Leather", 147 => "Auto Glass",
+            _ => $"mat {id}",
+        };
+
         public static void SetMaterialColor(ushort materialId, Color color)
         {
             if (materialId < MobColors.Length)

@@ -373,7 +373,7 @@ namespace SteelCity.Sim
         public bool occlusionAware = true;
         /// <summary>DetonateEvent: simulate K expanding fronts up front, play back over frontSec.</summary>
         public bool shockFront = true;
-        public int frontPasses = 12;
+        public int frontPasses = 6;
         public float frontSec = 0.5f;
         private readonly List<int> detIdx = new();
         private readonly List<uint> detMats = new();
@@ -666,6 +666,15 @@ namespace SteelCity.Sim
             skippedVolumes.Clear();
             LastRemoved = LastCracked = 0;
             return n;
+        }
+
+        /// <summary>Pristine value of a cell in a damaged volume (false = never damaged, so current == original).</summary>
+        public bool TryGetOriginalVoxel(string volumeId, int idx, out uint original)
+        {
+            original = 0;
+            if (string.IsNullOrEmpty(volumeId) || !cow.TryGetValue(volumeId, out var st) || idx < 0 || idx >= st.original.Length) return false;
+            original = st.original[idx];
+            return true;
         }
     }
 }

@@ -2746,6 +2746,7 @@ namespace SteelCity.Sim
         public int GetShadowSkipSteps() => shadowSkipSteps;
         public int GetShadowMaxSteps() => shadowMaxSteps;
         public int GetShadowEnabled() => shadowEnabled;
+        public Vector3 GetLightDirection() => lightDirection;
 
         public void SetLightingToggles(bool sun, bool ambient, bool fill, bool camLight)
         {

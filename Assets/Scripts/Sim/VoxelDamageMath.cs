@@ -93,12 +93,12 @@ namespace SteelCity.Sim
                 case 137:                                                // water
                     return 0.10f;
                 case 106: case 107: case 108:                            // wood
-                case 118: case 119:                                      // tar, terracotta
+                case 119:                                                // terracotta
                 case 120: case 121: case 122: case 129:                  // painted wood
                 case 143:                                                // tire rubber
                     return 0.25f;
                 case 103: return 0.35f;                                  // stucco/plaster
-                case 100: case 105: return 0.50f;                        // brick, cobblestone
+                case 100: case 105: case 118: return 0.50f;              // brick, cobblestone, tar roof
                 case 101: case 102: case 104: return 0.60f;              // stone, concrete, asphalt
                 case 109: case 110: case 142: return 0.80f;              // iron, aged metal, chrome
                 case 111: case 140: case 141: return 0.90f;              // painted metal, vehicle body
