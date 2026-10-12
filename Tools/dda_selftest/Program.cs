@@ -490,7 +490,7 @@ static class Program
             if (wallX0 <= wallX1)
                 for (int x = wallX0; x <= wallX1; x++)
                     for (int y = 0; y < h; y++) for (int z = 0; z < d; z++) g[I(x, y, z)] = wallMat;
-            for (int y = 8; y <= 12; y++) for (int z = 8; z <= 12; z++) g[I(13, y, z)] = 106;   // patch always at x=13, dist ~3
+            for (int y = 8; y <= 12; y++) for (int z = 8; z <= 12; z++) g[I(13, y, z)] = 100;   // patch always at x=13, dist ~3
             var dirty = new List<int>(); var ri = new List<int>(); var rm = new List<uint>();
             VoxelDamageMath.Blast(g, w, h, d, 10f, 10f, 10f, 9f, 1f,
                 0x0CC1u, 134, dirty, ri, rm, out _, occlusion: true);
@@ -503,14 +503,16 @@ static class Program
             return east;
         }
         int open = EastRemoved(0u, 1, 0);            // no wall — control count
-        int thin = EastRemoved(106u, 12, 12);        // 1 brick cell → transmit 0.5
-        int thick = EastRemoved(106u, 10, 12);       // 3 brick cells → transmit 0.125
+        int thin = EastRemoved(100u, 12, 12);        // 1 brick cell → transmit 0.5
+        int thick = EastRemoved(100u, 10, 12);       // 3 brick cells → transmit 0.125
+        int wood = EastRemoved(106u, 12, 12);        // 1 wood cell → transmit 0.75 (weak shield)
         int glass = EastRemoved(112u, 12, 12);       // 1 glass cell → transmit 0.95
         Check(open > 0, "open patch should take damage");
         Check(thin < open, $"thin brick should attenuate: open {open} vs shielded {thin}");
         Check(thick <= Math.Max(1, open / 6), $"thick brick should nearly shield: open {open} vs shielded {thick}");
+        Check(wood > thin, $"wood should shield less than brick: wood {wood} vs brick {thin}");
         Check(glass >= open - 2, $"glass should barely shield: open {open} vs glass {glass}");
-        Console.WriteLine($"    occlusion: open {open} · brick1 {thin} · brick3 {thick} · glass {glass} (patch cells removed)");
+        Console.WriteLine($"    occlusion: open {open} · brick1 {thin} · brick3 {thick} · wood {wood} · glass {glass} (patch cells removed)");
         Console.WriteLine("[10] occlusion test done");
     }
 

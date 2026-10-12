@@ -84,10 +84,26 @@ namespace SteelCity.Sim
         /// </summary>
         public static float MaterialResistance(uint mat)
         {
-            int m = (int)mat;
-            if (IsGlassMaterial(m)) return 0.05f;
-            if (m == 111) return 0.9f;    // painted metal / structural
-            return 0.5f;                  // masonry, wood — catch-all until a real table exists
+            switch ((int)mat)
+            {
+                case 112: case 113: case 114: case 134: case 147:          // glass
+                    return 0.05f;
+                case 115: case 116: case 117: case 124:                   // neon, lamp glow
+                case 125: case 126: case 127: case 128:                   // flesh, fabric, hair
+                case 137:                                                // water
+                    return 0.10f;
+                case 106: case 107: case 108:                            // wood
+                case 118: case 119:                                      // tar, terracotta
+                case 120: case 121: case 122: case 129:                  // painted wood
+                case 143:                                                // tire rubber
+                    return 0.25f;
+                case 103: return 0.35f;                                  // stucco/plaster
+                case 100: case 105: return 0.50f;                        // brick, cobblestone
+                case 101: case 102: case 104: return 0.60f;              // stone, concrete, asphalt
+                case 109: case 110: case 142: return 0.80f;              // iron, aged metal, chrome
+                case 111: case 140: case 141: return 0.90f;              // painted metal, vehicle body
+                default: return 0.5f;                                    // unlisted = today's behavior
+            }
         }
 
         /// <summary>

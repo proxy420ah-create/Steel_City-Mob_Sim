@@ -47,6 +47,9 @@ namespace SteelCity.Sim
         public float shardSpread = 1.6f;     // lateral scatter
         public float shardGravity = 9f;
         public float shardLife = 0.7f;
+        public float shardGroundY = 0f;    // ground plane for bounce/rest (roads ~y0)
+        public float shardBounce = 0.35f;  // vertical restitution
+        public float shardRestSec = 1.1f;  // how long a settled chunk lingers
         public int maxShards = 192;
 
         [Header("Glass audio (P1, synthesized — no assets)")]
@@ -74,7 +77,7 @@ namespace SteelCity.Sim
         // Shard sim — CPU-integrated, rendered as velocity-stretched PathDebugRenderer
         // beams (an elongated box reads as a flying glass fragment; same pipeline as
         // tracers, so it composites into the map RT for free).
-        private struct Shard { public Vector3 pos, vel; public float tEnd; public int beamId; public Color col; public float width; }
+        private struct Shard { public Vector3 pos, vel, angVel; public Quaternion rot; public float tEnd; public int beamId; public Color col; public float size; public bool resting; }
         private readonly List<Shard> shards = new();
         private int shardCounter;
         private readonly System.Random shardRng = new(0x5EED);
@@ -351,7 +354,8 @@ namespace SteelCity.Sim
                     tEnd = Time.time + shardLife * 1.4f * (0.7f + 0.6f * (float)shardRng.NextDouble()),
                     beamId = shardCounter++,
                     col = StAssetReader.GetMaterialColor((ushort)plan.writeMat[i]),
-                    width = 0.018f,
+                    size = st.vs * 0.75f,
+                    rot = RandRot(), angVel = RandAng(9f),
                 });
             }
         }
@@ -377,6 +381,13 @@ namespace SteelCity.Sim
         private byte[] visitedScratch;
         private struct DebrisBucket { public int sx, sy, sz, count, matCount; public uint mat; }
         private readonly Dictionary<int, DebrisBucket> clusterBuckets = new();
+
+        private Quaternion RandRot()
+            => new Quaternion((float)shardRng.NextDouble() - 0.5f, (float)shardRng.NextDouble() - 0.5f,
+                (float)shardRng.NextDouble() - 0.5f, (float)shardRng.NextDouble() - 0.5f).normalized;
+        private Vector3 RandAng(float rate)
+            => new Vector3((float)shardRng.NextDouble() - 0.5f, (float)shardRng.NextDouble() - 0.5f,
+                (float)shardRng.NextDouble() - 0.5f) * rate;
 
         /// <summary>
         /// World-space center of a registered volume — yaw pivots about the center,
@@ -420,7 +431,8 @@ namespace SteelCity.Sim
                     tEnd = Time.time + shardLife * (0.7f + 0.6f * (float)shardRng.NextDouble()),
                     beamId = shardCounter++,
                     col = col,
-                    width = 0.018f,
+                    size = st.vs * 0.5f,
+                    rot = RandRot(), angVel = RandAng(12f),
                 };
                 PushShard(sh);
             }
@@ -458,7 +470,8 @@ namespace SteelCity.Sim
                     tEnd = Time.time + shardLife * 1.4f * (0.7f + 0.6f * (float)shardRng.NextDouble()),
                     beamId = shardCounter++,
                     col = StAssetReader.GetMaterialColor((ushort)removedMats[i]),
-                    width = 0.018f,
+                    size = st.vs * 0.75f,
+                    rot = RandRot(), angVel = RandAng(9f),
                 };
                 PushShard(sh);
             }
@@ -501,6 +514,7 @@ namespace SteelCity.Sim
                     Vector3 wpos = center + new Vector3(lp.x * c + lp.z * s, lp.y, -lp.x * s + lp.z * c);
                     Vector3 outw = wpos - blastCenter; outw.y = 0f;
                     if (outw.sqrMagnitude < 1e-6f) outw = Vector3.right;
+                    float csize = Mathf.Pow(b.count, 1f / 3f) * st.vs * 0.9f;
                     PushShard(new Shard
                     {
                         pos = wpos,
@@ -509,7 +523,8 @@ namespace SteelCity.Sim
                         tEnd = Time.time + shardLife * 2.2f,
                         beamId = shardCounter++,
                         col = StAssetReader.GetMaterialColor((ushort)b.mat),
-                        width = 0.03f * Mathf.Pow(b.count, 1f / 3f),
+                        size = csize,
+                        rot = RandRot(), angVel = RandAng(3.5f / Mathf.Max(0.2f, csize)),
                     });
                 }
                 start = end;
@@ -523,6 +538,7 @@ namespace SteelCity.Sim
             if (shards.Count >= maxShards)
             {
                 PathDebugRenderer.Instance?.ClearCustomBeam($"gshard_{shards[0].beamId}");
+                PathDebugRenderer.Instance?.ClearCustomCube($"gshard_{shards[0].beamId}");
                 shards.RemoveAt(0);
             }
             shards.Add(sh);
@@ -537,19 +553,38 @@ namespace SteelCity.Sim
             for (int i = shards.Count - 1; i >= 0; i--)
             {
                 var s = shards[i];
-                s.pos += s.vel * dt;
-                s.vel.y -= shardGravity * dt;
+                if (!s.resting)
+                {
+                    s.pos += s.vel * dt;
+                    s.vel.y -= shardGravity * dt;
+                    s.rot = Quaternion.Euler(s.angVel.x * Mathf.Rad2Deg * dt,
+                        s.angVel.y * Mathf.Rad2Deg * dt, s.angVel.z * Mathf.Rad2Deg * dt) * s.rot;
+                    float floor = shardGroundY + s.size * 0.5f;
+                    if (s.pos.y < floor && s.vel.y < 0f)
+                    {
+                        s.pos.y = floor;
+                        s.vel.y = -s.vel.y * shardBounce;
+                        s.vel.x *= 0.6f; s.vel.z *= 0.6f;
+                        s.angVel *= 0.55f;
+                        if (s.vel.sqrMagnitude < 0.16f)
+                        {
+                            s.resting = true; s.vel = Vector3.zero; s.angVel = Vector3.zero;
+                            s.tEnd = Mathf.Min(s.tEnd, Time.time + shardRestSec);
+                        }
+                    }
+                }
                 bool dead = Time.time >= s.tEnd;
                 if (dead)
                 {
                     pdr.ClearCustomBeam($"gshard_{s.beamId}");
+                    pdr.ClearCustomCube($"gshard_{s.beamId}");
                     shards[i] = shards[shards.Count - 1];
                     shards.RemoveAt(shards.Count - 1);
                     continue;
                 }
                 float fade = (s.tEnd - Time.time) / shardLife;
                 var c = s.col; c.a = Mathf.Lerp(0.15f, 0.9f, fade);
-                pdr.SetCustomBeam($"gshard_{s.beamId}", s.pos - s.vel * 0.035f, s.pos, s.width, c);
+                pdr.SetCustomCube($"gshard_{s.beamId}", s.pos, s.rot, s.size, c);
                 shards[i] = s;
             }
         }

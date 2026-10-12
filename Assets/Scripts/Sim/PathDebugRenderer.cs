@@ -100,6 +100,13 @@ namespace SteelCity.Sim
             => customBeams[key] = (a, b, width, color);
         public void ClearCustomBeam(string key) => customBeams.Remove(key);
 
+        // Free-form oriented cubes (tumbling debris shards — matrix-driven, not
+        // endpoint-driven like beams). Same instanced-cube draw pipeline.
+        private readonly Dictionary<string, (Vector3 pos, Quaternion rot, float size, Color color)> customCubes = new();
+        public void SetCustomCube(string key, Vector3 pos, Quaternion rot, float size, Color color)
+            => customCubes[key] = (pos, rot, size, color);
+        public void ClearCustomCube(string key) => customCubes.Remove(key);
+
         // Per-instance data buffers (reused each frame, no allocation)
         private const int MaxInstances = 2048;
         private readonly Matrix4x4[] segmentMatrices = new Matrix4x4[MaxInstances];
@@ -253,7 +260,7 @@ namespace SteelCity.Sim
             // after voxel chunks are rendered into the RT.
             // If no VoxelRenderBridge is present, fall back to drawing here.
             if (mapRoot == null || boxMesh == null || beamMaterial == null) return;
-            if (activePaths.Count == 0 && !showWaypointGraph && customBeams.Count == 0) return;
+            if (activePaths.Count == 0 && !showWaypointGraph && customBeams.Count == 0 && customCubes.Count == 0) return;
 
             var bridge = FindFirstObjectByType<VoxelRenderBridge>();
             if (bridge == null)
@@ -278,7 +285,7 @@ namespace SteelCity.Sim
                     VLog($"[PathDebug] RenderBeamsIntoCamera SKIP: mapRoot={mapRoot != null}, boxMesh={boxMesh != null}, beamMat={beamMaterial != null}");
                 return;
             }
-            if (activePaths.Count == 0 && !showWaypointGraph && customBeams.Count == 0)
+            if (activePaths.Count == 0 && !showWaypointGraph && customBeams.Count == 0 && customCubes.Count == 0)
             {
                 if (Time.frameCount % 120 == 0)
                     VLog("[PathDebug] RenderBeamsIntoCamera SKIP: no active paths, graph debug off, no custom beams");
@@ -688,6 +695,16 @@ namespace SteelCity.Sim
                     new Vector3(beam.width, beam.width, len));
                 beamProps.Clear();
                 beamProps.SetColor("_Color", beam.color);
+                DrawInstanced(cmd, batchBuffer, 1, beamMaterial, beamProps);
+                segDrawCount++;
+            }
+
+            // Oriented cubes (debris shards) — one draw each, same instanced path
+            foreach (var cb in customCubes.Values)
+            {
+                batchBuffer[0] = Matrix4x4.TRS(cb.pos, cb.rot, Vector3.one * cb.size);
+                beamProps.Clear();
+                beamProps.SetColor("_Color", cb.color);
                 DrawInstanced(cmd, batchBuffer, 1, beamMaterial, beamProps);
                 segDrawCount++;
             }
