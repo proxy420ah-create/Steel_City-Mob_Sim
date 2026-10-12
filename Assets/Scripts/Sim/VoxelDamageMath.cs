@@ -182,17 +182,22 @@ namespace SteelCity.Sim
         }
 
         /// <summary>
-        /// Amanatides–Woo march from the blast center to a target cell: each solid
-        /// cell crossed transmits (1 − resistance) of the blast onward. The target
-        /// cell itself is excluded (its own resistance already factors the roll).
-        /// Early-outs at 2% transmission — deeper shielding is darkness.
+        /// Amanatides–Woo march from the blast center to a target cell, attenuating
+        /// Beer–Lambert style: transmit *= (1 − resistance)^(path length inside the
+        /// cell, in cell units). An axis-aligned crossing still costs exactly one
+        /// cell of material (existing wall tuning unchanged — brick = ×0.5 per
+        /// cell), but oblique rays pay for the distance they actually travel
+        /// instead of a full cell per face clipped, so equal-shielding contours
+        /// are spheres rather than taxicab diamonds. The target cell itself is
+        /// excluded (its own resistance already factors the roll). Early-outs at
+        /// 2% transmission — deeper shielding is darkness.
         /// </summary>
-        private static float MarchTransmit(uint[] data, int w, int h, int d,
+        public static float MarchTransmit(uint[] data, int w, int h, int d,
             float cx, float cy, float cz, float tx, float ty, float tz)
         {
             int x = (int)Math.Floor(cx), y = (int)Math.Floor(cy), z = (int)Math.Floor(cz);
-            int gx = (int)Math.Floor(tx), gy = (int)Math.Floor(ty), gz = (int)Math.Floor(tz);
             float dx = tx - cx, dy = ty - cy, dz = tz - cz;
+            float len = (float)Math.Sqrt(dx * dx + dy * dy + dz * dz);
             int sx = dx > 0 ? 1 : (dx < 0 ? -1 : 0);
             int sy = dy > 0 ? 1 : (dy < 0 ? -1 : 0);
             int sz = dz > 0 ? 1 : (dz < 0 ? -1 : 0);
@@ -204,15 +209,18 @@ namespace SteelCity.Sim
             int wh = w * h, guard = w + h + d + 8;
             while (guard-- > 0)
             {
+                float tEnter = Math.Min(tmx, Math.Min(tmy, tmz));   // this cell's exit boundary
+                if (tEnter >= 1f) break;                            // the target lies inside this cell
                 if (tmx <= tmy && tmx <= tmz) { x += sx; tmx += tdx; }
                 else if (tmy <= tmz)          { y += sy; tmy += tdy; }
                 else                          { z += sz; tmz += tdz; }
-                if (x == gx && y == gy && z == gz) break;              // target cell reached — its own res is separate
                 if (x < 0 || y < 0 || z < 0 || x >= w || y >= h || z >= d) break;
+                float tNext = Math.Min(tmx, Math.Min(tmy, tmz));    // the entered cell's exit
+                if (tNext >= 1f) break;                             // entered the target cell — excluded
                 uint m = data[x + y * w + z * wh] & MaterialMask;
                 if (m != 0)
                 {
-                    transmit *= 1f - MaterialResistance(m);
+                    transmit *= (float)Math.Pow(1f - MaterialResistance(m), (tNext - tEnter) * len);
                     if (transmit < 0.02f) break;
                 }
             }

@@ -509,7 +509,8 @@ static class Program
         int glass = EastRemoved(112u, 12, 12);       // 1 glass cell → transmit 0.95
         Check(open > 0, "open patch should take damage");
         Check(thin < open, $"thin brick should attenuate: open {open} vs shielded {thin}");
-        Check(thick <= Math.Max(1, open / 6), $"thick brick should nearly shield: open {open} vs shielded {thick}");
+        Check(thick < thin, $"thicker should shield more: brick1 {thin} vs brick3 {thick}");
+        Check(thick <= Math.Max(2, open / 3), $"thick brick should mostly shield: open {open} vs shielded {thick}");
         Check(wood > thin, $"wood should shield less than brick: wood {wood} vs brick {thin}");
         Check(glass >= open - 2, $"glass should barely shield: open {open} vs glass {glass}");
         Console.WriteLine($"    occlusion: open {open} · brick1 {thin} · brick3 {thick} · wood {wood} · glass {glass} (patch cells removed)");
@@ -561,6 +562,29 @@ static class Program
         Console.WriteLine("[11] shock-front sim test done");
     }
 
+    // [12] Path-length march: attenuation is by DISTANCE travelled through
+    // material, not cells entered — a 45° ray over the same span must match an
+    // axis-aligned ray (the old cell-count march made craters diamond-shaped).
+    // Axis crossings keep their old cost exactly (3 brick cells = 0.5³).
+    static void TestMarchPathLength()
+    {
+        const int w = 81, h = 81, d = 81;
+        var gb = new uint[w * h * d];
+        for (int i = 0; i < gb.Length; i++) gb[i] = 100u;                       // solid brick
+        float tAxis3 = VoxelDamageMath.MarchTransmit(gb, w, h, d, 40.5f, 40.5f, 40.5f, 44.5f, 40.5f, 40.5f);
+        Check(Math.Abs(tAxis3 - 0.125f) < 0.001f,
+            $"3 brick cells axis-aligned must transmit exactly 0.125, got {tAxis3:F4}");
+        var gw = new uint[w * h * d];
+        for (int i = 0; i < gw.Length; i++) gw[i] = 106u;                       // solid wood
+        float tA = VoxelDamageMath.MarchTransmit(gw, w, h, d, 40.5f, 40.5f, 40.5f, 70.5f, 40.5f, 40.5f);
+        float tD = VoxelDamageMath.MarchTransmit(gw, w, h, d, 40.5f, 40.5f, 40.5f, 61.5f, 40.5f, 61.5f);
+        double lnRatio = Math.Log(tD) / Math.Log(tA);
+        Check(Math.Abs(lnRatio - 1.0) < 0.15,
+            $"45° ray must match axis ray (isotropic): lnT ratio {lnRatio:F2}");
+        Console.WriteLine($"    path-length: 3-brick axis {tAxis3:F4} · wood r≈30 axis {tA:F5} vs 45° {tD:F5} (ln ratio {lnRatio:F2})");
+        Console.WriteLine("[12] path-length march test done");
+    }
+
     static string rangePath;
     static string Describe2(VoxelRayHit r) => $"vol={r.volumeId} mat={r.material} cell=({r.cell.x},{r.cell.y},{r.cell.z}) dist={r.distance:F3}m";
 
@@ -577,6 +601,7 @@ static class Program
         TestConnectivity();
         TestBlastOcclusion();
         TestSimulate();
+        TestMarchPathLength();
         Console.WriteLine(fails == 0 ? $"ALL PASS ({checks} checks)" : $"{fails} FAILURES of {checks} checks");
         return fails == 0 ? 0 : 1;
     }
