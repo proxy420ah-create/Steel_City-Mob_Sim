@@ -1,6 +1,25 @@
 # Recent Changes — Steel City: Mob Sim
 
-**Last Updated**: October 11, 2026 (glass puncture P1 dressing: shard burst, synthesized SFX, AudioListener fix, sfx preview buttons)
+**Last Updated**: October 11, 2026 (glass puncture P2: sector-baked damage writes — merged-buffer path)
+
+---
+
+### Free-fire voxel picks (Range tab)
+- `PICK STAND` / `PICK AIM` buttons arm a one-shot voxel pick: the next map click raycasts `VoxelCollisionWorld` instead of firing `OnBlockClicked` (`CityMap3D.voxelPickArmed` + `OnVoxelPicked`; miss keeps the pick armed, button re-click cancels).
+- STAND teleports the character via `EventPlayer.DebugSnapTo` onto the hit surface (faces the aim point) + green marker beam; AIM overrides the fire target — overrides `tgtWorld` for IK AIM / spread cone / FIRE, re-arms a live solver — + orange cross marker. `clear picks` wipes both.
+
+---
+
+## Glass puncture P2 — sector-baked merged-buffer writes — Oct 11
+
+- **The gap was GPU-only**: `RegisterSectorPlacements` already registers collision volumes under the same `{blockId}_building[_N]` ids in both render modes, and `PlacedBuilding.voxels` is the same array COW clones — so `Puncture` + collision re-registration needed zero changes.
+- `SectorBaker.PlacedBuilding` gains `bufferOffset` + `buildingIndex` (the index whose `<<16` forms the merged pane-id base).
+- `CityMap3D.RegisterSectorPlacements` calls `chunkManager.RegisterSectorVolume(chunkName, sector, bufferOffset, buildingIndex, w, h, d)` per placement — a `sectorVolumeLookup` inside `VoxelChunkManager` maps volume id → (sector, offset, paneIdBase, dims).
+- `VoxelChunkManager.UploadVoxelEdits`: falls through to the merged path when the name isn't a live chunk — same dirty-span `SetData`, just at `bufferOffset + localIndex` into `mergedVoxelBuffer` and `paneBuffer`. Sector damage pane ids use a fresh `0x8000_0000+` band (above every authored `b<<16 + localId`).
+- `RefreshChunkVoxels` (damage reset): writes `st.original` into the merged region and rebuilds that region's pane ids with the building's id base.
+- `UnregisterSector`/`ClearAllChunks` prune the volume→sector map; `VoxelDamageSystem` now gates on `HasWritableVolume` (chunk OR sector region).
+- Verified: `tenement_block_0.stasset` has 4,608 cells of mat 112 + 1,792 of mat 114 (real windows — the hand-crafted asset carries glass already; `vehicle_civilian_car_0` has 40). Editor Assembly-CSharp compiles clean.
+- 🧪 Playtest PASSED (Oct 11): sector baking ON, Vinny teleported to the street via PICK STAND, aimed at tenement storefront windows via PICK AIM — punctures + crack halos + shard bursts + SFX all render from the merged sector buffer, damage persists, reset restores.
 
 ---
 

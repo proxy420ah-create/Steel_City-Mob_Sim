@@ -67,6 +67,10 @@ namespace SteelCity.Sim
             public int w, h, d;
             public uint[] voxels;
             public bool isEmptyLand;
+            /// <summary>Start of this building's region in mergedVoxelData (buildingMeta[i].x).</summary>
+            public int bufferOffset;
+            /// <summary>Index into buildingMeta — the merged pane-id base is buildingIndex << 16.</summary>
+            public int buildingIndex;
         }
 
         /// <summary>Detect empty land stasset paths for procedural debris scattering.</summary>
@@ -198,7 +202,9 @@ namespace SteelCity.Sim
                     voxelSize = info.voxelSize,
                     w = w, h = h, d = d,
                     voxels = source,
-                    isEmptyLand = emptyLand
+                    isEmptyLand = emptyLand,
+                    bufferOffset = (int)buildingMeta[i].x,
+                    buildingIndex = i
                 });
 
                 // Compute sector AABB from building world positions + sizes

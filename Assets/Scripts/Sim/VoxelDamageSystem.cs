@@ -112,13 +112,13 @@ namespace SteelCity.Sim
             if (chunkManager == null) chunkManager = FindFirstObjectByType<VoxelChunkManager>();
             if (world == null || chunkManager == null) return;
 
-            // P0 reaches per-building chunk buffers only. Sector-baked placements share
-            // the volume id convention but render from merged sector buffers — mutating
-            // them would open invisible collision holes, so skip (logged once per volume).
-            if (!chunkManager.HasChunk(r.target))
+            // P2: damage writes reach both render paths — live per-building chunks
+            // and regions inside baked sectors' merged buffers (bufferOffset +
+            // localIndex). Only skip volumes with no writable backing at all.
+            if (!chunkManager.HasWritableVolume(r.target))
             {
                 if (skippedVolumes.Add(r.target))
-                    Debug.LogWarning($"[VoxelDamage] {r.target}: no live chunk — volume is sector-baked. P0 puncture needs per-building mode (CityMap3D.useSectorBaking off, or context menu 'Rebuild — sector baking OFF'). Skipped.");
+                    Debug.LogWarning($"[VoxelDamage] {r.target}: no writable volume — not a live chunk or sector placement. Skipped.");
                 return;
             }
 

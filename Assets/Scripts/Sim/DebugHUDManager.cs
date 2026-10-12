@@ -72,6 +72,13 @@ namespace SteelCity.Sim
         private ArmAimSolver solver;
         private bool blockClickHooked;
 
+        // Free-fire picks — voxel clicks armed from the Range tab. PICK STAND
+        // teleports the character (DebugSnapTo) onto the hit surface; PICK AIM
+        // overrides the lane/mold aim point so shots can target anything.
+        private enum PickSlot { None, Stand, Aim }
+        private PickSlot pickArmed = PickSlot.None;
+        private Vector3? pickedStand, pickedAim;
+
         // Optional test/debug components — used by the Keys tab to show only
         // hotkeys whose handlers actually exist in the scene right now.
         private VehicleTestSpawner vehicleTest;
@@ -175,6 +182,7 @@ namespace SteelCity.Sim
             if (cityMap != null && !blockClickHooked)
             {
                 cityMap.OnBlockClicked += HandleBlockClicked;
+                cityMap.OnVoxelPicked += HandleVoxelPicked;
                 blockClickHooked = true;
             }
             if (pathDebug == null) pathDebug = FindFirstObjectByType<PathDebugRenderer>();
@@ -317,7 +325,10 @@ namespace SteelCity.Sim
         void OnDestroy()
         {
             if (cityMap != null && blockClickHooked)
+            {
                 cityMap.OnBlockClicked -= HandleBlockClicked;
+                cityMap.OnVoxelPicked -= HandleVoxelPicked;
+            }
             if (blockerCanvasGO != null)
                 DestroyImmediate(blockerCanvasGO);
         }
@@ -819,6 +830,42 @@ namespace SteelCity.Sim
             ep.DebugSnapTo(cityMap.MapRoot.position + posLocal, mount.Dims, mount.CharVoxelSize, faceWorld);
         }
 
+        /// <summary>
+        /// Voxel pick delivery — fires when CityMap3D's pick mode consumed a map click.
+        /// STAND teleports the character onto the hit surface (facing the aim point if
+        /// set); AIM stores the hit point as the fire target and re-arms a live solver.
+        /// </summary>
+        private void HandleVoxelPicked(VoxelRayHit hit)
+        {
+            var pdr = PathDebugRenderer.Instance;
+            if (pickArmed == PickSlot.Stand)
+            {
+                pickedStand = hit.point;
+                var ch = cityMap.SpawnedCharacter;
+                var mount = ch != null ? ch.GetComponent<WeaponMount>() : null;
+                var ep = FindFirstObjectByType<EventPlayer>();
+                if (mount != null && ep != null)
+                {
+                    if (solver != null && solver.IsAiming) solver.Disarm();
+                    ep.DebugSnapTo(hit.point, mount.Dims, mount.CharVoxelSize, pickedAim);
+                }
+                pdr?.SetCustomBeam("pick_stand", hit.point, hit.point + Vector3.up * 1.8f,
+                    0.06f, new Color(0.2f, 1f, 0.35f, 0.9f));
+                Debug.Log($"[DebugHUD] 🎯 STAND picked @ {hit.point} ({hit.volumeId ?? "terrain"} mat {hit.material})");
+            }
+            else if (pickArmed == PickSlot.Aim)
+            {
+                pickedAim = hit.point;
+                pdr?.SetCustomBeam("pick_aim", hit.point + Vector3.left * 0.25f, hit.point + Vector3.right * 0.25f,
+                    0.05f, new Color(1f, 0.55f, 0.1f, 0.95f));
+                pdr?.SetCustomBeam("pick_aim2", hit.point + Vector3.down * 0.25f, hit.point + Vector3.up * 0.25f,
+                    0.05f, new Color(1f, 0.55f, 0.1f, 0.95f));
+                if (solver != null && solver.IsAiming) solver.Arm(hit.point);   // re-aim live
+                Debug.Log($"[DebugHUD] 🎯 AIM picked @ {hit.point} ({hit.volumeId ?? "terrain"} mat {hit.material})");
+            }
+            pickArmed = PickSlot.None;
+        }
+
         /// <summary>Open the HUD on the Range tab for the given block.</summary>
         public void OpenRangeTab(string blockId)
         {
@@ -898,6 +945,37 @@ namespace SteelCity.Sim
             Vector3 posWorld = cityMap.MapRoot.position + posLocal;
             Vector3 tgtWorld = cityMap.MapRoot.position + tgtLocal;
             GUILayout.Label($"{posName}: {(hasPos ? "OK" : "<color=#ff6666>MISSING</color>")}   {tgtName}: {(hasTgt ? "OK" : "<color=#ff6666>MISSING</color>")}", labelStyle);
+
+            // --- Free-fire picks: click a voxel to stand on, click a voxel to aim at ---
+            GUILayout.BeginHorizontal();
+            bool standArmed = pickArmed == PickSlot.Stand;
+            if (GUILayout.Button(standArmed ? "STAND: click map… (cancel)" : "PICK STAND",
+                    standArmed ? tabActiveStyle : tabStyle, GUILayout.Height(22)))
+            {
+                pickArmed = standArmed ? PickSlot.None : PickSlot.Stand;
+                cityMap.voxelPickArmed = pickArmed != PickSlot.None;
+            }
+            bool aimArmed = pickArmed == PickSlot.Aim;
+            if (GUILayout.Button(aimArmed ? "AIM: click map… (cancel)" : "PICK AIM",
+                    aimArmed ? tabActiveStyle : tabStyle, GUILayout.Height(22)))
+            {
+                pickArmed = aimArmed ? PickSlot.None : PickSlot.Aim;
+                cityMap.voxelPickArmed = pickArmed != PickSlot.None;
+            }
+            GUILayout.EndHorizontal();
+            if (pickedStand.HasValue || pickedAim.HasValue)
+            {
+                GUILayout.Label($"stand: {(pickedStand.HasValue ? pickedStand.Value.ToString("F1") : "—")}   aim: {(pickedAim.HasValue ? pickedAim.Value.ToString("F1") : "—")}", labelStyle);
+                if (GUILayout.Button("clear picks", GUILayout.Height(18)))
+                {
+                    pickedStand = pickedAim = null;
+                    var pdr = PathDebugRenderer.Instance;
+                    pdr?.ClearCustomBeam("pick_stand");
+                    pdr?.ClearCustomBeam("pick_aim");
+                    pdr?.ClearCustomBeam("pick_aim2");
+                }
+            }
+            if (pickedAim.HasValue) { tgtWorld = pickedAim.Value; hasTgt = true; }
 
             GUILayout.Space(6);
 

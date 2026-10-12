@@ -97,6 +97,15 @@ namespace SteelCity.Sim
 
         public event Action<string> OnBlockClicked;
 
+        /// <summary>
+        /// Voxel pick mode (debug HUD): when armed, the next left-click in the map
+        /// viewport raycasts the collision world and raises OnVoxelPicked instead of
+        /// OnBlockClicked. A click that hits nothing keeps the pick armed; the HUD
+        /// disarms by clearing this flag or pressing the pick button again.
+        /// </summary>
+        public bool voxelPickArmed;
+        public event Action<VoxelRayHit> OnVoxelPicked;
+
         // === City Editor API (runtime parameter adjustment) ===
 
         /// <summary>Rebuild the entire city from cached blocks. Call after changing any parameter.</summary>
@@ -106,7 +115,7 @@ namespace SteelCity.Sim
                 BuildMap(cachedBlocks);
         }
 
-        /// <summary>Flip the sector-baking render path and rebuild — debug/tooling use (P0 voxel damage is per-building-chunk only).</summary>
+        /// <summary>Flip the sector-baking render path and rebuild — debug/tooling use. Voxel damage writes reach both paths (P2 merged-sector support).</summary>
         public void SetSectorBaking(bool on)
         {
             useSectorBaking = on;
@@ -1960,6 +1969,10 @@ namespace SteelCity.Sim
                         collisionWorld.RegisterVolume(chunkName, p.voxels, p.w, p.h, p.d, p.corner, p.voxelSize);
                         volumes++;
                     }
+                    // P2 damage: same volume id → merged-sector region, so the
+                    // dirty-cell write path works identically to the chunk path.
+                    chunkManager?.RegisterSectorVolume(chunkName, sector.name,
+                        p.bufferOffset, p.buildingIndex, p.w, p.h, p.d);
                 }
             }
             Debug.Log($"[CityMap3D] Sector placements registered: {addresses} addresses, {volumes} collision volumes");
@@ -2250,6 +2263,20 @@ namespace SteelCity.Sim
                 return;
 
             Ray ray = mapCamera.ScreenPointToRay(mousePos);
+
+            // Voxel pick mode takes precedence over block selection — the click is
+            // consumed either way so picking never also opens the block panel.
+            if (voxelPickArmed)
+            {
+                if (collisionWorld != null &&
+                    collisionWorld.Raycast(ray.origin, ray.direction, 500f, out VoxelRayHit vh))
+                {
+                    voxelPickArmed = false;
+                    OnVoxelPicked?.Invoke(vh);
+                }
+                return;
+            }
+
             if (Physics.Raycast(ray, out RaycastHit hit, 100f))
             {
                 Transform t = hit.collider.transform;

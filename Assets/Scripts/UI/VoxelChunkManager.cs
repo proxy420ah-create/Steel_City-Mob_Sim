@@ -1425,26 +1425,74 @@ namespace SteelCity.Sim
         public bool HasChunk(string name) => name != null && chunkLookup.ContainsKey(name);
 
         /// <summary>
-        /// Upload edited voxel cells to a chunk's GPU buffer — PERFORMANCE_PATTERNS #1-2:
-        /// the caller holds the authoritative uint[]; dirty flat indices
-        /// (x + y·w + z·w·h) are merged into contiguous spans and pushed via partial
-        /// ComputeBuffer.SetData, so a bullet hole costs bytes, not a chunk re-upload.
-        /// Returns false when the name isn't a live chunk — sector-baked placements
-        /// render from merged sector buffers and need the overlay path
-        /// (GLASS_SHATTER_MECHANIC.md; P0 damage is per-building only).
+        /// True when this volume id renders through a buffer the damage path can write —
+        /// either a live per-building chunk or a region inside a baked sector's merged
+        /// buffer. This is the gate VoxelDamageSystem uses instead of HasChunk (P2).
         /// </summary>
-        // Pane ids handed to damage edits — kept in a high band so they rarely
-        // collide with authored flood-fill ids (which count up from 1). A
-        // collision only means two unrelated panes dedup — tint-only artifact.
+        public bool HasWritableVolume(string name) =>
+            HasChunk(name) || (name != null && sectorVolumeLookup.ContainsKey(name));
+
+        // --- Sector-baked damage writes (P2) ---
+        // A sector placement's voxels live at mergedVoxelData[bufferOffset .. +w*h*d].
+        // The volume id convention is identical to the per-chunk path, so the same
+        // dirty-cell API works — writes just land at bufferOffset + localIndex.
+        // Merged pane ids are localId + (buildingIndex << 16), so damage pane ids take
+        // a distinct high band (0x8000_0000+) — they can't collide with any building's
+        // authored pane slot and still dedup correctly along a ray.
+        private sealed class SectorVolumeRef
+        {
+            public BakedSector sector;
+            public int bufferOffset;
+            public uint paneIdBase;   // buildingIndex << 16
+            public int w, h, d;
+        }
+        private readonly Dictionary<string, SectorVolumeRef> sectorVolumeLookup = new();
+        // Pane ids handed to damage edits — high band so they rarely collide with
+        // authored flood-fill ids (a collision only means two panes dedup: tint-only).
         private static uint nextDamagePaneId = 0x8000u;
+        private static uint nextSectorDamagePaneId = 0x8000_0000u;
         private static uint[] paneScratch = new uint[0];
+
+        /// <summary>
+        /// Record that volume `volumeName` renders from sector `sectorName` at
+        /// `bufferOffset` — called once per placement by CityMap3D after sector bake.
+        /// </summary>
+        public void RegisterSectorVolume(string volumeName, string sectorName,
+            int bufferOffset, int buildingIndex, int w, int h, int d)
+        {
+            if (string.IsNullOrEmpty(volumeName)) return;
+            if (!sectorLookup.TryGetValue(sectorName, out var sector)) return;
+            sectorVolumeLookup[volumeName] = new SectorVolumeRef
+            {
+                sector = sector,
+                bufferOffset = bufferOffset,
+                paneIdBase = (uint)buildingIndex << 16,
+                w = w, h = h, d = d
+            };
+        }
 
         public bool UploadVoxelEdits(string chunkName, uint[] data, List<int> dirtyIndices)
         {
-            if (!chunkLookup.TryGetValue(chunkName, out var chunk) || chunk.voxelBuffer == null)
-                return false;
             if (data == null || dirtyIndices == null || dirtyIndices.Count == 0)
                 return true;
+
+            ComputeBuffer voxelBuf, paneBuf;
+            int indexBase = 0;                      // sector path: + bufferOffset
+            bool chunkPath = chunkLookup.TryGetValue(chunkName, out var chunk) && chunk.voxelBuffer != null;
+            if (chunkPath)
+            {
+                voxelBuf = chunk.voxelBuffer;
+                paneBuf = chunk.paneBuffer;
+            }
+            else if (sectorVolumeLookup.TryGetValue(chunkName, out var sv)
+                     && sv.sector.mergedVoxelBuffer != null
+                     && sv.bufferOffset + data.Length <= sv.sector.mergedVoxelBuffer.count)
+            {
+                voxelBuf = sv.sector.mergedVoxelBuffer;
+                paneBuf = sv.sector.paneBuffer;
+                indexBase = sv.bufferOffset;
+            }
+            else return false;
 
             dirtyIndices.Sort();
 
@@ -1453,14 +1501,15 @@ namespace SteelCity.Sim
             // deduped into the front surface and never renders. AIR cells → 0;
             // cells that stayed glass → one fresh id shared across this edit, so
             // the scar dedups as its own surface.
-            ComputeBuffer paneBuf = chunk.paneBuffer;
-            bool hasPane = paneBuf != null && paneBuf != defaultPaneBuffer && paneBuf.count == data.Length;
+            bool hasPane = paneBuf != null && paneBuf != defaultPaneBuffer
+                           && (long)indexBase + data.Length <= paneBuf.count;
+            // Sector damage ids live at 0x8000_0000+ — above any authored
+            // (b<<16 + localId) value — so they need no per-building base.
             uint dmgPane = 0;
             if (hasPane)
             {
                 for (int i = 0; i < dirtyIndices.Count; i++)
-                    if (IsGlassMaterial(data[dirtyIndices[i]] & 0x1FFu)) { dmgPane = nextDamagePaneId; break; }
-                if (dmgPane != 0 && ++nextDamagePaneId > 0xFFFEu) nextDamagePaneId = 0x8000u;
+                    if (IsGlassMaterial(data[dirtyIndices[i]] & 0x1FFu)) { dmgPane = NextDamagePaneId(chunkPath); break; }
             }
 
             int start = dirtyIndices[0], prev = start;
@@ -1468,40 +1517,77 @@ namespace SteelCity.Sim
             {
                 if (i < dirtyIndices.Count && dirtyIndices[i] == prev + 1) { prev = dirtyIndices[i]; continue; }
                 int len = prev - start + 1;
-                chunk.voxelBuffer.SetData(data, start, start, len);
+                voxelBuf.SetData(data, start, indexBase + start, len);
                 if (hasPane)
                 {
                     if (paneScratch.Length < len) paneScratch = new uint[len];
                     for (int k = 0; k < len; k++)
                         paneScratch[k] = IsGlassMaterial(data[start + k] & 0x1FFu) ? dmgPane : 0u;
-                    paneBuf.SetData(paneScratch, 0, start, len);
+                    paneBuf.SetData(paneScratch, 0, indexBase + start, len);
                 }
                 if (i < dirtyIndices.Count) start = prev = dirtyIndices[i];
             }
             return true;
         }
 
+        private static uint NextDamagePaneId(bool chunkPath)
+        {
+            if (chunkPath)
+            {
+                uint id = nextDamagePaneId;
+                if (++nextDamagePaneId > 0xFFFEu) nextDamagePaneId = 0x8000u;
+                return id;
+            }
+            uint sid = nextSectorDamagePaneId;
+            if (++nextSectorDamagePaneId > 0x8000_FFFEu) nextSectorDamagePaneId = 0x8000_0000u;
+            return sid;
+        }
+
         /// <summary>
-        /// Full-buffer re-upload of a chunk's voxel data — used by VoxelDamageSystem
-        /// reset to restore a damaged volume to its pristine array. Returns false when
-        /// the name isn't a live chunk or the array doesn't match the buffer size.
+        /// Full-buffer re-upload of a volume's voxel data — used by VoxelDamageSystem
+        /// reset to restore a damaged volume to its pristine array. Works for both
+        /// live chunks (whole-buffer write) and sector placements (region write at
+        /// bufferOffset, pane ids rebuilt with the building's id base).
         /// </summary>
         public bool RefreshChunkVoxels(string chunkName, uint[] data)
         {
-            if (!chunkLookup.TryGetValue(chunkName, out var chunk) || chunk.voxelBuffer == null)
-                return false;
-            if (data == null || data.Length != chunk.voxelBuffer.count) return false;
-            chunk.voxelBuffer.SetData(data);
-
-            // Restore pane ids too — damage edits overwrote them (AIR cells → 0,
-            // cracked cells → fresh ids). The pristine array's pane map is cached
-            // by reference from chunk creation, so this is a lookup, not a re-flood.
-            if (chunk.paneBuffer != null && chunk.paneBuffer != defaultPaneBuffer
-                && chunk.paneBuffer.count == data.Length)
+            if (chunkLookup.TryGetValue(chunkName, out var chunk) && chunk.voxelBuffer != null)
             {
-                var pane = GetPaneIDs(data, chunk.dims.x, chunk.dims.y, chunk.dims.z);
-                if (pane != null && pane.Length == data.Length)
-                    chunk.paneBuffer.SetData(pane);
+                if (data == null || data.Length != chunk.voxelBuffer.count) return false;
+                chunk.voxelBuffer.SetData(data);
+
+                // Restore pane ids too — damage edits overwrote them (AIR cells → 0,
+                // cracked cells → fresh ids). The pristine array's pane map is cached
+                // by reference from chunk creation, so this is a lookup, not a re-flood.
+                if (chunk.paneBuffer != null && chunk.paneBuffer != defaultPaneBuffer
+                    && chunk.paneBuffer.count == data.Length)
+                {
+                    var pane = GetPaneIDs(data, chunk.dims.x, chunk.dims.y, chunk.dims.z);
+                    if (pane != null && pane.Length == data.Length)
+                        chunk.paneBuffer.SetData(pane);
+                }
+                return true;
+            }
+
+            if (!sectorVolumeLookup.TryGetValue(chunkName, out var sv)
+                || sv.sector.mergedVoxelBuffer == null
+                || data == null || sv.bufferOffset + data.Length > sv.sector.mergedVoxelBuffer.count)
+                return false;
+
+            sv.sector.mergedVoxelBuffer.SetData(data, 0, sv.bufferOffset, data.Length);
+
+            // Rebuild this region's pane ids in merged space (localId + buildingIndex<<16).
+            if (sv.sector.paneBuffer != null && sv.sector.paneBuffer != defaultPaneBuffer
+                && sv.bufferOffset + data.Length <= sv.sector.paneBuffer.count)
+            {
+                var pane = ComputePaneIDs(data, sv.w, sv.h, sv.d);
+                if (pane != null)
+                {
+                    var slice = new uint[data.Length];
+                    for (int i = 0; i < pane.Length; i++)
+                        slice[i] = pane[i] != 0 ? pane[i] + sv.paneIdBase : 0u;
+                    sv.sector.paneBuffer.SetData(slice, 0, sv.bufferOffset, slice.Length);
+                }
             }
             return true;
         }
@@ -1532,6 +1618,7 @@ namespace SteelCity.Sim
             }
             bakedSectors.Clear();
             sectorLookup.Clear();
+            sectorVolumeLookup.Clear();
         }
 
         // --- Instanced character/vehicle rendering ---
@@ -2348,6 +2435,12 @@ namespace SteelCity.Sim
             if (sector.buildingPosBuffer != null) { sector.buildingPosBuffer.Release(); sector.buildingPosBuffer = null; }
             bakedSectors.Remove(sector);
             sectorLookup.Remove(name);
+            // Drop damage-write mappings pointing at the released buffers — a rebake
+            // re-registers fresh placements via RegisterSectorVolume.
+            var stale = new List<string>();
+            foreach (var kv in sectorVolumeLookup)
+                if (kv.Value.sector == sector) stale.Add(kv.Key);
+            foreach (var k in stale) sectorVolumeLookup.Remove(k);
         }
 
         public int BakedSectorCount => bakedSectors.Count;
