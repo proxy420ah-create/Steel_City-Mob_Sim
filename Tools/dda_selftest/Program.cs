@@ -389,6 +389,176 @@ static class Program
         Console.WriteLine("[7] glass puncture drill done");
     }
 
+    // [8] Demolition: spherical blast — material resistance + falloff + sphere bounds.
+    // Synthetic 20^3 shell: brick (106) shell, glass band (112) at z=9-10, metal core (111).
+    static void TestBlast()
+    {
+        const int w = 20, h = 20, d = 20;
+        var g = new uint[w * h * d];
+        for (int z = 0; z < d; z++)
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++)
+                {
+                    uint mat = 106;                                  // brick everywhere
+                    if (x >= 4 && x <= 15 && y >= 6 && y <= 13 && z >= 9 && z <= 10)
+                        mat = 112;                                   // glass band across the middle
+                    if (x >= 8 && x <= 11 && y >= 8 && y <= 11 && z >= 8 && z <= 11)
+                        mat = 111;                                   // metal core
+                    g[x + y * w + z * w * h] = mat;
+                }
+        var dirty = new List<int>(); var ridx = new List<int>(); var rmats = new List<uint>();
+        float cx = 10f, cy = 10f, cz = 10f, radius = 8f, power = 1f;
+        int removed = VoxelDamageMath.Blast(g, w, h, d, cx, cy, cz, radius, power,
+            0xB1A57u, 134, dirty, ridx, rmats, out int cracked, occlusion: false);
+        Check(removed > 0, "blast removed nothing");
+        Check(ridx.Count == removed && rmats.Count == removed, "removed index/material lists aligned");
+        // every removed cell inside the sphere
+        foreach (int idx in ridx)
+        {
+            int z = idx / (w * h), rem = idx - z * w * h, y = rem / w, x = rem - y * w;
+            float dx = x + 0.5f - cx, dy = y + 0.5f - cy, dz = z + 0.5f - cz;
+            float dist = (float)Math.Sqrt(dx * dx + dy * dy + dz * dz);
+            Check(dist <= radius + 1e-4f, $"removed cell ({x},{y},{z}) outside blast radius ({dist:F2} > {radius})");
+        }
+        // rates per material inside the sphere — glass must die at a higher rate than brick
+        int glassHit = 0, metalHit = 0, brickHit = 0;
+        foreach (var m in rmats)
+        {   if (m == 112) glassHit++; else if (m == 111) metalHit++; else if (m == 106) brickHit++; }
+        int glassIn = 0, metalIn = 0, brickIn = 0;
+        for (int z = 0; z < d; z++) for (int y = 0; y < h; y++) for (int x = 0; x < w; x++)
+        {
+            float dx = x + 0.5f - cx, dy = y + 0.5f - cy, dz = z + 0.5f - cz;
+            if (dx * dx + dy * dy + dz * dz > radius * radius) continue;
+            uint m = g[x + y * w + z * w * h] & 0x1FFu;   // post-blast value
+            // count what WAS there: removed cells are AIR now — count via rmats + survivors
+            if (m == 112 || m == 134) glassIn++;
+            else if (m == 111) metalIn++;
+            else if ((m & 0x1FFu) == 106) brickIn++;
+        }
+        glassIn += glassHit; metalIn += metalHit; brickIn += brickHit;
+        float glassRate = glassIn > 0 ? (float)glassHit / glassIn : 0f;
+        float brickRate = brickIn > 0 ? (float)brickHit / brickIn : 0f;
+        Check(glassHit > 0, "blast removed no glass");
+        float metalRate = metalIn > 0 ? (float)metalHit / metalIn : 0f;
+        Check(metalRate < 0.15f, $"metal core lost {metalRate:P0} of its cells at point-blank max power — mat 111 should be near-indestructible");
+        Check(brickHit > 0, "blast removed no brick");
+        Check(glassRate > brickRate, $"glass removal rate {glassRate:F2} should beat brick {brickRate:F2} (resistance 0.05 vs 0.5)");
+        Check(cracked >= 0, "cracked count sane");
+        // a ray through the crater should now see AIR at the former glass band
+        Console.WriteLine($"    blast: -{removed} cells ({glassHit} glass / {brickHit} brick / {metalHit} metal), {cracked} cracked");
+        Console.WriteLine("[8] blast test done");
+    }
+
+    // [9] Connectivity: sever a pillar's base → the cap must detach; a brick
+    // resting on glass falls; a glass column chained to the slab survives.
+    static void TestConnectivity()
+    {
+        const int w = 20, h = 20, d = 20;
+        var g = new uint[w * h * d];
+        int I(int x, int y, int z) => x + y * w + z * w * h;
+        for (int z = 0; z < d; z++) for (int x = 0; x < w; x++) g[I(x, 0, z)] = 106;   // ground slab = anchor
+        for (int y = 1; y <= 8; y++) g[I(5, y, 5)] = 106;                            // pillar
+        for (int x = 12; x <= 14; x++) for (int y = 10; y <= 12; y++) for (int z = 12; z <= 14; z++)
+            g[I(x, y, z)] = 106;                                                     // floating cube — detached by design
+        for (int y = 1; y <= 4; y++) g[I(1, y, 10)] = 112;                           // glass column chained to slab
+        g[I(1, 5, 10)] = 106; g[I(1, 5, 11)] = 106;                                  // bricks resting on glass — must fall
+        g[I(5, 1, 5)] = 0; g[I(5, 2, 5)] = 0;                                        // sever the pillar (a blast crater by hand)
+        var det = new List<int>(); var dm = new List<uint>(); var ends = new List<int>();
+        int detached = VoxelDamageMath.FindDetached(g, w, h, d, det, dm, ends);
+        var set = new HashSet<int>(det);
+        Check(detached == 35, $"expected 35 detached cells (6 pillar cap + 2 bricks + 27 cube), got {detached}");
+        Check(ends.Count == 3, $"expected 3 islands, got {ends.Count}");
+        Check(set.Contains(I(5, 8, 5)), "pillar cap should detach after sever");
+        Check(set.Contains(I(13, 11, 13)), "floating cube should be detached");
+        Check(set.Contains(I(1, 5, 10)) && set.Contains(I(1, 5, 11)), "bricks on glass should fall — glass can't anchor structure");
+        Check(!set.Contains(I(1, 4, 10)), "glass column chained to slab should survive");
+        Check(!set.Contains(I(10, 0, 10)), "ground slab is the anchor");
+        Console.WriteLine($"    connectivity: -{detached} cells in {ends.Count} islands");
+        Console.WriteLine("[9] connectivity test done");
+    }
+
+    // [10] Occlusion: same target patch, same seeds — only the wall between it
+    // and the bomb varies. A brick cell roughly halves the blast; 3-thick brick
+    // nearly shields; glass barely shields. Isolates occlusion exactly.
+    static void TestBlastOcclusion()
+    {
+        const int w = 20, h = 20, d = 20;
+        int I(int x, int y, int z) => x + y * w + z * w * h;
+        int EastRemoved(uint wallMat, int wallX0, int wallX1)
+        {
+            var g = new uint[w * h * d];
+            if (wallX0 <= wallX1)
+                for (int x = wallX0; x <= wallX1; x++)
+                    for (int y = 0; y < h; y++) for (int z = 0; z < d; z++) g[I(x, y, z)] = wallMat;
+            for (int y = 8; y <= 12; y++) for (int z = 8; z <= 12; z++) g[I(13, y, z)] = 106;   // patch always at x=13, dist ~3
+            var dirty = new List<int>(); var ri = new List<int>(); var rm = new List<uint>();
+            VoxelDamageMath.Blast(g, w, h, d, 10f, 10f, 10f, 9f, 1f,
+                0x0CC1u, 134, dirty, ri, rm, out _, occlusion: true);
+            int east = 0;
+            foreach (int idx in ri)
+            {
+                int z = idx / (w * h), rem = idx - z * w * h, y = rem / w, x = rem - y * w;
+                if (x == 13) east++;
+            }
+            return east;
+        }
+        int open = EastRemoved(0u, 1, 0);            // no wall — control count
+        int thin = EastRemoved(106u, 12, 12);        // 1 brick cell → transmit 0.5
+        int thick = EastRemoved(106u, 10, 12);       // 3 brick cells → transmit 0.125
+        int glass = EastRemoved(112u, 12, 12);       // 1 glass cell → transmit 0.95
+        Check(open > 0, "open patch should take damage");
+        Check(thin < open, $"thin brick should attenuate: open {open} vs shielded {thin}");
+        Check(thick <= Math.Max(1, open / 6), $"thick brick should nearly shield: open {open} vs shielded {thick}");
+        Check(glass >= open - 2, $"glass should barely shield: open {open} vs glass {glass}");
+        Console.WriteLine($"    occlusion: open {open} · brick1 {thin} · brick3 {thick} · glass {glass} (patch cells removed)");
+        Console.WriteLine("[10] occlusion test done");
+    }
+
+    // [11] Shock-front sim: the BlastPlan must be a complete delta — replaying
+    // its writes reproduces the simulated end state exactly; multi-pass with
+    // occlusion frees structure between fronts → strictly more removed than one.
+    static void TestSimulate()
+    {
+        const int w = 20, h = 20, d = 20;
+        var g0 = new uint[w * h * d];
+        for (int i = 0; i < g0.Length; i++) g0[i] = 106;                       // solid brick cube
+        var scratch = (uint[])g0.Clone();
+        var plan = VoxelDamageMath.SimulateBlast(scratch, w, h, d, 10f, 10f, 10f,
+            7f, 1f, 0x5151u, 4, 134, occlusion: true, dropUnsupported: false);
+        Check(plan.totalRemoved > 0, "sim removed nothing");
+        Check(plan.passEnds.Count == 4, "4 fronts recorded");
+        Check(plan.detachedStart == plan.writeIdx.Count, "no islands without dropUnsupported");
+        // plan replay fidelity: apply writes to a pristine copy → identical end state
+        var replay = (uint[])g0.Clone();
+        for (int i = 0; i < plan.writeIdx.Count; i++) replay[plan.writeIdx[i]] = plan.writeVal[i];
+        bool same = true;
+        for (int i = 0; i < replay.Length; i++) if (replay[i] != scratch[i]) { same = false; break; }
+        Check(same, "plan playback must reproduce the simulated end state exactly");
+        // compounding: 4 expanding fronts remove strictly more than a single full blast
+        var g2 = (uint[])g0.Clone();
+        var dirty = new List<int>(); var ri = new List<int>(); var rm = new List<uint>();
+        int single = VoxelDamageMath.Blast(g2, w, h, d, 10f, 10f, 10f, 7f, 1f,
+            0x5151u + 3, 134, dirty, ri, rm, out _, occlusion: true);
+        Check(plan.totalRemoved > single, $"4-front sim {plan.totalRemoved} should exceed single blast {single}");
+        // determinism: same seed → identical plan
+        var s3 = (uint[])g0.Clone();
+        var plan2 = VoxelDamageMath.SimulateBlast(s3, w, h, d, 10f, 10f, 10f,
+            7f, 1f, 0x5151u, 4, 134, occlusion: true, dropUnsupported: false);
+        Check(plan2.totalRemoved == plan.totalRemoved && plan2.writeIdx.Count == plan.writeIdx.Count,
+            "same seed must reproduce the identical plan");
+        // wavefront ordering: cells near center die on early fronts, fringe on late
+        int firstEnd = plan.passEnds[0];
+        for (int i = 0; i < firstEnd; i++)
+        {
+            int idx = plan.writeIdx[i];
+            int z = idx / (w * h), rem = idx - z * w * h, y = rem / w, x = rem - y * w;
+            float dist = (float)Math.Sqrt((x + 0.5f - 10f) * (x + 0.5f - 10f) + (y + 0.5f - 10f) * (y + 0.5f - 10f) + (z + 0.5f - 10f) * (z + 0.5f - 10f));
+            Check(dist <= 1.9f, $"first-front cell at dist {dist:F1} exceeds front-1 radius 1.75");
+        }
+        Console.WriteLine($"    sim: {plan.totalRemoved} doomed vs {single} single-blast · {plan.passEnds.Count} fronts · plan replay exact");
+        Console.WriteLine("[11] shock-front sim test done");
+    }
+
     static string rangePath;
     static string Describe2(VoxelRayHit r) => $"vol={r.volumeId} mat={r.material} cell=({r.cell.x},{r.cell.y},{r.cell.z}) dist={r.distance:F3}m";
 
@@ -401,6 +571,10 @@ static class Program
         TestYaw();
         rangePath = args.Length > 0 ? args[0] : null;
         TestRange(rangePath);
+        TestBlast();
+        TestConnectivity();
+        TestBlastOcclusion();
+        TestSimulate();
         Console.WriteLine(fails == 0 ? $"ALL PASS ({checks} checks)" : $"{fails} FAILURES of {checks} checks");
         return fails == 0 ? 0 : 1;
     }

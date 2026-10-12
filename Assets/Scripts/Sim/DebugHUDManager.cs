@@ -75,9 +75,15 @@ namespace SteelCity.Sim
         // Free-fire picks — voxel clicks armed from the Range tab. PICK STAND
         // teleports the character (DebugSnapTo) onto the hit surface; PICK AIM
         // overrides the lane/mold aim point so shots can target anything.
-        private enum PickSlot { None, Stand, Aim }
+        private enum PickSlot { None, Stand, Aim, Blast, Building }
         private PickSlot pickArmed = PickSlot.None;
         private Vector3? pickedStand, pickedAim;
+        // Demolition bench — surface pick + inward depth push puts the blast inside.
+        private Vector3? pickedBlast;
+        private Vector3 blastNormal;
+        private string blastVolume;
+        private bool blastAtVolumeCenter;
+        private float blastDepth = 0.8f, blastRadius = 20f, blastPower = 2.5f;
 
         // Optional test/debug components — used by the Keys tab to show only
         // hotkeys whose handlers actually exist in the scene right now.
@@ -863,7 +869,46 @@ namespace SteelCity.Sim
                 if (solver != null && solver.IsAiming) solver.Arm(hit.point);   // re-aim live
                 Debug.Log($"[DebugHUD] 🎯 AIM picked @ {hit.point} ({hit.volumeId ?? "terrain"} mat {hit.material})");
             }
+            else if (pickArmed == PickSlot.Blast)
+            {
+                pickedBlast = hit.point;
+                blastNormal = hit.normal;
+                blastVolume = hit.volumeId;
+                var red = new Color(1f, 0.25f, 0.15f, 0.95f);
+                pdr?.SetCustomBeam("pick_blast", hit.point + Vector3.left * 0.3f, hit.point + Vector3.right * 0.3f, 0.06f, red);
+                pdr?.SetCustomBeam("pick_blast2", hit.point + Vector3.down * 0.3f, hit.point + Vector3.up * 0.3f, 0.06f, red);
+                pdr?.SetCustomBeam("pick_blast3", hit.point + Vector3.forward * 0.3f, hit.point + Vector3.back * 0.3f, 0.06f, red);
+                Debug.Log($"[DebugHUD] 💥 BLAST picked @ {hit.point} ({hit.volumeId ?? "terrain"} mat {hit.material})");
+            }
+            else if (pickArmed == PickSlot.Building)
+            {
+                // Building-center mode: the blast origin snaps to the volume's
+                // geometric center — visualize an inside-out explosion.
+                blastVolume = hit.volumeId;
+                blastAtVolumeCenter = false;
+                blastNormal = Vector3.up;
+                pickedBlast = hit.point;
+                var dmg = VoxelDamageSystem.GetOrCreate();
+                if (!string.IsNullOrEmpty(blastVolume) && dmg.TryGetVolumeCenter(blastVolume, out Vector3 vc))
+                {
+                    pickedBlast = vc;
+                    blastAtVolumeCenter = true;
+                }
+                var orange = new Color(1f, 0.55f, 0.1f, 0.95f);
+                Vector3 bp = pickedBlast.Value;
+                pdr?.SetCustomBeam("pick_blast", bp + Vector3.left * 0.3f, bp + Vector3.right * 0.3f, 0.06f, orange);
+                pdr?.SetCustomBeam("pick_blast2", bp + Vector3.down * 0.3f, bp + Vector3.up * 0.3f, 0.06f, orange);
+                pdr?.SetCustomBeam("pick_blast3", bp + Vector3.forward * 0.3f, bp + Vector3.back * 0.3f, 0.06f, orange);
+                Debug.Log($"[DebugHUD] 🏢 BLDG picked {(blastAtVolumeCenter ? $"center @ {bp}" : $"surface @ {bp} — no volume")} ({blastVolume ?? "terrain"})");
+            }
             pickArmed = PickSlot.None;
+        }
+
+        /// <summary>Arm/cancel a voxel pick — the click is consumed by CityMap3D's pick mode.</summary>
+        private void ArmPick(PickSlot slot)
+        {
+            pickArmed = pickArmed == slot ? PickSlot.None : slot;
+            cityMap.voxelPickArmed = pickArmed != PickSlot.None;
         }
 
         /// <summary>Open the HUD on the Range tab for the given block.</summary>
@@ -892,6 +937,77 @@ namespace SteelCity.Sim
             if (GUILayout.Button("crack", tabStyle, GUILayout.Height(20))) dmgSys.PreviewGlassSound(1);
             if (GUILayout.Button("crash", tabStyle, GUILayout.Height(20))) dmgSys.PreviewGlassSound(2);
             GUILayout.EndHorizontal();
+
+            // --- Free-fire picks + demolition bench (works in planning phase too) ---
+            GUILayout.Space(4);
+            GUILayout.BeginHorizontal();
+            bool standArmed = pickArmed == PickSlot.Stand;
+            if (GUILayout.Button(standArmed ? "STAND: click map…" : "PICK STAND",
+                    standArmed ? tabActiveStyle : tabStyle, GUILayout.Height(22))) ArmPick(PickSlot.Stand);
+            bool aimArmed = pickArmed == PickSlot.Aim;
+            if (GUILayout.Button(aimArmed ? "AIM: click map…" : "PICK AIM",
+                    aimArmed ? tabActiveStyle : tabStyle, GUILayout.Height(22))) ArmPick(PickSlot.Aim);
+            bool blastArmed = pickArmed == PickSlot.Blast;
+            if (GUILayout.Button(blastArmed ? "BLAST: click map…" : "PICK BLAST",
+                    blastArmed ? tabActiveStyle : tabStyle, GUILayout.Height(22))) ArmPick(PickSlot.Blast);
+            bool bldgArmed = pickArmed == PickSlot.Building;
+            if (GUILayout.Button(bldgArmed ? "BLDG: click map…" : "PICK BLDG",
+                    bldgArmed ? tabActiveStyle : tabStyle, GUILayout.Height(22))) ArmPick(PickSlot.Building);
+            GUILayout.EndHorizontal();
+            if (pickedStand.HasValue || pickedAim.HasValue || pickedBlast.HasValue)
+            {
+                GUILayout.Label($"stand: {(pickedStand.HasValue ? pickedStand.Value.ToString("F1") : "—")}   aim: {(pickedAim.HasValue ? pickedAim.Value.ToString("F1") : "—")}   blast: {(pickedBlast.HasValue ? pickedBlast.Value.ToString("F1") : "—")}", labelStyle);
+                if (GUILayout.Button("clear picks", GUILayout.Height(18)))
+                {
+                    pickedStand = pickedAim = pickedBlast = null; blastVolume = null; blastAtVolumeCenter = false;
+                    var pdr = PathDebugRenderer.Instance;
+                    foreach (var n in new[] { "pick_stand", "pick_aim", "pick_aim2", "pick_blast", "pick_blast2", "pick_blast3", "blast_rx", "blast_ry", "blast_rz" })
+                        pdr?.ClearCustomBeam(n);
+                }
+            }
+            if (pickedBlast.HasValue)
+            {
+                GUILayout.Label($"<b>Demolition</b>  on {(blastVolume ?? "<color=#ffaa44>terrain — needs a building</color>")}{(blastAtVolumeCenter ? " · <color=#ffaa44>center</color>" : "")}", labelStyle);
+                Vector3 blastCenter = blastAtVolumeCenter
+                    ? pickedBlast.Value
+                    : pickedBlast.Value - blastNormal.normalized * blastDepth;
+                // live extent preview — 3 axis beams spanning the blast radius
+                var pdrB = PathDebugRenderer.Instance;
+                var ext = new Color(1f, 0.55f, 0.1f, 0.7f);
+                pdrB?.SetCustomBeam("blast_rx", blastCenter - Vector3.right * blastRadius, blastCenter + Vector3.right * blastRadius, 0.05f, ext);
+                pdrB?.SetCustomBeam("blast_ry", blastCenter - Vector3.up * blastRadius, blastCenter + Vector3.up * blastRadius, 0.05f, ext);
+                pdrB?.SetCustomBeam("blast_rz", blastCenter - Vector3.forward * blastRadius, blastCenter + Vector3.forward * blastRadius, 0.05f, ext);
+                GUI.enabled = !blastAtVolumeCenter;
+                blastDepth = HSlider("depth into wall m", blastDepth, 0f, 4f, "F1");
+                GUI.enabled = true;
+                blastRadius = HSlider("radius m", blastRadius, 0.3f, 30f, "F1");
+                blastPower = HSlider("power", blastPower, 0.1f, 4f, "F2");
+                dmgSys.occlusionAware = GUILayout.Toggle(dmgSys.occlusionAware, " occlusion (walls shield)", toggleStyle);
+                dmgSys.dropUnsupported = GUILayout.Toggle(dmgSys.dropUnsupported, " drop unsupported (collapse)", toggleStyle);
+                if (dmgSys.dropUnsupported)
+                    dmgSys.debrisClusterM = HSlider("debris cluster m", dmgSys.debrisClusterM, 0.3f, 3f, "F1");
+                dmgSys.shockFront = GUILayout.Toggle(dmgSys.shockFront, " shock front (sim → playback)", toggleStyle);
+                if (dmgSys.shockFront)
+                {
+                    dmgSys.frontPasses = Mathf.RoundToInt(HSlider("front passes", dmgSys.frontPasses, 1f, 24f, "F0"));
+                    dmgSys.frontSec = HSlider("front sec", dmgSys.frontSec, 0.1f, 1.5f, "F2");
+                }
+                bool canDet = !string.IsNullOrEmpty(blastVolume);
+                GUI.enabled = canDet;
+                if (GUILayout.Button($"💥 DETONATE ({blastRadius:F1}m)", canDet ? tabActiveStyle : tabStyle, GUILayout.Height(26)))
+                {
+                    if (dmgSys.shockFront)
+                        dmgSys.DetonateEvent(blastVolume, blastCenter, blastRadius, blastPower, dmgSys.frontPasses, dmgSys.frontSec);
+                    else
+                        dmgSys.Detonate(blastVolume, blastCenter, blastRadius, blastPower);
+                }
+                GUI.enabled = true;
+            }
+
+            // Reset works in planning too — damage reset is volume-global, not range-scoped
+            if (dmgSys.DamagedVolumeCount > 0 &&
+                GUILayout.Button($"RESET DAMAGE ({dmgSys.DamagedVolumeCount} volume{(dmgSys.DamagedVolumeCount > 1 ? "s" : "")}) — restore voxels", GUILayout.Height(22)))
+                dmgSys.ResetAllDamage();
 
             if (string.IsNullOrEmpty(rangeBlockId))
             {
@@ -946,35 +1062,6 @@ namespace SteelCity.Sim
             Vector3 tgtWorld = cityMap.MapRoot.position + tgtLocal;
             GUILayout.Label($"{posName}: {(hasPos ? "OK" : "<color=#ff6666>MISSING</color>")}   {tgtName}: {(hasTgt ? "OK" : "<color=#ff6666>MISSING</color>")}", labelStyle);
 
-            // --- Free-fire picks: click a voxel to stand on, click a voxel to aim at ---
-            GUILayout.BeginHorizontal();
-            bool standArmed = pickArmed == PickSlot.Stand;
-            if (GUILayout.Button(standArmed ? "STAND: click map… (cancel)" : "PICK STAND",
-                    standArmed ? tabActiveStyle : tabStyle, GUILayout.Height(22)))
-            {
-                pickArmed = standArmed ? PickSlot.None : PickSlot.Stand;
-                cityMap.voxelPickArmed = pickArmed != PickSlot.None;
-            }
-            bool aimArmed = pickArmed == PickSlot.Aim;
-            if (GUILayout.Button(aimArmed ? "AIM: click map… (cancel)" : "PICK AIM",
-                    aimArmed ? tabActiveStyle : tabStyle, GUILayout.Height(22)))
-            {
-                pickArmed = aimArmed ? PickSlot.None : PickSlot.Aim;
-                cityMap.voxelPickArmed = pickArmed != PickSlot.None;
-            }
-            GUILayout.EndHorizontal();
-            if (pickedStand.HasValue || pickedAim.HasValue)
-            {
-                GUILayout.Label($"stand: {(pickedStand.HasValue ? pickedStand.Value.ToString("F1") : "—")}   aim: {(pickedAim.HasValue ? pickedAim.Value.ToString("F1") : "—")}", labelStyle);
-                if (GUILayout.Button("clear picks", GUILayout.Height(18)))
-                {
-                    pickedStand = pickedAim = null;
-                    var pdr = PathDebugRenderer.Instance;
-                    pdr?.ClearCustomBeam("pick_stand");
-                    pdr?.ClearCustomBeam("pick_aim");
-                    pdr?.ClearCustomBeam("pick_aim2");
-                }
-            }
             if (pickedAim.HasValue) { tgtWorld = pickedAim.Value; hasTgt = true; }
 
             GUILayout.Space(6);
@@ -1117,8 +1204,6 @@ namespace SteelCity.Sim
                 if (dmg.glassAudioEnabled)
                     dmg.glassAudioVolume = HSlider("sfx volume", dmg.glassAudioVolume, 0f, 1f, "F2");
             }
-            if (dmg.DamagedVolumeCount > 0 && GUILayout.Button($"RESET DAMAGE ({dmg.DamagedVolumeCount} volume{(dmg.DamagedVolumeCount > 1 ? "s" : "")}) — fresh glass", GUILayout.Height(22)))
-                dmg.ResetAllDamage();
 
             if (solver != null)
             {

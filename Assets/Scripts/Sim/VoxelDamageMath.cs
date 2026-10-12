@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace SteelCity.Sim
@@ -74,6 +75,299 @@ namespace SteelCity.Sim
             data[idx] = (v & ~MaterialMask) | (uint)crackedMaterial;   // wounded — cracked halo
             dirty.Add(idx);
             return false;
+        }
+
+        /// <summary>
+        /// How strongly a material resists blast removal (0 = dies to any blast,
+        /// 1 = nearly indestructible). Bullet puncture stays glass-only — this table
+        /// is the bomb's world: glass shatters, masonry craters, metal holds.
+        /// </summary>
+        public static float MaterialResistance(uint mat)
+        {
+            int m = (int)mat;
+            if (IsGlassMaterial(m)) return 0.05f;
+            if (m == 111) return 0.9f;    // painted metal / structural
+            return 0.5f;                  // masonry, wood — catch-all until a real table exists
+        }
+
+        /// <summary>
+        /// Spherical blast removal. Every non-air cell within `radius` cells of
+        /// (cx,cy,cz) rolls removal at p = power·(1 − dist/radius)·(1 − resistance)·transmit:
+        /// full strength at the center, decaying to zero at the shell, tempered by
+        /// material — and attenuated by whatever stands between the bomb and the cell.
+        /// With occlusion on, a DDA march from the blast center multiplies transmit
+        /// by (1 − resistance) per solid cell crossed: open air is free, a pane
+        /// barely shields, a brick wall roughly halves the blast per cell, a metal
+        /// beam nearly blocks it. The march reads the PRE-BLAST grid (two-phase:
+        /// decisions first, writes after), so a wall removed this blast still
+        /// shields what was behind it — blast one weakens the wall, blast two
+        /// punches through. Surviving glass swaps to crackedMaterial; surviving
+        /// non-glass stays untouched. Deterministic: same seed + same grid
+        /// reproduces the identical crater.
+        /// </summary>
+        public static int Blast(uint[] data, int w, int h, int d,
+            float cx, float cy, float cz, float radius, float power,
+            uint seed, int crackedMaterial,
+            List<int> dirty, List<int> removedIdx, List<uint> removedMats, out int cracked,
+            bool occlusion = true)
+        {
+            removedIdx.Clear(); removedMats.Clear();
+            var crackedIdx = new List<int>();
+            int removed = 0; cracked = 0;
+            int x0 = Math.Max(0, (int)Math.Floor(cx - radius)), x1 = Math.Min(w - 1, (int)Math.Ceiling(cx + radius));
+            int y0 = Math.Max(0, (int)Math.Floor(cy - radius)), y1 = Math.Min(h - 1, (int)Math.Ceiling(cy + radius));
+            int z0 = Math.Max(0, (int)Math.Floor(cz - radius)), z1 = Math.Min(d - 1, (int)Math.Ceiling(cz + radius));
+            int wh = w * h;
+            for (int z = z0; z <= z1; z++)
+            for (int y = y0; y <= y1; y++)
+            for (int x = x0; x <= x1; x++)
+            {
+                float dx = x + 0.5f - cx, dy = y + 0.5f - cy, dz = z + 0.5f - cz;
+                float dist = (float)Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                if (dist > radius) continue;
+                int idx = x + y * w + z * wh;
+                uint v = data[idx];
+                uint mat = v & MaterialMask;
+                if (mat == 0) continue;
+                float p = power * (1f - dist / radius) * (1f - MaterialResistance(mat));
+                float roll = Hash01(seed ^ (uint)idx * 0x9E3779B9u);
+                if (roll < p)
+                {
+                    // would-be removal — only these cells pay for the occlusion march
+                    float t = occlusion
+                        ? MarchTransmit(data, w, h, d, cx, cy, cz, x + 0.5f, y + 0.5f, z + 0.5f)
+                        : 1f;
+                    if (roll < p * t)
+                    {
+                        removedIdx.Add(idx);
+                        removedMats.Add(mat);
+                        removed++;
+                        continue;
+                    }
+                }
+                if (IsGlassMaterial((int)mat))
+                {
+                    crackedIdx.Add(idx);
+                    cracked++;
+                }
+            }
+            // phase 2 — apply every write at once (the march sees the intact grid)
+            for (int i = 0; i < removedIdx.Count; i++)
+            {
+                data[removedIdx[i]] = 0u;
+                dirty.Add(removedIdx[i]);
+            }
+            foreach (int idx in crackedIdx)
+            {
+                data[idx] = (data[idx] & ~MaterialMask) | (uint)crackedMaterial;
+                dirty.Add(idx);
+            }
+            return removed;
+        }
+
+        /// <summary>
+        /// Amanatides–Woo march from the blast center to a target cell: each solid
+        /// cell crossed transmits (1 − resistance) of the blast onward. The target
+        /// cell itself is excluded (its own resistance already factors the roll).
+        /// Early-outs at 2% transmission — deeper shielding is darkness.
+        /// </summary>
+        private static float MarchTransmit(uint[] data, int w, int h, int d,
+            float cx, float cy, float cz, float tx, float ty, float tz)
+        {
+            int x = (int)Math.Floor(cx), y = (int)Math.Floor(cy), z = (int)Math.Floor(cz);
+            int gx = (int)Math.Floor(tx), gy = (int)Math.Floor(ty), gz = (int)Math.Floor(tz);
+            float dx = tx - cx, dy = ty - cy, dz = tz - cz;
+            int sx = dx > 0 ? 1 : (dx < 0 ? -1 : 0);
+            int sy = dy > 0 ? 1 : (dy < 0 ? -1 : 0);
+            int sz = dz > 0 ? 1 : (dz < 0 ? -1 : 0);
+            float tdx = sx != 0 ? Math.Abs(1f / dx) : float.MaxValue;
+            float tdy = sy != 0 ? Math.Abs(1f / dy) : float.MaxValue;
+            float tdz = sz != 0 ? Math.Abs(1f / dz) : float.MaxValue;
+            float tmx = BoundT(cx, dx, sx), tmy = BoundT(cy, dy, sy), tmz = BoundT(cz, dz, sz);
+            float transmit = 1f;
+            int wh = w * h, guard = w + h + d + 8;
+            while (guard-- > 0)
+            {
+                if (tmx <= tmy && tmx <= tmz) { x += sx; tmx += tdx; }
+                else if (tmy <= tmz)          { y += sy; tmy += tdy; }
+                else                          { z += sz; tmz += tdz; }
+                if (x == gx && y == gy && z == gz) break;              // target cell reached — its own res is separate
+                if (x < 0 || y < 0 || z < 0 || x >= w || y >= h || z >= d) break;
+                uint m = data[x + y * w + z * wh] & MaterialMask;
+                if (m != 0)
+                {
+                    transmit *= 1f - MaterialResistance(m);
+                    if (transmit < 0.02f) break;
+                }
+            }
+            return transmit;
+        }
+
+        /// <summary>Parametric t (0..1 along the march) of the first cell-boundary crossing on an axis.</summary>
+        private static float BoundT(float c, float dir, int step)
+        {
+            if (step == 0) return float.MaxValue;
+            float next = step > 0 ? (float)Math.Floor(c) + 1f : (float)Math.Ceiling(c) - 1f;
+            float t = (next - c) / dir;
+            return t < 0f ? 0f : t;
+        }
+
+        /// <summary>
+        /// Structural connectivity: BFS-flood from every solid cell in the y==0 anchor
+        /// layer. A cell survives iff the flood reaches it — structural (non-glass)
+        /// cells anchor ALL solid neighbors, glass anchors only glass (a pane hangs
+        /// off its frame, but a brick can't rest on a pane). Unreached solid cells
+        /// are detached: grouped into 6-connected islands (all materials connect for
+        /// grouping — a pane embedded in a falling wall rides with it) and appended
+        /// to detachedIdx/detachedMats, with islandEnds marking each island's
+        /// exclusive end index. `visited` is an optional w·h·d scratch
+        /// (bit1 = anchored, bit2 = islanded). Returns the detached cell count.
+        /// </summary>
+        public static int FindDetached(uint[] data, int w, int h, int d,
+            List<int> detachedIdx, List<uint> detachedMats, List<int> islandEnds,
+            byte[] visited = null)
+        {
+            detachedIdx.Clear(); detachedMats.Clear(); islandEnds.Clear();
+            int n = w * h * d;
+            if (visited == null || visited.Length < n) visited = new byte[n];
+            else Array.Clear(visited, 0, n);
+            var queue = new Queue<int>();
+            int wh = w * h;
+
+            // anchor pass — seed every solid cell on the ground layer
+            for (int z = 0; z < d; z++)
+            for (int x = 0; x < w; x++)
+            {
+                int idx = x + z * wh;
+                if ((data[idx] & MaterialMask) != 0) { visited[idx] = 1; queue.Enqueue(idx); }
+            }
+            while (queue.Count > 0)
+            {
+                int c = queue.Dequeue();
+                int cz = c / wh, crem = c - cz * wh, cy = crem / w, cx = crem - cy * w;
+                bool cStruct = !IsGlassMaterial((int)(data[c] & MaterialMask));
+                for (int a = 0; a < 6; a++)
+                {
+                    int nx = cx, ny = cy, nz = cz;
+                    if (a == 0) nx++; else if (a == 1) nx--;
+                    else if (a == 2) ny++; else if (a == 3) ny--;
+                    else if (a == 4) nz++; else nz--;
+                    if (nx < 0 || ny < 0 || nz < 0 || nx >= w || ny >= h || nz >= d) continue;
+                    int ni = nx + ny * w + nz * wh;
+                    if (visited[ni] != 0) continue;
+                    uint nm = data[ni] & MaterialMask;
+                    if (nm == 0) continue;
+                    if (!cStruct && !IsGlassMaterial((int)nm)) continue;   // glass can't anchor structure
+                    visited[ni] = 1;
+                    queue.Enqueue(ni);
+                }
+            }
+
+            // island pass — group everything the anchor flood never reached
+            for (int idx = 0; idx < n; idx++)
+            {
+                if (visited[idx] != 0 || (data[idx] & MaterialMask) == 0) continue;
+                visited[idx] = 2; queue.Enqueue(idx);
+                while (queue.Count > 0)
+                {
+                    int c = queue.Dequeue();
+                    detachedIdx.Add(c); detachedMats.Add(data[c] & MaterialMask);
+                    int cz = c / wh, crem = c - cz * wh, cy = crem / w, cx = crem - cy * w;
+                    for (int a = 0; a < 6; a++)
+                    {
+                        int nx = cx, ny = cy, nz = cz;
+                        if (a == 0) nx++; else if (a == 1) nx--;
+                        else if (a == 2) ny++; else if (a == 3) ny--;
+                        else if (a == 4) nz++; else nz--;
+                        if (nx < 0 || ny < 0 || nz < 0 || nx >= w || ny >= h || nz >= d) continue;
+                        int ni = nx + ny * w + nz * wh;
+                        if (visited[ni] != 0 || (data[ni] & MaterialMask) == 0) continue;
+                        visited[ni] = 2;
+                        queue.Enqueue(ni);
+                    }
+                }
+                islandEnds.Add(detachedIdx.Count);
+            }
+            return detachedIdx.Count;
+        }
+
+        /// <summary>
+        /// A pre-computed explosion: every cell the blast will write, grouped by
+        /// wavefront pass, with the detached islands appended as the final front.
+        /// The plan IS the delta — applying writeIdx/writeVal to the source grid
+        /// in order reproduces the simulated end state exactly, so detonation
+        /// playback is pure scheduling (writes per frame, no hitches).
+        /// </summary>
+        public sealed class BlastPlan
+        {
+            public int passes;
+            public readonly List<int> writeIdx = new();     // every written cell, grouped by pass
+            public readonly List<uint> writeVal = new();    // final packed value (0 = AIR)
+            public readonly List<uint> writeMat = new();    // ORIGINAL material (shard tint; AIR entries only)
+            public readonly List<int> passEnds = new();     // writeIdx end index per pass
+            public readonly List<int> islandEnds = new();   // absolute end idx per detached island
+            public int detachedStart;                       // writeIdx[detachedStart..] = collapse writes
+            public int totalRemoved;
+        }
+
+        /// <summary>
+        /// Multi-pass expanding shock front on a SCRATCH clone — pass i detonates at
+        /// radius·(i+1)/K so interior cells re-roll every pass (near-certain kill)
+        /// while fringe cells see the front once. Because each pass mutates the
+        /// scratch, occlusion frees as inner structure dies: the wave accelerates
+        /// through cleared space. Connectivity (optional) runs on the final state —
+        /// islands append as the last wavefront. Deterministic per baseSeed.
+        /// </summary>
+        public static BlastPlan SimulateBlast(uint[] scratch, int w, int h, int d,
+            float cx, float cy, float cz, float radius, float power,
+            uint baseSeed, int passes, int crackedMaterial,
+            bool occlusion, bool dropUnsupported, byte[] visitedScratch = null)
+        {
+            var plan = new BlastPlan { passes = passes };
+            var dirty = new List<int>(); var ri = new List<int>(); var rm = new List<uint>();
+            var matOf = new Dictionary<int, uint>();
+            for (int i = 0; i < passes; i++)
+            {
+                float passR = radius * (i + 1f) / passes;
+                dirty.Clear(); ri.Clear(); rm.Clear();
+                Blast(scratch, w, h, d, cx, cy, cz, passR, power, baseSeed + (uint)i,
+                    crackedMaterial, dirty, ri, rm, out _, occlusion);
+                matOf.Clear();
+                for (int j = 0; j < ri.Count; j++) matOf[ri[j]] = rm[j];
+                var removedSet = new HashSet<int>(ri);
+                for (int j = 0; j < dirty.Count; j++)
+                {
+                    int idx = dirty[j];
+                    plan.writeIdx.Add(idx);
+                    if (removedSet.Contains(idx))
+                    {
+                        plan.writeVal.Add(0u);
+                        plan.writeMat.Add(matOf[idx]);
+                        plan.totalRemoved++;
+                    }
+                    else
+                    {
+                        plan.writeVal.Add(scratch[idx]);   // Blast already wrote the cracked value
+                        plan.writeMat.Add(0u);
+                    }
+                }
+                plan.passEnds.Add(plan.writeIdx.Count);
+            }
+            plan.detachedStart = plan.writeIdx.Count;
+            if (dropUnsupported)
+            {
+                var detI = new List<int>(); var detM = new List<uint>(); var detE = new List<int>();
+                FindDetached(scratch, w, h, d, detI, detM, detE, visitedScratch);
+                for (int j = 0; j < detI.Count; j++)
+                {
+                    plan.writeIdx.Add(detI[j]);
+                    plan.writeVal.Add(0u);
+                    plan.writeMat.Add(detM[j]);
+                }
+                foreach (int e in detE) plan.islandEnds.Add(plan.detachedStart + e);
+                plan.totalRemoved += detI.Count;
+            }
+            return plan;
         }
 
         /// <summary>lowbias32 integer hash → [0,1). Same constants as ProjectileSystem.Hash01.</summary>

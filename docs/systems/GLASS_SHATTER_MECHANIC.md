@@ -1,6 +1,6 @@
 # Glass Shatter Mechanic — Prototype Proposal
 
-**Status**: ✅ P0 + P1 + sector-write half of P2 implemented — bullet puncture, cracked halo, shard burst, synthesized SFX, damage reset, mold bench tooling live; damage writes now reach baked-sector merged buffers too. Remaining: gid pane semantics (cascade/blast) and P3 sim hooks
+**Status**: ✅ P0 + P1 + sector-write half of P2 implemented — bullet puncture, cracked halo, shard burst, synthesized SFX, damage reset, mold bench tooling live; damage writes reach baked-sector merged buffers. **Demolition bench** added: spherical `VoxelDamageMath.Blast` (per-material resistance, seeded falloff) + PICK BLAST/DETONATE in the Range tab. Remaining: gid pane semantics (cascade/blast-radius-over-gid) and P3 sim hooks
 **Created**: October 9, 2026
 **Parent**: [`VOXEL_GLASS_TRANSPARENCY.md`](VOXEL_GLASS_TRANSPARENCY.md) §Windows ↔ Projectiles — this doc resolves the "Shattering" option that section framed
 **Depends on**: `groupMap` gid tagging (editor), runtime dirty-cell writes (`docs/core/PERFORMANCE_PATTERNS.md` #1–2), Tier 3 individual-mutation draw path

@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -73,7 +74,7 @@ namespace SteelCity.Sim
         // Shard sim — CPU-integrated, rendered as velocity-stretched PathDebugRenderer
         // beams (an elongated box reads as a flying glass fragment; same pipeline as
         // tracers, so it composites into the map RT for free).
-        private struct Shard { public Vector3 pos, vel; public float tEnd; public int beamId; }
+        private struct Shard { public Vector3 pos, vel; public float tEnd; public int beamId; public Color col; public float width; }
         private readonly List<Shard> shards = new();
         private int shardCounter;
         private readonly System.Random shardRng = new(0x5EED);
@@ -122,18 +123,8 @@ namespace SteelCity.Sim
                 return;
             }
 
-            if (!cow.TryGetValue(r.target, out var st))
-            {
-                if (!world.TryGetVolume(r.target, out uint[] src, out int w, out int h, out int d,
-                        out Vector3 corner, out float vs, out float yaw)) return;
-                st = new DamageState
-                {
-                    data = (uint[])src.Clone(), original = src,
-                    w = w, h = h, d = d, corner = corner, vs = vs, yaw = yaw,
-                };
-                world.RegisterVolume(r.target, st.data, w, h, d, corner, vs, yaw);   // replaces by id
-                cow[r.target] = st;
-            }
+            var st = EnsureDamageState(r.target);
+            if (st == null) return;
 
             dirtyScratch.Clear();
             int removed = VoxelDamageMath.Puncture(st.data, st.w, st.h, st.d,
@@ -149,6 +140,257 @@ namespace SteelCity.Sim
                 AudioSource.PlayClipAtPoint(GlassClip(removed), r.point,
                     glassAudioVolume * Mathf.Clamp01(0.4f + removed / 20f));
             Debug.Log($"[VoxelDamage] 🔨 {r.target} cell {r.cell} mat {r.material}: -{removed} glass cells, {cracked} cracked — hole persists");
+        }
+
+        /// <summary>COW clone on first damage — clone registers into collision by id.</summary>
+        private DamageState EnsureDamageState(string volumeId)
+        {
+            if (cow.TryGetValue(volumeId, out var st)) return st;
+            if (!world.TryGetVolume(volumeId, out uint[] src, out int w, out int h, out int d,
+                    out Vector3 corner, out float vs, out float yaw)) return null;
+            st = new DamageState
+            {
+                data = (uint[])src.Clone(), original = src,
+                w = w, h = h, d = d, corner = corner, vs = vs, yaw = yaw,
+            };
+            world.RegisterVolume(volumeId, st.data, w, h, d, corner, vs, yaw);   // replaces by id
+            cow[volumeId] = st;
+            return st;
+        }
+
+        /// <summary>
+        /// Demolition bench: detonate a sphere inside a volume. Same COW + dirty-span
+        /// pipeline as the bullet path — works on chunks and baked sectors alike.
+        /// Removed cells fly radially from the blast point, tinted by their own
+        /// material so debris reads as building parts.
+        /// </summary>
+        public bool Detonate(string volumeId, Vector3 worldPoint, float radiusMeters, float power)
+        {
+            if (!glassDamageEnabled) return false;
+            if (world == null) world = FindFirstObjectByType<VoxelCollisionWorld>();
+            if (chunkManager == null) chunkManager = FindFirstObjectByType<VoxelChunkManager>();
+            if (world == null || chunkManager == null) return false;
+            if (string.IsNullOrEmpty(volumeId) || !chunkManager.HasWritableVolume(volumeId))
+            {
+                Debug.LogWarning($"[VoxelDamage] 💥 blast skipped — '{volumeId ?? "null"}' isn't a writable volume");
+                return false;
+            }
+            var st = EnsureDamageState(volumeId);
+            if (st == null) return false;
+            Vector3 cell = WorldToCell(st, worldPoint);
+
+            dirtyScratch.Clear();
+            blastIdx.Clear(); blastMats.Clear();
+            int removed = VoxelDamageMath.Blast(st.data, st.w, st.h, st.d,
+                cell.x, cell.y, cell.z, radiusMeters / st.vs, power,
+                0xB1A57000u + (uint)blastCounter++, crackedMaterial,
+                dirtyScratch, blastIdx, blastMats, out int cracked, occlusionAware);
+            if (dirtyScratch.Count == 0)
+            {
+                Debug.Log($"[VoxelDamage] 💥 {volumeId}: blast removed nothing (radius {radiusMeters:F1}m, power {power:F2})");
+                return false;
+            }
+
+            // connectivity — islands the ground anchor can no longer reach join the
+            // same dirty batch (one upload covers crater + collapse)
+            int detached = 0;
+            if (dropUnsupported)
+            {
+                detIdx.Clear(); detMats.Clear(); detEnds.Clear();
+                if (visitedScratch == null || visitedScratch.Length < st.data.Length)
+                    visitedScratch = new byte[st.data.Length];
+                detached = VoxelDamageMath.FindDetached(st.data, st.w, st.h, st.d,
+                    detIdx, detMats, detEnds, visitedScratch);
+                for (int i = 0; i < detached; i++)
+                {
+                    st.data[detIdx[i]] = 0u;
+                    dirtyScratch.Add(detIdx[i]);
+                }
+            }
+
+            LastRemoved = removed + detached;
+            LastCracked = cracked;
+            chunkManager.UploadVoxelEdits(volumeId, st.data, dirtyScratch);
+            EmitShards(st, worldPoint, blastIdx, blastMats);
+            if (detached > 0) EmitDebris(st, worldPoint, detIdx, detMats, detEnds);
+            if (glassAudioEnabled)
+                AudioSource.PlayClipAtPoint(GlassClip(removed + detached), worldPoint,
+                    glassAudioVolume * Mathf.Clamp01(0.4f + (removed + detached) / 20f));
+            Debug.Log($"[VoxelDamage] 💥 {volumeId} @ {worldPoint}: -{removed} blast" +
+                $"{(detached > 0 ? $", -{detached} detached in {detEnds.Count} islands" : "")}" +
+                $", {cracked} cracked — crater persists");
+            return true;
+        }
+
+        /// <summary>
+        /// Shock-front detonation: the whole explosion is SIMULATED up front on a
+        /// scratch clone (K expanding-radius passes + connectivity → BlastPlan),
+        /// then played back as scheduled writes — the front visibly chews outward,
+        /// shards stream per wavefront, islands drop at the end. The fuse time is
+        /// the compute budget; playback frames are tiny dirty-span uploads.
+        /// </summary>
+        public bool DetonateEvent(string volumeId, Vector3 worldPoint, float radiusMeters,
+            float power, int passes, float durationSec)
+        {
+            if (!glassDamageEnabled) return false;
+            if (world == null) world = FindFirstObjectByType<VoxelCollisionWorld>();
+            if (chunkManager == null) chunkManager = FindFirstObjectByType<VoxelChunkManager>();
+            if (world == null || chunkManager == null) return false;
+            if (string.IsNullOrEmpty(volumeId) || !chunkManager.HasWritableVolume(volumeId))
+            {
+                Debug.LogWarning($"[VoxelDamage] 💥 event skipped — '{volumeId ?? "null"}' isn't a writable volume");
+                return false;
+            }
+            var st = EnsureDamageState(volumeId);
+            if (st == null) return false;
+            Vector3 cell = WorldToCell(st, worldPoint);
+
+            var scratch = (uint[])st.data.Clone();
+            var plan = VoxelDamageMath.SimulateBlast(scratch, st.w, st.h, st.d,
+                cell.x, cell.y, cell.z, radiusMeters / st.vs, power,
+                0xB1A57000u + (uint)blastCounter++, Mathf.Max(1, passes), crackedMaterial,
+                occlusionAware, dropUnsupported, visitedScratch);
+            if (plan.writeIdx.Count == 0)
+            {
+                Debug.Log($"[VoxelDamage] 💥 {volumeId}: sim removed nothing (radius {radiusMeters:F1}m, power {power:F2})");
+                return false;
+            }
+            int crackedTotal = 0;
+            foreach (var v in plan.writeVal) if (v != 0u) crackedTotal++;
+            LastRemoved = plan.totalRemoved;
+            LastCracked = crackedTotal;
+            StartCoroutine(PlayPlan(volumeId, st, plan, worldPoint, Mathf.Max(0.01f, durationSec)));
+            Debug.Log($"[VoxelDamage] 💥 SIM {volumeId} @ {worldPoint}: {plan.totalRemoved} doomed cells, " +
+                $"{crackedTotal} cracked, {plan.passes} fronts" +
+                $"{(plan.islandEnds.Count > 0 ? $" + {plan.islandEnds.Count} islands" : "")} — playing {durationSec:F1}s");
+            return true;
+        }
+
+        /// <summary>
+        /// Playback: the flash — every blast write lands in ONE upload at t=0 so the
+        /// building is instantly scarred; the motion lives in the particles, which
+        /// stream outward per wavefront over `duration` (expanding debris, and it
+        /// amortizes the shard budget). A beat later the unsupported islands drop —
+        /// explosion, then collapse.
+        /// </summary>
+        private IEnumerator PlayPlan(string volumeId, DamageState st, VoxelDamageMath.BlastPlan plan,
+            Vector3 center, float duration)
+        {
+            ApplyPlanSpan(volumeId, st, plan, 0, plan.detachedStart, center);   // the flash
+            if (glassAudioEnabled)
+                AudioSource.PlayClipAtPoint(GlassClip(plan.totalRemoved), center,
+                    glassAudioVolume * Mathf.Clamp01(0.3f + plan.totalRemoved / 200f));
+            float step = duration / plan.passes;
+            int start = 0;
+            for (int i = 0; i < plan.passes; i++)                              // the front — particles only
+            {
+                int end = plan.passEnds[i];
+                EmitPlanShards(st, center, plan, start, end);
+                start = end;
+                if (i < plan.passes - 1) yield return new WaitForSeconds(step);
+            }
+            if (plan.detachedStart < plan.writeIdx.Count)                      // the settle
+            {
+                yield return new WaitForSeconds(step);
+                ApplyPlanSpan(volumeId, st, plan, plan.detachedStart, plan.writeIdx.Count, center);
+                EmitDebris(st, center, plan.writeIdx, plan.writeMat, plan.islandEnds, plan.detachedStart);
+            }
+        }
+
+        /// <summary>Apply a span of plan writes → one dirty-span upload. No shards/audio — PlayPlan owns staging.</summary>
+        private void ApplyPlanSpan(string volumeId, DamageState st, VoxelDamageMath.BlastPlan plan,
+            int start, int end, Vector3 center)
+        {
+            dirtyScratch.Clear();
+            for (int i = start; i < end; i++)
+            {
+                st.data[plan.writeIdx[i]] = plan.writeVal[i];
+                dirtyScratch.Add(plan.writeIdx[i]);
+            }
+            chunkManager.UploadVoxelEdits(volumeId, st.data, dirtyScratch);
+        }
+
+        /// <summary>world → cell coords (invert the RotY placement convention)</summary>
+        private Vector3 WorldToCell(DamageState st, Vector3 worldPoint)
+        {
+            Vector3 half = new Vector3(st.w, st.h, st.d) * (st.vs * 0.5f);
+            Vector3 lp = worldPoint - (st.corner + half);
+            float rad = -st.yaw * Mathf.Deg2Rad, c = Mathf.Cos(rad), s = Mathf.Sin(rad);
+            Vector3 local = new Vector3(lp.x * c + lp.z * s, lp.y, -lp.x * s + lp.z * c);
+            return (local + half) / st.vs;
+        }
+
+        /// <summary>Radial shards for one plan wavefront — AIR writes only, tinted by original material.</summary>
+        private void EmitPlanShards(DamageState st, Vector3 blastCenter, VoxelDamageMath.BlastPlan plan, int start, int end)
+        {
+            if (!shardBurstEnabled) return;
+            float vs = st.vs;
+            Vector3 half = new Vector3(st.w, st.h, st.d) * (vs * 0.5f);
+            Vector3 center = st.corner + half;
+            float rad = st.yaw * Mathf.Deg2Rad, c = Mathf.Cos(rad), s = Mathf.Sin(rad);
+            int air = 0;
+            for (int i = start; i < end; i++) if (plan.writeVal[i] == 0u) air++;
+            int stride = Mathf.Max(1, air / Mathf.Max(1, maxShards));
+            for (int i = start; i < end; i += stride)
+            {
+                if (plan.writeVal[i] != 0u) continue;
+                int idx = plan.writeIdx[i];
+                int z = idx / (st.w * st.h), rem = idx - z * st.w * st.h, y = rem / st.w, x = rem - y * st.w;
+                Vector3 lp = new Vector3(x + 0.5f, y + 0.5f, z + 0.5f) * vs - half;
+                Vector3 wpos = center + new Vector3(lp.x * c + lp.z * s, lp.y, -lp.x * s + lp.z * c);
+                Vector3 dir = wpos - blastCenter;
+                dir = dir.sqrMagnitude < 1e-6f
+                    ? new Vector3((float)shardRng.NextDouble() - 0.5f, (float)shardRng.NextDouble() - 0.5f, (float)shardRng.NextDouble() - 0.5f).normalized
+                    : dir.normalized;
+                PushShard(new Shard
+                {
+                    pos = wpos,
+                    vel = dir * shardSpeed * 1.8f * (0.7f + 0.6f * (float)shardRng.NextDouble())
+                        + new Vector3((float)(shardRng.NextDouble() - 0.5), (float)(shardRng.NextDouble() - 0.5) + 0.3f,
+                            (float)(shardRng.NextDouble() - 0.5)) * shardSpread,
+                    tEnd = Time.time + shardLife * 1.4f * (0.7f + 0.6f * (float)shardRng.NextDouble()),
+                    beamId = shardCounter++,
+                    col = StAssetReader.GetMaterialColor((ushort)plan.writeMat[i]),
+                    width = 0.018f,
+                });
+            }
+        }
+        private readonly List<int> blastIdx = new();
+        private readonly List<uint> blastMats = new();
+        private int blastCounter;
+
+        /// <summary>After a blast, flood-fill from the volume's base: solids the anchor
+        /// can't reach drop as debris islands. Blast-only — bullet punctures never detach.</summary>
+        public bool dropUnsupported = true;
+        /// <summary>Spatial bucket size for aggregating detached islands into debris shards.</summary>
+        public float debrisClusterM = 0.9f;
+        /// <summary>Walls attenuate the blast along the bomb→cell path (DDA march).
+        /// Toggle off to A/B against the raw delete-sphere.</summary>
+        public bool occlusionAware = true;
+        /// <summary>DetonateEvent: simulate K expanding fronts up front, play back over frontSec.</summary>
+        public bool shockFront = true;
+        public int frontPasses = 12;
+        public float frontSec = 0.5f;
+        private readonly List<int> detIdx = new();
+        private readonly List<uint> detMats = new();
+        private readonly List<int> detEnds = new();
+        private byte[] visitedScratch;
+        private struct DebrisBucket { public int sx, sy, sz, count, matCount; public uint mat; }
+        private readonly Dictionary<int, DebrisBucket> clusterBuckets = new();
+
+        /// <summary>
+        /// World-space center of a registered volume — yaw pivots about the center,
+        /// so it's simply corner + half-extent regardless of rotation.
+        /// </summary>
+        public bool TryGetVolumeCenter(string volumeId, out Vector3 center)
+        {
+            center = default;
+            if (world == null) world = FindFirstObjectByType<VoxelCollisionWorld>();
+            if (world == null || string.IsNullOrEmpty(volumeId)) return false;
+            if (!world.TryGetVolume(volumeId, out _, out int w, out int h, out int d,
+                    out Vector3 corner, out float vs, out _)) return false;
+            center = corner + new Vector3(w, h, d) * (vs * 0.5f);
+            return true;
         }
 
         /// <summary>
@@ -167,7 +409,6 @@ namespace SteelCity.Sim
             foreach (int idx in dirtyScratch)
             {
                 if (st.data[idx] != 0) continue;   // cracked cells stay in place — only AIR flies
-                if (shards.Count >= maxShards) shards.RemoveAt(0);
                 int z = idx / (st.w * st.h), rem = idx - z * st.w * st.h, y = rem / st.w, x = rem - y * st.w;
                 Vector3 lp = new Vector3(x + 0.5f, y + 0.5f, z + 0.5f) * vs - half;
                 var sh = new Shard
@@ -178,13 +419,114 @@ namespace SteelCity.Sim
                             (float)(shardRng.NextDouble() - 0.5)) * shardSpread,
                     tEnd = Time.time + shardLife * (0.7f + 0.6f * (float)shardRng.NextDouble()),
                     beamId = shardCounter++,
+                    col = col,
+                    width = 0.018f,
                 };
-                shards.Add(sh);
+                PushShard(sh);
             }
-            shardColor = col;
         }
 
-        private Color shardColor = new Color(0.72f, 0.86f, 0.96f, 0.9f);
+        /// <summary>
+        /// Radial variant for blasts: velocity = (shardPos − blastCenter), faster
+        /// than bullet spall; per-cell material colors so debris reads as building
+        /// parts (brick flies brick-colored, glass glass-colored).
+        /// </summary>
+        private void EmitShards(DamageState st, Vector3 blastCenter, List<int> removedIdx, List<uint> removedMats)
+        {
+            if (!shardBurstEnabled) return;
+            float vs = st.vs;
+            Vector3 half = new Vector3(st.w, st.h, st.d) * (vs * 0.5f);
+            Vector3 center = st.corner + half;
+            float rad = st.yaw * Mathf.Deg2Rad, c = Mathf.Cos(rad), s = Mathf.Sin(rad);
+            int stride = Mathf.Max(1, removedIdx.Count / Mathf.Max(1, maxShards));
+            for (int i = 0; i < removedIdx.Count; i += stride)
+            {
+                int idx = removedIdx[i];
+                int z = idx / (st.w * st.h), rem = idx - z * st.w * st.h, y = rem / st.w, x = rem - y * st.w;
+                Vector3 lp = new Vector3(x + 0.5f, y + 0.5f, z + 0.5f) * vs - half;
+                Vector3 wpos = center + new Vector3(lp.x * c + lp.z * s, lp.y, -lp.x * s + lp.z * c);
+                Vector3 dir = wpos - blastCenter;
+                dir = dir.sqrMagnitude < 1e-6f
+                    ? new Vector3((float)shardRng.NextDouble() - 0.5f, (float)shardRng.NextDouble() - 0.5f, (float)shardRng.NextDouble() - 0.5f).normalized
+                    : dir.normalized;
+                var sh = new Shard
+                {
+                    pos = wpos,
+                    vel = dir * shardSpeed * 1.8f * (0.7f + 0.6f * (float)shardRng.NextDouble())
+                        + new Vector3((float)(shardRng.NextDouble() - 0.5), (float)(shardRng.NextDouble() - 0.5) + 0.3f,
+                            (float)(shardRng.NextDouble() - 0.5)) * shardSpread,
+                    tEnd = Time.time + shardLife * 1.4f * (0.7f + 0.6f * (float)shardRng.NextDouble()),
+                    beamId = shardCounter++,
+                    col = StAssetReader.GetMaterialColor((ushort)removedMats[i]),
+                    width = 0.018f,
+                };
+                PushShard(sh);
+            }
+        }
+
+        /// <summary>
+        /// Detached islands fall as clustered debris: cells spatial-hash into
+        /// ~debrisClusterM buckets, one falling shard per bucket tinted by the
+        /// bucket's majority material (Boyer-Moore vote), beam width scaled by
+        /// cell count — a wall section reads as falling chunks, not confetti.
+        /// </summary>
+        private void EmitDebris(DamageState st, Vector3 blastCenter, List<int> idx, List<uint> mats, List<int> ends, int idxBase = 0)
+        {
+            if (!shardBurstEnabled) return;
+            float vs = st.vs;
+            Vector3 half = new Vector3(st.w, st.h, st.d) * (vs * 0.5f);
+            Vector3 center = st.corner + half;
+            float rad = st.yaw * Mathf.Deg2Rad, c = Mathf.Cos(rad), s = Mathf.Sin(rad);
+            int cs = Mathf.Max(1, Mathf.CeilToInt(debrisClusterM / vs));
+            var buckets = clusterBuckets;
+            int start = idxBase;
+            foreach (int end in ends)
+            {
+                buckets.Clear();
+                for (int i = start; i < end; i++)
+                {
+                    int idxx = idx[i];
+                    int z = idxx / (st.w * st.h), rem = idxx - z * st.w * st.h, y = rem / st.w, x = rem - y * st.w;
+                    int key = ((x / cs) << 20) | ((y / cs) << 10) | (z / cs);
+                    if (!buckets.TryGetValue(key, out var b)) b = new DebrisBucket();
+                    b.sx += x; b.sy += y; b.sz += z; b.count++;
+                    if (b.matCount == 0) { b.mat = mats[i]; b.matCount = 1; }
+                    else if (mats[i] == b.mat) b.matCount++; else b.matCount--;
+                    buckets[key] = b;
+                }
+                foreach (var b in buckets.Values)
+                {
+                    Vector3 lp = new Vector3(b.sx / (float)b.count + 0.5f, b.sy / (float)b.count + 0.5f,
+                        b.sz / (float)b.count + 0.5f) * vs - half;
+                    Vector3 wpos = center + new Vector3(lp.x * c + lp.z * s, lp.y, -lp.x * s + lp.z * c);
+                    Vector3 outw = wpos - blastCenter; outw.y = 0f;
+                    if (outw.sqrMagnitude < 1e-6f) outw = Vector3.right;
+                    PushShard(new Shard
+                    {
+                        pos = wpos,
+                        vel = Vector3.down * shardSpeed * (0.5f + 0.5f * (float)shardRng.NextDouble())
+                            + outw.normalized * shardSpeed * 0.3f * (float)shardRng.NextDouble(),
+                        tEnd = Time.time + shardLife * 2.2f,
+                        beamId = shardCounter++,
+                        col = StAssetReader.GetMaterialColor((ushort)b.mat),
+                        width = 0.03f * Mathf.Pow(b.count, 1f / 3f),
+                    });
+                }
+                start = end;
+            }
+        }
+
+        /// <summary>Enqueue a shard under the budget — the evicted shard's beam must be
+        /// cleared or it freezes mid-air forever (expiry clears; eviction forgot).</summary>
+        private void PushShard(Shard sh)
+        {
+            if (shards.Count >= maxShards)
+            {
+                PathDebugRenderer.Instance?.ClearCustomBeam($"gshard_{shards[0].beamId}");
+                shards.RemoveAt(0);
+            }
+            shards.Add(sh);
+        }
 
         /// <summary>Integrate shard positions, draw each as a velocity-stretched beam, expire dead ones.</summary>
         private void UpdateShards()
@@ -206,8 +548,8 @@ namespace SteelCity.Sim
                     continue;
                 }
                 float fade = (s.tEnd - Time.time) / shardLife;
-                var c = shardColor; c.a = Mathf.Lerp(0.15f, 0.9f, fade);
-                pdr.SetCustomBeam($"gshard_{s.beamId}", s.pos - s.vel * 0.035f, s.pos, 0.018f, c);
+                var c = s.col; c.a = Mathf.Lerp(0.15f, 0.9f, fade);
+                pdr.SetCustomBeam($"gshard_{s.beamId}", s.pos - s.vel * 0.035f, s.pos, s.width, c);
                 shards[i] = s;
             }
         }

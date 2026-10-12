@@ -4,9 +4,38 @@
 
 ---
 
-### Free-fire voxel picks (Range tab)
-- `PICK STAND` / `PICK AIM` buttons arm a one-shot voxel pick: the next map click raycasts `VoxelCollisionWorld` instead of firing `OnBlockClicked` (`CityMap3D.voxelPickArmed` + `OnVoxelPicked`; miss keeps the pick armed, button re-click cancels).
-- STAND teleports the character via `EventPlayer.DebugSnapTo` onto the hit surface (faces the aim point) + green marker beam; AIM overrides the fire target — overrides `tgtWorld` for IK AIM / spread cone / FIRE, re-arms a live solver — + orange cross marker. `clear picks` wipes both.
+### Free-fire voxel picks (Range tab, above the range-block gate — usable in planning)
+- `PICK STAND` / `PICK AIM` / `PICK BLAST` buttons arm a one-shot voxel pick: the next map click raycasts `VoxelCollisionWorld` instead of firing `OnBlockClicked` (`CityMap3D.voxelPickArmed` + `OnVoxelPicked`; miss keeps the pick armed, button re-click cancels).
+- STAND teleports the character via `EventPlayer.DebugSnapTo` onto the hit surface (faces the aim point) + green marker beam; AIM overrides the fire target — overrides `tgtWorld` for IK AIM / spread cone / FIRE, re-arms a live solver — + orange cross marker; BLAST stores the picked surface point + normal + volume id for the demolition bench + red cross marker. `clear picks` wipes all.
+
+### Demolition bench (Range tab)
+- `VoxelDamageMath.Blast` (Unity-free, selftest-covered): spherical removal — every non-air cell within `radius` rolls `power·(1−dist/radius)·(1−MaterialResistance)`; surviving glass → cracked, non-glass survivors untouched; returns aligned `removedIdx`/`removedMats` lists (shard coloring needs the pre-blast material).
+- `MaterialResistance(mat)`: glass 0.05, metal 111 → 0.9, catch-all 0.5. Bullet puncture stays glass-only; blast removes anything.
+- `VoxelDamageSystem.Detonate(volumeId, worldPoint, radiusM, power)`: same COW + dirty-span pipeline as bullet puncture — works on chunks AND baked sectors. Radial shards (velocity = cell − blastCenter, faster, longer-lived) with **per-cell palette color** so debris reads as building parts. Seeded by `blastCounter` — deterministic per sequence.
+- HUD: PICK BLAST → `depth into wall`/`radius`/`power` sliders → `💥 DETONATE` — center = picked point − normal×depth (inside-out by construction). Terrain picks rejected (no volume id).
+- `PICK BLDG` mode: click any building → blast center snaps to the volume's geometric center (`VoxelDamageSystem.TryGetVolumeCenter` = corner + half-extent; yaw pivots about center). Panel shows `· center`, depth slider disables, orange extent beams (`blast_rx/ry/rz`) preview the radius live at the computed center.
+- `RESET DAMAGE` moved above the range-block gate — planning-phase blasts are resettable. Blast log emoji + radius max widened to 15m (tenement is ~19×12×19m).
+
+### Connectivity collapse (demolition bench)
+- `VoxelDamageMath.FindDetached` (Unity-free, selftest-covered): BFS-flood from every solid cell in the `y==0` anchor layer; structural cells anchor ALL solid neighbors, glass anchors only glass (a pane hangs off its frame, a brick can't rest on a pane). Unreached solids group into 6-connected islands → `detachedIdx`/`detMats`/`islandEnds`.
+- `Detonate` runs connectivity between `Blast` and the upload — crater + collapse land in ONE dirty batch/one GPU write. Islands → AIR, then `EmitDebris`: cells spatial-hash into ~`debrisClusterM` buckets → one falling shard per bucket, Boyer-Moore majority-material tint, beam width ∝ ∛count — wall sections read as falling chunks, not confetti.
+- HUD: `drop unsupported (collapse)` toggle + `debris cluster m` slider (0.3–3m). Bullet punctures never detach — blast-only by construction.
+- `dda_selftest` [9]: pillar severed by hand → cap detaches; bricks on glass fall (glass can't anchor structure); glass column chained to slab survives — 35 cells, 3 islands, ALL PASS (148,326 checks).
+
+### Occlusion-aware blast
+- `Blast` is now two-phase: all decisions read the PRE-blast grid, writes apply after — a wall removed this blast still shields what was behind it (blast 1 weakens, blast 2 punches through). `occlusion` param (default on) keeps a raw-sphere path for A/B.
+- `MarchTransmit` — Amanatides–Woo march from blast center to each would-be removal; `transmit *= (1 − resistance)` per solid cell crossed. Open air free, glass ~0.95, brick ~0.5/cell, metal ~0.1. Early-out at 2%; only cells passing the base roll pay for the march.
+- `VoxelDamageSystem.occlusionAware` field → HUD `occlusion (walls shield)` toggle.
+- `dda_selftest` [10]: same patch + same seeds, only the wall varies — open 9 · brick1 4 · brick3 1 · glass 8 removed. ALL PASS (148,330 checks).
+
+### Shock-front detonation (sim → playback hybrid)
+- `VoxelDamageMath.BlastPlan` + `SimulateBlast` (pure C#): K expanding-radius passes (`radius·(i+1)/K`, seed `baseSeed+i`) on a scratch clone — interior cells re-roll every front (near-certain kill), fringe cells see the front once; occlusion frees as inner structure dies → the wave accelerates through cleared space. Writes recorded per wavefront: `writeIdx`/`writeVal`/`writeMat` + `passEnds`; connectivity islands append as the last front (`detachedStart`, `islandEnds`).
+- `DetonateEvent` → sim on clone → `PlayPlan` coroutine: **the flash** — all blast writes land in ONE upload at t=0 (building instantly scarred); **the front** — debris shards stream outward per wavefront over `frontSec` (expanding motion lives in the particles + amortizes shard budget); **the settle** — unsupported islands drop a beat later. The plan IS the delta — replaying writes reproduces the sim end state exactly (selftest-verified).
+- `EmitDebris` gained `idxBase` (plan's detached span doesn't start at 0); `EmitPlanShards` emits AIR writes per front tinted by original material; `WorldToCell` extracted (shared by Detonate/DetonateEvent).
+- HUD: `shock front (sim → playback)` toggle + `front passes` (1–12) + `front sec` (0.1–1.5) — DETONATE routes instant vs. event.
+- `dda_selftest` [11]: plan replay reproduces sim end state exactly · 4 fronts remove 15 vs single blast's 6 (compounding) · deterministic per seed · first front confined to its 1.75-cell radius. ALL PASS (148,338 checks).
+- **Stale-beam fix**: budget eviction (`shards.RemoveAt(0)` at `maxShards`) dropped live shards without clearing their `gshard_N` beams → frozen debris field accumulated per detonation (the "hanging particles" + 13 FPS). `PushShard` now clears the evicted beam (expiry already did). Emission also stride-samples: `stride = airCount/maxShards` per span — a 15m blast no longer instantiates-then-evicts ~100K candidate shards per front.
+- `dda_selftest` [8]: synthetic 20³ brick shell + glass band + metal core — 266 cells removed (55 glass / 206 brick / 5 metal at point-blank), all within radius, removal rates ordered by resistance. ALL PASS (148,319 checks).
 
 ---
 
