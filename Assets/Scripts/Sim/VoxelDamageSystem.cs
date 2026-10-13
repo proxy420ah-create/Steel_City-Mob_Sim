@@ -130,8 +130,12 @@ namespace SteelCity.Sim
                 subscribed = ProjectileSystem.Instance;
                 subscribed.ShotResolved += OnShotResolved;
             }
+            UnityEngine.Profiling.Profiler.BeginSample("VDS.UpdateShards");
             UpdateShards();
+            UnityEngine.Profiling.Profiler.EndSample();
+            UnityEngine.Profiling.Profiler.BeginSample("VDS.PumpRubbleSlump");
             PumpRubbleSlump();
+            UnityEngine.Profiling.Profiler.EndSample();
         }
 
         private void OnShotResolved(ProjectileSystem.ShotReport r)

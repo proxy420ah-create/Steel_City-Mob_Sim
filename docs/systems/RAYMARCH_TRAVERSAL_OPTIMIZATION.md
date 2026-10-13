@@ -1,7 +1,7 @@
 # Raymarch Traversal Optimization — Steel City: Mob Sim
 
 **Created**: October 8, 2026
-**Status**: 🔒 ACTIVE — Phase 1 shipped, Phase 2–3 deferred
+**Status**: 🔒 ACTIVE — Phases 1 + 4 shipped, Phase 2–3 deferred
 
 ---
 
@@ -131,6 +131,65 @@ Sector-baked buildings (`useSectorBaking=false` today, so dormant) draw via
   padding in `BuildSectorMatrices`).
 
 ---
+
+## Phase 4 — ✅ SHIPPED (Oct 12, 2026): Macro-Cell Occupancy Skip (two-level DDA)
+
+**Status**: implemented + selftest-verified; supersedes the shelved Phase-2
+sketch and revives the design archived in `PERFORMANCE_PATTERNS.md` #13. The
+stated revive condition — *heatmap showing march-bound interior-air cost that
+sector baking doesn't remove* — was met exactly: a demolished tenement held
+~81 FPS at close camera vs ~120 pulled back, CPU flat at ~0.55 ms — pure GPU
+march cost through a gutted interior.
+
+**What**: every volume carries a coarse occupancy bitmask — **one bit per
+4×4×4 macro cell** (64 voxels), set iff any voxel inside is solid
+(`mat & 0x1FF != 0`). Both marches (primary AND shadow) test the bit before
+sampling: an all-empty macro jumps straight to the voxel cell past its exit
+plane instead of stepping 64 cells. A gutted interior marches at macro
+resolution — the crater's ~300-step air runs become ~75.
+
+**The skip, exactly**: `mv = voxel>>2` → bit test → if empty, compute
+`toEdge` (voxel steps to each axis's macro boundary, 1..4), `tExit` per axis
+(un-accumulated `tMax + (toEdge-1)·tDelta`, ternary-guarded against 0·inf on
+dead axes), `exitT = min` → then **drain every voxel boundary ≤ exitT**:
+`while (tMax.a <= exitT) { voxel.a += step.a; tMax.a += tDelta.a; }` per axis.
+Per-axis accumulation is fp-identical to sequential `AdvanceDDA`, so the
+landing cell matches — including coincident-plane ties (all boundaries at
+exitT cross; x lands last, as sequential's tie order dictates). `normal` and
+`currentT` are rebuilt from the latest crossed boundary (`argmax lastT`) so a
+hit on the landing cell — e.g. the first rubble face after a cavity — shades
+correctly. Up to 16 chained skips per outer iteration (~64 cells/iter).
+
+**CPU side** (`VoxelChunkManager`):
+- `BuildOccupancy` at all three chunk creation sites + `RegisterSector`
+  (eager — intact hollow buildings benefit immediately, not just demolition).
+- `RegisterSector` builds a **merged occ buffer** with per-building word
+  offsets in `_BuildingOcc[i]` (parallel to `_BuildingMeta`; sector voxels
+  aren't a contiguous macro grid, so occ carries its own offsets — it does
+  NOT share `bufferOffset`). The offset travels to the fragment shader in a
+  `nointerpolation uint` varying (TEXCOORD8); the archived design rode the
+  unused `yaw` varying instead.
+- `UploadVoxelEdits` recomputes only the dirty macro cells (≤64 voxels each)
+  and uploads the volume's occ slice — rides the existing dirty-span path,
+  ~free next to the voxel upload. `RefreshChunkVoxels` (RESET DAMAGE) rebuilds
+  whole slices. `RegisterVolume` externals lazily build on first upload.
+- `_OccEnabled` per draw: chunk/sector paths bind it; character/prop groups
+  bind 0 with dummy buffers. This replaces the archived design's 2-brick
+  dilation for animated assets — posed limbs simply keep flat DDA.
+
+**Verified**: `Tools/dda_selftest` [16] ports the skip math verbatim and runs
+7,200 equivalence checks vs flat DDA across 6 fill patterns × 400 rays
+(axis-exact, diagonal, tie-heavy directions): identical first-hit cell,
+skip-sampled cells ⊆ flat-visited cells, never more samples. Runtime A/B
+(iteration-heat + miss-waste debug views on the bombed tenement) is the
+acceptance gate.
+
+**Known limits** (unchanged from #13): thin structures poison their whole
+macro — a 1-voxel rail forces a 4³ cell occupied; correctness is never
+affected, only skip rate. Legacy `RenderComputeChunks` path keeps flat DDA.
+
+---
+
 
 ## Anti-Patterns (learned the hard way)
 

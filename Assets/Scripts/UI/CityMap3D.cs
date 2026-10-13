@@ -45,6 +45,15 @@ namespace SteelCity.Sim
         [Header("Voxel Raymarch")]
         [Tooltip("Reference to VoxelChunkManager component.")]
         [SerializeField] private VoxelChunkManager chunkManager;
+
+        // Cached singleton — FindFirstObjectByType scans the scene; the camera
+        // pan paths used to call it per-frame (WASD) and per-MouseDrag-event.
+        private EventPlayer cachedEventPlayer;
+        private EventPlayer GetEventPlayer()
+        {
+            if (cachedEventPlayer == null) cachedEventPlayer = FindFirstObjectByType<EventPlayer>();
+            return cachedEventPlayer;
+        }
         private VoxelRenderBridge renderBridge;
         [Tooltip("World size of each voxel in the .stasset buildings.")]
         [SerializeField] private float voxelSize = 0.05f;
@@ -736,7 +745,7 @@ namespace SteelCity.Sim
                     cameraFollowsCityCenter = false;
                     if (IsExecutionMode)
                     {
-                        var ep = FindFirstObjectByType<EventPlayer>();
+                        var ep = GetEventPlayer();
                         if (ep != null && ep.IsRunning)
                             ep.AddCameraPanOffset(worldDelta);
                     }
@@ -905,7 +914,7 @@ namespace SteelCity.Sim
                 if (IsExecutionMode)
                 {
                     // In execution mode, route pan to EventPlayer as offset from character
-                    var ep = FindFirstObjectByType<EventPlayer>();
+                    var ep = GetEventPlayer();
                     if (ep != null && ep.IsRunning)
                         ep.AddCameraPanOffset(worldDelta);
                 }
@@ -2315,6 +2324,12 @@ namespace SteelCity.Sim
         void OnGUI()
         {
             if (chunkManager == null || !chunkManager.ShowOrthoHud) return;
+
+            // Label-only HUD — the editor floods MouseMove/MouseDrag events
+            // (dozens/frame while the cursor moves); nothing here consumes them.
+            var evt = Event.current;
+            if (evt != null && (evt.type == EventType.MouseMove || evt.type == EventType.MouseDrag))
+                return;
 
             if (hudLabelStyle == null)
             {

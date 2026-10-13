@@ -138,6 +138,9 @@ namespace SteelCity.Sim
             public GameObject hostObject;    // World-space GameObject (like Steel Tide's VoxelObject)
             public ComputeBuffer voxelBuffer;    // uint[] packed voxels
             public ComputeBuffer paneBuffer;     // uint[] per-voxel pane group ids (0 = non-glass / ungrouped)
+            public ComputeBuffer occBuffer;      // uint[] macro-cell occupancy bitmask (M=4) for the DDA empty-skip
+            public uint[] occData;               // CPU copy for incremental updates
+            public int occWords;                 // words in occData
             public ComputeBuffer materialBuffer; // float4[] color lookup (shared)
             public ComputeBuffer tintBuffer;     // float4[] per-material tint (per-chunk)
             public MaterialPropertyBlock cachedPropBlock; // reused across frames to avoid GC
@@ -183,6 +186,8 @@ namespace SteelCity.Sim
         private ComputeBuffer dummyAnimStaticParamsBuffer; // 15 float4s of zeros — bound when anim static params disabled
         private ComputeBuffer dummyRegionIDBuffer;       // single uint(0) — bound when no region data
         private ComputeBuffer dummyMaterialRemapBuffer;  // single uint(0) — bound when no remap
+        private ComputeBuffer defaultOccBuffer;          // single uint(0xFFFFFFFF = occupied) — bound when a volume has no occupancy grid
+        private ComputeBuffer dummyBuildingOccBuffer;    // single uint(0) — bound when no per-building occ offsets exist
 
         // --- Packed voxel cache: avoids re-reading + re-packing the same .stasset files ---
         // Includes pre-computed tight AABB so LoadChunkFromData can skip the scan.
@@ -443,6 +448,7 @@ namespace SteelCity.Sim
 
         // --- Shader property IDs ---
         private int propVoxelData, propOutput, propDepthBuffer, propMaterialColors;
+        private int propOccData, propOccEnabled, propBuildingOcc;
         private int propMaterialCount, propVolumeDims, propVoxelSize, propVolumeOffset;
         private int propTightBoundsMin, propTightBoundsMax;
         private int propVolumeRotation, propVolumeInvRotation;
@@ -641,6 +647,8 @@ namespace SteelCity.Sim
             if (defaultTintBuffer != null) { defaultTintBuffer.Release(); defaultTintBuffer = null; }
             if (dummyGroupIDBuffer != null) { dummyGroupIDBuffer.Release(); dummyGroupIDBuffer = null; }
             if (defaultPaneBuffer != null) { defaultPaneBuffer.Release(); defaultPaneBuffer = null; }
+            if (defaultOccBuffer != null) { defaultOccBuffer.Release(); defaultOccBuffer = null; }
+            if (dummyBuildingOccBuffer != null) { dummyBuildingOccBuffer.Release(); dummyBuildingOccBuffer = null; }
             if (dummyWalkKeyframeBuffer != null) { dummyWalkKeyframeBuffer.Release(); dummyWalkKeyframeBuffer = null; }
             if (dummyJointConfigBuffer != null) { dummyJointConfigBuffer.Release(); dummyJointConfigBuffer = null; }
             if (dummyPivotBuffer != null) { dummyPivotBuffer.Release(); dummyPivotBuffer = null; }
@@ -737,6 +745,9 @@ namespace SteelCity.Sim
         private void CacheShaderIDs()
         {
             propVoxelData = Shader.PropertyToID("_VoxelData");
+            propOccData = Shader.PropertyToID("_OccData");
+            propOccEnabled = Shader.PropertyToID("_OccEnabled");
+            propBuildingOcc = Shader.PropertyToID("_BuildingOcc");
             propOutput = Shader.PropertyToID("_Output");
             propDepthBuffer = Shader.PropertyToID("_DepthBuffer");
             propMaterialColors = Shader.PropertyToID("_MaterialColors");
@@ -827,6 +838,13 @@ namespace SteelCity.Sim
             // Bound when a volume has no glass panes so D3D12 doesn't reject the draw call.
             defaultPaneBuffer = new ComputeBuffer(1, sizeof(uint));
             defaultPaneBuffer.SetData(new uint[] { 0 });
+
+            // Dummy occupancy buffer: one word of all-occupied so a volume with no
+            // occ grid marches exactly as before (never skips) — SRV completeness.
+            defaultOccBuffer = new ComputeBuffer(1, sizeof(uint));
+            defaultOccBuffer.SetData(new uint[] { 0xFFFFFFFFu });
+            dummyBuildingOccBuffer = new ComputeBuffer(1, sizeof(uint));
+            dummyBuildingOccBuffer.SetData(new uint[] { 0 });
 
             // Dummy walk keyframe / joint config buffers: bound whenever walk keyframes are
             // disabled so D3D12 doesn't reject the draw call (SRV must be bound at every
@@ -1049,6 +1067,10 @@ namespace SteelCity.Sim
             var paneIDs = GetPaneIDs(packedData, w, h, d);
             chunk.paneBuffer = paneIDs != null ? CreatePaneBuffer(paneIDs) : defaultPaneBuffer;
 
+            chunk.occData = BuildOccupancy(packedData, w, h, d, out chunk.occWords);
+            chunk.occBuffer = new ComputeBuffer(chunk.occWords, sizeof(uint));
+            chunk.occBuffer.SetData(chunk.occData);
+
             if (cached)
             {
                 chunk.tightMinX = cvd.minX; chunk.tightMinY = cvd.minY; chunk.tightMinZ = cvd.minZ;
@@ -1245,6 +1267,10 @@ namespace SteelCity.Sim
             var paneIDs = GetPaneIDs(packedData, w, h, d);
             chunk.paneBuffer = paneIDs != null ? CreatePaneBuffer(paneIDs) : defaultPaneBuffer;
 
+            chunk.occData = BuildOccupancy(packedData, w, h, d, out chunk.occWords);
+            chunk.occBuffer = new ComputeBuffer(chunk.occWords, sizeof(uint));
+            chunk.occBuffer.SetData(chunk.occData);
+
             ComputeTightAABB(packedData, w, h, d,
                 out chunk.tightMinX, out chunk.tightMinY, out chunk.tightMinZ,
                 out chunk.tightMaxX, out chunk.tightMaxY, out chunk.tightMaxZ, out chunk.hasSolid);
@@ -1298,6 +1324,10 @@ namespace SteelCity.Sim
             var paneIDs = GetPaneIDs(packedData, w, h, d);
             chunk.paneBuffer = paneIDs != null ? CreatePaneBuffer(paneIDs) : defaultPaneBuffer;
 
+            chunk.occData = BuildOccupancy(packedData, w, h, d, out chunk.occWords);
+            chunk.occBuffer = new ComputeBuffer(chunk.occWords, sizeof(uint));
+            chunk.occBuffer.SetData(chunk.occData);
+
             if (hasCachedAABB)
             {
                 chunk.tightMinX = aabbMinX; chunk.tightMinY = aabbMinY; chunk.tightMinZ = aabbMinZ;
@@ -1324,6 +1354,7 @@ namespace SteelCity.Sim
             if (chunk.voxelBuffer != null) chunk.voxelBuffer.Release();
             if (chunk.paneBuffer != null && chunk.paneBuffer != defaultPaneBuffer)
                 chunk.paneBuffer.Release();
+            if (chunk.occBuffer != null) { chunk.occBuffer.Release(); chunk.occBuffer = null; chunk.occData = null; }
             // Don't release tintBuffer if it's the shared default
             if (chunk.tintBuffer != null && chunk.tintBuffer != defaultTintBuffer)
                 chunk.tintBuffer.Release();
@@ -1432,6 +1463,63 @@ namespace SteelCity.Sim
         public bool HasWritableVolume(string name) =>
             HasChunk(name) || (name != null && sectorVolumeLookup.ContainsKey(name));
 
+        // --- Macro-cell occupancy (raymarch empty-skip) ---
+        // One bit per 4x4x4 macro cell: set when ANY voxel inside is solid.
+        // The shader's DDA checks the bit before sampling — an empty macro
+        // jumps straight to its exit plane instead of stepping 64 voxels.
+        private const int OccShift = 2;   // macro edge = 1 << OccShift = 4 cells
+
+        private static uint[] BuildOccupancy(uint[] data, int w, int h, int d, out int words)
+        {
+            int mdx = (w + 3) >> OccShift, mdy = (h + 3) >> OccShift, mdz = (d + 3) >> OccShift;
+            words = (mdx * mdy * mdz + 31) >> 5;
+            var occ = new uint[words];
+            int wh = w * h;
+            for (int z = 0; z < d; z++)
+                for (int y = 0; y < h; y++)
+                    for (int x = 0; x < w; x++)
+                    {
+                        if ((data[x + y * w + z * wh] & 0x1FFu) == 0u) continue;
+                        int mi = (x >> OccShift) + mdx * ((y >> OccShift) + mdy * (z >> OccShift));
+                        occ[mi >> 5] |= 1u << (mi & 31);
+                    }
+            return occ;
+        }
+
+        // Recompute every macro cell touched by a dirty voxel write.
+        // data/dims are volume-local; writes land at occOffset + word.
+        private void UpdateOccupancy(uint[] data, int w, int h, int d,
+            List<int> dirtyIndices, uint[] occ, int occOff, int occWords,
+            ComputeBuffer occBuf, int occBufBase)
+        {
+            occMacroScratch.Clear();
+            int mdx = (w + 3) >> OccShift, mdy = (h + 3) >> OccShift;
+            int wh = w * h;
+            for (int i = 0; i < dirtyIndices.Count; i++)
+            {
+                int idx = dirtyIndices[i];
+                int z = idx / wh, rem = idx - z * wh, y = rem / w, x = rem - y * w;
+                occMacroScratch.Add((x >> OccShift) + mdx * ((y >> OccShift) + mdy * (z >> OccShift)));
+            }
+            foreach (int mi in occMacroScratch)
+            {
+                int mz = mi / (mdx * mdy), mrem = mi - mz * mdx * mdy, my = mrem / mdx, mx = mrem - my * mdx;
+                bool solid = false;
+                int x0 = mx << OccShift, y0 = my << OccShift, z0 = mz << OccShift;
+                int x1 = System.Math.Min(x0 + (1 << OccShift), w);
+                int y1 = System.Math.Min(y0 + (1 << OccShift), h);
+                int z1 = System.Math.Min(z0 + (1 << OccShift), d);
+                for (int z = z0; z < z1 && !solid; z++)
+                    for (int y = y0; y < y1 && !solid; y++)
+                        for (int x = x0; x < x1; x++)
+                            if ((data[x + y * w + z * wh] & 0x1FFu) != 0u) { solid = true; break; }
+                int wi = occOff + (mi >> 5), bit = mi & 31;
+                if (solid) occ[wi] |= 1u << bit; else occ[wi] &= ~(1u << bit);
+            }
+            occBuf.SetData(occ, occOff, occBufBase, occWords);   // whole-volume occ slice — a few KB
+        }
+        private readonly HashSet<int> occMacroScratch = new();
+
         // --- Sector-baked damage writes (P2) ---
         // A sector placement's voxels live at mergedVoxelData[bufferOffset .. +w*h*d].
         // The volume id convention is identical to the per-chunk path, so the same
@@ -1443,6 +1531,7 @@ namespace SteelCity.Sim
         {
             public BakedSector sector;
             public int bufferOffset;
+            public int occOffset;     // word offset into sector.mergedOcc for this building
             public uint paneIdBase;   // buildingIndex << 16
             public int w, h, d;
         }
@@ -1466,6 +1555,9 @@ namespace SteelCity.Sim
             {
                 sector = sector,
                 bufferOffset = bufferOffset,
+                occOffset = sector.buildingOccOffsets != null && buildingIndex >= 0
+                            && buildingIndex < sector.buildingOccOffsets.Length
+                            ? sector.buildingOccOffsets[buildingIndex] : 0,
                 paneIdBase = (uint)buildingIndex << 16,
                 w = w, h = h, d = d
             };
@@ -1493,6 +1585,33 @@ namespace SteelCity.Sim
                 indexBase = sv.bufferOffset;
             }
             else return false;
+
+            // Occupancy targets: chunk keeps its own occ slice; sector placements
+            // write into the sector's merged grid at occOffset. Lazy-build for
+            // externally-registered chunks that had no CPU data at registration.
+            ComputeBuffer occBuf = null; uint[] occCpu = null;
+            int occOff = 0, occWords = 0, occBufBase = 0;
+            int ow = 0, oh = 0, od = 0;
+            if (chunkPath)
+            {
+                ow = chunk.dims.x; oh = chunk.dims.y; od = chunk.dims.z;
+                if (chunk.occBuffer == null && data.Length == ow * oh * od)
+                {
+                    chunk.occData = BuildOccupancy(data, ow, oh, od, out chunk.occWords);
+                    chunk.occBuffer = new ComputeBuffer(chunk.occWords, sizeof(uint));
+                    chunk.occBuffer.SetData(chunk.occData);
+                }
+                occBuf = chunk.occBuffer; occCpu = chunk.occData; occWords = chunk.occWords;
+            }
+            else if (sectorVolumeLookup.TryGetValue(chunkName, out var svOcc))
+            {
+                ow = svOcc.w; oh = svOcc.h; od = svOcc.d;
+                occBuf = svOcc.sector.occBuffer; occCpu = svOcc.sector.mergedOcc;
+                occOff = svOcc.occOffset;
+                int mdx = (ow + 3) >> OccShift, mdy = (oh + 3) >> OccShift, mdz = (od + 3) >> OccShift;
+                occWords = (mdx * mdy * mdz + 31) >> 5;
+                occBufBase = svOcc.occOffset;
+            }
 
             dirtyIndices.Sort();
 
@@ -1527,6 +1646,9 @@ namespace SteelCity.Sim
                 }
                 if (i < dirtyIndices.Count) start = prev = dirtyIndices[i];
             }
+
+            if (occBuf != null && occCpu != null)
+                UpdateOccupancy(data, ow, oh, od, dirtyIndices, occCpu, occOff, occWords, occBuf, occBufBase);
             return true;
         }
 
@@ -1555,6 +1677,13 @@ namespace SteelCity.Sim
             {
                 if (data == null || data.Length != chunk.voxelBuffer.count) return false;
                 chunk.voxelBuffer.SetData(data);
+                if (chunk.occData != null && chunk.occBuffer != null)
+                {
+                    chunk.occData = BuildOccupancy(data, chunk.dims.x, chunk.dims.y, chunk.dims.z, out chunk.occWords);
+                    if (chunk.occBuffer.count != chunk.occWords)
+                    { chunk.occBuffer.Release(); chunk.occBuffer = new ComputeBuffer(chunk.occWords, sizeof(uint)); }
+                    chunk.occBuffer.SetData(chunk.occData);
+                }
 
                 // Restore pane ids too — damage edits overwrote them (AIR cells → 0,
                 // cracked cells → fresh ids). The pristine array's pane map is cached
@@ -1575,6 +1704,16 @@ namespace SteelCity.Sim
                 return false;
 
             sv.sector.mergedVoxelBuffer.SetData(data, 0, sv.bufferOffset, data.Length);
+
+            // Rebuild this building's occupancy slice (full-volume writes like
+            // RESET DAMAGE don't go through UploadVoxelEdits' dirty spans).
+            if (sv.sector.occBuffer != null && sv.sector.mergedOcc != null
+                && data.Length == sv.w * sv.h * sv.d)
+            {
+                var bo = BuildOccupancy(data, sv.w, sv.h, sv.d, out int bw);
+                Array.Copy(bo, 0, sv.sector.mergedOcc, sv.occOffset, bw);
+                sv.sector.occBuffer.SetData(sv.sector.mergedOcc, sv.occOffset, sv.occOffset, bw);
+            }
 
             // Rebuild this region's pane ids in merged space (localId + buildingIndex<<16).
             if (sv.sector.paneBuffer != null && sv.sector.paneBuffer != defaultPaneBuffer
@@ -1602,6 +1741,7 @@ namespace SteelCity.Sim
                 if (chunk.voxelBuffer != null) chunk.voxelBuffer.Release();
                 if (chunk.paneBuffer != null && chunk.paneBuffer != defaultPaneBuffer)
                     chunk.paneBuffer.Release();
+                if (chunk.occBuffer != null) { chunk.occBuffer.Release(); chunk.occBuffer = null; chunk.occData = null; }
                 if (chunk.hostObject != null) Destroy(chunk.hostObject);
             }
             chunks.Clear();
@@ -1613,6 +1753,8 @@ namespace SteelCity.Sim
             {
                 if (sector.mergedVoxelBuffer != null) { sector.mergedVoxelBuffer.Release(); sector.mergedVoxelBuffer = null; }
                 if (sector.paneBuffer != null && sector.paneBuffer != defaultPaneBuffer) { sector.paneBuffer.Release(); sector.paneBuffer = null; }
+                if (sector.occBuffer != null) { sector.occBuffer.Release(); sector.occBuffer = null; sector.mergedOcc = null; }
+                if (sector.buildingOccBuffer != null) { sector.buildingOccBuffer.Release(); sector.buildingOccBuffer = null; }
                 if (sector.buildingMetaBuffer != null) { sector.buildingMetaBuffer.Release(); sector.buildingMetaBuffer = null; }
                 if (sector.buildingPosBuffer != null) { sector.buildingPosBuffer.Release(); sector.buildingPosBuffer = null; }
             }
@@ -2215,6 +2357,9 @@ namespace SteelCity.Sim
             // When compute pose is active, bind posed buffer; otherwise bind rest buffer
             block.SetBuffer(propVoxelData, useComputePose ? group.posedVoxelBuffer : group.sharedVoxelBuffer);
             block.SetBuffer(propPaneIDs, group.paneBuffer ?? defaultPaneBuffer);
+            block.SetInt(propOccEnabled, 0);   // character/prop groups: no occupancy grid
+            block.SetBuffer(propOccData, defaultOccBuffer);
+            block.SetBuffer(propBuildingOcc, dummyBuildingOccBuffer);
             block.SetBuffer(propBuildingMeta, sharedMaterialBuffer);      // unused — D3D12 SRV completeness
             block.SetBuffer(propBuildingPositions, sharedMaterialBuffer); // unused — D3D12 SRV completeness
             block.SetBuffer(propInstanceOffsets, group.instanceOffsetBuffer);
@@ -2307,6 +2452,7 @@ namespace SteelCity.Sim
                 if (chunk.voxelBuffer != null) { chunk.voxelBuffer.Release(); chunk.voxelBuffer = null; }
                 if (chunk.paneBuffer != null && chunk.paneBuffer != defaultPaneBuffer)
                 { chunk.paneBuffer.Release(); chunk.paneBuffer = null; }
+                if (chunk.occBuffer != null) { chunk.occBuffer.Release(); chunk.occBuffer = null; chunk.occData = null; }
                 if (chunk.tintBuffer != null && chunk.tintBuffer != defaultTintBuffer)
                 { chunk.tintBuffer.Release(); chunk.tintBuffer = null; }
                 if (chunk.hostObject != null) { Destroy(chunk.hostObject); chunk.hostObject = null; }
@@ -2320,6 +2466,8 @@ namespace SteelCity.Sim
             {
                 if (sector.mergedVoxelBuffer != null) { sector.mergedVoxelBuffer.Release(); sector.mergedVoxelBuffer = null; }
                 if (sector.paneBuffer != null && sector.paneBuffer != defaultPaneBuffer) { sector.paneBuffer.Release(); sector.paneBuffer = null; }
+                if (sector.occBuffer != null) { sector.occBuffer.Release(); sector.occBuffer = null; sector.mergedOcc = null; }
+                if (sector.buildingOccBuffer != null) { sector.buildingOccBuffer.Release(); sector.buildingOccBuffer = null; }
                 if (sector.buildingMetaBuffer != null) { sector.buildingMetaBuffer.Release(); sector.buildingMetaBuffer = null; }
                 if (sector.buildingPosBuffer != null) { sector.buildingPosBuffer.Release(); sector.buildingPosBuffer = null; }
             }
@@ -2339,6 +2487,10 @@ namespace SteelCity.Sim
         {
             public string name;
             public ComputeBuffer mergedVoxelBuffer;   // flat uint[] — all buildings concatenated
+            public ComputeBuffer occBuffer;           // macro-cell occupancy bitmask, all buildings concatenated
+            public uint[] mergedOcc;                  // CPU copy for incremental updates
+            public int[] buildingOccOffsets;          // word offset per building into mergedOcc
+            public ComputeBuffer buildingOccBuffer;   // uint[] occOffset per instance (_BuildingOcc)
             public ComputeBuffer paneBuffer;          // flat uint[] — per-voxel pane ids in merged index space
             public ComputeBuffer buildingMetaBuffer;   // float4[] (bufferOffset, dimsX, dimsY, dimsZ)
             public ComputeBuffer buildingPosBuffer;    // float4[] (worldOffsetX, Y, Z, 0)
@@ -2409,6 +2561,37 @@ namespace SteelCity.Sim
                 }
                 if (mergedPane != null)
                     sector.paneBuffer = CreatePaneBuffer(mergedPane);
+            }
+
+            // Merged occupancy: per-building macro grids concatenated in building
+            // order — the shader skips empty 4x4x4 regions during the DDA.
+            {
+                var occOffs = new int[buildingCount];
+                int occTotal = 0;
+                for (int b = 0; b < buildingCount; b++)
+                {
+                    int bw = (int)buildingMeta[b].y, bh = (int)buildingMeta[b].z, bd = (int)buildingMeta[b].w;
+                    int mdx = (bw + 3) >> OccShift, mdy = (bh + 3) >> OccShift, mdz = (bd + 3) >> OccShift;
+                    occOffs[b] = occTotal;
+                    occTotal += (mdx * mdy * mdz + 31) >> 5;
+                }
+                sector.buildingOccOffsets = occOffs;
+                sector.mergedOcc = new uint[occTotal];
+                for (int b = 0; b < buildingCount; b++)
+                {
+                    int bOff = (int)buildingMeta[b].x;
+                    int bw = (int)buildingMeta[b].y, bh = (int)buildingMeta[b].z, bd = (int)buildingMeta[b].w;
+                    var slice = new uint[bw * bh * bd];
+                    Array.Copy(mergedVoxelData, bOff, slice, 0, slice.Length);
+                    var bo = BuildOccupancy(slice, bw, bh, bd, out int words);
+                    Array.Copy(bo, 0, sector.mergedOcc, occOffs[b], words);
+                }
+                sector.occBuffer = new ComputeBuffer(occTotal, sizeof(uint));
+                sector.occBuffer.SetData(sector.mergedOcc);
+                sector.buildingOccBuffer = new ComputeBuffer(buildingCount, sizeof(uint));
+                var occF = new uint[buildingCount];
+                for (int b = 0; b < buildingCount; b++) occF[b] = (uint)occOffs[b];
+                sector.buildingOccBuffer.SetData(occF);
             }
 
             sector.buildingMetaBuffer = new ComputeBuffer(buildingCount, sizeof(float) * 4);
@@ -2586,6 +2769,9 @@ namespace SteelCity.Sim
                 sectorBlock.SetBuffer(propVoxelData, sector.mergedVoxelBuffer);
                 sectorBlock.SetBuffer(propPaneIDs, sector.paneBuffer ?? defaultPaneBuffer);
                 sectorBlock.SetInt(propPaneMerged, 1); // pane ids live in merged index space (bufferOffset + local)
+                sectorBlock.SetInt(propOccEnabled, sector.occBuffer != null ? 1 : 0);
+                sectorBlock.SetBuffer(propOccData, sector.occBuffer ?? defaultOccBuffer);
+                sectorBlock.SetBuffer(propBuildingOcc, sector.buildingOccBuffer ?? dummyBuildingOccBuffer);
                 // D3D12 validates every declared SRV per draw — a null/released
                 // buffer here is a skipped draw call, not a warning. Fall back
                 // to the always-live shared float4 buffer rather than unbind.
@@ -3266,6 +3452,9 @@ namespace SteelCity.Sim
                 block.Clear();
                 block.SetBuffer(propVoxelData, chunk.voxelBuffer);
                 block.SetBuffer(propPaneIDs, chunk.paneBuffer ?? defaultPaneBuffer);
+                block.SetInt(propOccEnabled, chunk.occBuffer != null ? 1 : 0);
+                block.SetBuffer(propOccData, chunk.occBuffer ?? defaultOccBuffer);
+                block.SetBuffer(propBuildingOcc, dummyBuildingOccBuffer);
                 block.SetBuffer(propBuildingMeta, sharedMaterialBuffer);      // unused — D3D12 SRV completeness
                 block.SetBuffer(propBuildingPositions, sharedMaterialBuffer); // unused — D3D12 SRV completeness
                 block.SetBuffer(propMaterialColors, sharedMaterialBuffer);

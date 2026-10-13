@@ -182,7 +182,10 @@ namespace SteelCity.Sim
             blockerCanvasGO.SetActive(false);
         }
 
-        void RefreshReferences()
+        /// Returns true when every reference resolved — a null ref left behind
+        /// means an absent scene object (test rigs etc.) that callers should
+        /// retry on a slow cadence rather than rescanning the scene rapidly.
+        bool RefreshReferences()
         {
             if (followCamera == null) followCamera = FindFirstObjectByType<FollowCamera>();
             if (chunkManager == null) chunkManager = FindFirstObjectByType<VoxelChunkManager>();
@@ -199,6 +202,9 @@ namespace SteelCity.Sim
             if (stressTest == null) stressTest = FindFirstObjectByType<StressTestSpawner>();
             if (stressDiag == null) stressDiag = FindFirstObjectByType<StressTestDiagnostics>();
             if (hoodSpawner == null) hoodSpawner = FindFirstObjectByType<HoodSpawner>();
+            return followCamera != null && chunkManager != null && cityMap != null
+                && gameUI != null && pathDebug != null && vehicleTest != null
+                && stressTest != null && stressDiag != null && hoodSpawner != null;
         }
 
         void RefreshClothingSystems()
@@ -285,12 +291,18 @@ namespace SteelCity.Sim
                 }
             }
 
-            // Periodically refresh clothing system list (every 1 second)
-            clothingListRefreshTimer += Time.deltaTime;
-            if (clothingListRefreshTimer >= 1f)
+            // Periodically refresh clothing system list (every 1 second).
+            // Gated on visible: the refresh runs 2 FindObjectsByType + 3
+            // FindFirstObjectByType scene scans — doing that once per second
+            // while the HUD is hidden was a periodic frame spike.
+            if (visible)
             {
-                clothingListRefreshTimer = 0f;
-                RefreshClothingSystems();
+                clothingListRefreshTimer += Time.deltaTime;
+                if (clothingListRefreshTimer >= 1f)
+                {
+                    clothingListRefreshTimer = 0f;
+                    RefreshClothingSystems();
+                }
             }
 
             // Update IsMouseOverPanel flag using current mouse position vs panel rect.
@@ -425,10 +437,12 @@ namespace SteelCity.Sim
             InitStyles();
             // FindFirstObjectByType scans the scene — 8 of them per IMGUI
             // event (~4-6 events/frame) was a measurable stall. Throttled.
+            // Missing refs (absent test rigs) retry on a slow cadence — they
+            // only matter if such a rig spawns mid-session.
             if (Time.unscaledTime >= nextRefsRefresh)
             {
-                nextRefsRefresh = Time.unscaledTime + 0.5f;
-                RefreshReferences();
+                bool complete = RefreshReferences();
+                nextRefsRefresh = Time.unscaledTime + (complete ? 1f : 3f);
             }
 
             // Position window — custom drag position or corner snap
@@ -485,6 +499,17 @@ namespace SteelCity.Sim
                 isDragging = false;
             }
 
+            // IMGUI cost control: interactive tabs (Range/Clothing) redraw every
+            // widget on every event — in the Editor, cursor movement over the
+            // Game view floods MouseMove/MouseDrag events (dozens per frame), so
+            // a moving camera pays the full tab rebuild many times per frame.
+            // Nothing here consumes MouseMove (hover only), and a drag with no
+            // GUI control hot and no panel drag in progress belongs to the
+            // scene camera — safe to skip both.
+            if (ev != null && (ev.type == EventType.MouseMove
+                || (ev.type == EventType.MouseDrag && !isDragging && GUIUtility.hotControl == 0)))
+                return;
+
             GUILayout.BeginArea(windowRect, bgStyle);
             GUILayout.BeginVertical();
 
@@ -536,12 +561,16 @@ namespace SteelCity.Sim
             switch (activeTab)
             {
                 case Tab.Clothing: DrawClothingTab(); break;
-                case Tab.Range: DrawRangeTab(); break;
+                case Tab.Range:
+                    UnityEngine.Profiling.Profiler.BeginSample("HUD.DrawRangeTab");
+                    try { DrawRangeTab(); } finally { UnityEngine.Profiling.Profiler.EndSample(); }
+                    break;
                 default:
                     if (activeTab != lastBuiltTab
                             || Time.unscaledTime >= nextTabRefresh)
                         RebuildTabText();
                     GUILayout.Label(tabText, labelStyle);
+                    if (activeTab == Tab.Render) DrawShadowControls();
                     break;
             }
 
@@ -626,6 +655,22 @@ namespace SteelCity.Sim
             sb.AppendLine("[Z] Reset camera");
             sb.AppendLine("[Q/E] Distance  [R/F] Height");
             sb.AppendLine("[C] Capture  [P] Perf log");
+        }
+
+        /// Live shadow controls appended under the Render tab's cached text —
+        /// the GameUI "SHADOW DEBUG" accordion is buried in the Orders page.
+        /// A handful of widgets per event keeps the text-tab cost profile.
+        void DrawShadowControls()
+        {
+            if (cityMap == null || chunkManager == null) return;
+            GUILayout.Space(6);
+            bool on = chunkManager.GetShadowEnabled() == 1;
+            if (GUILayout.Toggle(on, " shadows (in-volume sun march)", toggleStyle) != on)
+                cityMap.SetShadowEnabled(!on);
+            int maxSteps = Mathf.RoundToInt(HSlider("shadow max steps",
+                chunkManager.GetShadowMaxSteps(), 1f, 64f, "F0"));
+            if (maxSteps != chunkManager.GetShadowMaxSteps())
+                cityMap.SetShadowMaxSteps(maxSteps);
         }
 
         void BuildRenderTab(System.Text.StringBuilder sb)

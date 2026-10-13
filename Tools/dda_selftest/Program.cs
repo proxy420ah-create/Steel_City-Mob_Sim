@@ -947,6 +947,135 @@ static class Program
         Console.WriteLine("[15] debris mass test done");
     }
 
+    // [16] Macro-cell occupancy skip (VoxelProxyRaymarch two-level DDA): a
+    // straight port of the shader's skip math. Invariants vs flat DDA on the
+    // same grid + ray: every cell the skip march samples is one the flat march
+    // visited, and the first solid hit cell is identical. Rays include exact
+    // axis/diagonal directions — the worst fp-tie cases for boundary crossing.
+    static List<int> FlatMarch(uint[] data, int w, int h, int d,
+        float lx, float ly, float lz, float rx, float ry, float rz, out int firstSolid)
+    {
+        var cells = new List<int>();
+        firstSolid = -1;
+        int vx = Math.Min(w - 1, Math.Max(0, (int)Math.Floor(lx)));
+        int vy = Math.Min(h - 1, Math.Max(0, (int)Math.Floor(ly)));
+        int vz = Math.Min(d - 1, Math.Max(0, (int)Math.Floor(lz)));
+        int sx = Math.Sign(rx), sy = Math.Sign(ry), sz = Math.Sign(rz);
+        float dx = Math.Abs(1f / rx), dy = Math.Abs(1f / ry), dz = Math.Abs(1f / rz);
+        float mx = sx < 0 ? (lx - vx) * dx : (vx + 1 - lx) * dx;
+        float my = sy < 0 ? (ly - vy) * dy : (vy + 1 - ly) * dy;
+        float mz = sz < 0 ? (lz - vz) * dz : (vz + 1 - lz) * dz;
+        for (int i = 0; i < 2000; i++)
+        {
+            if (vx < 0 || vy < 0 || vz < 0 || vx >= w || vy >= h || vz >= d) break;
+            int idx = vx + vy * w + vz * w * h;
+            cells.Add(idx);
+            if (firstSolid < 0 && (data[idx] & 0x1FFu) != 0) firstSolid = idx;
+            if (mx < my) { if (mx < mz) { vx += sx; mx += dx; } else { vz += sz; mz += dz; } }
+            else { if (my < mz) { vy += sy; my += dy; } else { vz += sz; mz += dz; } }
+        }
+        return cells;
+    }
+
+    static List<int> SkipMarch(uint[] data, uint[] occ, int w, int h, int d, int mdx, int mdy,
+        float lx, float ly, float lz, float rx, float ry, float rz, out int firstSolid)
+    {
+        var cells = new List<int>();
+        firstSolid = -1;
+        int vx = Math.Min(w - 1, Math.Max(0, (int)Math.Floor(lx)));
+        int vy = Math.Min(h - 1, Math.Max(0, (int)Math.Floor(ly)));
+        int vz = Math.Min(d - 1, Math.Max(0, (int)Math.Floor(lz)));
+        int sx = Math.Sign(rx), sy = Math.Sign(ry), sz = Math.Sign(rz);
+        float dx = Math.Abs(1f / rx), dy = Math.Abs(1f / ry), dz = Math.Abs(1f / rz);
+        float mx = sx < 0 ? (lx - vx) * dx : (vx + 1 - lx) * dx;
+        float my = sy < 0 ? (ly - vy) * dy : (vy + 1 - ly) * dy;
+        float mz = sz < 0 ? (lz - vz) * dz : (vz + 1 - lz) * dz;
+        for (int i = 0; i < 2000; i++)
+        {
+            if (vx < 0 || vy < 0 || vz < 0 || vx >= w || vy >= h || vz >= d) break;
+            // ---- shader macro-skip port ----
+            for (int k = 0; k < 16; k++)
+            {
+                if (vx < 0 || vy < 0 || vz < 0 || vx >= w || vy >= h || vz >= d) break;
+                int mvx = vx >> 2, mvy = vy >> 2, mvz = vz >> 2;
+                int mi = mvx + mdx * (mvy + mdy * mvz);
+                if (((occ[mi >> 5] >> (mi & 31)) & 1u) != 0) break;
+                int m0x = mvx << 2, m0y = mvy << 2, m0z = mvz << 2;
+                int tex = sx > 0 ? m0x + 4 - vx : vx - m0x + 1;
+                int tey = sy > 0 ? m0y + 4 - vy : vy - m0y + 1;
+                int tez = sz > 0 ? m0z + 4 - vz : vz - m0z + 1;
+                float ex = tex == 1 ? mx : mx + (tex - 1) * dx;
+                float ey = tey == 1 ? my : my + (tey - 1) * dy;
+                float ez = tez == 1 ? mz : mz + (tez - 1) * dz;
+                float exitT = Math.Min(ex, Math.Min(ey, ez));
+                while (mx <= exitT) { vx += sx; mx += dx; }
+                while (my <= exitT) { vy += sy; my += dy; }
+                while (mz <= exitT) { vz += sz; mz += dz; }
+            }
+            if (vx < 0 || vy < 0 || vz < 0 || vx >= w || vy >= h || vz >= d) break;
+            // ---- end port ----
+            int idx = vx + vy * w + vz * w * h;
+            cells.Add(idx);
+            if (firstSolid < 0 && (data[idx] & 0x1FFu) != 0) firstSolid = idx;
+            if (firstSolid >= 0) break;   // flat keeps marching for the set check; skip mirrors the hit break
+            if (mx < my) { if (mx < mz) { vx += sx; mx += dx; } else { vz += sz; mz += dz; } }
+            else { if (my < mz) { vy += sy; my += dy; } else { vz += sz; mz += dz; } }
+        }
+        return cells;
+    }
+
+    static void TestOccSkip()
+    {
+        int L = checks;
+        var r2 = new System.Random(7919);
+        for (int cfg = 0; cfg < 6; cfg++)
+        {
+            int w = cfg == 4 ? 18 : 16, h = cfg == 4 ? 10 : 16, d = cfg == 4 ? 14 : 16;
+            var data = new uint[w * h * d];
+            for (int z = 0; z < d; z++) for (int y = 0; y < h; y++) for (int x = 0; x < w; x++)
+            {
+                double r = r2.NextDouble();
+                bool solid =
+                    cfg == 0 ? r < 0.05 :
+                    cfg == 1 ? r < 0.30 :
+                    cfg == 2 ? r < 0.90 :
+                    cfg == 3 ? (x == 0 || y == 0 || z == 0 || x == w - 1 || y == h - 1 || z == d - 1 || (y <= 2 && r < 0.55)) :
+                    cfg == 4 ? r < 0.25 :
+                               (y % 4 == 0);   // 5: floor slabs, air between
+                data[x + y * w + z * w * h] = solid ? (uint)(1 + r2.Next(6)) : 0u;
+            }
+            int mdx = (w + 3) >> 2, mdy = (h + 3) >> 2, mdz = (d + 3) >> 2;
+            var occ = new uint[(mdx * mdy * mdz + 31) >> 5];
+            for (int z = 0; z < d; z++) for (int y = 0; y < h; y++) for (int x = 0; x < w; x++)
+                if ((data[x + y * w + z * w * h] & 0x1FFu) != 0)
+                {
+                    int mi = (x >> 2) + mdx * ((y >> 2) + mdy * (z >> 2));
+                    occ[mi >> 5] |= 1u << (mi & 31);
+                }
+            for (int ray = 0; ray < 400; ray++)
+            {
+                float rx, ry, rz;
+                int mode = ray % 9;
+                if (mode == 0) { rx = ry = rz = ray % 18 == 0 ? -1f : 1f; }
+                else if (mode == 1) { rx = 0f; ry = 1f; rz = 0f; }
+                else if (mode == 2) { rx = ray % 4 == 0 ? -1f : 1f; ry = 0f; rz = 0.35f; }
+                else { rx = (float)(r2.NextDouble() * 2 - 1); ry = (float)(r2.NextDouble() * 2 - 1); rz = (float)(r2.NextDouble() * 2 - 1); }
+                if (rx == 0 && ry == 0 && rz == 0) rx = 0.4f;
+                float lx = (float)(r2.NextDouble() * w), ly = (float)(r2.NextDouble() * h), lz = (float)(r2.NextDouble() * d);
+                var flat = FlatMarch(data, w, h, d, lx, ly, lz, rx, ry, rz, out int flatHit);
+                var skip = SkipMarch(data, occ, w, h, d, mdx, mdy, lx, ly, lz, rx, ry, rz, out int skipHit);
+                Check(flatHit == skipHit,
+                    $"cfg{cfg} ray{ray}: first solid hit must match flat DDA (flat={flatHit} skip={skipHit})");
+                var flatSet = new HashSet<int>(flat);
+                bool sub = true;
+                foreach (int c in skip) sub &= flatSet.Contains(c);
+                Check(sub, $"cfg{cfg} ray{ray}: skip sampled a cell the flat march never visited");
+                Check(skip.Count <= flat.Count, $"cfg{cfg} ray{ray}: skip sampled {skip.Count} cells > flat {flat.Count}");
+            }
+        }
+        Console.WriteLine($"[16] occ-skip DDA equivalence done (+{checks - L} checks)");
+    }
+
     static string rangePath;
     static string Describe2(VoxelRayHit r) => $"vol={r.volumeId} mat={r.material} cell=({r.cell.x},{r.cell.y},{r.cell.z}) dist={r.distance:F3}m";
 
@@ -967,6 +1096,7 @@ static class Program
         TestShardCollision();
         TestRubble();
         TestMassDebris();
+        TestOccSkip();
         Console.WriteLine(fails == 0 ? $"ALL PASS ({checks} checks)" : $"{fails} FAILURES of {checks} checks");
         return fails == 0 ? 0 : 1;
     }

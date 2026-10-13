@@ -408,6 +408,12 @@ namespace SteelCity.Sim
         {
             if (!showDebugHUD) return;
 
+            // Label-only HUD — the editor floods MouseMove/MouseDrag events
+            // (dozens/frame while the cursor moves); nothing here consumes them.
+            var evt = Event.current;
+            if (evt != null && (evt.type == EventType.MouseMove || evt.type == EventType.MouseDrag))
+                return;
+
             // Initialize cached styles once
             if (cachedLabelStyle == null)
             {

@@ -1,8 +1,30 @@
 # Recent Changes — Steel City: Mob Sim
 
-**Last Updated**: October 12, 2026 (debris pour-over-time + top-2 material blending + ragged rims)
+**Last Updated**: October 12, 2026 (perf audit — per-frame scene-scan + IMGUI event-flood pass)
 
 ---
+
+### Perf audit — per-frame scene scans + IMGUI event floods (Range-tab follow-ups)
+- **Trigger**: Range tab open dropped 120→40 FPS (IMGUI flood — fixed prior); blast pick armed dropped again (`PathDebugRenderer` scans). Audited all `FindFirstObjectByType` / `FindObjectsByType` / `Camera.main` / `OnGUI` sites for the same two classes.
+- **`PathDebugRenderer`**: cached `cachedBridge` / `cachedChunkManager` — `Update()` + `RenderBeamsIntoCamera()` each ran a full scene scan per frame whenever any beam/cube/path was active (i.e. exactly when a blast pick is armed).
+- **`DebugHUDManager` clothing timer**: `RefreshClothingSystems` ran every 1s unconditionally — 2× `FindObjectsByType` (array allocs) + 3× `FindFirstObjectByType` = a periodic frame spike with the HUD closed. Now gated on `visible`.
+- **`DebugHUDManager` absent-singleton retries**: `RefreshReferences` throttled at 0.5s still rescanned 4 always-absent test rigs 8×/sec while the HUD was open. It now returns completeness — resolved-all retries at 1s (free null-checks), incomplete at 3s.
+- **`CityMap3D` EventPlayer**: cached via `GetEventPlayer()` — was `FindFirstObjectByType` per-frame during WASD move and *per-MouseDrag-event* during pan in execution mode (input-rate × scene-scan, the worst combination).
+- **IMGUI event filters**: `CityMap3D.OnGUI` (ortho perf HUD) and `FollowCamera.OnGUI` (camera debug HUD) now skip `MouseMove`/`MouseDrag` — both are label-only, nothing consumes drag/move; same class as the DebugHUDManager fix.
+- **Checked + clean**: `Camera.main` sites (click/fallback only), `ProjectileSystem`/`VoxelDamageSystem` lazy-cached fields (resolve once), `GameUIController`/`TickSimulation` cached lookups, all spawner init-time scans (bounded), `StressTestSpawner`/`StressTestDiagnostics` TickHUD lookups (6×/sec + lazy-cached, dev-tools only).
+- **Custom-cube batching** (`PathDebugRenderer.RenderBeamsInternal`): debris shards each drew `DrawMeshInstanced` + MPB per frame — a live blast swarm (~hundreds of `gshard_` cubes, which persist while their rubble mass pours) = hundreds of draw calls/frame. Now grouped by quantized color (16 steps/channel) into shared instanced draws — the shard alpha fade lands shards in the same ~dozen buckets.
+- **Profiler instrumentation**: `Profiler.BeginSample` markers at `HUD.DrawRangeTab`, `PathDebug.RenderBeams`, `VDS.UpdateShards`, `VDS.PumpRubbleSlump` — the pick-armed FPS drop's remaining discriminator couldn't be attributed statically (widgets ~2ms), so the Profiler hierarchy will name it.
+- **Status**: compile clean; awaiting in-editor retest (pick-armed FPS, HUD-open idle, profiler read on the drop).
+
+### Macro-cell occupancy skip — two-level DDA (raymarch acceleration)
+
+### Macro-cell occupancy skip — two-level DDA (raymarch acceleration)
+- **Motivation**: bombed-out buildings render slower up close (81 FPS inside the demolished tenement vs 120 pulled back, CPU ~0.55 ms) — the flat DDA marches hundreds of empty interior cells per pixel. Sector baking can't help: the air is *inside* the marched bounds.
+- **Occupancy bitmask**: one bit per 4×4×4 macro cell, set iff any voxel inside is solid. Built eagerly at chunk creation + `RegisterSector`, recomputed for dirty macros in `UploadVoxelEdits` (≤64 voxel reads per touched macro, ~free on the dirty-span path), lazily on first upload for externally-registered volumes, fully rebuilt in `RefreshChunkVoxels`.
+- **Shader** (`VoxelProxyRaymarch.shader`): primary AND shadow marches test the macro bit before sampling; an empty macro jumps to the cell past its exit plane — `toEdge`/`tExit`/`exitT` computed exactly, then all voxel boundaries ≤ exitT are drained per-axis (`tMax.a += tDelta.a` accumulation — fp-identical to sequential `AdvanceDDA`, ties included). `normal`/`currentT` resynced via argmax-of-lastT so a hit on the landing cell shades correctly. Up to 16 chained skips/iteration.
+- **Sectors**: merged occ buffer + `_BuildingOcc[i]` word offsets (parallel to `_BuildingMeta`), delivered to the fragment shader via `nointerpolation uint` varying — occ offsets are separate from voxel `bufferOffset` (placements aren't a contiguous macro grid).
+- **Opt-in**: `_OccEnabled` per draw — character/prop/animated group paths bind 0 (replaces the shelved design's brick dilation); legacy `RenderComputeChunks` keeps flat DDA.
+- **Verification**: `dda_selftest` [16] ports the skip math verbatim — 7,200 equivalence checks vs flat DDA across 6 fills × 400 rays (axis/diagonal/tie-heavy): identical first-hit cell, sampled ⊆ visited, never more samples. ALL PASS (155,709 checks). Revives + supersedes `PERFORMANCE_PATTERNS.md` #13; full design in `RAYMARCH_TRAVERSAL_OPTIMIZATION.md` Phase 4.
 
 ### Debris pour-over-time + material blending (settling rework)
 - **`DepositHeap` is now incremental**: signature gains `mat2, mix2, maxWrite`. It writes up to `maxWrite` cells per call in deterministic ring order (center-out square layers, −1 half-extent every 2 layers), so a pour resumes the same mound without rewrites; written cells are solid → next tick skips them.

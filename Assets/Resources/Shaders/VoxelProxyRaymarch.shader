@@ -145,6 +145,16 @@ Shader "SteelCity/VoxelProxyRaymarch"
             StructuredBuffer<float4> _BuildingMeta;
             StructuredBuffer<float4> _BuildingPositions;
 
+            // --- Occupancy acceleration (two-level DDA) ---
+            // _OccData: one bit per 4x4x4 macro cell — set when ANY voxel inside
+            // is solid. Macro index uses volume-local coords and local macro
+            // dims, so merged sector buffers carry per-building word offsets in
+            // _BuildingOcc[i] (parallel to _BuildingMeta). _OccEnabled = 0 binds
+            // a 1-word dummy and the march falls back to flat DDA.
+            StructuredBuffer<uint> _OccData;
+            StructuredBuffer<uint> _BuildingOcc;
+            int   _OccEnabled;
+
             // --- Glass/window compositing ---
             // _PaneIDs: per-voxel pane group id (ASSET-LOCAL voxel index -- no
             // bufferOffset). A contiguous glass cluster shares one pane id and is
@@ -201,6 +211,7 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 float  animState   : TEXCOORD5; // animation state (0=Idle, 1=Walking, 2=Looking, etc.)
                 float  animTime    : TEXCOORD6; // seconds since animation started
                 float  animSpeed   : TEXCOORD7; // walk speed multiplier
+                nointerpolation uint occOffset : TEXCOORD8; // word offset into _OccData (0 outside sector baking)
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
@@ -833,6 +844,7 @@ Shader "SteelCity/VoxelProxyRaymarch"
                     output.animState = 0.0;
                     output.animTime = 0.0;
                     output.animSpeed = 1.0;
+                    output.occOffset = _BuildingOcc[unity_InstanceID];
                 #else
                     float4 instData = _InstanceOffsets[unity_InstanceID];
                     output.volumeOffset = instData.xyz;
@@ -852,6 +864,7 @@ Shader "SteelCity/VoxelProxyRaymarch"
                     output.animState = animData.x;
                     output.animTime = animData.y;
                     output.animSpeed = animData.z;
+                    output.occOffset = 0u;  // posed/character path: _OccEnabled is 0
                 #endif
             #else
                 output.volumeOffset = _VolumeOffset;
@@ -861,6 +874,7 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 output.animState = 0.0;
                 output.animTime = 0.0;
                 output.animSpeed = 1.0;
+                output.occOffset = 0u;      // single volumes index _OccData from word 0
             #endif
                 return output;
             }
@@ -1025,6 +1039,12 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 dims = VolumeDimsInt();
             #endif
 
+                // Macro-cell occupancy grid: 4x4x4 voxels per bit, volume-local
+                // (bufferOffset applies to _VoxelData only — occ keeps its own
+                // offsets because sector placements aren't a contiguous macro grid).
+                int3 macroDims = (dims + int3(3, 3, 3)) >> 2;
+                uint occOff = input.occOffset;
+
                 // Transform ray into volume local space (handles rotation)
                 float3 volumeCenter = volOffset + float3(dims) * voxelSize * 0.5;
                 float3 localRo = mul(volRot, ro - volumeCenter) + volumeCenter;
@@ -1095,6 +1115,53 @@ Shader "SteelCity/VoxelProxyRaymarch"
 #endif
                     if (!InBounds(voxel, dims))
                         break;
+
+                    if (_OccEnabled != 0)
+                    {
+                        // Two-level DDA: an all-empty 4x4x4 macro cell jumps
+                        // straight to the voxel cell past its exit plane. Up to
+                        // 16 chained skips per iteration cover ~64 cells — a
+                        // gutted interior marches at macro resolution.
+                        for (int k = 0; k < 16; ++k)
+                        {
+                            if (!InBounds(voxel, dims)) break;
+                            int3 mv = voxel >> 2;
+                            uint mi = (uint)(mv.x + macroDims.x * (mv.y + macroDims.y * mv.z));
+                            if (((_OccData[occOff + (mi >> 5)] >> (mi & 31)) & 1u) != 0u) break;
+                            int3 m0 = mv << 2;
+                            // Voxel steps to each axis's macro boundary (1..4).
+                            int3 toEdge = int3(
+                                stepDir.x > 0 ? m0.x + 4 - voxel.x : voxel.x - m0.x + 1,
+                                stepDir.y > 0 ? m0.y + 4 - voxel.y : voxel.y - m0.y + 1,
+                                stepDir.z > 0 ? m0.z + 4 - voxel.z : voxel.z - m0.z + 1);
+                            // Boundary times via the un-accumulated form; the
+                            // toEdge==1 ternary avoids a 0*inf NaN on dead axes.
+                            float3 tExit = float3(
+                                toEdge.x == 1 ? tMax.x : tMax.x + (float)(toEdge.x - 1) * tDelta.x,
+                                toEdge.y == 1 ? tMax.y : tMax.y + (float)(toEdge.y - 1) * tDelta.y,
+                                toEdge.z == 1 ? tMax.z : tMax.z + (float)(toEdge.z - 1) * tDelta.z);
+                            float exitT = min(tExit.x, min(tExit.y, tExit.z));
+                            // Drain every voxel boundary at or before the exit
+                            // plane. Per-axis accumulation is identical to
+                            // sequential AdvanceDDA, so the landing cell matches
+                            // — the exit axis lands toEdge cells on (into the
+                            // next macro), tied interior boundaries cross too.
+                            float3 lastT = float3(-1e30, -1e30, -1e30);
+                            while (tMax.x <= exitT) { voxel.x += stepDir.x; lastT.x = tMax.x; tMax.x += tDelta.x; }
+                            while (tMax.y <= exitT) { voxel.y += stepDir.y; lastT.y = tMax.y; tMax.y += tDelta.y; }
+                            while (tMax.z <= exitT) { voxel.z += stepDir.z; lastT.z = tMax.z; tMax.z += tDelta.z; }
+                            // Entry face = axis of the latest crossed boundary
+                            // (>= so x wins ties, matching sequential order where
+                            // x is crossed last at coincident planes). currentT
+                            // is that boundary's t — the exit axis's plane.
+                            if (lastT.x >= lastT.y && lastT.x >= lastT.z) normal = float3(-(float)stepDir.x, 0, 0);
+                            else if (lastT.y >= lastT.z)                    normal = float3(0, -(float)stepDir.y, 0);
+                            else                                             normal = float3(0, 0, -(float)stepDir.z);
+                            currentT = exitT;
+                        }
+                        if (!InBounds(voxel, dims))
+                            break;
+                    }
 
                     // Inverse-transform sampling: when groupIDs are enabled, sample voxel data
                     // at the REST position (inverse of the group transform). This makes the ray
@@ -1255,6 +1322,37 @@ Shader "SteelCity/VoxelProxyRaymarch"
 #endif
                                 if (!InBounds(shadowVoxel, dims))
                                     break;
+
+                                if (_OccEnabled != 0)
+                                {
+                                    // Same two-level skip as the primary march:
+                                    // empty macros on the light path jump to
+                                    // their exit plane. Runs before the skip-
+                                    // steps phase too — an all-empty macro
+                                    // holds no occluder by definition.
+                                    for (int k = 0; k < 16; ++k)
+                                    {
+                                        if (!InBounds(shadowVoxel, dims)) break;
+                                        int3 mv = shadowVoxel >> 2;
+                                        uint mi = (uint)(mv.x + macroDims.x * (mv.y + macroDims.y * mv.z));
+                                        if (((_OccData[occOff + (mi >> 5)] >> (mi & 31)) & 1u) != 0u) break;
+                                        int3 m0 = mv << 2;
+                                        int3 toEdge = int3(
+                                            shadowStep.x > 0 ? m0.x + 4 - shadowVoxel.x : shadowVoxel.x - m0.x + 1,
+                                            shadowStep.y > 0 ? m0.y + 4 - shadowVoxel.y : shadowVoxel.y - m0.y + 1,
+                                            shadowStep.z > 0 ? m0.z + 4 - shadowVoxel.z : shadowVoxel.z - m0.z + 1);
+                                        float3 sExit = float3(
+                                            toEdge.x == 1 ? shadowSideDist.x : shadowSideDist.x + (float)(toEdge.x - 1) * shadowDelta.x,
+                                            toEdge.y == 1 ? shadowSideDist.y : shadowSideDist.y + (float)(toEdge.y - 1) * shadowDelta.y,
+                                            toEdge.z == 1 ? shadowSideDist.z : shadowSideDist.z + (float)(toEdge.z - 1) * shadowDelta.z);
+                                        float exitT = min(sExit.x, min(sExit.y, sExit.z));
+                                        while (shadowSideDist.x <= exitT) { shadowVoxel.x += shadowStep.x; shadowSideDist.x += shadowDelta.x; }
+                                        while (shadowSideDist.y <= exitT) { shadowVoxel.y += shadowStep.y; shadowSideDist.y += shadowDelta.y; }
+                                        while (shadowSideDist.z <= exitT) { shadowVoxel.z += shadowStep.z; shadowSideDist.z += shadowDelta.z; }
+                                    }
+                                    if (!InBounds(shadowVoxel, dims))
+                                        break;
+                                }
 
                                 if (s < _ShadowSkipSteps)
                                 {

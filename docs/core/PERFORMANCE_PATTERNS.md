@@ -162,8 +162,14 @@ Applies to `ComputeBuffer`-backed collections: keep `count`, swap-pop removals, 
 
 ## 13. Two-Level DDA — Brick Occupancy Skip (SHELVED 2026-10-11)
 
-**Status**: built, exercised, then deliberately removed. It is not in the live
-shader or the C#; this entry is the worked design in case the need returns.
+**Status**: SUPERSEDED — re-implemented and shipped Oct 12, 2026 (Phase 4 in
+`docs/systems/RAYMARCH_TRAVERSAL_OPTIMIZATION.md`). The revive condition below
+was met by demolition creating march-bound hollow interiors (bombed tenement:
+81 FPS close vs 120 pulled back, ~0.55 ms CPU). New design differences:
+`_OccEnabled` opt-in replaces animated-asset brick dilation, per-building occ
+offsets ride a dedicated `nointerpolation uint` varying (not `yaw`), landing
+state resyncs by draining all voxel boundaries ≤ exit-T per axis (fp-identical
+to sequential DDA, selftest-verified over 7,200 ray cases).
 
 **Problem it targeted**: the proxy raymarcher held ~120 FPS top-down but
 degraded at every other angle — angled rays march deep through building

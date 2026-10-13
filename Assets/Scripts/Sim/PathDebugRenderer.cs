@@ -122,6 +122,20 @@ namespace SteelCity.Sim
         // constant-buffer limit) — stage slices into this buffer to stay under.
         private const int DrawChunk = 1023;
         private readonly Matrix4x4[] chunkBuffer = new Matrix4x4[DrawChunk];
+
+        // Custom-cube batching — debris shards share a draw per quantized color.
+        private readonly Matrix4x4[] cubeScratch = new Matrix4x4[MaxInstances];
+        private readonly Dictionary<uint, List<Matrix4x4>> cubeBatches = new();
+        private readonly Dictionary<uint, Color> cubeBatchColors = new();
+
+        private static uint QuantizeColor(Color c)
+        {
+            uint r = (uint)Mathf.Clamp(Mathf.RoundToInt(c.r * 15f), 0, 15);
+            uint g = (uint)Mathf.Clamp(Mathf.RoundToInt(c.g * 15f), 0, 15);
+            uint b = (uint)Mathf.Clamp(Mathf.RoundToInt(c.b * 15f), 0, 15);
+            uint a = (uint)Mathf.Clamp(Mathf.RoundToInt(c.a * 15f), 0, 15);
+            return r | (g << 4) | (b << 8) | (a << 12);
+        }
         private bool _hasLoggedEntry;
 
         [Header("Diagnostics")]
@@ -146,6 +160,10 @@ namespace SteelCity.Sim
         }
 
         public static PathDebugRenderer Instance { get; private set; }
+
+        // Cached scene singletons — lazily resolved, never re-scanned per frame.
+        private VoxelRenderBridge cachedBridge;
+        private VoxelChunkManager cachedChunkManager;
 
         /// <summary>Diagnostic: number of currently registered paths.</summary>
         public int ActivePathCount => activePaths.Count;
@@ -262,8 +280,11 @@ namespace SteelCity.Sim
             if (mapRoot == null || boxMesh == null || beamMaterial == null) return;
             if (activePaths.Count == 0 && !showWaypointGraph && customBeams.Count == 0 && customCubes.Count == 0) return;
 
-            var bridge = FindFirstObjectByType<VoxelRenderBridge>();
-            if (bridge == null)
+            // Cached singleton lookups — FindFirstObjectByType scans every
+            // object in a city-sized scene; two of these per frame while any
+            // beam is active was a multi-ms CPU tax (Range-tab blast pick).
+            if (cachedBridge == null) cachedBridge = FindFirstObjectByType<VoxelRenderBridge>();
+            if (cachedBridge == null)
             {
                 Camera cam = targetCamera;
                 if (cam == null) cam = Camera.main;
@@ -295,16 +316,21 @@ namespace SteelCity.Sim
             try
             {
                 // Get the active voxel render target from VoxelChunkManager
-                var chunkManager = FindFirstObjectByType<VoxelChunkManager>();
-                RenderTexture targetRT = chunkManager != null ? chunkManager.GetColorTexture() : null;
-            Camera cam = externalCam != null ? externalCam : (targetCamera != null ? targetCamera : Camera.main);
-            if (cam == null)
-            {
-                Debug.LogError("[PathDebug] RenderBeamsIntoCamera: cam is NULL (targetCamera and Camera.main both null)");
-                return;
-            }
+                if (cachedChunkManager == null) cachedChunkManager = FindFirstObjectByType<VoxelChunkManager>();
+                RenderTexture targetRT = cachedChunkManager != null ? cachedChunkManager.GetColorTexture() : null;
+                UnityEngine.Profiling.Profiler.BeginSample("PathDebug.RenderBeams");
+                try
+                {
+                    Camera cam = externalCam != null ? externalCam : (targetCamera != null ? targetCamera : Camera.main);
+                    if (cam == null)
+                    {
+                        Debug.LogError("[PathDebug] RenderBeamsIntoCamera: cam is NULL (targetCamera and Camera.main both null)");
+                        return;
+                    }
 
-            RenderBeamsInternal(targetRT, cam);
+                    RenderBeamsInternal(targetRT, cam);
+                }
+                finally { UnityEngine.Profiling.Profiler.EndSample(); }
             }
             catch (System.Exception e)
             {
@@ -699,13 +725,32 @@ namespace SteelCity.Sim
                 segDrawCount++;
             }
 
-            // Oriented cubes (debris shards) — one draw each, same instanced path
+            // Oriented cubes (debris shards) — batched by quantized color bucket.
+            // A live blast swarm is hundreds of cubes; one DrawMeshInstanced +
+            // MaterialPropertyBlock update each was a multi-ms CPU cost per frame.
+            // Quantizing to 16 steps/channel collapses the swarm into a handful
+            // of instanced draws (per-shard alpha fades through the same buckets).
+            foreach (var list in cubeBatches.Values) list.Clear();
             foreach (var cb in customCubes.Values)
             {
-                batchBuffer[0] = Matrix4x4.TRS(cb.pos, cb.rot, Vector3.one * cb.size);
+                uint key = QuantizeColor(cb.color);
+                if (!cubeBatches.TryGetValue(key, out var list))
+                {
+                    list = new List<Matrix4x4>(64);
+                    cubeBatches[key] = list;
+                    cubeBatchColors[key] = cb.color;
+                }
+                if (list.Count < MaxInstances)
+                    list.Add(Matrix4x4.TRS(cb.pos, cb.rot, Vector3.one * cb.size));
+            }
+            foreach (var kv in cubeBatches)
+            {
+                var list = kv.Value;
+                if (list.Count == 0) continue;
+                list.CopyTo(cubeScratch);
                 beamProps.Clear();
-                beamProps.SetColor("_Color", cb.color);
-                DrawInstanced(cmd, batchBuffer, 1, beamMaterial, beamProps);
+                beamProps.SetColor("_Color", cubeBatchColors[kv.Key]);
+                DrawInstanced(cmd, cubeScratch, list.Count, beamMaterial, beamProps);
                 segDrawCount++;
             }
 
