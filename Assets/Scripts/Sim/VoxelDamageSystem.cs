@@ -51,6 +51,12 @@ namespace SteelCity.Sim
         public float shardBounce = 0.35f;  // vertical restitution
         public float shardRestSec = 1.1f;  // how long a settled chunk lingers
         public int maxShards = 192;
+        [Tooltip("Debris sweeps against the voxel world (floors, roofs, walls, earlier rubble) instead of only the flat ground plane.")]
+        public bool shardVoxelCollision = true;
+        [Tooltip("A shard that comes to rest on a damaged volume writes its own material back into the cells it settled on - dust fills one cell, a collapsed chunk fills a block.")]
+        public bool rubbleDeposit = true;
+        [Tooltip("Edge cap (cells) for one deposited chunk.")]
+        public int rubbleMaxCells = 20;
 
         [Header("Glass audio (P1, synthesized — no assets)")]
         public bool glassAudioEnabled = true;
@@ -59,6 +65,8 @@ namespace SteelCity.Sim
         /// <summary>Last puncture's removed/cracked counts for the HUD report.</summary>
         public int LastRemoved { get; private set; }
         public int LastCracked { get; private set; }
+        /// <summary>Cells of rubble written back into volumes since the last reset (HUD).</summary>
+        public int RubbleCells { get; private set; }
 
         // volume id → copy-on-write state. The shared asset array stays read-only, so
         // every other placement of the same asset is unaffected; on first damage the
@@ -70,6 +78,8 @@ namespace SteelCity.Sim
             public uint[] original;   // pristine shared array — restore target
             public int w, h, d;
             public Vector3 corner; public float vs, yaw;
+            public readonly HashSet<int> rubble = new();      // cells DepositHeap wrote - the ONLY cells Slump may move
+            public readonly List<int> slumpQueue = new();     // candidate cells for the angle-of-repose pass
         }
         private readonly Dictionary<string, DamageState> cow = new();
         private readonly List<int> dirtyScratch = new();
@@ -77,9 +87,25 @@ namespace SteelCity.Sim
         // Shard sim — CPU-integrated, rendered as velocity-stretched PathDebugRenderer
         // beams (an elongated box reads as a flying glass fragment; same pipeline as
         // tracers, so it composites into the map RT for free).
-        private struct Shard { public Vector3 pos, vel, angVel; public Quaternion rot; public float tEnd; public int beamId; public Color col; public float size; public bool resting; }
+        // mat = material of the cell it came from (rubble writes it back) - mass = cells it carries, spilled as a heap on deposit - vol = volume it last touched - depositWait = at rest, queued to become rubble
+        private struct Shard { public Vector3 pos, vel, angVel; public Quaternion rot; public float tEnd; public int beamId; public Color col; public float size, size0; public bool resting; public ushort mat, mat2; public float mix2; public int mass, mass0; public string vol; public bool depositWait; }
         private readonly List<Shard> shards = new();
         private int shardCounter;
+        private ShardRaycast shardCast;      // sweep delegate over world.Raycast, built once
+        private float planBusyUntil;         // a shock-front playback runs until here - rubble waits so it never lands on an island about to drop
+        private const float RubbleWaitSec = 4f;
+        private const int RubblePerFrame = 32;   // deposits per frame - the whole waiting batch becomes eligible the frame the playback window closes
+        private const int RubbleCellsPerFrame = 65536; // cells written per frame - a mass-conserving batch can't hitch the window-close frame
+        private const int SlumpCellsPerFrame = 4096;   // angle-of-repose moves per frame - piles relax visibly over a few frames
+        private const float RenderCapCells = 5f;       // a debris shard never renders wider than this (voxels) - the mass it carries is spilled on deposit, not flown
+        /// <summary>Rubble pour rate (cells/sec per shard): a resting chunk drains over ~mass/rate seconds instead of popping its mound in one frame - the cube shrinks as it spills.</summary>
+        public float rubblePourPerSec = 8000f;
+        private const float FrontShardShare = 0.7f;    // of maxShards: blast-front debris budget (islands get the rest)
+        private const float IslandShardShare = 0.3f;   // of maxShards: island-drop debris budget
+        private int planAirCells = -1;                 // AIR writes across the plan's fronts - sizes each front's share of the shard budget
+        private int emitShards, emitMass, emitEvictMass;  // per-blast debris accounting - proves removed cells became carried mass
+        private readonly Dictionary<ushort, int> emitMatMass = new();   // carried cells per material - the "is it really asphalt?" answer
+        private float rubbleLogT = -10f;     // one log line per deposit burst, not per shard
         private readonly System.Random shardRng = new(0x5EED);
 
         private readonly Dictionary<int, AudioClip> clipCache = new();
@@ -105,6 +131,7 @@ namespace SteelCity.Sim
                 subscribed.ShotResolved += OnShotResolved;
             }
             UpdateShards();
+            PumpRubbleSlump();
         }
 
         private void OnShotResolved(ProjectileSystem.ShotReport r)
@@ -213,9 +240,14 @@ namespace SteelCity.Sim
 
             LastRemoved = removed + detached;
             LastCracked = cracked;
+            emitShards = emitMass = emitEvictMass = 0;
+            emitMatMass.Clear();
             chunkManager.UploadVoxelEdits(volumeId, st.data, dirtyScratch);
             EmitShards(st, worldPoint, blastIdx, blastMats);
-            if (detached > 0) EmitDebris(st, worldPoint, detIdx, detMats, detEnds);
+            if (detached > 0) EmitDebris(st, worldPoint, detIdx, detMats, 0);
+            Debug.Log($"[VoxelDamage] 🧨 debris {volumeId}: {emitShards} shards carrying {emitMass:N0} cells airborne" +
+                $"{EmitMatSummary()}" +
+                $"{(emitEvictMass > 0 ? $" · {emitEvictMass:N0} cells evicted" : "")} — rubble spills as they land");
             if (glassAudioEnabled)
                 AudioSource.PlayClipAtPoint(GlassClip(removed + detached), worldPoint,
                     glassAudioVolume * Mathf.Clamp01(0.4f + (removed + detached) / 20f));
@@ -262,6 +294,10 @@ namespace SteelCity.Sim
             foreach (var v in plan.writeVal) if (v != 0u) crackedTotal++;
             LastRemoved = plan.totalRemoved;
             LastCracked = crackedTotal;
+            planBusyUntil = Mathf.Max(planBusyUntil, Time.time + Mathf.Max(0.01f, durationSec) + 0.25f);
+            planAirCells = -1;
+            emitShards = emitMass = emitEvictMass = 0;
+            emitMatMass.Clear();
             StartCoroutine(PlayPlan(volumeId, st, plan, worldPoint, Mathf.Max(0.01f, durationSec)));
             Debug.Log($"[VoxelDamage] 💥 SIM {volumeId} @ {worldPoint}: {plan.totalRemoved} doomed cells, " +
                 $"{crackedTotal} cracked, {plan.passes} fronts" +
@@ -296,8 +332,11 @@ namespace SteelCity.Sim
             {
                 yield return new WaitForSeconds(step);
                 ApplyPlanSpan(volumeId, st, plan, plan.detachedStart, plan.writeIdx.Count, center);
-                EmitDebris(st, center, plan.writeIdx, plan.writeMat, plan.islandEnds, plan.detachedStart);
+                EmitDebris(st, center, plan.writeIdx, plan.writeMat, plan.detachedStart);
             }
+            Debug.Log($"[VoxelDamage] 🧨 debris {volumeId}: {emitShards} shards carrying {emitMass:N0} cells airborne" +
+                $"{EmitMatSummary()}" +
+                $"{(emitEvictMass > 0 ? $" · {emitEvictMass:N0} cells evicted" : "")} — rubble spills as they land");
         }
 
         /// <summary>Apply a span of plan writes → one dirty-span upload. No shards/audio — PlayPlan owns staging.</summary>
@@ -323,41 +362,23 @@ namespace SteelCity.Sim
             return (local + half) / st.vs;
         }
 
-        /// <summary>Radial shards for one plan wavefront — AIR writes only, tinted by original material.</summary>
+        /// <summary>
+        /// Radial debris for one plan wavefront: the front's AIR writes spatial-hash into debris
+        /// buckets — one shard per bucket, carrying the bucket's whole cell count as mass.
+        /// </summary>
         private void EmitPlanShards(DamageState st, Vector3 blastCenter, VoxelDamageMath.BlastPlan plan, int start, int end)
         {
             if (!shardBurstEnabled) return;
-            float vs = st.vs;
-            Vector3 half = new Vector3(st.w, st.h, st.d) * (vs * 0.5f);
-            Vector3 center = st.corner + half;
-            float rad = st.yaw * Mathf.Deg2Rad, c = Mathf.Cos(rad), s = Mathf.Sin(rad);
+            if (planAirCells < 0)
+            {
+                planAirCells = 0;
+                for (int i = 0; i < plan.detachedStart; i++) if (plan.writeVal[i] == 0u) planAirCells++;
+            }
             int air = 0;
             for (int i = start; i < end; i++) if (plan.writeVal[i] == 0u) air++;
-            int stride = Mathf.Max(1, air / Mathf.Max(1, maxShards));
-            for (int i = start; i < end; i += stride)
-            {
-                if (plan.writeVal[i] != 0u) continue;
-                int idx = plan.writeIdx[i];
-                int z = idx / (st.w * st.h), rem = idx - z * st.w * st.h, y = rem / st.w, x = rem - y * st.w;
-                Vector3 lp = new Vector3(x + 0.5f, y + 0.5f, z + 0.5f) * vs - half;
-                Vector3 wpos = center + new Vector3(lp.x * c + lp.z * s, lp.y, -lp.x * s + lp.z * c);
-                Vector3 dir = wpos - blastCenter;
-                dir = dir.sqrMagnitude < 1e-6f
-                    ? new Vector3((float)shardRng.NextDouble() - 0.5f, (float)shardRng.NextDouble() - 0.5f, (float)shardRng.NextDouble() - 0.5f).normalized
-                    : dir.normalized;
-                PushShard(new Shard
-                {
-                    pos = wpos,
-                    vel = dir * shardSpeed * 1.8f * (0.7f + 0.6f * (float)shardRng.NextDouble())
-                        + new Vector3((float)(shardRng.NextDouble() - 0.5), (float)(shardRng.NextDouble() - 0.5) + 0.3f,
-                            (float)(shardRng.NextDouble() - 0.5)) * shardSpread,
-                    tEnd = Time.time + shardLife * 1.4f * (0.7f + 0.6f * (float)shardRng.NextDouble()),
-                    beamId = shardCounter++,
-                    col = StAssetReader.GetMaterialColor((ushort)plan.writeMat[i]),
-                    size = st.vs * 0.75f,
-                    rot = RandRot(), angVel = RandAng(9f),
-                });
-            }
+            EmitClusterRange(st, blastCenter, plan.writeIdx, plan.writeMat, plan.writeVal,
+                start, end, Mathf.Max(2, Mathf.CeilToInt(debrisClusterM / st.vs)),
+                Mathf.Max(4, Mathf.RoundToInt(maxShards * FrontShardShare * air / Mathf.Max(1, planAirCells))), radial: true);
         }
         private readonly List<int> blastIdx = new();
         private readonly List<uint> blastMats = new();
@@ -373,14 +394,13 @@ namespace SteelCity.Sim
         public bool occlusionAware = true;
         /// <summary>DetonateEvent: simulate K expanding fronts up front, play back over frontSec.</summary>
         public bool shockFront = true;
-        public int frontPasses = 6;
+        public int frontPasses = 16;
         public float frontSec = 0.5f;
         private readonly List<int> detIdx = new();
         private readonly List<uint> detMats = new();
         private readonly List<int> detEnds = new();
         private byte[] visitedScratch;
-        private struct DebrisBucket { public int sx, sy, sz, count, matCount; public uint mat; }
-        private readonly Dictionary<int, DebrisBucket> clusterBuckets = new();
+        private readonly Dictionary<int, ShardPhysics.DebrisBucket> clusterBuckets = new();
 
         private Quaternion RandRot()
             => new Quaternion((float)shardRng.NextDouble() - 0.5f, (float)shardRng.NextDouble() - 0.5f,
@@ -431,6 +451,8 @@ namespace SteelCity.Sim
                     tEnd = Time.time + shardLife * (0.7f + 0.6f * (float)shardRng.NextDouble()),
                     beamId = shardCounter++,
                     col = col,
+                    mat = (ushort)(r.material & 0x1FF),
+                    mass = 1,
                     size = st.vs * 0.5f,
                     rot = RandRot(), angVel = RandAng(12f),
                 };
@@ -439,95 +461,109 @@ namespace SteelCity.Sim
         }
 
         /// <summary>
-        /// Radial variant for blasts: velocity = (shardPos − blastCenter), faster
-        /// than bullet spall; per-cell material colors so debris reads as building
-        /// parts (brick flies brick-colored, glass glass-colored).
+        /// Radial variant for blasts (non-front path): removed cells cluster into debris
+        /// buckets the same way wavefronts do — one shard per bucket, mass-conserving,
+        /// tinted by the bucket's majority material.
         /// </summary>
         private void EmitShards(DamageState st, Vector3 blastCenter, List<int> removedIdx, List<uint> removedMats)
         {
             if (!shardBurstEnabled) return;
-            float vs = st.vs;
-            Vector3 half = new Vector3(st.w, st.h, st.d) * (vs * 0.5f);
-            Vector3 center = st.corner + half;
-            float rad = st.yaw * Mathf.Deg2Rad, c = Mathf.Cos(rad), s = Mathf.Sin(rad);
-            int stride = Mathf.Max(1, removedIdx.Count / Mathf.Max(1, maxShards));
-            for (int i = 0; i < removedIdx.Count; i += stride)
-            {
-                int idx = removedIdx[i];
-                int z = idx / (st.w * st.h), rem = idx - z * st.w * st.h, y = rem / st.w, x = rem - y * st.w;
-                Vector3 lp = new Vector3(x + 0.5f, y + 0.5f, z + 0.5f) * vs - half;
-                Vector3 wpos = center + new Vector3(lp.x * c + lp.z * s, lp.y, -lp.x * s + lp.z * c);
-                Vector3 dir = wpos - blastCenter;
-                dir = dir.sqrMagnitude < 1e-6f
-                    ? new Vector3((float)shardRng.NextDouble() - 0.5f, (float)shardRng.NextDouble() - 0.5f, (float)shardRng.NextDouble() - 0.5f).normalized
-                    : dir.normalized;
-                var sh = new Shard
-                {
-                    pos = wpos,
-                    vel = dir * shardSpeed * 1.8f * (0.7f + 0.6f * (float)shardRng.NextDouble())
-                        + new Vector3((float)(shardRng.NextDouble() - 0.5), (float)(shardRng.NextDouble() - 0.5) + 0.3f,
-                            (float)(shardRng.NextDouble() - 0.5)) * shardSpread,
-                    tEnd = Time.time + shardLife * 1.4f * (0.7f + 0.6f * (float)shardRng.NextDouble()),
-                    beamId = shardCounter++,
-                    col = StAssetReader.GetMaterialColor((ushort)removedMats[i]),
-                    size = st.vs * 0.75f,
-                    rot = RandRot(), angVel = RandAng(9f),
-                };
-                PushShard(sh);
-            }
+            EmitClusterRange(st, blastCenter, removedIdx, removedMats, null,
+                0, removedIdx.Count, Mathf.Max(2, Mathf.CeilToInt(debrisClusterM / st.vs)),
+                Mathf.Max(4, Mathf.RoundToInt(maxShards * FrontShardShare)), radial: true);
         }
 
         /// <summary>
-        /// Detached islands fall as clustered debris: cells spatial-hash into
-        /// ~debrisClusterM buckets, one falling shard per bucket tinted by the
-        /// bucket's majority material (Boyer-Moore vote), beam width scaled by
-        /// cell count — a wall section reads as falling chunks, not confetti.
+        /// Detached islands fall as clustered debris: the whole detached span spatial-hashes into
+        /// buckets sized to the island share of the shard budget — one falling shard per bucket
+        /// carrying the bucket's mass, so a collapsed region lands as mounds of its own cells.
         /// </summary>
-        private void EmitDebris(DamageState st, Vector3 blastCenter, List<int> idx, List<uint> mats, List<int> ends, int idxBase = 0)
+        private void EmitDebris(DamageState st, Vector3 blastCenter, List<int> idx, List<uint> mats, int idxBase = 0)
         {
             if (!shardBurstEnabled) return;
+            EmitClusterRange(st, blastCenter, idx, mats, null, idxBase, idx.Count,
+                Mathf.Max(2, Mathf.CeilToInt(debrisClusterM / st.vs)),
+                Mathf.Max(2, Mathf.RoundToInt(maxShards * IslandShardShare)), radial: false);
+        }
+
+        /// <summary>Top carried materials as "matId×cells" for the debris log.</summary>
+        private string EmitMatSummary()
+        {
+            var top = new List<KeyValuePair<ushort, int>>(emitMatMass);
+            top.Sort((a, b) => b.Value.CompareTo(a.Value));
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < top.Count && i < 3; i++)
+                sb.Append(i == 0 ? " · " : ", ").Append($"{top[i].Key}×{top[i].Value:N0}");
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// One debris shard per spatial bucket over idx[start..end): cells hash into cs-pitch buckets and
+        /// each shard CARRIES the bucket's cell count as `mass` — it renders as a plain cube whose edge is
+        /// ∛count voxels capped at RenderCapCells (a chunk reads as a chunk, never as a true-shape slab)
+        /// tinted by the bucket's majority material. On rest TryDeposit pours the mass back into the
+        /// volume as a mound, so rubble ≈ what was removed, not what fit the particle budget. vals
+        /// (optional) filters to AIR writes so cracked cells never spawn debris. If the pitch produces
+        /// more than `target` buckets it is auto-coarsened until they fit (bucket count scales ~1/cs³) —
+        /// every removed cell still lands in some bucket, so emission is mass-conserving at any budget.
+        /// radial launches along (rep cell − blastCenter) damped by the chunk's edge (big sections drift
+        /// and thud, dust flies far); non-radial is the island drop — mostly down, slight outward.
+        /// </summary>
+        private void EmitClusterRange(DamageState st, Vector3 blastCenter, List<int> idx, List<uint> mats,
+            List<uint> vals, int start, int end, int cs, int target, bool radial)
+        {
             float vs = st.vs;
             Vector3 half = new Vector3(st.w, st.h, st.d) * (vs * 0.5f);
             Vector3 center = st.corner + half;
             float rad = st.yaw * Mathf.Deg2Rad, c = Mathf.Cos(rad), s = Mathf.Sin(rad);
-            int cs = Mathf.Max(1, Mathf.CeilToInt(debrisClusterM / vs));
-            var buckets = clusterBuckets;
-            int start = idxBase;
-            foreach (int end in ends)
+            ShardPhysics.BuildBuckets(idx, mats, st.w, st.h, start, end, cs, clusterBuckets, vals);
+            for (int guard = 0; clusterBuckets.Count > target && guard < 3; guard++)
             {
-                buckets.Clear();
-                for (int i = start; i < end; i++)
+                cs = Mathf.CeilToInt(cs * Mathf.Pow(clusterBuckets.Count / (float)target, 1f / 3f));
+                ShardPhysics.BuildBuckets(idx, mats, st.w, st.h, start, end, cs, clusterBuckets, vals);
+            }
+            foreach (var b in clusterBuckets.Values)
+            {
+                emitMatMass[(ushort)(b.mat & 0x1FFu)] = emitMatMass.TryGetValue((ushort)(b.mat & 0x1FFu), out int em) ? em + b.majCells : b.majCells;
+                if (b.mat2 != 0u)
+                    emitMatMass[(ushort)(b.mat2 & 0x1FFu)] = emitMatMass.TryGetValue((ushort)(b.mat2 & 0x1FFu), out int em2) ? em2 + b.othCells : b.othCells;
+                int ri = b.repIdx;                                        // spawn AT a real removed cell - the raw
+                int rz = ri / (st.w * st.h), rrem = ri - rz * st.w * st.h, ry = rrem / st.w, rx = rrem - ry * st.w;
+                Vector3 lp = new Vector3(rx + 0.5f, ry + 0.5f, rz + 0.5f) * vs - half;   // centroid can sit inside surviving solid
+                Vector3 wpos = center + new Vector3(lp.x * c + lp.z * s, lp.y, -lp.x * s + lp.z * c);
+                float edge = Mathf.Max(1f, Mathf.Pow(b.count, 1f / 3f));   // cube-edge equivalent of the mass, in cells
+                Vector3 vel;
+                if (radial)
                 {
-                    int idxx = idx[i];
-                    int z = idxx / (st.w * st.h), rem = idxx - z * st.w * st.h, y = rem / st.w, x = rem - y * st.w;
-                    int key = ((x / cs) << 20) | ((y / cs) << 10) | (z / cs);
-                    if (!buckets.TryGetValue(key, out var b)) b = new DebrisBucket();
-                    b.sx += x; b.sy += y; b.sz += z; b.count++;
-                    if (b.matCount == 0) { b.mat = mats[i]; b.matCount = 1; }
-                    else if (mats[i] == b.mat) b.matCount++; else b.matCount--;
-                    buckets[key] = b;
+                    Vector3 dir = wpos - blastCenter;
+                    dir = dir.sqrMagnitude < 1e-6f
+                        ? new Vector3((float)shardRng.NextDouble() - 0.5f, (float)shardRng.NextDouble() - 0.5f, (float)shardRng.NextDouble() - 0.5f).normalized
+                        : dir.normalized;
+                    vel = (dir * shardSpeed * 1.8f * (0.7f + 0.6f * (float)shardRng.NextDouble())
+                        + new Vector3((float)(shardRng.NextDouble() - 0.5), (float)(shardRng.NextDouble() - 0.5) + 0.3f,
+                            (float)(shardRng.NextDouble() - 0.5)) * shardSpread) / Mathf.Sqrt(edge);
                 }
-                foreach (var b in buckets.Values)
+                else
                 {
-                    Vector3 lp = new Vector3(b.sx / (float)b.count + 0.5f, b.sy / (float)b.count + 0.5f,
-                        b.sz / (float)b.count + 0.5f) * vs - half;
-                    Vector3 wpos = center + new Vector3(lp.x * c + lp.z * s, lp.y, -lp.x * s + lp.z * c);
                     Vector3 outw = wpos - blastCenter; outw.y = 0f;
                     if (outw.sqrMagnitude < 1e-6f) outw = Vector3.right;
-                    float csize = Mathf.Pow(b.count, 1f / 3f) * st.vs * 0.9f;
-                    PushShard(new Shard
-                    {
-                        pos = wpos,
-                        vel = Vector3.down * shardSpeed * (0.5f + 0.5f * (float)shardRng.NextDouble())
-                            + outw.normalized * shardSpeed * 0.3f * (float)shardRng.NextDouble(),
-                        tEnd = Time.time + shardLife * 2.2f,
-                        beamId = shardCounter++,
-                        col = StAssetReader.GetMaterialColor((ushort)b.mat),
-                        size = csize,
-                        rot = RandRot(), angVel = RandAng(3.5f / Mathf.Max(0.2f, csize)),
-                    });
+                    vel = Vector3.down * shardSpeed * (0.5f + 0.5f * (float)shardRng.NextDouble())
+                        + outw.normalized * shardSpeed * 0.3f * (float)shardRng.NextDouble();
                 }
-                start = end;
+                PushShard(new Shard
+                {
+                    pos = wpos,
+                    vel = vel,
+                    tEnd = Time.time + shardLife * (radial ? 1.4f : 2.2f) * (0.7f + 0.6f * (float)shardRng.NextDouble()),
+                    beamId = shardCounter++,
+                    col = StAssetReader.GetMaterialColor((ushort)b.mat),
+                    mat = (ushort)(b.mat & 0x1FFu),
+                    mat2 = (ushort)(b.mat2 & 0x1FFu),
+                    mix2 = b.count > 0 ? b.othCells / (float)b.count : 0f,
+                    mass = b.count,
+                    size = vs * 0.75f * Mathf.Min(edge, RenderCapCells),
+                    rot = RandRot(), angVel = RandAng(9f / Mathf.Sqrt(edge)),
+                });
             }
         }
 
@@ -537,44 +573,104 @@ namespace SteelCity.Sim
         {
             if (shards.Count >= maxShards)
             {
-                PathDebugRenderer.Instance?.ClearCustomBeam($"gshard_{shards[0].beamId}");
-                PathDebugRenderer.Instance?.ClearCustomCube($"gshard_{shards[0].beamId}");
-                shards.RemoveAt(0);
+                // prefer evicting debris that can never become rubble (still flying, or resting on
+                // terrain / an undamaged volume) so a settled chunk's mass isn't silently dropped
+                int evict = 0;
+                for (int i = 0; i < shards.Count; i++)
+                    if (!shards[i].depositWait) { evict = i; break; }
+                var ev = shards[evict];
+                if (ev.depositWait && Time.time >= planBusyUntil) TryDeposit(ref ev, int.MaxValue, out _);   // rescue the settled mass before dropping it
+                emitEvictMass += ev.mass;
+                PathDebugRenderer.Instance?.ClearCustomBeam($"gshard_{ev.beamId}");
+                PathDebugRenderer.Instance?.ClearCustomCube($"gshard_{ev.beamId}");
+                shards.RemoveAt(evict);
             }
+            sh.mass0 = sh.mass; sh.size0 = sh.size;                     // pour render shrinks toward 0 from these
             shards.Add(sh);
+            emitShards++; emitMass += sh.mass;
         }
 
-        /// <summary>Integrate shard positions, draw each as a velocity-stretched beam, expire dead ones.</summary>
+        /// <summary>
+        /// Integrate shards, draw each as a tumbling cube, expire dead ones. Airborne shards sweep the voxel world
+        /// (ShardPhysics.Step: floors, roofs, walls, earlier rubble) and keep the flat ground plane as the fallback when
+        /// collision is off or nothing is under them. A shard that comes to rest on a damaged volume waits to be written
+        /// back as rubble (TryDeposit) instead of just fading.
+        /// </summary>
         private void UpdateShards()
         {
             var pdr = PathDebugRenderer.Instance;
             if (pdr == null || shards.Count == 0) return;
             float dt = Time.deltaTime;
+            bool sweep = shardVoxelCollision && world != null && world.HasRaycastGeometry;
+            int deposits = 0, depositCells = 0;
+            if (sweep && shardCast == null)
+                shardCast = (Vector3 o, Vector3 dir, float max, out VoxelRayHit h) => world.Raycast(o, dir, max, out h);
             for (int i = shards.Count - 1; i >= 0; i--)
             {
                 var s = shards[i];
                 if (!s.resting)
                 {
-                    s.pos += s.vel * dt;
-                    s.vel.y -= shardGravity * dt;
                     s.rot = Quaternion.Euler(s.angVel.x * Mathf.Rad2Deg * dt,
                         s.angVel.y * Mathf.Rad2Deg * dt, s.angVel.z * Mathf.Rad2Deg * dt) * s.rot;
-                    float floor = shardGroundY + s.size * 0.5f;
-                    if (s.pos.y < floor && s.vel.y < 0f)
+                    if (sweep)
+                    {
+                        var step = ShardPhysics.Step(ref s.pos, ref s.vel, s.size * 0.5f, dt, shardGravity,
+                            shardBounce, 0.6f, shardCast, out var hit);
+                        if (step == ShardStep.Embedded)
+                        {
+                            // wedged into surviving solid - after the collapse window, spill the mass it
+                            // carries into the air around it instead of losing it (a chunk that clips a
+                            // wall edge leaves its cells in the wall's cavities)
+                            if (s.mass > 1 && Time.time >= planBusyUntil && s.vol != null && cow.TryGetValue(s.vol, out var est))
+                            {
+                                Vector3 cp = WorldToCell(est, s.pos);
+                                dirtyScratch.Clear();
+                                int written = ShardPhysics.DepositHeap(est.data, est.w, est.h, est.d,
+                                    Mathf.FloorToInt(cp.x), Mathf.FloorToInt(cp.y), Mathf.FloorToInt(cp.z),
+                                    s.mass0 > 0 ? s.mass0 : s.mass, rubbleMaxCells, s.mat, s.mat2, s.mix2,
+                                    s.mass, dirtyScratch);
+                                if (written > 0)
+                                {
+                                    for (int di = 0; di < dirtyScratch.Count; di++) { est.rubble.Add(dirtyScratch[di]); est.slumpQueue.Add(dirtyScratch[di]); }
+                                    chunkManager.UploadVoxelEdits(s.vol, est.data, dirtyScratch); RubbleCells += written;
+                                }
+                            }
+                            s.resting = true; s.depositWait = false; s.vel = s.angVel = Vector3.zero;
+                            s.tEnd = Mathf.Min(s.tEnd, Time.time + 0.15f);      // swallowed by geometry - fade out fast
+                        }
+                        else if (step == ShardStep.Contact)
+                        {
+                            s.vol = hit.volumeId;
+                            s.angVel *= 0.55f;
+                            if (hit.normal.y > 0.7f && s.vel.sqrMagnitude < 0.16f) SettleShard(ref s);
+                        }
+                    }
+                    else
+                    {
+                        s.pos += s.vel * dt;
+                        s.vel.y -= shardGravity * dt;
+                    }
+                    float floor = shardGroundY + s.size * 0.5f;     // flat plane: the whole floor with collision off, the safety net under it otherwise
+                    if (!s.resting && s.pos.y < floor && s.vel.y < 0f)
                     {
                         s.pos.y = floor;
                         s.vel.y = -s.vel.y * shardBounce;
                         s.vel.x *= 0.6f; s.vel.z *= 0.6f;
                         s.angVel *= 0.55f;
-                        if (s.vel.sqrMagnitude < 0.16f)
-                        {
-                            s.resting = true; s.vel = Vector3.zero; s.angVel = Vector3.zero;
-                            s.tEnd = Mathf.Min(s.tEnd, Time.time + shardRestSec);
-                        }
+                        s.vol = null;
+                        if (s.vel.sqrMagnitude < 0.16f) SettleShard(ref s);
                     }
                 }
                 bool dead = Time.time >= s.tEnd;
-                if (dead)
+                bool willClear = dead && !(s.depositWait && s.mass > 0);     // a pouring shard outlives its expiry
+                if (!willClear && s.depositWait && deposits < RubblePerFrame && depositCells < RubbleCellsPerFrame &&
+                    (Time.time >= planBusyUntil || dead))
+                {
+                    int pour = Mathf.Min(Mathf.Max(1, (int)(rubblePourPerSec * dt)), RubbleCellsPerFrame - depositCells);
+                    if (TryDeposit(ref s, pour, out int wrote))
+                    { deposits++; depositCells += wrote; dead = s.mass <= 0; willClear = dead; }   // fully poured - the mound remains
+                }
+                if (willClear)
                 {
                     pdr.ClearCustomBeam($"gshard_{s.beamId}");
                     pdr.ClearCustomCube($"gshard_{s.beamId}");
@@ -587,6 +683,84 @@ namespace SteelCity.Sim
                 pdr.SetCustomCube($"gshard_{s.beamId}", s.pos, s.rot, s.size, c);
                 shards[i] = s;
             }
+        }
+
+        /// <summary>
+        /// Angle-of-repose pump: runs every frame (not just while shards live) so deposited rubble
+        /// keeps relaxing after the last chunk pours. Each damaged volume's slumpQueue feeds
+        /// ShardPhysics.Slump up to a per-frame move budget — a big collapse visibly settles over
+        /// several frames instead of snapping to its final cone.
+        /// </summary>
+        private void PumpRubbleSlump()
+        {
+            if (chunkManager == null) return;
+            int budget = SlumpCellsPerFrame;
+            foreach (var kv in cow)
+            {
+                var st = kv.Value;
+                if (st.slumpQueue.Count == 0) continue;
+                dirtyScratch.Clear();
+                int moves = ShardPhysics.Slump(st.data, st.w, st.h, st.d, st.rubble, st.slumpQueue, budget, dirtyScratch);
+                if (moves > 0) { chunkManager.UploadVoxelEdits(kv.Key, st.data, dirtyScratch); budget -= moves; }
+                if (budget <= 0) break;
+            }
+        }
+
+        /// <summary>Come to rest. On a damaged volume the shard waits (up to RubbleWaitSec) to be written back as rubble; anywhere else it lingers shardRestSec and fades.</summary>
+        private void SettleShard(ref Shard s)
+        {
+            s.resting = true; s.vel = Vector3.zero; s.angVel = Vector3.zero;
+            s.depositWait = rubbleDeposit && s.mat != 0 && s.vol != null && cow.ContainsKey(s.vol);
+            if (s.depositWait) s.tEnd = Time.time + RubbleWaitSec;
+            else Linger(ref s);
+        }
+
+        /// <summary>Give up on becoming rubble: just sit for shardRestSec and fade.</summary>
+        private void Linger(ref Shard s)
+        {
+            s.depositWait = false;
+            s.tEnd = Mathf.Min(s.tEnd, Time.time + shardRestSec);
+        }
+
+        /// <summary>
+        /// A resting shard POURS: writes up to `budget` cells of its carried mass into the mound under it
+        /// each call (DepositHeap's deterministic ring order resumes the pile - earlier writes are solid
+        /// now) and shrinks its rendered cube toward nothing as mass drains, so the chunk visibly melts
+        /// into rubble instead of popping a mound. The surface under it is re-probed every tick - if an
+        /// island dropped out from beneath it the shard wakes and falls with its remaining mass instead
+        /// of leaving rubble hanging in mid-air. True = the pour ticked; wrote = cells deposited this call.
+        /// </summary>
+        private bool TryDeposit(ref Shard s, int budget, out int wrote)
+        {
+            wrote = 0;
+            if (world == null || chunkManager == null) { Linger(ref s); return false; }
+            float r = s.size * 0.5f;
+            if (!world.Raycast(s.pos, Vector3.down, r + 0.05f, out var sup) || sup.normal.y < 0.7f)
+            {
+                s.resting = false; s.depositWait = false;
+                s.tEnd = Mathf.Max(s.tEnd, Time.time + shardLife);
+                return false;
+            }
+            if (sup.volumeId == null || !cow.TryGetValue(sup.volumeId, out var st)) { Linger(ref s); return false; }
+            Vector3 cp = WorldToCell(st, new Vector3(s.pos.x, sup.point.y + r + ShardPhysics.Skin, s.pos.z));
+            dirtyScratch.Clear();
+            int written = ShardPhysics.DepositHeap(st.data, st.w, st.h, st.d,
+                Mathf.FloorToInt(cp.x), Mathf.FloorToInt(cp.y), Mathf.FloorToInt(cp.z),
+                s.mass0 > 0 ? s.mass0 : s.mass, rubbleMaxCells, s.mat, s.mat2, s.mix2,
+                Mathf.Min(budget, s.mass), dirtyScratch);
+            if (written == 0) { Linger(ref s); return false; }
+            for (int i = 0; i < dirtyScratch.Count; i++) { st.rubble.Add(dirtyScratch[i]); st.slumpQueue.Add(dirtyScratch[i]); }
+            chunkManager.UploadVoxelEdits(sup.volumeId, st.data, dirtyScratch);
+            RubbleCells += written;
+            s.mass -= written;
+            s.size = Mathf.Max(st.vs * 0.4f, s.size0 * Mathf.Pow(s.mass / (float)Mathf.Max(1, s.mass0), 1f / 3f));   // the cube melts into the mound
+            s.tEnd = Mathf.Max(s.tEnd, Time.time + 0.5f);                    // keep the pourer alive while it drains
+            wrote = written;
+            if (Time.time - rubbleLogT > 2f)
+                Debug.Log($"[VoxelDamage] 🧱 rubble settling into {sup.volumeId}: shard poured {written} cell(s), {s.mass} left" +
+                    $" (mat {s.mat}{(s.mat2 != 0 ? $"/{s.mat2} @{s.mix2:F2}" : "")}) — {RubbleCells} total");
+            rubbleLogT = Time.time;
+            return true;
         }
 
         /// <summary>
@@ -664,7 +838,8 @@ namespace SteelCity.Sim
             if (n > 0) Debug.Log($"[VoxelDamage] ♻ reset {n} damaged volume(s) to pristine");
             cow.Clear();
             skippedVolumes.Clear();
-            LastRemoved = LastCracked = 0;
+            LastRemoved = LastCracked = RubbleCells = 0;
+            planBusyUntil = 0f;
             return n;
         }
 

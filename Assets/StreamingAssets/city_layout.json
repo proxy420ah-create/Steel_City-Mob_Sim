@@ -2790,63 +2790,15 @@
     },
     {
       "block_id": "block_48",
-      "block_name": "E Quarter 48",
+      "block_name": "E Quarter 48 [DEBRIS TESTBED]",
       "row": 4,
       "col": 7,
       "buildings": [
         {
-          "type": "empty_land",
+          "type": "debris_test_lot",
           "illegal": false,
-          "stasset": "voxel_buildings/empty_land.stasset",
+          "stasset": "voxel_buildings/debris_test_lot.stasset",
           "slot": 0
-        },
-        {
-          "type": "empty_land",
-          "illegal": false,
-          "stasset": "voxel_buildings/empty_land.stasset",
-          "slot": 1
-        },
-        {
-          "type": "empty_land",
-          "illegal": false,
-          "stasset": "voxel_buildings/empty_land.stasset",
-          "slot": 2
-        },
-        {
-          "type": "empty_land",
-          "illegal": false,
-          "stasset": "voxel_buildings/empty_land.stasset",
-          "slot": 3
-        },
-        {
-          "type": "empty_land",
-          "illegal": false,
-          "stasset": "voxel_buildings/empty_land.stasset",
-          "slot": 4
-        },
-        {
-          "type": "empty_land",
-          "illegal": false,
-          "stasset": "voxel_buildings/empty_land.stasset",
-          "slot": 5
-        },
-        {
-          "type": "empty_land",
-          "illegal": false,
-          "stasset": "voxel_buildings/empty_land.stasset",
-          "slot": 6
-        },
-        {
-          "type": "empty_land",
-          "illegal": false,
-          "stasset": "voxel_buildings/empty_land.stasset",
-          "slot": 7
-        },
-        {
-          "type": "empty_land",
-          "illegal": false,
-          "stasset": "voxel_buildings/empty_land.stasset",
-          "slot": 8
         }
       ]
     },

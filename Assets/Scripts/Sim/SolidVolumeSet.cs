@@ -117,17 +117,28 @@ namespace SteelCity.Sim
 
         /// <summary>
         /// Nearest hit within maxDistance. dir must be a unit vector. Allocation-free.
-        /// A linear broadphase over the registered volumes is plenty for a handful of projectiles per
-        /// frame (~800 buildings); put a coarse grid in front of it before mass fire / per-frame LOS.
+        /// A linear broadphase over the registered volumes (segment-AABB reject, then the slab test) is
+        /// plenty for a handful of projectiles per frame (~3.7 us per short ray at 800 buildings; ~190
+        /// debris shards sweeping every frame = ~0.7 ms); put a coarse grid in front of it for long rays
+        /// at mass-fire / per-frame-LOS scale.
         /// </summary>
         public bool Raycast(Vector3 origin, Vector3 dir, float maxDistance, out VoxelRayHit hit)
         {
             hit = default;
             float best = maxDistance;
             bool found = false;
+
+            // Segment AABB: a six-compare reject ahead of the slab test. Short rays (debris sweeps, per-frame LOS)
+            // touch no volume at all in a city of hundreds, and the slab loop alone cost ~50 ns per volume.
+            const float pad = 1e-4f;
+            Vector3 end = origin + dir * maxDistance;
+            float sx0 = Mathf.Min(origin.x, end.x) - pad, sx1 = Mathf.Max(origin.x, end.x) + pad;
+            float sy0 = Mathf.Min(origin.y, end.y) - pad, sy1 = Mathf.Max(origin.y, end.y) + pad;
+            float sz0 = Mathf.Min(origin.z, end.z) - pad, sz1 = Mathf.Max(origin.z, end.z) + pad;
             for (int i = 0; i < volumes.Count; i++)
             {
                 Volume v = volumes[i];
+                if (sx1 < v.wMin.x || sx0 > v.wMax.x || sy1 < v.wMin.y || sy0 > v.wMax.y || sz1 < v.wMin.z || sz0 > v.wMax.z) continue;
                 if (!RayHitsBox(origin, dir, v.wMin, v.wMax, best)) continue;
 
                 Vector3 o, dl;

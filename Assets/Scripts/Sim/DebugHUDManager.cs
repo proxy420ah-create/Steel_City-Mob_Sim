@@ -1152,6 +1152,8 @@ namespace SteelCity.Sim
                     dmgSys.frontPasses = Mathf.RoundToInt(HSlider("front passes", dmgSys.frontPasses, 1f, 24f, "F0"));
                     dmgSys.frontSec = HSlider("front sec", dmgSys.frontSec, 0.1f, 1.5f, "F2");
                 }
+                dmgSys.shardVoxelCollision = GUILayout.Toggle(dmgSys.shardVoxelCollision, " debris bounces off voxels (floors / walls)", toggleStyle);
+                dmgSys.rubbleDeposit = GUILayout.Toggle(dmgSys.rubbleDeposit, $" debris settles into volume (rubble · {dmgSys.RubbleCells} cells)", toggleStyle);
                 bool canDet = !string.IsNullOrEmpty(blastVolume);
                 GUI.enabled = canDet;
                 if (GUILayout.Button($"💥 DETONATE ({blastRadius:F1}m)", canDet ? tabActiveStyle : tabStyle, GUILayout.Height(26)))

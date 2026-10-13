@@ -33,6 +33,7 @@ RSP="$OUT/build.rsp"
   echo "\"$(win "$ROOT/Assets/Scripts/Sim/VoxelDda.cs")\""
   echo "\"$(win "$ROOT/Assets/Scripts/Sim/SolidVolumeSet.cs")\""
   echo "\"$(win "$ROOT/Assets/Scripts/Sim/VoxelDamageMath.cs")\""
+  echo "\"$(win "$ROOT/Assets/Scripts/Sim/ShardPhysics.cs")\""
   echo "\"$(win "$ROOT/Tools/dda_selftest/Program.cs")\""
 } > "$RSP"
 

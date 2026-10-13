@@ -585,6 +585,355 @@ static class Program
         Console.WriteLine("[12] path-length march test done");
     }
 
+    // [13] Debris vs voxels (ShardPhysics.Step): a swept sphere never tunnels, bounces off floors AND walls
+    // (yawed volumes too — floor and wall are the same code, only the normal differs) and reports embedding.
+    static ShardRaycast Caster(SolidVolumeSet set) => (Vector3 o, Vector3 dd, float m, out VoxelRayHit hh) => set.Raycast(o, dd, m, out hh);
+
+    static void TestShardCollision()
+    {
+        const float vs = 0.05f, r = 0.01875f, e = 0.35f, fr = 0.6f, dt60 = 1f / 60f;
+        const int w = 40, h = 20, d = 40;
+        uint[] Slab(int yCells) { var g = new uint[w * h * d]; for (int z = 0; z < d; z++) for (int y = 0; y < yCells; y++) for (int x = 0; x < w; x++) g[x + y * w + z * w * h] = 100; return g; }
+        uint[] Wall(int xFrom) { var g = new uint[w * h * d]; for (int z = 0; z < d; z++) for (int y = 0; y < h; y++) for (int x = xFrom; x < w; x++) g[x + y * w + z * w * h] = 100; return g; }
+
+        // A. a tossed shard settles on a 4-cell floor (top face at 0.2 m): never below it, never embedded, comes to rest
+        var set = new SolidVolumeSet(); set.Register("floor", Slab(4), w, h, d, Vector3.zero, vs);
+        var cast = Caster(set);
+        Vector3 pos = new Vector3(1f, 0.9f, 1f), vel = new Vector3(0.6f, 0f, 0.2f);
+        float minY = float.MaxValue; int rest = -1; VoxelRayHit hit = default; bool embedded = false;
+        for (int f = 0; f < 600 && rest < 0; f++)
+        {
+            var res = ShardPhysics.Step(ref pos, ref vel, r, dt60, 9f, e, fr, cast, out hit);
+            minY = Mathf.Min(minY, pos.y);
+            if (res == ShardStep.Embedded) embedded = true;
+            if (res == ShardStep.Contact && hit.normal.y > 0.7f && vel.sqrMagnitude < 0.16f) rest = f;
+        }
+        Check(!embedded, "tossed shard must never be embedded");
+        Check(rest >= 0, "tossed shard must come to rest within 10 s");
+        Check(minY >= 0.2f + r - 1e-4f, $"shard sank into the floor: minY {minY:F4} < {0.2f + r:F4}");
+        Check(Mathf.Abs(pos.y - (0.2f + r + ShardPhysics.Skin)) < 1e-3f, $"rest height {pos.y:F4} should sit one radius above the floor");
+        Check(hit.volumeId == "floor", "contact must report the volume it landed on");
+
+        // B. 30 m/s at dt 1/30 (a 1 m step) onto a ONE-voxel floor (top face 0.05 m): stops on it, no tunnelling
+        var setT = new SolidVolumeSet(); setT.Register("thin", Slab(1), w, h, d, Vector3.zero, vs);
+        Vector3 pT = new Vector3(1f, 0.9f, 1f), vT = new Vector3(0f, -30f, 0f);
+        var rT = ShardPhysics.Step(ref pT, ref vT, r, 1f / 30f, 0f, e, fr, Caster(setT), out _);
+        Check(rT == ShardStep.Contact, "a 30 m/s shard must stop on a 1-voxel floor, not tunnel");
+        Check(Mathf.Abs(pT.y - (0.05f + r + ShardPhysics.Skin)) < 1e-3f, $"fast-shard rest height {pT.y:F4}");
+        Check(vT.y > 10f && vT.y < 11f, $"vertical bounce {vT.y:F2} should be 0.35 x 30");
+
+        // C. wall: a shard flying +x at 6 m/s stops a radius off the face (x = 1.5 m) and reverses vx x restitution
+        var setW = new SolidVolumeSet(); setW.Register("wall", Wall(30), w, h, d, Vector3.zero, vs);
+        var castW = Caster(setW);
+        Vector3 pW = new Vector3(1.0f, 0.5f, 1.0f), vW = new Vector3(6f, 0f, 0f);
+        var rW = ShardStep.Free; VoxelRayHit hW = default;
+        for (int f = 0; f < 40 && rW != ShardStep.Contact; f++)
+            rW = ShardPhysics.Step(ref pW, ref vW, r, dt60, 0f, e, fr, castW, out hW);
+        Check(rW == ShardStep.Contact, "a shard flying at a wall must hit it");
+        Check(Mathf.Abs(pW.x - (1.5f - r - ShardPhysics.Skin)) < 1e-3f, $"wall stop x {pW.x:F4}");
+        Check(Mathf.Abs(vW.x + 6f * e) < 0.01f && Mathf.Abs(vW.y) < 1e-4f && Mathf.Abs(vW.z) < 1e-4f, $"wall bounce should be vx = -{6f * e:F2}, got {vW}");
+        Check(hW.normal.x < -0.99f, $"wall normal should face the shard, got {hW.normal}");
+
+        // D. the same wall in a YAWED volume: contact + bounce happen about the rotated normal
+        const float yawDeg = 30f;
+        float yr = yawDeg * Mathf.Deg2Rad, yc = Mathf.Cos(yr), ys = Mathf.Sin(yr);
+        Vector3 Rot(Vector3 p, float sgn) => new Vector3(p.x * yc + p.z * sgn * ys, p.y, -p.x * sgn * ys + p.z * yc);
+        Vector3 half = new Vector3(w, h, d) * (vs * 0.5f), corner = new Vector3(3f, 0.2f, 5f), centre = corner + half;
+        var setY = new SolidVolumeSet(); setY.Register("wallY", Wall(30), w, h, d, corner, vs, yawDeg);
+        var castY = Caster(setY);
+        Vector3 pY = centre + Rot(new Vector3(1.0f, 0.5f, 1.0f) - half, 1f), vY = Rot(new Vector3(6f, 0f, 0f), 1f);
+        var rY = ShardStep.Free;
+        for (int f = 0; f < 40 && rY != ShardStep.Contact; f++)
+            rY = ShardPhysics.Step(ref pY, ref vY, r, dt60, 0f, e, fr, castY, out _);
+        Vector3 localP = Rot(pY - centre, -1f) + half;
+        Check(rY == ShardStep.Contact, "shard must hit the yawed wall");
+        Check(Mathf.Abs(localP.x - (1.5f - r - ShardPhysics.Skin)) < 1e-3f, $"yawed wall stop (volume-local x) {localP.x:F4}");
+        Check(Vector3.Dot(vY.normalized, Rot(new Vector3(-1f, 0f, 0f), 1f)) > 0.999f && Mathf.Abs(vY.magnitude - 6f * e) < 0.02f,
+            $"yawed bounce should leave along the rotated normal at 0.35 x speed, got {vY} ({vY.magnitude:F2})");
+
+        // E. a shard whose center is already inside a solid cell is reported, not moved through the floor
+        Vector3 pE = new Vector3(1f, 0.1f, 1f), vE = new Vector3(0f, -1f, 0f);
+        Check(ShardPhysics.Step(ref pE, ref vE, r, dt60, 9f, e, fr, cast, out _) == ShardStep.Embedded, "a shard inside a solid cell must report Embedded");
+        Check((pE - new Vector3(1f, 0.1f, 1f)).sqrMagnitude < 1e-10f, "an embedded shard must not be moved");
+
+        // F. skimming along a floor at 2 m/s: the center never crosses the floor plane
+        Vector3 pS = new Vector3(0.5f, 0.2f + r + ShardPhysics.Skin, 1f), vS = new Vector3(2f, 0f, 0f);
+        float minS = float.MaxValue; bool embS = false;
+        for (int f = 0; f < 90; f++)
+        {
+            if (ShardPhysics.Step(ref pS, ref vS, r, dt60, 9f, e, fr, cast, out _) == ShardStep.Embedded) embS = true;
+            minS = Mathf.Min(minS, pS.y);
+        }
+        Check(!embS && minS >= 0.2f, $"skimming shard must stay above the floor plane, minY {minS:F4}");
+
+        // G. fuzz: shards in a sealed box room (floor 4 cells, walls/ceiling 2) with random velocity up to 12 m/s,
+        //    random frame times 1/120..1/20 s — no shard ever ends up inside solid, none reports Embedded.
+        var room = new uint[w * h * d];
+        bool Inner(int x, int y, int z) => x >= 2 && x < w - 2 && y >= 4 && y < h - 2 && z >= 2 && z < d - 2;
+        for (int z = 0; z < d; z++) for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) if (!Inner(x, y, z)) room[x + y * w + z * w * h] = 100;
+        var setR = new SolidVolumeSet(); setR.Register("room", room, w, h, d, Vector3.zero, vs);
+        var castR = Caster(setR);
+        int bad = 0, contacts = 0, shardsRun = 0;
+        for (int s = 0; s < 700; s++)
+        {
+            float rr = s % 7 == 0 ? 0.1f : 0.01875f;                                   // some chunk-sized shards
+            Vector3 p = new Vector3((float)R(0.3, 1.7), (float)R(0.35, 0.8), (float)R(0.3, 1.7));
+            Vector3 v = new Vector3((float)R(-12, 12), (float)R(-12, 12), (float)R(-12, 12));
+            shardsRun++;
+            for (int f = 0; f < 300; f++)
+            {
+                float fdt = (float)R(1.0 / 120, 1.0 / 20);
+                var res = ShardPhysics.Step(ref p, ref v, rr, fdt, 9f, e, fr, castR, out _);
+                if (res == ShardStep.Contact) contacts++;
+                int cx = (int)Mathf.Floor(p.x / vs), cy = (int)Mathf.Floor(p.y / vs), cz = (int)Mathf.Floor(p.z / vs);
+                bool outside = cx < 0 || cx >= w || cy < 0 || cy >= h || cz < 0 || cz >= d;
+                if (res == ShardStep.Embedded || outside || room[cx + cy * w + cz * w * h] != 0u) { bad++; break; }
+            }
+        }
+        Check(bad == 0, $"fuzz: {bad} of {shardsRun} shards tunnelled into / through the room walls");
+        Check(contacts > 5000, $"fuzz should exercise many bounces, got {contacts}");
+
+        // cost note: one sweep ray per airborne shard against a city's worth of registered volumes
+        var big = new SolidVolumeSet();
+        var tiny = new uint[8 * 8 * 8]; for (int i = 0; i < tiny.Length; i++) tiny[i] = 100;
+        for (int i = 0; i < 800; i++) big.Register("b" + i, tiny, 8, 8, 8, new Vector3((i % 40) * 12f, 0f, (i / 40) * 12f), vs);
+        var castBig = Caster(big);
+        var sw = Stopwatch.StartNew(); int rays = 192 * 20; int sink = 0;
+        for (int i = 0; i < rays; i++) { Vector3 o = new Vector3((i * 7 % 480) + 0.2f, 1f, (i * 13 % 240) + 0.2f); if (castBig(o, Vector3.down, 0.1f, out _)) sink++; }
+        sw.Stop();
+        Console.WriteLine($"    debris sweep: tossed {contacts} bounces over {shardsRun} fuzz shards · 800-volume broadphase {sw.Elapsed.TotalMilliseconds * 1000.0 / rays:F2} us/ray -> 192 shards = {sw.Elapsed.TotalMilliseconds / 20.0:F2} ms/frame");
+        Console.WriteLine("[13] shard collision test done");
+    }
+
+    // [14] Rubble: a resting shard writes its material into the AIR cells it settled on — dust = 1 cell on the first
+    // air layer above the surface, a chunk = an n^3 block, piles stack, solid is never overwritten, bounds clip.
+    static void TestRubble()
+    {
+        const float vs = 0.05f, e = 0.35f, fr = 0.6f;
+        const int w = 40, h = 20, d = 40;
+        int I(int x, int y, int z) => x + y * w + z * w * h;
+        var data = new uint[w * h * d];
+        for (int z = 0; z < d; z++) for (int y = 0; y < 4; y++) for (int x = 0; x < w; x++) data[I(x, y, z)] = 100;   // floor, top face at 0.2 m
+        var set = new SolidVolumeSet(); set.Register("pile", data, w, h, d, Vector3.zero, vs);
+        var cast = Caster(set);
+        var dirty = new List<int>();
+
+        // drop a shard straight down, deposit where it comes to rest; returns the lowest deposited layer
+        int DropDeposit(Vector3 start, float size, uint mat, out int count)
+        {
+            float rr = size * 0.5f; Vector3 p = start, v = Vector3.zero;
+            for (int f = 0; f < 600; f++)
+            {
+                var res = ShardPhysics.Step(ref p, ref v, rr, 1f / 60f, 9f, e, fr, cast, out var hh);
+                if (res == ShardStep.Contact && hh.normal.y > 0.7f && v.sqrMagnitude < 0.16f) break;
+            }
+            ShardPhysics.DepositBox(p / vs, size / vs, 20, out int x0, out int y0, out int z0, out int n);
+            dirty.Clear();
+            count = ShardPhysics.Deposit(data, w, h, d, x0, y0, z0, n, mat, dirty);
+            return y0;
+        }
+
+        // dust (0.75 cell) stacks: layer 4 = first air layer above the floor, then 5, 6 — each lands on the last
+        int c;
+        int y1 = DropDeposit(new Vector3(1.025f, 0.9f, 1.025f), 0.75f * vs, 101, out c);
+        Check(y1 == 4 && c == 1 && data[I(20, 4, 20)] == 101u, $"dust 1 should fill (20,4,20), got layer {y1} count {c}");
+        int y2 = DropDeposit(new Vector3(1.025f, 0.9f, 1.025f), 0.75f * vs, 101, out c);
+        Check(y2 == 5 && c == 1 && data[I(20, 5, 20)] == 101u, $"dust 2 should stack on dust 1 (layer 5), got layer {y2} count {c}");
+        int y3 = DropDeposit(new Vector3(1.025f, 0.9f, 1.025f), 0.75f * vs, 101, out c);
+        Check(y3 == 6 && data[I(20, 6, 20)] == 101u, $"dust 3 should reach layer 6, got {y3}");
+
+        // chunk (4 cells = 0.2 m): a 4x4x4 block sitting on the floor, centered under where it rested
+        int yc = DropDeposit(new Vector3(1.5f, 0.9f, 1.5f), 4f * vs, 102, out c);
+        Check(yc == 4 && c == 64, $"4-cell chunk should deposit 64 cells from layer 4, got layer {yc} count {c}");
+        bool block = true;
+        for (int z = 28; z < 32; z++) for (int y = 4; y < 8; y++) for (int x = 28; x < 32; x++) block &= data[I(x, y, z)] == 102u;
+        Check(block, "chunk block should occupy x/z 28..31, y 4..7");
+        Check(data[I(27, 4, 29)] == 0u && data[I(32, 4, 29)] == 0u && data[I(29, 8, 29)] == 0u, "chunk deposit must not spill outside its box");
+
+        // never overwrite solid: a blocker inside the box survives, the other 63 cells fill
+        var g2 = new uint[w * h * d]; g2[I(5, 5, 5)] = 101u;
+        dirty.Clear();
+        int cnt = ShardPhysics.Deposit(g2, w, h, d, 4, 4, 4, 4, 102u, dirty);
+        Check(cnt == 63 && g2[I(5, 5, 5)] == 101u && dirty.Count == 63, $"solid cell must survive the deposit: wrote {cnt}, blocker {g2[I(5, 5, 5)]}");
+
+        // bounds: a box hanging off the grid corner clips (no wrap into the next row/slab), indices valid + unique
+        var g3 = new uint[w * h * d];
+        dirty.Clear();
+        int clipped = ShardPhysics.Deposit(g3, w, h, d, -2, 4, -2, 4, 102u, dirty);
+        var uniq = new HashSet<int>(dirty);
+        bool inRange = true; foreach (int i in dirty) inRange &= i >= 0 && i < g3.Length;
+        Check(clipped == 16 && uniq.Count == 16 && inRange, $"corner box should clip to 2x4x2 = 16 cells, got {clipped}");
+        Check(g3[I(w - 1, 4, 0)] == 0u && g3[I(0, 4, d - 1)] == 0u, "clipped deposit must not wrap to the opposite edge");
+
+        // box math: chunk edge is capped, dust never rounds to zero cells
+        ShardPhysics.DepositBox(new Vector3(10f, 10f, 10f), 50f, 20, out _, out _, out _, out int nCap);
+        ShardPhysics.DepositBox(new Vector3(10f, 10f, 10f), 0.4f, 20, out _, out _, out _, out int nMin);
+        Check(nCap == 20 && nMin == 1, $"edge cap/floor: got {nCap} / {nMin}");
+        Console.WriteLine("    rubble: dust stacks 4->5->6 · 4-cell chunk = 64-cell block · solid kept · bounds clipped");
+        Console.WriteLine("[14] rubble deposit test done");
+    }
+
+    // [15] Mass-conserving debris (ShardPhysics.BuildBuckets + DepositHeap): removed cells group into
+    //      buckets that each become ONE shard carrying the bucket's cell count as mass; on rest the
+    //      DepositHeap spills that mass into AIR cells as a shrinking-layer mound.
+    static void TestMassDebris()
+    {
+        const int w = 40, h = 24, d = 40;
+        int I(int x, int y, int z) => x + y * w + z * w * h;
+        var buckets = new Dictionary<int, ShardPhysics.DebrisBucket>();
+        var idx = new List<int>(); var mats = new List<uint>(); var vals = new List<uint>();
+        var dirty = new List<int>();
+
+        // a dense 10x2x10 slab inside one bucket cell at cs=18 -> ONE bucket of mass 200, majority material, true centroid
+        for (int z = 2; z < 12; z++) for (int y = 4; y < 6; y++) for (int x = 5; x < 15; x++) { idx.Add(I(x, y, z)); mats.Add(100u); }
+        ShardPhysics.BuildBuckets(idx, mats, w, h, 0, idx.Count, 18, buckets);
+        Check(buckets.Count == 1, $"slab should be one bucket, got {buckets.Count}");
+        var b = default(ShardPhysics.DebrisBucket); foreach (var v in buckets.Values) b = v;
+        Check(b.count == 200 && b.mat == 100u, $"slab bucket mass/mat: {b.count} / {b.mat}");
+        Check(Mathf.Abs(b.sx / (float)b.count - 9.5f) < 0.01f && Mathf.Abs(b.sz / (float)b.count - 6.5f) < 0.01f, "slab centroid");
+
+        // two clusters a pitch apart -> 2 buckets; Boyer-Moore vote keeps the majority material
+        idx.Clear(); mats.Clear();
+        for (int i = 0; i < 30; i++) { idx.Add(I(2 + i % 5, 4 + i / 5 % 6, 2 + i / 5 / 6)); mats.Add(100u); }
+        for (int i = 0; i < 30; i++) { idx.Add(I(30 + i % 5, 4 + i / 5 % 6, 30 + i / 5 / 6)); mats.Add(i < 8 ? 106u : 100u); }
+        ShardPhysics.BuildBuckets(idx, mats, w, h, 0, idx.Count, 10, buckets);
+        Check(buckets.Count == 2, $"two clusters should be 2 buckets, got {buckets.Count}");
+        bool sawBrick = false; foreach (var v in buckets.Values) if (v.mat == 100u && v.count == 30) sawBrick = true;
+        Check(sawBrick, "majority vote should keep brick for the mixed bucket");
+        bool sawBlend = false; foreach (var v in buckets.Values)
+            if (v.mat == 100u && v.majCells == 22 && v.othCells == 8 && v.mat2 == 106u) sawBlend = true;
+        Check(sawBlend, "mixed bucket should carry exact 22/8 brick/wood share for blending");
+
+        // vals filter: non-AIR writes (cracked cells) never spawn debris
+        vals.Clear(); for (int i = 0; i < idx.Count; i++) vals.Add(i % 2 == 0 ? 134u : 0u);
+        ShardPhysics.BuildBuckets(idx, mats, w, h, 0, idx.Count, 10, buckets, vals);
+        int total = 0; foreach (var v in buckets.Values) total += v.count;
+        Check(total == 30, $"half the cells are cracks -> 30 cells bucketed, got {total}");
+
+        // heap: mass 9 on a clear floor -> all 9 land in the base layer (r0=1, 3x3), nothing above
+        var data2 = new uint[w * h * d];
+        for (int z = 10; z < 20; z++) for (int x = 10; x < 20; x++) data2[I(x, 2, z)] = 100u;  // solid floor
+        dirty.Clear();
+        int w1 = ShardPhysics.DepositHeap(data2, w, h, d, 15, 3, 15, 9, 20, 106u, 0u, 0f, 9, dirty);
+        Check(w1 == 9 && dirty.Count == 9, $"mass-9 heap should write 9 cells, got {w1}");
+        Check(data2[I(15, 3, 15)] == 106u, "heap writes at the rest cell");
+        Check(data2[I(15, 4, 15)] == 0u, "mass-9 heap should not reach a second layer");
+        Check(data2[I(15, 2, 15)] == 100u, "solid floor untouched");
+
+        // mass 500 -> mound grows layers (r0=ceil(cbrt(500*0.375))=6; layer0 13x13=169, layer1 13x13, layer2 11x11...)
+        dirty.Clear();
+        int w2 = ShardPhysics.DepositHeap(data2, w, h, d, 15, 3, 15, 500, 20, 106u, 0u, 0f, 500, dirty);
+        Check(w2 == 500, $"mass-500 heap should write all 500 cells, got {w2}");
+        Check(data2[I(15, 4, 15)] == 106u && data2[I(15, 5, 15)] == 106u, "mass-500 heap should stack layers");
+        Check(data2[I(15, 2, 15)] == 100u, "solid floor still untouched under the mound");
+
+        // solid cells are never overwritten: wall through the heap -> written < footprint, never on solid
+        var data3 = new uint[w * h * d];
+        for (int z = 0; z < d; z++) for (int x = 0; x < w; x++) data3[I(x, 1, z)] = 100u;
+        for (int y = 2; y < 10; y++) data3[I(15, y, 15)] = 100u;   // solid column through the centre
+        dirty.Clear();
+        int w3 = ShardPhysics.DepositHeap(data3, w, h, d, 15, 2, 15, 40, 20, 106u, 0u, 0f, 40, dirty);
+        Check(w3 == 40, $"heap should still spend all 40 cells around the column, got {w3}");
+        Check(data3[I(15, 2, 15)] == 100u && data3[I(15, 3, 15)] == 100u, "never overwrites the solid column");
+        Check(data3[I(14, 2, 15)] == 106u, "heap fills beside the column");
+
+        // grid edge: heap at the corner is clipped, not out-of-bounds
+        dirty.Clear();
+        int w4 = ShardPhysics.DepositHeap(data3, w, h, d, 0, 2, 0, 9, 20, 106u, 0u, 0f, 9, dirty);
+        Check(w4 == 9 && dirty.Count == 9, $"corner heap should write all 9 cells in-bounds, got {w4}");
+
+        // pour budget: maxWrite caps a call; re-calling resumes the pile (written cells are solid now)
+        var data4 = new uint[w * h * d];
+        for (int z = 10; z < 20; z++) for (int x = 10; x < 20; x++) data4[I(x, 2, z)] = 100u;
+        dirty.Clear();
+        int p1 = ShardPhysics.DepositHeap(data4, w, h, d, 15, 3, 15, 200, 20, 106u, 0u, 0f, 50, dirty);
+        int p2 = ShardPhysics.DepositHeap(data4, w, h, d, 15, 3, 15, 200, 20, 106u, 0u, 0f, 50, dirty);
+        Check(p1 == 50 && p2 == 50, $"pour ticks should write exactly the budget, got {p1}+{p2}");
+        Check(dirty.Count == 100 && new HashSet<int>(dirty).Count == 100, "pour ticks must not double-write cells");
+
+        // material blend: 60/40 bucket writes a genuinely mottled mound
+        var data5 = new uint[w * h * d];
+        for (int z = 10; z < 20; z++) for (int x = 10; x < 20; x++) data5[I(x, 2, z)] = 100u;
+        dirty.Clear();
+        int w5 = ShardPhysics.DepositHeap(data5, w, h, d, 15, 3, 15, 300, 20, 100u, 106u, 0.4f, 300, dirty);
+        int nWood = 0; foreach (int di in dirty) if (data5[di] == 106u) nWood++;
+        Check(w5 == 300, $"blend heap wrote {w5}/300");
+        Check(nWood > 80 && nWood < 160, $"40% wood blend should land ~120 of 300 cells, got {nWood}");
+
+        // ragged rim: outermost-ring cells of each layer are probabilistically skipped (deterministic)
+        int rimAir = 0;
+        for (int x = 9; x <= 21; x++) for (int z = 9; z <= 21; z++)
+            if (Mathf.Max(Mathf.Abs(x - 15), Mathf.Abs(z - 15)) == 6 && data2[I(x, 3, z)] == 0u) rimAir++;
+        Check(rimAir > 0, "mass-500 mound should leave deterministic gaps on the outer ring");
+
+        // form-fit: a crater under the deposit point swallows the mound's cells first
+        var data6 = new uint[w * h * d];
+        for (int z = 10; z < 20; z++) for (int x = 10; x < 20; x++)
+        { data6[I(x, 0, z)] = 100u; data6[I(x, 1, z)] = 100u; data6[I(x, 2, z)] = 100u; }
+        for (int z = 14; z <= 16; z++) for (int x = 14; x <= 16; x++)
+        { data6[I(x, 1, z)] = 0u; data6[I(x, 2, z)] = 0u; }    // 3x3 crater punched to the floor
+        dirty.Clear();
+        int w6 = ShardPhysics.DepositHeap(data6, w, h, d, 15, 3, 15, 9, 20, 106u, 0u, 0f, 9, dirty);
+        Check(w6 == 9 && data6[I(15, 1, 15)] == 106u, $"mass-9 over a 3x3 crater should fill the pit, got {w6} w/ floor {data6[I(15, 1, 15)]}");
+        Check(data6[I(15, 3, 15)] == 0u, "cells dropped into the crater, not left floating at rest height");
+        dirty.Clear();
+        int w7 = ShardPhysics.DepositHeap(data6, w, h, d, 15, 3, 15, 18, 20, 106u, 0u, 0f, 18, dirty);
+        Check(w7 == 18, $"mass-18 pours over the filled pit then the rim, got {w7}");
+        Check(data6[I(15, 2, 15)] == 106u, "once the pit floor is full the next cells stack inside it");
+
+        // slump: a tall rubble column relaxes toward a 45-degree cone — mass conserved, nothing
+        // left that can still slide, every rubble cell supported
+        var data7 = new uint[w * h * d];
+        for (int z = 10; z < 20; z++) for (int x = 10; x < 20; x++) data7[I(x, 1, z)] = 100u;
+        var rubble7 = new HashSet<int>(); var slump7 = new List<int>();
+        for (int y = 2; y < 10; y++) { data7[I(15, y, 15)] = 106u; rubble7.Add(I(15, y, 15)); slump7.Add(I(15, y, 15)); }
+        dirty.Clear();
+        int mv1 = ShardPhysics.Slump(data7, w, h, d, rubble7, slump7, 10000, dirty);
+        Check(mv1 > 0 && slump7.Count == 0, $"8-tall column should fully relax within budget, {mv1} moves");
+        bool supported = true; int canSlide = 0;
+        foreach (int ri in rubble7)
+        {
+            if ((data7[ri] & VoxelDda.MaterialMask) == 0u) { supported = false; continue; }
+            int z7 = ri / (w * h), rem7 = ri - z7 * w * h, y7 = rem7 / w, x7 = rem7 - y7 * w;
+            if (y7 > 0 && (data7[ri - w] & VoxelDda.MaterialMask) == 0u) supported = false;
+            if (y7 == 0 || (y7 + 1 < h && (data7[ri + w] & VoxelDda.MaterialMask) != 0u)) continue;   // buried or grounded
+            if (x7 + 1 < w && (data7[ri + 1 - w] & VoxelDda.MaterialMask) == 0u) canSlide++;
+            if (x7 > 0 && (data7[ri - 1 - w] & VoxelDda.MaterialMask) == 0u) canSlide++;
+            if (z7 + 1 < d && (data7[ri + w * h - w] & VoxelDda.MaterialMask) == 0u) canSlide++;
+            if (z7 > 0 && (data7[ri - w * h - w] & VoxelDda.MaterialMask) == 0u) canSlide++;
+        }
+        Check(rubble7.Count == 8 && supported && canSlide == 0,
+            $"relaxed pile: 8 cells, all supported, no slides left (supported={supported} canSlide={canSlide})");
+        int spread = (data7[I(14, 2, 15)] == 106u ? 1 : 0) + (data7[I(16, 2, 15)] == 106u ? 1 : 0)
+                   + (data7[I(15, 2, 14)] == 106u ? 1 : 0) + (data7[I(15, 2, 16)] == 106u ? 1 : 0);
+        Check(spread > 0, "column top should spill onto the floor around the base");
+
+        // slump spills over a ledge edge; structural cells never move; a second run is deterministic
+        var data8 = new uint[w * h * d]; var data8b = new uint[w * h * d];
+        var rubble8 = new HashSet<int>(); var slump8 = new List<int>();
+        var rubble8b = new HashSet<int>(); var slump8b = new List<int>();
+        for (int z = 10; z < 20; z++) for (int x = 10; x < 20; x++) { data8[I(x, 1, z)] = 100u; data8b[I(x, 1, z)] = 100u; }
+        for (int z = 10; z < 15; z++) for (int x = 10; x < 15; x++) for (int y = 2; y <= 5; y++) { data8[I(x, y, z)] = 100u; data8b[I(x, y, z)] = 100u; }
+        for (int z = 12; z <= 14; z++) for (int x = 12; x <= 14; x++)
+        { data8[I(x, 6, z)] = 106u; rubble8.Add(I(x, 6, z)); slump8.Add(I(x, 6, z));
+          data8b[I(x, 6, z)] = 106u; rubble8b.Add(I(x, 6, z)); slump8b.Add(I(x, 6, z)); }
+        dirty.Clear();
+        int mv2 = ShardPhysics.Slump(data8, w, h, d, rubble8, slump8, 10000, dirty);
+        int off = 0;
+        foreach (int ri in rubble8)
+        { int z8 = ri / (w * h), rem8 = ri - z8 * w * h, x8 = rem8 % w; if (x8 >= 15 || z8 >= 15) off++; }
+        Check(off > 0, $"edge cells should cascade off the ledge, {off} off-footprint");
+        bool ledgeOk = data8[I(12, 3, 12)] == 100u && data8[I(14, 5, 14)] == 100u;
+        Check(ledgeOk, "structural cells never move under slump");
+        dirty.Clear();
+        int mv3 = ShardPhysics.Slump(data8b, w, h, d, rubble8b, slump8b, 10000, dirty);
+        bool same = mv2 == mv3; if (same) for (int i = 0; i < data8.Length; i++) if (data8[i] != data8b[i]) { same = false; break; }
+        Check(same, "slump is deterministic for identical inputs");
+
+        Console.WriteLine("    mass debris: slab=1 bucket mass 200 · majority vote+blend share · crack filter · heap 9/500 cells · solid kept · corner clipped · pour 50+50 · blend ~40% · ragged rim");
+        Console.WriteLine("[15] debris mass test done");
+    }
+
     static string rangePath;
     static string Describe2(VoxelRayHit r) => $"vol={r.volumeId} mat={r.material} cell=({r.cell.x},{r.cell.y},{r.cell.z}) dist={r.distance:F3}m";
 
@@ -602,6 +951,9 @@ static class Program
         TestBlastOcclusion();
         TestSimulate();
         TestMarchPathLength();
+        TestShardCollision();
+        TestRubble();
+        TestMassDebris();
         Console.WriteLine(fails == 0 ? $"ALL PASS ({checks} checks)" : $"{fails} FAILURES of {checks} checks");
         return fails == 0 ? 0 : 1;
     }
