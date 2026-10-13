@@ -896,7 +896,7 @@ static class Program
             if ((data7[ri] & VoxelDda.MaterialMask) == 0u) { supported = false; continue; }
             int z7 = ri / (w * h), rem7 = ri - z7 * w * h, y7 = rem7 / w, x7 = rem7 - y7 * w;
             if (y7 > 0 && (data7[ri - w] & VoxelDda.MaterialMask) == 0u) supported = false;
-            if (y7 == 0 || (y7 + 1 < h && (data7[ri + w] & VoxelDda.MaterialMask) != 0u)) continue;   // buried or grounded
+            if (y7 == 0) continue;                                                                    // grounded (buried cells CAN slide)
             if (x7 + 1 < w && (data7[ri + 1 - w] & VoxelDda.MaterialMask) == 0u) canSlide++;
             if (x7 > 0 && (data7[ri - 1 - w] & VoxelDda.MaterialMask) == 0u) canSlide++;
             if (z7 + 1 < d && (data7[ri + w * h - w] & VoxelDda.MaterialMask) == 0u) canSlide++;
@@ -929,6 +929,19 @@ static class Program
         int mv3 = ShardPhysics.Slump(data8b, w, h, d, rubble8b, slump8b, 10000, dirty);
         bool same = mv2 == mv3; if (same) for (int i = 0; i < data8.Length; i++) if (data8[i] != data8b[i]) { same = false; break; }
         Check(same, "slump is deterministic for identical inputs");
+
+        // unsupported rubble drips: a cell tucked under an overhang falls to the ground,
+        // not a frozen stalactite (structural ceiling above, open air below)
+        var data9 = new uint[w * h * d];
+        for (int z = 10; z < 20; z++) for (int x = 10; x < 20; x++) data9[I(x, 1, z)] = 100u;
+        for (int z = 14; z <= 16; z++) for (int x = 14; x <= 16; x++) data9[I(x, 6, z)] = 100u;   // ceiling slab
+        var rubble9 = new HashSet<int>(); var slump9 = new List<int>();
+        data9[I(15, 5, 15)] = 106u; rubble9.Add(I(15, 5, 15)); slump9.Add(I(15, 5, 15));        // hanging cell
+        dirty.Clear();
+        ShardPhysics.Slump(data9, w, h, d, rubble9, slump9, 10000, dirty);
+        Check(data9[I(15, 2, 15)] == 106u && data9[I(15, 5, 15)] == 0u,
+            "hanging rubble must drip down through open air to the floor");
+        Check(data9[I(15, 6, 15)] == 100u, "the ceiling slab above is untouched");
 
         Console.WriteLine("    mass debris: slab=1 bucket mass 200 · majority vote+blend share · crack filter · heap 9/500 cells · solid kept · corner clipped · pour 50+50 · blend ~40% · ragged rim");
         Console.WriteLine("[15] debris mass test done");

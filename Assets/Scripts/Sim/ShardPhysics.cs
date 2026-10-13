@@ -190,9 +190,15 @@ namespace SteelCity.Sim
 
         /// <summary>
         /// Angle-of-repose relaxation for deposited rubble. Only cells in `rubble` (the set of indices
-        /// DepositHeap wrote) can move — structural voxels never slide. A rubble cell with air above it
-        /// (a surface cell) slides one step down into the first open lateral-down neighbor, tried in a
-        /// hash-rotated order so the spill has no directional bias — max stable slope is therefore 45°.
+        /// DepositHeap wrote) can move — structural voxels never slide. An unsupported cell (air
+        /// directly below) falls straight down one step regardless of what's above it — rubble
+        /// tucked under an overhang drips out instead of freezing into stalactites, and rubble
+        /// whose support is later destroyed crumbles. A supported rubble cell slides one step
+        /// down into the first open lateral-down neighbor, tried in a hash-rotated order so the
+        /// spill has no directional bias — max stable slope is therefore 45°. The lateral-down
+        /// target test is the only gate: interior cells of a settled mass have no open target so
+        /// they stay locked, but a cell under overburden with a void beside it WILL squirm out —
+        /// pillar sides shed top-to-bottom instead of freezing floor-to-ceiling.
         /// Moves are single steps and only ever descend, so the pass converges; `queue` holds candidate
         /// indices (written cells + re-triggered cells) and `maxMoves` bounds one call so a big collapse
         /// relaxes visibly over several frames instead of snapping. Vacated positions re-expose the cell
@@ -210,7 +216,23 @@ namespace SteelCity.Sim
                 if ((data[idx] & VoxelDda.MaterialMask) == 0u) { rubble.Remove(idx); continue; }  // re-blasted to air
                 int z = idx / (w * h), rem = idx - z * w * h, y = rem / w, x = rem - y * w;
                 if (y == 0) continue;
-                if (y + 1 < h && (data[idx + w] & VoxelDda.MaterialMask) != 0u) continue;  // buried under a cell
+                if ((data[idx - w] & VoxelDda.MaterialMask) == 0u)                    // unsupported - falls straight down
+                {                                                                     // (a slide can tuck a cell under an
+                    uint m = data[idx];                                               // overhang; trapped under a ceiling it
+                    data[idx] = 0u; data[idx - w] = m;                                // must drip, not freeze into a stalactite)
+                    rubble.Remove(idx); rubble.Add(idx - w);
+                    dirty.Add(idx); dirty.Add(idx - w);
+                    moves++;
+                    queue.Add(idx - w);                                               // keeps falling while unsupported
+                    queue.Add(idx + w);                                               // cell above the vacancy may drop too
+                    if (x + 1 < w) queue.Add(idx + 1 + w);
+                    if (x > 0) queue.Add(idx - 1 + w);
+                    if (z + 1 < d) queue.Add(idx + w * h + w);
+                    if (z > 0) queue.Add(idx - w * h + w);
+                    continue;
+                }
+                // no buried check: a cell that genuinely has an open lateral-down target slides
+                // even under overburden — pillar sides shed top-to-bottom instead of freezing
                 uint hsh = (uint)idx * 2654435761u;
                 int start = (int)(hsh & 3u);
                 for (int k = 0; k < 4; k++)
@@ -228,6 +250,7 @@ namespace SteelCity.Sim
                     moves++;
                     queue.Add(tidx);                                                  // may keep sliding downhill
                     queue.Add(idx - w);                                               // cell under the vacancy is exposed now
+                    if (y + 1 < h) queue.Add(idx + w);                                // cell above may have lost support
                     if (x + 1 < w) queue.Add(idx + 1 + w);                            // lateral cells one-up can
                     if (x > 0) queue.Add(idx - 1 + w);                                // now slide into the vacancy
                     if (z + 1 < d) queue.Add(idx + w * h + w);

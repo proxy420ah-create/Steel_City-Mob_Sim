@@ -145,9 +145,15 @@ Directionality is free: debris direction = projectile ray direction
   lands on the last one.
 - **Angle-of-repose slump** — every deposited cell joins the volume's rubble
   set + candidate queue, and `ShardPhysics.Slump` runs a bounded slice each
-  frame (`PumpRubbleSlump`, 4096 moves/frame): an exposed rubble cell slides
-  one step down into an open lateral-down neighbor (45° repose, hash-rotated
-  direction → no axis bias). Only rubble-set cells ever move — structural
+  frame (`PumpRubbleSlump`, 4096 moves/frame): an unsupported cell (air
+  directly below) falls straight down — rubble tucked under an overhang drips
+  out instead of freezing into stalactites, and rubble whose support is later
+  destroyed crumbles; a supported cell slides one step down into an open
+  lateral-down neighbor (45° repose, hash-rotated direction → no axis bias) —
+  no air-above requirement, so pillar sides shed top-to-bottom and under-slab
+  masses dissolve instead of freezing floor-to-ceiling. Interior cells of a
+  settled mass simply have no open target, which is the real lock. Only
+  rubble-set cells ever move — structural
   voxels are untouched — and moved cells re-check + expose the cells below/
   beside the vacancy, so the pass converges and mass + material identity are
   preserved per cell. Net effect: mounds relax into slopes, rubble on ledges
