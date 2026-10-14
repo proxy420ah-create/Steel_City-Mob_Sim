@@ -89,7 +89,7 @@ namespace SteelCity.Sim
         /// <summary>Authored FACTORY defaults — the locked baseline. RestoreAuthoredDefaults
         /// escapes back to these; tuning lives in the workshop layer below until promoted.</summary>
         public static readonly float[] BaseResistance =
-            { 0.05f, 0.10f, 0.25f, 0.35f, 0.50f, 0.60f, 0.80f, 0.90f, 0.50f };
+            { 0.05f, 0.10f, 0.45f, 0.35f, 0.50f, 0.60f, 0.80f, 0.90f, 0.50f };
 
         /// <summary>
         /// WORKSHOP defaults — the in-between layer: pending tuning values that seed the live
@@ -105,10 +105,7 @@ namespace SteelCity.Sim
                 (float[])BaseResistance.Clone(),
                 (float[])BaseResistance.Clone(),
             };
-            // pending (user tuning): wood splinters easier than the authored default
-            w[(int)ResProfile.Building][(int)ResClass.Wood] = 0.45f;
-            w[(int)ResProfile.Vehicle][(int)ResClass.Wood] = 0.45f;
-            w[(int)ResProfile.Item][(int)ResClass.Wood] = 0.45f;
+            // pending tuning overrides go here (graduated: wood 0.45 → authored 10/13)
             return w;
         }
 

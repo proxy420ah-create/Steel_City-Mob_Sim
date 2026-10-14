@@ -133,6 +133,7 @@ namespace SteelCity.Sim
         private string footerText;
         private Tab lastBuiltTab = (Tab)(-1);
         private int matResSub;                                 // MatRes sub-tab: 0 building / 1 vehicle / 2 item
+        private int matResSel = -1;                            // MatRes selected class (click a name) — promote-to-authored target
         private float nextTabRefresh;
         private float nextFooterRefresh;
         private float nextRefsRefresh;
@@ -1502,14 +1503,21 @@ namespace SteelCity.Sim
                 HSlider("global ×scale (all types)", VoxelDamageMath.GlobalResistScale, 0f, 2f, "F2");
 
             var tbl = VoxelDamageMath.ResTable[prof];
+            var work = VoxelDamageMath.WorkshopRes[prof];
             GUILayout.Label($"{profName} res — kill% @center / @½r at power {blastPower:F1}:", labelStyle);
+            GUILayout.Label("<color=#6fb7ff>■ authored</color>  <color=#ffa64d>■ workshop baseline</color>  <color=#5fe07a>■ tuned this session</color>", labelStyle);
             int n = (int)VoxelDamageMath.ResClass.Count;
             for (int c = 0; c < n; c++)
             {
                 float eff = Mathf.Clamp01(tbl[c] * VoxelDamageMath.GlobalResistScale);
                 float pC = Mathf.Clamp01(blastPower * (1f - eff));
                 float pH = Mathf.Clamp01(blastPower * 0.5f * (1f - eff));
-                tbl[c] = ResRow($"{VoxelDamageMath.ResClassNames[c]}  {pC:P0}/{pH:P0}", tbl[c]);
+                // provenance color: factory → blue, on the workshop baseline → orange, tuned → green
+                string col = Mathf.Approximately(tbl[c], VoxelDamageMath.BaseResistance[c]) ? "#6fb7ff"
+                           : Mathf.Approximately(tbl[c], work[c]) ? "#ffa64d" : "#5fe07a";
+                int sel = c;   // closure
+                tbl[c] = ResRow($"<color={col}>{(matResSel == c ? "► " : "  ")}{VoxelDamageMath.ResClassNames[c]}</color>  {pC:P0}/{pH:P0}",
+                    tbl[c], () => matResSel = sel);
             }
             GUILayout.BeginHorizontal();
             if (GUILayout.Button($"reset {profName} → workshop", GUILayout.Height(20)))
@@ -1523,7 +1531,14 @@ namespace SteelCity.Sim
             if (GUILayout.Button("restore AUTHORED", GUILayout.Height(20)))
                 VoxelDamageMath.RestoreAuthoredDefaults();
             GUILayout.EndHorizontal();
-            GUILayout.Label("workshop = pending baseline (in code, seeds each play); AUTHORED = factory defaults", labelStyle);
+            GUILayout.BeginHorizontal();
+            string selName = matResSel >= 0 && matResSel < n ? VoxelDamageMath.ResClassNames[matResSel] : null;
+            GUI.enabled = selName != null;
+            if (GUILayout.Button(selName != null ? $"promote '{selName}' → AUTHORED" : "click a name to select", GUILayout.Height(20)))
+                PromoteResToAuthored(prof, matResSel);
+            GUI.enabled = true;
+            GUILayout.EndHorizontal();
+            GUILayout.Label("workshop = pending baseline (in code, seeds each play); AUTHORED = factory defaults — promote writes the .cs literal + recompiles (exits play mode)", labelStyle);
 
             GUILayout.Space(4);
             GUILayout.Label("<b>last blast</b>", boldStyle);
@@ -1540,16 +1555,43 @@ namespace SteelCity.Sim
                 : "no blast yet — pick a point and DETONATE", labelStyle);
         }
 
-        /// <summary>HSlider with a wider label column so class name + live kill% fit.</summary>
-        private float ResRow(string name, float val)
+        /// <summary>HSlider with a wider label column so class name + live kill% fit;
+        /// the name is a flat button when onName is supplied (MatRes class selection).</summary>
+        private float ResRow(string name, float val, System.Action onName = null)
         {
             GUILayout.BeginHorizontal();
-            GUILayout.Label(name, labelStyle, GUILayout.Width(150));
+            if (onName != null)
+            {
+                if (GUILayout.Button(name, labelStyle, GUILayout.Width(150))) onName();
+            }
+            else GUILayout.Label(name, labelStyle, GUILayout.Width(150));
             float v = GUILayout.HorizontalSlider(val, 0f, 1f, GUILayout.ExpandWidth(true));
             GUILayout.Label(v.ToString("F2"), labelStyle, GUILayout.Width(42));
             GUILayout.EndHorizontal();
             return v;
         }
+
+#if UNITY_EDITOR
+        /// <summary>Locks a live resistance into the shipped table: rewrites the
+        /// BaseResistance literal in VoxelDamageMath.cs and refreshes — the recompile
+        /// + domain reload reseeds every layer (exits play mode).</summary>
+        private void PromoteResToAuthored(int prof, int cls)
+        {
+            var vals = (float[])VoxelDamageMath.BaseResistance.Clone();
+            vals[cls] = VoxelDamageMath.ResTable[prof][cls];
+            var lit = "{ " + string.Join(", ", System.Array.ConvertAll(vals,
+                v => v.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + "f")) + " }";
+            string path = System.IO.Path.Combine(Application.dataPath, "Scripts/Sim/VoxelDamageMath.cs");
+            string src = System.IO.File.ReadAllText(path);
+            var rx = new System.Text.RegularExpressions.Regex(@"(BaseResistance\s*=\s*)\{[^}]*\}");
+            if (!rx.IsMatch(src)) { Debug.LogError($"[MatRes] ❌ BaseResistance literal not found in {path}"); return; }
+            System.IO.File.WriteAllText(path, rx.Replace(src, "$1" + lit, 1));
+            Debug.Log($"[MatRes] 🔒 promoted {VoxelDamageMath.ResClassNames[cls]} → AUTHORED {vals[cls]:F2} — recompiling");
+            UnityEditor.AssetDatabase.Refresh();
+        }
+#else
+        private void PromoteResToAuthored(int prof, int cls) { }
+#endif
 
         private float HSlider(string name, float val, float min, float max, string format = "F2")
         {

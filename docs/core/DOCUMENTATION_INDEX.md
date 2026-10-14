@@ -186,6 +186,12 @@
   - ~5–10 s check-compile loop for runtime code; same trick as `Tools/dda_selftest/run.sh`
   - Gotchas: quoted paths, `-nostdlib` BCL refs, excluding Assembly-CSharp/CodeGen self-refs, editor-only code out of scope
 
+**Live Editor Pipeline (in-game tuning):**
+- **`docs/core/LIVE_EDITOR_PIPELINE.md`** — Tune mechanics while playing, lock them into source via staged promotion
+  - Three layers: LIVE sliders → WORKSHOP pending baseline → AUTHORED factory literals
+  - Provenance colors (blue/orange/green), click-to-select, promote writes the .cs literal + recompiles in-session
+  - Adoption contract for new systems + candidate applications (combat, economy, police, order timing)
+
 **Business Taxonomy → Asset Generation:**
 - **`docs/core/BUSINESS_TAXONOMY_ASSET_GENERATION.md`** — Cross-layer contract pinning the generator roadmap to RE business data
   - 8 business groups → asset classes (commercial slots, industrial, residential, warehouses, charity, municipal, interactive tenements)

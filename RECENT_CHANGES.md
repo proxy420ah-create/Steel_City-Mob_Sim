@@ -16,6 +16,10 @@
 - **`RestoreAuthoredDefaults()`**: escape hatch — wipes workshop + live back to `BaseResistance`. **`PromoteToWorkshop(profile)`**: copies the live table into the workshop baseline (session-scoped; permanent promotion = a code edit).
 - **MatRes tab buttons**: `reset → workshop` per profile, `promote live → workshop`, `restore AUTHORED`, with a caption explaining the layer semantics.
 - **`pairChance` default 0.5 → 1.0** (user preference after the domino entity work — maximum brick read).
+- **MatRes provenance colors**: each class name is colored by where its live value came from — **blue** = authored factory, **orange** = on the workshop baseline (preserved for live testing), **green** = tuned this session and unsaved. Legend line above the sliders.
+- **MatRes promote-to-authored**: class names are now flat buttons (single-click selects, `►` marker). `promote '{class}' → AUTHORED` rewrites the `BaseResistance` literal inside `VoxelDamageMath.cs` and calls `AssetDatabase.Refresh()` — a real recompile + domain reload reseeds all three layers (exits play mode; editor-gated via `#if UNITY_EDITOR`). The tuning pipeline is complete end-to-end: slider → green → promote→workshop → orange → promote→AUTHORED → blue forever.
+- **First graduation**: user promoted wood → authored 0.45 (verified live: name flipped orange→blue mid-session, no errors); the redundant `BuildWorkshop` wood overrides removed so pending only ever holds non-factory values.
+- **`docs/core/LIVE_EDITOR_PIPELINE.md`**: formalized the pattern — three layers (live/workshop/authored), provenance colors, click-select + literal-rewrite promote, the promotability contract for new systems, candidate applications (combat metrics, economy, police, order timing), and the future `LiveEditor.Register` registry idea.
 - Verified: csc compile clean; `dda_selftest` **ALL PASS (155,755 checks)**.
 
 ### Domino entities — preselected pairs register as ONE physics entity (replaces correlated-velocity pairing)
