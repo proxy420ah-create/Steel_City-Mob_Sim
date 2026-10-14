@@ -107,8 +107,16 @@ namespace SteelCity.Sim
             => customCubes[key] = (pos, rot, size, color);
         public void ClearCustomCube(string key) => customCubes.Remove(key);
 
+        /// <summary>One cell-sized debris voxel in flight — drawn as an unrotated
+        /// instanced cube, batched into the same quantized-color buckets as customCubes.</summary>
+        public struct VoxelParticle { public Vector3 pos; public float size; public Color col; }
+        private List<VoxelParticle> voxelParticles;
+        /// <summary>Hand the renderer a live list refilled each frame — the list is
+        /// cleared+rebuilt by the owner, so this stores the reference, not a copy.</summary>
+        public void SetVoxelParticleSource(List<VoxelParticle> src) => voxelParticles = src;
+
         // Per-instance data buffers (reused each frame, no allocation)
-        private const int MaxInstances = 2048;
+        private const int MaxInstances = 8192;    // flying-voxel debris swarms can reach ~8k per color bucket
         private readonly Matrix4x4[] segmentMatrices = new Matrix4x4[MaxInstances];
         private readonly Matrix4x4[] markerMatrices = new Matrix4x4[MaxInstances];
 
@@ -278,7 +286,7 @@ namespace SteelCity.Sim
             // after voxel chunks are rendered into the RT.
             // If no VoxelRenderBridge is present, fall back to drawing here.
             if (mapRoot == null || boxMesh == null || beamMaterial == null) return;
-            if (activePaths.Count == 0 && !showWaypointGraph && customBeams.Count == 0 && customCubes.Count == 0) return;
+            if (activePaths.Count == 0 && !showWaypointGraph && customBeams.Count == 0 && customCubes.Count == 0 && (voxelParticles == null || voxelParticles.Count == 0)) return;
 
             // Cached singleton lookups — FindFirstObjectByType scans every
             // object in a city-sized scene; two of these per frame while any
@@ -306,7 +314,7 @@ namespace SteelCity.Sim
                     VLog($"[PathDebug] RenderBeamsIntoCamera SKIP: mapRoot={mapRoot != null}, boxMesh={boxMesh != null}, beamMat={beamMaterial != null}");
                 return;
             }
-            if (activePaths.Count == 0 && !showWaypointGraph && customBeams.Count == 0 && customCubes.Count == 0)
+            if (activePaths.Count == 0 && !showWaypointGraph && customBeams.Count == 0 && customCubes.Count == 0 && (voxelParticles == null || voxelParticles.Count == 0))
             {
                 if (Time.frameCount % 120 == 0)
                     VLog("[PathDebug] RenderBeamsIntoCamera SKIP: no active paths, graph debug off, no custom beams");
@@ -743,6 +751,20 @@ namespace SteelCity.Sim
                 if (list.Count < MaxInstances)
                     list.Add(Matrix4x4.TRS(cb.pos, cb.rot, Vector3.one * cb.size));
             }
+            if (voxelParticles != null)
+                for (int i = 0; i < voxelParticles.Count; i++)
+                {
+                    var p = voxelParticles[i];
+                    uint key = QuantizeColor(p.col);
+                    if (!cubeBatches.TryGetValue(key, out var list))
+                    {
+                        list = new List<Matrix4x4>(64);
+                        cubeBatches[key] = list;
+                        cubeBatchColors[key] = p.col;
+                    }
+                    if (list.Count < MaxInstances)
+                        list.Add(Matrix4x4.TRS(p.pos, Quaternion.identity, Vector3.one * p.size));
+                }
             foreach (var kv in cubeBatches)
             {
                 var list = kv.Value;

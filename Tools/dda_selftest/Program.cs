@@ -197,6 +197,30 @@ static class Program
         set.Clear();
         Check(set.Count == 0 && !set.Raycast(new Vector3(11.25f, 0.75f, 15f), new Vector3(0, 0, 1), 50f, out _), "clear");
 
+        // broadphase: volumes in distinct XZ cells — the ray must walk cells in order,
+        // find hits across empty cells, and stop at the first cell beyond the best hit
+        var g1 = new uint[1]; g1[0] = 200;
+        set.Register("near", g1, 1, 1, 1, new Vector3(100, 0, 5), 1f);    // cell (3,0)
+        set.Register("far",  g1, 1, 1, 1, new Vector3(300, 0, 5), 1f);    // cell (9,0)
+        hit = set.Raycast(new Vector3(0, 0.5f, 5.5f), new Vector3(1, 0, 0), 500f, out h);
+        Check(hit && h.volumeId == "near" && Math.Abs(h.distance - 100f) < 1e-4, $"broadphase nearest across cells: {h.volumeId} {h.distance}");
+        hit = set.Raycast(new Vector3(150, 0.5f, 5.5f), new Vector3(1, 0, 0), 500f, out h);
+        Check(hit && h.volumeId == "far" && Math.Abs(h.distance - 150f) < 1e-4, $"broadphase far across empty cells: {h.volumeId} {h.distance}");
+        Check(!set.Raycast(new Vector3(0, 0.5f, 60f), new Vector3(1, 0, 0), 500f, out _), "broadphase miss across cells");
+        Check(!set.Raycast(new Vector3(150, 0.5f, 5.5f), new Vector3(1, 0, 0), 100f, out _), "broadphase maxDistance across cells");
+        set.Register("neg", g1, 1, 1, 1, new Vector3(-100, 0, -100), 1f);
+        hit = set.Raycast(new Vector3(-99.5f, 0.5f, -140f), new Vector3(0, 0, 1), 500f, out h);
+        Check(hit && h.volumeId == "neg" && Math.Abs(h.distance - 40f) < 1e-4, $"broadphase negative coords: {h.volumeId} {h.distance}");
+        set.Register("diag", g1, 1, 1, 1, new Vector3(50, 0, 80), 1f);
+        var ddiag = new Vector3(1, 0, 1); ddiag.Normalize();
+        hit = set.Raycast(new Vector3(0, 0.5f, 30.5f), ddiag, 500f, out h);
+        Check(hit && h.volumeId == "diag" && Math.Abs(h.distance - 70.71f) < 0.05f, $"broadphase diagonal: {h.volumeId} {h.distance}");
+        // vertical ray through a column cell that holds no volume → miss; through one that does → hit
+        Check(!set.Raycast(new Vector3(200f, 0.5f, 200f), new Vector3(0, 1, 0), 500f, out _), "broadphase vertical miss");
+        hit = set.Raycast(new Vector3(50.5f, -5f, 80.5f), new Vector3(0, 1, 0), 500f, out h);
+        Check(hit && h.volumeId == "diag" && Math.Abs(h.distance - 5f) < 1e-4, $"broadphase vertical hit: {h.volumeId} {h.distance}");
+        set.Clear();
+
         // invalid registrations are ignored
         set.Register(null, new uint[1], 1, 1, 1, Vector3.zero, 1f);
         set.Register("x", null, 1, 1, 1, Vector3.zero, 1f);
@@ -204,6 +228,145 @@ static class Program
         set.Register("x", new uint[8], 2, 2, 2, Vector3.zero, 0f);
         Check(set.Count == 0, "invalid registrations ignored: " + set.Count);
         Console.WriteLine("[4] SolidVolumeSet registry / placement checks done");
+    }
+
+    static void TestFallingCells()
+    {
+        const int W = 24, H = 20, D = 24;
+        var falling = new Dictionary<int, ShardPhysics.FallCell>();
+        var fq = new List<int>();
+        var rubble = new HashSet<int>();
+        var slq = new List<int>();
+        var dirty = new List<int>();
+        var esc = new List<ShardPhysics.FallEscape>();
+
+        // a floating column of 5 cells over a solid floor rains down and stacks, mass-conserving
+        var g = new uint[W * H * D];
+        for (int x = 0; x < W; x++) for (int z = 0; z < D; z++) g[x + 0 * W + z * W * H] = 7;   // floor at y=0
+        for (int y = 8; y <= 12; y++) g[5 + y * W + 5 * W * H] = 33;
+        for (int y = 8; y <= 12; y++) { int ci = 5 + y * W + 5 * W * H; falling[ci] = new ShardPhysics.FallCell { vel = Vector3.zero, acc = Vector3.zero, vox = 33 }; fq.Add(ci); }
+        for (int tick = 0; tick < 200 && falling.Count > 0; tick++)
+            ShardPhysics.StepFalling(g, W, H, D, falling, fq, rubble, slq, dirty, esc, 1f / 120f, 18f, 1.6f, 0.6f, 100000);
+        Check(falling.Count == 0, "column all landed");
+        int landed = 0;
+        for (int y = 0; y < H; y++) if ((g[5 + y * W + 5 * W * H] & VoxelDda.MaterialMask) == 33) landed++;
+        Check(landed == 5, $"column cells conserved: {landed} (stacked 1..5)");
+        Check(rubble.Count == 5, $"landed cells joined rubble: {rubble.Count}");
+        Check(esc.Count == 0, "no escapes on a straight drop");
+
+        // lateral impulse scatters — a cell thrown +x lands offset from its start column
+        falling.Clear(); fq.Clear(); rubble.Clear(); slq.Clear(); esc.Clear();
+        int sc = 4 + 8 * W + 4 * W * H;
+        g[sc] = 41; falling[sc] = new ShardPhysics.FallCell { vel = new Vector3(6f, 0f, 0f), acc = Vector3.zero, vox = 41 }; fq.Add(sc);
+        for (int tick = 0; tick < 200 && falling.Count > 0; tick++)
+            ShardPhysics.StepFalling(g, W, H, D, falling, fq, rubble, slq, dirty, esc, 1f / 120f, 18f, 1.6f, 0.6f, 100000);
+        Check(falling.Count == 0 && rubble.Count == 1, "thrown cell landed");
+        int sx = -1;
+        for (int x = 0; x < W; x++) for (int y = 0; y < H; y++) if ((g[x + y * W + 4 * W * H] & VoxelDda.MaterialMask) == 41) sx = x;
+        Check(sx > 4, $"thrown cell scattered +x: landed at x={sx} (started 4)");
+        Check(esc.Count == 0, "in-bounds throw did not escape");
+
+        // boundary escape — a cell pushed past the x edge leaves the grid via `escaped`
+        falling.Clear(); fq.Clear(); rubble.Clear(); slq.Clear(); esc.Clear();
+        sc = (W - 1) + 8 * W + 4 * W * H;
+        g[sc] = 55; falling[sc] = new ShardPhysics.FallCell { vel = new Vector3(4f, 0f, 0f), acc = Vector3.zero, vox = 55 }; fq.Add(sc);
+        for (int tick = 0; tick < 200 && falling.Count > 0; tick++)
+            ShardPhysics.StepFalling(g, W, H, D, falling, fq, rubble, slq, dirty, esc, 1f / 120f, 18f, 1.6f, 0.6f, 100000);
+        Check(esc.Count == 1 && falling.Count == 0, $"cell escaped the volume bounds: {esc.Count}");
+        Check((g[sc] & VoxelDda.MaterialMask) == 0, "escaped cell cleared its grid slot");
+
+        // stale-guard — a falling cell re-blasted to AIR drops out instead of flying a ghost voxel
+        falling.Clear(); fq.Clear(); rubble.Clear(); slq.Clear(); esc.Clear();
+        sc = 6 + 8 * W + 6 * W * H;
+        g[sc] = 66; falling[sc] = new ShardPhysics.FallCell { vel = Vector3.zero, acc = Vector3.zero, vox = 66 }; fq.Add(sc);
+        g[sc] = 0u;
+        ShardPhysics.StepFalling(g, W, H, D, falling, fq, rubble, slq, dirty, esc, 1f / 120f, 18f, 1.6f, 0.6f, 100000);
+        Check(falling.Count == 0, "re-blasted falling cell dropped out");
+
+        // a falling cell blocks the one above it until it moves — the train descends as a unit
+        falling.Clear(); fq.Clear(); rubble.Clear(); slq.Clear(); esc.Clear();
+        for (int y = 8; y <= 9; y++) { int ci = 8 + y * W + 8 * W * H; g[ci] = 77; falling[ci] = new ShardPhysics.FallCell { vel = Vector3.zero, acc = Vector3.zero, vox = 77 }; fq.Add(ci); }
+        ShardPhysics.StepFalling(g, W, H, D, falling, fq, rubble, slq, dirty, esc, 1f / 120f, 18f, 1.6f, 0.6f, 100000);
+        int tc = 0;
+        for (int y = 0; y < H; y++) if ((g[8 + y * W + 8 * W * H] & VoxelDda.MaterialMask) == 77) tc++;
+        Check(tc == 2 && falling.Count == 2, $"train intact after one tick ({tc} cells, {falling.Count} falling)");
+    }
+
+
+    static void TestFlyerTransport()
+    {
+        // [18] Flying-voxel transport — SolidVolumeSet.SamplePoint + ShardPhysics.StepFlyer:
+        //      the world-space phase of a doomed cell between grids. Point queries only,
+        //      never a swept ray; solids absorb, open cells hand off into a grid's rain.
+        //      (VoxelCollisionWorld.SamplePoint is a MonoBehaviour wrapper around this
+        //      same query plus the terrain fallback — the testable layer lives here.)
+        Console.WriteLine("[18] flying-voxel transport");
+        var set = new SolidVolumeSet();
+        var arrA = new uint[8 * 8 * 8];
+        var arrB = new uint[8 * 8 * 8];
+        for (int i = 0; i < arrA.Length; i++) { arrA[i] = 5u; arrB[i] = 7u; }
+        arrA[0] = 0u;                                    // an open pocket on volA's corner cell
+        set.Register("volA", arrA, 8, 8, 8, Vector3.zero, 1f);
+        set.Register("volB", arrB, 8, 8, 8, new Vector3(20f, 0f, 0f), 1f);
+        ShardPhysics.FlyQuery fly = p =>
+        {
+            if (!set.SamplePoint(p, out string vid, out int idx, out bool sol))
+                return new ShardPhysics.FlySample { kind = ShardPhysics.FlySampleKind.Free };
+            return new ShardPhysics.FlySample
+            {
+                kind = sol ? ShardPhysics.FlySampleKind.Solid : ShardPhysics.FlySampleKind.Open,
+                volumeId = vid,
+                cellIdx = idx,
+            };
+        };
+
+        Check(set.SamplePoint(new Vector3(2.5f, 0.5f, 0.5f), out string v1, out int i1, out bool s1)
+            && s1 && v1 == "volA" && i1 == 2 + 0 * 8 + 0 * 64,
+            $"SamplePoint solid cell → solid ({v1},{i1})");
+        Check(set.SamplePoint(new Vector3(0.5f, 0.5f, 0.5f), out string v2, out int i2, out bool s2)
+            && !s2 && v2 == "volA" && i2 == 0,
+            $"SamplePoint air pocket → open ({v2},{i2})");
+        Check(!set.SamplePoint(new Vector3(-30f, 60f, 0f), out _, out _, out _),
+            "SamplePoint empty space → not contained");
+        Check(set.SamplePoint(new Vector3(21.5f, 0.5f, 0.5f), out string v3, out _, out _)
+            && v3 == "volB",
+            "SamplePoint second volume resolves via broadphase");
+
+        // free-space flight integrates gravity + moves
+        Vector3 pos = new Vector3(-5f, 10f, 0.5f), vel = new Vector3(4f, 0f, 0f), acc = Vector3.zero;
+        ShardPhysics.StepFlyer(ref pos, ref vel, ref acc, 0.1f, 9f, 0f, 0.2f, 12, fly, out _);
+        Check(pos.x > -5f && vel.y < 0f, $"free flight moves + gravity integrates (x={pos.x:F2}, vy={vel.y:F2})");
+
+        // entry: a +x flyer steps into volA's open pocket → EnteredOpen payload
+        pos = new Vector3(-0.05f, 0.5f, 0.5f); vel = new Vector3(2f, 0f, 0f); acc = Vector3.zero;
+        var oc = ShardPhysics.StepFlyer(ref pos, ref vel, ref acc, 0.15f, 0f, 0f, 0.2f, 12, fly, out var ent);
+        Check(oc == ShardPhysics.FlyOutcome.EnteredOpen && ent.volumeId == "volA" && ent.cellIdx == 0,
+            $"enter open cell → EnteredOpen ({oc},{ent.volumeId},{ent.cellIdx})");
+
+        // solid absorb: 200 m/s at a wall — momentum dies, NEVER tunnels
+        pos = new Vector3(1.5f, 0.5f, 0.5f); vel = new Vector3(200f, 0f, 0f); acc = Vector3.zero;
+        oc = ShardPhysics.StepFlyer(ref pos, ref vel, ref acc, 1f / 60f, 0f, 0f, 0.2f, 12, fly, out _);
+        Check(oc == ShardPhysics.FlyOutcome.Flying && pos.x < 3.5f && vel.x == 0f,
+            $"200m/s into solid absorbs without tunneling (x={pos.x:F2}, vx={vel.x})");
+
+        // end-to-end: the entered cell resumes as a falling cell and lands as its own material
+        var falling = new Dictionary<int, ShardPhysics.FallCell>();
+        var fq = new List<int>(); var rubble = new HashSet<int>(); var slq = new List<int>();
+        var dirty = new List<int>(); var esc = new List<ShardPhysics.FallEscape>();
+        arrA[ent.cellIdx] = 9u;   // TryEnterVolume writes the voxel immediately
+        falling[ent.cellIdx] = new ShardPhysics.FallCell { vel = new Vector3(2f, 0f, 0f), acc = Vector3.zero, vox = 9u };
+        fq.Add(ent.cellIdx);
+        for (int t = 0; t < 240 && falling.Count > 0; t++)
+            ShardPhysics.StepFalling(arrA, 8, 8, 8, falling, fq, rubble, slq, dirty, esc, 1f / 120f, 18f, 1.6f, 0.6f, 100000);
+        Check(falling.Count == 0 && rubble.Count == 1 && (arrA[0] & VoxelDda.MaterialMask) == 9u,
+            $"handoff cell lands in target grid as rubble with own material (rubble={rubble.Count}, mat={arrA[0] & VoxelDda.MaterialMask})");
+
+        // lateral entry through a neighbor's window: flyer crosses open space, enters volB
+        pos = new Vector3(19.6f, 0.5f, 0.5f); vel = new Vector3(1.5f, 0f, 0f); acc = Vector3.zero;
+        arrB[0] = 0u;
+        oc = ShardPhysics.StepFlyer(ref pos, ref vel, ref acc, 0.4f, 0f, 0f, 0.2f, 12, fly, out var ent2);
+        Check(oc == ShardPhysics.FlyOutcome.EnteredOpen && ent2.volumeId == "volB" && ent2.cellIdx == 0,
+            $"cross-volume entry into a neighbor ({oc},{ent2.volumeId},{ent2.cellIdx})");
     }
 
     static void TestYaw()
@@ -1074,6 +1237,9 @@ static class Program
             }
         }
         Console.WriteLine($"[16] occ-skip DDA equivalence done (+{checks - L} checks)");
+        TestFallingCells();
+        TestFlyerTransport();
+        Console.WriteLine("[17] cellular collapse (in-grid ballistic cells) done");
     }
 
     static string rangePath;

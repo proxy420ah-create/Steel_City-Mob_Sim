@@ -1190,14 +1190,14 @@ namespace SteelCity.Sim
                 dmgSys.occlusionAware = GUILayout.Toggle(dmgSys.occlusionAware, " occlusion (walls shield)", toggleStyle);
                 dmgSys.dropUnsupported = GUILayout.Toggle(dmgSys.dropUnsupported, " drop unsupported (collapse)", toggleStyle);
                 if (dmgSys.dropUnsupported)
-                    dmgSys.debrisClusterM = HSlider("debris cluster m", dmgSys.debrisClusterM, 0.3f, 3f, "F1");
+                    dmgSys.cellImpulse = HSlider("cell impulse", dmgSys.cellImpulse, 0f, 20f, "F1");
                 dmgSys.shockFront = GUILayout.Toggle(dmgSys.shockFront, " shock front (sim → playback)", toggleStyle);
                 if (dmgSys.shockFront)
                 {
                     dmgSys.frontPasses = Mathf.RoundToInt(HSlider("front passes", dmgSys.frontPasses, 1f, 24f, "F0"));
                     dmgSys.frontSec = HSlider("front sec", dmgSys.frontSec, 0.1f, 1.5f, "F2");
                 }
-                dmgSys.shardVoxelCollision = GUILayout.Toggle(dmgSys.shardVoxelCollision, " debris bounces off voxels (floors / walls)", toggleStyle);
+                dmgSys.shardVoxelCollision = GUILayout.Toggle(dmgSys.shardVoxelCollision, " debris collides with voxel world (walls / roofs)", toggleStyle);
                 dmgSys.rubbleDeposit = GUILayout.Toggle(dmgSys.rubbleDeposit, $" debris settles into volume (rubble · {dmgSys.RubbleCells} cells)", toggleStyle);
                 bool canDet = !string.IsNullOrEmpty(blastVolume);
                 GUI.enabled = canDet;

@@ -286,6 +286,30 @@ namespace SteelCity.Sim
             return found;
         }
 
+        public enum PointKind : byte { Free = 0, TerrainSolid = 1, VolumeOpen = 2, VolumeSolid = 3 }
+        public struct PointSample { public PointKind kind; public string volumeId; public int cellIdx; }
+
+        /// <summary>
+        /// Cheap occupancy query for debris-scale objects (step ≤ ~1 voxel/frame —
+        /// NOT a substitute for swept Raycast). A containing volume wins over terrain
+        /// (its AABB is the more specific region); inside the volumes a solid cell
+        /// beats an open one. Cell + id are only meaningful for VolumeOpen/Solid.
+        /// </summary>
+        public PointSample SamplePoint(Vector3 pos)
+        {
+            if (volumes.SamplePoint(pos, out string vid, out int idx, out bool solid))
+                return new PointSample { kind = solid ? PointKind.VolumeSolid : PointKind.VolumeOpen, volumeId = vid, cellIdx = idx };
+            if (initialized && voxelGrid != null)
+            {
+                Vector3 local = (pos - gridOrigin) / voxelSize;
+                int gx = Mathf.FloorToInt(local.x), gy = Mathf.FloorToInt(local.y), gz = Mathf.FloorToInt(local.z);
+                if (gx >= 0 && gy >= 0 && gz >= 0 && gx < gridW && gy < gridH && gz < gridD &&
+                    voxelGrid[gx + gy * gridW + gz * gridW * gridH] != 0)
+                    return new PointSample { kind = PointKind.TerrainSolid };
+            }
+            return new PointSample { kind = PointKind.Free };
+        }
+
         public Vector3Int WorldToVoxelGrid(Vector3 worldPos)
         {
             Vector3 local = (worldPos - gridOrigin) / voxelSize;

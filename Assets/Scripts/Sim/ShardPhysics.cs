@@ -261,5 +261,163 @@ namespace SteelCity.Sim
             queue.RemoveRange(0, qi);                                                 // consumed prefix; tail waits for the next tick
             return moves;
         }
+
+        /// <summary>An in-grid ballistic cell: it never left the voxel array — it IS the
+        /// particle. vel/acc live in CELL units (cells/sec, cells); vox is the packed voxel
+        /// payload, doubling as the staleness guard (a re-blast or a pour into its slot
+        /// makes data[idx] != vox and the entry drops out).</summary>
+        public sealed class FallCell
+        {
+            public Vector3 vel;
+            public Vector3 acc;
+            public uint vox;
+        }
+
+        /// <summary>A cell that stepped out of the volume bounds — idx is its last in-grid
+        /// index (already cleared), vel its cell-units velocity for the shard handoff.</summary>
+        public struct FallEscape { public int idx; public Vector3 vel; public uint vox; }
+
+        /// <summary>
+        /// One tick of cellular collapse. `queue` holds the live cells' current indices
+        /// (-1 tombstones — compacted when they dominate); a moved cell keeps its slot,
+        /// so iteration stays allocation-free. Per tick each cell integrates gravity +
+        /// drag, spends per-axis accumulators on single-cell steps into OPEN cells only
+        /// (max one step per axis — at 120 fps real blast speeds never exceed ~1
+        /// voxel/frame, so there is no tunneling to guard against). Axis order rotates by
+        /// index hash to avoid a directional bias. Collision semantics: an open target
+        /// moves the cell; a target occupied by another falling cell just waits (retry
+        /// next tick — stacked cells rain down as a train); static solid absorbs that
+        /// axis's momentum. A cell that can no longer move AND has static support below
+        /// AND is slower than landSpeed converts to rubble + joins the slump queue.
+        /// A step that would leave the volume bounds (laterally or through the roof)
+        /// escapes: the grid cell is cleared, the falling entry is removed, and a
+        /// FallEscape (last index + velocity + voxel) is reported via `escaped` —
+        /// the caller converts it to a flying voxel, the one way debris legitimately
+        /// leaves the grid. Stepping below the floor row is not an escape — it is the
+        /// ground plane. Returns moves made; dirty receives vacated/filled indices.
+        /// </summary>
+        public static int StepFalling(uint[] data, int w, int h, int d,
+            Dictionary<int, FallCell> falling, List<int> queue,
+            HashSet<int> rubble, List<int> slumpQueue, List<int> dirty, List<FallEscape> escaped,
+            float dt, float gravCells, float drag, float landSpeed, int maxMoves,
+            bool deposit = true)
+        {
+            int moves = 0, tombs = 0, wh = w * h;
+            for (int qi = 0; qi < queue.Count; qi++)
+            {
+                int idx = queue[qi];
+                if (idx < 0) { tombs++; continue; }
+                if (!falling.TryGetValue(idx, out var fc) || data[idx] != fc.vox)
+                {                                                          // stale: landed already, re-blasted, or poured over
+                    falling.Remove(idx); queue[qi] = -1; tombs++; continue;
+                }
+                fc.vel.y -= gravCells * dt;
+                fc.vel *= Mathf.Max(0f, 1f - drag * dt);
+                fc.acc += fc.vel * dt;
+                int z = idx / wh, rem = idx - z * wh, y = rem / w, x = rem - y * w;
+                uint hsh = (uint)idx * 2654435761u;
+                int a0 = (int)((hsh >> 12) % 3u);
+                bool moved = false, esc = false;
+                for (int k = 0; k < 3 && moves < maxMoves; k++)
+                {
+                    int axis = (a0 + k) % 3;
+                    float acc = axis == 0 ? fc.acc.x : axis == 1 ? fc.acc.y : fc.acc.z;
+                    if (Mathf.Abs(acc) < 1f) continue;
+                    int step = acc > 0f ? 1 : -1;
+                    int nx = x + (axis == 0 ? step : 0), ny = y + (axis == 1 ? step : 0), nz = z + (axis == 2 ? step : 0);
+                    if (nx < 0 || nx >= w || nz < 0 || nz >= d || ny >= h || ny < 0)
+                    {
+                        if (ny < 0) { fc.acc.y = 0f; if (fc.vel.y < 0f) fc.vel.y = 0f; continue; }   // the floor row
+                        data[idx] = 0u; dirty.Add(idx);
+                        escaped.Add(new FallEscape { idx = idx, vel = fc.vel, vox = fc.vox });       // out of the volume -> shard
+                        falling.Remove(idx);
+                        queue[qi] = -1; tombs++; esc = true;
+                        break;
+                    }
+                    int t = nx + ny * w + nz * wh;
+                    if ((data[t] & VoxelDda.MaterialMask) == 0u)
+                    {
+                        data[t] = fc.vox; data[idx] = 0u;
+                        dirty.Add(idx); dirty.Add(t);
+                        falling.Remove(idx); falling[t] = fc;
+                        queue[qi] = t; idx = t; x = nx; y = ny; z = nz;
+                        if (axis == 0) fc.acc.x -= step; else if (axis == 1) fc.acc.y -= step; else fc.acc.z -= step;
+                        moved = true; moves++;
+                    }
+                    else if (falling.ContainsKey(t)) { /* a falling sibling blocks the cell — wait for it next tick */ }
+                    else if (axis == 0) { fc.acc.x = 0f; fc.vel.x = 0f; }
+                    else if (axis == 1) { fc.acc.y = 0f; fc.vel.y = 0f; }
+                    else                { fc.acc.z = 0f; fc.vel.z = 0f; }
+                }
+                if (esc) continue;
+                bool belowStatic = y == 0 ||
+                    ((data[idx - w] & VoxelDda.MaterialMask) != 0u && !falling.ContainsKey(idx - w));
+                if (!moved && belowStatic && fc.vel.y <= 0.001f &&
+                    Mathf.Abs(fc.vel.x) + Mathf.Abs(fc.vel.z) < landSpeed)
+                {
+                    if (deposit) { rubble.Add(idx); slumpQueue.Add(idx); }
+                    else { data[idx] = 0u; dirty.Add(idx); }
+                    falling.Remove(idx); queue[qi] = -1; tombs++;
+                }
+            }
+            if (tombs * 2 > queue.Count && queue.Count > 64)
+            { queue.Clear(); queue.AddRange(falling.Keys); }
+            return moves;
+        }
+
+        // ── Flying-voxel transport: a cell in world space between grids ──────────
+
+        public enum FlySampleKind : byte { Free = 0, Open = 1, Solid = 2 }
+        /// <summary>Result of one point query: Free = empty space, Open = inside a
+        /// volume's AIR cell (handoff target), Solid = inside material (volume or
+        /// terrain — the step may not be taken).</summary>
+        public struct FlySample { public FlySampleKind kind; public string volumeId; public int cellIdx; }
+        public delegate FlySample FlyQuery(Vector3 pos);
+        public enum FlyOutcome : byte { Flying = 0, EnteredOpen = 1 }
+
+        /// <summary>
+        /// One ballistic tick for a single-cell voxel in open world space — the
+        /// transport phase of a doomed cell between grids. vel is m/s; acc is the
+        /// meter accumulator spent in whole `stepLen` strides, largest backlog axis
+        /// first (the same accumulator contract StepFalling uses inside a grid, so
+        /// per-call travel is bounded by maxSteps×stepLen and a POINT query is exact
+        /// where a swept ray would be wasted — this is the physics-sweep mitigation
+        /// for swarms of thousands). Each candidate position is sampled: Solid
+        /// absorbs that axis's momentum without moving (a fast cell stalls against
+        /// the surface — no tunneling at any speed); Open accepts the step and
+        /// reports the volume + cell for handoff; Free just moves. The accumulator
+        /// is NOT drained on an Open step — if the handoff fails the residual keeps
+        /// the same step pending for the next tick.
+        /// </summary>
+        public static FlyOutcome StepFlyer(ref Vector3 pos, ref Vector3 vel, ref Vector3 acc,
+            float dt, float gravity, float drag, float stepLen, int maxSteps,
+            FlyQuery sample, out FlySample entered)
+        {
+            entered = default;
+            vel.y -= gravity * dt;
+            vel *= Mathf.Max(0f, 1f - drag * dt);
+            acc += vel * dt;
+            for (int g = 0; g < maxSteps; g++)
+            {
+                float ax = Mathf.Abs(acc.x), ay = Mathf.Abs(acc.y), az = Mathf.Abs(acc.z);
+                int axis = ax >= ay && ax >= az ? 0 : ay >= az ? 1 : 2;
+                if ((axis == 0 ? ax : axis == 1 ? ay : az) < stepLen) break;
+                int step = axis == 0 ? (acc.x > 0f ? 1 : -1) : axis == 1 ? (acc.y > 0f ? 1 : -1) : (acc.z > 0f ? 1 : -1);
+                Vector3 np = pos;
+                if (axis == 0) np.x += step * stepLen; else if (axis == 1) np.y += step * stepLen; else np.z += step * stepLen;
+                FlySample s = sample(np);
+                if (s.kind == FlySampleKind.Open) { pos = np; entered = s; return FlyOutcome.EnteredOpen; }
+                if (s.kind == FlySampleKind.Solid)
+                {
+                    if (axis == 0) { vel.x = 0f; acc.x = 0f; }
+                    else if (axis == 1) { vel.y = 0f; acc.y = 0f; }
+                    else { vel.z = 0f; acc.z = 0f; }
+                    continue;
+                }
+                pos = np;
+                if (axis == 0) acc.x -= step * stepLen; else if (axis == 1) acc.y -= step * stepLen; else acc.z -= step * stepLen;
+            }
+            return FlyOutcome.Flying;
+        }
     }
 }

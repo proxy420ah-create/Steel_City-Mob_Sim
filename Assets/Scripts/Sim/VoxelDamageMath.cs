@@ -249,7 +249,7 @@ namespace SteelCity.Sim
         /// </summary>
         public static int FindDetached(uint[] data, int w, int h, int d,
             List<int> detachedIdx, List<uint> detachedMats, List<int> islandEnds,
-            byte[] visited = null)
+            byte[] visited = null, System.Func<int, bool> treatAsAir = null)
         {
             detachedIdx.Clear(); detachedMats.Clear(); islandEnds.Clear();
             int n = w * h * d;
@@ -263,7 +263,7 @@ namespace SteelCity.Sim
             for (int x = 0; x < w; x++)
             {
                 int idx = x + z * wh;
-                if ((data[idx] & MaterialMask) != 0) { visited[idx] = 1; queue.Enqueue(idx); }
+                if ((data[idx] & MaterialMask) != 0 && !(treatAsAir != null && treatAsAir(idx))) { visited[idx] = 1; queue.Enqueue(idx); }
             }
             while (queue.Count > 0)
             {
@@ -280,7 +280,7 @@ namespace SteelCity.Sim
                     int ni = nx + ny * w + nz * wh;
                     if (visited[ni] != 0) continue;
                     uint nm = data[ni] & MaterialMask;
-                    if (nm == 0) continue;
+                    if (nm == 0 || (treatAsAir != null && treatAsAir(ni))) continue;
                     if (!cStruct && !IsGlassMaterial((int)nm)) continue;   // glass can't anchor structure
                     visited[ni] = 1;
                     queue.Enqueue(ni);

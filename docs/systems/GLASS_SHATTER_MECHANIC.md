@@ -1,6 +1,6 @@
 # Glass Shatter Mechanic — Prototype Proposal
 
-**Status**: ✅ P0 + P1 + sector-write half of P2 implemented — bullet puncture, cracked halo, shard burst, synthesized SFX, damage reset, mold bench tooling live; damage writes reach baked-sector merged buffers. **Demolition bench** added: spherical `VoxelDamageMath.Blast` (per-material resistance, seeded falloff) + PICK BLAST/DETONATE in the Range tab. Remaining: gid pane semantics (cascade/blast-radius-over-gid) and P3 sim hooks
+**Status**: ✅ P0 + P1 + sector-write half of P2 implemented — bullet puncture, cracked halo, unified voxel debris (in-grid rain → flying-voxel transport → cross-volume handoff), synthesized SFX, damage reset, mold bench tooling live; damage writes reach baked-sector merged buffers. **Demolition bench** added: spherical `VoxelDamageMath.Blast` (per-material resistance, seeded falloff) + PICK BLAST/DETONATE in the Range tab. Remaining: gid pane semantics (cascade/blast-radius-over-gid) and P3 sim hooks
 **Created**: October 9, 2026
 **Parent**: [`VOXEL_GLASS_TRANSPARENCY.md`](VOXEL_GLASS_TRANSPARENCY.md) §Windows ↔ Projectiles — this doc resolves the "Shattering" option that section framed
 **Depends on**: `groupMap` gid tagging (editor), runtime dirty-cell writes (`docs/core/PERFORMANCE_PATTERNS.md` #1–2), Tier 3 individual-mutation draw path
@@ -93,11 +93,12 @@ Directionality is free: debris direction = projectile ray direction
 
 ## Presentation Layer (downstream of sim, same split as firearms/tracers)
 
-- **Shard burst** — instanced mini-cube particles; spawn list = removal delta;
-  velocity = rayDir + spread cone + gravity + fade. CPU-integrated; each shard
-  sweeps the voxel world with one DDA ray per frame (`ShardPhysics.Step`, no
-  Unity colliders) and a shard that comes to rest on a damaged volume is
-  written back as rubble — see *Debris vs. the Voxel World* below.
+- **Flying voxels** — removed cells re-spawn as individual cell-sized debris
+  voxels (the voxel IS the particle): velocity = rayDir + spread cone +
+  gravity + fade, CPU-integrated via `ShardPhysics.StepFlyer` — point
+  occupancy per 0.2 m stride, no Unity colliders, no swept rays. A voxel that
+  reaches a volume's open cell joins that volume's falling-cell rain —
+  see *Debris vs. the Voxel World* below.
 - **Cracked halo** — surviving ring cells swap to a "cracked glass" material
   variant (whiter, higher alpha). Persistent — the window looks wounded
   until it fails. Palette id **134 "Cracked Glass"** now exists
@@ -111,90 +112,70 @@ Directionality is free: debris direction = projectile ray direction
   ("disturbed but intact") — emissive material slots already exist.
 - **Sound by removed-count** — 3 cells = tink, 40 cells = crash.
 
-## Debris vs. the Voxel World (implemented — swept bounce + rubble)
+## Debris vs. the Voxel World — unified cellular debris (implemented)
 
 `Assets/Scripts/Sim/ShardPhysics.cs` (pure functions; offline-tested in
-`Tools/dda_selftest` sections [13]–[15]) + `VoxelDamageSystem.UpdateShards`.
+`Tools/dda_selftest` sections [13]–[18]) + `VoxelDamageSystem`.
 
-- **Swept bounce** — a shard is a sphere (radius = half its cube edge) swept along
-  its velocity by one `VoxelCollisionWorld.Raycast` per frame. The DDA visits every
-  cell the step crosses, so a fast shard cannot tunnel a 1-voxel floor. A hit stops
-  it a radius off the face and reflects velocity about the face normal
-  (restitution `shardBounce`, tangential ×0.6). Floor, roof, wall and rubble are
-  the same code — only `hit.normal` differs. The flat `shardGroundY` plane remains
-  the fallback; a shard whose center ends up inside solid fades in 0.15 s.
-- **Rest → rubble** — a shard that comes to rest on a floor-like face (normal.y > 0.7,
-  speed < 0.4 m/s) of a volume that **already has damage state** writes its OWN
-  material back into the AIR cells it settled on (`Deposit`: never over solid,
-  clipped to the grid, one dirty-span upload). The material is the cell's original
-  one, or the majority material of an island chunk, so debris is literally the
-  building's remains put back lower down — no new palette entry, no flag bit
-  (a bombed building is inert for the rest of the week, so rubble needs no special
-  blast/connectivity semantics). Dust = 1 cell on the first air layer above the
-  surface; a chunk POURS its `mass` via `DepositHeap` — bounded cells per frame
-  (`rubblePourPerSec`, default 8000/s) while the rendered cube shrinks with
-  ∛remaining-mass, so the chunk visibly melts into the mound rather than popping
-  one into existence. The mound keeps the square shrinking-layer silhouette
-  (−1 half-extent every 2 layers, footprint cap `rubbleMaxCells`) but the
-  outermost ring of each layer is deterministically ragged (~1/8 cells skipped
-  by index hash). Each written cell drops down its column to the lowest open
-  cell, so a mound over a blast crater fills the hole first — form-fit, not a
-  flat base floating over the cavity. Ring order is deterministic, so each
-  pour tick resumes the same pile without double-writes; a pouring shard
-  outlives its expiry until its mass is spent. Piles stack — the next shard
-  lands on the last one.
-- **Angle-of-repose slump** — every deposited cell joins the volume's rubble
-  set + candidate queue, and `ShardPhysics.Slump` runs a bounded slice each
-  frame (`PumpRubbleSlump`, 4096 moves/frame): an unsupported cell (air
-  directly below) falls straight down — rubble tucked under an overhang drips
-  out instead of freezing into stalactites, and rubble whose support is later
-  destroyed crumbles; a supported cell slides one step down into an open
-  lateral-down neighbor (45° repose, hash-rotated direction → no axis bias) —
-  no air-above requirement, so pillar sides shed top-to-bottom and under-slab
-  masses dissolve instead of freezing floor-to-ceiling. Interior cells of a
-  settled mass simply have no open target, which is the real lock. Only
-  rubble-set cells ever move — structural
-  voxels are untouched — and moved cells re-check + expose the cells below/
-  beside the vacancy, so the pass converges and mass + material identity are
-  preserved per cell. Net effect: mounds relax into slopes, rubble on ledges
-  spills over the edge, and side-blast piles cascade out of the cavity mouth.
-  A rubble cell re-blasted to AIR drops out of the set on its next pop.
-- **Material blending** — `BuildBuckets` records each bucket's dominant AND
-  runner-up material with exact counts; the shard carries `mat2` + `mix2`
-  (secondary share) and `DepositHeap` picks per cell by a deterministic index
-  hash weighted by the share — a 60/40 brick/asphalt boundary bucket writes a
-  genuinely mottled 60/40 mound instead of majority-vote flattening.
-- **Mass-conserving emission** — removed cells don't spawn 1:1 particles:
-  `ShardPhysics.BuildBuckets` spatial-hashes each wavefront's removed cells (and
-  the whole detached span as one range) into `debrisClusterM`-pitch buckets →
-  ONE shard per bucket carrying the bucket's cell count as `mass`. The shard
-  budget is explicit: blast fronts share ~70% of `maxShards` proportional to
-  their AIR-cell counts, the island drop gets ~30%, and `EmitClusterRange`
-  auto-coarsens the pitch until a range's bucket count fits its share — every
-  removed cell lands in a bucket, so emission is mass-conserving at any budget
-  (a 400k-cell tenement blast emits ~226 shards, not ~15,000 candidates that
-  get evicted — the earlier failure mode). Each bucket spawns its shard at a
-  real removed cell nearest the centroid — the raw centroid can sit inside
-  surviving solid (measured: 429 embedded starts on a center blast → 0).
-  In flight a shard renders as a plain cube, edge ∛count **capped at 5 voxels**
-  — a chunk reads as a chunk, never as a true-shape slab (render size ≠ deposit
-  mass). Launch speed and tumble ÷ √edge (big sections drift and thud, dust
-  flies far). Bullet spall stays 1-cell dust (already 1:1).
-- **Mass accounting + rescue** — the console proves the pipeline: `🧨 debris`
-  logs emitted shard count, carried cell mass, evicted mass and a top-3
-  per-material breakdown (`matId×cells`) per detonation — compare against pile
-  colors to distinguish real pad removal from blend mixing; `🧱 rubble
-  settling` logs written/carried per deposit (blend shown as `mat/mat2@share`). A settled shard evicted
-  over the budget spills its heap before removal, and a shard that embeds in
-  surviving solid after the collapse window spills its mass into the air around
-  the wedge point (a clipped chunk leaves its cells in the wall's cavities).
-- **Collapse ordering** — deposits wait out the shock-front playback window
-  (`planBusyUntil`), so rubble never lands on an island that is about to drop and
-  hang in mid-air; at deposit time the surface under the shard is re-probed and a
-  shard whose support vanished wakes and falls again.
-- **Toggles** (Range tab → Demolition): `debris bounces off voxels`,
-  `debris settles into volume (rubble · N cells)`. Turn rubble off to keep the
-  glass monolith a clean blast-field instrument.
+**The voxel IS the particle.** Doomed cells are never packaged into proxy
+particles and never unpacked — every cell keeps its own material and position
+through all three phases:
+
+- **Phase 1 — in-grid rain** (`StepFalling`): detached island cells are marked
+  `falling` where they stand and stay live grid cells (data moves with the
+  cell — the batched upload IS the animation). Per tick gravity + drag
+  integrate `vel`; per-axis accumulators spend whole cells on single-step
+  moves into OPEN neighbors only — no tunneling at any blast speed. Static
+  solids absorb that axis's momentum; falling siblings block (columns rain as
+  trains). A cell that can't move, rests on static support, and is under
+  `cellLandSpeed` becomes rubble → `slumpQueue`. `SeedFalling` gives new
+  islands a radial impulse (`cellImpulse`, decaying to zero at 2× blast
+  radius) + deterministic hash jitter — rim cells are thrown, far ones drop.
+- **Phase 2 — flying voxel transport** (`StepFlyer`): a cell that steps out of
+  its volume's bounds — or was blast-ejected — becomes a world-space flying
+  voxel (same cell, no rotation, no mass bundle). It moves in `FlyStepLen`
+  (0.2 m) axis strides, each candidate position point-sampled through
+  `VoxelCollisionWorld.SamplePoint` → `SolidVolumeSet.SamplePoint` (the same
+  32 m XZ broadphase as the raycaster — one grid cell → few candidates →
+  AABB reject → cell read). A point query is exact at sub-cell strides, so
+  a swarm of thousands never pays for swept rays — the physics-sweep
+  mitigation. Solids absorb that axis's momentum (no tunneling at any speed);
+  `shardGroundY` + terrain solids are the floor.
+- **Phase 3 — cross-volume handoff** (`TryEnterVolume`): a flyer stepping into
+  a volume's AIR cell calls `EnsureDamageState` — **a pristine neighboring
+  business flips into damaged state on first arrival** — then the cell resumes
+  as a falling cell in THAT grid: velocity remapped to the target's cell axes,
+  its voxel written immediately (falling cells render at their index). Debris
+  can literally fly through a neighbor's window and rain onto the lobby floor.
+  A 0.35 s re-entry cooldown on a flyer's source volume stops doorway
+  ping-pong.
+- **Emission** — blast cells re-spawn as flyers at their own world positions
+  (`EmitFlyersRadial`: radial velocity + deterministic per-cell hash jitter,
+  per shock-front wavefront); puncture spall flies along the shot direction
+  (`EmitFlyersShot`). When a cavity exceeds `maxFlyingCells` (8192) emission
+  stride-samples by cell hash — uniform coverage, deterministic, no
+  truncation.
+- **Rendering** — `flyingDraw` (a plain list refilled each frame) batches into
+  PathDebugRenderer's quantized-color instanced-cube pipeline — no per-entity
+  string keys. `MaxInstances` raised to 8192 for swarm-size color buckets.
+- **Landing policies** — open cell → falling → rubble → slump; solid surface
+  → absorbed, fades at `tEnd`; terrain → absorbed, fades (not writable);
+  `rubbleDeposit=false` → landed cells vanish. A flyer evicted past the pool
+  cap simply never spawns (flight is presentation, not sim state).
+- **Angle-of-repose slump** — unchanged: `PumpRubbleSlump` (4096 moves/frame)
+  relaxes landed cells — unsupported cells fall, supported cells slide one
+  step down a lateral-down neighbor (45° repose, hash-rotated direction);
+  only rubble-set cells ever move, converging to natural piles.
+- **Removed** — bundled shard structs, `DepositHeap` pours, bucket clustering
+  (`BuildBuckets`/`EmitClusterRange`), string-keyed shard cubes, pour budgets,
+  `planBusyUntil` ordering. `DepositHeap`/`BuildBuckets`/`Step` remain as
+  library functions — selftest [13]–[15] still cover them.
+- **Cost model** — ~8k flyers × ~2–6 point queries/frame ≈ 2–5 ms during
+  swarm flight (~1–2 s); `maxFlyingCells` bounds it. `EnsureDamageState`
+  clones a pristine target's full array on first arrival — a one-time few-ms
+  hitch per newly-struck neighbor.
+- **Toggles** (Range tab → Demolition): `debris collides with voxel world`,
+  `debris settles into volume (rubble · N cells)`, `cell impulse` slider.
 - **Debris test lot** — `block_48` ("[DEBRIS TESTBED]", next to the glass
   monolith): `debris_test_lot.stasset` (192×120×192) = a full-footprint asphalt
   pad every pile is guaranteed to land on + three distinct-material masses —
@@ -203,14 +184,11 @@ Directionality is free: debris direction = projectile ray direction
   deterministic aim centers. `Tools/gen_debris_lot.py` regenerates it; same
   caveat as block_47 — hand-maintained in `city_layout.json`, a
   `generate_city_layout.py` regen reverts it.
-- **Known limits** — a mound only fills the AIR cells inside its footprint cap,
-  so a bucket bigger than the space can hold drops the excess; shards that fly
-  out of the volume (terrain landings) and shards evicted while still flying
-  take their mass with them — the `🧨 debris` log reports the evicted share.
-  The center ray lets a large chunk graze into a wall by up to its radius while
-  moving parallel to it. Untouched neighbouring buildings just linger and fade.
-  Rubble is not persisted (same as all damage — baking the [BOMBED] state is
-  separate, open work).
+- **Known limits** — debris enters volumes through openings only (no impact
+  damage through intact walls — a future tier); terrain landings fade (no
+  persistent litter pool yet); rubble is not persisted (same as all damage —
+  baking the [BOMBED] state is separate, open work); cells can overlap a
+  falling sibling for a tick during cross-volume handoff races.
 
 ## Sim Layer (authoritative)
 

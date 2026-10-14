@@ -337,7 +337,7 @@
   - Seeded bullet-hole model: impact + ring-falloff removal, cracked-halo material, gid pane-unit cascade
   - Removed voxels = shard particle spawn list (voxel→particle 1:1); damage type → break radius table
   - P0–P3 phased plan: puncture → dressing → pane semantics → sim hooks (noise/LOS/persistence)
-  - **Debris vs. the voxel world** (implemented): `ShardPhysics` swept-DDA bounce off floors/roofs/walls + rubble deposit (resting shards write their own material back into the volume), gated behind the shock-front playback; mass-conserving bucket emission (small capped cube in flight, full cell-count heap on rest); offline self-test [13]–[15]
+  - **Unified cellular debris** (implemented): the voxel IS the particle — in-grid ballistic rain (`StepFalling`), world-space flying-voxel transport (`StepFlyer` point queries, no swept rays), and cross-volume handoff that flips a pristine neighbor into damaged state on first arrival; per-cell emission stride-samples at the `maxFlyingCells` budget; offline self-test [13]–[18]
 - **`docs/systems/PROCEDURAL_AUDIO.md`** — In-memory `AudioClip` synthesis (no audio assets)
   - Recipe: noise attack + inharmonic decaying partials + noise tail; `exp(-kt)` envelope does the heavy lifting
   - Bucket mapping (removed-count → tink/crack/crash); `PlayClipAtPoint` requires an active `AudioListener`
