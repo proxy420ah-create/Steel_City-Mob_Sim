@@ -271,6 +271,13 @@ namespace SteelCity.Sim
             public Vector3 vel;
             public Vector3 acc;
             public uint vox;
+            // domino members: partner >= 0 makes this cell half of a 2-cell piece —
+            // BOTH dict entries (head + member) point at this ONE instance, so the
+            // pair shares vel/acc by reference (a real entity, not correlated cells).
+            // vox2/headIdx are only meaningful while partner >= 0.
+            public int partner = -1;
+            public uint vox2;
+            public int headIdx = -1;
         }
 
         /// <summary>A cell that stepped out of the volume bounds — idx is its last in-grid
@@ -309,11 +316,139 @@ namespace SteelCity.Sim
                 if (idx < 0) { tombs++; continue; }
                 if (!falling.TryGetValue(idx, out var fc) || data[idx] != fc.vox)
                 {                                                          // stale: landed already, re-blasted, or poured over
-                    falling.Remove(idx); queue[qi] = -1; tombs++; continue;
+                    falling.Remove(idx);
+                    if (fc != null && fc.partner >= 0 && fc.headIdx == idx)
+                    {   // a domino HEAD died externally — don't orphan the member (it owns no
+                        // queue slot and would freeze as a floating voxel): adopt it as a
+                        // single with a momentum snapshot, or drop it if its cell died too
+                        int m = fc.partner;
+                        if (m >= 0 && m < data.Length && data[m] == fc.vox2)
+                        {
+                            falling[m] = new FallCell { vel = fc.vel, acc = fc.acc, vox = fc.vox2 };
+                            queue.Add(m);
+                        }
+                        else falling.Remove(m);
+                    }
+                    queue[qi] = -1; tombs++; continue;
                 }
                 fc.vel.y -= gravCells * dt;
                 fc.vel *= Mathf.Max(0f, 1f - drag * dt);
                 fc.acc += fc.vel * dt;
+
+                if (fc.partner >= 0)
+                {
+                    // ── domino: a real 2-cell entity ─────────────────────────
+                    // Only the head's queue slot steps the pair (the member owns
+                    // no slot until it splits). Per axis, both members' targets
+                    // are evaluated together: both free → move as a unit; a
+                    // falling sibling blocking either → wait; static blocking
+                    // BOTH → absorb the axis; static blocking ONE → the piece
+                    // fractures there — the stuck member keeps its support, the
+                    // free member keeps the momentum and flies on as a single.
+                    if (idx != fc.headIdx) { queue[qi] = -1; tombs++; continue; }
+                    int m = fc.partner;
+                    if (m < 0 || m >= data.Length || data[m] != fc.vox2)
+                    {   // member's cell was destroyed (re-blast / pour) — head goes single
+                        falling.Remove(m); fc.partner = -1; fc.vox2 = 0; fc.headIdx = -1;
+                        continue;
+                    }
+                    int dhx = 0, dhy = 0, dhz = 0, dmx = 0, dmy = 0, dmz = 0;
+                    {
+                        int zz = idx / wh, rr = idx - zz * wh, yy = rr / w, xx = rr - yy * w;
+                        dhx = xx; dhy = yy; dhz = zz;
+                        zz = m / wh; rr = m - zz * wh; yy = rr / w; xx = rr - yy * w;
+                        dmx = xx; dmy = yy; dmz = zz;
+                    }
+                    uint dhsh = (uint)idx * 2654435761u;
+                    int da0 = (int)((dhsh >> 12) % 3u);
+                    bool dmoved = false, dsplit = false;
+                    for (int k = 0; k < 3 && moves < maxMoves; k++)
+                    {
+                        int axis = (da0 + k) % 3;
+                        float acc = axis == 0 ? fc.acc.x : axis == 1 ? fc.acc.y : fc.acc.z;
+                        if (Mathf.Abs(acc) < 1f) continue;
+                        int step = acc > 0f ? 1 : -1;
+                        int ox = axis == 0 ? step : 0, oy = axis == 1 ? step : 0, oz = axis == 2 ? step : 0;
+                        int hx2 = dhx + ox, hy2 = dhy + oy, hz2 = dhz + oz;
+                        int mx2 = dmx + ox, my2 = dmy + oy, mz2 = dmz + oz;
+                        bool hEsc = hx2 < 0 || hx2 >= w || hz2 < 0 || hz2 >= d || hy2 >= h;   // lateral/roof = escape
+                        bool mEsc = mx2 < 0 || mx2 >= w || mz2 < 0 || mz2 >= d || my2 >= h;
+                        if (hEsc || mEsc)
+                        {   // a member left the bounds → it escapes alone; survivor goes single
+                            int escIdx = hEsc ? idx : m;
+                            uint escVox = hEsc ? fc.vox : fc.vox2;
+                            data[escIdx] = 0u; dirty.Add(escIdx);
+                            escaped.Add(new FallEscape { idx = escIdx, vel = fc.vel, vox = escVox });
+                            falling.Remove(escIdx);
+                            fc.vox = hEsc ? fc.vox2 : fc.vox;   // survivor's material
+                            fc.vox2 = 0; fc.partner = -1; fc.headIdx = -1;
+                            if (hEsc) { queue.Add(m); queue[qi] = -1; tombs++; }   // member survivor needs a slot; member-escape leaves head's intact
+                            dsplit = true;
+                            break;
+                        }
+                        bool hFl = hy2 < 0, mFl = my2 < 0;       // below row 0 = the floor — a static contact, never an escape, never a valid index
+                        int tH = hFl ? idx : hx2 + hy2 * w + hz2 * wh;
+                        int tM = mFl ? m : mx2 + my2 * w + mz2 * wh;
+                        bool freeH = !hFl && ((data[tH] & VoxelDda.MaterialMask) == 0u || tH == m);
+                        bool freeM = !mFl && ((data[tM] & VoxelDda.MaterialMask) == 0u || tM == idx);
+                        if (freeH && freeM)
+                        {
+                            data[idx] = 0u; data[m] = 0u;
+                            data[tH] = fc.vox; data[tM] = fc.vox2;
+                            dirty.Add(idx); dirty.Add(m); dirty.Add(tH); dirty.Add(tM);
+                            falling.Remove(idx); falling.Remove(m);
+                            falling[tH] = fc; falling[tM] = fc;
+                            fc.partner = tM; fc.headIdx = tH;
+                            queue[qi] = tH; idx = tH;
+                            dhx = hx2; dhy = hy2; dhz = hz2;
+                            dmx = mx2; dmy = my2; dmz = mz2; m = tM;
+                            if (axis == 0) fc.acc.x -= step; else if (axis == 1) fc.acc.y -= step; else fc.acc.z -= step;
+                            dmoved = true; moves++;
+                            continue;
+                        }
+                        bool blockH = hFl || (tH != m && (data[tH] & VoxelDda.MaterialMask) != 0u);
+                        bool blockM = mFl || (tM != idx && (data[tM] & VoxelDda.MaterialMask) != 0u);
+                        if ((!hFl && blockH && falling.ContainsKey(tH)) || (!mFl && blockM && falling.ContainsKey(tM)))
+                            continue;                                    // a falling sibling blocks one member — wait it out
+                        if (blockH && blockM)
+                        {                                                // symmetric obstruction — shared momentum dies on this axis
+                            if (axis == 0) { fc.acc.x = 0f; fc.vel.x = 0f; }
+                            else if (axis == 1) { fc.acc.y = 0f; fc.vel.y = 0f; }
+                            else { fc.acc.z = 0f; fc.vel.z = 0f; }
+                            continue;
+                        }
+                        // asymmetric obstruction → the piece fractures: stuck member
+                        // keeps its support, free member keeps the shared momentum
+                        {
+                            uint voxH = fc.vox, voxM = fc.vox2;
+                            int surv = blockH ? m : idx;
+                            var lone = new FallCell { vel = fc.vel, acc = fc.acc, vox = blockH ? voxM : voxH };
+                            falling[surv] = lone;
+                            queue.Add(m);                                 // whichever side is the member, it needs its own slot now
+                            fc.vox = blockH ? voxH : voxM; fc.vox2 = 0; fc.partner = -1; fc.headIdx = -1;
+                            if (axis == 0) { fc.acc.x = 0f; fc.vel.x = 0f; }
+                            else if (axis == 1) { fc.acc.y = 0f; fc.vel.y = 0f; }
+                            else { fc.acc.z = 0f; fc.vel.z = 0f; }
+                            dsplit = true;
+                            break;
+                        }
+                    }
+                    if (dsplit) continue;
+                    // landing: BOTH members grounded + slow → two rubble cells, adjacent — a whole brick
+                    m = fc.partner;
+                    bool hGround = dhy == 0 || ((data[idx - w] & VoxelDda.MaterialMask) != 0u && !falling.ContainsKey(idx - w));
+                    bool mGround = dmy == 0 || ((data[m - w] & VoxelDda.MaterialMask) != 0u && !falling.ContainsKey(m - w));
+                    if (!dmoved && hGround && mGround && fc.vel.y <= 0.001f &&
+                        Mathf.Abs(fc.vel.x) + Mathf.Abs(fc.vel.z) < landSpeed)
+                    {
+                        if (deposit) { rubble.Add(idx); slumpQueue.Add(idx); rubble.Add(m); slumpQueue.Add(m); }
+                        else { data[idx] = 0u; data[m] = 0u; dirty.Add(idx); dirty.Add(m); }
+                        falling.Remove(idx); falling.Remove(m);
+                        queue[qi] = -1; tombs++;
+                    }
+                    continue;
+                }
+
                 int z = idx / wh, rem = idx - z * wh, y = rem / w, x = rem - y * w;
                 uint hsh = (uint)idx * 2654435761u;
                 int a0 = (int)((hsh >> 12) % 3u);
@@ -418,6 +553,35 @@ namespace SteelCity.Sim
                 if (axis == 0) acc.x -= step * stepLen; else if (axis == 1) acc.y -= step * stepLen; else acc.z -= step * stepLen;
             }
             return FlyOutcome.Flying;
+        }
+
+        /// <summary>
+        /// Voxel pairing seed — the "brick domino" trick. The grid partitions into 2×2
+        /// XZ tiles; each tile deterministically picks a pair axis (x or z) and rolls
+        /// `chance` for whether it pairs at all. A paired cell returns its PARTNER's index —
+        /// the one other cell of the same tile the tile's hash selects (x^1 or z^1 neighbor);
+        /// -1 means the cell stays single: the tile rolled over chance, the partner is out of
+        /// bounds, not doomed, or a different resistance class. The pairing is mutual
+        /// (PairPartner(a) == b ⟺ PairPartner(b) == a) and the ANCHOR — the even-indexed cell
+        /// along the pair axis — is always the smaller flat index, which is what lets the
+        /// seeder build one FallCell entity per pair without a visited set (members skip,
+        /// anchors construct). Even anchoring means pieces can never chain past 2 cells:
+        /// two dominoes side by side are two independent entities that merely sit adjacent.
+        /// </summary>
+        public static int PairPartner(int idx, int w, int h, int d, float chance,
+            System.Func<int, bool> isDoomed, System.Func<int, int> classOf)
+        {
+            int wh = w * h;
+            int z = idx / wh, rem = idx - z * wh, y = rem / w, x = rem - y * w;
+            int bx = x & ~1, bz = z & ~1;
+            uint th = (uint)(bx + y * w + bz * wh) * 2654435761u;   // tile key — same for all 4 cells
+            if (chance < 1f && ((th >> 24) & 255u) / 255f >= chance) return -1;   // singles ("broken bricks"); 1.0 pairs every eligible tile
+            bool xAxis = (th & 0x10000u) != 0;
+            int px = xAxis ? x ^ 1 : x, pz = xAxis ? z : z ^ 1;     // the paired cell inside the tile
+            if (px >= w || pz >= d) return -1;                      // tile clipped by the grid edge
+            int partner = px + y * w + pz * wh;
+            if (!isDoomed(partner) || classOf(partner) != classOf(idx)) return -1;
+            return partner;
         }
     }
 }

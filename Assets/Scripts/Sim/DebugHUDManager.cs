@@ -18,13 +18,13 @@ namespace SteelCity.Sim
     /// </summary>
     public class DebugHUDManager : MonoBehaviour
     {
-        public enum Tab { Camera, Render, Clothing, Path, Range, Keys }
+        public enum Tab { Camera, Render, Clothing, Path, Range, MatRes, Keys }
         public enum Corner { TopLeft, TopRight, BottomLeft, BottomRight }
 
         [Header("Config")]
         [SerializeField] private Tab defaultTab = Tab.Keys;
         [SerializeField] private bool showOnStart = true;
-        [SerializeField] private float windowW = 380f;
+        [SerializeField] private float windowW = 560f;
         [SerializeField] private float windowH = 440f;
         [SerializeField] private float margin = 10f;
 
@@ -86,7 +86,7 @@ namespace SteelCity.Sim
         private Vector3 blastNormal;
         private string blastVolume;
         private bool blastAtVolumeCenter;
-        private float blastDepth = 0.8f, blastRadius = 6f, blastPower = 2f;
+        private float blastDepth = 0.8f, blastRadius = 6f, blastPower = 4f;
 
         // Optional test/debug components — used by the Keys tab to show only
         // hotkeys whose handlers actually exist in the scene right now.
@@ -132,6 +132,7 @@ namespace SteelCity.Sim
         private string tabText;
         private string footerText;
         private Tab lastBuiltTab = (Tab)(-1);
+        private int matResSub;                                 // MatRes sub-tab: 0 building / 1 vehicle / 2 item
         private float nextTabRefresh;
         private float nextFooterRefresh;
         private float nextRefsRefresh;
@@ -245,6 +246,7 @@ namespace SteelCity.Sim
             if (allClothingSystems.Count > 0) tabs.Add(Tab.Clothing);
             if (pathDebug != null) tabs.Add(Tab.Path);
             if (cityMap != null) tabs.Add(Tab.Range);
+            tabs.Add(Tab.MatRes);
             tabs.Add(Tab.Keys);
             return tabs;
         }
@@ -519,8 +521,8 @@ namespace SteelCity.Sim
 
             if (!minimized)
             {
-                Tab[] tabs = { Tab.Camera, Tab.Render, Tab.Clothing, Tab.Path, Tab.Range, Tab.Keys };
-                string[] tabNames = { "Camera", "Render", "Clothing", "Path", "Range", "Keys" };
+                Tab[] tabs = { Tab.Camera, Tab.Render, Tab.Clothing, Tab.Path, Tab.Range, Tab.MatRes, Tab.Keys };
+                string[] tabNames = { "Camera", "Render", "Clothing", "Path", "Range", "MatRes", "Keys" };
 
                 for (int i = 0; i < tabs.Length; i++)
                 {
@@ -565,6 +567,7 @@ namespace SteelCity.Sim
                     UnityEngine.Profiling.Profiler.BeginSample("HUD.DrawRangeTab");
                     try { DrawRangeTab(); } finally { UnityEngine.Profiling.Profiler.EndSample(); }
                     break;
+                case Tab.MatRes: DrawMatResTab(); break;
                 default:
                     if (activeTab != lastBuiltTab
                             || Time.unscaledTime >= nextTabRefresh)
@@ -1085,7 +1088,9 @@ namespace SteelCity.Sim
             else { markerPos = World != null ? World.VoxelGridToWorld(hit.cell) : hit.point; markerRot = Quaternion.identity; }
             pdr?.SetCustomCube("inspect_cell", markerPos, markerRot, vs * 1.08f, new Color(1f, 0.9f, 0.1f, 0.95f));
 
-            inspectHud = $"🔍 {hit.cell} · {mat} {matName} · {vol}\n   {exposed}/6 exposed · normal {(degenerate && sideFace ? "degenerate→flat" : "ok")} · sun {sunShort}{(damaged && changedNb > 0 ? $" · {changedNb} nb changed" : "")}";
+            var resCls = VoxelDamageMath.ClassOf((uint)mat);
+            int resProf = VoxelDamageMath.ResProfileOf(vol);
+            inspectHud = $"🔍 {hit.cell} · {mat} {matName} · {vol}\n   {exposed}/6 exposed · res {VoxelDamageMath.MaterialResistance((uint)mat, resProf):F2} ({VoxelDamageMath.ResClassNames[(int)resCls]} · {VoxelDamageMath.ResProfileNames[resProf]}) · normal {(degenerate && sideFace ? "degenerate→flat" : "ok")} · sun {sunShort}{(damaged && changedNb > 0 ? $" · {changedNb} nb changed" : "")}";
             string report = sb.ToString().TrimEnd();
             Debug.Log($"[DebugHUD] {report}");
             try
@@ -1186,7 +1191,7 @@ namespace SteelCity.Sim
                 blastDepth = HSlider("depth into wall m", blastDepth, 0f, 4f, "F1");
                 GUI.enabled = true;
                 blastRadius = HSlider("radius m", blastRadius, 0.3f, 30f, "F1");
-                blastPower = HSlider("power", blastPower, 0.1f, 4f, "F2");
+                blastPower = HSlider("power", blastPower, 0.1f, 8f, "F2");
                 dmgSys.occlusionAware = GUILayout.Toggle(dmgSys.occlusionAware, " occlusion (walls shield)", toggleStyle);
                 dmgSys.dropUnsupported = GUILayout.Toggle(dmgSys.dropUnsupported, " drop unsupported (collapse)", toggleStyle);
                 if (dmgSys.dropUnsupported)
@@ -1198,6 +1203,10 @@ namespace SteelCity.Sim
                     dmgSys.frontSec = HSlider("front sec", dmgSys.frontSec, 0.1f, 1.5f, "F2");
                 }
                 dmgSys.shardVoxelCollision = GUILayout.Toggle(dmgSys.shardVoxelCollision, " debris collides with voxel world (walls / roofs)", toggleStyle);
+                dmgSys.flyerRadialVelocity = GUILayout.Toggle(dmgSys.flyerRadialVelocity, " debris radial launch velocity", toggleStyle);
+                dmgSys.pairCells = GUILayout.Toggle(dmgSys.pairCells, " same-material pairing (brick dominoes)", toggleStyle);
+                if (dmgSys.pairCells)
+                    dmgSys.pairChance = HSlider("pair chance", dmgSys.pairChance, 0f, 1f, "F2");
                 dmgSys.rubbleDeposit = GUILayout.Toggle(dmgSys.rubbleDeposit, $" debris settles into volume (rubble · {dmgSys.RubbleCells} cells)", toggleStyle);
                 bool canDet = !string.IsNullOrEmpty(blastVolume);
                 GUI.enabled = canDet;
@@ -1458,6 +1467,88 @@ namespace SteelCity.Sim
                     GUILayout.Label($"lateral miss {s.lateralMiss:F3}m   impact→target {s.impactOffset:F3}m", labelStyle);
                 GUILayout.Label($"aim err at trigger {s.aimErrorDeg:F1}°", labelStyle);
             }
+        }
+
+        /// <summary>
+        /// Material-resistance tuning + last-blast readout, sub-tabbed per model type.
+        /// Edits the live static tables in VoxelDamageMath — detonations and occlusion
+        /// marches pick up changes immediately; each blast resolves its table from the
+        /// target volume id (veh_*/item_* conventions). Slider labels carry live kill
+        /// probability at the current power dial: @center = power·(1−res), @½r = same
+        /// with the linear distance falloff halved.
+        /// </summary>
+        void DrawMatResTab()
+        {
+            var dmgSys = VoxelDamageSystem.GetOrCreate();
+            GUILayout.Label("<b>MATERIAL RESISTANCE</b>   <i>live</i>", boldStyle);
+
+            // sub-tabs — one live table per model type
+            GUILayout.BeginHorizontal();
+            for (int p = 0; p < (int)VoxelDamageMath.ResProfile.Count; p++)
+            {
+                bool act = matResSub == p;
+                if (GUILayout.Button(VoxelDamageMath.ResProfileNames[p],
+                        act ? tabActiveStyle : tabStyle, GUILayout.Height(20)))
+                    matResSub = p;
+            }
+            GUILayout.EndHorizontal();
+            int prof = matResSub;
+            string profName = VoxelDamageMath.ResProfileNames[prof];
+            if (prof != (int)VoxelDamageMath.ResProfile.Building)
+                GUILayout.Label($"<i>no damageable {profName} volumes yet — this table goes live for '{profName}_*'/'*_{profName}_*' volume ids when they register</i>", labelStyle);
+
+            GUILayout.Label("kill roll p = power·(1−dist/radius)·(1−res)·transmit — walls spend the same table per cell the occlusion march crosses", labelStyle);
+            VoxelDamageMath.GlobalResistScale =
+                HSlider("global ×scale (all types)", VoxelDamageMath.GlobalResistScale, 0f, 2f, "F2");
+
+            var tbl = VoxelDamageMath.ResTable[prof];
+            GUILayout.Label($"{profName} res — kill% @center / @½r at power {blastPower:F1}:", labelStyle);
+            int n = (int)VoxelDamageMath.ResClass.Count;
+            for (int c = 0; c < n; c++)
+            {
+                float eff = Mathf.Clamp01(tbl[c] * VoxelDamageMath.GlobalResistScale);
+                float pC = Mathf.Clamp01(blastPower * (1f - eff));
+                float pH = Mathf.Clamp01(blastPower * 0.5f * (1f - eff));
+                tbl[c] = ResRow($"{VoxelDamageMath.ResClassNames[c]}  {pC:P0}/{pH:P0}", tbl[c]);
+            }
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button($"reset {profName} → workshop", GUILayout.Height(20)))
+                VoxelDamageMath.ResetResistanceTable(prof);
+            if (GUILayout.Button("reset ALL + scale", GUILayout.Height(20)))
+                VoxelDamageMath.ResetResistanceTable();
+            GUILayout.EndHorizontal();
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button($"promote live → {profName} workshop", GUILayout.Height(20)))
+                VoxelDamageMath.PromoteToWorkshop(prof);
+            if (GUILayout.Button("restore AUTHORED", GUILayout.Height(20)))
+                VoxelDamageMath.RestoreAuthoredDefaults();
+            GUILayout.EndHorizontal();
+            GUILayout.Label("workshop = pending baseline (in code, seeds each play); AUTHORED = factory defaults", labelStyle);
+
+            GUILayout.Space(4);
+            GUILayout.Label("<b>last blast</b>", boldStyle);
+            int tot = 0;
+            var sb = new System.Text.StringBuilder();
+            for (int c = 0; c < n; c++)
+                if (dmgSys.lastBlastRemoved[c] > 0)
+                {
+                    sb.Append($"{VoxelDamageMath.ResClassNames[c]}×{dmgSys.lastBlastRemoved[c]:N0}  ");
+                    tot += dmgSys.lastBlastRemoved[c];
+                }
+            GUILayout.Label(tot > 0 || dmgSys.lastBlastDetached > 0
+                ? $"on a <b>{VoxelDamageMath.ResProfileNames[Mathf.Clamp(dmgSys.lastBlastProfile, 0, (int)VoxelDamageMath.ResProfile.Count - 1)]}</b> volume — crater removed {tot:N0}:\n   {sb}\ndetached/collapse {dmgSys.lastBlastDetached:N0} · flyers emitted {dmgSys.LastFlyEmitted:N0}\ndominoes {dmgSys.lastBlastPairs:N0} · paired cells {dmgSys.lastBlastPairCells:N0}"
+                : "no blast yet — pick a point and DETONATE", labelStyle);
+        }
+
+        /// <summary>HSlider with a wider label column so class name + live kill% fit.</summary>
+        private float ResRow(string name, float val)
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(name, labelStyle, GUILayout.Width(150));
+            float v = GUILayout.HorizontalSlider(val, 0f, 1f, GUILayout.ExpandWidth(true));
+            GUILayout.Label(v.ToString("F2"), labelStyle, GUILayout.Width(42));
+            GUILayout.EndHorizontal();
+            return v;
         }
 
         private float HSlider(string name, float val, float min, float max, string format = "F2")

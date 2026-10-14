@@ -78,33 +78,134 @@ namespace SteelCity.Sim
         }
 
         /// <summary>
-        /// How strongly a material resists blast removal (0 = dies to any blast,
-        /// 1 = nearly indestructible). Bullet puncture stays glass-only — this table
-        /// is the bomb's world: glass shatters, masonry craters, metal holds.
+        /// Resistance classes — every material id maps to one class so live tuning
+        /// is nine sliders instead of ~30 ids.
         /// </summary>
-        public static float MaterialResistance(uint mat)
+        public enum ResClass : int { Glass = 0, Soft, Wood, Stucco, Brick, Stone, Metal, VehicleMetal, Other, Count }
+
+        public static readonly string[] ResClassNames =
+            { "glass", "soft", "wood", "stucco", "brick", "stone", "metal", "veh.metal", "other" };
+
+        /// <summary>Authored FACTORY defaults — the locked baseline. RestoreAuthoredDefaults
+        /// escapes back to these; tuning lives in the workshop layer below until promoted.</summary>
+        public static readonly float[] BaseResistance =
+            { 0.05f, 0.10f, 0.25f, 0.35f, 0.50f, 0.60f, 0.80f, 0.90f, 0.50f };
+
+        /// <summary>
+        /// WORKSHOP defaults — the in-between layer: pending tuning values that seed the live
+        /// table each domain reload and that ResetResistanceTable restores. NOT the shipped
+        /// default — when a workshop value locks, promote it into BaseResistance above.
+        /// </summary>
+        public static readonly float[][] WorkshopRes = BuildWorkshop();
+        private static float[][] BuildWorkshop()
+        {
+            var w = new float[][]
+            {
+                (float[])BaseResistance.Clone(),
+                (float[])BaseResistance.Clone(),
+                (float[])BaseResistance.Clone(),
+            };
+            // pending (user tuning): wood splinters easier than the authored default
+            w[(int)ResProfile.Building][(int)ResClass.Wood] = 0.45f;
+            w[(int)ResProfile.Vehicle][(int)ResClass.Wood] = 0.45f;
+            w[(int)ResProfile.Item][(int)ResClass.Wood] = 0.45f;
+            return w;
+        }
+
+        /// <summary>
+        /// Model-type profile — a blast resolves one table from the target volume's id:
+        /// veh_* / *_veh_* → Vehicle, item_* / *_item_* → Item, everything else →
+        /// Building (chars are `char_*` but aren't damageable volumes). Only buildings
+        /// register damageable volumes today; the other tables tune ahead of that.
+        /// </summary>
+        public enum ResProfile : int { Building = 0, Vehicle = 1, Item = 2, Count }
+        public static readonly string[] ResProfileNames = { "building", "vehicle", "item" };
+
+        public static int ResProfileOf(string volumeId)
+        {
+            if (string.IsNullOrEmpty(volumeId)) return (int)ResProfile.Building;
+            if (volumeId.StartsWith("veh") || volumeId.Contains("_veh")) return (int)ResProfile.Vehicle;
+            if (volumeId.StartsWith("item") || volumeId.Contains("_item")) return (int)ResProfile.Item;
+            return (int)ResProfile.Building;
+        }
+
+        /// <summary>
+        /// LIVE tables — one per model type. The debug HUD's MatRes sub-tabs edit these
+        /// in place and GlobalResistScale multiplies every lookup. Static because
+        /// resistance is global tuning state shared by Blast, MarchTransmit and the
+        /// HUD; the offline selftest never mutates it.
+        /// </summary>
+        public static readonly float[][] ResTable =
+        {
+            (float[])WorkshopRes[0].Clone(),
+            (float[])WorkshopRes[1].Clone(),
+            (float[])WorkshopRes[2].Clone(),
+        };
+        public static float GlobalResistScale = 1f;
+
+        /// <summary>profile &lt; 0 restores every table AND the global scale — restores the
+        /// WORKSHOP baseline, not the authored factory defaults (see RestoreAuthoredDefaults).</summary>
+        public static void ResetResistanceTable(int profile = -1)
+        {
+            if (profile < 0)
+            {
+                for (int p = 0; p < ResTable.Length; p++)
+                    Array.Copy(WorkshopRes[p], ResTable[p], WorkshopRes[p].Length);
+                GlobalResistScale = 1f;
+            }
+            else Array.Copy(WorkshopRes[profile], ResTable[profile], WorkshopRes[profile].Length);
+        }
+
+        /// <summary>Escape hatch: both the workshop baseline AND the live table go back
+        /// to the authored factory defaults — wipes pending tuning values.</summary>
+        public static void RestoreAuthoredDefaults()
+        {
+            foreach (var t in WorkshopRes) Array.Copy(BaseResistance, t, BaseResistance.Length);
+            ResetResistanceTable();
+        }
+
+        /// <summary>Promote the live table into the workshop baseline (session-scoped —
+        /// statics reset on domain reload; to make a value permanent, move it into
+        /// BuildWorkshop or BaseResistance in code).</summary>
+        public static void PromoteToWorkshop(int profile)
+            => Array.Copy(ResTable[profile], WorkshopRes[profile], ResTable[profile].Length);
+
+        public static ResClass ClassOf(uint mat)
         {
             switch ((int)mat)
             {
                 case 112: case 113: case 114: case 134: case 147:          // glass
-                    return 0.05f;
+                    return ResClass.Glass;
                 case 115: case 116: case 117: case 124:                   // neon, lamp glow
                 case 125: case 126: case 127: case 128:                   // flesh, fabric, hair
                 case 137:                                                // water
-                    return 0.10f;
+                    return ResClass.Soft;
                 case 106: case 107: case 108:                            // wood
                 case 119:                                                // terracotta
                 case 120: case 121: case 122: case 129:                  // painted wood
                 case 143:                                                // tire rubber
-                    return 0.25f;
-                case 103: return 0.35f;                                  // stucco/plaster
-                case 100: case 105: case 118: return 0.50f;              // brick, cobblestone, tar roof
-                case 101: case 102: case 104: return 0.60f;              // stone, concrete, asphalt
-                case 109: case 110: case 142: return 0.80f;              // iron, aged metal, chrome
-                case 111: case 140: case 141: return 0.90f;              // painted metal, vehicle body
-                default: return 0.5f;                                    // unlisted = today's behavior
+                    return ResClass.Wood;
+                case 103: return ResClass.Stucco;                        // stucco/plaster
+                case 100: case 105: case 118: return ResClass.Brick;     // brick, cobblestone, tar roof
+                case 101: case 102: case 104: return ResClass.Stone;     // stone, concrete, asphalt
+                case 109: case 110: case 142: return ResClass.Metal;     // iron, aged metal, chrome
+                case 111: case 140: case 141: return ResClass.VehicleMetal; // painted metal, vehicle body
+                default: return ResClass.Other;
             }
         }
+
+        /// <summary>
+        /// How strongly a material resists blast removal (0 = dies to any blast,
+        /// 1 = indestructible). Bullet puncture stays glass-only — this table
+        /// is the bomb's world: glass shatters, masonry craters, metal holds.
+        /// Live value = ResTable[profile][class] × GlobalResistScale, clamped to 1.
+        /// </summary>
+        public static float MaterialResistance(uint mat)
+            => MaterialResistance(mat, (int)ResProfile.Building);
+
+        public static float MaterialResistance(uint mat, int profile)
+            => Math.Min(1f, ResTable[profile >= 0 && profile < ResTable.Length ? profile : 0]
+                [(int)ClassOf(mat)] * GlobalResistScale);
 
         /// <summary>
         /// Spherical blast removal. Every non-air cell within `radius` cells of
@@ -125,7 +226,7 @@ namespace SteelCity.Sim
             float cx, float cy, float cz, float radius, float power,
             uint seed, int crackedMaterial,
             List<int> dirty, List<int> removedIdx, List<uint> removedMats, out int cracked,
-            bool occlusion = true)
+            bool occlusion = true, int resProfile = 0)
         {
             removedIdx.Clear(); removedMats.Clear();
             var crackedIdx = new List<int>();
@@ -145,13 +246,13 @@ namespace SteelCity.Sim
                 uint v = data[idx];
                 uint mat = v & MaterialMask;
                 if (mat == 0) continue;
-                float p = power * (1f - dist / radius) * (1f - MaterialResistance(mat));
+                float p = power * (1f - dist / radius) * (1f - MaterialResistance(mat, resProfile));
                 float roll = Hash01(seed ^ (uint)idx * 0x9E3779B9u);
                 if (roll < p)
                 {
                     // would-be removal — only these cells pay for the occlusion march
                     float t = occlusion
-                        ? MarchTransmit(data, w, h, d, cx, cy, cz, x + 0.5f, y + 0.5f, z + 0.5f)
+                        ? MarchTransmit(data, w, h, d, cx, cy, cz, x + 0.5f, y + 0.5f, z + 0.5f, resProfile)
                         : 1f;
                     if (roll < p * t)
                     {
@@ -193,7 +294,7 @@ namespace SteelCity.Sim
         /// 2% transmission — deeper shielding is darkness.
         /// </summary>
         public static float MarchTransmit(uint[] data, int w, int h, int d,
-            float cx, float cy, float cz, float tx, float ty, float tz)
+            float cx, float cy, float cz, float tx, float ty, float tz, int resProfile = 0)
         {
             int x = (int)Math.Floor(cx), y = (int)Math.Floor(cy), z = (int)Math.Floor(cz);
             float dx = tx - cx, dy = ty - cy, dz = tz - cz;
@@ -220,7 +321,7 @@ namespace SteelCity.Sim
                 uint m = data[x + y * w + z * wh] & MaterialMask;
                 if (m != 0)
                 {
-                    transmit *= (float)Math.Pow(1f - MaterialResistance(m), (tNext - tEnter) * len);
+                    transmit *= (float)Math.Pow(1f - MaterialResistance(m, resProfile), (tNext - tEnter) * len);
                     if (transmit < 0.02f) break;
                 }
             }
@@ -345,7 +446,7 @@ namespace SteelCity.Sim
         public static BlastPlan SimulateBlast(uint[] scratch, int w, int h, int d,
             float cx, float cy, float cz, float radius, float power,
             uint baseSeed, int passes, int crackedMaterial,
-            bool occlusion, bool dropUnsupported, byte[] visitedScratch = null)
+            bool occlusion, bool dropUnsupported, byte[] visitedScratch = null, int resProfile = 0)
         {
             var plan = new BlastPlan { passes = passes };
             var dirty = new List<int>(); var ri = new List<int>(); var rm = new List<uint>();
@@ -355,7 +456,7 @@ namespace SteelCity.Sim
                 float passR = radius * (i + 1f) / passes;
                 dirty.Clear(); ri.Clear(); rm.Clear();
                 Blast(scratch, w, h, d, cx, cy, cz, passR, power, baseSeed + (uint)i,
-                    crackedMaterial, dirty, ri, rm, out _, occlusion);
+                    crackedMaterial, dirty, ri, rm, out _, occlusion, resProfile);
                 matOf.Clear();
                 for (int j = 0; j < ri.Count; j++) matOf[ri[j]] = rm[j];
                 var removedSet = new HashSet<int>(ri);

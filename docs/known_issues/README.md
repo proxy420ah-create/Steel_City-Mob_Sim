@@ -26,3 +26,4 @@ Bug tracker per Development Guidelines Rule 13. Bugs are cataloged by category i
 | [Sector Mode Leaves Building Address Registry Empty — Range Points Missing](runtime/SECTOR_MODE_ADDRESS_REGISTRY_EMPTY.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-10-11 |
 | [Single-Keyword `multi_compile` Always On — Instanced Models Invisible](rendering/MULTI_COMPILE_SINGLE_KEYWORD_ALWAYS_ON.md) | rendering | 🟡 FIX APPLIED (pending test) | 🔴 CRITICAL | 2026-10-11 |
 | [SmoothNormal NaN - Thin Voxel Faces Render Near-Black](rendering/SMOOTH_NORMAL_NAN_THIN_VOXELS.md) | rendering | 🟢 FIXED | 🟢 MEDIUM | 2026-10-12 |
+| [Domino Orphan — Floating Voxel After Settling](runtime/DOMINO_ORPHAN_FLOATING_VOXEL.md) | runtime | 🟢 FIXED | 🟢 MEDIUM | 2026-10-13 |

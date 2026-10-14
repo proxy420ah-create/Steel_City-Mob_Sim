@@ -190,6 +190,28 @@ through all three phases:
   baking the [BOMBED] state is separate, open work); cells can overlap a
   falling sibling for a tick during cross-volume handoff races.
 
+### Domino entities — same-material pairing (implemented)
+
+Detached same-class cells can fall as **2-cell pieces** instead of singles —
+the "brick vs. broken brick" read. `ShardPhysics.PairPartner` partitions the
+grid into 2×2 tiles; each tile hashes a pair axis (x or z) and whether it
+pairs at all (`pairChance`, default 1.0 = every eligible tile). `SeedFalling`
+preselects the pairs during the detonation sweep and registers **one shared
+`FallCell` entity under both dict indices** — the pair is atomic by
+construction (shared `vel`/`acc`), not two cells with correlated velocity.
+`StepFalling`'s domino path steps both members as a unit: both targets free →
+one move; a falling sibling blocking either → wait; static blocking both →
+absorb the axis; static blocking ONE → **the piece fractures** — stuck member
+keeps support, free member keeps the shared momentum and flies on. Landing
+deposits both cells as adjacent rubble (a whole brick in the pile). A member
+escaping bounds leaves as a lone flyer; a head destroyed externally is
+adopted — the member converts to a single (no floating-voxel orphans, bug
+`runtime/DOMINO_ORPHAN_FLOATING_VOXEL.md`). Pairing requires the same
+resistance class — material seams split pairs, which is desirable. Flyer-phase
+pairs stay velocity-glued (no entities in the transport phase). Coverage
+report on the MatRes last-blast line (`dominoes N · paired cells M`);
+selftested in `[19]`/`[20]` including 100%-pairing and split/fracture cases.
+
 ## Sim Layer (authoritative)
 
 - **Grid delta** — pane cells → AIR (or a `glass_shard` debris material if

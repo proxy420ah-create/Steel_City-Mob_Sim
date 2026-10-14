@@ -180,6 +180,12 @@
   - Common pitfalls (signed bytes, thunk resolution, SIB bytes, little-endian)
   - Workflow for adding new scripts
 
+**Headless Compile (agent workflow):**
+- **`docs/core/HEADLESS_UNITY_COMPILE.md`** — Compile all of Assembly-CSharp without launching Unity
+  - Bundled `DotNetSdkRoslyn/csc.dll` + NetCoreRuntime + UnityEngine module refs + `Library/ScriptAssemblies` package DLLs
+  - ~5–10 s check-compile loop for runtime code; same trick as `Tools/dda_selftest/run.sh`
+  - Gotchas: quoted paths, `-nostdlib` BCL refs, excluding Assembly-CSharp/CodeGen self-refs, editor-only code out of scope
+
 **Business Taxonomy → Asset Generation:**
 - **`docs/core/BUSINESS_TAXONOMY_ASSET_GENERATION.md`** — Cross-layer contract pinning the generator roadmap to RE business data
   - 8 business groups → asset classes (commercial slots, industrial, residential, warehouses, charity, municipal, interactive tenements)

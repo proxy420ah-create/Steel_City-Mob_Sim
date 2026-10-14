@@ -369,6 +369,192 @@ static class Program
             $"cross-volume entry into a neighbor ({oc},{ent2.volumeId},{ent2.cellIdx})");
     }
 
+    static void TestPairing()
+    {
+        // [19] Voxel pairing — ShardPhysics.PairPartner: doomed same-class cells in a
+        //      rolled-pair 2×2 tile return each other (mutual, exactly-1-cell-away);
+        //      every failure mode returns -1. The even cell is always the smaller flat
+        //      index → the seeder registers ONE FallCell entity per pair (a domino).
+        Console.WriteLine("[19] voxel pairing (brick dominoes)");
+        const int W = 8, H = 4, D = 8, WH = W * H;
+        var mat = new uint[W * H * D];
+        var doom = new HashSet<int>();
+        for (int i = 0; i < mat.Length; i++) { mat[i] = 100u; doom.Add(i); }   // all brick, all doomed
+        int Cls(int i) => (int)VoxelDamageMath.ClassOf(mat[i] & VoxelDamageMath.MaterialMask);
+
+        // locate a pair-rolled x-axis tile and a z-axis tile on row y=0
+        int tx = -1, tz = -1;
+        for (int bz = 0; bz + 1 < D && (tx < 0 || tz < 0); bz += 2)
+        for (int bx = 0; bx + 1 < W && (tx < 0 || tz < 0); bx += 2)
+        {
+            uint th = (uint)(bx + bz * WH) * 2654435761u;
+            bool xAxis = (th & 0x10000u) != 0;
+            if (xAxis && tx < 0) tx = bx + bz * WH;
+            if (!xAxis && tz < 0) tz = bx + bz * WH;
+        }
+        Check(tx >= 0 && tz >= 0, "found an x-pair and a z-pair tile in the 8×8 sweep");
+
+        // x-axis pair: (bx,bz)↔(bx+1,bz) — mutual partners, even cell is the anchor
+        {
+            int bx = tx % W, bz = tx / WH;
+            int a = bx + bz * WH, b = (bx + 1) + bz * WH;
+            int pa = ShardPhysics.PairPartner(a, W, H, D, 1f, doom.Contains, Cls);
+            int pb = ShardPhysics.PairPartner(b, W, H, D, 1f, doom.Contains, Cls);
+            Check(pa == b && pb == a, $"x-pair is mutual ({a}↔{b})");
+            Check(ShardPhysics.PairPartner(a, W, H, D, 0f, doom.Contains, Cls) == -1, "chance 0 → single (broken brick)");
+            doom.Remove(b);
+            Check(ShardPhysics.PairPartner(a, W, H, D, 1f, doom.Contains, Cls) == -1, "partner not doomed → single");
+            doom.Add(b);
+            mat[b] = 106u;   // partner swaps to wood — class mismatch
+            Check(ShardPhysics.PairPartner(a, W, H, D, 1f, doom.Contains, Cls) == -1, "partner different class → single");
+            Check(ShardPhysics.PairPartner(b, W, H, D, 1f, doom.Contains, Cls) == -1, "classed-out partner also singles");
+            mat[b] = 100u;
+        }
+
+        // z-axis pair: (x,bz)↔(x,bz+1)
+        {
+            int x = tz % W, bz = tz / WH;
+            int a = x + bz * WH, b = x + (bz + 1) * WH;
+            int pa = ShardPhysics.PairPartner(a, W, H, D, 1f, doom.Contains, Cls);
+            int pb = ShardPhysics.PairPartner(b, W, H, D, 1f, doom.Contains, Cls);
+            Check(pa == b && pb == a, $"z-pair is mutual ({a}↔{b})");
+        }
+
+        // global invariant — every partner is in the same 2×2 tile AND exactly one cell
+        // away (|dx|+|dz|==1, same y) → pieces can never chain past a domino, and the
+        // smaller flat index is always the even/anchor cell. Also measure true coverage:
+        // at chance=1 on a uniform doomed brick grid, paired cells = the 100% figure.
+        int bad = 0, paired = 0, anchors = 0;
+        for (int i = 0; i < mat.Length; i++)
+        {
+            int p = ShardPhysics.PairPartner(i, W, H, D, 1f, doom.Contains, Cls);
+            if (p < 0) continue;
+            paired++;
+            if (p < i) continue;   // member counted once at the anchor
+            anchors++;
+            if (p >= mat.Length) { bad++; continue; }
+            int px = p % W, py = (p % WH) / W, pz = p / WH;
+            int cx = i % W, cy = (i % WH) / W, cz = i / WH;
+            if (py != cy || Math.Abs(px - cx) + Math.Abs(pz - cz) != 1) bad++;
+            if ((cx >> 1) != (px >> 1) || (cz >> 1) != (pz >> 1)) bad++;
+            if (ShardPhysics.PairPartner(p, W, H, D, 1f, doom.Contains, Cls) != i) bad++;
+        }
+        Check(bad == 0, "every partner mutual + adjacent + in-tile — dominoes never chain");
+        Check(anchors * 2 == paired, $"pair members pair off exactly (pairs={anchors} cells={paired})");
+        Console.WriteLine($"    100% pairing on uniform brick: {paired}/{mat.Length} cells paired ({anchors} dominoes)");
+
+        var mat2 = new uint[5 * 2 * 5]; var doom2 = new HashSet<int>();
+        for (int i = 0; i < mat2.Length; i++) { mat2[i] = 103u; doom2.Add(i); }
+        int Cls2(int i) => (int)VoxelDamageMath.ClassOf(mat2[i] & VoxelDamageMath.MaterialMask);
+        bad = 0;
+        for (int i = 0; i < mat2.Length; i++)
+        {
+            int p = ShardPhysics.PairPartner(i, 5, 2, 5, 1f, doom2.Contains, Cls2);
+            if (p < 0) continue;
+            int px = p % 5, py = (p % 10) / 5, pz = p / 10;
+            int cx = i % 5, cy = (i % 10) / 5, cz = i / 10;
+            if (p >= mat2.Length || py != cy || Math.Abs(px - cx) + Math.Abs(pz - cz) != 1) bad++;
+            if ((cx >> 1) != (px >> 1) || (cz >> 1) != (pz >> 1)) bad++;
+        }
+        Check(bad == 0, "odd-width grid: clipped tiles stay single, all partners in-tile");
+        Console.WriteLine("[19] pairing done");
+    }
+
+    static void TestDomino()
+    {
+        // [20] Domino entities — one FallCell instance registered under TWO indices:
+        //      the pair steps/lands as a unit and fractures on asymmetric contact.
+        Console.WriteLine("[20] domino entities (StepFalling)");
+        const int W = 8, H = 16, D = 8, WH = W * H;
+
+        // (a) a domino falls and lands as TWO ADJACENT rubble cells — the glue holds
+        {
+            var g = new uint[W * H * D];
+            int h0 = 2 + 8 * W + 3 * WH, m0 = 3 + 8 * W + 3 * WH;        // x-pair at y=8
+            g[h0] = 100u; g[m0] = 100u;
+            var falling = new Dictionary<int, ShardPhysics.FallCell>();
+            var fq = new List<int>(); var rubble = new HashSet<int>();
+            var slq = new List<int>(); var dirty = new List<int>(); var esc = new List<ShardPhysics.FallEscape>();
+            var fc = new ShardPhysics.FallCell { vel = new Vector3(0f, -3f, 0f), acc = Vector3.zero, vox = 100u, vox2 = 100u, partner = m0, headIdx = h0 };
+            falling[h0] = fc; falling[m0] = fc; fq.Add(h0);
+            for (int t = 0; t < 400 && falling.Count > 0; t++)
+                ShardPhysics.StepFalling(g, W, H, D, falling, fq, rubble, slq, dirty, esc, 1f / 120f, 18f, 1.6f, 0.6f, 100000);
+            Check(falling.Count == 0 && esc.Count == 0, "domino settles — no stragglers, no escapes");
+            Check(rubble.Count == 2, $"domino deposits both cells (rubble={rubble.Count})");
+            if (rubble.Count == 2)
+            {
+                var rr = new List<int>(rubble); rr.Sort();
+                Check(rr[1] - rr[0] == 1 && rr[0] / WH == rr[1] / WH, $"members land ADJACENT as one brick ({rr[0]},{rr[1]})");
+            }
+        }
+
+        // (b) asymmetric support → the piece FRACTURES: head over static stays put,
+        //     member over air keeps falling to the floor
+        {
+            var g = new uint[W * H * D];
+            int st = 2 + 4 * W + 3 * WH;                                 // static block under the HEAD
+            g[st] = 200u;
+            int h0 = 2 + 5 * W + 3 * WH, m0 = 3 + 5 * W + 3 * WH;        // domino directly above
+            g[h0] = 100u; g[m0] = 100u;
+            var falling = new Dictionary<int, ShardPhysics.FallCell>();
+            var fq = new List<int>(); var rubble = new HashSet<int>();
+            var slq = new List<int>(); var dirty = new List<int>(); var esc = new List<ShardPhysics.FallEscape>();
+            var fc = new ShardPhysics.FallCell { vel = Vector3.zero, acc = Vector3.zero, vox = 100u, vox2 = 100u, partner = m0, headIdx = h0 };
+            falling[h0] = fc; falling[m0] = fc; fq.Add(h0);
+            bool split = false;
+            for (int t = 0; t < 400 && falling.Count > 0; t++)
+            {
+                ShardPhysics.StepFalling(g, W, H, D, falling, fq, rubble, slq, dirty, esc, 1f / 120f, 18f, 1.6f, 0.6f, 100000);
+                foreach (var kv in falling) if (kv.Value.partner < 0) split = true;
+            }
+            Check(split, "asymmetric contact splits the piece");
+            Check(falling.Count == 0 && esc.Count == 0, "both halves settle after the split");
+            Check(rubble.Count == 2 && rubble.Contains(h0), $"stuck head rests on the static block (rubble has {string.Join(",", rubble)})");
+        }
+
+        // (c) two ADJACENT dominoes are independent entities — four cells, two fc
+        //     instances, each pair glues/separates on its own
+        {
+            var g = new uint[W * H * D];
+            int a0 = 2 + 9 * W + 3 * WH, a1 = 3 + 9 * W + 3 * WH;
+            int b0 = 4 + 9 * W + 3 * WH, b1 = 5 + 9 * W + 3 * WH;        // domino B beside A
+            g[a0] = 100u; g[a1] = 100u; g[b0] = 101u; g[b1] = 101u;
+            int st = 4 + 8 * W + 3 * WH; g[st] = 200u;                 // static under B's head only
+            var falling = new Dictionary<int, ShardPhysics.FallCell>();
+            var fq = new List<int>(); var rubble = new HashSet<int>();
+            var slq = new List<int>(); var dirty = new List<int>(); var esc = new List<ShardPhysics.FallEscape>();
+            var fA = new ShardPhysics.FallCell { vel = Vector3.zero, acc = Vector3.zero, vox = 100u, vox2 = 100u, partner = a1, headIdx = a0 };
+            var fB = new ShardPhysics.FallCell { vel = Vector3.zero, acc = Vector3.zero, vox = 101u, vox2 = 101u, partner = b1, headIdx = b0 };
+            falling[a0] = fA; falling[a1] = fA; falling[b0] = fB; falling[b1] = fB;
+            fq.Add(a0); fq.Add(b0);
+            for (int t = 0; t < 400 && falling.Count > 0; t++)
+                ShardPhysics.StepFalling(g, W, H, D, falling, fq, rubble, slq, dirty, esc, 1f / 120f, 18f, 1.6f, 0.6f, 100000);
+            Check(falling.Count == 0 && esc.Count == 0, "adjacent dominoes settle");
+            Check(rubble.Count == 4, $"all four cells deposit (rubble={rubble.Count}) — no glued 4-cell mega-piece swallowed cells");
+        }
+
+        // (d) orphan rescue: an external write kills the domino HEAD mid-fall (a
+        //     later shock-front pass / crack swap) — the member must NOT freeze as
+        //     a floating voxel; it converts to a single and settles
+        {
+            var g = new uint[W * H * D];
+            int h0 = 2 + 8 * W + 3 * WH, m0 = 3 + 8 * W + 3 * WH;
+            g[h0] = 100u; g[m0] = 100u;
+            var falling = new Dictionary<int, ShardPhysics.FallCell>();
+            var fq = new List<int>(); var rubble = new HashSet<int>();
+            var slq = new List<int>(); var dirty = new List<int>(); var esc = new List<ShardPhysics.FallEscape>();
+            var fc = new ShardPhysics.FallCell { vel = new Vector3(0f, -3f, 0f), acc = Vector3.zero, vox = 100u, vox2 = 100u, partner = m0, headIdx = h0 };
+            falling[h0] = fc; falling[m0] = fc; fq.Add(h0);
+            ShardPhysics.StepFalling(g, W, H, D, falling, fq, rubble, slq, dirty, esc, 1f / 120f, 18f, 1.6f, 0.6f, 100000);
+            g[h0] = 0u;   // a later blast pass erases the head's cell
+            for (int t = 0; t < 400 && falling.Count > 0; t++)
+                ShardPhysics.StepFalling(g, W, H, D, falling, fq, rubble, slq, dirty, esc, 1f / 120f, 18f, 1.6f, 0.6f, 100000);
+            Check(falling.Count == 0, "orphaned member does not hang — adopted as a single");
+            Check(rubble.Count == 1, $"member settles alone (rubble={rubble.Count}) — no floating voxel left behind");
+        }
+        Console.WriteLine("[20] dominoes done");
+    }
+
     static void TestYaw()
     {
         // analytic: dims (4,1,2), vs 1, yaw 90 about the volume center (2,0.5,1); solid cell (3,0,0) lands on world x[1,2] z[-1,0]
@@ -1263,6 +1449,8 @@ static class Program
         TestRubble();
         TestMassDebris();
         TestOccSkip();
+        TestPairing();
+        TestDomino();
         Console.WriteLine(fails == 0 ? $"ALL PASS ({checks} checks)" : $"{fails} FAILURES of {checks} checks");
         return fails == 0 ? 0 : 1;
     }

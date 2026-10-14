@@ -1,8 +1,40 @@
 # Recent Changes — Steel City: Mob Sim
 
-**Last Updated**: October 13, 2026 (unified debris — flying voxels replace bundled shards; cross-volume handoff)
+**Last Updated**: October 13, 2026 (domino-orphan fix — no more floating voxels)
 
 ---
+
+### Fix: orphaned domino members could freeze as floating voxels
+- **Bug** (`known_issues/runtime/DOMINO_ORPHAN_FLOATING_VOXEL.md`): when a domino head's voxel was overwritten externally — a later shock-front pass AIRing it, or a crack swap — the stale-drop branch removed only the head's `falling` entry. The member (which owns no queue slot by design) kept its `FallCell` + painted voxel but was never stepped again → single suspended cube, exactly the "one floating voxel" the user spotted.
+- **Fix**: on stale-drop of a paired head, the member is adopted — becomes a single `FallCell` with a momentum snapshot + its own queue slot (or removed cleanly if its cell also died).
+- **Selftest** `[20] (d) orphan rescue`: destroys a domino head mid-fall → member settles to rubble. **ALL PASS (155,755 checks)**, compile clean.
+
+### Workshop defaults layer — the "in-between" tuning baseline + new defaults
+
+### Workshop defaults layer — the "in-between" tuning baseline + new defaults
+- **`VoxelDamageMath.WorkshopRes`**: new per-profile baseline between the live sliders and the authored table — `ResTable` seeds from it each domain reload and `ResetResistanceTable` restores it (previously both pointed at `BaseResistance`). Pending tuning values live visibly in `BuildWorkshop()` pending promotion into the authored table. First pending value: **wood 0.45** on all three profiles (was authored 0.25).
+- **`RestoreAuthoredDefaults()`**: escape hatch — wipes workshop + live back to `BaseResistance`. **`PromoteToWorkshop(profile)`**: copies the live table into the workshop baseline (session-scoped; permanent promotion = a code edit).
+- **MatRes tab buttons**: `reset → workshop` per profile, `promote live → workshop`, `restore AUTHORED`, with a caption explaining the layer semantics.
+- **`pairChance` default 0.5 → 1.0** (user preference after the domino entity work — maximum brick read).
+- Verified: csc compile clean; `dda_selftest` **ALL PASS (155,755 checks)**.
+
+### Domino entities — preselected pairs register as ONE physics entity (replaces correlated-velocity pairing)
+- **The redesign**: the previous "pairing" was velocity correlation only — two cells hashed the same launch velocity but stayed independent `FallCell`s, so per-index axis-order hashing desynced them mid-fall (why pairs visibly separated) and adjacent same-hash pairs stacked into apparent 4-cell mega-bricks (the "2×1 gluing to 2×1" report). Now `SeedFalling` **preselects** pairs during the detonation sweep: `PairPartner` (renamed from `PairSeed`, returns the partner index) picks exactly one 2-cell piece per tile, and the anchor (always the smaller flat index) registers **one shared `FallCell` instance under both dict indices** — `falling[a]` and `falling[m]` are literally the same object, so `vel`/`acc` are shared by reference. The member owns no queue slot; the head steps the whole piece.
+- **`StepFalling` domino path**: per axis, both members' targets are evaluated as a unit — both free → the piece moves together (one move, both cells + dict entries); a falling sibling blocking either → the pair waits; static blocking BOTH → shared momentum absorbed on that axis; static blocking ONE → **the piece fractures**: the stuck member keeps its support and goes single, the free member keeps the shared velocity and flies on. Landing requires both members grounded + slow → both cells deposit as **adjacent rubble — a whole brick in the pile**.
+- **Escape**: a member stepping out of bounds escapes alone (flyer with the shared velocity); the survivor continues single with its own material intact.
+- **`pairChance = 1.0` is now literally 100%**: the tile roll was `byte/255f >= chance`, which leaked ~1/256 tiles (hash byte exactly 255) — fixed to skip the roll at `chance >= 1`. Verified: uniform all-doomed brick grid at 1.0 pairs **256/256 cells = 128 dominoes**.
+- **Flyer phase unchanged** (velocity-glued pairs — flyers have no entities; identical launch keeps them adjacent through the transport phase).
+- **Stats**: `lastBlastPairs` (domino entities) + `lastBlastPairCells` (cells launched with a partner — domino members + glued flyers) feed a new MatRes last-blast line: `dominoes N · paired cells M`.
+- **`dda_selftest` [20]**: (a) domino falls + lands as two ADJACENT rubble cells (glue holds); (b) asymmetric static support fractures the piece — stuck head rests on the block, member falls to the floor; (c) two adjacent dominoes settle as 4 cells — no mega-piece absorption. `[19]` rewritten for `PairPartner` (mutual partner, 1-cell adjacency, in-tile, exact pair-off, 100% coverage report). **ALL PASS (155,755 checks)**.
+
+### Material-resistance tuning tab + debris radial toggle + demolition defaults
+- **`flyerRadialVelocity` default off**: blast flyers now spawn at rest (deterministic jitter only) and drop under gravity — the collapse-in-place read the user preferred over radial spray. The Range-tab checkbox "debris radial launch velocity" flips it back on for A/B.
+- **`VoxelDamageMath` resistance refactor**: the `MaterialResistance` switch is now a class-indexed table — `ResClass` enum (glass/soft/wood/stucco/brick/stone/metal/veh.metal/other), `BaseResistance[]` authored defaults, live `Resistance[]` clone + `GlobalResistScale`. The same lookup feeds the per-cell kill roll AND the Beer–Lambert occlusion march, so tuning affects shielding too. `ResetResistanceTable()` restores defaults.
+- **New HUD "MatRes" tab** (always available, between Range and Keys): global ×scale slider (0–2), nine per-class sliders whose labels carry live kill probability @center / @½radius at the current power dial (e.g. `brick 100%/40%`), reset button, and a last-blast breakdown — crater cells removed per class + detached count + flyers emitted.
+- **Blast stats**: `VoxelDamageSystem.lastBlastRemoved[ResClass]` + `lastBlastDetached` + `LastFlyEmitted`, tallied in both `Detonate` and the `DetonateEvent` plan path (plan's `writeMat` is aligned with `writeIdx`; `detachedStart` splits crater vs islands). Cleared by `ResetAllDamage`.
+- **Voxel inspector** (`PICK VOXEL`) now appends the cell's resistance class and live effective resistance.
+- **Defaults**: `blastRadius` 6 m (was already), `blastPower` 2 → **4** (slider ceiling raised 4 → 8), `frontPasses` 16 → **6**, HUD `windowW` 380 → **560**.
+- Verified: csc compile clean; `dda_selftest` **ALL PASS (155,737 checks)**.
 
 ### Unified debris architecture — every doomed cell is a voxel, blast through landing (replaces bundled shards)
 - **The pivot**: the old shard system (one capped cube per ~few-thousand-cell bucket that poured instant `DepositHeap` pyramids on landing) is **gone**. Blast-removed cells now spawn as **individual flying voxels** at their own world positions — the debris swarm IS the blast cavity's cells, each keeping its own material. "The shard is now only the transport phase of a cell between grids."

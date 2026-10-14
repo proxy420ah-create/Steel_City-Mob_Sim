@@ -53,6 +53,8 @@ namespace SteelCity.Sim
         public bool shardVoxelCollision = true;
         [Tooltip("Cells that land in a volume become persistent rubble (material written back) instead of fading.")]
         public bool rubbleDeposit = true;
+        [Tooltip("Blast flyers get a radial kick away from the blast center — off = debris falls with pure gravity (A/B test the spray).")]
+        public bool flyerRadialVelocity = false;
 
         [Header("Glass audio (P1, synthesized — no assets)")]
         public bool glassAudioEnabled = true;
@@ -104,12 +106,24 @@ namespace SteelCity.Sim
         /// falling off to zero at 2x the blast radius, so rim cells are thrown and far islands
         /// just drop. Velocity lives in cells/sec inside the grid.</summary>
         public float cellImpulse = 7f;
+        [Tooltip("Doomed cells sharing a 2x2 tile AND material class are pre-registered as ONE 2-cell entity — a domino that steps/lands as a unit (a whole brick) and fractures only on asymmetric contact (a broken brick).")]
+        public bool pairCells = true;
+        public float pairChance = 1.0f;         // fraction of 2x2 tiles that pair — 1.0 pairs every eligible tile
         public float cellImpulseJitter = 2.2f;  // m/s per-axis random — breaks laminar sheets into a spray
         public float cellFallDrag = 1.6f;       // 1/s velocity decay — thrown debris slows, then rains
         public float cellLandSpeed = 0.6f;      // |vel| (cells/sec) under which a grounded cell becomes rubble
         private const int FallMovesPerFrame = 24576;  // cell steps per frame across all volumes — collapse pace governor
         private readonly List<ShardPhysics.FallEscape> escapedScratch = new();
+        private readonly HashSet<int> doomSet = new();          // pairing partner lookups (SeedFalling / EmitFlyersShot)
+        private readonly Dictionary<int, int> emitCls = new();  // pairing partner class lookups (EmitFlyersRadial)
         private int flyEmitted;                      // per-blast airborne count for the debris log
+        /// <summary>Last blast: crater cells removed per resistance class + detached-island count (MatRes tab readout).</summary>
+        public readonly int[] lastBlastRemoved = new int[(int)VoxelDamageMath.ResClass.Count];
+        public int lastBlastDetached;
+        public int lastBlastPairs;                 // domino ENTITIES registered in-grid (one FallCell, two cells)
+        public int lastBlastPairCells;             // cells launched sharing a velocity partner — dominoes + glued flyers
+        public int lastBlastProfile;               // ResProfile the last blast resolved — MatRes readout
+        public int LastFlyEmitted => flyEmitted;
 
         private readonly Dictionary<int, AudioClip> clipCache = new();
 
@@ -238,10 +252,11 @@ namespace SteelCity.Sim
 
             dirtyScratch.Clear();
             blastIdx.Clear(); blastMats.Clear();
+            lastBlastProfile = VoxelDamageMath.ResProfileOf(volumeId);
             int removed = VoxelDamageMath.Blast(st.data, st.w, st.h, st.d,
                 cell.x, cell.y, cell.z, radiusMeters / st.vs, power,
                 0xB1A57000u + (uint)blastCounter++, crackedMaterial,
-                dirtyScratch, blastIdx, blastMats, out int cracked, occlusionAware);
+                dirtyScratch, blastIdx, blastMats, out int cracked, occlusionAware, lastBlastProfile);
             if (dirtyScratch.Count == 0)
             {
                 Debug.Log($"[VoxelDamage] 💥 {volumeId}: blast removed nothing (radius {radiusMeters:F1}m, power {power:F2})");
@@ -263,6 +278,11 @@ namespace SteelCity.Sim
             LastRemoved = removed + detached;
             LastCracked = cracked;
             flyEmitted = 0;
+            System.Array.Clear(lastBlastRemoved, 0, lastBlastRemoved.Length);
+            lastBlastPairs = 0; lastBlastPairCells = 0;
+            for (int i = 0; i < blastMats.Count; i++)
+                lastBlastRemoved[(int)VoxelDamageMath.ClassOf(blastMats[i])]++;
+            lastBlastDetached = detached;
             chunkManager.UploadVoxelEdits(volumeId, st.data, dirtyScratch);
             EmitFlyersRadial(st, worldPoint, blastIdx, blastMats, null, 0, blastIdx.Count);
             if (detached > 0) SeedFalling(st, worldPoint, radiusMeters * 2f, detIdx, 0, detached);
@@ -302,10 +322,11 @@ namespace SteelCity.Sim
             Vector3 cell = WorldToCell(st, worldPoint);
 
             var scratch = (uint[])st.data.Clone();
+            lastBlastProfile = VoxelDamageMath.ResProfileOf(volumeId);
             var plan = VoxelDamageMath.SimulateBlast(scratch, st.w, st.h, st.d,
                 cell.x, cell.y, cell.z, radiusMeters / st.vs, power,
                 0xB1A57000u + (uint)blastCounter++, Mathf.Max(1, passes), crackedMaterial,
-                occlusionAware, dropUnsupported, visitedScratch);
+                occlusionAware, dropUnsupported, visitedScratch, lastBlastProfile);
             if (plan.writeIdx.Count == 0)
             {
                 Debug.Log($"[VoxelDamage] 💥 {volumeId}: sim removed nothing (radius {radiusMeters:F1}m, power {power:F2})");
@@ -316,6 +337,12 @@ namespace SteelCity.Sim
             LastRemoved = plan.totalRemoved;
             LastCracked = crackedTotal;
             flyEmitted = 0;
+            System.Array.Clear(lastBlastRemoved, 0, lastBlastRemoved.Length);
+            lastBlastPairs = 0; lastBlastPairCells = 0;
+            lastBlastDetached = plan.writeIdx.Count - plan.detachedStart;
+            for (int i = 0; i < plan.detachedStart; i++)
+                if (plan.writeVal[i] == 0u)
+                    lastBlastRemoved[(int)VoxelDamageMath.ClassOf(plan.writeMat[i])]++;
             StartCoroutine(PlayPlan(volumeId, st, plan, worldPoint, Mathf.Max(0.01f, durationSec), radiusMeters * 2f));
             Debug.Log($"[VoxelDamage] 💥 SIM {volumeId} @ {worldPoint}: {plan.totalRemoved} doomed cells, " +
                 $"{crackedTotal} cracked, {plan.passes} fronts" +
@@ -389,7 +416,7 @@ namespace SteelCity.Sim
         public bool occlusionAware = true;
         /// <summary>DetonateEvent: simulate K expanding fronts up front, play back over frontSec.</summary>
         public bool shockFront = true;
-        public int frontPasses = 16;
+        public int frontPasses = 6;
         public float frontSec = 0.5f;
         private readonly List<int> detIdx = new();
         private readonly List<uint> detMats = new();
@@ -568,20 +595,37 @@ namespace SteelCity.Sim
             for (int i = start; i < end; i++) if (vals == null || vals[i] == 0u) count++;
             if (count == 0) return;
             int stride = Mathf.Max(1, Mathf.CeilToInt(count / (float)avail));
+            emitCls.Clear();
+            if (pairCells)
+                for (int i = start; i < end; i++)
+                    if (vals == null || vals[i] == 0u)
+                        emitCls[idx[i]] = (int)VoxelDamageMath.ClassOf(mats[i]);
             for (int i = start; i < end; i++)
             {
                 if (vals != null && vals[i] != 0u) continue;
                 int ci = idx[i];
-                uint hsh = (uint)ci * 2654435761u;
+                // glued flyers — a paired cell hashes its launch AND stride decision
+                // from the pair anchor, so both members emit together with identical
+                // velocity (the flyer phase has no entities — velocity IS the glue)
+                int partner = pairCells
+                    ? ShardPhysics.PairPartner(ci, st.w, st.h, st.d, pairChance,
+                        emitCls.ContainsKey, j => emitCls[j])
+                    : -1;
+                int src = partner >= 0 ? (partner < ci ? partner : ci) : ci;
+                uint hsh = (uint)src * 2654435761u;
                 if ((hsh & 0xFFFFu) % (uint)stride != 0u) continue;
-                Vector3 wpos = CellWorld(st, ci);
-                Vector3 dir = wpos - blastCenter;
+                if (src != ci) lastBlastPairCells += 2;   // the member detects the pair — both emit or neither does
+                Vector3 wpos = CellWorld(st, ci);                          // spawn at own cell
+                Vector3 vref = src == ci ? wpos : CellWorld(st, src);      // velocity aims from the anchor
+                Vector3 dir = vref - blastCenter;
                 float dm = dir.magnitude;
                 dir = dm > 1e-5f ? dir / dm : new Vector3(((hsh >> 4) & 255u) / 255f - 0.5f,
                     ((hsh >> 10) & 255u) / 255f - 0.5f, ((hsh >> 16) & 255u) / 255f - 0.5f).normalized;
-                Vector3 vel = dir * (shardSpeed * 2.5f * (0.7f + 0.6f * ((hsh & 255u) / 255f)))
-                    + new Vector3(((hsh >> 3) & 255u) / 255f - 0.5f, ((hsh >> 11) & 255u) / 255f - 0.5f,
-                        ((hsh >> 19) & 255u) / 255f - 0.5f) * shardSpread;
+                Vector3 vel = flyerRadialVelocity
+                    ? dir * (shardSpeed * 2.5f * (0.7f + 0.6f * ((hsh & 255u) / 255f)))
+                    : Vector3.zero;
+                vel += new Vector3(((hsh >> 3) & 255u) / 255f - 0.5f, ((hsh >> 11) & 255u) / 255f - 0.5f,
+                    ((hsh >> 19) & 255u) / 255f - 0.5f) * shardSpread;
                 AddFlyer(st, wpos, mats[i], vel, hsh);
             }
         }
@@ -591,10 +635,20 @@ namespace SteelCity.Sim
         private void EmitFlyersShot(DamageState st, ProjectileSystem.ShotReport r)
         {
             if (!shardBurstEnabled || world == null) return;
+            doomSet.Clear();
+            if (pairCells)
+                foreach (int idx in dirtyScratch)
+                    if (st.data[idx] == 0) doomSet.Add(idx);
             foreach (int idx in dirtyScratch)
             {
                 if (st.data[idx] != 0) continue;   // cracked cells stay in place — only AIR flies
-                uint hsh = (uint)idx * 2654435761u;
+                // pairing: all removed cells are glass, so the class check is trivially true
+                int partner = pairCells
+                    ? ShardPhysics.PairPartner(idx, st.w, st.h, st.d, pairChance, doomSet.Contains, _ => 0)
+                    : -1;
+                int src = partner >= 0 ? (partner < idx ? partner : idx) : idx;
+                if (src != idx) lastBlastPairCells += 2;
+                uint hsh = (uint)src * 2654435761u;
                 Vector3 vel = r.shotDir * shardSpeed * (0.7f + 0.6f * ((hsh & 255u) / 255f))
                     + new Vector3(((hsh >> 3) & 255u) / 255f - 0.5f, ((hsh >> 11) & 255u) / 255f - 0.5f + 0.3f,
                         ((hsh >> 19) & 255u) / 255f - 0.5f) * shardSpread;
@@ -651,10 +705,28 @@ namespace SteelCity.Sim
             Vector3 half = new Vector3(st.w, st.h, st.d) * (vs * 0.5f);
             Vector3 center = st.corner + half;
             float rad = st.yaw * Mathf.Deg2Rad, c = Mathf.Cos(rad), s = Mathf.Sin(rad);
+            doomSet.Clear();
+            if (pairCells) for (int i = start; i < end; i++) doomSet.Add(idx[i]);
             for (int i = start; i < end; i++)
             {
                 int ci = idx[i];
                 if (st.falling.ContainsKey(ci)) continue;
+                // ── domino preselection: PairPartner picks ONE 2-cell entity per pair ──
+                // The anchor (smaller flat index) registers a single shared FallCell under
+                // BOTH indices; the member's own iteration skips. One vel/acc for the piece —
+                // it steps, jams, lands, or fractures as a unit (see StepFalling's domino path).
+                int partner = -1;
+                if (pairCells)
+                {
+                    partner = ShardPhysics.PairPartner(ci, st.w, st.h, st.d, pairChance,
+                        doomSet.Contains,
+                        j => (int)VoxelDamageMath.ClassOf(st.data[j] & VoxelDamageMath.MaterialMask));
+                    if (partner >= 0)
+                    {
+                        if (st.falling.ContainsKey(partner)) partner = -1;  // partner is already a live entity → single
+                        else if (partner < ci) continue;                     // member — the anchor builds the pair
+                    }
+                }
                 int z = ci / (st.w * st.h), rem = ci - z * st.w * st.h, y = rem / st.w, x = rem - y * st.w;
                 Vector3 lp = new Vector3(x + 0.5f, y + 0.5f, z + 0.5f) * vs - half;
                 Vector3 wpos = center + new Vector3(lp.x * c + lp.z * s, lp.y, -lp.x * s + lp.z * c);
@@ -668,8 +740,23 @@ namespace SteelCity.Sim
                                           ((hsh >> 19) & 255u) / 255f - 0.5f) * cellImpulseJitter;
                 Vector3 wv = dir * (cellImpulse * falloff * (0.6f + 0.6f * ((hsh & 255u) / 255f))) + jit;
                 Vector3 lv = new Vector3(wv.x * c - wv.z * s, wv.y, wv.x * s + wv.z * c) / vs;   // world → cell axes
-                st.falling[ci] = new ShardPhysics.FallCell { vel = lv, acc = Vector3.zero, vox = st.data[ci] };
-                st.fallQueue.Add(ci);
+                if (partner >= 0)
+                {
+                    var fc = new ShardPhysics.FallCell
+                    {
+                        vel = lv, acc = Vector3.zero,
+                        vox = st.data[ci], vox2 = st.data[partner],
+                        partner = partner, headIdx = ci
+                    };
+                    st.falling[ci] = fc; st.falling[partner] = fc;   // one entity, two indices
+                    st.fallQueue.Add(ci);                            // ONE slot — the head steps both cells
+                    lastBlastPairs++; lastBlastPairCells += 2;
+                }
+                else
+                {
+                    st.falling[ci] = new ShardPhysics.FallCell { vel = lv, acc = Vector3.zero, vox = st.data[ci] };
+                    st.fallQueue.Add(ci);
+                }
             }
         }
 
@@ -781,6 +868,9 @@ namespace SteelCity.Sim
             skippedVolumes.Clear();
             LastRemoved = LastCracked = RubbleCells = 0;
             flying.Clear(); flyingDraw.Clear();
+            System.Array.Clear(lastBlastRemoved, 0, lastBlastRemoved.Length);
+            lastBlastDetached = 0;
+            lastBlastPairs = lastBlastPairCells = 0;
             return n;
         }
 
