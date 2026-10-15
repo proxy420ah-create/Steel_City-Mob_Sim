@@ -70,6 +70,9 @@ namespace SteelCity.Sim
 
             // Assign the raymarch result to the RawImage
             var result = chunkManager.GetColorTexture();
+            BuildDiag.Set("bridge.frame", Time.frameCount);
+            BuildDiag.Set("bridge.tex", result != null ? $"{result.width}x{result.height}" : "NULL");
+            BuildDiag.Set("bridge.overlay", overlayImage != null && overlayImage.gameObject.activeSelf ? "on" : "off/missing");
             if (result != null && overlayImage != null)
             {
                 overlayImage.texture = result;

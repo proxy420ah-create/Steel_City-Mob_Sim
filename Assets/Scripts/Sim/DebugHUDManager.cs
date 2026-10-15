@@ -18,7 +18,7 @@ namespace SteelCity.Sim
     /// </summary>
     public class DebugHUDManager : MonoBehaviour
     {
-        public enum Tab { Camera, Render, Clothing, Path, Range, MatRes, Keys }
+        public enum Tab { Camera, Render, Clothing, Path, Combat, Demolitions, Weapons, MatRes, BuildLog, Keys }
         public enum Corner { TopLeft, TopRight, BottomLeft, BottomRight }
 
         [Header("Config")]
@@ -34,6 +34,7 @@ namespace SteelCity.Sim
         private bool visible = true;
         private bool minimized = false;
         private Vector2 scrollPos;
+        private Texture2D rtProbeTex;   // BuildLog tab — proxyRT pixel probe
 
         // Drag state
         private bool isDragging;
@@ -59,7 +60,7 @@ namespace SteelCity.Sim
         private ClothingSystem clothingSystem; // currently selected
         private PathDebugRenderer pathDebug;
 
-        // Range tab state — set by clicking a range block while sim is Dwelling
+        // Combat tab state — set by clicking a range block while sim is Dwelling
         private string rangeBlockId;
 
         /// <summary>Selected firing lane (1=left, 2=center, 3=right). Read by
@@ -72,7 +73,7 @@ namespace SteelCity.Sim
         private ArmAimSolver solver;
         private bool blockClickHooked;
 
-        // Free-fire picks — voxel clicks armed from the Range tab. PICK STAND
+        // Free-fire picks — voxel clicks armed from the Combat/Demolitions tabs. PICK STAND
         // teleports the character (DebugSnapTo) onto the hit surface; PICK AIM
         // overrides the lane/mold aim point so shots can target anything.
         private enum PickSlot { None, Stand, Aim, Blast, Building, Inspect }
@@ -144,6 +145,7 @@ namespace SteelCity.Sim
             visible = showOnStart;
             minimized = false;
             SetupBlockerCanvas();
+            BuildDiag.Event("DebugHUDManager.Awake");
         }
 
         void Start()
@@ -239,16 +241,21 @@ namespace SteelCity.Sim
                           || FindFirstObjectByType<CharacterTestRig>() != null;
         }
 
+        bool TabAvailable(Tab t) => t switch
+        {
+            Tab.Camera => followCamera != null,
+            Tab.Render => chunkManager != null,
+            Tab.Clothing => allClothingSystems.Count > 0,
+            Tab.Path => pathDebug != null,
+            Tab.Combat or Tab.Demolitions => cityMap != null,
+            _ => true,
+        };
+
         System.Collections.Generic.List<Tab> GetAvailableTabs()
         {
             var tabs = new System.Collections.Generic.List<Tab>();
-            if (followCamera != null) tabs.Add(Tab.Camera);
-            if (chunkManager != null) tabs.Add(Tab.Render);
-            if (allClothingSystems.Count > 0) tabs.Add(Tab.Clothing);
-            if (pathDebug != null) tabs.Add(Tab.Path);
-            if (cityMap != null) tabs.Add(Tab.Range);
-            tabs.Add(Tab.MatRes);
-            tabs.Add(Tab.Keys);
+            foreach (Tab t in System.Enum.GetValues(typeof(Tab)))
+                if (TabAvailable(t)) tabs.Add(t);
             return tabs;
         }
 
@@ -516,28 +523,11 @@ namespace SteelCity.Sim
             GUILayout.BeginArea(windowRect, bgStyle);
             GUILayout.BeginVertical();
 
-            // Header — title + minimize button + tab buttons
+            // Header — title + minimize button, then TWO tab rows (9 tabs would
+            // clip a 560px window in one row): viewer/systems, then the sim suite
             GUILayout.BeginHorizontal(GUILayout.Height(24));
             GUILayout.Label("<b>DEBUG HUD</b>", boldStyle, GUILayout.Width(80));
-
-            if (!minimized)
-            {
-                Tab[] tabs = { Tab.Camera, Tab.Render, Tab.Clothing, Tab.Path, Tab.Range, Tab.MatRes, Tab.Keys };
-                string[] tabNames = { "Camera", "Render", "Clothing", "Path", "Range", "MatRes", "Keys" };
-
-                for (int i = 0; i < tabs.Length; i++)
-                {
-                    if (tabs[i] == Tab.Camera && followCamera == null) continue;
-                    if (tabs[i] == Tab.Render && chunkManager == null) continue;
-                    if (tabs[i] == Tab.Clothing && allClothingSystems.Count == 0) continue;
-                    if (tabs[i] == Tab.Path && pathDebug == null) continue;
-                    if (tabs[i] == Tab.Range && cityMap == null) continue;
-
-                    var style = activeTab == tabs[i] ? tabActiveStyle : tabStyle;
-                    if (GUILayout.Button(tabNames[i], style, GUILayout.Height(20)))
-                        activeTab = tabs[i];
-                }
-            }
+            GUILayout.FlexibleSpace();
 
             // Minimize / expand button
             string minLabel = minimized ? "+" : "_";
@@ -555,6 +545,9 @@ namespace SteelCity.Sim
                 return;
             }
 
+            DrawTabRow(Tab.Camera, Tab.Render, Tab.Clothing, Tab.Path, Tab.Keys);
+            DrawTabRow(Tab.Combat, Tab.Demolitions, Tab.Weapons, Tab.MatRes, Tab.BuildLog);
+
             // Separator
             GUILayout.Box("", GUILayout.Height(1), GUILayout.ExpandWidth(true));
 
@@ -564,11 +557,19 @@ namespace SteelCity.Sim
             switch (activeTab)
             {
                 case Tab.Clothing: DrawClothingTab(); break;
-                case Tab.Range:
-                    UnityEngine.Profiling.Profiler.BeginSample("HUD.DrawRangeTab");
-                    try { DrawRangeTab(); } finally { UnityEngine.Profiling.Profiler.EndSample(); }
+                case Tab.Combat:
+                    UnityEngine.Profiling.Profiler.BeginSample("HUD.DrawCombatTab");
+                    try { DrawCombatTab(); } finally { UnityEngine.Profiling.Profiler.EndSample(); }
                     break;
-                case Tab.MatRes: DrawMatResTab(); break;
+                case Tab.Demolitions:
+                    UnityEngine.Profiling.Profiler.BeginSample("HUD.DrawDemolitionsTab");
+                    try { DrawDemolitionsTab(); } finally { UnityEngine.Profiling.Profiler.EndSample(); }
+                    break;
+                case Tab.Weapons: DrawWeaponsTab(); break;
+                case Tab.MatRes:
+                    UnityEngine.Profiling.Profiler.BeginSample("HUD.DrawMatResTab");
+                    try { DrawMatResTab(); } finally { UnityEngine.Profiling.Profiler.EndSample(); }
+                    break;
                 default:
                     if (activeTab != lastBuiltTab
                             || Time.unscaledTime >= nextTabRefresh)
@@ -591,6 +592,19 @@ namespace SteelCity.Sim
             GUILayout.EndArea();
         }
 
+        void DrawTabRow(params Tab[] row)
+        {
+            GUILayout.BeginHorizontal(GUILayout.Height(24));
+            foreach (var t in row)
+            {
+                if (!TabAvailable(t)) continue;
+                var style = activeTab == t ? tabActiveStyle : tabStyle;
+                if (GUILayout.Button(t.ToString(), style, GUILayout.Height(20)))
+                    activeTab = t;
+            }
+            GUILayout.EndHorizontal();
+        }
+
         static string TabName(Tab t) => t.ToString();
 
         // boldStyle colour inline — cached text carries no per-line style
@@ -609,6 +623,7 @@ namespace SteelCity.Sim
                 case Tab.Camera: BuildCameraTab(hudSB); break;
                 case Tab.Render: BuildRenderTab(hudSB); break;
                 case Tab.Path: BuildPathTab(hudSB); break;
+                case Tab.BuildLog: BuildBuildLogTab(hudSB); break;
                 default: BuildKeysTab(hudSB); break;
             }
             tabText = hudSB.ToString();
@@ -661,6 +676,74 @@ namespace SteelCity.Sim
             sb.AppendLine("[C] Capture  [P] Perf log");
         }
 
+        /// <summary>
+        /// BuildLog — player-build diagnostics: what the build actually resolved
+        /// (shaders, kernels, render path, draw counts) plus the init event trail.
+        /// Lives on the cached-text path (4Hz rebuild) so it costs ~one label.
+        /// </summary>
+        void BuildBuildLogTab(System.Text.StringBuilder sb)
+        {
+            if (BuildDiag.StateKeys.Count == 0 && BuildDiag.Events.Count == 0)
+            {
+                sb.AppendLine("No diagnostics recorded yet —");
+                sb.AppendLine("nothing instrumented has run.");
+                return;
+            }
+
+            sb.AppendLine(H("Device / init state"));
+            foreach (var key in BuildDiag.StateKeys)
+            {
+                if (key.StartsWith("render.") || key.StartsWith("bridge.")) continue;
+                BuildDiag.TryGet(key, out var v);
+                sb.AppendLine($"  {key}: {v}");
+            }
+            sb.Append('\n');
+
+            sb.AppendLine(H("Render (live)"));
+            bool any = false;
+            foreach (var key in BuildDiag.StateKeys)
+            {
+                if (!key.StartsWith("render.") && !key.StartsWith("bridge.")) continue;
+                BuildDiag.TryGet(key, out var v);
+                sb.AppendLine($"  {key}: {v}");
+                any = true;
+            }
+            if (!any) sb.AppendLine("  (no render calls yet)");
+            // RT probe — sample a 48x48 center block of the live render texture.
+            // Flat (lum range ≈ 0) = draws emit but nothing lands in the RT.
+            if (chunkManager != null)
+            {
+                var rt = chunkManager.GetColorTexture();
+                if (rt != null)
+                {
+                    int N = Mathf.Min(48, rt.width, rt.height);
+                    if (rtProbeTex == null || rtProbeTex.width != N)
+                        rtProbeTex = new Texture2D(N, N, TextureFormat.RGBA32, false);
+                    var prev = RenderTexture.active;
+                    RenderTexture.active = rt;
+                    rtProbeTex.ReadPixels(new Rect((rt.width - N) / 2, (rt.height - N) / 2, N, N), 0, 0);
+                    rtProbeTex.Apply();
+                    RenderTexture.active = prev;
+                    var px = rtProbeTex.GetPixels();
+                    float minL = 1f, maxL = 0f;
+                    foreach (var p in px)
+                    {
+                        float l = p.grayscale;
+                        if (l < minL) minL = l;
+                        if (l > maxL) maxL = l;
+                    }
+                    sb.AppendLine($"  rt.probe: {N}px block, center {px[px.Length / 2]} lumRange {minL:F2}–{maxL:F2}" +
+                        (maxL - minL < 0.02f ? " <b>FLAT — RT holds only clear color</b>" : " content present"));
+                }
+            }
+            sb.Append('\n');
+
+            sb.AppendLine(H($"Init log ({BuildDiag.Events.Count})"));
+            int start = Mathf.Max(0, BuildDiag.Events.Count - 60);
+            for (int i = start; i < BuildDiag.Events.Count; i++)
+                sb.AppendLine(BuildDiag.Events[i]);
+        }
+
         /// Live shadow controls appended under the Render tab's cached text —
         /// the GameUI "SHADOW DEBUG" accordion is buried in the Orders page.
         /// A handful of widgets per event keeps the text-tab cost profile.
@@ -687,7 +770,7 @@ namespace SteelCity.Sim
 
             sb.AppendLine($"<b>FPS</b>: {fps:F0}  |  Frame: {frameTimeMs:F2}ms");
             sb.AppendLine($"  min:{frameTimeMin:F2}  max:{frameTimeMax:F2}  avg:{frameTimeAvg:F2}");
-            sb.AppendLine($"<b>Resolution</b>: {chunkManager.RenderWidth}x{chunkManager.RenderHeight}");
+            sb.AppendLine($"<b>Resolution</b>: {chunkManager.RenderWidth}x{chunkManager.RenderHeight}   <b>scale</b> {chunkManager.CurrentResolutionScale:F2}  ([R] cycles 0.5/0.65/0.75/1.0)");
             sb.AppendLine($"<b>Ortho</b>: {chunkManager.IsOrtho}  Size: {chunkManager.CameraOrthoSize:F1}");
             sb.Append('\n');
             sb.AppendLine(H("Draw Calls"));
@@ -850,7 +933,7 @@ namespace SteelCity.Sim
         }
 
         // ------------------------------------------------------------------
-        // Range tab — live firing-range tuning/debug.
+        // Combat tab — live firing-range tuning/debug.
         // Opens automatically when a block with a firing_position is clicked
         // while the sim is Dwelling (Target Practice hold-open state).
         // ------------------------------------------------------------------
@@ -863,7 +946,7 @@ namespace SteelCity.Sim
             bool hasPos = cityMap.TryGetBuildingPointLocal(blockId, "firing_position", out _);
             Debug.Log($"[DebugHUD] 🔵 Dwell click on {blockId} — firing_position: {(hasPos ? "found" : "absent")}");
             if (!hasPos) return;
-            OpenRangeTab(blockId);
+            OpenCombatTab(blockId);
         }
 
         /// <summary>
@@ -1110,22 +1193,48 @@ namespace SteelCity.Sim
             cityMap.voxelPickArmed = pickArmed != PickSlot.None;
         }
 
-        /// <summary>Open the HUD on the Range tab for the given block.</summary>
-        public void OpenRangeTab(string blockId)
+        /// <summary>Open the HUD on the Combat tab for the given range block.</summary>
+        public void OpenCombatTab(string blockId)
         {
             rangeBlockId = blockId;
-            activeTab = Tab.Range;
+            activeTab = Tab.Combat;
             visible = true;
             minimized = false;
         }
 
-        void DrawRangeTab()
+        /// <summary>Voxel-inspect readout — shared by Combat and Demolitions pick rows.</summary>
+        void DrawInspectHud()
+        {
+            if (inspectHud == null) return;
+            GUILayout.Label(inspectHud, labelStyle);
+            if (GUILayout.Button("clear inspect", GUILayout.Height(18)))
+            {
+                inspectHud = null;
+                PathDebugRenderer.Instance?.ClearCustomCube("inspect_cell");
+            }
+        }
+
+        /// <summary>Stand/aim/blast pick status + clear — shared; picks persist across tabs.</summary>
+        void DrawPickStatus()
+        {
+            if (!pickedStand.HasValue && !pickedAim.HasValue && !pickedBlast.HasValue) return;
+            GUILayout.Label($"stand: {(pickedStand.HasValue ? pickedStand.Value.ToString("F1") : "—")}   aim: {(pickedAim.HasValue ? pickedAim.Value.ToString("F1") : "—")}   blast: {(pickedBlast.HasValue ? pickedBlast.Value.ToString("F1") : "—")}", labelStyle);
+            if (GUILayout.Button("clear picks", GUILayout.Height(18)))
+            {
+                pickedStand = pickedAim = pickedBlast = null; blastVolume = null; blastAtVolumeCenter = false;
+                var pdr = PathDebugRenderer.Instance;
+                foreach (var n in new[] { "pick_stand", "pick_aim", "pick_aim2", "pick_blast", "pick_blast2", "pick_blast3", "blast_rx", "blast_ry", "blast_rz" })
+                    pdr?.ClearCustomBeam(n);
+            }
+        }
+
+        void DrawCombatTab()
         {
             var sim = gameUI != null ? gameUI.Sim : null;
             string simState = sim != null ? sim.State.ToString() : "no sim";
             bool dwelling = sim != null && sim.State == SimState.Dwelling;
 
-            GUILayout.Label($"<b>RANGE</b>   sim: {simState}", boldStyle);
+            GUILayout.Label($"<b>COMBAT</b>   sim: {simState}", boldStyle);
 
             // SFX preview — above the dwelling gate so it works in planning phase.
             // Plays at the AudioListener, so distance can't mask a pipeline problem.
@@ -1137,8 +1246,9 @@ namespace SteelCity.Sim
             if (GUILayout.Button("crash", tabStyle, GUILayout.Height(20))) dmgSys.PreviewGlassSound(2);
             GUILayout.EndHorizontal();
 
-            // --- Free-fire picks + demolition bench (works in planning phase too) ---
+            // --- Free-fire picks (combat-facing; blast picks live on Demolitions) ---
             GUILayout.Space(4);
+            GUILayout.Label("<b>Free-fire &amp; picks</b>", labelStyle);
             GUILayout.BeginHorizontal();
             bool standArmed = pickArmed == PickSlot.Stand;
             if (GUILayout.Button(standArmed ? "STAND: click map…" : "PICK STAND",
@@ -1146,85 +1256,12 @@ namespace SteelCity.Sim
             bool aimArmed = pickArmed == PickSlot.Aim;
             if (GUILayout.Button(aimArmed ? "AIM: click map…" : "PICK AIM",
                     aimArmed ? tabActiveStyle : tabStyle, GUILayout.Height(22))) ArmPick(PickSlot.Aim);
-            bool blastArmed = pickArmed == PickSlot.Blast;
-            if (GUILayout.Button(blastArmed ? "BLAST: click map…" : "PICK BLAST",
-                    blastArmed ? tabActiveStyle : tabStyle, GUILayout.Height(22))) ArmPick(PickSlot.Blast);
-            bool bldgArmed = pickArmed == PickSlot.Building;
-            if (GUILayout.Button(bldgArmed ? "BLDG: click map…" : "PICK BLDG",
-                    bldgArmed ? tabActiveStyle : tabStyle, GUILayout.Height(22))) ArmPick(PickSlot.Building);
             bool inspArmed = pickArmed == PickSlot.Inspect;
             if (GUILayout.Button(inspArmed ? "VOXEL: click map…" : "PICK VOXEL",
                     inspArmed ? tabActiveStyle : tabStyle, GUILayout.Height(22))) ArmPick(PickSlot.Inspect);
             GUILayout.EndHorizontal();
-            if (inspectHud != null)
-            {
-                GUILayout.Label(inspectHud, labelStyle);
-                if (GUILayout.Button("clear inspect", GUILayout.Height(18)))
-                {
-                    inspectHud = null;
-                    PathDebugRenderer.Instance?.ClearCustomCube("inspect_cell");
-                }
-            }
-            if (pickedStand.HasValue || pickedAim.HasValue || pickedBlast.HasValue)
-            {
-                GUILayout.Label($"stand: {(pickedStand.HasValue ? pickedStand.Value.ToString("F1") : "—")}   aim: {(pickedAim.HasValue ? pickedAim.Value.ToString("F1") : "—")}   blast: {(pickedBlast.HasValue ? pickedBlast.Value.ToString("F1") : "—")}", labelStyle);
-                if (GUILayout.Button("clear picks", GUILayout.Height(18)))
-                {
-                    pickedStand = pickedAim = pickedBlast = null; blastVolume = null; blastAtVolumeCenter = false;
-                    var pdr = PathDebugRenderer.Instance;
-                    foreach (var n in new[] { "pick_stand", "pick_aim", "pick_aim2", "pick_blast", "pick_blast2", "pick_blast3", "blast_rx", "blast_ry", "blast_rz" })
-                        pdr?.ClearCustomBeam(n);
-                }
-            }
-            if (pickedBlast.HasValue)
-            {
-                GUILayout.Label($"<b>Demolition</b>  on {(blastVolume ?? "<color=#ffaa44>terrain — needs a building</color>")}{(blastAtVolumeCenter ? " · <color=#ffaa44>center</color>" : "")}", labelStyle);
-                Vector3 blastCenter = blastAtVolumeCenter
-                    ? pickedBlast.Value
-                    : pickedBlast.Value - blastNormal.normalized * blastDepth;
-                // live extent preview — 3 axis beams spanning the blast radius
-                var pdrB = PathDebugRenderer.Instance;
-                var ext = new Color(1f, 0.55f, 0.1f, 0.7f);
-                pdrB?.SetCustomBeam("blast_rx", blastCenter - Vector3.right * blastRadius, blastCenter + Vector3.right * blastRadius, 0.05f, ext);
-                pdrB?.SetCustomBeam("blast_ry", blastCenter - Vector3.up * blastRadius, blastCenter + Vector3.up * blastRadius, 0.05f, ext);
-                pdrB?.SetCustomBeam("blast_rz", blastCenter - Vector3.forward * blastRadius, blastCenter + Vector3.forward * blastRadius, 0.05f, ext);
-                GUI.enabled = !blastAtVolumeCenter;
-                blastDepth = HSlider("depth into wall m", blastDepth, 0f, 4f, "F1");
-                GUI.enabled = true;
-                blastRadius = HSlider("radius m", blastRadius, 0.3f, 30f, "F1");
-                blastPower = HSlider("power", blastPower, 0.1f, 8f, "F2");
-                dmgSys.occlusionAware = GUILayout.Toggle(dmgSys.occlusionAware, " occlusion (walls shield)", toggleStyle);
-                dmgSys.dropUnsupported = GUILayout.Toggle(dmgSys.dropUnsupported, " drop unsupported (collapse)", toggleStyle);
-                if (dmgSys.dropUnsupported)
-                    dmgSys.cellImpulse = HSlider("cell impulse", dmgSys.cellImpulse, 0f, 20f, "F1");
-                dmgSys.shockFront = GUILayout.Toggle(dmgSys.shockFront, " shock front (sim → playback)", toggleStyle);
-                if (dmgSys.shockFront)
-                {
-                    dmgSys.frontPasses = Mathf.RoundToInt(HSlider("front passes", dmgSys.frontPasses, 1f, 24f, "F0"));
-                    dmgSys.frontSec = HSlider("front sec", dmgSys.frontSec, 0.1f, 1.5f, "F2");
-                }
-                dmgSys.shardVoxelCollision = GUILayout.Toggle(dmgSys.shardVoxelCollision, " debris collides with voxel world (walls / roofs)", toggleStyle);
-                dmgSys.flyerRadialVelocity = GUILayout.Toggle(dmgSys.flyerRadialVelocity, " debris radial launch velocity", toggleStyle);
-                dmgSys.pairCells = GUILayout.Toggle(dmgSys.pairCells, " same-material pairing (brick dominoes)", toggleStyle);
-                if (dmgSys.pairCells)
-                    dmgSys.pairChance = HSlider("pair chance", dmgSys.pairChance, 0f, 1f, "F2");
-                dmgSys.rubbleDeposit = GUILayout.Toggle(dmgSys.rubbleDeposit, $" debris settles into volume (rubble · {dmgSys.RubbleCells} cells)", toggleStyle);
-                bool canDet = !string.IsNullOrEmpty(blastVolume);
-                GUI.enabled = canDet;
-                if (GUILayout.Button($"💥 DETONATE ({blastRadius:F1}m)", canDet ? tabActiveStyle : tabStyle, GUILayout.Height(26)))
-                {
-                    if (dmgSys.shockFront)
-                        dmgSys.DetonateEvent(blastVolume, blastCenter, blastRadius, blastPower, dmgSys.frontPasses, dmgSys.frontSec);
-                    else
-                        dmgSys.Detonate(blastVolume, blastCenter, blastRadius, blastPower);
-                }
-                GUI.enabled = true;
-            }
-
-            // Reset works in planning too — damage reset is volume-global, not range-scoped
-            if (dmgSys.DamagedVolumeCount > 0 &&
-                GUILayout.Button($"RESET DAMAGE ({dmgSys.DamagedVolumeCount} volume{(dmgSys.DamagedVolumeCount > 1 ? "s" : "")}) — restore voxels", GUILayout.Height(22)))
-                dmgSys.ResetAllDamage();
+            DrawInspectHud();
+            DrawPickStatus();
 
             if (string.IsNullOrEmpty(rangeBlockId))
             {
@@ -1374,6 +1411,115 @@ namespace SteelCity.Sim
             }
         }
 
+        /// <summary>Demolitions: blast/inspect picks, the global voxel-damage &amp; debris
+        /// system (char tint sliders, debris physics, rubble, reset — shot debris rides
+        /// these too) and the blast bench. Shot-facing nibble toggles (glass glint /
+        /// bullet decals) live on Combat's Firearm panel; the master gate is here.</summary>
+        void DrawDemolitionsTab()
+        {
+            var sim = gameUI != null ? gameUI.Sim : null;
+            string simState = sim != null ? sim.State.ToString() : "no sim";
+            var dmgSys = VoxelDamageSystem.GetOrCreate();
+
+            GUILayout.Label($"<b>DEMOLITIONS</b>   sim: {simState}", boldStyle);
+
+            GUILayout.Space(4);
+            GUILayout.Label("<b>Blast &amp; inspect picks</b>", labelStyle);
+            GUILayout.BeginHorizontal();
+            bool blastArmed = pickArmed == PickSlot.Blast;
+            if (GUILayout.Button(blastArmed ? "BLAST: click map…" : "PICK BLAST",
+                    blastArmed ? tabActiveStyle : tabStyle, GUILayout.Height(22))) ArmPick(PickSlot.Blast);
+            bool bldgArmed = pickArmed == PickSlot.Building;
+            if (GUILayout.Button(bldgArmed ? "BLDG: click map…" : "PICK BLDG",
+                    bldgArmed ? tabActiveStyle : tabStyle, GUILayout.Height(22))) ArmPick(PickSlot.Building);
+            bool inspArmed = pickArmed == PickSlot.Inspect;
+            if (GUILayout.Button(inspArmed ? "VOXEL: click map…" : "PICK VOXEL",
+                    inspArmed ? tabActiveStyle : tabStyle, GUILayout.Height(22))) ArmPick(PickSlot.Inspect);
+            GUILayout.EndHorizontal();
+            DrawInspectHud();
+            DrawPickStatus();
+
+            // --- Damage & debris — GLOBAL: shots AND blasts share these rules ---
+            GUILayout.Space(4);
+            GUILayout.Label("<b>Damage &amp; debris</b>", labelStyle);
+            dmgSys.damageTint = GUILayout.Toggle(dmgSys.damageTint, " damage tint (char gradient — master)", toggleStyle);
+            if (dmgSys.damageTint)
+            {
+                dmgSys.charReach = Mathf.RoundToInt(HSlider("char reach cells", dmgSys.charReach, 0f, 8f, "F0"));
+                dmgSys.charStrength = HSlider("char strength", dmgSys.charStrength, 0f, 1f, "F2");
+                dmgSys.charRadial = HSlider("S-curve radial", dmgSys.charRadial, 0f, 1f, "F2");
+                dmgSys.charAbsorb = HSlider("char absorb/cell", dmgSys.charAbsorb, 0.2f, 0.95f, "F2");
+                dmgSys.debrisChar = HSlider("debris char", dmgSys.debrisChar, 0f, 1f, "F2");
+            }
+            dmgSys.shardVoxelCollision = GUILayout.Toggle(dmgSys.shardVoxelCollision, " debris collides with voxel world (walls / roofs)", toggleStyle);
+            dmgSys.pairCells = GUILayout.Toggle(dmgSys.pairCells, " same-material pairing (brick dominoes)", toggleStyle);
+            if (dmgSys.pairCells)
+                dmgSys.pairChance = HSlider("pair chance", dmgSys.pairChance, 0f, 1f, "F2");
+            dmgSys.rubbleDeposit = GUILayout.Toggle(dmgSys.rubbleDeposit, $" debris settles into volume (rubble · {dmgSys.RubbleCells} cells)", toggleStyle);
+            if (dmgSys.DamagedVolumeCount > 0 &&
+                GUILayout.Button($"RESET DAMAGE ({dmgSys.DamagedVolumeCount} volume{(dmgSys.DamagedVolumeCount > 1 ? "s" : "")}) — restore voxels", GUILayout.Height(22)))
+                dmgSys.ResetAllDamage();
+
+            // --- Blast bench — only with a blast picked ---
+            if (!pickedBlast.HasValue)
+            {
+                GUILayout.Space(4);
+                GUILayout.Label("PICK BLAST a building face to arm the bench.", labelStyle);
+                return;
+            }
+            GUILayout.Space(4);
+            GUILayout.Label($"<b>Demolition</b>  on {(blastVolume ?? "<color=#ffaa44>terrain — needs a building</color>")}{(blastAtVolumeCenter ? " · <color=#ffaa44>center</color>" : "")}", labelStyle);
+            Vector3 blastCenter = blastAtVolumeCenter
+                ? pickedBlast.Value
+                : pickedBlast.Value - blastNormal.normalized * blastDepth;
+            // live extent preview — 3 axis beams spanning the blast radius
+            var pdrB = PathDebugRenderer.Instance;
+            var ext = new Color(1f, 0.55f, 0.1f, 0.7f);
+            pdrB?.SetCustomBeam("blast_rx", blastCenter - Vector3.right * blastRadius, blastCenter + Vector3.right * blastRadius, 0.05f, ext);
+            pdrB?.SetCustomBeam("blast_ry", blastCenter - Vector3.up * blastRadius, blastCenter + Vector3.up * blastRadius, 0.05f, ext);
+            pdrB?.SetCustomBeam("blast_rz", blastCenter - Vector3.forward * blastRadius, blastCenter + Vector3.forward * blastRadius, 0.05f, ext);
+            GUI.enabled = !blastAtVolumeCenter;
+            blastDepth = HSlider("depth into wall m", blastDepth, 0f, 4f, "F1");
+            GUI.enabled = true;
+            blastRadius = HSlider("radius m", blastRadius, 0.3f, 30f, "F1");
+            blastPower = HSlider("power", blastPower, 0.1f, 8f, "F2");
+            dmgSys.occlusionAware = GUILayout.Toggle(dmgSys.occlusionAware, " occlusion (walls shield)", toggleStyle);
+            dmgSys.dropUnsupported = GUILayout.Toggle(dmgSys.dropUnsupported, " drop unsupported (collapse)", toggleStyle);
+            if (dmgSys.dropUnsupported)
+                dmgSys.cellImpulse = HSlider("cell impulse", dmgSys.cellImpulse, 0f, 20f, "F1");
+            dmgSys.shockFront = GUILayout.Toggle(dmgSys.shockFront, " shock front (sim → playback)", toggleStyle);
+            if (dmgSys.shockFront)
+            {
+                dmgSys.frontPasses = Mathf.RoundToInt(HSlider("front passes", dmgSys.frontPasses, 1f, 24f, "F0"));
+                dmgSys.frontSec = HSlider("front sec", dmgSys.frontSec, 0.1f, 1.5f, "F2");
+            }
+            dmgSys.flyerRadialVelocity = GUILayout.Toggle(dmgSys.flyerRadialVelocity, " debris radial launch velocity", toggleStyle);
+            bool canDet = !string.IsNullOrEmpty(blastVolume);
+            GUI.enabled = canDet;
+            if (GUILayout.Button($"💥 DETONATE ({blastRadius:F1}m)", canDet ? tabActiveStyle : tabStyle, GUILayout.Height(26)))
+            {
+                if (dmgSys.shockFront)
+                    dmgSys.DetonateEvent(blastVolume, blastCenter, blastRadius, blastPower, dmgSys.frontPasses, dmgSys.frontSec);
+                else
+                    dmgSys.Detonate(blastVolume, blastCenter, blastRadius, blastPower);
+            }
+            GUI.enabled = true;
+        }
+
+        /// <summary>Weapons placeholder — live weapon-stat tuning (damage, spread,
+        /// muzzle velocity, recoil, ammo) lands here via the live-editor pipeline.</summary>
+        void DrawWeaponsTab()
+        {
+            GUILayout.Label("<b>WEAPONS</b>", boldStyle);
+            GUILayout.Space(4);
+            GUILayout.Label("Placeholder — live weapon-stat tuning lands here.", labelStyle);
+            GUILayout.Label("Planned knobs: damage · spread · muzzle velocity · recoil · ammo —", labelStyle);
+            GUILayout.Label("wired through the live-editor pipeline (docs/core/LIVE_EDITOR_PIPELINE.md).", labelStyle);
+            GUILayout.Space(4);
+            GUILayout.Label("Current combat tuning lives on the Combat tab:", labelStyle);
+            GUILayout.Label("skill / cone ° / muzzle speed / spread cone / aim feel.", labelStyle);
+        }
+
         /// <summary>
         /// Firearm panel: shooter skill (1-10, default 10), cone slider, muzzle speed, FIRE and the last-shot
         /// report. FIRE needs the IK aim fully raised (blend ≥ 0.98) so the shot goes where the gun actually
@@ -1421,6 +1567,19 @@ namespace SteelCity.Sim
                 if (dmg.glassAudioEnabled)
                     dmg.glassAudioVolume = HSlider("sfx volume", dmg.glassAudioVolume, 0f, 1f, "F2");
             }
+
+            // Shot-facing damage-nibble features — the master gate (`damage tint`)
+            // lives on Demolitions; grayed here while it's off so the dependency shows.
+            GUI.enabled = dmg.damageTint;
+            dmg.glassGlint = GUILayout.Toggle(dmg.glassGlint, " glass glint (retire cracked material)", toggleStyle);
+            if (dmg.glassGlint)
+                dmg.glintStrength = HSlider("glint strength", dmg.glintStrength, 0f, 1f, "F2");
+            dmg.bulletImpactTint = GUILayout.Toggle(dmg.bulletImpactTint, " bullet impact decals (non-glass)", toggleStyle);
+            if (dmg.bulletImpactTint)
+                dmg.bulletScorchDepth = Mathf.RoundToInt(HSlider("scorch depth", dmg.bulletScorchDepth, 0f, 4f, "F0"));
+            GUI.enabled = true;
+            if (!dmg.damageTint)
+                GUILayout.Label("<i>  tint inert — master 'damage tint' on Demolitions</i>", labelStyle);
 
             if (solver != null)
             {

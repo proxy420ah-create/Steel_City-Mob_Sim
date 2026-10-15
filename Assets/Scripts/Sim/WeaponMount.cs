@@ -245,7 +245,7 @@ namespace SteelCity.Sim
                         gpuData[idx++] = voxels[x, y, z];
 
             itemBuffer = new ComputeBuffer(total, sizeof(uint));
-            itemBuffer.SetData(gpuData);
+            GpuUpload.SetData(itemBuffer, gpuData);
 
             itemGO = new GameObject($"Weapon_{Path.GetFileNameWithoutExtension(itemFileName)}");
             itemGO.transform.SetParent(transform, worldPositionStays: true);

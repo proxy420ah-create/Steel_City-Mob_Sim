@@ -318,7 +318,7 @@ namespace SteelCity.Sim
                         gpuData[idx++] = (uint)voxelData[x, y, z];
 
             voxelBuffer = new ComputeBuffer(totalVoxels, sizeof(uint));
-            voxelBuffer.SetData(gpuData);
+            GpuUpload.SetData(voxelBuffer, gpuData);
 
             Debug.Log($"[VoxelCharacter] ComputeBuffer created: {totalVoxels:N0} voxels");
         }

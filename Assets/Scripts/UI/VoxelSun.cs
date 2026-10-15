@@ -216,10 +216,14 @@ namespace SteelCity.Sim
 
             // Make it wireframe-style: use a simple unlit material with high emission
             var rend = sunVisual.GetComponent<Renderer>();
-            var shader = Shader.Find("Unlit/Color") ?? Shader.Find("Standard");
-            var mat = new Material(shader);
-            mat.color = new Color(1f, 0.9f, 0.6f, 0.5f);
-            rend.material = mat;
+            var shader = Shader.Find("Unlit/Color") ?? Shader.Find("Standard")
+                ?? Resources.Load<Shader>("Shaders/FlatColor");
+            if (shader != null)
+            {
+                var mat = new Material(shader);
+                mat.color = new Color(1f, 0.9f, 0.6f, 0.5f);
+                rend.material = mat;
+            }
 
             // Remove collider — sun is purely visual
             var col = sunVisual.GetComponent<Collider>();

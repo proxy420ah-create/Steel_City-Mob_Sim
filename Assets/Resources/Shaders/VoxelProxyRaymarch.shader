@@ -167,6 +167,8 @@ Shader "SteelCity/VoxelProxyRaymarch"
             uint  _GlassForcedMat4; uint _GlassForcedMat5; uint _GlassForcedMat6; uint _GlassForcedMat7;
             float _FlaggedGlassAlpha;   // transmission alpha for forced-glass mats
             float _GlassSpecular;       // sun-glint strength on glass faces (0 = off)
+            float _DamageChar;          // voxel damage nibble (bits 9-12): max darken for char levels
+            float _DamageGlint;         // max lighten for glint levels
             int   _GlassMaxLayers;      // max tinted surfaces accumulated per ray
             // 1 = _PaneIDs is a MERGED buffer parallel to _VoxelData (baked
             // sectors): pane index = bufferOffset + VoxelIndex. 0 = per-asset
@@ -1194,6 +1196,13 @@ Shader "SteelCity/VoxelProxyRaymarch"
                         float4 baseColor = _MaterialColors[mat];
                         float4 tint = _ChunkTints[mat];
                         baseColor.rgb *= tint.rgb;
+
+                        // Damage nibble baked into the voxel by ApplyDamageGradient
+                        // (runtime-only bits 16-19 — disk format can't reach them):
+                        // 1-7 char-darkens toward the wound, 8-15 glints (crack webbing).
+                        uint dmg = (packed >> 16u) & 0xFu;
+                        if (dmg < 8u) baseColor.rgb *= 1.0 - (dmg / 7.0) * _DamageChar;
+                        else          baseColor.rgb = lerp(baseColor.rgb, 1.0, ((dmg - 7.0) / 8.0) * _DamageGlint);
 
                         // Transparent material (palette alpha < 1): accumulate the
                         // tinted surface front-to-back and keep marching — a

@@ -1,6 +1,6 @@
 # Glass Shatter Mechanic — Prototype Proposal
 
-**Status**: ✅ P0 + P1 + sector-write half of P2 implemented — bullet puncture, cracked halo, unified voxel debris (in-grid rain → flying-voxel transport → cross-volume handoff), synthesized SFX, damage reset, mold bench tooling live; damage writes reach baked-sector merged buffers. **Demolition bench** added: spherical `VoxelDamageMath.Blast` (per-material resistance, seeded falloff) + PICK BLAST/DETONATE in the Range tab. Remaining: gid pane semantics (cascade/blast-radius-over-gid) and P3 sim hooks
+**Status**: ✅ P0 + P1 + sector-write half of P2 implemented — bullet puncture, cracked halo, unified voxel debris (in-grid rain → flying-voxel transport → cross-volume handoff), synthesized SFX, damage reset, mold bench tooling live; damage writes reach baked-sector merged buffers. **Demolition bench** added: spherical `VoxelDamageMath.Blast` (per-material resistance, seeded falloff) + PICK BLAST/DETONATE on the Demolitions tab. Remaining: gid pane semantics (cascade/blast-radius-over-gid) and P3 sim hooks
 **Created**: October 9, 2026
 **Parent**: [`VOXEL_GLASS_TRANSPARENCY.md`](VOXEL_GLASS_TRANSPARENCY.md) §Windows ↔ Projectiles — this doc resolves the "Shattering" option that section framed
 **Depends on**: `groupMap` gid tagging (editor), runtime dirty-cell writes (`docs/core/PERFORMANCE_PATTERNS.md` #1–2), Tier 3 individual-mutation draw path
@@ -174,7 +174,7 @@ through all three phases:
   swarm flight (~1–2 s); `maxFlyingCells` bounds it. `EnsureDamageState`
   clones a pristine target's full array on first arrival — a one-time few-ms
   hitch per newly-struck neighbor.
-- **Toggles** (Range tab → Demolition): `debris collides with voxel world`,
+- **Toggles** (Demolitions tab → Damage &amp; debris): `debris collides with voxel world`,
   `debris settles into volume (rubble · N cells)`, `cell impulse` slider.
 - **Debris test lot** — `block_48` ("[DEBRIS TESTBED]", next to the glass
   monolith): `debris_test_lot.stasset` (192×120×192) = a full-footprint asphalt
@@ -189,6 +189,65 @@ through all three phases:
   persistent litter pool yet); rubble is not persisted (same as all damage —
   baking the [BOMBED] state is separate, open work); cells can overlap a
   falling sibling for a tick during cross-volume handoff races.
+
+### Damage-gradient char tint — "damage" as a voxel field, not new materials (implemented)
+
+Blast wounds now **scorch their rims**: a 4-bit damage nibble baked into the
+voxel word's **runtime-only bits 16-19** (`VoxelDamageMath.DamageShift/Mask`).
+`0` clean · `1-7` char (darken toward the wound) · `8-15` glint (lighten —
+reserved for crack webbing).
+
+- **Why bits 16+**: the `.stasset` payload is uint16 — bits 0-8 material,
+  9-15 reserved for shape/rotation (unused today: all 36 assets scanned have
+  zero upper bits; `VxShape`/`VxRotation` are dead helpers). The runtime
+  buffer is uint32, so bits 16-19 are *unreachable by the format* — tint can
+  never collide with authored data and never serializes back into an asset
+  (damage is runtime state by definition).
+- **The model — exposure, not adjacency** (`VoxelDamageMath.ApplyDamageExposure`,
+  selftest `[22]`): every solid cell within `radius + charReach` of the
+  blast evaluates its own line of sight —
+  `level = round(7 · distFactor · absorb^solids)` where
+  `distFactor = 1 − charRadial·smoothstep(dist/range)` (S-curve: near-max
+  hold through the doom zone, steep taper at the rim — "stronger from both
+  ends", not a linear ramp) and `solids` counts intervening voxels along the
+  straight blast→cell ray (`MarchSolidCount`, Beer-Lambert at `charAbsorb`
+  per cell — **geometry only, never material resistance**). Three properties
+  fall out for free: blast-**facing** surfaces char while shadowed sides stay
+  clean; depth into material decays the same way (each covering cell
+  absorbs); and **air transmits** — a blown window opening delivers scorch
+  to the sill it reveals, even when nothing near the sill was doomed
+  (selftest (b) proves through > shielded at equal distance). Doom-adjacency
+  is implied, not required: cavity air lets rim cells see 0 solids → they
+  char hardest. Max-merge: overlapping blasts only deepen.
+- **Bullet decals use a different model** — `ApplyImpactTint` keeps the
+  wound-adjacency BFS (`ApplyDamageGradient`): a contact mark is a pit +
+  halo around the impact *cell*, not radiated energy. Both write the same
+  nibble; the shader can't tell them apart.
+- **Whole-lifecycle carry** — detached cells are tinted before `SeedFalling`
+  snapshots `vox`, so rain carries char; ejected flyers get a hash-dithered
+  `debrisChar` nibble (pair-anchored hash → a domino scorches uniformly) that
+  `AddFlyer` folds into the draw color; `fly.vox` handoff writes the tinted
+  word into rubble. Grid → rain → flyer → rubble: one continuous material
+  history — a charred brick reads charred in flight *and* in the pile.
+- **Shader cost** — one mask+shift after the palette/chunk-tint lookup in both
+  raymarchers (`1-7` → multiply by `1 - lvl/7 · _DamageChar`; `8-15` → lerp to
+  white by `_DamageGlint`; globals pushed per-frame). Applied to `baseColor`
+  before the glass gate → a glinted pane reads frosted for free.
+- **Knobs** (Demolitions → Damage &amp; debris): `damage tint`, `char reach` 4 (cells past
+  the blast radius the scorch can still paint), `char strength` 0.65,
+  `S-curve radial` 0.9 (distance-falloff strength; 0 = pure absorption
+  shadowing), `char absorb/cell` 0.62 (transmission per intervening solid),
+  `debris char` 0.6; shot debris emits glint instead of char.
+- **Relation to cracked material 134** — the glint levels (8-15) now have a
+  live implementation behind the **`glass glint` HUD toggle** (`VoxelDamageSystem.glassGlint`,
+  default off): `TouchGlass` survivors keep their own glass material and write
+  the fracture as glint 10-13 (hash-varied, max-merged — re-shots only
+  brighten). The material slot is freed and pane bookkeeping needs no change —
+  `UploadVoxelEdits` keys fresh damage-pane ids off the dirty cell's *current*
+  material, so glinted survivors (still material 112) dedup as their own
+  frosted surface. Material 134 remains the default until the speckled-glint
+  scar wins the side-by-side eyeball; then `crackedMaterial` becomes fallback
+  and 134 can retire.
 
 ### Domino entities — same-material pairing (implemented)
 

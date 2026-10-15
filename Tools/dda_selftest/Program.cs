@@ -555,6 +555,282 @@ static class Program
         Console.WriteLine("[20] dominoes done");
     }
 
+    static void TestDamageGradient()
+    {
+        // [21] Damage gradient — BFS rings bake the char gradient into survivors around
+        //      the wound, max-merged, carried in runtime-only voxel bits 16-19.
+        Console.WriteLine("[21] damage gradient (ApplyDamageGradient)");
+        const int W = 9, H = 9, D = 9, WH = W * H;
+        int Idx(int x, int y, int z) => x + y * W + z * WH;
+
+        // (a) ring levels — solid block, center cell removed as the seed;
+        //     depth 3: ring1→3, ring2→2, ring3→1, ring4→untinted
+        {
+            var g = new uint[W * H * D];
+            for (int i = 0; i < g.Length; i++) g[i] = 100u;
+            int seed = Idx(4, 4, 4); g[seed] = 0u;
+            var seeds = new List<int> { seed };
+            var dirty = new List<int>();
+            int tinted = VoxelDamageMath.ApplyDamageGradient(g, W, H, D, seeds, 3, false, 1f, 7u, dirty);
+            Check(tinted > 0 && dirty.Count == tinted, $"gradient tints survivors (tinted={tinted})");
+            Check(VoxelDamageMath.DamageOf(g[Idx(5, 4, 4)]) == 3u, $"ring1 darkest → lvl 3 (got {VoxelDamageMath.DamageOf(g[Idx(5, 4, 4)])})");
+            Check(VoxelDamageMath.DamageOf(g[Idx(6, 4, 4)]) == 2u, $"ring2 → lvl 2");
+            Check(VoxelDamageMath.DamageOf(g[Idx(7, 4, 4)]) == 1u, $"ring3 → lvl 1");
+            Check(VoxelDamageMath.DamageOf(g[Idx(8, 4, 4)]) == 0u, "ring4 outside depth → clean");
+            Check(VoxelDamageMath.DamageOf(g[Idx(5, 5, 4)]) == 2u, "diagonal (manhattan 2) → ring2");
+            Check(g[seed] == 0u, "seed cell stays AIR — doom doesn't tint itself");
+            Check((g[Idx(5, 4, 4)] & 0x1FFu) == 100u, "material preserved under the tint");
+            Check(Math.Abs(VoxelDamageMath.CharAmount(g[Idx(5, 4, 4)]) - 3f / 7f) < 1e-6f, "CharAmount maps lvl3 → 3/7");
+        }
+
+        // (b) max-merge — a second, weaker pass never repaints a stronger wound;
+        //     a stronger pass deepens it. Overlapping blasts only darken.
+        {
+            var g = new uint[W * H * D];
+            for (int i = 0; i < g.Length; i++) g[i] = 100u;
+            g[Idx(4, 4, 4)] = 0u;
+            var dirty = new List<int>();
+            VoxelDamageMath.ApplyDamageGradient(g, W, H, D, new List<int> { Idx(4, 4, 4) }, 3, false, 1f, 1u, dirty);
+            uint ring1 = VoxelDamageMath.DamageOf(g[Idx(5, 4, 4)]);
+            VoxelDamageMath.ApplyDamageGradient(g, W, H, D, new List<int> { Idx(4, 4, 4) }, 1, false, 1f, 1u, dirty);   // weaker pass
+            Check(VoxelDamageMath.DamageOf(g[Idx(5, 4, 4)]) == ring1, $"weaker re-blast keeps lvl {ring1}");
+            VoxelDamageMath.ApplyDamageGradient(g, W, H, D, new List<int> { Idx(4, 4, 4) }, 5, false, 1f, 2u, dirty);   // stronger pass
+            Check(VoxelDamageMath.DamageOf(g[Idx(5, 4, 4)]) == 5u, "stronger re-blast deepens to lvl 5");
+        }
+
+        // (c) glint mode — 8+lvl levels: crack webbing brightens, never darkens
+        {
+            var g = new uint[W * H * D];
+            for (int i = 0; i < g.Length; i++) g[i] = 112u;         // glass
+            g[Idx(4, 4, 4)] = 0u;
+            var dirty = new List<int>();
+            VoxelDamageMath.ApplyDamageGradient(g, W, H, D, new List<int> { Idx(4, 4, 4) }, 2, true, 1f, 3u, dirty);
+            uint d1 = VoxelDamageMath.DamageOf(g[Idx(5, 4, 4)]);
+            Check(d1 == 8u + 2u, $"glint ring1 → 8+2={d1}");
+            Check(Math.Abs(VoxelDamageMath.GlintAmount(g[Idx(5, 4, 4)]) - (d1 - 7f) / 8f) < 1e-6f, "GlintAmount maps glint → 0..1");
+            Check(VoxelDamageMath.CharAmount(g[Idx(5, 4, 4)]) == 0f, "glint reports zero char (it's not soot)");
+        }
+
+        // (d) air gap blocks the front — a cell behind an air moat is unreachable,
+        //     even within depth. Char follows the wound's connected surface only.
+        {
+            var g = new uint[W * H * D];
+            for (int i = 0; i < g.Length; i++) g[i] = 100u;
+            g[Idx(4, 4, 4)] = 0u;
+            for (int y = 0; y < H; y++) for (int z = 0; z < D; z++) g[Idx(6, y, z)] = 0u;   // air wall at x=6
+            var dirty = new List<int>();
+            VoxelDamageMath.ApplyDamageGradient(g, W, H, D, new List<int> { Idx(4, 4, 4) }, 4, false, 1f, 1u, dirty);
+            Check(VoxelDamageMath.DamageOf(g[Idx(5, 4, 4)]) == 4u, "near side of moat tints");
+            Check(VoxelDamageMath.DamageOf(g[Idx(7, 4, 4)]) == 0u, "far side of air moat stays clean — no air-hopping");
+        }
+
+        // (e) keepFrac dither — sparse webbing: some cells skipped, but the front
+        //     still propagates through them (a skipped cell isn't a wall)
+        {
+            var g = new uint[W * H * D];
+            for (int i = 0; i < g.Length; i++) g[i] = 100u;
+            g[Idx(4, 4, 4)] = 0u;
+            var dirty = new List<int>();
+            int full = VoxelDamageMath.ApplyDamageGradient(g, W, H, D, new List<int> { Idx(4, 4, 4) }, 3, false, 1f, 1u, dirty);
+            var g2 = new uint[W * H * D];
+            for (int i = 0; i < g2.Length; i++) g2[i] = 100u;
+            g2[Idx(4, 4, 4)] = 0u;
+            dirty.Clear();
+            int sparse = VoxelDamageMath.ApplyDamageGradient(g2, W, H, D, new List<int> { Idx(4, 4, 4) }, 3, false, 0.5f, 1u, dirty);
+            Check(sparse < full, $"dither 0.5 tints fewer cells ({sparse} < {full})");
+            Check(sparse > 0, "dither still tints some cells");
+            // deepest ring still reached — the front walked through skipped cells
+            bool deepReached = false;
+            for (int i = 0; i < g2.Length; i++) if (VoxelDamageMath.DamageOf(g2[i]) == 1u) deepReached = true;
+            Check(deepReached, "dither holes don't stop the ring reaching depth 3");
+        }
+
+        // (f) edge safety — a seed at the volume corner stays in-bounds
+        {
+            var g = new uint[W * H * D];
+            for (int i = 0; i < g.Length; i++) g[i] = 100u;
+            g[0] = 0u;
+            var dirty = new List<int>();
+            int t = VoxelDamageMath.ApplyDamageGradient(g, W, H, D, new List<int> { 0 }, 3, false, 1f, 1u, dirty);
+            Check(t == 19 && VoxelDamageMath.DamageOf(g[Idx(1, 0, 0)]) == 3u, $"corner seed tints 3 manhattan shells (3+6+10={t}) — no out-of-bounds");
+        }
+
+        // (h) radial attenuation — same wound, but char strength now falls off
+        //     with distance from the blast center: near-epicenter cells char
+        //     hard, rim cells barely or not at all (progressive, not uniform)
+        {
+            var g = new uint[W * H * D];
+            for (int i = 0; i < g.Length; i++) g[i] = 100u;
+            g[Idx(4, 4, 4)] = 0u;
+            var dirty = new List<int>();
+            // center = the seed cell, radius 4 cells, full radial fade, depth 3
+            VoxelDamageMath.ApplyDamageGradient(g, W, H, D, new List<int> { Idx(4, 4, 4) }, 3, false, 1f, 1u, dirty,
+                visited: null, cx: 4.5f, cy: 4.5f, cz: 4.5f, radius: 4f, radial: 1f);
+            // ring1 at dist 1.0 → scale 0.75 → lvl 3·0.75 ≈ 2
+            Check(VoxelDamageMath.DamageOf(g[Idx(5, 4, 4)]) == 2u, $"radial ring1 (dist 1/4) → lvl 2 (got {VoxelDamageMath.DamageOf(g[Idx(5, 4, 4)])})");
+            // ring2 at dist 2.0 → scale 0.5 → lvl 2·0.5 = 1
+            Check(VoxelDamageMath.DamageOf(g[Idx(6, 4, 4)]) == 1u, "radial ring2 (dist 2/4) → lvl 1");
+            // ring3 at dist 3.0 → scale 0.25 → lvl 1·0.25 ≈ 0 → fades out entirely
+            Check(VoxelDamageMath.DamageOf(g[Idx(7, 4, 4)]) == 0u, "radial ring3 (dist 3/4) → char died before depth ran out");
+            // diagonal (5,5,4): dist √2 ≈ 1.41 → scale ≈ 0.65 → ring2 lvl 2·0.65 ≈ 1
+            Check(VoxelDamageMath.DamageOf(g[Idx(5, 5, 4)]) == 1u, "radial diagonal attenuates by true distance");
+        }
+
+        // (i) radial=0 → identical to the uniform gradient (regression: knob off)
+        {
+            var g = new uint[W * H * D];
+            for (int i = 0; i < g.Length; i++) g[i] = 100u;
+            g[Idx(4, 4, 4)] = 0u;
+            var dirty = new List<int>();
+            VoxelDamageMath.ApplyDamageGradient(g, W, H, D, new List<int> { Idx(4, 4, 4) }, 3, false, 1f, 1u, dirty,
+                visited: null, cx: 4.5f, cy: 4.5f, cz: 4.5f, radius: 4f, radial: 0f);
+            Check(VoxelDamageMath.DamageOf(g[Idx(5, 4, 4)]) == 3u && VoxelDamageMath.DamageOf(g[Idx(7, 4, 4)]) == 1u,
+                "radial 0 → same levels as the uniform pass");
+        }
+
+        // (j) bullet-hole pattern — a SURVIVING seed cell (the impact site)
+        //     keeps a manually-written max char while the BFS rings a faint
+        //     halo around it: the "pit + spall" decal, no cells removed
+        {
+            var g = new uint[W * H * D];
+            for (int i = 0; i < g.Length; i++) g[i] = 100u;
+            int hit = Idx(4, 4, 4);
+            g[hit] = VoxelDamageMath.WithDamage(g[hit], 7u);          // the pit — written by the caller
+            var dirty = new List<int>();
+            VoxelDamageMath.ApplyDamageGradient(g, W, H, D, new List<int> { hit }, 2, false, 1f, 1u, dirty);
+            Check(VoxelDamageMath.DamageOf(g[hit]) == 7u, "surviving seed keeps its max char — the BFS doesn't repaint it");
+            Check(VoxelDamageMath.DamageOf(g[Idx(5, 4, 4)]) == 2u, "halo ring1 → lvl 2");
+            Check(VoxelDamageMath.DamageOf(g[Idx(6, 4, 4)]) == 1u, "halo ring2 → lvl 1");
+            Check(VoxelDamageMath.DamageOf(g[Idx(7, 4, 4)]) == 0u, "halo ring3 → beyond depth, clean");
+        }
+
+        // (g) WithDamage/DamageOf round-trip preserves material + high bits
+        {
+            uint v = VoxelDamageMath.WithDamage(100u | 0xE000u, 5u);
+            Check((v & 0x1FFu) == 100u && VoxelDamageMath.DamageOf(v) == 5u && (v & 0xE000u) == 0xE000u,
+                "nibble round-trips through material + reserved bits");
+            Check(VoxelDamageMath.WithDamage(v, 0u) == (100u | 0xE000u), "clearing the nibble restores the authored word");
+        }
+        Console.WriteLine("[21] gradient done");
+    }
+
+    static void TestDamageExposure()
+    {
+        // [22] Exposure-field charring — level = 7 · (1 − radial·smoothstep(dist/range)) · absorb^solids.
+        //      Distance + straight-ray shadowing only; material resistance plays no part,
+        //      air transmits fully (windows deliver scorch to whatever they reveal).
+        Console.WriteLine("[22] damage exposure (ApplyDamageExposure)");
+        const int W = 9, H = 9, D = 9, WH = W * H;
+        int Idx(int x, int y, int z) => x + y * W + z * WH;
+
+        // (a) cavity rim chars hardest, decaying inward through material via absorption
+        {
+            var g = new uint[W * H * D];
+            for (int i = 0; i < g.Length; i++) g[i] = 100u;
+            // 7-cell cavity at the center: (4,4,4) + 6 face neighbors
+            foreach (var c in new[] { (4,4,4),(5,4,4),(3,4,4),(4,5,4),(4,3,4),(4,4,5),(4,4,3) }) g[Idx(c.Item1,c.Item2,c.Item3)] = 0u;
+            var dirty = new List<int>();
+            VoxelDamageMath.ApplyDamageExposure(g, W, H, D, 4.5f, 4.5f, 4.5f, 1.5f, 4f, 1f, 0.62f, dirty);
+            // (6,4,4) dist 2.0 → t=0.364 → distF≈0.70 → 0 solids (cavity air) → lvl 5
+            Check(VoxelDamageMath.DamageOf(g[Idx(6, 4, 4)]) == 5u, $"rim cell exposed clean → lvl 5 (got {VoxelDamageMath.DamageOf(g[Idx(6, 4, 4)])})");
+            // (7,4,4) dist 3.0 → distF≈0.43 × 0.62¹ → lvl 2
+            Check(VoxelDamageMath.DamageOf(g[Idx(7, 4, 4)]) == 2u, "one solid of cover → lvl 2");
+            // (8,4,4) dist 4.0 → distF≈0.18 × 0.62² → lvl 0 — absorbed to nothing
+            Check(VoxelDamageMath.DamageOf(g[Idx(8, 4, 4)]) == 0u, "deep + shadowed → clean");
+            // far corner beyond reach → untouched
+            Check(VoxelDamageMath.DamageOf(g[Idx(0, 0, 0)]) == 0u, "beyond radius+reach → no tint");
+            // symmetric: the cavity's opposite rim chars identically
+            Check(VoxelDamageMath.DamageOf(g[Idx(2, 4, 4)]) == VoxelDamageMath.DamageOf(g[Idx(6, 4, 4)]), "exposure field is symmetric");
+            // material preserved
+            Check((g[Idx(6, 4, 4)] & 0x1FFu) == 100u, "material untouched under the tint");
+        }
+
+        // (b) the window test — an opening TRANSMITS char to what it reveals:
+        //     a cell behind a blown-out opening chars harder than a cell behind
+        //     solid wall at the same distance — the user's "sill" case
+        {
+            var g = new uint[W * H * D];
+            // front wall slab x=6 (y,z ∈ 2..6) with a blown opening at (6,4,4);
+            // back wall slab x=7 fully solid — the "sill" being scorched
+            for (int y = 2; y <= 6; y++) for (int z = 2; z <= 6; z++) { g[Idx(6, y, z)] = 100u; g[Idx(7, y, z)] = 100u; }
+            g[Idx(6, 4, 4)] = 0u;   // the opening
+            var dirty = new List<int>();
+            VoxelDamageMath.ApplyDamageExposure(g, W, H, D, 4.5f, 4.5f, 4.5f, 2f, 6f, 1f, 0.62f, dirty);
+            uint through = VoxelDamageMath.DamageOf(g[Idx(7, 4, 4)]);
+            uint shielded = VoxelDamageMath.DamageOf(g[Idx(7, 3, 4)]);
+            Check(through > shielded, $"opening transmits char ({through} > {shielded}) — windows deliver scorch to sills");
+            Check(shielded > 0u || through == 5u, "shadowed cell gets reduced/absorbed char");
+        }
+
+        // (c) radial=0 → pure absorption: distance doesn't matter, only cover does
+        {
+            var g = new uint[W * H * D];
+            for (int y = 2; y <= 6; y++) for (int z = 2; z <= 6; z++) { g[Idx(6, y, z)] = 100u; g[Idx(7, y, z)] = 100u; }
+            g[Idx(6, 4, 4)] = 0u;
+            var dirty = new List<int>();
+            VoxelDamageMath.ApplyDamageExposure(g, W, H, D, 4.5f, 4.5f, 4.5f, 2f, 6f, 0f, 0.62f, dirty);
+            Check(VoxelDamageMath.DamageOf(g[Idx(7, 4, 4)]) == 7u, $"radial 0 + clear path → max lvl 7 (got {VoxelDamageMath.DamageOf(g[Idx(7, 4, 4)])})");
+            Check(VoxelDamageMath.DamageOf(g[Idx(7, 3, 4)]) == 4u, $"radial 0 + 1 solid → 7·0.62 ≈ lvl 4 (got {VoxelDamageMath.DamageOf(g[Idx(7, 3, 4)])})");
+        }
+
+        // (d) max-merge — a pre-existing stronger char is never repainted weaker
+        {
+            var g = new uint[W * H * D];
+            for (int y = 2; y <= 6; y++) for (int z = 2; z <= 6; z++) g[Idx(7, y, z)] = 100u;
+            g[Idx(7, 4, 4)] = VoxelDamageMath.WithDamage(g[Idx(7, 4, 4)], 6u);
+            var dirty = new List<int>();
+            VoxelDamageMath.ApplyDamageExposure(g, W, H, D, 4.5f, 4.5f, 4.5f, 2f, 6f, 1f, 0.62f, dirty);
+            Check(VoxelDamageMath.DamageOf(g[Idx(7, 4, 4)]) == 6u, "weaker exposure keeps the stronger existing char");
+        }
+
+        // (e) MarchSolidCount — target excluded, air free, out-of-bounds safe
+        {
+            var g = new uint[W * H * D];
+            g[Idx(6, 4, 4)] = 100u; g[Idx(7, 4, 4)] = 100u; g[Idx(8, 4, 4)] = 100u;
+            Check(VoxelDamageMath.MarchSolidCount(g, W, H, D, 4.5f, 4.5f, 4.5f, 8.5f, 4.5f, 4.5f) == 2,
+                "axis ray counts the two solids before the target (target excluded)");
+            Check(VoxelDamageMath.MarchSolidCount(g, W, H, D, 4.5f, 4.5f, 4.5f, 6.5f, 4.5f, 4.5f) == 0,
+                "target cell never counts itself");
+            Check(VoxelDamageMath.MarchSolidCount(g, W, H, D, 4.5f, 4.5f, 4.5f, 4.5f, 4.5f, 4.5f) == 0,
+                "zero-length march → 0");
+            Check(VoxelDamageMath.MarchSolidCount(g, W, H, D, -2f, -2f, -2f, 8.5f, 8.5f, 4.5f) >= 0,
+                "out-of-bounds origin doesn't crash");
+        }
+
+        // (f) corner blast — stays in bounds
+        {
+            var g = new uint[W * H * D];
+            for (int i = 0; i < g.Length; i++) g[i] = 100u;
+            var dirty = new List<int>();
+            int t = VoxelDamageMath.ApplyDamageExposure(g, W, H, D, 0.5f, 0.5f, 0.5f, 1f, 3f, 1f, 0.62f, dirty);
+            Check(t > 0 && VoxelDamageMath.DamageOf(g[Idx(1, 0, 0)]) > 0u, $"corner blast tints its neighbors ({t})");
+        }
+
+        // (g) glint-mode puncture — wounded glass keeps ITS OWN material (112)
+        //     and carries the crack as a bright nibble; material 134 never written
+        {
+            var g = new uint[W * H * D];
+            for (int y = 3; y <= 5; y++) for (int z = 3; z <= 5; z++) g[Idx(4, y, z)] = 112u;   // 3x3 pane
+            var dirty = new List<int>();
+            int removed = VoxelDamageMath.Puncture(g, W, H, D, 4, 4, 4, 1.0, 0.0, 0.0,
+                42u, 0f, 134, dirty, out int cracked, glintMode: true);   // 0% removal → all 8 ring cells wound
+            Check(removed == 1 && cracked == 8, $"glint puncture: 1 removed + 8 wounded (got {removed}/{cracked})");
+            bool no134 = true; int glinted = 0; bool band = true;
+            foreach (int i in dirty)
+            {
+                uint v = g[i], m = v & 0x1FFu;
+                if (m == 134u) no134 = false;
+                uint dd = VoxelDamageMath.DamageOf(v);
+                if (m == 112u && dd >= 10u && dd <= 13u) glinted++;
+                else if (m == 112u) band = false;
+            }
+            Check(no134, "material 134 never written — the slot stays free");
+            Check(glinted == 8 && band, $"all wounded cells glint 10-13 keeping material 112 ({glinted})");
+            Check((g[Idx(4, 4, 4)] & 0x1FFu) == 0u, "impact cell punctured to AIR");
+        }
+        Console.WriteLine("[22] exposure done");
+    }
+
     static void TestYaw()
     {
         // analytic: dims (4,1,2), vs 1, yaw 90 about the volume center (2,0.5,1); solid cell (3,0,0) lands on world x[1,2] z[-1,0]
@@ -1451,6 +1727,8 @@ static class Program
         TestOccSkip();
         TestPairing();
         TestDomino();
+        TestDamageGradient();
+        TestDamageExposure();
         Console.WriteLine(fails == 0 ? $"ALL PASS ({checks} checks)" : $"{fails} FAILURES of {checks} checks");
         return fails == 0 ? 0 : 1;
     }

@@ -438,7 +438,7 @@ namespace SteelCity.Sim
 
             int totalVoxels = posedDims.x * posedDims.y * posedDims.z;
             posedVoxelBuffer = new ComputeBuffer(totalVoxels, sizeof(uint));
-            posedVoxelBuffer.SetData(posedPackedData);
+            GpuUpload.SetData(posedVoxelBuffer, posedPackedData);
 
             chunkManager.RegisterVolume(
                 posedVolumeName, gameObject, posedVoxelBuffer,
@@ -494,7 +494,7 @@ namespace SteelCity.Sim
             }
 
             if (posedVoxelBuffer != null)
-                posedVoxelBuffer.SetData(posedPackedData);
+                GpuUpload.SetData(posedVoxelBuffer, posedPackedData);
 
             if (chunkManager != null && !string.IsNullOrEmpty(posedVolumeName))
             {

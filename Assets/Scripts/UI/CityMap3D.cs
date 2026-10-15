@@ -555,6 +555,7 @@ namespace SteelCity.Sim
             var sun = GetComponent<VoxelSun>();
             if (sun == null)
                 sun = gameObject.AddComponent<VoxelSun>();
+            BuildDiag.Event("CityMap3D.Awake: VoxelSun ready");
 
             // Debug HUD (hotkey reference + debug tabs) — auto-create if not in scene
             if (FindFirstObjectByType<DebugHUDManager>() == null)
@@ -565,6 +566,7 @@ namespace SteelCity.Sim
             }
 
             SetupRoadTicker();
+            BuildDiag.Event("CityMap3D.Awake done");
         }
 
         /// <summary>
@@ -762,7 +764,7 @@ namespace SteelCity.Sim
                 // Working mode: skip planning-only interactions (road ticker) but keep
                 // camera controls, camera transform, and block clicks — subscribers
                 // gate themselves (planning selection ignores non-planning clicks;
-                // DebugHUD's Range tab only reacts while the sim is Dwelling).
+                // DebugHUD's Combat tab only reacts while the sim is Dwelling).
                 HandleMouseCamera();
                 HandleClick();
                 UpdateCameraTransform();
@@ -1426,7 +1428,15 @@ namespace SteelCity.Sim
             disc.transform.localScale = new Vector3(compassRadius, 0.01f, compassRadius);
             disc.transform.localPosition = new Vector3(cx, compassY - 0.01f, cz);
             var discRend = disc.GetComponent<Renderer>();
-            var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
+            // Resources.Load fallback: builtin/URP shader names may be stripped
+            // from player builds; a null here previously aborted BuildMap.
+            var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard")
+                ?? Resources.Load<Shader>("Shaders/FlatColor");
+            if (shader == null)
+            {
+                Debug.LogWarning("[CityMap3D] No shader resolved for compass — skipping compass visuals.");
+                return;
+            }
             discRend.material = new Material(shader);
             discRend.material.color = new Color(0.12f, 0.12f, 0.14f, 1f);
             var discCollider = disc.GetComponent<Collider>();
@@ -1468,7 +1478,10 @@ namespace SteelCity.Sim
                 lr.endWidth = 0.08f;
                 lr.startColor = color;
                 lr.endColor = color;
-                lr.material = new Material(Shader.Find("Sprites/Default") ?? Shader.Find("Standard"));
+                var arrowShader = Shader.Find("Sprites/Default") ?? Shader.Find("Standard")
+                    ?? Resources.Load<Shader>("Shaders/FlatColor");
+                if (arrowShader != null)
+                    lr.material = new Material(arrowShader);
                 lr.SetPosition(0, new Vector3(cx, compassY + 0.01f, cz));
                 lr.SetPosition(1, new Vector3(cx + dx * 0.85f, compassY + 0.01f, cz + dz * 0.85f));
                 lr.useWorldSpace = false;

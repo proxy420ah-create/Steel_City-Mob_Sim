@@ -1,0 +1,37 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!2000027 &11400000
+ShaderVariantCollection:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: VoxelProxyVariants
+  m_Shaders:
+  - first: {fileID: 4800000, guid: 822a6164cdbcf9f4e94c1af55997af78, type: 3}
+    second:
+      variants:
+      - keywords: INSTANCING_ON
+        passType: 0
+      - keywords: BUILDING_INSTANCING INSTANCING_ON
+        passType: 0
+  - first: {fileID: 4800000, guid: edb9549506f71504d9f614713ef53e15, type: 3}
+    second:
+      variants:
+      - keywords: INSTANCING_ON
+        passType: 0
+  - first: {fileID: 4800000, guid: bd223f1180de1dc4284349c507b0ec96, type: 3}
+    second:
+      variants:
+      - keywords: INSTANCING_ON
+        passType: 0
+  - first: {fileID: 4800000, guid: e0e9e0ddb9ef4499950923f9ec64d02c, type: 3}
+    second:
+      variants:
+      - keywords: INSTANCING_ON
+        passType: 0
+  - first: {fileID: 4800000, guid: fcf90b5abbe49f34c80c9d13fc7d645b, type: 3}
+    second:
+      variants:
+      - keywords: INSTANCING_ON
+        passType: 0

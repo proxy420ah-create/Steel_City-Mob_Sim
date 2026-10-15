@@ -186,13 +186,24 @@ namespace SteelCity.Sim
             Destroy(go);
 
             // Create an unlit instanced material for the beams
-            var shader = Shader.Find("Unlit/InstancedColor");
-            if (shader == null)
-                shader = Shader.Find("Sprites/Default");
-            beamMaterial = new Material(shader);
-            beamMaterial.enableInstancing = true;
+            // Resources.Load fallbacks: Shader.Find only resolves shaders packed
+            // into the build — stripped builtins return null in players.
+            var shader = Shader.Find("Unlit/InstancedColor")
+                ?? Resources.Load<Shader>("Shaders/InstancedColor")
+                ?? Shader.Find("Sprites/Default")
+                ?? Resources.Load<Shader>("Shaders/FlatColor");
+            if (shader != null)
+            {
+                beamMaterial = new Material(shader);
+                beamMaterial.enableInstancing = true;
+            }
+            else
+            {
+                Debug.LogWarning("[PathDebug] No beam shader resolved — beams disabled.");
+            }
 
-            var flowShader = Shader.Find("Unlit/FlowStub");
+            var flowShader = Shader.Find("Unlit/FlowStub")
+                ?? Resources.Load<Shader>("Shaders/FlowStub");
             if (flowShader != null)
             {
                 flowMaterial = new Material(flowShader);

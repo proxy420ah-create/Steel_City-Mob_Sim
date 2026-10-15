@@ -936,7 +936,11 @@ document.getElementById('canvas-container').appendChild(renderer.domElement);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.1;
+controls.zoomToCursor = true; // wheel dollies toward the point under the cursor
 controls.target.set(0, H * voxelSize / 2, 0);
+// Same button scheme as the Voxel Editor: Middle=Rotate, Right=Pan,
+// wheel=zoom-to-cursor. Left stays free (OrbitControls default was Left=orbit).
+controls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.PAN };
 
 // Lighting
 scene.add(new THREE.AmbientLight(0x666688, 0.6));
@@ -1990,10 +1994,80 @@ function floodFillGroup(x, y, z, newGid) {
 // === HIGHLIGHT ON HOVER ===
 // Camera-only mode: no edit-color highlight, but still report the voxel
 // coordinates + group id under the cursor so the status bar is useful.
+let lastHoverHit = null; // last raycast cell under the cursor (orbit-to-cursor pivot)
 function updateHighlight(event) {
+  // Camera-drag gate — same as the editor: middle/right-drag (orbit/pan)
+  // doesn't change the hovered cell, so skip the raycast while rotating.
+  if (event.buttons & 6) return;
   const hit = raycastVoxel(event);
-  if (!hit) { clearHighlight(); return; }
+  if (!hit) { lastHoverHit = null; clearHighlight(); return; }
+  lastHoverHit = hit;
   document.getElementById('status-coords').textContent = `(${hit.x}, ${hit.y}, ${hit.z}) gid=${hit.gid ?? '?'}`;
+}
+
+// === CAMERA TOOLBOX (parity with voxel_editor.html) ===
+// Cell (x,y,z) centers at ((x-W/2)vs, y*vs, (z-D/2)vs) — see raycastVoxel.
+function cellToWorld(x, y, z) {
+  return new THREE.Vector3((x - W / 2) * voxelSize, y * voxelSize, (z - D / 2) * voxelSize);
+}
+
+// Frame a world-space bbox: retarget orbit to its center and dolly to fit.
+function frameBounds(min, max) {
+  const center = new THREE.Vector3((min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2);
+  const radius = Math.max(Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]) / 2, 2 * voxelSize);
+  const dir = camera.position.clone().sub(controls.target).normalize();
+  const dist = Math.max(radius / Math.tan(camera.fov * Math.PI / 360) * 1.15, 4 * voxelSize);
+  controls.target.copy(center);
+  camera.position.copy(center).addScaledVector(dir, dist);
+  controls.update();
+}
+
+// '0' key — frame the whole model (the editor also frames selections, which
+// don't exist in this read-only studio).
+function frameView() {
+  let min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+  let n = 0;
+  for (const key of voxelMap.keys()) {
+    const [x, y, z] = key.split(',').map(Number);
+    const w = cellToWorld(x, y, z);
+    for (let i = 0; i < 3; i++) { if (w.getComponent(i) < min[i]) min[i] = w.getComponent(i); if (w.getComponent(i) > max[i]) max[i] = w.getComponent(i); }
+    n++;
+  }
+  if (!n) { setStatus('Nothing to frame'); return; }
+  frameBounds(min, max);
+  setStatus(`Framed model (${n} voxels)`);
+}
+
+// 'T' key — orbit pivot → the voxel under the cursor.
+function orbitToCursor() {
+  if (!lastHoverHit) { setStatus('Hover a voxel first'); return; }
+  controls.target.copy(cellToWorld(lastHoverHit.x, lastHoverHit.y, lastHoverHit.z));
+  controls.update();
+  setStatus(`Orbit target → (${lastHoverHit.x},${lastHoverHit.y},${lastHoverHit.z})`);
+}
+
+// Numpad axis views — keeps current distance + orbit target. Same convention
+// as the editor: front = z-min face, iso = front-right corner.
+function viewAxis(name) {
+  const t = controls.target;
+  const dist = camera.position.distanceTo(t);
+  if (name === 'front') camera.position.set(t.x, t.y, t.z - dist);
+  else if (name === 'side') camera.position.set(t.x + dist, t.y, t.z);
+  else if (name === 'top') camera.position.set(t.x, t.y + dist, t.z);
+  else if (name === 'iso') {
+    const d = new THREE.Vector3(1, 0.8, -1).normalize().multiplyScalar(dist);
+    camera.position.set(t.x + d.x, t.y + d.y, t.z + d.z);
+  }
+  controls.update();
+  setStatus(`View: ${name}`);
+}
+
+// 'Home' key — back to the initial framing of the CURRENT model dims.
+function resetView() {
+  camera.position.set(W * voxelSize * 3, H * voxelSize * 2, D * voxelSize * 3);
+  controls.target.set(0, H * voxelSize / 2, 0);
+  controls.update();
+  setStatus('View reset');
 }
 
 // === UI BUILDING ===
@@ -3013,8 +3087,27 @@ function setStatus(msg) {
 let uiHidden = false;
 window.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT') return;
+  // Numpad axis views — Blender-style, same as the editor's 1/3/7/9. Bound to
+  // e.code so the digit-row keys 1-6 stay free for group selection.
+  const nav = { Numpad1: 'front', Numpad3: 'side', Numpad7: 'top', Numpad9: 'iso' }[e.code];
+  if (nav) { e.preventDefault(); viewAxis(nav); return; }
+  // Shift+arrows = camera pan in the ground plane (same XZ scheme as the
+  // editor; Ctrl = ×8 step). Step is one voxel in world units.
+  if (e.shiftKey && e.key.startsWith('Arrow')) {
+    e.preventDefault();
+    const step = (e.ctrlKey ? 8 : 1) * voxelSize;
+    const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+    const dz = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+    camera.position.x += dx; controls.target.x += dx;
+    camera.position.z += dz; controls.target.z += dz;
+    controls.update();
+    return;
+  }
   switch (e.key.toLowerCase()) {
     case 'escape': setTool('camera'); break;
+    case '0': frameView(); break;   // frame model (same key as the editor)
+    case 't': orbitToCursor(); break; // orbit pivot → hovered voxel
+    case 'home': resetView(); break;
     case 'h':
       // Toggle hide all UI panels (toolbar, left/right panels, status bar)
       // for unobstructed 3D animation preview. Press H again to bring them back.
@@ -3042,17 +3135,14 @@ window.addEventListener('keydown', (e) => {
 });
 
 // === MOUSE EVENTS ===
-// Camera-only: left mouse orbits, right mouse pans, scroll zooms — no
-// voxel editing. isMouseDown is tracked only to keep updateHighlight cheap.
-let isMouseDown = false;
-renderer.domElement.addEventListener('mousedown', (e) => {
-  if (e.button === 0) isMouseDown = true;
-});
+// Camera-only, no voxel editing — same controls as the Voxel Editor:
+// Middle-drag orbits, Right-drag pans, wheel zooms toward the cursor.
+// Keys: 0 frame model · T orbit to cursor · Home reset view ·
+//       Numpad 1/3/7/9 front/side/top/iso · Shift+Arrows pan (Ctrl=×8).
 renderer.domElement.addEventListener('mousemove', (e) => {
   updateHighlight(e);
 });
-renderer.domElement.addEventListener('mouseup', () => { isMouseDown = false; });
-renderer.domElement.addEventListener('mouseleave', () => { isMouseDown = false; clearHighlight(); });
+renderer.domElement.addEventListener('mouseleave', () => clearHighlight());
 
 // === RESIZE ===
 window.addEventListener('resize', () => {

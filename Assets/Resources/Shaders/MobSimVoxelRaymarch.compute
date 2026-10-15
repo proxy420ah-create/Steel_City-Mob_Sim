@@ -58,6 +58,10 @@ float  _AmbientIntensity;  // Ambient fill strength (0-1)
 float  _FillIntensity;     // Fill/bounce light strength (0-1)
 float3 _LightColor;        // Tint of the main light (day=white, dusk=orange)
 
+// Damage tint (globals — VoxelDamageSystem pushes each frame)
+float  _DamageChar;        // voxel bits 16-19: max darken for char levels 1-7
+float  _DamageGlint;       // max lighten for glint levels 8-15
+
 // Shadow debug parameters (set from C# via VoxelChunkManager)
 float  _ShadowNormalNudge;    // Multiplier for normal offset on shadow ray origin (voxel units)
 float  _ShadowLightNudge;     // Multiplier for light-dir offset on shadow ray origin (voxel units)
@@ -305,6 +309,11 @@ void CSRaymarch(uint3 id : SV_DispatchThreadID)
             // Apply per-chunk per-material tint
             float4 tint = _ChunkTints[mat];
             baseColor.rgb *= tint.rgb;
+
+            // Damage nibble (runtime bits 16-19): 1-7 char-darkens, 8-15 glints.
+            uint dmg = (packed >> 16u) & 0xFu;
+            if (dmg < 8u) baseColor.rgb *= 1.0 - (dmg / 7.0) * _DamageChar;
+            else          baseColor.rgb = lerp(baseColor.rgb, 1.0, ((dmg - 7.0) / 8.0) * _DamageGlint);
 
             // Blend smooth gradient normal with hard DDA face normal.
             // The face normal is always correct for the surface being hit.

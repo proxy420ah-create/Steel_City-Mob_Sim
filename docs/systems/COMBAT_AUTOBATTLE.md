@@ -87,7 +87,7 @@ half_angle = weapon_base_inaccuracy - (skill_factor × skill_reduction) + (movem
 - **Movement widens the cone** — firing while running is wild
 - **Weapon base inaccuracy** — era-appropriate values (see table below)
 
-> **Implementation status (Oct 11, 2026):** the cone, physical flight and world hits exist as `ProjectileSystem` (`docs/systems/PROJECTILE_SYSTEM.md`) with a placeholder shooter skill 1–10 and a base-cone slider on the Range tab. Weapon base-inaccuracy tables, the movement penalty, Firearms-stat binding, penetration and instance (character/vehicle) hits are not wired yet.
+> **Implementation status (Oct 11, 2026):** the cone, physical flight and world hits exist as `ProjectileSystem` (`docs/systems/PROJECTILE_SYSTEM.md`) with a placeholder shooter skill 1–10 and a base-cone slider on the Combat tab. Weapon base-inaccuracy tables, the movement penalty, Firearms-stat binding, penetration and instance (character/vehicle) hits are not wired yet.
 
 The bullet goes *somewhere* — just maybe not where aimed. Missed shots naturally become stray bullets that hit civilians, buildings, other hoods. **No separate "miss" calculation needed** — the projectile simply misses the target and continues until it hits *something*.
 

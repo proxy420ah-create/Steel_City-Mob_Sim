@@ -272,7 +272,7 @@
 - **`docs/systems/PROJECTILE_SYSTEM.md`** — Physical projectiles + voxel raycasts (v1 implemented + playtested)
   - Muzzle → bore axis → seeded cone (skill 1–10 × base cone) → swept flight → nearest hit with exact volume / voxel / material
   - `VoxelCollisionWorld.Raycast`: pure 3D DDA over the terrain grid + shared-array building volumes (sector and per-building paths)
-  - ShotReport payload for glass puncture / cover / damage; Range tab FIRE controls; offline self-test `Tools/dda_selftest/run.sh`
+  - ShotReport payload for glass puncture / cover / damage; Combat tab FIRE controls; offline self-test `Tools/dda_selftest/run.sh`
 
 **Weapon & Item Models:**
 - **`docs/systems/WEAPON_ITEM_MODEL_STANDARD.md`** — Voxel modeling standards for weapons, items, and props

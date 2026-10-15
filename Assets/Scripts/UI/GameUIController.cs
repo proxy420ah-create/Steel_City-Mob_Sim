@@ -112,7 +112,7 @@ namespace SteelCity.Sim
         private SimulationManager simManager;
         private EventPlayer eventPlayer;
 
-        /// <summary>Live simulation manager (null until a game week starts). Used by DebugHUD Range tab.</summary>
+        /// <summary>Live simulation manager (null until a game week starts). Used by DebugHUD Combat tab.</summary>
         public SimulationManager Sim => simManager;
         private TickHUD tickHUD;
         private WeekTransition weekTransition;
@@ -193,7 +193,9 @@ namespace SteelCity.Sim
             else
             {
                 cityMap.OnBlockClicked += OnBlockClicked;
+                BuildDiag.Event($"BuildMap start: {engine.blocks.Count} blocks");
                 cityMap.BuildMap(engine.blocks);
+                BuildDiag.Event("BuildMap done");
 
                 // Build waypoint graph and show labels for planning phase debugging
                 if (waypointGraph == null)
@@ -220,6 +222,7 @@ namespace SteelCity.Sim
                 }
                 pdr.SetMapRoot(cityMap.MapRoot);
                 pdr.SetDebugGraph(waypointGraph);
+                BuildDiag.Event($"WaypointGraph + PathDebugRenderer wired ({(waypointGraph != null ? "ok" : "NULL")})");
             }
 
             RefreshAll();
@@ -231,6 +234,7 @@ namespace SteelCity.Sim
             // --- PRE-FLIGHT CHECK: verify all critical UI references are wired ---
             RunPreflightCheck();
 
+            BuildDiag.Event("GameUIController.Start done — planning phase");
             Debug.Log("[GameUIController] Game initialized. Planning phase active.");
         }
 
@@ -1158,7 +1162,7 @@ namespace SteelCity.Sim
 
             // Target Practice: walk to the building's authored firing_position and
             // face its firing_target — falls back to block center when absent.
-            // Multi-lane ranges: the Range tab's lane/aim selection picks the
+            // Multi-lane ranges: the Combat tab's lane/aim selection picks the
             // suffixed point names (firing_position_1..3, glass_target, ...).
             if (order.orderType == "target_practice")
             {

@@ -386,7 +386,7 @@ namespace SteelCity.Sim
         private ComputeBuffer CreatePaneBuffer(uint[] paneIDs)
         {
             var buf = new ComputeBuffer(paneIDs.Length, sizeof(uint));
-            buf.SetData(paneIDs);
+            GpuUpload.SetData(buf, paneIDs);
             return buf;
         }
 
@@ -548,6 +548,16 @@ namespace SteelCity.Sim
                 Debug.Log("[VoxelChunkManager] No pose compute shader assigned in inspector — will auto-load from Resources");
             }
             InitProxyRender();
+
+            // Build diagnostics — what the player actually resolved (BuildLog tab)
+            BuildDiag.Set("device", $"{SystemInfo.graphicsDeviceType} | {SystemInfo.graphicsDeviceName}");
+            BuildDiag.Set("caps", $"compute={SystemInfo.supportsComputeShaders} instancing={SystemInfo.supportsInstancing}");
+            BuildDiag.Set("pipeline", UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline != null
+                ? UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline.GetType().Name : "built-in");
+            BuildDiag.Event($"VCM.Awake done: raymarch={raymarchShader.name} kernel={kernelCSRaymarch} " +
+                $"proxy={(proxyShader != null ? proxyShader.name : "NULL")} " +
+                $"pose={(poseComputeShader != null ? poseComputeShader.name : "NULL")} " +
+                $"proxyMat={(proxyMaterial != null ? "ok" : "NULL")} useProxy={useProxyRender}");
         }
 
         private void InitProxyRender()
@@ -558,11 +568,14 @@ namespace SteelCity.Sim
                 proxyShader = Resources.Load<Shader>("Shaders/VoxelProxyRaymarch");
                 if (proxyShader == null)
                     proxyShader = Shader.Find("SteelCity/VoxelProxyRaymarch");
+                BuildDiag.Set("shader.proxy", proxyShader != null
+                    ? $"{proxyShader.name} supported={proxyShader.isSupported}" : "NULL");
             }
             // Auto-load pose compute shader if not assigned
             if (poseComputeShader == null)
             {
                 poseComputeShader = Resources.Load<ComputeShader>("Shaders/CharacterPoseCompute");
+                BuildDiag.Set("shader.pose", poseComputeShader != null ? poseComputeShader.name : "NULL");
                 if (poseComputeShader != null)
                 {
                     kernelCSClear = poseComputeShader.FindKernel("CSClear");
@@ -820,47 +833,47 @@ namespace SteelCity.Sim
                 colors[i] = new Vector4(c.r, c.g, c.b, c.a);
             }
             sharedMaterialBuffer = new ComputeBuffer(MaxMaterials, sizeof(float) * 4);
-            sharedMaterialBuffer.SetData(colors);
+            GpuUpload.SetData(sharedMaterialBuffer, colors);
 
             // Create default tint buffer (all 1,1,1 = no tint)
             var defaultTints = new Vector4[MaxMaterials];
             for (int i = 0; i < MaxMaterials; i++)
                 defaultTints[i] = new Vector4(1f, 1f, 1f, 1f);
             defaultTintBuffer = new ComputeBuffer(MaxMaterials, sizeof(float) * 4);
-            defaultTintBuffer.SetData(defaultTints);
+            GpuUpload.SetData(defaultTintBuffer, defaultTints);
 
             // Dummy group ID buffer: 1 voxel with groupID=0 (torso/no transform)
             // Bound when a group has no .groups file so D3D12 doesn't reject the draw call
             dummyGroupIDBuffer = new ComputeBuffer(1, sizeof(uint));
-            dummyGroupIDBuffer.SetData(new uint[] { 0 });
+            GpuUpload.SetData(dummyGroupIDBuffer, new uint[] { 0 });
 
             // Dummy pane buffer: 1 voxel with paneId=0 (ungrouped).
             // Bound when a volume has no glass panes so D3D12 doesn't reject the draw call.
             defaultPaneBuffer = new ComputeBuffer(1, sizeof(uint));
-            defaultPaneBuffer.SetData(new uint[] { 0 });
+            GpuUpload.SetData(defaultPaneBuffer, new uint[] { 0 });
 
             // Dummy occupancy buffer: one word of all-occupied so a volume with no
             // occ grid marches exactly as before (never skips) — SRV completeness.
             defaultOccBuffer = new ComputeBuffer(1, sizeof(uint));
-            defaultOccBuffer.SetData(new uint[] { 0xFFFFFFFFu });
+            GpuUpload.SetData(defaultOccBuffer, new uint[] { 0xFFFFFFFFu });
             dummyBuildingOccBuffer = new ComputeBuffer(1, sizeof(uint));
-            dummyBuildingOccBuffer.SetData(new uint[] { 0 });
+            GpuUpload.SetData(dummyBuildingOccBuffer, new uint[] { 0 });
 
             // Dummy walk keyframe / joint config buffers: bound whenever walk keyframes are
             // disabled so D3D12 doesn't reject the draw call (SRV must be bound at every
             // declared shader slot, regardless of whether the shader logic reads it).
             dummyWalkKeyframeBuffer = new ComputeBuffer(10, sizeof(float) * 4);
-            dummyWalkKeyframeBuffer.SetData(new Vector4[10]);
+            GpuUpload.SetData(dummyWalkKeyframeBuffer, new Vector4[10]);
             dummyJointConfigBuffer = new ComputeBuffer(7, sizeof(float) * 4);
-            dummyJointConfigBuffer.SetData(new Vector4[7]);
+            GpuUpload.SetData(dummyJointConfigBuffer, new Vector4[7]);
             dummyPivotBuffer = new ComputeBuffer(10, sizeof(float) * 4);
-            dummyPivotBuffer.SetData(new Vector4[10]);
+            GpuUpload.SetData(dummyPivotBuffer, new Vector4[10]);
             dummyAnimStaticParamsBuffer = new ComputeBuffer(15, sizeof(float) * 4);
-            dummyAnimStaticParamsBuffer.SetData(new Vector4[15]);
+            GpuUpload.SetData(dummyAnimStaticParamsBuffer, new Vector4[15]);
             dummyRegionIDBuffer = new ComputeBuffer(1, sizeof(uint));
-            dummyRegionIDBuffer.SetData(new uint[] { 0 });
+            GpuUpload.SetData(dummyRegionIDBuffer, new uint[] { 0 });
             dummyMaterialRemapBuffer = new ComputeBuffer(1, sizeof(uint));
-            dummyMaterialRemapBuffer.SetData(new uint[] { 0 });
+            GpuUpload.SetData(dummyMaterialRemapBuffer, new uint[] { 0 });
 
             // Debug: log key material colors to verify they're updated
             Debug.Log($"[VoxelChunkManager] Material buffer created ({MaxMaterials} entries). " +
@@ -878,7 +891,7 @@ namespace SteelCity.Sim
                 var c = StAssetReader.GetMaterialColor((ushort)i);
                 colors[i] = new Vector4(c.r, c.g, c.b, c.a);
             }
-            sharedMaterialBuffer.SetData(colors);
+            GpuUpload.SetData(sharedMaterialBuffer, colors);
         }
 
         // Inspector live-tuning: fires on every field change (edit + play mode).
@@ -946,7 +959,7 @@ namespace SteelCity.Sim
 
             // Create new dedicated tint buffer for this chunk
             chunk.tintBuffer = new ComputeBuffer(MaxMaterials, sizeof(float) * 4);
-            chunk.tintBuffer.SetData(tintData);
+            GpuUpload.SetData(chunk.tintBuffer, tintData);
         }
 
         /// <summary>
@@ -1060,7 +1073,7 @@ namespace SteelCity.Sim
             };
 
             chunk.voxelBuffer = new ComputeBuffer(voxelCount, sizeof(uint));
-            chunk.voxelBuffer.SetData(packedData);
+            GpuUpload.SetData(chunk.voxelBuffer, packedData);
             chunk.materialBuffer = sharedMaterialBuffer; // shared
             chunk.tintBuffer = defaultTintBuffer; // default: no tint
 
@@ -1069,7 +1082,7 @@ namespace SteelCity.Sim
 
             chunk.occData = BuildOccupancy(packedData, w, h, d, out chunk.occWords);
             chunk.occBuffer = new ComputeBuffer(chunk.occWords, sizeof(uint));
-            chunk.occBuffer.SetData(chunk.occData);
+            GpuUpload.SetData(chunk.occBuffer, chunk.occData);
 
             if (cached)
             {
@@ -1260,7 +1273,7 @@ namespace SteelCity.Sim
             };
 
             chunk.voxelBuffer = new ComputeBuffer(voxelCount, sizeof(uint));
-            chunk.voxelBuffer.SetData(packedData);
+            GpuUpload.SetData(chunk.voxelBuffer, packedData);
             chunk.materialBuffer = sharedMaterialBuffer;
             chunk.tintBuffer = defaultTintBuffer; // default: no tint
 
@@ -1269,7 +1282,7 @@ namespace SteelCity.Sim
 
             chunk.occData = BuildOccupancy(packedData, w, h, d, out chunk.occWords);
             chunk.occBuffer = new ComputeBuffer(chunk.occWords, sizeof(uint));
-            chunk.occBuffer.SetData(chunk.occData);
+            GpuUpload.SetData(chunk.occBuffer, chunk.occData);
 
             ComputeTightAABB(packedData, w, h, d,
                 out chunk.tightMinX, out chunk.tightMinY, out chunk.tightMinZ,
@@ -1317,7 +1330,7 @@ namespace SteelCity.Sim
             };
 
             chunk.voxelBuffer = new ComputeBuffer(voxelCount, sizeof(uint));
-            chunk.voxelBuffer.SetData(packedData);
+            GpuUpload.SetData(chunk.voxelBuffer, packedData);
             chunk.materialBuffer = sharedMaterialBuffer;
             chunk.tintBuffer = defaultTintBuffer;
 
@@ -1326,7 +1339,7 @@ namespace SteelCity.Sim
 
             chunk.occData = BuildOccupancy(packedData, w, h, d, out chunk.occWords);
             chunk.occBuffer = new ComputeBuffer(chunk.occWords, sizeof(uint));
-            chunk.occBuffer.SetData(chunk.occData);
+            GpuUpload.SetData(chunk.occBuffer, chunk.occData);
 
             if (hasCachedAABB)
             {
@@ -1516,7 +1529,7 @@ namespace SteelCity.Sim
                 int wi = occOff + (mi >> 5), bit = mi & 31;
                 if (solid) occ[wi] |= 1u << bit; else occ[wi] &= ~(1u << bit);
             }
-            occBuf.SetData(occ, occOff, occBufBase, occWords);   // whole-volume occ slice — a few KB
+            GpuUpload.SetData(occBuf, occ, occOff, occBufBase, occWords);   // whole-volume occ slice — a few KB
         }
         private readonly HashSet<int> occMacroScratch = new();
 
@@ -1599,7 +1612,7 @@ namespace SteelCity.Sim
                 {
                     chunk.occData = BuildOccupancy(data, ow, oh, od, out chunk.occWords);
                     chunk.occBuffer = new ComputeBuffer(chunk.occWords, sizeof(uint));
-                    chunk.occBuffer.SetData(chunk.occData);
+                    GpuUpload.SetData(chunk.occBuffer, chunk.occData);
                 }
                 occBuf = chunk.occBuffer; occCpu = chunk.occData; occWords = chunk.occWords;
             }
@@ -1636,13 +1649,13 @@ namespace SteelCity.Sim
             {
                 if (i < dirtyIndices.Count && dirtyIndices[i] == prev + 1) { prev = dirtyIndices[i]; continue; }
                 int len = prev - start + 1;
-                voxelBuf.SetData(data, start, indexBase + start, len);
+                GpuUpload.SetData(voxelBuf, data, start, indexBase + start, len);
                 if (hasPane)
                 {
                     if (paneScratch.Length < len) paneScratch = new uint[len];
                     for (int k = 0; k < len; k++)
                         paneScratch[k] = IsGlassMaterial(data[start + k] & 0x1FFu) ? dmgPane : 0u;
-                    paneBuf.SetData(paneScratch, 0, indexBase + start, len);
+                    GpuUpload.SetData(paneBuf, paneScratch, 0, indexBase + start, len);
                 }
                 if (i < dirtyIndices.Count) start = prev = dirtyIndices[i];
             }
@@ -1676,13 +1689,13 @@ namespace SteelCity.Sim
             if (chunkLookup.TryGetValue(chunkName, out var chunk) && chunk.voxelBuffer != null)
             {
                 if (data == null || data.Length != chunk.voxelBuffer.count) return false;
-                chunk.voxelBuffer.SetData(data);
+                GpuUpload.SetData(chunk.voxelBuffer, data);
                 if (chunk.occData != null && chunk.occBuffer != null)
                 {
                     chunk.occData = BuildOccupancy(data, chunk.dims.x, chunk.dims.y, chunk.dims.z, out chunk.occWords);
                     if (chunk.occBuffer.count != chunk.occWords)
                     { chunk.occBuffer.Release(); chunk.occBuffer = new ComputeBuffer(chunk.occWords, sizeof(uint)); }
-                    chunk.occBuffer.SetData(chunk.occData);
+                    GpuUpload.SetData(chunk.occBuffer, chunk.occData);
                 }
 
                 // Restore pane ids too — damage edits overwrote them (AIR cells → 0,
@@ -1693,7 +1706,7 @@ namespace SteelCity.Sim
                 {
                     var pane = GetPaneIDs(data, chunk.dims.x, chunk.dims.y, chunk.dims.z);
                     if (pane != null && pane.Length == data.Length)
-                        chunk.paneBuffer.SetData(pane);
+                        GpuUpload.SetData(chunk.paneBuffer, pane);
                 }
                 return true;
             }
@@ -1703,7 +1716,7 @@ namespace SteelCity.Sim
                 || data == null || sv.bufferOffset + data.Length > sv.sector.mergedVoxelBuffer.count)
                 return false;
 
-            sv.sector.mergedVoxelBuffer.SetData(data, 0, sv.bufferOffset, data.Length);
+            GpuUpload.SetData(sv.sector.mergedVoxelBuffer, data, 0, sv.bufferOffset, data.Length);
 
             // Rebuild this building's occupancy slice (full-volume writes like
             // RESET DAMAGE don't go through UploadVoxelEdits' dirty spans).
@@ -1712,7 +1725,7 @@ namespace SteelCity.Sim
             {
                 var bo = BuildOccupancy(data, sv.w, sv.h, sv.d, out int bw);
                 Array.Copy(bo, 0, sv.sector.mergedOcc, sv.occOffset, bw);
-                sv.sector.occBuffer.SetData(sv.sector.mergedOcc, sv.occOffset, sv.occOffset, bw);
+                GpuUpload.SetData(sv.sector.occBuffer, sv.sector.mergedOcc, sv.occOffset, sv.occOffset, bw);
             }
 
             // Rebuild this region's pane ids in merged space (localId + buildingIndex<<16).
@@ -1725,7 +1738,7 @@ namespace SteelCity.Sim
                     var slice = new uint[data.Length];
                     for (int i = 0; i < pane.Length; i++)
                         slice[i] = pane[i] != 0 ? pane[i] + sv.paneIdBase : 0u;
-                    sv.sector.paneBuffer.SetData(slice, 0, sv.bufferOffset, slice.Length);
+                    GpuUpload.SetData(sv.sector.paneBuffer, slice, 0, sv.bufferOffset, slice.Length);
                 }
             }
             return true;
@@ -1895,7 +1908,7 @@ namespace SteelCity.Sim
 
                 group = new InstancedGroup { dimX = dimX, dimY = dimY, dimZ = dimZ, voxelSize = voxelSize };
                 group.sharedVoxelBuffer = new ComputeBuffer(totalVoxels, sizeof(uint));
-                group.sharedVoxelBuffer.SetData(gpuData);
+                GpuUpload.SetData(group.sharedVoxelBuffer, gpuData);
 
                 // Pane dedup for glass (vehicles: windshields/windows = 147)
                 var instPaneIDs = GetPaneIDs(gpuData, dimX, dimY, dimZ);
@@ -1919,7 +1932,7 @@ namespace SteelCity.Sim
                         }
                     }
                     group.regionIDBuffer = new ComputeBuffer(totalVoxels, sizeof(uint));
-                    group.regionIDBuffer.SetData(regionIDs);
+                    GpuUpload.SetData(group.regionIDBuffer, regionIDs);
                     int maxRid = 0;
                     if (regionDefs != null)
                         foreach (var rd in regionDefs)
@@ -1940,7 +1953,7 @@ namespace SteelCity.Sim
                 if (groupIDs != null)
                 {
                     group.groupIDBuffer = new ComputeBuffer(totalVoxels, sizeof(uint));
-                    group.groupIDBuffer.SetData(groupIDs);
+                    GpuUpload.SetData(group.groupIDBuffer, groupIDs);
                     group.useComputePose = true;
                     Debug.Log($"[VoxelChunkManager] Animation groups loaded: {assetFileName} — {totalVoxels:N0} voxels tagged with groupIDs (compute pose enabled)");
                 }
@@ -2031,10 +2044,10 @@ namespace SteelCity.Sim
             if (group.jointConfigBuffer != null) group.jointConfigBuffer.Release();
 
             group.walkKeyframeBuffer = new ComputeBuffer(10, sizeof(float) * 4);
-            group.walkKeyframeBuffer.SetData(walkKeyframes);
+            GpuUpload.SetData(group.walkKeyframeBuffer, walkKeyframes);
 
             group.jointConfigBuffer = new ComputeBuffer(7, sizeof(float) * 4);
-            group.jointConfigBuffer.SetData(jointConfig);
+            GpuUpload.SetData(group.jointConfigBuffer, jointConfig);
 
             group.walkConfig = walkConfig;
             group.walkKeyframesEnabled = true;
@@ -2071,7 +2084,7 @@ namespace SteelCity.Sim
             if (group.pivotBuffer != null) group.pivotBuffer.Release();
 
             group.pivotBuffer = new ComputeBuffer(10, sizeof(float) * 4);
-            group.pivotBuffer.SetData(pivots);
+            GpuUpload.SetData(group.pivotBuffer, pivots);
             group.pivotsEnabled = true;
 
             Debug.Log($"[VoxelChunkManager] Authored pivots set for {assetFileName} (10 groups)");
@@ -2098,7 +2111,7 @@ namespace SteelCity.Sim
 
             if (group.animStaticParamsBuffer != null) group.animStaticParamsBuffer.Release();
             group.animStaticParamsBuffer = new ComputeBuffer(15, sizeof(float) * 4);
-            group.animStaticParamsBuffer.SetData(animParams);
+            GpuUpload.SetData(group.animStaticParamsBuffer, animParams);
             group.animStaticParamsEnabled = true;
 
             Debug.Log($"[VoxelChunkManager] Anim static params set for {assetFileName} (13 float4s)");
@@ -2236,7 +2249,7 @@ namespace SteelCity.Sim
                 if (group.instanceOffsetBuffer != null) group.instanceOffsetBuffer.Release();
                 group.instanceOffsetBuffer = new ComputeBuffer(Mathf.Max(bufferElements, 256), sizeof(float) * 4);
             }
-            group.instanceOffsetBuffer.SetData(offsets, 0, 0, bufferElements);
+            GpuUpload.SetData(group.instanceOffsetBuffer, offsets, 0, 0, bufferElements);
 
             // --- GPU Compute Forward-Transform Pose ---
             // Skipped on the glass pass — the opaque call already dispatched it
@@ -2258,7 +2271,7 @@ namespace SteelCity.Sim
                     if (group.instanceAnimDataBuffer != null) group.instanceAnimDataBuffer.Release();
                     group.instanceAnimDataBuffer = new ComputeBuffer(Mathf.Max(visibleCount * 2, 16), sizeof(float) * 4);
                 }
-                group.instanceAnimDataBuffer.SetData(animData, 0, 0, visibleCount * 2);
+                GpuUpload.SetData(group.instanceAnimDataBuffer, animData, 0, 0, visibleCount * 2);
 
                 // Ensure IK override buffer exists (always bound — meta.w=0 disables per instance)
                 if (group.instanceIKDataBuffer == null || group.instanceIKDataBuffer.count < visibleCount * 4)
@@ -2266,7 +2279,7 @@ namespace SteelCity.Sim
                     if (group.instanceIKDataBuffer != null) group.instanceIKDataBuffer.Release();
                     group.instanceIKDataBuffer = new ComputeBuffer(Mathf.Max(visibleCount * 4, 16), sizeof(float) * 4);
                 }
-                group.instanceIKDataBuffer.SetData(ikData, 0, 0, visibleCount * 4);
+                GpuUpload.SetData(group.instanceIKDataBuffer, ikData, 0, 0, visibleCount * 4);
 
                 // Set compute shader params for CSPose kernel
                 cmd.SetComputeBufferParam(poseComputeShader, kernelCSPose, "_RestVoxelData", group.sharedVoxelBuffer);
@@ -2320,7 +2333,7 @@ namespace SteelCity.Sim
                         }
                         remapWriteIdx++;
                     }
-                    group.instanceMaterialRemapBuffer.SetData(remapData);
+                    GpuUpload.SetData(group.instanceMaterialRemapBuffer, remapData);
                 }
                 cmd.SetComputeBufferParam(poseComputeShader, kernelCSPose, "_RegionIDs",
                     hasRemap ? group.regionIDBuffer : dummyRegionIDBuffer);
@@ -2508,6 +2521,86 @@ namespace SteelCity.Sim
         private readonly List<BakedSector> bakedSectors = new();
         private readonly Dictionary<string, BakedSector> sectorLookup = new();
         private Material sectorMaterial; // clone of proxyMaterial with BUILDING_INSTANCING enabled
+        private Material canaryMaterial; // build-only diagnostic draw (see RenderProxyChunks)
+#if !UNITY_EDITOR
+        private Material canaryInstColorMaterial; // C4 — instancing-only control, zero SRVs
+        private ComputeBuffer canaryVoxBuffer;     // one solid voxel (material 100)
+        private ComputeBuffer canaryInstOffsets;   // [0]=(pos,yaw) [1]=(state,time,speed,_)
+        private ComputeBuffer canaryMetaBuffer;    // _BuildingMeta[0] = (bufOff, dx,dy,dz)
+        private ComputeBuffer canaryPosBuffer;     // _BuildingPositions[0] = (pos.xyz, voxelSize)
+        private ComputeBuffer canaryOccBuffer;     // _BuildingOcc[0] = 0
+        private MaterialPropertyBlock canaryBlock;
+        private readonly Vector4[] canaryInstData = new Vector4[2];
+        private readonly Vector4[] canaryMetaData = new Vector4[1];
+        private readonly Vector4[] canaryPosData = new Vector4[1];
+        private readonly Matrix4x4[] canaryMats = new Matrix4x4[1];
+
+        /// <summary>
+        /// Canary ladder — bisects the proxy draw path in player builds.
+        /// Rungs drawn at distinct screen positions, so whichever renders names
+        /// the first dead stage (BuildLog 'render.canary' arms it):
+        ///   C0 center — FlatColor baseline (proves CB→RT routing)
+        ///   C1 left   — proxy shader base variant, non-instanced, synthetic
+        ///               1-voxel volume + the full chunk SRV set
+        ///   C2 right  — INSTANCING_ON (DrawMeshInstanced, no BUILDING_INSTANCING)
+        ///   C3 far-right — sectorMaterial + BUILDING_INSTANCING + sector SRVs
+        /// </summary>
+        private void EnsureCanaryAssets()
+        {
+            if (canaryVoxBuffer != null) return;
+            canaryVoxBuffer = new ComputeBuffer(1, sizeof(uint));
+            GpuUpload.SetData(canaryVoxBuffer, new uint[] { 100u });           // solid RedBrick voxel
+            canaryInstOffsets = new ComputeBuffer(2, sizeof(float) * 4);
+            canaryMetaBuffer = new ComputeBuffer(1, sizeof(float) * 4);
+            canaryPosBuffer = new ComputeBuffer(1, sizeof(float) * 4);
+            canaryOccBuffer = new ComputeBuffer(1, sizeof(uint));
+            GpuUpload.SetData(canaryOccBuffer, new uint[] { 0u });
+            var cs = Resources.Load<Shader>("Shaders/FlatColor");
+            if (cs != null) { canaryMaterial = new Material(cs); canaryMaterial.color = Color.magenta; }
+            var ics = Resources.Load<Shader>("Shaders/InstancedColor");
+            if (ics != null)
+            {
+                canaryInstColorMaterial = new Material(ics) { color = Color.cyan, enableInstancing = true };
+            }
+            canaryBlock = new MaterialPropertyBlock();
+            // Full chunk-equivalent SRV set — the same bindings the real path uses,
+            // so a rung's failure means the binding is the problem, not its absence.
+            canaryBlock.SetBuffer(propVoxelData, canaryVoxBuffer);
+            canaryBlock.SetBuffer(propPaneIDs, defaultPaneBuffer);
+            canaryBlock.SetInt(propOccEnabled, 0);
+            canaryBlock.SetBuffer(propOccData, defaultOccBuffer);
+            canaryBlock.SetBuffer(propBuildingOcc, canaryOccBuffer);
+            canaryBlock.SetBuffer(propBuildingMeta, canaryMetaBuffer);
+            canaryBlock.SetBuffer(propBuildingPositions, canaryPosBuffer);
+            canaryBlock.SetBuffer(propMaterialColors, sharedMaterialBuffer);
+            canaryBlock.SetBuffer(propChunkTints, defaultTintBuffer);
+            canaryBlock.SetInt(propGroupIDsEnabled, 0);
+            canaryBlock.SetInt(propInstanceCount, 1);
+            canaryBlock.SetBuffer(propGroupIDs, dummyGroupIDBuffer);
+            canaryBlock.SetInt(propWalkKeyframesEnabled, 0);
+            canaryBlock.SetBuffer(propWalkKeyframes, dummyWalkKeyframeBuffer);
+            canaryBlock.SetInt(propJointConfigEnabled, 0);
+            canaryBlock.SetBuffer(propJointConfig, dummyJointConfigBuffer);
+            canaryBlock.SetInt(propPivotsEnabled, 0);
+            canaryBlock.SetBuffer(propPivots, dummyPivotBuffer);
+            canaryBlock.SetInt(propAnimStaticParamsEnabled, 0);
+            canaryBlock.SetBuffer(propAnimStaticParams, dummyAnimStaticParamsBuffer);
+            canaryBlock.SetBuffer(propInstanceOffsets, canaryInstOffsets);
+            canaryBlock.SetInt(propSharedRestBuffer, 1);
+            canaryBlock.SetInt(propPaneMerged, 1);
+            canaryBlock.SetVector(propVolumeDims, new Vector4(1, 1, 1, 0));
+            canaryBlock.SetVector(propTightBoundsMin, Vector4.zero);
+            canaryBlock.SetVector(propTightBoundsMax, new Vector4(1, 1, 1, 0));
+            canaryBlock.SetMatrix(propVolumeRotation, Matrix4x4.identity);
+            canaryBlock.SetMatrix(propVolumeInvRotation, Matrix4x4.identity);
+            canaryBlock.SetInt(propMaxSteps, 64);
+            canaryBlock.SetInt(propCheapShading, 0);
+            canaryBlock.SetInt(propUnlitLod, 0);
+            canaryBlock.SetInt(propLodDebugEnabled, 0);
+            canaryBlock.SetVector(propLodDebugColor, Vector4.one);
+            BuildDiag.Set("render.canary", canaryMaterial != null ? "ladder armed (C0-C4)" : "NULL");
+        }
+#endif
 
         public void RegisterSector(string name, uint[] mergedVoxelData,
             Vector4[] buildingMeta, Vector4[] buildingPositions,
@@ -2515,11 +2608,13 @@ namespace SteelCity.Sim
         {
             UnregisterSector(name);
 
-            if (sectorMaterial == null)
+            if (sectorMaterial == null && proxyMaterial != null)
             {
                 sectorMaterial = new Material(proxyMaterial);
                 sectorMaterial.enableInstancing = true;
                 sectorMaterial.EnableKeyword("BUILDING_INSTANCING");
+                BuildDiag.Set("shader.sector", $"{sectorMaterial.shader.name} passes={sectorMaterial.passCount} " +
+                    $"kw=[{string.Join(",", sectorMaterial.shaderKeywords)}] supported={sectorMaterial.shader.isSupported}");
             }
 
             int buildingCount = buildingMeta.Length;
@@ -2535,7 +2630,8 @@ namespace SteelCity.Sim
             };
 
             sector.mergedVoxelBuffer = new ComputeBuffer(mergedVoxelData.Length, sizeof(uint));
-            sector.mergedVoxelBuffer.SetData(mergedVoxelData);
+            GpuUpload.SetData(sector.mergedVoxelBuffer, mergedVoxelData);
+            BuildDiag.Set($"buf.sector.{name}", $"vox={mergedVoxelData.Length * 4 / 1048576f:F1}MB");
 
             // Per-building pane flood-fill into a merged pane array — pane ids
             // live in the same index space as mergedVoxelData so the shader's
@@ -2587,18 +2683,19 @@ namespace SteelCity.Sim
                     Array.Copy(bo, 0, sector.mergedOcc, occOffs[b], words);
                 }
                 sector.occBuffer = new ComputeBuffer(occTotal, sizeof(uint));
-                sector.occBuffer.SetData(sector.mergedOcc);
+                GpuUpload.SetData(sector.occBuffer, sector.mergedOcc);
+                BuildDiag.Set($"buf.sector.{name}.occ", $"occ={occTotal * 4 / 1048576f:F1}MB");
                 sector.buildingOccBuffer = new ComputeBuffer(buildingCount, sizeof(uint));
                 var occF = new uint[buildingCount];
                 for (int b = 0; b < buildingCount; b++) occF[b] = (uint)occOffs[b];
-                sector.buildingOccBuffer.SetData(occF);
+                GpuUpload.SetData(sector.buildingOccBuffer, occF);
             }
 
             sector.buildingMetaBuffer = new ComputeBuffer(buildingCount, sizeof(float) * 4);
-            sector.buildingMetaBuffer.SetData(buildingMeta);
+            GpuUpload.SetData(sector.buildingMetaBuffer, buildingMeta);
 
             sector.buildingPosBuffer = new ComputeBuffer(buildingCount, sizeof(float) * 4);
-            sector.buildingPosBuffer.SetData(buildingPositions);
+            GpuUpload.SetData(sector.buildingPosBuffer, buildingPositions);
 
             // Pre-build TRS matrices once — buildings never move so no need to rebuild per frame
             sector.cachedMatrices = BuildSectorMatrices(buildingMeta, buildingPositions, buildingCount, sectorVoxelSize);
@@ -2606,6 +2703,7 @@ namespace SteelCity.Sim
             bakedSectors.Add(sector);
             sectorLookup[name] = sector;
 
+            BuildDiag.Event($"sector '{name}': {buildingCount} bldgs, {mergedVoxelData.Length:N0} voxels");
             Debug.Log($"[VoxelChunkManager] Registered baked sector '{name}': {buildingCount} buildings, {mergedVoxelData.Length:N0} voxels, bounds {sectorMin}..{sectorMax}");
         }
 
@@ -3029,7 +3127,7 @@ namespace SteelCity.Sim
         {
             if (!instancedGroups.TryGetValue(assetFileName, out var group))
                 return;
-            group.sharedVoxelBuffer.SetData(data);
+            GpuUpload.SetData(group.sharedVoxelBuffer, data);
         }
 
         /// <summary>Get voxel dimensions for an instanced asset.</summary>
@@ -3158,7 +3256,11 @@ namespace SteelCity.Sim
             }
 
             if (renderCamera == null || (chunks.Count == 0 && bakedSectors.Count == 0 && instancedGroups.Count == 0))
+            {
+                BuildDiag.Set("render.skip", renderCamera == null
+                    ? "camera=null" : $"no content ({chunks.Count}c/{bakedSectors.Count}s/{instancedGroups.Count}g)");
                 return;
+            }
 
             float totalStart = Time.realtimeSinceStartup;
 
@@ -3177,6 +3279,15 @@ namespace SteelCity.Sim
             perfActiveChunks = 0;
             foreach (var c in chunks) if (c.active) perfActiveChunks++;
             perfDrawnChunks = useProxyRender ? proxyDrawList.Count : perfActiveChunks;
+
+            BuildDiag.Set("render.skip", "-");
+            BuildDiag.Set("render.frame", Time.frameCount);
+            BuildDiag.Set("render.path", useProxyRender ? "proxy" : "compute");
+            BuildDiag.Set("render.rt", $"{renderWidth}x{renderHeight} scale={currentResolutionScale:F2}");
+            BuildDiag.Set("render.cam", $"{renderCamera.name} rect={renderCamera.rect} ortho={renderCamera.orthographic} " +
+                $"enabled={renderCamera.enabled} mask={renderCamera.cullingMask} tgt={(renderCamera.targetTexture != null ? renderCamera.targetTexture.name : "screen")}");
+            BuildDiag.Set("render.content", $"chunks={chunks.Count} sectors={bakedSectors.Count} groups={instancedGroups.Count}");
+            BuildDiag.Set("render.drawn", $"proxyList={proxyDrawList.Count} sectors={perfSectorsDrawn} cpuMs={lastCpuTotalMs:F1}");
             // perfSectorsDrawn is set inside RenderBakedSectors
 
             // Per-frame logging (every 30 frames)
@@ -3576,6 +3687,62 @@ namespace SteelCity.Sim
             // Draw all baked sectors (static buildings) — far LOD keeps the
             // legacy combined path even in composite mode
             RenderBakedSectors(cmd, renderCamera, isOrtho, orthoSize, perspHalfHeight);
+
+#if !UNITY_EDITOR
+            // Canary ladder (see EnsureCanaryAssets) — four rungs across the view.
+            EnsureCanaryAssets();
+            if (canaryMaterial != null && canaryBlock != null)
+            {
+                var ct = renderCamera.transform;
+                float cdist = renderCamera.nearClipPlane + (renderCamera.farClipPlane - renderCamera.nearClipPlane) * 0.5f;
+                float csize = renderCamera.orthographic ? renderCamera.orthographicSize * 0.35f : 15f;
+                float halfW = renderCamera.orthographic ? renderCamera.orthographicSize * renderCamera.aspect : 40f;
+                Vector3 cbase = ct.position + ct.forward * cdist;
+                float cs2 = csize * 0.5f;
+
+                // C0 center — FlatColor baseline
+                cmd.DrawMesh(proxyCubeMesh,
+                    Matrix4x4.TRS(cbase, Quaternion.identity, Vector3.one * csize),
+                    canaryMaterial, 0, 0);
+
+                // C1 left — proxy shader base variant + synthetic 1-voxel volume
+                Vector3 p1 = cbase - ct.right * halfW * 0.55f;
+                canaryBlock.SetVector(propVolumeOffset, p1 - Vector3.one * (cs2 * 0.5f));
+                canaryBlock.SetFloat(propVoxelSize, cs2);
+                cmd.DrawMesh(proxyCubeMesh,
+                    Matrix4x4.TRS(p1, Quaternion.identity, Vector3.one * cs2),
+                    proxyMaterial, 0, opaquePass, canaryBlock);
+
+                // C2 right — INSTANCING_ON without BUILDING_INSTANCING
+                Vector3 p2 = cbase + ct.right * halfW * 0.35f;
+                canaryInstData[0] = new Vector4(p2.x - cs2 * 0.5f, p2.y - cs2 * 0.5f, p2.z - cs2 * 0.5f, 0f);
+                canaryInstData[1] = new Vector4(0f, 0f, 1f, 0f);
+                GpuUpload.SetData(canaryInstOffsets, canaryInstData);
+                canaryMats[0] = Matrix4x4.TRS(p2, Quaternion.identity, Vector3.one * cs2);
+                cmd.DrawMeshInstanced(proxyCubeMesh, 0, proxyMaterial, opaquePass, canaryMats, 1, canaryBlock);
+
+                // C3 far-right — sector path: BUILDING_INSTANCING + sector SRVs
+                Vector3 p3 = cbase + ct.right * halfW * 0.72f;
+                canaryPosData[0] = new Vector4(p3.x - cs2 * 0.5f, p3.y - cs2 * 0.5f, p3.z - cs2 * 0.5f, cs2);
+                GpuUpload.SetData(canaryPosBuffer, canaryPosData);
+                canaryMetaData[0] = new Vector4(0f, 1f, 1f, 1f);
+                GpuUpload.SetData(canaryMetaBuffer, canaryMetaData);
+                canaryMats[0] = Matrix4x4.TRS(p3, Quaternion.identity, Vector3.one * cs2);
+                cmd.DrawMeshInstanced(proxyCubeMesh, 0, sectorMaterial, opaquePass, canaryMats, 1, canaryBlock);
+
+                // C4 top — instancing-only control: DrawMeshInstanced + a
+                // material with zero SRV requirements. If this renders while
+                // C2/C3 stay dark, instanced draws work and the fault is in
+                // the proxy shader's instanced path; if this fails too,
+                // DrawMeshInstanced itself is dead in the player.
+                if (canaryInstColorMaterial != null)
+                {
+                    Vector3 p4 = cbase + ct.up * (renderCamera.orthographic ? renderCamera.orthographicSize * 0.55f : csize);
+                    canaryMats[0] = Matrix4x4.TRS(p4, Quaternion.identity, Vector3.one * cs2);
+                    cmd.DrawMeshInstanced(proxyCubeMesh, 0, canaryInstColorMaterial, 0, canaryMats, 1, canaryBlock);
+                }
+            }
+#endif
 
             if (useGlassCompositePass)
             {

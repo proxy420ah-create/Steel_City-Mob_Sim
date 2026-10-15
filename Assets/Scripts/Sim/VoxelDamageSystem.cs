@@ -113,6 +113,23 @@ namespace SteelCity.Sim
         public float cellFallDrag = 1.6f;       // 1/s velocity decay — thrown debris slows, then rains
         public float cellLandSpeed = 0.6f;      // |vel| (cells/sec) under which a grounded cell becomes rubble
         private const int FallMovesPerFrame = 24576;  // cell steps per frame across all volumes — collapse pace governor
+
+        [Header("Damage tint (voxel bits 16-19)")]
+        [Tooltip("Bake a BFS gradient from the blast cavity's edge into survivors — darkest at the wound, fading over 'char depth' cells. Lives in the voxel itself: rain, flyers and rubble all carry the same tint.")]
+        public bool damageTint = true;
+        [Range(0, 8)] public int charReach = 4;          // cells past the blast radius the scorch can still reach
+        [Range(0f, 1f)] public float charStrength = 0.65f;  // max darken at the wound edge
+        [Range(0f, 1f)] public float charRadial = 0.9f;     // S-curve distance falloff strength — 0 = pure absorption shadowing, 1 = char dies at the reach edge
+        [Range(0.2f, 0.95f)] public float charAbsorb = 0.62f; // char transmitted per intervening solid cell — the blast "shadow"
+        [Range(0f, 1f)] public float glintStrength = 0.85f; // max lighten for glint cells (future crack webbing)
+        [Range(0f, 1f)] public float debrisChar = 0.6f;     // fraction of ejected flyers that fly charred — hash-dithered, pair-uniform
+        [Tooltip("Glass punctures write the crack halo as a bright damage nibble (frosted webbing) instead of swapping to cracked material 134 — one material slot saved; A/B against the classic halo.")]
+        public bool glassGlint = false;
+        [Tooltip("Non-glass projectile hits char the impact cell — a bullet-hole decal instead of removal (glass still punctures normally).")]
+        public bool bulletImpactTint = true;
+        [Range(0, 4)] public int bulletScorchDepth = 2;        // halo rings around the impact cell
+        [Range(0f, 1f)] public float bulletScorchKeep = 0.75f; // halo dither — ragged spall vs smooth ring
+        private readonly List<int> tintSeedsScratch = new();
         private readonly List<ShardPhysics.FallEscape> escapedScratch = new();
         private readonly HashSet<int> doomSet = new();          // pairing partner lookups (SeedFalling / EmitFlyersShot)
         private readonly Dictionary<int, int> emitCls = new();  // pairing partner class lookups (EmitFlyersRadial)
@@ -157,6 +174,8 @@ namespace SteelCity.Sim
             PumpRubbleSlump();
             UnityEngine.Profiling.Profiler.EndSample();
             FlushDamageUploads();
+            Shader.SetGlobalFloat("_DamageChar", damageTint ? charStrength : 0f);
+            Shader.SetGlobalFloat("_DamageGlint", damageTint ? glintStrength : 0f);
         }
 
         /// <summary>One UploadVoxelEdits per dirty volume per frame — shard pours,
@@ -177,8 +196,13 @@ namespace SteelCity.Sim
 
         private void OnShotResolved(ProjectileSystem.ShotReport r)
         {
-            if (!glassDamageEnabled || !r.hit || !ProjectileSystem.IsGlassMaterial(r.material)) return;
+            if (!glassDamageEnabled || !r.hit) return;
             if (string.IsNullOrEmpty(r.target) || r.target == "terrain" || r.target == "none") return;
+            if (!ProjectileSystem.IsGlassMaterial(r.material))   // non-glass: the voxel stays — char it as an impact decal
+            {
+                if (damageTint && bulletImpactTint) ApplyImpactTint(r);
+                return;
+            }
 
             if (world == null) world = FindFirstObjectByType<VoxelCollisionWorld>();
             if (chunkManager == null) chunkManager = FindFirstObjectByType<VoxelChunkManager>();
@@ -200,7 +224,7 @@ namespace SteelCity.Sim
             dirtyScratch.Clear();
             int removed = VoxelDamageMath.Puncture(st.data, st.w, st.h, st.d,
                 r.cell.x, r.cell.y, r.cell.z, r.shotDir.x, r.shotDir.y, r.shotDir.z,
-                r.seed, ring1RemoveFraction, crackedMaterial, dirtyScratch, out int cracked);
+                r.seed, ring1RemoveFraction, crackedMaterial, dirtyScratch, out int cracked, glassGlint);
             if (dirtyScratch.Count == 0) return;
 
             LastRemoved = removed;
@@ -211,6 +235,39 @@ namespace SteelCity.Sim
                 AudioSource.PlayClipAtPoint(GlassClip(removed), r.point,
                     glassAudioVolume * Mathf.Clamp01(0.4f + removed / 20f));
             Debug.Log($"[VoxelDamage] 🔨 {r.target} cell {r.cell} mat {r.material}: -{removed} glass cells, {cracked} cracked — hole persists");
+        }
+
+        /// <summary>
+        /// Bullet-hole decal: the hit cell survives and keeps a max-strength char
+        /// (the dark "pit" of the mark), then the wound-adjacency BFS rings a
+        /// faint dithered halo around it — spall pattern, not a stencil dot.
+        /// No cells are removed; the tint lives in the voxel's damage nibble.
+        /// </summary>
+        private void ApplyImpactTint(ProjectileSystem.ShotReport r)
+        {
+            if (world == null) world = FindFirstObjectByType<VoxelCollisionWorld>();
+            if (chunkManager == null) chunkManager = FindFirstObjectByType<VoxelChunkManager>();
+            if (world == null || chunkManager == null) return;
+            if (!chunkManager.HasWritableVolume(r.target)) return;   // decals are cosmetic — silent skip
+            var st = EnsureDamageState(r.target);
+            if (st == null) return;
+            if (r.cell.x < 0 || r.cell.x >= st.w || r.cell.y < 0 || r.cell.y >= st.h || r.cell.z < 0 || r.cell.z >= st.d) return;
+            int idx = r.cell.x + r.cell.y * st.w + r.cell.z * st.w * st.h;
+            if ((st.data[idx] & VoxelDda.MaterialMask) == 0) return;   // shot into an existing hole — nothing to mark
+
+            dirtyScratch.Clear();
+            uint core = 6u + ((r.seed >> 8) & 1u);                     // 6-7, hash-varied — deepest mark at the impact
+            if (core > VoxelDamageMath.DamageOf(st.data[idx]))
+            {
+                st.data[idx] = VoxelDamageMath.WithDamage(st.data[idx], core);
+                dirtyScratch.Add(idx);
+            }
+            tintSeedsScratch.Clear(); tintSeedsScratch.Add(idx);
+            VoxelDamageMath.ApplyDamageGradient(st.data, st.w, st.h, st.d,
+                tintSeedsScratch, bulletScorchDepth, glint: false, bulletScorchKeep,
+                r.seed, dirtyScratch, visitedScratch);
+            if (dirtyScratch.Count > 0)
+                chunkManager.UploadVoxelEdits(r.target, st.data, dirtyScratch);
         }
 
         /// <summary>COW clone on first damage — clone registers into collision by id.</summary>
@@ -274,6 +331,13 @@ namespace SteelCity.Sim
                 detached = VoxelDamageMath.FindDetached(st.data, st.w, st.h, st.d,
                     detIdx, detMats, detEnds, visitedScratch, ci => st.falling.ContainsKey(ci));
             }
+            // char exposure — every solid cell in reach evaluates its line of sight
+            // to the blast: S-curve distance falloff × per-cell absorption shadow.
+            // Rides the same dirty batch (tinted cells are material-preserving edits).
+            if (damageTint)
+                VoxelDamageMath.ApplyDamageExposure(st.data, st.w, st.h, st.d,
+                    cell.x, cell.y, cell.z, radiusMeters / st.vs, charReach,
+                    charRadial, charAbsorb, dirtyScratch);
 
             LastRemoved = removed + detached;
             LastCracked = cracked;
@@ -284,7 +348,7 @@ namespace SteelCity.Sim
                 lastBlastRemoved[(int)VoxelDamageMath.ClassOf(blastMats[i])]++;
             lastBlastDetached = detached;
             chunkManager.UploadVoxelEdits(volumeId, st.data, dirtyScratch);
-            EmitFlyersRadial(st, worldPoint, blastIdx, blastMats, null, 0, blastIdx.Count);
+            EmitFlyersRadial(st, worldPoint, blastIdx, blastMats, null, 0, blastIdx.Count, radiusMeters / st.vs);
             if (detached > 0) SeedFalling(st, worldPoint, radiusMeters * 2f, detIdx, 0, detached);
             Debug.Log($"[VoxelDamage] 🧨 debris {volumeId}: {flyEmitted} voxel debris airborne{(flying.Count >= maxFlyingCells ? " (pool capped)" : "")} — cells settle where they land");
             if (detached > 0)
@@ -360,7 +424,7 @@ namespace SteelCity.Sim
         private IEnumerator PlayPlan(string volumeId, DamageState st, VoxelDamageMath.BlastPlan plan,
             Vector3 center, float duration, float impulseReach)
         {
-            ApplyPlanSpan(volumeId, st, plan, 0, plan.detachedStart, center);   // the flash
+            ApplyPlanSpan(volumeId, st, plan, 0, plan.detachedStart, center, impulseReach * 0.5f / st.vs);   // the flash
             if (glassAudioEnabled)
                 AudioSource.PlayClipAtPoint(GlassClip(plan.totalRemoved), center,
                     glassAudioVolume * Mathf.Clamp01(0.3f + plan.totalRemoved / 200f));
@@ -369,7 +433,7 @@ namespace SteelCity.Sim
             for (int i = 0; i < plan.passes; i++)                              // the front — particles only
             {
                 int end = plan.passEnds[i];
-                EmitFlyersRadial(st, center, plan.writeIdx, plan.writeMat, plan.writeVal, start, end);
+                EmitFlyersRadial(st, center, plan.writeIdx, plan.writeMat, plan.writeVal, start, end, impulseReach * 0.5f / st.vs);
                 start = end;
                 if (i < plan.passes - 1) yield return new WaitForSeconds(step);
             }
@@ -383,13 +447,20 @@ namespace SteelCity.Sim
 
         /// <summary>Apply a span of plan writes → one dirty-span upload. No shards/audio — PlayPlan owns staging.</summary>
         private void ApplyPlanSpan(string volumeId, DamageState st, VoxelDamageMath.BlastPlan plan,
-            int start, int end, Vector3 center)
+            int start, int end, Vector3 center, float radiusCells)
         {
             dirtyScratch.Clear();
             for (int i = start; i < end; i++)
             {
                 st.data[plan.writeIdx[i]] = plan.writeVal[i];
                 dirtyScratch.Add(plan.writeIdx[i]);
+            }
+            if (damageTint)   // exposure-field charring — same as the direct path; detached cells tint too (they carry it into rubble)
+            {
+                Vector3 cc = WorldToCell(st, center);
+                VoxelDamageMath.ApplyDamageExposure(st.data, st.w, st.h, st.d,
+                    cc.x, cc.y, cc.z, radiusCells, charReach,
+                    charRadial, charAbsorb, dirtyScratch);
             }
             chunkManager.UploadVoxelEdits(volumeId, st.data, dirtyScratch);
         }
@@ -563,13 +634,18 @@ namespace SteelCity.Sim
             return center + new Vector3(lp.x * c + lp.z * s, lp.y, -lp.x * s + lp.z * c);
         }
 
-        /// <summary>Shared fly-voxel constructor: material color, cell-scale cube, hash-jittered life.</summary>
+        /// <summary>Shared fly-voxel constructor: material color folded with the voxel's own
+        /// damage tint, cell-scale cube, hash-jittered life. The nibble lives in `vox` — the
+        /// airborne cube renders identically to the grid cell it was and the rubble it becomes.</summary>
         private void AddFlyer(DamageState st, Vector3 wpos, uint vox, Vector3 vel, uint hsh, string noEnterVol = null)
         {
+            var c = StAssetReader.GetMaterialColor((ushort)(vox & VoxelDda.MaterialMask));
+            uint dmg = VoxelDamageMath.DamageOf(vox);
+            if (dmg < 8u) { float k = 1f - (dmg / 7f) * charStrength; c = new Color(c.r * k, c.g * k, c.b * k, c.a); }
+            else { float t = ((dmg - 7f) / 8f) * glintStrength; c = Color.Lerp(c, Color.white, t); }
             PushFlyer(new FlyVoxel
             {
-                pos = wpos, vel = vel, acc = Vector3.zero, vox = vox,
-                col = StAssetReader.GetMaterialColor((ushort)(vox & VoxelDda.MaterialMask)),
+                pos = wpos, vel = vel, acc = Vector3.zero, vox = vox, col = c,
                 size = st.vs * 0.85f,
                 tEnd = Time.time + shardLife * 2.2f * (0.7f + 0.6f * ((hsh >> 24) / 255f)),
                 noEnterVol = noEnterVol,
@@ -586,9 +662,10 @@ namespace SteelCity.Sim
         /// vals (optional) filters to AIR writes so cracked cells never fly.
         /// </summary>
         private void EmitFlyersRadial(DamageState st, Vector3 blastCenter,
-            List<int> idx, List<uint> mats, List<uint> vals, int start, int end)
+            List<int> idx, List<uint> mats, List<uint> vals, int start, int end, float cellRadius = 0f)
         {
             if (!shardBurstEnabled || world == null) return;
+            Vector3 ccell = cellRadius > 0f ? WorldToCell(st, blastCenter) : Vector3.zero;
             int avail = Mathf.Max(0, maxFlyingCells - flying.Count);
             if (avail == 0) return;
             int count = 0;
@@ -626,7 +703,15 @@ namespace SteelCity.Sim
                     : Vector3.zero;
                 vel += new Vector3(((hsh >> 3) & 255u) / 255f - 0.5f, ((hsh >> 11) & 255u) / 255f - 0.5f,
                     ((hsh >> 19) & 255u) / 255f - 0.5f) * shardSpread;
-                AddFlyer(st, wpos, mats[i], vel, hsh);
+                float scale = 1f;
+                if (cellRadius > 0f && charRadial > 0f)   // same S-curve fade as the grid char — near-epicenter debris flies darkest
+                {
+                    int z = ci / (st.w * st.h), rem = ci - z * st.w * st.h, y = rem / st.w, x = rem - y * st.w;
+                    float dx = x + 0.5f - ccell.x, dy = y + 0.5f - ccell.y, dz = z + 0.5f - ccell.z;
+                    float tN = Mathf.Min(Mathf.Sqrt(dx * dx + dy * dy + dz * dz) / cellRadius, 1f);
+                    scale = 1f - charRadial * tN * tN * (3f - 2f * tN);
+                }
+                AddFlyer(st, wpos, mats[i] | DebrisDamage(hsh, glint: false, scale), vel, hsh);
             }
         }
 
@@ -652,8 +737,21 @@ namespace SteelCity.Sim
                 Vector3 vel = r.shotDir * shardSpeed * (0.7f + 0.6f * ((hsh & 255u) / 255f))
                     + new Vector3(((hsh >> 3) & 255u) / 255f - 0.5f, ((hsh >> 11) & 255u) / 255f - 0.5f + 0.3f,
                         ((hsh >> 19) & 255u) / 255f - 0.5f) * shardSpread;
-                AddFlyer(st, CellWorld(st, idx), (uint)(r.material & 0x1FFu), vel, hsh);
+                AddFlyer(st, CellWorld(st, idx), (uint)(r.material & 0x1FFu) | DebrisDamage(hsh, glint: true), vel, hsh);
             }
+        }
+
+        /// <summary>Hash-dithered damage nibble for ejected debris — a `debrisChar` fraction
+        /// flies charred (levels 2-5) or glinted (10-13). Uses the pair-anchored hash so
+        /// domino debris scorches uniformly instead of half-charring a shared brick.</summary>
+        private uint DebrisDamage(uint hsh, bool glint, float scale = 1f)
+        {
+            if (!damageTint || debrisChar <= 0f) return 0u;
+            if (((hsh >> 6) & 255u) / 255f >= debrisChar) return 0u;
+            // radial scale → near-center debris chars 5-7, rim debris 1-3 (char);
+            // glint stays mid-bright 9-13 so glass shards read as sparkle, not soot
+            int lvl = Mathf.Clamp(Mathf.RoundToInt((glint ? 3f : 5f) * scale) + 1 + (int)((hsh >> 14) & 1u), 1, 7);
+            return ((uint)(glint ? 8 + lvl : lvl)) << VoxelDamageMath.DamageShift;
         }
 
         /// <summary>A falling cell that stepped out of the volume bounds becomes a flying

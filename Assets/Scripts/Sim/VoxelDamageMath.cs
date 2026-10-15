@@ -17,6 +17,22 @@ namespace SteelCity.Sim
     {
         public const uint MaterialMask = 0x1FFu;   // VoxelDda.MaterialMask — duplicated so this file stays dependency-free
 
+        // ── Damage tint — bits 16-19 of the voxel word ──
+        // Disk is uint16 (bits 0-8 material; 9-15 reserved shape/rotation), but the
+        // runtime buffer is uint32 — bits 16+ are unreachable by the format, so the
+        // nibble can never collide with authored data AND never saves back into an
+        // asset (damage is runtime state by definition).
+        // 0 = clean · 1-7 = char (darken) · 8-15 = glint (lighten — crack webbing).
+        public const int  DamageShift = 16;
+        public const uint DamageMask  = 0xFu << DamageShift;
+
+        public static uint DamageOf(uint v)          => (v & DamageMask) >> DamageShift;
+        public static uint WithDamage(uint v, uint d) => (v & ~DamageMask) | ((d & 0xFu) << DamageShift);
+        /// <summary>0..1 darken for char levels 1-7 (0 for clean/glint).</summary>
+        public static float CharAmount(uint v) { uint d = DamageOf(v); return d < 8u ? d / 7f : 0f; }
+        /// <summary>0..1 lighten for glint levels 8-15 (0 for clean/char).</summary>
+        public static float GlintAmount(uint v) { uint d = DamageOf(v); return d >= 8u ? (d - 7u) / 8f : 0f; }
+
         /// <summary>Palette ids that are see-through glass (StAssetReader palette).</summary>
         public static bool IsGlassMaterial(int mat) => mat == 112 || mat == 113 || mat == 114 || mat == 134 || mat == 147;
 
@@ -28,10 +44,10 @@ namespace SteelCity.Sim
         public static int Puncture(uint[] data, int w, int h, int d,
             int hx, int hy, int hz, double dirX, double dirY, double dirZ,
             uint seed, float ring1RemoveFraction, int crackedMaterial,
-            List<int> dirtyIndices, out int cracked)
+            List<int> dirtyIndices, out int cracked, bool glintMode = false)
         {
             int removed = TouchGlass(data, w, h, d, hx, hy, hz, seed, force: true,
-                ring1RemoveFraction, crackedMaterial, dirtyIndices) ? 1 : 0;
+                ring1RemoveFraction, crackedMaterial, dirtyIndices, glintMode) ? 1 : 0;
 
             // Ring plane ⊥ shot: drop the shot's dominant axis, jitter the other two.
             double ax = dirX < 0 ? -dirX : dirX, ay = dirY < 0 ? -dirY : dirY, az = dirZ < 0 ? -dirZ : dirZ;
@@ -45,7 +61,7 @@ namespace SteelCity.Sim
                 else if (drop == 1) { x += a; z += b; }
                 else { x += a; y += b; }
                 if (TouchGlass(data, w, h, d, x, y, z, seed, force: false,
-                        ring1RemoveFraction, crackedMaterial, dirtyIndices)) removed++;
+                        ring1RemoveFraction, crackedMaterial, dirtyIndices, glintMode)) removed++;
             }
             cracked = dirtyIndices.Count - removed;
             return removed;
@@ -58,7 +74,8 @@ namespace SteelCity.Sim
         /// cell index — same shot reproduces the identical scar.
         /// </summary>
         private static bool TouchGlass(uint[] data, int w, int h, int d, int x, int y, int z,
-            uint seed, bool force, float ring1RemoveFraction, int crackedMaterial, List<int> dirty)
+            uint seed, bool force, float ring1RemoveFraction, int crackedMaterial, List<int> dirty,
+            bool glintMode = false)
         {
             if (x < 0 || y < 0 || z < 0 || x >= w || y >= h || z >= d) return false;
             int idx = x + y * w + z * w * h;
@@ -72,7 +89,12 @@ namespace SteelCity.Sim
                 dirty.Add(idx);
                 return true;
             }
-            data[idx] = (v & ~MaterialMask) | (uint)crackedMaterial;   // wounded — cracked halo
+            // wounded — glint mode keeps the glass material and writes the fracture
+            // as a bright damage nibble (frosted webbing, 10-13 hash-varied);
+            // classic mode swaps to the dedicated cracked material
+            data[idx] = glintMode
+                ? WithDamage(v, Math.Max(DamageOf(v), 10u + ((cellSeed >> 4) & 3u)))   // re-shots only brighten
+                : (v & ~MaterialMask) | (uint)crackedMaterial;
             dirty.Add(idx);
             return false;
         }
@@ -280,6 +302,88 @@ namespace SteelCity.Sim
         }
 
         /// <summary>
+        /// Bake a damage gradient into the survivors around a wound. `seeds` are
+        /// the just-removed (AIR) cells; a 6-connected BFS walks `depth` rings
+        /// outward through solid cells, tinting ring r with level depth-r+1 —
+        /// darkest at the wound edge, fading out. `glint` selects the lighten
+        /// half of the nibble (8+lvl) instead of char. keepFrac&lt;1 dither-skips
+        /// cells by index hash (sparse crack webbing vs a solid char band).
+        /// Merges by max — overlapping blasts deepen, never repaint weaker.
+        /// Writes go into `dirty` for the usual upload path. `visited` is an
+        /// optional w·h·d scratch (allocated if null). Returns cells tinted.
+        /// `radial` (0-1) attenuates levels by distance from the blast center —
+        /// at 1.0 the char fades progressively to nothing at `radius` cells
+        /// out; at 0 the ring level alone decides (uniform wound-adjacency).
+        /// </summary>
+        public static int ApplyDamageGradient(uint[] data, int w, int h, int d,
+            List<int> seeds, int depth, bool glint, float keepFrac, uint seed,
+            List<int> dirty, byte[] visited = null,
+            float cx = 0f, float cy = 0f, float cz = 0f, float radius = 0f, float radial = 0f)
+        {
+            if (depth <= 0 || seeds == null || seeds.Count == 0) return 0;
+            int n = w * h * d;
+            if (visited == null || visited.Length < n) visited = new byte[n];
+            else Array.Clear(visited, 0, n);
+
+            // front = the wound's solid skin (ring 1): solid neighbors of seeds
+            var front = ListPool.Get(); var next = ListPool.Get();
+            for (int i = 0; i < seeds.Count; i++) visited[seeds[i]] = 1;
+            for (int i = 0; i < seeds.Count; i++)
+            {
+                int c = seeds[i];
+                int z = c / (w * h), rem = c - z * w * h, y = rem / w, x = rem - y * w;
+                for (int ax = 0; ax < 6; ax++)
+                {
+                    int nx = x + D6[ax], ny = y + D6[ax + 6], nz = z + D6[ax + 12];
+                    if (nx < 0 || ny < 0 || nz < 0 || nx >= w || ny >= h || nz >= d) continue;
+                    int ni = nx + ny * w + nz * w * h;
+                    if (visited[ni] == 0 && (data[ni] & MaterialMask) != 0) { visited[ni] = 1; front.Add(ni); }
+                }
+            }
+            int tinted = 0;
+            for (int ring = 1; ring <= depth && front.Count > 0; ring++)
+            {
+                uint lvl = (uint)(depth - ring + 1); if (lvl > 7u) lvl = 7u;
+                uint dmg = glint ? 8u + lvl : lvl;
+                for (int i = 0; i < front.Count; i++)
+                {
+                    int c = front[i];
+                    int z = c / (w * h), rem = c - z * w * h, y = rem / w, x = rem - y * w;
+                    uint eff = lvl;
+                    if (radial > 0f && radius > 1e-5f)
+                    {
+                        float dx = x + 0.5f - cx, dy = y + 0.5f - cy, dz = z + 0.5f - cz;
+                        float dN = Math.Min((float)Math.Sqrt(dx * dx + dy * dy + dz * dz) / radius, 1f);
+                        eff = (uint)Math.Round(lvl * (1f - radial * dN));
+                        if (eff > 7u) eff = 7u;
+                        dmg = glint ? 8u + eff : eff;
+                    }
+                    bool keep = keepFrac >= 1f || Hash01(seed ^ (uint)c * 0x9E3779B9u) < keepFrac;
+                    if (eff > 0u && keep && dmg > DamageOf(data[c])) { data[c] = WithDamage(data[c], dmg); dirty.Add(c); tinted++; }
+                    // untinted cells still propagate the front — a dither hole
+                    // doesn't stop the ring from reaching deeper cells
+                    for (int ax = 0; ax < 6; ax++)
+                    {
+                        int nx = x + D6[ax], ny = y + D6[ax + 6], nz = z + D6[ax + 12];
+                        if (nx < 0 || ny < 0 || nz < 0 || nx >= w || ny >= h || nz >= d) continue;
+                        int ni = nx + ny * w + nz * w * h;
+                        if (visited[ni] == 0 && (data[ni] & MaterialMask) != 0) { visited[ni] = 1; next.Add(ni); }
+                    }
+                }
+                var tmp = front; front = next; next = tmp; next.Clear();
+            }
+            ListPool.Release(front); ListPool.Release(next);
+            return tinted;
+        }
+        static readonly int[] D6 = { -1, 1, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, -1, 1 };
+        static class ListPool
+        {
+            static readonly Stack<List<int>> pool = new Stack<List<int>>();
+            public static List<int> Get() => pool.Count > 0 ? pool.Pop() : new List<int>();
+            public static void Release(List<int> l) { l.Clear(); pool.Push(l); }
+        }
+
+        /// <summary>
         /// Amanatides–Woo march from the blast center to a target cell, attenuating
         /// Beer–Lambert style: transmit *= (1 − resistance)^(path length inside the
         /// cell, in cell units). An axis-aligned crossing still costs exactly one
@@ -332,6 +436,93 @@ namespace SteelCity.Sim
             float next = step > 0 ? (float)Math.Floor(c) + 1f : (float)Math.Ceiling(c) - 1f;
             float t = (next - c) / dir;
             return t < 0f ? 0f : t;
+        }
+
+        /// <summary>
+        /// Count solid cells the straight blast→target ray passes through before
+        /// reaching the target's cell — the exposure "shadow" term. Each
+        /// intervening voxel absorbs a fixed share of char (NOT material
+        /// resistance — exposure is geometry only). Air transmits fully, so a
+        /// blown window opening delivers scorch to whatever it reveals. The
+        /// target cell is excluded (its own surface is what receives the char).
+        /// Same Amanatides–Woo DDA as MarchTransmit.
+        /// </summary>
+        public static int MarchSolidCount(uint[] data, int w, int h, int d,
+            float cx, float cy, float cz, float tx, float ty, float tz)
+        {
+            int x = (int)Math.Floor(cx), y = (int)Math.Floor(cy), z = (int)Math.Floor(cz);
+            int gx = (int)Math.Floor(tx), gy = (int)Math.Floor(ty), gz = (int)Math.Floor(tz);
+            float dx = tx - cx, dy = ty - cy, dz = tz - cz;
+            int sx = dx > 0 ? 1 : (dx < 0 ? -1 : 0);
+            int sy = dy > 0 ? 1 : (dy < 0 ? -1 : 0);
+            int sz = dz > 0 ? 1 : (dz < 0 ? -1 : 0);
+            float tdx = sx != 0 ? Math.Abs(1f / dx) : float.MaxValue;
+            float tdy = sy != 0 ? Math.Abs(1f / dy) : float.MaxValue;
+            float tdz = sz != 0 ? Math.Abs(1f / dz) : float.MaxValue;
+            float tmx = BoundT(cx, dx, sx), tmy = BoundT(cy, dy, sy), tmz = BoundT(cz, dz, sz);
+            int wh = w * h, solids = 0, guard = w + h + d + 8;
+            while (guard-- > 0)
+            {
+                float tEnter = Math.Min(tmx, Math.Min(tmy, tmz));
+                if (tEnter >= 1f) break;                            // the target lies inside this cell
+                if (tmx <= tmy && tmx <= tmz) { x += sx; tmx += tdx; }
+                else if (tmy <= tmz)          { y += sy; tmy += tdy; }
+                else                          { z += sz; tmz += tdz; }
+                if (x < 0 || y < 0 || z < 0 || x >= w || y >= h || z >= d) break;
+                if (x == gx && y == gy && z == gz) break;           // entered the target cell — don't count it
+                if ((data[x + y * w + z * wh] & MaterialMask) != 0) solids++;
+            }
+            return solids;
+        }
+
+        /// <summary>
+        /// Bake blast char as a radial EXPOSURE field: every solid cell inside
+        /// `radius + reach` evaluates its own line of sight to the blast —
+        ///   level = round(7 · distFactor · absorb^solids)
+        /// where distFactor = 1 − radial·smoothstep(dist/(radius+reach)) holds
+        /// near-max through the doom zone then S-tapers sharply at the rim
+        /// (`radial` 0-1 blends the distance term in/out), and each solid cell
+        /// the ray crosses transmits `absorb` (the char "shadow"). Material
+        /// resistance plays no part — a wood wall and a steel wall shadow the
+        /// same; only distance + intervening voxels decide. Doom-adjacency is
+        /// implied, not required: the cavity is air, so the wound's rim cells
+        /// see 0 intervening solids and char hardest, while a survivor across
+        /// an opening still gets painted (windows transmit to sills). Merges
+        /// by max; writes go into `dirty`. Returns cells tinted.
+        /// </summary>
+        public static int ApplyDamageExposure(uint[] data, int w, int h, int d,
+            float cx, float cy, float cz, float radiusCells, float reachCells,
+            float radial, float absorb, List<int> dirty)
+        {
+            float range = radiusCells + reachCells;
+            if (range <= 0f || absorb <= 0f) return 0;
+            int x0 = Math.Max(0, (int)Math.Floor(cx - range)), x1 = Math.Min(w - 1, (int)Math.Ceiling(cx + range));
+            int y0 = Math.Max(0, (int)Math.Floor(cy - range)), y1 = Math.Min(h - 1, (int)Math.Ceiling(cy + range));
+            int z0 = Math.Max(0, (int)Math.Floor(cz - range)), z1 = Math.Min(d - 1, (int)Math.Ceiling(cz + range));
+            int wh = w * h, tinted = 0;
+            for (int z = z0; z <= z1; z++)
+            for (int y = y0; y <= y1; y++)
+            for (int x = x0; x <= x1; x++)
+            {
+                int idx = x + y * w + z * wh;
+                uint v = data[idx];
+                if ((v & MaterialMask) == 0) continue;               // cavity — no char on air
+                float dx = x + 0.5f - cx, dy = y + 0.5f - cy, dz = z + 0.5f - cz;
+                float dist = (float)Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                if (dist > range) continue;
+                float t = dist / range;
+                float ss = t * t * (3f - 2f * t);                     // smoothstep — S-curve tail-off
+                float distFactor = 1f - radial * ss;
+                if (distFactor <= 0f) continue;
+                float exposure = distFactor;
+                int solids = MarchSolidCount(data, w, h, d, cx, cy, cz, x + 0.5f, y + 0.5f, z + 0.5f);
+                if (solids > 0) exposure *= (float)Math.Pow(absorb, solids);
+                int lvl = (int)Math.Round(7f * exposure);
+                if (lvl <= 0) continue;
+                if (lvl > 7) lvl = 7;
+                if ((uint)lvl > DamageOf(v)) { data[idx] = WithDamage(v, (uint)lvl); dirty.Add(idx); tinted++; }
+            }
+            return tinted;
         }
 
         /// <summary>

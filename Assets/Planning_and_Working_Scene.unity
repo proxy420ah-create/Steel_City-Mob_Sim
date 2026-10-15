@@ -1430,6 +1430,7 @@ MonoBehaviour:
   chunkManager: {fileID: 0}
   voxelSize: 0.05
   roadWidth: 4.5
+  laneConvergence: 0
   sidewalkWidth: 1
   buildingsPerBlockRow: 3
   showRoadNames: 1
@@ -1440,7 +1441,7 @@ MonoBehaviour:
   labelFontSize: 3
   labelColor: {r: 1, g: 1, b: 1, a: 1}
   showWaypoints: 0
-  characterVoxelSize: 0.01
+  voxelPickArmed: 0
 --- !u!4 &455920387
 Transform:
   m_ObjectHideFlags: 0
@@ -1732,6 +1733,7 @@ MonoBehaviour:
   patrolButton: {fileID: 1007344926}
   intimidateButton: {fileID: 762521139}
   lieLowButton: {fileID: 1653421423}
+  targetPracticeButton: {fileID: 0}
   eventLogContent: {fileID: 203607428}
   runWeekButton: {fileID: 1933815894}
   topBarRoot: {fileID: 120992634}
@@ -1739,6 +1741,8 @@ MonoBehaviour:
   bottomBarRoot: {fileID: 319006669}
   hoodCardPrefab: {fileID: 0}
   randomSeed: -1
+  targetPracticeDwells: 1
+  targetPracticeSkipWalk: 1
   playerColor: {r: 0.29, g: 0.62, b: 1, a: 1}
   rivalColor: {r: 1, g: 0.29, b: 0.29, a: 1}
   unownedColor: {r: 0.23, g: 0.23, b: 0.31, a: 1}
@@ -3905,7 +3909,7 @@ Canvas:
   m_OverrideSorting: 0
   m_OverridePixelPerfect: 0
   m_SortingBucketNormalizedSize: 0
-  m_VertexColorAlwaysGammaSpace: 0
+  m_VertexColorAlwaysGammaSpace: 1
   m_AdditionalShaderChannelsFlag: 25
   m_UpdateRectTransformForStandalone: 0
   m_SortingLayerID: 0
