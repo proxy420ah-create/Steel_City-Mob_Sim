@@ -161,12 +161,23 @@ namespace SteelCity.Sim
         /// <summary>
         /// DDA raymarch downward from a world position. Returns ground hit info.
         /// This is the SteelTide VoxelWorld.RaymarchChunk pattern, simplified for
-        /// straight-down ground probes.
+        /// straight-down ground probes. Covers terrain AND registered volumes —
+        /// characters can stand on rooftops and floors, not just the street grid.
         /// </summary>
         public bool ProbeGround(Vector3 worldPos, float maxDistance, out float groundY, out Vector3 normal)
         {
             groundY = 0f;
             normal = Vector3.up;
+            bool found = false;
+
+            // Volume floors first — a down-raycast returns the nearest solid top
+            // below the probe point (roof deck, interior floor, wall base).
+            if (volumes.Raycast(worldPos, Vector3.down, maxDistance, out VoxelRayHit vh))
+            {
+                groundY = vh.point.y;
+                normal = vh.normal;
+                found = true;
+            }
 
             // Convert world position to voxel grid coordinates
             Vector3 local = (worldPos - gridOrigin) / voxelSize;
@@ -178,7 +189,7 @@ namespace SteelCity.Sim
             // which does NOT validate vx/vz and can alias into unrelated voxel
             // data at a completely different (bogus) height if left unchecked.
             if (vx < 0 || vx >= gridW || vz < 0 || vz >= gridD)
-                return false;
+                return found;
 
             // Start from the character's Y and march downward
             int vy = Mathf.FloorToInt(local.y);
@@ -193,16 +204,17 @@ namespace SteelCity.Sim
                 int idx = vx + vy * gridW + vz * gridW * gridH;
                 if (idx >= 0 && idx < voxelGrid.Length && voxelGrid[idx] != 0)
                 {
-                    // Hit solid voxel — ground is at the TOP of this voxel
-                    groundY = gridOrigin.y + (vy + 1) * voxelSize;
-                    normal = Vector3.up;
+                    // Hit solid voxel — ground is at the TOP of this voxel.
+                    // A volume floor higher up still wins (e.g. a roof above street).
+                    float ty = gridOrigin.y + (vy + 1) * voxelSize;
+                    if (!found || ty > groundY) { groundY = ty; normal = Vector3.up; }
                     return true;
                 }
                 vy--;
                 steps++;
             }
 
-            return false; // No ground found within range
+            return found; // terrain missed — a volume floor may still have hit
         }
 
         /// <summary>

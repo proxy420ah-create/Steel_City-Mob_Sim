@@ -1,8 +1,8 @@
 # Procedural Audio — Synthesized Sound Effects
 
-**Status**: ✅ Implemented (glass shatter — first synthesis consumer)
+**Status**: ✅ Implemented (glass shatter + **gunshot recipe live in-game**) · 🧪 `VoxelAssetStudio/audio_studio.html` editor built
 **Since**: February 2026
-**Implementation**: `VoxelDamageSystem.GlassClip()` + `PreviewGlassSound()`
+**Implementation**: `VoxelDamageSystem.GlassClip()` + `PreviewGlassSound()` + `audio_studio.html`
 
 ---
 
@@ -164,12 +164,33 @@ The loop is **identical** to the C# — same rate, same envelopes, same seeded R
 
 If sounds must be **bit-identical** between the editor preview and Unity playback, port `System.Random` to JS (it's a subtractive RNG — ~20 lines) or pick a cross-platform RNG both sides share. If "sounds right" is enough, any seeded RNG per-side is fine — the recipe shape (partials, envelopes) is what the listener hears, not the exact noise waveform.
 
-### Editor feature roadmap (if built)
+### Editor — BUILT: `VoxelAssetStudio/audio_studio.html`
 
-1. **P0**: sliders/fields → live Web Audio preview + JSON export
-2. **P1**: preset library (tink/crack/crash/gunshot/footstep), waveform + spectrum display (AnalyserNode)
-3. **P2**: multi-layer recipes (stack two attacks, a body + a ring), ADSR editor
-4. **P3**: randomize-with-seed (play N seeded variants, keep the good one → locks recipe+seed into the sound's identity)
+Single-file tool, same conventions as `voxel_editor.html` / `city_editor.html`:
+
+1. ✅ **P0**: sliders/fields → live Web Audio preview + JSON export/import + `.stsound` download
+2. ✅ **P1**: preset library (glass tink/crack/crash — exact GlassClip params — plus gunshot, ricochet, footstep, metal clang, UI blip, thud, engine idle), waveform canvas + live spectrum (AnalyserNode)
+3. ✅ **P2**: multi-layer recipes (attack / partials / noiseTail+lowpass / sweep — arbitrary stacks), ADSR envelope mode, glass-amps `0.5/(p+1)` helper
+4. ✅ **P3**: 🎲 variant roller (seed++ → preview) — locks recipe+seed into the sound's identity
+5. ✅ **P4 (v2, then v3 UI+FX)**: piano roll (3-oct window, velocity-by-Y), pitch knob ±24 semi, root note, decay coupling, 4-band parametric EQ (RBJ biquads baked into the buffer), tanh drive
+
+**Schema v3**: `recipe {name, version, sampleRate, duration, seed, envelope{mode|adsr}, gain, drive, phaseStep, rootNote, pitch, coupleDecay, tailFade, eq[], echo{on,time,feedback,mix}, layers[]}`.
+
+- `layers[]` — `{type, amp, decay}` plus per-type fields (partials[], lowpass, startHz/endHz). One-pole lowpass uses `α = 1 − exp(−2π·fc/rate)`; sweep integrates instantaneous frequency for phase-correct bends.
+- **Pitch/note model** — `rootNote` is the MIDI note the recipe was authored at (default 60/C4). Previewing at note N scales ALL Hz-domain params (partials, sweep endpoints, lowpass cutoffs) by `2^((N − root + pitch)/12)`. `coupleDecay` (default on) also scales layer decays by the same ratio — higher pitch = shorter ring, physically true for struck objects.
+- **Piano roll** — 3-octave clickable keyboard (◂ ▸ window shift); key click-Y position = velocity (0.4–1.0 → master gain). Root note is highlighted.
+- **Parametric EQ** — 4 bands (low shelf / 2 peaking / high shelf) rendered INTO the buffer via RBJ biquads (Direct Form I). `eq[]` rides the recipe JSON — Unity port = the same ~20 lines of coefficient math. Orange response curve drawn over the live spectrum.
+- **`drive`** — `tanh(v·drive)` soft-clip saturation before master gain (gunshot/hit saturation).
+- **`echo`** — feedback delay (wet chain `wet[i]=dry[i]+wet[i−d]·fb`, then dry/wet mix) — alley bounce, natural tail-out; solves abrupt cutoff perceptually.
+- **`tailFade`** — raised-cosine fade on the buffer's last N ms (≥5 ms always) — hard guarantee: every recipe ends at zero, no buffer-end click.
+- **UI v3 (FL-style)** — rotary knobs replace sliders (drag-vertical, ⇧=fine, wheel=step, dbl-click=reset), every control explains itself in the header **hint bar**; **click any knob's value to type it** — unit-aware parser accepts `ms`, `k`/`khz`, `%`, `m:ss`, and note names (`C4`), and typed values may exceed the drag range up to a hard ceiling (duration up to 30s, EQ freq to 22k). Real measurements, not generic scales: duration displays `m:ss`, layer decay knobs display **ring time** (ms-to-silence, RT60-style `τ=6.9/λ`), time params in ms, freqs in Hz/kHz; **Sound Library — persistent live catalog**: the `StreamingAssets/sounds/` handle is stored in IndexedDB — pick the folder **once**, the catalog re-binds automatically on every page load (silent if permission persisted, one ↻ reconnect click if the browser needs a gesture). Always-visible sorted file list, click-to-load, 💾 save writes `name.stsound` straight back into the project, ↻ rescan picks up external changes, `*` marks unsaved edits to the loaded file.
+
+**Unity side — DONE (first consumer)**: `Assets/Scripts/Sim/ProceduralAudio.cs` implements `SynthFromRecipe(SoundRecipe r, note?, vel?)` — full schema-v2 parity: layer renderers, RBJ biquads, tanh drive, semitone/decay coupling, mulberry32 (bit-exact noise vs the editor). `ProjectileSystem.PlayShotSound` calls `ProceduralAudio.GetClip("sounds/gunshot.stsound")` per `Fire()` — GetClip stat-checks the file's write time, so **studio saves hot-reload mid-Play-session** (editor/dev builds; `liveReload` flag, release bakes once — determinism). Save in audio_studio → next trigger pull plays the new recipe — possess LMB and Combat-tab FIRE both get the report. Levels are **trims × studio file** (0.1–2.0; 1.0 = exactly what the browser played) — `shotAudioVolume` + `glassAudioVolume`, both serialized so tuned values ship. New **Sfx HUD tab** owns all audio controls: per-sound trim sliders, `▶ reference` (clip at the AudioListener = studio loudness) vs `▶ muzzle` (real 3D path + trim) A/B calibration, glass tink/crack/crash previews, hot-reload status.
+
+**3D propagation — `ProceduralAudio.PlayAt`**: all positional sfx use a configured AudioSource — `spatialBlend=1`, **Linear rolloff**, `minDistance=refDist` (full-volume zone, the "strength"), `maxDistance=audibleRange` (the "persistence" — linear fade dies at the edge, and it IS the NPC hearing radius). Gunshot defaults 4m/50m (playtest-tuned); glass 2m/30m — all live sliders on the Sfx tab.
+
+**Report-wave visualizer — `SfxWaves`**: every PlayAt emitter also fires `SfxWaves.Emit(origin, range, refDist, tag)` — an expanding 3-ring wireframe shell (PathDebugRenderer beams) growing at a *visual* speed (default 45 m/s; real 343 m/s is an option but crosses the map in a blink). Rim color = live audibility: TEAL loud → VIOLET fading (alpha follows `AmplitudeAt`), static teal ring marks the refDist boundary. Shell dies at `range`. `SfxWaves.AmplitudeAt(dist, ref, range)` is the shared audibility law — the NPC "heard the shot" hook consumes it later (characters the shell passes over are inside the report). Remaining: material→recipe table so picks/impacts resolve by material id.
+
 
 ---
 
@@ -177,14 +198,14 @@ If sounds must be **bit-identical** between the editor preview and Unity playbac
 
 - `VoxelDamageSystem.GlassClip(removed)` — current glass bucket synth + cache
 - `VoxelDamageSystem.PreviewGlassSound(bucket)` — planning-phase HUD preview (plays at listener, no distance falloff)
-- `ProjectileSystem` — future hook for gunshot synthesis (muzzle report, distant crack)
+- `ProjectileSystem.PlayShotSound` — **live**: `sounds/gunshot.stsound` → cached clip → `PlayClipAtPoint` at `mount.MuzzleWorld`
 - `PathDebugRenderer` — the shard/particle system already proved the "gameplay data → presentation" pattern; audio recipes ride the same event (a glass hit already knows count, position, material)
 
 ## 7. Open Questions
 
 - Should recipes be **per-material** (glass/wood/metal/flesh get their own struck-sound sets)? Likely yes — a material ID → recipe table is a small dictionary.
 - Should `shotSeed` seed the synth so identical shots sound identical? Cheap, deterministic — probably yes.
-- Should there be a `.stsound` authoring format alongside `.stasset`? If the HTML editor is built, this is the natural artifact.
+- `.stsound` is now real — the editor exports schema-v2 JSON. Open Q: should notes/velocity become gameplay inputs (e.g., bullet caliber → pitch, impact force → velocity)?
 
 ## References
 

@@ -52,6 +52,15 @@ namespace SteelCity.Sim
         [Tooltip("Downward acceleration (world units/s²). 0 = straight line.")]
         public float gravity = 0f;
 
+        [Header("Audio")]
+        [Tooltip("Muzzle report level as a TRIM on the studio file — 1.0 = exactly what audio_studio " +
+                 "authored. Recipe: StreamingAssets/sounds/gunshot.stsound (hot-reloads on save).")]
+        [Range(0.1f, 2f)] public float shotAudioVolume = 1f;
+        [Tooltip("Full-volume radius of the report (m) — the 'strength' zone")]
+        [Range(0.5f, 20f)] public float shotRefDistance = 4f;
+        [Tooltip("Audible edge of the report (m) — linear fade dies here; this IS the NPC hearing radius")]
+        [Range(5f, 200f)] public float shotAudibleRange = 50f;
+
         [Header("Visuals (PathDebugRenderer beams)")]
         [Tooltip("Draw the in-flight tracer streak behind each bullet.")]
         public bool showTracers = true;
@@ -195,7 +204,20 @@ namespace SteelCity.Sim
             live1.report = r;
             live.Add(live1);
             ShotFired?.Invoke(mount, r);   // after the direction is sampled — the kick only deflects FOLLOW-UP shots
+            PlayShotSound(mount);
             return true;
+        }
+
+        /// <summary>Muzzle report — from sounds/gunshot.stsound (audio_studio recipe),
+        /// played positionally at the muzzle. GetClip stat-checks the file each shot —
+        /// studio saves hot-reload mid-session in editor/dev, bake-once in release.</summary>
+        void PlayShotSound(WeaponMount mount)
+        {
+            var clip = ProceduralAudio.GetClip("sounds/gunshot.stsound");
+            if (clip == null || shotAudioVolume <= 0f) return;
+            ProceduralAudio.PlayAt(clip, mount.MuzzleWorld, shotAudioVolume,
+                shotRefDistance, shotAudibleRange);
+            SfxWaves.GetOrCreate().Emit(mount.MuzzleWorld, shotAudibleRange, shotRefDistance, "gunshot");
         }
 
         void Update()

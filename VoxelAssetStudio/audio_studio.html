@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Steel City — Audio Studio</title>
+<style>
+  :root { --bg:#12151a; --panel:#1a1e25; --panel2:#222834; --line:#2c3442;
+          --txt:#cfd6e4; --dim:#78849a; --acc:#e8a33d; --ok:#57c785; --bad:#e05c5c; --grn:#9cdc6e; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt); font:12px/1.4 "Segoe UI",Consolas,monospace; }
+  header { padding:8px 16px; border-bottom:1px solid var(--line); display:flex; align-items:baseline; gap:14px; }
+  header h1 { font-size:14px; margin:0; color:var(--acc); letter-spacing:.5px; }
+  #hintbar { flex:1; color:var(--grn); font-size:11px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+  .wrap { display:grid; grid-template-columns:430px 1fr; gap:0; height:calc(100vh - 41px); }
+  .left { overflow-y:auto; border-right:1px solid var(--line); padding:10px; }
+  .right { display:flex; flex-direction:column; padding:10px; gap:10px; overflow-y:auto; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:8px 10px; margin-bottom:10px; }
+  .panel h2 { margin:0 0 8px; font-size:11px; color:var(--acc); text-transform:uppercase; letter-spacing:.6px;
+              border-bottom:1px solid var(--line); padding-bottom:5px; }
+  .knobs { display:flex; flex-wrap:wrap; gap:4px; }
+  .knob { width:64px; text-align:center; padding:2px 0 4px; border-radius:5px; cursor:ns-resize; user-select:none; }
+  .knob:hover { background:var(--panel2); }
+  .knob canvas { display:block; margin:0 auto; width:42px; height:42px; }
+  .knob .klab { font-size:10px; color:var(--dim); margin-top:1px; }
+  .knob .kval { font-size:10px; color:var(--txt); font-family:Consolas,monospace; }
+  .row { display:flex; align-items:center; gap:8px; margin:4px 0; }
+  .row label { color:var(--dim); }
+  input[type=number], input[type=text] { width:64px; background:var(--panel2);
+       border:1px solid var(--line); color:var(--txt); border-radius:4px; padding:3px 6px; }
+  input[type=text] { width:120px; }
+  select { background:var(--panel2); border:1px solid var(--line); color:var(--txt); border-radius:4px; padding:3px 6px; }
+  button { background:var(--panel2); border:1px solid var(--line); color:var(--txt);
+           border-radius:4px; padding:4px 11px; cursor:pointer; font-size:12px; }
+  button:hover { border-color:var(--acc); color:var(--acc); }
+  button.primary { background:var(--acc); color:#14171c; font-weight:600; border:none; }
+  button.primary:hover { filter:brightness(1.15); color:#000; }
+  .ptable { width:100%; border-collapse:collapse; }
+  .ptable td { padding:2px 4px; }
+  .ptable input { width:66px; }
+  canvas.disp { background:#0c0e12; border:1px solid var(--line); border-radius:6px; width:100%; }
+  #wave { height:110px; } #spec { height:120px; }
+  #piano { height:80px; cursor:pointer; }
+  .presets { display:flex; flex-wrap:wrap; gap:5px; }
+  .presets button { font-size:11px; padding:3px 9px; }
+  .toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  textarea { width:100%; height:100px; background:var(--panel2); border:1px solid var(--line);
+             color:var(--txt); border-radius:6px; font:11px/1.4 Consolas,monospace; padding:8px; resize:vertical; }
+  .hint { color:var(--dim); font-size:11px; }
+  .layerbox { border:1px solid var(--line); border-radius:5px; padding:6px 8px; margin:8px 0; background:var(--panel2); }
+  .layerbox h3 { margin:0 0 2px; font-size:11px; color:var(--txt); display:flex; justify-content:space-between; }
+  .layerbox h3 .del { color:var(--bad); cursor:pointer; }
+  .eqband { border-top:1px dashed var(--line); padding-top:4px; margin-top:4px; }
+  .eqband .bname { color:var(--ok); font-weight:600; font-size:10px; cursor:pointer; }
+  .eqband .bname.on { color:var(--grn); }
+  .eqband.off .knobs { opacity:.3; pointer-events:none; }
+  .eqband.off .bname { color:var(--dim); }
+  .sfile { display:block; width:100%; text-align:left; margin:2px 0; font-size:11px; padding:4px 8px; }
+  .sfile:hover { background:#2a3140; }
+  .sfile.cur { border-color:var(--ok); color:var(--ok); }
+  .chk { display:flex; align-items:center; gap:6px; color:var(--dim); font-size:11px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🔊 AUDIO STUDIO</h1>
+  <div id="hintbar">hover a control — this bar tells you what it does · SPACE = preview · drag knobs vertically, ⇧ = fine, wheel = step, double-click = reset, click value = type</div>
+</header>
+<div class="wrap">
+  <div class="left">
+    <div class="panel">
+      <h2>Presets</h2>
+      <div class="presets" id="presets"></div>
+      <div class="row" style="margin-top:6px"><label>name</label><input type="text" id="rName" value="new_sound">
+        <input type="number" id="rSeed" value="1337" style="width:56px">
+        <button id="btnVariant" title="seed++ and preview — roll until it sounds right">🎲</button></div>
+    </div>
+    <div class="panel">
+      <h2>Master</h2>
+      <div class="knobs" id="masterKnobs"></div>
+    </div>
+    <div class="panel">
+      <h2>Pitch / Note</h2>
+      <div class="knobs" id="pitchKnobs"></div>
+      <div class="chk" style="margin-top:4px"><input type="checkbox" id="rCouple" checked>
+        <label for="rCouple">couple decay to pitch (higher = shorter ring)</label></div>
+    </div>
+    <div class="panel">
+      <h2>Envelope</h2>
+      <div class="row"><label>mode</label><select id="rEnv">
+        <option value="exp">exponential decay (per-layer)</option>
+        <option value="adsr">ADSR (global)</option></select></div>
+      <div class="knobs" id="envKnobs"></div>
+    </div>
+    <div class="panel">
+      <h2>Parametric EQ <span class="hint">click band name = on/off</span></h2>
+      <div id="eqBands"></div>
+    </div>
+    <div class="panel">
+      <h2>Echo / Space</h2>
+      <div class="knobs" id="echoKnobs"></div>
+      <div class="chk" style="margin-top:4px"><input type="checkbox" id="echoOn">
+        <label for="echoOn">enable echo (alley bounce — needs duration room for the tail)</label></div>
+    </div>
+    <div class="panel">
+      <h2>Layers <button id="addLayer" style="float:right;font-size:10px">+ add</button></h2>
+      <div id="layers"></div>
+    </div>
+  </div>
+  <div class="right">
+    <div class="panel" style="margin-bottom:0">
+      <h2>Sound Library <span class="hint">project sounds dir — load for further work, save straight back</span></h2>
+      <div class="toolbar" style="margin-bottom:6px">
+        <button id="btnReconnect" style="display:none;border-color:var(--acc);color:var(--acc)">↻ reconnect catalog</button>
+        <button id="btnBrowseDir">📁 set sounds folder</button>
+        <button id="btnRescan">↻ rescan</button>
+        <button id="btnSave">💾 save</button>
+        <button id="btnImportFile">📥 import file</button>
+        <span class="hint" id="dirLabel">pick once — remembered across sessions</span>
+      </div>
+      <div id="soundList"></div>
+    </div>
+    <div class="toolbar">
+      <button class="primary" id="btnPlay" title="or press SPACE anywhere">▶ PREVIEW</button>
+      <button id="btnStop">■ stop</button>
+      <span class="hint" id="stats"></span>
+    </div>
+    <canvas class="disp" id="wave"></canvas>
+    <canvas class="disp" id="spec" title="live spectrum + EQ response curve (orange)"></canvas>
+    <div class="panel" style="margin-bottom:0">
+      <h2>Piano Roll <span class="hint">click a key — lower on the key = higher velocity · ◂ ▸ shift window</span></h2>
+      <div class="toolbar" style="margin-bottom:6px">
+        <button id="octDown">◂</button><span id="octLabel" class="hint"></span><button id="octUp">▸</button>
+        <span class="hint" id="noteInfo"></span>
+      </div>
+      <canvas class="disp" id="piano"></canvas>
+    </div>
+    <div class="panel">
+      <h2>Recipe JSON (.stsound)</h2>
+      <div class="toolbar" style="margin-bottom:6px">
+        <button id="btnExport">⟶ refresh JSON</button>
+        <button id="btnDownload">⬇ download</button>
+        <button id="btnImport">⟵ import from box</button>
+      </div>
+      <textarea id="jsonBox"></textarea>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const RATE = 44100;
+let actx = null, liveSrc = null, analyser = null, specRAF = 0;
+
+// ---------- hint bar (FL-style: every control explains itself)
+const hintbar = $("hintbar");
+function setHint(t){ hintbar.textContent = t || hintbar.dataset.def; }
+hintbar.dataset.def = hintbar.textContent;
+
+// ---------- seeded RNG (mulberry32 — bit-exact with Unity's ProceduralAudio)
+function mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0;
+  let t=Math.imul(a^a>>>15,1|a); t=(t+Math.imul(t^t>>>7,61|t))^t;
+  return ((t^t>>>14)>>>0)/4294967296; }; }
+
+const NOTE_NAMES=["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+const noteName = m => NOTE_NAMES[m%12] + (Math.floor(m/12)-1);
+const isBlack = m => [1,3,6,8,10].includes(m%12);
+
+// ---------- recipe model v3
+function defaultRecipe(){
+  return { name:"new_sound", version:3, sampleRate:RATE, duration:0.28, seed:1337,
+    envelope:{mode:"exp"}, gain:0.8, drive:1.0, phaseStep:1.7,
+    rootNote:60, pitch:0, coupleDecay:true, tailFade:0.04,
+    eq:[
+      {type:"lowshelf",  hz:250,  gainDb:0, q:0.7, on:false},
+      {type:"peaking",   hz:900,  gainDb:0, q:1.0, on:false},
+      {type:"peaking",   hz:3200, gainDb:0, q:1.0, on:false},
+      {type:"highshelf", hz:8000, gainDb:0, q:0.7, on:false}],
+    echo:{on:false, time:0.09, feedback:0.35, mix:0.25},
+    layers:[
+      {type:"attack",   amp:0.50, decay:60},
+      {type:"partials", amp:1.0,  decay:24, partials:[{hz:2800,amp:0.5},{hz:3900,amp:0.25},{hz:5600,amp:0.167}]},
+      {type:"noiseTail",amp:0.175,decay:24, lowpass:20000}
+    ]};
+}
+
+const PRESETS = {
+  glass_tink:{ name:"glass_tink", duration:0.14, seed:1337, layers:[
+    {type:"attack",amp:0.30,decay:60},
+    {type:"partials",amp:1,decay:45,partials:[{hz:5200,amp:0.5},{hz:7400,amp:0.25}]},
+    {type:"noiseTail",amp:0.105,decay:45,lowpass:20000}]},
+  glass_crack:{ name:"glass_crack", duration:0.28, seed:1338, layers:[
+    {type:"attack",amp:0.50,decay:60},
+    {type:"partials",amp:1,decay:24,partials:[{hz:2800,amp:0.5},{hz:3900,amp:0.25},{hz:5600,amp:0.167}]},
+    {type:"noiseTail",amp:0.175,decay:24,lowpass:20000}]},
+  glass_crash:{ name:"glass_crash", duration:0.55, seed:1339, layers:[
+    {type:"attack",amp:0.85,decay:60},
+    {type:"partials",amp:1,decay:10,partials:[{hz:1500,amp:0.5},{hz:2200,amp:0.25},{hz:3100,amp:0.167},{hz:4700,amp:0.125}]},
+    {type:"noiseTail",amp:0.2975,decay:10,lowpass:20000}]},
+  gunshot:{ name:"gunshot", duration:0.45, seed:42, drive:3.0, tailFade:0.06,
+    echo:{on:true,time:0.09,feedback:0.35,mix:0.28}, layers:[
+    {type:"attack",amp:0.90,decay:120},
+    {type:"partials",amp:1,decay:35,partials:[{hz:180,amp:0.9},{hz:320,amp:0.5},{hz:520,amp:0.3}]},
+    {type:"noiseTail",amp:0.50,decay:8,lowpass:4000}]},
+  ricochet:{ name:"ricochet", duration:0.50, seed:77, layers:[
+    {type:"attack",amp:0.35,decay:80},
+    {type:"sweep",amp:0.40,decay:12,startHz:3200,endHz:900},
+    {type:"partials",amp:0.6,decay:14,partials:[{hz:2400,amp:0.3},{hz:4100,amp:0.15}]}]},
+  footstep:{ name:"footstep", duration:0.12, seed:11, layers:[
+    {type:"attack",amp:0.40,decay:90},
+    {type:"noiseTail",amp:0.35,decay:30,lowpass:800}]},
+  metal_clang:{ name:"metal_clang", duration:0.60, seed:5, layers:[
+    {type:"attack",amp:0.40,decay:80},
+    {type:"partials",amp:1,decay:15,partials:[{hz:500,amp:0.7},{hz:1380,amp:0.4},{hz:2700,amp:0.25}]},
+    {type:"noiseTail",amp:0.08,decay:15,lowpass:8000}]},
+  ui_blip:{ name:"ui_blip", duration:0.15, seed:1, layers:[
+    {type:"partials",amp:0.6,decay:25,partials:[{hz:880,amp:1.0}]}]},
+  thud:{ name:"thud", duration:0.18, seed:9, drive:1.8, layers:[
+    {type:"attack",amp:0.60,decay:100},
+    {type:"partials",amp:1,decay:40,partials:[{hz:120,amp:0.7},{hz:200,amp:0.3}]},
+    {type:"noiseTail",amp:0.20,decay:40,lowpass:600}]},
+  engine_idle:{ name:"engine_idle", duration:1.0, seed:3, layers:[
+    {type:"partials",amp:1,decay:2,partials:[{hz:60,amp:0.8},{hz:120,amp:0.4},{hz:180,amp:0.2}]},
+    {type:"noiseTail",amp:0.15,decay:2,lowpass:500}]}
+};
+
+let recipe = defaultRecipe();
+
+// ---------- knob component (FL-style rotary: drag vertical, shift=fine, wheel=step,
+// dbl-click=reset, CLICK THE VALUE = type exact value — parses units: ms, k, %, m:ss, note names)
+const NOTE_PARSE = /^([a-gA-G])([#b]?)(-?\d+)$/;
+function noteFromName(s){ const m=NOTE_PARSE.exec(s); if(!m)return NaN;
+  const semis={c:0,d:2,e:4,f:5,g:7,a:9,b:11}[m[1].toLowerCase()];
+  const acc=m[2]==="#"?1:m[2]==="b"?-1:0;
+  return (parseInt(m[3])+1)*12+semis+acc; }
+
+function parseVal(str,o){
+  str=(str||"").trim();
+  if(o.parse) return o.parse(str);
+  const s=str.toLowerCase();
+  switch(o.unit){
+    case "sec":{ const mm=s.match(/^(\d+):(\d+(?:\.\d+)?)$/);
+      if(mm) return +mm[1]*60+ +mm[2];
+      if(s.endsWith("ms")) return parseFloat(s)/1000;
+      return parseFloat(s); }
+    case "ms":  return parseFloat(s.replace("ms",""))/1000;
+    case "hz":  if(s.endsWith("k")) return parseFloat(s)*1000;
+                return parseFloat(s.replace("hz","").replace("khz",""))* (s.includes("khz")?1000:1);
+    case "pct": return parseFloat(s.replace("%",""))/100;
+    case "rt60":{ const ms=parseFloat(s.replace("ms",""))/1000;   // ring time → exp rate λ=6.9/t
+                  return ms>1e-4 ? 6.9078/ms : NaN; }
+    case "note":{ const nn=noteFromName(s); if(!isNaN(nn))return nn;
+                  return parseFloat(s); }
+    default: return parseFloat(s.replace(/[^\d.\-+e]/g,""));
+  }
+}
+
+function knob(host, o){
+  const div=document.createElement("div"); div.className="knob"; div.title=o.tip||"";
+  const cv=document.createElement("canvas"); const dpr=devicePixelRatio||1;
+  cv.width=42*dpr; cv.height=42*dpr;
+  const lab=document.createElement("div"); lab.className="klab"; lab.textContent=o.label;
+  const val=document.createElement("div"); val.className="kval";
+  val.style.cursor="text"; val.title="click to type exact value";
+  div.append(cv,lab,val); host.appendChild(div);
+  const get = o.get, set = v => { o.set(v); draw(); live(); };
+  const fmt = o.fmt || (v=>+v.toFixed(2));
+  const clamp = v => Math.min(o.hardMax??o.max, Math.max(o.min, v));
+  function draw(){
+    const x=cv.getContext("2d"); x.clearRect(0,0,cv.width,cv.height);
+    const cx=cv.width/2, cy=cv.height/2, R=cv.width*0.40;
+    const v=get(), k=Math.min(1,Math.max(0,(v-o.min)/(o.max-o.min)));
+    const a0=Math.PI*0.75, a1=Math.PI*2.25, av=a0+(a1-a0)*k;
+    x.lineWidth=3.5*dpr; x.lineCap="round";
+    x.strokeStyle="#2c3442"; x.beginPath(); x.arc(cx,cy,R,a0,a1); x.stroke();
+    x.strokeStyle=o.color||"#e8a33d"; x.beginPath(); x.arc(cx,cy,R,a0,Math.max(a0+0.001,av)); x.stroke();
+    x.strokeStyle="#e8ecf4"; x.lineWidth=2*dpr; x.beginPath();
+    x.moveTo(cx+Math.cos(av)*R*0.55, cy+Math.sin(av)*R*0.55);
+    x.lineTo(cx+Math.cos(av)*R*0.9, cy+Math.sin(av)*R*0.9); x.stroke();
+    val.textContent=fmt(v);
+  }
+  // click value → type exact (parses units; may exceed drag range up to hardMax)
+  val.onclick=e=>{
+    e.stopPropagation();
+    const inp=document.createElement("input");
+    inp.type="text"; inp.value=fmt(get());
+    inp.style.cssText="width:58px;background:#0c0e12;border:1px solid var(--acc);color:var(--txt);font:10px Consolas,monospace;text-align:center;border-radius:3px";
+    val.replaceWith(inp); inp.focus(); inp.select();
+    const done=commit=>{ const v=parseVal(inp.value,o);
+      if(commit&&!isNaN(v)) set(clamp(v));
+      inp.replaceWith(val); draw(); };
+    inp.onkeydown=ev=>{ if(ev.key==="Enter")done(true); if(ev.key==="Escape")done(false); };
+    inp.onblur=()=>done(true);
+  };
+  let dragging=false, sy=0, sv=0;
+  cv.addEventListener("mousedown",e=>{dragging=true;sy=e.clientY;sv=get();e.preventDefault();});
+  window.addEventListener("mousemove",e=>{ if(!dragging)return;
+    const scale=e.shiftKey?900:150;
+    set(clamp(sv-(e.clientY-sy)*(o.max-o.min)/scale)); });
+  window.addEventListener("mouseup",()=>dragging=false);
+  cv.addEventListener("wheel",e=>{e.preventDefault();
+    const st=o.step||(o.max-o.min)*0.02;
+    set(clamp(get()+(e.deltaY<0?st:-st)));});
+  cv.addEventListener("dblclick",()=>set(o.def));
+  div.addEventListener("mouseenter",()=>setHint(`<b>${o.label}</b> — ${o.tip}`));
+  div.addEventListener("mouseleave",()=>setHint());
+  draw();
+  return div;
+}
+
+// ---------- biquads (RBJ cookbook — mirrored by ProceduralAudio.cs)
+function biquadCoeffs(type, fc, gainDb, Q){
+  const A=Math.pow(10,gainDb/40), w=2*Math.PI*Math.min(fc,RATE*0.49)/RATE;
+  const cw=Math.cos(w), sw=Math.sin(w), alpha=sw/(2*Q), S=2*Math.sqrt(A)*alpha;
+  let b0,b1,b2,a0,a1,a2;
+  if(type==="peaking"){ b0=1+alpha*A; b1=-2*cw; b2=1-alpha*A; a0=1+alpha/A; a1=-2*cw; a2=1-alpha/A; }
+  else if(type==="lowshelf"){ b0=A*((A+1)-(A-1)*cw+S); b1=2*A*((A-1)-(A+1)*cw); b2=A*((A+1)-(A-1)*cw-S);
+    a0=(A+1)+(A-1)*cw+S; a1=-2*((A-1)+(A+1)*cw); a2=(A+1)+(A-1)*cw-S; }
+  else { b0=A*((A+1)+(A-1)*cw+S); b1=-2*A*((A-1)+(A+1)*cw); b2=A*((A+1)+(A-1)*cw-S);
+    a0=(A+1)-(A-1)*cw+S; a1=2*((A-1)-(A+1)*cw); a2=(A+1)-(A-1)*cw-S; }
+  return {b0:b0/a0,b1:b1/a0,b2:b2/a0,a1:a1/a0,a2:a2/a0};
+}
+function applyBiquad(data,c){
+  let x1=0,x2=0,y1=0,y2=0;
+  for(let i=0;i<data.length;i++){ const x0=data[i];
+    data[i]=c.b0*x0+c.b1*x1+c.b2*x2-c.a1*y1-c.a2*y2;
+    x2=x1;x1=x0;y2=y1;y1=data[i]; }
+}
+function biquadMag(c,f){
+  const w=2*Math.PI*f/RATE, cosw=Math.cos(w), cos2w=Math.cos(2*w);
+  const num=c.b0*c.b0+c.b1*c.b1+c.b2*c.b2+2*(c.b0*c.b1+c.b1*c.b2)*cosw+2*c.b0*c.b2*cos2w;
+  const den=1+c.a1*c.a1+c.a2*c.a2+2*(c.a1+c.a1*c.a2)*cosw+2*c.a2*cos2w;
+  return Math.sqrt(num/den);
+}
+
+// ---------- synthesis
+function envOf(r,L,t,ds){
+  const e=r.envelope;
+  if(e.mode==="adsr"){
+    const a=e.attack??0.005, d=e.decay??0.1, s=e.sustain??0.4, rel=e.release??0.2, T=r.duration;
+    if(t<a) return t/a;
+    if(t<a+d) return 1-(1-s)*((t-a)/d);
+    if(t>T-rel) return s*Math.max(0,(T-t)/rel);
+    return s;
+  }
+  return Math.exp(-(L.decay??20)*ds*t);
+}
+
+function render(r, note, vel){
+  note = note ?? r.rootNote; vel = vel ?? 1;
+  const semi=(note-(r.rootNote??60))+(r.pitch??0);
+  const fs_=Math.pow(2,semi/12), ds=r.coupleDecay?Math.max(fs_,0.05):1;
+  const n=Math.floor(RATE*r.duration);
+  const out=new Float32Array(n), rng=mulberry32((r.seed|0)||0);
+  const st=r.layers.map(()=>({lp:0,phase:0}));
+  for(let i=0;i<n;i++){
+    const t=i/RATE; let v=0;
+    for(let li=0;li<r.layers.length;li++){
+      const L=r.layers[li],S=st[li],env=envOf(r,L,t,ds);
+      if(L.type==="attack") v+=(rng()*2-1)*L.amp*Math.exp(-L.decay*ds*t);
+      else if(L.type==="partials"){
+        const ps=L.partials||[];
+        for(let p=0;p<ps.length;p++)
+          v+=Math.sin(2*Math.PI*ps[p].hz*fs_*t+p*(r.phaseStep??1.7))*ps[p].amp*(L.amp??1)*env;
+      } else if(L.type==="noiseTail"){
+        const x=rng()*2-1, fc=Math.min((L.lowpass??20000)*fs_,RATE*0.49);
+        const a=fc>=RATE*0.49?1:1-Math.exp(-2*Math.PI*fc/RATE);
+        S.lp=a*x+(1-a)*S.lp; v+=S.lp*L.amp*env;
+      } else if(L.type==="sweep"){
+        const k=t/r.duration;
+        S.phase+=2*Math.PI*((L.startHz??2000)+((L.endHz??800)-(L.startHz??2000))*k)*fs_/RATE;
+        v+=Math.sin(S.phase)*L.amp*env;
+      }
+    }
+    out[i]=v;
+  }
+  for(const b of (r.eq||[])) if(b.on&&b.gainDb!==0) applyBiquad(out,biquadCoeffs(b.type,b.hz,b.gainDb,b.q));
+  if(r.echo&&r.echo.on){
+    const d=Math.max(1,Math.floor(RATE*r.echo.time)), fb=r.echo.feedback, mix=r.echo.mix;
+    const dry=out.slice(), wet=new Float32Array(n);
+    for(let i=d;i<n;i++) wet[i]=dry[i]+wet[i-d]*fb;
+    for(let i=0;i<n;i++) out[i]=dry[i]*(1-mix)+wet[i]*mix;
+  }
+  const drv=r.drive??1, g=(r.gain??0.8)*vel;
+  for(let i=0;i<n;i++) out[i]=Math.max(-1,Math.min(1,Math.tanh(out[i]*drv)))*g;
+  const tf=Math.max(0.005,r.tailFade??0.04), tfn=Math.floor(RATE*tf);   // click guard
+  for(let i=Math.max(0,n-tfn);i<n;i++){ const k=(n-i)/tfn; out[i]*=0.5+0.5*Math.cos(Math.PI*(1-k)); }
+  return out;
+}
+
+// ---------- panels with knobs
+const EQ_BANDS=[["lowshelf","Low Shelf"],["peaking","Peak 1"],["peaking","Peak 2"],["highshelf","High Shelf"]];
+let octBase=2, lastNote=null, lastVel=1;
+
+function buildMaster(){
+  const h=$("masterKnobs"); h.innerHTML="";
+  knob(h,{label:"duration",min:0.03,max:10,hardMax:30,def:0.28,unit:"sec",
+    get:()=>recipe.duration,set:v=>recipe.duration=v,
+    fmt:v=>{const m=Math.floor(v/60),sc=v-m*60;return m+":"+(sc<10?"0":"")+sc.toFixed(2)},
+    tip:"total clip length in m:ss — click the value to type (e.g. 1.5, 0:02.5, 1500ms). Leave room for tails/echo"});
+  knob(h,{label:"gain",min:0.05,max:1,def:0.8,get:()=>recipe.gain,set:v=>recipe.gain=v,
+    fmt:v=>v.toFixed(2),tip:"master level after all processing — velocity multiplies this at play time"});
+  knob(h,{label:"drive",min:1,max:8,def:1,get:()=>recipe.drive,set:v=>recipe.drive=v,color:"#e05c5c",
+    fmt:v=>v.toFixed(1)+"x",tip:"tanh soft-clip saturation — squash transients into harmonics (gunshots, impacts)"});
+  knob(h,{label:"tail fade",min:0,max:0.3,def:0.04,unit:"ms",get:()=>recipe.tailFade??0.04,set:v=>recipe.tailFade=v,
+    fmt:v=>(v*1000).toFixed(0)+"ms",tip:"raised-cosine fade on the buffer's last ms — kills the abrupt cutoff click"});
+}
+function buildPitch(){
+  const h=$("pitchKnobs"); h.innerHTML="";
+  knob(h,{label:"pitch",min:-24,max:24,def:0,get:()=>recipe.pitch,set:v=>recipe.pitch=v,
+    fmt:v=>(v>0?"+":"")+v.toFixed(1)+"st",tip:"transposes every Hz-domain param — partials, sweeps, filters all move together. type e.g. -7 or +12.5"});
+  knob(h,{label:"root note",min:24,max:96,def:60,step:1,unit:"note",get:()=>recipe.rootNote??60,set:v=>recipe.rootNote=Math.round(v),
+    fmt:v=>noteName(Math.round(v)),tip:"the MIDI note this recipe was authored at — type a note name (C4, F#2) or number"});
+}
+function buildEnv(){
+  const h=$("envKnobs"); h.innerHTML="";
+  if($("rEnv").value!=="adsr"){ h.innerHTML='<span class="hint">exp mode: each layer knob sets its own decay — bigger decay = shorter ring</span>'; return; }
+  const e=recipe.envelope;
+  knob(h,{label:"attack",min:0.001,max:0.3,def:0.005,unit:"ms",get:()=>e.attack,set:v=>e.attack=v,fmt:v=>(v*1000).toFixed(0)+"ms",tip:"time to reach full level"});
+  knob(h,{label:"decay",min:0.01,max:1,def:0.1,unit:"ms",get:()=>e.decay,set:v=>e.decay=v,fmt:v=>(v*1000).toFixed(0)+"ms",tip:"fall from peak to sustain level"});
+  knob(h,{label:"sustain",min:0,max:1,def:0.4,get:()=>e.sustain,set:v=>e.sustain=v,fmt:v=>v.toFixed(2),tip:"held level until release"});
+  knob(h,{label:"release",min:0.01,max:1,def:0.2,unit:"ms",get:()=>e.release,set:v=>e.release=v,fmt:v=>(v*1000).toFixed(0)+"ms",tip:"falloff after sustain — tail character"});
+}
+function buildEcho(){
+  const h=$("echoKnobs"); h.innerHTML="";
+  const ec=recipe.echo;
+  knob(h,{label:"time",min:0.02,max:0.5,def:0.09,unit:"ms",get:()=>ec.time,set:v=>ec.time=v,
+    fmt:v=>(v*1000).toFixed(0)+"ms",tip:"delay between repeats — ~80-120ms reads as alley/canyon bounce"});
+  knob(h,{label:"feedback",min:0,max:0.9,def:0.35,unit:"pct",get:()=>ec.feedback,set:v=>ec.feedback=v,
+    fmt:v=>(v*100).toFixed(0)+"%",tip:"how much of each repeat feeds back — more = longer echo trail"});
+  knob(h,{label:"mix",min:0,max:1,def:0.25,unit:"pct",get:()=>ec.mix,set:v=>ec.mix=v,
+    fmt:v=>(v*100).toFixed(0)+"%",tip:"wet/dry blend — small amounts add space without changing the hit"});
+}
+function buildEQ(){
+  const box=$("eqBands"); box.innerHTML="";
+  recipe.eq.forEach((b,i)=>{
+    const div=document.createElement("div"); div.className="eqband"+(b.on?"":" off");
+    const nm=document.createElement("span"); nm.className="bname"+(b.on?" on":"");
+    nm.textContent=`${EQ_BANDS[i][1]} (${b.type})`;
+    nm.title="click to toggle this band";
+    nm.onclick=()=>{b.on=!b.on; div.className="eqband"+(b.on?"":" off"); nm.className="bname"+(b.on?" on":""); live();};
+    div.appendChild(nm);
+    const ks=document.createElement("div"); ks.className="knobs"; div.appendChild(ks);
+    knob(ks,{label:"freq",min:20,max:18000,hardMax:22000,def:b.hz,unit:"hz",get:()=>b.hz,set:v=>b.hz=v,
+      fmt:v=>v>=1000?(v/1000).toFixed(1)+"k":v.toFixed(0),tip:"center/corner frequency — type 440 or 4.2k"});
+    knob(ks,{label:"gain",min:-18,max:18,def:0,get:()=>b.gainDb,set:v=>b.gainDb=v,color:"#57c785",
+      fmt:v=>(v>0?"+":"")+v.toFixed(1)+"dB",tip:"boost or cut — the orange line on the spectrum shows the EQ curve"});
+    knob(ks,{label:"Q",min:0.2,max:8,def:1,get:()=>b.q,set:v=>b.q=v,
+      fmt:v=>v.toFixed(1),tip:"bandwidth — high Q = surgical notch/boost, low Q = broad shaping"});
+    box.appendChild(div);
+  });
+}
+function buildLayers(){
+  const box=$("layers"); box.innerHTML="";
+  recipe.layers.forEach((L,idx)=>{
+    const d=document.createElement("div"); d.className="layerbox";
+    d.innerHTML=`<h3>${layerTypes[L.type]||L.type} <span class="del">✕</span></h3>`;
+    const ks=document.createElement("div"); ks.className="knobs"; d.appendChild(ks);
+    const tips={
+      attack:"broadband click at t=0 — the strike. amp = punch, decay = click length (higher = sharper)",
+      partials:"resonant sine stack — this is the TONE. inharmonic = glass/metal, harmonic = wood/body",
+      noiseTail:"filtered noise decay — the crunch/texture. lowpass shapes it (low = thud, high = sizzle)",
+      sweep:"frequency that slides — descending = ricochet whine, whistles"};
+    const kt=tips[L.type]||"";
+    knob(ks,{label:"amp",min:0,max:1.5,def:0.5,get:()=>L.amp,set:v=>L.amp=v,tip:kt});
+    knob(ks,{label:"ring",min:1,max:L.type==="attack"?200:120,def:L.type==="attack"?60:24,unit:"rt60",
+      get:()=>L.decay,set:v=>L.decay=v,
+      fmt:v=>(6.9078/v*1000).toFixed(0)+"ms",
+      tip:"RING TIME — how long this layer sounds (ms to silence). type e.g. 250ms — drag left = longer ring"});
+    if(L.type==="noiseTail")
+      knob(ks,{label:"lowpass",min:100,max:20000,def:4000,unit:"hz",get:()=>L.lowpass,set:v=>L.lowpass=v,
+        fmt:v=>v>=1000?(v/1000).toFixed(1)+"k":v.toFixed(0),tip:"noise texture filter — type 800 or 8k; low = dirt/thud, high = air/sizzle"});
+    if(L.type==="sweep"){
+      knob(ks,{label:"start",min:50,max:8000,def:2000,unit:"hz",get:()=>L.startHz,set:v=>L.startHz=v,fmt:v=>v.toFixed(0)+"Hz",tip:"where the sweep begins"});
+      knob(ks,{label:"end",min:50,max:8000,def:800,unit:"hz",get:()=>L.endHz,set:v=>L.endHz=v,fmt:v=>v.toFixed(0)+"Hz",tip:"where the sweep lands"});
+    }
+    if(L.type==="partials"){
+      const t=document.createElement("table"); t.className="ptable";
+      (L.partials||[]).forEach((pt,pi)=>{
+        const tr=document.createElement("tr");
+        tr.innerHTML=`<td><input type="number" value="${pt.hz}" step="10"></td><td>Hz</td>
+          <td><input type="number" value="${pt.amp}" step="0.01"></td><td>amp</td>
+          <td><button class="del">✕</button></td>`;
+        const [hz,amp]=tr.querySelectorAll("input");
+        hz.oninput=()=>{pt.hz=+hz.value; live();};
+        amp.oninput=()=>{pt.amp=+amp.value; live();};
+        tr.querySelector(".del").onclick=()=>{L.partials.splice(pi,1); buildLayers(); live();};
+        t.appendChild(tr);
+      });
+      d.appendChild(t);
+      const add=document.createElement("button"); add.textContent="+ partial"; add.style.fontSize="10px";
+      add.title="add a resonant sine — stack harmonics (×2,×3) for body or inharmonic for glass/metal";
+      add.onclick=()=>{L.partials.push({hz:1000,amp:0.2}); buildLayers(); live();};
+      d.appendChild(add);
+      const ga=document.createElement("button"); ga.textContent="glass amps"; ga.style.fontSize="10px"; ga.style.marginLeft="6px";
+      ga.title="amp = 0.5/(n+1) per partial — the glass recipe spacing";
+      ga.onclick=()=>{L.partials.forEach((pt,p)=>pt.amp=0.5/(p+1)); buildLayers(); live();};
+      d.appendChild(ga);
+    }
+    d.querySelector("h3 .del").onclick=()=>{recipe.layers.splice(idx,1); buildLayers(); live();};
+    box.appendChild(d);
+  });
+}
+const layerTypes={attack:"attack click",partials:"partials",noiseTail:"noise tail",sweep:"freq sweep"};
+
+// ---------- sound library — persistent live catalog of StreamingAssets/sounds
+// The dir handle is stored in IndexedDB: pick once, catalog re-binds on every
+// page load. Browsers may require one click (↻ reconnect) if permission lapsed.
+let soundsDir=null, curFile=null, curDirty=false, curBtn=null, pendingDir=null;
+function idb(){ return new Promise((res,rej)=>{ const r=indexedDB.open("audio_studio",1);
+  r.onupgradeneeded=()=>r.result.createObjectStore("kv");
+  r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
+async function idbSet(k,v){ const db=await idb(); return new Promise((res,rej)=>{
+  const t=db.transaction("kv","readwrite"); t.objectStore("kv").put(v,k);
+  t.oncomplete=res; t.onerror=()=>rej(t.error); }); }
+async function idbGet(k){ const db=await idb(); return new Promise((res,rej)=>{
+  const t=db.transaction("kv","readonly"); const q=t.objectStore("kv").get(k);
+  q.onsuccess=()=>res(q.result); q.onerror=()=>rej(q.error); }); }
+function markDirty(){ curDirty=true; if(curBtn&&curFile&&!curBtn.textContent.endsWith("*"))curBtn.textContent="● "+curFile+" *"; }
+function bindDir(h){ soundsDir=h; pendingDir=null;
+  $("btnReconnect").style.display="none"; refreshSoundList(); }
+async function refreshSoundList(){
+  const list=$("soundList"); list.innerHTML=""; curBtn=null;
+  if(!soundsDir) return;
+  $("dirLabel").textContent=soundsDir.name+"/  (catalog live)";
+  const handles=[];
+  for await(const h of soundsDir.values())
+    if(h.kind==="file"&&h.name.endsWith(".stsound")) handles.push(h);
+  handles.sort((a,b)=>a.name.localeCompare(b.name));
+  for(const h of handles){
+    const cur=curFile===h.name;
+    const b=document.createElement("button"); b.className="sfile"+(cur?" cur":"");
+    b.textContent=(cur?"● ":"  ")+h.name+(cur&&curDirty?" *":"");
+    b.title="load "+h.name;
+    if(cur)curBtn=b;
+    b.onclick=async()=>{ try{
+      const f=await h.getFile(); const txt=await f.text();
+      recipe=Object.assign(defaultRecipe(),JSON.parse(txt));
+      curFile=h.name; curDirty=false; refreshSoundList(); syncUIFromRecipe(); preview(); }
+      catch(e){alert("load failed: "+e.message);} };
+    list.appendChild(b);
+  }
+  if(!handles.length) list.innerHTML='<span class="hint">no .stsound files here yet — 💾 save creates one</span>';
+}
+$("btnBrowseDir").onclick=async()=>{ try{
+  const h=await showDirectoryPicker({mode:"readwrite"});
+  await idbSet("soundsDir",h); bindDir(h); }catch(e){} };
+$("btnRescan").onclick=()=>refreshSoundList();
+$("btnReconnect").onclick=async()=>{ if(!pendingDir)return;
+  try{ if(await pendingDir.requestPermission({mode:"readwrite"})==="granted") bindDir(pendingDir); }
+  catch(e){} };
+$("btnSave").onclick=async()=>{ if(!soundsDir){alert("no sounds folder bound — click 📁 first");return;}
+  try{ const nm=(recipe.name||"sound")+".stsound";
+    const h=await soundsDir.getFileHandle(nm,{create:true});
+    const w=await h.createWritable(); await w.write(JSON.stringify(recipe,null,1)); await w.close();
+    curFile=nm; curDirty=false; refreshSoundList();
+    $("dirLabel").textContent=soundsDir.name+"/ — saved "+nm;
+  }catch(e){alert("save failed: "+e.message);} };
+$("btnImportFile").onclick=()=>{
+  const inp=document.createElement("input"); inp.type="file"; inp.accept=".stsound,.json";
+  inp.onchange=async()=>{ const f=inp.files[0]; if(!f)return;
+    try{ recipe=Object.assign(defaultRecipe(),JSON.parse(await f.text()));
+      curFile=null; curDirty=false; syncUIFromRecipe(); preview(); }catch(e){alert("bad JSON: "+e.message);} };
+  inp.click(); };
+// boot: re-attach the remembered catalog silently (or offer one-click reconnect)
+(async()=>{ try{
+  const h=await idbGet("soundsDir"); if(!h)return;
+  if(await h.queryPermission({mode:"readwrite"})==="granted") bindDir(h);
+  else { pendingDir=h; $("btnReconnect").style.display="";
+    $("dirLabel").textContent=h.name+"/ — permission needed, click ↻ reconnect"; }
+}catch(e){} })();
+
+// ---------- piano roll
+function drawPiano(){
+  const c=$("piano"),x=c.getContext("2d");
+  c.width=c.clientWidth*devicePixelRatio; c.height=c.clientHeight*devicePixelRatio;
+  const lo=octBase*12+12,hi=lo+36;
+  let whites=0; for(let m=lo;m<hi;m++) if(!isBlack(m))whites++;
+  const ww=c.width/whites,bh=c.height,kh=bh*0.62;
+  x.clearRect(0,0,c.width,c.height); let wi=0;
+  for(let m=lo;m<hi;m++){ if(isBlack(m))continue;
+    const px=wi++*ww;
+    x.fillStyle=m===lastNote?"#e8a33d":(m===(recipe.rootNote??60)?"#d9e2f0":"#f4f6fa");
+    x.fillRect(px,0,ww-1,bh); x.strokeStyle="#8a93a5"; x.strokeRect(px,0,ww-1,bh);
+    if(m%12===0){x.fillStyle="#7d8799";x.font=`${10*devicePixelRatio}px monospace`;
+      x.fillText(noteName(m),px+3,bh-4*devicePixelRatio);} }
+  wi=0;
+  for(let m=lo;m<hi;m++){ if(!isBlack(m)){wi++;continue;}
+    const px=wi*ww-ww*0.3;
+    x.fillStyle=m===lastNote?"#c9761f":"#232833";
+    x.fillRect(px,0,ww*0.6,kh); x.strokeStyle="#8a93a5"; x.strokeRect(px,0,ww*0.6,kh); }
+  $("octLabel").textContent=`${noteName(lo)} – ${noteName(hi-1)}`;
+}
+$("piano").addEventListener("mousedown",e=>{
+  const c=$("piano"),r=c.getBoundingClientRect();
+  const mx=(e.clientX-r.left)*(c.width/r.width),my=(e.clientY-r.top)*(c.height/r.height);
+  const lo=octBase*12+12,hi=lo+36;
+  let whites=0; for(let m=lo;m<hi;m++)if(!isBlack(m))whites++;
+  const ww=c.width/whites,kh=c.height*0.62;
+  let note=null,wi=0;
+  if(my<kh){wi=0;for(let m=lo;m<hi;m++){if(!isBlack(m)){wi++;continue;}
+    if(mx>=wi*ww-ww*0.3&&mx<=wi*ww+ww*0.3){note=m;break;}}}
+  if(note===null){wi=0;for(let m=lo;m<hi;m++){if(isBlack(m))continue;
+    if(mx>=wi*ww&&mx<(wi+1)*ww){note=m;break;}wi++;}}
+  if(note!==null){ lastNote=note; lastVel=0.4+0.6*Math.min(1,Math.max(0,my/c.height));
+    $("noteInfo").textContent=`${noteName(note)} · vel ${lastVel.toFixed(2)}`;
+    drawPiano(); preview(note,lastVel); }
+});
+
+// ---------- playback + visuals
+function ensureCtx(){ if(!actx){ actx=new (window.AudioContext||window.webkitAudioContext)();
+  analyser=actx.createAnalyser(); analyser.fftSize=2048; analyser.connect(actx.destination);} }
+function preview(note,vel){
+  ensureCtx(); stop();
+  const data=render(recipe,note,vel); drawWave(data);
+  const buf=actx.createBuffer(1,data.length,RATE); buf.getChannelData(0).set(data);
+  const src=actx.createBufferSource(); src.buffer=buf; src.connect(analyser); src.start(); liveSrc=src;
+  const semi=(note??recipe.rootNote)-(recipe.rootNote??60)+(recipe.pitch??0);
+  $("stats").textContent=`${recipe.duration.toFixed(2)}s · ${data.length} samples · seed ${recipe.seed}`+
+    (semi?` · ${semi>0?"+":""}${semi.toFixed(1)}st`:"")+(vel!==undefined&&vel!==1?` · vel ${vel.toFixed(2)}`:"");
+  drawSpectrum();
+}
+function stop(){ if(liveSrc){try{liveSrc.stop()}catch(e){} liveSrc=null;} cancelAnimationFrame(specRAF); drawEQCurve(); }
+function live(){ markDirty(); drawWave(render(recipe)); drawEQCurve(); exportJSON(); }
+
+function drawWave(data){
+  const c=$("wave"),x=c.getContext("2d"); c.width=c.clientWidth*devicePixelRatio;c.height=c.clientHeight*devicePixelRatio;
+  x.clearRect(0,0,c.width,c.height); x.strokeStyle="#e8a33d"; x.lineWidth=1.5; x.beginPath();
+  const mid=c.height/2,step=Math.max(1,Math.floor(data.length/c.width));
+  for(let px=0;px<c.width;px++){ const i=Math.floor(px*step); if(i>=data.length)break;
+    x.lineTo(px,mid-data[i]*mid*0.9); }
+  x.stroke();
+  x.strokeStyle="#2c3442"; x.beginPath(); x.moveTo(0,mid); x.lineTo(c.width,mid); x.stroke();
+}
+function drawSpectrum(){
+  if(!analyser||!liveSrc){drawEQCurve();return;}
+  const c=$("spec"),x=c.getContext("2d"); c.width=c.clientWidth*devicePixelRatio;c.height=c.clientHeight*devicePixelRatio;
+  const arr=new Uint8Array(analyser.frequencyBinCount);
+  (function loop(){ analyser.getByteFrequencyData(arr);
+    x.clearRect(0,0,c.width,c.height); x.fillStyle="#57c785";
+    const bw=c.width/160;
+    for(let i=0;i<160;i++){ const h=(arr[Math.floor(i*arr.length/160)]/255)*c.height;
+      x.fillRect(i*bw,c.height-h,bw-1,h); }
+    specRAF=requestAnimationFrame(loop); })();
+}
+function drawEQCurve(){
+  const c=$("spec"),x=c.getContext("2d"); c.width=c.clientWidth*devicePixelRatio;c.height=c.clientHeight*devicePixelRatio;
+  const cs=(recipe.eq||[]).filter(b=>b.on&&b.gainDb!==0).map(b=>biquadCoeffs(b.type,b.hz,b.gainDb,b.q));
+  if(!cs.length)return;
+  x.strokeStyle="#e8a33d"; x.lineWidth=2; x.beginPath();
+  for(let px=0;px<c.width;px++){
+    const f=20*Math.pow(22050/20,px/c.width);
+    let m=1; for(const co of cs)m*=biquadMag(co,f);
+    const db=20*Math.log10(Math.max(m,0.001));
+    const y=c.height/2-(db/18)*(c.height/2)*0.9;
+    px===0?x.moveTo(px,y):x.lineTo(px,y); }
+  x.stroke();
+  x.strokeStyle="#2c3442"; x.beginPath(); x.moveTo(0,c.height/2); x.lineTo(c.width,c.height/2); x.stroke();
+}
+
+function exportJSON(){ $("jsonBox").value=JSON.stringify(recipe,null,1); }
+function syncUIFromRecipe(){
+  $("rName").value=recipe.name; $("rSeed").value=recipe.seed;
+  $("rCouple").checked=!!recipe.coupleDecay;
+  $("echoOn").checked=!!(recipe.echo&&recipe.echo.on);
+  if(!recipe.echo)recipe.echo={on:false,time:0.09,feedback:0.35,mix:0.25};
+  $("rEnv").value=recipe.envelope.mode||"exp";
+  buildMaster();buildPitch();buildEnv();buildEcho();buildEQ();buildLayers();drawPiano();exportJSON();
+}
+
+// ---------- wiring
+Object.keys(PRESETS).forEach(k=>{ const b=document.createElement("button");
+  b.textContent=k; b.title="load preset — starting point, tweak the knobs"; b.onclick=()=>{curFile=null;loadPreset(k);};
+  $("presets").appendChild(b); });
+function loadPreset(k){ const p=JSON.parse(JSON.stringify(PRESETS[k]));
+  recipe=Object.assign(defaultRecipe(),p); syncUIFromRecipe(); preview(); }
+
+$("rName").oninput=e=>{recipe.name=e.target.value;live();};
+$("rSeed").oninput=e=>{recipe.seed=+e.target.value;live();};
+$("rCouple").onchange=e=>{recipe.coupleDecay=e.target.checked;live();};
+$("echoOn").onchange=e=>{recipe.echo.on=e.target.checked;live();};
+$("rEnv").onchange=e=>{const m=e.target.value; recipe.envelope=m==="adsr"
+  ?{mode:"adsr",attack:0.005,decay:0.1,sustain:0.4,release:0.2}:{mode:"exp"};
+  buildEnv();live();};
+$("octDown").onclick=()=>{octBase=Math.max(-1,octBase-1);drawPiano();};
+$("octUp").onclick=()=>{octBase=Math.min(7,octBase+1);drawPiano();};
+$("addLayer").onclick=()=>{
+  const names=Object.keys(layerTypes);
+  const t=names[recipe.layers.length%names.length];
+  const L={type:t,amp:0.3,decay:30};
+  if(t==="partials")L.partials=[{hz:1000,amp:0.5}];
+  if(t==="noiseTail")L.lowpass=4000;
+  if(t==="sweep"){L.startHz=2000;L.endHz=800;}
+  recipe.layers.push(L);buildLayers();live(); };
+$("btnPlay").onclick=()=>preview(lastNote??recipe.rootNote,lastNote!==null?lastVel:1);
+// SPACE = preview (DAW convention) — plays the last-clicked piano note/velocity
+// like the button. Skipped while typing in any field; preventDefault stops
+// button-activation + page scroll; held-repeat ignored.
+window.addEventListener("keydown",e=>{
+  if(e.code!=="Space"||e.repeat)return;
+  const t=e.target, tag=t&&t.tagName;
+  if(tag==="INPUT"||tag==="TEXTAREA"||tag==="SELECT"||t.isContentEditable)return;
+  e.preventDefault();
+  preview(lastNote??recipe.rootNote,lastNote!==null?lastVel:1);
+});
+$("btnStop").onclick=stop;
+$("btnVariant").onclick=()=>{recipe.seed=(+recipe.seed)+1;$("rSeed").value=recipe.seed;preview(lastNote??undefined,lastVel);};
+$("btnExport").onclick=exportJSON;
+$("btnImport").onclick=()=>{ try{recipe=Object.assign(defaultRecipe(),JSON.parse($("jsonBox").value));
+  curFile=null;syncUIFromRecipe();preview();}catch(e){alert("bad JSON: "+e.message);} };
+$("btnDownload").onclick=()=>{
+  const blob=new Blob([$("jsonBox").value],{type:"application/json"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);
+  a.download=(recipe.name||"sound")+".stsound";a.click();URL.revokeObjectURL(a.href); };
+
+syncUIFromRecipe();
+</script>
+</body>
+</html>

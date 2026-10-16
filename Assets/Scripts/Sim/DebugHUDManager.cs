@@ -18,7 +18,7 @@ namespace SteelCity.Sim
     /// </summary>
     public class DebugHUDManager : MonoBehaviour
     {
-        public enum Tab { Camera, Render, Clothing, Path, Combat, Demolitions, Weapons, MatRes, BuildLog, Keys }
+        public enum Tab { Camera, Render, Clothing, Path, Combat, Demolitions, Weapons, MatRes, BuildLog, Keys, Sfx }
         public enum Corner { TopLeft, TopRight, BottomLeft, BottomRight }
 
         [Header("Config")]
@@ -248,6 +248,7 @@ namespace SteelCity.Sim
             Tab.Clothing => allClothingSystems.Count > 0,
             Tab.Path => pathDebug != null,
             Tab.Combat or Tab.Demolitions => cityMap != null,
+            Tab.Sfx => true,
             _ => true,
         };
 
@@ -545,7 +546,7 @@ namespace SteelCity.Sim
                 return;
             }
 
-            DrawTabRow(Tab.Camera, Tab.Render, Tab.Clothing, Tab.Path, Tab.Keys);
+            DrawTabRow(Tab.Camera, Tab.Render, Tab.Sfx, Tab.Clothing, Tab.Path, Tab.Keys);
             DrawTabRow(Tab.Combat, Tab.Demolitions, Tab.Weapons, Tab.MatRes, Tab.BuildLog);
 
             // Separator
@@ -566,6 +567,7 @@ namespace SteelCity.Sim
                     try { DrawDemolitionsTab(); } finally { UnityEngine.Profiling.Profiler.EndSample(); }
                     break;
                 case Tab.Weapons: DrawWeaponsTab(); break;
+                case Tab.Sfx: DrawSfxTab(); break;
                 case Tab.MatRes:
                     UnityEngine.Profiling.Profiler.BeginSample("HUD.DrawMatResTab");
                     try { DrawMatResTab(); } finally { UnityEngine.Profiling.Profiler.EndSample(); }
@@ -643,7 +645,7 @@ namespace SteelCity.Sim
             hudSB.AppendLine(H("Hotkeys") + " — full list in [Keys] tab");
             hudSB.AppendLine("[`] / [O] Hide  [Tab] Next tab  [Y] Corner  [M] Minimize");
             hudSB.AppendLine("[LMB] Select/focus  [MMB] Rotate  [RMB] Pan  [Wheel] Zoom");
-            hudSB.AppendLine("[I/W/L/A/C/T] Character anim  [Space] Pause  [=/-] Speed");
+            hudSB.AppendLine("[G] Possess Vinny (WASD/mouse/LMB)");
             hudSB.AppendLine("[R] Render scale  [F6] Free cam  [F7] Waypoints  [F8] Freeze  [F10] Vehicles");
             hudSB.AppendLine("<i>Drag title bar to move. Click _ to minimize.</i>");
             footerText = hudSB.ToString();
@@ -878,10 +880,9 @@ namespace SteelCity.Sim
             if (allCharacterRigs.Count > 0)
             {
                 sb.Append('\n');
-                sb.AppendLine(H("Character Anim") + " (green rig, Clothing tab)");
-                sb.AppendLine("[I] Idle     [W] Walk     [L] Look");
-                sb.AppendLine("[A] Aim      [C] Crouch   [T] T-Pose");
-                sb.AppendLine("[Space] Play/pause    [=] / [-] Anim speed");
+                sb.AppendLine(H("Character Control"));
+                sb.AppendLine("[G] Possess: WASD move · mouse look · LMB fire");
+                sb.AppendLine("<i>anim letter keys deprecated — animHotkeys on rig</i>");
             }
 
             if (vehicleTest != null)
@@ -981,18 +982,29 @@ namespace SteelCity.Sim
             var pdr = PathDebugRenderer.Instance;
             if (pickArmed == PickSlot.Stand)
             {
-                pickedStand = hit.point;
+                // Wall-face picks push the stand point off the surface so he lands
+                // beside the wall instead of inside it; a down-raycast (volumes +
+                // terrain) finds the surface to stand on — roof, floor, or street.
+                Vector3 snap = hit.point;
+                Vector3 nXZ = new Vector3(hit.normal.x, 0f, hit.normal.z);
+                if (nXZ.sqrMagnitude > 0.01f) snap += nXZ.normalized * 0.45f;
+                float? feetY = null;
+                if (World != null && World.Raycast(snap + Vector3.up * 0.05f, Vector3.down, 40f, out var gh))
+                    feetY = gh.point.y;
+                else if (hit.normal.y > 0.5f)
+                    feetY = hit.point.y;
+                pickedStand = new Vector3(snap.x, feetY ?? snap.y, snap.z);
                 var ch = cityMap.SpawnedCharacter;
                 var mount = ch != null ? ch.GetComponent<WeaponMount>() : null;
                 var ep = FindFirstObjectByType<EventPlayer>();
                 if (mount != null && ep != null)
                 {
                     if (solver != null && solver.IsAiming) solver.Disarm();
-                    ep.DebugSnapTo(hit.point, mount.Dims, mount.CharVoxelSize, pickedAim);
+                    ep.DebugSnapTo(snap, mount.Dims, mount.CharVoxelSize, pickedAim, feetY);
                 }
-                pdr?.SetCustomBeam("pick_stand", hit.point, hit.point + Vector3.up * 1.8f,
+                pdr?.SetCustomBeam("pick_stand", pickedStand.Value, pickedStand.Value + Vector3.up * 1.8f,
                     0.06f, new Color(0.2f, 1f, 0.35f, 0.9f));
-                Debug.Log($"[DebugHUD] 🎯 STAND picked @ {hit.point} ({hit.volumeId ?? "terrain"} mat {hit.material})");
+                Debug.Log($"[DebugHUD] 🎯 STAND picked @ {pickedStand.Value} ({hit.volumeId ?? "terrain"} mat {hit.material})");
             }
             else if (pickArmed == PickSlot.Aim)
             {
@@ -1239,12 +1251,6 @@ namespace SteelCity.Sim
             // SFX preview — above the dwelling gate so it works in planning phase.
             // Plays at the AudioListener, so distance can't mask a pipeline problem.
             var dmgSys = VoxelDamageSystem.GetOrCreate();
-            GUILayout.BeginHorizontal();
-            GUILayout.Label("sfx test:", labelStyle, GUILayout.Width(52));
-            if (GUILayout.Button("tink", tabStyle, GUILayout.Height(20))) dmgSys.PreviewGlassSound(0);
-            if (GUILayout.Button("crack", tabStyle, GUILayout.Height(20))) dmgSys.PreviewGlassSound(1);
-            if (GUILayout.Button("crash", tabStyle, GUILayout.Height(20))) dmgSys.PreviewGlassSound(2);
-            GUILayout.EndHorizontal();
 
             // --- Free-fire picks (combat-facing; blast picks live on Demolitions) ---
             GUILayout.Space(4);
@@ -1263,14 +1269,24 @@ namespace SteelCity.Sim
             DrawInspectHud();
             DrawPickStatus();
 
-            if (string.IsNullOrEmpty(rangeBlockId))
-            {
-                GUILayout.Space(4);
-                GUILayout.Label("Click a range block while the sim is", labelStyle);
-                GUILayout.Label("dwelling (Vinny standing at the line).", labelStyle);
-                return;
-            }
+            // --- Target source: a range block's lane points, or free-fire picks ---
+            bool freeFire = string.IsNullOrEmpty(rangeBlockId);
+            bool hasPos, hasTgt;
+            Vector3 posWorld = Vector3.zero, tgtWorld = Vector3.zero;
 
+            if (freeFire)
+            {
+                // Vinny stands wherever PICK STAND dropped him; PICK AIM sets the target.
+                hasPos = true;
+                hasTgt = pickedAim.HasValue;
+                if (hasTgt) tgtWorld = pickedAim.Value;
+                GUILayout.Space(4);
+                GUILayout.Label(hasTgt
+                    ? $"free-fire target: <b>{tgtWorld.ToString("F1")}</b>"
+                    : "PICK AIM a voxel to arm the fire controls.", labelStyle);
+            }
+            else
+            {
             GUILayout.Label($"Block: <b>{rangeBlockId}</b>", labelStyle);
             var pointNames = cityMap.GetBuildingPointNames(rangeBlockId);
             GUILayout.Label($"Points: {(pointNames.Count > 0 ? string.Join(", ", pointNames) : "none")}", labelStyle);
@@ -1308,15 +1324,16 @@ namespace SteelCity.Sim
             string posName = $"firing_position_{RangeLane}";
             string tgtName = RangeAimMold ? "glass_target" : $"firing_target_{RangeLane}";
             // fall back to the pre-multilane names for older range assets
-            bool hasPos = cityMap.TryGetBuildingPointLocal(rangeBlockId, posName, out var posLocal)
-                       || cityMap.TryGetBuildingPointLocal(rangeBlockId, "firing_position", out posLocal);
-            bool hasTgt = cityMap.TryGetBuildingPointLocal(rangeBlockId, tgtName, out var tgtLocal)
-                       || cityMap.TryGetBuildingPointLocal(rangeBlockId, "firing_target", out tgtLocal);
-            Vector3 posWorld = cityMap.MapRoot.position + posLocal;
-            Vector3 tgtWorld = cityMap.MapRoot.position + tgtLocal;
+            hasPos = cityMap.TryGetBuildingPointLocal(rangeBlockId, posName, out var posLocal)
+                  || cityMap.TryGetBuildingPointLocal(rangeBlockId, "firing_position", out posLocal);
+            hasTgt = cityMap.TryGetBuildingPointLocal(rangeBlockId, tgtName, out var tgtLocal)
+                  || cityMap.TryGetBuildingPointLocal(rangeBlockId, "firing_target", out tgtLocal);
+            posWorld = cityMap.MapRoot.position + posLocal;
+            tgtWorld = cityMap.MapRoot.position + tgtLocal;
             GUILayout.Label($"{posName}: {(hasPos ? "OK" : "<color=#ff6666>MISSING</color>")}   {tgtName}: {(hasTgt ? "OK" : "<color=#ff6666>MISSING</color>")}", labelStyle);
 
             if (pickedAim.HasValue) { tgtWorld = pickedAim.Value; hasTgt = true; }
+            }
 
             GUILayout.Space(6);
 
@@ -1336,13 +1353,15 @@ namespace SteelCity.Sim
 
             // Position check — character transform is the volume corner; the
             // firing position target is where the XZ center should sit.
-            if (mount != null && hasPos)
+            if (!freeFire && mount != null && hasPos)
             {
                 var d = mount.Dims; float vs = mount.CharVoxelSize;
                 Vector3 chCenter = ch.transform.position + new Vector3(d.x * vs * 0.5f, 0f, d.z * vs * 0.5f);
                 float offM = Vector3.Distance(new Vector3(chCenter.x, 0, chCenter.z), new Vector3(posWorld.x, 0, posWorld.z));
                 GUILayout.Label($"In position: {(offM < 0.35f ? "<color=#66ff66>YES</color>" : $"<color=#ffaa44>off {offM:F2}m</color>")}", labelStyle);
             }
+            else if (freeFire && pickedStand.HasValue)
+                GUILayout.Label($"stand: <b>{pickedStand.Value.ToString("F1")}</b> — wherever PICK STAND left him", labelStyle);
             GUILayout.Label($"Weapon: {(mount != null && mount.IsEquipped ? mount.ItemFileName : "<color=#ff6666>none</color>")}", labelStyle);
             if (mount != null && mount.IsEquipped)
             {
@@ -1356,7 +1375,7 @@ namespace SteelCity.Sim
             // --- IK Aim toggle ---
             bool aiming = solver.IsAiming;
             var btnStyle = aiming ? tabActiveStyle : tabStyle;
-            GUI.enabled = dwelling && hasPos && hasTgt && mount != null && mount.IsEquipped;
+            GUI.enabled = hasTgt && mount != null && mount.IsEquipped && (freeFire || (dwelling && hasPos));
             string btnLabel = aiming ? "IK AIM — ENGAGED (click to release)" : "IK AIM";
             if (GUILayout.Button(btnLabel, btnStyle, GUILayout.Height(26)))
             {
@@ -1364,12 +1383,12 @@ namespace SteelCity.Sim
                 else solver.Arm(tgtWorld);
             }
             GUI.enabled = true;
-            if (!dwelling)
-                GUILayout.Label("(available while sim is Dwelling)", labelStyle);
+            if (!freeFire && !dwelling)
+                GUILayout.Label("(range mode available while sim is Dwelling)", labelStyle);
             if (!string.IsNullOrEmpty(solver.LastError))
                 GUILayout.Label($"<color=#ff6666>solver: {solver.LastError}</color>", labelStyle);
 
-            DrawFireControls(dwelling, mount, tgtWorld, hasTgt);
+            DrawFireControls(dwelling || freeFire, mount, tgtWorld, hasTgt);
 
             // --- Telemetry ---
             if (solver.Blend > 0f || aiming)
@@ -1555,7 +1574,6 @@ namespace SteelCity.Sim
                 proj.showImpactMarks = im;
                 if (!im) proj.ClearImpactMarks();
             }
-
             var dmg = VoxelDamageSystem.GetOrCreate();
             dmg.glassDamageEnabled = GUILayout.Toggle(dmg.glassDamageEnabled, " glass puncture (P0)", toggleStyle);
             if (dmg.glassDamageEnabled)
@@ -1563,9 +1581,6 @@ namespace SteelCity.Sim
                 dmg.ring1RemoveFraction = HSlider("ring removal", dmg.ring1RemoveFraction, 0f, 1f, "F2");
                 GUILayout.Label("  low = small hole + wide crack halo · high = chunk blown out", labelStyle);
                 dmg.shardBurstEnabled = GUILayout.Toggle(dmg.shardBurstEnabled, " shard burst (flying cubes)", toggleStyle);
-                dmg.glassAudioEnabled = GUILayout.Toggle(dmg.glassAudioEnabled, " glass sfx (synth tink/crash)", toggleStyle);
-                if (dmg.glassAudioEnabled)
-                    dmg.glassAudioVolume = HSlider("sfx volume", dmg.glassAudioVolume, 0f, 1f, "F2");
             }
 
             // Shot-facing damage-nibble features — the master gate (`damage tint`)
@@ -1627,6 +1642,83 @@ namespace SteelCity.Sim
                     GUILayout.Label($"lateral miss {s.lateralMiss:F3}m   impact→target {s.impactOffset:F3}m", labelStyle);
                 GUILayout.Label($"aim err at trigger {s.aimErrorDeg:F1}°", labelStyle);
             }
+        }
+
+        /// <summary>
+        /// SFX home — every sound's in-game level is a TRIM on the studio file
+        /// (1.00 = exactly what audio_studio authored). A/B calibration buttons
+        /// compare the 2D studio reference (at the listener) against the real
+        /// 3D in-game path. Tuned trims are serialized — they ARE the shipped mix.
+        /// </summary>
+        void DrawSfxTab()
+        {
+            var proj = ProjectileSystem.GetOrCreate();
+            var dmg = VoxelDamageSystem.GetOrCreate();
+            var ch = cityMap != null ? cityMap.SpawnedCharacter : null;
+            var mnt = ch != null ? ch.GetComponent<WeaponMount>() : null;
+            var listener = FindFirstObjectByType<AudioListener>();
+
+            GUILayout.Label("<b>SFX</b>   studio file = reference · trim tunes the game level", boldStyle);
+            GUILayout.Label("<i>1.00 = exactly what audio_studio plays. Serialized — tuned values ARE the shipped mix.</i>", labelStyle);
+
+            GUILayout.Space(4);
+            GUILayout.Label("<b>GUNSHOT</b>   sounds/gunshot.stsound", labelStyle);
+            proj.shotAudioVolume = HSlider("level ×", proj.shotAudioVolume, 0.1f, 2f, "F2");
+            proj.shotRefDistance = HSlider("full-vol radius m", proj.shotRefDistance, 0.5f, 20f, "F1");
+            proj.shotAudibleRange = HSlider("report range m", proj.shotAudibleRange, 5f, 200f, "F0");
+            GUILayout.BeginHorizontal();
+            GUI.enabled = listener != null;
+            if (GUILayout.Button("▶ reference", tabStyle, GUILayout.Height(22)))
+            {
+                var clip = ProceduralAudio.GetClip("sounds/gunshot.stsound");
+                if (clip != null) AudioSource.PlayClipAtPoint(clip, listener.transform.position, 1f);
+            }
+            GUI.enabled = mnt != null && mnt.IsEquipped;
+            if (GUILayout.Button("▶ muzzle", tabStyle, GUILayout.Height(22)))
+            {
+                var clip = ProceduralAudio.GetClip("sounds/gunshot.stsound");
+                if (clip != null)
+                {
+                    ProceduralAudio.PlayAt(clip, mnt.MuzzleWorld, proj.shotAudioVolume,
+                        proj.shotRefDistance, proj.shotAudibleRange);
+                    SfxWaves.GetOrCreate().Emit(mnt.MuzzleWorld, proj.shotAudibleRange,
+                        proj.shotRefDistance, "gunshot");
+                }
+            }
+            GUI.enabled = true;
+            GUILayout.EndHorizontal();
+            GUILayout.Label("<i>reference = at the listener (studio loudness) · muzzle = real 3D path + trim, emits the wave</i>", labelStyle);
+            if (mnt == null || !mnt.IsEquipped)
+                GUILayout.Label("<i>  muzzle test needs Vinny armed — possess (G) or equip via Combat</i>", labelStyle);
+
+            GUILayout.Space(6);
+            GUILayout.Label("<b>GLASS</b>   synthesized tink/crack/crash", labelStyle);
+            dmg.glassAudioEnabled = GUILayout.Toggle(dmg.glassAudioEnabled, " glass sfx", toggleStyle);
+            if (dmg.glassAudioEnabled)
+            {
+                dmg.glassAudioVolume = HSlider("level ×", dmg.glassAudioVolume, 0.1f, 2f, "F2");
+                dmg.glassRefDistance = HSlider("full-vol radius m", dmg.glassRefDistance, 0.5f, 20f, "F1");
+                dmg.glassAudibleRange = HSlider("report range m", dmg.glassAudibleRange, 5f, 200f, "F0");
+                GUILayout.BeginHorizontal();
+                if (GUILayout.Button("tink", tabStyle, GUILayout.Height(20))) dmg.PreviewGlassSound(0);
+                if (GUILayout.Button("crack", tabStyle, GUILayout.Height(20))) dmg.PreviewGlassSound(1);
+                if (GUILayout.Button("crash", tabStyle, GUILayout.Height(20))) dmg.PreviewGlassSound(2);
+                GUILayout.EndHorizontal();
+                GUILayout.Label("<i>shatters scale with cells removed (0.4+n/20) — trim is the base level</i>", labelStyle);
+            }
+
+            GUILayout.Space(6);
+            GUILayout.Label("<b>REPORT WAVES</b>   the audible edge visualized", labelStyle);
+            var waves = SfxWaves.GetOrCreate();
+            waves.showWaves = GUILayout.Toggle(waves.showWaves, " show report waves (TEAL loud → VIOLET fades)", toggleStyle);
+            if (waves.showWaves)
+            {
+                waves.waveSpeed = HSlider("wave speed m/s", waves.waveSpeed, 5f, 343f, "F0");
+                GUILayout.Label("<i>rim color = live audibility · inner ring = full-vol radius · edge = hearing radius (real 343 m/s slowed for viewing)</i>", labelStyle);
+            }
+
+            GUILayout.Space(6);
+            GUILayout.Label($"hot-reload <b>{(ProceduralAudio.liveReload ? "on" : "off")}</b> — save in audio_studio → next trigger pulls the new recipe", labelStyle);
         }
 
         /// <summary>

@@ -180,6 +180,12 @@
   - Common pitfalls (signed bytes, thunk resolution, SIB bytes, little-endian)
   - Workflow for adding new scripts
 
+**Steel Tide Porting Manifest:**
+- **`docs/core/STEEL_TIDE_PORTING_MANIFEST.md`** — Cross-project bridge: which Steel City systems port to Steel Tide and what they deprecate
+  - Lineage: SteelTide was the voxel lab (.stasset, VoxelAssetStudio, AMS); Steel City is the forge where infra-grade versions shipped
+  - Port catalog: collision world, volume-aware locomotion, projectiles, destruction+rubble, sector raymarch renderer, weapon mount/IK, instanced characters, build hardening, debug workflow
+  - Deprecation list (Steel Tide side) + what stays unique (Geoscape, AMS, structural collapse, FPS cam) + suggested port order
+
 **Headless Compile (agent workflow):**
 - **`docs/core/HEADLESS_UNITY_COMPILE.md`** — Compile all of Assembly-CSharp without launching Unity
   - Bundled `DotNetSdkRoslyn/csc.dll` + NetCoreRuntime + UnityEngine module refs + `Library/ScriptAssemblies` package DLLs
@@ -354,6 +360,7 @@
   - Recipe: noise attack + inharmonic decaying partials + noise tail; `exp(-kt)` envelope does the heavy lifting
   - Bucket mapping (removed-count → tink/crack/crash); `PlayClipAtPoint` requires an active `AudioListener`
   - Generalizable sound palette (gunshot/ricochet/footstep/engine) + `SynthRecipe` struct → HTML editor path
+  - **Editor built**: `VoxelAssetStudio/audio_studio.html` — layer-based synth (attack/partials/noiseTail/sweep), ADSR, presets, spectrum, 🎲 seeded variants, `.stsound` JSON export
 
 **Voxel Engine Gotchas:**
 - **`docs/systems/VOXEL_ENGINE_GOTCHAS.md`** — Non-obvious bugs and traps in the voxel rendering/collision/terrain system

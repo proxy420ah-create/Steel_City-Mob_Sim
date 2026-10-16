@@ -56,6 +56,14 @@ namespace SteelCity.Sim
         /// <summary>Currently active rig that receives hotkey input. Set via Controllable property.</summary>
         public static CharacterRig ActiveRig { get; private set; }
 
+        /// <summary>
+        /// Deprecated debug anim hotkeys (T/I/W/L/A/C/S/B/Space/±) — poses are proven
+        /// and the letters collided with camera fly + possess-move. Enable in the
+        /// inspector for pose debugging; PossessController still gates input via
+        /// Controllable while active.
+        /// </summary>
+        [SerializeField] private bool animHotkeys = false;
+
         private static readonly string[] STATE_NAMES = {
             "Idle", "Walking", "Looking", "AimWalk", "Aiming",
             "Crouching", "???", "???", "Down", "T-Pose", "Aim Sweep", "Sit"
@@ -94,7 +102,7 @@ namespace SteelCity.Sim
 
         void HandleInput()
         {
-            if (!_controllable) return;
+            if (!_controllable || !animHotkeys) return;
 
             var kb = Keyboard.current;
             if (kb == null) return;
@@ -197,8 +205,9 @@ namespace SteelCity.Sim
 
             Debug.Log($"[CharRig] Initialized character on '{gameObject.name}' at {spawnPosition} " +
                       $"(asset={assetBaseName}.json, voxelSize={voxelSize})");
-            Debug.Log("[CharRig] Hotkeys: T=TPose I=Idle W=Walk L=Look A=Aim C=Crouch S=AimSweep " +
-                      "Space=Play/Pause +/-=Speed");
+            if (animHotkeys)
+                Debug.Log("[CharRig] Anim hotkeys: T=TPose I=Idle W=Walk L=Look A=Aim C=Crouch S=AimSweep " +
+                          "Space=Play/Pause +/-=Speed");
         }
     }
 }

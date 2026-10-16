@@ -58,7 +58,11 @@ namespace SteelCity.Sim
 
         [Header("Glass audio (P1, synthesized — no assets)")]
         public bool glassAudioEnabled = true;
-        [Range(0f, 1f)] public float glassAudioVolume = 0.6f;
+        [Range(0.1f, 2f)] public float glassAudioVolume = 0.6f;   // trim × studio level (1.0 = as authored)
+        [Tooltip("Full-volume radius for glass sfx (m)")]
+        [Range(0.5f, 20f)] public float glassRefDistance = 2f;
+        [Tooltip("Audible edge for glass sfx (m) — linear fade dies here")]
+        [Range(5f, 200f)] public float glassAudibleRange = 30f;
 
         /// <summary>Last puncture's removed/cracked counts for the HUD report.</summary>
         public int LastRemoved { get; private set; }
@@ -232,8 +236,11 @@ namespace SteelCity.Sim
             chunkManager.UploadVoxelEdits(r.target, st.data, dirtyScratch);
             EmitFlyersShot(st, r);
             if (glassAudioEnabled && removed > 0)
-                AudioSource.PlayClipAtPoint(GlassClip(removed), r.point,
-                    glassAudioVolume * Mathf.Clamp01(0.4f + removed / 20f));
+            {
+                float v = glassAudioVolume * Mathf.Clamp01(0.4f + removed / 20f);
+                ProceduralAudio.PlayAt(GlassClip(removed), r.point, v, glassRefDistance, glassAudibleRange);
+                SfxWaves.GetOrCreate().Emit(r.point, glassAudibleRange, glassRefDistance, "glass");
+            }
             Debug.Log($"[VoxelDamage] 🔨 {r.target} cell {r.cell} mat {r.material}: -{removed} glass cells, {cracked} cracked — hole persists");
         }
 
@@ -354,8 +361,11 @@ namespace SteelCity.Sim
             if (detached > 0)
                 Debug.Log($"[VoxelDamage] 🌧 {volumeId}: {detached:N0} detached cells stay in-grid — raining debris, not shards");
             if (glassAudioEnabled)
-                AudioSource.PlayClipAtPoint(GlassClip(removed + detached), worldPoint,
-                    glassAudioVolume * Mathf.Clamp01(0.4f + (removed + detached) / 20f));
+            {
+                float v = glassAudioVolume * Mathf.Clamp01(0.4f + (removed + detached) / 20f);
+                ProceduralAudio.PlayAt(GlassClip(removed + detached), worldPoint, v, glassRefDistance, glassAudibleRange);
+                SfxWaves.GetOrCreate().Emit(worldPoint, glassAudibleRange, glassRefDistance, "glass");
+            }
             Debug.Log($"[VoxelDamage] 💥 {volumeId} @ {worldPoint}: -{removed} blast" +
                 $"{(detached > 0 ? $", -{detached} detached in {detEnds.Count} islands" : "")}" +
                 $", {cracked} cracked — crater persists");
@@ -426,8 +436,11 @@ namespace SteelCity.Sim
         {
             ApplyPlanSpan(volumeId, st, plan, 0, plan.detachedStart, center, impulseReach * 0.5f / st.vs);   // the flash
             if (glassAudioEnabled)
-                AudioSource.PlayClipAtPoint(GlassClip(plan.totalRemoved), center,
-                    glassAudioVolume * Mathf.Clamp01(0.3f + plan.totalRemoved / 200f));
+            {
+                float v = glassAudioVolume * Mathf.Clamp01(0.3f + plan.totalRemoved / 200f);
+                ProceduralAudio.PlayAt(GlassClip(plan.totalRemoved), center, v, glassRefDistance, glassAudibleRange);
+                SfxWaves.GetOrCreate().Emit(center, glassAudibleRange, glassRefDistance, "glass");
+            }
             float step = duration / plan.passes;
             int start = 0;
             for (int i = 0; i < plan.passes; i++)                              // the front — particles only

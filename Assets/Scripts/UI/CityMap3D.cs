@@ -215,7 +215,17 @@ namespace SteelCity.Sim
 
         public void SetCameraPitch(float pitch)
         {
-            targetPitch = Mathf.Clamp(pitch, debugCameraFreedom ? 1f : 10f, debugCameraFreedom ? 89f : 80f);
+            targetPitch = Mathf.Clamp(pitch, debugCameraFreedom ? -89f : 10f, debugCameraFreedom ? 89f : 80f);
+        }
+
+        /// <summary>Set orbit angles immediately (current AND target) — possess-mode
+        /// mouse look needs 1:1 response, not the 5/s smoothing lerp. Freedom mode
+        /// allows negative pitch: camera drops below the focus and looks up.</summary>
+        public void SetCameraAnglesImmediate(float yaw, float pitch)
+        {
+            float p = Mathf.Clamp(pitch, debugCameraFreedom ? -89f : 10f, debugCameraFreedom ? 89f : 80f);
+            cameraYaw = targetYaw = yaw;
+            cameraPitch = targetPitch = p;
         }
 
         public void ResetCamera()
@@ -728,7 +738,7 @@ namespace SteelCity.Sim
             // WASD free-look while F6 camera freedom is on: moves the focus
             // point along the camera's view axes — W/S fly along view dir
             // (pitch-aware), A/D strafe, Q/E descend/ascend, Shift = 3x speed.
-            if (kb != null && debugCameraFreedom && mapCamera != null)
+            if (kb != null && debugCameraFreedom && mapCamera != null && !PossessController.Active)
             {
                 Vector3 move = Vector3.zero;
                 if (kb.wKey.isPressed) move += mapCamera.transform.forward;
@@ -833,6 +843,14 @@ namespace SteelCity.Sim
         private void HandleMouseCamera()
         {
             if (Mouse.current == null || mapCamera == null) return;
+            // Possess owns all mouse look — don't let MMB-rotate/RMB-pan/wheel
+            // fight the locked-cursor third-person camera.
+            if (PossessController.Active)
+            {
+                isRotating = false;
+                isPanning = false;
+                return;
+            }
 
             Vector2 mousePos = Mouse.current.position.ReadValue();
             float normX = mousePos.x / Screen.width;
@@ -881,7 +899,7 @@ namespace SteelCity.Sim
             {
                 Vector2 delta = mousePos - lastMousePos;
                 targetYaw += delta.x * 0.3f;
-                float minPitch = debugCameraFreedom ? 1f : 10f;
+                float minPitch = debugCameraFreedom ? -89f : 10f;
                 float maxPitch = debugCameraFreedom ? 89f : 80f;
                 targetPitch = Mathf.Clamp(targetPitch - delta.y * 0.2f, minPitch, maxPitch);
                 lastMousePos = mousePos;
@@ -1278,6 +1296,8 @@ namespace SteelCity.Sim
                 collisionWorld = gameObject.GetComponent<VoxelCollisionWorld>();
             if (collisionWorld == null)
                 collisionWorld = gameObject.AddComponent<VoxelCollisionWorld>();
+            if (gameObject.GetComponent<PossessController>() == null)
+                gameObject.AddComponent<PossessController>();
 
             if (useSplitTerrain)
             {

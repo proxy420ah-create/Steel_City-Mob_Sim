@@ -125,12 +125,14 @@ namespace SteelCity.Sim
         /// as FaceTarget events (modelFacingOffset applied). Used by the Range
         /// tab's lane selector; the sim stays Dwelling, no pathing involved.
         /// </summary>
-        public void DebugSnapTo(Vector3 posWorld, Vector3 dims, float voxelSize, Vector3? faceWorld)
+        public void DebugSnapTo(Vector3 posWorld, Vector3 dims, float voxelSize, Vector3? faceWorld, float? feetY = null)
         {
             if (character == null) return;
             Vector3 half = new Vector3(dims.x * voxelSize * 0.5f, 0f, dims.z * voxelSize * 0.5f);
             Vector3 target = posWorld - half;
-            target.y = character.transform.position.y;
+            // feetY lets free-placement picks land him on a roof/floor surface;
+            // callers that don't pass it get the old keep-current-height behavior.
+            target.y = feetY ?? character.transform.position.y;
             character.transform.position = target;
             if (faceWorld.HasValue)
             {
@@ -230,7 +232,7 @@ namespace SteelCity.Sim
                 }
 
                 // Update camera focus using cached reference
-                if (cachedCityMap != null)
+                if (cachedCityMap != null && !PossessController.Active)
                 {
                     cachedCityMap.SetCameraFocus(currentCameraTarget);
                 }
