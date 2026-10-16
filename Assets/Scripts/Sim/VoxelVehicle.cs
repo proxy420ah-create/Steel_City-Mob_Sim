@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
 
@@ -33,9 +34,39 @@ namespace SteelCity.Sim
         [Tooltip("Local-space (relative to parent, e.g. CityMap3D's mapRoot) center position for the vehicle volume. Set externally before Start(). Matches RoadGraph/WaypointGraph's local-space coordinate convention.")]
         public Vector3 centerPosition = Vector3.zero;
 
+        [Header("Collision")]
+        [Tooltip("Register a solid yawed volume in VoxelCollisionWorld — the car blocks projectiles and counts as cover. On first damage hit the instance promotes to its own writable buffer (bullet holes / windshield shatter).")]
+        public bool solidCollider = true;
+
         private int dimX, dimY, dimZ;
         private bool initialized;
         private VoxelChunkManager.InstancedCharacter instancedHandle;
+
+        // --- Collision registration ---
+        // The flat voxel array is shared per-asset (rest data is read-only until
+        // VoxelDamageSystem's copy-on-write clones it on first hit).
+        private VoxelCollisionWorld collisionWorld;
+        private string collisionId;
+        private Vector3 regPos;
+        private float regYaw;
+        private bool regValid;
+        private uint[] flatVoxels;
+        private static readonly Dictionary<int, VoxelVehicle> byCollisionId = new();
+        private static readonly Dictionary<string, uint[]> voxelCache = new();
+
+        /// <summary>Collision-world volume id ("veh_<instanceID>") — null until first registration.</summary>
+        public string CollisionId => collisionId;
+        /// <summary>Instanced render handle — damage promotion re-keys it into a private-buffer group.</summary>
+        public VoxelChunkManager.InstancedCharacter Handle => instancedHandle;
+
+        /// <summary>Resolve a collision volume id back to its vehicle (used by the damage promote path).</summary>
+        public static bool TryGetByCollisionId(string id, out VoxelVehicle veh)
+        {
+            veh = null;
+            return id != null && id.Length > 4 && id.StartsWith("veh_")
+                && int.TryParse(id.Substring(4), out int iid)
+                && byCollisionId.TryGetValue(iid, out veh) && veh != null;
+        }
 
         /// <summary>True after asset loaded and registered with renderer.</summary>
         public bool IsInitialized => initialized;
@@ -79,6 +110,19 @@ namespace SteelCity.Sim
             dimY = voxelData.GetLength(1);
             dimZ = voxelData.GetLength(2);
 
+            // Flat packed copy for the collision world — cached per asset file so
+            // every parked car of a model shares one rest array (damage COWs it).
+            if (!voxelCache.TryGetValue(path, out flatVoxels))
+            {
+                flatVoxels = new uint[dimX * dimY * dimZ];
+                int fi = 0;
+                for (int z = 0; z < dimZ; z++)
+                    for (int y = 0; y < dimY; y++)
+                        for (int x = 0; x < dimX; x++)
+                            flatVoxels[fi++] = voxelData[x, y, z];
+                voxelCache[path] = flatVoxels;
+            }
+
             Debug.Log($"[VoxelVehicle] Loaded {assetFileName}: {dimX}x{dimY}x{dimZ} (voxelSize={voxelSize})");
         }
 
@@ -113,12 +157,52 @@ namespace SteelCity.Sim
             transform.localPosition = localCenter - new Vector3(dimX * voxelSize * 0.5f, 0f, dimZ * voxelSize * 0.5f);
         }
 
+        /// <summary>
+        /// Keep the collision volume in sync with the transform — parked cars register
+        /// once and never re-enter; traffic re-registers when it actually moves/turns.
+        /// </summary>
+        void Update()
+        {
+            if (!solidCollider || flatVoxels == null) return;
+            if (collisionWorld == null)
+            {
+                collisionWorld = FindFirstObjectByType<VoxelCollisionWorld>();
+                if (collisionWorld == null) return;
+            }
+            float yaw = transform.eulerAngles.y;
+            if (regValid && (transform.position - regPos).sqrMagnitude <= 1e-4f
+                && Mathf.Abs(Mathf.DeltaAngle(yaw, regYaw)) <= 0.25f) return;
+            if (collisionId == null)
+            {
+                collisionId = $"veh_{GetInstanceID()}";
+                byCollisionId[GetInstanceID()] = this;
+            }
+            // Re-register with the CURRENT volume array — after a promote, that's
+            // the damage system's COW'd copy; dropping back to flatVoxels would
+            // silently un-damage a moving car.
+            uint[] data = flatVoxels;
+            if (collisionId != null && collisionWorld.TryGetVolume(collisionId, out var cur,
+                    out _, out _, out _, out _, out _, out _))
+                data = cur;
+            collisionWorld.RegisterVolume(collisionId, data, dimX, dimY, dimZ,
+                transform.position, voxelSize, yaw);
+            regPos = transform.position;
+            regYaw = yaw;
+            regValid = true;
+        }
+
         void OnDestroy()
         {
             if (instancedHandle != null)
             {
                 chunkManager?.UnregisterInstancedCharacter(instancedHandle);
                 instancedHandle = null;
+            }
+            if (collisionId != null)
+            {
+                collisionWorld?.UnregisterVolume(collisionId);
+                byCollisionId.Remove(GetInstanceID());
+                collisionId = null;
             }
         }
 

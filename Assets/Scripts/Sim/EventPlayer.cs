@@ -210,8 +210,9 @@ namespace SteelCity.Sim
             }
 
             // Camera follow: smoothly track character position + user pan offset
-            // Only follow when NOT paused — during transition hold, camera stays on HQ
-            if (cameraFollow && character != null && !isPaused)
+            // Only follow when NOT paused — during transition hold, camera stays on HQ.
+            // Under F8 freeze the map free-cam owns the focus for inspection.
+            if (cameraFollow && character != null && !isPaused && Time.timeScale > 0.001f)
             {
                 Vector3 charWorld = character.useWorldPosition
                     ? character.WorldCenter

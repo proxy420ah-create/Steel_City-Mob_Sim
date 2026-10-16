@@ -261,6 +261,37 @@ Both `useWorldPosition=false` branches now subtract `new Vector3(half.x, 0, half
 
 ---
 
+## Gotcha #8: Coordinate-Space Mismatch — Region Centroid +0.5 Voxels Off
+
+**Date**: March 2026
+**Severity**: HIGH — eye anchor rendered one voxel off; three "fixes" verified correct math in the wrong space before it was found
+**Files**: `VoxelAssetStudio/character_animator.html` (`rebuildRegionIndex`), `Assets/Scripts/Sim/CharacterAssets.cs` (`TryGetRegionCentroid`)
+**Spec**: `docs/systems/VOXEL_COORDINATE_SPACES.md` — read this before writing any region/pivot-derived position
+
+### Symptom
+
+Eye-anchor orb sat centered on a single voxel when the painted Eyes span (`x44–51`, 8 wide) should have anchored on the seam between the two middle voxels. Successive fixes (mean→bbox midpoint, depth-test, proud offset) each addressed real issues but the marker never visibly moved — the +0.5 offset survived all of them.
+
+### Root Cause
+
+The animator renders voxel `i` centered at `(i - dims/2)` — **index space** ("index = center"). `rebuildRegionIndex` computed the centroid in **cell-center space** (`(min+max+1)/2`), systematically +0.5 voxels off on every axis. The Unity side (`(mn+mx)*0.5f`, index space) was correct all along — the bug was only in the JS convention.
+
+### Why It Took So Long
+
+- Each fix was *real* (occlusion, depth test, mean-vs-bbox), masking the residual offset
+- The status-line diagnostic reported `.0 = seam` in the same wrong space — confirming the wrong answer
+- The FK/gizmo transform chain was verified line-by-line, but never the *input coordinate space* it consumed
+
+### Fix
+
+`(min + max) / 2` in index space — even-width spans land `.5` (seam), odd-width `.0` (middle voxel). Status-line legend corrected to `.5 = seam · .0 = voxel` with span bounds printed.
+
+### Defense Going Forward
+
+**Half a voxel off is a space mismatch until proven otherwise.** Before tuning centroid math or paint theories: (1) name the space the renderer consumes, (2) name the space the producer emits, (3) check parity — even span must give `.5`. Full convention spec + new-code checklist in `docs/systems/VOXEL_COORDINATE_SPACES.md`.
+
+---
+
 ## Appendix: Key Voxel Engine Constants
 
 | Constant | Value | Location |

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace SteelCity.Sim
@@ -251,6 +252,14 @@ namespace SteelCity.Sim
             => volumes.TryGetVolume(id, out voxels, out w, out h, out d, out corner, out voxelSize, out yawDegrees);
 
         public void ClearVolumes() => volumes.Clear();
+
+        /// <summary>Solid volumes overlapping the XZ circle (center, radius) — feeds cover awareness.</summary>
+        public int QueryVolumes(Vector3 center, float radius, List<CoverObstacle> results)
+            => volumes.QueryVolumes(center, radius, results);
+
+        /// <summary>Cover-capable wall columns of volumes overlapping the XZ circle — feeds CoverSensor.</summary>
+        public int QueryCoverWalls(Vector3 center, float radius, float minSpanWorld, float openAtWorld, List<CoverWall> results)
+            => volumes.QueryCoverWalls(center, radius, minSpanWorld, openAtWorld, results);
 
         /// <summary>
         /// 3D voxel raycast against the terrain grid and every registered volume; returns the nearest hit

@@ -77,6 +77,17 @@ namespace SteelCity.Sim
             var cam = cityMap != null ? cityMap.MapCamera : null;
             if (cam == null) { Release(); return; }
 
+            // F8 freeze = inspection mode: the sim is halted, so possess yields
+            // camera authority to the map free-cam (WASD fly / MMB orbit / wheel).
+            // Keep look angles synced to the free-cam so control resumes without
+            // a view snap on unfreeze.
+            if (Time.timeScale < 0.001f)
+            {
+                lookYaw = cityMap.GetCameraYaw();
+                lookPitch = cityMap.GetCameraPitch();
+                return;
+            }
+
             // --- Crosshair target: center of the map viewport into the voxel world ---
             aimPoint = cam.transform.position + cam.transform.forward * 60f;
             if (world != null)

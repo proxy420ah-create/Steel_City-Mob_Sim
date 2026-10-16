@@ -109,6 +109,146 @@ namespace SteelCity.Sim
         /// <summary>World-space center of the character volume (corner + half size).</summary>
         public Vector3 WorldCenter => transform.position + WorldSize * 0.5f;
 
+        // --- Posed joint queries ---
+        // The pose data is authoritative for perception systems: the head joint
+        // (gid 1) is the eye/FOV anchor, so a crouch pose yields a lower eye
+        // automatically — no parallel hand-tuned heights that can drift stale.
+
+        /// <summary>Joint group ids used by the animator's FK map.</summary>
+        public const int JointHead = 1;
+
+        private VoxelCharacterAnimator jointAnimator;
+        private bool jointAnimatorTried;
+        private VoxelCharacterAnimator JointAnimator
+        {
+            get
+            {
+                if (!jointAnimatorTried)
+                {
+                    jointAnimatorTried = true;
+                    if (asset != null)
+                        jointAnimator = asset.CreateAnimator();
+                    else
+                    {
+                        // Legacy .stasset path: {name}.anim.json next to the asset.
+                        string animPath = Path.Combine(Application.streamingAssetsPath, "voxel_characters",
+                            Path.GetFileNameWithoutExtension(assetFileName) + ".anim.json");
+                        if (File.Exists(animPath))
+                            jointAnimator = VoxelCharacterAnimator.LoadFromAnimJson(File.ReadAllText(animPath));
+                    }
+                }
+                return jointAnimator;
+            }
+        }
+
+        /// <summary>
+        /// Posed world position + orientation of a joint group pivot (head=1,
+        /// arms=2/3, legs=4/5). Pushes the pivot through the same FK chain the
+        /// voxels render with — same local→world convention as WeaponMount's
+        /// muzzle solve. Returns false when no anim data exists for this asset.
+        /// `animStateOverride` evaluates the pose *as if* in that state at
+        /// `animTime` (e.g. "where will my head be when I crouch" → state 5,
+        /// regardless of the pose he's currently in).
+        /// </summary>
+        public bool TryGetJointWorld(int gid, out Vector3 worldPos, out Quaternion worldRot,
+            float? animStateOverride = null, float animTime = 0f)
+        {
+            worldPos = default; worldRot = Quaternion.identity;
+            var anim = JointAnimator;
+            if (anim == null || !anim.pivots.TryGetValue(gid, out Vector3 pv)) return false;
+
+            var ic = instancedHandle;
+            float state = animStateOverride ?? (ic?.animState ?? 0f);
+            float time = animStateOverride.HasValue ? animTime : (ic?.animTime ?? 0f);
+            float speed = ic?.animSpeed ?? 1f;
+            var dims = new Vector3Int(dimX, dimY, dimZ);
+
+            Vector3 rest = new Vector3(pv.x * dims.x, pv.y * dims.y, pv.z * dims.z);
+            return PoseToWorld(anim, rest, gid, dims, state, time, speed, out worldPos, out worldRot);
+        }
+
+        /// <summary>Which anchor resolved the gaze — mirrors the animator's
+        /// cone-anchor status line (eyes centroid → face centroid → head joint).</summary>
+        public enum EyeAnchorKind { None = 0, Eyes = 1, Face = 2, HeadJoint = 3 }
+
+        /// <summary>Voxel count behind the last resolved region anchor (0 for head-joint).</summary>
+        public int LastEyeAnchorVox { get; private set; }
+
+        /// <summary>
+        /// The gaze anchor: painted wardrobe-region centroid (Eyes → Face)
+        /// posed through the head's FK chain, then nudged ~1.5 voxels out along
+        /// head-forward so the origin sits proud of the face — a ray starting
+        /// at the interior centroid would self-hit the head's own voxels.
+        /// Head-joint fallback when the asset carries no region paint, false
+        /// when there's no anim data at all. Mirrors character_animator.html's
+        /// vision-cone anchor — same centroids, same FK chain, same offset.
+        /// </summary>
+        public bool TryGetEyeAnchor(out Vector3 worldPos, out Vector3 worldFwd, out EyeAnchorKind source)
+        {
+            worldPos = default; worldFwd = Vector3.forward;
+            source = EyeAnchorKind.None; LastEyeAnchorVox = 0;
+            var anim = JointAnimator;
+            if (anim == null) return false;
+
+            var ic = instancedHandle;
+            float state = ic?.animState ?? 0f;
+            float time = ic?.animTime ?? 0f;
+            float speed = ic?.animSpeed ?? 1f;
+            var dims = new Vector3Int(dimX, dimY, dimZ);
+
+            // Region centroids are index-space (mean of tagged voxel indices);
+            // pivots are normalized — PoseToWorld handles the shared math.
+            Vector3 rest;
+            if (asset != null &&
+                asset.TryGetRegionCentroid("Eyes", out Vector3 c, out int n))
+            { rest = c; source = EyeAnchorKind.Eyes; LastEyeAnchorVox = n; }
+            else if (asset != null &&
+                asset.TryGetRegionCentroid("Face", out c, out n))
+            { rest = c; source = EyeAnchorKind.Face; LastEyeAnchorVox = n; }
+            else if (anim.pivots.TryGetValue(JointHead, out Vector3 pv))
+            { rest = new Vector3(pv.x * dims.x, pv.y * dims.y, pv.z * dims.z);
+              source = EyeAnchorKind.HeadJoint; }
+            else return false;
+
+            if (!PoseToWorld(anim, rest, JointHead, dims, state, time, speed,
+                    out worldPos, out Quaternion worldRot)) return false;
+            worldFwd = (worldRot * Vector3.forward).normalized;
+
+            // Proud of the painted face — animator parity. A ray cast from the
+            // interior centroid would self-hit the head's own voxels.
+            Vector3 yawFwd = new Vector3(worldFwd.x, 0f, worldFwd.z);
+            if (yawFwd.sqrMagnitude > 1e-6f) yawFwd.Normalize(); else yawFwd = worldFwd;
+            worldPos += yawFwd * (1.5f * voxelSize);
+            return true;
+        }
+
+        /// <summary>Shared pose→world core for joint/anchor queries — the same
+        /// FK chain the voxels render with, then the shader's cell-space →
+        /// world convention (identical to WeaponMount's muzzle solve).</summary>
+        bool PoseToWorld(VoxelCharacterAnimator anim, Vector3 rest, int gid, Vector3Int dims,
+            float state, float time, float speed, out Vector3 worldPos, out Quaternion worldRot)
+        {
+            Vector3 posed = anim.PosePoint(rest, gid, dims, state, time, speed);
+
+            Quaternion qR = Quaternion.identity;
+            var gr = anim.ComputeGroupRotation(gid, dims, 1.0f, state, time, speed);
+            if (gr.HasValue && gr.Value.chain != null)
+                foreach (var e in gr.Value.chain)
+                    qR = VoxelCharacterAnimator.QuatFromMat3(e.rot) * qR;
+
+            // Cell-space (+0.5) → rotate about volume center (shader convention).
+            Vector3 half = new Vector3(dims.x, dims.y, dims.z) * voxelSize * 0.5f;
+            Vector3 center = transform.position + half;
+            Vector3 localCell = new Vector3(
+                posed.x + dims.x * 0.5f + 0.5f,
+                posed.y + 0.5f,
+                posed.z + dims.z * 0.5f + 0.5f) * voxelSize;
+            Quaternion yawRot = Quaternion.Euler(0f, transform.eulerAngles.y, 0f);
+            worldPos = center + yawRot * (localCell - half);
+            worldRot = yawRot * qR;
+            return true;
+        }
+
         void Start()
         {
             LoadAsset();

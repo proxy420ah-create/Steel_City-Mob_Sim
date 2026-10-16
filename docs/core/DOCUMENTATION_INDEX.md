@@ -279,6 +279,10 @@
   - Muzzle → bore axis → seeded cone (skill 1–10 × base cone) → swept flight → nearest hit with exact volume / voxel / material
   - `VoxelCollisionWorld.Raycast`: pure 3D DDA over the terrain grid + shared-array building volumes (sector and per-building paths)
   - ShotReport payload for glass puncture / cover / damage; Combat tab FIRE controls; offline self-test `Tools/dda_selftest/run.sh`
+- **`docs/systems/COMBAT_COVER_STATE.md`** — Autonomous combat phase 1: Combat state → verified cover seek (vehicles are solid + promote-on-hit damageable)
+  - `VoxelVehicle` registers yawed collision volumes; `CoverFinder` validates cover by real LOS raycast from the threat
+  - `VoxelDamageSystem.EnsureWritable` promotes `veh_*` targets into private-buffer singleton groups (bullet holes, windshield shatter)
+  - `CombatController` on Vinny: EnterCombat → SeekingCover (steer, slide) → InCover (Crouching pose + ArmAimSolver)
 
 **Weapon & Item Models:**
 - **`docs/systems/WEAPON_ITEM_MODEL_STANDARD.md`** — Voxel modeling standards for weapons, items, and props
@@ -369,7 +373,14 @@
   - Empty plot detection (partial vs fully vacant block — per-building vs block-level predicate)
   - Shader animation "Approach A" (output-only offset invisible — must use inverse-transform sampling in DDA)
   - Missing CharacterAnimation component on spawned hood (animState stays 0, pipeline fed zeros)
+  - Coordinate-space mismatch (region centroid +0.5 off — index vs cell-center space)
   - Key voxel engine constants table (terrain thickness, voxel sizes, index formula, animation groups)
+
+**Voxel Coordinate Spaces (normative):**
+- **`docs/systems/VOXEL_COORDINATE_SPACES.md`** — Canonical voxel-space conventions for all JSON ↔ animator ↔ Unity positions
+  - Index space is the interchange space ("voxel index = rendered center"); cell-center space is the trap
+  - Centroids are bbox midpoints `(min+max)/2` — even spans → `.5` (seam), odd → `.0` (voxel)
+  - Per-consumer conversion table + new-code rules + region-feature checklist
 
 **Refactoring Roadmap:**
 - **`docs/systems/REFACTORING_ROADMAP.md`** — Future code extraction plan to keep files manageable

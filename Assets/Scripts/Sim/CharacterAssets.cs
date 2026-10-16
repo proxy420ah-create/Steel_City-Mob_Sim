@@ -72,6 +72,69 @@ namespace SteelCity.Sim
                 { 9, new Vector3(0.75f, 0.75f, 0.5f) },
             };
 
+        // --- Region centroids ---
+        // Geometric center of each region's painted extent — the bbox midpoint
+        // of tagged voxel indices, NOT the mass mean: a mass centroid drifts
+        // onto whichever side carries more paint (an eyes band 2 voxels tall
+        // should center on the seam between the two rows, not inside the
+        // heavier row). Index space, matching ApplyPivotOverrides: voxel index
+        // = its center; consumers add +0.5 at the cell-space conversion.
+        // Cached lazily; Regions is load-time data.
+        private Dictionary<int, Vector3> regionCentroidCache;
+        private Dictionary<int, int> regionCountCache;
+
+        /// <summary>Geometric center (bbox midpoint) of a named wardrobe region
+        /// ("Eyes", "Face", ...). False when the region isn't defined or has no tags.</summary>
+        public bool TryGetRegionCentroid(string regionName, out Vector3 centroid, out int voxelCount)
+        {
+            centroid = default;
+            voxelCount = 0;
+            if (Regions == null || RegionDefs == null || Regions.Count == 0) return false;
+            int rid = -1;
+            for (int i = 0; i < RegionDefs.Count; i++)
+                if (RegionDefs[i] != null && RegionDefs[i].name == regionName)
+                { rid = RegionDefs[i].id; break; }
+            if (rid < 0) return false;
+            if (regionCentroidCache == null) BuildRegionCentroids();
+            if (!regionCentroidCache.TryGetValue(rid, out centroid)) return false;
+            voxelCount = regionCountCache[rid];
+            return true;
+        }
+
+        private void BuildRegionCentroids()
+        {
+            var bmin = new Dictionary<int, Vector3Int>();
+            var bmax = new Dictionary<int, Vector3Int>();
+            var count = new Dictionary<int, int>();
+            foreach (var kv in Regions)
+            {
+                string key = kv.Key;
+                int c1 = key.IndexOf(',');
+                int c2 = c1 < 0 ? -1 : key.IndexOf(',', c1 + 1);
+                if (c2 < 0) continue;
+                if (!int.TryParse(key.Substring(0, c1), out int x)) continue;
+                if (!int.TryParse(key.Substring(c1 + 1, c2 - c1 - 1), out int y)) continue;
+                if (!int.TryParse(key.Substring(c2 + 1), out int z)) continue;
+                if (!bmin.TryGetValue(kv.Value, out var mn))
+                { bmin[kv.Value] = new Vector3Int(x, y, z); bmax[kv.Value] = new Vector3Int(x, y, z); count[kv.Value] = 1; continue; }
+                bmax[kv.Value] = new Vector3Int(
+                    Mathf.Max(bmax[kv.Value].x, x), Mathf.Max(bmax[kv.Value].y, y), Mathf.Max(bmax[kv.Value].z, z));
+                bmin[kv.Value] = new Vector3Int(
+                    Mathf.Min(mn.x, x), Mathf.Min(mn.y, y), Mathf.Min(mn.z, z));
+                count[kv.Value]++;
+            }
+            regionCentroidCache = new Dictionary<int, Vector3>();
+            regionCountCache = new Dictionary<int, int>();
+            foreach (var kv in bmin)
+            {
+                var mn = kv.Value;
+                var mx = bmax[kv.Key];
+                regionCentroidCache[kv.Key] = new Vector3(
+                    (mn.x + mx.x) * 0.5f, (mn.y + mx.y) * 0.5f, (mn.z + mx.z) * 0.5f);
+                regionCountCache[kv.Key] = count[kv.Key];
+            }
+        }
+
         /// <summary>
         /// Per-character pose context: shares ParamsData/Pivots/JointOffsets
         /// (read-only after load) but owns its ikOverrides/ikBlend so each

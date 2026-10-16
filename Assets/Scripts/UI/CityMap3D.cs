@@ -653,6 +653,12 @@ namespace SteelCity.Sim
         // F8 time-freeze — remember the prior scale so a non-1 setting survives
         private float timeScaleBeforeFreeze = 1f;
 
+        // Freeze doubles as inspection mode: while time is stopped the map
+        // camera grants the free-cam path (WASD fly, full pitch, pan, zoom)
+        // without F6's debris/rebake side effects.
+        private bool Frozen => Time.timeScale < 0.001f;
+        private bool CamFree => debugCameraFreedom || Frozen;
+
         // Set by GameUIController when entering/leaving Working mode
         public bool IsExecutionMode { get; set; } = false;
 
@@ -738,7 +744,7 @@ namespace SteelCity.Sim
             // WASD free-look while F6 camera freedom is on: moves the focus
             // point along the camera's view axes — W/S fly along view dir
             // (pitch-aware), A/D strafe, Q/E descend/ascend, Shift = 3x speed.
-            if (kb != null && debugCameraFreedom && mapCamera != null && !PossessController.Active)
+            if (kb != null && CamFree && mapCamera != null && (Frozen || !PossessController.Active))
             {
                 Vector3 move = Vector3.zero;
                 if (kb.wKey.isPressed) move += mapCamera.transform.forward;
@@ -755,11 +761,13 @@ namespace SteelCity.Sim
                     if (kb.shiftKey.isPressed) speed *= 3f;
                     Vector3 worldDelta = move.normalized * speed * Time.unscaledDeltaTime;
                     cameraFollowsCityCenter = false;
-                    if (IsExecutionMode)
+                    // Frozen or no running event player → apply the delta to the
+                    // focus directly; the EventPlayer follow path is time-gated
+                    // and would swallow it.
+                    var ep = GetEventPlayer();
+                    if (IsExecutionMode && !Frozen && ep != null && ep.IsRunning)
                     {
-                        var ep = GetEventPlayer();
-                        if (ep != null && ep.IsRunning)
-                            ep.AddCameraPanOffset(worldDelta);
+                        ep.AddCameraPanOffset(worldDelta);
                     }
                     else
                     {
@@ -844,8 +852,9 @@ namespace SteelCity.Sim
         {
             if (Mouse.current == null || mapCamera == null) return;
             // Possess owns all mouse look — don't let MMB-rotate/RMB-pan/wheel
-            // fight the locked-cursor third-person camera.
-            if (PossessController.Active)
+            // fight the locked-cursor third-person camera. Under F8 freeze it
+            // yields camera authority so the scene can be inspected.
+            if (PossessController.Active && !Frozen)
             {
                 isRotating = false;
                 isPanning = false;
@@ -874,8 +883,8 @@ namespace SteelCity.Sim
                 {
                     if (mapCamera.orthographic)
                     {
-                        float zoomSpeed = debugCameraFreedom ? 0.3f : 0.5f;
-                        float minZoom = debugCameraFreedom ? 0.1f : 3f;
+                        float zoomSpeed = CamFree ? 0.3f : 0.5f;
+                        float minZoom = CamFree ? 0.1f : 3f;
                         float newSize = mapCamera.orthographicSize - scroll * zoomSpeed;
                         mapCamera.orthographicSize = Mathf.Clamp(newSize, minZoom, 40f);
                     }
@@ -899,8 +908,8 @@ namespace SteelCity.Sim
             {
                 Vector2 delta = mousePos - lastMousePos;
                 targetYaw += delta.x * 0.3f;
-                float minPitch = debugCameraFreedom ? -89f : 10f;
-                float maxPitch = debugCameraFreedom ? 89f : 80f;
+                float minPitch = CamFree ? -89f : 10f;
+                float maxPitch = CamFree ? 89f : 80f;
                 targetPitch = Mathf.Clamp(targetPitch - delta.y * 0.2f, minPitch, maxPitch);
                 lastMousePos = mousePos;
             }
@@ -909,7 +918,7 @@ namespace SteelCity.Sim
 
             // --- RMB: Pan ---
             // In execution mode, only allow pan when F6 debug camera freedom is active
-            bool panAllowed = !IsExecutionMode || debugCameraFreedom;
+            bool panAllowed = !IsExecutionMode || CamFree;
             if (Mouse.current.rightButton.wasPressedThisFrame && overMap && panAllowed)
             {
                 isPanning = true;
@@ -931,12 +940,11 @@ namespace SteelCity.Sim
                 Vector3 up = mapCamera.transform.up * (-delta.y * panScale);
                 Vector3 worldDelta = right + up;
 
-                if (IsExecutionMode)
+                var ep2 = GetEventPlayer();
+                if (IsExecutionMode && !Frozen && ep2 != null && ep2.IsRunning)
                 {
                     // In execution mode, route pan to EventPlayer as offset from character
-                    var ep = GetEventPlayer();
-                    if (ep != null && ep.IsRunning)
-                        ep.AddCameraPanOffset(worldDelta);
+                    ep2.AddCameraPanOffset(worldDelta);
                 }
                 else
                 {

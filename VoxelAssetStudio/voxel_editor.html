@@ -106,6 +106,7 @@ body.ui-hidden #right-panel,
 body.ui-hidden #status-bar,
 body.ui-hidden #adv-panel { display:none !important; }
 body.ui-hidden #ruler-panel { display:none !important; }
+body.ui-hidden #sel-panel { display:none !important; }
 body.ui-hidden #paste-controls { display:none !important; }
 #ui-hidden-hint {
   position:fixed; bottom:10px; right:10px; z-index:90;
@@ -663,7 +664,13 @@ body.ui-hidden #ui-hidden-hint { display:block; }
   <div class="adv-row" style="color:#888;font-size:10px;">
     Edits mirror across selected axes. ½ shifts the plane by half a voxel (through centers instead of boundaries) for a self-mirroring central spine.
   </div>
-  <h3 style="margin-top:12px;">Selection</h3>
+</div>
+
+<!-- Selection panel — standalone fixed panel (ruler-panel pattern). Shows
+     while the Select tool is active OR any selection exists, since selection
+     stays live for scoped erase/paint/retag from other tools. -->
+<div id="sel-panel" style="display:none;position:fixed;top:56px;left:240px;width:240px;background:rgba(0,0,0,0.8);border-radius:8px;padding:12px;z-index:88;">
+  <h3 style="margin-top:0;">🔲 Selection</h3>
   <div class="sel-info" id="sel-info">No selection</div>
   <div class="adv-row">
     <button class="console-btn" onclick="copySelection()">Copy</button>
@@ -674,6 +681,15 @@ body.ui-hidden #ui-hidden-hint { display:block; }
   <div class="adv-row">
     <button class="console-btn" onclick="clearSelection()">Clear Sel</button>
   </div>
+  <div class="adv-row" style="gap:4px;">
+    <select id="sel-retag-region" title="Region to assign to the selection" style="flex:1;background:#222;color:#eee;border:1px solid #444;padding:3px;border-radius:4px;font-size:10px;"></select>
+    <button class="console-btn" onclick="retagSelectionRegion()" title="Re-tag every selected voxel to the chosen wardrobe region ('Unassigned' clears)">Retag ▸</button>
+  </div>
+  <div class="adv-row" style="gap:4px;">
+    <button class="console-btn" onclick="fillSelectionMaterial()" title="Set every selected voxel to the current material">Fill ▸Mat</button>
+    <button class="console-btn" onclick="openReplaceModal(true)" title="Swap materials within the selection only">Swap Mat…</button>
+  </div>
+  <div style="font-size:9px;color:#888;margin-top:4px;">S tool: Shift=voxel · Ctrl+drag=box · W+click=region · Q+click=group · click=flood · Alt=add</div>
 </div>
 
 <!-- Paste controls — standalone fixed panel shown during paste/move mode
@@ -737,6 +753,9 @@ body.ui-hidden #ui-hidden-hint { display:block; }
       <label style="font-size:11px;color:#aaa;">To:</label>
       <select id="replace-to" style="background:#222;color:#eee;border:1px solid #444;padding:4px;border-radius:4px;font-size:11px;"></select>
     </div>
+    <label style="font-size:11px;color:#aaa;display:flex;align-items:center;gap:6px;margin-bottom:12px;">
+      <input type="checkbox" id="replace-sel-only"> Selection only (<span id="replace-sel-count">0</span> voxels)
+    </label>
     <div style="display:flex;gap:8px;">
       <button class="console-btn run" onclick="doReplace()">Replace</button>
       <button class="console-btn" onclick="document.getElementById('replace-modal').style.display='none'">Cancel</button>
@@ -2144,6 +2163,11 @@ const CLOTHING_REGIONS = [
   { id: 5, name: 'Hands',  color: '#e07070', desc: 'Hands — skin or gloves' },
   { id: 6, name: 'Legs',   color: '#daa520', desc: 'Thighs + shins — pants' },
   { id: 7, name: 'Feet',   color: '#ce5c5c', desc: 'Shoes/boots' },
+  // Head sub-regions — the triangulation set: Face + Eyes + Head + Top of Head
+  // bound the skull so centroids can locate face center / gaze origin / hat seat.
+  { id: 8,  name: 'Head',        color: '#b08d68', desc: 'Scalp/skull sides+back — hair & headwear coverage' },
+  { id: 9,  name: 'Top of Head', color: '#8d6b4a', desc: 'Crown — hat seat / headwear anchor' },
+  { id: 10, name: 'Eyes',        color: '#40e0d0', desc: 'Eye voxels — gaze centroid + glasses accessory anchor' },
 ];
 // Vehicle "Paint / Decal" regions — same role as CLOTHING_REGIONS (a second,
 // non-articulation voxel tag → `regions` export), but the zones are paint
@@ -2293,7 +2317,43 @@ function populateClothingRegionList() {
       setStatus(`Selected clothing region: ${clothingRegionName(selectedClothingRegion)}`);
     });
   });
+  populateSelRetagDropdown();
 }
+
+// Selection-panel "Retag ▸" dropdown — same list, Unassigned first (clears tag).
+function populateSelRetagDropdown() {
+  const sel = document.getElementById('sel-retag-region');
+  if (!sel) return;
+  sel.innerHTML = [{ id: UNASSIGNED_REGION_ID, name: '— Unassigned (clear tag)' }, ...activeClothingRegions()]
+    .map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+}
+
+// Re-tag every selected voxel to the dropdown's region — W+click a region then
+// Retag is the "swap Face → Eyes" workflow.
+window.retagSelectionRegion = function() {
+  if (!selVoxels.length) { setStatus('No selection — select first (S tool: W+click = whole region)'); return; }
+  const rid = parseInt(document.getElementById('sel-retag-region').value);
+  for (const v of selVoxels) {
+    const key = `${v[0]},${v[1]},${v[2]}`;
+    if (rid === UNASSIGNED_REGION_ID) clothingRegionMap.delete(key);
+    else clothingRegionMap.set(key, rid);
+  }
+  pushHistory();
+  updateClothingRegionCounts();
+  rebuildMesh(); // tags mark voxDirty — Region view refreshes in place
+  setStatus(`Re-tagged ${selVoxels.length} voxels → ${clothingRegionName(rid)}`);
+};
+
+// Fill every selected voxel with the current material.
+window.fillSelectionMaterial = function() {
+  if (!selVoxels.length) { setStatus('No selection'); return; }
+  for (const v of selVoxels) voxelMap.set(`${v[0]},${v[1]},${v[2]}`, selectedMaterial);
+  pushHistory();
+  rebuildMesh();
+  buildMaterialList();
+  const m = allMaterials.find(mm => mm.id === selectedMaterial);
+  setStatus(`Filled ${selVoxels.length} selected voxels with ${m ? m.name : 'mat ' + selectedMaterial}`);
+};
 
 function exportClothingRegionsJSON() {
   const regionsObj = {};
@@ -3734,8 +3794,15 @@ let selectionActive = false;
 // model or another tool is used. Rebuilt only when the selection changes.
 let selOverlayMesh = null;
 let selOverlayEdges = null;
+// Selection panel visibility — while the Select tool is active OR a
+// selection exists (scoped ops stay reachable from paint/erase too).
+function syncSelPanel() {
+  const p = document.getElementById('sel-panel');
+  if (p) p.style.display = (currentTool === 'select' || selVoxels.length > 0) ? 'block' : 'none';
+}
 function showSelectionOverlay() {
   clearSelectionOverlay();
+  syncSelPanel();
   if (selVoxels.length === 0) return;
   const positions = selVoxels.map(v => [v[0], v[1], v[2]]);
   const m = buildShellMeshes(positions, 0xff8800, 0.10);
@@ -5350,12 +5417,24 @@ function updateHighlight(event) {
   let positionsPreMirrored = false; // memoized previews already include mirror
   let previewBounds = null;         // [minX..maxZ] — box drag too big to enumerate
 
-  // Always show material under cursor when hovering a solid voxel
+  // Always show ALL voxel data under cursor when hovering a solid voxel —
+  // material, wardrobe region, body/attachment group.
   let matInfoStr = '';
   if (hit.mid !== undefined && hit.mid !== 0) {
     const matInfo = allMaterials.find(m => m.id === hit.mid);
     const matName = matInfo ? matInfo.name : `Mat ${hit.mid}`;
-    matInfoStr = `Mat: ${matName} (${hit.mid}) @ (${hit.x},${hit.y},${hit.z})`;
+    const vkey = `${hit.x},${hit.y},${hit.z}`;
+    const rid = clothingRegionMap.get(vkey);
+    const rName = rid !== undefined
+      ? ((activeClothingRegions().find(r => r.id === rid) || {}).name || `Region ${rid}`)
+      : 'unassigned';
+    const gid = groupMap.get(vkey);
+    const gName = gid !== undefined
+      ? ((activeBodyGroups().find(g => g.id === gid) || {}).name || `Group ${gid}`)
+      : 'Body';
+    matInfoStr = `Mat: ${matName} (${hit.mid}) @ (${hit.x},${hit.y},${hit.z})` +
+      ` · R:${rName}${rid !== undefined ? '(' + rid + ')' : ''}` +
+      ` · G:${gName}${gid !== undefined ? '(' + gid + ')' : ''}`;
   }
 
   switch (currentTool) {
@@ -5832,6 +5911,7 @@ function setTool(tool) {
   }
   document.getElementById('status-info').textContent = desc;
   renderRulerPanel();
+  syncSelPanel();
   clearHighlight();
   // Selection overlay is persistent — no need to rebuild it here. It stays
   // visible across tool switches via its own dedicated mesh.
@@ -7111,6 +7191,7 @@ window.clearSelection = function() {
   selectionActive = false;
   document.getElementById('sel-info').textContent = 'No selection';
   clearSelectionOverlay();
+  syncSelPanel();
 };
 
 // === EXTRUDE TOOL ===
@@ -7281,18 +7362,34 @@ window.doReplace = function() {
   const fromMid = parseInt(document.getElementById('replace-from').value);
   const toMid = parseInt(document.getElementById('replace-to').value);
   if (fromMid === toMid) return;
+  const selOnly = document.getElementById('replace-sel-only').checked && selVoxels.length > 0;
   let count = 0;
-  for (const [key, mid] of voxelMap) {
-    if (mid === fromMid) {
-      voxelMap.set(key, toMid);
-      count++;
+  if (selOnly) {
+    for (const v of selVoxels) {
+      const key = `${v[0]},${v[1]},${v[2]}`;
+      if (voxelMap.get(key) === fromMid) { voxelMap.set(key, toMid); count++; }
+    }
+  } else {
+    for (const [key, mid] of voxelMap) {
+      if (mid === fromMid) { voxelMap.set(key, toMid); count++; }
     }
   }
   pushHistory();
   rebuildMesh();
   buildMaterialList();
   document.getElementById('replace-modal').style.display = 'none';
-  setStatus(`Replaced ${count} voxels: ${fromMid} → ${toMid}`);
+  setStatus(`Replaced ${count} voxels: ${fromMid} → ${toMid}${selOnly ? ' (selection)' : ''}`);
+};
+
+// Shared open path — selOnly pre-checks the scope box (used by the
+// selection panel's "Swap Mat…" button; toolbar replace stays global-by-default).
+window.openReplaceModal = function(selOnly) {
+  populateReplaceDropdowns();
+  const cb = document.getElementById('replace-sel-only');
+  cb.checked = !!(selOnly && selVoxels.length);
+  cb.disabled = !selVoxels.length;
+  document.getElementById('replace-sel-count').textContent = selVoxels.length;
+  document.getElementById('replace-modal').style.display = 'flex';
 };
 
 function populateReplaceDropdowns() {
@@ -7363,8 +7460,7 @@ document.getElementById('mirror-move').addEventListener('click', () => {
 
 // === REPLACE BUTTON ===
 document.getElementById('replace-btn').addEventListener('click', () => {
-  populateReplaceDropdowns();
-  document.getElementById('replace-modal').style.display = 'flex';
+  openReplaceModal(false); // global-by-default; checkbox still available
 });
 
 // === CONSOLE BUTTON ===

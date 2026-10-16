@@ -18,7 +18,7 @@ namespace SteelCity.Sim
     /// </summary>
     public class DebugHUDManager : MonoBehaviour
     {
-        public enum Tab { Camera, Render, Clothing, Path, Combat, Demolitions, Weapons, MatRes, BuildLog, Keys, Sfx }
+        public enum Tab { Camera, Render, Clothing, Path, Combat, Cover, Vision, Demolitions, Weapons, MatRes, BuildLog, Keys, Sfx }
         public enum Corner { TopLeft, TopRight, BottomLeft, BottomRight }
 
         [Header("Config")]
@@ -79,6 +79,8 @@ namespace SteelCity.Sim
         private enum PickSlot { None, Stand, Aim, Blast, Building, Inspect }
         private PickSlot pickArmed = PickSlot.None;
         private Vector3? pickedStand, pickedAim;
+        private CoverSensor coverSensor;   // Vinny's always-on cover awareness (COVER tab)
+        private VisionSensor visionSensor; // Vinny's vision sense (VISION tab)
         private string inspectHud;                             // last voxel-inspect report (HUD)
         private VoxelCollisionWorld World => world != null ? world : (world = cityMap != null ? cityMap.GetComponent<VoxelCollisionWorld>() : null);
         private VoxelCollisionWorld world;
@@ -247,7 +249,7 @@ namespace SteelCity.Sim
             Tab.Render => chunkManager != null,
             Tab.Clothing => allClothingSystems.Count > 0,
             Tab.Path => pathDebug != null,
-            Tab.Combat or Tab.Demolitions => cityMap != null,
+            Tab.Combat or Tab.Cover or Tab.Vision or Tab.Demolitions => cityMap != null,
             Tab.Sfx => true,
             _ => true,
         };
@@ -294,6 +296,16 @@ namespace SteelCity.Sim
                     currentCorner = (Corner)(((int)currentCorner + 1) % 4);
                     usingCustomPosition = false;
                 }
+
+                // Cover sensor threat sync — the PICK AIM point is the shared
+                // threat context for both combat and cover inspection.
+                if (coverSensor != null && coverSensor.Threat != pickedAim)
+                {
+                    coverSensor.Threat = pickedAim;
+                    coverSensor.Refresh(true);
+                }
+                // Vision testbed: the same pick point is "the thing he's looking at".
+                if (visionSensor != null) visionSensor.SetTarget(pickedAim);
 
                 // Minimize toggle with M key
                 if (kb.mKey.wasPressedThisFrame)
@@ -547,7 +559,7 @@ namespace SteelCity.Sim
             }
 
             DrawTabRow(Tab.Camera, Tab.Render, Tab.Sfx, Tab.Clothing, Tab.Path, Tab.Keys);
-            DrawTabRow(Tab.Combat, Tab.Demolitions, Tab.Weapons, Tab.MatRes, Tab.BuildLog);
+            DrawTabRow(Tab.Combat, Tab.Cover, Tab.Vision, Tab.Demolitions, Tab.Weapons, Tab.MatRes, Tab.BuildLog);
 
             // Separator
             GUILayout.Box("", GUILayout.Height(1), GUILayout.ExpandWidth(true));
@@ -566,6 +578,8 @@ namespace SteelCity.Sim
                     UnityEngine.Profiling.Profiler.BeginSample("HUD.DrawDemolitionsTab");
                     try { DrawDemolitionsTab(); } finally { UnityEngine.Profiling.Profiler.EndSample(); }
                     break;
+                case Tab.Cover: DrawCoverTab(); break;
+                case Tab.Vision: DrawVisionTab(); break;
                 case Tab.Weapons: DrawWeaponsTab(); break;
                 case Tab.Sfx: DrawSfxTab(); break;
                 case Tab.MatRes:
@@ -1372,6 +1386,41 @@ namespace SteelCity.Sim
 
             GUILayout.Space(6);
 
+            // --- Combat mode: autonomous cover-seek (COMBAT_COVER_STATE.md) ---
+            // Threat = the PICK AIM point — simulates a shooter standing there.
+            var cc = ch.GetComponent<CombatController>();
+            if (cc == null) cc = ch.gameObject.AddComponent<CombatController>();
+            GUILayout.Label("<b>Combat mode (autonomous)</b>", labelStyle);
+            if (cc.State == CombatController.CombatState.Idle)
+            {
+                bool hasThreat = pickedAim.HasValue;
+                GUI.enabled = hasThreat;
+                if (GUILayout.Button(hasThreat ? "ENTER COMBAT — seek cover vs PICK AIM"
+                                             : "ENTER COMBAT (PICK AIM a threat first)",
+                        tabStyle, GUILayout.Height(24)))
+                    cc.EnterCombat(pickedAim.Value);
+                GUI.enabled = true;
+            }
+            else
+            {
+                GUILayout.Label($"state: <b>{cc.State}</b>   cover: <b>{cc.CoverObstacleId ?? "—"}</b>", labelStyle);
+                if (!string.IsNullOrEmpty(cc.LastResult))
+                    GUILayout.Label($"  {cc.LastResult}", labelStyle);
+                if (cc.lastStats.tested > 0)
+                {
+                    var st = cc.lastStats;
+                    var reasons = string.Join("  ", System.Linq.Enumerable.Select(
+                        st.reasons, kv => $"{kv.Key}×{kv.Value}"));
+                    GUILayout.Label($"  scan: {st.obstacles} obstacles → {st.tested} pts, {st.valid} valid" +
+                        (st.reasons.Count > 0 ? $"  ({reasons})" : ""), labelStyle);
+                }
+                if (GUILayout.Button("EXIT COMBAT", tabStyle, GUILayout.Height(22))) cc.ExitCombat();
+            }
+            cc.moveSpeed = HSlider("move speed", cc.moveSpeed, 0.5f, 5f);
+            GUILayout.Label("cover detection tuning lives on the COVER tab", labelStyle);
+
+            GUILayout.Space(6);
+
             // --- IK Aim toggle ---
             bool aiming = solver.IsAiming;
             var btnStyle = aiming ? tabActiveStyle : tabStyle;
@@ -1428,6 +1477,162 @@ namespace SteelCity.Sim
                 solver.torsoShare = 0.6f;
                 solver.maxTorsoYawDeg = 70f;
             }
+        }
+
+        /// <summary>
+        /// COVER tab — Vinny's always-on cover-awareness sense, inspected live.
+        /// Passive layer: walls (low/crouch/full) inside the scan radius, volume
+        /// footprints, the radius ring itself — no threat needed. Set a threat
+        /// (PICK THREAT, shared with Combat's PICK AIM) and the active layer
+        /// lights up: threat-facing walls, validated stand-spot candidates with
+        /// reject reasons, and optionally the threat→eye LOS rays.
+        /// </summary>
+        void DrawCoverTab()
+        {
+            var ch = cityMap != null ? cityMap.SpawnedCharacter : null;
+            if (ch == null)
+            {
+                GUILayout.Label("spawn the character first (sim running)", labelStyle);
+                return;
+            }
+            var sensor = ch.GetComponent<CoverSensor>();
+            if (sensor == null) sensor = ch.gameObject.AddComponent<CoverSensor>();
+            coverSensor = sensor;
+
+            // --- Threat context ---
+            GUILayout.Label("<b>Threat</b>", labelStyle);
+            GUILayout.BeginHorizontal();
+            bool thrArmed = pickArmed == PickSlot.Aim;
+            if (GUILayout.Button(thrArmed ? "THREAT: click map…" : "PICK THREAT",
+                    thrArmed ? tabActiveStyle : tabStyle, GUILayout.Height(22)))
+                ArmPick(PickSlot.Aim);
+            GUI.enabled = pickedAim.HasValue;
+            if (GUILayout.Button("CLEAR", tabStyle, GUILayout.Width(60), GUILayout.Height(22)))
+            {
+                pickedAim = null;
+                sensor.Threat = null;
+                var pdr0 = PathDebugRenderer.Instance;
+                pdr0?.ClearCustomBeam("pick_aim");
+                pdr0?.ClearCustomBeam("pick_aim2");
+                sensor.Refresh(true);
+            }
+            GUI.enabled = true;
+            GUILayout.EndHorizontal();
+            GUILayout.Label(pickedAim.HasValue
+                ? $"threat: <b>{pickedAim.Value.ToString("F1")}</b>"
+                : "no threat — passive wall awareness only", labelStyle);
+
+            // --- Detection tuning ---
+            GUILayout.Space(6);
+            GUILayout.Label("<b>Detection</b>", labelStyle);
+            bool dirty = false;
+            float v;
+            v = HSlider("cover radius", sensor.radius, 4f, 40f);
+            if (v != sensor.radius) { sensor.radius = v; dirty = true; }
+            v = HSlider("standoff", sensor.standoff, 0.15f, 1.5f);
+            if (v != sensor.standoff) { sensor.standoff = v; dirty = true; }
+            v = HSlider("crouch eye (fallback)", sensor.crouchEye, 0.3f, 1.4f);
+            if (v != sensor.crouchEye) { sensor.crouchEye = v; dirty = true; }
+            GUILayout.Label(sensor.EyePosed
+                ? $"  eye band: <b>{sensor.EyeOffset:F2}m</b> — read from posed crouch head"
+                : $"  eye band: {sensor.EyeOffset:F2}m — slider fallback (no anim data)", labelStyle);
+            v = HSlider("full cover", sensor.standEye, 1.0f, 1.8f);
+            if (v != sensor.standEye) { sensor.standEye = v; dirty = true; }
+            v = HSlider("spot spacing", sensor.spotSpacing, 0.15f, 1.0f);
+            if (v != sensor.spotSpacing) { sensor.spotSpacing = v; dirty = true; }
+            v = HSlider("facing dot", sensor.facingDot, -0.6f, 0.4f);
+            if (v != sensor.facingDot) { sensor.facingDot = v; dirty = true; }
+            if (dirty) sensor.Refresh(true);
+
+            // --- Visualization toggles ---
+            GUILayout.Space(6);
+            GUILayout.Label("<b>Visualize</b>", labelStyle);
+            dirty = false;
+            void Tog(ref bool f, string label)
+            {
+                bool nv = GUILayout.Toggle(f, label, toggleStyle);
+                if (nv != f) { f = nv; dirty = true; }
+            }
+            Tog(ref sensor.showRing, " scan radius ring");
+            Tog(ref sensor.showFootprints, " obstacle footprints (local frame)");
+            Tog(ref sensor.showWalls, " cover walls  (green full / yellow crouch / red low)");
+            Tog(ref sensor.tintWallFacing, "   dim walls not facing threat");
+            Tog(ref sensor.showCandidates, " candidates  (green ok / red rejected / cyan pick)");
+            Tog(ref sensor.showLos, " threat→eye LOS rays");
+            if (dirty) sensor.Refresh(true);
+            if (GUILayout.Button("RESCAN NOW", tabStyle, GUILayout.Height(20)))
+                sensor.Refresh(true);
+
+            // --- Live stats ---
+            GUILayout.Space(6);
+            GUILayout.Label("<b>Scan</b>", labelStyle);
+            var st = sensor.stats;
+            GUILayout.Label($"  {st.obstacles} volumes · {st.wallCols} wall cols" +
+                $"  (full {st.wallsFull} / crouch {st.wallsCrouch} / low {st.wallsLo})", labelStyle);
+            if (sensor.HasThreat)
+            {
+                string reasons = st.reasons != null && st.reasons.Count > 0
+                    ? "   (" + string.Join("  ", System.Linq.Enumerable.Select(
+                        st.reasons, kv => $"{kv.Key}×{kv.Value}")) + ")"
+                    : "";
+                GUILayout.Label($"  {st.facing} threat-facing → {st.tested} candidates, " +
+                    $"<b>{st.valid} valid</b>{reasons}", labelStyle);
+            }
+        }
+
+        /// <summary>
+        /// VISION tab — Vinny's vision sense, inspected live. The cone rides the
+        /// POSED head joint, so the Looking state's authored head-yaw sweep is the
+        /// scan itself. Detection builds while a target sits inside an unblocked
+        /// cone and decays outside it — the sweep produces intermittent exposure.
+        /// Testbed target = the shared PICK AIM point ("the thing he's looking at").
+        /// </summary>
+        void DrawVisionTab()
+        {
+            var ch = cityMap != null ? cityMap.SpawnedCharacter : null;
+            if (ch == null)
+            {
+                GUILayout.Label("spawn the character first (sim running)", labelStyle);
+                return;
+            }
+            var sensor = ch.GetComponent<VisionSensor>();
+            if (sensor == null) sensor = ch.gameObject.AddComponent<VisionSensor>();
+            visionSensor = sensor;
+
+            // --- Target context ---
+            GUILayout.Label("<b>Target</b>", labelStyle);
+            GUILayout.BeginHorizontal();
+            bool aimArmed = pickArmed == PickSlot.Aim;
+            if (GUILayout.Button(aimArmed ? "TARGET: click map…" : "PICK TARGET",
+                    aimArmed ? tabActiveStyle : tabStyle, GUILayout.Height(22)))
+                ArmPick(PickSlot.Aim);
+            GUILayout.EndHorizontal();
+            GUILayout.Label(pickedAim.HasValue
+                ? $"observing: <b>{pickedAim.Value.ToString("F1")}</b>"
+                : "no target — pick a point for Vinny to watch", labelStyle);
+
+            // --- Perception tuning ---
+            GUILayout.Space(6);
+            GUILayout.Label("<b>Perception</b>", labelStyle);
+            sensor.range = HSlider("range", sensor.range, 5f, 60f);
+            sensor.halfAngleDeg = HSlider("half angle °", sensor.halfAngleDeg, 15f, 90f);
+            sensor.riseTime = HSlider("detect rise (s)", sensor.riseTime, 0.1f, 3f);
+            sensor.decayTime = HSlider("forget decay (s)", sensor.decayTime, 0.5f, 5f);
+            GUILayout.Label($"  eye: <b>{sensor.EyePos.y:F2}m</b> — {sensor.EyeAnchorDesc}", labelStyle);
+
+            // --- Visualization ---
+            GUILayout.Space(6);
+            GUILayout.Label("<b>Visualize</b>", labelStyle);
+            sensor.showCone = GUILayout.Toggle(sensor.showCone, " FOV cone (sweeps with head)", toggleStyle);
+            sensor.showTargetRay = GUILayout.Toggle(sensor.showTargetRay, " eye→target rays", toggleStyle);
+
+            // --- Live status ---
+            GUILayout.Space(6);
+            GUILayout.Label("<b>Status</b>", labelStyle);
+            GUILayout.Label($"  detection: <b>{sensor.MaxDetection * 100f:F0}%</b>" +
+                (sensor.AnyDetected ? "  <color=#ff5544>DETECTED</color>"
+                 : sensor.AnyVisible ? "  <color=#ffbb44>in cone…</color>" : ""), labelStyle);
+            GUILayout.Label("  cone: pale = watching · amber = detecting · red = detected", labelStyle);
         }
 
         /// <summary>Demolitions: blast/inspect picks, the global voxel-damage &amp; debris

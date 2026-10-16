@@ -1474,7 +1474,52 @@ namespace SteelCity.Sim
         /// buffer. This is the gate VoxelDamageSystem uses instead of HasChunk (P2).
         /// </summary>
         public bool HasWritableVolume(string name) =>
-            HasChunk(name) || (name != null && sectorVolumeLookup.ContainsKey(name));
+            HasChunk(name) || (name != null && (sectorVolumeLookup.ContainsKey(name)
+                || promotedVolumeLookup.ContainsKey(name)));
+
+        // --- Promoted instanced volumes (per-instance damage) ---
+        // An instanced vehicle shares the group's read-only buffer until the first
+        // damage hit, then "promotes": the instance leaves its group for a
+        // singleton group (key "dmg_<volumeId>") whose sharedVoxelBuffer is the
+        // volume's own COW'd array. Damage edits ride the normal UploadVoxelEdits
+        // path — the shader keeps sampling sharedVoxelBuffer (useComputePose stays
+        // false), and the per-frame worldOffset/yaw sync means a damaged car can
+        // still drive off carrying its bullet holes.
+        private readonly Dictionary<string, InstancedGroup> promotedVolumeLookup = new();
+
+        /// <summary>
+        /// Promote an instanced instance to a writable damage volume. `data` must be
+        /// the volume's CURRENT voxel array (post-COW) — it seeds the private buffer.
+        /// Returns true when the volume is writable under `volumeId`.
+        /// </summary>
+        public bool PromoteToDamageable(InstancedCharacter ic, string volumeId, uint[] data)
+        {
+            if (ic == null || string.IsNullOrEmpty(volumeId) || data == null) return false;
+            if (promotedVolumeLookup.ContainsKey(volumeId)) return true;
+            if (!instancedGroups.TryGetValue(ic.assetKey, out var src) || !src.instances.Remove(ic))
+                return false;
+            int total = src.dimX * src.dimY * src.dimZ;
+            if (data.Length != total) { src.instances.Add(ic); return false; }
+
+            var grp = new InstancedGroup
+            {
+                dimX = src.dimX, dimY = src.dimY, dimZ = src.dimZ, voxelSize = src.voxelSize,
+                sharedVoxelBuffer = new ComputeBuffer(total, sizeof(uint)),
+            };
+            GpuUpload.SetData(grp.sharedVoxelBuffer, data);
+            // Fresh pane ids from the damaged array — sharing the source group's
+            // paneBuffer would let this car's windshield edits leak onto every
+            // undamaged instance.
+            var pane = GetPaneIDs(data, src.dimX, src.dimY, src.dimZ);
+            grp.paneBuffer = pane != null ? CreatePaneBuffer(pane) : defaultPaneBuffer;
+
+            string key = "dmg_" + volumeId;
+            ic.assetKey = key;
+            grp.instances.Add(ic);
+            instancedGroups[key] = grp;
+            promotedVolumeLookup[volumeId] = grp;
+            return true;
+        }
 
         // --- Macro-cell occupancy (raymarch empty-skip) ---
         // One bit per 4x4x4 macro cell: set when ANY voxel inside is solid.
@@ -1597,6 +1642,11 @@ namespace SteelCity.Sim
                 paneBuf = sv.sector.paneBuffer;
                 indexBase = sv.bufferOffset;
             }
+            else if (promotedVolumeLookup.TryGetValue(chunkName, out var pg) && pg.sharedVoxelBuffer != null)
+            {
+                voxelBuf = pg.sharedVoxelBuffer;
+                paneBuf = pg.paneBuffer;
+            }
             else return false;
 
             // Occupancy targets: chunk keeps its own occ slice; sector placements
@@ -1708,6 +1758,17 @@ namespace SteelCity.Sim
                     if (pane != null && pane.Length == data.Length)
                         GpuUpload.SetData(chunk.paneBuffer, pane);
                 }
+                return true;
+            }
+
+            if (promotedVolumeLookup.TryGetValue(chunkName, out var pg) && pg.sharedVoxelBuffer != null)
+            {
+                if (data == null || data.Length != pg.sharedVoxelBuffer.count) return false;
+                GpuUpload.SetData(pg.sharedVoxelBuffer, data);
+                var paneR = GetPaneIDs(data, pg.dimX, pg.dimY, pg.dimZ);
+                if (pg.paneBuffer != null && pg.paneBuffer != defaultPaneBuffer
+                    && paneR != null && paneR.Length == data.Length)
+                    GpuUpload.SetData(pg.paneBuffer, paneR);
                 return true;
             }
 

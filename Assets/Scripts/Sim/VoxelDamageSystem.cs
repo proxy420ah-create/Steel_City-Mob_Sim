@@ -220,10 +220,9 @@ namespace SteelCity.Sim
             if (chunkManager == null) chunkManager = FindFirstObjectByType<VoxelChunkManager>();
             if (world == null || chunkManager == null) return;
 
-            // P2: damage writes reach both render paths — live per-building chunks
-            // and regions inside baked sectors' merged buffers (bufferOffset +
-            // localIndex). Only skip volumes with no writable backing at all.
-            if (!chunkManager.HasWritableVolume(r.target))
+            // P2: damage writes reach all render paths — live chunks, baked-sector
+            // regions, and instanced vehicles promoted on this very first hit.
+            if (!EnsureWritable(r.target))
             {
                 if (skippedVolumes.Add(r.target))
                     Debug.LogWarning($"[VoxelDamage] {r.target}: no writable volume — not a live chunk or sector placement. Skipped.");
@@ -263,7 +262,7 @@ namespace SteelCity.Sim
             if (world == null) world = FindFirstObjectByType<VoxelCollisionWorld>();
             if (chunkManager == null) chunkManager = FindFirstObjectByType<VoxelChunkManager>();
             if (world == null || chunkManager == null) return;
-            if (!chunkManager.HasWritableVolume(r.target)) return;   // decals are cosmetic — silent skip
+            if (!EnsureWritable(r.target)) return;   // decals are cosmetic — silent skip
             var st = EnsureDamageState(r.target);
             if (st == null) return;
             if (r.cell.x < 0 || r.cell.x >= st.w || r.cell.y < 0 || r.cell.y >= st.h || r.cell.z < 0 || r.cell.z >= st.d) return;
@@ -283,6 +282,22 @@ namespace SteelCity.Sim
                 r.seed, dirtyScratch, visitedScratch);
             if (dirtyScratch.Count > 0)
                 chunkManager.UploadVoxelEdits(r.target, st.data, dirtyScratch);
+        }
+
+        /// <summary>
+        /// Writable check that also promotes veh_* targets: the instanced vehicle
+        /// leaves its shared group for a singleton private-buffer group seeded with
+        /// the COW'd array, so the very first hit already writes pixels.
+        /// </summary>
+        private bool EnsureWritable(string volumeId)
+        {
+            if (chunkManager.HasWritableVolume(volumeId)) return true;
+            if (!VoxelVehicle.TryGetByCollisionId(volumeId, out var veh)) return false;
+            var st = EnsureDamageState(volumeId);   // COW + re-register BEFORE buffer upload
+            if (st == null || st.data == null) return false;
+            if (!chunkManager.PromoteToDamageable(veh.Handle, volumeId, st.data)) return false;
+            Debug.Log($"[VoxelDamage] 🚗 {volumeId} promoted to a damageable instance ({veh.name})");
+            return true;
         }
 
         /// <summary>COW clone on first damage — clone registers into collision by id.</summary>
@@ -313,7 +328,7 @@ namespace SteelCity.Sim
             if (world == null) world = FindFirstObjectByType<VoxelCollisionWorld>();
             if (chunkManager == null) chunkManager = FindFirstObjectByType<VoxelChunkManager>();
             if (world == null || chunkManager == null) return false;
-            if (string.IsNullOrEmpty(volumeId) || !chunkManager.HasWritableVolume(volumeId))
+            if (string.IsNullOrEmpty(volumeId) || !EnsureWritable(volumeId))
             {
                 Debug.LogWarning($"[VoxelDamage] 💥 blast skipped — '{volumeId ?? "null"}' isn't a writable volume");
                 return false;

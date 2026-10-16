@@ -596,6 +596,10 @@ namespace SteelCity.Sim
                 {
                     bend = eb.signL * ap.aiming.elbowBendL;
                 }
+                else if (animState > 4.5f && animState < 5.5f) // Crouching — rest + static bend
+                {
+                    bend += eb.signL * ap.crouching.elbowBendL;
+                }
                 ownRot = RotationByAxis(eb.axisL, bend);
                 if (twist != 0f) ownRot = MatMul3(ownRot, RotationX(twist));
             }
@@ -613,6 +617,10 @@ namespace SteelCity.Sim
                 else if (isAimingState) // Aim Walk (3), Aiming (4), Aim Sweep (10)
                 {
                     bend = eb.signR * ap.aiming.elbowBendR;
+                }
+                else if (animState > 4.5f && animState < 5.5f) // Crouching — rest + static bend
+                {
+                    bend += eb.signR * ap.crouching.elbowBendR;
                 }
                 ownRot = RotationByAxis(eb.axisR, bend);
                 if (twist != 0f) ownRot = MatMul3(ownRot, RotationX(twist));
@@ -927,7 +935,7 @@ namespace SteelCity.Sim
             if (p.aiming == null)
                 p.aiming = new AimingData { weaponType = "pistol", torsoTwist = -0.2f, headYaw = 0f, headPitch = -0.05f, headTilt = 0f, armSwingL = 0f, armSwingR = -1.4f, shoulderReachL = 0f, shoulderReachR = 0f, elbowBendL = 0f, elbowBendR = 0.3f };
             if (p.crouching == null)
-                p.crouching = new CrouchingData { bodyLower = 0f, modelLower = 4f, bodyLean = 0f, headPitch = 0f, armSwingL = 0f, armSwingR = 0f, legStrideL = -1.15f, legStrideR = 0f, kneeBendL = 1.15f, kneeBendR = 1.40f };
+                p.crouching = new CrouchingData { bodyLower = 0f, modelLower = 4f, bodyLean = 0f, headPitch = 0f, armSwingL = 0f, armSwingR = 0f, legStrideL = -1.15f, legStrideR = 0f, kneeBendL = 1.15f, kneeBendR = 1.40f, elbowBendL = 0f, elbowBendR = 0f };
             if (p.sitting == null)
                 p.sitting = new SittingData { headPitch = 0f, armSwingL = 0.2f, armSwingR = 0.2f, legStrideL = 1.45f, legStrideR = 1.45f, kneeBendL = 1.45f, kneeBendR = 1.45f };
             // Sections below are dereferenced unconditionally in ComputeGroupRotation —
@@ -1289,6 +1297,8 @@ namespace SteelCity.Sim
             public float legStrideR;
             public float kneeBendL;
             public float kneeBendR;
+            public float elbowBendL;
+            public float elbowBendR;
         }
 
         [System.Serializable]

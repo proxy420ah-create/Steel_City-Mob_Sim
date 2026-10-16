@@ -3,6 +3,16 @@ using UnityEngine;
 
 namespace SteelCity.Sim
 {
+    /// <summary>One solid volume near a query point — minimal placement info for cover solving.</summary>
+    public struct CoverObstacle
+    {
+        public string id;
+        public Vector3 center;        // world AABB center
+        public Vector3 halfExtents;   // world AABB half-size
+        public float yawDeg;
+        public Vector3 wMin, wMax;
+    }
+
     /// <summary>Nearest solid voxel along a world-space ray (terrain grid or a registered volume).</summary>
     public struct VoxelRayHit
     {
@@ -13,6 +23,22 @@ namespace SteelCity.Sim
         public uint voxel;           // raw packed voxel value
         public int material;         // voxel & 0x1FF
         public string volumeId;      // registered volume id; null = terrain
+    }
+
+    /// <summary>One cover-capable wall column of a registered volume — emitted in world space
+    /// by <see cref="SolidVolumeSet.QueryCoverWalls"/>. A column only counts as cover if its
+    /// *contiguous* solid span covers the eye height in question — a canopy floating over an
+    /// open cockpit does not (its span sits high, away from the eye).</summary>
+    public struct CoverWall
+    {
+        public string volumeId;
+        public Vector3 columnCenter;  // world XZ center of the wall column
+        public Vector3 facePos;       // world point on the open face (columnCenter + outDir * vs/2)
+        public Vector3 outDir;        // world outward direction toward the open side (unit XZ)
+        public float firstSolidY;     // world Y of the column's lowest solid voxel
+        public float spanTop;         // world Y of the top of the contiguous solid run
+        public float voxelSize;
+        public int lx, lz;            // local footprint cell
     }
 
     /// <summary>
@@ -40,6 +66,10 @@ namespace SteelCity.Sim
             public Vector3 center, half;
             public float cosY = 1f, sinY;
             public Vector3 wMin, wMax;   // world AABB (broadphase)
+            // Lazily-built per-footprint-column solid profile (w*d each, cell units):
+            // colBase = first solid cell (255 = empty), colSpan = contiguous solid run
+            // above it. Lazy so a damaged/re-registered array rebuilds on next query.
+            public byte[] colBase, colSpan;
         }
 
         private readonly List<Volume> volumes = new List<Volume>();
@@ -242,6 +272,174 @@ namespace SteelCity.Sim
             }
             if (openIdx >= 0) { volumeId = openId; cellIdx = openIdx; return true; }
             return false;
+        }
+
+        /// <summary>
+        /// Volumes whose world AABB overlaps the XZ circle (center, radius). Rides the
+        /// same 32 m broadphase as Raycast — multi-cell volumes appear once via the
+        /// seen stamp. Results replace the list contents; returns results.Count.
+        /// </summary>
+        public int QueryVolumes(Vector3 center, float radius, List<CoverObstacle> results)
+        {
+            results.Clear();
+            if (gridDirty) RebuildGrid();
+            if (seen == null || seen.Length == 0) return 0;
+            if (seenStamp == int.MaxValue) { seenStamp = 0; System.Array.Clear(seen, 0, seen.Length); }
+            ++seenStamp;
+            int x0 = Mathf.FloorToInt((center.x - radius) / gridCell);
+            int x1 = Mathf.FloorToInt((center.x + radius) / gridCell);
+            int z0 = Mathf.FloorToInt((center.z - radius) / gridCell);
+            int z1 = Mathf.FloorToInt((center.z + radius) / gridCell);
+            float r2 = radius * radius;
+            for (int x = x0; x <= x1; x++)
+                for (int z = z0; z <= z1; z++)
+                {
+                    if (!grid.TryGetValue(x * 65536 + z, out var list)) continue;
+                    for (int li = 0; li < list.Count; li++)
+                    {
+                        int i = list[li];
+                        if (seen[i] == seenStamp) continue;
+                        seen[i] = seenStamp;
+                        Volume v = volumes[i];
+                        // XZ circle vs world AABB — the nearest AABB point must be in range.
+                        float cx = Mathf.Clamp(center.x, v.wMin.x, v.wMax.x);
+                        float cz = Mathf.Clamp(center.z, v.wMin.z, v.wMax.z);
+                        float dx = center.x - cx, dz = center.z - cz;
+                        if (dx * dx + dz * dz > r2) continue;
+                        results.Add(new CoverObstacle
+                        {
+                            id = v.id,
+                            center = (v.wMin + v.wMax) * 0.5f,
+                            halfExtents = (v.wMax - v.wMin) * 0.5f,
+                            yawDeg = v.yawDeg,
+                            wMin = v.wMin, wMax = v.wMax,
+                        });
+                    }
+                }
+            return results.Count;
+        }
+
+        /// <summary>
+        /// Emit the cover-capable wall columns of every volume overlapping the XZ circle.
+        /// A wall entry = a column whose contiguous solid span is at least `minSpanWorld`,
+        /// on a side whose neighbor does not cover at `openAtWorld` height (open space a
+        /// body could stand in). `openAtWorld` is a world-space Y (typically crouch eye).
+        /// </summary>
+        public int QueryCoverWalls(Vector3 center, float radius, float minSpanWorld, float openAtWorld, List<CoverWall> results)
+        {
+            results.Clear();
+            if (gridDirty) RebuildGrid();
+            if (seen == null || seen.Length == 0) return 0;
+            if (seenStamp == int.MaxValue) { seenStamp = 0; System.Array.Clear(seen, 0, seen.Length); }
+            ++seenStamp;
+            int x0 = Mathf.FloorToInt((center.x - radius) / gridCell);
+            int x1 = Mathf.FloorToInt((center.x + radius) / gridCell);
+            int z0 = Mathf.FloorToInt((center.z - radius) / gridCell);
+            int z1 = Mathf.FloorToInt((center.z + radius) / gridCell);
+            float r2 = radius * radius;
+            for (int x = x0; x <= x1; x++)
+                for (int z = z0; z <= z1; z++)
+                {
+                    if (!grid.TryGetValue(x * 65536 + z, out var list)) continue;
+                    for (int li = 0; li < list.Count; li++)
+                    {
+                        int i = list[li];
+                        if (seen[i] == seenStamp) continue;
+                        seen[i] = seenStamp;
+                        Volume v = volumes[i];
+                        float cx = Mathf.Clamp(center.x, v.wMin.x, v.wMax.x);
+                        float cz = Mathf.Clamp(center.z, v.wMin.z, v.wMax.z);
+                        float ddx = center.x - cx, ddz = center.z - cz;
+                        if (ddx * ddx + ddz * ddz > r2) continue;
+                        EmitWalls(v, minSpanWorld, openAtWorld, results);
+                    }
+                }
+            return results.Count;
+        }
+
+        /// <summary>Build colBase/colSpan for a volume on first cover query (or after re-registration).</summary>
+        private static void EnsureColumns(Volume v)
+        {
+            if (v.colBase != null) return;
+            int n = v.w * v.d;
+            v.colBase = new byte[n];
+            v.colSpan = new byte[n];
+            int wh = v.w * v.h;
+            for (int z = 0; z < v.d; z++)
+                for (int x = 0; x < v.w; x++)
+                {
+                    int col = x + z * v.w;
+                    int baseY = -1, run = 0;
+                    for (int y = 0; y < v.h; y++)
+                    {
+                        int idx = x + y * v.w + z * wh;
+                        if ((v.voxels[idx] & VoxelDda.MaterialMask) != 0u)
+                        {
+                            if (baseY < 0) { baseY = y; run = 1; }
+                            else run++;
+                        }
+                        else if (baseY >= 0) break;   // first gap above the base ends the cover span
+                    }
+                    v.colBase[col] = baseY < 0 ? (byte)255 : (byte)Mathf.Min(baseY, 254);
+                    v.colSpan[col] = (byte)Mathf.Min(run, 255);
+                }
+        }
+
+        /// <summary>One volume's wall-column walk: contiguous-span columns with at least one open side.</summary>
+        private static void EmitWalls(Volume v, float minSpanWorld, float openAtWorld, List<CoverWall> results)
+        {
+            EnsureColumns(v);
+            int minSpan = Mathf.Max(1, Mathf.CeilToInt(minSpanWorld / v.vs));
+            // "Open" is measured at the openAt height expressed in this volume's cells —
+            // the neighbor column fails to cover there → standing space beside the wall.
+            int openCell = Mathf.FloorToInt((openAtWorld - v.corner.y) / v.vs);
+            for (int z = 0; z < v.d; z++)
+                for (int x = 0; x < v.w; x++)
+                {
+                    int col = x + z * v.w;
+                    int span = v.colSpan[col];
+                    if (span < minSpan) continue;
+                    int b = v.colBase[col];
+                    if (b == 255) continue;
+                    for (int s = 0; s < 4; s++)
+                    {
+                        int dx = s == 0 ? 1 : s == 1 ? -1 : 0;
+                        int dz = s == 2 ? 1 : s == 3 ? -1 : 0;
+                        int nx = x + dx, nz = z + dz;
+                        bool open;
+                        if (nx < 0 || nz < 0 || nx >= v.w || nz >= v.d)
+                        {
+                            open = true;   // footprint edge — open air beside the column
+                        }
+                        else
+                        {
+                            int nc = nx + nz * v.w;
+                            int nb = v.colBase[nc], ns = v.colSpan[nc];
+                            open = !(nb <= openCell && openCell < nb + ns);   // neighbor can't cover at the band
+                        }
+                        if (!open) continue;
+
+                        // Local column center → world (same corner/yaw convention as the raycast).
+                        Vector3 lp = new Vector3((x + 0.5f) * v.vs, 0f, (z + 0.5f) * v.vs);
+                        Vector3 wp = v.yawDeg == 0f
+                            ? v.corner + lp
+                            : v.center + RotY(lp - v.half, v.cosY, v.sinY);
+                        wp.y = v.corner.y;
+                        Vector3 ld = new Vector3(dx, 0f, dz);
+                        Vector3 wd = v.yawDeg == 0f ? ld : RotY(ld, v.cosY, v.sinY);
+                        results.Add(new CoverWall
+                        {
+                            volumeId = v.id,
+                            columnCenter = wp,
+                            facePos = wp + wd * (v.vs * 0.5f),
+                            outDir = wd,
+                            firstSolidY = v.corner.y + b * v.vs,
+                            spanTop = v.corner.y + (b + span) * v.vs,
+                            voxelSize = v.vs,
+                            lx = x, lz = z,
+                        });
+                    }
+                }
         }
 
         /// <summary>(Re)build the XZ grid: every volume inserted into each cell its world AABB overlaps.</summary>

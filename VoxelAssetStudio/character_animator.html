@@ -216,6 +216,9 @@ body.ui-hidden #ui-hidden-hint { display:block; }
 <div id="editor-nav"><a href="character_pipeline.html">Pipeline</a><a href="voxel_editor.html">Voxel Editor</a><a href="character_animator.html" class="current">Animator</a></div>
 <div id="canvas-container"></div>
 <div id="ui-hidden-hint">press H to show UI</div>
+<div id="top-badges" style="position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:95;display:flex;gap:8px;pointer-events:none;">
+  <div id="unity-mirror-badge" style="display:none;background:rgba(40,20,60,0.85);border:1px solid #a6f;color:#c9f;padding:3px 12px;border-radius:10px;font-size:11px;">◐ UNITY VIEW — mirrored like Unity renders (press U to exit)</div>
+</div>
 
 <!-- Toolbar — animation studio only: no voxel-editing tools.
      Paint/eyedropper/fill/erase were removed so the model cannot be
@@ -224,8 +227,10 @@ body.ui-hidden #ui-hidden-hint { display:block; }
   <span class="tool-label">View:</span>
   <button class="tool-btn active" data-tool="camera" title="Camera Mode (Esc)">🎥</button>
   <div class="tool-sep"></div>
-  <button class="tool-btn" id="grid-btn" title="Toggle Grid" class="active">▦</button>
+  <button class="tool-btn active" id="grid-btn" title="Toggle Grid">▦</button>
   <button class="tool-btn" id="reset-btn" title="Reset View">🎯</button>
+  <button class="tool-btn" id="unity-view-btn" title="Unity view — mirrored like Unity renders (U)">◐</button>
+  <button class="tool-btn" id="light-btn" title="Lighting Controls">💡</button>
   <div class="tool-sep"></div>
   <button class="tool-btn" id="export-btn" title="Save / Load / Export" style="background:#0a4;color:#fff;">💾</button>
 </div>
@@ -249,6 +254,43 @@ body.ui-hidden #ui-hidden-hint { display:block; }
     <div style="color:#ffcc00; font-weight:bold; margin-bottom:4px; border-bottom:1px solid #444; padding-bottom:3px;">Gait Inspector</div>
     <div id="gait-content"></div>
   </div>
+
+  <!-- View & Camera controls — parity with voxel_editor.html -->
+  <h3 style="margin-top:12px;font-size:12px;color:#0ff;">🎥 View & Camera</h3>
+  <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+    <label style="font-size:11px;color:#888;">BG:</label>
+    <input type="color" id="scene-bg-picker" value="#0a0a14" title="Change scene background color" style="width:24px;height:20px;border:1px solid #444;border-radius:3px;cursor:pointer;background:transparent;">
+    <input type="checkbox" id="show-grid-toggle" checked title="Toggle floor grid" style="cursor:pointer;margin-left:6px;">
+    <label for="show-grid-toggle" style="font-size:11px;color:#888;">Grid</label>
+    <input type="checkbox" id="unity-mirror-toggle" title="Unity view — mirrors the viewport left↔right like Unity renders it. 'U' hotkey / ◐ button." style="cursor:pointer;margin-left:6px;">
+    <label for="unity-mirror-toggle" style="font-size:11px;color:#a6f;">Unity</label>
+  </div>
+  <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+    <input type="checkbox" id="show-axes-toggle" checked title="Toggle XYZ compass" style="cursor:pointer;">
+    <label for="show-axes-toggle" style="font-size:11px;color:#888;">Axes</label>
+    <input type="number" id="axes-scale" min="0.5" max="10" step="0.5" value="1" title="Compass axis size — scales length and thickness together" style="width:44px;height:16px;font-size:10px;background:#222;color:#ccc;border:1px solid #444;border-radius:3px;">
+    <input type="checkbox" id="axes-xray-toggle" title="X-Ray — draw axes through the model" style="cursor:pointer;margin-left:4px;">
+    <label for="axes-xray-toggle" style="font-size:11px;color:#888;">X-Ray</label>
+  </div>
+  <div style="display:flex;gap:4px;margin-bottom:4px;">
+    <button class="export-btn" id="cam-frame-btn" title="Frame the whole model (key 0)" style="font-size:10px;padding:4px 8px;">⛶ All</button>
+    <button class="export-btn" id="cam-orbit-btn" title="Move the orbit pivot to the voxel under the cursor (key T)" style="font-size:10px;padding:4px 8px;">◎ Orbit→Cursor</button>
+  </div>
+  <div style="display:flex;gap:4px;margin-bottom:4px;">
+    <button class="export-btn" id="cam-front-btn" title="Front view (Numpad 1)" style="font-size:10px;padding:4px 8px;">Front</button>
+    <button class="export-btn" id="cam-side-btn" title="Side view (Numpad 3)" style="font-size:10px;padding:4px 8px;">Side</button>
+    <button class="export-btn" id="cam-top-btn" title="Top view (Numpad 7)" style="font-size:10px;padding:4px 8px;">Top</button>
+    <button class="export-btn" id="cam-iso-btn" title="Isometric (Numpad 9)" style="font-size:10px;padding:4px 8px;">Iso</button>
+  </div>
+  <div style="display:flex;gap:4px;margin-bottom:4px;">
+    <button class="export-btn" id="cam-in-btn" title="Dolly in toward orbit target" style="font-size:10px;padding:4px 8px;">🔍+</button>
+    <button class="export-btn" id="cam-out-btn" title="Dolly out" style="font-size:10px;padding:4px 8px;">🔍−</button>
+    <button class="export-btn" id="cam-b1" title="Camera bookmark 1 — click to go, Shift+click to save" style="font-size:10px;padding:4px 8px;">B1</button>
+    <button class="export-btn" id="cam-b2" title="Camera bookmark 2 — click to go, Shift+click to save" style="font-size:10px;padding:4px 8px;">B2</button>
+    <button class="export-btn" id="cam-b3" title="Camera bookmark 3 — click to go, Shift+click to save" style="font-size:10px;padding:4px 8px;">B3</button>
+    <button class="export-btn" id="cam-b4" title="Camera bookmark 4 — click to go, Shift+click to save" style="font-size:10px;padding:4px 8px;">B4</button>
+  </div>
+  <div style="font-size:9px;color:#888;">Wheel zooms to cursor | Shift+arrows=pan | 0=frame | T=orbit to voxel | Numpad1/3/7/9=views</div>
 </div>
 
 <!-- Right panel: Animation -->
@@ -258,6 +300,7 @@ body.ui-hidden #ui-hidden-hint { display:block; }
   <div class="view-mode-row">
     <button class="view-btn active" data-view="material">Material View</button>
     <button class="view-btn" data-view="group">Group View</button>
+    <button class="view-btn" data-view="region" title="Color voxels by wardrobe region — debug Face/head painting">Region View</button>
   </div>
 
   <label>Animation State:</label>
@@ -304,6 +347,71 @@ body.ui-hidden #ui-hidden-hint { display:block; }
   <span id="status-fps">0 FPS</span>
 </div>
 
+<!-- Lighting modal — same controls as voxel_editor.html -->
+<div id="light-modal" style="position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.7);display:none;align-items:center;justify-content:center;z-index:200;">
+  <div style="background:#1e1e2e;border:1px solid #444;border-radius:12px;padding:20px;width:380px;max-height:80vh;overflow-y:auto;color:#eee;">
+    <h2 style="font-size:16px;color:#0ff;margin-bottom:16px;">💡 Lighting Controls</h2>
+
+    <!-- Ambient -->
+    <div style="margin-bottom:16px;border-bottom:1px solid #333;padding-bottom:12px;">
+      <h3 style="font-size:13px;color:#0ff;margin-bottom:8px;">Ambient Light</h3>
+      <label style="font-size:11px;color:#aaa;">Intensity: <span id="amb-int-val">0.6</span></label>
+      <input type="range" id="amb-int" min="0" max="2" step="0.05" value="0.6" style="width:100%;">
+      <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+        <label style="font-size:11px;color:#aaa;">Color:</label>
+        <input type="color" id="amb-color" value="#666688" style="width:32px;height:20px;border:1px solid #444;border-radius:3px;cursor:pointer;background:transparent;">
+      </div>
+    </div>
+
+    <!-- Main Directional -->
+    <div style="margin-bottom:16px;border-bottom:1px solid #333;padding-bottom:12px;">
+      <h3 style="font-size:13px;color:#0ff;margin-bottom:8px;">Key Light (Directional)</h3>
+      <label style="font-size:11px;color:#aaa;">Intensity: <span id="key-int-val">1.0</span></label>
+      <input type="range" id="key-int" min="0" max="3" step="0.05" value="1.0" style="width:100%;">
+      <label style="font-size:11px;color:#aaa;display:block;margin-top:6px;">Azimuth: <span id="key-az-val">45</span>°</label>
+      <input type="range" id="key-az" min="0" max="360" step="5" value="45" style="width:100%;">
+      <label style="font-size:11px;color:#aaa;display:block;margin-top:4px;">Elevation: <span id="key-el-val">60</span>°</label>
+      <input type="range" id="key-el" min="0" max="90" step="5" value="60" style="width:100%;">
+      <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+        <label style="font-size:11px;color:#aaa;">Color:</label>
+        <input type="color" id="key-color" value="#ffffff" style="width:32px;height:20px;border:1px solid #444;border-radius:3px;cursor:pointer;background:transparent;">
+      </div>
+    </div>
+
+    <!-- Fill Directional -->
+    <div style="margin-bottom:16px;border-bottom:1px solid #333;padding-bottom:12px;">
+      <h3 style="font-size:13px;color:#0ff;margin-bottom:8px;">Fill Light (Directional)</h3>
+      <label style="font-size:11px;color:#aaa;">Intensity: <span id="fill-int-val">0.4</span></label>
+      <input type="range" id="fill-int" min="0" max="2" step="0.05" value="0.4" style="width:100%;">
+      <label style="font-size:11px;color:#aaa;display:block;margin-top:6px;">Azimuth: <span id="fill-az-val">225</span>°</label>
+      <input type="range" id="fill-az" min="0" max="360" step="5" value="225" style="width:100%;">
+      <label style="font-size:11px;color:#aaa;display:block;margin-top:4px;">Elevation: <span id="fill-el-val">45</span>°</label>
+      <input type="range" id="fill-el" min="0" max="90" step="5" value="45" style="width:100%;">
+      <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+        <label style="font-size:11px;color:#aaa;">Color:</label>
+        <input type="color" id="fill-color" value="#88aaff" style="width:32px;height:20px;border:1px solid #444;border-radius:3px;cursor:pointer;background:transparent;">
+      </div>
+    </div>
+
+    <!-- Camera Light -->
+    <div style="margin-bottom:16px;border-bottom:1px solid #333;padding-bottom:12px;">
+      <h3 style="font-size:13px;color:#0ff;margin-bottom:8px;">Camera Light (follows view)</h3>
+      <label style="font-size:11px;color:#aaa;">Intensity: <span id="cam-int-val">0.0</span></label>
+      <input type="range" id="cam-int" min="0" max="2" step="0.05" value="0.0" style="width:100%;">
+      <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+        <label style="font-size:11px;color:#aaa;">Color:</label>
+        <input type="color" id="cam-color" value="#ffffff" style="width:32px;height:20px;border:1px solid #444;border-radius:3px;cursor:pointer;background:transparent;">
+      </div>
+      <p style="font-size:10px;color:#666;margin-top:4px;">Point light that follows your camera — lights whatever you're looking at.</p>
+    </div>
+
+    <div style="display:flex;gap:8px;">
+      <button id="light-reset-btn" style="background:#444;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;">Reset Defaults</button>
+      <button onclick="document.getElementById('light-modal').style.display='none'" style="background:#444;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- Save/Load/Export modal -->
 <div id="export-modal">
   <div id="export-box">
@@ -313,11 +421,9 @@ body.ui-hidden #ui-hidden-hint { display:block; }
     <!-- PRIMARY: Export for Unity -->
     <div class="export-section primary">
       <h3><span class="step-num">1</span>Export Character for Unity</h3>
-      <p>Saves a single <b>.character.json</b> containing voxels + body part groups + clothing regions + pivots + animation params.</p>
-      <p style="color:#0c6;">After download, place in <b>voxel_characters/</b> folder.</p>
-      <p>Then in Unity: <b>Tools &gt; Voxel Import &gt; Characters</b></p>
+      <p>Consolidated export — voxels, body part groups, wardrobe regions, pivots + animation params in one file. Downloads as <b>&lt;charactername&gt;.json</b> — drop it over the file in <b>Assets/StreamingAssets/voxel_characters/</b>.</p>
       <div class="btn-row">
-        <button class="export-btn primary large" onclick="saveProject()">⬇ Export .character.json (for Unity)</button>
+        <button class="export-btn primary large" onclick="saveProject()">⬇ Export .json (for Unity)</button>
       </div>
     </div>
 
@@ -859,6 +965,8 @@ const DEFAULT_PARAMS = {
     legStrideR: 0.0,      // right thigh angle (locked at 0)
     kneeBendL: 1.15,      // left knee bend (locked)
     kneeBendR: 1.40,      // right knee bend (locked)
+    elbowBendL: 0.0,      // left elbow bend (added to rest)
+    elbowBendR: 0.0,      // right elbow bend
   },
   sitting: {
     // State 11 — generic bench/vehicle seat pose. Thighs swing forward ~90°,
@@ -871,6 +979,16 @@ const DEFAULT_PARAMS = {
     legStrideR: 1.45,
     kneeBendL: 1.45,      // shin folded down ~83°
     kneeBendR: 1.45,
+  },
+  vision: {
+    // FOV cone anchored to the posed head — physically sweeps with the
+    // Looking state's head yaw, so the scan animation IS the mechanic.
+    // Exported with params; Unity's VisionSensor consumes the same spec.
+    show: true,
+    range: 8.0,          // world units (≈ meters at editor voxelSize)
+    halfAngleDeg: 55,    // horizontal fan half-angle — matches Unity
+    fill: 0.18,          // translucent wedge fill opacity (0 = lines only)
+    anchorFace: true,    // eye = painted Eyes/Face region centroid (falls back to head pivot)
   },
 };
 
@@ -942,14 +1060,42 @@ controls.target.set(0, H * voxelSize / 2, 0);
 // wheel=zoom-to-cursor. Left stays free (OrbitControls default was Left=orbit).
 controls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.PAN };
 
-// Lighting
-scene.add(new THREE.AmbientLight(0x666688, 0.6));
+// Lighting — all adjustable via the 💡 Lighting Controls modal (parity with
+// the Voxel Editor).
+const ambientLight = new THREE.AmbientLight(0x666688, 0.6);
+scene.add(ambientLight);
 const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
 dirLight.position.set(W * voxelSize, H * voxelSize * 2, D * voxelSize);
 scene.add(dirLight);
 const dirLight2 = new THREE.DirectionalLight(0x88aaff, 0.4);
 dirLight2.position.set(-W * voxelSize, H * voxelSize, -D * voxelSize);
 scene.add(dirLight2);
+// Camera-follow point light — intensity 0 by default (off). When raised, it
+// follows the camera each frame so whatever you look at is lit. decay=0 so
+// intensity doesn't fall off with distance.
+const camLight = new THREE.PointLight(0xffffff, 0, 0, 0);
+scene.add(camLight);
+
+// Convert azimuth/elevation (degrees) to a directional light position —
+// dist scales with the model so slider moves stay proportionate.
+function polarToLightPos(azDeg, elDeg, dist) {
+  const az = azDeg * Math.PI / 180;
+  const el = elDeg * Math.PI / 180;
+  return new THREE.Vector3(
+    Math.cos(el) * Math.cos(az) * dist,
+    Math.sin(el) * dist,
+    Math.cos(el) * Math.sin(az) * dist
+  );
+}
+function updateDirLightAngles() {
+  const dist = Math.max(W, H, D) * voxelSize * 2;
+  const keyAz = parseFloat(document.getElementById('key-az').value);
+  const keyEl = parseFloat(document.getElementById('key-el').value);
+  dirLight.position.copy(polarToLightPos(keyAz, keyEl, dist));
+  const fillAz = parseFloat(document.getElementById('fill-az').value);
+  const fillEl = parseFloat(document.getElementById('fill-el').value);
+  dirLight2.position.copy(polarToLightPos(fillAz, fillEl, dist));
+}
 
 // Grid floor — rebuildable so it matches the CURRENT W/H/D after a model is
 // imported from the editor (was previously built once at load time using
@@ -974,25 +1120,91 @@ let gridHelper = null;
 buildGridHelper();
 
 // Compass — rebuildable for the same reason as the grid above.
+// Cylinder axes (parity with the editor): WebGL ignores line width, so real
+// geometry is needed for the Axes spinner to thicken them. Radius tracks
+// length so the triad scales uniformly; X-Ray draws them through the model.
 let compassGroup = null;
 function buildCompass() {
-  if (compassGroup) scene.remove(compassGroup);
+  if (compassGroup) {
+    scene.remove(compassGroup);
+    compassGroup.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+  }
   const grp = new THREE.Group();
   // Sit at the volume's ground-level center, offset by half a voxel.
   grp.position.set(-voxelSize * 0.5, -voxelSize * 0.5, -voxelSize * 0.5);
-  const L = Math.max(W, H, D) * voxelSize * 0.5;
+  const L = Math.max(W, H, D) * voxelSize * 0.5 * axisScale;
+  const r = Math.max(0.1 * voxelSize, L * 0.006);
+  const up = new THREE.Vector3(0, 1, 0);
   const mkAxis = (color, dir) => {
-    const geo = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(0, 0, 0), dir.clone().multiplyScalar(L)
-    ]);
-    return new THREE.Line(geo, new THREE.LineBasicMaterial({ color }));
+    const geo = new THREE.CylinderGeometry(r, r, L, 8);
+    // X-Ray: depthTest off alone isn't enough — the opaque model would still
+    // overdraw the axes wherever it's nearer. transparent:true moves the axes
+    // into the post-opaque pass and renderOrder keeps them under any
+    // depth-off overlay.
+    const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+      color, depthTest: !axesXRay, transparent: axesXRay }));
+    if (axesXRay) mesh.renderOrder = 997;
+    mesh.quaternion.setFromUnitVectors(up, dir);
+    mesh.position.copy(dir).multiplyScalar(L / 2);
+    return mesh;
   };
   grp.add(mkAxis(0xff3333, new THREE.Vector3(1, 0, 0)));
   grp.add(mkAxis(0x33ff33, new THREE.Vector3(0, 1, 0)));
   grp.add(mkAxis(0x3333ff, new THREE.Vector3(0, 0, 1)));
+  grp.visible = showAxes;
   compassGroup = grp;
   scene.add(grp);
 }
+
+// --- View & Camera panel wiring (parity with voxel_editor.html) ---
+// Scene background — persisted, applied to scene.background on load.
+const savedBgColor = localStorage.getItem('voxelAnimatorBgColor') || '#0a0a14';
+scene.background = new THREE.Color(savedBgColor);
+document.getElementById('scene-bg-picker').value = savedBgColor;
+document.getElementById('scene-bg-picker').oninput = function() {
+  scene.background = new THREE.Color(this.value);
+  localStorage.setItem('voxelAnimatorBgColor', this.value);
+};
+// Floor grid — persisted; also toggles the pivot gizmos like the grid button.
+// setGridVisible keeps the button state and checkbox in sync.
+let showGrid = localStorage.getItem('voxelAnimatorShowGrid') !== '0';
+function setGridVisible(on) {
+  showGrid = on;
+  if (gridHelper) gridHelper.visible = on;
+  if (pivotGroup) pivotGroup.visible = on;
+  document.getElementById('show-grid-toggle').checked = on;
+  document.getElementById('grid-btn').classList.toggle('active', on);
+  localStorage.setItem('voxelAnimatorShowGrid', on ? '1' : '0');
+}
+document.getElementById('show-grid-toggle').onchange = function() { setGridVisible(this.checked); };
+if (!showGrid && gridHelper) gridHelper.visible = false; // pivotGroup is built later — it reads showGrid there
+// XYZ compass visibility + size spinner + X-Ray — same persisted pattern.
+let showAxes = localStorage.getItem('voxelAnimatorShowAxes') !== '0';
+let axisScale = parseFloat(localStorage.getItem('voxelAnimatorAxisScale') || '1') || 1;
+let axesXRay = localStorage.getItem('voxelAnimatorAxesXRay') === '1';
+document.getElementById('show-axes-toggle').checked = showAxes;
+document.getElementById('show-axes-toggle').onchange = function() {
+  showAxes = this.checked;
+  if (compassGroup) compassGroup.visible = showAxes;
+  localStorage.setItem('voxelAnimatorShowAxes', showAxes ? '1' : '0');
+};
+document.getElementById('axes-scale').value = axisScale;
+document.getElementById('axes-scale').oninput = function() {
+  const v = parseFloat(this.value);
+  if (!isFinite(v) || v <= 0) return;
+  axisScale = v;
+  localStorage.setItem('voxelAnimatorAxisScale', String(v));
+  buildCompass();
+};
+document.getElementById('axes-xray-toggle').checked = axesXRay;
+document.getElementById('axes-xray-toggle').onchange = function() {
+  axesXRay = this.checked;
+  localStorage.setItem('voxelAnimatorAxesXRay', axesXRay ? '1' : '0');
+  buildCompass();
+};
+// Unity-view checkbox — mirrors the ◐ button / U key (setUnityView syncs this).
+document.getElementById('unity-mirror-toggle').onchange = function() { setUnityView(this.checked); };
+
 buildCompass();
 
 // === RAYCASTING ===
@@ -1035,6 +1247,64 @@ function getMatColor(mid) {
     }
   }
   return _matColorCache.get(mid) || FALLBACK_MAT_COLOR;
+}
+
+// === WARDROBE REGIONS (view + centroids) ===
+// regionMap ("x,y,z" → rid) comes from the editor's wardrobe paint pass.
+// Flat index mirror for O(1) per-voxel lookup during mesh rebuilds — no
+// string keys per voxel per frame. Rebuilt whenever regions load/change.
+let regionIdx = null; // Int16Array[W*H*D] → rid+1, 0 = unassigned
+let regionCentroids = null; // rid → [x,y,z,count, minX,minY,minZ, maxX,maxY,maxZ] — bbox midpoint + span bounds
+const REGION_EMPTY_COLOR = new THREE.Color(0.22, 0.22, 0.26); // unassigned dim slate
+const _regionColorCache = new Map(); // rid → THREE.Color (regionDefs colors)
+function rebuildRegionIndex() {
+  regionIdx = new Int16Array(W * H * D);
+  const acc = new Map(); // rid → [minX,minY,minZ,maxX,maxY,maxZ,n]
+  for (const [key, rid] of regionMap) {
+    const c = key.split(',');
+    const x = +c[0], y = +c[1], z = +c[2];
+    const i = x + y * W + z * W * H;
+    if (i >= 0 && i < regionIdx.length) regionIdx[i] = rid + 1;
+    let a = acc.get(rid);
+    if (!a) acc.set(rid, a = [x, y, z, x, y, z, 0]);
+    a[0] = Math.min(a[0], x); a[1] = Math.min(a[1], y); a[2] = Math.min(a[2], z);
+    a[3] = Math.max(a[3], x); a[4] = Math.max(a[4], y); a[5] = Math.max(a[5], z);
+    a[6]++;
+  }
+  // Bbox midpoint in INDEX space (voxel index = its render center — same
+  // convention as Unity and the pivot gizmos): (min+max)/2 puts even spans on
+  // the seam between the two middle voxels, odd spans on the middle voxel.
+  // NOT the mass mean — a mean drifts onto the heavier side of asymmetric
+  // paint; the geometric center of the painted AREA is what the eye anchor
+  // needs. (An earlier cell-center version was +0.5 off — it rendered
+  // centered on a voxel when the span's true center was the seam.)
+  regionCentroids = new Map();
+  for (const [rid, a] of acc)
+    regionCentroids.set(rid, [(a[0] + a[3]) / 2, (a[1] + a[4]) / 2, (a[2] + a[5]) / 2,
+                              a[6], a[0], a[1], a[2], a[3], a[4], a[5]]);
+  _regionColorCache.clear();
+}
+function getRegionColor(rid) {
+  let c = _regionColorCache.get(rid);
+  if (!c) {
+    const def = regionDefs.find(d => d.id === rid);
+    c = def ? new THREE.Color(def.color) : REGION_EMPTY_COLOR;
+    _regionColorCache.set(rid, c);
+  }
+  return c;
+}
+function voxelRegionId(v) {
+  if (!regionIdx) return -1;
+  const i = v.x + v.y * W + v.z * W * H;
+  return (i >= 0 && i < regionIdx.length) ? regionIdx[i] - 1 : -1;
+}
+// Centroid of a named region's voxel cells (voxel space, cell centers) —
+// cached by rebuildRegionIndex. 'Face' → the true eye anchor: if the head is
+// painted wrong the centroid lands visibly off — that's the debugging point.
+function computeRegionCentroid(name) {
+  const def = regionDefs.find(d => d.name === name);
+  if (!def || !regionCentroids) return null;
+  return regionCentroids.get(def.id) || null;
 }
 
 // === HIGHLIGHT ===
@@ -1111,6 +1381,9 @@ function rebuildMesh() {
     instancedMesh.setMatrixAt(i, dummyMatrix);
     if (viewMode === 'group') {
       color.copy(GROUP_COLORS[v.gid] || GROUP_COLORS[0]);
+    } else if (viewMode === 'region') {
+      const rid = voxelRegionId(v);
+      color.copy(rid >= 0 ? getRegionColor(rid) : REGION_EMPTY_COLOR);
     } else {
       color.copy(getMatColor(v.mid));
     }
@@ -1156,10 +1429,13 @@ function rebuildMesh() {
 let animMesh = null;
 let animEdgesMesh = null;
 let pivotGroup = null;
+let pivotMarkers = []; // { gid, sphere, ring } — repositioned per pose by updatePivotGizmos()
 
 function buildPivotGizmos() {
   if (pivotGroup) scene.remove(pivotGroup);
   pivotGroup = new THREE.Group();
+  pivotGroup.visible = showGrid; // gizmos ride the grid toggle like the editor
+  pivotMarkers = [];
 
   // Show gizmos for all pivot groups (0 body/waist + 1-5 parents + 6-9 elbow/knee hinges).
   const pivotGids = [0, 1, 2, 3, 4, 5, 8, 9, 6, 7];
@@ -1187,9 +1463,208 @@ function buildPivotGizmos() {
     const ring = new THREE.Mesh(ringGeo, ringMat);
     ring.position.set(px, py, pz);
     pivotGroup.add(ring);
+
+    pivotMarkers.push({ gid, sphere, ring });
   }
 
   scene.add(pivotGroup);
+}
+
+// Reposition the joint gizmos to their POSED locations. A group's pivot is
+// invariant under its own rotation (it rotates about itself), so pushing the
+// bind-pose pivot through the same FK chain the voxels use lands the marker
+// exactly where the joint is in the current pose — parents carry it, own
+// bend no-ops. Without this the spheres sit at rest positions and float off
+// the limbs the moment anything animates.
+function updatePivotGizmos() {
+  if (!pivotMarkers.length) return;
+  const isWalkState = (currentAnimState > 0.5 && currentAnimState < 1.5) || (currentAnimState > 2.5 && currentAnimState < 3.5);
+  const walkPose = isWalkState ? getWalkPose(animTime, animSpeed, animParams) : null;
+  const bobY = walkPose ? walkPose.bodyBobY : 0;
+  const shiftX = walkPose ? walkPose.weightShiftX : 0;
+  const dims = [W, H, D];
+  for (const m of pivotMarkers) {
+    const p = pivots[m.gid];
+    if (!p) continue;
+    let pos = [p.x * W, p.y * H, p.z * D];
+    const result = computeGroupRotation(m.gid, dims, 1.0, currentAnimState, animTime, animSpeed);
+    if (result && result.chain) {
+      for (const e of result.chain) {
+        const rel = [pos[0] - e.pivot[0], pos[1] - e.pivot[1], pos[2] - e.pivot[2]];
+        const t = matVec3(e.rot, rel);
+        pos = [t[0] + e.pivot[0], t[1] + e.pivot[1], t[2] + e.pivot[2]];
+      }
+      const off = result.offset || [0, 0, 0];
+      pos[0] += off[0]; pos[1] += off[1]; pos[2] += off[2];
+    }
+    // Voxel units → world: same conversion the instanced voxels use,
+    // including walk bob / weight shift.
+    const wx = (pos[0] - W / 2 + shiftX) * voxelSize;
+    const wy = (pos[1] + bobY) * voxelSize;
+    const wz = (pos[2] - D / 2) * voxelSize;
+    m.sphere.position.set(wx, wy, wz);
+    m.ring.position.set(wx, wy, wz);
+  }
+
+  updateVisionCone();
+}
+
+// === VISION CONE (FOV preview on the posed head) ===
+// Translucent wedge mesh + hairline overlay — a real triangle fan so the cone
+// can never silently vanish like GL lines. Rides the SAME FK chain the
+// voxels/gizmos use: the painted Eyes/Face centroid (or head pivot) pushed
+// through computeGroupRotation, direction from the chain's cumulative
+// rotation applied to voxel-forward [0,0,1]. During Looking, the authored
+// head-yaw sweep physically sweeps the wedge — the scan IS the mechanic.
+// Unity's VisionSensor draws the identical shape (wedge fill + rim + center).
+// Lives in `scene` so the Unity-View mirror (scale.x = -1) applies for free.
+const VISION_SEGS = 16;    // arc segments across ±halfAngle
+let visionWedge = null;    // translucent triangle-fan fill
+let visionLines = null;    // hairline rim/edges/center/stem — always renders
+let visionEyeMarker = null;// proud gaze origin (cyan = head pivot, magenta = region centroid)
+let visionCentroidDot = null; // dim dot at the interior centroid — the stem's tail
+
+function buildVisionCone() {
+  if (visionWedge) {
+    scene.remove(visionWedge); visionWedge.geometry.dispose(); visionWedge.material.dispose();
+    scene.remove(visionLines); visionLines.geometry.dispose(); visionLines.material.dispose();
+  }
+  const wgeo = new THREE.BufferGeometry();
+  wgeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array((VISION_SEGS + 2) * 3), 3));
+  const widx = [];
+  for (let i = 0; i < VISION_SEGS; i++) widx.push(0, i + 2, i + 1);
+  wgeo.setIndex(widx);
+  visionWedge = new THREE.Mesh(wgeo, new THREE.MeshBasicMaterial({
+    color: 0x66ccff, transparent: true, opacity: 0.18,
+    depthTest: false, depthWrite: false, side: THREE.DoubleSide }));
+  visionWedge.frustumCulled = false;
+  visionWedge.renderOrder = 10;
+  scene.add(visionWedge);
+
+  // Hairline overlay: rim chords + 2 edge rays + pitched center ray + stem.
+  const lgeo = new THREE.BufferGeometry();
+  lgeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array((VISION_SEGS + 4) * 6), 3));
+  visionLines = new THREE.LineSegments(lgeo, new THREE.LineBasicMaterial({
+    color: 0x9fdcff, transparent: true, opacity: 0.85, depthTest: false }));
+  visionLines.frustumCulled = false;
+  visionLines.renderOrder = 11;
+  scene.add(visionLines);
+
+  if (!visionEyeMarker) {
+    visionEyeMarker = new THREE.Mesh(
+      new THREE.SphereGeometry(0.8 * voxelSize, 10, 10),
+      new THREE.MeshBasicMaterial({ color: 0x66ccff, depthTest: false, transparent: true, opacity: 0.9 }));
+    visionEyeMarker.renderOrder = 12;
+    scene.add(visionEyeMarker);
+  }
+  if (!visionCentroidDot) {
+    visionCentroidDot = new THREE.Mesh(
+      new THREE.SphereGeometry(0.45 * voxelSize, 8, 8),
+      new THREE.MeshBasicMaterial({ color: 0xff55ff, depthTest: false, transparent: true, opacity: 0.45 }));
+    visionCentroidDot.renderOrder = 11;
+    scene.add(visionCentroidDot);
+  }
+}
+
+function updateVisionCone() {
+  if (!visionWedge) buildVisionCone(); // lazy — exists wherever the gizmo update runs
+  const vis = animParams.vision;
+  const show = !!(vis && vis.show);
+  visionWedge.visible = show;
+  visionLines.visible = show;
+  visionEyeMarker.visible = show;
+  visionCentroidDot.visible = show;
+  if (!vis || !vis.show) return;
+  const p = pivots[1]; // head group
+  if (!p) { visionWedge.visible = visionLines.visible = visionEyeMarker.visible = visionCentroidDot.visible = false; return; }
+
+  const isWalkState = (currentAnimState > 0.5 && currentAnimState < 1.5) || (currentAnimState > 2.5 && currentAnimState < 3.5);
+  const walkPose = isWalkState ? getWalkPose(animTime, animSpeed, animParams) : null;
+  const bobY = walkPose ? walkPose.bodyBobY : 0;
+  const shiftX = walkPose ? walkPose.weightShiftX : 0;
+
+  // Eye anchor: painted 'Eyes' centroid (gaze origin) → 'Face' centroid →
+  // head pivot, in that preference order — the most precise painted marker
+  // wins. Eyes sits between the eyeballs; Face sits mid-face.
+  const faceC = vis.anchorFace
+    ? (computeRegionCentroid('Eyes') || computeRegionCentroid('Face'))
+    : null;
+  const eyeSrc = faceC || [p.x * W, p.y * H, p.z * D];
+  visionEyeMarker.material.color.setHex(faceC ? 0xff55ff : 0x66ccff);
+  visionCentroidDot.visible = !!faceC && show;
+
+  // Anchor point through the FK chain — same math as updatePivotGizmos —
+  // while composing the cumulative rotation so the head's facing is known.
+  let pos = [eyeSrc[0], eyeSrc[1], eyeSrc[2]];
+  let cum = [[1,0,0],[0,1,0],[0,0,1]];
+  const result = computeGroupRotation(1, [W, H, D], 1.0, currentAnimState, animTime, animSpeed);
+  if (result && result.chain) {
+    for (const e of result.chain) {
+      const rel = [pos[0] - e.pivot[0], pos[1] - e.pivot[1], pos[2] - e.pivot[2]];
+      const t = matVec3(e.rot, rel);
+      pos = [t[0] + e.pivot[0], t[1] + e.pivot[1], t[2] + e.pivot[2]];
+      cum = matMul3(e.rot, cum); // entries apply child-first → left-multiply
+    }
+    const off = result.offset || [0, 0, 0];
+    pos = [pos[0] + off[0], pos[1] + off[1], pos[2] + off[2]];
+  }
+
+  // Voxel → world — same conversion as the gizmo markers. `inner` is the raw
+  // interior anchor (region centroid's real home — the stem's tail).
+  const inner = [(pos[0] - W / 2 + shiftX) * voxelSize,
+                 (pos[1] + bobY) * voxelSize,
+                 (pos[2] - D / 2) * voxelSize];
+
+  const fwd = matVec3(cum, [0, 0, 1]);
+  const fl = Math.hypot(fwd[0], fwd[2]);
+  const yawFwd = fl > 1e-6 ? [fwd[0] / fl, 0, fwd[2] / fl] : [0, 0, 1];
+
+  // The gaze origin sits proud of the face — interior centroids are ~a voxel
+  // deep; a ray starting inside own voxels self-hits (Unity does the same).
+  const proud = 1.5 * voxelSize;
+  const eye = [inner[0] + yawFwd[0] * proud, inner[1] + yawFwd[1] * proud, inner[2] + yawFwd[2] * proud];
+  visionEyeMarker.position.set(eye[0], eye[1], eye[2]);
+  visionCentroidDot.position.set(inner[0], inner[1], inner[2]);
+
+  const baseA = Math.atan2(yawFwd[0], yawFwd[2]);
+  const half = (vis.halfAngleDeg || 55) * Math.PI / 180;
+  const range = Math.max(0.5, vis.range || 8);
+  visionWedge.material.opacity = vis.fill !== undefined ? vis.fill : 0.18;
+
+  // Wedge fill — apex at the proud eye, arc at eye height.
+  const wv = visionWedge.geometry.attributes.position.array;
+  wv[0] = eye[0]; wv[1] = eye[1]; wv[2] = eye[2];
+  for (let s = 0; s <= VISION_SEGS; s++) {
+    const a = baseA + (s / VISION_SEGS - 0.5) * 2 * half;
+    wv[(s + 1) * 3]     = eye[0] + Math.sin(a) * range;
+    wv[(s + 1) * 3 + 1] = eye[1];
+    wv[(s + 1) * 3 + 2] = eye[2] + Math.cos(a) * range;
+  }
+  visionWedge.geometry.attributes.position.needsUpdate = true;
+
+  // Lines: rim chords + edge rays + pitched center ray + centroid→eye stem.
+  const lv = visionLines.geometry.attributes.position.array;
+  let i = 0;
+  const seg = (ax, ay, az, bx, by, bz) => {
+    lv[i++] = ax; lv[i++] = ay; lv[i++] = az; lv[i++] = bx; lv[i++] = by; lv[i++] = bz;
+  };
+  const arcTip = (s) => {
+    const a = baseA + (s / VISION_SEGS - 0.5) * 2 * half;
+    return [eye[0] + Math.sin(a) * range, eye[1], eye[2] + Math.cos(a) * range];
+  };
+  let prev = arcTip(0);
+  seg(eye[0], eye[1], eye[2], prev[0], prev[1], prev[2]);       // edge ray
+  for (let s = 1; s <= VISION_SEGS; s++) {
+    const tip = arcTip(s);
+    seg(prev[0], prev[1], prev[2], tip[0], tip[1], tip[2]);      // rim chord
+    prev = tip;
+  }
+  seg(eye[0], eye[1], eye[2], prev[0], prev[1], prev[2]);       // edge ray
+  seg(eye[0], eye[1], eye[2],                                    // pitched center ray
+      eye[0] + fwd[0] * range, eye[1] + fwd[1] * range, eye[2] + fwd[2] * range);
+  seg(inner[0], inner[1], inner[2], eye[0], eye[1], eye[2]);    // stem — anchors the orb
+  for (; i < lv.length; i++) lv[i] = 0;
+  visionLines.geometry.attributes.position.needsUpdate = true;
 }
 
 // === ANIMATION MATH (ported from shader ComputeGroupRotation) ===
@@ -1645,6 +2120,8 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
       twist = wp.pose.forearmTwistL;
     } else if (isAimingState) { // Aim Walk (3), Aiming (4), Aim Sweep (10)
       bend = eb.signL * animParams.aiming.elbowBendL;
+    } else if (animState > 4.5 && animState < 5.5) { // Crouching — rest + static bend
+      bend += eb.signL * animParams.crouching.elbowBendL;
     }
     ownRot = rotationByAxis(eb.axisL, bend);
     if (twist !== 0) ownRot = matMul3(ownRot, rotationX(twist));
@@ -1658,6 +2135,8 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
       twist = wp.pose.forearmTwistR;
     } else if (isAimingState) { // Aim Walk (3), Aiming (4), Aim Sweep (10)
       bend = eb.signR * animParams.aiming.elbowBendR;
+    } else if (animState > 4.5 && animState < 5.5) { // Crouching — rest + static bend
+      bend += eb.signR * animParams.crouching.elbowBendR;
     }
     ownRot = rotationByAxis(eb.axisR, bend);
     if (twist !== 0) ownRot = matMul3(ownRot, rotationX(twist));
@@ -1728,6 +2207,7 @@ function rebuildAnimatedMesh() {
     if (animMesh) animMesh.count = 0;
     if (animEdgesMesh) animEdgesMesh.count = 0;
     rebuildMesh();
+    updatePivotGizmos();
     return;
   }
 
@@ -1740,6 +2220,7 @@ function rebuildAnimatedMesh() {
   if (count === 0) {
     if (animMesh) animMesh.count = 0;
     if (animEdgesMesh) animEdgesMesh.count = 0;
+    updatePivotGizmos();
     return;
   }
 
@@ -1800,6 +2281,9 @@ function rebuildAnimatedMesh() {
 
     if (viewMode === 'group') {
       color.copy(GROUP_COLORS[v.gid] || GROUP_COLORS[0]);
+    } else if (viewMode === 'region') {
+      const rid = voxelRegionId(v);
+      color.copy(rid >= 0 ? getRegionColor(rid) : REGION_EMPTY_COLOR);
     } else {
       color.copy(getMatColor(v.mid));
     }
@@ -1854,6 +2338,8 @@ function rebuildAnimatedMesh() {
   } else if (animEdgesMesh) {
     animEdgesMesh.count = 0;
   }
+
+  updatePivotGizmos();
 }
 
 // === RAYCASTING ===
@@ -1863,14 +2349,39 @@ const groundPlane = new THREE.Mesh(planeGeo, new THREE.MeshBasicMaterial({ visib
 groundPlane.position.set(0, 0, 0);
 scene.add(groundPlane);
 
-let unityView = false; // 'U' hotkey — mirrored (Unity-handedness) preview
+// === UNITY VIEW (mirrored preview) — same scene-mirror as the Voxel Editor ===
+// The editor is right-handed and Unity left-handed, so the same voxel indices
+// render left↔right mirrored in Unity. View-only: the whole scene renders
+// through scene.scale.x = -1, mirrored about the volume's center plane
+// (x = -voxelSize/2 — cell centers sit at (x-W/2)*vs). Orbit/pan feel normal
+// and picking un-mirrors the world ray inside raycastVoxel(). This replaced
+// the old CSS scaleX(-1) canvas flip, where orbit-drag X felt reversed and
+// every raycast needed a pointer-space hack.
+let unityView = false; // 'U' hotkey / ◐ button — mirrored (Unity-handedness) preview
+function unityViewCx() { return -voxelSize / 2; }
+function setUnityView(on, save = true) {
+  unityView = on;
+  scene.scale.x = on ? -1 : 1;
+  scene.position.x = on ? 2 * unityViewCx() : 0;
+  document.getElementById('unity-mirror-badge').style.display = on ? 'block' : 'none';
+  document.getElementById('unity-view-btn').classList.toggle('active', on);
+  document.getElementById('unity-mirror-toggle').checked = on; // left-panel checkbox
+  if (save) localStorage.setItem('voxelAnimatorUnityView', on ? '1' : '0');
+}
+// World→scene-space X under the mirrored scene (identity when off).
+function unmirrorWorldX(wx) { return unityView ? 2 * unityViewCx() - wx : wx; }
+// Restore the persisted pref at boot — default ON here: this studio exists to
+// preview what Unity renders, so the mirrored view is the useful baseline
+// (an explicit '0' pref from a previous toggle-off still wins).
+setUnityView(localStorage.getItem('voxelAnimatorUnityView') !== '0', false);
+
 function raycastVoxel(event) {
   // The animated (posed) mesh displaces voxels off their grid cells — the
   // grid march below can't see that, so keep instance picking for it.
   if (useAnimatedMesh) return raycastVoxelMesh(event);
 
   pointer.set(
-    (unityView ? -1 : 1) * ((event.clientX / window.innerWidth) * 2 - 1),
+    (event.clientX / window.innerWidth) * 2 - 1,
     -(event.clientY / window.innerHeight) * 2 + 1
   );
   raycaster.setFromCamera(pointer, camera);
@@ -1880,11 +2391,16 @@ function raycastVoxel(event) {
   // Cell (x,y,z) renders as a cube spanning
   // [(x-W/2-0.5)vs, (x-W/2+0.5)vs) × [(y-0.5)vs, (y+0.5)vs) × [(z-D/2-0.5)vs, (z-D/2+0.5)vs).
   const ro = raycaster.ray.origin, rd = raycaster.ray.direction;
+  // Unity view: the scene renders mirrored about the volume's center plane —
+  // un-mirror the world-space ray into scene (grid) space before marching.
+  // The ground-plane fallback below still uses the untouched ray.
+  let roX = ro.x, rdX = rd.x;
+  if (unityView) { roX = unmirrorWorldX(roX); rdX = -rdX; }
   const vs = voxelSize;
-  const px = ro.x / vs + W / 2 + 0.5;
+  const px = roX / vs + W / 2 + 0.5;
   const py = ro.y / vs + 0.5;
   const pz = ro.z / vs + D / 2 + 0.5;
-  const dx = rd.x / vs, dy = rd.y / vs, dz = rd.z / vs;
+  const dx = rdX / vs, dy = rd.y / vs, dz = rd.z / vs;
   let cx = Math.floor(px), cy = Math.floor(py), cz = Math.floor(pz);
   const stepX = dx > 0 ? 1 : -1;
   const stepY = dy > 0 ? 1 : -1;
@@ -1927,16 +2443,18 @@ function raycastVoxel(event) {
   const gp = raycaster.intersectObject(groundPlane, false);
   if (gp.length === 0) return null;
   const p = gp[0].point;
-  const x = Math.floor(p.x / voxelSize + W / 2);
+  const x = Math.floor(unmirrorWorldX(p.x) / voxelSize + W / 2);
   const z = Math.floor(p.z / voxelSize + D / 2);
   return { x, y: 0, z, normal: new THREE.Vector3(0, 1, 0) };
 }
 
 // Original mesh raycast — kept for the posed preview, where rendered voxels
 // are displaced from grid cells and instance picking is the correct test.
+// (Scene-space intersection handles the mirrored scene automatically; only
+// the ground-plane cell math needs an un-mirror.)
 function raycastVoxelMesh(event) {
   pointer.set(
-    (unityView ? -1 : 1) * ((event.clientX / window.innerWidth) * 2 - 1),
+    (event.clientX / window.innerWidth) * 2 - 1,
     -(event.clientY / window.innerHeight) * 2 + 1
   );
   raycaster.setFromCamera(pointer, camera);
@@ -1952,7 +2470,7 @@ function raycastVoxelMesh(event) {
   const hit = intersects[0];
   if (hit.object === groundPlane) {
     const p = hit.point;
-    const x = Math.floor(p.x / voxelSize + W / 2);
+    const x = Math.floor(unmirrorWorldX(p.x) / voxelSize + W / 2);
     const z = Math.floor(p.z / voxelSize + D / 2);
     return { x, y: 0, z, normal: new THREE.Vector3(0, 1, 0) };
   }
@@ -2006,9 +2524,12 @@ function updateHighlight(event) {
 }
 
 // === CAMERA TOOLBOX (parity with voxel_editor.html) ===
-// Cell (x,y,z) centers at ((x-W/2)vs, y*vs, (z-D/2)vs) — see raycastVoxel.
+// Cell (x,y,z) centers at ((x-W/2)vs, y*vs, (z-D/2)vs) in scene space — see
+// raycastVoxel. Under UNITY VIEW the scene mirrors about x=-vs/2, so
+// un-mirror to where the cell is actually drawn (else the T pivot lands on
+// the mirrored side of the model).
 function cellToWorld(x, y, z) {
-  return new THREE.Vector3((x - W / 2) * voxelSize, y * voxelSize, (z - D / 2) * voxelSize);
+  return new THREE.Vector3(unmirrorWorldX((x - W / 2) * voxelSize), y * voxelSize, (z - D / 2) * voxelSize);
 }
 
 // Frame a world-space bbox: retarget orbit to its center and dolly to fit.
@@ -2478,13 +2999,15 @@ function buildParamControls() {
       ['crouching', 'modelLower', 'Model Lower', 0, 15, 0.5],
       ['crouching', 'bodyLower', 'Body Lower', 0, 15, 0.5],
       ['crouching', 'bodyLean', 'Body Lean', 0, 1.0, 0.01],
-      ['crouching', 'headPitch', 'Head Pitch', 0, 1, 0.01],
+      ['crouching', 'headPitch', 'Head Pitch', -1, 1, 0.01],
       ['crouching', 'armSwingL', 'L Arm Swing', -1.5, 1.5, 0.01],
       ['crouching', 'armSwingR', 'R Arm Swing', -1.5, 1.5, 0.01],
       ['crouching', 'legStrideL', 'L Leg Swing', -1.5, 1.5, 0.01],
       ['crouching', 'legStrideR', 'R Leg Swing', -1.5, 1.5, 0.01],
       ['crouching', 'kneeBendL', 'L Knee Bend', 0, 1.5, 0.01],
       ['crouching', 'kneeBendR', 'R Knee Bend', 0, 1.5, 0.01],
+      ['crouching', 'elbowBendL', 'L Elbow Bend', 0, 1.5, 0.01],
+      ['crouching', 'elbowBendR', 'R Elbow Bend', 0, 1.5, 0.01],
     ];
   } else if (currentAnimState === 11) { // Sit
     relevantParams = [
@@ -2498,11 +3021,13 @@ function buildParamControls() {
     ];
   } else if (currentAnimState === 9) { // T-Pose
     container.innerHTML = '<div style="font-size:10px;color:#888;">T-Pose: raw bind pose, no rotations applied. Adjust rest-pose angles in the Idle state.</div>';
+    appendVisionControls(container);
     return;
   }
 
   if (relevantParams.length === 0) {
     container.innerHTML = '<div style="font-size:10px;color:#888;">No adjustable params for this state.</div>';
+    appendVisionControls(container);
     return;
   }
 
@@ -2651,6 +3176,69 @@ function buildParamControls() {
       }
     }
   }
+
+  appendVisionControls(container);
+}
+
+// === VISION CONE CONTROLS (global — shown under every state's params) ===
+// Edits animParams.vision — exported with the anim params; Unity's
+// VisionSensor consumes the same range/half-angle spec.
+function appendVisionControls(container) {
+  const vis = animParams.vision || (animParams.vision = { show: true, range: 8.0, halfAngleDeg: 55 });
+  const header = document.createElement('div');
+  header.style.cssText = 'font-size:10px; color:#0ff; margin:8px 0 2px; border-top:1px solid #333; padding-top:3px;';
+  header.textContent = 'Vision Cone — sweeps with the posed head (exports to Unity)';
+  container.appendChild(header);
+
+  const cbRow = document.createElement('div');
+  cbRow.className = 'param-row';
+  cbRow.innerHTML = `<label>Show Cone</label><input type="checkbox" ${vis.show ? 'checked' : ''} style="margin-left:4px;">`;
+  cbRow.querySelector('input').onchange = (e) => { vis.show = e.target.checked; };
+  container.appendChild(cbRow);
+
+  const afRow = document.createElement('div');
+  afRow.className = 'param-row';
+  afRow.innerHTML = `<label>Anchor: Face centroid</label><input type="checkbox" ${vis.anchorFace ? 'checked' : ''} style="margin-left:4px;">`;
+  afRow.querySelector('input').onchange = (e) => { vis.anchorFace = e.target.checked; };
+  container.appendChild(afRow);
+
+  // Paint readout — Eyes centroid wins over Face; the centroid is only as
+  // good as the region paint behind it.
+  const ec = computeRegionCentroid('Eyes'), fc = computeRegionCentroid('Face');
+  const src = ec ? 'eyes' : fc ? 'face' : null;
+  const c0 = ec || fc;
+  const fcRow = document.createElement('div');
+  fcRow.className = 'param-row';
+  fcRow.innerHTML = `<label style="font-size:9px;color:#888;">${
+    vis.anchorFace
+      ? (c0 ? `anchor: <b style="color:#f8a;">${src}</b> — ${c0[3]} vox @ (${c0[0].toFixed(1)}, ${c0[1].toFixed(1)}, ${c0[2].toFixed(1)})<br>`
+           + `&nbsp;&nbsp;span x${c0[4]}–${c0[7]} · y${c0[5]}–${c0[8]} · z${c0[6]}–${c0[9]} — .5 = seam, .0 = voxel`
+            : 'anchor: <b style="color:#f66;">no Eyes/Face voxels painted</b> — pivot fallback')
+      : 'eye anchored to head pivot'
+  }</label>`;
+  container.appendChild(fcRow);
+
+  const rows = [
+    ['range', 'Range', 1, 40, 0.5],
+    ['halfAngleDeg', 'Half Angle °', 15, 90, 1],
+    ['fill', 'Wedge Opacity', 0.02, 0.6, 0.02],
+  ];
+  for (const [key, label, min, max, step] of rows) {
+    const row = document.createElement('div');
+    row.className = 'param-row';
+    row.innerHTML = `
+      <label>${label}</label>
+      <input type="range" min="${min}" max="${max}" step="${step}" value="${vis[key]}" class="param-slider">
+      <input type="number" min="${min}" max="${max}" step="${step}" value="${(+vis[key]).toFixed(1)}" class="param-num">
+    `;
+    const slider = row.querySelector('.param-slider');
+    const numInput = row.querySelector('.param-num');
+    const update = (v) => { vis[key] = v; slider.value = v; numInput.value = (+v).toFixed(1); };
+    slider.oninput = (e) => update(parseFloat(e.target.value));
+    numInput.oninput = (e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) update(v); };
+    numInput.onchange = (e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) update(Math.max(min, Math.min(max, v))); };
+    container.appendChild(row);
+  }
 }
 
 // === TOOL SELECTION ===
@@ -2706,9 +3294,7 @@ document.getElementById('timeline-slider').oninput = function(e) {
 
 // Grid toggle
 document.getElementById('grid-btn').onclick = function() {
-  gridHelper.visible = !gridHelper.visible;
-  this.classList.toggle('active', gridHelper.visible);
-  if (pivotGroup) pivotGroup.visible = gridHelper.visible;
+  setGridVisible(!showGrid); // also syncs the left-panel checkbox + persists
 };
 
 // Reset view
@@ -2716,6 +3302,111 @@ document.getElementById('reset-btn').onclick = () => {
   camera.position.set(W * voxelSize * 3, H * voxelSize * 2, D * voxelSize * 3);
   controls.target.set(0, H * voxelSize / 2, 0);
   controls.update();
+};
+
+// Unity view toggle (◐ button — same as the U hotkey)
+document.getElementById('unity-view-btn').onclick = () => {
+  setUnityView(!unityView);
+  setStatus(unityView ? 'Unity view ON — mirrored like Unity renders' : 'Editor view (authoring convention)');
+};
+
+// --- Camera panel (parity with voxel_editor.html's camera console) ---
+function dollyCam(f) {
+  camera.position.sub(controls.target).multiplyScalar(f).add(controls.target);
+  controls.update();
+}
+// Bookmarks — click = recall, Shift+click = save current pose.
+const camBookmarks = [null, null, null, null];
+function camSlot(i, ev) {
+  if (ev && ev.shiftKey) {
+    camBookmarks[i] = { pos: camera.position.clone(), tgt: controls.target.clone() };
+    setStatus(`Camera slot B${i + 1} saved`);
+  } else if (camBookmarks[i]) {
+    camera.position.copy(camBookmarks[i].pos);
+    controls.target.copy(camBookmarks[i].tgt);
+    controls.update();
+    setStatus(`Camera slot B${i + 1}`);
+  } else {
+    setStatus(`B${i + 1} empty — Shift+click to save this view`);
+  }
+}
+document.getElementById('cam-frame-btn').onclick = () => frameView();
+document.getElementById('cam-orbit-btn').onclick = () => orbitToCursor();
+document.getElementById('cam-front-btn').onclick = () => viewAxis('front');
+document.getElementById('cam-side-btn').onclick = () => viewAxis('side');
+document.getElementById('cam-top-btn').onclick = () => viewAxis('top');
+document.getElementById('cam-iso-btn').onclick = () => viewAxis('iso');
+document.getElementById('cam-in-btn').onclick = () => dollyCam(0.75);
+document.getElementById('cam-out-btn').onclick = () => dollyCam(1.33);
+for (let i = 0; i < 4; i++) {
+  document.getElementById(`cam-b${i + 1}`).onclick = (ev) => camSlot(i, ev);
+}
+
+// --- Lighting modal (parity with voxel_editor.html) ---
+const LIGHT_DEFS = [
+  // id → [get light prop setter, span-formatter]
+  { id: 'amb-int',   set: v => { ambientLight.intensity = v; },          fmt: v => v.toFixed(2) },
+  { id: 'amb-color', set: v => { ambientLight.color.set(v); },           fmt: null },
+  { id: 'key-int',   set: v => { dirLight.intensity = v; },              fmt: v => v.toFixed(2) },
+  { id: 'key-color', set: v => { dirLight.color.set(v); },               fmt: null },
+  { id: 'key-az',    set: () => updateDirLightAngles(),                  fmt: v => v },
+  { id: 'key-el',    set: () => updateDirLightAngles(),                  fmt: v => v },
+  { id: 'fill-int',  set: v => { dirLight2.intensity = v; },             fmt: v => v.toFixed(2) },
+  { id: 'fill-color',set: v => { dirLight2.color.set(v); },              fmt: null },
+  { id: 'fill-az',   set: () => updateDirLightAngles(),                  fmt: v => v },
+  { id: 'fill-el',   set: () => updateDirLightAngles(),                  fmt: v => v },
+  { id: 'cam-int',   set: v => { camLight.intensity = v; },              fmt: v => v.toFixed(2) },
+  { id: 'cam-color', set: v => { camLight.color.set(v); },               fmt: null },
+];
+function applyLights() {
+  for (const def of LIGHT_DEFS) def.set(document.getElementById(def.id).value);
+}
+function saveLights() {
+  const o = {};
+  for (const def of LIGHT_DEFS) o[def.id] = document.getElementById(def.id).value;
+  localStorage.setItem('voxelAnimatorLighting', JSON.stringify(o));
+}
+for (const def of LIGHT_DEFS) {
+  const el = document.getElementById(def.id);
+  const span = def.fmt ? document.getElementById(def.id + '-val') : null;
+  el.oninput = () => {
+    if (span) span.textContent = def.fmt(parseFloat(el.value));
+    applyLights();
+    saveLights();
+  };
+}
+// Replay persisted settings (if any), else apply the HTML defaults.
+const savedLights = localStorage.getItem('voxelAnimatorLighting');
+if (savedLights) {
+  try {
+    const o = JSON.parse(savedLights);
+    for (const def of LIGHT_DEFS) {
+      if (o[def.id] !== undefined) {
+        const el = document.getElementById(def.id);
+        el.value = o[def.id];
+        const span = def.fmt ? document.getElementById(def.id + '-val') : null;
+        if (span) span.textContent = def.fmt(parseFloat(el.value));
+      }
+    }
+  } catch (e) { /* corrupt pref — fall through to defaults */ }
+}
+applyLights();
+document.getElementById('light-reset-btn').onclick = () => {
+  const defaults = { 'amb-int':0.6,'amb-color':'#666688','key-int':1.0,'key-color':'#ffffff',
+    'key-az':45,'key-el':60,'fill-int':0.4,'fill-color':'#88aaff','fill-az':225,'fill-el':45,
+    'cam-int':0.0,'cam-color':'#ffffff' };
+  for (const def of LIGHT_DEFS) {
+    const el = document.getElementById(def.id);
+    el.value = defaults[def.id];
+    const span = def.fmt ? document.getElementById(def.id + '-val') : null;
+    if (span) span.textContent = def.fmt(parseFloat(el.value));
+  }
+  applyLights();
+  saveLights();
+  setStatus('Lighting reset to defaults');
+};
+document.getElementById('light-btn').onclick = () => {
+  document.getElementById('light-modal').style.display = 'flex';
 };
 
 // Export button
@@ -2911,13 +3602,17 @@ function diffAnimParams(params, defaults) {
   return out;
 }
 
+// Tracks the loaded character's name — exports overwrite the same file, so a
+// save always lands where Unity's loader probes (voxel_characters/<name>.json).
+// Set by every load path (sessionStorage hand-off, project JSON, stasset import).
+let loadedCharName = 'Vinny';
+
 window.saveProject = () => {
-  // Prompt for custom name
-  const defaultName = 'Vinny';
-  const customName = prompt('Enter character name (this will be the filename):', defaultName);
-  if (!customName || customName.trim() === '') return;
-  const trimmed = customName.trim();
-  const fileName = trimmed.endsWith('.character.json') ? trimmed : trimmed + '.character.json';
+  // Editor-parity export: one click, <name>.json — Unity probes
+  // voxel_characters/<assetBaseName>.json, so the old '.character.json'
+  // double-extension convention produced files the game never read.
+  const name = loadedCharName;
+  const fileName = `${name}.json`;
 
   // Build groups dict ("x,y,z": gid)
   const groupsDict = {};
@@ -2931,7 +3626,7 @@ window.saveProject = () => {
   const data = {
     format: 'steelcity_character',
     version: 1,
-    name: trimmed.replace(/\.character\.json$/, ''),
+    name: name,
     dims: [W, H, D],
     voxelSize: voxelSize,
     materials: allMaterials,
@@ -2956,8 +3651,9 @@ window.saveProject = () => {
   const groupCount = Object.keys(groupsDict).length;
   const regionCount = Object.keys(regionsDict).length;
   const customCount = Object.keys(animDiff).length;
-  setStatus(`Exported "${fileName}" — ${data.voxels.length} voxels, ${groupCount} groups, ${regionCount} regions, pivots` +
-            (customCount ? `, ${customCount} custom anim sections` : ', default anim (no overrides)'));
+  setStatus(`Exported ${fileName}: ${data.voxels.length} voxels, ${groupCount} groups, ${regionCount} regions, pivots` +
+            (customCount ? `, ${customCount} custom anim sections` : '') +
+            ` — drop into Assets/StreamingAssets/voxel_characters/`);
 };
 
 window.loadProject = (event) => {
@@ -2968,6 +3664,7 @@ window.loadProject = (event) => {
     try {
       const data = JSON.parse(e.target.result);
       if (!data.dims || !data.voxels) throw new Error('Invalid project file');
+      loadedCharName = String(data.name || file.name).replace(/\.(character\.)?json$/i, '');
       W = data.dims[0]; H = data.dims[1]; D = data.dims[2];
       if (data.voxelSize) voxelSize = data.voxelSize;
       voxelMap.clear();
@@ -2995,6 +3692,7 @@ window.loadProject = (event) => {
       if (data.regionDefs && data.regionDefs.length > 0) {
         regionDefs = data.regionDefs;
       }
+      rebuildRegionIndex();
       if (data.pivots) pivots = data.pivots;
       if (data.animParams) {
         const defaults = JSON.parse(JSON.stringify(DEFAULT_PARAMS));
@@ -3117,12 +3815,11 @@ window.addEventListener('keydown', (e) => {
       setStatus(uiHidden ? 'UI hidden — press H to show' : 'UI visible');
       break;
     case 'u':
-      // Unity-handedness preview: the editor is right-handed, Unity is left-handed, so the
-      // same voxel indices render MIRRORED in Unity (right hand = +X side for +Z-forward models).
-      // View-only mirror (CSS on the canvas) — model data is untouched. Orbit-drag X feels reversed.
-      unityView = !unityView;
-      renderer.domElement.style.transform = unityView ? 'scaleX(-1)' : '';
-      setStatus(unityView ? 'Unity-handedness preview ON (mirrored view) — what Unity will render' : 'Editor-handedness view');
+      // Unity-handedness preview — real scene mirror (same as the editor):
+      // scene.scale.x = -1 about the volume's center plane. View-only, model
+      // data untouched; orbit/pan and picking stay aligned (was a CSS flip).
+      setUnityView(!unityView);
+      setStatus(unityView ? 'Unity view ON — mirrored like Unity renders' : 'Editor view (authoring convention)');
       break;
     case '1': case '2': case '3': case '4': case '5': case '6':
       selectGroup(parseInt(e.key) - 1);
@@ -3274,6 +3971,11 @@ function animate() {
 
   updateGaitInspector();
 
+  // Camera-follow light rides the camera every frame; un-mirror its X so it
+  // stays glued to the camera under Unity view.
+  camLight.position.copy(camera.position);
+  if (unityView) camLight.position.x = unmirrorWorldX(camLight.position.x);
+
   renderer.render(scene, camera);
 
   frameCount++;
@@ -3367,6 +4069,8 @@ function createDefaultCharacter() {
 // entry points get correct group parsing, pivot detection, and grid/compass
 // alignment for free, with no chance of the two paths drifting apart again.
 function loadCharacterData(data, sourceLabel) {
+  // Adopt the character's name so exports overwrite the same StreamingAssets file.
+  if (data.name) loadedCharName = String(data.name).replace(/\.(character\.)?json$/i, '');
   if (data.dims) { W = data.dims[0]; H = data.dims[1]; D = data.dims[2]; }
   if (data.voxelSize) { voxelSize = data.voxelSize; }
 
@@ -3412,6 +4116,7 @@ function loadCharacterData(data, sourceLabel) {
   if (data.regionDefs && data.regionDefs.length > 0) {
     regionDefs = data.regionDefs;
   }
+  rebuildRegionIndex();
   if (data.animParams) {
     // Deep-merge with defaults so new param sections (e.g. legTwist) get
     // their defaults when loading a project saved before they existed.
