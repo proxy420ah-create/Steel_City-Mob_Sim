@@ -29,3 +29,4 @@ Bug tracker per Development Guidelines Rule 13. Bugs are cataloged by category i
 | [Domino Orphan — Floating Voxel After Settling](runtime/DOMINO_ORPHAN_FLOATING_VOXEL.md) | runtime | 🟢 FIXED | 🟢 MEDIUM | 2026-10-13 |
 | [Player Build — Stripped Shader.Find Names Abort Scene Init](build/PLAYER_SHADER_STRIPPING_INIT_CASCADE.md) | build | 🟢 FIXED | 🔴 CRITICAL | 2026-10-13 |
 | [Player Build — Proxy Raymarch Draws Emit But Produce Nothing](build/PLAYER_PROXY_RENDER_EMPTY.md) | build | � FIXED | 🔴 CRITICAL | 2026-10-13 |
+| [Possess Shots Deal No Damage — Lazy VDS Spawn](runtime/POSSESS_SHOTS_NO_DAMAGE_LAZY_VDS.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-10-11 |

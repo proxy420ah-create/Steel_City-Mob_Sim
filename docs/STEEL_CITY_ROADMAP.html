@@ -386,8 +386,7 @@
       <p style="margin: 4px 0 0 0; color: var(--text-dim); font-size: 0.9em;">
         This roadmap must be updated whenever new features are discussed, design documents are created, or phases change status.
         If you're working on a design doc or brainstorming a new system, update the corresponding phase here afterward.
-        Last review: <strong>Oct 11, 2026</strong> — rendering hardening landed: glass double-blend fix verified (two-pass composite + Cull Front), <code>VOXEL_DEBUG_VIEW</code> keyword-gated heatmap (<code>V</code> key), <code>multi_compile_local _ BUILDING_INSTANCING</code> correction, ~220 lines of dead occupancy/jitter plumbing removed (archived on <code>archive/occupancy-dda</code>). Prior refresh <strong>Oct 9</strong> — full refresh after ~8 weeks of unrecorded work. New since Aug 14: character asset lifecycle pipeline (handedness promote/demote contract, CharacterAssets registry, attachment points + weapon mount + IK aim), voxel editor toolchain (vehicle asset type, Unity-view mirror, real-voxel attach tagging), vehicle system (490 touring, parking map, lane convergence, patrol), FlowField navigation, first real order (Target Practice), Sitting pose + seat anchors. Next: runtime seat alignment, then continue gang sim / 120 fps perf target.
-      </p>
+        Last review: <strong>Oct 16, 2026</strong> — combat/destruction/audio testbed refresh. Since Oct 11: player-build instancing fix (<code>m_InstancingStripping KeepAll</code> + keeper mats + SVC + <code>BuildDiagnostics</code>/<code>BuildReadinessAudit</code>/<code>DevBuild.cs</code>), voxel damage system (bullet puncture + crack halo, blast resistance classes, island detachment, char gradient, ballistic shard debris), third-person possess testbed (G: WASD + orbit + boom collision + IK aim + free-fire, clean default visuals), and the procedural audio pipeline (<code>.stsound</code> recipes, FL-style browser studio with persistent catalog + Space preview, runtime synth + mid-play hot reload, linear propagation refDist/range + teal→violet report waves, dedicated Sfx debug tab with reference-vs-muzzle A/B).</p>
     </div>
   </div>
 </div>
@@ -397,7 +396,7 @@
   <div class="overall-bar">
     <div class="overall-fill" style="width: 85%;">85%</div>
   </div>
-  <div class="overall-label">Vertical Slice Completion — Foundations ✅ → GPU Animation ✅ → Asset Pipeline ✅ → Vehicles/Seating 🔄 → Gang Sim 🔄 → Polish �</div>
+  <div class="overall-label">Vertical Slice Completion — Foundations ✅ → GPU Animation ✅ → Asset Pipeline ✅ → Vehicles/Seating 🔄 → Combat+Audio Testbed ✅ → Gang Sim 🔄 → Polish 🔲</div>
 </div>
 
 <div class="container">
@@ -405,7 +404,7 @@
   <!-- ========================= STATS ========================= -->
   <div class="stats-grid">
     <div class="stat-card">
-      <div class="stat-num">65+</div>
+      <div class="stat-num">77+</div>
       <div class="stat-label">C# Scripts</div>
     </div>
     <div class="stat-card">
@@ -413,7 +412,7 @@
       <div class="stat-label">Voxel Assets</div>
     </div>
     <div class="stat-card">
-      <div class="stat-num">60+</div>
+      <div class="stat-num">87+</div>
       <div class="stat-label">Doc Files</div>
     </div>
     <div class="stat-card">
@@ -424,30 +423,41 @@
 
   <!-- ========================= CURRENT WORK BANNER ========================= -->
   <div class="current-banner">
-    <h3><span class="pulse-dot"></span> Current Work — Vehicle Seating + Character Seat Anchor</h3>
+    <h3><span class="pulse-dot"></span> Current Work — NPC Hearing &amp; Reactions (bridge into Gang Sim)</h3>
     <div class="desc">
-      <strong>Sitting vertical slice MOSTLY LANDED:</strong> anim state 11 <code>Sit</code> (thighs forward ~83°, shins down, upright torso) — <code>animParams.sitting</code> → CPU FK in <code>VoxelCharacterAnimator</code> → GPU kernel in <code>CharacterPoseCompute.compute</code> (<code>_AnimStaticParams</code> grown 13→15 float4s). ⚠ The matching pose-kernel branch in <code>VoxelProxyRaymarch.shader</code> is <em>not on master</em> — it lives on <code>archive/occupancy-dda</code>; port it when seating ships (state 11 unused at runtime so far). Character-side <code>seat</code> attachment anchor tagged on real pelvis voxels — the contract half of vehicle <code>seat_*</code> points. Flip parity in promote + demote.<br>
-      <strong>Rendering hardened (Oct 11):</strong> glass two-pass composite verified — <code>Cull Front</code> + proxy cube winding fix kills the outside-volume double blend; <code>V</code> cycles keyword-gated debug views (iteration heat / step channels / miss waste — zero cost when off); <code>BUILDING_INSTANCING</code> single-keyword pragma fix restores cars/characters in builds; dead occupancy/jitter plumbing removed.<br>
-      <strong>Next (seat alignment):</strong> port SKEL attachment reader to C# → align character <code>seat</code> → vehicle <code>seat_*</code> (position + facing) → dev hotkey to park Vinny in the driver seat → dynamic seat assignment. Benches drop out free (static "vehicle" with seat points).<br>
-      <strong>Parallel: 490 detailing</strong> — hand-authored in the editor's Unity-view mirror (<code>U</code>), real-voxel attach tagging (no marker blobs), iterative JSON→stasset loop.<br>
-      <strong>Firearms &amp; projectiles (v1 LANDED, playtested):</strong> Range tab FIRE → physical projectile from the measured muzzle along the IK bore axis + seeded cone (shooter skill 1–10, default 10; cone slider), swept voxel-DDA hits against terrain <em>and every building volume</em> (<code>VoxelCollisionWorld.Raycast</code>, shared-array volumes — no copies), full shot report (volume / voxel / material / lateral miss). Offline self-test: 148k checks. Next: character &amp; vehicle hits (spatial hash), penetration + glass puncture, hood Firearms stat binding. Also fixed: sector mode left the building address registry empty (range points missing). See <code>docs/systems/PROJECTILE_SYSTEM.md</code>.<br>
-      <strong>Perf gate:</strong> hold ~120 fps before further city expansion. GPU Rendering Phase 2+ (buffer pooling, indirect draws, GPU culling) still the lever.<br>
-      <strong>Gang sim continues:</strong> first real order live (Target Practice — walk → painted firing position → aim stance → firearms +2). Flow-field Dijkstra nav infrastructure in.
+      <strong>Just landed (Oct 16): third-person possess testbed + procedural audio pipeline.</strong>
+      <code>G</code> possesses Vinny — WASD + orbit camera with voxel boom collision (slides along roads/walls, no clipping),
+      crosshair-driven IK aim, LMB free-fire. Starts clean: all debug rays/cones/impact marks off by default (Combat-tab toggles remain).
+      Camera pitch/yaw, muzzle at the real mount, first-shot damage guaranteed (Fire() now creates VoxelDamageSystem before resolving).
+      <br>
+      <strong>Audio pipeline:</strong> browser <code>audio_studio.html</code> authors <code>.stsound</code> recipes into
+      <code>StreamingAssets/sounds/</code> — persistent live catalog (IndexedDB dir handle), FL-style rotary knobs with typed
+      real-unit entry (m:ss, ms, Hz/kHz, note names), Space preview. <code>ProjectileSystem.PlayShotSound</code> synthesizes via
+      <code>ProceduralAudio</code> — hot-reloads on file-write-time change mid-Play. Real <code>AudioSource</code> with linear
+      rolloff: <code>refDist</code> full-volume 4m, <code>report range</code> 50m default. <code>SfxWaves</code> renders the
+      expanding teal→violet report shell — its edge IS the future NPC hearing radius (<code>AmplitudeAt()</code> is the shared law).
+      Sfx tab: per-sound 0.1–2.0 trim (1.0 = studio-authored), reference-vs-muzzle A/B, glass controls.
+      <br>
+      <strong>Voxel destruction:</strong> bullet puncture + crack halo, blast vs resistance classes, detached-island
+      ballistic debris, BFS char gradient, glass shatter by cell count.
+      <br>
+      <strong>Next:</strong> NPC hearing — pedestrians/hoods inside a passing report wave react per archetype
+      (flee, take cover, call police) → feeds investigations/heat. Then resume Phase 4d: HoodAgent + order queue.
+      Perf gate stands: hold ~120 fps before further city expansion.
     </div>
     <div class="files">
-      <span class="file-chip">VoxelCharacterAnimator.cs</span>
-      <span class="file-chip">CharacterPoseCompute.compute</span>
-      <span class="file-chip">VoxelProxyRaymarch.shader</span>
-      <span class="file-chip">CharacterAssets.cs</span>
-      <span class="file-chip">WeaponMount.cs</span>
-      <span class="file-chip">ArmAimSolver.cs</span>
-      <span class="file-chip">ParkingMap.cs</span>
-      <span class="file-chip">voxel_editor.html</span>
-      <span class="file-chip">character_animator.html</span>
-      <span class="file-chip">VEHICLE_VOXEL_ASSETS.md</span>
+      <span class="file-chip">PossessController.cs</span>
+      <span class="file-chip">VoxelDamageSystem.cs</span>
       <span class="file-chip">ProjectileSystem.cs</span>
-      <span class="file-chip">VoxelCollisionWorld.cs</span>
-      <span class="file-chip">PROJECTILE_SYSTEM.md</span>
+      <span class="file-chip">ProceduralAudio.cs</span>
+      <span class="file-chip">SfxWaves.cs</span>
+      <span class="file-chip">ArmAimSolver.cs</span>
+      <span class="file-chip">WeaponMount.cs</span>
+      <span class="file-chip">DebugHUDManager.cs</span>
+      <span class="file-chip">audio_studio.html</span>
+      <span class="file-chip">PROCEDURAL_AUDIO.md</span>
+      <span class="file-chip">BuildDiagnostics.cs</span>
+      <span class="file-chip">DevBuild.cs</span>
     </div>
   </div>
 
@@ -1045,6 +1055,74 @@
     </div>
   </div>
 
+  <!-- ========================= PHASE 4e: COMBAT/DESTRUCTION/AUDIO TESTBED (DONE) ========================= -->
+  <div class="phase">
+    <div class="phase-header">
+      <div class="phase-icon done">✅</div>
+      <div class="phase-title">
+        <h2>Phase 4e — Combat, Destruction &amp; Audio Testbed</h2>
+        <div class="dates">Oct 11 – Oct 16, 2026 — COMPLETE</div>
+      </div>
+      <div class="phase-status done">COMPLETE</div>
+    </div>
+    <div class="features">
+      <div class="feature">
+        <div class="feature-head">
+          <div class="feature-status-icon done">✓</div>
+          <div class="feature-name">Player Build Hardening</div>
+          <div class="feature-tag done">COMPLETE</div>
+        </div>
+        <div class="feature-desc">Dev player build renders the full instanced city — variant-strip fix + diagnostics</div>
+        <ul class="feature-items">
+          <li class="check">m_InstancingStripping: KeepAll + serialized keeper materials + SVC coverage</li>
+          <li class="check">GpuUpload chunked ComputeBuffer.SetData (D3D12 upload-ring overflow)</li>
+          <li class="check">DevBuild.cs one-click dev player; BuildDiagnostics ring-buffer + state table</li>
+          <li class="check">BuildReadinessAudit editor check; canary ladder proves each instanced path in-build</li>
+        </ul>
+      </div>
+      <div class="feature">
+        <div class="feature-head">
+          <div class="feature-status-icon done">✓</div>
+          <div class="feature-name">Voxel Damage &amp; Destruction</div>
+          <div class="feature-tag done">COMPLETE</div>
+        </div>
+        <div class="feature-desc">Shots and blasts physically damage the city — copy-on-write chunk edits</div>
+        <ul class="feature-items">
+          <li class="check">VoxelDamageSystem: bullet puncture + seeded ring-falloff, crack halo (mat 134 / nibble webbing)</li>
+          <li class="check">Blast vs resistance classes; detached-island ballistic debris; BFS char gradient</li>
+          <li class="check">Shatter sfx scaled by removed-cell count; eager ShotResolved subscription (no lazy init)</li>
+        </ul>
+      </div>
+      <div class="feature">
+        <div class="feature-head">
+          <div class="feature-status-icon done">✓</div>
+          <div class="feature-name">Third-Person Possess Testbed</div>
+          <div class="feature-tag done">COMPLETE</div>
+        </div>
+        <div class="feature-desc">G to possess Vinny — direct control for observing/tuning every system up close</div>
+        <ul class="feature-items">
+          <li class="check">WASD + free-pitch orbit camera; voxel boom collision slides on roads/walls (no clipping)</li>
+          <li class="check">Crosshair-driven arm IK aim; LMB free-fire via shared ProjectileSystem.Fire()</li>
+          <li class="check">Clean default visuals — muzzle ray / spread cone / impact marks / sight beam all off</li>
+        </ul>
+      </div>
+      <div class="feature">
+        <div class="feature-head">
+          <div class="feature-status-icon done">✓</div>
+          <div class="feature-name">Procedural Audio Pipeline</div>
+          <div class="feature-tag done">COMPLETE</div>
+        </div>
+        <div class="feature-desc">Browser-authored .stsound recipes → runtime synth → positional propagation — spec: <code>PROCEDURAL_AUDIO.md</code></div>
+        <ul class="feature-items">
+          <li class="check">audio_studio.html: persistent live catalog (IndexedDB), FL knobs + typed real units, Space preview, echo + tailFade</li>
+          <li class="check">ProceduralAudio: full v3 schema synth (layers, partials, noise, sweeps, EQ, drive, echo, tailFade), hot-reload on write-time</li>
+          <li class="check">Linear propagation: refDist full-volume + report range edge; SfxWaves teal→violet shell = NPC hearing radius</li>
+          <li class="check">Sfx debug tab: per-sound 0.1–2.0 trim (1.0 = studio-authored), reference-vs-muzzle A/B calibration</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
   <div class="phase">
     <div class="phase-header">
       <div class="phase-icon planned">🔲</div>
@@ -1107,14 +1185,14 @@
         <div class="feature-head">
           <div class="feature-status-icon planned">○</div>
           <div class="feature-name">Voxel Glass Shatter</div>
-          <div class="feature-tag planned">PLANNED</div>
+          <div class="feature-tag current">IN PROGRESS</div>
         </div>
         <div class="feature-desc">Seeded bullet-hole + pane-cascade destruction — no physics, voxel→shard particles. Spec: <code>docs/systems/GLASS_SHATTER_MECHANIC.md</code></div>
         <ul class="feature-items">
-          <li class="pending">P0 puncture: bullet hits pane → impact + ring-falloff removal (seeded), dirty-cell refresh</li>
-          <li class="pending">P1 dressing: shard burst from removal delta, cracked-halo material, sound by count</li>
-          <li class="pending">P2 pane semantics: gid pane tags → cascade-release; blast radius over gid clusters</li>
-          <li class="pending">P3 sim hooks: noise alert, LOS opening, persistent damage map, smash-and-grab hook</li>
+          <li class="check">P0 puncture: bullet hits pane → impact + ring-falloff removal (seeded), dirty-cell refresh</li>
+          <li class="check">P1 dressing: shard burst (ballistic debris pool), crack halo (material 134 / nibble webbing), sound by cell count</li>
+          <li class="warn">P2 pane semantics: blast radius over volumes landed; gid pane tags → cascade-release not yet</li>
+          <li class="warn">P3 sim hooks: noise infra exists (SfxWaves report radius = hearing law); LOS opening + persistent damage map + smash-and-grab pending</li>
           <li class="pending">Generators emit pane gids (authoring contract); reinforced flag for unbreakable glass</li>
         </ul>
       </div>
@@ -1281,10 +1359,22 @@
         <div class="tl-desc">Each instanced character can wear a unique outfit (material remap per instance, 1 draw call). CSPose compute shader applies per-instance remap. ClothingSystem rewritten to use SetInstanceOutfit API. Vinny → Civilians/Civilian_01+02 with Controllable flag for hotkey routing. Debug HUD dual selectors (green=character, blue=outfit). Blue/brown suits verified side-by-side. Commit 457393f.</div>
       </div>
       <div class="tl-item">
+        <div class="tl-dot done"></div>
+        <div class="tl-date">Oct 11 – 15, 2026 — MILESTONE</div>
+        <div class="tl-title">Player Builds Fixed + Voxel Destruction Live</div>
+        <div class="tl-desc">Instancing variant-strip fix (KeepAll + keeper mats) — full city renders in dev player. VoxelDamageSystem: bullet puncture/crack halo, blast resistance classes, island detachment, char gradient, ballistic shards. Commit 28f4402.</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot done"></div>
+        <div class="tl-date">Oct 16, 2026 — MILESTONE</div>
+        <div class="tl-title">Possess Testbed + Procedural Audio Pipeline</div>
+        <div class="tl-desc">G-possess: WASD + boom-collision orbit cam, IK aim, LMB free-fire, clean visuals. .stsound audio: browser studio → runtime synth → hot reload → linear propagation + teal→violet report waves + Sfx tab calibration. Commit fe4a3ef.</div>
+      </div>
+      <div class="tl-item">
         <div class="tl-dot current"></div>
-        <div class="tl-date">Aug 14, 2026 — NOW</div>
-        <div class="tl-title">Gang Simulation Implementation</div>
-        <div class="tl-desc">Next: HoodAgent + HoodSpawner, UI refinements, more animation states (crouch tuning). GPU rendering Phase 2 + invariant computation fixes also pending.</div>
+        <div class="tl-date">Oct 16, 2026 — NOW</div>
+        <div class="tl-title">NPC Hearing &amp; Reactions → Gang Sim</div>
+        <div class="tl-desc">Report waves become gameplay: archetype-specific reactions (flee/cover/call cops) → investigations. Then resume HoodAgent + order queue (Phase 4d).</div>
       </div>
       <div class="tl-item">
         <div class="tl-dot planned"></div>
@@ -1313,8 +1403,7 @@
   <p>Steel City: Mob Sim — Vertical Slice Roadmap</p>
   <p>Companion to <code>GAME_DESIGN_SKELETON.md</code> and <code>docs/core/DOCUMENTATION_INDEX.md</code></p>
   <div class="update-note">
-    📝 Last updated: Aug 14, 2026 — Per-instance clothing system COMPLETE. Each instanced character wears unique outfit (1 draw call). Consolidated spawning: Vinny → Civilians/Civilian_01+02. Debug HUD character selector. City generation + execution phase complete. Next: gang simulation implementation.
-  </div>
+    📝 Last updated: Oct 16, 2026 — Third-person possess testbed + procedural audio pipeline landed. Player builds hardened (instancing KeepAll). Voxel destruction live (puncture, blasts, shard debris). Next: NPC hearing &amp; reactions off the report-wave radius, then Phase 4d gang sim.</div>
   <div style="margin-top: 10px; padding: 10px 14px; background: var(--surface2); border: 1px solid var(--yellow); border-radius: 6px; font-size: 0.85em; color: var(--text-dim);">
     ⚠️ <strong style="color: var(--yellow);">Keep this roadmap current.</strong>
     Update phases, timeline, and progress whenever new design documents are created or features are discussed.

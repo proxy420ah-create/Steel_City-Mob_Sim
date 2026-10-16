@@ -31,6 +31,12 @@ namespace SteelCity.Sim
         [SerializeField] private float pitchSens = 0.15f;
         [SerializeField] private float orbitSuggest = 4f;
         [SerializeField] private float aimRange = 400f;
+        [Header("Camera boom")]
+        [Tooltip("Padding kept between the camera and the voxel surface the boom hits")]
+        [SerializeField] private float camPad = 0.35f;
+        [Tooltip("Boom can't collapse closer than this — keeps the camera out of Vinny's head")]
+        [SerializeField] private float camMinOrbit = 0.9f;
+        [SerializeField] private float boomReturnSpeed = 7f;   // ease back out after a clip
 
         private CityMap3D cityMap;
         private VoxelCollisionWorld world;
@@ -42,10 +48,12 @@ namespace SteelCity.Sim
         private bool prevControllable;
         private bool prevFreedom;
         private float prevOrbit;
+        private bool prevSightBeam;
 
         private Vector3 aimPoint;          // current crosshair hit / fallback point
         private float lookYaw, lookPitch;  // owned look angles — driven 1:1 by mouse delta
         private float fireCooldown;
+        private float boomCur = -1f;       // smoothed collision-clamped orbit distance
         private Texture2D crossTex;
 
         void Awake() => cityMap = GetComponent<CityMap3D>();
@@ -130,6 +138,22 @@ namespace SteelCity.Sim
             // --- Orbit pivot pins to his head (over-the-shoulder framing) ---
             cityMap.SetCameraFocus(EyePoint());
 
+            // --- Boom collision: raycast along the boom, clamp the orbit before
+            // the camera can clip through voxels (roads on pitch-up, walls on
+            // yaw). Snap in hard, ease back out — no pop when the blocker clears.
+            if (world != null)
+            {
+                float yR = lookYaw * Mathf.Deg2Rad, pR = lookPitch * Mathf.Deg2Rad;
+                float horiz = Mathf.Cos(pR);
+                Vector3 boomDir = new Vector3(-horiz * Mathf.Sin(yR), Mathf.Sin(pR), -horiz * Mathf.Cos(yR));
+                float want = orbitSuggest;
+                if (world.Raycast(EyePoint(), boomDir, want + camPad, out VoxelRayHit bh))
+                    want = Mathf.Max(camMinOrbit, bh.distance - camPad);
+                boomCur = boomCur < 0f || want < boomCur ? want
+                        : Mathf.Lerp(boomCur, want, boomReturnSpeed * Time.deltaTime);
+                cityMap.debugCameraOrbitDistance = boomCur;
+            }
+
             // --- Fire ---
             fireCooldown -= Time.deltaTime;
             if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame
@@ -197,6 +221,7 @@ namespace SteelCity.Sim
             anim = vinny.GetComponent<CharacterAnimation>();
             rig = vinny.GetComponent<CharacterRig>();
             if (rig != null) { prevControllable = rig.Controllable; rig.Controllable = false; }
+            if (solver != null) { prevSightBeam = solver.showSightBeam; solver.showSightBeam = false; }
 
             // Borrow the F6 freedom clamps without its debris/rebake side effects.
             prevFreedom = cityMap.debugCameraFreedom;
@@ -211,6 +236,7 @@ namespace SteelCity.Sim
             if (f0.sqrMagnitude < 0.001f) f0 = Vector3.forward;
             lookYaw = Mathf.Atan2(f0.x, f0.z) * Mathf.Rad2Deg;
             lookPitch = 12f;
+            boomCur = -1f;
             cityMap.SetCameraAnglesImmediate(lookYaw, lookPitch);
             cityMap.SetCameraFocus(EyePoint());
             Cursor.lockState = CursorLockMode.Locked;
@@ -231,6 +257,7 @@ namespace SteelCity.Sim
                 anim.SetState(CharacterAnimation.AnimState.Idle);
             }
             if (rig != null) rig.Controllable = prevControllable;
+            if (solver != null) solver.showSightBeam = prevSightBeam;
             if (cityMap != null)
             {
                 cityMap.debugCameraFreedom = prevFreedom;

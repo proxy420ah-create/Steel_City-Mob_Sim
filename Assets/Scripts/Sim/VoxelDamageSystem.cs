@@ -153,7 +153,15 @@ namespace SteelCity.Sim
         private VoxelChunkManager chunkManager;
         private readonly HashSet<string> skippedVolumes = new();
 
-        void Awake() { Instance = this; }
+        void Awake()
+        {
+            Instance = this;
+            // Eager subscribe — Fire() GetOrCreate()s us mid-frame, and a point-blank
+            // shot can resolve in the same frame's updates before the lazy Update
+            // bind would run.
+            subscribed = ProjectileSystem.Instance;
+            if (subscribed != null) subscribed.ShotResolved += OnShotResolved;
+        }
 
         void OnDestroy()
         {

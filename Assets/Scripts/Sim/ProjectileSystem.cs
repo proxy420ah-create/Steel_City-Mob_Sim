@@ -65,7 +65,7 @@ namespace SteelCity.Sim
         [Tooltip("Draw the in-flight tracer streak behind each bullet.")]
         public bool showTracers = true;
         [Tooltip("Draw red tick marks at impact points (last 8 kept).")]
-        public bool showImpactMarks = true;
+        public bool showImpactMarks = false;  // red hit ticks — off by default, Combat tab toggle
         public float tracerLength = 0.4f;
         public float tracerWidth = 0.012f;
         public Color tracerColor = new Color(1f, 0.85f, 0.25f, 0.95f);
@@ -75,7 +75,7 @@ namespace SteelCity.Sim
 
         [Header("Spread cone viz (PathDebugRenderer)")]
         [Tooltip("Draw a wireframe cone at EffectiveConeDeg around the live bore axis of aimSource — edge rays + rim. Updates with the sliders and dances with sway/recoil.")]
-        public bool showSpreadCone = true;
+        public bool showSpreadCone = false;   // wireframe cone — off by default, Combat tab toggle
         [Tooltip("Cone beam length override (world units). 0 = auto: to aimTarget, capped at 8 m.")]
         public float coneVizLength = 0f;
         public Color coneColor = new Color(1f, 0.7f, 0.2f, 0.55f);
@@ -170,6 +170,11 @@ namespace SteelCity.Sim
                 Debug.LogWarning("[Projectile] Fire rejected: no VoxelCollisionWorld geometry registered.");
                 return false;
             }
+            // Guarantee the damage consumer exists before this shot can resolve —
+            // VDS lazily spawns via GetOrCreate, so a possess-mode shooter firing
+            // before anyone opened Combat/Demolitions would otherwise resolve into
+            // zero subscribers: tracers + impact marks, but no damage.
+            VoxelDamageSystem.GetOrCreate();
 
             shotCounter++;
             uint seed = forcedSeed != 0 ? forcedSeed : MakeSeed(shotCounter);

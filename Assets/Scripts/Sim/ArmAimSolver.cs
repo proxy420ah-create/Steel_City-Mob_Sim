@@ -64,7 +64,7 @@ namespace SteelCity.Sim
         [Tooltip("Hard cap on aim offset (deg) — anti-windup; the arm can never be pushed further than this")]
         [Range(2f, 20f)] public float maxOffsetDeg = 11f;
         [Tooltip("Draw the cyan muzzle→target sight beam while aiming (PathDebugRenderer).")]
-        public bool showSightBeam = true;
+        public bool showSightBeam = false;   // off by default — Combat/Sfx debugs opt in
 
         // --- State ---
         public bool IsAiming { get; private set; }
