@@ -274,15 +274,12 @@ namespace SteelCity.Sim
                 lookYaw += lookYawDelta;
                 lookPitch = Mathf.Clamp(lookPitch + lookPitchDelta, -80f, 80f);
 
-                // Q/E still control distance, R/F height, +/- FOV
+                // Q/E distance, R/F height. FOV keys removed — +/- belong to
+                // the character pose panel (anim speed), never camera.
                 if (kb.qKey.isPressed) distance = Mathf.Max(1f, distance - 5f * Time.unscaledDeltaTime);
                 if (kb.eKey.isPressed) distance = Mathf.Min(50f, distance + 5f * Time.unscaledDeltaTime);
                 if (kb.rKey.isPressed) height = Mathf.Min(30f, height + 3f * Time.unscaledDeltaTime);
                 if (kb.fKey.isPressed) height = Mathf.Max(-5f, height - 3f * Time.unscaledDeltaTime);
-                if (kb.equalsKey.isPressed || kb.numpadPlusKey.isPressed)
-                    fieldOfView = Mathf.Min(120f, fieldOfView + 20f * Time.unscaledDeltaTime);
-                if (kb.minusKey.isPressed || kb.numpadMinusKey.isPressed)
-                    fieldOfView = Mathf.Max(10f, fieldOfView - 20f * Time.unscaledDeltaTime);
             }
             else
             {
@@ -300,10 +297,6 @@ namespace SteelCity.Sim
                 if (kb.eKey.isPressed) distance = Mathf.Min(50f, distance + 5f * Time.unscaledDeltaTime);
                 if (kb.rKey.isPressed) height = Mathf.Min(30f, height + 3f * Time.unscaledDeltaTime);
                 if (kb.fKey.isPressed) height = Mathf.Max(-5f, height - 3f * Time.unscaledDeltaTime);
-                if (kb.equalsKey.isPressed || kb.numpadPlusKey.isPressed)
-                    fieldOfView = Mathf.Min(120f, fieldOfView + 20f * Time.unscaledDeltaTime);
-                if (kb.minusKey.isPressed || kb.numpadMinusKey.isPressed)
-                    fieldOfView = Mathf.Max(10f, fieldOfView - 20f * Time.unscaledDeltaTime);
             }
 
             if (cam != null) cam.fieldOfView = fieldOfView;
@@ -455,7 +448,7 @@ namespace SteelCity.Sim
                 GUILayout.Label($"Yaw:       {currentYaw:F1} deg  (Left/Right)", style);
                 GUILayout.Label($"Pitch:     {currentPitch:F1} deg  (Up/Down)", style);
             }
-            GUILayout.Label($"FOV:       {fieldOfView:F1}  (+/-)", style);
+            GUILayout.Label($"FOV:       {fieldOfView:F1}", style);
             GUILayout.Label($"FollowSpd: {followSpeed:F1}", style);
             GUILayout.Label($"LookSpd:   {lookSpeed:F1}", style);
             GUILayout.Label($"LookYaw:   {lookYaw:F1} deg", style);

@@ -148,6 +148,11 @@ namespace SteelCity.Sim
             if (lookAround == null)
                 lookAround = charObj.AddComponent<PedestrianLookAround>();
 
+            // Vision sensor at spawn — the cone rides the posed eyes anchor;
+            // it shouldn't wait for the VISION tab to lazily AddComponent.
+            if (charObj.GetComponent<VisionSensor>() == null)
+                charObj.AddComponent<VisionSensor>();
+
             spawnedAnim = anim;
 
             Debug.Log($"[HoodSpawner] 🔧 Debug hood spawned at block {debugBlock.id} ({debugBlock.name}) " +

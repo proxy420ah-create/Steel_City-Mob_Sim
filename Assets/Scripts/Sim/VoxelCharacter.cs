@@ -151,7 +151,7 @@ namespace SteelCity.Sim
         /// regardless of the pose he's currently in).
         /// </summary>
         public bool TryGetJointWorld(int gid, out Vector3 worldPos, out Quaternion worldRot,
-            float? animStateOverride = null, float animTime = 0f)
+            float? animStateOverride = null, float animTime = 0f, float animDepthOverride = -1f)
         {
             worldPos = default; worldRot = Quaternion.identity;
             var anim = JointAnimator;
@@ -161,10 +161,14 @@ namespace SteelCity.Sim
             float state = animStateOverride ?? (ic?.animState ?? 0f);
             float time = animStateOverride.HasValue ? animTime : (ic?.animTime ?? 0f);
             float speed = ic?.animSpeed ?? 1f;
+            float depth = animDepthOverride >= 0f ? animDepthOverride
+                : (animStateOverride.HasValue ? 0f : (ic?.crouchDepth ?? 0f));
             var dims = new Vector3Int(dimX, dimY, dimZ);
 
             Vector3 rest = new Vector3(pv.x * dims.x, pv.y * dims.y, pv.z * dims.z);
-            return PoseToWorld(anim, rest, gid, dims, state, time, speed, out worldPos, out worldRot);
+            return PoseToWorld(anim, rest, gid, dims, state, time, speed,
+                TransParams(ic, animStateOverride, out float depthA), depth, depthA,
+                out worldPos, out worldRot);
         }
 
         /// <summary>Which anchor resolved the gaze — mirrors the animator's
@@ -182,8 +186,11 @@ namespace SteelCity.Sim
         /// Head-joint fallback when the asset carries no region paint, false
         /// when there's no anim data at all. Mirrors character_animator.html's
         /// vision-cone anchor — same centroids, same FK chain, same offset.
+        /// `animStateOverride`/`animTime` evaluate a hypothetical pose like
+        /// TryGetJointWorld ("where will my eyes be when I crouch" → state 5).
         /// </summary>
-        public bool TryGetEyeAnchor(out Vector3 worldPos, out Vector3 worldFwd, out EyeAnchorKind source)
+        public bool TryGetEyeAnchor(out Vector3 worldPos, out Vector3 worldFwd, out EyeAnchorKind source,
+            float? animStateOverride = null, float animTime = 0f, float animDepthOverride = -1f)
         {
             worldPos = default; worldFwd = Vector3.forward;
             source = EyeAnchorKind.None; LastEyeAnchorVox = 0;
@@ -191,9 +198,11 @@ namespace SteelCity.Sim
             if (anim == null) return false;
 
             var ic = instancedHandle;
-            float state = ic?.animState ?? 0f;
-            float time = ic?.animTime ?? 0f;
+            float state = animStateOverride ?? (ic?.animState ?? 0f);
+            float time = animStateOverride.HasValue ? animTime : (ic?.animTime ?? 0f);
             float speed = ic?.animSpeed ?? 1f;
+            float depth = animDepthOverride >= 0f ? animDepthOverride
+                : (animStateOverride.HasValue ? 0f : (ic?.crouchDepth ?? 0f));
             var dims = new Vector3Int(dimX, dimY, dimZ);
 
             // Region centroids are index-space (mean of tagged voxel indices);
@@ -211,6 +220,7 @@ namespace SteelCity.Sim
             else return false;
 
             if (!PoseToWorld(anim, rest, JointHead, dims, state, time, speed,
+                    TransParams(ic, animStateOverride, out float depthA), depth, depthA,
                     out worldPos, out Quaternion worldRot)) return false;
             worldFwd = (worldRot * Vector3.forward).normalized;
 
@@ -222,19 +232,46 @@ namespace SteelCity.Sim
             return true;
         }
 
+        /// <summary>Transition params for a live pose query — pulled off the
+        /// instanced handle. Hypothetical evals (animStateOverride set) must
+        /// NOT blend: they answer "where will I be in state X", not "where am I
+        /// mid-transition". blend=1 short-circuits everything downstream.</summary>
+        static Vector4 TransParams(VoxelChunkManager.InstancedCharacter ic, float? animStateOverride,
+            out float depthA)
+        {
+            depthA = -1f;  // sentinel → PoseToWorld falls back to live crouchDepth
+            if (animStateOverride.HasValue || ic == null) return new Vector4(-1f, 0f, 1f, 0f);
+            depthA = ic.transDepthA;
+            return new Vector4(ic.transStateA, ic.transTimeA, ic.transBlend, ic.transDip);
+        }
+
         /// <summary>Shared pose→world core for joint/anchor queries — the same
         /// FK chain the voxels render with, then the shader's cell-space →
-        /// world convention (identical to WeaponMount's muzzle solve).</summary>
+        /// world convention (identical to WeaponMount's muzzle solve). trans =
+        /// (stateA, timeA, blend, dip) pose-transition triple; crouchDepth is
+        /// the adaptive-duck axis (0 = authored shallow crouch, 1 = deep).</summary>
         bool PoseToWorld(VoxelCharacterAnimator anim, Vector3 rest, int gid, Vector3Int dims,
-            float state, float time, float speed, out Vector3 worldPos, out Quaternion worldRot)
+            float state, float time, float speed, Vector4 trans, float crouchDepth,
+            float transDepthA, out Vector3 worldPos, out Quaternion worldRot)
         {
-            Vector3 posed = anim.PosePoint(rest, gid, dims, state, time, speed);
+            Vector3 posed = anim.PosePoint(rest, gid, dims, state, time, speed,
+                trans.x, trans.y, trans.z, trans.w, crouchDepth, transDepthA);
 
             Quaternion qR = Quaternion.identity;
-            var gr = anim.ComputeGroupRotation(gid, dims, 1.0f, state, time, speed);
+            var gr = anim.ComputeGroupRotation(gid, dims, 1.0f, state, time, speed, crouchDepth);
             if (gr.HasValue && gr.Value.chain != null)
                 foreach (var e in gr.Value.chain)
                     qR = VoxelCharacterAnimator.QuatFromMat3(e.rot) * qR;
+            if (trans.z < 1f && trans.x >= 0f)
+            {
+                Quaternion qA = Quaternion.identity;
+                var grA = anim.ComputeGroupRotation(gid, dims, 1.0f, trans.x, trans.y, speed,
+                    transDepthA >= 0f ? transDepthA : crouchDepth);
+                if (grA.HasValue && grA.Value.chain != null)
+                    foreach (var e in grA.Value.chain)
+                        qA = VoxelCharacterAnimator.QuatFromMat3(e.rot) * qA;
+                qR = Quaternion.Slerp(qA, qR, trans.z);
+            }
 
             // Cell-space (+0.5) → rotate about volume center (shader convention).
             Vector3 half = new Vector3(dims.x, dims.y, dims.z) * voxelSize * 0.5f;
@@ -246,6 +283,64 @@ namespace SteelCity.Sim
             Quaternion yawRot = Quaternion.Euler(0f, transform.eulerAngles.y, 0f);
             worldPos = center + yawRot * (localCell - half);
             worldRot = yawRot * qR;
+            return true;
+        }
+
+        // --- silhouette-top measure (cover heightfield) ---
+
+        // Per-pose-group highest rest voxel (index space) — the silhouette top
+        // under any pose is the max of these after FK. Built once per asset.
+        private List<(int gid, Vector3 rest)> topVoxels;
+        private readonly Dictionary<(float state, float depth), float> topYCache = new();
+
+        void EnsureTopVoxels()
+        {
+            if (topVoxels != null || asset == null || asset.GroupIDs == null) return;
+            var perGroup = new Dictionary<int, (Vector3 rest, int y)>();
+            int w = dimX, h = dimY, d = dimZ, wh = w * h;
+            for (int z = 0; z < d; z++)
+            for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                if (asset.Voxels[x, y, z] == 0) continue;
+                int idx = x + y * w + z * wh;
+                int gid = (int)asset.GroupIDs[idx];
+                if (!perGroup.TryGetValue(gid, out var cur) || y > cur.y)
+                    perGroup[gid] = (new Vector3(x, y, z), y);
+            }
+            topVoxels = new List<(int, Vector3)>(perGroup.Count);
+            foreach (var kv in perGroup) topVoxels.Add((kv.Key, kv.Value.rest));
+        }
+
+        /// <summary>Height above the feet of the posed silhouette TOP at a
+        /// hypothetical (animState, crouchDepth) — the cover system's "how tall
+        /// am I when I duck" measure, replacing authored eye constants. Each
+        /// pose group's highest rest voxel runs through the same FK chain
+        /// PoseToWorld uses; the max posed Y is the top. No painted regions,
+        /// no scale constants — re-authoring a pose re-tunes cover for free.
+        /// Cached per (state, depth): poses only change on asset reload.
+        /// Returns height in world units above transform.y (the feet).</summary>
+        public bool TryMeasureTopY(float state, float depth, out float heightAboveFeet)
+        {
+            heightAboveFeet = 0f;
+            var anim = JointAnimator;
+            if (anim == null || asset == null || asset.GroupIDs == null) return false;
+            var key = (state, depth);
+            if (topYCache.TryGetValue(key, out float cached))
+            { heightAboveFeet = cached; return true; }
+            EnsureTopVoxels();
+            if (topVoxels == null || topVoxels.Count == 0) return false;
+            var dims = new Vector3Int(dimX, dimY, dimZ);
+            float top = 0f;
+            for (int i = 0; i < topVoxels.Count; i++)
+            {
+                var t = topVoxels[i];
+                Vector3 posed = anim.PosePoint(t.rest, t.gid, dims, state, 0f, 1f,
+                    -1f, 0f, 1f, 0f, depth, -1f);
+                if (posed.y > top) top = posed.y;
+            }
+            heightAboveFeet = (top + 0.5f) * voxelSize;   // cell-center, PoseToWorld convention
+            topYCache[key] = heightAboveFeet;
             return true;
         }
 
@@ -656,8 +751,9 @@ namespace SteelCity.Sim
             }
 
             // Pack and upload static animation params (looking/aiming/crouching/sitting/jointOffset/aimSweep)
-            // as 15 float4s for the GPU shader — same ParamsData source as above.
-            var asp = new Vector4[15];
+            // as 19 float4s for the GPU shader — same ParamsData source as above.
+            // [15..18] = the deep-crouch endpoint: the crouchDepth lerp axis.
+            var asp = new Vector4[19];
             // [0] = looking params
             var lp = p.looking;
             asp[0] = new Vector4(lp.headYaw, lp.headYawFreq, lp.headPitch, lp.headPitchFreq);
@@ -692,6 +788,14 @@ namespace SteelCity.Sim
             asp[13] = new Vector4(st.legStrideL, st.legStrideR, st.kneeBendL, st.kneeBendR);
             // [14] = sitting arms/head
             asp[14] = new Vector4(st.armSwingL, st.armSwingR, st.headPitch, 0);
+            // [15..18] = deep crouch endpoint — GPU lerps ASP(4→15, 5→16, 3.zw→17.xy)
+            // by per-instance crouchDepth; [17].zw/[18].xy carry the elbow pair
+            // (shallow + deep) for the same lerp.
+            var dp = p.crouchDeep ?? p.crouching;
+            asp[15] = new Vector4(dp.bodyLean, dp.headPitch, dp.armSwingL, dp.armSwingR);
+            asp[16] = new Vector4(dp.legStrideL, dp.legStrideR, dp.kneeBendL, dp.kneeBendR);
+            asp[17] = new Vector4(dp.bodyLower, dp.modelLower, cp.elbowBendL, cp.elbowBendR);
+            asp[18] = new Vector4(dp.elbowBendL, dp.elbowBendR, 0, 0);
             chunkManager.SetAnimStaticParams(assetFileName, asp);
             Debug.Log($"[VoxelCharacter] Static anim params packed and uploaded (looking/aiming/crouching/jointOffset)");
         }

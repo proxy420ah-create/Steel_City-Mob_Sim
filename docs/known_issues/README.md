@@ -30,3 +30,7 @@ Bug tracker per Development Guidelines Rule 13. Bugs are cataloged by category i
 | [Player Build — Stripped Shader.Find Names Abort Scene Init](build/PLAYER_SHADER_STRIPPING_INIT_CASCADE.md) | build | 🟢 FIXED | 🔴 CRITICAL | 2026-10-13 |
 | [Player Build — Proxy Raymarch Draws Emit But Produce Nothing](build/PLAYER_PROXY_RENDER_EMPTY.md) | build | � FIXED | 🔴 CRITICAL | 2026-10-13 |
 | [Possess Shots Deal No Damage — Lazy VDS Spawn](runtime/POSSESS_SHOTS_NO_DAMAGE_LAZY_VDS.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-10-11 |
+| [IK Torso Override Stomps Crouch Lean](runtime/IK_TORSO_OVERRIDE_STOMPS_CROUCH_LEAN.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-10-14 |
+| [Cover Pick Reads Wrong Volume in Splat Overlap](runtime/COVER_PICK_SPLAT_OVERLAP_WRONG_VOLUME.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-10-14 |
+| [Cover Pit Ladder Authored at Wrong Voxel Scale](runtime/COVER_PIT_VOXEL_SCALE_MISMATCH.md) | runtime | 🟡 FIX APPLIED | 🟡 HIGH | 2026-10-15 |
+| [Debug Beam Emission Flood — 120→40 FPS](runtime/PERF_DEBUG_BEAM_EMISSION_FLOOD.md) | runtime | 🟢 FIXED | 🔴 CRITICAL | 2026-10-16 |

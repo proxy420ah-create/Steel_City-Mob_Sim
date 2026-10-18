@@ -1614,6 +1614,7 @@ namespace SteelCity.Sim
                 civ1Obj.SetParent(civParent, false);
                 rig1 = civ1Obj.gameObject.AddComponent<CharacterRig>();
                 rig1.Controllable = true;
+                rig1.AnimHotkeys = true;   // primary rig answers Alt+pose without a selection step
                 rig1.spawnPosition = new Vector3(px, groundY + 0.1f, pz);
                 Debug.Log($"[CityMap3D] Spawned Civilian_01 at ({px}, {groundY + 0.1f}, {pz}) with CharacterRig (hotkeys: T/I/W/L/A/C)");
             }
@@ -1638,6 +1639,10 @@ namespace SteelCity.Sim
             // Wire SpawnedCharacter to Civilian_01 once the rig's delayed init completes
             if (rig1 != null)
                 StartCoroutine(WaitForCharacterSpawn(rig1));
+            // Civilian_02 gets the combat stack too — the cover pit's duel is
+            // symmetric (both stands → both advance to cover on START DUEL).
+            if (rig2 != null)
+                StartCoroutine(AttachCombatStackWhenReady(rig2));
 
             // Apply outfits after both characters initialize
             StartCoroutine(ApplyCivilianOutfits(rig1, rig2));
@@ -1712,6 +1717,17 @@ namespace SteelCity.Sim
             {
                 SpawnedCharacter = rig.Character;
                 spawnedAnim = rig.Character.GetComponent<CharacterAnimation>();
+
+                // HUD-inspectable sim components attach at spawn — the HUD
+                // tabs only lazily AddComponent these when first drawn, which
+                // meant the cone/rays never existed until the tab was opened
+                // (and combat could start with no solver). Tabs inspect, they
+                // don't construct — attach here, keep the tab AddComponents
+                // as fallback for other spawn paths.
+                if (SpawnedCharacter.GetComponent<VisionSensor>() == null)
+                    SpawnedCharacter.gameObject.AddComponent<VisionSensor>();
+                AttachCombatStack(SpawnedCharacter.gameObject);
+
                 Debug.Log($"[CityMap3D] SpawnedCharacter assigned from CharacterRig (asset={rig.Character.assetFileName})");
             }
             else
@@ -1719,6 +1735,36 @@ namespace SteelCity.Sim
                 Debug.LogWarning("[CityMap3D] WaitForCharacterSpawn timed out — SpawnedCharacter is null. " +
                                  "Check that CharacterRig has a valid asset and VoxelChunkManager.");
             }
+        }
+
+        /// <summary>
+        /// Cover pit phase-1 (symmetric duel): secondary rigs need the same
+        /// cover/combat stack so they can seek cover on their own. Waits for
+        /// the rig's delayed character init, then attaches. VisionSensor stays
+        /// Vinny-only — it's the player-facing debug sense; NPC sight is a
+        /// separate milestone.
+        /// </summary>
+        private System.Collections.IEnumerator AttachCombatStackWhenReady(CharacterRig rig)
+        {
+            int maxFrames = 30;
+            while (rig != null && rig.Character == null && maxFrames-- > 0)
+                yield return null;
+            if (rig != null && rig.Character != null)
+            {
+                AttachCombatStack(rig.Character.gameObject);
+                Debug.Log($"[CityMap3D] Combat stack attached to '{rig.gameObject.name}' (cover pit duel support)");
+            }
+        }
+
+        /// <summary>The cover/combat component set every duel participant needs.</summary>
+        private static void AttachCombatStack(GameObject go)
+        {
+            if (go.GetComponent<CoverSensor>() == null)
+                go.AddComponent<CoverSensor>();
+            if (go.GetComponent<ArmAimSolver>() == null)
+                go.AddComponent<ArmAimSolver>();
+            if (go.GetComponent<CombatController>() == null)
+                go.AddComponent<CombatController>();
         }
 
         private void BuildRaymarchBlock(Transform root, string blockId, Block block,

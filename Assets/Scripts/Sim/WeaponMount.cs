@@ -322,16 +322,18 @@ namespace SteelCity.Sim
             float state = ic?.animState ?? 0f;
             float time = ic?.animTime ?? 0f;
             float speed = ic?.animSpeed ?? 1f;
+            float depth = ic?.crouchDepth ?? 0f;
 
             // Posed hand point (voxel units, centered x/z) + cumulative group rotation
             Vector3 posed = animator != null
-                ? animator.PosePoint(handPoint, handGid, dims, state, time, speed)
+                ? animator.PosePoint(handPoint, handGid, dims, state, time, speed,
+                    crouchDepth: depth)
                 : new Vector3(handPoint.x - dims.x * 0.5f, handPoint.y, handPoint.z - dims.z * 0.5f);
 
             Quaternion qR = Quaternion.identity;
             if (animator != null)
             {
-                var gr = animator.ComputeGroupRotation(handGid, dims, 1.0f, state, time, speed);
+                var gr = animator.ComputeGroupRotation(handGid, dims, 1.0f, state, time, speed, depth);
                 if (gr.HasValue && gr.Value.chain != null)
                     foreach (var e in gr.Value.chain)
                         qR = QuatFromMat3(e.rot) * qR;

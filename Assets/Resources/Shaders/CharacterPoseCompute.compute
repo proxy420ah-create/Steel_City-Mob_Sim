@@ -13,8 +13,14 @@ RWStructuredBuffer<uint> _RestVoxelData;     // [dimX*dimY*dimZ] — rest voxel 
 StructuredBuffer<uint> _GroupIDs;            // [dimX*dimY*dimZ] — per-voxel groupID
 
 // ---- Per-instance animation state ----
-// _InstanceAnimData[instanceIdx*2 + 0] = float4(animState, animTime, animSpeed, 0)
-// _InstanceAnimData[instanceIdx*2 + 1] = float4(posedBufferOffset, 0, 0, 0) — offset into posed buffer
+// _InstanceAnimData[instanceIdx*2 + 0] = float4(animState, animTime, animSpeed, transBlend)
+// _InstanceAnimData[instanceIdx*2 + 1] = float4(posedBufferOffset, transStateA, transTimeA, transDip)
+// _InstanceAnimData[instanceIdx*2 + 2] = float4(crouchDepth, transDepthA, 0, 0)
+//   — transDepthA freezes the depth axis with the pose; the A-eval ducks at
+//   the OLD depth so a depth change rides the blend instead of snapping.
+//   transBlend in (0,1) = pose transition active: second eval under the frozen
+//   outgoing pose, voxel positions lerped toward the live pose; transDip is the
+//   CPU-eased vertical settle (voxel units).
 StructuredBuffer<float4> _InstanceAnimData;
 
 // ---- Per-instance IK overrides (solver-driven, e.g. ArmAimSolver) ----
@@ -168,7 +174,8 @@ struct TransformEntry {
 // Always returns a rotation (identity if no transform needed for this state).
 float3x3 ComputeOwnRotation(
     uint gid, float3 dims, float voxelSize,
-    float animState, float animTime, float animSpeed)
+    float animState, float animTime, float animSpeed,
+    float cDepth)
 {
     float3x3 rot = float3x3(1,0,0, 0,1,0, 0,0,1);
 
@@ -205,8 +212,9 @@ float3x3 ComputeOwnRotation(
     float4 aimP1   = ASP(1); if (!_AnimStaticParamsEnabled) aimP1 = float4(0.2, 0, -0.05, 0);
     float4 aimP2   = ASP(2); if (!_AnimStaticParamsEnabled) aimP2 = float4(-1.4, 0, 0, 0);
     float4 aimP3   = ASP(3); if (!_AnimStaticParamsEnabled) aimP3 = float4(0.3, 0, 0, 4);
-    float4 crouchP1= ASP(4); if (!_AnimStaticParamsEnabled) crouchP1 = float4(0, 0, 0, 0);
-    float4 crouchP2= ASP(5); if (!_AnimStaticParamsEnabled) crouchP2 = float4(-1.15, 0, 1.15, 1.40);
+    // Adaptive crouch: depth lerps shallow (ASP 4/5/3.zw) → deep (ASP 15/16/17.xy).
+    float4 crouchP1= lerp(ASP(4), ASP(15), cDepth); if (!_AnimStaticParamsEnabled) crouchP1 = float4(0, 0, 0, 0);
+    float4 crouchP2= lerp(ASP(5), ASP(16), cDepth); if (!_AnimStaticParamsEnabled) crouchP2 = float4(-1.15, 0, 1.15, 1.40);
     float2 elbowTw = ASP(6).xy; if (!_AnimStaticParamsEnabled) elbowTw = float2(0, 0);
     float4 sweepP  = ASP(12); if (!_AnimStaticParamsEnabled) sweepP = float4(0.55, 1.6, 0.6, 0);
     // Sit (state 11): thighs forward, shins down, torso upright — generic
@@ -312,6 +320,8 @@ float3x3 ComputeOwnRotation(
             twist = GetWalkPoseValue(8, walkPhase);
         } else if (isAimingState) {
             bend = elbowCfg.z * aimP3.x;
+        } else if (isCrouchingState) {
+            bend += elbowCfg.z * lerp(ASP(17).z, ASP(18).x, cDepth);
         }
         rot = RotationByAxis((int)elbowCfg.x, bend);
         if (twist != 0.0) rot = mul(rot, RotationX(twist));
@@ -325,6 +335,8 @@ float3x3 ComputeOwnRotation(
             twist = GetWalkPoseValue(9, walkPhase);
         } else if (isAimingState) {
             bend = elbowCfg.w * aimP3.y;
+        } else if (isCrouchingState) {
+            bend += elbowCfg.w * lerp(ASP(17).w, ASP(18).y, cDepth);
         }
         rot = RotationByAxis((int)elbowCfg.y, bend);
         if (twist != 0.0) rot = mul(rot, RotationX(twist));
@@ -398,7 +410,7 @@ uint ParentOfGroup(uint gid) {
 void ComputeGroupRotation(
     uint groupID, float3 dims,
     float animState, float animTime, float animSpeed,
-    int instIdx,
+    int instIdx, float cDepth,
     out TransformEntry chain[MAX_CHAIN], out int chainLength, out float3 offset)
 {
     chainLength = 0;
@@ -414,9 +426,9 @@ void ComputeGroupRotation(
     bool isAimingState = (animState > 2.5 && animState < 4.5) || (animState > 9.5 && animState < 10.5);
     bool isCrouchingState = animState > 4.5 && animState < 5.5;
     float torsoTwist = isAimingState ? (_AnimStaticParamsEnabled ? _AnimStaticParams[1].x : 0.2) : 0.0;
-    float bodyLean = isCrouchingState ? (_AnimStaticParamsEnabled ? _AnimStaticParams[4].x : 0.0) : 0.0;
-    float bodyLower = isCrouchingState ? (_AnimStaticParamsEnabled ? _AnimStaticParams[3].z : 0.0) : 0.0;
-    float modelLower = isCrouchingState ? (_AnimStaticParamsEnabled ? _AnimStaticParams[3].w : 4.0) : 0.0;
+    float bodyLean = isCrouchingState ? (_AnimStaticParamsEnabled ? lerp(_AnimStaticParams[4].x, _AnimStaticParams[15].x, cDepth) : 0.0) : 0.0;
+    float bodyLower = isCrouchingState ? (_AnimStaticParamsEnabled ? lerp(_AnimStaticParams[3].z, _AnimStaticParams[17].x, cDepth) : 0.0) : 0.0;
+    float modelLower = isCrouchingState ? (_AnimStaticParamsEnabled ? lerp(_AnimStaticParams[3].w, _AnimStaticParams[17].y, cDepth) : 4.0) : 0.0;
     bool hasBodyRot = (torsoTwist != 0.0) || (bodyLean != 0.0);
 
     float3x3 bodyRot = float3x3(1,0,0, 0,1,0, 0,0,1);
@@ -465,7 +477,7 @@ void ComputeGroupRotation(
     else if (groupID == 7u) { parentGid = 5u; hasParent = true; }
 
     // Compute own rotation (always returns a rotation; identity if no transform)
-    float3x3 ownRot = ComputeOwnRotation(groupID, dims, 1.0, animState, animTime, animSpeed);
+    float3x3 ownRot = ComputeOwnRotation(groupID, dims, 1.0, animState, animTime, animSpeed, cDepth);
     // Groups 1-9 always have some rotation (even if identity for idle head).
     // Group 0 (body) is handled separately above.
     bool hasOwnRot = (groupID >= 1u);
@@ -474,7 +486,7 @@ void ComputeGroupRotation(
     float3x3 parentRot = float3x3(1,0,0, 0,1,0, 0,0,1);
     bool hasParentRot = false;
     if (hasParent) {
-        parentRot = ComputeOwnRotation(parentGid, dims, 1.0, animState, animTime, animSpeed);
+        parentRot = ComputeOwnRotation(parentGid, dims, 1.0, animState, animTime, animSpeed, cDepth);
         hasParentRot = true;
     }
 
@@ -539,6 +551,49 @@ int VoxelIndex(int x, int y, int z) {
     return x + y * _RestDimX + z * _RestDimX * _RestDimY;
 }
 
+// ---- Single-voxel pose eval (chain transforms + walk bob/shift) ----
+// Returns the posed position for rest voxel (rx,ry,rz) under one anim state —
+// factored out of CSPose so pose transitions can evaluate two states and lerp.
+float3 EvalPosedPos(float rx, float ry, float rz, uint gid, float3 dims,
+    float animState, float animTime, float animSpeed, int instIdx,
+    float cDepth)
+{
+    float px = rx - dims.x * 0.5;
+    float py = ry;
+    float pz = rz - dims.z * 0.5;
+
+    if (gid >= 0u)
+    {
+        TransformEntry chain[MAX_CHAIN];
+        int chainLength;
+        float3 off;
+        ComputeGroupRotation(gid, dims, animState, animTime, animSpeed, instIdx, cDepth, chain, chainLength, off);
+
+        if (chainLength > 0)
+        {
+            float3 pos = float3(rx, ry, rz);
+            for (int c = 0; c < chainLength; c++) {
+                float3 rel = pos - chain[c].pivot;
+                float3 transformed = mul(chain[c].rot, rel);
+                pos = transformed + chain[c].pivot;
+            }
+            px = pos.x + off.x - dims.x * 0.5;
+            py = pos.y + off.y;
+            pz = pos.z + off.z - dims.z * 0.5;
+        }
+    }
+
+    // Body bob + weight shift for walk states (voxel units, matching CPU)
+    bool isWalkState = (animState > 0.5 && animState < 1.5) || (animState > 2.5 && animState < 3.5);
+    if (isWalkState && _WalkKeyframesEnabled) {
+        float phase = GetWalkCyclePhase(animTime, animSpeed);
+        px += sin(phase * 2.0 * PI) * _WalkConfig.z;
+        py += -cos(phase * 4.0 * PI) * _WalkConfig.y;
+    }
+
+    return float3(px, py, pz);
+}
+
 // ---- Clear kernel: zero out posed buffer for one instance ----
 #pragma kernel CSClear
 
@@ -551,7 +606,7 @@ void CSClear(uint3 dtid : SV_DispatchThreadID)
     if (dtid.x >= (uint)sliceSize) return;
     if (dtid.y >= (uint)_InstanceCount) return;
 
-    float4 instMeta = _InstanceAnimData[dtid.y * 2 + 1];
+    float4 instMeta = _InstanceAnimData[dtid.y * 3 + 1];
     uint posedOffset = (uint)instMeta.x;
     _PosedVoxelData[posedOffset + dtid.x] = 0u;
 }
@@ -592,54 +647,34 @@ void CSPose(uint3 dtid : SV_DispatchThreadID)
     uint gid = _GroupIDs[restIdx];
 
     // Read instance animation state
-    float4 animData = _InstanceAnimData[instIdx * 2];
+    float4 animData = _InstanceAnimData[instIdx * 3];
     float animState = animData.x;
     float animTime = animData.y;
     float animSpeed = animData.z;
+    float cDepth = _InstanceAnimData[instIdx * 3 + 2].x;
 
-    float4 instMeta = _InstanceAnimData[instIdx * 2 + 1];
+    float4 instMeta = _InstanceAnimData[instIdx * 3 + 1];
     uint posedBufferOffset = (uint)instMeta.x;
 
     float3 dims = float3((float)_RestDimX, (float)_RestDimY, (float)_RestDimZ);
     // voxelSize = 1.0 for all transform math (matching CPU PoseVoxelsToBuffer)
 
     // === Forward transform (matches CPU PoseVoxelsToBuffer) ===
-    float px = (float)rx - dims.x * 0.5;
-    float py = (float)ry;
-    float pz = (float)rz - dims.z * 0.5;
+    float3 posedB = EvalPosedPos((float)rx, (float)ry, (float)rz, gid, dims,
+        animState, animTime, animSpeed, instIdx, cDepth);
+    float px = posedB.x, py = posedB.y, pz = posedB.z;
 
-    if (gid >= 0u)
+    // Pose transition: blend>0 && <1 → the outgoing pose is still frozen in
+    // instMeta.yzw — second eval, lerp toward the live pose + settle dip.
+    float transBlend = animData.w;
+    if (transBlend > 0.0 && transBlend < 1.0)
     {
-        TransformEntry chain[MAX_CHAIN];
-        int chainLength;
-        float3 off;
-        ComputeGroupRotation(gid, dims, animState, animTime, animSpeed, instIdx, chain, chainLength, off);
-
-        if (chainLength > 0)
-        {
-            float3 pos = float3((float)rx, (float)ry, (float)rz);
-            // Apply chain in order: own first, then parent, then body
-            for (int c = 0; c < chainLength; c++) {
-                float3 rel = pos - chain[c].pivot;
-                float3 transformed = mul(chain[c].rot, rel);
-                pos = transformed + chain[c].pivot;
-            }
-            px = pos.x + off.x - dims.x * 0.5;
-            py = pos.y + off.y;
-            pz = pos.z + off.z - dims.z * 0.5;
-        }
-    }
-
-    // Body bob + weight shift for walk states (voxel units, matching CPU)
-    bool isWalkState = (animState > 0.5 && animState < 1.5) || (animState > 2.5 && animState < 3.5);
-    if (isWalkState && _WalkKeyframesEnabled) {
-        float phase = GetWalkCyclePhase(animTime, animSpeed);
-        float bobAmp = _WalkConfig.y;
-        float bobY = -cos(phase * 4.0 * PI) * bobAmp;
-        float shiftAmp = _WalkConfig.z;
-        float shiftX = sin(phase * 2.0 * PI) * shiftAmp;
-        px += shiftX;
-        py += bobY;
+        float cDepthA = _InstanceAnimData[instIdx * 3 + 2].y;
+        float3 posedA = EvalPosedPos((float)rx, (float)ry, (float)rz, gid, dims,
+            instMeta.y, instMeta.z, animSpeed, instIdx, cDepthA);
+        px = lerp(posedA.x, px, transBlend);
+        py = lerp(posedA.y, py, transBlend) + instMeta.w;
+        pz = lerp(posedA.z, pz, transBlend);
     }
 
     // === Scatter into posed buffer (matches CPU ScatterAndUpload) ===

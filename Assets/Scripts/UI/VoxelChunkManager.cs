@@ -123,13 +123,16 @@ namespace SteelCity.Sim
         [Tooltip("Transmission alpha used for forced-glass materials whose palette alpha is opaque (lower = more see-through).")]
         [Range(0f, 1f)] public float flaggedGlassAlpha = 0.6f;
 
-        public enum IterVisMode { Off = 0, IterationHeat = 1, StepChannels = 2, MissWaste = 3 }
+        public enum IterVisMode { Off = 0, IterationHeat = 1, StepChannels = 2, MissWaste = 3,
+            CoverQuality = 4, CoverThreat = 5, CoverExposure = 6, VisionCone = 7 }
         [Header("Raymarch Debug")]
-        [Tooltip("V key. IterationHeat: blue<80 green~160 red>160 | StepChannels: R=voxel steps, B=shadow steps | MissWaste: heat on no-hit rays only")]
+        [Tooltip("V key. IterationHeat: blue<80 green~160 red>160 | StepChannels: R=voxel steps, B=shadow steps | MissWaste: heat on no-hit rays | CoverQuality/Threat/Exposure: Vinny's cover field sampled at world XZ | VisionCone: Vinny's sight wedge painted on surfaces")]
         public IterVisMode iterVisMode = IterVisMode.Off;
 
         [Header("Debug")]
         [SerializeField] private bool debugChunkBounds = false;
+        [Tooltip("PERF A/B: skip the per-frame pose-compute dispatches — characters render in rest pose. If FPS jumps when this is on, the CSPose/CSClear volume is the GPU wall.")]
+        public bool poseComputeDisabled = false;
 
         // --- Chunk data structure ---
         private class VoxelChunk
@@ -723,10 +726,10 @@ namespace SteelCity.Sim
                         group.posedVoxelBuffer = new ComputeBuffer(posedSize, sizeof(uint));
                         grew = true;
                     }
-                    if (group.instanceAnimDataBuffer == null || group.instanceAnimDataBuffer.count < capacity * 2)
+                    if (group.instanceAnimDataBuffer == null || group.instanceAnimDataBuffer.count < capacity * 3)
                     {
                         if (group.instanceAnimDataBuffer != null) group.instanceAnimDataBuffer.Release();
-                        group.instanceAnimDataBuffer = new ComputeBuffer(Mathf.Max(capacity * 2, 16), sizeof(float) * 4);
+                        group.instanceAnimDataBuffer = new ComputeBuffer(Mathf.Max(capacity * 3, 16), sizeof(float) * 4);
                         grew = true;
                     }
                     if (group.instanceIKDataBuffer == null || group.instanceIKDataBuffer.count < capacity * 4)
@@ -1856,6 +1859,20 @@ namespace SteelCity.Sim
             public float animState;   // AnimState enum cast to float (0=Idle, 1=Walking, 2=Looking, 3=AimWalk, 4=Aiming, 5=Crouching, 6=Flinching, 7=Falling, 8=Down, 9=TPose)
             public float animTime;    // seconds since animation started
             public float animSpeed = 1.0f; // walk speed multiplier
+            // Pose transition (dual-eval blend): while transBlend is in (0,1)
+            // the pose compute shader evaluates BOTH the live state and the
+            // frozen outgoing pose (transStateA @ transTimeA) and lerps voxel
+            // positions — "whatever pose it was → authored pose". transDip is
+            // the CPU-eased settle offset (voxel units, signed, on Y).
+            public float transStateA;
+            public float transTimeA;
+            public float transBlend = 1f;   // 1 = live pose only (no second eval)
+            public float transDip;
+            public float transDepthA;       // frozen crouchDepth at transition start
+            // Adaptive crouch depth (0..1): lerps every authored crouch scalar
+            // crouching→crouchDeep inside the pose eval — the combat solver
+            // sets it from picked cover height, eased by CombatController.
+            public float crouchDepth;
             // Per-instance material remap (clothing system): regionId → materialId (0 = no remap)
             // Sized to match the group's maxRegions. Null = no remap for this instance.
             public uint[] materialRemap;
@@ -1877,7 +1894,7 @@ namespace SteelCity.Sim
             public ComputeBuffer posedVoxelBuffer;    // posed voxel data (per-instance slices, GPU compute output)
             public ComputeBuffer groupIDBuffer;     // per-voxel groupID (animation groups)
             public ComputeBuffer instanceOffsetBuffer;
-            public ComputeBuffer instanceAnimDataBuffer; // per-instance anim state (2 float4s each)
+            public ComputeBuffer instanceAnimDataBuffer; // per-instance anim state (3 float4s each)
             public ComputeBuffer instanceIKDataBuffer;   // per-instance IK overrides (4 float4s each)
             public int dimX, dimY, dimZ;
             public float voxelSize;
@@ -2164,18 +2181,18 @@ namespace SteelCity.Sim
                 return;
             }
 
-            if (animParams == null || animParams.Length != 15)
+            if (animParams == null || animParams.Length != 19)
             {
-                Debug.LogWarning($"[VoxelChunkManager] SetAnimStaticParams: expected 15 entries, got {(animParams == null ? "null" : animParams.Length.ToString())}");
+                Debug.LogWarning($"[VoxelChunkManager] SetAnimStaticParams: expected 19 entries, got {(animParams == null ? "null" : animParams.Length.ToString())}");
                 return;
             }
 
             if (group.animStaticParamsBuffer != null) group.animStaticParamsBuffer.Release();
-            group.animStaticParamsBuffer = new ComputeBuffer(15, sizeof(float) * 4);
+            group.animStaticParamsBuffer = new ComputeBuffer(19, sizeof(float) * 4);
             GpuUpload.SetData(group.animStaticParamsBuffer, animParams);
             group.animStaticParamsEnabled = true;
 
-            Debug.Log($"[VoxelChunkManager] Anim static params set for {assetFileName} (13 float4s)");
+            Debug.Log($"[VoxelChunkManager] Anim static params set for {assetFileName} (19 float4s)");
         }
 
         /// <summary>
@@ -2263,11 +2280,11 @@ namespace SteelCity.Sim
             Vector3 pad = new Vector3(group.voxelSize, group.voxelSize, group.voxelSize);
 
             int totalVoxels = group.dimX * group.dimY * group.dimZ;
-            bool useComputePose = group.groupIDBuffer != null && poseComputeShader != null && group.useComputePose;
+            bool useComputePose = group.groupIDBuffer != null && poseComputeShader != null && group.useComputePose && !poseComputeDisabled;
 
             // Build per-instance offset buffer + anim data buffer
             // For compute pose: also build instanceAnimData (2 float4s per instance)
-            var animData = useComputePose ? new Vector4[visibleCount * 2] : null;
+            var animData = useComputePose ? new Vector4[visibleCount * 3] : null;
             // Per-instance IK override data (4 float4s each: quatA, quatB, quatTorso, meta)
             var ikData = useComputePose ? new Vector4[visibleCount * 4] : null;
 
@@ -2276,7 +2293,7 @@ namespace SteelCity.Sim
                 if (!ic.visible) continue;
                 offsets[writeIdx] = new Vector4(ic.worldOffset.x, ic.worldOffset.y, ic.worldOffset.z, ic.yaw);
                 // Second float4: animation data
-                offsets[writeIdx + visibleCount] = new Vector4(ic.animState, ic.animTime, ic.animSpeed, 0);
+                offsets[writeIdx + visibleCount] = new Vector4(ic.animState, ic.animTime, ic.animSpeed, ic.crouchDepth);
                 // IMPORTANT: Keep proxy cube axis-aligned in world (no rotation). Shader handles volume rotation —
                 // so the axis-aligned proxy must bound the YAWED footprint: rotating the XZ extents by the
                 // instance yaw gives the exact conservative AABB. Cube-shaped volumes (characters) were
@@ -2294,8 +2311,9 @@ namespace SteelCity.Sim
 
                 if (useComputePose)
                 {
-                    animData[writeIdx * 2] = new Vector4(ic.animState, ic.animTime, ic.animSpeed, 0);
-                    animData[writeIdx * 2 + 1] = new Vector4(writeIdx * totalVoxels, 0, 0, 0); // posed buffer offset
+                    animData[writeIdx * 3] = new Vector4(ic.animState, ic.animTime, ic.animSpeed, ic.transBlend);
+                    animData[writeIdx * 3 + 1] = new Vector4(writeIdx * totalVoxels, ic.transStateA, ic.transTimeA, ic.transDip); // posed buffer offset + pose-transition source
+                    animData[writeIdx * 3 + 2] = new Vector4(ic.crouchDepth, ic.transDepthA, 0f, 0f);
                     ikData[writeIdx * 4] = new Vector4(ic.ikQuatA.x, ic.ikQuatA.y, ic.ikQuatA.z, ic.ikQuatA.w);
                     ikData[writeIdx * 4 + 1] = new Vector4(ic.ikQuatB.x, ic.ikQuatB.y, ic.ikQuatB.z, ic.ikQuatB.w);
                     ikData[writeIdx * 4 + 2] = new Vector4(ic.ikTorsoQuat.x, ic.ikTorsoQuat.y, ic.ikTorsoQuat.z, ic.ikTorsoQuat.w);
@@ -2327,12 +2345,12 @@ namespace SteelCity.Sim
                 }
 
                 // Ensure anim data buffer is large enough
-                if (group.instanceAnimDataBuffer == null || group.instanceAnimDataBuffer.count < visibleCount * 2)
+                if (group.instanceAnimDataBuffer == null || group.instanceAnimDataBuffer.count < visibleCount * 3)
                 {
                     if (group.instanceAnimDataBuffer != null) group.instanceAnimDataBuffer.Release();
-                    group.instanceAnimDataBuffer = new ComputeBuffer(Mathf.Max(visibleCount * 2, 16), sizeof(float) * 4);
+                    group.instanceAnimDataBuffer = new ComputeBuffer(Mathf.Max(visibleCount * 3, 16), sizeof(float) * 4);
                 }
-                GpuUpload.SetData(group.instanceAnimDataBuffer, animData, 0, 0, visibleCount * 2);
+                GpuUpload.SetData(group.instanceAnimDataBuffer, animData, 0, 0, visibleCount * 3);
 
                 // Ensure IK override buffer exists (always bound — meta.w=0 disables per instance)
                 if (group.instanceIKDataBuffer == null || group.instanceIKDataBuffer.count < visibleCount * 4)
@@ -3297,7 +3315,7 @@ namespace SteelCity.Sim
                 // V chosen over F-keys: F6-F10 are all taken (cam/waypoints/freeze/stress/vehicles).
                 if (kb.vKey.wasPressedThisFrame)
                 {
-                    iterVisMode = (IterVisMode)(((int)iterVisMode + 1) % 4);
+                    iterVisMode = (IterVisMode)(((int)iterVisMode + 1) % 8);
                     Debug.Log($"[Vis] iterVisMode = {iterVisMode}");
                 }
             }

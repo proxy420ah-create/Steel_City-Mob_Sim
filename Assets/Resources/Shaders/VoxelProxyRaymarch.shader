@@ -180,8 +180,24 @@ Shader "SteelCity/VoxelProxyRaymarch"
             int   _GlassLayerVis;
 #if defined(VOXEL_DEBUG_VIEW)
             // Debug heatmap (VOXEL_DEBUG_VIEW variant only): 0 off | 1 total
-            // iteration heat | 2 R=voxel steps, B=shadow steps | 3 miss-waste.
+            // iteration heat | 2 R=voxel steps, B=shadow steps | 3 miss-waste |
+            // 4 cover quality | 5 cover threat composite | 6 cover exposure.
             float _IterVis;
+            // Cover influence field — packed RGBA at world XZ:
+            //   R = composite score | G = quality | B = verdict
+            //   (0 untested / .4 invalid / .7 exposed / .85 chosen / 1 hidden)
+            //   A = proximity (also = inside the scan disc)
+            // Multi-agent: each CoverSensor owns one texture-array slice +
+            // params slot; the modes union all slices (shared city awareness).
+            Texture2DArray _CoverFieldTexArr;
+            SamplerState sampler_CoverFieldTexArr;
+            float4 _CoverFieldParamsArr[4];   // per-source: originX, originZ, invSize, hasData
+
+            // Vision-cone overlay (mode 7) — pushed per-frame by VisionSensor:
+            //   _VisConeA = apex.x, apex.z, dirX, dirZ (XZ-normalized)
+            //   _VisConeB = cos(halfAngle), range, alpha, enabled
+            float4 _VisConeA;
+            float4 _VisConeB;
 #endif
 
             // ---- Bit layout ----
@@ -214,6 +230,7 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 float  animTime    : TEXCOORD6; // seconds since animation started
                 float  animSpeed   : TEXCOORD7; // walk speed multiplier
                 nointerpolation uint occOffset : TEXCOORD8; // word offset into _OccData (0 outside sector baking)
+                float  crouchDepth : TEXCOORD9; // adaptive crouch 0..1 (shallow→deep authored lerp)
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
@@ -407,6 +424,7 @@ Shader "SteelCity/VoxelProxyRaymarch"
             bool ComputeOwnRotation(
                 uint gid, float3 dims, float voxelSize,
                 float animState, float animTime, float animSpeed,
+                float cDepth,
                 out float3x3 rot)
             {
                 rot = float3x3(1,0,0, 0,1,0, 0,0,1);
@@ -441,8 +459,9 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 float4 aimP1   = ASP(1); if (!_AnimStaticParamsEnabled) aimP1 = float4(0.2, 0, -0.05, 0);
                 float4 aimP2   = ASP(2); if (!_AnimStaticParamsEnabled) aimP2 = float4(-1.4, 0, 0, 0);
                 float4 aimP3   = ASP(3); if (!_AnimStaticParamsEnabled) aimP3 = float4(0.3, 0, 0, 4);
-                float4 crouchP1= ASP(4); if (!_AnimStaticParamsEnabled) crouchP1 = float4(0, 0, 0, 0);
-                float4 crouchP2= ASP(5); if (!_AnimStaticParamsEnabled) crouchP2 = float4(-1.15, 0, 1.15, 1.40);
+                // Adaptive crouch: depth lerps shallow (ASP 4/5) → deep (ASP 15/16).
+                float4 crouchP1= lerp(ASP(4), ASP(15), cDepth); if (!_AnimStaticParamsEnabled) crouchP1 = float4(0, 0, 0, 0);
+                float4 crouchP2= lerp(ASP(5), ASP(16), cDepth); if (!_AnimStaticParamsEnabled) crouchP2 = float4(-1.15, 0, 1.15, 1.40);
                 float2 elbowTw = ASP(6).xy; if (!_AnimStaticParamsEnabled) elbowTw = float2(0, 0);
                 float4 sweepP  = ASP(12); if (!_AnimStaticParamsEnabled) sweepP = float4(0.55, 1.6, 0.6, 0);
 
@@ -545,6 +564,8 @@ Shader "SteelCity/VoxelProxyRaymarch"
                         twist = GetWalkPoseValue(8, walkPhase, _WalkConfig.w > 0.5);
                     } else if (isAimingState) {
                         bend = elbowCfg.z * aimP3.x;        // signL * aiming.elbowBendL
+                    } else if (isCrouchingState) {
+                        bend += elbowCfg.z * lerp(ASP(17).z, ASP(18).x, cDepth);
                     }
                     rot = RotationByAxis((int)elbowCfg.x, bend);
                     if (twist != 0.0) rot = mul(rot, RotationX(twist));
@@ -559,6 +580,8 @@ Shader "SteelCity/VoxelProxyRaymarch"
                         twist = GetWalkPoseValue(9, walkPhase, _WalkConfig.w > 0.5);
                     } else if (isAimingState) {
                         bend = elbowCfg.w * aimP3.y;        // signR * aiming.elbowBendR
+                    } else if (isCrouchingState) {
+                        bend += elbowCfg.w * lerp(ASP(17).w, ASP(18).y, cDepth);
                     }
                     rot = RotationByAxis((int)elbowCfg.y, bend);
                     if (twist != 0.0) rot = mul(rot, RotationX(twist));
@@ -627,6 +650,7 @@ Shader "SteelCity/VoxelProxyRaymarch"
             bool ComputeGroupRotation(
                 uint groupID, float3 dims, float voxelSize,
                 float animState, float animTime, float animSpeed,
+                float cDepth,
                 out GroupTransformResult result)
             {
                 result.chainLength = 0;
@@ -642,9 +666,9 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 bool isAimingState = (animState > 2.5 && animState < 4.5) || (animState > 9.5 && animState < 10.5); // Aim Walk (3), Aiming (4), Aim Sweep (10)
                 bool isCrouchingState = animState > 4.5 && animState < 5.5; // Crouching (5)
                 float torsoTwist = isAimingState ? (_AnimStaticParamsEnabled ? _AnimStaticParams[1].x : 0.2) : 0.0;
-                float bodyLean = isCrouchingState ? (_AnimStaticParamsEnabled ? _AnimStaticParams[4].x : 0.0) : 0.0;
-                float bodyLower = isCrouchingState ? (_AnimStaticParamsEnabled ? _AnimStaticParams[3].z : 0.0) : 0.0;
-                float modelLower = isCrouchingState ? (_AnimStaticParamsEnabled ? _AnimStaticParams[3].w : 4.0) : 0.0;
+                float bodyLean = isCrouchingState ? (_AnimStaticParamsEnabled ? lerp(_AnimStaticParams[4].x, _AnimStaticParams[15].x, cDepth) : 0.0) : 0.0;
+                float bodyLower = isCrouchingState ? (_AnimStaticParamsEnabled ? lerp(_AnimStaticParams[3].z, _AnimStaticParams[17].x, cDepth) : 0.0) : 0.0;
+                float modelLower = isCrouchingState ? (_AnimStaticParamsEnabled ? lerp(_AnimStaticParams[3].w, _AnimStaticParams[17].y, cDepth) : 4.0) : 0.0;
                 bool hasBodyRot = (torsoTwist != 0.0) || (bodyLean != 0.0);
 
                 float3x3 bodyRot = float3x3(1,0,0, 0,1,0, 0,0,1);
@@ -676,13 +700,13 @@ Shader "SteelCity/VoxelProxyRaymarch"
 
                 // Compute own rotation
                 float3x3 ownRot;
-                bool hasOwnRot = ComputeOwnRotation(groupID, dims, voxelSize, animState, animTime, animSpeed, ownRot);
+                bool hasOwnRot = ComputeOwnRotation(groupID, dims, voxelSize, animState, animTime, animSpeed, cDepth, ownRot);
 
                 // Compute parent rotation (if child)
                 float3x3 parentRot;
                 bool hasParentRot = false;
                 if (hasParent) {
-                    hasParentRot = ComputeOwnRotation(parentGid, dims, voxelSize, animState, animTime, animSpeed, parentRot);
+                    hasParentRot = ComputeOwnRotation(parentGid, dims, voxelSize, animState, animTime, animSpeed, cDepth, parentRot);
                 }
 
                 // Check if body transform applies to this group or its parent
@@ -742,12 +766,12 @@ Shader "SteelCity/VoxelProxyRaymarch"
             // then subtracts the offset. Matches CPU PoseVoxels inverse.
             float3 InverseGroupTransformOffset(
                 uint groupID, float3 voxelLocalPos, float3 dims, float voxelSize,
-                float animState, float animTime, float animSpeed)
+                float animState, float animTime, float animSpeed, float cDepth)
             {
                 if (groupID == 0u) {
                     // Body group: inverse of body transform + offset
                     GroupTransformResult r;
-                    if (!ComputeGroupRotation(0u, dims, voxelSize, animState, animTime, animSpeed, r))
+                    if (!ComputeGroupRotation(0u, dims, voxelSize, animState, animTime, animSpeed, cDepth, r))
                         return float3(0, 0, 0);
                     float3 restPos = voxelLocalPos - r.offset;
                     if (2 < r.chainLength) { float3 rel = restPos - r.chain[2].pivot; restPos = mul(transpose(r.chain[2].rot), rel) + r.chain[2].pivot; }
@@ -757,7 +781,7 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 }
 
                 GroupTransformResult result;
-                if (!ComputeGroupRotation(groupID, dims, voxelSize, animState, animTime, animSpeed, result))
+                if (!ComputeGroupRotation(groupID, dims, voxelSize, animState, animTime, animSpeed, cDepth, result))
                     return float3(0, 0, 0);
 
                 // Inverse: subtract offset first, then apply inverse chain in reverse order
@@ -771,11 +795,11 @@ Shader "SteelCity/VoxelProxyRaymarch"
             // Forward transform: restPos -> posedPos offset (kept for reference/debugging)
             float3 GroupTransformOffset(
                 uint groupID, float3 voxelLocalPos, float3 dims, float voxelSize,
-                float animState, float animTime, float animSpeed)
+                float animState, float animTime, float animSpeed, float cDepth)
             {
                 if (groupID == 0u) return float3(0, 0, 0);
                 GroupTransformResult result;
-                if (!ComputeGroupRotation(groupID, dims, voxelSize, animState, animTime, animSpeed, result))
+                if (!ComputeGroupRotation(groupID, dims, voxelSize, animState, animTime, animSpeed, cDepth, result))
                     return float3(0, 0, 0);
                 float3 pos = voxelLocalPos;
                 if (0 < result.chainLength) { float3 rel = pos - result.chain[0].pivot; pos = mul(result.chain[0].rot, rel) + result.chain[0].pivot; }
@@ -846,6 +870,7 @@ Shader "SteelCity/VoxelProxyRaymarch"
                     output.animState = 0.0;
                     output.animTime = 0.0;
                     output.animSpeed = 1.0;
+                    output.crouchDepth = 0.0;
                     output.occOffset = _BuildingOcc[unity_InstanceID];
                 #else
                     float4 instData = _InstanceOffsets[unity_InstanceID];
@@ -866,6 +891,7 @@ Shader "SteelCity/VoxelProxyRaymarch"
                     output.animState = animData.x;
                     output.animTime = animData.y;
                     output.animSpeed = animData.z;
+                    output.crouchDepth = animData.w;
                     output.occOffset = 0u;  // posed/character path: _OccEnabled is 0
                 #endif
             #else
@@ -876,6 +902,7 @@ Shader "SteelCity/VoxelProxyRaymarch"
                 output.animState = 0.0;
                 output.animTime = 0.0;
                 output.animSpeed = 1.0;
+                output.crouchDepth = 0.0;
                 output.occOffset = 0u;      // single volumes index _OccData from word 0
             #endif
                 return output;
@@ -958,6 +985,18 @@ Shader "SteelCity/VoxelProxyRaymarch"
                     || mat == _GlassForcedMat4 || mat == _GlassForcedMat5
                     || mat == _GlassForcedMat6 || mat == _GlassForcedMat7;
             }
+
+#if defined(VOXEL_DEBUG_VIEW)
+            // Blue→green→yellow→red ramp matching CoverField.Heat (0..1).
+            float3 heat2(float t)
+            {
+                t = saturate(t);
+                return float3(
+                    saturate(t * 2.0 - 0.5),
+                    saturate(t < 0.5 ? t * 2.0 : 2.0 - t * 2.0) * 0.86,
+                    saturate(1.0 - t * 2.0));
+            }
+#endif
 
             // ---- Fragment shader ----
             // renderMode: 0 = combined legacy | 1 = opaque only | 2 = glass only
@@ -1176,7 +1215,7 @@ Shader "SteelCity/VoxelProxyRaymarch"
                             float3 voxelLocalPos = (float3(voxel) + 0.5) * voxelSize;
                             float3 restOffset = InverseGroupTransformOffset(
                                 gid, voxelLocalPos, float3(dims), voxelSize,
-                                input.animState, input.animTime, input.animSpeed);
+                                input.animState, input.animTime, input.animSpeed, input.crouchDepth);
                             float3 restPos = voxelLocalPos + restOffset;
                             int3 restVoxel = (int3)floor(restPos / voxelSize);
                             if (InBounds(restVoxel, dims))
@@ -1482,9 +1521,10 @@ Shader "SteelCity/VoxelProxyRaymarch"
                     // Rays that saw only transparent voxels exit the volume —
                     // discard so the city pass content behind stays visible.
 #if defined(VOXEL_DEBUG_VIEW)
-                    // Heat views keep misses: a full-volume air march is the
-                    // expensive case they exist to expose.
-                    if (_IterVis <= 0.0) discard;
+                    // Heat views (1-3) keep misses: a full-volume air march is
+                    // the expensive case they exist to expose. Cover-field
+                    // modes (4+) discard normally — the sky isn't cover.
+                    if (_IterVis <= 0.0 || _IterVis >= 3.5) discard;
                     worldHit = ro + rd * tFar;
 #else
                     discard;
@@ -1516,7 +1556,100 @@ Shader "SteelCity/VoxelProxyRaymarch"
                     float3 heat = h < 0.5
                         ? lerp(float3(0.05, 0.2, 1.0), float3(0.1, 1.0, 0.3), h * 2.0)
                         : lerp(float3(0.1, 1.0, 0.3), float3(1.0, 0.12, 0.0), (h - 0.5) * 2.0);
-                    if (_IterVis > 2.5)
+                    if (_IterVis > 6.5)
+                    {
+                        // ── Mode 7: vision cone ──────────────────────────────
+                        // Vinny's sight wedge painted on the hit surfaces —
+                        // angle+range sector test at worldHit.xz, no texture.
+                        // Per-target LOS occlusion lives in the sensor's rays;
+                        // this shows WHERE the wedge lands, not who is seen.
+                        if (hit && _VisConeB.w > 0.5)
+                        {
+                            float2 to = worldHit.xz - _VisConeA.xy;
+                            float dc = length(to);
+                            if (dc > 1e-4 && dc <= _VisConeB.y)
+                            {
+                                float cosA = dot(to / dc, _VisConeA.zw);
+                                if (cosA >= _VisConeB.x)
+                                {
+                                    float edgeFade = 1.0 - 0.6 * (dc / _VisConeB.y);
+                                    o.color.rgb = lerp(o.color.rgb, float3(1.0, 0.55, 0.05),
+                                        _VisConeB.z * edgeFade);
+                                }
+                            }
+                        }
+                    }
+                    else if (_IterVis > 3.5)
+                    {
+                        // ── Cover-field modes ────────────────────────────────
+                        // Union of every contributing sensor's field slice at
+                        // the hit's world XZ — heat lands on the voxels
+                        // themselves. Out-of-disc hits keep scene color.
+                        float4 f = 0;
+                        bool inField = false;
+                        float bestRank = -1.0;
+                        float washA = 0.0;
+                        [unroll] for (int cs = 0; cs < 4; cs++)
+                        {
+                            float4 prm = _CoverFieldParamsArr[cs];
+                            if (prm.w < 0.5) continue;
+                            float2 fuv = (worldHit.xz - prm.xy) * prm.z;
+                            if (any(fuv < 0.0) || any(fuv > 1.0)) continue;
+                            inField = true;
+                            float4 fs = _CoverFieldTexArr.SampleLevel(
+                                sampler_CoverFieldTexArr, float3(fuv, cs), 0);
+                            // Eclipse rule: the sample the active mode cares
+                            // about wins — quality for mode 4, verdict
+                            // priority (chosen > hidden > exposed > invalid)
+                            // for the threat modes.
+                            float rank;
+                            if (_IterVis > 4.5)
+                                rank = (fs.b > 0.80 && fs.b < 0.95) ? 5.0   // chosen pick
+                                     : fs.b > 0.95 ? 4.0                    // hidden
+                                     : fs.b > 0.55 ? 3.0                    // exposed
+                                     : fs.b > 0.20 ? 2.0                    // invalid
+                                     : 0.0;                                 // untested
+                            else
+                                rank = fs.g;                                // quality
+                            if (rank > bestRank) { bestRank = rank; f = fs; }
+                            if (rank <= 0.0 && fs.a > washA) washA = fs.a;
+                        }
+                        if (bestRank <= 0.0) f.a = washA;   // disc-edge wash survives the union
+                        float3 cover = o.color.rgb;   // default: untouched scene
+                        if (inField)
+                        {
+                            if (_IterVis > 5.5)
+                            {
+                                // 6 = Exposure verdicts: teal hidden, red
+                                // exposed, slate invalid, dim wash = untested.
+                                cover = f.b > 0.97 ? float3(0.1, 0.85, 1.0)
+                                      : f.b > 0.80 ? float3(1.0, 1.0, 1.0)   // chosen → white
+                                      : f.b > 0.55 ? float3(1.0, 0.15, 0.1)
+                                      : f.b > 0.20 ? float3(0.35, 0.35, 0.45)
+                                      : lerp(o.color.rgb, float3(0.7, 0.1, 0.08), 0.25 * f.a);
+                            }
+                            else if (_IterVis > 4.5)
+                            {
+                                // 5 = Threat composite: score heat where
+                                // hidden, red where exposed — the pick surface.
+                                cover = (f.b > 0.80 && f.b < 0.95) ? float3(1.0, 1.0, 1.0)  // chosen
+                                      : f.b > 0.95 ? heat2(f.r)
+                                      : f.b > 0.55 ? float3(1.0, 0.15, 0.1)
+                                      : f.b > 0.20 ? float3(0.35, 0.35, 0.45)
+                                      : lerp(o.color.rgb, float3(0.7, 0.1, 0.08), 0.2 * f.a);
+                            }
+                            else
+                            {
+                                // 4 = Quality: cover-capable cells hot on the
+                                // ramp; open air = dim red "street sees you".
+                                cover = f.g > 0.01 ? heat2(f.g)
+                                      : f.a > 0.01 ? lerp(o.color.rgb, float3(0.8, 0.12, 0.1), 0.35)
+                                      : o.color.rgb;
+                            }
+                        }
+                        o.color = float4(cover, 1.0);
+                    }
+                    else if (_IterVis > 2.5)
                         o.color = hit ? float4(0, 0, 0, 1) : float4(heat, 1.0);
                     else if (_IterVis > 1.5)
                         o.color = float4(saturate((float)iterVox / 128.0), 0.0, saturate((float)iterShadow / 96.0), 1.0);

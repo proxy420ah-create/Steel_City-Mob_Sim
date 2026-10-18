@@ -24,34 +24,39 @@ namespace SteelCity.Sim
     {
         [Header("Awareness")]
         [Tooltip("Radius scanned for cover obstacles (m).")]
-        public float radius = 14f;
+        public float radius = 8f;
         [Tooltip("Gap between the stand spot and the obstacle face (m).")]
         public float standoff = 0.55f;
-        [Tooltip("Crouched eye height — walls must cover this to be usable (m).")]
-        public float crouchEye = 0.7f;
-        [Tooltip("Standing cover height — walls reaching this are 'full' cover (m).")]
-        public float standEye = 1.35f;
         [Tooltip("Columns with a contiguous span below this aren't walls at all (m).")]
-        public float wallFloor = 0.25f;
-        [Tooltip("Grid cell for de-duping stand spots along a wall (m).")]
-        public float spotSpacing = 0.35f;
+        public float wallFloor = 0.15f;
+
         [Tooltip("outDir·dirToThreat below this = the open side faces away from the threat.")]
         public float facingDot = -0.05f;
         [Tooltip("Threat chest height used for the LOS validation ray (m).")]
-        public float threatEye = 1.3f;
+        public float threatEye = 0.55f;
         [Tooltip("Seconds between passive rescans.")]
         public float scanInterval = 0.4f;
         [Tooltip("Rescan early if the owner moved this far (m).")]
         public float rescanMoveDist = 0.4f;
 
+        [Header("Influence Field")]
+        [Tooltip("Cells per side for the cover field grid.")]
+        public int fieldRes = 64;
+        [Tooltip("How much proximity weighs vs cover quality in the composite score (0=quality only, 1=distance only).")]
+        [Range(0f, 1f)] public float proxWeight = 0.6f;
+
         [Header("Visualization (COVER tab)")]
-        public bool showRing = true;
-        public bool showFootprints = true;
-        public bool showWalls = true;
+        [Tooltip("Legacy beam markers — superseded by the V-key cover-field modes; kept for deep debugging.")]
+        public bool showRing = false;
+        public bool showFootprints = false;
+        public bool showWalls = false;
         [Tooltip("With a threat set, dim walls whose open side faces the threat.")]
         public bool tintWallFacing = true;
-        public bool showCandidates = true;
+        public bool showCandidates = false;
         public bool showLos = false;
+        [Tooltip("Ground-projected cover influence field — fallback when not using the V-key modes.")]
+        public bool showHeat = false;
+        public CoverField.Layer heatLayer = CoverField.Layer.Composite;
         public int maxWallBeams = 500;
         public int maxCandBeams = 60;
 
@@ -71,6 +76,9 @@ namespace SteelCity.Sim
             public float facing;         // outDir·dirToThreat — negative = faces the threat
             public string volId;
             public float vs;
+            /// <summary>Minimum crouch depth (0..1) that puts the posed eye below
+            /// this wall's top — 0 = the shallow authored crouch already clears it.</summary>
+            public float reqDepth;
         }
 
         public struct CandMark
@@ -94,10 +102,34 @@ namespace SteelCity.Sim
         public readonly List<CandMark> candidates = new();
         public int chosenIdx = -1;
 
-        /// <summary>World-space head height above own ground in the Crouching pose —
-        /// read off the posed skeleton when anim data exists (pose-authoritative),
-        /// else the crouchEye slider fallback. Recomputed per scan.</summary>
-        public float EyeOffset { get; private set; } = 0.7f;
+        /// <summary>Silhouette-top height above the feet — measured live off the
+        /// posed model (each group's top voxel through the FK chain), replacing
+        /// the retired eye constants. h(d) lerps HShallow→HDeep exactly like the
+        /// pose eval; re-authoring a pose re-tunes cover for free.</summary>
+        public float HShallow { get; private set; } = 0.50f;
+        /// <summary>Silhouette top at crouchDepth=1 — the deepest authored duck.
+        /// Defines the usable-cover floor: walls whose top clears THIS height
+        /// are duckable at some depth; below it they're genuinely unusable.</summary>
+        public float HDeep { get; private set; } = 0.45f;
+        /// <summary>Silhouette top in the Idle pose — walls covering this are Full
+        /// (stood behind, no duck).</summary>
+        public float HStand { get; private set; } = 0.62f;
+        /// <summary>World Y of the solid column top under the feet — the support
+        /// surface the silhouette is measured from. Standing on voxels is
+        /// additive: curbs, rubble, crate tops all raise it.</summary>
+        public float SupportY { get; private set; }
+        /// <summary>True when the heights were measured off the posed model,
+        /// false = fallback constants (no anim data).</summary>
+        public bool HeightsMeasured { get; private set; }
+        /// <summary>Forward lean of the eye anchor at depth=1.</summary>
+        public float EyeFwdDeep { get; private set; }
+        /// <summary>Clearance margin solved into every required-depth pick (m) —
+        /// keeps the posed silhouette below the wall top, not at the boundary.</summary>
+        public float depthMargin = 0.02f;
+        /// <summary>Horizontal forward offset of the crouched eye anchor — the
+        /// crouch pose leans the head over the knees (bodyLean + proud offset),
+        /// so the eyes sit in front of the feet axis toward facing.</summary>
+        public float EyeFwd { get; private set; }
         public bool EyePosed { get; private set; }
 
         private VoxelCollisionWorld world;
@@ -108,7 +140,30 @@ namespace SteelCity.Sim
         private readonly List<CoverWall> wallBuf = new();
         private readonly List<Vector3> candEyes = new();  // crouch-eye points (viz)
         private readonly HashSet<string> beamKeys = new();
-        private readonly HashSet<long> spotGrid = new();
+        /// <summary>volId → required crouch depth (max over that volume's walls).
+        /// Feeds TryPickCover's depth report.</summary>
+        private readonly Dictionary<string, float> volDepth = new();
+        /// <summary>volId → class of that volume's highest-demand wall — Full
+        /// walls are stood behind, not crouched behind.</summary>
+        private readonly Dictionary<string, WallClass> volClass = new();
+        /// <summary>volId → (eyeHeight, eyeFwd) at that volume's required depth —
+        /// the per-cell LOS test point the field validates against.</summary>
+        private readonly Dictionary<string, Vector2> volTop = new();
+        private VoxelChunkManager chunkManager;
+        private bool dataWasLive, ringLive;
+
+        /// <summary>The influence field — splat → validate → score → pick.
+        /// Field IS the picker; `candidates` is its tested-cell visualization.</summary>
+        private readonly CoverField field = new CoverField();
+        public CoverField Field => field;
+
+        // Heatmap quad — same child-GO + Sprites/Default pattern as VisionSensor's wedge.
+        private GameObject heatGO;
+        private MeshRenderer heatRend;
+        private Texture2D heatTex;
+        private Color32[] heatPx;
+        private int bakedRes = -1;
+        private Color32[] fieldPx;       // packed field → texture-array slice
 
         void Awake()
         {
@@ -116,7 +171,17 @@ namespace SteelCity.Sim
             owner = GetComponent<VoxelCharacter>();
         }
 
-        void OnDisable() => ClearViz();
+        void OnDisable()
+        {
+            ClearViz();
+            if (vizSlot >= 0)
+            {
+                fieldParams[vizSlot] = Vector4.zero;
+                Shader.SetGlobalVectorArray("_CoverFieldParamsArr", fieldParams);
+                slotTaken[vizSlot] = false;
+                vizSlot = -1;
+            }
+        }
 
         /// <summary>Self position used for the scan center — XZ center like CombatController.Feet.</summary>
         private Vector3 SelfPos()
@@ -133,8 +198,40 @@ namespace SteelCity.Sim
         void Update()
         {
             Vector3 p = SelfPos();
-            if ((p - lastScanPos).sqrMagnitude >= rescanMoveDist * rescanMoveDist) Refresh(true);
-            else if (Time.unscaledTime >= nextScan) Refresh();
+            // The scan exists only to keep consumers warm — combat picks
+            // force-refresh on demand, so when nobody's watching (no threat,
+            // no viz toggles, no cover V-mode) the column walk is pure cost.
+            if (ConsumersWantData())
+            {
+                dataWasLive = true;
+                if ((p - lastScanPos).sqrMagnitude >= rescanMoveDist * rescanMoveDist) Refresh(true);
+                else if (Time.unscaledTime >= nextScan) Refresh();
+            }
+            else if (dataWasLive) { ClearViz(); dataWasLive = false; }
+            if (showRing) { DrawRing(p); ringLive = true; }   // live radius indicator — not scan data
+            else if (ringLive)
+            {
+                var pdr = PathDebugRenderer.Instance;
+                if (pdr != null) for (int i = 1; i <= 28; i++) pdr.ClearCustomBeam($"csr_{i}");
+                ringLive = false;
+            }
+        }
+
+        /// <summary>Any live consumer of field data: an armed threat, a beam
+        /// viz toggle, or a cover V-mode. Combat picks bypass this entirely —
+        /// they force a scan at request time.</summary>
+        bool ConsumersWantData()
+        {
+            if (HasThreat || showFootprints || showWalls || showCandidates
+                || showLos || showHeat) return true;
+            if (chunkManager == null) chunkManager = FindFirstObjectByType<VoxelChunkManager>();
+            if (chunkManager != null)
+            {
+                var m = chunkManager.iterVisMode;
+                if (m >= VoxelChunkManager.IterVisMode.CoverQuality
+                    && m <= VoxelChunkManager.IterVisMode.CoverExposure) return true;
+            }
+            return false;
         }
 
         /// <summary>Run the scan (rate-limited by callers — pass force for demand scans).</summary>
@@ -149,21 +246,102 @@ namespace SteelCity.Sim
             Redraw();
         }
 
-        /// <summary>Nearest valid candidate to `from` (XZ distance). Sets chosenIdx.</summary>
+        /// <summary>
+        /// Pick cover = the field maximum (quality × proximity composite).
+        /// `from` is retained for signature stability — proximity is already
+        /// baked into the field around the scan center.
+        /// </summary>
         public bool TryPickCover(Vector3 from, out Vector3 point, out string volId)
+            => TryPickCover(from, out point, out volId, out _);
+
+        /// <summary>Also reports the crouch depth the picked wall demands —
+        /// CombatController eases `crouchDepth` toward it on arrival — and the
+        /// wall's class (Full walls are stood behind, not ducked behind).</summary>
+        public bool TryPickCover(Vector3 from, out Vector3 point, out string volId, out float reqDepth)
+            => TryPickCover(from, out point, out volId, out reqDepth, out _);
+
+        public bool TryPickCover(Vector3 from, out Vector3 point, out string volId,
+            out float reqDepth, out WallClass cls)
         {
-            point = default; volId = null; chosenIdx = -1;
-            float best = float.MaxValue;
-            for (int i = 0; i < candidates.Count; i++)
+            point = default; volId = null; reqDepth = 0f; cls = WallClass.Low; chosenIdx = -1;
+            if (!field.PickBest(out point, out volId)) return false;
+            if (volId != null)
             {
-                if (!candidates[i].valid) continue;
-                Vector3 c = candidates[i].point;
-                float d = (c.x - from.x) * (c.x - from.x) + (c.z - from.z) * (c.z - from.z);
-                if (d >= best) continue;
-                best = d; point = c; volId = candidates[i].volId; chosenIdx = i;
+                if (volDepth.TryGetValue(volId, out float d)) reqDepth = d;
+                if (volClass.TryGetValue(volId, out WallClass c)) cls = c;
             }
-            if (chosenIdx >= 0) Redraw();
-            return chosenIdx >= 0;
+            // Map the chosen cell back onto its candidate post for the cyan beam.
+            for (int i = 0; i < candidates.Count; i++)
+                if (field.IsChosen(FieldCellOf(candidates[i].point))) { chosenIdx = i; break; }
+            Redraw();
+            return true;
+        }
+
+        /// <summary>Debug pick — hide behind the cover `anchor` names. The
+        /// wall is resolved by proximity FIRST (splat discs overlap between
+        /// adjacent cover, so a cell's owner isn't always the anchored box),
+        /// then the field picks that wall's nearest validated Hidden cell.
+        /// Reports the wall's depth requirement and class.</summary>
+        public bool TryPickCoverNear(Vector3 anchor, float maxDist,
+            out Vector3 point, out string volId, out float reqDepth, out WallClass cls)
+        {
+            point = default; volId = null; reqDepth = 0f; cls = WallClass.Low; chosenIdx = -1;
+            int wi = -1; float wd = maxDist * maxDist;
+            for (int i = 0; i < walls.Count; i++)
+            {
+                if (walls[i].cls == WallClass.Low) continue;
+                float dx = walls[i].facePos.x - anchor.x, dz = walls[i].facePos.z - anchor.z;
+                float d2 = dx * dx + dz * dz;
+                if (d2 < wd) { wd = d2; wi = i; }
+            }
+            if (wi < 0) return false;
+            var w = walls[wi];
+            // Diagnostic — the pick's wall resolution is the usual suspect when
+            // class/depth come back wrong; print the nearest candidates so a
+            // bad resolve is visible instead of silent.
+            var cand = new System.Collections.Generic.List<(float d, int i)>();
+            for (int i = 0; i < walls.Count; i++)
+            {
+                if (walls[i].cls == WallClass.Low) continue;
+                float dx = walls[i].facePos.x - anchor.x, dz = walls[i].facePos.z - anchor.z;
+                float d2 = dx * dx + dz * dz;
+                if (d2 < maxDist * maxDist) cand.Add((Mathf.Sqrt(d2), i));
+            }
+            cand.Sort((a, b) => a.d.CompareTo(b.d));
+            var sb = new System.Text.StringBuilder($"🧱 [CoverPick] anchor {anchor:F2} walls {cand.Count} →");
+            for (int k = 0; k < cand.Count && k < 3; k++)
+            {
+                var cw = walls[cand[k].i];
+                sb.Append($" [{cw.volId} face {cw.facePos:F1} top+{cw.top - cw.baseY:F1}m {cw.cls} d{cand[k].d:F1}]");
+            }
+            Debug.Log(sb.ToString());
+            if (!field.PickNear(anchor, maxDist, out point, out _, w.volId)) return false;
+            volId = w.volId; reqDepth = w.reqDepth; cls = w.cls;
+            for (int i = 0; i < candidates.Count; i++)
+                if (field.IsChosen(FieldCellOf(candidates[i].point))) { chosenIdx = i; break; }
+            Redraw();
+            return true;
+        }
+
+        /// <summary>Minimum crouch depth that puts the silhouette top `depthMargin`
+        /// below `top` (world Y). Linear in d because the measured heights lerp
+        /// shallow→deep exactly like the pose eval. 0 when shallower already
+        /// clears; 1 only when the deepest duck just barely clears.</summary>
+        public float DepthForTop(float top, float baseY)
+        {
+            float denom = HDeep - HShallow;
+            if (denom >= -1e-4f) return 0f; // no authored deep pose (or deeper = higher)
+            float d = (top - depthMargin - baseY - HShallow) / denom;
+            return Mathf.Clamp01(d);
+        }
+
+        private int FieldCellOf(Vector3 p)
+        {
+            if (field.N <= 0) return -1;
+            int cx = Mathf.FloorToInt((p.x - field.Origin.x) / field.CellSize);
+            int cz = Mathf.FloorToInt((p.z - field.Origin.z) / field.CellSize);
+            if (cx < 0 || cz < 0 || cx >= field.N || cz >= field.N) return -1;
+            return cz * field.N + cx;
         }
 
         // --- Scan pipeline ---
@@ -174,26 +352,51 @@ namespace SteelCity.Sim
             walls.Clear(); candidates.Clear(); candEyes.Clear();
             chosenIdx = -1;
 
-            // Eye band = the head joint's height in the Crouching pose — "where
-            // will my head be when I duck" — read live so re-authoring the pose
-            // re-tunes cover automatically. Slider is the no-anim-data fallback.
-            Vector3 hp = default;
-            EyePosed = owner != null && owner.TryGetJointWorld(VoxelCharacter.JointHead,
-                out hp, out _, animStateOverride: 5f);
-            EyeOffset = EyePosed ? hp.y - pos.y : crouchEye;
+            // Silhouette-top band = the posed model TOP measured live — "how
+            // tall am I when I duck" — no authored constants. The pose eval
+            // owns the crouch lerp end-to-end, so h(d) = lerp(HShallow, HDeep, d)
+            // exactly like the pose. Eye anchors still provide the pose's
+            // forward lean: in deep crouch the head leans out over the toes, so
+            // the LOS probe must test THAT point, not the feet axis.
+            float hStand = 0.62f, h0 = 0.50f, h1 = 0.45f;
+            HeightsMeasured = owner != null
+                && owner.TryMeasureTopY(0f, 0f, out hStand)
+                && owner.TryMeasureTopY(5f, 0f, out h0)
+                && owner.TryMeasureTopY(5f, 1f, out h1);
+            HStand = hStand; HShallow = h0; HDeep = h1;
+
+            Vector3 ep = default;
+            EyePosed = owner != null && owner.TryGetEyeAnchor(out ep, out _, out _,
+                animStateOverride: 5f);
+            EyeFwd = EyePosed ? new Vector3(ep.x - pos.x, 0f, ep.z - pos.z).magnitude : 0f;
+            EyeFwdDeep = EyeFwd;
+            if (owner != null && owner.TryGetEyeAnchor(out Vector3 epd, out _, out _,
+                animStateOverride: 5f, animDepthOverride: 1f))
+                EyeFwdDeep = new Vector3(epd.x - pos.x, 0f, epd.z - pos.z).magnitude;
+
+            // Support = the solid column top under the feet — standing on
+            // voxels is additive: curbs, rubble, crate tops raise the whole
+            // silhouette, lowering the required duck.
+            float supportY = pos.y;
+            if (world.TryColumnTop(pos, 0.5f, 1.5f, out float gy)) supportY = gy;
+            SupportY = supportY;
 
             stats.obstacles = world.QueryVolumes(pos, radius, obstacleBuf);
-            // Walls tall enough to matter, with an open side at crouch-eye band.
-            world.QueryCoverWalls(pos, radius, wallFloor, pos.y + EyeOffset, wallBuf);
+            // Walls tall enough to matter, with an open side at the deepest
+            // silhouette-top band — the permissive superset; per-wall required
+            // depth + threat-LOS do the precise validation after.
+            world.QueryCoverWalls(pos, radius, wallFloor, supportY + h1, wallBuf);
             stats.wallCols = wallBuf.Count;
 
+            volDepth.Clear(); volClass.Clear(); volTop.Clear();
             Vector3 tp = Threat ?? default;
             bool hasT = Threat.HasValue;
             for (int i = 0; i < wallBuf.Count; i++)
             {
                 CoverWall w = wallBuf[i];
-                WallClass cls = Covers(w, pos.y + standEye) ? WallClass.Full
-                              : Covers(w, pos.y + EyeOffset) ? WallClass.Crouch : WallClass.Low;
+                WallClass cls = Covers(w, supportY + hStand) ? WallClass.Full
+                              : Covers(w, supportY + h1) ? WallClass.Crouch : WallClass.Low;
+                float reqD = cls == WallClass.Low ? 0f : DepthForTop(w.spanTop, supportY);
                 float facing = 0f;
                 if (hasT)
                 {
@@ -208,14 +411,59 @@ namespace SteelCity.Sim
                     facePos = w.facePos, outDir = w.outDir,
                     baseY = w.firstSolidY, top = w.spanTop, cls = cls,
                     facing = facing, volId = w.volumeId, vs = w.voxelSize,
+                    reqDepth = reqD,
                 });
+                if (cls != WallClass.Low && w.volumeId != null)
+                {
+                    // Deepest requirement wins when several walls share a volume —
+                    // the LOS eye is validated at the worst case.
+                    if (!volDepth.TryGetValue(w.volumeId, out float pd) || reqD > pd)
+                    { volDepth[w.volumeId] = reqD; volClass[w.volumeId] = cls; }
+                    float dh = Mathf.Lerp(HShallow, HDeep, reqD);
+                    float df = Mathf.Lerp(EyeFwd, EyeFwdDeep, reqD);
+                    if (!volTop.TryGetValue(w.volumeId, out Vector2 pe) || dh < pe.x) volTop[w.volumeId] = new Vector2(dh, df);
+                }
             }
             stats.facing = 0;
             if (hasT)
             {
                 for (int i = 0; i < walls.Count; i++)
                     if (walls[i].cls != WallClass.Low && walls[i].facing < facingDot) stats.facing++;
-                GenCandidates(pos, tp);
+            }
+
+            // Field rebuilds every scan: the quality pass is threat-independent
+            // (cover-height faces are cover no matter who's shooting), so the
+            // V-key cover modes paint passively. The threat combine inside
+            // Build only runs when a threat exists.
+            field.Build(pos, Threat, radius, walls, world, standoff, HShallow, EyeFwd,
+                threatEye, facingDot, proxWeight, fieldRes, volTop);
+            if (hasT) DeriveCandidates(tp);
+        }
+
+        /// <summary>
+        /// Mirror the field's tested cells into `candidates` for the post/LOS
+        /// beam viz. `TryPickCover` reads the field maximum — posts are display.
+        /// </summary>
+        private void DeriveCandidates(Vector3 threat)
+        {
+            stats.tested = field.TestedCells;
+            stats.valid = field.ValidCells;
+            foreach (var kv in field.reasons) stats.reasons[kv.Key] = kv.Value;
+            if (field.N <= 0) return;
+            for (int i = 0; i < field.state.Length; i++)
+            {
+                if (field.state[i] == CoverField.CellState.Untested) continue;
+                Vector3 c = field.CellCenter(i % field.N, i / field.N);
+                var cand = new CandMark
+                {
+                    volId = field.volIdOf[i] ?? "",
+                    point = new Vector3(c.x, field.groundY[i], c.z),
+                    valid = field.state[i] == CoverField.CellState.Hidden,
+                    reason = field.state[i] == CoverField.CellState.Hidden ? null
+                           : field.state[i] == CoverField.CellState.Exposed ? "exposed" : "invalid",
+                };
+                candidates.Add(cand);
+                candEyes.Add(CandTop(cand.point, threat));
             }
         }
 
@@ -223,52 +471,14 @@ namespace SteelCity.Sim
         private static bool Covers(CoverWall w, float eye)
             => w.firstSolidY <= eye && eye < w.spanTop;
 
-        /// <summary>Threat-facing walls → stand spots → ground/free/LOS validation.</summary>
-        private void GenCandidates(Vector3 pos, Vector3 threat)
+        /// <summary>Silhouette-top test point at a candidate: up by the measured
+        /// shallow-crouch top, then forward toward the threat by the posed lean —
+        /// the most exposed point of the ducked pose, over the toes.</summary>
+        Vector3 CandTop(Vector3 point, Vector3 threat)
         {
-            spotGrid.Clear();
-            float spacing = Mathf.Max(0.15f, spotSpacing);
-            Vector3 threatChest = threat + Vector3.up * threatEye;
-            for (int i = 0; i < walls.Count; i++)
-            {
-                WallMark w = walls[i];
-                if (w.cls == WallClass.Low || w.facing >= facingDot) continue;
-                Vector3 spot = w.facePos + w.outDir * (standoff + w.vs * 0.25f);
-                // De-dupe spots along a wall run so candidates space out.
-                long key = (long)Mathf.FloorToInt(spot.x / spacing) * 65536 + Mathf.FloorToInt(spot.z / spacing);
-                if (!spotGrid.Add(key)) continue;
-
-                stats.tested++;
-                var cand = new CandMark { volId = w.volId, point = spot };
-                // Ground probe — land on whatever is under the spot.
-                if (!world.Raycast(spot + Vector3.up * 1.6f, Vector3.down, 3.2f, out VoxelRayHit gh))
-                { cand.reason = "no-ground"; Reject(cand); continue; }
-                cand.point = new Vector3(spot.x, gh.point.y, spot.z);
-                Vector3 eye = cand.point + Vector3.up * EyeOffset;
-                // Free space at ankle + crouch chest.
-                var a = world.SamplePoint(cand.point + Vector3.up * 0.15f);
-                var c = world.SamplePoint(eye);
-                if (a.kind == VoxelCollisionWorld.PointKind.TerrainSolid || a.kind == VoxelCollisionWorld.PointKind.VolumeSolid
-                 || c.kind == VoxelCollisionWorld.PointKind.TerrainSolid || c.kind == VoxelCollisionWorld.PointKind.VolumeSolid)
-                { cand.reason = "occupied"; Reject(cand); continue; }
-                // Authoritative check: threat chest → crouch eye must be blocked.
-                Vector3 seg = eye - threatChest;
-                float dist = seg.magnitude;
-                if (dist < 1e-4f || !world.Raycast(threatChest, seg / dist, dist - 0.05f, out VoxelRayHit bh))
-                { cand.reason = "exposed"; Reject(cand); continue; }
-                cand.valid = true;
-                stats.valid++;
-                candidates.Add(cand);
-                candEyes.Add(eye);
-            }
-        }
-
-        void Reject(CandMark c)
-        {
-            c.valid = false;
-            stats.reasons[c.reason] = stats.reasons.TryGetValue(c.reason, out int n) ? n + 1 : 1;
-            candidates.Add(c);
-            candEyes.Add(c.point + Vector3.up * EyeOffset);
+            Vector3 tdir = threat - point; tdir.y = 0f;
+            float tm = tdir.magnitude;
+            return point + Vector3.up * HShallow + (tm > 1e-4f ? tdir / tm * EyeFwd : Vector3.zero);
         }
 
         // --- Visualization ---
@@ -279,6 +489,26 @@ namespace SteelCity.Sim
             if (pdr == null) { beamKeys.Clear(); return; }
             foreach (var k in beamKeys) pdr.ClearCustomBeam(k);
             beamKeys.Clear();
+            if (heatRend != null) heatRend.enabled = false;
+        }
+
+        /// <summary>Cyan radius ring at the owner's live position — a cheap
+        /// 28-seg indicator, not scan output. Drawn per-frame while showRing
+        /// is on; the scan-derived viz stays gated behind consumers.</summary>
+        void DrawRing(Vector3 p)
+        {
+            var pdr = PathDebugRenderer.Instance;
+            if (pdr == null) return;
+            const int seg = 28;
+            var col = new Color(0.3f, 0.85f, 1f, 0.5f);
+            Vector3 prev = p + new Vector3(radius, 0.05f, 0f);
+            for (int i = 1; i <= seg; i++)
+            {
+                float a = i * Mathf.PI * 2f / seg;
+                Vector3 cur = p + new Vector3(Mathf.Cos(a) * radius, 0.05f, Mathf.Sin(a) * radius);
+                Beam($"csr_{i}", prev, cur, 0.035f, col);
+                prev = cur;
+            }
         }
 
         void Beam(string key, Vector3 a, Vector3 b, float w, Color col)
@@ -295,20 +525,6 @@ namespace SteelCity.Sim
             if (pdr == null) return;
             ClearViz();
             Vector3 p = lastScanPos;
-
-            if (showRing)
-            {
-                const int seg = 28;
-                var col = new Color(0.3f, 0.85f, 1f, 0.5f);
-                Vector3 prev = p + new Vector3(radius, 0.05f, 0f);
-                for (int i = 1; i <= seg; i++)
-                {
-                    float a = i * Mathf.PI * 2f / seg;
-                    Vector3 cur = p + new Vector3(Mathf.Cos(a) * radius, 0.05f, Mathf.Sin(a) * radius);
-                    Beam($"csr_{i}", prev, cur, 0.035f, col);
-                    prev = cur;
-                }
-            }
 
             if (showFootprints)
             {
@@ -377,6 +593,147 @@ namespace SteelCity.Sim
                                             : new Color(1f, 0.3f, 0.3f, 0.4f));
                 }
             }
+
+            DrawHeat();
+            PushFieldTexture();
+        }
+
+        // ---- Multi-agent field viz ----
+        // Every active sensor contributes its local field as ONE slice of a
+        // shared Texture2DArray; the shader unions all slices at each hit's
+        // world XZ ("the city's shared cover awareness" — two lights
+        // overlapping, not two writers racing). Previously all sensors pushed
+        // a single _CoverFieldTex global — last-scan-wins made the disc
+        // flicker between agents' fields.
+        private const int MAX_FIELD_SOURCES = 4;
+        private const int FIELD_TEX_RES = 64;   // contributing sensors must run this fieldRes
+        private static Texture2DArray fieldTexArr;
+        private static readonly Vector4[] fieldParams = new Vector4[MAX_FIELD_SOURCES];
+        private static readonly bool[] slotTaken = new bool[MAX_FIELD_SOURCES];
+        private static bool slotOverflowWarned;
+        private int vizSlot = -1;
+
+        /// <summary>
+        /// Upload the packed field (R=score G=quality B=verdict A=proximity)
+        /// into this sensor's array slice + write its params slot. Sources
+        /// never touch each other's slice — compositing is the shader's job.
+        /// </summary>
+        void PushFieldTexture()
+        {
+            if (vizSlot < 0)
+            {
+                if (!field.HasData || field.N != FIELD_TEX_RES) return;
+                for (int s = 0; s < MAX_FIELD_SOURCES; s++)
+                    if (!slotTaken[s]) { slotTaken[s] = true; vizSlot = s; break; }
+                if (vizSlot < 0)
+                {
+                    if (!slotOverflowWarned)
+                    {
+                        slotOverflowWarned = true;
+                        Debug.LogWarning($"[CoverSensor] >{MAX_FIELD_SOURCES} field-viz contributors — '{name}' simulates but doesn't paint.");
+                    }
+                    return;
+                }
+            }
+            if (!field.HasData || field.N != FIELD_TEX_RES)
+            {
+                if (fieldParams[vizSlot].w != 0f)
+                {
+                    fieldParams[vizSlot] = Vector4.zero;
+                    Shader.SetGlobalVectorArray("_CoverFieldParamsArr", fieldParams);
+                }
+                return;
+            }
+            EnsureFieldTexArray();
+            if (fieldPx == null || fieldPx.Length != field.N * field.N)
+                fieldPx = new Color32[field.N * field.N];
+            field.BakePacked(fieldPx);
+            fieldTexArr.SetPixels32(fieldPx, vizSlot, 0);   // (colors, slice, mip=0)
+            fieldTexArr.Apply(false, false);
+            float size = field.CellSize * field.N;
+            fieldParams[vizSlot] = new Vector4(field.Origin.x, field.Origin.z, 1f / size, 1f);
+            Shader.SetGlobalVectorArray("_CoverFieldParamsArr", fieldParams);
+        }
+
+        private static void EnsureFieldTexArray()
+        {
+            if (fieldTexArr != null) return;
+            fieldTexArr = new Texture2DArray(FIELD_TEX_RES, FIELD_TEX_RES,
+                MAX_FIELD_SOURCES, TextureFormat.RGBA32, false);
+            fieldTexArr.filterMode = FilterMode.Bilinear;
+            fieldTexArr.wrapMode = TextureWrapMode.Clamp;
+            Shader.SetGlobalTexture("_CoverFieldTexArr", fieldTexArr);
+        }
+
+        /// <summary>
+        /// Ground-projected heat quad — the field baked to a texture on a flat
+        /// mesh (same child-GO + Sprites/Default pattern as the vision wedge).
+        /// The composite layer IS the decision surface: the chosen cell flashes
+        /// white so "why there" reads as "the heat max".
+        /// </summary>
+        void DrawHeat()
+        {
+            bool want = showHeat && HasThreat && field.HasData;
+            if (!want)
+            {
+                if (heatRend != null) heatRend.enabled = false;
+                return;
+            }
+            EnsureHeatQuad();
+            if (heatRend == null) return;
+
+            // Rebake when resolution or layer changes (field contents change
+            // every scan — bake each Redraw, it's 64² pixels).
+            int n = field.N;
+            if (heatTex.width != n || bakedRes != n)
+            {
+                heatTex.Reinitialize(n, n);
+                heatPx = new Color32[n * n];
+                bakedRes = n;
+            }
+            field.Bake(heatPx, heatLayer);
+            heatTex.SetPixels32(heatPx);
+            heatTex.Apply(false, false);
+
+            float size = field.CellSize * n;
+            heatGO.transform.position = new Vector3(
+                field.Origin.x + size * 0.5f, field.GroundY + 0.09f,
+                field.Origin.z + size * 0.5f);
+            heatGO.transform.localScale = new Vector3(size, size, 1f);
+            heatRend.enabled = true;
+        }
+
+        void EnsureHeatQuad()
+        {
+            if (heatGO != null) return;
+            heatGO = new GameObject("_CoverHeat");
+            // Not parented — the quad tracks the field origin, not the character.
+            var mf = heatGO.AddComponent<MeshFilter>();
+            var m = new Mesh { name = "CoverHeatQuad" };
+            m.vertices = new[]
+            {
+                new Vector3(-0.5f, -0.5f, 0f), new Vector3(0.5f, -0.5f, 0f),
+                new Vector3(-0.5f, 0.5f, 0f),  new Vector3(0.5f, 0.5f, 0f),
+            };
+            m.uv = new[]
+            {
+                new Vector2(0f, 0f), new Vector2(1f, 0f),
+                new Vector2(0f, 1f), new Vector2(1f, 1f),
+            };
+            m.triangles = new[] { 0, 2, 1, 1, 2, 3 };
+            m.RecalculateBounds();
+            mf.sharedMesh = m;
+            heatRend = heatGO.AddComponent<MeshRenderer>();
+            heatRend.sharedMaterial = new Material(Shader.Find("Sprites/Default"));
+            heatRend.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            heatRend.receiveShadows = false;
+            // Flat on the ground — quad faces +Y via -90° pitch.
+            heatGO.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
+            heatTex = new Texture2D(field.N > 0 ? field.N : 64, field.N > 0 ? field.N : 64,
+                TextureFormat.RGBA32, false);
+            heatTex.filterMode = FilterMode.Bilinear;
+            heatTex.wrapMode = TextureWrapMode.Clamp;
+            heatRend.sharedMaterial.mainTexture = heatTex;
         }
     }
 }

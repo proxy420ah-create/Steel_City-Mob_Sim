@@ -1,259 +1,11 @@
 {
+  "format": "steelcity_character",
+  "version": 1,
   "name": "Civilian1",
   "dims": [
     96,
     96,
     96
-  ],
-  "assetType": "character",
-  "pivots": {
-    "0": {
-      "x": 0.5,
-      "y": 0.3645833333333333,
-      "z": 0.5
-    },
-    "1": {
-      "x": 0.5,
-      "y": 0.5,
-      "z": 0.4895833333333333
-    },
-    "2": {
-      "x": 0.625,
-      "y": 0.46875,
-      "z": 0.4895833333333333
-    },
-    "3": {
-      "x": 0.3645833333333333,
-      "y": 0.46875,
-      "z": 0.4895833333333333
-    },
-    "4": {
-      "x": 0.5833333333333334,
-      "y": 0.2708333333333333,
-      "z": 0.5
-    },
-    "5": {
-      "x": 0.4166666666666667,
-      "y": 0.2708333333333333,
-      "z": 0.5
-    },
-    "6": {
-      "x": 0.5833333333333334,
-      "y": 0.125,
-      "z": 0.5
-    },
-    "7": {
-      "x": 0.4166666666666667,
-      "y": 0.125,
-      "z": 0.5
-    },
-    "8": {
-      "x": 0.75,
-      "y": 0.5,
-      "z": 0.4895833333333333
-    },
-    "9": {
-      "x": 0.23958333333333334,
-      "y": 0.5,
-      "z": 0.4895833333333333
-    }
-  },
-  "animParams": {
-    "crouching": {
-      "bodyLower": 0,
-      "modelLower": 8,
-      "bodyLean": 0,
-      "headPitch": 0,
-      "armSwingL": 0,
-      "armSwingR": 0,
-      "legStrideL": -1.15,
-      "legStrideR": 0,
-      "kneeBendL": 1.15,
-      "kneeBendR": 1.4
-    },
-    "sitting": {
-      "headPitch": 0,
-      "armSwingL": 0.2,
-      "armSwingR": 0.2,
-      "legStrideL": 1.45,
-      "legStrideR": 1.45,
-      "kneeBendL": 1.45,
-      "kneeBendR": 1.45
-    },
-    "aiming": {
-      "weaponType": "pistol",
-      "torsoTwist": -0.2,
-      "headYaw": 0,
-      "headPitch": -0.05,
-      "headTilt": 0,
-      "armSwingL": 0,
-      "armSwingR": -1.4,
-      "shoulderReachL": 0,
-      "shoulderReachR": 0,
-      "elbowBendL": 0,
-      "elbowBendR": 0.3
-    }
-  },
-  "states": [
-    {
-      "id": 0,
-      "name": "Idle",
-      "desc": "Standing still"
-    },
-    {
-      "id": 1,
-      "name": "Walking",
-      "desc": "Walking cycle â€” arms/legs swing"
-    },
-    {
-      "id": 2,
-      "name": "Looking",
-      "desc": "Head looking around â€” scanning / checking environment"
-    },
-    {
-      "id": 3,
-      "name": "Aim Walk",
-      "desc": "Aiming pose (upper body) + walking gait (lower body)"
-    },
-    {
-      "id": 4,
-      "name": "Aiming",
-      "desc": "Static aiming pose â€” arms raised, weapon-type presets"
-    },
-    {
-      "id": 5,
-      "name": "Crouching",
-      "desc": "Crouch pose â€” legs bent, arms forward"
-    },
-    {
-      "id": 8,
-      "name": "Down",
-      "desc": "Lying down / defeated"
-    },
-    {
-      "id": 9,
-      "name": "T-Pose",
-      "desc": "Bind/rest pose â€” raw rigging position as imported from the editor. No rotations applied. Use this to inspect the unmodified skeleton."
-    },
-    {
-      "id": 11,
-      "name": "Sit",
-      "desc": "Seated — thighs forward, shins bent down, torso upright, arms at sides"
-    }
-  ],
-  "itemPartDefs": [
-    {
-      "id": 0,
-      "name": "Body / Erase",
-      "key": "body",
-      "color": "#888888",
-      "desc": "Unassigned — painting with this clears a voxel's point tag (eraser)"
-    },
-    {
-      "id": 1,
-      "name": "Right Hand",
-      "key": "right_hand",
-      "color": "#ff6b6b",
-      "desc": "Primary grip anchor — weapon grip_right lands here"
-    },
-    {
-      "id": 2,
-      "name": "Left Hand",
-      "key": "left_hand",
-      "color": "#00ff88",
-      "desc": "Support grip — two-handed weapons"
-    },
-    {
-      "id": 3,
-      "name": "Right Shoulder",
-      "key": "right_shoulder",
-      "color": "#ffaa00",
-      "desc": "Stock weld when shouldering a rifle"
-    },
-    {
-      "id": 4,
-      "name": "Cheek",
-      "key": "cheek",
-      "color": "#ffff00",
-      "desc": "Cheek weld position for aiming"
-    },
-    {
-      "id": 5,
-      "name": "Pivot Waist",
-      "key": "pivot_0",
-      "color": "#ff44ff",
-      "desc": "Body/torso rotation center (waist) — gid 0"
-    },
-    {
-      "id": 6,
-      "name": "Pivot Neck",
-      "key": "pivot_1",
-      "color": "#ff88ff",
-      "desc": "Head/neck joint — gid 1"
-    },
-    {
-      "id": 7,
-      "name": "Pivot Shoulder L",
-      "key": "pivot_2",
-      "color": "#ffee44",
-      "desc": "Left arm shoulder joint — gid 2"
-    },
-    {
-      "id": 8,
-      "name": "Pivot Shoulder R",
-      "key": "pivot_3",
-      "color": "#ffcc00",
-      "desc": "Right arm shoulder joint — gid 3"
-    },
-    {
-      "id": 9,
-      "name": "Pivot Hip L",
-      "key": "pivot_4",
-      "color": "#44ffee",
-      "desc": "Left leg hip joint — gid 4"
-    },
-    {
-      "id": 10,
-      "name": "Pivot Hip R",
-      "key": "pivot_5",
-      "color": "#00ddaa",
-      "desc": "Right leg hip joint — gid 5"
-    },
-    {
-      "id": 11,
-      "name": "Pivot Knee L",
-      "key": "pivot_6",
-      "color": "#4488ff",
-      "desc": "Left shin knee joint — gid 6"
-    },
-    {
-      "id": 12,
-      "name": "Pivot Knee R",
-      "key": "pivot_7",
-      "color": "#2266ff",
-      "desc": "Right shin knee joint — gid 7"
-    },
-    {
-      "id": 13,
-      "name": "Pivot Elbow L",
-      "key": "pivot_8",
-      "color": "#ff8844",
-      "desc": "Left forearm elbow joint — gid 8"
-    },
-    {
-      "id": 14,
-      "name": "Pivot Elbow R",
-      "key": "pivot_9",
-      "color": "#ff6622",
-      "desc": "Right forearm elbow joint — gid 9"
-    },
-    {
-      "id": 15,
-      "name": "Seat",
-      "key": "seat",
-      "color": "#44aaff",
-      "desc": "Pelvis/butt contact anchor — vehicle/bench seat_* aligns here while sitting"
-    }
   ],
   "voxelSize": 0.01,
   "materials": [
@@ -263,8 +15,7 @@
       "r": 147,
       "g": 66,
       "b": 51,
-      "hex": "#934233",
-      "category": "building"
+      "hex": "#934233"
     },
     {
       "id": 101,
@@ -272,8 +23,7 @@
       "r": 122,
       "g": 107,
       "b": 86,
-      "hex": "#7a6b56",
-      "category": "building"
+      "hex": "#7a6b56"
     },
     {
       "id": 102,
@@ -281,8 +31,7 @@
       "r": 147,
       "g": 147,
       "b": 137,
-      "hex": "#939389",
-      "category": "building"
+      "hex": "#939389"
     },
     {
       "id": 103,
@@ -290,8 +39,7 @@
       "r": 209,
       "g": 204,
       "b": 188,
-      "hex": "#d1ccbc",
-      "category": "building"
+      "hex": "#d1ccbc"
     },
     {
       "id": 104,
@@ -299,8 +47,7 @@
       "r": 45,
       "g": 45,
       "b": 51,
-      "hex": "#2d2d33",
-      "category": "building"
+      "hex": "#2d2d33"
     },
     {
       "id": 105,
@@ -308,8 +55,7 @@
       "r": 107,
       "g": 96,
       "b": 86,
-      "hex": "#6b6056",
-      "category": "building"
+      "hex": "#6b6056"
     },
     {
       "id": 106,
@@ -317,8 +63,7 @@
       "r": 76,
       "g": 45,
       "b": 25,
-      "hex": "#4c2d19",
-      "category": "building"
+      "hex": "#4c2d19"
     },
     {
       "id": 107,
@@ -326,8 +71,7 @@
       "r": 153,
       "g": 107,
       "b": 63,
-      "hex": "#996b3f",
-      "category": "building"
+      "hex": "#996b3f"
     },
     {
       "id": 108,
@@ -335,8 +79,7 @@
       "r": 107,
       "g": 91,
       "b": 66,
-      "hex": "#6b5b42",
-      "category": "building"
+      "hex": "#6b5b42"
     },
     {
       "id": 109,
@@ -344,8 +87,7 @@
       "r": 71,
       "g": 61,
       "b": 56,
-      "hex": "#473d38",
-      "category": "building"
+      "hex": "#473d38"
     },
     {
       "id": 110,
@@ -353,8 +95,7 @@
       "r": 107,
       "g": 102,
       "b": 91,
-      "hex": "#6b665b",
-      "category": "building"
+      "hex": "#6b665b"
     },
     {
       "id": 111,
@@ -362,8 +103,7 @@
       "r": 229,
       "g": 224,
       "b": 209,
-      "hex": "#e5e0d1",
-      "category": "building"
+      "hex": "#e5e0d1"
     },
     {
       "id": 112,
@@ -371,17 +111,15 @@
       "r": 114,
       "g": 140,
       "b": 165,
-      "hex": "#728ca5",
-      "category": "building"
+      "hex": "#728ca5"
     },
     {
       "id": 113,
-      "name": "Lit Window",
-      "r": 242,
-      "g": 216,
-      "b": 127,
-      "hex": "#f2d87f",
-      "category": "building"
+      "name": "Lit Window (deprecated)",
+      "r": 114,
+      "g": 140,
+      "b": 165,
+      "hex": "#728ca5"
     },
     {
       "id": 114,
@@ -389,8 +127,7 @@
       "r": 140,
       "g": 165,
       "b": 178,
-      "hex": "#8ca5b2",
-      "category": "building"
+      "hex": "#8ca5b2"
     },
     {
       "id": 115,
@@ -398,8 +135,7 @@
       "r": 242,
       "g": 38,
       "b": 38,
-      "hex": "#f22626",
-      "category": "building"
+      "hex": "#f22626"
     },
     {
       "id": 116,
@@ -407,8 +143,7 @@
       "r": 38,
       "g": 76,
       "b": 242,
-      "hex": "#264cf2",
-      "category": "building"
+      "hex": "#264cf2"
     },
     {
       "id": 117,
@@ -416,8 +151,7 @@
       "r": 38,
       "g": 216,
       "b": 63,
-      "hex": "#26d83f",
-      "category": "building"
+      "hex": "#26d83f"
     },
     {
       "id": 118,
@@ -425,8 +159,7 @@
       "r": 71,
       "g": 61,
       "b": 51,
-      "hex": "#473d33",
-      "category": "building"
+      "hex": "#473d33"
     },
     {
       "id": 119,
@@ -434,8 +167,7 @@
       "r": 140,
       "g": 81,
       "b": 51,
-      "hex": "#8c5133",
-      "category": "building"
+      "hex": "#8c5133"
     },
     {
       "id": 120,
@@ -443,8 +175,7 @@
       "r": 114,
       "g": 30,
       "b": 25,
-      "hex": "#721e19",
-      "category": "building"
+      "hex": "#721e19"
     },
     {
       "id": 121,
@@ -452,8 +183,7 @@
       "r": 38,
       "g": 71,
       "b": 45,
-      "hex": "#26472d",
-      "category": "building"
+      "hex": "#26472d"
     },
     {
       "id": 122,
@@ -461,8 +191,7 @@
       "r": 56,
       "g": 30,
       "b": 20,
-      "hex": "#381e14",
-      "category": "building"
+      "hex": "#381e14"
     },
     {
       "id": 123,
@@ -470,8 +199,7 @@
       "r": 198,
       "g": 158,
       "b": 51,
-      "hex": "#c69e33",
-      "category": "building"
+      "hex": "#c69e33"
     },
     {
       "id": 124,
@@ -479,8 +207,7 @@
       "r": 255,
       "g": 216,
       "b": 127,
-      "hex": "#ffd87f",
-      "category": "building"
+      "hex": "#ffd87f"
     },
     {
       "id": 125,
@@ -488,8 +215,7 @@
       "r": 209,
       "g": 173,
       "b": 140,
-      "hex": "#d1ad8c",
-      "category": "character"
+      "hex": "#d1ad8c"
     },
     {
       "id": 126,
@@ -497,8 +223,7 @@
       "r": 15,
       "g": 15,
       "b": 17,
-      "hex": "#0f0f11",
-      "category": "character"
+      "hex": "#0f0f11"
     },
     {
       "id": 127,
@@ -506,8 +231,7 @@
       "r": 224,
       "g": 219,
       "b": 209,
-      "hex": "#e0dbd1",
-      "category": "character"
+      "hex": "#e0dbd1"
     },
     {
       "id": 128,
@@ -515,8 +239,7 @@
       "r": 30,
       "g": 20,
       "b": 15,
-      "hex": "#1e140f",
-      "category": "character"
+      "hex": "#1e140f"
     },
     {
       "id": 129,
@@ -524,8 +247,7 @@
       "r": 30,
       "g": 51,
       "b": 114,
-      "hex": "#1e3372",
-      "category": "character"
+      "hex": "#1e3372"
     }
   ],
   "voxels": [
@@ -101483,25 +101205,25 @@
       "id": 3,
       "name": "Torso",
       "color": "#4a90d9",
-      "desc": "Chest, back, shoulders — suit/shirt"
+      "desc": "Chest, back, shoulders \u00e2\u20ac\u201d suit/shirt"
     },
     {
       "id": 4,
       "name": "Arms",
       "color": "#50c878",
-      "desc": "Upper + lower arms — sleeves"
+      "desc": "Upper + lower arms \u00e2\u20ac\u201d sleeves"
     },
     {
       "id": 5,
       "name": "Hands",
       "color": "#e07070",
-      "desc": "Hands — skin or gloves"
+      "desc": "Hands \u00e2\u20ac\u201d skin or gloves"
     },
     {
       "id": 6,
       "name": "Legs",
       "color": "#daa520",
-      "desc": "Thighs + shins — pants"
+      "desc": "Thighs + shins \u00e2\u20ac\u201d pants"
     },
     {
       "id": 7,
@@ -101513,21 +101235,179 @@
       "id": 8,
       "name": "Head",
       "color": "#b08d68",
-      "desc": "Scalp/skull sides+back — hair & headwear coverage"
+      "desc": "Scalp/skull sides+back \u00e2\u20ac\u201d hair & headwear coverage"
     },
     {
       "id": 9,
       "name": "Top of Head",
       "color": "#8d6b4a",
-      "desc": "Crown — hat seat / headwear anchor"
+      "desc": "Crown \u00e2\u20ac\u201d hat seat / headwear anchor"
     },
     {
       "id": 10,
       "name": "Eyes",
       "color": "#40e0d0",
-      "desc": "Eye voxels — gaze centroid + glasses accessory anchor"
+      "desc": "Eye voxels \u00e2\u20ac\u201d gaze centroid + glasses accessory anchor"
     }
   ],
+  "pivots": {
+    "0": {
+      "x": 0.5,
+      "y": 0.3645833333333333,
+      "z": 0.5
+    },
+    "1": {
+      "x": 0.5,
+      "y": 0.5,
+      "z": 0.4895833333333333
+    },
+    "2": {
+      "x": 0.625,
+      "y": 0.46875,
+      "z": 0.4895833333333333
+    },
+    "3": {
+      "x": 0.3645833333333333,
+      "y": 0.46875,
+      "z": 0.4895833333333333
+    },
+    "4": {
+      "x": 0.5833333333333334,
+      "y": 0.2708333333333333,
+      "z": 0.5
+    },
+    "5": {
+      "x": 0.4166666666666667,
+      "y": 0.2708333333333333,
+      "z": 0.5
+    },
+    "6": {
+      "x": 0.5833333333333334,
+      "y": 0.125,
+      "z": 0.5
+    },
+    "7": {
+      "x": 0.4166666666666667,
+      "y": 0.125,
+      "z": 0.5
+    },
+    "8": {
+      "x": 0.75,
+      "y": 0.5,
+      "z": 0.4895833333333333
+    },
+    "9": {
+      "x": 0.23958333333333334,
+      "y": 0.5,
+      "z": 0.4895833333333333
+    }
+  },
+  "animParams": {
+    "aiming": {
+      "weaponType": "pistol",
+      "torsoTwist": 0.2,
+      "headYaw": 0,
+      "headPitch": -0.05,
+      "headTilt": 0,
+      "armSwingL": -1.4,
+      "armSwingR": 0,
+      "shoulderReachL": 0,
+      "shoulderReachR": 0,
+      "elbowBendL": 0.3,
+      "elbowBendR": 0
+    },
+    "crouching": {
+      "bodyLower": 0,
+      "modelLower": 11,
+      "bodyLean": 0.2,
+      "headPitch": -0.2,
+      "armSwingL": -0.23,
+      "armSwingR": -0.31,
+      "legStrideL": 1.34,
+      "legStrideR": -0.51,
+      "kneeBendL": 1.34,
+      "kneeBendR": 1.05,
+      "elbowBendL": 0.49,
+      "elbowBendR": 0.49
+    },
+    "crouchDeep": {
+      "bodyLower": 0,
+      "modelLower": 14.5,
+      "bodyLean": 0.67,
+      "headPitch": -0.26,
+      "armSwingL": -0.23,
+      "armSwingR": -0.31,
+      "legStrideL": 1.5,
+      "legStrideR": -0.92,
+      "kneeBendL": 0.78,
+      "kneeBendR": 0.66,
+      "elbowBendL": 1.23,
+      "elbowBendR": 0.84
+    },
+    "sitting": {
+      "headPitch": 0.0,
+      "armSwingL": 0.2,
+      "armSwingR": 0.2,
+      "legStrideL": 1.45,
+      "legStrideR": 1.45,
+      "kneeBendL": 1.45,
+      "kneeBendR": 1.45
+    }
+  },
+  "states": [
+    {
+      "id": 0,
+      "name": "Idle",
+      "desc": "Standing still"
+    },
+    {
+      "id": 1,
+      "name": "Walking",
+      "desc": "Walking cycle \u00e2\u20ac\u201d arms/legs swing"
+    },
+    {
+      "id": 2,
+      "name": "Looking",
+      "desc": "Head looking around \u00e2\u20ac\u201d scanning / checking environment"
+    },
+    {
+      "id": 3,
+      "name": "Aim Walk",
+      "desc": "Aiming pose (upper body) + walking gait (lower body)"
+    },
+    {
+      "id": 4,
+      "name": "Aiming",
+      "desc": "Static aiming pose \u00e2\u20ac\u201d arms raised, weapon-type presets"
+    },
+    {
+      "id": 5,
+      "name": "Crouching",
+      "desc": "Crouch pose \u00e2\u20ac\u201d legs bent, arms forward"
+    },
+    {
+      "id": 8,
+      "name": "Down",
+      "desc": "Lying down / defeated"
+    },
+    {
+      "id": 9,
+      "name": "T-Pose",
+      "desc": "Bind/rest pose \u00e2\u20ac\u201d raw rigging position as imported from the editor. No rotations applied. Use this to inspect the unmodified skeleton."
+    },
+    {
+      "id": 10,
+      "name": "Aim Sweep",
+      "desc": "Aiming pose \u00e2\u20ac\u201d aiming arm(s) sweep left\u00e2\u2020\u201dright (IK-aim shoulder exercise)"
+    },
+    {
+      "id": 11,
+      "name": "Sit",
+      "desc": "Seated \u00e2\u20ac\u201d thighs forward, shins bent down, torso upright, arms at sides"
+    }
+  ],
+  "savedAt": "2026-10-16T23:49:13.347Z",
+  "assetType": "character",
   "itemParts": {
     "48,35,48": 5,
     "48,48,47": 6,
@@ -101578,14 +101458,128 @@
     "48,22,46": 15,
     "48,23,45": 15
   },
+  "itemPartDefs": [
+    {
+      "id": 0,
+      "name": "Body / Erase",
+      "key": "body",
+      "color": "#888888",
+      "desc": "Unassigned \u2014 painting with this clears a voxel's point tag (eraser)"
+    },
+    {
+      "id": 1,
+      "name": "Right Hand",
+      "key": "right_hand",
+      "color": "#ff6b6b",
+      "desc": "Primary grip anchor \u2014 weapon grip_right lands here"
+    },
+    {
+      "id": 2,
+      "name": "Left Hand",
+      "key": "left_hand",
+      "color": "#00ff88",
+      "desc": "Support grip \u2014 two-handed weapons"
+    },
+    {
+      "id": 3,
+      "name": "Right Shoulder",
+      "key": "right_shoulder",
+      "color": "#ffaa00",
+      "desc": "Stock weld when shouldering a rifle"
+    },
+    {
+      "id": 4,
+      "name": "Cheek",
+      "key": "cheek",
+      "color": "#ffff00",
+      "desc": "Cheek weld position for aiming"
+    },
+    {
+      "id": 5,
+      "name": "Pivot Waist",
+      "key": "pivot_0",
+      "color": "#ff44ff",
+      "desc": "Body/torso rotation center (waist) \u2014 gid 0"
+    },
+    {
+      "id": 6,
+      "name": "Pivot Neck",
+      "key": "pivot_1",
+      "color": "#ff88ff",
+      "desc": "Head/neck joint \u2014 gid 1"
+    },
+    {
+      "id": 7,
+      "name": "Pivot Shoulder L",
+      "key": "pivot_2",
+      "color": "#ffee44",
+      "desc": "Left arm shoulder joint \u2014 gid 2"
+    },
+    {
+      "id": 8,
+      "name": "Pivot Shoulder R",
+      "key": "pivot_3",
+      "color": "#ffcc00",
+      "desc": "Right arm shoulder joint \u2014 gid 3"
+    },
+    {
+      "id": 9,
+      "name": "Pivot Hip L",
+      "key": "pivot_4",
+      "color": "#44ffee",
+      "desc": "Left leg hip joint \u2014 gid 4"
+    },
+    {
+      "id": 10,
+      "name": "Pivot Hip R",
+      "key": "pivot_5",
+      "color": "#00ddaa",
+      "desc": "Right leg hip joint \u2014 gid 5"
+    },
+    {
+      "id": 11,
+      "name": "Pivot Knee L",
+      "key": "pivot_6",
+      "color": "#4488ff",
+      "desc": "Left shin knee joint \u2014 gid 6"
+    },
+    {
+      "id": 12,
+      "name": "Pivot Knee R",
+      "key": "pivot_7",
+      "color": "#2266ff",
+      "desc": "Right shin knee joint \u2014 gid 7"
+    },
+    {
+      "id": 13,
+      "name": "Pivot Elbow L",
+      "key": "pivot_8",
+      "color": "#ff8844",
+      "desc": "Left forearm elbow joint \u2014 gid 8"
+    },
+    {
+      "id": 14,
+      "name": "Pivot Elbow R",
+      "key": "pivot_9",
+      "color": "#ff6622",
+      "desc": "Right forearm elbow joint \u2014 gid 9"
+    },
+    {
+      "id": 15,
+      "name": "Seat",
+      "key": "seat",
+      "color": "#44aaff",
+      "desc": "Pelvis/butt contact anchor \u2014 vehicle/bench seat_* aligns here while sitting"
+    }
+  ],
   "attachmentPoints": {
-    "right_hand": {
+    "left_hand": {
       "x": 12.5,
       "y": 46.5,
       "z": 46.5,
       "gid": 9
     },
-    "left_hand": {
+    "right_hand": {
       "x": 82.5,
       "y": 46.5,
       "z": 46.5,
@@ -101652,18 +101646,17 @@
       "gid": 9
     },
     "seat": {
-      "x": 48,
+      "x": 48.0,
       "y": 22.167,
-      "z": 45,
+      "z": 45.0,
       "gid": 0
     }
   },
+  "handedness": "unity",
   "attachRotation": {
     "x": 0,
     "y": 0,
     "z": 0
   },
-  "bgColor": "#0e0107",
-  "format": "steelcity_character",
-  "version": 1
+  "bgColor": "#241b3f"
 }

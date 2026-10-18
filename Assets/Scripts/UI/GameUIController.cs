@@ -58,7 +58,8 @@ namespace SteelCity.Sim
         [SerializeField] private Button patrolButton;
         [SerializeField] private Button intimidateButton;
         [SerializeField] private Button lieLowButton;
-        [SerializeField] private Button targetPracticeButton;
+        [SerializeField, UnityEngine.Serialization.FormerlySerializedAs("targetPracticeButton")]
+        private Button testWeekButton;
 
         [Header("=== BOTTOM BAR ===")]
         [SerializeField] private Transform eventLogContent;
@@ -82,10 +83,12 @@ namespace SteelCity.Sim
         [SerializeField] private int randomSeed = -1;
 
         [Header("=== ORDERS ===")]
-        [Tooltip("Target Practice: character dwells at the firing position and the week stays OPEN for weapons testing until Enter is pressed. Uncheck to have him walk home after the order.")]
-        [SerializeField] private bool targetPracticeDwells = true;
-        [Tooltip("Target Practice: teleport the character onto the resolved firing_position at week start instead of walking there. Dev convenience for the weapons bench — the order still runs normally, the walk is just zero-length.")]
-        [SerializeField] private bool targetPracticeSkipWalk = true;
+        [Tooltip("Test Week: the open-week debug order — character dwells at the testbed's stand point and the week stays OPEN for feature testing until Enter is pressed. Uncheck to have him walk home after the order.")]
+        [SerializeField, UnityEngine.Serialization.FormerlySerializedAs("targetPracticeDwells")]
+        private bool testWeekDwells = true;
+        [Tooltip("Test Week: teleport the character onto the resolved firing_position/stand point at week start instead of walking there. Dev convenience — the order still runs normally, the walk is just zero-length.")]
+        [SerializeField, UnityEngine.Serialization.FormerlySerializedAs("targetPracticeSkipWalk")]
+        private bool testWeekSkipWalk = true;
 
         [Header("=== COLORS ===")]
         [SerializeField] private Color playerColor = new(0.29f, 0.62f, 1.0f);
@@ -150,15 +153,15 @@ namespace SteelCity.Sim
             engine = new GameEngine(gameData);
             engine.Setup();
 
-            // Target Practice button — auto-create by cloning Lie Low when the
+            // Test Week button — auto-create by cloning Lie Low when the
             // serialized field is unassigned, so the order works with no scene edit.
-            if (targetPracticeButton == null && lieLowButton != null)
+            if (testWeekButton == null && lieLowButton != null)
             {
                 var clone = Instantiate(lieLowButton.gameObject, lieLowButton.transform.parent);
-                clone.name = "TargetPracticeButton";
-                targetPracticeButton = clone.GetComponent<Button>();
+                clone.name = "TestWeekButton";
+                testWeekButton = clone.GetComponent<Button>();
                 var label = clone.GetComponentInChildren<TMP_Text>();
-                if (label != null) label.text = "Target\nPractice";
+                if (label != null) label.text = "Test\nWeek";
                 var img = clone.GetComponent<Image>();
                 if (img != null) img.color = new Color(0.20f, 0.50f, 0.55f); // teal — distinct in the row
             }
@@ -170,7 +173,7 @@ namespace SteelCity.Sim
                 ["patrol"] = patrolButton,
                 ["intimidate"] = intimidateButton,
                 ["lie_low"] = lieLowButton,
-                ["target_practice"] = targetPracticeButton
+                ["test_week"] = testWeekButton
             };
 
             foreach (var (orderType, btn) in orderButtons)
@@ -1160,11 +1163,12 @@ namespace SteelCity.Sim
             Vector3 targetLocalPos = ComputeBlockCenterLocal(targetBlock);
             Vector3? faceTargetLocal = null;
 
-            // Target Practice: walk to the building's authored firing_position and
+            // Test Week: walk to the building's authored firing_position and
             // face its firing_target — falls back to block center when absent.
             // Multi-lane ranges: the Combat tab's lane/aim selection picks the
             // suffixed point names (firing_position_1..3, glass_target, ...).
-            if (order.orderType == "target_practice")
+            // Cover pit: firing_position aliases to cover_stand_a (same convention).
+            if (order.orderType == "test_week")
             {
                 int lane = Mathf.Clamp(DebugHUDManager.RangeLane, 1, 3);
                 string posName = $"firing_position_{lane}";
@@ -1178,7 +1182,7 @@ namespace SteelCity.Sim
                     targetLocalPos = firePos;
                     // Dev convenience: snap the character onto the firing spot so the
                     // week's first move is zero-length and he dwells immediately.
-                    if (targetPracticeSkipWalk)
+                    if (testWeekSkipWalk)
                     {
                         var mnt = character.GetComponent<WeaponMount>();
                         Vector3 half = mnt != null
@@ -1188,7 +1192,7 @@ namespace SteelCity.Sim
                         snapWorld.y = character.transform.position.y;
                         character.transform.position = snapWorld;
                         startLocalPos = snapWorld - cityMap.MapRoot.position;
-                        AddEventLogEntry($"[ORDER] Target Practice — spawned at {posName} (walk skipped)", goldColor);
+                        AddEventLogEntry($"[ORDER] Test Week — spawned at {posName} (walk skipped)", goldColor);
                     }
                 }
                 if (cityMap.TryGetBuildingPointLocal(order.blockId, tgtName, out var aimPos)
@@ -1210,8 +1214,8 @@ namespace SteelCity.Sim
 
             // Create SimulationManager (pure logic, no rendering)
             simManager = new SimulationManager(waypointGraph, engine);
-            simManager.targetPracticeDwells = targetPracticeDwells;
-            simManager.skipTargetPracticeActionTicks = targetPracticeSkipWalk;
+            simManager.testWeekDwells = testWeekDwells;
+            simManager.skipTestWeekActionTicks = testWeekSkipWalk;
             Debug.Log("[GameUIController] SimulationManager created");
 
             // Focus camera on HQ block BEFORE creating EventPlayer,

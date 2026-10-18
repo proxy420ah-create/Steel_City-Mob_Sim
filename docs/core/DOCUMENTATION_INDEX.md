@@ -198,6 +198,12 @@
   - Provenance colors (blue/orange/green), click-to-select, promote writes the .cs literal + recompiles in-session
   - Adoption contract for new systems + candidate applications (combat, economy, police, order timing)
 
+**UI Development Pitfalls:**
+- **`docs/core/UI_DEVELOPMENT_PITFALLS.md`** — Traps when modifying the Unity UI layer (IMGUI + uGUI)
+  - Runtime-created components invisible at edit time; serialized defaults vs inspector overrides; enum serialization
+  - `FindFirstObjectByType` cost rules — pitfall #7 (per-frame Update finds) + #12 (OnGUI fires multiple events/frame → finds inside `Draw*Tab()` multiply into a sustained FPS cap)
+  - `GetOrCreate` in tab code spawns permanently-running singletons — keep idle Updates cheap
+
 **Business Taxonomy → Asset Generation:**
 - **`docs/core/BUSINESS_TAXONOMY_ASSET_GENERATION.md`** — Cross-layer contract pinning the generator roadmap to RE business data
   - 8 business groups → asset classes (commercial slots, industrial, residential, warehouses, charity, municipal, interactive tenements)
@@ -217,7 +223,7 @@
   - Weighted influence model with configurable falloff (linear, gaussian, exponential)
   - Export JSON format with zone metadata for Unity consumption
 
-**Keywords**: design, philosophy, principles, source, analysis, xtx, decoding, ghidra, reverse engineering, binary, decompilation, orders, vehicles, timing, combat, pathfinding, sim_tick, traffic, integration, engine, architecture, scripting, vtable, pattern scan, city layout, seam types, alley, main street, trolley, dead-end, waypoint scanner, material ids, city editor, game data, constants, economics, export, counterfeit, liquor, stolen goods, warehouse, docks, railroad terminal, business fronts, suspicion, FBI, bribes, fear, hostility, squeal, zoning, rail line, industrial, commercial, residential, performance, optimization, GPU instancing, flood fill, epoch marks, dirty tracking, compute buffer, partial upload, business taxonomy, bref, building reference, asset archetypes, storefront, factory, tenement, number present, city capacity, slot semantics, illegal center, generator roadmap
+**Keywords**: design, philosophy, principles, source, analysis, xtx, decoding, ghidra, reverse engineering, binary, decompilation, orders, vehicles, timing, combat, pathfinding, sim_tick, traffic, integration, engine, architecture, scripting, vtable, pattern scan, city layout, seam types, alley, main street, trolley, dead-end, waypoint scanner, material ids, city editor, game data, constants, economics, export, counterfeit, liquor, stolen goods, warehouse, docks, railroad terminal, business fronts, suspicion, FBI, bribes, fear, hostility, squeal, zoning, rail line, industrial, commercial, residential, performance, optimization, GPU instancing, flood fill, epoch marks, dirty tracking, compute buffer, partial upload, business taxonomy, bref, building reference, asset archetypes, storefront, factory, tenement, number present, city capacity, slot semantics, illegal center, generator roadmap, imgui, ongui, ui pitfalls, findfirstobjectbytype, event multiplier
 
 ---
 
@@ -283,6 +289,14 @@
   - `VoxelVehicle` registers yawed collision volumes; `CoverFinder` validates cover by real LOS raycast from the threat
   - `VoxelDamageSystem.EnsureWritable` promotes `veh_*` targets into private-buffer singleton groups (bullet holes, windshield shatter)
   - `CombatController` on Vinny: EnterCombat → SeekingCover (steer, slide) → InCover (Crouching pose + ArmAimSolver)
+- **`docs/systems/COVER_HEIGHTFIELD.md`** — SPEC: measured-body cover rebuild — silhouette-top `h(d)` instead of eye constants
+  - `ColumnTopY` ground probe (standing on voxels is additive), `wallIdxOf` cell bookkeeping, Step layer (step-up nav), digit-atlas height blit into the field overlay
+  - Canonical scale: Vinny = 0.62m (62 vox @ 0.01); world voxels = 0.05m
+
+**Debug & Test Harness:**
+- **`docs/systems/TEST_WEEK.md`** — the open-week debug order (formerly `target_practice`): holds the week in `Dwelling` state so feature testbeds are live
+  - Testbed registry: `shooting_range` (firing lanes), `cover_pit` (symmetric duel), `debris_test_lot` (blast testing) — routed by authored attachment points
+  - `testWeekDwells`/`testWeekSkipWalk` toggles; `Enter` releases the week
 
 **Weapon & Item Models:**
 - **`docs/systems/WEAPON_ITEM_MODEL_STANDARD.md`** — Voxel modeling standards for weapons, items, and props
@@ -374,6 +388,7 @@
   - Shader animation "Approach A" (output-only offset invisible — must use inverse-transform sampling in DDA)
   - Missing CharacterAnimation component on spawned hood (animState stays 0, pipeline fed zeros)
   - Coordinate-space mismatch (region centroid +0.5 off — index vs cell-center space)
+  - Stripped `handedness` marker (gun backwards at idle — IK solver masked the bad static roll)
   - Key voxel engine constants table (terrain thickness, voxel sizes, index formula, animation groups)
 
 **Voxel Coordinate Spaces (normative):**

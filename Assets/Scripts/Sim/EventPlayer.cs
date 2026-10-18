@@ -281,9 +281,9 @@ namespace SteelCity.Sim
 
                 case SimEventType.DialogStart:
                     Log($"[Tick {evt.tickElapsed}] {evt.orderType.ToUpper()} dialog started at {evt.blockId} ({evt.dialogTotalTicks} ticks)");
-                    // NOTE: target_practice deliberately stays in Idle during the
+                    // NOTE: test_week deliberately stays in Idle during the
                     // action phase — Idle is the base pose for future IK-driven
-                    // dynamic aiming (the weapons-testing dwell phase).
+                    // dynamic aiming (the open-week dwell phase).
                     OnStateChanged?.Invoke(simManager.State, evt.tickElapsed, evt.tickRemaining);
                     break;
 

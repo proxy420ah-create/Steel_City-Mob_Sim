@@ -261,6 +261,20 @@ namespace SteelCity.Sim
         public int QueryCoverWalls(Vector3 center, float radius, float minSpanWorld, float openAtWorld, List<CoverWall> results)
             => volumes.QueryCoverWalls(center, radius, minSpanWorld, openAtWorld, results);
 
+        /// <summary>World Y of the solid column top under `pos` — the character's
+        /// support surface for the cover heightfield. Downward ray from
+        /// `pos + probeUp` through `probeDown`; hits volumes AND terrain, so
+        /// standing on crates/rubble/curbs reads correctly (additive height).
+        /// Returns false when nothing solid is found below.</summary>
+        public bool TryColumnTop(Vector3 pos, float probeUp, float probeDown, out float topY)
+        {
+            topY = 0f;
+            if (!Raycast(pos + Vector3.up * probeUp, Vector3.down, probeUp + probeDown,
+                    out VoxelRayHit hit)) return false;
+            topY = hit.point.y;
+            return true;
+        }
+
         /// <summary>
         /// 3D voxel raycast against the terrain grid and every registered volume; returns the nearest hit
         /// within maxDistance. direction need not be normalized. Allocation-free (~2 µs per shot on the

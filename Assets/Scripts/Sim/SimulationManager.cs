@@ -38,7 +38,7 @@ namespace SteelCity.Sim
             { "assault", 6000 },
             { "kill", 6000 },
             { "stand", 0 },
-            { "target_practice", 166 }
+            { "test_week", 166 }
         };
 
         public SimState State => state;
@@ -74,16 +74,16 @@ namespace SteelCity.Sim
         private int dialogTotalTicks;
         private bool entryMovePending;  // emit final move into building center after last waypoint
 
-        /// <summary>When true, target_practice resolves the order but holds the
-        /// week OPEN — the character dwells at the firing position in Idle and
+        /// <summary>When true, test_week resolves the order but holds the week
+        /// OPEN — the character dwells at the testbed's stand point in Idle and
         /// the sim never completes until ReleaseDwell() (Enter) is called.
-        /// Debug weapons-testing phase.</summary>
-        public bool targetPracticeDwells = true;
+        /// THE open-week debug harness — see docs/systems/TEST_WEEK.md.</summary>
+        public bool testWeekDwells = true;
 
-        /// <summary>Dev: collapse the target_practice action phase to zero ticks —
+        /// <summary>Dev: collapse the test_week action phase to zero ticks —
         /// arrival resolves the order and dwells immediately (pairs with the
-        /// spawn-at-position skip-walk so the weapons bench is ready instantly).</summary>
-        public bool skipTargetPracticeActionTicks;
+        /// spawn-at-position skip-walk so the testbed is ready instantly).</summary>
+        public bool skipTestWeekActionTicks;
 
         /// <summary>Release a held week — completes the sim so the normal
         /// week-end transition runs. No-op unless currently dwelling.</summary>
@@ -352,10 +352,10 @@ namespace SteelCity.Sim
         {
             ResolveOrderAtTarget();
 
-            // Target practice dwell: order resolved, but hold the week OPEN —
-            // the character stays at the firing position in Idle and the sim
+            // Test Week dwell: order resolved, but hold the week OPEN —
+            // the character stays at the stand point in Idle and the sim
             // consumes no ticks until ReleaseDwell() is called (Enter key).
-            if (activeOrder.orderType == "target_practice" && targetPracticeDwells)
+            if (activeOrder.orderType == "test_week" && testWeekDwells)
             {
                 SetState(SimState.Dwelling);
                 return;
@@ -397,7 +397,7 @@ namespace SteelCity.Sim
         int GetOrderActionTicks(Order order)
         {
             if (order == null) return 0;
-            if (order.orderType == "target_practice" && skipTargetPracticeActionTicks) return 0;
+            if (order.orderType == "test_week" && skipTestWeekActionTicks) return 0;
             if (OrderActionTicks.TryGetValue(order.orderType, out int ticks))
                 return ticks;
             return 100; // default fallback for unknown orders
@@ -453,15 +453,16 @@ namespace SteelCity.Sim
                         ticksElapsed, ticksRemaining));
                     break;
 
-                case "target_practice":
-                    // Range time: modest firearms bump, always "succeeds" —
-                    // the block supplies the firing_position/firing_target points.
+                case "test_week":
+                    // Field exercise: modest firearms bump, always "succeeds" —
+                    // the block supplies the stand points for whatever testbed
+                    // is installed there (range lanes, cover pit, debris lot...).
                     int before = hood.GetSkill("firearms");
                     hood.skills["firearms"] = before + 2;
-                    string dwellNote = targetPracticeDwells ? " — dwelling at range (Enter ends week)" : "";
+                    string dwellNote = testWeekDwells ? " — test week open (Enter ends week)" : "";
                     eventStream.Enqueue(SimEvent.OrderResolved(
                         activeOrder.orderType, targetBlockId, true,
-                        $"{hood.name} practiced marksmanship at the range (firearms {before} -> {before + 2}){dwellNote}",
+                        $"{hood.name} ran a field exercise (firearms {before} -> {before + 2}){dwellNote}",
                         ticksElapsed, ticksRemaining));
                     break;
 

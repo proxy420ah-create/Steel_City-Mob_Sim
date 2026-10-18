@@ -24,7 +24,7 @@ namespace SteelCity.Sim
 
         [Header("Wave visuals")]
         [Tooltip("Draw expanding report shells for 3D sfx")]
-        public bool showWaves = true;
+        public bool showWaves = false;   // beam-flood emitter — off by default (perf baseline); SFX tab opts in
         [Tooltip("Visual expansion speed (m/s) — slowed for inspection; real sound is ~343 m/s")]
         [Range(5f, 343f)] public float waveSpeed = 45f;
         [Tooltip("Segments per ring (3 rings per wave)")]

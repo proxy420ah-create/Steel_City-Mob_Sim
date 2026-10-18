@@ -45,6 +45,7 @@ namespace SteelCity.Sim
         private ArmAimSolver solver;
         private CharacterAnimation anim;
         private CharacterRig rig;
+        private CharacterAnimation.AnimState? testPose; // Alt+mnemonic latch — beats the per-frame aim request
         private bool prevControllable;
         private bool prevFreedom;
         private float prevOrbit;
@@ -140,10 +141,34 @@ namespace SteelCity.Sim
                     vinny.transform.rotation, want, turnSpeed * Time.deltaTime);
             }
 
-            // --- Anim state: aim-walk when moving, aim when still ---
+            // --- Anim test poses: Alt + mnemonic latches a PRIORITY_DEBUG
+            // override (same letters as the test rigs — Alt keeps them clear
+            // of WASD/camera). Re-requested per frame so nothing outranks it;
+            // Alt+X releases back to the normal aim pose.
+            if (kb.altKey.isPressed)
+            {
+                CharacterAnimation.AnimState? pick = null;
+                if (kb.iKey.wasPressedThisFrame) pick = CharacterAnimation.AnimState.Idle;
+                else if (kb.wKey.wasPressedThisFrame) pick = CharacterAnimation.AnimState.Walking;
+                else if (kb.lKey.wasPressedThisFrame) pick = CharacterAnimation.AnimState.Looking;
+                else if (kb.jKey.wasPressedThisFrame) pick = CharacterAnimation.AnimState.AimWalk;
+                else if (kb.aKey.wasPressedThisFrame) pick = CharacterAnimation.AnimState.Aiming;
+                else if (kb.cKey.wasPressedThisFrame) pick = CharacterAnimation.AnimState.Crouching;
+                else if (kb.fKey.wasPressedThisFrame) pick = CharacterAnimation.AnimState.Flinching;
+                else if (kb.dKey.wasPressedThisFrame) pick = CharacterAnimation.AnimState.Down;
+                else if (kb.tKey.wasPressedThisFrame) pick = CharacterAnimation.AnimState.TPose;
+                else if (kb.sKey.wasPressedThisFrame) pick = CharacterAnimation.AnimState.AimSweep;
+                else if (kb.bKey.wasPressedThisFrame) pick = CharacterAnimation.AnimState.Sitting;
+                else if (kb.xKey.wasPressedThisFrame)
+                { testPose = null; Debug.Log("[Possess] test pose released — back to aim"); }
+                if (pick.HasValue)
+                { testPose = pick.Value; Debug.Log($"[Possess] test pose → {testPose.Value} (Alt+X releases)"); }
+            }
+
+            // --- Anim state: latched test pose wins; else aim-walk/aim ---
             if (anim != null)
-                anim.RequestPose(moving ? CharacterAnimation.AnimState.AimWalk
-                                        : CharacterAnimation.AnimState.Aiming,
+                anim.RequestPose(testPose ?? (moving ? CharacterAnimation.AnimState.AimWalk
+                                                     : CharacterAnimation.AnimState.Aiming),
                                  CharacterAnimation.PRIORITY_DEBUG);
 
             // --- Orbit pivot pins to his head (over-the-shoulder framing) ---
@@ -261,6 +286,7 @@ namespace SteelCity.Sim
         private void Release()
         {
             Active = false;
+            testPose = null;
             if (solver != null && solver.IsAiming) solver.Disarm();
             if (anim != null)
             {
@@ -297,6 +323,11 @@ namespace SteelCity.Sim
             float cy = (1f - cam.rect.y) * Screen.height - cam.rect.height * Screen.height * 0.5f;
             GUI.DrawTexture(new Rect(cx - 8f, cy - 0.75f, 16f, 1.5f), crossTex);
             GUI.DrawTexture(new Rect(cx - 0.75f, cy - 8f, 1.5f, 16f), crossTex);
+
+            // Latched test-pose readout under the crosshair
+            if (testPose.HasValue)
+                GUI.Label(new Rect(cx + 14f, cy - 8f, 260f, 18f),
+                    $"pose: {testPose.Value}  (Alt+X releases)");
         }
     }
 }

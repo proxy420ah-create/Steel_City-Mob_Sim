@@ -292,6 +292,103 @@ The animator renders voxel `i` centered at `(i - dims/2)` — **index space** ("
 
 ---
 
+## Gotcha #9: Stripped `handedness` Marker — Gun Backwards at Idle, Fine Under IK
+
+**Date**: March 2026
+**Severity**: HIGH — silent 180° weapon flip; masked by the IK solver so it only appeared in un-solved poses
+**Files**: `character_animator.html` export, `WeaponMount.cs:234`, `CharacterAssets.cs:187`
+**Spec**: `docs/systems/WEAPON_ATTACHMENT_SYSTEM.md` — "Handedness Marker & Mount Compensation"
+
+### Symptom
+
+Model-10 sat **backwards in Vinny's palm** at idle — but aimed correctly the moment IK engaged. Any hand-tuned rotation fix would have flipped the working case.
+
+### Root Cause
+
+The animator's export only wrote fields it owned — `handedness:"unity"` (the promote-script marker) wasn't one of them → silently stripped. `CharacterAssets.UnityHanded` fell to `false` → `WeaponMount`'s +180° unity-hand roll compensation (`(hand==Left) != mirroredRig → e.x += 180`) was skipped → the authored `attachRotation` landed 180° off in the static bind frame.
+
+Under IK the solver re-derives the *entire* hand rotation per frame (bore→target, sights→up), so the bad static roll was invisible while aiming — the bug only had a window in poses nobody solves.
+
+### Fix
+
+Marker restored into `Civilian1.json`; animator now carries `handedness`/`attachRotation`/`bgColor`/`assetType`/item fields verbatim via `carriedFields` (both load paths). See also the round-trip entry above.
+
+### Defense Going Forward
+
+- **"Correct under IK, wrong at rest" = check the marker/compensation path, not the authored rotation.** Solver-corrected systems hide bind-frame errors — always diagnose orientation on the un-solved pose.
+- **A metadata field can change world geometry.** `handedness` is one string that costs nothing to keep and 180° to lose — invisible-file, visible-world. Every loader→exporter pair must carry fields it doesn't own.
+
+---
+
+## Gotcha #10: UI Tabs Constructing Sim Components — Behavior Gated Behind Tab Opens
+
+**Date**: March 2026
+**Severity**: MEDIUM — features silently absent until the right debug tab was opened; one latent NullRef
+**Files**: `DebugHUDManager.cs` (draw methods), `CityMap3D.WaitForCharacterSpawn`, `CombatController.EnterCombat`
+
+### Symptom
+
+The vision FOV wedge and cover scan didn't exist at spawn — they appeared only **after opening the VISION/COVER tabs**, because the tab draw methods lazily `AddComponent`ed the sensors on first draw.
+
+### Root Cause
+
+The HUD tabs owned component *lifecycle* instead of just *inspection*: `if (sensor == null) sensor = AddComponent<Sensor>()`. Until a human opened the tab, the sim component — and its per-frame Update, visuals, and scan state — simply didn't exist.
+
+An audit for the same pattern surfaced a worse variant: `CombatController.EnterCombat` did `solver = GetComponent<ArmAimSolver>()` (Get-**only**), then called `solver.Arm(threatPos)` unguarded — and the only attach paths for `ArmAimSolver` were the weapons tab's lazy draw and `PossessController.TryPossess`. **ENTER COMBAT before either → NullReferenceException on cover arrival.**
+
+A second, subtler companion bug: an early fix attached `VisionSensor` to `HoodSpawner`'s `Hood_Debug` — but every tab and `PossessController` inspect `cityMap.SpawnedCharacter`, a *different* character. The sensor was on; the inspected character still had none.
+
+### Fix
+
+- All four HUD-inspectable sim components (`VisionSensor`, `CoverSensor`, `ArmAimSolver`, `CombatController`) attach at `SpawnedCharacter` assignment — all idle cleanly (`Blend<=0`, `State==Idle`, `Threat==null` early-outs).
+- `CombatController` solver lookup upgraded to Get-or-**Add** — self-sufficient on any spawn path (test rigs, future NPCs), matching how it already handled `CoverSensor`.
+- Tab lazy `AddComponent`s retained as harmless fallbacks for non-`CityMap3D` spawns.
+
+### Defense Going Forward
+
+- **Tabs inspect, they don't construct.** A `Draw*Tab` method that mutates the scene graph is a smell — if the component's absence changes world behavior, attach it at spawn/assignment and let the tab only `GetComponent`.
+- **Get-only + unguarded use = latent ordering crash.** Any dependency a sim component needs must be Get-or-Add'd or fail loudly with a named error — never assume some UI ran first.
+- **Attach to the canonical reference.** With multiple characters in scene, verify *which* object the consumers actually inspect (`cityMap.SpawnedCharacter` here) — a correctly-attached component on the wrong character is indistinguishable from missing.
+
+---
+
+## Gotcha #11: `out var` in `&&` Conditions — Definite-Assignment Trap (CS0165)
+
+**Date**: March 2026
+**Severity**: LOW — compile-time catch, but recurring and easy to write
+**Files**: `DebugHUDManager.cs` (`DrawCombatTab` pit detection)
+
+### Symptom
+
+`error CS0165: Use of unassigned local variable 'pitBLocal'` — from:
+
+```csharp
+bool pit = cityMap.TryGetBuildingPointLocal(id, "cover_stand_a", out var pitALocal)
+        && cityMap.TryGetBuildingPointLocal(id, "cover_stand_b", out var pitBLocal);
+if (pit) { Use(pitBLocal); }   // CS0165
+```
+
+### Root Cause
+
+`&&` short-circuits: when the left `TryGet` returns false, the right never runs and `pitBLocal` is never assigned. C# definite-assignment analysis knows `pitBLocal` is assigned *when the && expression is true* — but assigning that result to `pit` and later testing `if (pit)` breaks the correlation: the compiler can't prove `pit == true` implies the right operand executed.
+
+### Fix
+
+Split the calls so out-vars are unconditionally assigned:
+
+```csharp
+bool pitA = cityMap.TryGetBuildingPointLocal(id, "cover_stand_a", out var pitALocal);
+bool pitB = cityMap.TryGetBuildingPointLocal(id, "cover_stand_b", out var pitBLocal);
+bool pit = pitA && pitB;
+```
+
+### Defense Going Forward
+
+- **`TryGet out var` inside `&&`/`||` is safe only when the out-var is used inside the same expression's true-path.** The moment the result is stored in a bool and branched on later, split the calls.
+- Same trap family as Gotcha #10's ordering bugs: *conditional execution creating invisible dependencies* — here the dependency is on evaluation order the compiler won't track for you.
+
+---
+
 ## Appendix: Key Voxel Engine Constants
 
 | Constant | Value | Location |

@@ -184,6 +184,50 @@ Keep all HTML tools self-contained (inline scripts + CDN libs). If a tool needs 
 
 ---
 
+## 12. OnGUI Fires Multiple Events Per Frame — Finds Inside Draw*Tab() Multiply
+
+**Affected**: Any `Draw*Tab()` / `OnGUI` body that calls `FindFirstObjectByType`, `FindObjectsByType`, or `GetComponent` chains
+
+Pitfall #7 covers per-frame finds — IMGUI is worse: `OnGUI` runs once per **event** (Layout + Repaint + used mouse/key events ≈ 2–4+ calls per rendered frame). A single `FindFirstObjectByType` inside a draw method is therefore a **full scene scan several times per frame**, not once.
+
+**Real example** (Oct 2026): `DrawSfxTab` called `FindFirstObjectByType<AudioListener>()` inline. Opening the SFX tab took FPS 120 → 40 instantly. The same file already throttled `RefreshReferences` ("8 of them per IMGUI event was a measurable stall") — new tab code just wasn't held to the rule.
+
+**Fix**: cache on the existing 1-second cadence, never inline in a draw method:
+
+```csharp
+private AudioListener sfxListener;                 // field
+// in Update(), inside the existing `clothingListRefreshTimer >= 1f` block:
+sfxListener = FindFirstObjectByType<AudioListener>();
+// in Draw*Tab(): read the field — plus ONE lazy resolve for first-second UX:
+var listener = sfxListener != null ? sfxListener
+    : (sfxListener = FindFirstObjectByType<AudioListener>());
+```
+
+**Sibling trap**: `XxxSystem.GetOrCreate()` inside a tab method lazily spawns a singleton whose `Update()` then runs every frame *forever after* — even when the user closes the tab. If a newly spawned system's Update does real work, that's a persistent cap, not a while-open one. Keep spawned-system Updates cheap-when-idle (early-out on empty lists).
+
+**Related**: `docs/known_issues/runtime/PERF_DEBUG_BEAM_EMISSION_FLOOD.md` — per-frame `DrawMeshInstanced` debug emitters (beam rings/cones/rays) are the other res-independent 120→40 regression; debug emit flags now default off.
+
+---
+
+## 13. Widget Count × Event Multiplier — Live Tabs Hit a Density Cliff
+
+**Affected**: Any `Draw*Tab()` with live controls (sliders/toggles/buttons), especially loops that draw a row per scene object
+
+**Symptom** (Oct 2026 tab matrix): text-cached tabs (Camera/Render/Path/Keys) ran 120 FPS, BuildLog 100, and every *live* tab — SFX, Clothing, Combat, Cover, TanSuit, Demolitions, MatRes — dropped to ~40 FPS. The original frame-tax fix cached the text tabs but left interactive ones rebuilding all widgets per event.
+
+The cost model: `total ≈ widgets × events/frame` — Layout + Repaint + input ≈ 4–6× per frame, and **loops multiply silently**: `DrawClothingTab` drew one button per `CharacterRig`/`ClothingSystem` (~53 rigs → ~100 buttons per event ≈ 500 control evals/frame). IMGUI does not cull scrolled-off controls — long tabs pay for everything below the fold.
+
+**Fix**: `SecFold(key, title)` foldout headers (`DebugHUDManager`) — a collapsed section costs 1 toggle instead of N controls; state persists for the session; `open all`/`close all` under the tab rows. Sections default open so UX is unchanged until collapsed. Rules for folding:
+- Compute that later code reads (`hasPos`/`tgtWorld` in Combat) stays **outside** the fold — fold display only.
+- Per-`Find*` calls inside loops/tabs get a 1s-cached property (`TanSuitRef`), not an inline call.
+- Watch shared locals across fold boundaries (`bool dirty`, loop counters) — declare them per-fold or hoist.
+
+**Also bounded**: lazy-resolve fallbacks that call `Find*` when the cache is null retry *every event* if the object truly doesn't exist — gate retries on a timestamp (`sfxListenerRetryAt`).
+
+**Update — the real wall was native, not managed**: a `Stopwatch` around the whole `OnGUI` body measured ~1ms/frame while the frame ran 22ms at 44fps. The cost is the **native IMGUI playback** — mesh/text generation billed to `EditorLoop`, scaling with drawn content, invisible to C# instrumentation. A/B: suppressing just the tab body (`hudLite`) restored 120fps with the full window visible. **Resolution**: `hudLocked` — locked tabs render one cached label rebuilt ~4Hz (the text-tab pattern); read-only mirrors keep state observable; `L` key or the LOCKED button unlocks for tuning. Widget-count reduction (foldouts) remains useful but cannot defeat the draw-path cost — text is the cheap architecture.
+
+---
+
 ## Summary Checklist
 
 When modifying UI code:
@@ -194,6 +238,9 @@ When modifying UI code:
 - [ ] Verify Inspector references are wired (check `RunPreflightCheck()`)
 - [ ] Handle both Planning and Working phase UI updates
 - [ ] Cache `FindFirstObjectByType` references, don't call per-frame
+- [ ] Never call Find*/GetComponent scans inline in `OnGUI`/`Draw*Tab()` — events fire several times per frame; cache on the 1s refresh cadence
+- [ ] `GetOrCreate` in a tab spawns a permanently-running singleton — keep its idle Update cheap (early-outs)
+- [ ] Watch widget count on live tabs — loops over scene objects (rigs/systems/material rows) multiply the per-event tax; wrap dense sections in `SecFold` foldouts
 - [ ] Check Canvas sorting order doesn't conflict
 - [ ] Test that TickHUD event log is still visible after adding fields
 - [ ] For HTML tools: inline external data files, ignore `file://` CORS warnings

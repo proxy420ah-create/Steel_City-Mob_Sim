@@ -39,11 +39,13 @@ namespace SteelCity.Sim
         [Tooltip("Seconds of no-visibility to fully forget.")]
         public float decayTime = 2.0f;
         [Tooltip("Eye height when no anim data exists (m).")]
-        public float eyeFallback = 1.55f;
+        public float eyeFallback = 0.55f;
 
         [Header("Visualization (VISION tab)")]
-        public bool showCone = true;
-        public bool showTargetRay = true;
+        public bool showCone = false;
+        [Tooltip("Sprite wedge fill — renders BEHIND the raymarched world (depth-tested scene mesh); superseded by V-mode 7 painting the cone on the voxels. Off by default.")]
+        public bool showConeFill = false;
+        public bool showTargetRay = false;
         public int coneArcSegs = 14;
 
         /// <summary>Live eye anchor — painted Eyes/Face centroid through the
@@ -75,7 +77,21 @@ namespace SteelCity.Sim
             owner = GetComponent<VoxelCharacter>();
         }
 
-        void OnDisable() => ClearViz();
+        /// <summary>Only ONE sensor may drive the shared _VisConeA/B shader
+        /// globals — every sensor's Update used to push them, so the last writer
+        /// won and the painted cone could follow Tan Suit instead of the
+        /// character being inspected. null = no owner → legacy all-write.</summary>
+        public static VisionSensor ConeOwner;
+
+        void OnDisable()
+        {
+            ClearViz();
+            if (ConeOwner == null || ConeOwner == this)
+            {
+                Shader.SetGlobalVector("_VisConeB", Vector4.zero);   // mode-7 cone off
+                ConeOwner = null;
+            }
+        }
 
         /// <summary>Testbed target source — a single observed point.</summary>
         public void SetTarget(Vector3? t)
@@ -93,8 +109,25 @@ namespace SteelCity.Sim
             if (world == null) return;
             ResolveEye();
             Evaluate(Time.deltaTime);
+            PushConeGlobals();
             Redraw();
         }
+
+        /// <summary>V-mode 7 (VisionCone) reads these globals to paint the cone
+        /// on the raymarched voxels — the scene-space wedge mesh can't overlay
+        /// a raymarch+RT pipeline, so the shader channel is the real display.
+        /// Pushed every frame: two SetGlobalVector calls.</summary>
+        void PushConeGlobals()
+        {
+            if (ConeOwner != null && ConeOwner != this) return;
+            Vector3 d = DirXZ(EyePos, EyePos + EyeDir);
+            Shader.SetGlobalVector("_VisConeA", new Vector4(EyePos.x, EyePos.z, d.x, d.z));
+            Shader.SetGlobalVector("_VisConeB", new Vector4(
+                Mathf.Cos(halfAngleDeg * Mathf.Deg2Rad), range, 0.35f,
+                showCone ? 1f : 0f));
+        }
+
+
 
         /// <summary>Eye = painted region centroid posed through the head chain
         /// (live — rides Looking sweeps); head-joint fallback; fixed body-height
@@ -256,17 +289,21 @@ namespace SteelCity.Sim
                 Vector3 dirXZ = DirXZ(EyePos, EyePos + EyeDir);
                 float baseA = Mathf.Atan2(dirXZ.x, dirXZ.z);
 
-                // Translucent wedge fill — rebuilt only when shape params change,
-                // transform + tint ride per-frame.
-                EnsureWedge();
-                if (wedgeRange != range || wedgeHalf != halfAngleDeg || wedgeSegs != coneArcSegs)
-                    RebuildWedge();
-                Vector3 yawFwd = dirXZ.sqrMagnitude > 1e-6f ? dirXZ.normalized : Vector3.forward;
-                wedgeGO.transform.SetPositionAndRotation(
-                    EyePos, Quaternion.LookRotation(yawFwd, Vector3.up));
-                wedgeMpb.SetColor("_Color", new Color(coneCol.r, coneCol.g, coneCol.b, coneCol.a * 0.45f));
-                wedgeRenderer.SetPropertyBlock(wedgeMpb);
-                wedgeRenderer.enabled = true;
+                if (showConeFill)
+                {
+                    // Translucent wedge fill — scene-space mesh; loses ZTest to
+                    // the raymarched voxels, so it reads "underneath" the world.
+                    // Superseded by V-mode 7 for the real cone display.
+                    EnsureWedge();
+                    if (wedgeRange != range || wedgeHalf != halfAngleDeg || wedgeSegs != coneArcSegs)
+                        RebuildWedge();
+                    Vector3 yawFwd = dirXZ.sqrMagnitude > 1e-6f ? dirXZ.normalized : Vector3.forward;
+                    wedgeGO.transform.SetPositionAndRotation(
+                        EyePos, Quaternion.LookRotation(yawFwd, Vector3.up));
+                    wedgeMpb.SetColor("_Color", new Color(1f, 0.55f, 0.1f, 0.16f));
+                    wedgeRenderer.SetPropertyBlock(wedgeMpb);
+                    wedgeRenderer.enabled = true;
+                }
 
                 // Rim arc + edge rays — the crisp outline over the fill.
                 float half = halfAngleDeg * Mathf.Deg2Rad;

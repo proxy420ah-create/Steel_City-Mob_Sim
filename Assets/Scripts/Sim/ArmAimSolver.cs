@@ -77,6 +77,7 @@ namespace SteelCity.Sim
         public int ForearmGid { get; private set; } = -1;
 
         private VoxelCharacter character;
+        private CharacterAnimation animRef;   // posture gate — crouched = taking cover
         private WeaponMount mount;
         private VoxelChunkManager.InstancedCharacter instHandle;
         private string sightBeamKey;
@@ -96,6 +97,15 @@ namespace SteelCity.Sim
             {
                 LastError = err;
                 Debug.LogWarning($"[ArmAimSolver] Arm rejected: {err}");
+                return false;
+            }
+            // Posture gate: crouched = taking cover — aiming lives in the
+            // exposed/pop-up phase, not behind the wall.
+            if (animRef == null) animRef = GetComponent<CharacterAnimation>();
+            if (animRef != null && animRef.EffectiveState == CharacterAnimation.AnimState.Crouching)
+            {
+                LastError = "cannot aim while crouched (in cover)";
+                if (debugLogs) Debug.LogWarning($"[ArmAimSolver] Arm rejected: {LastError}");
                 return false;
             }
             TargetWorld = targetWorld;
@@ -147,6 +157,15 @@ namespace SteelCity.Sim
 
         void Update()
         {
+            if (animRef == null) animRef = GetComponent<CharacterAnimation>();
+            // Posture gate: entering a crouch drops the IK channel instantly —
+            // no blend-out, the crouch pose transition itself carries the arm
+            // down (a stale torso-assist quat would also stomp the crouch lean).
+            if (animRef != null && animRef.EffectiveState == CharacterAnimation.AnimState.Crouching)
+            {
+                ReleaseInstant();
+                return;
+            }
             if (!IsAiming && Blend <= 0f) return;
 
             Blend = Mathf.MoveTowards(Blend, IsAiming ? 1f : 0f,
@@ -173,15 +192,22 @@ namespace SteelCity.Sim
             }
 
             if (!IsAiming && Blend <= 0f)
+                ReleaseInstant();
+        }
+
+        /// <summary>Drop every IK channel now — shared by blend-out completion
+        /// and the crouch gate (which skips the ramp entirely).</summary>
+        private void ReleaseInstant()
+        {
+            IsAiming = false;
+            Blend = 0f;
+            feelSpring.Reset();
+            if (mount != null && mount.Animator != null)
             {
-                feelSpring.Reset();
-                if (mount != null && mount.Animator != null)
-                {
-                    mount.Animator.ikOverrides.Clear();
-                    mount.Animator.ikBlend = 1f;
-                }
-                if (instHandle != null) { instHandle.ikEnabled = false; instHandle.ikTorsoEnabled = false; }
+                mount.Animator.ikOverrides.Clear();
+                mount.Animator.ikBlend = 1f;
             }
+            if (instHandle != null) { instHandle.ikEnabled = false; instHandle.ikTorsoEnabled = false; }
         }
 
         // ------------------------------------------------------------------

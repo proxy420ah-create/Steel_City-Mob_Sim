@@ -37,6 +37,9 @@ namespace SteelCity.Sim
         private bool isPlaying = true;
         private float animSpeed = 1f;
         private float currentAnimState = 9f; // T-Pose
+        private float depthTarget;         // debug duck-depth target (0 shallow / 1 deep)
+        private bool depthEaseActive;      // ease owns the channel only until reached
+        private const float CrouchDepthSpeed = 3f; // matches CombatController's settle rate
 
         /// <summary>Exposes the VoxelCharacter for external systems (e.g. CityMap3D.SpawnedCharacter).</summary>
         public VoxelCharacter Character => voxelChar;
@@ -57,12 +60,14 @@ namespace SteelCity.Sim
         public static CharacterRig ActiveRig { get; private set; }
 
         /// <summary>
-        /// Deprecated debug anim hotkeys (T/I/W/L/A/C/S/B/Space/±) — poses are proven
-        /// and the letters collided with camera fly + possess-move. Enable in the
-        /// inspector for pose debugging; PossessController still gates input via
-        /// Controllable while active.
+        /// Debug anim hotkeys (Alt+T/I/W/L/A/C/S/B/Space/±) — gated off by
+        /// default so pose letters can't collide with camera/possess input.
+        /// Code-enabled via AnimHotkeys: the primary rig gets it at spawn, the
+        /// Clothing tab's Character Control selector transfers it between rigs.
+        /// PossessController still gates input via Controllable while active.
         /// </summary>
         [SerializeField] private bool animHotkeys = false;
+        public bool AnimHotkeys { get => animHotkeys; set => animHotkeys = value; }
 
         private static readonly string[] STATE_NAMES = {
             "Idle", "Walking", "Looking", "AimWalk", "Aiming",
@@ -94,6 +99,16 @@ namespace SteelCity.Sim
 
             HandleInput();
 
+            // Debug duck-depth drift — state stays Crouching so no pose
+            // transition fires; depth must DRIFT. Releases the channel on
+            // arrival so combat's own depth targeting isn't contested.
+            if (depthEaseActive)
+            {
+                anim.crouchDepth = Mathf.MoveTowards(anim.crouchDepth, depthTarget,
+                    CrouchDepthSpeed * Time.deltaTime);
+                if (Mathf.Approximately(anim.crouchDepth, depthTarget)) depthEaseActive = false;
+            }
+
             if (isPlaying)
             {
                 anim.walkSpeed = animSpeed;
@@ -107,14 +122,42 @@ namespace SteelCity.Sim
             var kb = Keyboard.current;
             if (kb == null) return;
 
-            if (kb.tKey.wasPressedThisFrame) { SetState(9f); }
-            if (kb.iKey.wasPressedThisFrame) { SetState(0f); }
-            if (kb.wKey.wasPressedThisFrame) { SetState(1f); }
-            if (kb.lKey.wasPressedThisFrame) { SetState(2f); }
-            if (kb.aKey.wasPressedThisFrame) { SetState(4f); }
-            if (kb.cKey.wasPressedThisFrame) { SetState(5f); }
-            if (kb.sKey.wasPressedThisFrame) { SetState(10f); }
-            if (kb.bKey.wasPressedThisFrame) { SetState(11f); }
+            // Pose letters are Alt-gated — same mnemonics as PossessController's
+            // test-pose latch, so the gesture is identical possessed or not.
+            // Bare letters are deliberately NOT read here: in the live scene
+            // WASD belongs to the map camera (the conflict that deprecated the
+            // letter keys); the standalone test rigs keep their own bare keys.
+            if (kb.altKey.isPressed)
+            {
+                if (kb.tKey.wasPressedThisFrame) { SetState(9f); }
+                if (kb.iKey.wasPressedThisFrame) { SetState(0f); }
+                if (kb.wKey.wasPressedThisFrame) { SetState(1f); }
+                if (kb.lKey.wasPressedThisFrame) { SetState(2f); }
+                if (kb.jKey.wasPressedThisFrame) { SetState(3f); }
+                if (kb.aKey.wasPressedThisFrame) { SetState(4f); }
+                if (kb.cKey.wasPressedThisFrame) { SetCrouch(); }
+                if (kb.fKey.wasPressedThisFrame) { SetState(6f); }
+                if (kb.dKey.wasPressedThisFrame) { SetState(8f); }
+                if (kb.sKey.wasPressedThisFrame) { SetState(10f); }
+                if (kb.bKey.wasPressedThisFrame) { SetState(11f); }
+                if (kb.xKey.wasPressedThisFrame) { SetState(0f); } // release — same as Alt+I
+            }
+
+            // Numpad = the pose panel — no modifier, so no Windows menu-beep
+            // and no camera-key conflict. Same SetState → same DEBUG-priority
+            // latch. Grid reads like the pad: extremes top row, combat middle,
+            // locomotion bottom; 0/Enter release, +/- still drive anim speed.
+            if (kb.numpad7Key.wasPressedThisFrame) { SetState(9f); }
+            if (kb.numpad8Key.wasPressedThisFrame) { SetState(8f); }
+            if (kb.numpad9Key.wasPressedThisFrame) { SetState(11f); }
+            if (kb.numpad4Key.wasPressedThisFrame) { SetState(4f); }
+            if (kb.numpad5Key.wasPressedThisFrame) { SetCrouch(); }
+            if (kb.numpad6Key.wasPressedThisFrame) { SetState(6f); }
+            if (kb.numpad1Key.wasPressedThisFrame) { SetState(1f); }
+            if (kb.numpad2Key.wasPressedThisFrame) { SetState(2f); }
+            if (kb.numpad3Key.wasPressedThisFrame) { SetState(3f); }
+            if (kb.numpad0Key.wasPressedThisFrame || kb.numpadEnterKey.wasPressedThisFrame) { SetState(0f); }
+            if (kb.numpadPeriodKey.wasPressedThisFrame) { SetState(10f); }
 
             if (kb.spaceKey.wasPressedThisFrame)
             {
@@ -137,10 +180,31 @@ namespace SteelCity.Sim
             }
         }
 
+        /// <summary>Num5 / Alt+C — enter crouch; while already crouched,
+        /// toggle the duck depth shallow ↔ deep (the adaptive-crouch axis).
+        /// Flipping mid-ease reverses the target.</summary>
+        void SetCrouch()
+        {
+            if (anim.EffectiveState == CharacterAnimation.AnimState.Crouching)
+            {
+                float cur = depthEaseActive ? depthTarget : anim.crouchDepth;
+                depthTarget = cur > 0.5f ? 0f : 1f;
+                Debug.Log($"[CharRig] Crouch depth -> {(depthTarget > 0.5f ? "deep" : "shallow")}");
+            }
+            else
+            {
+                depthTarget = 0f;
+                SetState(5f);
+            }
+            depthEaseActive = true;
+        }
+
         void SetState(float state)
         {
             currentAnimState = state;
             int stateInt = Mathf.RoundToInt(state);
+            if (stateInt != (int)CharacterAnimation.AnimState.Crouching)
+                depthEaseActive = false;   // leaving crouch frees the depth channel
             var animState = (CharacterAnimation.AnimState)stateInt;
             if (stateInt == (int)CharacterAnimation.AnimState.Idle)
             {

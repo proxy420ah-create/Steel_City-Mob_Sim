@@ -760,7 +760,12 @@ const STATES = [
   {
     "id": 5,
     "name": "Crouching",
-    "desc": "Crouch pose \u2014 legs bent, arms forward"
+    "desc": "Crouch pose \u2014 legs bent, arms forward (shallow endpoint, depth=0)"
+  },
+  {
+    "id": 5.1,
+    "name": "Crouch Deep",
+    "desc": "Deep-crouch endpoint — same Crouching state evaluated at crouchDepth=1. Author the deepest duck; cover height picks a depth inside shallow\u2192deep."
   },
   {
     "id": 8,
@@ -967,6 +972,23 @@ const DEFAULT_PARAMS = {
     kneeBendR: 1.40,      // right knee bend (locked)
     elbowBendL: 0.0,      // left elbow bend (added to rest)
     elbowBendR: 0.0,      // right elbow bend
+  },
+  crouchDeep: {
+    // Deep-crouch ENDPOINT — the adaptive-duck pose. crouchDepth 0..1 lerps
+    // every scalar crouching→crouchDeep, so author the deepest duck the
+    // character should physically reach; cover height picks a point between.
+    bodyLower: 0.0,
+    modelLower: 8.0,      // sink well below the shallow 4.0
+    bodyLean: 0.35,       // tuck the torso forward over the knees
+    headPitch: -0.15,     // head dips with the tuck
+    armSwingL: 0.0,
+    armSwingR: 0.0,
+    legStrideL: -1.45,    // left thigh further forward
+    legStrideR: -0.9,     // right thigh folds too (kneeling read)
+    kneeBendL: 1.45,
+    kneeBendR: 1.55,
+    elbowBendL: 0.0,
+    elbowBendR: 0.0,
   },
   sitting: {
     // State 11 — generic bench/vehicle seat pose. Thighs swing forward ~90°,
@@ -1798,6 +1820,24 @@ function posedPos(v) {
   return [pos[0] + off[0], pos[1] + off[1], pos[2] + off[2]];
 }
 
+// Pose-transition blend: live eval first; while blending, swap the anim
+// globals to the frozen outgoing pose for a second eval and lerp the two
+// posed positions + dip. blendArmOwn is a per-rebuild cache keyed on the
+// globals — must be cleared around the A-eval.
+function posedPosTransition(v) {
+  const pB = posedPos(v);
+  if (transT < 0 || transBlend >= 1) return pB;
+  const sB = currentAnimState, tB = animTime, dB = crouchDepth;
+  currentAnimState = transFrom; animTime = transFromTime; crouchDepth = transFromDepth;
+  blendArmOwn = null;
+  const pA = posedPos(v);
+  currentAnimState = sB; animTime = tB; crouchDepth = dB;
+  blendArmOwn = null;
+  return [pA[0] + (pB[0] - pA[0]) * transBlend,
+          pA[1] + (pB[1] - pA[1]) * transBlend + transDip,
+          pA[2] + (pB[2] - pA[2]) * transBlend];
+}
+
 // === WALK KEYFRAME INTERPOLATION ===
 // Smoothstep: S-curve interpolation (0→1) — avoids robotic linear motion.
 function smoothstep(t) { return t * t * (3 - 2 * t); }
@@ -1945,12 +1985,14 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
   const isCrouchingState = (animState > 4.5 && animState < 5.5); // Crouching (5)
   const isSittingState = (animState > 10.5 && animState < 11.5); // Sit (11)
   const sitP = animParams.sitting || DEFAULT_PARAMS.sitting; // older files may lack the section
+  const cdeep = animParams.crouchDeep || animParams.crouching; // deep endpoint (absent → shallow clone)
+  const cr = (s, d) => s + (d - s) * crouchDepth;              // depth-lerp helper — parity with C# Cr()
   const sw = animParams.aimSweep;
   const sweepYaw = (isSweepState && sw) ? Math.sin(animTime * sw.freq) * sw.amp : 0;
   const torsoTwist = isAimingState ? animParams.aiming.torsoTwist : 0;
-  const bodyLean = isCrouchingState ? animParams.crouching.bodyLean : 0;
-  const bodyLower = isCrouchingState ? animParams.crouching.bodyLower : 0;
-  const modelLower = isCrouchingState ? animParams.crouching.modelLower : 0;
+  const bodyLean = isCrouchingState ? cr(animParams.crouching.bodyLean, cdeep.bodyLean) : 0;
+  const bodyLower = isCrouchingState ? cr(animParams.crouching.bodyLower, cdeep.bodyLower) : 0;
+  const modelLower = isCrouchingState ? cr(animParams.crouching.modelLower, cdeep.modelLower) : 0;
   const hasBodyRot = torsoTwist !== 0 || bodyLean !== 0;
 
   function getBodyTransform() {
@@ -2030,7 +2072,7 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
       headYaw = p2.headYaw + sweepYaw * (sw ? sw.headFollow : 0); // gaze follows the gun
       headPitch = p2.headPitch; headTilt = p2.headTilt;
     } else if (animState > 4.5 && animState < 5.5) { // Crouching
-      headPitch = animParams.crouching.headPitch;
+      headPitch = cr(animParams.crouching.headPitch, cdeep.headPitch);
     } else if (isSittingState) { // Sit
       headPitch = sitP.headPitch;
     } else {
@@ -2049,7 +2091,7 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
       swing = as.signL * animParams.aiming.armSwingL; // static pose — no oscillation
       reach = animParams.aiming.shoulderReachL + (swing !== 0 ? sweepYaw : 0); // cross-body reach + sweep on aiming arms
     } else if (animState > 4.5 && animState < 5.5) { // Crouching
-      swing = as.signL * animParams.crouching.armSwingL;
+      swing = as.signL * cr(animParams.crouching.armSwingL, cdeep.armSwingL);
     } else if (isSittingState) { // Sit
       swing = as.signL * sitP.armSwingL;
     } else {
@@ -2070,7 +2112,7 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
       swing = as.signR * animParams.aiming.armSwingR;
       reach = animParams.aiming.shoulderReachR + (swing !== 0 ? sweepYaw : 0);
     } else if (animState > 4.5 && animState < 5.5) { // Crouching
-      swing = as.signR * animParams.crouching.armSwingR;
+      swing = as.signR * cr(animParams.crouching.armSwingR, cdeep.armSwingR);
     } else if (isSittingState) { // Sit
       swing = as.signR * sitP.armSwingR;
     } else {
@@ -2087,7 +2129,7 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
       const wp = getWalkPose(animTime, animSpeed, animParams);
       stride = ls.signL * wp.pose.legStrideL;
     } else if (animState > 4.5 && animState < 5.5) { // Crouching
-      stride = ls.signL * animParams.crouching.legStrideL;
+      stride = ls.signL * cr(animParams.crouching.legStrideL, cdeep.legStrideL);
     } else if (isSittingState) { // Sit
       stride = ls.signL * sitP.legStrideL;
     } else {
@@ -2103,7 +2145,7 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
       const wp = getWalkPose(animTime, animSpeed, animParams);
       stride = ls.signR * wp.pose.legStrideR;
     } else if (animState > 4.5 && animState < 5.5) { // Crouching
-      stride = ls.signR * animParams.crouching.legStrideR;
+      stride = ls.signR * cr(animParams.crouching.legStrideR, cdeep.legStrideR);
     } else if (isSittingState) { // Sit
       stride = ls.signR * sitP.legStrideR;
     } else {
@@ -2121,7 +2163,7 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
     } else if (isAimingState) { // Aim Walk (3), Aiming (4), Aim Sweep (10)
       bend = eb.signL * animParams.aiming.elbowBendL;
     } else if (animState > 4.5 && animState < 5.5) { // Crouching — rest + static bend
-      bend += eb.signL * animParams.crouching.elbowBendL;
+      bend += eb.signL * cr(animParams.crouching.elbowBendL, cdeep.elbowBendL);
     }
     ownRot = rotationByAxis(eb.axisL, bend);
     if (twist !== 0) ownRot = matMul3(ownRot, rotationX(twist));
@@ -2136,7 +2178,7 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
     } else if (isAimingState) { // Aim Walk (3), Aiming (4), Aim Sweep (10)
       bend = eb.signR * animParams.aiming.elbowBendR;
     } else if (animState > 4.5 && animState < 5.5) { // Crouching — rest + static bend
-      bend += eb.signR * animParams.crouching.elbowBendR;
+      bend += eb.signR * cr(animParams.crouching.elbowBendR, cdeep.elbowBendR);
     }
     ownRot = rotationByAxis(eb.axisR, bend);
     if (twist !== 0) ownRot = matMul3(ownRot, rotationX(twist));
@@ -2147,7 +2189,7 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
       const wp = getWalkPose(animTime, animSpeed, animParams);
       bend = kb.signL * wp.pose.kneeBendL;
     } else if (animState > 4.5 && animState < 5.5) { // Crouching — static knee bend
-      bend += kb.signL * animParams.crouching.kneeBendL;
+      bend += kb.signL * cr(animParams.crouching.kneeBendL, cdeep.kneeBendL);
     } else if (isSittingState) { // Sit — static knee bend
       bend += kb.signL * sitP.kneeBendL;
     }
@@ -2159,7 +2201,7 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
       const wp = getWalkPose(animTime, animSpeed, animParams);
       bend = kb.signR * wp.pose.kneeBendR;
     } else if (animState > 4.5 && animState < 5.5) { // Crouching — static knee bend
-      bend += kb.signR * animParams.crouching.kneeBendR;
+      bend += kb.signR * cr(animParams.crouching.kneeBendR, cdeep.kneeBendR);
     } else if (isSittingState) { // Sit — static knee bend
       bend += kb.signR * sitP.kneeBendR;
     }
@@ -2197,6 +2239,17 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
 // === ANIMATED MESH REBUILD ===
 let currentAnimState = 9; // Start in T-Pose to match the model's raw bind pose on import
 let currentWalkKeyframe = 0; // Which walk keyframe is being edited (0-3)
+
+// Pose transition (snapshot → target lerp) — mirrors CharacterAnimation's
+// dual-eval: on state change the outgoing pose freezes as (transFrom,
+// transFromTime); posedPosTransition lerps voxel positions toward the live
+// pose over transDur with a -sin(πt) settle dip. Same ease menu as the game.
+let crouchDepth = 0;             // adaptive duck 0..1 — shallow→deep lerp axis
+let transT = -1;                 // <0 = idle
+let transFrom = 0, transFromTime = 0, transFromDepth = 0;
+let transBlend = 1, transDip = 0;
+const poseTrans = { enabled: true, dur: 0.32, dip: 0.45, ease: 1 }; // ease: 0 linear · 1 smoothstep · 2 cosine
+
 let animTime = 0;
 let isPlaying = false;  // paused at blank init — auto-starts on first model load
 let animSpeed = 1.0;
@@ -2259,7 +2312,7 @@ function rebuildAnimatedMesh() {
     // with skin blend — posedPos applies chain leaf→root, partial-dosing
     // blended joint rotations by rest distance to their pivots.
     if (v.gid >= 0) {
-      const pp = posedPos(v);
+      const pp = posedPosTransition(v);
       px = pp[0] - W / 2;
       py = pp[1];
       pz = pp[2] - D / 2;
@@ -2315,7 +2368,7 @@ function rebuildAnimatedMesh() {
       let py = v.y;
       let pz = v.z - D / 2;
       if (v.gid >= 0) {
-        const pp = posedPos(v);
+        const pp = posedPosTransition(v);
         px = pp[0] - W / 2;
         py = pp[1];
         pz = pp[2] - D / 2;
@@ -2642,8 +2695,18 @@ function buildStateGrid() {
 }
 
 function selectState(stateId) {
+  // Freeze the outgoing pose BEFORE the swap — this pair is the blend's A side.
+  if (poseTrans.enabled && stateId !== currentAnimState) {
+    transFrom = currentAnimState; transFromTime = animTime;
+    transFromDepth = crouchDepth;   // depth is a pose axis — freeze it too
+    transT = 0; transBlend = 0; transDip = 0;
+  }
   currentAnimState = stateId;
   animTime = 0;
+  // Endpoint buttons pin the depth axis — Crouching = shallow (0),
+  // Crouch Deep (5.1) = deep (1). The depth slider re-blends freely after.
+  if (stateId === 5) crouchDepth = 0;
+  if (stateId === 5.1) crouchDepth = 1;
   document.querySelectorAll('.state-btn').forEach((el, i) => {
     el.classList.toggle('active', STATES[i].id === stateId);
   });
@@ -2994,7 +3057,7 @@ function buildParamControls() {
       ['aiming', 'elbowBendL', 'L Elbow Bend', 0, 1.5, 0.01],
       ['aiming', 'elbowBendR', 'R Elbow Bend', 0, 1.5, 0.01],
     ];
-  } else if (currentAnimState === 5) { // Crouching
+  } else if (currentAnimState > 4.5 && currentAnimState < 5.5) { // Crouching (5) / Crouch Deep (5.1) — shallow endpoint + DEEP endpoint (depth lerp)
     relevantParams = [
       ['crouching', 'modelLower', 'Model Lower', 0, 15, 0.5],
       ['crouching', 'bodyLower', 'Body Lower', 0, 15, 0.5],
@@ -3008,6 +3071,20 @@ function buildParamControls() {
       ['crouching', 'kneeBendR', 'R Knee Bend', 0, 1.5, 0.01],
       ['crouching', 'elbowBendL', 'L Elbow Bend', 0, 1.5, 0.01],
       ['crouching', 'elbowBendR', 'R Elbow Bend', 0, 1.5, 0.01],
+      // DEEP endpoint — the adaptive-duck pose. crouchDepth lerps every
+      // scalar shallow→deep; low cover picks a depth inside this range.
+      ['crouchDeep', 'modelLower', 'DEEP Model Lower', 0, 15, 0.5],
+      ['crouchDeep', 'bodyLower', 'DEEP Body Lower', 0, 15, 0.5],
+      ['crouchDeep', 'bodyLean', 'DEEP Body Lean', 0, 1.0, 0.01],
+      ['crouchDeep', 'headPitch', 'DEEP Head Pitch', -1, 1, 0.01],
+      ['crouchDeep', 'armSwingL', 'DEEP L Arm Swing', -1.5, 1.5, 0.01],
+      ['crouchDeep', 'armSwingR', 'DEEP R Arm Swing', -1.5, 1.5, 0.01],
+      ['crouchDeep', 'legStrideL', 'DEEP L Leg Swing', -1.5, 1.5, 0.01],
+      ['crouchDeep', 'legStrideR', 'DEEP R Leg Swing', -1.5, 1.5, 0.01],
+      ['crouchDeep', 'kneeBendL', 'DEEP L Knee Bend', 0, 1.7, 0.01],
+      ['crouchDeep', 'kneeBendR', 'DEEP R Knee Bend', 0, 1.7, 0.01],
+      ['crouchDeep', 'elbowBendL', 'DEEP L Elbow Bend', 0, 1.5, 0.01],
+      ['crouchDeep', 'elbowBendR', 'DEEP R Elbow Bend', 0, 1.5, 0.01],
     ];
   } else if (currentAnimState === 11) { // Sit
     relevantParams = [
@@ -3239,6 +3316,77 @@ function appendVisionControls(container) {
     numInput.onchange = (e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) update(Math.max(min, Math.min(max, v))); };
     container.appendChild(row);
   }
+
+  // === CROUCH DEPTH === preview slider — the adaptive-duck axis. Only on the
+  // Crouching state: drags lerp every scalar shallow→deep endpoint live
+  // (parity with CombatController's eased crouchDepth channel).
+  if (currentAnimState > 4.5 && currentAnimState < 5.5) {
+    const dHeader = document.createElement('div');
+    dHeader.className = 'param-section-title';
+    dHeader.style.marginTop = '10px';
+    dHeader.textContent = 'Crouch Depth — shallow → deep lerp';
+    container.appendChild(dHeader);
+    const dRow = document.createElement('div');
+    dRow.className = 'param-row';
+    dRow.innerHTML = `
+      <label>Depth</label>
+      <input type="range" min="0" max="1" step="0.01" value="${crouchDepth}" class="param-slider">
+      <input type="number" min="0" max="1" step="0.01" value="${crouchDepth.toFixed(2)}" class="param-num">
+    `;
+    const dSlider = dRow.querySelector('.param-slider');
+    const dNum = dRow.querySelector('.param-num');
+    const dUpd = (v) => { crouchDepth = v; dSlider.value = v; dNum.value = (+v).toFixed(2); };
+    dSlider.oninput = (e) => dUpd(parseFloat(e.target.value));
+    dNum.oninput = (e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) dUpd(v); };
+    dNum.onchange = (e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) dUpd(Math.max(0, Math.min(1, v))); };
+    container.appendChild(dRow);
+  }
+
+  // === POSE TRANSITION === global block — the snapshot→target blend previewed
+  // on every state click (parity with CharacterAnimation's dual-eval upload).
+  const transHeader = document.createElement('div');
+  transHeader.className = 'param-section-title';
+  transHeader.style.marginTop = '10px';
+  transHeader.textContent = 'Pose Transition — snapshot → target lerp';
+  container.appendChild(transHeader);
+
+  const enRow = document.createElement('div');
+  enRow.className = 'param-row';
+  enRow.innerHTML = `<label>Enabled</label><input type="checkbox" ${poseTrans.enabled ? 'checked' : ''} style="margin-left:4px;">`;
+  enRow.querySelector('input').onchange = (e) => { poseTrans.enabled = e.target.checked; if (!e.target.checked) { transT = -1; transBlend = 1; transDip = 0; } };
+  container.appendChild(enRow);
+
+  const transRows = [
+    ['dur', 'Duration s', 0.05, 1.0, 0.01],
+    ['dip', 'Settle Dip', 0, 1.5, 0.05],
+  ];
+  for (const [key, label, min, max, step] of transRows) {
+    const row = document.createElement('div');
+    row.className = 'param-row';
+    row.innerHTML = `
+      <label>${label}</label>
+      <input type="range" min="${min}" max="${max}" step="${step}" value="${poseTrans[key]}" class="param-slider">
+      <input type="number" min="${min}" max="${max}" step="${step}" value="${(+poseTrans[key]).toFixed(2)}" class="param-num">
+    `;
+    const slider = row.querySelector('.param-slider');
+    const numInput = row.querySelector('.param-num');
+    const update = (v) => { poseTrans[key] = v; slider.value = v; numInput.value = (+v).toFixed(2); };
+    slider.oninput = (e) => update(parseFloat(e.target.value));
+    numInput.oninput = (e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) update(v); };
+    numInput.onchange = (e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) update(Math.max(min, Math.min(max, v))); };
+    container.appendChild(row);
+  }
+
+  const easeRow = document.createElement('div');
+  easeRow.className = 'param-row';
+  const easeNames = ['linear', 'smoothstep', 'cosine'];
+  easeRow.innerHTML = `<label>Ease</label><div style="display:flex; gap:2px; flex:1;">` +
+    easeNames.map((n, i) => `<button class="axis-btn" data-v="${i}" style="flex:1; padding:2px 6px; font-size:11px; background:${poseTrans.ease===i?'#4a8':'#333'}; color:${poseTrans.ease===i?'#fff':'#888'}; border:1px solid #555; cursor:pointer;">${n}</button>`).join('') +
+    `</div>`;
+  easeRow.querySelectorAll('.axis-btn').forEach(btn => {
+    btn.onclick = () => { poseTrans.ease = parseInt(btn.dataset.v); buildParamControls(); };
+  });
+  container.appendChild(easeRow);
 }
 
 // === TOOL SELECTION ===
@@ -3607,6 +3755,12 @@ function diffAnimParams(params, defaults) {
 // Set by every load path (sessionStorage hand-off, project JSON, stasset import).
 let loadedCharName = 'Vinny';
 
+// Carry-through fields the animator doesn't own — itemPart paint, part defs,
+// attachment points (weapon mounts!), assetType, attachRotation. The editor is
+// their source of truth; the animator caches them verbatim on load and re-emits
+// on export so an animator round-trip can't strip the Model-10 mounts again.
+let carriedFields = {};
+
 window.saveProject = () => {
   // Editor-parity export: one click, <name>.json — Unity probes
   // voxel_characters/<assetBaseName>.json, so the old '.character.json'
@@ -3627,6 +3781,7 @@ window.saveProject = () => {
     format: 'steelcity_character',
     version: 1,
     name: name,
+    ...carriedFields,  // assetType/itemParts/itemPartDefs/attachmentPoints/attachRotation — verbatim
     dims: [W, H, D],
     voxelSize: voxelSize,
     materials: allMaterials,
@@ -3665,6 +3820,10 @@ window.loadProject = (event) => {
       const data = JSON.parse(e.target.result);
       if (!data.dims || !data.voxels) throw new Error('Invalid project file');
       loadedCharName = String(data.name || file.name).replace(/\.(character\.)?json$/i, '');
+      carriedFields = {};
+      for (const k of ['assetType', 'itemParts', 'itemPartDefs', 'attachmentPoints',
+                       'attachRotation', 'handedness', 'bgColor'])
+        if (data[k] !== undefined) carriedFields[k] = data[k];
       W = data.dims[0]; H = data.dims[1]; D = data.dims[2];
       if (data.voxelSize) voxelSize = data.voxelSize;
       voxelMap.clear();
@@ -3704,6 +3863,10 @@ window.loadProject = (event) => {
             animParams[section] = data.animParams[section];
           }
         }
+        // No authored deep endpoint → clone the shallow crouch (Unity parity:
+        // the depth channel exists but lerps a pose onto itself = inert).
+        if (!data.animParams.crouchDeep && animParams.crouching)
+          animParams.crouchDeep = JSON.parse(JSON.stringify(animParams.crouching));
       }
       buildPivotControls();
       buildParamControls();
@@ -3964,6 +4127,14 @@ function animate() {
     const dt = Math.min((now - lastFrameTime) / 1000, 0.1); // clamp to 100ms
     lastFrameTime = now;
     animTime += dt;
+    // Pose transition clock — eased blend + one-cycle settle dip (game parity).
+    if (transT >= 0) {
+      transT += dt;
+      const t = Math.min(transT / Math.max(poseTrans.dur, 0.01), 1);
+      transBlend = poseTrans.ease === 0 ? t : poseTrans.ease === 2 ? cosineInterp(t) : smoothstep(t);
+      transDip = -Math.sin(t * Math.PI) * poseTrans.dip;
+      if (t >= 1) { transT = -1; transBlend = 1; transDip = 0; }
+    }
     document.getElementById('timeline-slider').value = animTime % 10;
     document.getElementById('timeline-time').textContent = (animTime % 10).toFixed(2) + 's';
     rebuildAnimatedMesh();
@@ -4071,6 +4242,11 @@ function createDefaultCharacter() {
 function loadCharacterData(data, sourceLabel) {
   // Adopt the character's name so exports overwrite the same StreamingAssets file.
   if (data.name) loadedCharName = String(data.name).replace(/\.(character\.)?json$/i, '');
+  // Cache editor-owned fields verbatim — re-emitted on export.
+  carriedFields = {};
+  for (const k of ['assetType', 'itemParts', 'itemPartDefs', 'attachmentPoints',
+                   'attachRotation', 'handedness', 'bgColor'])
+    if (data[k] !== undefined) carriedFields[k] = data[k];
   if (data.dims) { W = data.dims[0]; H = data.dims[1]; D = data.dims[2]; }
   if (data.voxelSize) { voxelSize = data.voxelSize; }
 
@@ -4129,6 +4305,9 @@ function loadCharacterData(data, sourceLabel) {
         animParams[section] = data.animParams[section];
       }
     }
+    // No authored deep endpoint → clone the shallow crouch (inert depth).
+    if (!data.animParams.crouchDeep && animParams.crouching)
+      animParams.crouchDeep = JSON.parse(JSON.stringify(animParams.crouching));
   }
 
   // Prefer pivots saved in the file; otherwise auto-detect from the ACTUAL

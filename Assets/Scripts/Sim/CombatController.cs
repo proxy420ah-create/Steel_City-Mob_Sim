@@ -11,8 +11,9 @@ namespace SteelCity.Sim
     /// InCover: crouch pose + ArmAimSolver aims over the obstacle at the threat.
     /// No cover in radius → HoldPosition: crouch+aim in place.
     ///
-    /// While combat holds, rig.Controllable is suppressed (combat owns the pose
-    /// lanes via CharacterAnimation.PRIORITY_COMBAT). ExitCombat restores it.
+    /// Combat poses ride the PRIORITY_COMBAT lane; debug keys (PRIORITY_DEBUG)
+    /// outrank them and stay live during combat — a held debug pose also owns
+    /// the crouch-depth channel (the controller's depth ease yields).
     /// </summary>
     [RequireComponent(typeof(CharacterRig))]
     public class CombatController : MonoBehaviour
@@ -24,12 +25,14 @@ namespace SteelCity.Sim
         public float moveSpeed = 2.4f;
         public float arriveEps = 0.18f;
         public float turnSpeedDeg = 540f;
+        [Tooltip("Crouch-depth ease rate (1/s) — the settle into a deeper duck")]
+        public float crouchDepthSpeed = 3f;
 
         // --- Cover parameters live on CoverSensor (the always-on awareness sense);
         // these stay as proxies so existing HUD sliders keep working. ---
         public float coverRadius { get => Sensor.radius; set => Sensor.radius = value; }
         public float coverStandoff { get => Sensor.standoff; set => Sensor.standoff = value; }
-        public float crouchEyeHeight { get => Sensor.crouchEye; set => Sensor.crouchEye = value; }
+
         public bool showCoverMarkers { get => Sensor.showCandidates; set => Sensor.showCandidates = value; }
 
         public CombatState State { get; private set; }
@@ -48,7 +51,10 @@ namespace SteelCity.Sim
         private ArmAimSolver solver;
         private VoxelCharacter vox;
         private VoxelCollisionWorld world;
-        private bool prevControllable;
+        /// <summary>Crouch depth the picked cover demands — eased toward on
+        /// arrival so a low wall visibly sinks him instead of snapping.</summary>
+        private float targetCrouchDepth;
+        private CoverSensor.WallClass coverWallClass = CoverSensor.WallClass.Crouch;
 
         void Awake()
         {
@@ -58,49 +64,73 @@ namespace SteelCity.Sim
         }
 
         /// <summary>Enter combat against a threat at `threatPos`. Re-calling re-evaluates cover.</summary>
-        public bool EnterCombat(Vector3 threatPos)
+        public bool EnterCombat(Vector3 threatPos) => EnterCombatCore(threatPos, null, 0f);
+
+        /// <summary>Debug variant — seek the Hidden cell nearest `coverAnchor`
+        /// (pit pick buttons). Same field validation; targets a specific box.</summary>
+        public bool EnterCombat(Vector3 threatPos, Vector3 coverAnchor, float maxDist = 2.5f)
+            => EnterCombatCore(threatPos, coverAnchor, maxDist);
+
+        bool EnterCombatCore(Vector3 threatPos, Vector3? coverAnchor, float maxDist)
         {
             if (world == null) world = FindFirstObjectByType<VoxelCollisionWorld>();
             if (anim == null) anim = GetComponent<CharacterAnimation>();
-            if (solver == null) solver = GetComponent<ArmAimSolver>();
+            // Get-or-Add, not Get-only — solver.Arm() at cover arrival is
+            // unguarded, and the weapons tab only lazily attached the solver
+            // when drawn (latent NullRef if combat started before that tab
+            // ever opened). Same pattern as `Sensor` above.
+            if (solver == null) solver = GetComponent<ArmAimSolver>() ?? gameObject.AddComponent<ArmAimSolver>();
             if (rig == null || anim == null || world == null)
             { LastResult = "missing rig/anim/collision world"; return false; }
 
-            if (State == CombatState.Idle)
-            {
-                prevControllable = rig.Controllable;
-                rig.Controllable = false;
-            }
+            // Debug pose panel stays live in combat — the rig only reads pose
+            // keys (no locomotion), and PRIORITY_DEBUG already outranks
+            // PRIORITY_COMBAT's holds. But a pick means "run the sim fresh" —
+            // a stale debug latch would silently refuse every combat request
+            // (50 > 30), leaving him crouch-sliding to the wall in whatever
+            // pose was left held. Clear all holds on entry; keys pressed
+            // AFTER this still win normally.
+            anim.ReleasePose(-1);
             ThreatPos = threatPos;
 
             Sensor.Threat = threatPos;
             Sensor.Refresh(true);
-            if (Sensor.TryPickCover(Feet(), out Vector3 p, out string oid))
+            bool picked = coverAnchor.HasValue
+                ? Sensor.TryPickCoverNear(coverAnchor.Value, maxDist, out Vector3 p, out string oid, out float reqD, out coverWallClass)
+                : Sensor.TryPickCover(Feet(), out p, out oid, out reqD, out coverWallClass);
+            if (picked)
             {
                 CoverPoint = p;
                 CoverObstacleId = oid;
+                targetCrouchDepth = reqD;
                 State = CombatState.SeekingCover;
                 anim.RequestPose(CharacterAnimation.AnimState.Walking, CharacterAnimation.PRIORITY_COMBAT);
                 anim.walkSpeed = Mathf.Clamp(moveSpeed, 0.5f, 2f);
-                LastResult = $"seeking cover behind {oid}";
+                LastResult = $"seeking cover behind {oid} ({coverWallClass}, depth {reqD:F2})";
+                Debug.Log($"🥊 [Combat] {name} — picked {oid} ({coverWallClass}, reqDepth {reqD:F2})");
                 return true;
             }
+            if (coverAnchor.HasValue)
+            { LastResult = $"no valid cover near that anchor"; return false; }
 
-            // No cover — hold, crouch, aim. Still a state change the sim can react to.
+            // No cover — hold and crouch in place. Still a state change the sim can react to.
             State = CombatState.HoldPosition;
             CoverPoint = Feet();
             CoverObstacleId = null;
-            CrouchAndAim();
+            coverWallClass = CoverSensor.WallClass.Crouch;
+            targetCrouchDepth = 0f;
+            CrouchAndCover();
             LastResult = $"no cover within {Sensor.radius:F0}m — holding position";
             return true;
         }
 
         public void ExitCombat()
         {
+            targetCrouchDepth = 0f;
+            if (anim != null) anim.crouchDepth = 0f;
             anim?.ReleasePose(CharacterAnimation.PRIORITY_COMBAT);
             anim?.SetState(CharacterAnimation.AnimState.Idle);
             if (solver != null && solver.IsAiming) solver.Disarm();
-            if (rig != null) rig.Controllable = prevControllable;
             State = CombatState.Idle;
             CoverObstacleId = null;
             LastResult = "";
@@ -114,6 +144,12 @@ namespace SteelCity.Sim
             if (State == CombatState.Idle) return;
             // Direct control wins — possessing Vinny hands the rig to the player.
             if (PossessController.Active) { ExitCombat(); return; }
+            // Ease crouch depth toward the picked cover's requirement — the
+            // settle into a deeper duck rides the same pose eval, no snap.
+            // Yields while a debug pose holds priority — don't fight the keys.
+            if (anim != null && !anim.DebugOwnsPose && !Mathf.Approximately(anim.crouchDepth, targetCrouchDepth))
+                anim.crouchDepth = Mathf.MoveTowards(anim.crouchDepth, targetCrouchDepth,
+                    crouchDepthSpeed * Time.deltaTime);
             if (State != CombatState.SeekingCover) return;
 
             Vector3 feet = Feet();
@@ -122,13 +158,14 @@ namespace SteelCity.Sim
             float dist = to.magnitude;
             if (dist <= arriveEps)
             {
-                // Snap onto the probed ground at the cover point, then crouch+aim.
+                // Snap onto the probed ground at the cover point, then take cover.
                 var pos = transform.position;
                 pos.y += CoverPoint.y - feet.y;
                 transform.position = pos;
                 State = CombatState.InCover;
-                CrouchAndAim();
-                LastResult = $"in cover behind {CoverObstacleId}";
+                CrouchAndCover();
+                LastResult = $"in cover behind {CoverObstacleId} ({coverWallClass}, depth {targetCrouchDepth:F2})";
+                Debug.Log($"🥊 [Combat] {name} — in cover, pose {(coverWallClass == CoverSensor.WallClass.Full ? "STAND (Idle)" : $"crouch@{targetCrouchDepth:F2}")}");
                 return;
             }
 
@@ -140,29 +177,19 @@ namespace SteelCity.Sim
             transform.rotation = Quaternion.Euler(0f, yaw, 0f);
         }
 
-        void CrouchAndAim()
+        // In cover = ducked or stood behind a full wall — hidden either way.
+        // Aiming is the pop-up/exposed phase's job (peek → acquire → fire →
+        // duck → reload) — the solver also refuses to arm while crouched.
+        void CrouchAndCover()
         {
-            anim?.RequestPose(CharacterAnimation.AnimState.Crouching, CharacterAnimation.PRIORITY_COMBAT);
+            bool stand = coverWallClass == CoverSensor.WallClass.Full;
+            anim?.RequestPose(stand ? CharacterAnimation.AnimState.Idle
+                                    : CharacterAnimation.AnimState.Crouching,
+                              CharacterAnimation.PRIORITY_COMBAT);
             Vector3 to = ThreatPos - Feet();
             to.y = 0f;
             if (to.sqrMagnitude > 1e-6f)
                 transform.rotation = Quaternion.Euler(0f, Mathf.Atan2(to.x, to.z) * Mathf.Rad2Deg, 0f);
-            if (solver != null)
-            {
-                solver.Arm(ThreatPos);
-                solver.SetTarget(ThreatPos);
-                aimTick = true;
-            }
-        }
-
-        // Keep the solver's target pinned while in cover (threat is static v1,
-        // but the solver expects per-frame target refresh like possess does).
-        private bool aimTick;
-        void LateUpdate()
-        {
-            if (!aimTick) return;
-            if (solver != null && solver.IsAiming) solver.SetTarget(ThreatPos);
-            else aimTick = false;
         }
 
         /// <summary>Character transform sits at the volume corner — feet = XZ center.</summary>

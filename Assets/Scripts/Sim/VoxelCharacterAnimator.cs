@@ -353,12 +353,18 @@ namespace SteelCity.Sim
         /// </summary>
         public GroupTransformResult? ComputeGroupRotation(
             int gid, Vector3Int dims, float voxelSize,
-            float animState, float animTime, float animSpeed)
+            float animState, float animTime, float animSpeed,
+            float crouchDepth = 0f)
         {
             // T-Pose: raw bind pose — NO rotations applied
             if (animState > 8.5f && animState < 9.5f) return null;
 
             var ap = paramsData;
+            // Adaptive crouch: depth 0..1 lerps every authored scalar
+            // crouching → crouchDeep (absent deep block = inert clone).
+            var cdeep = ap.crouchDeep ?? ap.crouching;
+            float Cd = Mathf.Clamp01(crouchDepth);
+            float Cr(float s, float d) => Mathf.Lerp(s, d, Cd);
 
             // === BODY TRANSFORM (torso twist + crouch lean + crouch lower) ===
             bool isSweepState = animState > 9.5f && animState < 10.5f;            // Aim Sweep (10)
@@ -370,9 +376,9 @@ namespace SteelCity.Sim
             bool isCrouchingState = animState > 4.5f && animState < 5.5f; // Crouching (5)
             bool isSittingState = animState > 10.5f && animState < 11.5f; // Sit (11)
             float torsoTwist = isAimingState ? ap.aiming.torsoTwist : 0f;
-            float bodyLean = isCrouchingState ? ap.crouching.bodyLean : 0f;
-            float bodyLower = isCrouchingState ? ap.crouching.bodyLower : 0f;
-            float modelLower = isCrouchingState ? ap.crouching.modelLower : 0f;
+            float bodyLean = isCrouchingState ? Cr(ap.crouching.bodyLean, cdeep.bodyLean) : 0f;
+            float bodyLower = isCrouchingState ? Cr(ap.crouching.bodyLower, cdeep.bodyLower) : 0f;
+            float modelLower = isCrouchingState ? Cr(ap.crouching.modelLower, cdeep.modelLower) : 0f;
             bool hasBodyRot = torsoTwist != 0f || bodyLean != 0f;
             // Torso IK override (gid 0) — participates in bodyRot so it propagates
             // through the same body-transform path into arm/forearm/head chains.
@@ -412,7 +418,7 @@ namespace SteelCity.Sim
             GroupTransformResult? parentResult = null;
             if (PARENT_OF.ContainsKey(gid))
             {
-                parentResult = ComputeGroupRotation(PARENT_OF[gid], dims, voxelSize, animState, animTime, animSpeed);
+                parentResult = ComputeGroupRotation(PARENT_OF[gid], dims, voxelSize, animState, animTime, animSpeed, crouchDepth);
             }
 
             if (!pivots.ContainsKey(gid)) return parentResult;
@@ -458,7 +464,7 @@ namespace SteelCity.Sim
                 }
                 else if (animState > 4.5f && animState < 5.5f) // Crouching
                 {
-                    headPitch = ap.crouching.headPitch;
+                    headPitch = Cr(ap.crouching.headPitch, cdeep.headPitch);
                 }
                 else if (isSittingState) // Sit
                 {
@@ -488,7 +494,7 @@ namespace SteelCity.Sim
                 }
                 else if (animState > 4.5f && animState < 5.5f) // Crouching
                 {
-                    swing = asc.signL * ap.crouching.armSwingL;
+                    swing = asc.signL * Cr(ap.crouching.armSwingL, cdeep.armSwingL);
                 }
                 else if (isSittingState) // Sit
                 {
@@ -518,7 +524,7 @@ namespace SteelCity.Sim
                 }
                 else if (animState > 4.5f && animState < 5.5f) // Crouching
                 {
-                    swing = asc.signR * ap.crouching.armSwingR;
+                    swing = asc.signR * Cr(ap.crouching.armSwingR, cdeep.armSwingR);
                 }
                 else if (isSittingState) // Sit
                 {
@@ -543,7 +549,7 @@ namespace SteelCity.Sim
                 }
                 else if (animState > 4.5f && animState < 5.5f) // Crouching
                 {
-                    stride = ls.signL * ap.crouching.legStrideL;
+                    stride = ls.signL * Cr(ap.crouching.legStrideL, cdeep.legStrideL);
                 }
                 else if (isSittingState) // Sit
                 {
@@ -568,7 +574,7 @@ namespace SteelCity.Sim
                 }
                 else if (animState > 4.5f && animState < 5.5f) // Crouching
                 {
-                    stride = ls.signR * ap.crouching.legStrideR;
+                    stride = ls.signR * Cr(ap.crouching.legStrideR, cdeep.legStrideR);
                 }
                 else if (isSittingState) // Sit
                 {
@@ -598,7 +604,7 @@ namespace SteelCity.Sim
                 }
                 else if (animState > 4.5f && animState < 5.5f) // Crouching — rest + static bend
                 {
-                    bend += eb.signL * ap.crouching.elbowBendL;
+                    bend += eb.signL * Cr(ap.crouching.elbowBendL, cdeep.elbowBendL);
                 }
                 ownRot = RotationByAxis(eb.axisL, bend);
                 if (twist != 0f) ownRot = MatMul3(ownRot, RotationX(twist));
@@ -620,7 +626,7 @@ namespace SteelCity.Sim
                 }
                 else if (animState > 4.5f && animState < 5.5f) // Crouching — rest + static bend
                 {
-                    bend += eb.signR * ap.crouching.elbowBendR;
+                    bend += eb.signR * Cr(ap.crouching.elbowBendR, cdeep.elbowBendR);
                 }
                 ownRot = RotationByAxis(eb.axisR, bend);
                 if (twist != 0f) ownRot = MatMul3(ownRot, RotationX(twist));
@@ -636,7 +642,7 @@ namespace SteelCity.Sim
                 }
                 else if (animState > 4.5f && animState < 5.5f) // Crouching — static knee bend
                 {
-                    bend += kb.signL * ap.crouching.kneeBendL;
+                    bend += kb.signL * Cr(ap.crouching.kneeBendL, cdeep.kneeBendL);
                 }
                 else if (isSittingState) // Sit — static knee bend
                 {
@@ -655,7 +661,7 @@ namespace SteelCity.Sim
                 }
                 else if (animState > 4.5f && animState < 5.5f) // Crouching — static knee bend
                 {
-                    bend += kb.signR * ap.crouching.kneeBendR;
+                    bend += kb.signR * Cr(ap.crouching.kneeBendR, cdeep.kneeBendR);
                 }
                 else if (isSittingState) // Sit — static knee bend
                 {
@@ -778,9 +784,32 @@ namespace SteelCity.Sim
         /// the same pipeline as PoseVoxels: group chain, offsets, body bob + weight shift.
         /// Returns the posed point in voxel units, centered on x/z (matching PoseVoxels output).
         /// </summary>
+        /// <summary>PosePoint with pose-transition blending: while transBlend is
+        /// in (0,1) the point is evaluated under BOTH the live state and the
+        /// frozen outgoing pose (transStateA @ transTimeA) and lerped — keeps
+        /// joint/anchor queries truthful mid-transition, mirroring the GPU
+        /// dual-eval in CharacterPoseCompute. transDip is the signed settle
+        /// offset (voxel units, applied on Y).</summary>
         public Vector3 PosePoint(
             Vector3 restPos, int gid, Vector3Int dims,
-            float animState, float animTime, float animSpeed)
+            float animState, float animTime, float animSpeed,
+            float transStateA = -1f, float transTimeA = 0f,
+            float transBlend = 1f, float transDip = 0f,
+            float crouchDepth = 0f, float transDepthA = -1f)
+        {
+            var pB = PosePointCore(restPos, gid, dims, animState, animTime, animSpeed, crouchDepth);
+            if (transBlend >= 1f || transStateA < 0f) return pB;
+            float depthA = transDepthA >= 0f ? transDepthA : crouchDepth;
+            var pA = PosePointCore(restPos, gid, dims, transStateA, transTimeA, animSpeed, depthA);
+            var p = Vector3.Lerp(pA, pB, transBlend);
+            p.y += transDip;
+            return p;
+        }
+
+        Vector3 PosePointCore(
+            Vector3 restPos, int gid, Vector3Int dims,
+            float animState, float animTime, float animSpeed,
+            float crouchDepth = 0f)
         {
             bool isWalkState = (animState > 0.5f && animState < 1.5f) || (animState > 2.5f && animState < 3.5f);
             WalkPose walkPose = isWalkState ? GetWalkPose(animTime, animSpeed, paramsData) : default(WalkPose);
@@ -793,7 +822,7 @@ namespace SteelCity.Sim
 
             if (gid >= 0)
             {
-                var result = ComputeGroupRotation(gid, dims, 1.0f, animState, animTime, animSpeed);
+                var result = ComputeGroupRotation(gid, dims, 1.0f, animState, animTime, animSpeed, crouchDepth);
                 if (result.HasValue && result.Value.chain != null && result.Value.chain.Length > 0)
                 {
                     var pos = restPos;
@@ -936,6 +965,13 @@ namespace SteelCity.Sim
                 p.aiming = new AimingData { weaponType = "pistol", torsoTwist = -0.2f, headYaw = 0f, headPitch = -0.05f, headTilt = 0f, armSwingL = 0f, armSwingR = -1.4f, shoulderReachL = 0f, shoulderReachR = 0f, elbowBendL = 0f, elbowBendR = 0.3f };
             if (p.crouching == null)
                 p.crouching = new CrouchingData { bodyLower = 0f, modelLower = 4f, bodyLean = 0f, headPitch = 0f, armSwingL = 0f, armSwingR = 0f, legStrideL = -1.15f, legStrideR = 0f, kneeBendL = 1.15f, kneeBendR = 1.40f, elbowBendL = 0f, elbowBendR = 0f };
+            if (Missing("crouchDeep") || p.crouchDeep == null)
+            {
+                // No authored deep endpoint → clone the shallow crouch so the
+                // depth channel exists but lerps a pose onto itself (inert).
+                var s = p.crouching;
+                p.crouchDeep = new CrouchingData { bodyLower = s.bodyLower, modelLower = s.modelLower, bodyLean = s.bodyLean, headPitch = s.headPitch, armSwingL = s.armSwingL, armSwingR = s.armSwingR, legStrideL = s.legStrideL, legStrideR = s.legStrideR, kneeBendL = s.kneeBendL, kneeBendR = s.kneeBendR, elbowBendL = s.elbowBendL, elbowBendR = s.elbowBendR };
+            }
             if (p.sitting == null)
                 p.sitting = new SittingData { headPitch = 0f, armSwingL = 0.2f, armSwingR = 0.2f, legStrideL = 1.45f, legStrideR = 1.45f, kneeBendL = 1.45f, kneeBendR = 1.45f };
             // Sections below are dereferenced unconditionally in ComputeGroupRotation —
@@ -1146,6 +1182,10 @@ namespace SteelCity.Sim
             public LookingData looking;
             public AimingData aiming;
             public CrouchingData crouching;
+            /// <summary>Deep-crouch endpoint (same fields as crouching).
+            /// crouchDepth 0..1 lerps every scalar crouching→crouchDeep —
+            /// the adaptive-duck axis driven by picked cover height.</summary>
+            public CrouchingData crouchDeep;
             public SittingData sitting;
             public AimSweepData aimSweep;
         }

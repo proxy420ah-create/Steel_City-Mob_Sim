@@ -55,6 +55,36 @@ namespace SteelCity.Sim
         private int overridePriority;
         private float overrideExpiry = -1f; // <0 = persistent until ReleasePose
 
+        // ---- Pose transition (dual-eval blend) ----
+        // On every effective-state change the outgoing pose is FROZEN as
+        // (transFrom, transFromTime) and the GPU lerps voxel positions from it
+        // into the live state over transitionDuration — a parametric
+        // "whatever pose it was → authored pose" engine; the same ease curves
+        // and procedural settle the walk cycle uses. transDip adds the
+        // bob-flavored dip-and-recover on the vertical channel.
+        [Header("Pose transitions (snapshot → target lerp)")]
+        public bool poseTransitions = true;
+        public float transitionDuration = 0.32f;
+        public float transitionDip = 0.45f;   // voxel units — peak of the settle dip
+        [Range(0, 2)] public int transitionEase = 1; // 0 linear · 1 smoothstep · 2 cosine
+
+        private float transT = -1f;           // <0 = idle
+        private AnimState transFrom;
+        private float transFromTime;
+        private float transFromDepth;  // depth is a pose axis — frozen with state+time
+        private float pendingPrevAnimTime = -1f; // SetState resets animTime before Update reads it
+        /// <summary>Blend weight of the LIVE pose (1 = transition done/off).</summary>
+        public float TransBlend { get; private set; } = 1f;
+        /// <summary>Signed vertical settle offset in voxel units (0 at both ends).</summary>
+        public float TransDip { get; private set; }
+        /// <summary>True while a hold outranks combat — a debug pose owns the
+        /// pose AND the crouch-depth channel (combat's depth ease yields; the
+        /// wall's requirement resumes when the hold releases).</summary>
+        public bool DebugOwnsPose => overrideActive && overridePriority > PRIORITY_COMBAT;
+
+        public AnimState TransFrom => transFrom;
+        public float TransFromTime => transFromTime;
+
         /// <summary>True while a pose override is held (base lane suspended).</summary>
         public bool HasOverride => overrideActive;
         /// <summary>The state actually pushed to the GPU this frame.</summary>
@@ -83,6 +113,12 @@ namespace SteelCity.Sim
             if (priority >= 0 && priority < overridePriority) return;
             overrideActive = false;
         }
+
+        /// <summary>Adaptive crouch depth 0..1 — lerps every authored crouch
+        /// scalar shallow→deep inside the pose eval (CPU + GPU). Written by
+        /// CombatController from picked cover height (eased); also drivable
+        /// directly for authoring/debug preview.</summary>
+        [Range(0f, 1f)] public float crouchDepth = 0f;
 
         private VoxelCharacter voxelChar;
         private float animTime = 0f;
@@ -139,16 +175,45 @@ namespace SteelCity.Sim
             // Reset animTime on state change for clean transitions
             if (effective != prevState)
             {
+                if (poseTransitions)
+                {
+                    // Freeze the outgoing pose — the GPU keeps evaluating it
+                    // under this (state, time) pair while the blend ramps in.
+                    transFrom = prevState;
+                    transFromTime = pendingPrevAnimTime >= 0f ? pendingPrevAnimTime : animTime;
+                    transFromDepth = crouchDepth;
+                    transT = 0f;
+                }
+                pendingPrevAnimTime = -1f;
                 animTime = 0f;
                 prevState = effective;
             }
 
             animTime += Time.deltaTime;
 
+            // Advance the transition clock once per frame — eased blend weight
+            // plus a one-cycle settle dip (peak mid-transition, zero at ends).
+            if (transT >= 0f)
+            {
+                transT += Time.deltaTime;
+                float t = transitionDuration > 0f ? Mathf.Clamp01(transT / transitionDuration) : 1f;
+                TransBlend = transitionEase == 0 ? t
+                    : transitionEase == 2 ? 0.5f - 0.5f * Mathf.Cos(t * Mathf.PI)
+                    : t * t * (3f - 2f * t);
+                TransDip = -Mathf.Sin(t * Mathf.PI) * transitionDip;
+                if (t >= 1f) { transT = -1f; TransBlend = 1f; TransDip = 0f; }
+            }
+
             // Push to GPU via instance buffer — single authoritative write.
             instancedHandle.animState = (float)effective;
             instancedHandle.animTime = animTime;
             instancedHandle.animSpeed = walkSpeed;
+            instancedHandle.transStateA = (float)transFrom;
+            instancedHandle.transTimeA = transFromTime;
+            instancedHandle.transBlend = TransBlend;
+            instancedHandle.transDip = TransDip;
+            instancedHandle.transDepthA = transFromDepth;
+            instancedHandle.crouchDepth = crouchDepth;
         }
 
         /// <summary>Set base-lane animation state (locomotion). Does not break a held pose override.</summary>
@@ -157,6 +222,7 @@ namespace SteelCity.Sim
             if (currentState != newState)
             {
                 currentState = newState;
+                pendingPrevAnimTime = animTime; // stash — Update needs the outgoing pose's time
                 animTime = 0f;
             }
         }

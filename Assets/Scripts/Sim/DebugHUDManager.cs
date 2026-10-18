@@ -18,7 +18,7 @@ namespace SteelCity.Sim
     /// </summary>
     public class DebugHUDManager : MonoBehaviour
     {
-        public enum Tab { Camera, Render, Clothing, Path, Combat, Cover, Vision, Demolitions, Weapons, MatRes, BuildLog, Keys, Sfx }
+        public enum Tab { Camera, Render, Clothing, Path, Combat, Cover, Vision, Demolitions, Weapons, MatRes, BuildLog, Keys, Sfx, TanSuit }
         public enum Corner { TopLeft, TopRight, BottomLeft, BottomRight }
 
         [Header("Config")]
@@ -62,10 +62,34 @@ namespace SteelCity.Sim
 
         // Combat tab state — set by clicking a range block while sim is Dwelling
         private string rangeBlockId;
+        /// <summary>Cover pit: when false the opponent stands Idle as a target
+        /// dummy (Vinny-only cover test); when true START DUEL is symmetric —
+        /// both combatants seek cover. Default dummy while Vinny's cover
+        /// behavior gets dialed in.</summary>
+        private bool pitOpponentAI = false;
+        private string pitBlockId;
+        private Dictionary<string, Block> pitScanSource;
+
+        /// <summary>The block carrying cover_stand_a — found by probing every
+        /// laid block's attachment points once, re-derived if the block set
+        /// changes (city rebuild). The pit is a first-class testbed: the menu
+        /// stages it without an order, dwell state, or map click.</summary>
+        private string PitBlockId
+        {
+            get
+            {
+                var blocks = cityMap.CachedBlocks;
+                if (pitScanSource != blocks) { pitScanSource = blocks; pitBlockId = null; }
+                if (pitBlockId == null && blocks != null)
+                    foreach (var id in blocks.Keys)
+                        if (cityMap.TryGetBuildingPointLocal(id, "cover_stand_a", out _)) { pitBlockId = id; break; }
+                return pitBlockId;
+            }
+        }
 
         /// <summary>Selected firing lane (1=left, 2=center, 3=right). Read by
         /// GameUIController when resolving per-lane point names for
-        /// target_practice orders.</summary>
+        /// test_week orders.</summary>
         public static int RangeLane = 2;
         /// <summary>When true (lane 3 only), the aim point is the glass mold's
         /// metal core ("glass_target") instead of the lane's firing_target.</summary>
@@ -103,6 +127,54 @@ namespace SteelCity.Sim
         private List<ClothingSystem> allClothingSystems = new();
         private int selectedClothingIndex = 0;
         private float clothingListRefreshTimer = 0f;
+        /// <summary>Cached for DrawSfxTab — FindFirstObjectByType is a full scene
+        /// scan and OnGUI fires several events per frame, so an inline find there
+        /// was a sustained 40fps cap the moment the tab opened.</summary>
+        private AudioListener sfxListener;
+        private float sfxListenerRetryAt;
+        private AudioListener ResolveSfxListener()
+        {
+            if (sfxListener != null) return sfxListener;
+            if (Time.unscaledTime < sfxListenerRetryAt) return null;   // bounded null-retry — no per-event scene scan
+            sfxListenerRetryAt = Time.unscaledTime + 1f;
+            return sfxListener = FindFirstObjectByType<AudioListener>();
+        }
+
+        // --- Section foldouts — the HUD frame tax is widgets x GUI events, so a
+        // collapsed section drawing 1 toggle instead of N controls is the lever.
+        // State persists for the session; new sections follow secDefaultOpen.
+        private readonly Dictionary<string, bool> secOpen = new Dictionary<string, bool>();
+        private bool secDefaultOpen = true;
+        private bool SecFold(string key, string title)
+        {
+            bool open = secOpen.TryGetValue(key, out bool o) ? o : secDefaultOpen;
+            bool next = GUILayout.Toggle(open, (open ? "▼ " : "▶ ") + title, toggleStyle);
+            if (next != open) secOpen[key] = next;
+            return next;
+        }
+        private void SecSetAll(bool open)
+        {
+            secDefaultOpen = open;
+            var keys = new List<string>(secOpen.Keys);
+            foreach (var k in keys) secOpen[k] = open;
+        }
+
+        // Tan Suit resolved at most once/sec — FindRig scans every CharacterRig;
+        // Combat/TanSuit tabs each called it several times per IMGUI event.
+        private VoxelCharacter cachedTanSuit;
+        private float tanSuitRefAt;
+        private VoxelCharacter TanSuitRef
+        {
+            get
+            {
+                if (cachedTanSuit == null || Time.unscaledTime >= tanSuitRefAt)
+                {
+                    cachedTanSuit = FindCharacter("Civilian_02");
+                    tanSuitRefAt = Time.unscaledTime + 1f;
+                }
+                return cachedTanSuit;
+            }
+        }
 
         // Character rig multi-instance tracking (for hotkey control routing)
         private List<CharacterRig> allCharacterRigs = new();
@@ -249,7 +321,7 @@ namespace SteelCity.Sim
             Tab.Render => chunkManager != null,
             Tab.Clothing => allClothingSystems.Count > 0,
             Tab.Path => pathDebug != null,
-            Tab.Combat or Tab.Cover or Tab.Vision or Tab.Demolitions => cityMap != null,
+            Tab.Combat or Tab.Cover or Tab.Vision or Tab.Demolitions or Tab.TanSuit => cityMap != null,
             Tab.Sfx => true,
             _ => true,
         };
@@ -312,6 +384,12 @@ namespace SteelCity.Sim
                 {
                     minimized = !minimized;
                 }
+
+                // Lock toggle with L key — locked tabs render as cached text
+                if (kb.lKey.wasPressedThisFrame)
+                {
+                    hudLocked = !hudLocked;
+                }
             }
 
             // Periodically refresh clothing system list (every 1 second).
@@ -325,6 +403,7 @@ namespace SteelCity.Sim
                 {
                     clothingListRefreshTimer = 0f;
                     RefreshClothingSystems();
+                    sfxListener = FindFirstObjectByType<AudioListener>();
                 }
             }
 
@@ -453,11 +532,42 @@ namespace SteelCity.Sim
             };
         }
 
+        // --- HUD self-profile: per-frame OnGUI cost + event count, printed in
+        // the sections row. Settles the "is it widgets?" question on the wire —
+        // a folded tab showing hud≈0ms while FPS is still low means the cost is
+        // elsewhere; hud≈15ms confirms the widget×event tax.
+        private int hudProfFrame = -1, hudProfEvents, hudProfEventsShown;
+        private float hudProfMs, hudProfMsShown, hudProfPeak, hudProfPeakShown;
+        private bool hudLite;   // suppress tab body — isolates native GUI draw cost
+        /// <summary>Locked = cheap mode: every tab renders as ONE cached label
+        /// rebuilt ~4Hz (the pattern the text tabs prove at 120fps). Unlock to
+        /// tune, lock to verify at full framerate — the state mirror stays live
+        /// so effects are observable while locked. [L] toggles.</summary>
+        private bool hudLocked = true;
+        private string lockedTabText;
+
         void OnGUI()
         {
-            if (!visible) return;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            OnGUIInner();
+            sw.Stop();
+            float ms = (float)sw.Elapsed.TotalMilliseconds;
+            if (hudProfFrame != Time.frameCount)
+            {
+                hudProfMsShown = hudProfMs; hudProfEventsShown = hudProfEvents;
+                hudProfPeakShown = hudProfPeak;
+                hudProfMs = 0f; hudProfEvents = 0; hudProfPeak = 0f;
+                hudProfFrame = Time.frameCount;
+            }
+            hudProfMs += ms; hudProfEvents++;
+            if (ms > hudProfPeak) hudProfPeak = ms;
+        }
 
+        void OnGUIInner()
+        {
             InitStyles();
+            DrawModeTicker();   // bottom banner — persists while a V-key debug view is on, even with the panel hidden
+            if (!visible) return;
             // FindFirstObjectByType scans the scene — 8 of them per IMGUI
             // event (~4-6 events/frame) was a measurable stall. Throttled.
             // Missing refs (absent test rigs) retry on a slow cadence — they
@@ -559,7 +669,18 @@ namespace SteelCity.Sim
             }
 
             DrawTabRow(Tab.Camera, Tab.Render, Tab.Sfx, Tab.Clothing, Tab.Path, Tab.Keys);
-            DrawTabRow(Tab.Combat, Tab.Cover, Tab.Vision, Tab.Demolitions, Tab.Weapons, Tab.MatRes, Tab.BuildLog);
+            DrawTabRow(Tab.Combat, Tab.Cover, Tab.Vision, Tab.TanSuit, Tab.Demolitions, Tab.Weapons, Tab.MatRes, Tab.BuildLog);
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("sections:", labelStyle, GUILayout.Width(60));
+            if (GUILayout.Button("open all", tabStyle, GUILayout.Height(16))) SecSetAll(true);
+            if (GUILayout.Button("close all", tabStyle, GUILayout.Height(16))) SecSetAll(false);
+            var liteStyle = hudLite ? tabActiveStyle : tabStyle;
+            if (GUILayout.Button(hudLite ? "LITE on" : "lite", liteStyle, GUILayout.Height(16))) hudLite = !hudLite;
+            var lockStyle = hudLocked ? tabActiveStyle : tabStyle;
+            if (GUILayout.Button(hudLocked ? "LOCKED" : "edit", lockStyle, GUILayout.Width(60), GUILayout.Height(16))) hudLocked = !hudLocked;
+            GUILayout.FlexibleSpace();
+            GUILayout.Label($"<b>hud</b> {hudProfMsShown:F2}ms/frame · {hudProfEventsShown} ev · peak {hudProfPeakShown:F1}ms", labelStyle);
+            GUILayout.EndHorizontal();
 
             // Separator
             GUILayout.Box("", GUILayout.Height(1), GUILayout.ExpandWidth(true));
@@ -567,6 +688,24 @@ namespace SteelCity.Sim
             // Tab content
             scrollPos = GUILayout.BeginScrollView(scrollPos, GUILayout.ExpandHeight(true));
 
+            // LOCKED = the cheap architecture: live tabs render as ONE cached
+            // label (same pattern as the text tabs — proven 120fps). Unlock to
+            // tune, lock back to verify the change at full framerate.
+            if (hudLocked && IsLiveTab(activeTab))
+            {
+                if (activeTab != lastBuiltTab
+                        || Time.unscaledTime >= nextTabRefresh)
+                    RebuildLockedTabText();
+                GUILayout.Label(lockedTabText, labelStyle);
+            }
+            // hudLite: window chrome + tab rows still draw, but the tab BODY is
+            // suppressed. A/B for the native IMGUI pass — if FPS recovers with
+            // the body gone, the content's draw cost is the wall, not OnGUI C#.
+            else if (hudLite)
+            {
+                GUILayout.Label("<i>hudLITE — tab content suppressed</i>", labelStyle);
+            }
+            else
             switch (activeTab)
             {
                 case Tab.Clothing: DrawClothingTab(); break;
@@ -580,6 +719,7 @@ namespace SteelCity.Sim
                     break;
                 case Tab.Cover: DrawCoverTab(); break;
                 case Tab.Vision: DrawVisionTab(); break;
+                case Tab.TanSuit: DrawTanSuitTab(); break;
                 case Tab.Weapons: DrawWeaponsTab(); break;
                 case Tab.Sfx: DrawSfxTab(); break;
                 case Tab.MatRes:
@@ -664,6 +804,61 @@ namespace SteelCity.Sim
             hudSB.AppendLine("<i>Drag title bar to move. Click _ to minimize.</i>");
             footerText = hudSB.ToString();
             nextFooterRefresh = Time.unscaledTime + 0.25f;
+        }
+
+        /// <summary>
+        /// Bottom-of-screen mode banner — answers "what debug view am I in"
+        /// without opening the panel, plus the live numbers that mode reports.
+        /// Draws whenever a V-key view is active (Off = no banner).
+        /// </summary>
+        void DrawModeTicker()
+        {
+            if (chunkManager == null) return;
+            var m = chunkManager.iterVisMode;
+            if (m == VoxelChunkManager.IterVisMode.Off) return;
+
+            var sensor = cityMap != null && cityMap.SpawnedCharacter != null
+                ? cityMap.SpawnedCharacter.GetComponent<CoverSensor>() : null;
+            var vis = cityMap != null && cityMap.SpawnedCharacter != null
+                ? cityMap.SpawnedCharacter.GetComponent<VisionSensor>() : null;
+            var f = sensor != null ? sensor.Field : null;
+            string coverData = f != null && f.HasData
+                ? $"{f.ValidCells}/{f.TestedCells} hidden" +
+                  (f.ChosenCell >= 0 ? $" · pick {f.ChosenPoint.x:F1},{f.ChosenPoint.z:F1}" : "")
+                : "no threat";
+
+            string mode, desc, data = "", color;
+            switch (m)
+            {
+                case VoxelChunkManager.IterVisMode.IterationHeat:
+                    mode = "ITER HEAT"; color = "#ff9a3c"; desc = "raymarch cost — blue<80 · green~160 · red>160"; break;
+                case VoxelChunkManager.IterVisMode.StepChannels:
+                    mode = "STEP CH"; color = "#3cb2ff"; desc = "R = voxel-march steps · B = shadow-march steps"; break;
+                case VoxelChunkManager.IterVisMode.MissWaste:
+                    mode = "MISS WASTE"; color = "#ff5555"; desc = "heat on rays that never hit"; break;
+                case VoxelChunkManager.IterVisMode.CoverQuality:
+                    mode = "COVER · QUALITY"; color = "#4dff8f";
+                    desc = "hot = cover-capable face · red wash = open ground";
+                    data = sensor != null ? $"{sensor.stats.wallCols} wall cols in radius" : "no sensor"; break;
+                case VoxelChunkManager.IterVisMode.CoverThreat:
+                    mode = "COVER · THREAT"; color = "#ffe14d";
+                    desc = "composite score — white flash = the pick"; data = coverData; break;
+                case VoxelChunkManager.IterVisMode.VisionCone:
+                    mode = "VISION CONE"; color = "#ff8c1a";
+                    desc = "orange = inside Vinny's sight wedge (angle+range; LOS lives in the sensor's rays)";
+                    data = vis != null
+                        ? $"{vis.range:F0}m · ±{vis.halfAngleDeg:F0}° · det {vis.MaxDetection:P0}"
+                        : "no vision sensor"; break;
+                default: // CoverExposure
+                    mode = "COVER · EXPOSURE"; color = "#4dd8ff";
+                    desc = "teal hidden · red exposed · slate invalid"; data = coverData; break;
+            }
+
+            var r = new Rect(Screen.width * 0.5f - 330f, Screen.height - 34f, 660f, 26f);
+            GUI.Box(r, GUIContent.none, bgStyle);
+            GUI.Label(new Rect(r.x + 10f, r.y + 3f, r.width - 20f, r.height - 4f),
+                $"<b><color={color}>{mode}</color></b>  {desc}" +
+                (data.Length > 0 ? $"   <color=#8fb8ff>{data}</color>" : ""), labelStyle);
         }
 
         void BuildCameraTab(System.Text.StringBuilder sb)
@@ -813,10 +1008,9 @@ namespace SteelCity.Sim
                 return;
             }
 
-            // Character selector — controls which rig receives hotkeys (T/I/W/L/A/C etc.)
-            if (allCharacterRigs.Count > 0)
+            // Character selector — controls which rig receives the Alt+pose hotkeys
+            if (allCharacterRigs.Count > 0 && SecFold("l.chars", $"Character Control — {allCharacterRigs.Count} rigs (hotkeys)"))
             {
-                GUILayout.Label("<b>Character Control (hotkeys)</b>", boldStyle);
                 GUILayout.BeginHorizontal();
                 for (int i = 0; i < allCharacterRigs.Count; i++)
                 {
@@ -829,19 +1023,45 @@ namespace SteelCity.Sim
                     if (GUILayout.Button(label, active ? tabActiveStyle : tabStyle, GUILayout.Height(20)))
                     {
                         selectedRigIndex = i;
-                        // Deactivate all, activate selected
+                        // Deactivate all, activate selected — Controllable alone
+                        // didn't reach the pose path: HandleInput also needs
+                        // AnimHotkeys, which used to have no code setter (the
+                        // dead "select a rig → Alt+pose" path).
                         foreach (var rig in allCharacterRigs)
-                            if (rig != null) rig.Controllable = false;
+                            if (rig != null) { rig.Controllable = false; rig.AnimHotkeys = false; }
                         r.Controllable = true;
+                        r.AnimHotkeys = true;
                     }
                     GUI.backgroundColor = oldBg;
                 }
                 GUILayout.EndHorizontal();
-                GUILayout.Space(8);
+
+                // Pose transition knobs — the dual-eval blend (snapshot → target)
+                // driving every state change on the selected rig's animation.
+                var selRig = (selectedRigIndex >= 0 && selectedRigIndex < allCharacterRigs.Count)
+                    ? allCharacterRigs[selectedRigIndex] : null;
+                var selAnim = selRig != null ? selRig.GetComponent<CharacterAnimation>() : null;
+                if (selAnim != null)
+                {
+                    GUILayout.Label("<b>Pose transition (snapshot → target lerp)</b>", boldStyle);
+                    selAnim.poseTransitions = GUILayout.Toggle(selAnim.poseTransitions, " enabled", toggleStyle);
+                    GUILayout.Label($"  duration: {selAnim.transitionDuration:F2}s", labelStyle);
+                    selAnim.transitionDuration = GUILayout.HorizontalSlider(selAnim.transitionDuration, 0.05f, 1.0f);
+                    GUILayout.Label($"  settle dip: {selAnim.transitionDip:F2} vox", labelStyle);
+                    selAnim.transitionDip = GUILayout.HorizontalSlider(selAnim.transitionDip, 0f, 1.5f);
+                    GUILayout.Label($"  ease: {(selAnim.transitionEase == 0 ? "linear" : selAnim.transitionEase == 2 ? "cosine" : "smoothstep")}  [click to cycle]", labelStyle);
+                    if (GUILayout.Button("cycle ease", GUILayout.Width(90)))
+                        selAnim.transitionEase = (selAnim.transitionEase + 1) % 3;
+                    // Crouch depth preview — the adaptive-duck axis. Set a
+                    // crouch pose (Num5) then drag: shallow → deep authored lerp.
+                    GUILayout.Label($"  crouch depth: {selAnim.crouchDepth:F2}", labelStyle);
+                    selAnim.crouchDepth = GUILayout.HorizontalSlider(selAnim.crouchDepth, 0f, 1f);
+                }
             }
 
             // Clothing instance selector
-            GUILayout.Label("<b>Clothing Instance</b>", boldStyle);
+            if (SecFold("l.inst", $"Clothing Instance — {allClothingSystems.Count} in scene"))
+            {
             GUILayout.BeginHorizontal();
             for (int i = 0; i < allClothingSystems.Count; i++)
             {
@@ -859,6 +1079,7 @@ namespace SteelCity.Sim
                 GUI.backgroundColor = oldBg;
             }
             GUILayout.EndHorizontal();
+            }
             GUILayout.Space(4);
 
             // Draw the selected instance's clothing controls
@@ -889,14 +1110,25 @@ namespace SteelCity.Sim
             sb.AppendLine("[F6] Free camera (also disables debris)");
             sb.AppendLine("[F7] Waypoint graph beams");
             sb.AppendLine("[R] Cycle render scale: 0.5 / 0.65 / 0.75 / 1.0");
-            sb.AppendLine("[V] Cycle ray-march heatmap: heat / steps / miss waste / off");
+            sb.AppendLine("[V] Cycle ray-march debug: heat / steps / miss waste /");
+            sb.AppendLine("      cover Quality·Threat·Exposure (Vinny's field) / off");
 
             if (allCharacterRigs.Count > 0)
             {
                 sb.Append('\n');
                 sb.AppendLine(H("Character Control"));
                 sb.AppendLine("[G] Possess: WASD move · mouse look · LMB fire");
-                sb.AppendLine("<i>anim letter keys deprecated — animHotkeys on rig</i>");
+                sb.AppendLine("<b>Alt+pose latch — possessed OR the rig selected in</b>");
+                sb.AppendLine("<b>Clothing tab's Character Control:</b>");
+                sb.AppendLine("  [Alt+I] Idle   [Alt+W] Walk   [Alt+L] Look   [Alt+J] AimWalk");
+                sb.AppendLine("  [Alt+A] Aim    [Alt+C] Crouch [Alt+F] Flinch [Alt+D] Down");
+                sb.AppendLine("  [Alt+T] T-Pose [Alt+S] AimSweep              [Alt+B] Sit");
+                sb.AppendLine("  [Alt+X] release latch → back to locomotion");
+                sb.AppendLine("<b>Numpad pose panel — same latch, no modifier/ding:</b>");
+                sb.AppendLine("  [Num7] T-Pose [Num8] Down    [Num9] Sit");
+                sb.AppendLine("  [Num4] Aim    [Num5] Crouch/Deep (toggle)  [Num6] Flinch");
+                sb.AppendLine("  [Num1] Walk   [Num2] Look    [Num3] AimWalk");
+                sb.AppendLine("  [Num0]/[Enter] release · [Num.] AimSweep · [Num+/-] speed");
             }
 
             if (vehicleTest != null)
@@ -948,32 +1180,30 @@ namespace SteelCity.Sim
         }
 
         // ------------------------------------------------------------------
-        // Combat tab — live firing-range tuning/debug.
-        // Opens automatically when a block with a firing_position is clicked
-        // while the sim is Dwelling (Target Practice hold-open state).
+        // Combat tab — live testbed tuning/debug.
+        // Opens whenever a block with a combat anchor (firing_position /
+        // cover_stand_a) is clicked — any sim state. Dwelling is a sim
+        // feature (Test Week holds the week open), not a tool key.
         // ------------------------------------------------------------------
 
         private void HandleBlockClicked(string blockId)
         {
-            var sim = gameUI != null ? gameUI.Sim : null;
-            if (sim == null || sim.State != SimState.Dwelling) return;
             if (cityMap == null) return;
-            bool hasPos = cityMap.TryGetBuildingPointLocal(blockId, "firing_position", out _);
-            Debug.Log($"[DebugHUD] 🔵 Dwell click on {blockId} — firing_position: {(hasPos ? "found" : "absent")}");
+            bool hasPos = cityMap.TryGetBuildingPointLocal(blockId, "firing_position", out _)
+                       || cityMap.TryGetBuildingPointLocal(blockId, "cover_stand_a", out _);
+            Debug.Log($"[DebugHUD] 🔵 Dwell click on {blockId} — combat anchor: {(hasPos ? "found" : "absent")}");
             if (!hasPos) return;
             OpenCombatTab(blockId);
         }
 
         /// <summary>
-        /// Debug snap: while dwelling at a range block, move the spawned
+        /// Debug snap: on a clicked range block, move the spawned
         /// character onto lane N's firing_position and face him downrange at
-        /// that lane's firing_target. Teleports — no pathing (the dwell state
-        /// has no move queue, and lane-switching is a bench tool, not sim).
+        /// that lane's firing_target. Teleports — no pathing (bench tool,
+        /// any sim state — lane-switching isn't part of the sim).
         /// </summary>
         private void MoveCharacterToLane(string blockId, int lane)
         {
-            var sim = gameUI != null ? gameUI.Sim : null;
-            if (sim == null || sim.State != SimState.Dwelling) return;
             var ch = cityMap.SpawnedCharacter;
             var mount = ch != null ? ch.GetComponent<WeaponMount>() : null;
             if (mount == null) return;
@@ -984,6 +1214,168 @@ namespace SteelCity.Sim
             Vector3? faceWorld = cityMap.TryGetBuildingPointLocal(blockId, $"firing_target_{lane}", out var tgtLocal)
                 ? cityMap.MapRoot.position + tgtLocal : (Vector3?)null;
             ep.DebugSnapTo(cityMap.MapRoot.position + posLocal, mount.Dims, mount.CharVoxelSize, faceWorld);
+        }
+
+        /// <summary>Find a CharacterRig by its GameObject name ("Civilian_02" etc).</summary>
+        private CharacterRig FindRig(string goName)
+        {
+            foreach (var r in FindObjectsByType<CharacterRig>(FindObjectsSortMode.None))
+                if (r != null && r.gameObject.name == goName) return r;
+            return null;
+        }
+
+        /// <summary>VoxelCharacter by rig GameObject name — CharacterRig path
+        /// first, raw GameObject+component lookup as fallback (covers a rig
+        /// that spawned without a CharacterRig component).</summary>
+        private VoxelCharacter FindCharacter(string goName)
+        {
+            var rig = FindRig(goName);
+            if (rig != null && rig.Character != null) return rig.Character;
+            var go = GameObject.Find(goName);
+            return go != null ? go.GetComponent<VoxelCharacter>() : null;
+        }
+
+        /// <summary>Feet-level XZ center of a character's voxel volume — the
+        /// ground point threat semantics expect (sensors add eye height).</summary>
+        private static Vector3 CharFeetCenter(VoxelCharacter ch)
+        {
+            var d = ch.Dims; float vs = ch.voxelSize;
+            var p = ch.transform.position;
+            return new Vector3(p.x + d.x * vs * 0.5f, p.y, p.z + d.z * vs * 0.5f);
+        }
+
+        /// <summary>
+        /// Generic snap for non-EventPlayer characters (Civilian_02): same
+        /// corner-offset math as EventPlayer.DebugSnapTo plus a down-raycast so
+        /// feet land on whatever surface sits under the point. Facing = plain yaw
+        /// (same convention CombatController uses for its facing updates).
+        /// </summary>
+        private void SnapCharacterTo(VoxelCharacter ch, Vector3 posWorld, Vector3? faceWorld)
+        {
+            if (ch == null) return;
+            var d = ch.Dims; float vs = ch.voxelSize;
+            Vector3 t = posWorld - new Vector3(d.x * vs * 0.5f, 0f, d.z * vs * 0.5f);
+            t.y = posWorld.y;
+            if (World != null && World.Raycast(posWorld + Vector3.up * 0.5f, Vector3.down, 8f, out var gh))
+                t.y = gh.point.y;
+            ch.transform.position = t;
+            if (faceWorld.HasValue)
+            {
+                Vector3 dir = faceWorld.Value - t; dir.y = 0f;
+                if (dir.sqrMagnitude > 0.001f)
+                    ch.transform.rotation = Quaternion.LookRotation(dir.normalized, Vector3.up);
+            }
+        }
+
+        /// <summary>
+        /// Cover-pit setup (a block carrying cover_stand_a/_b points): Vinny
+        /// teleports to stand A facing B, Civilian_02 "Tan Suit" to B facing A.
+        /// Also arms the threat marker on Tan's feet so the cover field's
+        /// threat-keyed layers go live before the duel is executed.
+        /// </summary>
+        private void SetupCoverPit(string blockId)
+        {
+            // No sim-state gate — this is a debug teleport; it stages the pit
+            // any time. Failures log loudly instead of no-op'ing silently.
+            if (!cityMap.TryGetBuildingPointLocal(blockId, "cover_stand_a", out var aL) ||
+                !cityMap.TryGetBuildingPointLocal(blockId, "cover_stand_b", out var bL))
+            {
+                Debug.LogWarning($"[DebugHUD] 🥊 SetupCoverPit — '{blockId}' resolves no cover stands; aborting.");
+                return;
+            }
+            Vector3 aW = cityMap.MapRoot.position + aL;
+            Vector3 bW = cityMap.MapRoot.position + bL;
+
+            var vinny = cityMap.SpawnedCharacter;
+            var mount = vinny != null ? vinny.GetComponent<WeaponMount>() : null;
+            var ep = FindFirstObjectByType<EventPlayer>();
+            if (solver != null && solver.IsAiming) solver.Disarm();
+            // Deterministic reset — a re-run stands both combatants down first:
+            // out of combat, back to Idle ("standing, guns at side" per the
+            // phase-1 spec), then teleported to their plates.
+            if (vinny != null)
+            {
+                vinny.GetComponent<CombatController>()?.ExitCombat();
+                vinny.GetComponent<CharacterAnimation>()?.SetState(CharacterAnimation.AnimState.Idle);
+            }
+            if (vinny != null && ep != null)
+            {
+                float? feetY = null;
+                if (World != null && World.Raycast(aW + Vector3.up * 0.5f, Vector3.down, 8f, out var gh))
+                    feetY = gh.point.y;
+                if (mount != null)
+                    ep.DebugSnapTo(aW, mount.Dims, mount.CharVoxelSize, bW, feetY);
+                else
+                    SnapCharacterTo(vinny, aW, bW);   // no mount yet — generic snap still lands him
+            }
+
+            var tan = FindCharacter("Civilian_02");
+            if (tan == null)
+                Debug.LogWarning("[DebugHUD] 🥊 SetupCoverPit — Civilian_02 not found; Tan snap skipped.");
+            else
+            {
+                tan.GetComponent<CombatController>()?.ExitCombat();
+                tan.GetComponent<CharacterAnimation>()?.SetState(CharacterAnimation.AnimState.Idle);
+            }
+            SnapCharacterTo(tan, bW, aW);
+            if (tan != null)
+            {
+                pickedAim = CharFeetCenter(tan);
+                var pdr = PathDebugRenderer.Instance;
+                var c = new Color(1f, 0.55f, 0.1f, 0.95f);
+                pdr?.SetCustomBeam("pick_aim",  pickedAim.Value + Vector3.left * 0.25f,  pickedAim.Value + Vector3.right * 0.25f, 0.05f, c);
+                pdr?.SetCustomBeam("pick_aim2", pickedAim.Value + Vector3.down * 0.25f,  pickedAim.Value + Vector3.up * 0.25f,   0.05f, c);
+            }
+            Debug.Log($"[DebugHUD] 🥊 Cover pit setup — Vinny→stand_a {aW}, Tan→stand_b {bW}");
+        }
+
+        /// <summary>Shared duel execution — Vinny's EnterCombat keyed to Tan's
+        /// live feet; AI-duel mode mirrors it onto Tan's controller.</summary>
+        private void StartPitDuel(VoxelCharacter ch, VoxelCharacter tanCh)
+        {
+            var cc = ch.GetComponent<CombatController>();
+            if (cc == null) return;
+            Vector3 threat = CharFeetCenter(tanCh);
+            pickedAim = threat;   // marker mirrors the live threat
+            cc.EnterCombat(threat);
+            var tanCc = tanCh.GetComponent<CombatController>();
+            if (tanCc != null && tanCc.State != CombatController.CombatState.Idle)
+                tanCc.ExitCombat();   // stale combat on re-run — stand down first
+            if (pitOpponentAI && tanCc != null)
+                tanCc.EnterCombat(CharFeetCenter(ch));
+        }
+
+        /// <summary>The depth-ladder pick row — deep/mid/crouch/wall buttons
+        /// force Vinny's cover to that box's anchor pad. Rides the real field
+        /// (nearest Hidden cell) so reqDepth is honestly solved; works
+        /// mid-combat for A/B sweeps.</summary>
+        private void PitCoverPickRow(string blockId, VoxelCharacter vinny, VoxelCharacter tan)
+        {
+            GUI.enabled = vinny != null && tan != null;
+            GUILayout.Label("pick Vinny's cover:", labelStyle);
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("deep",   tabStyle, GUILayout.Height(20))) PitPickCover(blockId, vinny, tan, "cover_deep");
+            if (GUILayout.Button("mid",    tabStyle, GUILayout.Height(20))) PitPickCover(blockId, vinny, tan, "cover_mid");
+            if (GUILayout.Button("crouch", tabStyle, GUILayout.Height(20))) PitPickCover(blockId, vinny, tan, "cover_crouch");
+            if (GUILayout.Button("wall",   tabStyle, GUILayout.Height(20))) PitPickCover(blockId, vinny, tan, "cover_wall");
+            GUILayout.EndHorizontal();
+            GUI.enabled = true;
+        }
+
+        /// <summary>Force Vinny's cover pick to a named ladder anchor —
+        /// threat keyed on Tan's live feet, same as the duel.</summary>
+        private void PitPickCover(string blockId, VoxelCharacter ch, VoxelCharacter tanCh, string anchorName)
+        {
+            var cc = ch.GetComponent<CombatController>();
+            if (cc == null) return;
+            if (!cityMap.TryGetBuildingPointLocal(blockId, anchorName, out var aL))
+            {
+                Debug.LogWarning($"[DebugHUD] 🥊 cover pick — '{blockId}' has no '{anchorName}' anchor (regen the pit?)");
+                return;
+            }
+            Vector3 threat = CharFeetCenter(tanCh);
+            pickedAim = threat;
+            cc.EnterCombat(threat, cityMap.MapRoot.position + aL);
         }
 
         /// <summary>
@@ -1258,17 +1650,62 @@ namespace SteelCity.Sim
         {
             var sim = gameUI != null ? gameUI.Sim : null;
             string simState = sim != null ? sim.State.ToString() : "no sim";
-            bool dwelling = sim != null && sim.State == SimState.Dwelling;
 
             GUILayout.Label($"<b>COMBAT</b>   sim: {simState}", boldStyle);
 
-            // SFX preview — above the dwelling gate so it works in planning phase.
+            // --- TEST LOTS — authored testbeds, always reachable -----------
+            // Discovery = authored attachment points (the same anchor-routing
+            // block clicks use). No order, dwell state, or map click needed —
+            // the debug menu itself stages the pit any time.
+            if (SecFold("c.lots", "TEST LOTS — cover pit"))
+            {
+            string pitId = PitBlockId;
+            if (pitId != null)
+            {
+                bool clickedPit = rangeBlockId == pitId;   // combat section shows its own START DUEL then
+                var pitTan = TanSuitRef;
+                var pitVinny = cityMap.SpawnedCharacter;
+                GUILayout.Space(4);
+                GUILayout.Label($"<b>TEST LOTS</b>   cover pit <i>({pitId})</i>", labelStyle);
+                if (GUILayout.Button("SETUP PIT — Vinny→A, Tan Suit→B", tabStyle, GUILayout.Height(24)))
+                    SetupCoverPit(pitId);
+                GUILayout.BeginHorizontal();
+                GUILayout.Label("opponent:", labelStyle, GUILayout.Width(62));
+                if (GUILayout.Toggle(!pitOpponentAI, " target dummy", !pitOpponentAI ? tabActiveStyle : tabStyle, GUILayout.Height(20)))
+                {
+                    pitOpponentAI = false;
+                    var sd = pitTan != null ? pitTan.GetComponent<CombatController>() : null;
+                    if (sd != null && sd.State != CombatController.CombatState.Idle) sd.ExitCombat();
+                }
+                if (GUILayout.Toggle(pitOpponentAI, " AI duel", pitOpponentAI ? tabActiveStyle : tabStyle, GUILayout.Height(20)))
+                    pitOpponentAI = true;
+                GUILayout.EndHorizontal();
+                if (!clickedPit && pitVinny != null)
+                {
+                    var vcc = pitVinny.GetComponent<CombatController>();
+                    if (vcc == null) vcc = pitVinny.gameObject.AddComponent<CombatController>();
+                    GUI.enabled = pitTan != null && vcc.State == CombatController.CombatState.Idle;
+                    if (GUILayout.Button(pitOpponentAI ? "START DUEL — both seek cover"
+                                                       : "START DUEL — Vinny vs target dummy",
+                            tabStyle, GUILayout.Height(24)))
+                        StartPitDuel(pitVinny, pitTan);
+                    GUI.enabled = true;
+                }
+                if (pitVinny != null) PitCoverPickRow(pitId, pitVinny, pitTan);
+                if (pitTan == null)
+                    GUILayout.Label("<color=#ffaa44>Civilian_02 (Tan Suit) not found.</color>", labelStyle);
+            }
+            }
+
+            // SFX preview — sim-state-independent; plays at the AudioListener, so
+            // distance can't mask a pipeline problem.
             // Plays at the AudioListener, so distance can't mask a pipeline problem.
             var dmgSys = VoxelDamageSystem.GetOrCreate();
 
             // --- Free-fire picks (combat-facing; blast picks live on Demolitions) ---
             GUILayout.Space(4);
-            GUILayout.Label("<b>Free-fire &amp; picks</b>", labelStyle);
+            if (SecFold("c.picks", "Free-fire &amp; picks"))
+            {
             GUILayout.BeginHorizontal();
             bool standArmed = pickArmed == PickSlot.Stand;
             if (GUILayout.Button(standArmed ? "STAND: click map…" : "PICK STAND",
@@ -1282,19 +1719,62 @@ namespace SteelCity.Sim
             GUILayout.EndHorizontal();
             DrawInspectHud();
             DrawPickStatus();
+            }
 
-            // --- Target source: a range block's lane points, or free-fire picks ---
+            // --- Target source: a range block's lane points, a cover pit's
+            //     stand points, or free-fire picks ---
             bool freeFire = string.IsNullOrEmpty(rangeBlockId);
-            bool hasPos, hasTgt;
+            bool hasPos, hasTgt, pit = false;
             Vector3 posWorld = Vector3.zero, tgtWorld = Vector3.zero;
-
+            // Target resolution is unconditional — the fold below only gates
+            // the DISPLAY; fire controls + IK aim read hasPos/hasTgt/tgtWorld.
+            List<string> pointNames = null;
+            string posName = null, tgtName = null;
+            Vector3 pitStandBW = Vector3.zero;
             if (freeFire)
             {
-                // Vinny stands wherever PICK STAND dropped him; PICK AIM sets the target.
                 hasPos = true;
                 hasTgt = pickedAim.HasValue;
                 if (hasTgt) tgtWorld = pickedAim.Value;
-                GUILayout.Space(4);
+            }
+            else
+            {
+                pointNames = cityMap.GetBuildingPointNames(rangeBlockId);
+                // Split calls — a &&-chained out-var stays unassigned on
+                // short-circuit, and `if (pit)` can't re-prove it (CS0165).
+                bool pitA = cityMap.TryGetBuildingPointLocal(rangeBlockId, "cover_stand_a", out var pitALocal);
+                bool pitB = cityMap.TryGetBuildingPointLocal(rangeBlockId, "cover_stand_b", out var pitBLocal);
+                pit = pitA && pitB;
+                if (pit)
+                {
+                    hasPos = true;
+                    posWorld = cityMap.MapRoot.position + pitALocal;
+                    pitStandBW = cityMap.MapRoot.position + pitBLocal;
+                    var tanCh = TanSuitRef;
+                    tgtWorld = (tanCh != null ? CharFeetCenter(tanCh) : pitStandBW) + Vector3.up * 1.3f;
+                    hasTgt = true;
+                }
+                else
+                {
+                    bool moldAvailable = pointNames.Contains("glass_target");
+                    if (!moldAvailable && RangeAimMold) RangeAimMold = false;
+                    posName = $"firing_position_{RangeLane}";
+                    tgtName = RangeAimMold ? "glass_target" : $"firing_target_{RangeLane}";
+                    // fall back to the pre-multilane names for older range assets
+                    hasPos = cityMap.TryGetBuildingPointLocal(rangeBlockId, posName, out var posLocal)
+                          || cityMap.TryGetBuildingPointLocal(rangeBlockId, "firing_position", out posLocal);
+                    hasTgt = cityMap.TryGetBuildingPointLocal(rangeBlockId, tgtName, out var tgtLocal)
+                          || cityMap.TryGetBuildingPointLocal(rangeBlockId, "firing_target", out tgtLocal);
+                    posWorld = cityMap.MapRoot.position + posLocal;
+                    tgtWorld = cityMap.MapRoot.position + tgtLocal;
+                }
+                if (pickedAim.HasValue) { tgtWorld = pickedAim.Value; hasTgt = true; }
+            }
+
+            if (SecFold("c.target", freeFire ? "target — free-fire" : $"target — {rangeBlockId}"))
+            {
+            if (freeFire)
+            {
                 GUILayout.Label(hasTgt
                     ? $"free-fire target: <b>{tgtWorld.ToString("F1")}</b>"
                     : "PICK AIM a voxel to arm the fire controls.", labelStyle);
@@ -1302,9 +1782,22 @@ namespace SteelCity.Sim
             else
             {
             GUILayout.Label($"Block: <b>{rangeBlockId}</b>", labelStyle);
-            var pointNames = cityMap.GetBuildingPointNames(rangeBlockId);
             GUILayout.Label($"Points: {(pointNames.Count > 0 ? string.Join(", ", pointNames) : "none")}", labelStyle);
-
+            if (pit)
+            {
+                // --- Cover pit clicked — the pit controls live in TEST LOTS
+                // above (no block click, order, or dwell needed).
+                GUILayout.Label("<b>Cover pit</b> — controls in TEST LOTS above.", labelStyle);
+                var tanCh = TanSuitRef;
+                if (tanCh != null)
+                {
+                    var tp = CharFeetCenter(tanCh);
+                    float off = Vector2.Distance(new Vector2(tp.x, tp.z), new Vector2(pitStandBW.x, pitStandBW.z));
+                    GUILayout.Label($"Tan Suit at stand_b: {(off < 0.35f ? "<color=#66ff66>YES</color>" : $"<color=#ffaa44>off {off:F2}m</color>")}", labelStyle);
+                }
+            }
+            else
+            {
             // --- Lane + aim-point selection ---
             GUILayout.BeginHorizontal();
             GUILayout.Label("lane:", labelStyle, GUILayout.Width(38));
@@ -1333,20 +1826,9 @@ namespace SteelCity.Sim
             }
             GUI.enabled = true;
             GUILayout.EndHorizontal();
-            if (!moldAvailable && RangeAimMold) RangeAimMold = false;
-
-            string posName = $"firing_position_{RangeLane}";
-            string tgtName = RangeAimMold ? "glass_target" : $"firing_target_{RangeLane}";
-            // fall back to the pre-multilane names for older range assets
-            hasPos = cityMap.TryGetBuildingPointLocal(rangeBlockId, posName, out var posLocal)
-                  || cityMap.TryGetBuildingPointLocal(rangeBlockId, "firing_position", out posLocal);
-            hasTgt = cityMap.TryGetBuildingPointLocal(rangeBlockId, tgtName, out var tgtLocal)
-                  || cityMap.TryGetBuildingPointLocal(rangeBlockId, "firing_target", out tgtLocal);
-            posWorld = cityMap.MapRoot.position + posLocal;
-            tgtWorld = cityMap.MapRoot.position + tgtLocal;
             GUILayout.Label($"{posName}: {(hasPos ? "OK" : "<color=#ff6666>MISSING</color>")}   {tgtName}: {(hasTgt ? "OK" : "<color=#ff6666>MISSING</color>")}", labelStyle);
-
-            if (pickedAim.HasValue) { tgtWorld = pickedAim.Value; hasTgt = true; }
+            }
+            }
             }
 
             GUILayout.Space(6);
@@ -1365,6 +1847,8 @@ namespace SteelCity.Sim
                 if (solver == null) solver = ch.gameObject.AddComponent<ArmAimSolver>();
             }
 
+            if (SecFold("c.status", "character / weapon"))
+            {
             // Position check — character transform is the volume corner; the
             // firing position target is where the XZ center should sit.
             if (!freeFire && mount != null && hasPos)
@@ -1383,6 +1867,7 @@ namespace SteelCity.Sim
                 mount.showMuzzleRay = GUILayout.Toggle(mount.showMuzzleRay, " muzzle ray (red bore axis)", toggleStyle);
                 solver.showSightBeam = GUILayout.Toggle(solver.showSightBeam, " sight line (cyan, while aiming)", toggleStyle);
             }
+            }
 
             GUILayout.Space(6);
 
@@ -1390,15 +1875,28 @@ namespace SteelCity.Sim
             // Threat = the PICK AIM point — simulates a shooter standing there.
             var cc = ch.GetComponent<CombatController>();
             if (cc == null) cc = ch.gameObject.AddComponent<CombatController>();
-            GUILayout.Label("<b>Combat mode (autonomous)</b>", labelStyle);
+            if (SecFold("c.combat", "combat mode (autonomous)"))
+            {
             if (cc.State == CombatController.CombatState.Idle)
             {
-                bool hasThreat = pickedAim.HasValue;
+                // Pit mode: symmetric duel — both combatants enter combat,
+                // each keyed on the other's live feet (snapshot at press).
+                var tanCh = pit ? TanSuitRef : null;
+                // Dummy mode needs the body, not a working combat stack on it.
+                bool hasThreat = pit ? tanCh != null : pickedAim.HasValue;
                 GUI.enabled = hasThreat;
-                if (GUILayout.Button(hasThreat ? "ENTER COMBAT — seek cover vs PICK AIM"
-                                             : "ENTER COMBAT (PICK AIM a threat first)",
-                        tabStyle, GUILayout.Height(24)))
-                    cc.EnterCombat(pickedAim.Value);
+                string btn = pit
+                    ? (tanCh != null
+                        ? (pitOpponentAI ? "START DUEL — both seek cover"
+                                         : "START DUEL — Vinny vs target dummy")
+                        : "START DUEL (Civilian_02 not found)")
+                    : (hasThreat ? "ENTER COMBAT — seek cover vs PICK AIM"
+                                 : "ENTER COMBAT (PICK AIM a threat first)");
+                if (GUILayout.Button(btn, tabStyle, GUILayout.Height(24)))
+                {
+                    if (pit) StartPitDuel(ch, tanCh);
+                    else cc.EnterCombat(pickedAim.Value);
+                }
                 GUI.enabled = true;
             }
             else
@@ -1416,15 +1914,24 @@ namespace SteelCity.Sim
                 }
                 if (GUILayout.Button("EXIT COMBAT", tabStyle, GUILayout.Height(22))) cc.ExitCombat();
             }
+            // Pit depth-ladder picks — same row as TEST LOTS so it's visible
+            // whichever path the user took (block click or the lots panel).
+            if (pit && PitBlockId != null)
+                PitCoverPickRow(PitBlockId, ch, TanSuitRef);
             cc.moveSpeed = HSlider("move speed", cc.moveSpeed, 0.5f, 5f);
             GUILayout.Label("cover detection tuning lives on the COVER tab", labelStyle);
+            }
 
             GUILayout.Space(6);
 
             // --- IK Aim toggle ---
+            if (SecFold("c.aim", "IK aim &amp; telemetry"))
+            {
             bool aiming = solver.IsAiming;
             var btnStyle = aiming ? tabActiveStyle : tabStyle;
-            GUI.enabled = hasTgt && mount != null && mount.IsEquipped && (freeFire || (dwelling && hasPos));
+            // Aim requires a resolved target context — a clicked testbed
+            // block's points or a free-fire pick. Not a sim-state ceremony.
+            GUI.enabled = hasTgt && mount != null && mount.IsEquipped && (freeFire || hasPos);
             string btnLabel = aiming ? "IK AIM — ENGAGED (click to release)" : "IK AIM";
             if (GUILayout.Button(btnLabel, btnStyle, GUILayout.Height(26)))
             {
@@ -1432,12 +1939,11 @@ namespace SteelCity.Sim
                 else solver.Arm(tgtWorld);
             }
             GUI.enabled = true;
-            if (!freeFire && !dwelling)
-                GUILayout.Label("(range mode available while sim is Dwelling)", labelStyle);
             if (!string.IsNullOrEmpty(solver.LastError))
                 GUILayout.Label($"<color=#ff6666>solver: {solver.LastError}</color>", labelStyle);
 
-            DrawFireControls(dwelling || freeFire, mount, tgtWorld, hasTgt);
+            if (SecFold("c.fire", "fire controls"))
+                DrawFireControls(hasPos || freeFire, mount, tgtWorld, hasTgt);
 
             // --- Telemetry ---
             if (solver.Blend > 0f || aiming)
@@ -1451,11 +1957,13 @@ namespace SteelCity.Sim
                     GUILayout.Label($"aim dir: {mount.AimDirection}", labelStyle);
                 }
             }
+            }
 
             GUILayout.Space(6);
 
             // --- Tuning sliders (live) ---
-            GUILayout.Label("<b>Tuning</b>", labelStyle);
+            if (SecFold("c.tuning", "tuning (IK solver)"))
+            {
             solver.torsoAssist = GUILayout.Toggle(solver.torsoAssist, " torso assist (turret yaw)", toggleStyle);
             if (solver.torsoAssist)
             {
@@ -1476,6 +1984,7 @@ namespace SteelCity.Sim
                 solver.elevationOffsetDeg = 0f;
                 solver.torsoShare = 0.6f;
                 solver.maxTorsoYawDeg = 70f;
+            }
             }
         }
 
@@ -1498,9 +2007,13 @@ namespace SteelCity.Sim
             var sensor = ch.GetComponent<CoverSensor>();
             if (sensor == null) sensor = ch.gameObject.AddComponent<CoverSensor>();
             coverSensor = sensor;
+            // This tab is a live consumer — drive rate-limited scans while open
+            // (the ambient scan gate only runs when someone watches).
+            sensor.Refresh();
 
             // --- Threat context ---
-            GUILayout.Label("<b>Threat</b>", labelStyle);
+            if (SecFold("v.threat", "threat"))
+            {
             GUILayout.BeginHorizontal();
             bool thrArmed = pickArmed == PickSlot.Aim;
             if (GUILayout.Button(thrArmed ? "THREAT: click map…" : "PICK THREAT",
@@ -1521,51 +2034,71 @@ namespace SteelCity.Sim
             GUILayout.Label(pickedAim.HasValue
                 ? $"threat: <b>{pickedAim.Value.ToString("F1")}</b>"
                 : "no threat — passive wall awareness only", labelStyle);
+            }
 
             // --- Detection tuning ---
             GUILayout.Space(6);
-            GUILayout.Label("<b>Detection</b>", labelStyle);
+            if (SecFold("v.detect", "detection"))
+            {
             bool dirty = false;
             float v;
             v = HSlider("cover radius", sensor.radius, 4f, 40f);
             if (v != sensor.radius) { sensor.radius = v; dirty = true; }
             v = HSlider("standoff", sensor.standoff, 0.15f, 1.5f);
             if (v != sensor.standoff) { sensor.standoff = v; dirty = true; }
-            v = HSlider("crouch eye (fallback)", sensor.crouchEye, 0.3f, 1.4f);
-            if (v != sensor.crouchEye) { sensor.crouchEye = v; dirty = true; }
-            GUILayout.Label(sensor.EyePosed
-                ? $"  eye band: <b>{sensor.EyeOffset:F2}m</b> — read from posed crouch head"
-                : $"  eye band: {sensor.EyeOffset:F2}m — slider fallback (no anim data)", labelStyle);
-            v = HSlider("full cover", sensor.standEye, 1.0f, 1.8f);
-            if (v != sensor.standEye) { sensor.standEye = v; dirty = true; }
-            v = HSlider("spot spacing", sensor.spotSpacing, 0.15f, 1.0f);
-            if (v != sensor.spotSpacing) { sensor.spotSpacing = v; dirty = true; }
+            GUILayout.Label(sensor.HeightsMeasured
+                ? $"  silhouette top: stand <b>{sensor.HStand:F2}m</b> · crouch {sensor.HShallow:F2}m → {sensor.HDeep:F2}m" +
+                  $"  (+{sensor.EyeFwd:F2}m lean) — measured off posed model"
+                : $"  silhouette top: {sensor.HStand:F2}/{sensor.HShallow:F2}/{sensor.HDeep:F2}m — FALLBACK (no anim data)", labelStyle);
+            GUILayout.Label($"  support: <b>{sensor.SupportY:F2}m</b> — column top under feet (standing on voxels adds)", labelStyle);
+            v = HSlider("field res", sensor.fieldRes, 32f, 128f);
+            if (v != sensor.fieldRes) { sensor.fieldRes = Mathf.RoundToInt(v); dirty = true; }
+            v = HSlider("prox weight", sensor.proxWeight, 0f, 1f);
+            if (v != sensor.proxWeight) { sensor.proxWeight = v; dirty = true; }
             v = HSlider("facing dot", sensor.facingDot, -0.6f, 0.4f);
             if (v != sensor.facingDot) { sensor.facingDot = v; dirty = true; }
             if (dirty) sensor.Refresh(true);
+            }
 
             // --- Visualization toggles ---
             GUILayout.Space(6);
-            GUILayout.Label("<b>Visualize</b>", labelStyle);
-            dirty = false;
+            if (SecFold("v.viz", "visualize"))
+            {
+            bool dirty = false;
             void Tog(ref bool f, string label)
             {
                 bool nv = GUILayout.Toggle(f, label, toggleStyle);
                 if (nv != f) { f = nv; dirty = true; }
             }
+            GUILayout.Label("   <i>V-key modes 4-6 paint this field on the world — beams below are legacy debug.</i>", labelStyle);
             Tog(ref sensor.showRing, " scan radius ring");
             Tog(ref sensor.showFootprints, " obstacle footprints (local frame)");
             Tog(ref sensor.showWalls, " cover walls  (green full / yellow crouch / red low)");
             Tog(ref sensor.tintWallFacing, "   dim walls not facing threat");
             Tog(ref sensor.showCandidates, " candidates  (green ok / red rejected / cyan pick)");
             Tog(ref sensor.showLos, " threat→eye LOS rays");
+            Tog(ref sensor.showHeat, " ground-quad field (use V-key instead)");
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("   layer:", labelStyle, GUILayout.Width(52));
+            foreach (CoverField.Layer lyr in System.Enum.GetValues(typeof(CoverField.Layer)))
+            {
+                bool sel = sensor.heatLayer == lyr;
+                // Composite renders the threat-isolated score — the pick surface.
+                string lbl = lyr == CoverField.Layer.Composite ? "Threat" : lyr.ToString();
+                if (GUILayout.Toggle(sel, lbl, sel ? tabActiveStyle : tabStyle,
+                        GUILayout.Height(18)) && !sel)
+                { sensor.heatLayer = lyr; dirty = true; }
+            }
+            GUILayout.EndHorizontal();
             if (dirty) sensor.Refresh(true);
             if (GUILayout.Button("RESCAN NOW", tabStyle, GUILayout.Height(20)))
                 sensor.Refresh(true);
+            }
 
             // --- Live stats ---
             GUILayout.Space(6);
-            GUILayout.Label("<b>Scan</b>", labelStyle);
+            if (SecFold("v.scan", "scan"))
+            {
             var st = sensor.stats;
             GUILayout.Label($"  {st.obstacles} volumes · {st.wallCols} wall cols" +
                 $"  (full {st.wallsFull} / crouch {st.wallsCrouch} / low {st.wallsLo})", labelStyle);
@@ -1577,6 +2110,7 @@ namespace SteelCity.Sim
                     : "";
                 GUILayout.Label($"  {st.facing} threat-facing → {st.tested} candidates, " +
                     $"<b>{st.valid} valid</b>{reasons}", labelStyle);
+            }
             }
         }
 
@@ -1598,6 +2132,9 @@ namespace SteelCity.Sim
             var sensor = ch.GetComponent<VisionSensor>();
             if (sensor == null) sensor = ch.gameObject.AddComponent<VisionSensor>();
             visionSensor = sensor;
+            // Inspect-claims-own: the sensor being tuned drives the shared
+            // _VisCone globals (otherwise Tan Suit's sensor can overwrite them).
+            if (VisionSensor.ConeOwner == null) VisionSensor.ConeOwner = sensor;
 
             // --- Target context ---
             GUILayout.Label("<b>Target</b>", labelStyle);
@@ -1635,6 +2172,151 @@ namespace SteelCity.Sim
             GUILayout.Label("  cone: pale = watching · amber = detecting · red = detected", labelStyle);
         }
 
+        /// <summary>
+        /// TAN SUIT tab — full control of Civilian_02's detection + logic. His
+        /// CoverSensor/VisionSensor/CombatController are his OWN components — the
+        /// COVER/VISION tabs only resolve the spawned character, so his flags were
+        /// previously unreachable. Every emitter defaults off; enable per-feature
+        /// or kill whole components with the enabled toggles (perf isolation).
+        /// </summary>
+        void DrawTanSuitTab()
+        {
+            var ch = TanSuitRef;
+            if (ch == null)
+            {
+                GUILayout.Label("<color=#ffaa44>Civilian_02 (Tan Suit) not found — spawn him or run SETUP PIT.</color>", labelStyle);
+                return;
+            }
+
+            var cov = ch.GetComponent<CoverSensor>();
+            var vis = ch.GetComponent<VisionSensor>();
+            var cc  = ch.GetComponent<CombatController>();
+            var solver = ch.GetComponent<ArmAimSolver>();
+
+            // --- Status ---
+            GUILayout.Label("<b>Status</b>", labelStyle);
+            Vector3 tp = ch.transform.position;
+            GUILayout.Label($"  pos: <b>{tp.x:F1}, {tp.y:F1}, {tp.z:F1}</b>", labelStyle);
+            GUILayout.Label(cc != null
+                ? $"  combat: <b>{cc.State}</b>" + (cc.State != CombatController.CombatState.Idle ? $" · threat {cc.ThreatPos.ToString("F1")}" : "")
+                : "  combat: <i>no CombatController</i>", labelStyle);
+
+            void Tog(ref bool f, string label)
+            {
+                f = GUILayout.Toggle(f, label, toggleStyle);
+            }
+
+            // --- Component kills (perf isolation: enabled=false stops Update entirely) ---
+            GUILayout.Space(6);
+            if (SecFold("t.comp", "Components — enabled=false kills Update + all emits"))
+            {
+            if (cov != null) cov.enabled = GUILayout.Toggle(cov.enabled, " CoverSensor", toggleStyle);
+            if (vis != null) vis.enabled = GUILayout.Toggle(vis.enabled, " VisionSensor", toggleStyle);
+            if (cc  != null) cc.enabled  = GUILayout.Toggle(cc.enabled,  " CombatController", toggleStyle);
+            if (solver != null) solver.enabled = GUILayout.Toggle(solver.enabled, " ArmAimSolver", toggleStyle);
+            GUILayout.BeginHorizontal();
+            if (cov == null && GUILayout.Button("ATTACH CoverSensor", tabStyle, GUILayout.Height(20)))
+                cov = ch.gameObject.AddComponent<CoverSensor>();
+            if (vis == null && GUILayout.Button("ATTACH VisionSensor", tabStyle, GUILayout.Height(20)))
+                vis = ch.gameObject.AddComponent<VisionSensor>();
+            if (cc == null && GUILayout.Button("ATTACH Combat", tabStyle, GUILayout.Height(20)))
+                cc = ch.gameObject.AddComponent<CombatController>();
+            GUILayout.EndHorizontal();
+            if (GUILayout.Button("ALL VISUALS OFF (him)", tabStyle, GUILayout.Height(20)))
+            {
+                if (cov != null)
+                {
+                    cov.showRing = false; cov.showFootprints = false; cov.showWalls = false;
+                    cov.showCandidates = false; cov.showLos = false; cov.showHeat = false;
+                }
+                if (vis != null) { vis.showCone = false; vis.showTargetRay = false; vis.showConeFill = false; }
+                if (solver != null) solver.showSightBeam = false;
+            }
+            }
+
+            // --- Detection (CoverSensor) ---
+            if (cov != null && SecFold("t.cover", "detection — CoverSensor"))
+            {
+                bool dirty = false;
+                float v = HSlider("cover radius", cov.radius, 4f, 40f);
+                if (v != cov.radius) { cov.radius = v; dirty = true; }
+                v = HSlider("standoff", cov.standoff, 0.15f, 1.5f);
+                if (v != cov.standoff) { cov.standoff = v; dirty = true; }
+                if (dirty) cov.Refresh(true);
+
+                Tog(ref cov.showRing, " scan radius ring");
+                Tog(ref cov.showFootprints, " obstacle footprints");
+                Tog(ref cov.showWalls, " cover walls (grn full / yel crouch / red low)");
+                Tog(ref cov.showCandidates, " candidates");
+                Tog(ref cov.showLos, " threat→eye LOS rays");
+                Tog(ref cov.showHeat, " ground-quad field");
+                if (GUILayout.Button("RESCAN NOW", tabStyle, GUILayout.Height(20)))
+                    cov.Refresh(true);
+                var st = cov.stats;
+                GUILayout.Label($"  {st.obstacles} vols · {st.wallCols} wall cols (full {st.wallsFull} / crouch {st.wallsCrouch} / low {st.wallsLo})", labelStyle);
+            }
+
+            // --- Vision (VisionSensor) ---
+            if (vis != null && SecFold("t.vision", "detection — VisionSensor"))
+            {
+                vis.range = HSlider("range", vis.range, 5f, 60f);
+                vis.halfAngleDeg = HSlider("half angle °", vis.halfAngleDeg, 15f, 90f);
+                vis.riseTime = HSlider("detect rise (s)", vis.riseTime, 0.1f, 3f);
+                vis.decayTime = HSlider("forget decay (s)", vis.decayTime, 0.5f, 5f);
+
+                Tog(ref vis.showCone, " FOV cone rim beams");
+                Tog(ref vis.showTargetRay, " eye→target rays");
+                Tog(ref vis.showConeFill, " wedge fill (scene-space, legacy)");
+                bool owns = VisionSensor.ConeOwner == vis;
+                bool wantOwns = GUILayout.Toggle(owns, " owns V-mode cone globals", toggleStyle);
+                if (wantOwns != owns) VisionSensor.ConeOwner = wantOwns ? vis : null;
+                GUILayout.Label($"  detection: <b>{vis.MaxDetection * 100f:F0}%</b>" +
+                    (vis.AnyDetected ? "  <color=#ff5544>DETECTED</color>"
+                     : vis.AnyVisible ? "  <color=#ffbb44>in cone…</color>" : ""), labelStyle);
+            }
+
+            // --- Logic (CombatController) ---
+            GUILayout.Space(6);
+            if (SecFold("t.combat", "logic — CombatController + duel mode"))
+            {
+            if (cc == null)
+            {
+                GUILayout.Label("  not attached — attach above to run combat logic.", labelStyle);
+            }
+            else
+            {
+                GUILayout.Label($"  state: <b>{cc.State}</b>" +
+                    (cc.State != CombatController.CombatState.Idle ? $" · threat {cc.ThreatPos.ToString("F1")}" : ""), labelStyle);
+                cc.moveSpeed = HSlider("move speed", cc.moveSpeed, 0.5f, 5f);
+                cc.crouchDepthSpeed = HSlider("crouch ease", cc.crouchDepthSpeed, 0.5f, 8f);
+                var vinny = cityMap.SpawnedCharacter;
+                GUILayout.BeginHorizontal();
+                GUI.enabled = cc.State == CombatController.CombatState.Idle;
+                if (GUILayout.Button("ENTER COMBAT → Vinny", tabStyle, GUILayout.Height(22)) && vinny != null)
+                    cc.EnterCombat(CharFeetCenter(vinny));
+                if (GUILayout.Button("ENTER → picked aim", tabStyle, GUILayout.Height(22)) && pickedAim.HasValue)
+                    cc.EnterCombat(pickedAim.Value);
+                GUI.enabled = cc.State != CombatController.CombatState.Idle;
+                if (GUILayout.Button("EXIT COMBAT", tabStyle, GUILayout.Height(22)))
+                    cc.ExitCombat();
+                GUI.enabled = true;
+                GUILayout.EndHorizontal();
+            }
+
+            // --- Duel mode (same flag the Combat tab drives) ---
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("duel mode:", labelStyle, GUILayout.Width(62));
+            if (GUILayout.Toggle(!pitOpponentAI, " target dummy", !pitOpponentAI ? tabActiveStyle : tabStyle, GUILayout.Height(20)))
+            {
+                pitOpponentAI = false;
+                if (cc != null && cc.State != CombatController.CombatState.Idle) cc.ExitCombat();
+            }
+            if (GUILayout.Toggle(pitOpponentAI, " AI duel", pitOpponentAI ? tabActiveStyle : tabStyle, GUILayout.Height(20)))
+                pitOpponentAI = true;
+            GUILayout.EndHorizontal();
+            }
+        }
+
         /// <summary>Demolitions: blast/inspect picks, the global voxel-damage &amp; debris
         /// system (char tint sliders, debris physics, rubble, reset — shot debris rides
         /// these too) and the blast bench. Shot-facing nibble toggles (glass glint /
@@ -1648,7 +2330,8 @@ namespace SteelCity.Sim
             GUILayout.Label($"<b>DEMOLITIONS</b>   sim: {simState}", boldStyle);
 
             GUILayout.Space(4);
-            GUILayout.Label("<b>Blast &amp; inspect picks</b>", labelStyle);
+            if (SecFold("d.picks", "blast &amp; inspect picks"))
+            {
             GUILayout.BeginHorizontal();
             bool blastArmed = pickArmed == PickSlot.Blast;
             if (GUILayout.Button(blastArmed ? "BLAST: click map…" : "PICK BLAST",
@@ -1662,10 +2345,12 @@ namespace SteelCity.Sim
             GUILayout.EndHorizontal();
             DrawInspectHud();
             DrawPickStatus();
+            }
 
             // --- Damage & debris — GLOBAL: shots AND blasts share these rules ---
             GUILayout.Space(4);
-            GUILayout.Label("<b>Damage &amp; debris</b>", labelStyle);
+            if (SecFold("d.damage", "damage &amp; debris"))
+            {
             dmgSys.damageTint = GUILayout.Toggle(dmgSys.damageTint, " damage tint (char gradient — master)", toggleStyle);
             if (dmgSys.damageTint)
             {
@@ -1683,6 +2368,7 @@ namespace SteelCity.Sim
             if (dmgSys.DamagedVolumeCount > 0 &&
                 GUILayout.Button($"RESET DAMAGE ({dmgSys.DamagedVolumeCount} volume{(dmgSys.DamagedVolumeCount > 1 ? "s" : "")}) — restore voxels", GUILayout.Height(22)))
                 dmgSys.ResetAllDamage();
+            }
 
             // --- Blast bench — only with a blast picked ---
             if (!pickedBlast.HasValue)
@@ -1692,6 +2378,8 @@ namespace SteelCity.Sim
                 return;
             }
             GUILayout.Space(4);
+            if (SecFold("d.bench", "demolition bench"))
+            {
             GUILayout.Label($"<b>Demolition</b>  on {(blastVolume ?? "<color=#ffaa44>terrain — needs a building</color>")}{(blastAtVolumeCenter ? " · <color=#ffaa44>center</color>" : "")}", labelStyle);
             Vector3 blastCenter = blastAtVolumeCenter
                 ? pickedBlast.Value
@@ -1728,6 +2416,7 @@ namespace SteelCity.Sim
                     dmgSys.Detonate(blastVolume, blastCenter, blastRadius, blastPower);
             }
             GUI.enabled = true;
+            }
         }
 
         /// <summary>Weapons placeholder — live weapon-stat tuning (damage, spread,
@@ -1750,7 +2439,7 @@ namespace SteelCity.Sim
         /// points; the report shows how far the shot line passed from firing_target and the solver's residual
         /// aim error at the trigger pull. Physics + hit resolution live in ProjectileSystem.
         /// </summary>
-        private void DrawFireControls(bool dwelling, WeaponMount mount, Vector3 targetWorld, bool hasTarget)
+        private void DrawFireControls(bool armedCtx, WeaponMount mount, Vector3 targetWorld, bool hasTarget)
         {
             var proj = ProjectileSystem.GetOrCreate();
 
@@ -1815,7 +2504,7 @@ namespace SteelCity.Sim
             }
 
             bool aimed = solver != null && solver.IsAiming && solver.Blend >= 0.98f;
-            bool canFire = dwelling && mount != null && mount.IsEquipped && aimed;
+            bool canFire = armedCtx && mount != null && mount.IsEquipped && aimed;
             GUI.enabled = canFire;
             if (GUILayout.Button("FIRE", canFire ? tabActiveStyle : tabStyle, GUILayout.Height(30)))
                 proj.Fire(mount, solver.LastAngularErrorDeg, hasTarget ? targetWorld : (Vector3?)null);
@@ -1861,13 +2550,16 @@ namespace SteelCity.Sim
             var dmg = VoxelDamageSystem.GetOrCreate();
             var ch = cityMap != null ? cityMap.SpawnedCharacter : null;
             var mnt = ch != null ? ch.GetComponent<WeaponMount>() : null;
-            var listener = FindFirstObjectByType<AudioListener>();
+            // Resolve once when the cache is empty so the button works the first
+            // second after tab-open; the 1s refresh above keeps it current after.
+            var listener = sfxListener != null ? sfxListener : ResolveSfxListener();
 
             GUILayout.Label("<b>SFX</b>   studio file = reference · trim tunes the game level", boldStyle);
             GUILayout.Label("<i>1.00 = exactly what audio_studio plays. Serialized — tuned values ARE the shipped mix.</i>", labelStyle);
 
             GUILayout.Space(4);
-            GUILayout.Label("<b>GUNSHOT</b>   sounds/gunshot.stsound", labelStyle);
+            if (SecFold("x.shot", "GUNSHOT — sounds/gunshot.stsound"))
+            {
             proj.shotAudioVolume = HSlider("level ×", proj.shotAudioVolume, 0.1f, 2f, "F2");
             proj.shotRefDistance = HSlider("full-vol radius m", proj.shotRefDistance, 0.5f, 20f, "F1");
             proj.shotAudibleRange = HSlider("report range m", proj.shotAudibleRange, 5f, 200f, "F0");
@@ -1895,9 +2587,11 @@ namespace SteelCity.Sim
             GUILayout.Label("<i>reference = at the listener (studio loudness) · muzzle = real 3D path + trim, emits the wave</i>", labelStyle);
             if (mnt == null || !mnt.IsEquipped)
                 GUILayout.Label("<i>  muzzle test needs Vinny armed — possess (G) or equip via Combat</i>", labelStyle);
+            }
 
             GUILayout.Space(6);
-            GUILayout.Label("<b>GLASS</b>   synthesized tink/crack/crash", labelStyle);
+            if (SecFold("x.glass", "GLASS — synthesized tink/crack/crash"))
+            {
             dmg.glassAudioEnabled = GUILayout.Toggle(dmg.glassAudioEnabled, " glass sfx", toggleStyle);
             if (dmg.glassAudioEnabled)
             {
@@ -1911,15 +2605,18 @@ namespace SteelCity.Sim
                 GUILayout.EndHorizontal();
                 GUILayout.Label("<i>shatters scale with cells removed (0.4+n/20) — trim is the base level</i>", labelStyle);
             }
+            }
 
             GUILayout.Space(6);
-            GUILayout.Label("<b>REPORT WAVES</b>   the audible edge visualized", labelStyle);
+            if (SecFold("x.waves", "REPORT WAVES — the audible edge visualized"))
+            {
             var waves = SfxWaves.GetOrCreate();
             waves.showWaves = GUILayout.Toggle(waves.showWaves, " show report waves (TEAL loud → VIOLET fades)", toggleStyle);
             if (waves.showWaves)
             {
                 waves.waveSpeed = HSlider("wave speed m/s", waves.waveSpeed, 5f, 343f, "F0");
                 GUILayout.Label("<i>rim color = live audibility · inner ring = full-vol radius · edge = hearing radius (real 343 m/s slowed for viewing)</i>", labelStyle);
+            }
             }
 
             GUILayout.Space(6);
@@ -1954,6 +2651,9 @@ namespace SteelCity.Sim
             if (prof != (int)VoxelDamageMath.ResProfile.Building)
                 GUILayout.Label($"<i>no damageable {profName} volumes yet — this table goes live for '{profName}_*'/'*_{profName}_*' volume ids when they register</i>", labelStyle);
 
+            int n = (int)VoxelDamageMath.ResClass.Count;   // hoisted — ops fold reads it
+            if (SecFold("m.table", $"{profName} res table"))
+            {
             GUILayout.Label("kill roll p = power·(1−dist/radius)·(1−res)·transmit — walls spend the same table per cell the occlusion march crosses", labelStyle);
             VoxelDamageMath.GlobalResistScale =
                 HSlider("global ×scale (all types)", VoxelDamageMath.GlobalResistScale, 0f, 2f, "F2");
@@ -1962,7 +2662,6 @@ namespace SteelCity.Sim
             var work = VoxelDamageMath.WorkshopRes[prof];
             GUILayout.Label($"{profName} res — kill% @center / @½r at power {blastPower:F1}:", labelStyle);
             GUILayout.Label("<color=#6fb7ff>■ authored</color>  <color=#ffa64d>■ workshop baseline</color>  <color=#5fe07a>■ tuned this session</color>", labelStyle);
-            int n = (int)VoxelDamageMath.ResClass.Count;
             for (int c = 0; c < n; c++)
             {
                 float eff = Mathf.Clamp01(tbl[c] * VoxelDamageMath.GlobalResistScale);
@@ -1975,6 +2674,9 @@ namespace SteelCity.Sim
                 tbl[c] = ResRow($"<color={col}>{(matResSel == c ? "► " : "  ")}{VoxelDamageMath.ResClassNames[c]}</color>  {pC:P0}/{pH:P0}",
                     tbl[c], () => matResSel = sel);
             }
+            }
+            if (SecFold("m.ops", "reset / promote"))
+            {
             GUILayout.BeginHorizontal();
             if (GUILayout.Button($"reset {profName} → workshop", GUILayout.Height(20)))
                 VoxelDamageMath.ResetResistanceTable(prof);
@@ -1995,9 +2697,11 @@ namespace SteelCity.Sim
             GUI.enabled = true;
             GUILayout.EndHorizontal();
             GUILayout.Label("workshop = pending baseline (in code, seeds each play); AUTHORED = factory defaults — promote writes the .cs literal + recompiles (exits play mode)", labelStyle);
+            }
 
             GUILayout.Space(4);
-            GUILayout.Label("<b>last blast</b>", boldStyle);
+            if (SecFold("m.blast", "last blast"))
+            {
             int tot = 0;
             var sb = new System.Text.StringBuilder();
             for (int c = 0; c < n; c++)
@@ -2009,6 +2713,175 @@ namespace SteelCity.Sim
             GUILayout.Label(tot > 0 || dmgSys.lastBlastDetached > 0
                 ? $"on a <b>{VoxelDamageMath.ResProfileNames[Mathf.Clamp(dmgSys.lastBlastProfile, 0, (int)VoxelDamageMath.ResProfile.Count - 1)]}</b> volume — crater removed {tot:N0}:\n   {sb}\ndetached/collapse {dmgSys.lastBlastDetached:N0} · flyers emitted {dmgSys.LastFlyEmitted:N0}\ndominoes {dmgSys.lastBlastPairs:N0} · paired cells {dmgSys.lastBlastPairCells:N0}"
                 : "no blast yet — pick a point and DETONATE", labelStyle);
+            }
+        }
+
+        // ======================= LOCKED MODE =======================
+        // Locked = every live tab renders as ONE cached label rebuilt ~4Hz —
+        // the pattern the text tabs already prove at 120fps. Mirrors read state
+        // ONLY (GetComponent / .Instance — never GetOrCreate, AddComponent, or
+        // Refresh) so a locked tab cannot wake a system or spawn a singleton.
+
+        private bool IsLiveTab(Tab t) =>
+            t == Tab.Combat || t == Tab.Cover || t == Tab.Vision || t == Tab.TanSuit
+            || t == Tab.Demolitions || t == Tab.Sfx || t == Tab.MatRes || t == Tab.Clothing;
+
+        private void RebuildLockedTabText()
+        {
+            lastBuiltTab = activeTab;
+            nextTabRefresh = Time.unscaledTime + 0.25f;
+            hudSB.Length = 0;
+            switch (activeTab)
+            {
+                case Tab.Sfx:        LockSfx(hudSB);        break;
+                case Tab.Clothing:   LockClothing(hudSB);   break;
+                case Tab.Combat:     LockCombat(hudSB);     break;
+                case Tab.Cover:      LockCover(hudSB);      break;
+                case Tab.Vision:     LockVision(hudSB);     break;
+                case Tab.TanSuit:    LockTanSuit(hudSB);    break;
+                case Tab.Demolitions: LockDemolitions(hudSB); break;
+                case Tab.MatRes:     LockMatRes(hudSB);     break;
+            }
+            lockedTabText = hudSB.ToString();
+        }
+
+        private static string OnOff(bool b) => b ? "<color=#66ff66>on</color>" : "<color=#888888>off</color>";
+
+        private void LockSfx(System.Text.StringBuilder sb)
+        {
+            var proj = ProjectileSystem.Instance;
+            var dmg = VoxelDamageSystem.Instance;
+            var waves = SfxWaves.Instance;
+            sb.AppendLine("<b>SFX</b>  <i>(locked — L to edit)</i>");
+            sb.AppendLine($"listener: {(sfxListener != null ? "<color=#66ff66>found</color>" : "<color=#ffaa44>none</color>")}   hot-reload: <b>{(ProceduralAudio.liveReload ? "on" : "off")}</b>");
+            sb.AppendLine(proj != null
+                ? $"gunshot  level×{proj.shotAudioVolume:F2}  full-vol {proj.shotRefDistance:F1}m  range {proj.shotAudibleRange:F0}m"
+                : "gunshot  <i>(ProjectileSystem not spawned)</i>");
+            sb.AppendLine(dmg != null
+                ? $"glass  {OnOff(dmg.glassAudioEnabled)}  level×{dmg.glassAudioVolume:F2}  full-vol {dmg.glassRefDistance:F1}m  range {dmg.glassAudibleRange:F0}m"
+                : "glass  <i>(VoxelDamageSystem not spawned)</i>");
+            sb.AppendLine(waves != null
+                ? $"report waves  {OnOff(waves.showWaves)}  speed {waves.waveSpeed:F0} m/s"
+                : "report waves  <i>(SfxWaves not spawned)</i>");
+        }
+
+        private void LockClothing(System.Text.StringBuilder sb)
+        {
+            sb.AppendLine("<b>CLOTHING</b>  <i>(locked — L to edit)</i>");
+            sb.AppendLine($"rigs: {allCharacterRigs.Count}  selected: {(selectedRigIndex >= 0 && selectedRigIndex < allCharacterRigs.Count ? $"#{selectedRigIndex} {allCharacterRigs[selectedRigIndex].gameObject.name}" : "none")}");
+            var rig = (selectedRigIndex >= 0 && selectedRigIndex < allCharacterRigs.Count) ? allCharacterRigs[selectedRigIndex] : null;
+            var anim = rig != null ? rig.GetComponent<CharacterAnimation>() : null;
+            if (anim != null)
+                sb.AppendLine($"pose transitions {OnOff(anim.poseTransitions)}  dur {anim.transitionDuration:F2}s  dip {anim.transitionDip:F2}  ease {anim.transitionEase}  crouchDepth {anim.crouchDepth:F2}");
+            sb.AppendLine($"clothing systems: {allClothingSystems.Count}  selected: {(clothingSystem != null ? clothingSystem.gameObject.name : "none")}");
+        }
+
+        private void LockCombat(System.Text.StringBuilder sb)
+        {
+            var ch = cityMap != null ? cityMap.SpawnedCharacter : null;
+            var mount = ch != null ? ch.GetComponent<WeaponMount>() : null;
+            var slv = ch != null ? ch.GetComponent<ArmAimSolver>() : null;
+            var cc = ch != null ? ch.GetComponent<CombatController>() : null;
+            var sim = gameUI != null ? gameUI.Sim : null;
+            sb.AppendLine($"<b>COMBAT</b>   sim: {(sim != null ? sim.State.ToString() : "no sim")}   <i>(locked — L to edit)</i>");
+            sb.AppendLine($"block: {(rangeBlockId ?? "<i>none (free-fire)</i>")}   lane {RangeLane}{(RangeAimMold ? " → glass mold" : "")}   duel: {(pitOpponentAI ? "AI" : "target dummy")}");
+            sb.AppendLine($"picks — stand: {(pickedStand.HasValue ? pickedStand.Value.ToString("F1") : "—")}   aim: {(pickedAim.HasValue ? pickedAim.Value.ToString("F1") : "—")}   armed: {(pickArmed != PickSlot.None ? pickArmed.ToString() : "—")}");
+            sb.AppendLine($"weapon: {(mount != null && mount.IsEquipped ? mount.ItemFileName : "<i>none</i>")}" +
+                (mount != null && mount.IsEquipped ? $"   muzzleRay {OnOff(mount.showMuzzleRay)}  sightBeam {OnOff(slv != null && slv.showSightBeam)}" : ""));
+            if (slv != null)
+                sb.AppendLine($"IK aim: {(slv.IsAiming ? "<color=#66ff66>ENGAGED</color>" : "idle")}  blend {slv.Blend:F2}  aimErr {slv.LastAngularErrorDeg:F1}°");
+            if (cc != null)
+            {
+                sb.AppendLine($"combat: <b>{cc.State}</b>  cover {cc.CoverObstacleId ?? "—"}");
+                if (!string.IsNullOrEmpty(cc.LastResult)) sb.AppendLine($"  {cc.LastResult}");
+            }
+        }
+
+        private void LockCover(System.Text.StringBuilder sb)
+        {
+            var ch = cityMap != null ? cityMap.SpawnedCharacter : null;
+            var sensor = ch != null ? ch.GetComponent<CoverSensor>() : null;
+            sb.AppendLine("<b>COVER</b>  <i>(locked — L to edit)</i>");
+            if (sensor == null) { sb.AppendLine("<i>no CoverSensor on spawned character</i>"); return; }
+            sb.AppendLine($"enabled {OnOff(sensor.enabled)}   threat {(sensor.HasThreat ? sensor.Threat.Value.ToString("F1") : "—")}");
+            sb.AppendLine(sensor.HeightsMeasured
+                ? $"silhouette: stand {sensor.HStand:F2}m · crouch {sensor.HShallow:F2}→{sensor.HDeep:F2}m (+{sensor.EyeFwd:F2} lean)   support {sensor.SupportY:F2}m"
+                : $"silhouette: {sensor.HStand:F2}/{sensor.HShallow:F2}/{sensor.HDeep:F2}m — FALLBACK (no anim data)");
+            sb.AppendLine($"radius {sensor.radius:F1}m  standoff {sensor.standoff:F2}  fieldRes {sensor.fieldRes}  proxW {sensor.proxWeight:F2}  facingDot {sensor.facingDot:F2}");
+            sb.AppendLine($"viz — ring {OnOff(sensor.showRing)}  footprints {OnOff(sensor.showFootprints)}  walls {OnOff(sensor.showWalls)}  cand {OnOff(sensor.showCandidates)}  los {OnOff(sensor.showLos)}  heat {OnOff(sensor.showHeat)}");
+            var st = sensor.stats;
+            sb.AppendLine($"scan: {st.obstacles} vols · {st.wallCols} wall cols (full {st.wallsFull}/crouch {st.wallsCrouch}/low {st.wallsLo})"
+                + (sensor.HasThreat ? $"  → {st.tested} cand, {st.valid} valid" : ""));
+        }
+
+        private void LockVision(System.Text.StringBuilder sb)
+        {
+            var ch = cityMap != null ? cityMap.SpawnedCharacter : null;
+            var vis = ch != null ? ch.GetComponent<VisionSensor>() : null;
+            sb.AppendLine("<b>VISION</b>  <i>(locked — L to edit)</i>");
+            if (vis == null) { sb.AppendLine("<i>no VisionSensor on spawned character</i>"); return; }
+            sb.AppendLine($"enabled {OnOff(vis.enabled)}   target {(pickedAim.HasValue ? pickedAim.Value.ToString("F1") : "—")}   coneOwner {OnOff(VisionSensor.ConeOwner == vis)}");
+            sb.AppendLine($"range {vis.range:F0}m  halfAngle {vis.halfAngleDeg:F0}°  rise {vis.riseTime:F1}s  decay {vis.decayTime:F1}s");
+            sb.AppendLine($"viz — cone {OnOff(vis.showCone)}  targetRay {OnOff(vis.showTargetRay)}  wedgeFill {OnOff(vis.showConeFill)}");
+            sb.AppendLine($"detection: <b>{vis.MaxDetection * 100f:F0}%</b>" +
+                (vis.AnyDetected ? "  <color=#ff5544>DETECTED</color>"
+                 : vis.AnyVisible ? "  <color=#ffbb44>in cone…</color>" : ""));
+        }
+
+        private void LockTanSuit(System.Text.StringBuilder sb)
+        {
+            var ch = cachedTanSuit;   // read-only: no scan in locked mode — last-known ref or null
+            if (ch == null && Time.unscaledTime >= tanSuitRefAt)
+            {   // single retry per second so a fresh spawn shows up
+                cachedTanSuit = FindCharacter("Civilian_02");
+                tanSuitRefAt = Time.unscaledTime + 1f;
+                ch = cachedTanSuit;
+            }
+            sb.AppendLine("<b>TAN SUIT</b>  <i>(locked — L to edit)</i>");
+            if (ch == null) { sb.AppendLine("<i>Civilian_02 not found</i>"); return; }
+            var cov = ch.GetComponent<CoverSensor>();
+            var vis = ch.GetComponent<VisionSensor>();
+            var cc  = ch.GetComponent<CombatController>();
+            var slv = ch.GetComponent<ArmAimSolver>();
+            Vector3 tp = ch.transform.position;
+            sb.AppendLine($"pos {tp.x:F1},{tp.y:F1},{tp.z:F1}   comps — cov {(cov != null ? OnOff(cov.enabled) : "—")}  vis {(vis != null ? OnOff(vis.enabled) : "—")}  cc {(cc != null ? OnOff(cc.enabled) : "—")}  aim {(slv != null ? OnOff(slv.enabled) : "—")}");
+            if (cov != null)
+            {
+                var st = cov.stats;
+                sb.AppendLine($"cover: r {cov.radius:F1}  standoff {cov.standoff:F2}  viz ring {OnOff(cov.showRing)}/walls {OnOff(cov.showWalls)}/cand {OnOff(cov.showCandidates)}/los {OnOff(cov.showLos)}   last scan {st.wallCols} cols");
+            }
+            if (vis != null)
+                sb.AppendLine($"vision: {vis.range:F0}m ±{vis.halfAngleDeg:F0}°  det <b>{vis.MaxDetection * 100f:F0}%</b>  cone {OnOff(vis.showCone)}/ray {OnOff(vis.showTargetRay)}/fill {OnOff(vis.showConeFill)}  owner {OnOff(VisionSensor.ConeOwner == vis)}");
+            sb.AppendLine(cc != null
+                ? $"combat: <b>{cc.State}</b>  move {cc.moveSpeed:F1}  crouchEase {cc.crouchDepthSpeed:F1}   duel {(pitOpponentAI ? "AI" : "dummy")}"
+                : "combat: <i>no CombatController</i>");
+        }
+
+        private void LockDemolitions(System.Text.StringBuilder sb)
+        {
+            var dmg = VoxelDamageSystem.Instance;
+            sb.AppendLine("<b>DEMOLITIONS</b>  <i>(locked — L to edit)</i>");
+            sb.AppendLine($"blast: {(pickedBlast.HasValue ? pickedBlast.Value.ToString("F1") : "—")} on {(blastVolume ?? "—")}   depth {blastDepth:F1}m  radius {blastRadius:F1}m  power {blastPower:F2}");
+            if (dmg == null) { sb.AppendLine("<i>VoxelDamageSystem not spawned</i>"); return; }
+            sb.AppendLine($"damage tint {OnOff(dmg.damageTint)}  reach {dmg.charReach}  str {dmg.charStrength:F2}  radial {dmg.charRadial:F2}  absorb {dmg.charAbsorb:F2}  debrisChar {dmg.debrisChar:F2}");
+            sb.AppendLine($"voxelCollide {OnOff(dmg.shardVoxelCollision)}  pairing {OnOff(dmg.pairCells)}{(dmg.pairCells ? $" {dmg.pairChance:F2}" : "")}  rubble {OnOff(dmg.rubbleDeposit)} ({dmg.RubbleCells} cells)  damaged vols {dmg.DamagedVolumeCount}");
+            sb.AppendLine($"occlusion {OnOff(dmg.occlusionAware)}  collapse {OnOff(dmg.dropUnsupported)}{(dmg.dropUnsupported ? $" imp {dmg.cellImpulse:F1}" : "")}  shockFront {OnOff(dmg.shockFront)}{(dmg.shockFront ? $" {dmg.frontPasses}p/{dmg.frontSec:F2}s" : "")}  radialLaunch {OnOff(dmg.flyerRadialVelocity)}");
+        }
+
+        private void LockMatRes(System.Text.StringBuilder sb)
+        {
+            int prof = Mathf.Clamp(matResSub, 0, (int)VoxelDamageMath.ResProfile.Count - 1);
+            sb.AppendLine($"<b>MAT RES</b> — {VoxelDamageMath.ResProfileNames[prof]}  <i>(locked — L to edit)</i>");
+            sb.AppendLine($"global ×scale {VoxelDamageMath.GlobalResistScale:F2}   power dial {blastPower:F1}");
+            var tbl = VoxelDamageMath.ResTable[prof];
+            var work = VoxelDamageMath.WorkshopRes[prof];
+            int n = (int)VoxelDamageMath.ResClass.Count;
+            for (int c = 0; c < n; c++)
+            {
+                string col = Mathf.Approximately(tbl[c], VoxelDamageMath.BaseResistance[c]) ? "#6fb7ff"
+                           : Mathf.Approximately(tbl[c], work[c]) ? "#ffa64d" : "#5fe07a";
+                sb.AppendLine($"  <color={col}>{VoxelDamageMath.ResClassNames[c]}</color>  {tbl[c]:F2}");
+            }
         }
 
         /// <summary>HSlider with a wider label column so class name + live kill% fit;

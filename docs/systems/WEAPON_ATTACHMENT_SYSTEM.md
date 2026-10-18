@@ -89,6 +89,58 @@ editor's Attach tab (visible for `assetType: 'building'`).
 
 ---
 
+## Handedness Marker & Mount Compensation (runtime contract)
+
+Two file conventions coexist, and the ONLY thing distinguishing them is one
+metadata string:
+
+| Convention | Where | `right_hand.x` vs `dims.x/2` | Marker |
+|---|---|---|---|
+| **Editor** | working files in the editor | on the **−X** side | absent |
+| **Unity** | `voxel_characters/` StreamingAssets | on the **+X** side | `"handedness": "unity"` |
+
+**Lifecycle:**
+`tools/promote_character_to_unity.py` flips L/R and stamps `"handedness":"unity"`.
+The editor's `demoteIfUnity()` mirrors the data back on load and **deletes the
+marker** — editor files are always editor-convention; the marker only exists on
+the promoted copy in StreamingAssets.
+
+**Runtime chain:**
+`CharacterAssets` regexes the JSON for `"handedness":"unity"` →
+`asset.UnityHanded` → `WeaponMount.mirroredRig`. Then the grip-roll
+compensation in `LoadItem()`:
+
+```csharp
+// attachRotation is authored for grip_right (primary-hand convention).
+// A mirrored-context weld needs a +180° roll about the grip axis:
+if ((hand == Hand.Left) != mirroredRig) e.x += 180f;
+```
+
+| `hand` | `mirroredRig` | Roll added | Meaning |
+|---|---|---|---|
+| Right | false (editor rig) | — | primary convention, no compensation |
+| Left | false | +180° | mirror weld on an editor rig |
+| Right | **true (unity rig)** | **+180°** | Unity's "right" = editor's left mirror |
+| Left | true | — | Unity's "left" = the primary side |
+
+**The masked-failure signature (March 2026):** the IK solver re-derives the
+entire hand rotation every frame (bore→target, sights→up), so a wrong static
+roll is **invisible while aiming** — it only shows in un-solved poses (idle,
+walking, crouch). Symptom was "gun backwards in palm at idle, upright under
+IK" — the fix was not a rotation change: `"handedness":"unity"` had been
+stripped by an animator save → `UnityHanded=false` → compensation skipped.
+
+**Rules for tools:**
+- **`handedness` is a runtime flag, not authored data.** Any save path that
+  drops it silently rotates the held weapon 180° — it is the highest
+  damage-per-byte field in the file. Every loader→exporter must carry it
+  verbatim (the animator's `carriedFields` passthrough exists for exactly this).
+- Diagnosing weapon-orientation bugs: **test the un-solved pose first** —
+  idle gun orientation reflects the static `basisB · attachRot` frame;
+  the aimed orientation is solver-corrected and proves nothing about it.
+
+---
+
 ## JSON Format
 
 ### Weapon JSON (`SW_Model_10.json`)
