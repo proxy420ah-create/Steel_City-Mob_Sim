@@ -13,6 +13,11 @@ namespace SteelCity.Sim
     ///   Mouse  — third-person orbit look around his head (cursor locked;
     ///            camera snaps behind his back on grab)
     ///   LMB    — fire the equipped weapon through the camera crosshair
+    ///   Cover  — the adjacent-cover drive face-probes column tops around his
+    ///            feet and writes anim.duck to whatever the tallest nearby
+    ///            wall requires (the gradient-wall testbed: stand at Full,
+    ///            fold through the morph band, deepen past duck 1, stand again
+    ///            past the null tail). Duck also scales his move speed.
     ///   The IK solver stays armed at the crosshair hit point the whole time,
     ///   so shots leave the muzzle wherever the arm actually points.
     /// Release (G again): solver disarms, rig hotkeys resume, the camera stays
@@ -37,6 +42,31 @@ namespace SteelCity.Sim
         [Tooltip("Boom can't collapse closer than this — keeps the camera out of Vinny's head")]
         [SerializeField] private float camMinOrbit = 0.9f;
         [SerializeField] private float boomReturnSpeed = 7f;   // ease back out after a clip
+        [Header("Cover drive")]
+        [SerializeField] private bool coverDrive = true;
+        [SerializeField] private float coverProbeRadius = 0.5f;  // min reach for the horizontal face-find rays
+        // (coverDriveEase removed — crouchDepth writes are immediate now)
+        [SerializeField] private float crouchMoveFactor = 0.45f; // speed multiplier at full duck (2) — deep crouch shuffles
+
+        private bool combatHold;          // possessed straight out of InCover — combat's pose/depth rules until he leaves the spot
+        private float holdDepth;          // combat's duck at possess-time — frozen while combatHold
+        public static bool DriveCrouch, HoldActive;
+        public static readonly bool[] ProbeFull = new bool[8];
+        private Vector3 holdPos;
+        private CoverSensor coverSensor;
+        private Vector3? pinnedThreat;   // threat captured at possess — CombatController exits on possess and nulls sensor.Threat, which would blind the threat-keyed field paint
+
+        // Cover-drive diagnostics — CoverMetricsPanel mirrors these read-only.
+        public static bool DriveActive, ThreatPinned;
+        public static float DriveBestD = float.NaN, DriveReq, DriveSupport;
+        public static int DriveBestDir = -1;
+        // (gap latch + coverDriveEase removed — the field is immediate now:
+        // the painted cell under his feet IS the posture, same frame)
+        public static CoverSensor.WallClass ZoneCls;   // zone under his feet (Low = no zone)
+        public static float ZoneD;                     // that zone's required depth
+        public static readonly float[] ProbeTop = new float[8];   // NaN = ray miss
+        public static readonly float[] ProbeD = new float[8];
+        public static readonly string[] ProbeVol = new string[8]; // hit volume id, null = terrain/none
 
         private CityMap3D cityMap;
         private VoxelCollisionWorld world;
@@ -112,6 +142,128 @@ namespace SteelCity.Sim
                 }
             }
 
+            // Combat exits on possess and clears sensor.Threat — re-pin the
+            // captured threat so the field keeps evaluating vs the enemy
+            // while you inspect (threat V-modes, LOS verdicts, candidates).
+            if (coverSensor != null && pinnedThreat.HasValue)
+                coverSensor.Threat = pinnedThreat;
+            ThreatPinned = coverSensor != null && pinnedThreat.HasValue;
+
+            // --- Adjacent-cover drive (heightfield Phase B2): ring-probe the
+            // column tops around his feet; the most protective column (lowest
+            // DuckForTop) sets the request — d <= 0 Full (stands), 0 < d <= 2
+            // duckable (sub-1 morph band), d > 2 or no column → release.
+            // COMBAT-GATED per doctrine: crouching only exists under a threat
+            // context (combat or armed pit cross) — no threat, no duck. The
+            // scalar feeds the speed factor below and the pose pick further down.
+            // COMBAT HAND-OFF: entering possess from InCover inherits combat's
+            // pose + depth (crouched, gun down) and holds it until he actually
+            // walks away from the cover spot; only then does the wall-driven
+            // drive take over (and the IK arms).
+            if (combatHold)
+            {
+                var hp = vinny.transform.position;
+                if ((new Vector3(hp.x - holdPos.x, 0f, hp.z - holdPos.z)).sqrMagnitude > 0.25f * 0.25f)
+                {
+                    combatHold = false;
+                    if (solver != null && !solver.IsAiming) solver.Arm(aimPoint);
+                }
+                else if (anim != null)
+                {
+                    anim.duck = holdDepth;          // snap — immediate doctrine
+                    anim.coverContext = true;          // inherited cover holds the IK gate
+                }
+            }
+            HoldActive = combatHold;
+            // Hold exit's one-shot Arm above races the pose transition — the
+            // state is still Crouching on the flip frame, the posture gate
+            // rejects it, and nobody retried. Retry every frame: the gate
+            // keeps refusing while the cover drive holds him ducked, and the
+            // arm lands the frame the pick finally leaves Crouching — IK aim
+            // returns exactly when he's free of the wall, not before.
+            if (!combatHold && solver != null && solver.enabled && !solver.IsAiming)
+                solver.Arm(aimPoint);
+            DriveActive = !combatHold && coverDrive && world != null && anim != null
+                       && coverSensor != null && coverSensor.HasThreat;
+            if (DriveActive)
+            {
+                Vector3 wc = vinny.WorldCenter;
+                Vector3 feet = new Vector3(wc.x, vinny.transform.position.y, wc.z);
+                float supportY = feet.y;
+                world.TryColumnTop(feet, 0.5f, 2f, out supportY);
+                float bestD = float.MaxValue;
+                int bestDir = -1;
+                // Horizontal face-find replaces the fixed down-ring: each probe
+                // measures the wall's REAL distance — a hugged face can't be
+                // overshot, a face beyond reach can't fake cover. The axial gate
+                // (~cos 25°) rejects grazing/diagonal hits — wall ends and seams
+                // don't fabricate cover he isn't actually behind.
+                float reach = Mathf.Max(coverProbeRadius, coverSensor.standoff + 0.25f);
+                Vector3 probeOrigin = feet + Vector3.up * 0.25f;   // knee-height: crouch walls still register
+                for (int i = 0; i < 8; i++)
+                {
+                    float a = i * (Mathf.PI * 0.25f);
+                    Vector3 dir = new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a));
+                    if (world.Raycast(probeOrigin, dir, reach, out VoxelRayHit fh)
+                        && Vector3.Dot(dir, -fh.normal) >= 0.85f)
+                    {
+                        // Column top just inside the face — the nudge keeps thin
+                        // faces from sampling the open column behind the wall.
+                        if (world.TryColumnTop(fh.point + dir * 0.05f, 2f, 3f, out float wt))
+                        {
+                            ProbeTop[i] = wt;
+                            // RAW duck solve — DuckForTop clamps to [0,2] for
+                            // pose feeders; raw d carries the class: <=0 Full,
+                            // 0..2 duckable (sub-1 = morph band), >2 = can't hide.
+                            ProbeD[i] = coverSensor.DuckForTopRaw(wt, supportY);
+                            ProbeVol[i] = fh.volumeId ?? "terrain";
+                        }
+                        else { ProbeTop[i] = float.NaN; ProbeD[i] = float.NaN; ProbeVol[i] = null; }
+                    }
+                    else { ProbeTop[i] = float.NaN; ProbeD[i] = float.NaN; ProbeVol[i] = null; }
+                    // Class by the SAME rule the sensor uses: Full only when the
+                    // top clears his standing height; depth<=0 alone just means
+                    // the SHALLOW crouch already hides him.
+                    ProbeFull[i] = !float.IsNaN(ProbeTop[i]) && ProbeTop[i] - supportY > coverSensor.HStand;
+                    if (ProbeD[i] < bestD) { bestD = ProbeD[i]; bestDir = i; }
+                }
+                float req = bestD <= 2f ? Mathf.Clamp(bestD, 0f, 2f) : 0f;
+                DriveCrouch = bestDir >= 0 && bestD <= 2f && !ProbeFull[bestDir];
+                // The painted ZONES dictate posture too: stepping into a
+                // crouch corridor (deeper zones reach further out) ducks him
+                // before the ring ever touches the wall — the deeper of the
+                // ring hit and the zone verdict wins.
+                ZoneCls = CoverSensor.WallClass.Low; ZoneD = 0f;
+                if (coverSensor.TryZoneAt(feet, out CoverSensor.WallClass zc, out float zd))
+                {
+                    ZoneCls = zc; ZoneD = zd;
+                    if (zc == CoverSensor.WallClass.Crouch)
+                    {
+                        // Zone owns posture; the LIVE ring solve owns depth.
+                        // The zone's d is baked vs the owning wall's global top
+                        // — a lie on gradient/stepped walls where the column at
+                        // HIS spot differs. Only when the ring is blind (no
+                        // crouch wall found) does the baked number fill in.
+                        if (!DriveCrouch) req = Mathf.Max(req, zd);
+                        DriveCrouch = true;
+                    }
+                }
+                // IMMEDIATE contract: the painted cell under his feet IS the
+                // posture — no ease, no dropout latch. Color says what he does,
+                // the same frame it says it.
+                bool detected = (bestDir >= 0 && bestD <= 2f) || ZoneCls != CoverSensor.WallClass.Low;
+                anim.duck = req;   // duck-space — morph band (sub-1) reaches icr/wd
+                anim.coverContext = detected;   // Full or crouch — covered is covered
+                DriveBestD = bestD; DriveReq = req; DriveSupport = supportY; DriveBestDir = bestDir;
+            }
+            else if (anim != null && !combatHold)
+            {
+                DriveCrouch = false;
+                anim.duck = 0f;
+                anim.coverContext = false;
+                DriveBestD = float.NaN; DriveReq = 0f;
+            }
+
             // --- WASD move, camera-yaw relative ---
             Vector2 mv = Vector2.zero;
             if (kb.wKey.isPressed) mv.y += 1f;
@@ -127,7 +279,8 @@ namespace SteelCity.Sim
                 Vector3 fwd = new Vector3(Mathf.Sin(yaw), 0f, Mathf.Cos(yaw));
                 Vector3 rgt = new Vector3(Mathf.Cos(yaw), 0f, -Mathf.Sin(yaw));
                 Vector3 wish = (fwd * mv.y + rgt * mv.x);
-                float sp = walkSpeed * (kb.shiftKey.isPressed ? sprintMult : 1f);
+                float sp = walkSpeed * (kb.shiftKey.isPressed ? sprintMult : 1f)
+                         * Mathf.Lerp(1f, crouchMoveFactor, anim != null ? anim.duck * 0.5f : 0f);
                 MoveWithCollision(vinny.transform, wish * sp * Time.deltaTime);
             }
 
@@ -165,10 +318,26 @@ namespace SteelCity.Sim
                 { testPose = pick.Value; Debug.Log($"[Possess] test pose → {testPose.Value} (Alt+X releases)"); }
             }
 
-            // --- Anim state: latched test pose wins; else aim-walk/aim ---
+            // --- Anim state: latched test pose wins; else the cover verdict
+            // drives posture — IMMEDIATE (no ease): the cell under his feet IS
+            // the pose. Duck discriminates endpoint set by movement: stationary
+            // = authored hold (Crouching), moving = crumple-gait (Walking + wd).
+            // Any detected cover (Full included) drops the aim lane entirely —
+            // covered is covered: he walks/stands in cover, never poses aimed.
             if (anim != null)
-                anim.RequestPose(testPose ?? (moving ? CharacterAnimation.AnimState.AimWalk
-                                                     : CharacterAnimation.AnimState.Aiming),
+                // Pure scalar pick — the drive writes duck 0..2 and the state
+                // merely chooses HOW that duck renders: deep band (>1.02) needs
+                // the state-5 endpoint path; the morph band (0<duck<=1) rides
+                // Idle/Walking where icr/wd scale it continuously.
+                anim.RequestPose(testPose ?? (anim.duck > 1.02f
+                                         ? (moving ? CharacterAnimation.AnimState.Walking
+                                                   : CharacterAnimation.AnimState.Crouching)
+                                     : anim.coverContext          // Full or morph — covered
+                                         ? (moving ? CharacterAnimation.AnimState.Walking
+                                                   : CharacterAnimation.AnimState.Idle)
+                                     : combatHold ? CharacterAnimation.AnimState.Idle
+                                     : moving ? CharacterAnimation.AnimState.AimWalk
+                                              : CharacterAnimation.AnimState.Aiming),
                                  CharacterAnimation.PRIORITY_DEBUG);
 
             // --- Orbit pivot pins to his head (over-the-shoulder framing) ---
@@ -238,6 +407,15 @@ namespace SteelCity.Sim
             return vinny.WorldCenter + Vector3.up * (dims.y * 0.35f);
         }
 
+        /// <summary>Duck scalar label — 0 = stand, 0..1 = stand→shallow morph,
+        /// 1 = shallow hold, 1..2 = shallow→deep, 2 = deep hold.</summary>
+        public static string CrouchLabel(float duck)
+            => duck <= 0.03f ? "FULL (standing)"
+             : duck < 0.97f  ? $"morph {duck:0.00} (stand→shallow)"
+             : duck <= 1.03f ? "SHALLOW (1.00)"
+             : duck < 1.97f  ? $"deep {duck - 1f:0.00} (shallow→deep)"
+             :                 "DEEP (2.00)";
+
         private bool EventSystemIsFree() =>
             UnityEngine.EventSystems.EventSystem.current == null ||
             !UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject();
@@ -256,6 +434,10 @@ namespace SteelCity.Sim
             if (solver == null) solver = vinny.gameObject.AddComponent<ArmAimSolver>();
             anim = vinny.GetComponent<CharacterAnimation>();
             rig = vinny.GetComponent<CharacterRig>();
+            coverSensor = vinny.GetComponent<CoverSensor>();
+            if (coverSensor == null) coverSensor = vinny.gameObject.AddComponent<CoverSensor>();
+            coverSensor.Refresh(true);   // measured silhouette heights → DuckForTop
+            pinnedThreat = coverSensor.Threat;
             if (rig != null) { prevControllable = rig.Controllable; rig.Controllable = false; }
             if (solver != null) { prevSightBeam = solver.showSightBeam; solver.showSightBeam = false; }
 
@@ -278,7 +460,14 @@ namespace SteelCity.Sim
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
 
-            solver.Arm(vinny.WorldCenter + vinny.transform.forward * 10f);
+            var combat = vinny.GetComponent<CombatController>();
+            combatHold = combat != null && combat.State == CombatController.CombatState.InCover;
+            if (combatHold)
+            {
+                holdDepth = Mathf.Max(anim != null ? anim.duck : 0f, combat.TargetDuck);
+                holdPos = vinny.transform.position;
+            }
+            else solver.Arm(vinny.WorldCenter + vinny.transform.forward * 10f);
             Active = true;
             Debug.Log("[Possess] G=take control ON — WASD move, mouse look, LMB fire; G releases (camera holds)");
         }
@@ -286,12 +475,16 @@ namespace SteelCity.Sim
         private void Release()
         {
             Active = false;
+            combatHold = false; HoldActive = false;
             testPose = null;
+            pinnedThreat = null;
             if (solver != null && solver.IsAiming) solver.Disarm();
             if (anim != null)
             {
                 anim.ReleasePose(CharacterAnimation.PRIORITY_DEBUG);
                 anim.SetState(CharacterAnimation.AnimState.Idle);
+                anim.duck = 0f;
+                anim.coverContext = false;
             }
             if (rig != null) rig.Controllable = prevControllable;
             if (solver != null) solver.showSightBeam = prevSightBeam;
@@ -328,6 +521,12 @@ namespace SteelCity.Sim
             if (testPose.HasValue)
                 GUI.Label(new Rect(cx + 14f, cy - 8f, 260f, 18f),
                     $"pose: {testPose.Value}  (Alt+X releases)");
+            // Cover-drive duck readout — the gradient-wall inspection number.
+            // Scalar-gated (not state-gated): shows while moving ducked too —
+            // the cover-walk pick is Walking pose now, not Crouching.
+            if (coverDrive && anim != null && anim.coverContext)
+                GUI.Label(new Rect(cx + 14f, cy + 10f, 260f, 18f),
+                    $"cover: {CrouchLabel(anim.duck)}");
         }
     }
 }

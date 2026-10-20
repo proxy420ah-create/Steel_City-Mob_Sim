@@ -322,18 +322,19 @@ namespace SteelCity.Sim
             float state = ic?.animState ?? 0f;
             float time = ic?.animTime ?? 0f;
             float speed = ic?.animSpeed ?? 1f;
-            float depth = ic?.crouchDepth ?? 0f;
+            float depth = ic?.crouchDepth ?? 0f;   // handle field carries the duck scalar
+            float gait = ic?.gaitTime ?? -1f;
 
             // Posed hand point (voxel units, centered x/z) + cumulative group rotation
             Vector3 posed = animator != null
                 ? animator.PosePoint(handPoint, handGid, dims, state, time, speed,
-                    crouchDepth: depth)
+                    duck: depth, gaitTime: gait)
                 : new Vector3(handPoint.x - dims.x * 0.5f, handPoint.y, handPoint.z - dims.z * 0.5f);
 
             Quaternion qR = Quaternion.identity;
             if (animator != null)
             {
-                var gr = animator.ComputeGroupRotation(handGid, dims, 1.0f, state, time, speed, depth);
+                var gr = animator.ComputeGroupRotation(handGid, dims, 1.0f, state, time, speed, depth, gait);
                 if (gr.HasValue && gr.Value.chain != null)
                     foreach (var e in gr.Value.chain)
                         qR = QuatFromMat3(e.rot) * qR;

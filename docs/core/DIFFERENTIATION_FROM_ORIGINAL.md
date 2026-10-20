@@ -171,9 +171,9 @@ Cover in Steel City is **not a stat modifier** — it is a **physical ray inters
 
 | Feature | Original | Steel City | Status |
 |---------|----------|------------|--------|
-| **Cover mechanic** | Not modeled | Physical ray intersection — bullet path vs voxel geometry | 📝 Designed |
-| **Full wall** | N/A | Bullet stopped completely — target unreachable from that angle | 📝 Designed |
-| **Half wall** | N/A | Bullet stopped if trajectory intersects — crouching hood has smaller exposed profile | 📝 Designed |
+| **Cover mechanic** | Not modeled | Physical ray intersection — bullet path vs voxel geometry | ✅ Implemented |
+| **Full wall** | N/A | Bullet stopped completely — target unreachable from that angle | ✅ Implemented |
+| **Half wall** | N/A | Bullet stopped if trajectory intersects — crouching hood has smaller exposed profile | ✅ Implemented |
 | **Penetration** | N/A | Material-dependent — brick stops all, wood may let some through, car door stops pistol but not rifle | 📝 Designed |
 | **Coverage ratio** | N/A | Percentage of hood's bounding volume occluded by cover from attacker's angle. High-INT hoods actively maximize this | 📝 Designed |
 
@@ -192,6 +192,35 @@ Cover in Steel City is **not a stat modifier** — it is a **physical ray inters
 
 **Design doc reference**: `COMBAT_AUTOBATTLE.md`, `COMBAT_VEHICLE_DESIGN.md` §3 — Cover System
 
+### 9.2c Measured-Silhouette Cover — the `h(duck)` contract (NEW — beyond industry standard)
+
+Cover isn't a flag or a binary crouch — it's a **continuous scalar solve against the character's actual posed silhouette**. The uniform `duck` scalar (0..2) has three bands: 0 = stand, 0..1 = stand→shallow **morph band**, 1..2 = shallow→deep. The sensor measures `h(duck)` — silhouette top vs duck — live off the posed model (worst-of-gait), then `DuckForTop` **piecewise-inverts** it: given a wall top and local floor, it solves the exact duck that places the head `depthMargin` under the wall. A wall between stand- and shallow-top yields a *partial* fold — a proportional duck no discrete-crouch system can express.
+
+| Aspect | Standard (incl. most AAA) | Steel City | Status |
+|--------|---------------------------|------------|--------|
+| Cover validity | Authored cover node + flag, or single raycast at fixed chest height | Per-cell painted field + live wall-face solve vs **measured silhouette** — per character, per pose, per local column | ✅ Implemented |
+| Crouch depth | Discrete states (stand/crouch/deep) | Continuous scalar — morph band reachable; solves `h(duck)` inversely like an IK constraint | ✅ Implemented |
+| Posture source | Constants / eye-height guesses | Authored pose endpoints measured live — re-authoring a pose re-tunes cover for free | ✅ Implemented |
+| Detection | Radius overlap | Horizontal face-find rays + axial normal gate — hugging a wall can't overshoot; end-caps rejected | ✅ Implemented |
+
+**Design doc reference**: `COVER_HEIGHTFIELD.md`, `COMBAT_COVER_STATE.md`, `ANIMATION_SYSTEM.md`
+
+### 9.9 Exposure-Based Engagement — the crossfire model (NEW — designed, next build)
+
+Industry resolves aim-at-a-bone plus scripted pop-up cycles. Steel City's doctrine derives everything from **voxel visibility** — the same raycast primitive the renderer uses:
+
+| Mechanic | Standard | Steel City | Status |
+|----------|----------|------------|--------|
+| Aim target | Bone/socket (chest/head) | **Centroid of the enemy's *visible posed voxels*** — sampled points on their live silhouette, rays from the shooter's eye. Exposed cap shrinks as they duck — the aim point tracks it | 📝 Designed |
+| Fire gate | State machine flag | `visibleFraction > 0` — as the shooter tucks, his own wall occludes his own rays → zero voxels → weapon stows. Geometry, not doctrine | 📝 Designed |
+| Pop-up | Canned lean/peek animation | **The one authored override** — suppress cover drive, stand, engage `lastSeenTarget`. The mutual-exposure window: his `h(duck)` rising makes *him* visible to the enemy's identical query → the exposure race is the combat heartbeat | 📝 Designed |
+| Reload | Timer/anim | **Cylinder count** — S&W Model 10 = 6 shots → duck to reload (crouch-idle stands in until a reload anim exists) | 📝 Designed |
+| Target memory | Last-known-position marker | `lastSeenTarget` — pop-up re-queries: still there → live centroid; gone → burst at the stale point (suppressing fire, emergent) + `lookScan` channel for the search pattern | 📝 Designed |
+
+**The symmetry**: *cover verdict and aim solution are the same ray from opposite ends* — `hidden ⇐ ray(threatEye → myTop) blocked`; `hittable ⇐ ray(myEye → threatVoxels) clears`. One silhouette function `h(duck)`, both directions. Parapet firing is emergently headshot-only (only the head band shows over the wall) — accepted: recoil/sway plus the smaller voxel set keeps it fair.
+
+**Design doc reference**: `COMBAT_COVER_STATE.md` — Exposure Engagement section
+
 ### 9.3 Intelligence as Adaptive Cover AI (NEW — Not in Original)
 
 The original had Intelligence (8-bit, 0-255) but used it only for order execution quality. Steel City makes INT govern **in-combat tactical decisions**, with graduated behavior:
@@ -203,7 +232,7 @@ The original had Intelligence (8-bit, 0-255) but used it only for order executio
 | Low (<90) | Stands in open, maybe finds cover after getting hit | Fires wildly, doesn't recognize when outmatched |
 | Very Low (<45) | No cover-seeking behavior | May panic, freeze, or flee immediately |
 
-**Adaptive cover details**:
+**Adaptive cover details** (mechanism ✅ built — the INT graduation is the remaining work):
 - **Coverage ratio**: Percentage of hood's bounding volume occluded by cover geometry from attacker's angle. High-INT hoods actively maximize this by adjusting position and stance.
 - **Crouch timing**: High-INT hoods crouch sooner when under fire, presenting smaller target profile.
 - **Alignment**: High-INT hoods align their body axis with cover to minimize exposed surface area from known threat angles.
@@ -281,7 +310,7 @@ The bullet goes *somewhere* — just maybe not where aimed. Missed shots natural
 
 | Approach | Description | Status |
 |----------|-------------|--------|
-| **Approach A: Cover Points** | Scan collision world for wall-adjacent positions. Cache at load (invariant). Zero rendering impact. | 📝 Designed (recommended first) |
+| **Approach A: Cover Points** | Scan collision world for wall-adjacent positions. Cache at load (invariant). Zero rendering impact. | ✅ Implemented — as the `CoverField` painted-cell map + `CoverSensor` wall scan; per-cell support, eye anchors, and duck requirements baked per scan |
 | **Approach B: Dynamic Cover Objects** | Physical props (cars, barrels, crates) as Tier 2 instanced, destructible | 📝 Designed (Phase 2) |
 
 Cover points are derived from existing `VoxelCollisionWorld` flat array — no new rendering objects needed. This is an invariant computation (building geometry doesn't change during gameplay).
@@ -299,6 +328,8 @@ IDLE → ALERT (enemy detected) → MOVING_TO_COVER → IN_COVER (peek + fire)
   → FALLING → DOWN (dead)
   → IDLE (no enemies)
 ```
+
+**Status**: SeekingCover / InCover / HoldPosition / Falling implemented in `CombatController` (cover_pit arena). The exposure-based engagement layer (§9.9) — visible-voxel aim gate, pop-up override, cylinder-count reload — is the next build and replaces the "peek + fire" script inside IN_COVER.
 
 **Per-instance combat data** (backward-compatible extension to instance buffer):
 - `animState` (enum: includes combat states)

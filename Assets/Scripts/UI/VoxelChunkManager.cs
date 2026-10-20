@@ -1868,11 +1868,18 @@ namespace SteelCity.Sim
             public float transTimeA;
             public float transBlend = 1f;   // 1 = live pose only (no second eval)
             public float transDip;
-            public float transDepthA;       // frozen crouchDepth at transition start
-            // Adaptive crouch depth (0..1): lerps every authored crouch scalar
-            // crouching→crouchDeep inside the pose eval — the combat solver
-            // sets it from picked cover height, eased by CombatController.
-            public float crouchDepth;
+            public float transDepthA;       // frozen duck scalar at transition start
+            // THE duck scalar (0..2): 0 upright · 1 shallow · 2 deep. Idle
+            // evaluates the authored hold pose; Walking folds crumple deltas
+            // under the gait; legacy state 5.x reads duck−1 as its old
+            // crouchDepth axis. One silhouette = one cover-height contract.
+            public float crouchDepth;       // field name kept — carries duck now
+            // Integrated gait clock (dt×walkSpeed×duckFactor accumulated) —
+            // walk-phase source; speed changes never teleport the pose.
+            public float gaitTime;
+            // Look-scan channel blend (0 = off) — yaw-only head sweep layered
+            // over any pose; yields to IK arm aim.
+            public float lookScanBlend;
             // Per-instance material remap (clothing system): regionId → materialId (0 = no remap)
             // Sized to match the group's maxRegions. Null = no remap for this instance.
             public uint[] materialRemap;
@@ -2181,18 +2188,18 @@ namespace SteelCity.Sim
                 return;
             }
 
-            if (animParams == null || animParams.Length != 19)
+            if (animParams == null || animParams.Length != 27)
             {
-                Debug.LogWarning($"[VoxelChunkManager] SetAnimStaticParams: expected 19 entries, got {(animParams == null ? "null" : animParams.Length.ToString())}");
+                Debug.LogWarning($"[VoxelChunkManager] SetAnimStaticParams: expected 27 entries, got {(animParams == null ? "null" : animParams.Length.ToString())}");
                 return;
             }
 
             if (group.animStaticParamsBuffer != null) group.animStaticParamsBuffer.Release();
-            group.animStaticParamsBuffer = new ComputeBuffer(19, sizeof(float) * 4);
+            group.animStaticParamsBuffer = new ComputeBuffer(27, sizeof(float) * 4);
             GpuUpload.SetData(group.animStaticParamsBuffer, animParams);
             group.animStaticParamsEnabled = true;
 
-            Debug.Log($"[VoxelChunkManager] Anim static params set for {assetFileName} (19 float4s)");
+            Debug.Log($"[VoxelChunkManager] Anim static params set for {assetFileName} (27 float4s)");
         }
 
         /// <summary>
@@ -2313,7 +2320,7 @@ namespace SteelCity.Sim
                 {
                     animData[writeIdx * 3] = new Vector4(ic.animState, ic.animTime, ic.animSpeed, ic.transBlend);
                     animData[writeIdx * 3 + 1] = new Vector4(writeIdx * totalVoxels, ic.transStateA, ic.transTimeA, ic.transDip); // posed buffer offset + pose-transition source
-                    animData[writeIdx * 3 + 2] = new Vector4(ic.crouchDepth, ic.transDepthA, 0f, 0f);
+                    animData[writeIdx * 3 + 2] = new Vector4(ic.crouchDepth, ic.transDepthA, ic.gaitTime, ic.lookScanBlend);
                     ikData[writeIdx * 4] = new Vector4(ic.ikQuatA.x, ic.ikQuatA.y, ic.ikQuatA.z, ic.ikQuatA.w);
                     ikData[writeIdx * 4 + 1] = new Vector4(ic.ikQuatB.x, ic.ikQuatB.y, ic.ikQuatB.z, ic.ikQuatB.w);
                     ikData[writeIdx * 4 + 2] = new Vector4(ic.ikTorsoQuat.x, ic.ikTorsoQuat.y, ic.ikTorsoQuat.z, ic.ikTorsoQuat.w);

@@ -161,13 +161,14 @@ namespace SteelCity.Sim
             float state = animStateOverride ?? (ic?.animState ?? 0f);
             float time = animStateOverride.HasValue ? animTime : (ic?.animTime ?? 0f);
             float speed = ic?.animSpeed ?? 1f;
-            float depth = animDepthOverride >= 0f ? animDepthOverride
+            float duck = animDepthOverride >= 0f ? DepthToDuck(state, animDepthOverride)
                 : (animStateOverride.HasValue ? 0f : (ic?.crouchDepth ?? 0f));
+            float gait = ic?.gaitTime ?? -1f;
             var dims = new Vector3Int(dimX, dimY, dimZ);
 
             Vector3 rest = new Vector3(pv.x * dims.x, pv.y * dims.y, pv.z * dims.z);
             return PoseToWorld(anim, rest, gid, dims, state, time, speed,
-                TransParams(ic, animStateOverride, out float depthA), depth, depthA,
+                TransParams(ic, animStateOverride, out float depthA), duck, depthA, gait,
                 out worldPos, out worldRot);
         }
 
@@ -201,8 +202,9 @@ namespace SteelCity.Sim
             float state = animStateOverride ?? (ic?.animState ?? 0f);
             float time = animStateOverride.HasValue ? animTime : (ic?.animTime ?? 0f);
             float speed = ic?.animSpeed ?? 1f;
-            float depth = animDepthOverride >= 0f ? animDepthOverride
+            float duck = animDepthOverride >= 0f ? DepthToDuck(state, animDepthOverride)
                 : (animStateOverride.HasValue ? 0f : (ic?.crouchDepth ?? 0f));
+            float gait = ic?.gaitTime ?? -1f;
             var dims = new Vector3Int(dimX, dimY, dimZ);
 
             // Region centroids are index-space (mean of tagged voxel indices);
@@ -220,7 +222,7 @@ namespace SteelCity.Sim
             else return false;
 
             if (!PoseToWorld(anim, rest, JointHead, dims, state, time, speed,
-                    TransParams(ic, animStateOverride, out float depthA), depth, depthA,
+                    TransParams(ic, animStateOverride, out float depthA), duck, depthA, gait,
                     out worldPos, out Quaternion worldRot)) return false;
             worldFwd = (worldRot * Vector3.forward).normalized;
 
@@ -245,20 +247,26 @@ namespace SteelCity.Sim
             return new Vector4(ic.transStateA, ic.transTimeA, ic.transBlend, ic.transDip);
         }
 
+        /// <summary>Cover-depth → duck conversion for hypothetical queries:
+        /// crouch-state (5.x) depth d maps to duck 1+d (the old axis); other
+        /// states take it as a direct duck value (Idle+duck = hold pose).</summary>
+        static float DepthToDuck(float state, float depth) =>
+            (state > 4.5f && state < 5.5f) ? 1f + depth : depth;
+
         /// <summary>Shared pose→world core for joint/anchor queries — the same
         /// FK chain the voxels render with, then the shader's cell-space →
         /// world convention (identical to WeaponMount's muzzle solve). trans =
-        /// (stateA, timeA, blend, dip) pose-transition triple; crouchDepth is
-        /// the adaptive-duck axis (0 = authored shallow crouch, 1 = deep).</summary>
+        /// (stateA, timeA, blend, dip) pose-transition triple; duck is THE
+        /// shared scalar (0 upright · 1 shallow · 2 deep).</summary>
         bool PoseToWorld(VoxelCharacterAnimator anim, Vector3 rest, int gid, Vector3Int dims,
-            float state, float time, float speed, Vector4 trans, float crouchDepth,
-            float transDepthA, out Vector3 worldPos, out Quaternion worldRot)
+            float state, float time, float speed, Vector4 trans, float duck,
+            float transDuckA, float gaitTime, out Vector3 worldPos, out Quaternion worldRot)
         {
             Vector3 posed = anim.PosePoint(rest, gid, dims, state, time, speed,
-                trans.x, trans.y, trans.z, trans.w, crouchDepth, transDepthA);
+                trans.x, trans.y, trans.z, trans.w, duck, transDuckA, gaitTime);
 
             Quaternion qR = Quaternion.identity;
-            var gr = anim.ComputeGroupRotation(gid, dims, 1.0f, state, time, speed, crouchDepth);
+            var gr = anim.ComputeGroupRotation(gid, dims, 1.0f, state, time, speed, duck, gaitTime);
             if (gr.HasValue && gr.Value.chain != null)
                 foreach (var e in gr.Value.chain)
                     qR = VoxelCharacterAnimator.QuatFromMat3(e.rot) * qR;
@@ -266,7 +274,7 @@ namespace SteelCity.Sim
             {
                 Quaternion qA = Quaternion.identity;
                 var grA = anim.ComputeGroupRotation(gid, dims, 1.0f, trans.x, trans.y, speed,
-                    transDepthA >= 0f ? transDepthA : crouchDepth);
+                    transDuckA >= 0f ? transDuckA : duck, gaitTime);
                 if (grA.HasValue && grA.Value.chain != null)
                     foreach (var e in grA.Value.chain)
                         qA = VoxelCharacterAnimator.QuatFromMat3(e.rot) * qA;
@@ -332,12 +340,20 @@ namespace SteelCity.Sim
             if (topVoxels == null || topVoxels.Count == 0) return false;
             var dims = new Vector3Int(dimX, dimY, dimZ);
             float top = 0f;
+            // Worst-of-gait: the moving silhouette peaks above a held pose
+            // mid-stride — sample the whole cycle so cover heights bound the
+            // bob, not just the phase-0 frame.
+            float cycleDur = anim.WalkCycleDuration;
             for (int i = 0; i < topVoxels.Count; i++)
             {
                 var t = topVoxels[i];
-                Vector3 posed = anim.PosePoint(t.rest, t.gid, dims, state, 0f, 1f,
-                    -1f, 0f, 1f, 0f, depth, -1f);
-                if (posed.y > top) top = posed.y;
+                for (int g = 0; g < 4; g++)
+                {
+                    float gaitT = cycleDur > 0f ? g * 0.25f * cycleDur : 0f;
+                    Vector3 posed = anim.PosePoint(t.rest, t.gid, dims, state, 0f, 1f,
+                        -1f, 0f, 1f, 0f, DepthToDuck(state, depth), -1f, gaitT);
+                    if (posed.y > top) top = posed.y;
+                }
             }
             heightAboveFeet = (top + 0.5f) * voxelSize;   // cell-center, PoseToWorld convention
             topYCache[key] = heightAboveFeet;
@@ -751,9 +767,10 @@ namespace SteelCity.Sim
             }
 
             // Pack and upload static animation params (looking/aiming/crouching/sitting/jointOffset/aimSweep)
-            // as 19 float4s for the GPU shader — same ParamsData source as above.
-            // [15..18] = the deep-crouch endpoint: the crouchDepth lerp axis.
-            var asp = new Vector4[19];
+            // as 27 float4s for the GPU shader — same ParamsData source as above.
+            // [15..18] = the deep-crouch endpoint: the duck scalar's 1..2 band.
+            // [19..26] = walk-duck endpoints (D1 at duck=1, D2 at duck=2).
+            var asp = new Vector4[27];
             // [0] = looking params
             var lp = p.looking;
             asp[0] = new Vector4(lp.headYaw, lp.headYawFreq, lp.headPitch, lp.headPitchFreq);
@@ -795,7 +812,21 @@ namespace SteelCity.Sim
             asp[15] = new Vector4(dp.bodyLean, dp.headPitch, dp.armSwingL, dp.armSwingR);
             asp[16] = new Vector4(dp.legStrideL, dp.legStrideR, dp.kneeBendL, dp.kneeBendR);
             asp[17] = new Vector4(dp.bodyLower, dp.modelLower, cp.elbowBendL, cp.elbowBendR);
-            asp[18] = new Vector4(dp.elbowBendL, dp.elbowBendR, 0, 0);
+            // [18].zw = bodyForward (Z torso shift — bodyLower's fwd/back twin)
+            asp[18] = new Vector4(dp.elbowBendL, dp.elbowBendR, cp.bodyForward, dp.bodyForward);
+            // [19..26] = walk-duck endpoint pair — crumple DELTAS under the gait
+            // (never authored crouch poses — absolute strides pin legs mid-cycle).
+            // D1 [19..22] lands at duck=1, D2 [23..26] at duck=2.
+            var wdm = p.walkDuckMid ?? p.crouching;
+            var wdp = p.walkDuckPose ?? p.crouching;
+            asp[19] = new Vector4(wdm.legStrideL, wdm.legStrideR, wdm.kneeBendL, wdm.kneeBendR);
+            asp[20] = new Vector4(wdm.armSwingL, wdm.armSwingR, wdm.elbowBendL, wdm.elbowBendR);
+            asp[21] = new Vector4(wdm.modelLower, wdm.bodyLower, wdm.bodyForward, wdm.bodyLean);
+            asp[22] = new Vector4(wdm.headPitch, wdm.headTilt, 0, 0);
+            asp[23] = new Vector4(wdp.legStrideL, wdp.legStrideR, wdp.kneeBendL, wdp.kneeBendR);
+            asp[24] = new Vector4(wdp.armSwingL, wdp.armSwingR, wdp.elbowBendL, wdp.elbowBendR);
+            asp[25] = new Vector4(wdp.modelLower, wdp.bodyLower, wdp.bodyForward, wdp.bodyLean);
+            asp[26] = new Vector4(wdp.headPitch, wdp.headTilt, 0, 0);
             chunkManager.SetAnimStaticParams(assetFileName, asp);
             Debug.Log($"[VoxelCharacter] Static anim params packed and uploaded (looking/aiming/crouching/jointOffset)");
         }

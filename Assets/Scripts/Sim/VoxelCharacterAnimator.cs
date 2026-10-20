@@ -38,6 +38,11 @@ namespace SteelCity.Sim
         // a smooth engage/release. GPU path mirrors this via _InstanceIKData.
         public readonly Dictionary<int, Quaternion> ikOverrides = new Dictionary<int, Quaternion>();
         public float ikBlend = 1f;
+        // Look-scan channel — the authored `looking` head-yaw oscillation
+        // layered over any state's head pose (crouched alert sentry =
+        // Idle + duck + scan). Yields to IK overrides while aiming.
+        public bool lookScanEnabled = false;
+        public float lookScanBlend = 1f;
         private static readonly int[] CHILD_GROUPS = { 6, 7, 8, 9 };
         private static readonly int[] UPPER_BODY_GROUPS = { 1, 2, 3 };
         private static readonly int[] ROOT_PARENT_GROUPS = { 1, 2, 3, 4, 5 };
@@ -212,6 +217,10 @@ namespace SteelCity.Sim
             return kf;
         }
 
+        /// <summary>Walk-cycle period in seconds (0 when no gait data) —
+        /// for worst-of-gait top-of-silhouette sampling.</summary>
+        public float WalkCycleDuration => paramsData?.walkKeyframes?.cycleDuration ?? 0f;
+
         private WalkPose GetWalkPose(float animTime, float animSpeed, AnimParamsData p)
         {
             string cacheKey = animTime.ToString("F4") + ":" + animSpeed.ToString("F2");
@@ -350,21 +359,44 @@ namespace SteelCity.Sim
         /// Compute the transform chain for a given group.
         /// Direct port of character_animator.html computeGroupRotation().
         /// Returns null if no transform applies (T-Pose or unhandled state).
+        ///
+        /// `duck` = THE shared scalar 0..2 (0 upright · 1 shallow · 2 deep):
+        ///   Idle    → icr() — authored hold pose crouching→crouchDeep
+        ///   Walking → wd()  — crumple deltas walkDuckMid→walkDuckPose under the gait
+        ///   State 5.x (legacy) → crouchDepth axis at duck−1 (1+d ≡ old depth d)
+        /// `gaitTime` = integrated gait clock (dt×speed accumulated) — phase never
+        /// teleports on speed change; -1 falls back to animTime×animSpeed.
         /// </summary>
         public GroupTransformResult? ComputeGroupRotation(
             int gid, Vector3Int dims, float voxelSize,
             float animState, float animTime, float animSpeed,
-            float crouchDepth = 0f)
+            float duck = 0f, float gaitTime = -1f)
         {
             // T-Pose: raw bind pose — NO rotations applied
             if (animState > 8.5f && animState < 9.5f) return null;
 
             var ap = paramsData;
-            // Adaptive crouch: depth 0..1 lerps every authored scalar
-            // crouching → crouchDeep (absent deep block = inert clone).
+            // Adaptive crouch: the legacy state-5.x depth axis. duck 1+d maps
+            // to old depth d (saturated) — identical pose for legacy callers.
             var cdeep = ap.crouchDeep ?? ap.crouching;
-            float Cd = Mathf.Clamp01(crouchDepth);
+            float Cd = Mathf.Clamp01(duck - 1f);
             float Cr(float s, float d) => Mathf.Lerp(s, d, Cd);
+
+            // === SHARED DUCK SCALAR — dual endpoint sets (prototype parity) ===
+            // wd(): walkDuckMid lands at duck 1, walkDuckPose at duck 2 —
+            // deltas composed UNDER the gait. Walking only.
+            // icr(): authored hold pose crouching→crouchDeep — Idle only.
+            bool isWalkAnim = animState > 0.5f && animState < 1.5f;
+            float duckIn = isWalkAnim ? Mathf.Min(1f, duck) : 0f;
+            float duckDeep = Mathf.Max(0f, duck - 1f);
+            var wdm = ap.walkDuckMid ?? ap.crouching;
+            var wdp = ap.walkDuckPose ?? ap.crouching;
+            float Wd(System.Func<CrouchingData, float> f) => Mathf.Lerp(f(wdm), f(wdp), duckDeep) * duckIn;
+            float idleIn = (animState > -0.5f && animState < 0.5f) ? Mathf.Min(1f, duck) : 0f;
+            float idleDp = duckDeep;
+            float Icr(System.Func<CrouchingData, float> f) => Mathf.Lerp(f(ap.crouching), f(cdeep), idleDp) * idleIn;
+            float gaitClock = gaitTime >= 0f ? gaitTime : animTime * animSpeed;
+            WalkPose GetGaitPose() => GetWalkPose(gaitClock, 1f, ap);
 
             // === BODY TRANSFORM (torso twist + crouch lean + crouch lower) ===
             bool isSweepState = animState > 9.5f && animState < 10.5f;            // Aim Sweep (10)
@@ -376,9 +408,10 @@ namespace SteelCity.Sim
             bool isCrouchingState = animState > 4.5f && animState < 5.5f; // Crouching (5)
             bool isSittingState = animState > 10.5f && animState < 11.5f; // Sit (11)
             float torsoTwist = isAimingState ? ap.aiming.torsoTwist : 0f;
-            float bodyLean = isCrouchingState ? Cr(ap.crouching.bodyLean, cdeep.bodyLean) : 0f;
-            float bodyLower = isCrouchingState ? Cr(ap.crouching.bodyLower, cdeep.bodyLower) : 0f;
-            float modelLower = isCrouchingState ? Cr(ap.crouching.modelLower, cdeep.modelLower) : 0f;
+            float bodyLean = isCrouchingState ? Cr(ap.crouching.bodyLean, cdeep.bodyLean) : Wd(d => d.bodyLean) + Icr(d => d.bodyLean);
+            float bodyLower = isCrouchingState ? Cr(ap.crouching.bodyLower, cdeep.bodyLower) : Wd(d => d.bodyLower) + Icr(d => d.bodyLower);
+            float modelLower = isCrouchingState ? Cr(ap.crouching.modelLower, cdeep.modelLower) : Wd(d => d.modelLower) + Icr(d => d.modelLower);
+            float bodyForward = isCrouchingState ? Cr(ap.crouching.bodyForward, cdeep.bodyForward) : Wd(d => d.bodyForward) + Icr(d => d.bodyForward);
             bool hasBodyRot = torsoTwist != 0f || bodyLean != 0f;
             // Torso IK override (gid 0) — participates in bodyRot so it propagates
             // through the same body-transform path into arm/forearm/head chains.
@@ -398,13 +431,13 @@ namespace SteelCity.Sim
                 return rot;
             }
 
-            Vector3 bodyOffset = new Vector3(0, -bodyLower - modelLower, 0);
+            Vector3 bodyOffset = new Vector3(0, -bodyLower - modelLower, bodyForward);
 
             // Group 0 (body): apply body rotation + lower offset
             if (gid == 0)
             {
                 var bodyRot = GetBodyTransform();
-                if (bodyRot == null && bodyLower == 0f && modelLower == 0f) return null;
+                if (bodyRot == null && bodyLower == 0f && modelLower == 0f && bodyForward == 0f) return null;
                 var bodyPivot = pivots.ContainsKey(0)
                     ? new Vector3(pivots[0].x * dims.x * voxelSize, pivots[0].y * dims.y * voxelSize, pivots[0].z * dims.z * voxelSize)
                     : Vector3.zero;
@@ -418,7 +451,7 @@ namespace SteelCity.Sim
             GroupTransformResult? parentResult = null;
             if (PARENT_OF.ContainsKey(gid))
             {
-                parentResult = ComputeGroupRotation(PARENT_OF[gid], dims, voxelSize, animState, animTime, animSpeed, crouchDepth);
+                parentResult = ComputeGroupRotation(PARENT_OF[gid], dims, voxelSize, animState, animTime, animSpeed, duck, gaitTime);
             }
 
             if (!pivots.ContainsKey(gid)) return parentResult;
@@ -441,6 +474,9 @@ namespace SteelCity.Sim
             // Add bodyLower to upper body parent groups (head, arms) — not legs
             if (bodyLower != 0f && (gid == 1 || gid == 2 || gid == 3))
                 offset.y -= bodyLower;
+            // bodyForward is the Z twin — torso assembly (head, arms) shifts fwd/back
+            if (bodyForward != 0f && (gid == 1 || gid == 2 || gid == 3))
+                offset.z += bodyForward;
             // Add modelLower to ALL root parent groups (1-5) — children inherit via parentResult
             if (modelLower != 0f && (gid == 1 || gid == 2 || gid == 3 || gid == 4 || gid == 5))
                 offset.y -= modelLower;
@@ -466,6 +502,15 @@ namespace SteelCity.Sim
                 {
                     headPitch = Cr(ap.crouching.headPitch, cdeep.headPitch);
                 }
+                else if (isWalkAnim && duck > 0f) // Walk-duck — head deltas under the gait
+                {
+                    headPitch = Wd(d => d.headPitch);
+                    headTilt = Wd(d => d.headTilt);
+                }
+                else if (idleIn > 0f) // Idle hold — authored crouch head
+                {
+                    headPitch = Icr(d => d.headPitch);
+                }
                 else if (isSittingState) // Sit
                 {
                     headPitch = ap.sitting.headPitch;
@@ -474,6 +519,13 @@ namespace SteelCity.Sim
                 {
                     ownRot = IDENTITY; // Idle: head at rest
                 }
+
+                // Look-scan channel — yaw-only sweep layered over ANY state's
+                // head pose (crouched sentry = Idle + duck + scan). Yields to
+                // IK aim: the eye-line belongs to the weapon while overrides run.
+                if (lookScanEnabled && lookScanBlend > 0f && ap.looking != null && ikOverrides.Count == 0)
+                    headYaw += Mathf.Sin(animTime * ap.looking.headYawFreq) * ap.looking.headYaw * lookScanBlend;
+
                 if (ownRot == null)
                     ownRot = MatMul3(RotationY(headYaw), MatMul3(RotationX(headPitch), RotationZ(headTilt)));
             }
@@ -484,8 +536,8 @@ namespace SteelCity.Sim
                 float reach = 0f;
                 if (animState > 0.5f && animState < 1.5f) // Walking — keyframe pose
                 {
-                    var wp = GetWalkPose(animTime, animSpeed, ap);
-                    swing = asc.signL * wp.pose["armSwingL"];
+                    var wp = GetGaitPose();
+                    swing = asc.signL * (wp.pose["armSwingL"] + Wd(d => d.armSwingL));
                 }
                 else if (isAimingState) // Aim Walk (3), Aiming (4), Aim Sweep (10)
                 {
@@ -502,7 +554,7 @@ namespace SteelCity.Sim
                 }
                 else
                 {
-                    ownRot = RotationZ(ap.restPose.leftArmZ); // Idle: rest pose only
+                    swing = asc.signL * Icr(d => d.armSwingL); // Idle hold deltas (0 elsewhere)
                 }
                 if (ownRot == null)
                     ownRot = MatMul3(RotationY(reach), MatMul3(RotationByAxis(asc.axisL, swing), RotationZ(ap.restPose.leftArmZ)));
@@ -514,8 +566,8 @@ namespace SteelCity.Sim
                 float reach = 0f;
                 if (animState > 0.5f && animState < 1.5f) // Walking — keyframe pose
                 {
-                    var wp = GetWalkPose(animTime, animSpeed, ap);
-                    swing = asc.signR * wp.pose["armSwingR"];
+                    var wp = GetGaitPose();
+                    swing = asc.signR * (wp.pose["armSwingR"] + Wd(d => d.armSwingR));
                 }
                 else if (isAimingState) // Aim Walk (3), Aiming (4), Aim Sweep (10)
                 {
@@ -532,7 +584,7 @@ namespace SteelCity.Sim
                 }
                 else
                 {
-                    ownRot = RotationZ(ap.restPose.rightArmZ); // Idle: rest pose only
+                    swing = asc.signR * Icr(d => d.armSwingR); // Idle hold deltas (0 elsewhere)
                 }
                 if (ownRot == null)
                     ownRot = MatMul3(RotationY(reach), MatMul3(RotationByAxis(asc.axisR, swing), RotationZ(ap.restPose.rightArmZ)));
@@ -544,8 +596,8 @@ namespace SteelCity.Sim
                 float stride = 0f;
                 if ((animState > 0.5f && animState < 1.5f) || (animState > 2.5f && animState < 3.5f)) // Walking or Aim Walk
                 {
-                    var wp = GetWalkPose(animTime, animSpeed, ap);
-                    stride = ls.signL * wp.pose["legStrideL"];
+                    var wp = GetGaitPose();
+                    stride = ls.signL * (wp.pose["legStrideL"] + Wd(d => d.legStrideL));
                 }
                 else if (animState > 4.5f && animState < 5.5f) // Crouching
                 {
@@ -557,7 +609,7 @@ namespace SteelCity.Sim
                 }
                 else
                 {
-                    ownRot = RotationY(twist); // Idle: straight + twist
+                    stride = ls.signL * Icr(d => d.legStrideL); // Idle hold deltas (0 elsewhere)
                 }
                 if (ownRot == null)
                     ownRot = MatMul3(RotationByAxis(ls.axisL, stride), RotationY(twist));
@@ -569,8 +621,8 @@ namespace SteelCity.Sim
                 float stride = 0f;
                 if ((animState > 0.5f && animState < 1.5f) || (animState > 2.5f && animState < 3.5f)) // Walking or Aim Walk
                 {
-                    var wp = GetWalkPose(animTime, animSpeed, ap);
-                    stride = ls.signR * wp.pose["legStrideR"];
+                    var wp = GetGaitPose();
+                    stride = ls.signR * (wp.pose["legStrideR"] + Wd(d => d.legStrideR));
                 }
                 else if (animState > 4.5f && animState < 5.5f) // Crouching
                 {
@@ -582,7 +634,7 @@ namespace SteelCity.Sim
                 }
                 else
                 {
-                    ownRot = RotationY(twist);
+                    stride = ls.signR * Icr(d => d.legStrideR); // Idle hold deltas (0 elsewhere)
                 }
                 if (ownRot == null)
                     ownRot = MatMul3(RotationByAxis(ls.axisR, stride), RotationY(twist));
@@ -590,12 +642,12 @@ namespace SteelCity.Sim
             else if (gid == 8) // Left forearm (elbow hinge + twist)
             {
                 var eb = ap.elbowBend;
-                float bend = eb.signL * eb.leftRest;
+                float bend = eb.signL * (eb.leftRest + Icr(d => d.elbowBendL));
                 float twist = eb.twistL;
                 if (animState > 0.5f && animState < 1.5f) // Walking — keyframe pose
                 {
-                    var wp = GetWalkPose(animTime, animSpeed, ap);
-                    bend = eb.signL * wp.pose["elbowBendL"];
+                    var wp = GetGaitPose();
+                    bend = eb.signL * (wp.pose["elbowBendL"] + Wd(d => d.elbowBendL));
                     twist = wp.pose["forearmTwistL"];
                 }
                 else if (isAimingState) // Aim Walk (3), Aiming (4), Aim Sweep (10)
@@ -612,12 +664,12 @@ namespace SteelCity.Sim
             else if (gid == 9) // Right forearm (elbow hinge + twist)
             {
                 var eb = ap.elbowBend;
-                float bend = eb.signR * eb.rightRest;
+                float bend = eb.signR * (eb.rightRest + Icr(d => d.elbowBendR));
                 float twist = eb.twistR;
                 if (animState > 0.5f && animState < 1.5f) // Walking — keyframe pose
                 {
-                    var wp = GetWalkPose(animTime, animSpeed, ap);
-                    bend = eb.signR * wp.pose["elbowBendR"];
+                    var wp = GetGaitPose();
+                    bend = eb.signR * (wp.pose["elbowBendR"] + Wd(d => d.elbowBendR));
                     twist = wp.pose["forearmTwistR"];
                 }
                 else if (isAimingState) // Aim Walk (3), Aiming (4), Aim Sweep (10)
@@ -634,11 +686,11 @@ namespace SteelCity.Sim
             else if (gid == 6) // Left shin (knee hinge)
             {
                 var kb = ap.kneeBend;
-                float bend = kb.signL * kb.leftRest;
+                float bend = kb.signL * (kb.leftRest + Icr(d => d.kneeBendL));
                 if ((animState > 0.5f && animState < 1.5f) || (animState > 2.5f && animState < 3.5f)) // Walking or Aim Walk
                 {
-                    var wp = GetWalkPose(animTime, animSpeed, ap);
-                    bend = kb.signL * wp.pose["kneeBendL"];
+                    var wp = GetGaitPose();
+                    bend = kb.signL * (wp.pose["kneeBendL"] + Wd(d => d.kneeBendL));
                 }
                 else if (animState > 4.5f && animState < 5.5f) // Crouching — static knee bend
                 {
@@ -653,11 +705,11 @@ namespace SteelCity.Sim
             else if (gid == 7) // Right shin (knee hinge)
             {
                 var kb = ap.kneeBend;
-                float bend = kb.signR * kb.rightRest;
+                float bend = kb.signR * (kb.rightRest + Icr(d => d.kneeBendR));
                 if ((animState > 0.5f && animState < 1.5f) || (animState > 2.5f && animState < 3.5f)) // Walking or Aim Walk
                 {
-                    var wp = GetWalkPose(animTime, animSpeed, ap);
-                    bend = kb.signR * wp.pose["kneeBendR"];
+                    var wp = GetGaitPose();
+                    bend = kb.signR * (wp.pose["kneeBendR"] + Wd(d => d.kneeBendR));
                 }
                 else if (animState > 4.5f && animState < 5.5f) // Crouching — static knee bend
                 {
@@ -727,13 +779,15 @@ namespace SteelCity.Sim
         public Vector3[] PoseVoxels(
             Vector3Int[] restPositions, int[] groupIDs,
             Vector3Int dims, float voxelSize,
-            float animState, float animTime, float animSpeed)
+            float animState, float animTime, float animSpeed,
+            float duck = 0f, float gaitTime = -1f)
         {
             int count = restPositions.Length;
             var posedPositions = new Vector3[count];
+            float gaitClock = gaitTime >= 0f ? gaitTime : animTime * animSpeed;
 
             bool isWalkState = (animState > 0.5f && animState < 1.5f) || (animState > 2.5f && animState < 3.5f);
-            WalkPose walkPose = isWalkState ? GetWalkPose(animTime, animSpeed, paramsData) : default(WalkPose);
+            WalkPose walkPose = isWalkState ? GetWalkPose(gaitClock, 1f, paramsData) : default(WalkPose);
             float bodyBobY = isWalkState ? walkPose.bodyBobY : 0f;
             float weightShiftX = isWalkState ? walkPose.weightShiftX : 0f;
 
@@ -748,7 +802,7 @@ namespace SteelCity.Sim
 
                 if (gid >= 0)
                 {
-                    var result = ComputeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpeed);
+                    var result = ComputeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpeed, duck, gaitTime);
                     if (result.HasValue && result.Value.chain != null && result.Value.chain.Length > 0)
                     {
                         var pos = new Vector3(v.x, v.y, v.z);
@@ -795,12 +849,12 @@ namespace SteelCity.Sim
             float animState, float animTime, float animSpeed,
             float transStateA = -1f, float transTimeA = 0f,
             float transBlend = 1f, float transDip = 0f,
-            float crouchDepth = 0f, float transDepthA = -1f)
+            float duck = 0f, float transDuckA = -1f, float gaitTime = -1f)
         {
-            var pB = PosePointCore(restPos, gid, dims, animState, animTime, animSpeed, crouchDepth);
+            var pB = PosePointCore(restPos, gid, dims, animState, animTime, animSpeed, duck, gaitTime);
             if (transBlend >= 1f || transStateA < 0f) return pB;
-            float depthA = transDepthA >= 0f ? transDepthA : crouchDepth;
-            var pA = PosePointCore(restPos, gid, dims, transStateA, transTimeA, animSpeed, depthA);
+            float duckA = transDuckA >= 0f ? transDuckA : duck;
+            var pA = PosePointCore(restPos, gid, dims, transStateA, transTimeA, animSpeed, duckA, gaitTime);
             var p = Vector3.Lerp(pA, pB, transBlend);
             p.y += transDip;
             return p;
@@ -809,10 +863,11 @@ namespace SteelCity.Sim
         Vector3 PosePointCore(
             Vector3 restPos, int gid, Vector3Int dims,
             float animState, float animTime, float animSpeed,
-            float crouchDepth = 0f)
+            float duck = 0f, float gaitTime = -1f)
         {
+            float gaitClock = gaitTime >= 0f ? gaitTime : animTime * animSpeed;
             bool isWalkState = (animState > 0.5f && animState < 1.5f) || (animState > 2.5f && animState < 3.5f);
-            WalkPose walkPose = isWalkState ? GetWalkPose(animTime, animSpeed, paramsData) : default(WalkPose);
+            WalkPose walkPose = isWalkState ? GetWalkPose(gaitClock, 1f, paramsData) : default(WalkPose);
             float bodyBobY = isWalkState ? walkPose.bodyBobY : 0f;
             float weightShiftX = isWalkState ? walkPose.weightShiftX : 0f;
 
@@ -822,7 +877,7 @@ namespace SteelCity.Sim
 
             if (gid >= 0)
             {
-                var result = ComputeGroupRotation(gid, dims, 1.0f, animState, animTime, animSpeed, crouchDepth);
+                var result = ComputeGroupRotation(gid, dims, 1.0f, animState, animTime, animSpeed, duck, gaitTime);
                 if (result.HasValue && result.Value.chain != null && result.Value.chain.Length > 0)
                 {
                     var pos = restPos;
@@ -857,14 +912,16 @@ namespace SteelCity.Sim
             Vector3Int[] restPositions, int[] groupIDs,
             Vector3Int dims, float voxelSize,
             float animState, float animTime, float animSpeed,
-            Vector3[] outPositions)
+            Vector3[] outPositions,
+            float duck = 0f, float gaitTime = -1f)
         {
             int count = restPositions.Length;
             if (outPositions == null || outPositions.Length < count)
                 outPositions = new Vector3[count];
+            float gaitClock = gaitTime >= 0f ? gaitTime : animTime * animSpeed;
 
             bool isWalkState = (animState > 0.5f && animState < 1.5f) || (animState > 2.5f && animState < 3.5f);
-            WalkPose walkPose = isWalkState ? GetWalkPose(animTime, animSpeed, paramsData) : default(WalkPose);
+            WalkPose walkPose = isWalkState ? GetWalkPose(gaitClock, 1f, paramsData) : default(WalkPose);
             float bodyBobY = isWalkState ? walkPose.bodyBobY : 0f;
             float weightShiftX = isWalkState ? walkPose.weightShiftX : 0f;
 
@@ -882,7 +939,7 @@ namespace SteelCity.Sim
 
                 if (gid >= 0)
                 {
-                    var result = ComputeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpeed);
+                    var result = ComputeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpeed, duck, gaitTime);
                     if (result.HasValue && result.Value.chain != null && result.Value.chain.Length > 0)
                     {
                         var pos = new Vector3(v.x, v.y, v.z);
@@ -955,6 +1012,8 @@ namespace SteelCity.Sim
             if (Missing("kneeBend")) p.kneeBend = null;
             if (Missing("walkKeyframes")) p.walkKeyframes = null;
             if (Missing("aimSweep")) p.aimSweep = null;
+            if (Missing("walkDuckMid")) p.walkDuckMid = null;
+            if (Missing("walkDuckPose")) p.walkDuckPose = null;
             if (p.aimSweep == null)
                 p.aimSweep = new AimSweepData { amp = 0.55f, freq = 1.6f, headFollow = 0.6f };
             if (p.restPose == null)
@@ -970,8 +1029,15 @@ namespace SteelCity.Sim
                 // No authored deep endpoint → clone the shallow crouch so the
                 // depth channel exists but lerps a pose onto itself (inert).
                 var s = p.crouching;
-                p.crouchDeep = new CrouchingData { bodyLower = s.bodyLower, modelLower = s.modelLower, bodyLean = s.bodyLean, headPitch = s.headPitch, armSwingL = s.armSwingL, armSwingR = s.armSwingR, legStrideL = s.legStrideL, legStrideR = s.legStrideR, kneeBendL = s.kneeBendL, kneeBendR = s.kneeBendR, elbowBendL = s.elbowBendL, elbowBendR = s.elbowBendR };
+                p.crouchDeep = new CrouchingData { bodyLower = s.bodyLower, bodyForward = s.bodyForward, modelLower = s.modelLower, bodyLean = s.bodyLean, headPitch = s.headPitch, headTilt = s.headTilt, armSwingL = s.armSwingL, armSwingR = s.armSwingR, legStrideL = s.legStrideL, legStrideR = s.legStrideR, kneeBendL = s.kneeBendL, kneeBendR = s.kneeBendR, elbowBendL = s.elbowBendL, elbowBendR = s.elbowBendR };
             }
+            // Walk-duck endpoints = CRUMPLE DELTAS under the gait, NOT poses —
+            // never seed them from the authored crouch (absolute strides pin
+            // legs against the cycle). Modest symmetric folds when absent.
+            if (p.walkDuckMid == null)
+                p.walkDuckMid = new CrouchingData { legStrideL = 0.15f, legStrideR = 0.15f, kneeBendL = 0.30f, kneeBendR = 0.30f, elbowBendL = 0.15f, elbowBendR = 0.15f, modelLower = 4f, bodyLean = 0.25f, headPitch = -0.12f };
+            if (p.walkDuckPose == null)
+                p.walkDuckPose = new CrouchingData { legStrideL = 0.30f, legStrideR = 0.30f, kneeBendL = 0.60f, kneeBendR = 0.60f, armSwingL = -0.10f, armSwingR = -0.10f, elbowBendL = 0.40f, elbowBendR = 0.40f, modelLower = 8f, bodyLean = 0.67f, headPitch = -0.26f };
             if (p.sitting == null)
                 p.sitting = new SittingData { headPitch = 0f, armSwingL = 0.2f, armSwingR = 0.2f, legStrideL = 1.45f, legStrideR = 1.45f, kneeBendL = 1.45f, kneeBendR = 1.45f };
             // Sections below are dereferenced unconditionally in ComputeGroupRotation —
@@ -1186,6 +1252,12 @@ namespace SteelCity.Sim
             /// crouchDepth 0..1 lerps every scalar crouching→crouchDeep —
             /// the adaptive-duck axis driven by picked cover height.</summary>
             public CrouchingData crouchDeep;
+            /// <summary>Walk-duck D1 endpoint — crumple DELTAS under the gait,
+            /// reached at duck=1. Reuses CrouchingData's field set
+            /// (+headTilt/bodyForward; crouch sections leave them 0).</summary>
+            public CrouchingData walkDuckMid;
+            /// <summary>Walk-duck D2 endpoint — the deep crumple at duck=2.</summary>
+            public CrouchingData walkDuckPose;
             public SittingData sitting;
             public AimSweepData aimSweep;
         }
@@ -1328,9 +1400,11 @@ namespace SteelCity.Sim
         public class CrouchingData
         {
             public float bodyLower;
+            public float bodyForward;   // Z torso offset — fwd/back twin of bodyLower
             public float modelLower;
             public float bodyLean;
             public float headPitch;
+            public float headTilt;      // roll — walkDuck endpoints only (crouch sections leave 0)
             public float armSwingL;
             public float armSwingR;
             public float legStrideL;

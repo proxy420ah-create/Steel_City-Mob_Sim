@@ -37,8 +37,11 @@ namespace SteelCity.Sim
         private bool isPlaying = true;
         private float animSpeed = 1f;
         private float currentAnimState = 9f; // T-Pose
-        private float depthTarget;         // debug duck-depth target (0 shallow / 1 deep)
+        private float depthTarget;         // debug duck-scalar target (1 shallow / 2 deep)
         private bool depthEaseActive;      // ease owns the channel only until reached
+        /// <summary>Depth-ease state for diagnostics (CoverMetricsPanel).</summary>
+        public bool DepthEaseActive => depthEaseActive;
+        public float DepthTarget => depthTarget;
         private const float CrouchDepthSpeed = 3f; // matches CombatController's settle rate
 
         /// <summary>Exposes the VoxelCharacter for external systems (e.g. CityMap3D.SpawnedCharacter).</summary>
@@ -99,14 +102,17 @@ namespace SteelCity.Sim
 
             HandleInput();
 
-            // Debug duck-depth drift — state stays Crouching so no pose
-            // transition fires; depth must DRIFT. Releases the channel on
-            // arrival so combat's own depth targeting isn't contested.
+            // Debug duck drift — the shared scalar DRIFTS to target so the
+            // silhouette morphs continuously (Idle hold ↔ walk crumple share
+            // the channel). Releases on arrival so combat's depth targeting
+            // isn't contested. Dropped when the rig loses control (possess
+            // hands duck to the cover drive).
+            if (!_controllable) depthEaseActive = false;
             if (depthEaseActive)
             {
-                anim.crouchDepth = Mathf.MoveTowards(anim.crouchDepth, depthTarget,
+                anim.duck = Mathf.MoveTowards(anim.duck, depthTarget,
                     CrouchDepthSpeed * Time.deltaTime);
-                if (Mathf.Approximately(anim.crouchDepth, depthTarget)) depthEaseActive = false;
+                if (Mathf.Approximately(anim.duck, depthTarget)) depthEaseActive = false;
             }
 
             if (isPlaying)
@@ -132,7 +138,7 @@ namespace SteelCity.Sim
                 if (kb.tKey.wasPressedThisFrame) { SetState(9f); }
                 if (kb.iKey.wasPressedThisFrame) { SetState(0f); }
                 if (kb.wKey.wasPressedThisFrame) { SetState(1f); }
-                if (kb.lKey.wasPressedThisFrame) { SetState(2f); }
+                if (kb.lKey.wasPressedThisFrame) { ToggleLookScan(); }
                 if (kb.jKey.wasPressedThisFrame) { SetState(3f); }
                 if (kb.aKey.wasPressedThisFrame) { SetState(4f); }
                 if (kb.cKey.wasPressedThisFrame) { SetCrouch(); }
@@ -154,7 +160,7 @@ namespace SteelCity.Sim
             if (kb.numpad5Key.wasPressedThisFrame) { SetCrouch(); }
             if (kb.numpad6Key.wasPressedThisFrame) { SetState(6f); }
             if (kb.numpad1Key.wasPressedThisFrame) { SetState(1f); }
-            if (kb.numpad2Key.wasPressedThisFrame) { SetState(2f); }
+            if (kb.numpad2Key.wasPressedThisFrame) { ToggleLookScan(); }
             if (kb.numpad3Key.wasPressedThisFrame) { SetState(3f); }
             if (kb.numpad0Key.wasPressedThisFrame || kb.numpadEnterKey.wasPressedThisFrame) { SetState(0f); }
             if (kb.numpadPeriodKey.wasPressedThisFrame) { SetState(10f); }
@@ -180,22 +186,24 @@ namespace SteelCity.Sim
             }
         }
 
-        /// <summary>Num5 / Alt+C — enter crouch; while already crouched,
-        /// toggle the duck depth shallow ↔ deep (the adaptive-crouch axis).
-        /// Flipping mid-ease reverses the target.</summary>
+        /// <summary>Num2 / Alt+L — toggle the look-scan CHANNEL (not a pose):
+        /// the authored 'looking' head-yaw sweep layers over whatever pose is
+        /// active — crouched sentry = Idle + duck + scan.</summary>
+        void ToggleLookScan()
+        {
+            anim.lookScan = !anim.lookScan;
+            Debug.Log($"[CharRig] Look scan -> {(anim.lookScan ? "ON" : "off")}");
+        }
+
+        /// <summary>Num5 / Alt+C — the duck scalar cycle: stand → shallow(1)
+        /// → deep(2) → shallow… No state change — the CURRENT pose renders it
+        /// (Idle = hold pose, Walking = crumple under the gait). Stand back up
+        /// with I/X/numpad0 (release zeroes the scalar).</summary>
         void SetCrouch()
         {
-            if (anim.EffectiveState == CharacterAnimation.AnimState.Crouching)
-            {
-                float cur = depthEaseActive ? depthTarget : anim.crouchDepth;
-                depthTarget = cur > 0.5f ? 0f : 1f;
-                Debug.Log($"[CharRig] Crouch depth -> {(depthTarget > 0.5f ? "deep" : "shallow")}");
-            }
-            else
-            {
-                depthTarget = 0f;
-                SetState(5f);
-            }
+            float cur = depthEaseActive ? depthTarget : anim.duck;
+            depthTarget = cur < 0.5f ? 1f : (cur < 1.5f ? 2f : 1f);
+            Debug.Log($"[CharRig] Duck -> {depthTarget} ({(depthTarget > 1.5f ? "deep" : "shallow")})");
             depthEaseActive = true;
         }
 
@@ -208,9 +216,11 @@ namespace SteelCity.Sim
             var animState = (CharacterAnimation.AnimState)stateInt;
             if (stateInt == (int)CharacterAnimation.AnimState.Idle)
             {
-                // I = release any held debug pose, return to plain idle
+                // I = release any held debug pose, return to plain idle — and
+                // stand fully up: the duck scalar releases with the pose.
                 anim.ReleasePose(CharacterAnimation.PRIORITY_DEBUG);
                 anim.SetState(CharacterAnimation.AnimState.Idle);
+                anim.duck = 0f;
             }
             else
             {

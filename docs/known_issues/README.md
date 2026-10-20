@@ -34,3 +34,7 @@ Bug tracker per Development Guidelines Rule 13. Bugs are cataloged by category i
 | [Cover Pick Reads Wrong Volume in Splat Overlap](runtime/COVER_PICK_SPLAT_OVERLAP_WRONG_VOLUME.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-10-14 |
 | [Cover Pit Ladder Authored at Wrong Voxel Scale](runtime/COVER_PIT_VOXEL_SCALE_MISMATCH.md) | runtime | 🟡 FIX APPLIED | 🟡 HIGH | 2026-10-15 |
 | [Debug Beam Emission Flood — 120→40 FPS](runtime/PERF_DEBUG_BEAM_EMISSION_FLOOD.md) | runtime | 🟢 FIXED | 🔴 CRITICAL | 2026-10-16 |
+| [Cover Depth Solve Clamp Hides Reject Signal](runtime/COVER_DEPTH_SOLVE_CLAMP_HIDES_REJECT.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-10-18 |
+| [Cover Wall Class Depends On Owner Support](runtime/COVER_CLASS_DEPENDS_ON_OWNER_SUPPORT.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-10-18 |
+| [Derived Gait Phase — Pose Rewrite On Speed/Duck Change](runtime/DERIVED_GAIT_PHASE_POSE_REWRITE.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-10-19 |
+| [Possess Hold-Exit Arm — One-Shot Race With Pose Transition](runtime/POSSESS_HOLD_EXIT_ARM_ONESHOT_RACE.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-10-19 |

@@ -1371,8 +1371,20 @@
         <div class="tl-desc">G-possess: WASD + boom-collision orbit cam, IK aim, LMB free-fire, clean visuals. .stsound audio: browser studio → runtime synth → hot reload → linear propagation + teal→violet report waves + Sfx tab calibration. Commit fe4a3ef.</div>
       </div>
       <div class="tl-item">
+        <div class="tl-dot done"></div>
+        <div class="tl-date">Oct 20, 2026 — MILESTONE</div>
+        <div class="tl-title">Unified Duck Scalar + Measured-Silhouette Cover</div>
+        <div class="tl-desc">One scalar `duck` (0..2) drives Idle/Walking/Crouching end-to-end: authored crouching/crouchDeep endpoints, walkDuckMid/Pose gait deltas, scalar-integrated Look Scan, hotkey remap. Cover pipeline decontaminated from legacy 0–1 axis — `DuckForTop` piecewise-inverts measured `h(duck)`, face-find probes replace fixed rings, live wall solve owns depth over painted zones, corridor width normalizes duck fraction. Morph band (0..1) now reachable: mid walls get partial folds, not snaps.</div>
+      </div>
+      <div class="tl-item">
         <div class="tl-dot current"></div>
-        <div class="tl-date">Oct 16, 2026 — NOW</div>
+        <div class="tl-date">Oct 20, 2026 — NOW</div>
+        <div class="tl-title">Exposure-Based Engagement — the crossfire model</div>
+        <div class="tl-desc">Aim gate becomes geometry: `TryGetVisibleVoxels` — rays from the shooter's posed eye to ~30–40 points on the target's live posed silhouette; centroid of visible voxels = IK target (retires `feet + 1.3f`); visibleCount>0 = FIRE. Emergent: duck-in decays exposure smoothly, tucked = stow + lastSeenTarget, pop-up = authored override + mutual exposure window, 6-shot cylinder → duck-reload. Symmetric: cover verdict and aim solution are the same ray from opposite ends. Spec: COMBAT_COVER_STATE.md Phase 2.</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot planned"></div>
+        <div class="tl-date">Oct 16, 2026 — QUEUED</div>
         <div class="tl-title">NPC Hearing &amp; Reactions → Gang Sim</div>
         <div class="tl-desc">Report waves become gameplay: archetype-specific reactions (flee/cover/call cops) → investigations. Then resume HoodAgent + order queue (Phase 4d).</div>
       </div>
@@ -1381,6 +1393,12 @@
         <div class="tl-date">Next</div>
         <div class="tl-title">Animated Run Week</div>
         <div class="tl-desc">Coroutine-based playback: extortion → police → rival → economy. Camera auto-pan, animation primitives, speed controls.</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot planned"></div>
+        <div class="tl-date">After</div>
+        <div class="tl-title">Search Pattern + Pop-Up Triggers (deferred)</div>
+        <div class="tl-desc">Last-seen awareness → `lookScan` 3-step visual sweep when the pop-up finds an empty last-seen point (papered). Deferred decisions: AI pop-up trigger (cadence/staleness/order), possess-mode pop-up control, threat-eye posed query replacing the 0.55 constant.</div>
       </div>
       <div class="tl-item">
         <div class="tl-dot planned"></div>
@@ -1403,7 +1421,7 @@
   <p>Steel City: Mob Sim — Vertical Slice Roadmap</p>
   <p>Companion to <code>GAME_DESIGN_SKELETON.md</code> and <code>docs/core/DOCUMENTATION_INDEX.md</code></p>
   <div class="update-note">
-    📝 Last updated: Oct 16, 2026 — Third-person possess testbed + procedural audio pipeline landed. Player builds hardened (instancing KeepAll). Voxel destruction live (puncture, blasts, shard debris). Next: NPC hearing &amp; reactions off the report-wave radius, then Phase 4d gang sim.</div>
+    📝 Last updated: Oct 20, 2026 — Unified `duck` scalar (0..2) + measured-silhouette cover landed: morph band reachable, live wall solve owns depth, legacy 0–1 axis decontaminated. Now building: exposure-based engagement — visible-voxel aim target, exposure FIRE gate, pop-up override, 6-shot cylinder reload (spec: COMBAT_COVER_STATE.md Phase 2). Queued: NPC hearing &amp; reactions, then Phase 4d gang sim.</div>
   <div style="margin-top: 10px; padding: 10px 14px; background: var(--surface2); border: 1px solid var(--yellow); border-radius: 6px; font-size: 0.85em; color: var(--text-dim);">
     ⚠️ <strong style="color: var(--yellow);">Keep this roadmap current.</strong>
     Update phases, timeline, and progress whenever new design documents are created or features are discussed.

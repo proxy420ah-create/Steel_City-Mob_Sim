@@ -1,5 +1,9 @@
 # Character Animation & Physics Pipeline
 
+> 📌 **Canonical reference is now `docs/systems/ANIMATION_SYSTEM.md`** — this doc
+> remains valid for kernel/buffer internals + flinch/ragdoll phases; it predates
+> `crouchDepth`/`crouchDeep`, pose transitions, and RequestPose lanes.
+
 **Purpose**: Unified design for procedural keyframe animation, flinch reactions, and ragdoll physics in Steel City: Mob Sim
 **Created**: August 10, 2026
 **Last Updated**: August 12, 2026

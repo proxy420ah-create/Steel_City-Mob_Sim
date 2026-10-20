@@ -6,27 +6,28 @@
 # CityMap3D places blocks at voxelSize=0.05 (2x-upscaled convention) — every
 # authored voxel is 5cm, so metric heights need 2x the voxel count.
 #
-# Purpose: adaptive-crouch depth-ladder + phase-0 two-entity combat.
+# Purpose: gradient-wall cover testbed + phase-0 two-entity combat.
 #   Vinny starts at cover_stand_a (south plate), Civilian_02 "Tan Suit" at
-#   cover_stand_b (north plate). ONE shared row of 4 boxes sits mid-lot —
-#   an ascending duck-depth staircase, usable from either face:
-#     [DEEP 0.8m] [MID 1.0m] [CROUCH 1.3m] [WALL 2.0m]   (top heights)
-#   Expected reqDepth (eyeShallow~1.0m, eyeDeep~0.8m, margin 0.1m):
-#     deep  → ~1.0 (deepest usable duck — above this the eye can't hide)
-#     mid   → ~0.5 (between the authored endpoints)
-#     crouch→  0   (shallow authored crouch clears it)
-#     wall  → Full class, no crouch at all
+#   cover_stand_b (north plate). ONE continuous wall runs east-west mid-lot
+#   (the old ladder lane) — its top sweeps Vinny's measured silhouette band
+#   (stand 0.62 / shallow 0.50 / deep 0.45): the crouch band is ~1 voxel wide
+#   at 0.05m/vox, which is exactly what this wall makes legible.
+#     [FULL h16 0.80m] → taper h15..h8 in 1-vox steps → [NULL h6 0.30m] → ends
+#   x=94 (the duel axis) lands mid-taper on h12 — the live crouch step
+#   (d≈0.4 at pad support 0.10m). Possess-walking the face folds Vinny
+#   standing → crouch → standing as the wall top sweeps the band.
 #
 # Layout (front = low Z, same convention as the range):
 #   z 0..191  asphalt pad y 0-1
 #   perimeter stone curb y 2
 #   z 24-26   cover_stand_a painted plate (south — Vinny), centered on x=96
 #   z 166-168 cover_stand_b painted plate (north — Tan Suit), straight across
-#   z 92-99   the 4-box ladder row, ~7m in front of Vinny's plate
-#   z 88-91   dark-wood marker pads south of each box = Vinny's pick anchors
-#             (cover_deep/_mid/_crouch/_wall; *_n twins on the north face
-#             for Tan-side picks)
-#   ~1.0m gaps between boxes (20v @ 0.05m) leave navigation lanes.
+#   z 92-99   the gradient wall, x 20..184 — full→taper→null, east-descending
+#   z 88-90   dark-wood marker pads at wall landmarks = Vinny's pick anchors
+#             (cover_wall=full, cover_crouch=h12 crouch step, cover_mid=h11
+#             Low edge, cover_deep=null tail — last two are expected-fail
+#             picks that exercise the classifier's reject path; *_n twins
+#             on the north face for Tan-side picks)
 
 import json
 
@@ -37,22 +38,29 @@ DARK_WOOD, LIGHT_WOOD, PAINTED_METAL, WHITE_FABRIC = 106, 107, 111, 127
 STAND_A_X, STAND_A_Z = 94, 24    # Vinny — south plate, centered on x=96
 STAND_B_X, STAND_B_Z = 94, 166   # Tan — north plate, straight across
 
-# The depth ladder — one shared row mid-lot, ascending left→right.
-# h = column top in voxels (top = h*0.05m above corner; bodies start at pad
-# top y2 = 0.1m). Doubled from the original 0.1m assumption — runtime vs=0.05.
-#   deep   16 → 0.8m top — only the deepest authored duck hides the eye
-#   mid    20 → 1.0m top — mid-range, needs a partial duck
-#   crouch 26 → 1.3m top — the shallow authored crouch clears it
-#   wall   40 → 2.0m top — above standing eye, Full-class, no duck
-LADDER = [
-    ("cover_deep",   18, 16),
-    ("cover_mid",    62, 20),
-    ("cover_crouch",106, 26),
-    ("cover_wall",  150, 40),
+# The gradient wall — one continuous wall in the ladder lane, descending
+# west→east. h = column top in voxels (top = h*0.05m; pad top = y2 = 0.10m).
+# With measured heights 0.62/0.50/0.45 + margin, the crouch band is tops
+# ~0.57-0.62m → h12 is THE crouch step (d≈0.4); h13+ is Full, h11- is Low.
+# (x0, run_vox, top_h)
+GRADIENT = [
+    ( 20, 28, 16),              # FULL — 0.80m top covers him standing
+    ( 48, 14, 15), ( 62, 14, 14), ( 76, 14, 13), ( 90, 14, 12),
+    (104, 14, 11), (118, 14, 10), (132, 14,  9), (146, 14,  8),
+    (160, 24,  6),              # NULL tail — 0.30m, below h1 → release
 ]
-BOX_W, BOX_D = 24, 8          # 1.2m wide × 0.4m deep
-ROW_Z0 = 92                   # row z 92..99 — ~3.4m ahead of Vinny's plate
-PAD_Z0, PAD_D = 88, 3         # marker pads just south of each face
+GRAD_Z0, GRAD_D = 92, 8         # same lane as the retired ladder
+PAD_Z0, PAD_D = 88, 3           # marker pads just south of each face
+
+# Pick anchors → wall landmarks. cover_crouch sits at the h12 step's center;
+# mid/deep deliberately hit Low territory so the buttons also exercise the
+# classifier's reject path. (anchor → pad center x)
+PAD_AT = {
+    "cover_wall":   34,         # full segment — Full-class pick
+    "cover_crouch": 97,         # h12 — the live crouch step (d≈0.4)
+    "cover_mid":   111,         # h11 — Low edge, expect a reject
+    "cover_deep":  172,         # null tail — Low, expect a reject
+}
 
 vox = {}
 def put(x0, x1, y0, y1, z0, z1, m):
@@ -71,19 +79,19 @@ put(0, 2, 2, 3, 0, D, STONE); put(W - 2, W, 2, 3, 0, D, STONE)
 put(STAND_A_X, STAND_A_X + 4, 2, 3, STAND_A_Z, STAND_A_Z + 2, PAINTED_METAL)
 put(STAND_B_X, STAND_B_X + 4, 2, 3, STAND_B_Z, STAND_B_Z + 2, PAINTED_METAL)
 
-# --- cover ladder (light wood; dark-wood lip on BOTH long faces — either
-#     fighter can hide on either side) + south/north marker pads that carry
-#     the pick anchors ---
+# --- gradient wall (light wood; dark-wood top course on BOTH long faces —
+#     either fighter can hide on either side) + marker pads that carry the
+#     pick anchors ---
 marker_pads = {}
-for key, x0, h in LADDER:
-    x1, z0, z1 = x0 + BOX_W, ROW_Z0, ROW_Z0 + BOX_D
+for x0, run, h in GRADIENT:
+    x1, z0, z1 = x0 + run, GRAD_Z0, GRAD_Z0 + GRAD_D
     put(x0, x1, 2, h, z0, z1, LIGHT_WOOD)
     put(x0, x1, h - 1, h, z0, z0 + 1, DARK_WOOD)   # south lip = Vinny's side
     put(x0, x1, h - 1, h, z1 - 1, z1, DARK_WOOD)   # north lip = Tan's side
-    cx = x0 + BOX_W // 2
+for key, cx in PAD_AT.items():
     # marker pads (dark wood, surface layer): south = Vinny's pick anchor,
     # north = Tan's. Centroids feed attachmentPoints directly.
-    for side, pz in ((key, PAD_Z0), (key + "_n", z1 + 2)):
+    for side, pz in ((key, PAD_Z0), (key + "_n", GRAD_Z0 + GRAD_D + 2)):
         put(cx - 2, cx + 2, 2, 3, pz, pz + PAD_D, DARK_WOOD)
         marker_pads[side] = [(x, 2, z) for x in range(cx - 2, cx + 2)
                                        for z in range(pz, pz + PAD_D)]
@@ -94,10 +102,10 @@ PART_DEFS = [
     {"id": 0, "name": "Body",          "key": "body",          "color": "#888888", "desc": "Unassigned"},
     {"id": 1, "name": "Cover Stand A", "key": "cover_stand_a", "color": "#ff6b6b", "desc": "South stand spot — primary combatant (Vinny)"},
     {"id": 2, "name": "Cover Stand B", "key": "cover_stand_b", "color": "#00ddff", "desc": "North stand spot — opposing combatant (Tan Suit)"},
-    {"id": 3, "name": "Cover Deep",    "key": "cover_deep",    "color": "#cc3333", "desc": "Pick anchor — deepest-duck box (0.8m)"},
-    {"id": 4, "name": "Cover Mid",     "key": "cover_mid",     "color": "#dd8833", "desc": "Pick anchor — mid-duck box (1.0m)"},
-    {"id": 5, "name": "Cover Crouch",  "key": "cover_crouch",  "color": "#ddcc33", "desc": "Pick anchor — shallow-crouch box (1.3m)"},
-    {"id": 6, "name": "Cover Wall",    "key": "cover_wall",    "color": "#33cc55", "desc": "Pick anchor — full wall, no duck (2.0m)"},
+    {"id": 3, "name": "Cover Deep",    "key": "cover_deep",    "color": "#cc3333", "desc": "Pick anchor — gradient null tail (h6, Low — expected reject)"},
+    {"id": 4, "name": "Cover Mid",     "key": "cover_mid",     "color": "#dd8833", "desc": "Pick anchor — gradient h11 Low edge (expected reject)"},
+    {"id": 5, "name": "Cover Crouch",  "key": "cover_crouch",  "color": "#ddcc33", "desc": "Pick anchor — gradient h12 crouch step (d≈0.4)"},
+    {"id": 6, "name": "Cover Wall",    "key": "cover_wall",    "color": "#33cc55", "desc": "Pick anchor — gradient full segment (Full class)"},
 ]
 
 painted = {

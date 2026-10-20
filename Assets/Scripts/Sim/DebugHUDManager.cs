@@ -1052,10 +1052,14 @@ namespace SteelCity.Sim
                     GUILayout.Label($"  ease: {(selAnim.transitionEase == 0 ? "linear" : selAnim.transitionEase == 2 ? "cosine" : "smoothstep")}  [click to cycle]", labelStyle);
                     if (GUILayout.Button("cycle ease", GUILayout.Width(90)))
                         selAnim.transitionEase = (selAnim.transitionEase + 1) % 3;
-                    // Crouch depth preview — the adaptive-duck axis. Set a
-                    // crouch pose (Num5) then drag: shallow → deep authored lerp.
-                    GUILayout.Label($"  crouch depth: {selAnim.crouchDepth:F2}", labelStyle);
-                    selAnim.crouchDepth = GUILayout.HorizontalSlider(selAnim.crouchDepth, 0f, 1f);
+                    // Duck scalar preview — the shared silhouette axis.
+                    // 0 upright · 1 shallow · 2 deep; Idle renders the hold
+                    // pose, Walking the crumple under the gait.
+                    GUILayout.Label($"  duck: {selAnim.duck:F2}", labelStyle);
+                    selAnim.duck = GUILayout.HorizontalSlider(selAnim.duck, 0f, 2f);
+                    GUILayout.Label($"  duck→speed {OnOff(selAnim.duckSpeedScale)}  floor {selAnim.duckSpeedMin:F2}  factor {selAnim.DuckSpeedFactor:F2}", labelStyle);
+                    selAnim.duckSpeedMin = GUILayout.HorizontalSlider(selAnim.duckSpeedMin, 0.05f, 1f);
+                    selAnim.lookScan = GUILayout.Toggle(selAnim.lookScan, " look scan");
                 }
             }
 
@@ -2288,7 +2292,6 @@ namespace SteelCity.Sim
                 GUILayout.Label($"  state: <b>{cc.State}</b>" +
                     (cc.State != CombatController.CombatState.Idle ? $" · threat {cc.ThreatPos.ToString("F1")}" : ""), labelStyle);
                 cc.moveSpeed = HSlider("move speed", cc.moveSpeed, 0.5f, 5f);
-                cc.crouchDepthSpeed = HSlider("crouch ease", cc.crouchDepthSpeed, 0.5f, 8f);
                 var vinny = cityMap.SpawnedCharacter;
                 GUILayout.BeginHorizontal();
                 GUI.enabled = cc.State == CombatController.CombatState.Idle;
@@ -2772,7 +2775,7 @@ namespace SteelCity.Sim
             var rig = (selectedRigIndex >= 0 && selectedRigIndex < allCharacterRigs.Count) ? allCharacterRigs[selectedRigIndex] : null;
             var anim = rig != null ? rig.GetComponent<CharacterAnimation>() : null;
             if (anim != null)
-                sb.AppendLine($"pose transitions {OnOff(anim.poseTransitions)}  dur {anim.transitionDuration:F2}s  dip {anim.transitionDip:F2}  ease {anim.transitionEase}  crouchDepth {anim.crouchDepth:F2}");
+                sb.AppendLine($"pose transitions {OnOff(anim.poseTransitions)}  dur {anim.transitionDuration:F2}s  dip {anim.transitionDip:F2}  ease {anim.transitionEase}  duck {anim.duck:F2}  gait {anim.GaitTime:F2}  speed×{anim.DuckSpeedFactor:F2}  scan {OnOff(anim.lookScan)}");
             sb.AppendLine($"clothing systems: {allClothingSystems.Count}  selected: {(clothingSystem != null ? clothingSystem.gameObject.name : "none")}");
         }
 
@@ -2853,7 +2856,7 @@ namespace SteelCity.Sim
             if (vis != null)
                 sb.AppendLine($"vision: {vis.range:F0}m ±{vis.halfAngleDeg:F0}°  det <b>{vis.MaxDetection * 100f:F0}%</b>  cone {OnOff(vis.showCone)}/ray {OnOff(vis.showTargetRay)}/fill {OnOff(vis.showConeFill)}  owner {OnOff(VisionSensor.ConeOwner == vis)}");
             sb.AppendLine(cc != null
-                ? $"combat: <b>{cc.State}</b>  move {cc.moveSpeed:F1}  crouchEase {cc.crouchDepthSpeed:F1}   duel {(pitOpponentAI ? "AI" : "dummy")}"
+                ? $"combat: <b>{cc.State}</b>  move {cc.moveSpeed:F1}  targetDuck {cc.TargetDuck:F2}   duel {(pitOpponentAI ? "AI" : "dummy")}"
                 : "combat: <i>no CombatController</i>");
         }
 

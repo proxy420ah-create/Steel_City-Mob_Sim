@@ -24,7 +24,7 @@ namespace SteelCity.Sim
     {
         [Header("Awareness")]
         [Tooltip("Radius scanned for cover obstacles (m).")]
-        public float radius = 8f;
+        public float radius = 4f;
         [Tooltip("Gap between the stand spot and the obstacle face (m).")]
         public float standoff = 0.55f;
         [Tooltip("Columns with a contiguous span below this aren't walls at all (m).")]
@@ -43,7 +43,7 @@ namespace SteelCity.Sim
         [Tooltip("Cells per side for the cover field grid.")]
         public int fieldRes = 64;
         [Tooltip("How much proximity weighs vs cover quality in the composite score (0=quality only, 1=distance only).")]
-        [Range(0f, 1f)] public float proxWeight = 0.6f;
+        [Range(0f, 1f)] public float proxWeight = 1f;      // 1 = closest viable cover wins (doctrine), 0 = highest quality
 
         [Header("Visualization (COVER tab)")]
         [Tooltip("Legacy beam markers — superseded by the V-key cover-field modes; kept for deep debugging.")]
@@ -76,10 +76,14 @@ namespace SteelCity.Sim
             public float facing;         // outDir·dirToThreat — negative = faces the threat
             public string volId;
             public float vs;
-            /// <summary>Minimum crouch depth (0..1) that puts the posed eye below
-            /// this wall's top — 0 = the shallow authored crouch already clears it.</summary>
+            /// <summary>Minimum duck scalar (0..2) that puts the posed silhouette
+            /// under this wall's top — sub-1 = stand→shallow morph, over-1 = deep band.</summary>
             public float reqDepth;
+            public float support;        // ground Y at this wall's stand-spot (the floor the solve measured from)
         }
+
+        /// <summary>Last pick's wall math, for the metrics panel.</summary>
+        public string PickInfo = "";
 
         public struct CandMark
         {
@@ -146,9 +150,6 @@ namespace SteelCity.Sim
         /// <summary>volId → class of that volume's highest-demand wall — Full
         /// walls are stood behind, not crouched behind.</summary>
         private readonly Dictionary<string, WallClass> volClass = new();
-        /// <summary>volId → (eyeHeight, eyeFwd) at that volume's required depth —
-        /// the per-cell LOS test point the field validates against.</summary>
-        private readonly Dictionary<string, Vector2> volTop = new();
         private VoxelChunkManager chunkManager;
         private bool dataWasLive, ringLive;
 
@@ -267,14 +268,59 @@ namespace SteelCity.Sim
             if (!field.PickBest(out point, out volId)) return false;
             if (volId != null)
             {
-                if (volDepth.TryGetValue(volId, out float d)) reqDepth = d;
-                if (volClass.TryGetValue(volId, out WallClass c)) cls = c;
+                // Volume aggregates are the WORST column anywhere in the volume
+                // — wrong for a single gradient wall. Resolve the wall column
+                // whose stand-spot is nearest the picked cell (same volume,
+                // non-Low) and use ITS depth/class; aggregates are the fallback.
+                int wi = -1; float bd = float.MaxValue;
+                for (int i = 0; i < walls.Count; i++)
+                {
+                    var w = walls[i];
+                    if (w.cls == WallClass.Low || w.volId != volId) continue;
+                    Vector3 spot = w.facePos + w.outDir * (standoff + w.vs * 0.25f);
+                    float dx = spot.x - point.x, dz = spot.z - point.z;
+                    float d2 = dx * dx + dz * dz;
+                    if (d2 < bd) { bd = d2; wi = i; }
+                }
+                if (wi >= 0)
+                {
+                    var pw = walls[wi];
+                    reqDepth = pw.reqDepth; cls = pw.cls;
+                    // Destination hugs the wall — the zone is a corridor he
+                    // walks THROUGH, not a boundary to stop at. He comes to
+                    // rest at the owning column's stand-spot.
+                    Vector3 spot = pw.facePos + pw.outDir * (standoff + pw.vs * 0.25f);
+                    point = new Vector3(spot.x, pw.support, spot.z);
+                    PickInfo = $"wall top {pw.top:F2} · floor {pw.support:F2} · rise {pw.top - pw.support:F2}"
+                             + $" (stand {HStand:F2} crouch {HShallow:F2}→{HDeep:F2}) → {pw.cls} duck{pw.reqDepth:F2}";
+                }
+                else
+                {
+                    if (volDepth.TryGetValue(volId, out float d)) reqDepth = d;
+                    if (volClass.TryGetValue(volId, out WallClass c)) cls = c;
+                }
             }
             // Map the chosen cell back onto its candidate post for the cyan beam.
             for (int i = 0; i < candidates.Count; i++)
                 if (field.IsChosen(FieldCellOf(candidates[i].point))) { chosenIdx = i; break; }
             Redraw();
             return true;
+        }
+
+        /// <summary>Which painted cover zone contains <paramref name="pos"/> —
+        /// returns the OWNING column's class + required depth (the zone's
+        /// posture verdict). False over open ground, halo rim, and Low
+        /// frontage (those claim cells but never paint).</summary>
+        public bool TryZoneAt(Vector3 pos, out WallClass cls, out float reqDepth)
+        {
+            cls = WallClass.Low; reqDepth = 0f;
+            if (!field.HasData) return false;
+            int idx = field.CellIndexOf(pos);
+            if (idx < 0 || field.volIdOf[idx] == null || field.quality[idx] < CoverField.SeedMin)
+                return false;
+            cls = (WallClass)field.clsOf[idx];
+            reqDepth = field.reqDepthOf[idx];
+            return cls != WallClass.Low;
         }
 
         /// <summary>Debug pick — hide behind the cover `anchor` names. The
@@ -317,22 +363,35 @@ namespace SteelCity.Sim
             Debug.Log(sb.ToString());
             if (!field.PickNear(anchor, maxDist, out point, out _, w.volId)) return false;
             volId = w.volId; reqDepth = w.reqDepth; cls = w.cls;
+            // Same hug-the-wall destination as the generic pick.
+            Vector3 sspot = w.facePos + w.outDir * (standoff + w.vs * 0.25f);
+            point = new Vector3(sspot.x, w.support, sspot.z);
             for (int i = 0; i < candidates.Count; i++)
                 if (field.IsChosen(FieldCellOf(candidates[i].point))) { chosenIdx = i; break; }
             Redraw();
             return true;
         }
 
-        /// <summary>Minimum crouch depth that puts the silhouette top `depthMargin`
-        /// below `top` (world Y). Linear in d because the measured heights lerp
-        /// shallow→deep exactly like the pose eval. 0 when shallower already
-        /// clears; 1 only when the deepest duck just barely clears.</summary>
-        public float DepthForTop(float top, float baseY)
+        /// <summary>Minimum DUCK scalar (0..2) that puts the silhouette top
+        /// `depthMargin` below `top` (world Y). Piecewise-inverts h(duck):
+        ///   duck 0 → stand · 0..1 → stand→shallow morph · 1..2 → shallow→deep.
+        /// Every band is continuous — a wall between stand- and shallow-top
+        /// yields a partial duck, not a snap to the full crouch.</summary>
+        public float DuckForTop(float top, float baseY)
+            => Mathf.Clamp(DuckForTopRaw(top, baseY), 0f, 2f);
+
+        /// <summary>Unclamped duck solve — the raw value carries the class:
+        /// &lt;= 0 → Full (covers him standing), 0 &lt; d &lt;= 2 → duckable
+        /// (sub-1 = morph band, over-1 = deep band), &gt; 2 → too low to hide
+        /// behind (Low). DuckForTop clamps for pose-feeding callers.</summary>
+        public float DuckForTopRaw(float top, float baseY)
         {
-            float denom = HDeep - HShallow;
-            if (denom >= -1e-4f) return 0f; // no authored deep pose (or deeper = higher)
-            float d = (top - depthMargin - baseY - HShallow) / denom;
-            return Mathf.Clamp01(d);
+            float clear = top - depthMargin - baseY;
+            if (clear >= HStand) return 0f;
+            float spanMorph = HStand - HShallow, spanDeep = HShallow - HDeep;
+            if (clear >= HShallow && spanMorph > 1e-4f)
+                return (HStand - clear) / spanMorph;
+            return spanDeep > 1e-4f ? 1f + (HShallow - clear) / spanDeep : 3f;
         }
 
         private int FieldCellOf(Vector3 p)
@@ -385,18 +444,31 @@ namespace SteelCity.Sim
             // Walls tall enough to matter, with an open side at the deepest
             // silhouette-top band — the permissive superset; per-wall required
             // depth + threat-LOS do the precise validation after.
-            world.QueryCoverWalls(pos, radius, wallFloor, supportY + h1, wallBuf);
+            // Prefilter is permissive (-0.3m): the owner's own support is only a
+            // hint — each wall is classified against the ground at ITS stand-spot.
+            world.QueryCoverWalls(pos, radius, wallFloor, supportY + h1 - 0.3f, wallBuf);
             stats.wallCols = wallBuf.Count;
 
-            volDepth.Clear(); volClass.Clear(); volTop.Clear();
+            volDepth.Clear(); volClass.Clear();
+            supportCache.Clear();
             Vector3 tp = Threat ?? default;
             bool hasT = Threat.HasValue;
             for (int i = 0; i < wallBuf.Count; i++)
             {
                 CoverWall w = wallBuf[i];
-                WallClass cls = Covers(w, supportY + hStand) ? WallClass.Full
-                              : Covers(w, supportY + h1) ? WallClass.Crouch : WallClass.Low;
-                float reqD = cls == WallClass.Low ? 0f : DepthForTop(w.spanTop, supportY);
+                // Class/depth are properties of the wall vs the ground where
+                // someone stands behind it — NOT of where the owner happens to
+                // be. Same wall, same class, wherever Vinny walks.
+                float sy = LocalSupport(w.facePos + w.outDir * (standoff + w.voxelSize * 0.25f), supportY);
+                // Floor relief is not a wall: the volume query measures span from
+                // the volume's BOTTOM (ground slab included), so a 1-voxel pad,
+                // curb or stand plate passes `wallFloor` and — as a Low column —
+                // would claim cells at quality 0 and carve holes in real zones.
+                // A wall must stand wallFloor above the floor behind it.
+                if (w.spanTop - sy < wallFloor) continue;
+                WallClass cls = Covers(w, sy + hStand) ? WallClass.Full
+                              : Covers(w, sy + h1) ? WallClass.Crouch : WallClass.Low;
+                float reqD = cls == WallClass.Low ? 0f : DuckForTop(w.spanTop, sy);
                 float facing = 0f;
                 if (hasT)
                 {
@@ -411,17 +483,14 @@ namespace SteelCity.Sim
                     facePos = w.facePos, outDir = w.outDir,
                     baseY = w.firstSolidY, top = w.spanTop, cls = cls,
                     facing = facing, volId = w.volumeId, vs = w.voxelSize,
-                    reqDepth = reqD,
+                    reqDepth = reqD, support = sy,
                 });
                 if (cls != WallClass.Low && w.volumeId != null)
                 {
                     // Deepest requirement wins when several walls share a volume —
-                    // the LOS eye is validated at the worst case.
+                    // fallback aggregate for the pick when no column resolves.
                     if (!volDepth.TryGetValue(w.volumeId, out float pd) || reqD > pd)
                     { volDepth[w.volumeId] = reqD; volClass[w.volumeId] = cls; }
-                    float dh = Mathf.Lerp(HShallow, HDeep, reqD);
-                    float df = Mathf.Lerp(EyeFwd, EyeFwdDeep, reqD);
-                    if (!volTop.TryGetValue(w.volumeId, out Vector2 pe) || dh < pe.x) volTop[w.volumeId] = new Vector2(dh, df);
                 }
             }
             stats.facing = 0;
@@ -436,7 +505,7 @@ namespace SteelCity.Sim
             // V-key cover modes paint passively. The threat combine inside
             // Build only runs when a threat exists.
             field.Build(pos, Threat, radius, walls, world, standoff, HShallow, EyeFwd,
-                threatEye, facingDot, proxWeight, fieldRes, volTop);
+                threatEye, facingDot, proxWeight, fieldRes, HDeep, EyeFwdDeep, HStand, depthMargin);
             if (hasT) DeriveCandidates(tp);
         }
 
@@ -465,6 +534,19 @@ namespace SteelCity.Sim
                 candidates.Add(cand);
                 candEyes.Add(CandTop(cand.point, threat));
             }
+        }
+
+        private readonly Dictionary<long, float> supportCache = new();
+
+        /// <summary>Ground height at a stand-spot, cached per scan on a 0.1m
+        /// grid so thousands of wall columns share a few probes.</summary>
+        private float LocalSupport(Vector3 spot, float fallback)
+        {
+            long key = ((long)Mathf.FloorToInt(spot.x * 10f) << 32) ^ (uint)Mathf.FloorToInt(spot.z * 10f);
+            if (supportCache.TryGetValue(key, out float sy)) return sy;
+            sy = world.TryColumnTop(spot, 0.5f, 1.5f, out float gy) ? gy : fallback;
+            supportCache[key] = sy;
+            return sy;
         }
 
         /// <summary>Column covers a horizontal ray at world height `eye`: solid band spans it.</summary>

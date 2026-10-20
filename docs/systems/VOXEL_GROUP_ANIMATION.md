@@ -1,5 +1,9 @@
 # Voxel Group Animation — Articulated Limbs Without Skeletons
 
+> 📌 **Canonical reference is now `docs/systems/ANIMATION_SYSTEM.md`** — this doc
+> remains the concept/history source; its "Approach B" shader path was
+> superseded by the forward-transform compute pipeline (CSClear/CSPose).
+
 **Status**: ✅ IMPLEMENTED — Approach B (inverse-transform sampling) working in shader
 **Created**: August 9, 2026
 **Last Updated**: August 9, 2026 (Approach A → B fix, 9 animation states, debug key cycling)

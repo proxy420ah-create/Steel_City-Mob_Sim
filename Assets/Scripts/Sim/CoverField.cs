@@ -26,6 +26,12 @@ namespace SteelCity.Sim
         /// <summary>Cell verdict after validation — Exposure layer colors this directly.</summary>
         public enum CellState : byte { Untested = 0, Hidden = 1, Exposed = 2, Invalid = 3 }
 
+        // Quality scale: Full 0.85..1.0, Crouch 0.8..0.2. Halo cells
+        // (HaloDecay x neighbour) must stay below SeedMin <= every seed.
+        public const float SeedMin = 0.19f;
+        const float HaloDecay = 0.15f;
+        float[] claim;   // per-cell squared distance to the owning splat
+
         public int N { get; private set; }                 // cells per side
         public float CellSize { get; private set; }
         public Vector3 Origin { get; private set; }        // world min corner (XZ snapped)
@@ -38,6 +44,14 @@ namespace SteelCity.Sim
         public float[] facing;                             // contributing wall's threat-facing dot
         public string[] volIdOf;                           // wall volume that generated the cell (null none)
         public float[] groundY;                            // probed ground height per tested cell
+        public float[] eyeTopOf;                           // owning column's silhouette top (validation eye height)
+        public float[] eyeFwdOf;                           // owning column's eye forward offset
+        private float[] floorOf;                           // per-cell ground Y (NaN unprobed, NoGround = no hit)
+        const float NoGround = -9999f;
+        VoxelCollisionWorld bWorld;
+        float bHShallow, bHDeep, bFwdShallow, bFwdDeep, bStandH, bMargin;
+        public byte[] clsOf;                               // zone's WallClass verdict — from THIS cell's own floor
+        public float[] reqDepthOf;                         // owning column's required crouch depth
         private float[] scratch;                           // dilation buffer
 
         public int TestedCells { get; private set; }
@@ -76,21 +90,33 @@ namespace SteelCity.Sim
             facing = new float[cells];
             volIdOf = new string[cells];
             groundY = new float[cells];
+            eyeTopOf = new float[cells];
+            eyeFwdOf = new float[cells];
+            clsOf = new byte[cells];
+            reqDepthOf = new float[cells];
+            floorOf = new float[cells];
             scratch = new float[cells];
+            claim = new float[cells];
         }
 
         /// <summary>
         /// Rebuild the field around <paramref name="pos"/> for the given threat.
-        /// Splats each usable wall's stand-spot disc into cells, then validates
-        /// each touched cell exactly once (ground, free-space, threat→eye LOS).
-        /// Score = quality × (proxBlend + proxTerm·proximity) on Hidden cells.
+        /// Each wall column paints a uniform rectangular zone behind its face
+        /// (column-width × standoff*2 — identical footprint per class), then
+        /// every touched cell gets validated (ground, free-space, threat→eye
+        /// LOS at the OWNING column's silhouette top).
+        /// Score = proxWeight·proximity + (1−proxWeight)·quality on Hidden
+        /// cells — proximity leads: the pick is the closest viable cover.
         /// </summary>
         public void Build(Vector3 pos, Vector3? threat, float radius, List<CoverSensor.WallMark> walls,
             VoxelCollisionWorld world, float standoff, float topOffset, float topFwd, float threatEye,
             float facingDot, float proxWeight, int res,
-            Dictionary<string, Vector2> volTop = null)
+            float hDeep, float eyeFwdDeep, float standH = 0.62f, float depthMargin = 0.02f)
         {
             EnsureSize(res);
+            bWorld = world; bHShallow = topOffset; bHDeep = hDeep; bFwdShallow = topFwd;
+            bFwdDeep = eyeFwdDeep; bStandH = standH; bMargin = depthMargin;
+            for (int i = 0; i < floorOf.Length; i++) floorOf[i] = float.NaN;
             float size = radius * 2f;
             CellSize = size / N;
             HasData = true;
@@ -107,6 +133,11 @@ namespace SteelCity.Sim
             System.Array.Clear(score, 0, score.Length);
             System.Array.Clear(facing, 0, facing.Length);
             System.Array.Clear(groundY, 0, groundY.Length);
+            System.Array.Clear(eyeTopOf, 0, eyeTopOf.Length);
+            System.Array.Clear(eyeFwdOf, 0, eyeFwdOf.Length);
+            System.Array.Clear(clsOf, 0, clsOf.Length);
+            System.Array.Clear(reqDepthOf, 0, reqDepthOf.Length);
+            for (int i = 0; i < claim.Length; i++) claim[i] = float.MaxValue;
             System.Array.Clear(volIdOf, 0, volIdOf.Length);
             reasons.Clear();
             TestedCells = ValidCells = 0;
@@ -125,26 +156,55 @@ namespace SteelCity.Sim
             }
 
             // ── PHASE 1: QUALITY (threat-independent) ──────────────────────
-            // Every cover-capable wall splats its stand-spot onto the field —
-            // regardless of threat facing. A crouch-height wall face is cover
-            // potential no matter who's shooting; that judgement belongs to
-            // phase 2. Adjacent splats merge: wide cover (mid-car) accumulates
-            // a hotter contiguous zone than a thin wheel edge.
-            float spotR = standoff;
+            // Every cover-capable wall paints its zone regardless of threat
+            // facing — a crouch-height face is cover potential no matter who's
+            // shooting; that judgement belongs to phase 2.
+            // UNIFORM zone footprint: column-width × fixed depth rectangle
+            // behind each face — identical shape for every column, so a tall
+            // wall can't out-splat a closer low one (the old 0.55m discs
+            // bulged past neighbours and stole cells via nearest-claim).
+            // Depth = the old disc's outer reach; half-width = column width
+            // or half a cell, whichever guarantees ≥1 cell painted.
+            // ZONE DEPTH FOLLOWS THE GRADIENT: low cover reaches further out
+            // (deep crouch corridor ~2·standoff deeper than a Full strip), so
+            // a lower wall claims Vinny from further away — and the drive/
+            // combat can start the duck at the zone's outer edge instead of
+            // at the wall.
+            // The verdict (class, required depth, heat, validation eye) is
+            // computed PER CELL from that cell's own floor — a curb or debris
+            // under a cell raises him, shrinking the wall's rise there, so the
+            // zone deepens his duck or drops out where the extra height pushes
+            // him past usable cover. Height scale (red = stand, lighter =
+            // stepping down through the crouch interpolation, unpainted =
+            // too low; Low cells still CLAIM theirs so a taller neighbour
+            // can't paint over a lower step):
+            //   Full   rise > stand   → 0.85..1.0 by headroom above standing
+            //   Crouch depth 0..1     → 0.80..0.20 (never overlaps Full)
+            float halfW = CellSize * 0.5f;
             for (int i = 0; i < walls.Count; i++)
             {
                 var w = walls[i];
-                if (w.cls == CoverSensor.WallClass.Low) continue;
-                float qw = w.cls == CoverSensor.WallClass.Full ? 1f : 0.7f;
-                Vector3 spot = w.facePos + w.outDir * (standoff + w.vs * 0.25f);
-                Splat(spot, spotR, qw, w.volId, w.facing);
+                // Strip depth scales with the column's own duck requirement —
+                // duck/2 = fraction of max duck, so corridors widen 2x→4x as
+                // the requirement deepens (morph walls claim a modest reach;
+                // a full-deep wall claims the widest corridor).
+                float depth = standoff * (2f + 2f * (w.cls == CoverSensor.WallClass.Crouch
+                    ? Mathf.Clamp01(w.reqDepth * 0.5f) : 0f));
+                SplatRect(w, Mathf.Max(w.vs * 0.5f, halfW), depth);
             }
+
+            // A gap narrower than a body is not a gap: a lone Low column (notch,
+            // step edge, seam between blocks) must not slit a continuous wall's
+            // zone — and with it the posture verdict — in two.
+            CloseGaps();
 
             // One dilation ring — smooths the splat into a continuous band so
             // the quality layer reads as zones, not polka dots. Decay 0.55×
             // keeps the ring below the test threshold (seeds carry the rays).
             System.Array.Copy(quality, scratch, quality.Length);
-            for (int cz = 1; cz < N - 1; cz++)
+            // Coarse grids skip the halo — one ring would be metres wide and
+            // read as fake cover.
+            for (int cz = 1; cz < N - 1 && CellSize <= 0.5f; cz++)
             for (int cx = 1; cx < N - 1; cx++)
             {
                 int idx = cz * N + cx;
@@ -153,7 +213,7 @@ namespace SteelCity.Sim
                 for (int dz = -1; dz <= 1; dz++)
                 for (int dx = -1; dx <= 1; dx++)
                     m = Mathf.Max(m, scratch[idx + dz * N + dx]);
-                if (m > 0f) { quality[idx] = m * 0.55f; }
+                if (m > 0f) { quality[idx] = m * HaloDecay; }
             }
 
             // ── PHASE 2: THREAT (cheap combine) ────────────────────────────
@@ -170,23 +230,24 @@ namespace SteelCity.Sim
             {
                 int idx = cz * N + cx;
                 if (volIdOf[idx] == null) continue;      // untouched — no wall contributes
-                if (quality[idx] < 0.5f) continue;       // dilated halo — visual only
+                if (quality[idx] < SeedMin) continue;    // dilated halo — visual only
                 if (facing[idx] >= facingDot) { Tally("facing"); continue; }
                 TestedCells++;
                 Vector3 c = CellCenter(cx, cz);
 
-                if (!world.Raycast(c + Vector3.up * 1.6f, Vector3.down, 3.2f, out VoxelRayHit gh))
+                // Phase 1 already probed this cell's floor — reuse it (gap-
+                // filled cells were never probed, so those fall back to a ray).
+                float fy = floorOf[idx];
+                if (float.IsNaN(fy)) fy = ProbeFloor(c);
+                if (fy == NoGround)
                 { state[idx] = CellState.Invalid; Tally("no-ground"); continue; }
-                groundY[idx] = gh.point.y;
-                Vector3 standPt = new Vector3(c.x, gh.point.y, c.z);
-                // Adaptive crouch: the cell's wall dictates the duck depth, so
-                // the LOS probe sits at that wall's required-depth silhouette
-                // top — a low wall validates only if the deep-ducked top clears it.
-                float cellTop = topOffset, cellFwd = topFwd;
-                if (volTop != null && volIdOf[idx] != null &&
-                    volTop.TryGetValue(volIdOf[idx], out Vector2 ve))
-                { cellTop = ve.x; cellFwd = ve.y; }
-                Vector3 eye = standPt + Vector3.up * cellTop + DirTo(tp, standPt) * cellFwd;
+                groundY[idx] = fy;
+                Vector3 standPt = new Vector3(c.x, fy, c.z);
+                // Adaptive crouch: the cell's own verdict dictates the pose —
+                // the LOS probe sits at the silhouette top for THIS cell's
+                // required depth (standing for Full, interpolated for crouch).
+                float cellTop = eyeTopOf[idx] > 0f ? eyeTopOf[idx] : topOffset;
+                Vector3 eye = standPt + Vector3.up * cellTop + DirTo(tp, standPt) * eyeFwdOf[idx];
 
                 var a = world.SamplePoint(standPt + Vector3.up * 0.15f);
                 var s = world.SamplePoint(eye);
@@ -201,26 +262,105 @@ namespace SteelCity.Sim
 
                 state[idx] = CellState.Hidden;
                 ValidCells++;
-                score[idx] = quality[idx] * ((1f - proxWeight) + proxWeight * proximity[idx]);
+                // Doctrine: take the IMMEDIATE cover — the closest valid cell —
+                // quality only shades the choice (proxWeight 1 = pure closest,
+                // 0 = pure best). "Better cover" seeking is a later,
+                // intelligence-gated behaviour, not part of the first pick.
+                score[idx] = proxWeight * proximity[idx] + (1f - proxWeight) * quality[idx];
             }
         }
 
-        /// <summary>Accumulate a wall's stand-spot disc into touched cells.
-        /// The strongest contributor owns the cell's facing + volume.</summary>
-        private void Splat(Vector3 center, float r, float qw, string vol, float face)
+        /// <summary>Ground Y under a cell centre (NoGround when nothing solid).</summary>
+        private float ProbeFloor(Vector3 c)
+            => bWorld.Raycast(c + Vector3.up * 1.6f, Vector3.down, 3.2f, out VoxelRayHit gh)
+                ? gh.point.y : NoGround;
+
+        /// <summary>Uniform rectangular zone behind a wall column: column-wide
+        /// × <paramref name="depth"/> out along its outDir. Same footprint for
+        /// every wall, so cover areas can't gerrymander the pick; nearest
+        /// column still owns overlapping cells at corners. The verdict for each
+        /// cell is solved against THAT cell's floor (curbs/debris raise him).</summary>
+        private void SplatRect(CoverSensor.WallMark w, float halfW, float depth)
         {
-            int x0 = Mathf.Max(0, Mathf.FloorToInt((center.x - r - Origin.x) / CellSize));
-            int x1 = Mathf.Min(N - 1, Mathf.FloorToInt((center.x + r - Origin.x) / CellSize));
-            int z0 = Mathf.Max(0, Mathf.FloorToInt((center.z - r - Origin.z) / CellSize));
-            int z1 = Mathf.Min(N - 1, Mathf.FloorToInt((center.z + r - Origin.z) / CellSize));
+            Vector3 face = w.facePos, outDir = w.outDir;
+            float tx = -outDir.z, tz = outDir.x;   // wall tangent
+            float fx0 = face.x - tx * halfW, fz0 = face.z - tz * halfW;
+            float fx1 = face.x + tx * halfW, fz1 = face.z + tz * halfW;
+            float bx0 = fx0 + outDir.x * depth, bz0 = fz0 + outDir.z * depth;
+            float bx1 = fx1 + outDir.x * depth, bz1 = fz1 + outDir.z * depth;
+            int x0 = Mathf.Max(0, Mathf.FloorToInt((Mathf.Min(fx0, fx1, bx0, bx1) - Origin.x) / CellSize));
+            int x1 = Mathf.Min(N - 1, Mathf.FloorToInt((Mathf.Max(fx0, fx1, bx0, bx1) - Origin.x) / CellSize));
+            int z0 = Mathf.Max(0, Mathf.FloorToInt((Mathf.Min(fz0, fz1, bz0, bz1) - Origin.z) / CellSize));
+            int z1 = Mathf.Min(N - 1, Mathf.FloorToInt((Mathf.Max(fz0, fz1, bz0, bz1) - Origin.z) / CellSize));
             for (int cz = z0; cz <= z1; cz++)
             for (int cx = x0; cx <= x1; cx++)
             {
                 Vector3 c = CellCenter(cx, cz);
-                float dx = c.x - center.x, dz = c.z - center.z;
-                if (dx * dx + dz * dz > r * r) continue;
+                float rx = c.x - face.x, rz = c.z - face.z;
+                float u = rx * outDir.x + rz * outDir.z;   // distance out from the face
+                float v = rx * tx + rz * tz;               // lateral offset along the wall
+                if (u < 0f || u > depth || v < -halfW || v > halfW) continue;
                 int idx = cz * N + cx;
-                if (qw > quality[idx]) { quality[idx] = qw; volIdOf[idx] = vol; facing[idx] = face; }
+                float d2 = u * u + v * v;
+                if (d2 >= claim[idx]) continue;
+                claim[idx] = d2;
+                facing[idx] = w.facing;
+
+                // Per-cell verdict from this cell's own floor.
+                float fy = floorOf[idx];
+                if (float.IsNaN(fy)) fy = floorOf[idx] = ProbeFloor(c);
+                if (fy == NoGround) fy = w.support;   // phase 2 flags no-ground
+                float rise = w.top - fy;
+                // Duck-space solve (0..2): piecewise-inverts the same h(duck)
+                // the renderer runs — stand→shallow morph (0..1), shallow→deep
+                // (1..2). >2 = Low (no pose hides him). The morph band makes
+                // mid-height walls yield a partial duck, never a quantized snap.
+                float clear = rise - bMargin;
+                float spanMorph = bStandH - bHShallow, spanDeep = bHShallow - bHDeep;
+                byte cls; float d, qw, eyeTop, eyeFwd;
+                if (rise > bStandH)
+                {   // Full — hides a standing silhouette. Quality = peak, flat:
+                    // covered is covered — surplus wall height is not a grade.
+                    cls = (byte)CoverSensor.WallClass.Full; d = 0f; qw = 1f;
+                    eyeTop = bStandH; eyeFwd = 0f;
+                }
+                else if (spanDeep <= 1e-4f && spanMorph <= 1e-4f)
+                {   // No duck band exists at all — below stand = unhideable
+                    cls = (byte)CoverSensor.WallClass.Low; d = 0f; qw = 0f; eyeTop = eyeFwd = 0f;
+                }
+                else
+                {
+                    float rawDuck = clear >= bHShallow && spanMorph > 1e-4f
+                        ? (bStandH - clear) / spanMorph
+                        : 1f + (bHShallow - clear) / Mathf.Max(1e-4f, spanDeep);
+                    if (rawDuck > 2f)
+                    {   // Too low from this floor — claims the cell, paints nothing
+                        cls = (byte)CoverSensor.WallClass.Low; d = 0f; qw = 0f; eyeTop = eyeFwd = 0f;
+                    }
+                    else
+                    {   // Duckable — d is the duck scalar for this cell
+                        cls = (byte)CoverSensor.WallClass.Crouch;
+                        d = Mathf.Clamp(rawDuck, 0f, 2f);
+                        // HEAT follows the wall's actual rise (the height of the
+                        // cover itself), not the pose depth: depth is 0 for the whole
+                        // shallow band, which would paint every step in it the same.
+                        // lo = rise where the deepest duck just hides him; stand = Full.
+                        float lo = bHDeep + bMargin;
+                        float frac = Mathf.Clamp01((rise - lo) / Mathf.Max(1e-3f, bStandH - lo));
+                        qw = 0.2f + 0.6f * frac;
+                        // Eye anchors ride the same piecewise h(duck).
+                        eyeTop = d <= 1f ? Mathf.Lerp(bStandH, bHShallow, d)
+                                         : Mathf.Lerp(bHShallow, bHDeep, d - 1f);
+                        eyeFwd = d <= 1f ? Mathf.Lerp(0f, bFwdShallow, d)
+                                         : Mathf.Lerp(bFwdShallow, bFwdDeep, d - 1f);
+                    }
+                }
+                quality[idx] = qw;
+                volIdOf[idx] = qw > 0f ? w.volId : null;
+                eyeTopOf[idx] = eyeTop;
+                eyeFwdOf[idx] = eyeFwd;
+                clsOf[idx] = cls;
+                reqDepthOf[idx] = d;
             }
         }
 
@@ -270,6 +410,54 @@ namespace SteelCity.Sim
             point = new Vector3(c2.x, groundY[bi], c2.z);
             volId = volIdOf[bi];
             return true;
+        }
+
+        /// <summary>Unpainted runs up to this wide (m), bounded by painted cells on
+        /// both sides along a grid row/column, are filled from the LESS protective
+        /// neighbour — roughly a body width.</summary>
+        public const float GapCloseMeters = 0.3f;
+        private readonly List<(int dst, int src)> fills = new();
+
+        private void CloseGaps()
+        {
+            int g = Mathf.Max(1, Mathf.RoundToInt(GapCloseMeters / CellSize));
+            fills.Clear();
+            for (int pass = 0; pass < 2; pass++)
+            for (int outer = 0; outer < N; outer++)
+            {
+                int last = -1;
+                for (int inner = 0; inner < N; inner++)
+                {
+                    int idx = pass == 0 ? outer * N + inner : inner * N + outer;
+                    if (volIdOf[idx] == null) continue;
+                    int gap = inner - last - 1;
+                    if (last >= 0 && gap > 0 && gap <= g)
+                    {
+                        int li = pass == 0 ? outer * N + last : last * N + outer;
+                        int src = quality[li] <= quality[idx] ? li : idx;
+                        for (int k = last + 1; k < inner; k++)
+                            fills.Add((pass == 0 ? outer * N + k : k * N + outer, src));
+                    }
+                    last = inner;
+                }
+            }
+            for (int i = 0; i < fills.Count; i++)
+            {
+                var (d, s) = fills[i];
+                if (volIdOf[d] != null) continue;
+                quality[d] = quality[s]; volIdOf[d] = volIdOf[s]; facing[d] = facing[s];
+                eyeTopOf[d] = eyeTopOf[s]; eyeFwdOf[d] = eyeFwdOf[s];
+                clsOf[d] = clsOf[s]; reqDepthOf[d] = reqDepthOf[s];
+            }
+        }
+
+        /// <summary>Grid index of the cell containing pos, or −1 outside the
+        /// field. Consumers use it to ask "which zone am I standing in".</summary>
+        public int CellIndexOf(Vector3 pos)
+        {
+            int cx = Mathf.FloorToInt((pos.x - Origin.x) / CellSize);
+            int cz = Mathf.FloorToInt((pos.z - Origin.z) / CellSize);
+            return cx >= 0 && cx < N && cz >= 0 && cz < N ? cz * N + cx : -1;
         }
 
         public Vector3 CellCenter(int cx, int cz)

@@ -99,10 +99,17 @@ namespace SteelCity.Sim
                 Debug.LogWarning($"[ArmAimSolver] Arm rejected: {err}");
                 return false;
             }
-            // Posture gate: crouched = taking cover — aiming lives in the
-            // exposed/pop-up phase, not behind the wall.
+            // Posture gate: in cover = no aim — aiming lives in the
+            // exposed/pop-up phase, not behind ANY wall. Three signals:
+            // Crouching pose state (stationary hold), the cover band of the
+            // duck scalar (duck > 1.02 catches ducked-Walking movers), and
+            // coverContext (the drive's live verdict — catches FULL walls,
+            // which never duck: covered standing is still covered).
+            // The sub-1 debug duck band still composes with aim freely.
             if (animRef == null) animRef = GetComponent<CharacterAnimation>();
-            if (animRef != null && animRef.EffectiveState == CharacterAnimation.AnimState.Crouching)
+            if (animRef != null && (animRef.EffectiveState == CharacterAnimation.AnimState.Crouching
+                                    || animRef.duck > 1.02f
+                                    || animRef.coverContext))
             {
                 LastError = "cannot aim while crouched (in cover)";
                 if (debugLogs) Debug.LogWarning($"[ArmAimSolver] Arm rejected: {LastError}");
@@ -158,10 +165,14 @@ namespace SteelCity.Sim
         void Update()
         {
             if (animRef == null) animRef = GetComponent<CharacterAnimation>();
-            // Posture gate: entering a crouch drops the IK channel instantly —
+            // Posture gate: entering cover drops the IK channel instantly —
             // no blend-out, the crouch pose transition itself carries the arm
             // down (a stale torso-assist quat would also stomp the crouch lean).
-            if (animRef != null && animRef.EffectiveState == CharacterAnimation.AnimState.Crouching)
+            // duck > 1.02 catches ducked-Walking movers; coverContext catches
+            // Full walls (no duck, still covered).
+            if (animRef != null && (animRef.EffectiveState == CharacterAnimation.AnimState.Crouching
+                                    || animRef.duck > 1.02f
+                                    || animRef.coverContext))
             {
                 ReleaseInstant();
                 return;

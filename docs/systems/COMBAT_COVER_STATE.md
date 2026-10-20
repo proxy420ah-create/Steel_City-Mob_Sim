@@ -1,7 +1,7 @@
-# Combat Cover State — Autonomous Combat Phase 1
+# Combat Cover State — Autonomous Combat
 
 **Created**: Oct 16, 2026
-**Status**: 🚧 In Progress — Phase 1 (seek cover behind vehicle) implementing now
+**Status**: ✅ Phase 1 complete (verified cover seek + measured-silhouette duck) — Phase 2 exposure engagement 📝 designed
 **Depends on**: PROJECTILE_SYSTEM.md, GLASS_SHATTER_MECHANIC.md, VEHICLE_VOXEL_ASSETS.md
 
 ---
@@ -9,11 +9,14 @@
 ## Goal
 
 First autonomous combat behavior: **Vinny enters a Combat state, scans a radius for cover,
-moves to the best spot, and ducks behind it at the required depth.** Aiming is the
-pop-up/exposed phase's job (planned: peek → acquire → ≤6 shots → duck → reload) —
-**crouched = taking cover = not aiming**. The `ArmAimSolver` refuses to arm while
-the crouch pose is active and drops its channels instantly if a crouch begins
-mid-aim (see `docs/known_issues/runtime/IK_TORSO_OVERRIDE_STOMPS_CROUCH_LEAN.md`).
+moves to the best spot, and ducks behind it at the required depth.** Phase 2 replaces the
+verdict-based fire gate with **exposure** — he may IK-aim and fire whenever enemy voxels
+are visible from his posed eye, including mid-duck over his own parapet; when his eye can
+no longer see any enemy voxel he stows and crouch-idles, retaining `lastSeenTarget` for
+the pop-up/search phases (see *Phase 2 — Exposure-Based Engagement* below). The
+`ArmAimSolver` refuses to arm while the deep-crouch pose is active and drops its channels
+instantly if a crouch begins mid-aim (see
+`docs/known_issues/runtime/IK_TORSO_OVERRIDE_STOMPS_CROUCH_LEAN.md`).
 All combat in Steel City is
 autonomous — the player issues orders; units execute. The third-person possess rig stays
 available as an observer/test harness (and is the control path Steel Tide will reuse).
@@ -82,9 +85,21 @@ Idle ──EnterCombat(threatPos)──▶ SeekingCover ──reached──▶ I
 
 - SeekingCover: kinematic steer (walk speed, ground-probe Y, `animState=Walking`).
   Cover moves off-sidewalk — no waypoint graph needed at this range.
-- InCover: `animState=Crouching` (state 5) at the picked wall's solved `crouchDepth`,
+- InCover: `animState=Crouching` (state 5, deep band) or `Idle` (morph/Full) at
+  the picked wall's solved `duck`,
   yaw-faced toward the threat — **no IK aim** (the solver's torso-assist quat would
-  replace `bodyRot` and erase the crouch lean; gated in `ArmAimSolver`).
+  replace `bodyRot` and erase the crouch lean; gated in `ArmAimSolver` on
+  `EffectiveState == Crouching || duck > 1.02 || coverContext` — the scalar arm
+  catches ducked-Walking movers; `coverContext` is the drive's live posture
+  verdict. Phase 2 changes the *fire* gate from posture to exposure: `coverContext`
+  keeps driving duck/pose, while aiming eligibility becomes `visibleVoxels > 0` —
+  a ducked hood whose posed eye still sees the enemy can shoot over his own wall).
+- **Movement discriminates the duck channel**: the same `duck` scalar renders the
+  authored hold pose when stationary (`Crouching` pick → `crouching`/`crouchDeep`
+  endpoints) and the crumple-gait when moving (`Walking` pick → `walkDuckMid`/
+  `walkDuckPose` deltas under the gait). Applies to possess cover-walk and to
+  zone-driven crouch during SeekingCover (always `Walking` there — seeking IS
+  movement).
 - `ExitCombat()` → back to Idle, IK released.
 
 ### Cover selection — `CoverField` (influence map)
@@ -111,32 +126,37 @@ posts/LOS beams remain as *visualization of tested cells*.
 
 ### Adaptive crouch depth — cover height picks the duck
 
-The classification floor is no longer a single fixed eye band — it is **two
-authored crouch endpoints** and a continuous depth axis between them:
+The classification floor is no longer a single fixed eye band — it is **three
+authored anchors** (stand, shallow crouch, deep crouch) and a continuous `duck`
+scalar spanning them. Cover now speaks **duck-space (0..2) end-to-end** —
+`anim.duck` is written directly, no `crouchDepth` alias detour. The solve is
+piecewise over `h(duck)`: sub-1 yields the stand→shallow **morph band** (walls
+between stand- and shallow-top produce a partial fold via `icr`/`wd`, never a
+quantized snap); over-1 yields the shallow→deep band (state-5 pick):
 
 - `.anim.json` carries `crouching` (shallow) + `crouchDeep` (deep) — same
-  scalar block. `crouchDepth` 0..1 lerps every crouch scalar inside the pose
-  eval (CPU `ComputeGroupRotation`/`PosePoint`, GPU `_InstanceAnimData[i*3+2].x`
+  scalar block. `duck` lerps every crouch scalar inside the pose eval
+  (CPU `ComputeGroupRotation`/`PosePoint`, GPU `_InstanceAnimData[i*3+2].x`
   → `CharacterPoseCompute` + proxy DDA path, ASP slots 15-18 hold the deep copy).
   Missing `crouchDeep` in old files → shallow cloned into it = depth inert.
-- `CoverSensor` evaluates the posed eye anchor at depth 0 AND depth 1
-  (`EyeOffset`/`EyeOffsetDeep`) — the deepest achievable eye IS the
+- `CoverSensor` measures the posed silhouette top at stand/shallow/deep
+  (`HStand`/`HShallow`/`HDeep`) — the deepest achievable top IS the
   usable-cover floor, authored anatomy rather than a hardcoded threshold.
-  Walls whose top clears the deepest eye classify `Crouch` and become
+  Walls whose top clears the deepest silhouette classify `Crouch` and become
   duckable; below that = `Low`, genuinely unusable.
-- Per-wall required depth: `reqDepth = (spanTop − depthMargin − baseY −
-  EyeOffset) / (EyeOffsetDeep − EyeOffset)` clamped 0..1 — *minimum* depth that
-  puts the posed eye `depthMargin` (0.1 m) below the wall top. The solver picks
-  the shallowest working duck, so agents visibly perch behind tall cover and
+- Per-wall required duck: piecewise-invert `h(duck)` — `clear = spanTop −
+  depthMargin − baseY`; `clear ≥ HStand` → 0; `clear ≥ HShallow` →
+  `(HStand − clear)/(HStand − HShallow)` ∈ (0,1]; else `1 + (HShallow −
+  clear)/(HShallow − HDeep)` ∈ (1,2], >2 = Low. The solver picks the
+  shallowest working duck, so agents visibly perch behind tall cover and
   flatten behind low cover.
 - `CoverField` validates each cell's threat→eye LOS at *its* wall's
-  required-depth eye (`volEye` map: volId → eye height/forward at that depth) —
-  a low wall only validates if the deep-crouched eye actually clears it.
-- `TryPickCover` reports `reqDepth`; `CombatController` eases
-  `anim.crouchDepth` toward it (`crouchDepthSpeed`, ~3/s) on arrival — the
-  settle is a parametric ease, not a snap. Exit/hold resets to 0.
-- Author cover ≥ `depthMargin` above the *solvable* eye band; authoring a
-  deeper `crouchDeep` literally expands the short-cover range downward.
+  required-duck eye (`volEye` map: volId → eye height/forward via the same
+  piecewise `h(duck)`) — a low wall only validates if the ducked eye actually
+  clears it.
+- `TryPickCover` reports `reqDepth` (duck units); `CombatController` writes
+  `anim.duck` **immediately** — the zone is the posture, no ease.
+  Exit/hold resets to 0.
 
 Layers (COVER tab): **Threat** (composite score — the pick surface),
 **Quality** (whole-disc paint — air = dim red wash, cover faces hot),
@@ -150,9 +170,54 @@ private scans (wrap `CoverField` in a threat-bucketed service). The city-wide
 static half already exists: `VoxelCollisionWorld`'s registered volumes + lazy
 column profiles ARE the shared cover registry.
 
+## Phase 2 — Exposure-Based Engagement (designed, next build)
+
+**Doctrine**: firing eligibility is geometry, not a posture flag. The shooter samples
+~30–40 candidate points across the *target's live posed voxel silhouette* and casts a
+ray from his posed eye to each through `VoxelCollisionWorld`. The **centroid of the
+visible set is the IK target** (replaces the current `feet + 1.3f` constant);
+`visibleCount > 0` arms/fire-gates, `visibleCount == 0` releases IK and leaves him in
+crouch-idle with awareness (`lastSeenTarget` — position + timestamp).
+
+**Why this subsumes scripted phases** — the phases emerge from the same query:
+
+| Beat | Emergent mechanism |
+|------|--------------------|
+| Advance + fire | `SeekingCover` + `AimWalk` + armed — shots keep landing while voxels show |
+| Duck-in over the parapet | `duck` rising → posed eye sinking → his own wall eats the rays → visible set decays smoothly, firing fades — no transition event |
+| Tucked | zero visible voxels → stow, crouch-idle, `lastSeenTarget` retained |
+| Opportunity fire | enemy strays into his sightline while tucked → voxels appear → he fires — no pop-up logic needed |
+| **Pop-up** | the one *authored* override: suppress cover drive, stand, re-query `lastSeenTarget` → live centroid if still exposed, stale point if he moved (suppressing fire, emergent) |
+| Reload | cylinder count — S&W Model 10 = **6 shots** → auto-duck back into crouch-idle as the reload beat (no reload anim exists yet) |
+
+**Symmetric crossfire**: *cover verdict and aim solution are the same ray from opposite
+ends* — `hidden ⇐ ray(threatEye → myTop) blocked`; `hittable ⇐ ray(myEye → threatVoxels)
+clears`. When Vinny pops up, his own `h(duck)` → stand makes him visible to Tan's
+identical query — the pop-up opens a **mutual exposure window** and first-shot-inside-it
+is the skill race (aim-feel spring + stats, not dice).
+
+**Emergent wrinkle — parapet fire is headshot-only**: at partial duck the only exposed
+voxels are the enemy's head band, so the centroid IS the head — the safest posture yields
+the deadliest aim. **Accepted** (user decision): recoil + sway plus the tiny voxel count
+keep it honest; "ducked = aimed shots, standing = volume" is a real trade-off axis.
+
+**Search hand-off**: `lastSeenTarget` + the existing `lookScan` channel = the visual
+search phase — pop up, find the last-seen point empty, sweep (3-step search pattern
+papered, lands after this layer is proven).
+
+**Deferred decisions** (deliberately not settled yet):
+- AI pop-up trigger — cadence / staleness / player-order; testbed knob TBD
+- Possess-mode pop-up control — candidate: RMB aim-override in a blue zone
+- `threatEye = 0.55` constant — the LOS-validation threat eye still assumes a standing
+  shooter; Phase 2 should pose-evaluate the threat's own eye (`TryGetEyeAnchor`
+  already takes pose overrides) so symmetric duels stay honest
+- Hit-model question — keep outcomes purely ballistic (emergent) vs a thin
+  probability layer for stat control (industry): current direction = ballistic +
+  skill-shaped cone + recoil/sway
+
 ## Phase 1 explicit non-goals
 
-- Return fire / fire discipline (Combat v2: peek-and-shoot cadence)
+- ~~Return fire / fire discipline~~ → Phase 2 above (designed)
 - Threat is a fixed debug point — live threat tracking (last shooter, muzzle reports) next
 - Character↔projectile hits (spatial-hash actor damage is a separate milestone)
 - Multi-unit combat / squad orders (Phase 4d gang sim territory)
@@ -227,5 +292,7 @@ of silently holding position.
 5. Cover pit: while Dwelling, click the `[COVER TESTBED]` block → Combat tab →
    **SETUP PIT** → **START DUEL**. Expected: Vinny on the south plate, Tan Suit
    on the north plate, orange threat cross on Tan, CoverThreat/CoverExposure
-   V-modes paint both crates, Vinny walks to the south face of a crate, crouches,
-   aims north at Tan.
+   V-modes paint both crates, Vinny walks to the south face of a crate, ducks to
+   the wall's solved depth (morph walls show a partial fold — `cover: morph N.NN`),
+   yaws toward Tan. Phase 2 adds: he fires while Tan's voxels are visible, stows
+   when tucked, pops up on the override, ducks again after 6.

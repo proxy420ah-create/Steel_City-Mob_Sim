@@ -243,6 +243,14 @@
   - NPC personality: Fear, Hostility, Squeal (citizen metrics)
   - Gang member personality: Loyalty, relationships
 
+**Animation System (canonical):**
+- **`docs/systems/ANIMATION_SYSTEM.md`** — End-to-end animation pipeline truth: HTML authoring → `.character.json`/`<name>.json` → Unity
+  - Authoring surface (`character_animator.html`): states incl. pseudo-state 5.1 (deep-crouch endpoint), diffed `animParams` export, carriedFields
+  - Full `animParams` schema (walkKeyframes, crouching/`crouchDeep`, aiming, sitting, vision…) + C# default-fill rules
+  - Two blend mechanisms: timed dual-eval transitions vs `crouchDepth` axis; the stand→shallow gap + planned unified `duck` axis
+  - GPU/CPU/JS parity contract, `_InstanceAnimData`/`_InstanceIKData` layout, silhouette measurement → `h(d)` cover contract
+  - Crouch-walk state contract (born from the duck-axis work)
+
 **Character Spawning & Instancing:**
 - **`docs/systems/CHARACTER_SPAWNING_SYSTEM.md`** — How character entities are spawned, instanced, and rendered
   - Single model (Civilian1.json) shared across all entities via GPU instancing
@@ -449,7 +457,7 @@
   - Architecture diagram: standard Unity pipeline vs Steel City voxel pipeline
   - Debugging tips for invisible/stuck/missing characters
 
-**Keywords**: systems, character, spawning, instancing, hoodspawner, characterrig, animationtest, stresstest, clothing, pedestrian, voxelcharacter, characteranimation, clothingsystem, pedestrianlookaround, gpu, sharedbuffer, posedbuffer, consolidated json, upscale, extortion, territory, intelligence, corruption, police, combat, crime, squeal, 3d, rendering, visualization, camera, playtesting, insights, fear, hostility, legal, diplomacy, path, debug, beams, commandbuffer, instanced, voxel, gotchas, pitfalls, collision, probe, terrain, flat-array, aliasing, animation, shader, raymarch, dda, inverse-transform, groupid, stance, characteranimation, refactoring, extraction, modular, file size, citymap, chunkmanager, buildingloader, sectorbakery, activeinhierarchy, drawmeshinstanced, computebuffer, unregister, frustum, weapon, item, prop, decor, revolver, pistol, m1911, tommy gun, rifle, shotgun, voxel editor, asset type, gunmetal, attachment, hand, glass, transparency, alpha, emissive, windows, windshield, lit window, shatter, destruction, bullet hole, cracked halo, shard particles, pane gid, projectile, ballistics, raycast, voxel dda, cone of fire, firing range, collision volumes, shot report
+**Keywords**: systems, character, spawning, instancing, hoodspawner, characterrig, animationtest, stresstest, clothing, pedestrian, voxelcharacter, characteranimation, clothingsystem, pedestrianlookaround, gpu, sharedbuffer, posedbuffer, consolidated json, upscale, extortion, territory, intelligence, corruption, police, combat, crime, squeal, 3d, rendering, visualization, camera, playtesting, insights, fear, hostility, legal, diplomacy, path, debug, beams, commandbuffer, instanced, voxel, gotchas, pitfalls, collision, probe, terrain, flat-array, aliasing, animation, shader, raymarch, dda, inverse-transform, groupid, stance, characteranimation, refactoring, extraction, modular, file size, citymap, chunkmanager, buildingloader, sectorbakery, activeinhierarchy, drawmeshinstanced, computebuffer, unregister, frustum, weapon, item, prop, decor, revolver, pistol, m1911, tommy gun, rifle, shotgun, voxel editor, asset type, gunmetal, attachment, hand, glass, transparency, alpha, emissive, windows, windshield, lit window, shatter, destruction, bullet hole, cracked halo, shard particles, pane gid, projectile, ballistics, raycast, voxel dda, cone of fire, firing range, collision volumes, shot report, animation system, animparams, crouchdepth, crouchdeep, pose transition, dual-eval, requestpose, duck axis, crouch walk, character animator html
 
 ---
 

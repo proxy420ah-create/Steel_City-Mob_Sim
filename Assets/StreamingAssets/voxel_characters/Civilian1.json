@@ -2,6 +2,258 @@
   "format": "steelcity_character",
   "version": 1,
   "name": "Civilian1",
+  "assetType": "character",
+  "itemParts": {
+    "48,35,48": 5,
+    "48,48,47": 6,
+    "56,26,48": 9,
+    "40,26,48": 10,
+    "56,12,48": 11,
+    "40,12,48": 12,
+    "35,45,47": 8,
+    "60,45,47": 7,
+    "13,48,46": 1,
+    "13,48,47": 1,
+    "13,47,47": 1,
+    "13,47,46": 1,
+    "13,46,46": 1,
+    "13,46,47": 1,
+    "13,45,47": 1,
+    "13,45,46": 1,
+    "12,45,46": 1,
+    "12,45,47": 1,
+    "12,46,47": 1,
+    "12,46,46": 1,
+    "12,47,46": 1,
+    "12,47,47": 1,
+    "12,48,47": 1,
+    "12,48,46": 1,
+    "23,48,47": 14,
+    "82,48,46": 2,
+    "82,48,47": 2,
+    "82,47,47": 2,
+    "82,47,46": 2,
+    "82,46,46": 2,
+    "82,46,47": 2,
+    "82,45,47": 2,
+    "82,45,46": 2,
+    "83,45,46": 2,
+    "83,45,47": 2,
+    "83,46,47": 2,
+    "83,46,46": 2,
+    "83,47,46": 2,
+    "83,47,47": 2,
+    "83,48,47": 2,
+    "83,48,46": 2,
+    "72,48,47": 13,
+    "48,22,45": 15,
+    "47,22,45": 15,
+    "49,22,45": 15,
+    "48,22,44": 15,
+    "48,22,46": 15,
+    "48,23,45": 15
+  },
+  "itemPartDefs": [
+    {
+      "id": 0,
+      "name": "Body / Erase",
+      "key": "body",
+      "color": "#888888",
+      "desc": "Unassigned — painting with this clears a voxel's point tag (eraser)"
+    },
+    {
+      "id": 1,
+      "name": "Right Hand",
+      "key": "right_hand",
+      "color": "#ff6b6b",
+      "desc": "Primary grip anchor — weapon grip_right lands here"
+    },
+    {
+      "id": 2,
+      "name": "Left Hand",
+      "key": "left_hand",
+      "color": "#00ff88",
+      "desc": "Support grip — two-handed weapons"
+    },
+    {
+      "id": 3,
+      "name": "Right Shoulder",
+      "key": "right_shoulder",
+      "color": "#ffaa00",
+      "desc": "Stock weld when shouldering a rifle"
+    },
+    {
+      "id": 4,
+      "name": "Cheek",
+      "key": "cheek",
+      "color": "#ffff00",
+      "desc": "Cheek weld position for aiming"
+    },
+    {
+      "id": 5,
+      "name": "Pivot Waist",
+      "key": "pivot_0",
+      "color": "#ff44ff",
+      "desc": "Body/torso rotation center (waist) — gid 0"
+    },
+    {
+      "id": 6,
+      "name": "Pivot Neck",
+      "key": "pivot_1",
+      "color": "#ff88ff",
+      "desc": "Head/neck joint — gid 1"
+    },
+    {
+      "id": 7,
+      "name": "Pivot Shoulder L",
+      "key": "pivot_2",
+      "color": "#ffee44",
+      "desc": "Left arm shoulder joint — gid 2"
+    },
+    {
+      "id": 8,
+      "name": "Pivot Shoulder R",
+      "key": "pivot_3",
+      "color": "#ffcc00",
+      "desc": "Right arm shoulder joint — gid 3"
+    },
+    {
+      "id": 9,
+      "name": "Pivot Hip L",
+      "key": "pivot_4",
+      "color": "#44ffee",
+      "desc": "Left leg hip joint — gid 4"
+    },
+    {
+      "id": 10,
+      "name": "Pivot Hip R",
+      "key": "pivot_5",
+      "color": "#00ddaa",
+      "desc": "Right leg hip joint — gid 5"
+    },
+    {
+      "id": 11,
+      "name": "Pivot Knee L",
+      "key": "pivot_6",
+      "color": "#4488ff",
+      "desc": "Left shin knee joint — gid 6"
+    },
+    {
+      "id": 12,
+      "name": "Pivot Knee R",
+      "key": "pivot_7",
+      "color": "#2266ff",
+      "desc": "Right shin knee joint — gid 7"
+    },
+    {
+      "id": 13,
+      "name": "Pivot Elbow L",
+      "key": "pivot_8",
+      "color": "#ff8844",
+      "desc": "Left forearm elbow joint — gid 8"
+    },
+    {
+      "id": 14,
+      "name": "Pivot Elbow R",
+      "key": "pivot_9",
+      "color": "#ff6622",
+      "desc": "Right forearm elbow joint — gid 9"
+    },
+    {
+      "id": 15,
+      "name": "Seat",
+      "key": "seat",
+      "color": "#44aaff",
+      "desc": "Pelvis/butt contact anchor — vehicle/bench seat_* aligns here while sitting"
+    }
+  ],
+  "attachmentPoints": {
+    "left_hand": {
+      "x": 12.5,
+      "y": 46.5,
+      "z": 46.5,
+      "gid": 9
+    },
+    "right_hand": {
+      "x": 82.5,
+      "y": 46.5,
+      "z": 46.5,
+      "gid": 8
+    },
+    "pivot_0": {
+      "x": 48,
+      "y": 35,
+      "z": 48,
+      "gid": 0
+    },
+    "pivot_1": {
+      "x": 48,
+      "y": 48,
+      "z": 47,
+      "gid": 1
+    },
+    "pivot_2": {
+      "x": 60,
+      "y": 45,
+      "z": 47,
+      "gid": 2
+    },
+    "pivot_3": {
+      "x": 35,
+      "y": 45,
+      "z": 47,
+      "gid": 3
+    },
+    "pivot_4": {
+      "x": 56,
+      "y": 26,
+      "z": 48,
+      "gid": 0
+    },
+    "pivot_5": {
+      "x": 40,
+      "y": 26,
+      "z": 48,
+      "gid": 0
+    },
+    "pivot_6": {
+      "x": 56,
+      "y": 12,
+      "z": 48,
+      "gid": 4
+    },
+    "pivot_7": {
+      "x": 40,
+      "y": 12,
+      "z": 48,
+      "gid": 5
+    },
+    "pivot_8": {
+      "x": 72,
+      "y": 48,
+      "z": 47,
+      "gid": 8
+    },
+    "pivot_9": {
+      "x": 23,
+      "y": 48,
+      "z": 47,
+      "gid": 9
+    },
+    "seat": {
+      "x": 48,
+      "y": 22.167,
+      "z": 45,
+      "gid": 0
+    }
+  },
+  "attachRotation": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+  },
+  "handedness": "unity",
+  "bgColor": "#241b3f",
   "dims": [
     96,
     96,
@@ -101205,25 +101457,25 @@
       "id": 3,
       "name": "Torso",
       "color": "#4a90d9",
-      "desc": "Chest, back, shoulders \u00e2\u20ac\u201d suit/shirt"
+      "desc": "Chest, back, shoulders â€” suit/shirt"
     },
     {
       "id": 4,
       "name": "Arms",
       "color": "#50c878",
-      "desc": "Upper + lower arms \u00e2\u20ac\u201d sleeves"
+      "desc": "Upper + lower arms â€” sleeves"
     },
     {
       "id": 5,
       "name": "Hands",
       "color": "#e07070",
-      "desc": "Hands \u00e2\u20ac\u201d skin or gloves"
+      "desc": "Hands â€” skin or gloves"
     },
     {
       "id": 6,
       "name": "Legs",
       "color": "#daa520",
-      "desc": "Thighs + shins \u00e2\u20ac\u201d pants"
+      "desc": "Thighs + shins â€” pants"
     },
     {
       "id": 7,
@@ -101235,19 +101487,19 @@
       "id": 8,
       "name": "Head",
       "color": "#b08d68",
-      "desc": "Scalp/skull sides+back \u00e2\u20ac\u201d hair & headwear coverage"
+      "desc": "Scalp/skull sides+back â€” hair & headwear coverage"
     },
     {
       "id": 9,
       "name": "Top of Head",
       "color": "#8d6b4a",
-      "desc": "Crown \u00e2\u20ac\u201d hat seat / headwear anchor"
+      "desc": "Crown â€” hat seat / headwear anchor"
     },
     {
       "id": 10,
       "name": "Eyes",
       "color": "#40e0d0",
-      "desc": "Eye voxels \u00e2\u20ac\u201d gaze centroid + glasses accessory anchor"
+      "desc": "Eye voxels â€” gaze centroid + glasses accessory anchor"
     }
   ],
   "pivots": {
@@ -101303,6 +101555,38 @@
     }
   },
   "animParams": {
+    "walkDuckMid": {
+      "legStrideL": 0.15,
+      "legStrideR": 0.15,
+      "kneeBendL": 0.3,
+      "kneeBendR": 0.3,
+      "armSwingL": -0.62,
+      "armSwingR": -0.42,
+      "elbowBendL": 0.15,
+      "elbowBendR": 0.15,
+      "modelLower": 1,
+      "bodyLower": 5.5,
+      "bodyForward": 0,
+      "bodyLean": 0.95,
+      "headPitch": -0.12,
+      "headTilt": 0
+    },
+    "walkDuckPose": {
+      "legStrideL": 0.23,
+      "legStrideR": 0.3,
+      "kneeBendL": 0.24,
+      "kneeBendR": 0.55,
+      "armSwingL": -0.81,
+      "armSwingR": -1.2,
+      "elbowBendL": 0,
+      "elbowBendR": 0,
+      "modelLower": 2,
+      "bodyLower": 8.5,
+      "bodyForward": 5.5,
+      "bodyLean": 1.03,
+      "headPitch": -0.21,
+      "headTilt": 0
+    },
     "aiming": {
       "weaponType": "pistol",
       "torsoTwist": 0.2,
@@ -101318,6 +101602,7 @@
     },
     "crouching": {
       "bodyLower": 0,
+      "bodyForward": 0,
       "modelLower": 11,
       "bodyLean": 0.2,
       "headPitch": -0.2,
@@ -101327,31 +101612,23 @@
       "legStrideR": -0.51,
       "kneeBendL": 1.34,
       "kneeBendR": 1.05,
-      "elbowBendL": 0.49,
-      "elbowBendR": 0.49
+      "elbowBendL": 0.86,
+      "elbowBendR": 0.82
     },
     "crouchDeep": {
       "bodyLower": 0,
-      "modelLower": 14.5,
-      "bodyLean": 0.67,
+      "bodyForward": 0,
+      "modelLower": 17,
+      "bodyLean": 0.88,
       "headPitch": -0.26,
       "armSwingL": -0.23,
       "armSwingR": -0.31,
-      "legStrideL": 1.5,
-      "legStrideR": -0.92,
-      "kneeBendL": 0.78,
-      "kneeBendR": 0.66,
-      "elbowBendL": 1.23,
-      "elbowBendR": 0.84
-    },
-    "sitting": {
-      "headPitch": 0.0,
-      "armSwingL": 0.2,
-      "armSwingR": 0.2,
-      "legStrideL": 1.45,
-      "legStrideR": 1.45,
-      "kneeBendL": 1.45,
-      "kneeBendR": 1.45
+      "legStrideL": 1.79,
+      "legStrideR": -1.14,
+      "kneeBendL": 1.8,
+      "kneeBendR": 0.45,
+      "elbowBendL": 1.45,
+      "elbowBendR": 1.32
     }
   },
   "states": [
@@ -101363,12 +101640,7 @@
     {
       "id": 1,
       "name": "Walking",
-      "desc": "Walking cycle \u00e2\u20ac\u201d arms/legs swing"
-    },
-    {
-      "id": 2,
-      "name": "Looking",
-      "desc": "Head looking around \u00e2\u20ac\u201d scanning / checking environment"
+      "desc": "Walking cycle — arms/legs swing"
     },
     {
       "id": 3,
@@ -101378,12 +101650,7 @@
     {
       "id": 4,
       "name": "Aiming",
-      "desc": "Static aiming pose \u00e2\u20ac\u201d arms raised, weapon-type presets"
-    },
-    {
-      "id": 5,
-      "name": "Crouching",
-      "desc": "Crouch pose \u00e2\u20ac\u201d legs bent, arms forward"
+      "desc": "Static aiming pose — arms raised, weapon-type presets"
     },
     {
       "id": 8,
@@ -101393,270 +101660,18 @@
     {
       "id": 9,
       "name": "T-Pose",
-      "desc": "Bind/rest pose \u00e2\u20ac\u201d raw rigging position as imported from the editor. No rotations applied. Use this to inspect the unmodified skeleton."
+      "desc": "Bind/rest pose — raw rigging position as imported from the editor. No rotations applied. Use this to inspect the unmodified skeleton."
     },
     {
       "id": 10,
       "name": "Aim Sweep",
-      "desc": "Aiming pose \u00e2\u20ac\u201d aiming arm(s) sweep left\u00e2\u2020\u201dright (IK-aim shoulder exercise)"
+      "desc": "Aiming pose — aiming arm(s) sweep left↔right (IK-aim shoulder exercise)"
     },
     {
       "id": 11,
       "name": "Sit",
-      "desc": "Seated \u00e2\u20ac\u201d thighs forward, shins bent down, torso upright, arms at sides"
+      "desc": "Seated — thighs forward, shins bent down, torso upright, arms at sides"
     }
   ],
-  "savedAt": "2026-10-16T23:49:13.347Z",
-  "assetType": "character",
-  "itemParts": {
-    "48,35,48": 5,
-    "48,48,47": 6,
-    "56,26,48": 9,
-    "40,26,48": 10,
-    "56,12,48": 11,
-    "40,12,48": 12,
-    "35,45,47": 8,
-    "60,45,47": 7,
-    "13,48,46": 1,
-    "13,48,47": 1,
-    "13,47,47": 1,
-    "13,47,46": 1,
-    "13,46,46": 1,
-    "13,46,47": 1,
-    "13,45,47": 1,
-    "13,45,46": 1,
-    "12,45,46": 1,
-    "12,45,47": 1,
-    "12,46,47": 1,
-    "12,46,46": 1,
-    "12,47,46": 1,
-    "12,47,47": 1,
-    "12,48,47": 1,
-    "12,48,46": 1,
-    "23,48,47": 14,
-    "82,48,46": 2,
-    "82,48,47": 2,
-    "82,47,47": 2,
-    "82,47,46": 2,
-    "82,46,46": 2,
-    "82,46,47": 2,
-    "82,45,47": 2,
-    "82,45,46": 2,
-    "83,45,46": 2,
-    "83,45,47": 2,
-    "83,46,47": 2,
-    "83,46,46": 2,
-    "83,47,46": 2,
-    "83,47,47": 2,
-    "83,48,47": 2,
-    "83,48,46": 2,
-    "72,48,47": 13,
-    "48,22,45": 15,
-    "47,22,45": 15,
-    "49,22,45": 15,
-    "48,22,44": 15,
-    "48,22,46": 15,
-    "48,23,45": 15
-  },
-  "itemPartDefs": [
-    {
-      "id": 0,
-      "name": "Body / Erase",
-      "key": "body",
-      "color": "#888888",
-      "desc": "Unassigned \u2014 painting with this clears a voxel's point tag (eraser)"
-    },
-    {
-      "id": 1,
-      "name": "Right Hand",
-      "key": "right_hand",
-      "color": "#ff6b6b",
-      "desc": "Primary grip anchor \u2014 weapon grip_right lands here"
-    },
-    {
-      "id": 2,
-      "name": "Left Hand",
-      "key": "left_hand",
-      "color": "#00ff88",
-      "desc": "Support grip \u2014 two-handed weapons"
-    },
-    {
-      "id": 3,
-      "name": "Right Shoulder",
-      "key": "right_shoulder",
-      "color": "#ffaa00",
-      "desc": "Stock weld when shouldering a rifle"
-    },
-    {
-      "id": 4,
-      "name": "Cheek",
-      "key": "cheek",
-      "color": "#ffff00",
-      "desc": "Cheek weld position for aiming"
-    },
-    {
-      "id": 5,
-      "name": "Pivot Waist",
-      "key": "pivot_0",
-      "color": "#ff44ff",
-      "desc": "Body/torso rotation center (waist) \u2014 gid 0"
-    },
-    {
-      "id": 6,
-      "name": "Pivot Neck",
-      "key": "pivot_1",
-      "color": "#ff88ff",
-      "desc": "Head/neck joint \u2014 gid 1"
-    },
-    {
-      "id": 7,
-      "name": "Pivot Shoulder L",
-      "key": "pivot_2",
-      "color": "#ffee44",
-      "desc": "Left arm shoulder joint \u2014 gid 2"
-    },
-    {
-      "id": 8,
-      "name": "Pivot Shoulder R",
-      "key": "pivot_3",
-      "color": "#ffcc00",
-      "desc": "Right arm shoulder joint \u2014 gid 3"
-    },
-    {
-      "id": 9,
-      "name": "Pivot Hip L",
-      "key": "pivot_4",
-      "color": "#44ffee",
-      "desc": "Left leg hip joint \u2014 gid 4"
-    },
-    {
-      "id": 10,
-      "name": "Pivot Hip R",
-      "key": "pivot_5",
-      "color": "#00ddaa",
-      "desc": "Right leg hip joint \u2014 gid 5"
-    },
-    {
-      "id": 11,
-      "name": "Pivot Knee L",
-      "key": "pivot_6",
-      "color": "#4488ff",
-      "desc": "Left shin knee joint \u2014 gid 6"
-    },
-    {
-      "id": 12,
-      "name": "Pivot Knee R",
-      "key": "pivot_7",
-      "color": "#2266ff",
-      "desc": "Right shin knee joint \u2014 gid 7"
-    },
-    {
-      "id": 13,
-      "name": "Pivot Elbow L",
-      "key": "pivot_8",
-      "color": "#ff8844",
-      "desc": "Left forearm elbow joint \u2014 gid 8"
-    },
-    {
-      "id": 14,
-      "name": "Pivot Elbow R",
-      "key": "pivot_9",
-      "color": "#ff6622",
-      "desc": "Right forearm elbow joint \u2014 gid 9"
-    },
-    {
-      "id": 15,
-      "name": "Seat",
-      "key": "seat",
-      "color": "#44aaff",
-      "desc": "Pelvis/butt contact anchor \u2014 vehicle/bench seat_* aligns here while sitting"
-    }
-  ],
-  "attachmentPoints": {
-    "left_hand": {
-      "x": 12.5,
-      "y": 46.5,
-      "z": 46.5,
-      "gid": 9
-    },
-    "right_hand": {
-      "x": 82.5,
-      "y": 46.5,
-      "z": 46.5,
-      "gid": 8
-    },
-    "pivot_0": {
-      "x": 48,
-      "y": 35,
-      "z": 48,
-      "gid": 0
-    },
-    "pivot_1": {
-      "x": 48,
-      "y": 48,
-      "z": 47,
-      "gid": 1
-    },
-    "pivot_2": {
-      "x": 60,
-      "y": 45,
-      "z": 47,
-      "gid": 2
-    },
-    "pivot_3": {
-      "x": 35,
-      "y": 45,
-      "z": 47,
-      "gid": 3
-    },
-    "pivot_4": {
-      "x": 56,
-      "y": 26,
-      "z": 48,
-      "gid": 0
-    },
-    "pivot_5": {
-      "x": 40,
-      "y": 26,
-      "z": 48,
-      "gid": 0
-    },
-    "pivot_6": {
-      "x": 56,
-      "y": 12,
-      "z": 48,
-      "gid": 4
-    },
-    "pivot_7": {
-      "x": 40,
-      "y": 12,
-      "z": 48,
-      "gid": 5
-    },
-    "pivot_8": {
-      "x": 72,
-      "y": 48,
-      "z": 47,
-      "gid": 8
-    },
-    "pivot_9": {
-      "x": 23,
-      "y": 48,
-      "z": 47,
-      "gid": 9
-    },
-    "seat": {
-      "x": 48.0,
-      "y": 22.167,
-      "z": 45.0,
-      "gid": 0
-    }
-  },
-  "handedness": "unity",
-  "attachRotation": {
-    "x": 0,
-    "y": 0,
-    "z": 0
-  },
-  "bgColor": "#241b3f"
+  "savedAt": "2026-10-20T02:24:14.844Z"
 }

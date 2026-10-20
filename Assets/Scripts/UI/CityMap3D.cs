@@ -572,6 +572,7 @@ namespace SteelCity.Sim
             {
                 var hudObj = new GameObject("DebugHUDManager");
                 hudObj.AddComponent<DebugHUDManager>();
+                hudObj.AddComponent<CoverMetricsPanel>();   // read-only right-side metrics overlay, F5
                 Debug.Log("[CityMap3D] DebugHUDManager created — press ` or O to toggle, Keys tab lists all hotkeys.");
             }
 

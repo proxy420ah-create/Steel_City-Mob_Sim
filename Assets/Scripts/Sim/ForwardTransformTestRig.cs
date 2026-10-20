@@ -137,7 +137,8 @@ namespace SteelCity.Sim
                 animator.PoseVoxelsToBuffer(
                     restPositions, groupIDs, restDims, 1.0f,
                     animState, animTime, animSpeed,
-                    posedPositions);
+                    posedPositions,
+                    gaitTime: animTime);   // already integrates animSpeed — phase-continuous
             }
             else if (restPositions != null)
             {

@@ -114,6 +114,31 @@ Cover is **not a stat modifier** — it is a **physical ray intersection** again
 
 **Key principle**: Cover effectiveness is **emergent from geometry**, not a dice roll. A hood behind a full wall is simply unreachable. A hood behind a half-wall is reachable from certain angles.
 
+### Design Principle: Exposure-Based Engagement (voxel-visibility fire doctrine)
+
+**Status (Oct 20, 2026): 📝 designed — the next combat build.** Spec: `COMBAT_COVER_STATE.md` Phase 2.
+
+The aim-and-fire layer inherits the same geometric honesty: instead of aiming at a bone
+or a `feet + constant` point, the shooter casts rays from **his posed eye** to ~30–40
+sample points on **the target's live posed voxel silhouette**.
+
+| Question | Answer | Consequence |
+|---|---|---|
+| Where to aim | Centroid of the *visible* enemy voxels | Tracks the exposed cap as the target ducks — a parapet-tucked target yields a head-band aim point |
+| Fire or wait | `visibleCount > 0` | As the shooter tucks, his own wall occludes his own rays → zero voxels → stow. The transition is geometric, not scripted |
+| How to re-engage | Pop-up = authored override; `lastSeenTarget` re-queries → live centroid if still there, stale point if he moved | Suppressing fire on last-known position falls out for free |
+
+**The combat loop that emerges**: advance toward cover firing while enemy voxels show →
+duck-in decays exposure smoothly (firing fades, not flags) → tucked = crouch-idle with
+`lastSeenTarget` → explicit pop-up opens a **mutual exposure window** (his silhouette
+becomes visible to the enemy's identical query — the exposure race is the combat
+heartbeat) → S&W Model 10 cylinder count = 6 shots → duck back to reload (crouch-idle
+until a reload anim exists).
+
+Balancing stays physical: recoil + sway + skill-shaped cone + the tiny visible voxel
+set on parapet shots. Intelligence graduates *decisions* (when to pop, where to
+re-engage, when the window isn't worth it) — the geometry stays honest for everyone.
+
 ### Combat Resolution Pipeline (Firearms)
 
 ```

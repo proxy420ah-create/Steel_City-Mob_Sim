@@ -175,7 +175,7 @@ struct TransformEntry {
 float3x3 ComputeOwnRotation(
     uint gid, float3 dims, float voxelSize,
     float animState, float animTime, float animSpeed,
-    float cDepth)
+    float duck, float gaitTime, float scanBlend)
 {
     float3x3 rot = float3x3(1,0,0, 0,1,0, 0,0,1);
 
@@ -191,11 +191,16 @@ float3x3 ComputeOwnRotation(
     bool isCrouchingState = animState > 4.5 && animState < 5.5;
     bool isSittingState = animState > 10.5 && animState < 11.5; // Sit (11)
 
+    // Legacy state-5.x depth axis — duck 1+d ≡ old crouchDepth d.
+    float cDepth = saturate(duck - 1.0);
+
     float walkPhase = 0.0;
     bool useKeyframesWalk = false;
     bool useKeyframesWalkOrAimWalk = false;
     if ((isWalkState || isAimWalkState) && _WalkKeyframesEnabled) {
-        walkPhase = GetWalkCyclePhase(animTime, animSpeed);
+        // Integrated gait clock — phase derives from gaitTime only; speed
+        // changes rate, never position (was animTime % (dur/speed) → snaps).
+        walkPhase = GetWalkCyclePhase(gaitTime, 1.0);
         useKeyframesWalkOrAimWalk = true;
         if (isWalkState) useKeyframesWalk = true;
     }
@@ -227,6 +232,21 @@ float3x3 ComputeOwnRotation(
     // reach (the arm whose aim swing is non-zero); head follows at headFollow.
     float sweepYaw = isSweepState ? sin(animTime * sweepP.y) * sweepP.x : 0.0;
 
+    // === SHARED DUCK SCALAR — dual endpoint sets ===
+    // wd: walkDuckMid (ASP 19-22) lands at duck 1, walkDuckPose (ASP 23-26) at
+    // duck 2 — crumple DELTAS composed under the gait. icr: the authored hold
+    // pose (crouchP1/P2 lerped by cDepth) scaled into Idle only.
+    float duckIn   = isWalkState ? min(1.0, duck) : 0.0;
+    float duckDeep = max(0.0, duck - 1.0);
+    float idleIn   = (animState > -0.5 && animState < 0.5) ? min(1.0, duck) : 0.0;
+    float4 wdLegs  = lerp(ASP(19), ASP(23), duckDeep) * duckIn;   // strideL,R kneeL,R
+    float4 wdArms  = lerp(ASP(20), ASP(24), duckDeep) * duckIn;   // armL,R elbowL,R
+    float4 wdHead  = lerp(ASP(22), ASP(26), duckDeep) * duckIn;   // headPitch headTilt
+    float4 icrP1   = crouchP1 * idleIn;                            // lean headPitch armL,R
+    float4 icrP2   = crouchP2 * idleIn;                            // strideL,R kneeL,R
+    float2 icrElb  = float2(lerp(ASP(17).z, ASP(18).x, cDepth),
+                            lerp(ASP(17).w, ASP(18).y, cDepth)) * idleIn;
+
     if (gid == 1u) // Head
     {
         float headYaw=0, headPitch=0, headTilt=0;
@@ -237,17 +257,24 @@ float3x3 ComputeOwnRotation(
             headYaw = aimP1.y + sweepYaw * sweepP.z; headPitch = aimP1.z; headTilt = aimP1.w;
         } else if (isCrouchingState) {
             headPitch = crouchP1.y;
+        } else if (isWalkState && duck > 0.0) {   // walk-duck head deltas
+            headPitch = wdHead.x; headTilt = wdHead.y;
+        } else if (idleIn > 0.0) {              // Idle hold — authored crouch head
+            headPitch = icrP1.y;
         } else if (isSittingState) {
             headPitch = sitP2.z;
         }
-        // Idle: headYaw/Pitch/Tilt stay 0 → identity rotation
+        // Look-scan channel — yaw-only sweep layered over ANY pose (crouched
+        // sentry = Idle + duck + scan). scanBlend arrives pre-gated (0 while
+        // IK aim owns the eye-line).
+        if (scanBlend > 0.0) headYaw += sin(animTime * lookP.y) * lookP.x * scanBlend;
         rot = mul(RotationY(headYaw), mul(RotationX(headPitch), RotationZ(headTilt)));
     }
     else if (gid == 2u) // Left arm
     {
         float swing=0, reach=0;
         if (useKeyframesWalk) {
-            swing = armCfg.z * GetWalkPoseValue(0, walkPhase);
+            swing = armCfg.z * (GetWalkPoseValue(0, walkPhase) + wdArms.x);
         } else if (isAimingState) {
             swing = armCfg.z * aimP2.x;
             reach = aimP2.z + (swing != 0.0 ? sweepYaw : 0.0);
@@ -256,16 +283,15 @@ float3x3 ComputeOwnRotation(
         } else if (isSittingState) {
             swing = armCfg.z * sitP2.x;
         } else {
-            rot = RotationZ(restCfg.x); // Idle
+            swing = armCfg.z * icrP1.z; // Idle hold deltas (0 elsewhere)
         }
-        if (useKeyframesWalk || isAimingState || isCrouchingState || isSittingState)
-            rot = mul(RotationY(reach), mul(RotationByAxis((int)armCfg.x, swing), RotationZ(restCfg.x)));
+        rot = mul(RotationY(reach), mul(RotationByAxis((int)armCfg.x, swing), RotationZ(restCfg.x)));
     }
     else if (gid == 3u) // Right arm
     {
         float swing=0, reach=0;
         if (useKeyframesWalk) {
-            swing = armCfg.w * GetWalkPoseValue(1, walkPhase);
+            swing = armCfg.w * (GetWalkPoseValue(1, walkPhase) + wdArms.y);
         } else if (isAimingState) {
             swing = armCfg.w * aimP2.y;
             reach = aimP2.w + (swing != 0.0 ? sweepYaw : 0.0);
@@ -274,49 +300,46 @@ float3x3 ComputeOwnRotation(
         } else if (isSittingState) {
             swing = armCfg.w * sitP2.y;
         } else {
-            rot = RotationZ(restCfg.y); // Idle
+            swing = armCfg.w * icrP1.w; // Idle hold deltas (0 elsewhere)
         }
-        if (useKeyframesWalk || isAimingState || isCrouchingState || isSittingState)
-            rot = mul(RotationY(reach), mul(RotationByAxis((int)armCfg.y, swing), RotationZ(restCfg.y)));
+        rot = mul(RotationY(reach), mul(RotationByAxis((int)armCfg.y, swing), RotationZ(restCfg.y)));
     }
     else if (gid == 4u) // Left leg
     {
         float twist = twistCfg.x;
         float stride = 0;
         if (useKeyframesWalkOrAimWalk) {
-            stride = legCfg.z * GetWalkPoseValue(2, walkPhase);
+            stride = legCfg.z * (GetWalkPoseValue(2, walkPhase) + wdLegs.x);
         } else if (isCrouchingState) {
             stride = legCfg.z * crouchP2.x;
         } else if (isSittingState) {
             stride = legCfg.z * sitP.x;
         } else {
-            rot = RotationY(twist); // Idle
+            stride = legCfg.z * icrP2.x; // Idle hold deltas (0 elsewhere)
         }
-        if (useKeyframesWalkOrAimWalk || isCrouchingState || isSittingState)
-            rot = mul(RotationByAxis((int)legCfg.x, stride), RotationY(twist));
+        rot = mul(RotationByAxis((int)legCfg.x, stride), RotationY(twist));
     }
     else if (gid == 5u) // Right leg
     {
         float twist = twistCfg.y;
         float stride = 0;
         if (useKeyframesWalkOrAimWalk) {
-            stride = legCfg.w * GetWalkPoseValue(3, walkPhase);
+            stride = legCfg.w * (GetWalkPoseValue(3, walkPhase) + wdLegs.y);
         } else if (isCrouchingState) {
             stride = legCfg.w * crouchP2.y;
         } else if (isSittingState) {
             stride = legCfg.w * sitP.y;
         } else {
-            rot = RotationY(twist); // Idle
+            stride = legCfg.w * icrP2.y; // Idle hold deltas (0 elsewhere)
         }
-        if (useKeyframesWalkOrAimWalk || isCrouchingState || isSittingState)
-            rot = mul(RotationByAxis((int)legCfg.y, stride), RotationY(twist));
+        rot = mul(RotationByAxis((int)legCfg.y, stride), RotationY(twist));
     }
     else if (gid == 8u) // Left forearm
     {
-        float bend = elbowCfg.z * restCfg.z;
+        float bend = elbowCfg.z * (restCfg.z + icrElb.x);
         float twist = elbowTw.x;
         if (useKeyframesWalk) {
-            bend = elbowCfg.z * GetWalkPoseValue(4, walkPhase);
+            bend = elbowCfg.z * (GetWalkPoseValue(4, walkPhase) + wdArms.z);
             twist = GetWalkPoseValue(8, walkPhase);
         } else if (isAimingState) {
             bend = elbowCfg.z * aimP3.x;
@@ -328,10 +351,10 @@ float3x3 ComputeOwnRotation(
     }
     else if (gid == 9u) // Right forearm
     {
-        float bend = elbowCfg.w * restCfg.w;
+        float bend = elbowCfg.w * (restCfg.w + icrElb.y);
         float twist = elbowTw.y;
         if (useKeyframesWalk) {
-            bend = elbowCfg.w * GetWalkPoseValue(5, walkPhase);
+            bend = elbowCfg.w * (GetWalkPoseValue(5, walkPhase) + wdArms.w);
             twist = GetWalkPoseValue(9, walkPhase);
         } else if (isAimingState) {
             bend = elbowCfg.w * aimP3.y;
@@ -343,9 +366,9 @@ float3x3 ComputeOwnRotation(
     }
     else if (gid == 6u) // Left shin
     {
-        float bend = kneeCfg.z * kneeRest.x;
+        float bend = kneeCfg.z * (kneeRest.x + icrP2.z);
         if (useKeyframesWalkOrAimWalk) {
-            bend = kneeCfg.z * GetWalkPoseValue(6, walkPhase);
+            bend = kneeCfg.z * (GetWalkPoseValue(6, walkPhase) + wdLegs.z);
         } else if (isCrouchingState) {
             bend += kneeCfg.z * crouchP2.z;
         } else if (isSittingState) {
@@ -355,9 +378,9 @@ float3x3 ComputeOwnRotation(
     }
     else if (gid == 7u) // Right shin
     {
-        float bend = kneeCfg.w * kneeRest.y;
+        float bend = kneeCfg.w * (kneeRest.y + icrP2.w);
         if (useKeyframesWalkOrAimWalk) {
-            bend = kneeCfg.w * GetWalkPoseValue(7, walkPhase);
+            bend = kneeCfg.w * (GetWalkPoseValue(7, walkPhase) + wdLegs.w);
         } else if (isCrouchingState) {
             bend += kneeCfg.w * crouchP2.w;
         } else if (isSittingState) {
@@ -371,7 +394,7 @@ float3x3 ComputeOwnRotation(
 
 // ---- Compute group offset (matches CPU offset logic) ----
 float3 ComputeGroupOffset(uint gid, bool hasParent, uint parentGid,
-    float bodyLower, float modelLower)
+    float bodyLower, float modelLower, float bodyForward)
 {
     float3 offset = float3(0,0,0);
     if (hasParent) {
@@ -381,6 +404,8 @@ float3 ComputeGroupOffset(uint gid, bool hasParent, uint parentGid,
             offset = _AnimStaticParams[pJoIdx].xyz;
         if (bodyLower != 0.0 && (parentGid == 1u || parentGid == 2u || parentGid == 3u))
             offset.y -= bodyLower;
+        if (bodyForward != 0.0 && (parentGid == 1u || parentGid == 2u || parentGid == 3u))
+            offset.z += bodyForward;
         if (modelLower != 0.0 && (parentGid >= 1u && parentGid <= 5u))
             offset.y -= modelLower;
     } else if (gid >= 1u && gid <= 5u) {
@@ -389,6 +414,8 @@ float3 ComputeGroupOffset(uint gid, bool hasParent, uint parentGid,
             offset = _AnimStaticParams[joIdx].xyz;
         if (bodyLower != 0.0 && (gid == 1u || gid == 2u || gid == 3u))
             offset.y -= bodyLower;
+        if (bodyForward != 0.0 && (gid == 1u || gid == 2u || gid == 3u))
+            offset.z += bodyForward;
         if (modelLower != 0.0 && (gid >= 1u && gid <= 5u))
             offset.y -= modelLower;
     }
@@ -410,7 +437,7 @@ uint ParentOfGroup(uint gid) {
 void ComputeGroupRotation(
     uint groupID, float3 dims,
     float animState, float animTime, float animSpeed,
-    int instIdx, float cDepth,
+    int instIdx, float duck, float gaitTime, float scanBlend,
     out TransformEntry chain[MAX_CHAIN], out int chainLength, out float3 offset)
 {
     chainLength = 0;
@@ -422,13 +449,26 @@ void ComputeGroupRotation(
     // T-Pose (state 9): raw bind pose — no chains, no jointOffsets (matches CPU).
     if (animState > 8.5 && animState < 9.5) return;
 
-    // Body transform
+    // Body transform — state 5.x reads the legacy depth axis (duck−1); every
+    // other state composites the shared duck channels: wd() walk crumple +
+    // icr() idle hold (both 0 outside their states).
     bool isAimingState = (animState > 2.5 && animState < 4.5) || (animState > 9.5 && animState < 10.5);
     bool isCrouchingState = animState > 4.5 && animState < 5.5;
+    bool isWalkAnim = animState > 0.5 && animState < 1.5;
+    float cDepth = saturate(duck - 1.0);
+    float duckIn = isWalkAnim ? min(1.0, duck) : 0.0;
+    float duckDeep = max(0.0, duck - 1.0);
+    float idleIn = (animState > -0.5 && animState < 0.5) ? min(1.0, duck) : 0.0;
+    float4 wdB = lerp(ASP(21), ASP(25), duckDeep) * duckIn;   // model body fwd lean
     float torsoTwist = isAimingState ? (_AnimStaticParamsEnabled ? _AnimStaticParams[1].x : 0.2) : 0.0;
-    float bodyLean = isCrouchingState ? (_AnimStaticParamsEnabled ? lerp(_AnimStaticParams[4].x, _AnimStaticParams[15].x, cDepth) : 0.0) : 0.0;
-    float bodyLower = isCrouchingState ? (_AnimStaticParamsEnabled ? lerp(_AnimStaticParams[3].z, _AnimStaticParams[17].x, cDepth) : 0.0) : 0.0;
-    float modelLower = isCrouchingState ? (_AnimStaticParamsEnabled ? lerp(_AnimStaticParams[3].w, _AnimStaticParams[17].y, cDepth) : 4.0) : 0.0;
+    float bodyLean = isCrouchingState ? lerp(ASP(4).x, ASP(15).x, cDepth)
+        : wdB.w + lerp(ASP(4).x, ASP(15).x, cDepth) * idleIn;
+    float bodyLower = isCrouchingState ? lerp(ASP(3).z, ASP(17).x, cDepth)
+        : wdB.y + lerp(ASP(3).z, ASP(17).x, cDepth) * idleIn;
+    float modelLower = isCrouchingState ? lerp(ASP(3).w, ASP(17).y, cDepth)
+        : wdB.x + lerp(ASP(3).w, ASP(17).y, cDepth) * idleIn;
+    float bodyForward = isCrouchingState ? lerp(ASP(18).z, ASP(18).w, cDepth)
+        : wdB.z + lerp(ASP(18).z, ASP(18).w, cDepth) * idleIn;
     bool hasBodyRot = (torsoTwist != 0.0) || (bodyLean != 0.0);
 
     float3x3 bodyRot = float3x3(1,0,0, 0,1,0, 0,0,1);
@@ -455,7 +495,7 @@ void ComputeGroupRotation(
     }
     // Pivots in voxel units (voxelSize=1.0, matching CPU)
     float3 bodyPivot = GetGroupPivotRaw(0u, dims);
-    float3 bodyOffset = float3(0, -bodyLower - modelLower, 0);
+    float3 bodyOffset = float3(0, -bodyLower - modelLower, bodyForward);
 
     // Group 0 (body)
     if (groupID == 0u) {
@@ -477,7 +517,9 @@ void ComputeGroupRotation(
     else if (groupID == 7u) { parentGid = 5u; hasParent = true; }
 
     // Compute own rotation (always returns a rotation; identity if no transform)
-    float3x3 ownRot = ComputeOwnRotation(groupID, dims, 1.0, animState, animTime, animSpeed, cDepth);
+    // Look-scan yields to IK arm aim — eye-line belongs to the weapon.
+    float effScan = ikArmOn ? 0.0 : scanBlend;
+    float3x3 ownRot = ComputeOwnRotation(groupID, dims, 1.0, animState, animTime, animSpeed, duck, gaitTime, effScan);
     // Groups 1-9 always have some rotation (even if identity for idle head).
     // Group 0 (body) is handled separately above.
     bool hasOwnRot = (groupID >= 1u);
@@ -486,7 +528,7 @@ void ComputeGroupRotation(
     float3x3 parentRot = float3x3(1,0,0, 0,1,0, 0,0,1);
     bool hasParentRot = false;
     if (hasParent) {
-        parentRot = ComputeOwnRotation(parentGid, dims, 1.0, animState, animTime, animSpeed, cDepth);
+        parentRot = ComputeOwnRotation(parentGid, dims, 1.0, animState, animTime, animSpeed, duck, gaitTime, effScan);
         hasParentRot = true;
     }
 
@@ -512,7 +554,7 @@ void ComputeGroupRotation(
     );
 
     // Offset
-    offset = ComputeGroupOffset(groupID, hasParent, parentGid, bodyLower, modelLower);
+    offset = ComputeGroupOffset(groupID, hasParent, parentGid, bodyLower, modelLower, bodyForward);
 
     if (!hasOwnRot && !hasParentRot && !bodyApplies) return;
 
@@ -556,7 +598,7 @@ int VoxelIndex(int x, int y, int z) {
 // factored out of CSPose so pose transitions can evaluate two states and lerp.
 float3 EvalPosedPos(float rx, float ry, float rz, uint gid, float3 dims,
     float animState, float animTime, float animSpeed, int instIdx,
-    float cDepth)
+    float duck, float gaitTime, float scanBlend)
 {
     float px = rx - dims.x * 0.5;
     float py = ry;
@@ -567,7 +609,7 @@ float3 EvalPosedPos(float rx, float ry, float rz, uint gid, float3 dims,
         TransformEntry chain[MAX_CHAIN];
         int chainLength;
         float3 off;
-        ComputeGroupRotation(gid, dims, animState, animTime, animSpeed, instIdx, cDepth, chain, chainLength, off);
+        ComputeGroupRotation(gid, dims, animState, animTime, animSpeed, instIdx, duck, gaitTime, scanBlend, chain, chainLength, off);
 
         if (chainLength > 0)
         {
@@ -586,7 +628,7 @@ float3 EvalPosedPos(float rx, float ry, float rz, uint gid, float3 dims,
     // Body bob + weight shift for walk states (voxel units, matching CPU)
     bool isWalkState = (animState > 0.5 && animState < 1.5) || (animState > 2.5 && animState < 3.5);
     if (isWalkState && _WalkKeyframesEnabled) {
-        float phase = GetWalkCyclePhase(animTime, animSpeed);
+        float phase = GetWalkCyclePhase(gaitTime, 1.0);
         px += sin(phase * 2.0 * PI) * _WalkConfig.z;
         py += -cos(phase * 4.0 * PI) * _WalkConfig.y;
     }
@@ -651,7 +693,12 @@ void CSPose(uint3 dtid : SV_DispatchThreadID)
     float animState = animData.x;
     float animTime = animData.y;
     float animSpeed = animData.z;
-    float cDepth = _InstanceAnimData[instIdx * 3 + 2].x;
+    // Slot [2]: x = duck scalar (0..2), y = frozen duck at transition start,
+    //           z = integrated gait clock, w = look-scan blend.
+    float4 duckData = _InstanceAnimData[instIdx * 3 + 2];
+    float duck = duckData.x;
+    float gaitTime = duckData.z;
+    float scanBlend = duckData.w;
 
     float4 instMeta = _InstanceAnimData[instIdx * 3 + 1];
     uint posedBufferOffset = (uint)instMeta.x;
@@ -661,7 +708,7 @@ void CSPose(uint3 dtid : SV_DispatchThreadID)
 
     // === Forward transform (matches CPU PoseVoxelsToBuffer) ===
     float3 posedB = EvalPosedPos((float)rx, (float)ry, (float)rz, gid, dims,
-        animState, animTime, animSpeed, instIdx, cDepth);
+        animState, animTime, animSpeed, instIdx, duck, gaitTime, scanBlend);
     float px = posedB.x, py = posedB.y, pz = posedB.z;
 
     // Pose transition: blend>0 && <1 → the outgoing pose is still frozen in
@@ -669,9 +716,9 @@ void CSPose(uint3 dtid : SV_DispatchThreadID)
     float transBlend = animData.w;
     if (transBlend > 0.0 && transBlend < 1.0)
     {
-        float cDepthA = _InstanceAnimData[instIdx * 3 + 2].y;
+        float duckA = duckData.y;
         float3 posedA = EvalPosedPos((float)rx, (float)ry, (float)rz, gid, dims,
-            instMeta.y, instMeta.z, animSpeed, instIdx, cDepthA);
+            instMeta.y, instMeta.z, animSpeed, instIdx, duckA, gaitTime, scanBlend);
         px = lerp(posedA.x, px, transBlend);
         py = lerp(posedA.y, py, transBlend) + instMeta.w;
         pz = lerp(posedA.z, pz, transBlend);

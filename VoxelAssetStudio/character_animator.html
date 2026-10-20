@@ -314,6 +314,13 @@ body.ui-hidden #ui-hidden-hint { display:block; }
     <span id="speed-val" style="font-size:10px;color:#0f0;width:30px;">1.0x</span>
   </div>
 
+  <div class="playback-row" title="Feature test: slow the gait as duck depth rises — 1.0x at duck 0, Min at duck 2">
+    <input type="checkbox" id="duckspeed-toggle">
+    <span style="font-size:10px;color:#888;">Duck→Spd</span>
+    <input type="range" id="duckspeed-min" min="0.1" max="1.0" step="0.05" value="0.35" style="flex:1;" title="Speed floor at duck = 2">
+    <span id="duckspeed-val" style="font-size:10px;color:#0f0;width:30px;">0.35</span>
+  </div>
+
   <div id="timeline-row">
     <span style="font-size:10px;color:#888;">Time:</span>
     <input type="range" id="timeline-slider" min="0" max="10" step="0.01" value="0">
@@ -743,11 +750,6 @@ const STATES = [
     "desc": "Walking cycle \u2014 arms/legs swing"
   },
   {
-    "id": 2,
-    "name": "Looking",
-    "desc": "Head looking around — scanning / checking environment"
-  },
-  {
     "id": 3,
     "name": "Aim Walk",
     "desc": "Aiming pose (upper body) + walking gait (lower body)"
@@ -756,16 +758,6 @@ const STATES = [
     "id": 4,
     "name": "Aiming",
     "desc": "Static aiming pose — arms raised, weapon-type presets"
-  },
-  {
-    "id": 5,
-    "name": "Crouching",
-    "desc": "Crouch pose \u2014 legs bent, arms forward (shallow endpoint, depth=0)"
-  },
-  {
-    "id": 5.1,
-    "name": "Crouch Deep",
-    "desc": "Deep-crouch endpoint — same Crouching state evaluated at crouchDepth=1. Author the deepest duck; cover height picks a depth inside shallow\u2192deep."
   },
   {
     "id": 8,
@@ -787,6 +779,10 @@ const STATES = [
     "name": "Sit",
     "desc": "Seated — thighs forward, shins bent down, torso upright, arms at sides"
   }
+  // Retired states (eval branches kept for legacy JSON + transitions):
+  // 2 Looking → lookScan channel · 5/5.1 Crouching/Crouch Deep → walkDuckMid/
+  //   walkDuckPose endpoints on the Duck scalar · 5.2 Duck Axis → the duck
+  //   scalar itself · 12 Crouch Walk → Walking × Duck (free mirrored legs).
 ];
 
 // Default pivot points (matching shader ComputeGroupRotation)
@@ -886,6 +882,89 @@ const DEFAULT_PARAMS = {
     kf2: null,  // null = auto-mirror of kf0
     kf3: null,  // null = auto-mirror of kf1
   },
+  // === CROUCH WALK (state 12) ===
+  // Gait for crouched locomotion. The crouch scalars (Cr at crouchDepth) own
+  // the silhouette — body lower/lean + limb baseline fold — and these
+  // keyframes ride ON TOP as additive oscillation:
+  //   stride = sign·(cr(crouchBase, deepBase) + kfValue)
+  // Same kf contract as walkKeyframes; authored ~half amplitude — a deep
+  // duck can't stride, it shuffles.
+  crouchWalk: {        // = the 'sneak' gait preset: lead-follow on the asymmetric
+    autoMirror: false, // authored stance — L plants/drives, R steps. Mirror OFF:
+    cycleDuration: 1.4, // slower than the upright 1.2s gait
+    interpolation: 'spline',
+    bodyBob: { enabled: true, amplitude: 0.3 },     // halved — head must stay under the wall
+    weightShift: { enabled: true, amplitude: 0.2 }, // halved
+    kf0: {
+      armSwingL:  0.10, armSwingR: -0.12,
+      legStrideL: 0.08, legStrideR:  0.25,
+      elbowBendL: 0.08, elbowBendR:  0.08,
+      kneeBendL:  0.08, kneeBendR:  -0.35,
+      forearmTwistL: 0, forearmTwistR: 0,
+    },
+    kf1: {
+      armSwingL:  0.04, armSwingR: -0.05,
+      legStrideL: 0.02, legStrideR:  0.10,
+      elbowBendL: 0.04, elbowBendR:  0.04,
+      kneeBendL:  0.02, kneeBendR:  -0.14,
+      forearmTwistL: 0, forearmTwistR: 0,
+    },
+    kf2: {
+      armSwingL: -0.08, armSwingR:  0.10,
+      legStrideL: -0.04, legStrideR: -0.15,
+      elbowBendL: 0.06, elbowBendR:  0.06,
+      kneeBendL: -0.04, kneeBendR:   0.18,
+      forearmTwistL: 0, forearmTwistR: 0,
+    },
+    kf3: {
+      armSwingL: -0.03, armSwingR:  0.04,
+      legStrideL: 0.03, legStrideR: -0.05,
+      elbowBendL: 0.02, elbowBendR:  0.02,
+      kneeBendL:  0.03, kneeBendR:   0.07,
+      forearmTwistL: 0, forearmTwistR: 0,
+    },
+  },
+  // === WALK DUCK ENDPOINT === (Walking state + Duck slider 0–2)
+  // The complete authored "level 2" pose — every field lerps 0→value across
+  // duck 0→2, so duck=2 IS this pose and duck=0 is clean walking. Limb
+  // fields are deltas UNDER the mirrored walkKeyframes gait (the gait keeps
+  // swinging freely); body/head fields own the torso+head channels directly.
+  // modelLower is ABSOLUTE vox — author at Duck=2 until feet sit on the
+  // grid. Separate section on purpose: editing NEVER contaminates the base
+  // walkKeyframes, and un-crumpling is just sliding the axis back to 0.
+  // Walk-duck endpoints = CRUMPLE DELTAS, not poses — they ride UNDER the
+  // mirrored walkKeyframes gait as symmetric folds (both legs fold the same;
+  // the gait keeps swinging). Defaults are modest folds: author the level-2
+  // crumple at duck 2. NOTE: do NOT seed these from the authored crouch —
+  // absolute strides (e.g. +1.34 plant leg) would pin a leg against the gait.
+  walkDuckMid: {
+    // Hand-tailored authored set (Civilian1.json export) — torso drops on
+    // bodyLower, arms swing forward into the brace.
+    legStrideL: 0.15, legStrideR: 0.15,
+    kneeBendL: 0.30, kneeBendR: 0.30,
+    armSwingL: -0.62, armSwingR: -0.42,
+    elbowBendL: 0.15, elbowBendR: 0.15,
+    modelLower: 1.0,
+    bodyLower: 5.5,
+    bodyForward: 0.0,
+    bodyLean: 0.95,
+    headPitch: -0.12,
+    headTilt: 0.0,
+  },
+  walkDuckPose: {
+    // Deep crumple — asymmetric legs, torso thrown forward over the knees
+    // (bodyForward 5.5), elbows released, near-full fold.
+    legStrideL: 0.23, legStrideR: 0.30,
+    kneeBendL: 0.24, kneeBendR: 0.55,
+    armSwingL: -0.81, armSwingR: -1.20,
+    elbowBendL: 0.0, elbowBendR: 0.0,
+    modelLower: 2.0,
+    bodyLower: 8.5,
+    bodyForward: 5.5,
+    bodyLean: 1.03,
+    headPitch: -0.21,
+    headTilt: 0.0,
+  },
   // Arm swing axis/sign (shoulders, groups 2/3)
   armSwing: {
     axisL: 0,          // 0=X, 1=Y, 2=Z — rotation axis for left arm swing
@@ -959,36 +1038,40 @@ const DEFAULT_PARAMS = {
     freq: 1.6,              // sweep speed (rad/s)
     headFollow: 0.6,        // fraction of sweep the head tracks (gaze follows gun)
   },
+  // === AUTHORED CROUCH POSE === — stationary held position (duck scalar on
+  // Idle, legacy states 5.x). Defaults = Civilian1.json verbatim
+  // (CROUCH_BASE_STANCE): shallow = PLANT+TUCK, deep = lunge+TUCK.
   crouching: {
     bodyLower: 0.0,       // Y offset for torso+upper body only (hip anchor)
-    modelLower: 4.0,      // GLOBAL Y offset — plants feet on ground (tune for cover)
-    bodyLean: 0.0,        // no lean — torso stays upright in a squat
-    headPitch: 0.0,       // head stays upright
-    armSwingL: 0.0,       // arms at rest
-    armSwingR: 0.0,       // arms at rest
-    legStrideL: -1.15,    // left thigh angle forward (locked)
-    legStrideR: 0.0,      // right thigh angle (locked at 0)
-    kneeBendL: 1.15,      // left knee bend (locked)
-    kneeBendR: 1.40,      // right knee bend (locked)
-    elbowBendL: 0.0,      // left elbow bend (added to rest)
-    elbowBendR: 0.0,      // right elbow bend
+    bodyForward: 0.0,     // Z offset for torso+upper body — shifts torso fwd/back
+    modelLower: 11.0,     // GLOBAL Y offset — authored plant height
+    bodyLean: 0.20,       // authored: slight forward lean
+    headPitch: -0.20,     // authored: head dips
+    armSwingL: -0.23,     // authored: arms slightly forward
+    armSwingR: -0.31,
+    legStrideL: 1.34,     // authored: L thigh forward → PLANT leg
+    legStrideR: -0.51,    // authored: R thigh back → TUCK leg
+    kneeBendL: 1.34,      // knee == stride → shin vertical, foot planted
+    kneeBendR: 1.05,      // shin folds past thigh → tucked
+    elbowBendL: 0.86,     // authored (hand-tailored): elbows cocked higher
+    elbowBendR: 0.82,
   },
   crouchDeep: {
-    // Deep-crouch ENDPOINT — the adaptive-duck pose. crouchDepth 0..1 lerps
-    // every scalar crouching→crouchDeep, so author the deepest duck the
-    // character should physically reach; cover height picks a point between.
+    // Deep endpoint — the "level 2" hold. duck 1→2 lerps shallow→deep.
+    // Hand-tailored authored set (Civilian1.json export).
     bodyLower: 0.0,
-    modelLower: 8.0,      // sink well below the shallow 4.0
-    bodyLean: 0.35,       // tuck the torso forward over the knees
-    headPitch: -0.15,     // head dips with the tuck
-    armSwingL: 0.0,
-    armSwingR: 0.0,
-    legStrideL: -1.45,    // left thigh further forward
-    legStrideR: -0.9,     // right thigh folds too (kneeling read)
-    kneeBendL: 1.45,
-    kneeBendR: 1.55,
-    elbowBendL: 0.0,
-    elbowBendR: 0.0,
+    bodyForward: 0.0,
+    modelLower: 17.0,     // authored: deeper sink
+    bodyLean: 0.88,       // authored: torso folds over knees
+    headPitch: -0.26,
+    armSwingL: -0.23,
+    armSwingR: -0.31,
+    legStrideL: 1.79,     // authored: L extends to forward lunge
+    legStrideR: -1.14,    // authored: R tucks deeper
+    kneeBendL: 1.80,      // authored: plant knee folds to near-max
+    kneeBendR: 0.45,      // authored: tuck released — shin extends behind
+    elbowBendL: 1.45,
+    elbowBendR: 1.32,
   },
   sitting: {
     // State 11 — generic bench/vehicle seat pose. Thighs swing forward ~90°,
@@ -1049,6 +1132,184 @@ function applyWeaponPreset(type) {
   if (!preset) return;
   animParams.aiming.weaponType = type;
   Object.assign(animParams.aiming, preset);
+}
+
+// === CROUCH PRESET CATALOG === — compositing surface: stance (body channel,
+// crouching + crouchDeep) x gait (limb cycle, crouchWalk) mix freely. Pick a
+// stance on any crouch state, a gait on Crouch Walk — both persist while you
+// flip states, and state 12 shows both pickers so the combo is tunable from
+// one panel. Stance presets replace every scalar of BOTH endpoints; gait
+// presets replace the whole crouchWalk section (deterministic picks).
+// ARTICULATION FAMILIES (verified against the authored crouch's own math —
+//   world thigh = -legStride, world shin = thigh + kneeBend; + = tip swings
+//   BACKWARD through the sign=-1 wrapper):
+//   TUCK  — thigh BACK (negative legStride), knee folds shin past it:
+//           shin >= ~1.4x thigh. Foot tucked under.
+//   KNEEL — thigh ~vertical (legStride ~0), shin folded flat behind:
+//           knee >= ~1.3.
+//   PLANT — thigh FORWARD (POSITIVE legStride) with knee ~= stride:
+//           shin returns to ~0 vertical = forward foot planted flat.
+//   THE AUTHORED CROUCH (Civilian1.json) is PLANT+TUCK: L +1.34/1.34 ->
+//   thigh -77deg, shin ~0 planted forward; R -0.51/1.05 -> thigh +29deg,
+//   shin +90deg tucked; modelLower 11/14.5 drops the body to meet them.
+//   BAD ZONE — forward thigh + still-folded shin = lifted tucked foot; or
+//   back thigh + insufficient fold = leg stuck out. modelLower drops the
+//   body to meet whatever the folded legs reach — it is part of the pose.
+// CATALOG RULE: every preset below is CROUCH_BASE_STANCE + small deltas via
+//   stanceDerive() — the authored pose is the ONLY anchor. When varying the
+//   PLANT leg, keep kneeBendL ~= legStrideL so the shin stays ~0 (planted).
+//   Never seed from DEFAULT_PARAMS — it holds a different pose entirely.
+const CROUCH_BASE_STANCE = {
+  // exact replica of the authored pose saved in Civilian1.json — the
+  // calibration reference. Verified field-for-field against the asset.
+  crouching:  { bodyLower:0.0, bodyForward:0.0, modelLower:11.0, bodyLean:0.20, headPitch:-0.20, armSwingL:-0.23, armSwingR:-0.31, legStrideL: 1.34, legStrideR:-0.51, kneeBendL:1.34, kneeBendR:1.05, elbowBendL:0.86, elbowBendR:0.82 },
+  crouchDeep: { bodyLower:0.0, bodyForward:0.0, modelLower:17.0, bodyLean:0.88, headPitch:-0.26, armSwingL:-0.23, armSwingR:-0.31, legStrideL: 1.79, legStrideR:-1.14, kneeBendL:1.80, kneeBendR:0.45, elbowBendL:1.45, elbowBendR:1.32 },
+};
+function stanceDerive(sh, dp) {
+  return { crouching: { ...CROUCH_BASE_STANCE.crouching, ...sh },
+           crouchDeep: { ...CROUCH_BASE_STANCE.crouchDeep, ...dp } };
+}
+const CROUCH_STANCE_PRESETS = {
+  'BASE CROUCH': CROUCH_BASE_STANCE,
+  // same pose, other leg — true mirror: all L/R pairs swap at both ends.
+  // Right leg plants forward, left tucks; arms/elbows swap with them.
+  mirrored: stanceDerive(
+    { armSwingL:-0.31, armSwingR:-0.23, legStrideL:-0.51, legStrideR: 1.34, kneeBendL:1.05, kneeBendR:1.34, elbowBendL:0.82, elbowBendR:0.86 },
+    { armSwingL:-0.31, armSwingR:-0.23, legStrideL:-1.14, legStrideR: 1.79, kneeBendL:0.45, kneeBendR:1.80, elbowBendL:1.32, elbowBendR:1.45 }),
+  // torso over the knees, arms wrapping — legs keep authored PLANT+TUCK.
+  hunched: stanceDerive(
+    { bodyLean:0.45, headPitch:-0.45, armSwingL:-0.40, armSwingR:-0.50, elbowBendL:0.80, elbowBendR:0.80 },
+    { bodyLean:0.85, headPitch:-0.55, armSwingL:-0.40, armSwingR:-0.50, elbowBendL:1.50, elbowBendR:1.10 }),
+  // torso tall, head level, arms relaxed a touch — casual duck.
+  upright: stanceDerive(
+    { bodyLean:0.05, headPitch:-0.05, elbowBendL:0.30, elbowBendR:0.30 },
+    { bodyLean:0.35, headPitch:-0.12, elbowBendL:0.90, elbowBendR:0.60 }),
+  // sink further onto the same legs — plant deeper (knee tracks stride so
+  // the foot stays planted), tuck folds more, lean up a little.
+  low: stanceDerive(
+    { modelLower:13.5, bodyLean:0.30, legStrideL: 1.45, kneeBendL:1.45, legStrideR:-0.62, kneeBendR:1.15 },
+    { modelLower:17.0, bodyLean:0.75, legStrideL: 1.62, kneeBendL:0.85, legStrideR:-1.05, kneeBendR:0.72 }),
+  // half-duck — less sink, shallower plant (knee tracks stride), upright-er.
+  tall: stanceDerive(
+    { modelLower:8.0,  bodyLean:0.12, legStrideL: 1.10, kneeBendL:1.10, legStrideR:-0.40, kneeBendR:0.95 },
+    { modelLower:11.5, bodyLean:0.45, legStrideL: 1.25, kneeBendL:0.70, legStrideR:-0.75, kneeBendR:0.60 }),
+  // arms drop to the sides — non-combat duck, keeps authored legs.
+  relaxed: stanceDerive(
+    { headPitch:-0.10, armSwingL:-0.05, armSwingR:-0.08, elbowBendL:0.20, elbowBendR:0.20 },
+    { headPitch:-0.15, armSwingL:-0.05, armSwingR:-0.08, elbowBendL:0.70, elbowBendR:0.50 }),
+  // arms raise forward — combat-ready hold over authored legs.
+  // TODO: make the arm deltas weapon-conditional — pull armSwing/elbow from
+  // AIM_WEAPON_PRESETS / weapon anchor data for the actor's selected weapon.
+  ready: stanceDerive(
+    { bodyLean:0.28, armSwingL:-0.45, armSwingR:-0.60, elbowBendL:0.85, elbowBendR:0.90 },
+    { bodyLean:0.72, armSwingL:-0.45, armSwingR:-0.60, elbowBendL:1.50, elbowBendR:1.10 }),
+};
+
+// GAIT MODEL — lead-follow on the asymmetric authored stance, NOT mirrored.
+// autoMirror must stay OFF: mirroring deltas makes the planted L leg absorb
+// the stepping leg's numbers and hyper-extends the knee (verified: shin
+// -89deg over-extend). Instead the legs keep fixed roles across all 4
+// authored keyframes:
+//   L = planted lead leg — small drive oscillation around its PLANT (stride
+//       +-s with knee tracking, keeps shin ~0 on the ground).
+//   R = trail/stepping leg — the one that actually steps: REACH (stride +d
+//       swings thigh forward, knee -dk releases the fold so the foot
+//       extends), SETTLE (partial return), DRAG (stride -d + knee +dk pulls
+//       the foot back under), RELOAD (small anticipation before next reach).
+// This is the tactical crouch-walk pattern: lead holds, trail follows.
+// Deltas stack on the stance's own values, so the same gait works over
+// every stance preset (they all share the PLANT+TUCK DNA).
+const CROUCH_GAIT_PRESETS = {
+  // small careful steps — trail foot inches forward, classic low creep
+  sneak:   { autoMirror:false, cycleDuration:1.4, interpolation:'spline',
+             bodyBob:{enabled:true, amplitude:0.30}, weightShift:{enabled:true, amplitude:0.20},
+             kf0:{ armSwingL: 0.10, armSwingR:-0.12, legStrideL: 0.08, legStrideR: 0.25, elbowBendL:0.08, elbowBendR:0.08, kneeBendL: 0.08, kneeBendR:-0.35, forearmTwistL:0, forearmTwistR:0 },
+             kf1:{ armSwingL: 0.04, armSwingR:-0.05, legStrideL: 0.02, legStrideR: 0.10, elbowBendL:0.04, elbowBendR:0.04, kneeBendL: 0.02, kneeBendR:-0.14, forearmTwistL:0, forearmTwistR:0 },
+             kf2:{ armSwingL:-0.08, armSwingR: 0.10, legStrideL:-0.04, legStrideR:-0.15, elbowBendL:0.06, elbowBendR:0.06, kneeBendL:-0.04, kneeBendR: 0.18, forearmTwistL:0, forearmTwistR:0 },
+             kf3:{ armSwingL:-0.03, armSwingR: 0.04, legStrideL: 0.03, legStrideR:-0.05, elbowBendL:0.02, elbowBendR:0.02, kneeBendL: 0.03, kneeBendR: 0.07, forearmTwistL:0, forearmTwistR:0 } },
+  // quick short steps — hustling while ducked
+  shuffle: { autoMirror:false, cycleDuration:0.9, interpolation:'spline',
+             bodyBob:{enabled:true, amplitude:0.15}, weightShift:{enabled:true, amplitude:0.15},
+             kf0:{ armSwingL: 0.06, armSwingR:-0.08, legStrideL: 0.06, legStrideR: 0.18, elbowBendL:0.05, elbowBendR:0.05, kneeBendL: 0.06, kneeBendR:-0.28, forearmTwistL:0, forearmTwistR:0 },
+             kf1:{ armSwingL: 0.02, armSwingR:-0.03, legStrideL: 0.02, legStrideR: 0.07, elbowBendL:0.03, elbowBendR:0.03, kneeBendL: 0.02, kneeBendR:-0.11, forearmTwistL:0, forearmTwistR:0 },
+             kf2:{ armSwingL:-0.05, armSwingR: 0.06, legStrideL:-0.03, legStrideR:-0.11, elbowBendL:0.04, elbowBendR:0.04, kneeBendL:-0.03, kneeBendR: 0.14, forearmTwistL:0, forearmTwistR:0 },
+             kf3:{ armSwingL:-0.02, armSwingR: 0.02, legStrideL: 0.02, legStrideR:-0.04, elbowBendL:0.02, elbowBendR:0.02, kneeBendL: 0.02, kneeBendR: 0.06, forearmTwistL:0, forearmTwistR:0 } },
+  // slow deliberate reach — trail foot swings far forward, plants, drags
+  // back; biggest stride amplitude, heaviest sway. Crossing open ground.
+  stalk:   { autoMirror:false, cycleDuration:1.9, interpolation:'spline',
+             bodyBob:{enabled:true, amplitude:0.45}, weightShift:{enabled:true, amplitude:0.35},
+             kf0:{ armSwingL: 0.16, armSwingR:-0.20, legStrideL: 0.14, legStrideR: 0.42, elbowBendL:0.12, elbowBendR:0.12, kneeBendL: 0.14, kneeBendR:-0.55, forearmTwistL:0, forearmTwistR:0 },
+             kf1:{ armSwingL: 0.06, armSwingR:-0.08, legStrideL: 0.04, legStrideR: 0.17, elbowBendL:0.06, elbowBendR:0.06, kneeBendL: 0.04, kneeBendR:-0.22, forearmTwistL:0, forearmTwistR:0 },
+             kf2:{ armSwingL:-0.13, armSwingR: 0.16, legStrideL:-0.07, legStrideR:-0.25, elbowBendL:0.10, elbowBendR:0.10, kneeBendL:-0.07, kneeBendR: 0.28, forearmTwistL:0, forearmTwistR:0 },
+             kf3:{ armSwingL:-0.05, armSwingR: 0.06, legStrideL: 0.05, legStrideR:-0.08, elbowBendL:0.04, elbowBendR:0.04, kneeBendL: 0.05, kneeBendR: 0.11, forearmTwistL:0, forearmTwistR:0 } },
+  // low crab-drag — heavy lateral shift, trail leg sweeps wide under
+  scuttle: { autoMirror:false, cycleDuration:1.1, interpolation:'spline',
+             bodyBob:{enabled:true, amplitude:0.40}, weightShift:{enabled:true, amplitude:0.45},
+             kf0:{ armSwingL: 0.14, armSwingR:-0.17, legStrideL: 0.12, legStrideR: 0.35, elbowBendL:0.25, elbowBendR:0.25, kneeBendL: 0.12, kneeBendR:-0.45, forearmTwistL:0, forearmTwistR:0 },
+             kf1:{ armSwingL: 0.05, armSwingR:-0.07, legStrideL: 0.04, legStrideR: 0.14, elbowBendL:0.15, elbowBendR:0.15, kneeBendL: 0.04, kneeBendR:-0.18, forearmTwistL:0, forearmTwistR:0 },
+             kf2:{ armSwingL:-0.11, armSwingR: 0.14, legStrideL:-0.06, legStrideR:-0.21, elbowBendL:0.20, elbowBendR:0.20, kneeBendL:-0.06, kneeBendR: 0.23, forearmTwistL:0, forearmTwistR:0 },
+             kf3:{ armSwingL:-0.04, armSwingR: 0.05, legStrideL: 0.04, legStrideR:-0.07, elbowBendL:0.08, elbowBendR:0.08, kneeBendL: 0.04, kneeBendR: 0.09, forearmTwistL:0, forearmTwistR:0 } },
+  // knee-up duck march — trail leg steps like the others but the LEAD also
+  // lifts (folds toward tuck) at DRAG: the comic "sneaky walk" read.
+  march:   { autoMirror:false, cycleDuration:1.2, interpolation:'spline',
+             bodyBob:{enabled:true, amplitude:0.35}, weightShift:{enabled:true, amplitude:0.25},
+             kf0:{ armSwingL: 0.20, armSwingR:-0.24, legStrideL: 0.15, legStrideR: 0.38, elbowBendL:0.18, elbowBendR:0.18, kneeBendL: 0.15, kneeBendR:-0.50, forearmTwistL:0, forearmTwistR:0 },
+             kf1:{ armSwingL: 0.08, armSwingR:-0.10, legStrideL: 0.05, legStrideR: 0.15, elbowBendL:0.10, elbowBendR:0.10, kneeBendL: 0.05, kneeBendR:-0.20, forearmTwistL:0, forearmTwistR:0 },
+             kf2:{ armSwingL:-0.16, armSwingR: 0.20, legStrideL:-0.45, legStrideR:-0.23, elbowBendL:0.14, elbowBendR:0.14, kneeBendL: 0.45, kneeBendR: 0.25, forearmTwistL:0, forearmTwistR:0 },
+             kf3:{ armSwingL:-0.06, armSwingR: 0.08, legStrideL:-0.10, legStrideR:-0.08, elbowBendL:0.06, elbowBendR:0.06, kneeBendL: 0.12, kneeBendR: 0.10, forearmTwistL:0, forearmTwistR:0 } },
+  // MIRRORED WALK EXPERIMENT — the upright walk cycle verbatim (autoMirror
+  // ON, same kf0/kf1 deltas as walkKeyframes) riding the crouched stance.
+  // Both legs alternate a full mirrored swing around their crouched bases;
+  // only the body channel is damped (bob/shift halved — head stays under
+  // cover). Deliberately asymmetric in world space: the plant leg
+  // alternates lunge/swing, the tuck leg kicks up high on its swing
+  // phase — that asymmetry IS the experiment.
+  duckwalk:{ autoMirror:true, cycleDuration:1.3, interpolation:'spline',
+             bodyBob:{enabled:true, amplitude:0.35}, weightShift:{enabled:true, amplitude:0.30},
+             kf0:{ armSwingL: 0.30, armSwingR:-0.30, legStrideL:-0.40, legStrideR: 0.40, elbowBendL:0.10, elbowBendR:0.10, kneeBendL:0.00, kneeBendR:0.00, forearmTwistL:0, forearmTwistR:0 },
+             kf1:{ armSwingL: 0.00, armSwingR: 0.00, legStrideL: 0.30, legStrideR:-0.10, elbowBendL:0.30, elbowBendR:0.30, kneeBendL:0.80, kneeBendR:0.15, forearmTwistL:0, forearmTwistR:0 },
+             kf2:null, kf3:null },
+};
+
+// Preset application — stances write BOTH duck endpoints (every scalar, so
+// a pick is deterministic): sh → walkDuckMid (duck 1), dp → walkDuckPose
+// (duck 2). Gait presets are dormant — their consumer (state 12) retired;
+// the catalog stays as experiment data until a crouch-gait slot exists.
+function applyStancePreset(name) {
+  const p = CROUCH_STANCE_PRESETS[name];
+  if (!p) return;
+  // Stances are authored-POSE values — they belong to the held crouch
+  // endpoints (Idle's Crouch scalar), NOT the walk-duck crumple deltas.
+  const cr = animParams.crouching || (animParams.crouching = JSON.parse(JSON.stringify(DEFAULT_PARAMS.crouching)));
+  const cd = animParams.crouchDeep || (animParams.crouchDeep = JSON.parse(JSON.stringify(DEFAULT_PARAMS.crouchDeep)));
+  Object.assign(cr, p.crouching);
+  Object.assign(cd, p.crouchDeep);
+}
+function applyGaitPreset(name) {
+  const p = CROUCH_GAIT_PRESETS[name];
+  if (!p) return;
+  animParams.crouchWalk = JSON.parse(JSON.stringify(p));
+}
+
+// Small preset <select> row — placeholder header option; picking applies and
+// rebuilds. The last pick persists across panel rebuilds (presetPicks is
+// keyed by label, so the two Stance pickers on different states stay in sync).
+const presetPicks = {};
+function appendPresetSelect(container, label, presets, applyFn) {
+  const row = document.createElement('div');
+  row.className = 'param-row';
+  const cur = presetPicks[label] || '';
+  row.innerHTML = `<label>${label} preset</label><select class="param-num" style="flex:1; width:auto;">` +
+    `<option value="">— pick ${label.toLowerCase()} —</option>` +
+    Object.keys(presets).map(n => `<option value="${n}" ${n === cur ? 'selected' : ''}>${n}</option>`).join('') + `</select>`;
+  row.querySelector('select').onchange = (e) => {
+    presetPicks[label] = e.target.value;
+    if (!e.target.value) return;
+    applyFn(e.target.value);
+    buildParamControls();
+    if (useAnimatedMesh) rebuildAnimatedMesh();
+  };
+  container.appendChild(row);
 }
 
 // Voxel data
@@ -1501,7 +1762,9 @@ function buildPivotGizmos() {
 function updatePivotGizmos() {
   if (!pivotMarkers.length) return;
   const isWalkState = (currentAnimState > 0.5 && currentAnimState < 1.5) || (currentAnimState > 2.5 && currentAnimState < 3.5);
-  const walkPose = isWalkState ? getWalkPose(animTime, animSpeed, animParams) : null;
+  const isCrouchWalkState = (currentAnimState > 11.5 && currentAnimState < 12.5);
+  const walkPose = isWalkState ? getWalkPose(animTime, animSpeed, animParams)
+    : isCrouchWalkState ? getCrouchWalkPose(animTime, animSpeed) : null;
   const bobY = walkPose ? walkPose.bodyBobY : 0;
   const shiftX = walkPose ? walkPose.weightShiftX : 0;
   const dims = [W, H, D];
@@ -1528,6 +1791,7 @@ function updatePivotGizmos() {
     m.ring.position.set(wx, wy, wz);
   }
 
+  updateIkAimGizmos();
   updateVisionCone();
 }
 
@@ -1601,7 +1865,9 @@ function updateVisionCone() {
   if (!p) { visionWedge.visible = visionLines.visible = visionEyeMarker.visible = visionCentroidDot.visible = false; return; }
 
   const isWalkState = (currentAnimState > 0.5 && currentAnimState < 1.5) || (currentAnimState > 2.5 && currentAnimState < 3.5);
-  const walkPose = isWalkState ? getWalkPose(animTime, animSpeed, animParams) : null;
+  const isCrouchWalkState = (currentAnimState > 11.5 && currentAnimState < 12.5);
+  const walkPose = isWalkState ? getWalkPose(animTime, animSpeed, animParams)
+    : isCrouchWalkState ? getCrouchWalkPose(animTime, animSpeed) : null;
   const bobY = walkPose ? walkPose.bodyBobY : 0;
   const shiftX = walkPose ? walkPose.weightShiftX : 0;
 
@@ -1760,6 +2026,199 @@ function scaledRotMat(m, w) {
   ];
 }
 
+// === IK AIM DEBUG ===
+// Simulated ArmAimSolver channel — a fixed man-target out front, center-mass
+// height. Law-of-cosines 2-bone solve (parity with ArmAimSolver.Solve): the
+// shoulder places the elbow in the hint plane, the forearm's cumulative
+// rotation lands the hand axis on target, and the solved rotations REPLACE
+// the group's ownRot blended by ikAim.blend (Unity: Slerp(base, ik, blend)).
+// Applies over ANY state — that is the point: aim is a channel, and this is
+// what "aiming without authored aim poses" looks like as states cycle below.
+const ikAim = { enabled: false, arm: 'right', dist: 150, height: 0, blend: 1.0, reach: 0.96, torsoTwist: -0.2, torsoShare: 0.35, headTrack: 1.0 };
+// Look-scan channel — the Looking state's head oscillation layered over ANY
+// state (sentry doctrine: channel, not a CrouchLook state). Uses the authored
+// animParams.looking values; IK headTrack wins while IK Aim is on.
+const lookScan = { enabled: false, blend: 1.0 };
+//   arm    — 'right'/'left' are the sides as the UNITY VIEW renders them
+//            (the mirror is a view flip only): 'right' = gid 2/8 (labeled
+//            "L Arm" in this tool's un-mirrored authoring space), 'left' =
+//            gid 3/9, 'both' = the old all-arms debug.
+//   dist   — target distance in voxels ahead of the character's +Z forward
+//   height — target height in voxels; 0 = auto (≈ chest: 0.58·H, "center mass")
+//   reach  — fraction of full arm extension (keeps the elbow slightly bent)
+//   torsoTwist — fixed waist blade toward the aim (default −0.2 = the authored
+//            single-pistol stance: "blades left shoulder back")
+//   torsoShare — extra yaw tracking toward off-center targets (≈0 on the
+//            centered debug target — Unity's torsoShare term)
+let ikAimMarker = null, ikAimLine = null;
+let _ikHandCache = {}; // forearm gid → {hv, axis} — cleared on model load
+
+function sub3(a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; }
+function add3(a, b) { return [a[0] + b[0], a[1] + b[1], a[2] + b[2]]; }
+function scale3(a, s) { return [a[0] * s, a[1] * s, a[2] * s]; }
+function dot3(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+function cross3(a, b) { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; }
+function norm3(v) { const l = Math.hypot(v[0], v[1], v[2]); return l > 1e-9 ? [v[0] / l, v[1] / l, v[2] / l] : [0, 0, 1]; }
+function len3(v) { return Math.hypot(v[0], v[1], v[2]); }
+function matT3(m) { return [[m[0][0], m[1][0], m[2][0]], [m[0][1], m[1][1], m[2][1]], [m[0][2], m[1][2], m[2][2]]]; }
+
+// Orthonormal basis (columns: right, up, fwd) — Unity LookRotation analog.
+function basisFromFwd(f, upHint) {
+  let u = upHint;
+  if (Math.abs(dot3(f, u)) > 0.95) u = Math.abs(f[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
+  const r = norm3(cross3(u, f));
+  const up = cross3(f, r);
+  return [[r[0], up[0], f[0]], [r[1], up[1], f[1]], [r[2], up[2], f[2]]];
+}
+// Twist-stable rotation taking bindF → solF (shared upRef pins the roll) —
+// mirrors ArmAimSolver's BasisDelta(bind, sol, twistRef, twistRef).
+function basisDelta(bindF, solF, upRef) {
+  const s = basisFromFwd(norm3(solF), upRef);
+  const b = basisFromFwd(norm3(bindF), upRef);
+  return matMul3(s, matT3(b));
+}
+// Component of `hint` perpendicular to `axis` (normalized) — the elbow plane.
+function perpOf(hint, axis) {
+  let p = sub3(hint, scale3(axis, dot3(hint, axis)));
+  if (dot3(p, p) < 1e-8) p = Math.abs(axis[0]) < 0.9 ? [axis[1], -axis[0], 0] : [0, axis[2], -axis[1]];
+  return norm3(p);
+}
+
+// Debug target in model voxel coords: `dist` ahead of +Z forward, man-target
+// chest height. Model space is uncentered voxel indices — the scene renders
+// it minus [W/2, 0, D/2].
+function ikAimTargetModel() {
+  const h = ikAim.height > 0 ? ikAim.height : H * 0.58;
+  return [W / 2, h, D / 2 + ikAim.dist];
+}
+
+// Hand point + forearm bind axis: the forearm voxel farthest from the shoulder
+// pivot in bind space (≈ the fist/wrist tip). Cached per model.
+function ikHandPoint(fg) {
+  if (_ikHandCache[fg]) return _ikHandCache[fg];
+  const sp = pivots[fg === 8 ? 2 : 3], fp = pivots[fg];
+  if (!sp || !fp) return null;
+  const sv = [sp.x * W, sp.y * H, sp.z * D];
+  const ev = [fp.x * W, fp.y * H, fp.z * D];
+  let hv = ev, best = -1;
+  for (const v of getVoxelList()) {
+    if (v.gid !== fg) continue;
+    const p = [v.x + 0.5, v.y + 0.5, v.z + 0.5];
+    const d = dot3(sub3(p, sv), sub3(p, sv));
+    if (d > best) { best = d; hv = p; }
+  }
+  return (_ikHandCache[fg] = { hv, axis: norm3(sub3(hv, ev)) });
+}
+
+// Which groups the channel owns — one pistol arm by default. NOTE the mirror:
+// the Unity view renders model-X flipped, so the arm that reads as RIGHT in
+// the Unity render is gid 2/8 (this tool's "L Arm" — authored labels were
+// made in the un-mirrored view).
+function ikArmOk(gid) {
+  if (ikAim.arm === 'left') return gid === 3 || gid === 9;
+  if (ikAim.arm === 'both') return gid === 2 || gid === 3 || gid === 8 || gid === 9;
+  return gid === 2 || gid === 8;
+}
+// Slight waist blade toward the aim — mimics the authored single-pistol
+// stance (aiming.torsoTwist −0.2 = "blades left shoulder back" for the right
+// arm). Fixed twist per side + a yaw-share term toward off-center targets
+// (Unity's torsoShare; ≈0 contribution on the centered debug target).
+function ikAimTorsoYaw() {
+  if (ikAim.arm === 'both') return 0;
+  // gid 3 needs -twist to blade its off-shoulder back; the gid-2 arm is the
+  // mirror image, so its blade is the opposite sign.
+  const side = ikAim.arm === 'left' ? 1 : -1;
+  let share = 0;
+  const ag = ikAim.arm === 'left' ? 3 : 2;
+  const ap = pivots[ag];
+  if (ap && ikAim.torsoShare > 0) {
+    const sv = [ap.x * W, ap.y * H, ap.z * D];
+    const fl = sub3(ikAimTargetModel(), sv); fl[1] = 0;
+    if (dot3(fl, fl) > 1e-6) share = Math.atan2(fl[0], fl[2]) * ikAim.torsoShare;
+  }
+  return ikAim.torsoTwist * side + share;
+}
+
+// Vertical twin of the yaw share — the torso pitches toward the target's
+// elevation instead of leaving ALL the up/down work to the arm solve.
+// 'both' averages the shoulders; sign: up-target → negative = lean back.
+function ikAimTorsoPitch() {
+  const ags = ikAim.arm === 'both' ? [2, 3] : [ikAim.arm === 'left' ? 3 : 2];
+  let sx = 0, sy = 0, sz = 0, n = 0;
+  for (const ag of ags) {
+    const ap = pivots[ag];
+    if (!ap) continue;
+    sx += ap.x * W; sy += ap.y * H; sz += ap.z * D; n++;
+  }
+  if (!n || ikAim.torsoShare <= 0) return 0;
+  const d = sub3(ikAimTargetModel(), [sx / n, sy / n, sz / n]);
+  const hyp = Math.hypot(d[0], d[2]);
+  if (hyp < 1e-6) return 0;
+  return -Math.atan2(d[1], hyp) * ikAim.torsoShare;
+}
+
+// Law-of-cosines 2-bone solve — ArmAimSolver.Solve parity. ag = arm gid (2/3),
+// T = target in model voxel coords, bodyT = {pivot, rot} body transform the
+// chain applies OUTERMOST on upper groups — the target folds into the
+// pre-body frame (same trick Unity's torso assist uses).
+function ikAimSolve(ag, T, bodyT) {
+  const fg = ag === 2 ? 8 : 9;
+  const ap = pivots[ag], fp = pivots[fg], hand = ikHandPoint(fg);
+  if (!ap || !fp || !hand) return null;
+  const sv = [ap.x * W, ap.y * H, ap.z * D];
+  const ev = [fp.x * W, fp.y * H, fp.z * D];
+  const hv = hand.hv, bindF = hand.axis;
+  const Tv = bodyT ? add3(bodyT.pivot, matVec3(matT3(bodyT.rot), sub3(T, bodyT.pivot))) : T;
+
+  const st = sub3(Tv, sv), dist = len3(st);
+  const toT = dist > 1e-6 ? scale3(st, 1 / dist) : [0, 0, 1];
+  const bindArm = norm3(sub3(ev, sv));
+  const L1 = len3(sub3(ev, sv)), L2 = len3(sub3(hv, ev));
+  const UP = [0, 1, 0];
+  let qArm;
+  if (L1 < 1e-4 || L2 < 1e-4) {
+    qArm = basisDelta(bindArm, toT, UP); // degenerate chain — single-bone slam
+  } else {
+    const d = Math.min(Math.max(dist, Math.abs(L1 - L2) + 0.01), (L1 + L2) * ikAim.reach);
+    const cosA = Math.min(1, Math.max(-1, (L1 * L1 + d * d - L2 * L2) / (2 * L1 * d)));
+    const angA = Math.acos(cosA);
+    const sideX = Math.sign(ap.x - 0.5) || 1; // elbow hints outward on the arm's own side
+    const bendRef = perpOf([sideX * 0.4, -1, 0.2], toT); // Unity's elbowHint — elbows tuck down
+    const elbowDir = norm3(add3(scale3(toT, Math.cos(angA)), scale3(bendRef, Math.sin(angA))));
+    qArm = basisDelta(bindArm, elbowDir, UP);
+  }
+  // Forearm cumulative (T·qArm·qFore) must land the hand axis on target:
+  // qFore = inv(qArm) · R(bindF → toT).
+  const Rtarget = basisDelta(bindF, toT, UP);
+  return { qArm, qFore: matMul3(matT3(qArm), Rtarget) };
+}
+
+// Target gizmo — red sphere + aim beam at target height (lazy, like the cone).
+function updateIkAimGizmos() {
+  if (ikAim.enabled && !ikAimMarker) {
+    ikAimMarker = new THREE.Mesh(new THREE.SphereGeometry(2.6 * voxelSize, 12, 12),
+      new THREE.MeshBasicMaterial({ color: 0xff3344, depthTest: false }));
+    ikAimMarker.renderOrder = 12;
+    scene.add(ikAimMarker);
+    const lg = new THREE.BufferGeometry();
+    lg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+    ikAimLine = new THREE.Line(lg, new THREE.LineBasicMaterial({ color: 0xff3344, transparent: true, opacity: 0.45, depthTest: false }));
+    ikAimLine.frustumCulled = false; ikAimLine.renderOrder = 11;
+    scene.add(ikAimLine);
+  }
+  const show = !!ikAimMarker && ikAim.enabled;
+  if (ikAimMarker) ikAimMarker.visible = show;
+  if (ikAimLine) ikAimLine.visible = show;
+  if (!show) return;
+  const T = ikAimTargetModel();
+  const tx = (T[0] - W / 2) * voxelSize, ty = T[1] * voxelSize, tz = (T[2] - D / 2) * voxelSize;
+  ikAimMarker.position.set(tx, ty, tz);
+  const arr = ikAimLine.geometry.attributes.position.array;
+  arr[0] = 0; arr[1] = ty; arr[2] = 0;   // chest-height beam from the model's center line
+  arr[3] = tx; arr[4] = ty; arr[5] = tz;
+  ikAimLine.geometry.attributes.position.needsUpdate = true;
+}
+
 // Shoulder own-rotations, computed once per rebuild (per-voxel would rerun
 // the whole chain for every cell).
 let blendArmOwn = null;
@@ -1879,20 +2338,23 @@ function getWalkKfPose(idx, wkf) {
   return wkf.kf0;
 }
 
-// Per-frame cache so we don't recompute for every voxel.
-let _walkPoseCache = null;
-let _walkPoseCacheKey = '';
+// Per-frame cache so we don't recompute for every voxel — one slot per kf set.
+const _walkCacheSlot = {}, _cwCacheSlot = {};
 
 // Invalidate the walk pose cache — call when animParams change or at start of rebuild.
-function invalidateWalkPoseCache() { _walkPoseCache = null; _walkPoseCacheKey = ''; }
+function invalidateWalkPoseCache() { _walkCacheSlot.pose = null; _walkCacheSlot.key = ''; _cwCacheSlot.pose = null; _cwCacheSlot.key = ''; }
 
 // Computes the interpolated walk pose for the current animTime.
 // Returns { pose, cyclePhase, kfAIdx, kfBIdx, interpT, bodyBobY, weightShiftX }
-function getWalkPose(animTime, animSpeed, params) {
-  const cacheKey = animTime.toFixed(4) + ':' + animSpeed.toFixed(2);
-  if (_walkPoseCacheKey === cacheKey && _walkPoseCache) return _walkPoseCache;
+function getWalkPose(animTime, animSpeed, params) { return getKfCyclePose(params.walkKeyframes, gaitTime, 1.0, _walkCacheSlot); }
+// State 12 — Crouch Walk: same cyclic-keyframe evaluator over the crouchWalk
+// section (limb oscillation that rides the ducked base pose).
+function getCrouchWalkPose(animTime, animSpeed) { return getKfCyclePose(animParams.crouchWalk || DEFAULT_PARAMS.crouchWalk, gaitTime, 1.0, _cwCacheSlot); }
 
-  const wkf = params.walkKeyframes;
+function getKfCyclePose(wkf, animTime, animSpeed, slot) {
+  const cacheKey = animTime.toFixed(4) + ':' + animSpeed.toFixed(2);
+  if (slot.key === cacheKey && slot.pose) return slot.pose;
+
   const cycleDur = wkf.cycleDuration / Math.max(0.01, animSpeed);
   const cyclePhase = ((animTime % cycleDur) + cycleDur) % cycleDur / cycleDur;  // 0.0 → 1.0
 
@@ -1958,8 +2420,8 @@ function getWalkPose(animTime, animSpeed, params) {
   const weightShiftX = Math.sin(cyclePhase * 2 * Math.PI) * shiftAmp;
 
   const result = { pose, cyclePhase, kfAIdx, kfBIdx, interpT: smoothT, bodyBobY, weightShiftX };
-  _walkPoseCache = result;
-  _walkPoseCacheKey = cacheKey;
+  slot.pose = result;
+  slot.key = cacheKey;
   return result;
 }
 
@@ -1984,15 +2446,44 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
   const isAimingState = (animState > 2.5 && animState < 4.5) || isSweepState; // Aim Walk (3), Aiming (4), Aim Sweep (10)
   const isCrouchingState = (animState > 4.5 && animState < 5.5); // Crouching (5)
   const isSittingState = (animState > 10.5 && animState < 11.5); // Sit (11)
+  const isCrouchWalkState = (animState > 11.5 && animState < 12.5); // Crouch Walk (12) — crouch body channel + own gait
   const sitP = animParams.sitting || DEFAULT_PARAMS.sitting; // older files may lack the section
   const cdeep = animParams.crouchDeep || animParams.crouching; // deep endpoint (absent → shallow clone)
   const cr = (s, d) => s + (d - s) * crouchDepth;              // depth-lerp helper — parity with C# Cr()
   const sw = animParams.aimSweep;
   const sweepYaw = (isSweepState && sw) ? Math.sin(animTime * sw.freq) * sw.amp : 0;
-  const torsoTwist = isAimingState ? animParams.aiming.torsoTwist : 0;
-  const bodyLean = isCrouchingState ? cr(animParams.crouching.bodyLean, cdeep.bodyLean) : 0;
-  const bodyLower = isCrouchingState ? cr(animParams.crouching.bodyLower, cdeep.bodyLower) : 0;
-  const modelLower = isCrouchingState ? cr(animParams.crouching.modelLower, cdeep.modelLower) : 0;
+  // IK-aim torso assist rides the same body transform — getBodyTransform()
+  // picks it up, so the solve folds the target correctly. yaw = blade
+  // constant + solved share; pitch = solved elevation share.
+  const ikOn = ikAim.enabled && animState !== 8 && animState !== 9;
+  const ikTwist = ikOn ? ikAimTorsoYaw() : 0;
+  const ikPitch = ikOn ? ikAimTorsoPitch() : 0;
+  const torsoTwist = (isAimingState ? animParams.aiming.torsoTwist : 0) + ikTwist;
+  // Walk-duck: the unified duck axis on Walking. Dual authored endpoints —
+  // walkDuckMid lands at duck 1, walkDuckPose at duck 2. duckIn ramps the
+  // pose in over 0→1, duckDeep morphs mid→far over 1→2; wd() resolves each
+  // endpoint field. The mirrored walkKeyframes own limb oscillation on top.
+  const isWalkAnim = (animState > 0.5 && animState < 1.5);
+  const wdp = animParams.walkDuckPose || DEFAULT_PARAMS.walkDuckPose;
+  const wdm = animParams.walkDuckMid || DEFAULT_PARAMS.walkDuckMid;
+  const duckIn = isWalkAnim ? Math.min(1, duck) : 0;   // Walking only — NOT Aim Walk
+  const duckDeep = Math.max(0, duck - 1);
+  const wd = (k) => ((wdm[k] || 0) + ((wdp[k] || 0) - (wdm[k] || 0)) * duckDeep) * duckIn;
+  // icr(k): the AUTHORED crouch endpoints as a held idle — ramp in over
+  // duck 0→1 at shallow, morph shallow→deep over 1→2. No gait: the pose
+  // IS the authored stance, stationary. Same scalar as Walking's duck —
+  // h(duck) is identical standing or moving.
+  const idleIn = animState === 0 ? Math.min(1, duck) : 0;
+  const idleDp = Math.max(0, duck - 1);
+  const icr = (k) => (((animParams.crouching || {})[k] || 0) * (1 - idleDp) + ((cdeep || {})[k] || 0) * idleDp) * idleIn;
+  const bodyLean = ((isCrouchingState || isCrouchWalkState)
+    ? cr(animParams.crouching.bodyLean, cdeep.bodyLean) : wd('bodyLean') + icr('bodyLean')) + ikPitch;
+  const bodyLower = (isCrouchingState || isCrouchWalkState)
+    ? cr(animParams.crouching.bodyLower, cdeep.bodyLower) : wd('bodyLower') + icr('bodyLower');
+  const modelLower = (isCrouchingState || isCrouchWalkState)
+    ? cr(animParams.crouching.modelLower, cdeep.modelLower) : wd('modelLower') + icr('modelLower');
+  const bodyForward = (isCrouchingState || isCrouchWalkState)
+    ? cr(animParams.crouching.bodyForward || 0, cdeep.bodyForward || 0) : wd('bodyForward') + icr('bodyForward');
   const hasBodyRot = torsoTwist !== 0 || bodyLean !== 0;
 
   function getBodyTransform() {
@@ -2011,12 +2502,12 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
   // It's a Y translation in voxel units — physically drops the torso.
   // modelLower is a GLOBAL offset applied to ALL groups — shifts the entire
   // posed figure down as a unit so feet plant on the ground after crouch bends.
-  const bodyOffset = [0, -bodyLower - modelLower, 0];
+  const bodyOffset = [0, -bodyLower - modelLower, bodyForward];
 
   // Group 0 (body): apply body rotation + lower offset
   if (gid === 0) {
     const bodyTransform = getBodyTransform();
-    if (!bodyTransform && bodyLower === 0 && modelLower === 0) return null;
+    if (!bodyTransform && bodyLower === 0 && modelLower === 0 && bodyForward === 0) return null;
     const chain = bodyTransform ? [bodyTransform] : [];
     return { chain, offset: bodyOffset };
   }
@@ -2052,6 +2543,10 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
   if (bodyLower !== 0 && (gid === 1 || gid === 2 || gid === 3)) {
     offset = [offset[0], offset[1] - bodyLower, offset[2]];
   }
+  // bodyForward is the Z twin of bodyLower — torso (head, arms) shifts fwd/back
+  if (bodyForward !== 0 && (gid === 1 || gid === 2 || gid === 3)) {
+    offset = [offset[0], offset[1], offset[2] + bodyForward];
+  }
   // Add modelLower to ALL root parent groups (1-5) — children (6-9) inherit
   // via parentResult.offset. This shifts the entire posed figure down as a unit.
   if (modelLower !== 0 && (gid === 1 || gid === 2 || gid === 3 || gid === 4 || gid === 5)) {
@@ -2071,31 +2566,47 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
       const p2 = animParams.aiming;
       headYaw = p2.headYaw + sweepYaw * (sw ? sw.headFollow : 0); // gaze follows the gun
       headPitch = p2.headPitch; headTilt = p2.headTilt;
-    } else if (animState > 4.5 && animState < 5.5) { // Crouching
+    } else if (animState > 4.5 && animState < 5.5 || isCrouchWalkState) { // Crouching / Crouch Walk
       headPitch = cr(animParams.crouching.headPitch, cdeep.headPitch);
+    } else if (isWalkAnim && duck > 0) { // Walking + Duck — duck-endpoint head pose (mid→far morph)
+      headPitch = wd('headPitch'); headTilt = wd('headTilt');
+    } else if (idleIn > 0) { // Idle + held crouch — authored head pitch (no tilt field in crouch endpoints)
+      headPitch = icr('headPitch');
     } else if (isSittingState) { // Sit
       headPitch = sitP.headPitch;
     } else {
       ownRot = identity; // Idle: head at rest
     }
+    // Look-scan channel — sentry layer: the Looking oscillation rides on top
+    // of whatever state head pose we just built (crouch pitch + scan =
+    // ducked alert sentry). IK headTrack takes precedence when aiming.
+    const scan = lookScan.enabled && !(ikAim.enabled && ikAim.headTrack > 0);
+    if (scan) {
+      const p2 = animParams.looking;
+      headYaw += Math.sin(animTime * p2.headYawFreq) * p2.headYaw * lookScan.blend;
+      // yaw only — a sentry scans left/right; the state's own pitch stands
+    }
     // Compose: Y (yaw, left/right) × X (pitch, up/down) × Z (tilt, roll sideways)
-    if (ownRot === null) ownRot = matMul3(rotationY(headYaw), matMul3(rotationX(headPitch), rotationZ(headTilt)));
+    if (ownRot === null || scan) ownRot = matMul3(rotationY(headYaw), matMul3(rotationX(headPitch), rotationZ(headTilt)));
   } else if (gid === 2) { // Left arm (shoulder)
     const as = animParams.armSwing;
     let swing = 0;
     let reach = 0; // Y rotation — shoulder reach across body (aiming only)
     if (animState > 0.5 && animState < 1.5) { // Walking — keyframe pose
       const wp = getWalkPose(animTime, animSpeed, animParams);
-      swing = as.signL * wp.pose.armSwingL;
+      swing = as.signL * (wp.pose.armSwingL + wd('armSwingL'));
     } else if (isAimingState) { // Aim Walk (3), Aiming (4), Aim Sweep (10)
       swing = as.signL * animParams.aiming.armSwingL; // static pose — no oscillation
       reach = animParams.aiming.shoulderReachL + (swing !== 0 ? sweepYaw : 0); // cross-body reach + sweep on aiming arms
     } else if (animState > 4.5 && animState < 5.5) { // Crouching
       swing = as.signL * cr(animParams.crouching.armSwingL, cdeep.armSwingL);
+    } else if (isCrouchWalkState) { // Crouch Walk — ducked base swing + keyframed gait
+      const cwp = getCrouchWalkPose(animTime, animSpeed);
+      swing = as.signL * (cr(animParams.crouching.armSwingL, cdeep.armSwingL) + cwp.pose.armSwingL);
     } else if (isSittingState) { // Sit
       swing = as.signL * sitP.armSwingL;
     } else {
-      ownRot = rotationZ(animParams.restPose.leftArmZ); // Idle: rest pose only
+      swing = as.signL * icr('armSwingL'); // Idle (+held crouch): rest + crouch delta (0 at hold 0)
     }
     // Compose: Z (rest pose, arm down) → swing axis → Y (reach, across body)
     if (ownRot === null) {
@@ -2107,16 +2618,19 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
     let reach = 0;
     if (animState > 0.5 && animState < 1.5) { // Walking — keyframe pose
       const wp = getWalkPose(animTime, animSpeed, animParams);
-      swing = as.signR * wp.pose.armSwingR;
+      swing = as.signR * (wp.pose.armSwingR + wd('armSwingR'));
     } else if (isAimingState) { // Aim Walk (3), Aiming (4), Aim Sweep (10)
       swing = as.signR * animParams.aiming.armSwingR;
       reach = animParams.aiming.shoulderReachR + (swing !== 0 ? sweepYaw : 0);
     } else if (animState > 4.5 && animState < 5.5) { // Crouching
       swing = as.signR * cr(animParams.crouching.armSwingR, cdeep.armSwingR);
+    } else if (isCrouchWalkState) { // Crouch Walk — ducked base swing + keyframed gait
+      const cwp = getCrouchWalkPose(animTime, animSpeed);
+      swing = as.signR * (cr(animParams.crouching.armSwingR, cdeep.armSwingR) + cwp.pose.armSwingR);
     } else if (isSittingState) { // Sit
       swing = as.signR * sitP.armSwingR;
     } else {
-      ownRot = rotationZ(animParams.restPose.rightArmZ);
+      swing = as.signR * icr('armSwingR'); // Idle (+held crouch)
     }
     if (ownRot === null) {
       ownRot = matMul3(rotationY(reach), matMul3(rotationByAxis(as.axisR, swing), rotationZ(animParams.restPose.rightArmZ)));
@@ -2127,13 +2641,16 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
     let stride = 0;
     if (animState > 0.5 && animState < 1.5 || animState > 2.5 && animState < 3.5) { // Walking or Aim Walk — keyframe pose
       const wp = getWalkPose(animTime, animSpeed, animParams);
-      stride = ls.signL * wp.pose.legStrideL;
+      stride = ls.signL * (wp.pose.legStrideL + wd('legStrideL'));
     } else if (animState > 4.5 && animState < 5.5) { // Crouching
       stride = ls.signL * cr(animParams.crouching.legStrideL, cdeep.legStrideL);
+    } else if (isCrouchWalkState) { // Crouch Walk — folded hips + keyframed stride
+      const cwp = getCrouchWalkPose(animTime, animSpeed);
+      stride = ls.signL * (cr(animParams.crouching.legStrideL, cdeep.legStrideL) + cwp.pose.legStrideL);
     } else if (isSittingState) { // Sit
       stride = ls.signL * sitP.legStrideL;
     } else {
-      ownRot = rotationY(twist); // Idle: straight + twist
+      stride = ls.signL * icr('legStrideL'); // Idle (+held crouch): twist + crouch stride
     }
     // Compose: Y twist (base orientation) → stride axis (animation on top)
     if (ownRot === null) ownRot = matMul3(rotationByAxis(ls.axisL, stride), rotationY(twist));
@@ -2143,69 +2660,124 @@ function computeGroupRotation(gid, dims, voxelSize, animState, animTime, animSpe
     let stride = 0;
     if (animState > 0.5 && animState < 1.5 || animState > 2.5 && animState < 3.5) { // Walking or Aim Walk — keyframe pose
       const wp = getWalkPose(animTime, animSpeed, animParams);
-      stride = ls.signR * wp.pose.legStrideR;
+      stride = ls.signR * (wp.pose.legStrideR + wd('legStrideR'));
     } else if (animState > 4.5 && animState < 5.5) { // Crouching
       stride = ls.signR * cr(animParams.crouching.legStrideR, cdeep.legStrideR);
+    } else if (isCrouchWalkState) { // Crouch Walk — folded hips + keyframed stride
+      const cwp = getCrouchWalkPose(animTime, animSpeed);
+      stride = ls.signR * (cr(animParams.crouching.legStrideR, cdeep.legStrideR) + cwp.pose.legStrideR);
     } else if (isSittingState) { // Sit
       stride = ls.signR * sitP.legStrideR;
     } else {
-      ownRot = rotationY(twist);
+      stride = ls.signR * icr('legStrideR'); // Idle (+held crouch)
     }
     if (ownRot === null) ownRot = matMul3(rotationByAxis(ls.axisR, stride), rotationY(twist));
   } else if (gid === 8) { // Left forearm (elbow hinge + twist)
     const eb = animParams.elbowBend;
-    let bend = eb.signL * eb.leftRest;
+    let bend = eb.signL * (eb.leftRest + icr('elbowBendL')); // rest + held-crouch fold
     let twist = eb.twistL;
     if (animState > 0.5 && animState < 1.5) { // Walking — keyframe pose
       const wp = getWalkPose(animTime, animSpeed, animParams);
-      bend = eb.signL * wp.pose.elbowBendL;
+      bend = eb.signL * (wp.pose.elbowBendL + wd('elbowBendL'));
       twist = wp.pose.forearmTwistL;
     } else if (isAimingState) { // Aim Walk (3), Aiming (4), Aim Sweep (10)
       bend = eb.signL * animParams.aiming.elbowBendL;
     } else if (animState > 4.5 && animState < 5.5) { // Crouching — rest + static bend
       bend += eb.signL * cr(animParams.crouching.elbowBendL, cdeep.elbowBendL);
+    } else if (isCrouchWalkState) { // Crouch Walk — rest + ducked bend + gait
+      const cwp = getCrouchWalkPose(animTime, animSpeed);
+      bend += eb.signL * (cr(animParams.crouching.elbowBendL, cdeep.elbowBendL) + cwp.pose.elbowBendL);
+      twist = cwp.pose.forearmTwistL;
     }
     ownRot = rotationByAxis(eb.axisL, bend);
     if (twist !== 0) ownRot = matMul3(ownRot, rotationX(twist));
   } else if (gid === 9) { // Right forearm (elbow hinge + twist)
     const eb = animParams.elbowBend;
-    let bend = eb.signR * eb.rightRest;
+    let bend = eb.signR * (eb.rightRest + icr('elbowBendR')); // rest + held-crouch fold
     let twist = eb.twistR;
     if (animState > 0.5 && animState < 1.5) { // Walking — keyframe pose
       const wp = getWalkPose(animTime, animSpeed, animParams);
-      bend = eb.signR * wp.pose.elbowBendR;
+      bend = eb.signR * (wp.pose.elbowBendR + wd('elbowBendR'));
       twist = wp.pose.forearmTwistR;
     } else if (isAimingState) { // Aim Walk (3), Aiming (4), Aim Sweep (10)
       bend = eb.signR * animParams.aiming.elbowBendR;
     } else if (animState > 4.5 && animState < 5.5) { // Crouching — rest + static bend
       bend += eb.signR * cr(animParams.crouching.elbowBendR, cdeep.elbowBendR);
+    } else if (isCrouchWalkState) { // Crouch Walk — rest + ducked bend + gait
+      const cwp = getCrouchWalkPose(animTime, animSpeed);
+      bend += eb.signR * (cr(animParams.crouching.elbowBendR, cdeep.elbowBendR) + cwp.pose.elbowBendR);
+      twist = cwp.pose.forearmTwistR;
     }
     ownRot = rotationByAxis(eb.axisR, bend);
     if (twist !== 0) ownRot = matMul3(ownRot, rotationX(twist));
   } else if (gid === 6) { // Left shin (knee hinge)
     const kb = animParams.kneeBend;
-    let bend = kb.signL * kb.leftRest;
+    let bend = kb.signL * (kb.leftRest + icr('kneeBendL')); // rest + held-crouch fold
     if (animState > 0.5 && animState < 1.5 || animState > 2.5 && animState < 3.5) { // Walking or Aim Walk — keyframe pose
       const wp = getWalkPose(animTime, animSpeed, animParams);
-      bend = kb.signL * wp.pose.kneeBendL;
+      bend = kb.signL * (wp.pose.kneeBendL + wd('kneeBendL'));
     } else if (animState > 4.5 && animState < 5.5) { // Crouching — static knee bend
       bend += kb.signL * cr(animParams.crouching.kneeBendL, cdeep.kneeBendL);
+    } else if (isCrouchWalkState) { // Crouch Walk — ducked base + keyframed knee
+      const cwp = getCrouchWalkPose(animTime, animSpeed);
+      bend += kb.signL * (cr(animParams.crouching.kneeBendL, cdeep.kneeBendL) + cwp.pose.kneeBendL);
     } else if (isSittingState) { // Sit — static knee bend
       bend += kb.signL * sitP.kneeBendL;
     }
     ownRot = rotationByAxis(kb.axisL, bend);
   } else if (gid === 7) { // Right shin (knee hinge)
     const kb = animParams.kneeBend;
-    let bend = kb.signR * kb.rightRest;
+    let bend = kb.signR * (kb.rightRest + icr('kneeBendR')); // rest + held-crouch fold
     if (animState > 0.5 && animState < 1.5 || animState > 2.5 && animState < 3.5) { // Walking or Aim Walk — keyframe pose
       const wp = getWalkPose(animTime, animSpeed, animParams);
-      bend = kb.signR * wp.pose.kneeBendR;
+      bend = kb.signR * (wp.pose.kneeBendR + wd('kneeBendR'));
     } else if (animState > 4.5 && animState < 5.5) { // Crouching — static knee bend
       bend += kb.signR * cr(animParams.crouching.kneeBendR, cdeep.kneeBendR);
+    } else if (isCrouchWalkState) { // Crouch Walk — ducked base + keyframed knee
+      const cwp = getCrouchWalkPose(animTime, animSpeed);
+      bend += kb.signR * (cr(animParams.crouching.kneeBendR, cdeep.kneeBendR) + cwp.pose.kneeBendR);
     } else if (isSittingState) { // Sit — static knee bend
       bend += kb.signR * sitP.kneeBendR;
     }
     ownRot = rotationByAxis(kb.axisR, bend);
+  }
+
+  // === IK AIM CHANNEL (debug) ===
+  // Simulated ArmAimSolver: the solve replaces the group's ownRot toward the
+  // fixed front target, blended by ikAim.blend (Unity: Slerp into
+  // ikOverrides[gid]). Runs over ANY state — that's the doctrine preview:
+  // aim is a channel layered on the pose, not an authored aim state.
+  if (ikAim.enabled && ikArmOk(gid)
+      && animState !== 8 && animState !== 9) {
+    const ag = gid <= 3 ? gid : (gid === 8 ? 2 : 3);
+    const sol = ikAimSolve(ag, ikAimTargetModel(), hasBodyRot ? getBodyTransform() : null);
+    if (sol) {
+      const ik = gid <= 3 ? sol.qArm : sol.qFore;
+      const base = ownRot || identity;
+      ownRot = matMul3(scaledRotMat(matMul3(ik, matT3(base)), ikAim.blend), base);
+    }
+  }
+
+  // Head tracks the same target — aiming takes eyes, and the vision cone
+  // anchors to the head, so the gaze sweeps onto the aim point. The target
+  // folds into the pre-body frame exactly like the arm solve, so a crouched/
+  // bladed torso still lands the look. Blended by ikAim.headTrack.
+  if (ikAim.enabled && ikAim.headTrack > 0 && gid === 1
+      && animState !== 8 && animState !== 9) {
+    const hp = pivots[1];
+    if (hp) {
+      const hv = [hp.x * W, hp.y * H, hp.z * D];
+      const bodyT = hasBodyRot ? getBodyTransform() : null;
+      const T = ikAimTargetModel();
+      const Tv = bodyT ? add3(bodyT.pivot, matVec3(matT3(bodyT.rot), sub3(T, bodyT.pivot))) : T;
+      const d = sub3(Tv, hv);
+      const toT = len3(d) > 1e-6 ? norm3(d) : [0, 0, 1];
+      // Same solve as the arms: rotation that maps the head's bind forward
+      // (+Z — the character faces the target) onto the look direction.
+      const aimHead = basisDelta([0, 0, 1], toT, [0, 1, 0]);
+      const base = ownRot || identity;
+      ownRot = matMul3(scaledRotMat(matMul3(aimHead, matT3(base)), ikAim.headTrack), base);
+    }
   }
 
   if (ownRot === null) return parentResult;
@@ -2244,15 +2816,31 @@ let currentWalkKeyframe = 0; // Which walk keyframe is being edited (0-3)
 // dual-eval: on state change the outgoing pose freezes as (transFrom,
 // transFromTime); posedPosTransition lerps voxel positions toward the live
 // pose over transDur with a -sin(πt) settle dip. Same ease menu as the game.
-let crouchDepth = 0;             // adaptive duck 0..1 — shallow→deep lerp axis
+let crouchDepth = 0;             // adaptive duck 0..1 — shallow→deep lerp axis (legacy crouch states)
+let duck = 0;                    // THE shared duck scalar 0..2 — bound across Idle (held crouch: crouching→crouchDeep) AND Walking (moving duck: walkDuckMid→walkDuckPose). One value = one silhouette height h(duck) for the cover contract, whatever the locomotion state.
 let transT = -1;                 // <0 = idle
 let transFrom = 0, transFromTime = 0, transFromDepth = 0;
 let transBlend = 1, transDip = 0;
 const poseTrans = { enabled: true, dur: 0.32, dip: 0.45, ease: 1 }; // ease: 0 linear · 1 smoothstep · 2 cosine
 
 let animTime = 0;
+// Gait clock — INTEGRATED, not derived: advances by dt*speed each frame, so
+// duck→speed coupling (or the speed slider) changes the RATE of phase
+// advance only — the current phase never teleports. Prevents the pose
+// "rewrite" pop that animTime mod (cycleDur/speed) caused on speed change.
+let gaitTime = 0;
 let isPlaying = false;  // paused at blank init — auto-starts on first model load
-let animSpeed = 1.0;
+let baseAnimSpeed = 1.0;   // user speed-slider value (pre-coupling)
+let animSpeed = 1.0;       // EFFECTIVE gait speed — consumed at every call site
+// Duck→Speed coupling (feature test): the gait slows with duck depth —
+// 1.0x at duck 0 → minSpeed at duck 2. Mirrors the planned in-game
+// move-speed falloff vs crouch depth, so the prototype previews it 1:1.
+const duckSpeed = { enabled: false, minSpeed: 0.35 };
+function applyDuckSpeed() {
+  const k = duckSpeed.enabled ? Math.min(1, Math.max(0, duck) / 2) : 0;
+  animSpeed = baseAnimSpeed * (1 + (duckSpeed.minSpeed - 1) * k);
+  document.getElementById('speed-val').textContent = animSpeed.toFixed(2) + 'x';
+}
 let useAnimatedMesh = false;
 
 function rebuildAnimatedMesh() {
@@ -2277,9 +2865,12 @@ function rebuildAnimatedMesh() {
     return;
   }
 
-  // Compute walk pose once for body bob + weight shift (Walking or Aim Walk)
+  // Compute walk pose once for body bob + weight shift (Walking / Aim Walk /
+  // Crouch Walk — each sources its own keyframe section)
   const isWalkState = (currentAnimState > 0.5 && currentAnimState < 1.5) || (currentAnimState > 2.5 && currentAnimState < 3.5);
-  const walkPose = isWalkState ? getWalkPose(animTime, animSpeed, animParams) : null;
+  const isCrouchWalkState = (currentAnimState > 11.5 && currentAnimState < 12.5);
+  const walkPose = isWalkState ? getWalkPose(animTime, animSpeed, animParams)
+    : isCrouchWalkState ? getCrouchWalkPose(animTime, animSpeed) : null;
   const bodyBobY = walkPose ? walkPose.bodyBobY : 0;
   const weightShiftX = walkPose ? walkPose.weightShiftX : 0;
 
@@ -2319,7 +2910,7 @@ function rebuildAnimatedMesh() {
     }
 
     // Apply body bob (vertical) + weight shift (lateral) for walk states
-    if (isWalkState) {
+    if (walkPose) {
       px += weightShiftX;
       py += bodyBobY;
     }
@@ -2374,7 +2965,7 @@ function rebuildAnimatedMesh() {
         pz = pp[2] - D / 2;
       }
       // Apply body bob (vertical) + weight shift (lateral) for walk states
-      if (isWalkState) {
+      if (walkPose) {
         px += weightShiftX;
         py += bodyBobY;
       }
@@ -2703,10 +3294,6 @@ function selectState(stateId) {
   }
   currentAnimState = stateId;
   animTime = 0;
-  // Endpoint buttons pin the depth axis — Crouching = shallow (0),
-  // Crouch Deep (5.1) = deep (1). The depth slider re-blends freely after.
-  if (stateId === 5) crouchDepth = 0;
-  if (stateId === 5.1) crouchDepth = 1;
   document.querySelectorAll('.state-btn').forEach((el, i) => {
     el.classList.toggle('active', STATES[i].id === stateId);
   });
@@ -2723,6 +3310,7 @@ function selectState(stateId) {
 }
 
 function buildPivotControls() {
+  _ikHandCache = {}; // new model — re-derive hand points from fresh voxels
   const container = document.getElementById('pivot-controls');
   container.innerHTML = '';
   // Include all pivot groups: 0 (body/waist), 1-5 (parents), 6-9 (elbows/knees).
@@ -2759,15 +3347,16 @@ function buildPivotControls() {
 // === WALK KEYFRAME POSE EDITOR ===
 // Builds the keyframe selector + per-keyframe pose sliders + cycle settings.
 // Shown at the top of the param panel when in Walking state.
-function buildWalkKeyframeUI(container) {
-  const wkf = animParams.walkKeyframes;
+// Shared 4-keyframe gait editor — Walking and Crouch Walk use the same UI
+// over their own keyframe section (autoMirror / cycle / interp / bob / shift).
+function buildKfEditor(container, wkf, title) {
   const KF_NAMES = ['Contact', 'Passing', 'Contact (L)', 'Passing (L)'];
   const KF_PHASES = ['0%', '25%', '50%', '75%'];
 
   // --- Section header ---
   const header = document.createElement('div');
   header.style.cssText = 'font-size:11px; color:#ffcc00; font-weight:bold; margin-bottom:4px; border-bottom:1px solid #444; padding-bottom:3px;';
-  header.textContent = 'Walk Keyframes';
+  header.textContent = title;
   container.appendChild(header);
 
   // --- Keyframe selector tabs ---
@@ -2941,201 +3530,12 @@ function buildWalkKeyframeUI(container) {
   const shiftSlider = shiftRow.querySelector('#shift-amp-slider');
   shiftSlider.oninput = (e) => { wkf.weightShift.amplitude = parseFloat(e.target.value); if (useAnimatedMesh) rebuildAnimatedMesh(); };
   container.appendChild(shiftRow);
-
-  // --- Axis/Sign section header ---
-  const axisHeader = document.createElement('div');
-  axisHeader.style.cssText = 'font-size:10px; color:#0ff; margin:6px 0 2px; border-top:1px solid #333; padding-top:3px;';
-  axisHeader.textContent = 'Joint Axis / Sign (how keyframe values map to rig)';
-  container.appendChild(axisHeader);
 }
 
-function buildParamControls() {
-  const container = document.getElementById('param-controls');
-  container.innerHTML = '';
-
-  // Determine which params are relevant for current state
-  let relevantParams = [];
-  const stateName = (STATES.find(s => s.id === currentAnimState) || { name: '' }).name.toLowerCase();
-
-  if (currentAnimState === 0) { // Idle — rest pose + joint offset + hinge rest bend + joint orientation
-    relevantParams = [
-      ['restPose', 'leftArmZ', 'L Arm Rest Z', -Math.PI, Math.PI, 0.01],
-      ['restPose', 'rightArmZ', 'R Arm Rest Z', -Math.PI, Math.PI, 0.01],
-      ['armSwing', 'axisL', 'L Arm Axis', 0, 2, 1, 'axis'],
-      ['armSwing', 'axisR', 'R Arm Axis', 0, 2, 1, 'axis'],
-      ['armSwing', 'signL', 'L Arm Sign', -1, 1, 2, 'sign'],
-      ['armSwing', 'signR', 'R Arm Sign', -1, 1, 2, 'sign'],
-      ['legStride', 'axisL', 'L Leg Axis', 0, 2, 1, 'axis'],
-      ['legStride', 'axisR', 'R Leg Axis', 0, 2, 1, 'axis'],
-      ['legStride', 'signL', 'L Leg Sign', -1, 1, 2, 'sign'],
-      ['legStride', 'signR', 'R Leg Sign', -1, 1, 2, 'sign'],
-      ['legTwist', 'leftRest', 'L Leg Twist Y', -Math.PI, Math.PI, 0.01],
-      ['legTwist', 'rightRest', 'R Leg Twist Y', -Math.PI, Math.PI, 0.01],
-      ['elbowBend', 'leftRest', 'L Elbow Rest', 0, 1.5, 0.01],
-      ['elbowBend', 'rightRest', 'R Elbow Rest', 0, 1.5, 0.01],
-      ['elbowBend', 'axisL', 'L Elbow Axis', 0, 2, 1, 'axis'],
-      ['elbowBend', 'axisR', 'R Elbow Axis', 0, 2, 1, 'axis'],
-      ['elbowBend', 'signL', 'L Elbow Sign', -1, 1, 2, 'sign'],
-      ['elbowBend', 'signR', 'R Elbow Sign', -1, 1, 2, 'sign'],
-      ['elbowBend', 'twistL', 'L Forearm Twist', -Math.PI, Math.PI, 0.01],
-      ['elbowBend', 'twistR', 'R Forearm Twist', -Math.PI, Math.PI, 0.01],
-      ['kneeBend', 'leftRest', 'L Knee Rest', 0, 1.5, 0.01],
-      ['kneeBend', 'rightRest', 'R Knee Rest', 0, 1.5, 0.01],
-      ['kneeBend', 'axisL', 'L Knee Axis', 0, 2, 1, 'axis'],
-      ['kneeBend', 'axisR', 'R Knee Axis', 0, 2, 1, 'axis'],
-      ['kneeBend', 'signL', 'L Knee Sign', -1, 1, 2, 'sign'],
-      ['kneeBend', 'signR', 'R Knee Sign', -1, 1, 2, 'sign'],
-    ];
-    // Joint offset controls are appended AFTER the flat params loop below.
-  } else if (currentAnimState === 1) { // Walking — keyframe pose system
-    // Axis/sign controls remain (determine HOW keyframe values map to rig)
-    // Pose values are edited via the keyframe UI built below the flat params
-    relevantParams = [
-      ['armSwing', 'axisL', 'L Arm Axis', 0, 2, 1, 'axis'],
-      ['armSwing', 'axisR', 'R Arm Axis', 0, 2, 1, 'axis'],
-      ['armSwing', 'signL', 'L Arm Sign', -1, 1, 2, 'sign'],
-      ['armSwing', 'signR', 'R Arm Sign', -1, 1, 2, 'sign'],
-      ['legStride', 'axisL', 'L Leg Axis', 0, 2, 1, 'axis'],
-      ['legStride', 'axisR', 'R Leg Axis', 0, 2, 1, 'axis'],
-      ['legStride', 'signL', 'L Leg Sign', -1, 1, 2, 'sign'],
-      ['legStride', 'signR', 'R Leg Sign', -1, 1, 2, 'sign'],
-      ['legTwist', 'leftRest', 'L Leg Twist Y', -Math.PI, Math.PI, 0.01],
-      ['legTwist', 'rightRest', 'R Leg Twist Y', -Math.PI, Math.PI, 0.01],
-      ['elbowBend', 'axisL', 'L Elbow Axis', 0, 2, 1, 'axis'],
-      ['elbowBend', 'axisR', 'R Elbow Axis', 0, 2, 1, 'axis'],
-      ['elbowBend', 'signL', 'L Elbow Sign', -1, 1, 2, 'sign'],
-      ['elbowBend', 'signR', 'R Elbow Sign', -1, 1, 2, 'sign'],
-      ['kneeBend', 'axisL', 'L Knee Axis', 0, 2, 1, 'axis'],
-      ['kneeBend', 'axisR', 'R Knee Axis', 0, 2, 1, 'axis'],
-      ['kneeBend', 'signL', 'L Knee Sign', -1, 1, 2, 'sign'],
-      ['kneeBend', 'signR', 'R Knee Sign', -1, 1, 2, 'sign'],
-    ];
-  } else if (currentAnimState === 2) { // Looking
-    relevantParams = [
-      ['looking', 'headYaw', 'Head Yaw', 0, 1.5, 0.01],
-      ['looking', 'headYawFreq', 'Yaw Freq', 0.5, 10, 0.1],
-      ['looking', 'headPitch', 'Head Pitch', 0, 1, 0.01],
-      ['looking', 'headPitchFreq', 'Pitch Freq', 0.5, 10, 0.1],
-    ];
-  } else if (currentAnimState === 3) { // Aim Walk — aiming upper + keyframe walk lower
-    relevantParams = [
-      ['aiming', 'torsoTwist', 'Torso Twist', -1.0, 1.0, 0.01],
-      ['aiming', 'headYaw', 'Head Yaw', -1, 1, 0.01],
-      ['aiming', 'headPitch', 'Head Pitch', -1, 1, 0.01],
-      ['aiming', 'headTilt', 'Head Tilt', -0.5, 0.5, 0.01],
-      ['aiming', 'armSwingL', 'L Arm Raise', -2, 0.5, 0.01],
-      ['aiming', 'armSwingR', 'R Arm Raise', -2, 0.5, 0.01],
-      ['aiming', 'shoulderReachL', 'L Shoulder Reach', -1.0, 1.0, 0.01],
-      ['aiming', 'shoulderReachR', 'R Shoulder Reach', -1.0, 1.0, 0.01],
-      ['aiming', 'elbowBendL', 'L Elbow Bend', 0, 1.5, 0.01],
-      ['aiming', 'elbowBendR', 'R Elbow Bend', 0, 1.5, 0.01],
-      // Walk keyframes drive the legs/knees — edit poses in Walking state
-    ];
-  } else if (currentAnimState === 4) { // Aiming — static pose
-    relevantParams = [
-      ['aiming', 'torsoTwist', 'Torso Twist', -1.0, 1.0, 0.01],
-      ['aiming', 'headYaw', 'Head Yaw', -1, 1, 0.01],
-      ['aiming', 'headPitch', 'Head Pitch', -1, 1, 0.01],
-      ['aiming', 'headTilt', 'Head Tilt', -0.5, 0.5, 0.01],
-      ['aiming', 'armSwingL', 'L Arm Raise', -2, 0.5, 0.01],
-      ['aiming', 'armSwingR', 'R Arm Raise', -2, 0.5, 0.01],
-      ['aiming', 'shoulderReachL', 'L Shoulder Reach', -1.0, 1.0, 0.01],
-      ['aiming', 'shoulderReachR', 'R Shoulder Reach', -1.0, 1.0, 0.01],
-      ['aiming', 'elbowBendL', 'L Elbow Bend', 0, 1.5, 0.01],
-      ['aiming', 'elbowBendR', 'R Elbow Bend', 0, 1.5, 0.01],
-    ];
-  } else if (currentAnimState === 10) { // Aim Sweep — aiming pose + reach sweep
-    relevantParams = [
-      ['aimSweep', 'amp', 'Sweep Amplitude', 0, 1.5, 0.01],
-      ['aimSweep', 'freq', 'Sweep Freq', 0.2, 6, 0.1],
-      ['aimSweep', 'headFollow', 'Head Follow', 0, 1, 0.05],
-      ['aiming', 'torsoTwist', 'Torso Twist', -1.0, 1.0, 0.01],
-      ['aiming', 'armSwingL', 'L Arm Raise', -2, 0.5, 0.01],
-      ['aiming', 'armSwingR', 'R Arm Raise', -2, 0.5, 0.01],
-      ['aiming', 'shoulderReachL', 'L Shoulder Reach', -1.0, 1.0, 0.01],
-      ['aiming', 'shoulderReachR', 'R Shoulder Reach', -1.0, 1.0, 0.01],
-      ['aiming', 'elbowBendL', 'L Elbow Bend', 0, 1.5, 0.01],
-      ['aiming', 'elbowBendR', 'R Elbow Bend', 0, 1.5, 0.01],
-    ];
-  } else if (currentAnimState > 4.5 && currentAnimState < 5.5) { // Crouching (5) / Crouch Deep (5.1) — shallow endpoint + DEEP endpoint (depth lerp)
-    relevantParams = [
-      ['crouching', 'modelLower', 'Model Lower', 0, 15, 0.5],
-      ['crouching', 'bodyLower', 'Body Lower', 0, 15, 0.5],
-      ['crouching', 'bodyLean', 'Body Lean', 0, 1.0, 0.01],
-      ['crouching', 'headPitch', 'Head Pitch', -1, 1, 0.01],
-      ['crouching', 'armSwingL', 'L Arm Swing', -1.5, 1.5, 0.01],
-      ['crouching', 'armSwingR', 'R Arm Swing', -1.5, 1.5, 0.01],
-      ['crouching', 'legStrideL', 'L Leg Swing', -1.5, 1.5, 0.01],
-      ['crouching', 'legStrideR', 'R Leg Swing', -1.5, 1.5, 0.01],
-      ['crouching', 'kneeBendL', 'L Knee Bend', 0, 1.5, 0.01],
-      ['crouching', 'kneeBendR', 'R Knee Bend', 0, 1.5, 0.01],
-      ['crouching', 'elbowBendL', 'L Elbow Bend', 0, 1.5, 0.01],
-      ['crouching', 'elbowBendR', 'R Elbow Bend', 0, 1.5, 0.01],
-      // DEEP endpoint — the adaptive-duck pose. crouchDepth lerps every
-      // scalar shallow→deep; low cover picks a depth inside this range.
-      ['crouchDeep', 'modelLower', 'DEEP Model Lower', 0, 15, 0.5],
-      ['crouchDeep', 'bodyLower', 'DEEP Body Lower', 0, 15, 0.5],
-      ['crouchDeep', 'bodyLean', 'DEEP Body Lean', 0, 1.0, 0.01],
-      ['crouchDeep', 'headPitch', 'DEEP Head Pitch', -1, 1, 0.01],
-      ['crouchDeep', 'armSwingL', 'DEEP L Arm Swing', -1.5, 1.5, 0.01],
-      ['crouchDeep', 'armSwingR', 'DEEP R Arm Swing', -1.5, 1.5, 0.01],
-      ['crouchDeep', 'legStrideL', 'DEEP L Leg Swing', -1.5, 1.5, 0.01],
-      ['crouchDeep', 'legStrideR', 'DEEP R Leg Swing', -1.5, 1.5, 0.01],
-      ['crouchDeep', 'kneeBendL', 'DEEP L Knee Bend', 0, 1.7, 0.01],
-      ['crouchDeep', 'kneeBendR', 'DEEP R Knee Bend', 0, 1.7, 0.01],
-      ['crouchDeep', 'elbowBendL', 'DEEP L Elbow Bend', 0, 1.5, 0.01],
-      ['crouchDeep', 'elbowBendR', 'DEEP R Elbow Bend', 0, 1.5, 0.01],
-    ];
-  } else if (currentAnimState === 11) { // Sit
-    relevantParams = [
-      ['sitting', 'headPitch', 'Head Pitch', -0.5, 0.5, 0.01],
-      ['sitting', 'armSwingL', 'L Arm Swing', -0.5, 1.5, 0.01],
-      ['sitting', 'armSwingR', 'R Arm Swing', -0.5, 1.5, 0.01],
-      ['sitting', 'legStrideL', 'L Thigh Forward', -0.5, 1.7, 0.01],
-      ['sitting', 'legStrideR', 'R Thigh Forward', -0.5, 1.7, 0.01],
-      ['sitting', 'kneeBendL', 'L Knee Bend', 0, 1.7, 0.01],
-      ['sitting', 'kneeBendR', 'R Knee Bend', 0, 1.7, 0.01],
-    ];
-  } else if (currentAnimState === 9) { // T-Pose
-    container.innerHTML = '<div style="font-size:10px;color:#888;">T-Pose: raw bind pose, no rotations applied. Adjust rest-pose angles in the Idle state.</div>';
-    appendVisionControls(container);
-    return;
-  }
-
-  if (relevantParams.length === 0) {
-    container.innerHTML = '<div style="font-size:10px;color:#888;">No adjustable params for this state.</div>';
-    appendVisionControls(container);
-    return;
-  }
-
-  // Walk keyframe pose editor (Walking state only)
-  if (currentAnimState === 1) {
-    buildWalkKeyframeUI(container);
-  }
-
-  // Weapon-type preset dropdown for Aiming (4), Aim Walk (3), and Aim Sweep (10)
-  if (currentAnimState === 3 || currentAnimState === 4 || currentAnimState === 10) {
-    const weaponDiv = document.createElement('div');
-    weaponDiv.className = 'param-row';
-    weaponDiv.style.marginBottom = '6px';
-    weaponDiv.innerHTML = `
-      <label>Weapon</label>
-      <select id="weapon-type-select" class="param-num" style="flex:1; width:auto;">
-        <option value="pistol" ${animParams.aiming.weaponType === 'pistol' ? 'selected' : ''}>Pistol (one-hand)</option>
-        <option value="dual" ${animParams.aiming.weaponType === 'dual' ? 'selected' : ''}>Dual Pistols</option>
-        <option value="rifle" ${animParams.aiming.weaponType === 'rifle' ? 'selected' : ''}>Rifle (two-hand)</option>
-      </select>
-    `;
-    const select = weaponDiv.querySelector('select');
-    select.onchange = (e) => {
-      applyWeaponPreset(e.target.value);
-      buildParamControls(); // rebuild sliders with new preset values
-      if (useAnimatedMesh) rebuildAnimatedMesh();
-    };
-    container.appendChild(weaponDiv);
-  }
-
-  for (const param of relevantParams) {
+// Renders one param row (axis 3-button / sign 2-button / slider+num) into
+// `container`. Shared by the per-state flat loop and the global rig-mapping
+// block below.
+function appendParamRow(container, param) {
     const [section, key, label, min, max, step] = param;
     const controlType = param[6]; // optional: 'axis' or 'sign' for button selectors
     const row = document.createElement('div');
@@ -3203,6 +3603,198 @@ function buildParamControls() {
       };
     }
     container.appendChild(row);
+}
+
+function buildParamControls() {
+  const container = document.getElementById('param-controls');
+  container.innerHTML = '';
+
+  // Determine which params are relevant for current state
+  let relevantParams = [];
+
+  if (currentAnimState === 0) { // Idle — rest pose + joint offset + hinge rest bend + joint orientation
+    relevantParams = [
+      ['restPose', 'leftArmZ', 'L Arm Rest Z', -Math.PI, Math.PI, 0.01],
+      ['restPose', 'rightArmZ', 'R Arm Rest Z', -Math.PI, Math.PI, 0.01],
+      ['elbowBend', 'leftRest', 'L Elbow Rest', 0, 1.5, 0.01],
+      ['elbowBend', 'rightRest', 'R Elbow Rest', 0, 1.5, 0.01],
+      ['elbowBend', 'twistL', 'L Forearm Twist', -Math.PI, Math.PI, 0.01],
+      ['elbowBend', 'twistR', 'R Forearm Twist', -Math.PI, Math.PI, 0.01],
+      ['kneeBend', 'leftRest', 'L Knee Rest', 0, 1.5, 0.01],
+      ['kneeBend', 'rightRest', 'R Knee Rest', 0, 1.5, 0.01],
+      // Joint axis/sign mapping rows now render on EVERY state — see the
+      // shared "Joint Axis / Sign" block in appendVisionControls.
+    ];
+    // Held-crouch endpoints — the authored stationary pose evaluated by the
+    // duck scalar below: C1 = `crouching` (lands at hold 1), C2 =
+    // `crouchDeep` (hold 2). A Stance pick fills both.
+    animParams.crouching = animParams.crouching || JSON.parse(JSON.stringify(DEFAULT_PARAMS.crouching));
+    animParams.crouchDeep = animParams.crouchDeep || JSON.parse(JSON.stringify(DEFAULT_PARAMS.crouchDeep));
+    relevantParams.push(
+      ['crouching', 'modelLower', 'C1 Model Lower', 0, 25, 0.5],
+      ['crouching', 'bodyLower', 'C1 Body Lower', 0, 20, 0.5],
+      ['crouching', 'bodyForward', 'C1 Body Fwd', -15, 15, 0.5],
+      ['crouching', 'bodyLean', 'C1 Body Lean', -1.5, 1.5, 0.01],
+      ['crouching', 'headPitch', 'C1 Head Pitch', -1.5, 1.5, 0.01],
+      ['crouching', 'armSwingL', 'C1 L Arm', -2.5, 2.5, 0.01],
+      ['crouching', 'armSwingR', 'C1 R Arm', -2.5, 2.5, 0.01],
+      ['crouching', 'legStrideL', 'C1 L Stride', -2.5, 2.5, 0.01],
+      ['crouching', 'legStrideR', 'C1 R Stride', -2.5, 2.5, 0.01],
+      ['crouching', 'kneeBendL', 'C1 L Knee', -0.5, 3.0, 0.01],
+      ['crouching', 'kneeBendR', 'C1 R Knee', -0.5, 3.0, 0.01],
+      ['crouching', 'elbowBendL', 'C1 L Elbow', -0.5, 3.0, 0.01],
+      ['crouching', 'elbowBendR', 'C1 R Elbow', -0.5, 3.0, 0.01],
+      ['crouchDeep', 'modelLower', 'C2 Model Lower', 0, 25, 0.5],
+      ['crouchDeep', 'bodyLower', 'C2 Body Lower', 0, 20, 0.5],
+      ['crouchDeep', 'bodyForward', 'C2 Body Fwd', -15, 15, 0.5],
+      ['crouchDeep', 'bodyLean', 'C2 Body Lean', -1.5, 1.5, 0.01],
+      ['crouchDeep', 'headPitch', 'C2 Head Pitch', -1.5, 1.5, 0.01],
+      ['crouchDeep', 'armSwingL', 'C2 L Arm', -2.5, 2.5, 0.01],
+      ['crouchDeep', 'armSwingR', 'C2 R Arm', -2.5, 2.5, 0.01],
+      ['crouchDeep', 'legStrideL', 'C2 L Stride', -2.5, 2.5, 0.01],
+      ['crouchDeep', 'legStrideR', 'C2 R Stride', -2.5, 2.5, 0.01],
+      ['crouchDeep', 'kneeBendL', 'C2 L Knee', -0.5, 3.0, 0.01],
+      ['crouchDeep', 'kneeBendR', 'C2 R Knee', -0.5, 3.0, 0.01],
+      ['crouchDeep', 'elbowBendL', 'C2 L Elbow', -0.5, 3.0, 0.01],
+      ['crouchDeep', 'elbowBendR', 'C2 R Elbow', -0.5, 3.0, 0.01],
+    );
+    // Joint offset controls are appended AFTER the flat params loop below.
+  } else if (currentAnimState === 1) { // Walking — keyframe pose system
+    // Pose values are edited via the keyframe UI built below; the joint
+    // axis/sign mapping rows now render on EVERY state in the shared block
+    // appended by appendVisionControls.
+    // Dual duck endpoints on the ONE Duck scalar: walkDuckMid lands at
+    // duck=1 (sentry-shallow), walkDuckPose at duck=2 (level-2 deep). Pick a
+    // stance below to fill both, or scrub to a waypoint and hand-tune.
+    animParams.walkDuckMid = animParams.walkDuckMid || JSON.parse(JSON.stringify(DEFAULT_PARAMS.walkDuckMid));
+    animParams.walkDuckPose = animParams.walkDuckPose || JSON.parse(JSON.stringify(DEFAULT_PARAMS.walkDuckPose));
+    relevantParams = [
+      ['walkDuckMid', 'legStrideL', 'D1 L Stride', -2.5, 2.5, 0.01],
+      ['walkDuckMid', 'legStrideR', 'D1 R Stride', -2.5, 2.5, 0.01],
+      ['walkDuckMid', 'kneeBendL', 'D1 L Knee', -1.0, 3.0, 0.01],
+      ['walkDuckMid', 'kneeBendR', 'D1 R Knee', -1.0, 3.0, 0.01],
+      ['walkDuckMid', 'armSwingL', 'D1 L Arm', -2.5, 2.5, 0.01],
+      ['walkDuckMid', 'armSwingR', 'D1 R Arm', -2.5, 2.5, 0.01],
+      ['walkDuckMid', 'elbowBendL', 'D1 L Elbow', -1.0, 3.0, 0.01],
+      ['walkDuckMid', 'elbowBendR', 'D1 R Elbow', -1.0, 3.0, 0.01],
+      ['walkDuckMid', 'modelLower', 'D1 Model Lower', 0, 25, 0.5],
+      ['walkDuckMid', 'bodyLower', 'D1 Body Lower', 0, 20, 0.5],
+      ['walkDuckMid', 'bodyForward', 'D1 Body Fwd', -15, 15, 0.5],
+      ['walkDuckMid', 'bodyLean', 'D1 Body Lean', -1.5, 1.5, 0.01],
+      ['walkDuckMid', 'headPitch', 'D1 Head Pitch', -1.5, 1.5, 0.01],
+      ['walkDuckMid', 'headTilt', 'D1 Head Tilt', -1.0, 1.0, 0.01],
+      ['walkDuckPose', 'legStrideL', 'D2 L Stride', -2.5, 2.5, 0.01],
+      ['walkDuckPose', 'legStrideR', 'D2 R Stride', -2.5, 2.5, 0.01],
+      ['walkDuckPose', 'kneeBendL', 'D2 L Knee', -1.0, 3.0, 0.01],
+      ['walkDuckPose', 'kneeBendR', 'D2 R Knee', -1.0, 3.0, 0.01],
+      ['walkDuckPose', 'armSwingL', 'D2 L Arm', -2.5, 2.5, 0.01],
+      ['walkDuckPose', 'armSwingR', 'D2 R Arm', -2.5, 2.5, 0.01],
+      ['walkDuckPose', 'elbowBendL', 'D2 L Elbow', -1.0, 3.0, 0.01],
+      ['walkDuckPose', 'elbowBendR', 'D2 R Elbow', -1.0, 3.0, 0.01],
+      ['walkDuckPose', 'modelLower', 'D2 Model Lower', 0, 25, 0.5],
+      ['walkDuckPose', 'bodyLower', 'D2 Body Lower', 0, 20, 0.5],
+      ['walkDuckPose', 'bodyForward', 'D2 Body Fwd', -15, 15, 0.5],
+      ['walkDuckPose', 'bodyLean', 'D2 Body Lean', -1.5, 1.5, 0.01],
+      ['walkDuckPose', 'headPitch', 'D2 Head Pitch', -1.5, 1.5, 0.01],
+      ['walkDuckPose', 'headTilt', 'D2 Head Tilt', -1.0, 1.0, 0.01],
+    ];
+  } else if (currentAnimState === 3) { // Aim Walk — aiming upper + keyframe walk lower
+    relevantParams = [
+      ['aiming', 'torsoTwist', 'Torso Twist', -1.0, 1.0, 0.01],
+      ['aiming', 'headYaw', 'Head Yaw', -1, 1, 0.01],
+      ['aiming', 'headPitch', 'Head Pitch', -1, 1, 0.01],
+      ['aiming', 'headTilt', 'Head Tilt', -0.5, 0.5, 0.01],
+      ['aiming', 'armSwingL', 'L Arm Raise', -2, 0.5, 0.01],
+      ['aiming', 'armSwingR', 'R Arm Raise', -2, 0.5, 0.01],
+      ['aiming', 'shoulderReachL', 'L Shoulder Reach', -1.0, 1.0, 0.01],
+      ['aiming', 'shoulderReachR', 'R Shoulder Reach', -1.0, 1.0, 0.01],
+      ['aiming', 'elbowBendL', 'L Elbow Bend', 0, 1.5, 0.01],
+      ['aiming', 'elbowBendR', 'R Elbow Bend', 0, 1.5, 0.01],
+      // Walk keyframes drive the legs/knees — edit poses in Walking state
+    ];
+  } else if (currentAnimState === 4) { // Aiming — static pose
+    relevantParams = [
+      ['aiming', 'torsoTwist', 'Torso Twist', -1.0, 1.0, 0.01],
+      ['aiming', 'headYaw', 'Head Yaw', -1, 1, 0.01],
+      ['aiming', 'headPitch', 'Head Pitch', -1, 1, 0.01],
+      ['aiming', 'headTilt', 'Head Tilt', -0.5, 0.5, 0.01],
+      ['aiming', 'armSwingL', 'L Arm Raise', -2, 0.5, 0.01],
+      ['aiming', 'armSwingR', 'R Arm Raise', -2, 0.5, 0.01],
+      ['aiming', 'shoulderReachL', 'L Shoulder Reach', -1.0, 1.0, 0.01],
+      ['aiming', 'shoulderReachR', 'R Shoulder Reach', -1.0, 1.0, 0.01],
+      ['aiming', 'elbowBendL', 'L Elbow Bend', 0, 1.5, 0.01],
+      ['aiming', 'elbowBendR', 'R Elbow Bend', 0, 1.5, 0.01],
+    ];
+  } else if (currentAnimState === 10) { // Aim Sweep — aiming pose + reach sweep
+    relevantParams = [
+      ['aimSweep', 'amp', 'Sweep Amplitude', 0, 1.5, 0.01],
+      ['aimSweep', 'freq', 'Sweep Freq', 0.2, 6, 0.1],
+      ['aimSweep', 'headFollow', 'Head Follow', 0, 1, 0.05],
+      ['aiming', 'torsoTwist', 'Torso Twist', -1.0, 1.0, 0.01],
+      ['aiming', 'armSwingL', 'L Arm Raise', -2, 0.5, 0.01],
+      ['aiming', 'armSwingR', 'R Arm Raise', -2, 0.5, 0.01],
+      ['aiming', 'shoulderReachL', 'L Shoulder Reach', -1.0, 1.0, 0.01],
+      ['aiming', 'shoulderReachR', 'R Shoulder Reach', -1.0, 1.0, 0.01],
+      ['aiming', 'elbowBendL', 'L Elbow Bend', 0, 1.5, 0.01],
+      ['aiming', 'elbowBendR', 'R Elbow Bend', 0, 1.5, 0.01],
+    ];
+  } else if (currentAnimState === 11) { // Sit
+    relevantParams = [
+      ['sitting', 'headPitch', 'Head Pitch', -0.5, 0.5, 0.01],
+      ['sitting', 'armSwingL', 'L Arm Swing', -0.5, 1.5, 0.01],
+      ['sitting', 'armSwingR', 'R Arm Swing', -0.5, 1.5, 0.01],
+      ['sitting', 'legStrideL', 'L Thigh Forward', -0.5, 1.7, 0.01],
+      ['sitting', 'legStrideR', 'R Thigh Forward', -0.5, 1.7, 0.01],
+      ['sitting', 'kneeBendL', 'L Knee Bend', 0, 1.7, 0.01],
+      ['sitting', 'kneeBendR', 'R Knee Bend', 0, 1.7, 0.01],
+    ];
+  } else if (currentAnimState === 9) { // T-Pose
+    container.innerHTML = '<div style="font-size:10px;color:#888;">T-Pose: raw bind pose, no rotations applied. Adjust rest-pose angles in the Idle state.</div>';
+    appendVisionControls(container);
+    return;
+  }
+
+  const hasKfEditor = currentAnimState === 1;
+  if (relevantParams.length === 0 && !hasKfEditor) {
+    container.innerHTML = '<div style="font-size:10px;color:#888;">No adjustable params for this state.</div>';
+    appendVisionControls(container);
+    return;
+  }
+
+  // Flat endpoint/param rows render FIRST — the C1/C2 (Idle) and D1/D2
+  // (Walking) endpoint sliders are the primary authoring surface; the gait
+  // editor and channel blocks sit below them.
+  for (const param of relevantParams) appendParamRow(container, param);
+
+  // === STANCE CATALOG === — presets fill the authored crouch endpoints
+  // (crouching/crouchDeep — the held pose on Idle's Crouch scalar).
+  if (currentAnimState === 0) {
+    appendPresetSelect(container, 'Stance', CROUCH_STANCE_PRESETS, applyStancePreset);
+  }
+  if (currentAnimState === 1) {
+    buildKfEditor(container, animParams.walkKeyframes, 'Walk Keyframes');
+  }
+
+  // Weapon-type preset dropdown for Aiming (4), Aim Walk (3), and Aim Sweep (10)
+  if (currentAnimState === 3 || currentAnimState === 4 || currentAnimState === 10) {
+    const weaponDiv = document.createElement('div');
+    weaponDiv.className = 'param-row';
+    weaponDiv.style.marginBottom = '6px';
+    weaponDiv.innerHTML = `
+      <label>Weapon</label>
+      <select id="weapon-type-select" class="param-num" style="flex:1; width:auto;">
+        <option value="pistol" ${animParams.aiming.weaponType === 'pistol' ? 'selected' : ''}>Pistol (one-hand)</option>
+        <option value="dual" ${animParams.aiming.weaponType === 'dual' ? 'selected' : ''}>Dual Pistols</option>
+        <option value="rifle" ${animParams.aiming.weaponType === 'rifle' ? 'selected' : ''}>Rifle (two-hand)</option>
+      </select>
+    `;
+    const select = weaponDiv.querySelector('select');
+    select.onchange = (e) => {
+      applyWeaponPreset(e.target.value);
+      buildParamControls(); // rebuild sliders with new preset values
+      if (useAnimatedMesh) rebuildAnimatedMesh();
+    };
+    container.appendChild(weaponDiv);
   }
 
   // Idle state: append per-joint positional offset controls after the
@@ -3257,10 +3849,42 @@ function buildParamControls() {
   appendVisionControls(container);
 }
 
+// Rig-wide joint axis/sign mapping rows — rendered on EVERY state by
+// appendVisionControls (previously only Idle/Walking exposed them; the rows
+// edit animParams sections that export with the asset).
+const RIG_AXIS_PARAMS = [
+  ['armSwing', 'axisL', 'L Arm Axis', 0, 2, 1, 'axis'],
+  ['armSwing', 'axisR', 'R Arm Axis', 0, 2, 1, 'axis'],
+  ['armSwing', 'signL', 'L Arm Sign', -1, 1, 2, 'sign'],
+  ['armSwing', 'signR', 'R Arm Sign', -1, 1, 2, 'sign'],
+  ['legStride', 'axisL', 'L Leg Axis', 0, 2, 1, 'axis'],
+  ['legStride', 'axisR', 'R Leg Axis', 0, 2, 1, 'axis'],
+  ['legStride', 'signL', 'L Leg Sign', -1, 1, 2, 'sign'],
+  ['legStride', 'signR', 'R Leg Sign', -1, 1, 2, 'sign'],
+  ['legTwist', 'leftRest', 'L Leg Twist Y', -Math.PI, Math.PI, 0.01],
+  ['legTwist', 'rightRest', 'R Leg Twist Y', -Math.PI, Math.PI, 0.01],
+  ['elbowBend', 'axisL', 'L Elbow Axis', 0, 2, 1, 'axis'],
+  ['elbowBend', 'axisR', 'R Elbow Axis', 0, 2, 1, 'axis'],
+  ['elbowBend', 'signL', 'L Elbow Sign', -1, 1, 2, 'sign'],
+  ['elbowBend', 'signR', 'R Elbow Sign', -1, 1, 2, 'sign'],
+  ['kneeBend', 'axisL', 'L Knee Axis', 0, 2, 1, 'axis'],
+  ['kneeBend', 'axisR', 'R Knee Axis', 0, 2, 1, 'axis'],
+  ['kneeBend', 'signL', 'L Knee Sign', -1, 1, 2, 'sign'],
+  ['kneeBend', 'signR', 'R Knee Sign', -1, 1, 2, 'sign'],
+];
+
 // === VISION CONE CONTROLS (global — shown under every state's params) ===
 // Edits animParams.vision — exported with the anim params; Unity's
 // VisionSensor consumes the same range/half-angle spec.
 function appendVisionControls(container) {
+  // === JOINT AXIS / SIGN (global) === — identical mapping block on every
+  // state, so rig mapping can be tuned without flipping back to Walking.
+  const axHeader = document.createElement('div');
+  axHeader.style.cssText = 'font-size:10px; color:#0ff; margin:6px 0 2px; border-top:1px solid #333; padding-top:3px;';
+  axHeader.textContent = 'Joint Axis / Sign (how keyframe values map to rig)';
+  container.appendChild(axHeader);
+  for (const p of RIG_AXIS_PARAMS) appendParamRow(container, p);
+
   const vis = animParams.vision || (animParams.vision = { show: true, range: 8.0, halfAngleDeg: 55 });
   const header = document.createElement('div');
   header.style.cssText = 'font-size:10px; color:#0ff; margin:8px 0 2px; border-top:1px solid #333; padding-top:3px;';
@@ -3317,28 +3941,56 @@ function appendVisionControls(container) {
     container.appendChild(row);
   }
 
-  // === CROUCH DEPTH === preview slider — the adaptive-duck axis. Only on the
-  // Crouching state: drags lerp every scalar shallow→deep endpoint live
-  // (parity with CombatController's eased crouchDepth channel).
-  if (currentAnimState > 4.5 && currentAnimState < 5.5) {
+  // === CROUCH HOLD on Idle === — the stationary positions: stand (0) →
+  // authored `crouching` (1) → authored `crouchDeep` (2). Same 0–2 axis as
+  // Walk Duck, different endpoints: held poses, no gait underneath.
+  if (currentAnimState === 0) {
     const dHeader = document.createElement('div');
     dHeader.className = 'param-section-title';
     dHeader.style.marginTop = '10px';
-    dHeader.textContent = 'Crouch Depth — shallow → deep lerp';
+    dHeader.textContent = 'Crouch Hold — stand (0) → shallow (1) → deep (2)';
     container.appendChild(dHeader);
     const dRow = document.createElement('div');
     dRow.className = 'param-row';
     dRow.innerHTML = `
-      <label>Depth</label>
-      <input type="range" min="0" max="1" step="0.01" value="${crouchDepth}" class="param-slider">
-      <input type="number" min="0" max="1" step="0.01" value="${crouchDepth.toFixed(2)}" class="param-num">
+      <label>Crouch</label>
+      <input type="range" min="0" max="2" step="0.01" value="${duck}" class="param-slider">
+      <input type="number" min="0" max="2" step="0.01" value="${duck.toFixed(2)}" class="param-num">
     `;
     const dSlider = dRow.querySelector('.param-slider');
     const dNum = dRow.querySelector('.param-num');
-    const dUpd = (v) => { crouchDepth = v; dSlider.value = v; dNum.value = (+v).toFixed(2); };
+    const dUpd = (v) => { duck = v; applyDuckSpeed(); dSlider.value = v; dNum.value = (+v).toFixed(2); if (useAnimatedMesh) rebuildAnimatedMesh(); };
     dSlider.oninput = (e) => dUpd(parseFloat(e.target.value));
     dNum.oninput = (e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) dUpd(v); };
-    dNum.onchange = (e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) dUpd(Math.max(0, Math.min(1, v))); };
+    dNum.onchange = (e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) dUpd(Math.max(0, Math.min(2, v))); };
+    container.appendChild(dRow);
+  }
+
+  // === DUCK AXIS === — THE unified scalar on Walking: stand (0) → sentry
+  // endpoint walkDuckMid (1) → deep endpoint walkDuckPose (2). The mirrored
+  // walk gait owns the legs throughout; stance presets fill both endpoints.
+  if (currentAnimState === 1) {
+    // WALK DUCK — the unified 0–2 duck axis: 0–1 ramps in the walkDuckMid
+    // endpoint, 1–2 morphs mid→far (walkDuckPose). The mirrored
+    // walkKeyframes own limb oscillation throughout.
+    const dHeader = document.createElement('div');
+    dHeader.className = 'param-section-title';
+    dHeader.style.marginTop = '10px';
+    dHeader.textContent = 'Walk Duck — stand (0) → hunched walk (1) → deep (2)';
+    container.appendChild(dHeader);
+    const dRow = document.createElement('div');
+    dRow.className = 'param-row';
+    dRow.innerHTML = `
+      <label>Duck</label>
+      <input type="range" min="0" max="2" step="0.01" value="${duck}" class="param-slider">
+      <input type="number" min="0" max="2" step="0.01" value="${duck.toFixed(2)}" class="param-num">
+    `;
+    const dSlider = dRow.querySelector('.param-slider');
+    const dNum = dRow.querySelector('.param-num');
+    const dUpd = (v) => { duck = v; applyDuckSpeed(); dSlider.value = v; dNum.value = (+v).toFixed(2); if (useAnimatedMesh) rebuildAnimatedMesh(); };
+    dSlider.oninput = (e) => dUpd(parseFloat(e.target.value));
+    dNum.oninput = (e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) dUpd(v); };
+    dNum.onchange = (e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) dUpd(Math.max(0, Math.min(2, v))); };
     container.appendChild(dRow);
   }
 
@@ -3387,6 +4039,107 @@ function appendVisionControls(container) {
     btn.onclick = () => { poseTrans.ease = parseInt(btn.dataset.v); buildParamControls(); };
   });
   container.appendChild(easeRow);
+
+  // === IK AIM (debug) === — simulated ArmAimSolver channel over ANY state.
+  // Toggle it and click through states: arms should track the red target
+  // while idle/walk/crouch/crouch-walk cycle underneath — the IK-only aim
+  // doctrine previewed before Unity ports it.
+  const ikHeader = document.createElement('div');
+  ikHeader.className = 'param-section-title';
+  ikHeader.style.marginTop = '10px';
+  ikHeader.textContent = 'IK Aim (debug) — arms solve to front target';
+  container.appendChild(ikHeader);
+
+  const ikEnRow = document.createElement('div');
+  ikEnRow.className = 'param-row';
+  ikEnRow.innerHTML = `<label>IK Aim</label><input type="checkbox" ${ikAim.enabled ? 'checked' : ''} style="margin-left:4px;"><span style="font-size:9px;color:#888; margin-left:6px;">channel, not a state</span>`;
+  ikEnRow.querySelector('input').onchange = (e) => { ikAim.enabled = e.target.checked; if (useAnimatedMesh) rebuildAnimatedMesh(); };
+  container.appendChild(ikEnRow);
+
+  const armRow = document.createElement('div');
+  armRow.className = 'param-row';
+  armRow.innerHTML = `<label>Arm</label><div style="display:flex; gap:2px; flex:1;">` +
+    ['right', 'left', 'both'].map(a => `<button class="arm-btn" data-v="${a}" style="flex:1; padding:2px 6px; font-size:11px; background:${ikAim.arm === a ? '#4a8' : '#333'}; color:${ikAim.arm === a ? '#fff' : '#888'}; border:1px solid #555; cursor:pointer;">${a}</button>`).join('') + `</div>`;
+  armRow.querySelectorAll('.arm-btn').forEach(btn => {
+    btn.onclick = () => { ikAim.arm = btn.dataset.v; buildParamControls(); if (useAnimatedMesh) rebuildAnimatedMesh(); };
+  });
+  container.appendChild(armRow);
+
+  const ikRows = [
+    ['blend', 'Blend', 0, 1, 0.01],
+    ['dist', 'Distance vox', 20, 600, 5],
+    ['height', 'Height vox (0=auto)', 0, 90, 1],
+    ['reach', 'Reach', 0.8, 1.0, 0.01],
+    ['torsoTwist', 'Torso Twist', -1, 1, 0.01],
+    ['torsoShare', 'Torso Share', 0, 1, 0.01],
+    ['headTrack', 'Head Track', 0, 1, 0.01],
+  ];
+  for (const [key, label, min, max, step] of ikRows) {
+    const row = document.createElement('div');
+    row.className = 'param-row';
+    row.innerHTML = `
+      <label>${label}</label>
+      <input type="range" min="${min}" max="${max}" step="${step}" value="${ikAim[key]}" class="param-slider">
+      <input type="number" min="${min}" max="${max}" step="${step}" value="${(+ikAim[key]).toFixed(2)}" class="param-num">
+    `;
+    const slider = row.querySelector('.param-slider');
+    const numInput = row.querySelector('.param-num');
+    const update = (v) => { ikAim[key] = v; slider.value = v; numInput.value = (+v).toFixed(2); if (useAnimatedMesh) rebuildAnimatedMesh(); };
+    slider.oninput = (e) => update(parseFloat(e.target.value));
+    numInput.oninput = (e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) update(v); };
+    numInput.onchange = (e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) update(Math.max(min, Math.min(max, v))); };
+    container.appendChild(row);
+  }
+
+  // === LOOK SCAN (debug) === — sentry layer: the authored `looking` head
+  // oscillation over ANY state. BASE CROUCH + scan = crouched alert sentry.
+  const scanHeader = document.createElement('div');
+  scanHeader.className = 'param-section-title';
+  scanHeader.style.marginTop = '10px';
+  scanHeader.textContent = 'Look Scan (debug) — head-scan channel over any state';
+  container.appendChild(scanHeader);
+
+  const scanEnRow = document.createElement('div');
+  scanEnRow.className = 'param-row';
+  scanEnRow.innerHTML = `<label>Look Scan</label><input type="checkbox" ${lookScan.enabled ? 'checked' : ''} style="margin-left:4px;"><span style="font-size:9px;color:#888; margin-left:6px;">channel, not a state — sentry layer</span>`;
+  scanEnRow.querySelector('input').onchange = (e) => { lookScan.enabled = e.target.checked; if (useAnimatedMesh) rebuildAnimatedMesh(); };
+  container.appendChild(scanEnRow);
+
+  const scanBlendRow = document.createElement('div');
+  scanBlendRow.className = 'param-row';
+  scanBlendRow.innerHTML = `<label>Scan Blend</label>
+    <input type="range" min="0" max="1" step="0.01" value="${lookScan.blend}" class="param-slider">
+    <input type="number" min="0" max="1" step="0.01" value="${lookScan.blend.toFixed(2)}" class="param-num">`;
+  {
+    const s2 = scanBlendRow.querySelector('.param-slider'), n2 = scanBlendRow.querySelector('.param-num');
+    const up2 = (v) => { lookScan.blend = v; s2.value = v; n2.value = (+v).toFixed(2); if (useAnimatedMesh) rebuildAnimatedMesh(); };
+    s2.oninput = (e) => up2(parseFloat(e.target.value));
+    n2.oninput = (e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) up2(v); };
+    n2.onchange = (e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) up2(Math.max(0, Math.min(1, v))); };
+  }
+  container.appendChild(scanBlendRow);
+
+  // Scan shape sliders — the authored `looking` params live here now that
+  // the Looking state retired into this channel.
+  animParams.looking = animParams.looking || JSON.parse(JSON.stringify(DEFAULT_PARAMS.looking));
+  for (const [key, label, mn, mx, st] of [
+    ['headYaw', 'Scan Yaw', 0, 1.5, 0.01],
+    ['headYawFreq', 'Yaw Freq', 0.5, 10, 0.1],
+  ]) {
+    const row = document.createElement('div');
+    row.className = 'param-row';
+    row.innerHTML = `
+      <label>${label}</label>
+      <input type="range" min="${mn}" max="${mx}" step="${st}" value="${animParams.looking[key]}" class="param-slider">
+      <input type="number" min="${mn}" max="${mx}" step="${st}" value="${(+animParams.looking[key]).toFixed(2)}" class="param-num">
+    `;
+    const s3 = row.querySelector('.param-slider'), n3 = row.querySelector('.param-num');
+    const up3 = (v) => { animParams.looking[key] = v; s3.value = v; n3.value = (+v).toFixed(2); if (useAnimatedMesh) rebuildAnimatedMesh(); };
+    s3.oninput = (e) => up3(parseFloat(e.target.value));
+    n3.oninput = (e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) up3(v); };
+    n3.onchange = (e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) up3(Math.max(mn, Math.min(mx, v))); };
+    container.appendChild(row);
+  }
 }
 
 // === TOOL SELECTION ===
@@ -3422,6 +4175,7 @@ document.getElementById('play-btn').onclick = function() {
 document.getElementById('stop-btn').onclick = function() {
   isPlaying = false;
   animTime = 0;
+  gaitTime = 0;
   lastFrameTime = performance.now();
   document.getElementById('play-btn').textContent = '▶';
   document.getElementById('play-btn').classList.remove('active');
@@ -3429,12 +4183,22 @@ document.getElementById('stop-btn').onclick = function() {
 };
 
 document.getElementById('speed-slider').oninput = function(e) {
-  animSpeed = parseFloat(e.target.value);
-  document.getElementById('speed-val').textContent = animSpeed.toFixed(1) + 'x';
+  baseAnimSpeed = parseFloat(e.target.value);
+  applyDuckSpeed();
+};
+document.getElementById('duckspeed-toggle').onchange = function(e) {
+  duckSpeed.enabled = e.target.checked;
+  applyDuckSpeed();
+};
+document.getElementById('duckspeed-min').oninput = function(e) {
+  duckSpeed.minSpeed = parseFloat(e.target.value);
+  document.getElementById('duckspeed-val').textContent = duckSpeed.minSpeed.toFixed(2);
+  applyDuckSpeed();
 };
 
 document.getElementById('timeline-slider').oninput = function(e) {
   animTime = parseFloat(e.target.value);
+  gaitTime = animTime;   // re-seek the gait clock with the scrub
   lastFrameTime = performance.now();
   document.getElementById('timeline-time').textContent = animTime.toFixed(2) + 's';
   if (useAnimatedMesh) rebuildAnimatedMesh();
@@ -4048,6 +4812,7 @@ function updateGaitInspector() {
   const p = animParams;
 
   const isWalking = (state > 0.5 && state < 1.5) || (state > 2.5 && state < 3.5);
+  const isCrouchWalk = (state > 11.5 && state < 12.5);
   const isLooking = (state > 1.5 && state < 2.5);
 
   let html = '';
@@ -4056,8 +4821,8 @@ function updateGaitInspector() {
   html += `<div style="margin-bottom:4px;"><span style="color:#88f;">State:</span> ${stateName} (${state})</div>`;
   html += `<div style="margin-bottom:4px;"><span style="color:#88f;">Time:</span> ${t.toFixed(2)}s <span style="color:#666;">Speed: ${speed.toFixed(1)}x</span></div>`;
 
-  if (isWalking) {
-    const wp = getWalkPose(t, speed, p);
+  if (isWalking || isCrouchWalk) {
+    const wp = isWalking ? getWalkPose(t, speed, p) : getCrouchWalkPose(t, speed);
     const phase = wp.cyclePhase;
     const kfA = wp.kfAIdx;
     const kfB = wp.kfBIdx;
@@ -4075,12 +4840,13 @@ function updateGaitInspector() {
     </div>`;
     html += `<div style="color:#8f8;">Phase: ${(phase * 100).toFixed(1)}% (${(phase * 360).toFixed(0)}°)</div>`;
     html += `<div style="color:#88f;">KF${kfA} (${KF_NAMES[kfA]}) → KF${kfB} (${KF_NAMES[kfB]})</div>`;
-    html += `<div style="color:#88f;">Interp: ${interpT.toFixed(3)} (${p.walkKeyframes.interpolation || 'cosine'})</div>`;
+    html += `<div style="color:#88f;">Interp: ${interpT.toFixed(3)} (${(isWalking ? p.walkKeyframes : (p.crouchWalk || DEFAULT_PARAMS.crouchWalk)).interpolation || 'cosine'})</div>`;
 
     // Body motion
     html += `<div style="color:#ffcc00; margin-top:6px; margin-bottom:3px; border-top:1px solid #333; padding-top:4px;">Body Motion</div>`;
     html += `<div style="color:#fa8;">Bob Y: ${wp.bodyBobY.toFixed(3)} voxels</div>`;
     html += `<div style="color:#fa8;">Shift X: ${wp.weightShiftX.toFixed(3)} voxels</div>`;
+    if (isCrouchWalk) html += `<div style="color:#f88;">Crouch Depth: ${crouchDepth.toFixed(2)} — silhouette channel (Cr scalars)</div>`;
 
     // Applied pose values
     const pose = wp.pose;
@@ -4126,7 +4892,9 @@ function animate() {
     const now = performance.now();
     const dt = Math.min((now - lastFrameTime) / 1000, 0.1); // clamp to 100ms
     lastFrameTime = now;
+    applyDuckSpeed();   // refresh effective gait speed against live duck
     animTime += dt;
+    gaitTime += dt * animSpeed;   // phase integrates — speed changes are rate changes, never jumps
     // Pose transition clock — eased blend + one-cycle settle dip (game parity).
     if (transT >= 0) {
       transT += dt;

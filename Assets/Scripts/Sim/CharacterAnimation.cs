@@ -114,14 +114,48 @@ namespace SteelCity.Sim
             overrideActive = false;
         }
 
-        /// <summary>Adaptive crouch depth 0..1 — lerps every authored crouch
-        /// scalar shallow→deep inside the pose eval (CPU + GPU). Written by
-        /// CombatController from picked cover height (eased); also drivable
-        /// directly for authoring/debug preview.</summary>
-        [Range(0f, 1f)] public float crouchDepth = 0f;
+        /// <summary>THE duck scalar 0..2 — one silhouette/cover-height contract.
+        /// 0 upright · 1 shallow endpoint · 2 deep endpoint. Idle evaluates the
+        /// authored HOLD pose (crouching→crouchDeep); Walking folds crumple
+        /// DELTAS (walkDuckMid→walkDuckPose) under the gait; legacy state 5.x
+        /// reads the deep band as its old crouchDepth axis (duck−1).</summary>
+        [Range(0f, 2f)] public float duck = 0f;
+
+        /// <summary>Legacy cover-depth write channel (0..1): combat/behaviors keep
+        /// their depth semantics; 0 = no duck requirement, 1 = deep. Mapped onto
+        /// duck — depth d writes duck = 1+d (the shallow→deep band); 0 stands up.</summary>
+        public float crouchDepth
+        {
+            get => Mathf.Clamp01(duck - 1f);
+            set => duck = value <= 0f ? 0f : 1f + Mathf.Clamp01(value);
+        }
+
+        /// <summary>"Behind cover" per whoever owns the cover verdict this frame —
+        /// possess drive detection or combat's InCover pick. Class-agnostic:
+        /// a Full wall sets it exactly like a crouch wall (covered is covered —
+        /// he can't see over it either). ArmAimSolver's posture gate reads it;
+        /// debug-ducked poses without a cover verdict are unaffected.</summary>
+        public bool coverContext;
+
+        /// <summary>Duck→gait-speed coupling: effective gait rate =
+        /// walkSpeed × lerp(1 → duckSpeedMin, duck/2). Only the cycle rate slows —
+        /// gaitTime is integrated, so duck changes never teleport the phase.
+        /// In-game move speed should ride the same curve; this is the preview.</summary>
+        [Header("Duck → speed coupling")]
+        public bool duckSpeedScale = true;
+        [Range(0.05f, 1f)] public float duckSpeedMin = 0.35f;
+        public float DuckSpeedFactor => duckSpeedScale ? Mathf.Lerp(1f, duckSpeedMin, Mathf.Clamp01(duck * 0.5f)) : 1f;
+
+        /// <summary>Look-scan channel — layers the authored 'looking' head-yaw
+        /// sweep over ANY pose (crouched sentry = Idle + duck + scan). Yields to
+        /// IK aim while overrides are active.</summary>
+        [Header("Look-scan channel")]
+        public bool lookScan = false;
+        [Range(0f, 1f)] public float lookScanBlend = 1f;
 
         private VoxelCharacter voxelChar;
         private float animTime = 0f;
+        private float gaitTime = 0f;   // integrated gait clock — survives state changes
         private AnimState prevState;
         private Vector3 lastPos;
 
@@ -181,7 +215,7 @@ namespace SteelCity.Sim
                     // under this (state, time) pair while the blend ramps in.
                     transFrom = prevState;
                     transFromTime = pendingPrevAnimTime >= 0f ? pendingPrevAnimTime : animTime;
-                    transFromDepth = crouchDepth;
+                    transFromDepth = duck;   // freeze the real duck scalar
                     transT = 0f;
                 }
                 pendingPrevAnimTime = -1f;
@@ -190,6 +224,11 @@ namespace SteelCity.Sim
             }
 
             animTime += Time.deltaTime;
+            // Integrated gait clock — rate = walkSpeed × duck coupling. Speed
+            // changes alter the RATE of advance only; phase never teleports
+            // (was: derived phase = animTime % (dur/speed) → pose snap on change).
+            // NOT reset on state change — transitions carry stride phase.
+            gaitTime += Time.deltaTime * walkSpeed * DuckSpeedFactor;
 
             // Advance the transition clock once per frame — eased blend weight
             // plus a one-cycle settle dip (peak mid-transition, zero at ends).
@@ -213,7 +252,9 @@ namespace SteelCity.Sim
             instancedHandle.transBlend = TransBlend;
             instancedHandle.transDip = TransDip;
             instancedHandle.transDepthA = transFromDepth;
-            instancedHandle.crouchDepth = crouchDepth;
+            instancedHandle.crouchDepth = duck;          // field carries THE duck scalar now
+            instancedHandle.gaitTime = gaitTime;
+            instancedHandle.lookScanBlend = lookScan ? lookScanBlend : 0f;
         }
 
         /// <summary>Set base-lane animation state (locomotion). Does not break a held pose override.</summary>
@@ -229,5 +270,7 @@ namespace SteelCity.Sim
 
         /// <summary>Current animation time (seconds since state change).</summary>
         public float AnimTime => animTime;
+        /// <summary>Integrated gait clock — the walk cycle's phase source.</summary>
+        public float GaitTime => gaitTime;
     }
 }

@@ -81,24 +81,29 @@ the DEBUG latch holds over combat/locomotion until `Num0`/`NumEnter`):
 
 ```
 [7] T-Pose   [8] Down     [9] Sit
-[4] Aim      [5] Crouch   [6] Flinch
-[1] Walk     [2] Look     [3] AimWalk
+[4] Aim      [5] DUCK     [6] Flinch
+[1] Walk     [2] LookScan [3] AimWalk
 [0] release  [.] AimSweep [Enter] release      [+/-] anim speed
 ```
 
-Two live axes ride under every state change — tune them per rig in the
-Clothing tab (Character Control → Pose transition / crouch depth):
+Three live axes ride under every state change — tune them per rig in the
+Clothing tab (Character Control → pose transitions / duck / look scan):
 
 - **Pose transition** — on any state change the outgoing pose freezes and the
   pose eval dual-evals both ends (snapshot → target lerp + settle dip).
   Knobs: enabled / duration / dip / ease. Previewed identically in
   `character_animator.html` — **author destinations, the engine owns the path.**
-- **Crouch depth** — `crouchDepth` 0..1 lerps every authored scalar
-  `crouching → crouchDeep`. The combat solver sets it from picked cover
-  height (`CoverSensor` evaluates the posed eye at both endpoints); the slider
-  previews any depth manually — `Num5` + drag. Authoring: `crouchDeep` block
-  in `.anim.json` (same fields as `crouching`); absent → cloned shallow =
-  inert. See COMBAT_COVER_STATE.md → "Adaptive crouch depth".
+- **Duck scalar** — `duck` 0..2 is THE shared silhouette axis: Num5 cycles
+  stand → shallow(1) → deep(2) → shallow… on WHATEVER pose is active — Idle
+  renders the authored hold pose (`crouching`/`crouchDeep` endpoints), Walking
+  folds crumple deltas (`walkDuckMid`/`walkDuckPose`) under the gait. Release
+  (0/Enter) stands the scalar back up. The combat solver writes the same
+  channel via the `crouchDepth` alias (cover depth d → duck 1+d).
+- **Look scan** — Num2/Alt+L toggles the head-yaw sweep CHANNEL over any pose
+  (crouched sentry = Idle + duck + scan); yields while IK aim owns the head.
+- **Duck→speed** — `duckSpeedScale` couples gait rate to depth:
+  `factor = lerp(1 → duckSpeedMin, duck/2)` on the integrated gait clock —
+  phase-continuous, the preview of the in-game move-speed curve.
 
 ## Tooling rule — no selection ceremonies
 

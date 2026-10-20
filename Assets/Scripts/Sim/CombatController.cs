@@ -7,8 +7,10 @@ namespace SteelCity.Sim
     /// Autonomous combat v1 (docs/systems/COMBAT_COVER_STATE.md).
     ///
     /// EnterCombat(threatPos) → scan `coverRadius` for a verified cover point →
-    /// SeekingCover steers to it (walk anim, XZ slide on voxel collision) →
-    /// InCover: crouch pose + ArmAimSolver aims over the obstacle at the threat.
+    /// SeekingCover steers to it (always Walking pick — painted crouch zones
+    /// write the duck scalar → wd() renders the crumple under the gait) →
+    /// InCover: stationary = authored Crouching hold; ArmAimSolver is gated
+    /// off while ducked — aiming is the pop-up/exposed phase.
     /// No cover in radius → HoldPosition: crouch+aim in place.
     ///
     /// Combat poses ride the PRIORITY_COMBAT lane; debug keys (PRIORITY_DEBUG)
@@ -25,8 +27,7 @@ namespace SteelCity.Sim
         public float moveSpeed = 2.4f;
         public float arriveEps = 0.18f;
         public float turnSpeedDeg = 540f;
-        [Tooltip("Crouch-depth ease rate (1/s) — the settle into a deeper duck")]
-        public float crouchDepthSpeed = 3f;
+        // (crouchDepthSpeed removed — duck writes are immediate now)
 
         // --- Cover parameters live on CoverSensor (the always-on awareness sense);
         // these stay as proxies so existing HUD sliders keep working. ---
@@ -36,6 +37,12 @@ namespace SteelCity.Sim
         public bool showCoverMarkers { get => Sensor.showCandidates; set => Sensor.showCandidates = value; }
 
         public CombatState State { get; private set; }
+        /// <summary>Class of the wall he's picked (Full = stand behind it).</summary>
+        public CoverSensor.WallClass CoverWallClass => coverWallClass;
+        /// <summary>Duck scalar (0..2) the picked cover demands — sub-1 = morph
+        /// band, over-1 = deep band. Possess freezes this while combatHold.</summary>
+        public float TargetDuck => targetDuck;
+        public CoverSensor.WallClass CoverClass => coverWallClass;
         public Vector3 ThreatPos { get; private set; }
         public Vector3 CoverPoint { get; private set; }
         public string CoverObstacleId { get; private set; }
@@ -51,9 +58,9 @@ namespace SteelCity.Sim
         private ArmAimSolver solver;
         private VoxelCharacter vox;
         private VoxelCollisionWorld world;
-        /// <summary>Crouch depth the picked cover demands — eased toward on
-        /// arrival so a low wall visibly sinks him instead of snapping.</summary>
-        private float targetCrouchDepth;
+        /// <summary>Duck scalar (0..2) the picked cover demands — written
+        /// directly to anim.duck; sub-1 renders the morph band.</summary>
+        private float targetDuck;
         private CoverSensor.WallClass coverWallClass = CoverSensor.WallClass.Crouch;
 
         void Awake()
@@ -102,12 +109,12 @@ namespace SteelCity.Sim
             {
                 CoverPoint = p;
                 CoverObstacleId = oid;
-                targetCrouchDepth = reqD;
+                targetDuck = reqD;
                 State = CombatState.SeekingCover;
                 anim.RequestPose(CharacterAnimation.AnimState.Walking, CharacterAnimation.PRIORITY_COMBAT);
                 anim.walkSpeed = Mathf.Clamp(moveSpeed, 0.5f, 2f);
-                LastResult = $"seeking cover behind {oid} ({coverWallClass}, depth {reqD:F2})";
-                Debug.Log($"🥊 [Combat] {name} — picked {oid} ({coverWallClass}, reqDepth {reqD:F2})");
+                LastResult = $"seeking cover behind {oid} ({coverWallClass}, duck {reqD:F2})";
+                Debug.Log($"🥊 [Combat] {name} — picked {oid} ({coverWallClass}, reqDuck {reqD:F2})");
                 return true;
             }
             if (coverAnchor.HasValue)
@@ -118,7 +125,7 @@ namespace SteelCity.Sim
             CoverPoint = Feet();
             CoverObstacleId = null;
             coverWallClass = CoverSensor.WallClass.Crouch;
-            targetCrouchDepth = 0f;
+            targetDuck = 1f;   // shallow hold — the old "depth 0" on state 5
             CrouchAndCover();
             LastResult = $"no cover within {Sensor.radius:F0}m — holding position";
             return true;
@@ -126,8 +133,8 @@ namespace SteelCity.Sim
 
         public void ExitCombat()
         {
-            targetCrouchDepth = 0f;
-            if (anim != null) anim.crouchDepth = 0f;
+            targetDuck = 0f;
+            if (anim != null) { anim.duck = 0f; anim.coverContext = false; }
             anim?.ReleasePose(CharacterAnimation.PRIORITY_COMBAT);
             anim?.SetState(CharacterAnimation.AnimState.Idle);
             if (solver != null && solver.IsAiming) solver.Disarm();
@@ -143,13 +150,45 @@ namespace SteelCity.Sim
         {
             if (State == CombatState.Idle) return;
             // Direct control wins — possessing Vinny hands the rig to the player.
-            if (PossessController.Active) { ExitCombat(); return; }
-            // Ease crouch depth toward the picked cover's requirement — the
-            // settle into a deeper duck rides the same pose eval, no snap.
-            // Yields while a debug pose holds priority — don't fight the keys.
-            if (anim != null && !anim.DebugOwnsPose && !Mathf.Approximately(anim.crouchDepth, targetCrouchDepth))
-                anim.crouchDepth = Mathf.MoveTowards(anim.crouchDepth, targetCrouchDepth,
-                    crouchDepthSpeed * Time.deltaTime);
+            // Keep the current duck: possess's cover drive owns the scalar from
+            // here and re-derives it from the wall — zeroing it would pop him up.
+            if (PossessController.Active)
+            {
+                float keep = anim != null ? anim.duck : 0f;
+                ExitCombat();
+                if (anim != null) anim.duck = keep;
+                return;
+            }
+            // Zones dictate posture: while seeking, standing inside a painted
+            // crouch zone crouch-walks at that column's depth (deeper zones
+            // reach further out → the duck starts sooner); outside zones he
+            // walks upright. InCover/HoldPosition eases toward the pick's
+            // requirement as before. Yields while a debug pose holds priority.
+            float want = targetDuck;
+            bool zoneCrouch = false;
+            if (State == CombatState.SeekingCover)
+            {
+                CoverSensor.WallClass zc = CoverSensor.WallClass.Low;
+                float zd = 0f;
+                zoneCrouch = sensor != null && sensor.TryZoneAt(Feet(), out zc, out zd)
+                          && zc == CoverSensor.WallClass.Crouch;
+                want = zoneCrouch ? zd : 0f;
+            }
+            if (anim != null && !anim.DebugOwnsPose)
+            {
+                if (!Mathf.Approximately(anim.duck, want))
+                    anim.duck = want;          // immediate — the zone IS the posture
+                if (State == CombatState.SeekingCover)
+                {
+                    // Seeking IS movement — always the Walking pick; a painted
+                    // crouch zone writes `want = zd` into the duck scalar and
+                    // wd() renders the crumple under the gait. The stationary
+                    // Crouching hold only arrives with CrouchAndCover().
+                    var wantPose = CharacterAnimation.AnimState.Walking;
+                    if (anim.EffectiveState != wantPose)
+                        anim.RequestPose(wantPose, CharacterAnimation.PRIORITY_COMBAT);
+                }
+            }
             if (State != CombatState.SeekingCover) return;
 
             Vector3 feet = Feet();
@@ -164,8 +203,8 @@ namespace SteelCity.Sim
                 transform.position = pos;
                 State = CombatState.InCover;
                 CrouchAndCover();
-                LastResult = $"in cover behind {CoverObstacleId} ({coverWallClass}, depth {targetCrouchDepth:F2})";
-                Debug.Log($"🥊 [Combat] {name} — in cover, pose {(coverWallClass == CoverSensor.WallClass.Full ? "STAND (Idle)" : $"crouch@{targetCrouchDepth:F2}")}");
+                LastResult = $"in cover behind {CoverObstacleId} ({coverWallClass}, duck {targetDuck:F2})";
+                Debug.Log($"🥊 [Combat] {name} — in cover, pose {(coverWallClass == CoverSensor.WallClass.Full ? "STAND (Idle)" : $"duck@{targetDuck:F2}")}");
                 return;
             }
 
@@ -182,9 +221,11 @@ namespace SteelCity.Sim
         // duck → reload) — the solver also refuses to arm while crouched.
         void CrouchAndCover()
         {
-            bool stand = coverWallClass == CoverSensor.WallClass.Full;
-            anim?.RequestPose(stand ? CharacterAnimation.AnimState.Idle
-                                    : CharacterAnimation.AnimState.Crouching,
+            if (anim != null) anim.coverContext = true;   // Full or ducked — covered is covered
+            // Scalar pick: deep band (duck>1) needs the state-5 endpoints; the
+            // morph band and Full both ride Idle where icr scales the fold.
+            anim?.RequestPose(targetDuck > 1.02f ? CharacterAnimation.AnimState.Crouching
+                                                 : CharacterAnimation.AnimState.Idle,
                               CharacterAnimation.PRIORITY_COMBAT);
             Vector3 to = ThreatPos - Feet();
             to.y = 0f;

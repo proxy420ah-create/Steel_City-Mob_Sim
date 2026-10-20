@@ -1,6 +1,6 @@
 # Cover Heightfield — Measured-Body Detection Rebuild
 
-**Status**: � PHASE A IMPLEMENTED — measured `h(d)` classifier live, compile-verified (headless csc); pending runtime playtest → then Phase B
+**Status**: PHASE A VERIFIED + B2 IMPLEMENTED — measured `h(duck)` classifier live (`0.62/0.50/0.45` seen on HUD); gradient-wall testbed replaces the 4-box ladder in `gen_cover_pit.py`; `PossessController` cover drive face-find rays → `DuckForTop` → `anim.duck` (duck-space 0..2, morph band reachable) + duck-scaled walk speed + crosshair duck readout. Compile-clean (headless csc, E variant); pending runtime playtest → then Phase B (`wallIdxOf`/step layer) or C
 **Supersedes**: eye-anchor classification in `CoverSensor` (constants `standEye`/`crouchEye`)
 **Canonical unit**: **Vinny = 0.62m** (62 vox @ `voxelSize=0.01`). World voxels = 0.05m.
 
@@ -57,7 +57,10 @@ Full   ⇔ wallTop ≥ supportY + H_stand  # standing silhouette hidden
 Crouch ⇔ wallTop ≥ supportY + h₁       # deepest duck hides it
 Low    ⇔ otherwise                      # unusable
 
-reqDepth = (wallTop − margin − supportY − h₀) / (h₁ − h₀)   clamped 0..1
+clear = wallTop − margin − supportY
+reqDuck = clear ≥ H_stand           → 0 (Full — stands)
+        : clear ≥ h₀                → (H_stand − clear)/(H_stand − h₀)   ∈ (0,1] morph band
+        : otherwise                 → 1 + (h₀ − clear)/(h₀ − h₁)         ∈ (1,2] deep band (>2 = Low)
 ```
 
 - `openAtWorld` band becomes `supportY + h₁` (deep silhouette) — same role,
@@ -125,10 +128,18 @@ a legible depth sample.
 In possess mode, moving Vinny parallel to a wall drives the crouch channel
 continuously:
 
-- Per frame: nearest coverable column on the facing-open side → `reqDepth` →
-  `anim.crouchDepth` eases toward it (the existing 3/s ease).
-- Class changes drive pose state: Full → stand (Idle), Crouch → ducked at
-  reqDepth, Low/none → release to Idle (stands back up — the "null" test).
+- Per frame: nearest coverable column on the facing-open side → `reqDuck`
+  (0..2) → `anim.duck` **writes immediately** — no ease, no dropout latch; the
+  painted cell IS the posture. Duck-space end-to-end: sub-1 requirements land
+  in the **morph band** (Idle/Walking + `icr`/`wd` partial fold — a wall
+  between stand- and shallow-top gets a proportional duck, never a snap to
+  the full crouch); over-1 lands in the deep band (Crouching/Walking pick).
+- Class changes drive pose state: Full → stand (**Idle — aim lane dropped:
+  `coverContext` gates IK aim for ANY detected cover, class-agnostic — Phase 2
+  revises this to `visibleVoxels > 0`, see below**),
+  Crouch → ducked at `duck` — **stationary = Crouching hold, moving =
+  Walking + wd() crumple-gait** — Low/none → release to Idle, standing up the
+  same frame.
 - No combat needed — this is the inspection path the gradient wall is built
   for: walk the wall, watch him fold/unfold live, read the painted heights.
 
@@ -140,7 +151,15 @@ continuously:
 | **B — field** | `wallIdxOf`, Step layer, per-cell support probe | pick returns owning wall; curb (0.05) shows StepUp, boxes show Blocked |
 | **B2 — possess drive** | nearest-column → `reqDepth` → eased `crouchDepth`; Full/Crouch/Low → Idle/Crouch/release | walk the gradient wall: folds/unfolds live, stands at the null tail |
 | **C — paint** | heights texture + digit blit + shader overlay + toggle | possess mode: numbers on surfaces around Vinny |
-| **D — later** | cover-object extraction, multi-span columns, threat-axis ray probes, six-shot pop-up loop | deferred until A–C verified |
+| **D — later** | cover-object extraction, multi-span columns, threat-axis ray probes | deferred until A–C verified |
+| **E — exposure engagement** | six-shot pop-up loop → the exposure-based combat layer: visible-voxel aim target + FIRE gate + pop-up override | 📝 designed — spec in `COMBAT_COVER_STATE.md` Phase 2 |
+
+**The symmetry that Phase E exploits**: `h(duck)` answers "how hidden is he";
+`e(duck)` (posed eye height — the `TryGetEyeAnchor` lane) answers "what can he
+see". Cover verdict and aim solution are the *same* wall ray read from opposite
+ends — the threat-side visible-voxel query uses this same posed-silhouette
+measurement on the enemy, so the machinery built here is the answer for both
+directions of the crossfire.
 
 ## Risks / traps
 

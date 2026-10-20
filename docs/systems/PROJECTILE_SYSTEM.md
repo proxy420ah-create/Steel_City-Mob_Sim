@@ -128,6 +128,7 @@ Cost: **≈ 1.7 µs per shot** through the 192×120×192 range grid; the linear 
 4. **Glass puncture — P0 shipped (per-building chunks only)** (`GLASS_SHATTER_MECHANIC.md`): `VoxelDamageSystem` subscribes to `ShotResolved`; glass hits copy-on-write the volume array, run `VoxelDamageMath.Puncture` (impact + seeded ring-1 → AIR, survivors → 134 Cracked Glass), re-register the volume by id, and push dirty spans to the chunk buffer via `VoxelChunkManager.UploadVoxelEdits`. Sector-baked volumes are skipped (merged buffers unreachable) — sector damage is the next design problem.
 5. **Broadphase** is linear over volumes — fine for a few shots per frame; put a coarse grid in front of it before mass fire or per-frame LOS for crowds.
 6. **Gravity** exists (`gravity`, default 0). No ricochet, no suppression, no sound/noise events yet.
+7. **Aim target is a constant** — testbed aim points still use `feet + offset`; designed replacement: centroid of the *target's visible posed voxels* (rays from the shooter's eye, same `Raycast` primitive) — also the FIRE/WAIT gate and pop-up/last-seen doctrine (`COMBAT_COVER_STATE.md` Phase 2).
 
 ---
 
