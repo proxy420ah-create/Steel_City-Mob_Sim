@@ -130,7 +130,12 @@ continuously:
 
 - Per frame: nearest coverable column on the facing-open side → `reqDuck`
   (0..2) → `anim.duck` **writes immediately** — no ease, no dropout latch; the
-  painted cell IS the posture. Duck-space end-to-end: sub-1 requirements land
+  painted cell IS the posture. **Threat-side gate** (drive only runs while a
+  threat is pinned): a ring hit only counts if the face's open side points
+  AWAY from the threat (`dot(normal, dirToThreat) < facingDot` — the field's
+  own test), and `TryZoneAt` only answers `Hidden`-validated cells — the
+  threat side of a wall can claim + paint cells but can't duck him. Duck-space
+  end-to-end: sub-1 requirements land
   in the **morph band** (Idle/Walking + `icr`/`wd` partial fold — a wall
   between stand- and shallow-top gets a proportional duck, never a snap to
   the full crouch); over-1 lands in the deep band (Crouching/Walking pick).

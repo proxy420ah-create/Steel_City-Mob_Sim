@@ -7,8 +7,9 @@ namespace SteelCity.Sim
     /// Autonomous combat v1 (docs/systems/COMBAT_COVER_STATE.md).
     ///
     /// EnterCombat(threatPos) → scan `coverRadius` for a verified cover point →
-    /// SeekingCover steers to it (always Walking pick — painted crouch zones
-    /// write the duck scalar → wd() renders the crumple under the gait) →
+    /// SeekingCover steers to it (always Walking pick; combat owns the approach
+    /// posture — anim.duck eases to the pick's requirement → wd() renders the
+    /// crumple under the gait) →
     /// InCover: stationary = authored Crouching hold; ArmAimSolver is gated
     /// off while ducked — aiming is the pop-up/exposed phase.
     /// No cover in radius → HoldPosition: crouch+aim in place.
@@ -27,6 +28,8 @@ namespace SteelCity.Sim
         public float moveSpeed = 2.4f;
         public float arriveEps = 0.18f;
         public float turnSpeedDeg = 540f;
+        [Tooltip("Duck fold-in rate during SeekingCover (duck/s) — the advance is combat posture: he adopts the destination wall's requirement for the whole approach, not when a painted zone reaches him.")]
+        public float seekDuckEase = 2.5f;
         // (crouchDepthSpeed removed — duck writes are immediate now)
 
         // --- Cover parameters live on CoverSensor (the always-on awareness sense);
@@ -159,35 +162,28 @@ namespace SteelCity.Sim
                 if (anim != null) anim.duck = keep;
                 return;
             }
-            // Zones dictate posture: while seeking, standing inside a painted
-            // crouch zone crouch-walks at that column's depth (deeper zones
-            // reach further out → the duck starts sooner); outside zones he
-            // walks upright. InCover/HoldPosition eases toward the pick's
-            // requirement as before. Yields while a debug pose holds priority.
-            float want = targetDuck;
-            bool zoneCrouch = false;
-            if (State == CombatState.SeekingCover)
-            {
-                CoverSensor.WallClass zc = CoverSensor.WallClass.Low;
-                float zd = 0f;
-                zoneCrouch = sensor != null && sensor.TryZoneAt(Feet(), out zc, out zd)
-                          && zc == CoverSensor.WallClass.Crouch;
-                want = zoneCrouch ? zd : 0f;
-            }
+            // Combat owns the approach posture: while seeking he folds into
+            // the DESTINATION wall's duck requirement — the painted zone only
+            // marks the stand spot now and never reaches out (see CoverField:
+            // uniform standoff band). The fold eases in once at combat start
+            // rather than snapping per zone edge; InCover/HoldPosition snap
+            // to the requirement on arrival. Yields while a debug pose holds
+            // priority.
             if (anim != null && !anim.DebugOwnsPose)
             {
-                if (!Mathf.Approximately(anim.duck, want))
-                    anim.duck = want;          // immediate — the zone IS the posture
                 if (State == CombatState.SeekingCover)
                 {
-                    // Seeking IS movement — always the Walking pick; a painted
-                    // crouch zone writes `want = zd` into the duck scalar and
-                    // wd() renders the crumple under the gait. The stationary
-                    // Crouching hold only arrives with CrouchAndCover().
+                    anim.duck = Mathf.MoveTowards(anim.duck, targetDuck, seekDuckEase * Time.deltaTime);
+                    // Seeking IS movement — always the Walking pick; the duck
+                    // scalar rides the gait via wd() (crumple deltas). The
+                    // stationary Crouching hold only arrives with
+                    // CrouchAndCover().
                     var wantPose = CharacterAnimation.AnimState.Walking;
                     if (anim.EffectiveState != wantPose)
                         anim.RequestPose(wantPose, CharacterAnimation.PRIORITY_COMBAT);
                 }
+                else if (!Mathf.Approximately(anim.duck, targetDuck))
+                    anim.duck = targetDuck;    // arrival/hold — committed posture, immediate
             }
             if (State != CombatState.SeekingCover) return;
 
@@ -209,7 +205,11 @@ namespace SteelCity.Sim
             }
 
             Vector3 dir = to / dist;
-            MoveWithCollision(dir * Mathf.Min(moveSpeed * Time.deltaTime, dist));
+            // Duck gait is slower by definition — the same factor that slows
+            // his gait cycle slows the approach, so feet stay married to
+            // terrain while folded (deep-duck approach = slow crab-walk).
+            float step = moveSpeed * (anim != null ? anim.DuckSpeedFactor : 1f) * Time.deltaTime;
+            MoveWithCollision(dir * Mathf.Min(step, dist));
 
             float wantYaw = Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg;
             float yaw = Mathf.MoveTowardsAngle(transform.eulerAngles.y, wantYaw, turnSpeedDeg * Time.deltaTime);

@@ -58,6 +58,10 @@ namespace SteelCity.Sim
         public int ValidCells { get; private set; }
         public int ChosenCell { get; private set; } = -1;
         public bool HasData { get; private set; }
+        /// <summary>True when the last Build ran against a real threat — cell
+        /// states carry genuine Hidden/Exposed verdicts; false = passive
+        /// quality-only paint (every state stays Untested).</summary>
+        public bool BuiltWithThreat { get; private set; }
 
         /// <summary>No threat → the field is empty; the heatmap idles transparent.</summary>
         public void Clear()
@@ -101,8 +105,8 @@ namespace SteelCity.Sim
 
         /// <summary>
         /// Rebuild the field around <paramref name="pos"/> for the given threat.
-        /// Each wall column paints a uniform rectangular zone behind its face
-        /// (column-width × standoff*2 — identical footprint per class), then
+        /// Each wall column paints a uniform standoff band behind its face
+        /// (column-width × standoff — identical footprint per class), then
         /// every touched cell gets validated (ground, free-space, threat→eye
         /// LOS at the OWNING column's silhouette top).
         /// Score = proxWeight·proximity + (1−proxWeight)·quality on Hidden
@@ -126,6 +130,7 @@ namespace SteelCity.Sim
                 pos.y,
                 Mathf.Floor((pos.z - radius) / CellSize) * CellSize);
             GroundY = pos.y;
+            BuiltWithThreat = threat.HasValue;
 
             System.Array.Clear(state, 0, state.Length);
             System.Array.Clear(quality, 0, quality.Length);
@@ -165,11 +170,12 @@ namespace SteelCity.Sim
             // bulged past neighbours and stole cells via nearest-claim).
             // Depth = the old disc's outer reach; half-width = column width
             // or half a cell, whichever guarantees ≥1 cell painted.
-            // ZONE DEPTH FOLLOWS THE GRADIENT: low cover reaches further out
-            // (deep crouch corridor ~2·standoff deeper than a Full strip), so
-            // a lower wall claims Vinny from further away — and the drive/
-            // combat can start the duck at the zone's outer edge instead of
-            // at the wall.
+            // UNIFORM STANDOFF BAND: the zone marks the STAND SPOT, flush to
+            // the face — it no longer reaches out to fold him early. Early
+            // duck during a combat approach is combat posture (the controller
+            // drives anim.duck from the pick's requirement for the whole
+            // advance); possess stays zone-bound — in the band = duck, out =
+            // release.
             // The verdict (class, required depth, heat, validation eye) is
             // computed PER CELL from that cell's own floor — a curb or debris
             // under a cell raises him, shrinking the wall's rise there, so the
@@ -184,12 +190,10 @@ namespace SteelCity.Sim
             for (int i = 0; i < walls.Count; i++)
             {
                 var w = walls[i];
-                // Strip depth scales with the column's own duck requirement —
-                // duck/2 = fraction of max duck, so corridors widen 2x→4x as
-                // the requirement deepens (morph walls claim a modest reach;
-                // a full-deep wall claims the widest corridor).
-                float depth = standoff * (2f + 2f * (w.cls == CoverSensor.WallClass.Crouch
-                    ? Mathf.Clamp01(w.reqDepth * 0.5f) : 0f));
+                // Uniform standoff band — same footprint for every class; the
+                // requirement-scaled corridor (2x..4x) is gone. Depth covers
+                // the stand spot; guarantee ≥1 painted row on coarse grids.
+                float depth = Mathf.Max(standoff, CellSize);
                 SplatRect(w, Mathf.Max(w.vs * 0.5f, halfW), depth);
             }
 

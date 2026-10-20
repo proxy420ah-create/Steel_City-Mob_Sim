@@ -207,9 +207,18 @@ namespace SteelCity.Sim
                     if (world.Raycast(probeOrigin, dir, reach, out VoxelRayHit fh)
                         && Vector3.Dot(dir, -fh.normal) >= 0.85f)
                     {
+                        // Threat-side gate — same test the field applies
+                        // (facing = outDir·dirToThreat): if the face's open
+                        // side points AT the shooter, he's on the EXPOSED side
+                        // and the wall isn't cover from this threat at all.
+                        // fh.normal ≈ the face's outDir (toward him).
+                        Vector3 toThreat = coverSensor.Threat.Value - fh.point; toThreat.y = 0f;
+                        if (toThreat.sqrMagnitude > 1e-4f
+                            && Vector3.Dot(fh.normal, toThreat.normalized) >= coverSensor.facingDot)
+                        { ProbeTop[i] = float.NaN; ProbeD[i] = float.NaN; ProbeVol[i] = null; }
                         // Column top just inside the face — the nudge keeps thin
                         // faces from sampling the open column behind the wall.
-                        if (world.TryColumnTop(fh.point + dir * 0.05f, 2f, 3f, out float wt))
+                        else if (world.TryColumnTop(fh.point + dir * 0.05f, 2f, 3f, out float wt))
                         {
                             ProbeTop[i] = wt;
                             // RAW duck solve — DuckForTop clamps to [0,2] for
@@ -229,10 +238,11 @@ namespace SteelCity.Sim
                 }
                 float req = bestD <= 2f ? Mathf.Clamp(bestD, 0f, 2f) : 0f;
                 DriveCrouch = bestDir >= 0 && bestD <= 2f && !ProbeFull[bestDir];
-                // The painted ZONES dictate posture too: stepping into a
-                // crouch corridor (deeper zones reach further out) ducks him
-                // before the ring ever touches the wall — the deeper of the
-                // ring hit and the zone verdict wins.
+                // The painted ZONES dictate posture too: the zone is a
+                // uniform standoff band (the stand spot, flush to the face —
+                // no corridor), so stepping in ducks him and stepping out
+                // releases him, simple. The deeper of the ring hit and the
+                // zone verdict wins.
                 ZoneCls = CoverSensor.WallClass.Low; ZoneD = 0f;
                 if (coverSensor.TryZoneAt(feet, out CoverSensor.WallClass zc, out float zd))
                 {

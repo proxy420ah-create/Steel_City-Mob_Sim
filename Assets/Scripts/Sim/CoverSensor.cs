@@ -286,9 +286,9 @@ namespace SteelCity.Sim
                 {
                     var pw = walls[wi];
                     reqDepth = pw.reqDepth; cls = pw.cls;
-                    // Destination hugs the wall — the zone is a corridor he
-                    // walks THROUGH, not a boundary to stop at. He comes to
-                    // rest at the owning column's stand-spot.
+                    // Destination hugs the wall — the zone is a uniform
+                    // standoff band (the stand spot), and he comes to rest
+                    // at the owning column's stand-spot inside it.
                     Vector3 spot = pw.facePos + pw.outDir * (standoff + pw.vs * 0.25f);
                     point = new Vector3(spot.x, pw.support, spot.z);
                     PickInfo = $"wall top {pw.top:F2} · floor {pw.support:F2} · rise {pw.top - pw.support:F2}"
@@ -310,13 +310,19 @@ namespace SteelCity.Sim
         /// <summary>Which painted cover zone contains <paramref name="pos"/> —
         /// returns the OWNING column's class + required depth (the zone's
         /// posture verdict). False over open ground, halo rim, and Low
-        /// frontage (those claim cells but never paint).</summary>
+        /// frontage (those claim cells but never paint). When the field was
+        /// built against a real threat, only Hidden-validated cells count —
+        /// the threat-facing side of a wall still gets claimed + painted
+        /// (quality is threat-independent), but it isn't cover from THAT
+        /// shooter.</summary>
         public bool TryZoneAt(Vector3 pos, out WallClass cls, out float reqDepth)
         {
             cls = WallClass.Low; reqDepth = 0f;
             if (!field.HasData) return false;
             int idx = field.CellIndexOf(pos);
             if (idx < 0 || field.volIdOf[idx] == null || field.quality[idx] < CoverField.SeedMin)
+                return false;
+            if (field.BuiltWithThreat && field.state[idx] != CoverField.CellState.Hidden)
                 return false;
             cls = (WallClass)field.clsOf[idx];
             reqDepth = field.reqDepthOf[idx];

@@ -98,8 +98,16 @@ Idle ──EnterCombat(threatPos)──▶ SeekingCover ──reached──▶ I
   authored hold pose when stationary (`Crouching` pick → `crouching`/`crouchDeep`
   endpoints) and the crumple-gait when moving (`Walking` pick → `walkDuckMid`/
   `walkDuckPose` deltas under the gait). Applies to possess cover-walk and to
-  zone-driven crouch during SeekingCover (always `Walking` there — seeking IS
-  movement).
+  SeekingCover, where **combat owns the approach posture** — `anim.duck` eases
+  toward the *destination* wall's requirement (`seekDuckEase` 2.5/s) for the
+  whole advance and `DuckSpeedFactor` slows the step to match the gait (deep
+  approach = crab-walk). The painted zone no longer reaches out — it's a
+  uniform `standoff` band marking the stand spot; possess stays zone-bound
+  (in = duck, out = release), and **threat-side is never a zone**: with a
+  threat pinned, `TryZoneAt` only answers `Hidden`-validated cells and the
+  ring probes apply the field's own facing test (`dot(normal, dirToThreat) <
+  facingDot`) — standing on the shooter's side of a wall can't duck him
+  (`POSSESS_DRIVE_DUCKS_ON_THREAT_SIDE`).
 - `ExitCombat()` → back to Idle, IK released.
 
 ### Cover selection — `CoverField` (influence map)
@@ -155,8 +163,9 @@ quantized snap); over-1 yields the shallow→deep band (state-5 pick):
   piecewise `h(duck)`) — a low wall only validates if the ducked eye actually
   clears it.
 - `TryPickCover` reports `reqDepth` (duck units); `CombatController` writes
-  `anim.duck` **immediately** — the zone is the posture, no ease.
-  Exit/hold resets to 0.
+  `anim.duck` — **eased during SeekingCover** (`seekDuckEase`, combat posture),
+  **immediately** on arrival/hold. Exit resets to 0. The zone itself is a
+  uniform `standoff` band — it marks the stand spot, it does not reach out.
 
 Layers (COVER tab): **Threat** (composite score — the pick surface),
 **Quality** (whole-disc paint — air = dim red wash, cover faces hot),
@@ -292,7 +301,9 @@ of silently holding position.
 5. Cover pit: while Dwelling, click the `[COVER TESTBED]` block → Combat tab →
    **SETUP PIT** → **START DUEL**. Expected: Vinny on the south plate, Tan Suit
    on the north plate, orange threat cross on Tan, CoverThreat/CoverExposure
-   V-modes paint both crates, Vinny walks to the south face of a crate, ducks to
-   the wall's solved depth (morph walls show a partial fold — `cover: morph N.NN`),
-   yaws toward Tan. Phase 2 adds: he fires while Tan's voxels are visible, stows
-   when tucked, pops up on the override, ducks again after 6.
+   V-modes paint both crates, Vinny folds into the destination wall's duck
+   **during the approach** (combat posture — eased at `seekDuckEase`, step
+   slowed by `DuckSpeedFactor`), arrives at the south-face stand spot at the
+   solved depth (morph walls show a partial fold), yaws toward Tan. Phase 2
+   adds: he fires while Tan's voxels are visible, stows when tucked, pops up
+   on the override, ducks again after 6.

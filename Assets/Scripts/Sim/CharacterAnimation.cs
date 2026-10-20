@@ -72,6 +72,11 @@ namespace SteelCity.Sim
         private AnimState transFrom;
         private float transFromTime;
         private float transFromDepth;  // depth is a pose axis — frozen with state+time
+        private float prevFrameDuck;   // duck as of the last Update — the honest
+                                       // freeze: a same-frame drive write (cover
+                                       // release snaps duck→0 before the pose
+                                       // flip) would otherwise fold the outgoing
+                                       // pose flat and the blend-out collapses.
         private float pendingPrevAnimTime = -1f; // SetState resets animTime before Update reads it
         /// <summary>Blend weight of the LIVE pose (1 = transition done/off).</summary>
         public float TransBlend { get; private set; } = 1f;
@@ -215,7 +220,12 @@ namespace SteelCity.Sim
                     // under this (state, time) pair while the blend ramps in.
                     transFrom = prevState;
                     transFromTime = pendingPrevAnimTime >= 0f ? pendingPrevAnimTime : animTime;
-                    transFromDepth = duck;   // freeze the real duck scalar
+                    transFromDepth = prevFrameDuck;   // freeze the PRE-write duck
+                                                      // — cover release already
+                                                      // wrote 0 this frame; the
+                                                      // outgoing pose must stay
+                                                      // folded so the blend
+                                                      // reads as a real un-fold
                     transT = 0f;
                 }
                 pendingPrevAnimTime = -1f;
@@ -255,6 +265,8 @@ namespace SteelCity.Sim
             instancedHandle.crouchDepth = duck;          // field carries THE duck scalar now
             instancedHandle.gaitTime = gaitTime;
             instancedHandle.lookScanBlend = lookScan ? lookScanBlend : 0f;
+            prevFrameDuck = duck;   // snapshot AFTER all writers — consumed by
+                                    // the next flip's transFromDepth freeze
         }
 
         /// <summary>Set base-lane animation state (locomotion). Does not break a held pose override.</summary>

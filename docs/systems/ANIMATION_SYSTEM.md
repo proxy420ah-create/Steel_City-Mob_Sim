@@ -343,7 +343,10 @@ frozen A pose, once under the live B pose — and `lerp(pA, pB, TransBlend)` in
 position space. CPU: `PosePoint(transStateA, transTimeA, transBlend, transDip,
 transDepthA)`. GPU: CSPose's second pass over `instMeta.y/z/w` + `cDepthA`.
 `transDepthA` freezes the depth axis WITH the pose so a crouch→stand doesn't
-snap the duck mid-blend.
+snap the duck mid-blend. It captures `prevFrameDuck` — the scalar from the
+last Update — not the live field: a same-frame drive write (cover release
+snaps `duck→0` before the pose flip lands) must not fold the frozen A-pose
+flat, or the blend lerps upright→upright and the un-fold snaps.
 
 This is a general "whatever pose it was → authored pose" engine — but its
 weight is a **clock**, not a parameter.
@@ -429,8 +432,11 @@ d > 1   → Low    (unusable — never picked)
   unpaints that cell, and `TryZoneAt` reports the cell's own class+depth to
   pose drivers. Heat follows wall **rise**; posture follows **depth** — the
   two read the same verdict.
-- `PossessController` drives `crouchDepth` from the painted zone / probe ring;
-  `CombatController` eases toward the picked cover's requirement.
+- `PossessController` drives `duck` from the painted zone / probe ring (zone =
+  uniform standoff band — in = duck, out = release); `CombatController` eases
+  `duck` toward the picked cover's requirement **during the whole SeekingCover
+  approach** (combat posture owns the advance — `seekDuckEase`), snapping on
+  arrival/hold.
 
 ---
 
