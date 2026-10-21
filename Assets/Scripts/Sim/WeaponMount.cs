@@ -324,20 +324,42 @@ namespace SteelCity.Sim
             float speed = ic?.animSpeed ?? 1f;
             float depth = ic?.crouchDepth ?? 0f;   // handle field carries the duck scalar
             float gait = ic?.gaitTime ?? -1f;
+            // Transition params — the weld must ride the SAME transBlend the
+            // renderer uses, else the gun snaps to the destination pose while
+            // the body still eases (diag'd: model 10 teleported to the aim
+            // slot on rise, hand caught up over the transition window).
+            float tSA = ic?.transStateA ?? -1f, tTA = ic?.transTimeA ?? 0f;
+            float tB = ic?.transBlend ?? 1f, tDp = ic?.transDip ?? 0f;
+            float tDA = ic?.transDepthA ?? -1f;
 
             // Posed hand point (voxel units, centered x/z) + cumulative group rotation
             Vector3 posed = animator != null
                 ? animator.PosePoint(handPoint, handGid, dims, state, time, speed,
-                    duck: depth, gaitTime: gait)
+                    tSA, tTA, tB, tDp, depth, tDA, gait)
                 : new Vector3(handPoint.x - dims.x * 0.5f, handPoint.y, handPoint.z - dims.z * 0.5f);
 
+            // Cumulative hand-chain rotation — dual-eval + slerp through the
+            // transition window so the gun's ORIENTATION eases with the body,
+            // mirroring PosePoint's position lerp.
             Quaternion qR = Quaternion.identity;
             if (animator != null)
             {
+                Quaternion qB = Quaternion.identity;
                 var gr = animator.ComputeGroupRotation(handGid, dims, 1.0f, state, time, speed, depth, gait);
                 if (gr.HasValue && gr.Value.chain != null)
                     foreach (var e in gr.Value.chain)
-                        qR = QuatFromMat3(e.rot) * qR;
+                        qB = QuatFromMat3(e.rot) * qB;
+                qR = qB;
+                if (tB < 1f && tSA >= 0f)
+                {
+                    float duckA = tDA >= 0f ? tDA : depth;
+                    Quaternion qA = Quaternion.identity;
+                    var grA = animator.ComputeGroupRotation(handGid, dims, 1.0f, tSA, tTA, speed, duckA, gait);
+                    if (grA.HasValue && grA.Value.chain != null)
+                        foreach (var e in grA.Value.chain)
+                            qA = QuatFromMat3(e.rot) * qA;
+                    qR = Quaternion.Slerp(qA, qB, tB);
+                }
             }
 
             // Hand world position: cell-space (+0.5) → rotate about volume center (shader convention)

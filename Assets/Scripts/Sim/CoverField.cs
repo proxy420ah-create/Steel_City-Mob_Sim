@@ -235,7 +235,11 @@ namespace SteelCity.Sim
                 int idx = cz * N + cx;
                 if (volIdOf[idx] == null) continue;      // untouched — no wall contributes
                 if (quality[idx] < SeedMin) continue;    // dilated halo — visual only
-                if (facing[idx] >= facingDot) { Tally("facing"); continue; }
+                // Band sits on the threat's side of its face — genuinely no
+                // cover from this direction. Paint Exposed, not clear: the
+                // threat view then shows the SAME footprint as quality, with
+                // every seeded cell carrying its directional verdict.
+                if (facing[idx] >= facingDot) { state[idx] = CellState.Exposed; Tally("facing"); continue; }
                 TestedCells++;
                 Vector3 c = CellCenter(cx, cz);
 
@@ -468,6 +472,86 @@ namespace SteelCity.Sim
             => new Vector3(Origin.x + (cx + 0.5f) * CellSize, GroundY, Origin.z + (cz + 0.5f) * CellSize);
 
         public bool IsChosen(int idx) => idx == ChosenCell;
+
+        /// <summary>One painted cover AREA = one stand point. A zone is a
+        /// connected component of Hidden cells sharing owner volume, wall
+        /// class and required-duck band (¼-duck quantum — stepped terraces
+        /// split per step, corner overlaps split per volume). `stand` = the
+        /// cells' centroid at their mean probed ground — literally "the
+        /// middle of that color gradient", not a per-face anchor.</summary>
+        public struct ZoneSpot
+        {
+            public Vector3 stand;       // cell centroid, y = mean probed ground
+            public string volId;        // uniform — the split key includes it
+            public float reqD;          // mean required duck over the zone
+            public CoverSensor.WallClass cls;  // uniform — the split key includes it
+            public int cells;
+        }
+
+        static readonly int[] ZoneDX = { 1, -1, 0, 0 }, ZoneDZ = { 0, 0, 1, -1 };
+        private bool[] zoneSeen;
+        private readonly Queue<int> zoneQueue = new Queue<int>();
+        private readonly List<int> zoneCells = new List<int>(512);
+
+        /// <summary>Flood-fills the Hidden cells into zones; appends one
+        /// ZoneSpot per component. `stand` is the member CELL nearest the
+        /// raw centroid — visually identical (cells are centimetres), but
+        /// guaranteed to sit inside the painted area even for concave zones.
+        /// Returns the count.</summary>
+        public int EnumerateZones(List<ZoneSpot> out_)
+        {
+            out_.Clear();
+            if (state == null || !BuiltWithThreat) return 0;
+            if (zoneSeen == null || zoneSeen.Length != state.Length)
+                zoneSeen = new bool[state.Length];
+            else System.Array.Clear(zoneSeen, 0, zoneSeen.Length);
+            for (int s = 0; s < state.Length; s++)
+            {
+                if (zoneSeen[s] || state[s] != CellState.Hidden || volIdOf[s] == null) continue;
+                string vol = volIdOf[s];
+                byte cls = clsOf[s];
+                int q = Mathf.RoundToInt(reqDepthOf[s] * 4f);
+                zoneSeen[s] = true;
+                zoneQueue.Clear(); zoneQueue.Enqueue(s);
+                zoneCells.Clear();
+                float sx = 0f, sz = 0f, gy = 0f, rd = 0f;
+                while (zoneQueue.Count > 0)
+                {
+                    int i = zoneQueue.Dequeue();
+                    zoneCells.Add(i);
+                    var c = CellCenter(i % N, i / N);
+                    sx += c.x; sz += c.z; gy += groundY[i]; rd += reqDepthOf[i];
+                    int cx = i % N, cz = i / N;
+                    for (int d = 0; d < 4; d++)
+                    {
+                        int x = cx + ZoneDX[d], z = cz + ZoneDZ[d];
+                        if (x < 0 || x >= N || z < 0 || z >= N) continue;
+                        int j = z * N + x;
+                        if (zoneSeen[j] || state[j] != CellState.Hidden) continue;
+                        if (volIdOf[j] != vol || clsOf[j] != cls) continue;
+                        if (Mathf.RoundToInt(reqDepthOf[j] * 4f) != q) continue;
+                        zoneSeen[j] = true; zoneQueue.Enqueue(j);
+                    }
+                }
+                int n = zoneCells.Count;
+                float mx = sx / n, mz = sz / n;
+                int bestCell = zoneCells[0]; float bd = float.MaxValue;
+                foreach (var i in zoneCells)
+                {
+                    var c = CellCenter(i % N, i / N);
+                    float d = (c.x - mx) * (c.x - mx) + (c.z - mz) * (c.z - mz);
+                    if (d < bd) { bd = d; bestCell = i; }
+                }
+                var standC = CellCenter(bestCell % N, bestCell / N);
+                out_.Add(new ZoneSpot
+                {
+                    stand = new Vector3(standC.x, gy / n, standC.z),
+                    volId = vol, reqD = rd / n,
+                    cls = (CoverSensor.WallClass)cls, cells = n
+                });
+            }
+            return out_.Count;
+        }
 
         /// <summary>World XZ of the chosen cell center (for the post marker).</summary>
         public Vector3 ChosenPoint => ChosenCell >= 0 ? CellCenter(ChosenCell % N, ChosenCell / N) : default;

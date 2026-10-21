@@ -56,10 +56,8 @@ namespace SteelCity.Sim
         public float settleSec = 5f;
         [Tooltip("The arm survives a dropped probe this long — a single empty scan must not pump-stow him. Authority loss (reload/no weapon/beat closed) still stows instantly.")]
         public float disarmHoldSec = 0.35f;
-        [Tooltip("Seconds spent risen with zero contact before giving the check up and ducking back.")]
-        public float riseHoldSec = 1.2f;
-        [Tooltip("Sustained zero-exposure time in Engaged before he drops — a dropped-frame probe must not bounce him.")]
-        public float emptyProbeSec = 0.5f;
+        [Tooltip("Consecutive empty visibility probes in Engaged before he drops — a dropped-frame probe must not bounce him (4 ≈ 0.5s at visInterval). Event-count, not a clock.")]
+        public int emptyProbesToDrop = 4;
         [Tooltip("Duck ease while rising / dropping back into cover (duck/s).")]
         public float riseDuckEase = 3f;
         [Tooltip("Clearance margin above the wall top for the rise solve (m).")]
@@ -95,10 +93,10 @@ namespace SteelCity.Sim
         /// <summary>Duck the last Rise solve picked — min duck clearing eye+muzzle over the wall.</summary>
         public float RiseDuck => riseDuck;
         /// <summary>Seconds left on the current beat's timer (Settle/Rise; else 0) — the panel's inline countdown.</summary>
-        public float BeatLeft => Beat == EngagementBeat.Settle ? Mathf.Max(0f, beatUntil - Time.unscaledTime)
-                              : Beat == EngagementBeat.Rise ? Mathf.Max(0f, riseUntil - Time.unscaledTime) : 0f;
+        public float BeatLeft => Beat == EngagementBeat.Settle ? Mathf.Max(0f, beatUntil - Time.unscaledTime) : 0f;   // Rise is event-bound (pose convergence) — no clock left
         /// <summary>The seam's branch point — which beat this Settle exits to.</summary>
-        public EngagementBeat NextAfterSettle => afterSettle;
+        public EngagementBeat NextAfterSettle => loopGate && !loopBeats
+            ? EngagementBeat.None : afterSettle;   // honest preview of the gated exit
         /// <summary>Diagnosis of the last Rise attempt — what the solve found
         /// or why it refused / expired. Panel + log surface.</summary>
         public string LastRiseDiag { get; private set; }
@@ -178,7 +176,103 @@ namespace SteelCity.Sim
         private int cylinder;
         private bool reloading;
         private float nextVisProbe, nextFireTime, nextRoundLoad;
-        private float beatUntil, riseDuck, riseUntil, emptySince;
+        // Loop-gate state: `loopGate` arms on every Duck entry — the settle that
+        // follows a duck is the re-cycle gate, decided LIVE at its exit (not
+        // at duck-entry time, so a mid-seam toggle takes effect). `awaitingLoop`
+        // marks a parked gate — a live toggle-ON restarts the rhythm.
+        private bool loopGate, awaitingLoop;
+        // The REAL bore as detector: the welded muzzle ray — not the solve's
+        // sight-line model — is what actually clears or clips the wall once
+        // the arm is presented. `aimPointWorld` = the last point the solver
+        // was aimed at; `buriedSince` = sustained-buried hysteresis.
+        private float buriedSince;
+        private Vector3 aimPointWorld;
+        [Tooltip("How long the real muzzle ray must stay blocked before the wall is declared unfightable (buried-bore verdict → relocate).")]
+        public float boreBurySec = 0.4f;
+        /// <summary>Scratch for EnumerateZones — relocation candidates are the
+        /// field's painted cover AREAS (connected Hidden components), one
+        /// centroid each, not per-face anchors.</summary>
+        private readonly List<CoverField.ZoneSpot> zonesScratch = new List<CoverField.ZoneSpot>(32);
+
+        // ---- Scripted engagement director --------------------------------
+        /// <summary>A user-authored cover order — one filled dropdown slot:
+        /// "go stand at this centroid". The HUD writes slots; combat consumes
+        /// them in order and runs the full rhythm at each stop. `stand` is the
+        /// zone centroid — a precise feet target, already resolved.</summary>
+        public struct ScriptSlot
+        {
+            public bool has;
+            public Vector3 stand;
+            public string volId;
+            public CoverSensor.WallClass cls;
+            public float reqD;
+        }
+        /// <summary>When on, EnterCombat skips the auto pick — he holds until
+        /// the first filled slot issues his first order. Filling the NEXT slot
+        /// is the "advance": it fires the moment the current stage reaches a
+        /// verdict (first Engaged contact, a refused/buried rise, or a parked
+        /// seam) — never mid-move, so actions can't step on each other.</summary>
+        public bool scriptedMode;
+        public readonly List<ScriptSlot> scriptSlots = new(new ScriptSlot[8]);
+        /// <summary>Index of the slot currently being executed (−1 = none
+        /// consumed yet — holding for the user's first order).</summary>
+        public int ScriptCursor { get; private set; } = -1;
+        /// <summary>The consumed slot produced a verdict (contact or failure)
+        /// — the queue may advance when the next slot is filled.</summary>
+        public bool ScriptStageDone { get; private set; }
+
+        void ConsumeNextScriptSlot()
+        {
+            for (int i = ScriptCursor + 1; i < scriptSlots.Count; i++)
+            {
+                var s = scriptSlots[i];
+                if (!s.has) continue;
+                ScriptCursor = i; ScriptStageDone = false;
+                ScriptedGoTo(i, s);
+                return;
+            }
+        }
+
+        /// <summary>Issue a scripted order — identical commitment to a
+        /// fighting-cover relocation (atomic: cached stand point, reset beat
+        /// state, SeekingCover re-runs the arrival → rhythm pipeline).</summary>
+        void ScriptedGoTo(int idx, ScriptSlot s)
+        {
+            CoverPoint = s.stand; CoverObstacleId = s.volId;
+            targetDuck = s.reqD; coverWallClass = s.cls;
+            Beat = EngagementBeat.None; afterSettle = EngagementBeat.None;
+            loopGate = false; buriedSince = 0f;
+            Relocating = idx > 0;   // slot 1 = the initial seek (SEEK); later slots = RELOCATE
+            if (anim != null) anim.coverContext = false;
+            SetState(CombatState.SeekingCover);
+            if (anim != null)
+            {
+                anim.RequestPose(CharacterAnimation.AnimState.Walking, CharacterAnimation.PRIORITY_COMBAT);
+                anim.walkSpeed = Mathf.Clamp(moveSpeed, 0.5f, 2f);
+            }
+            LastRelocateDiag = $"script {idx + 1} → {s.volId} stand@({s.stand.x:F0},{s.stand.z:F0}) · duck {s.reqD:F2}";
+            LastResult = $"scripted → {s.volId}";
+            Debug.Log($"🥊 [Combat] {name} — {LastRelocateDiag}");
+            Notify();
+        }
+        /// <summary>Last relocation action, for the metrics panel.</summary>
+        public string LastRelocateDiag { get; private set; } = "—";
+        /// <summary>True while a relocation-driven SeekingCover is in progress
+        /// — the phase is the initial-seek primitive reused (duck-gait move +
+        /// armed opportunity channel while reloaded), cleared on arrival.</summary>
+        public bool Relocating { get; private set; }
+
+        /// <summary>The welded muzzle is the ground truth: does the REAL bore
+        /// path to the aim point clip world voxels? The rise solve's
+        /// eye−sightGap model can say "cleared" while the actual barrel
+        /// kisses the lip — this catches it at runtime.</summary>
+        bool BoreBuried(Vector3 aimPoint)
+        {
+            if (mount == null || !mount.IsEquipped || sensor == null) return false;
+            return sensor.LosBlocked(mount.MuzzleWorld, aimPoint);
+        }
+        private float beatUntil, riseDuck;
+        private int emptyProbes;                     // consecutive zero-visible probes (Engaged drop gate)
         private EngagementBeat afterSettle;
 
         void Awake()
@@ -233,6 +327,7 @@ namespace SteelCity.Sim
             // from whatever fired last (possess or a previous engagement).
             ShotsFired = 0;
             Beat = EngagementBeat.None; afterSettle = EngagementBeat.None; riseDuck = 0f;
+            loopGate = false; awaitingLoop = false; failedFaces.Clear();
             nextFireTime = 0f; nextVisProbe = 0f; LastShotAt = -1f;
             ExposureArmed = false;
             LastSeenTarget = null; LastSeenAt = -1f;
@@ -240,6 +335,20 @@ namespace SteelCity.Sim
 
             Sensor.Threat = threatPos;
             Sensor.Refresh(true);
+            // Scripted director: no auto pick — he holds at spawn until the
+            // first filled slot issues the order. The user literally writes
+            // the sequence live (first cover → relocate → re-engage).
+            if (scriptedMode)
+            {
+                ScriptCursor = -1; ScriptStageDone = false;
+                SetState(CombatState.HoldPosition);
+                CoverPoint = Feet(); CoverObstacleId = null;
+                coverWallClass = CoverSensor.WallClass.Crouch; targetDuck = 0f;
+                LastResult = "scripted — awaiting slot 1";
+                Debug.Log($"🥊 [Combat] {name} — scripted mode: holding for slot 1");
+                Notify();
+                return true;
+            }
             bool picked = coverAnchor.HasValue
                 ? Sensor.TryPickCoverNear(coverAnchor.Value, maxDist, out Vector3 p, out string oid, out float reqD, out coverWallClass)
                 : Sensor.TryPickCover(Feet(), out p, out oid, out reqD, out coverWallClass);
@@ -278,6 +387,8 @@ namespace SteelCity.Sim
             if (solver != null && solver.IsAiming) solver.Disarm();
             ExposureArmed = false;
             Beat = EngagementBeat.None; afterSettle = EngagementBeat.None;
+            loopGate = false; awaitingLoop = false; Relocating = false; buriedSince = 0f;
+            ScriptCursor = -1; ScriptStageDone = false;   // slots persist — the script survives iterations
             // (reloading left running — the wheel seats across mode exits,
             // same carryover rule as the cylinder itself.)
             ThreatCharacter = null;
@@ -305,36 +416,46 @@ namespace SteelCity.Sim
         void EnterBeat(EngagementBeat b)
         {
             Beat = b;
+            awaitingLoop = false;   // any real beat clears a parked gate
             switch (b)
             {
                 case EngagementBeat.Settle:
                     beatUntil = Time.unscaledTime + settleSec;
                     break;
+                case EngagementBeat.Duck:
+                    loopGate = true;   // the settle after a duck is the re-cycle gate
+                    ScriptStageDone = true;   // stage verdict reached (dry/refused/empty/buried/lost)
+                    break;
+                case EngagementBeat.Engaged:
+                    ScriptStageDone = true;   // contact confirmed — the stop produced fire
+                    emptyProbes = 0;
+                    break;
                 case EngagementBeat.Rise:
                     riseDuck = SolveRiseDuck();
-                    // No clearable rise → duck, settle, and STOP (afterSettle
-                    // must not still point at Rise or the seam loops forever).
+                    // No clearable rise → duck, settle, gate. The seam decides
+                    // park-vs-restart LIVE at its exit — afterSettle stays
+                    // TopUp so a mid-seam toggle-ON still proceeds.
                     if (riseDuck < 0f)
                     {
                         Debug.Log($"🥊 [Combat] {name} — rise refused: {LastRiseDiag}");
-                        afterSettle = loopBeats ? EngagementBeat.TopUp : EngagementBeat.None;
+                        // The reposition branch: this wall can't be fought
+                        // over → re-pick for cover whose rise DOES clear.
+                        if (TryRelocateToFightingCover()) return;
+                        afterSettle = EngagementBeat.TopUp;
                         EnterBeat(EngagementBeat.Duck); return;
                     }
-                    riseUntil = Time.unscaledTime + riseHoldSec;
-                    break;
-                case EngagementBeat.Engaged:
-                    emptySince = Time.unscaledTime;
+                    // Atomic beat: the pose converging to riseDuck IS the rise
+                    // completing — the contact verdict lands there. No window.
                     break;
             }
             Notify();
         }
 
-        /// <summary>Minimum duck that clears BOTH the posed eye and the muzzle
-        /// over his own wall's top — the triangulated pop-up: eye alone isn't
-        /// enough if the gun's still buried. The muzzle is evaluated in the
-        /// AIMED pose (state 4) — a rest-pose hand hangs at waist height and
-        /// would fail every mid-height wall even though the raised gun
-        /// clears. -1 when unsolvable (over-tall parapet / no wall data).</summary>
+        /// <summary>Can he fight over his own wall's top — at FULL STAND.
+        /// Firing states are posture-uniform now: rise = stand up, no duck
+        /// band to search — the verdict is "does the standing eye + presented
+        /// muzzle clear the lip": eye alone isn't enough if the gun's still
+        /// buried. -1 when unsolvable (over-tall parapet / no wall data).</summary>
         float SolveRiseDuck()
         {
             if (vox == null || sensor == null)
@@ -360,40 +481,149 @@ namespace SteelCity.Sim
             if (!tgt.HasValue && ThreatCharacter != null)
                 tgt = ThreatCharacter.transform.position + Vector3.up * 0.5f;
 
-            float bestEye = float.MinValue; bool boreBlocked = false;
-            for (float d = targetDuck; d >= -0.001f; d -= 0.2f)
+            float r = SolveRiseAtSpot(transform.position, transform.eulerAngles.y,
+                wallTop, tgt, transform.forward,
+                out int verdict, out float bestEye);
+            if (r >= 0f)
             {
-                float dd = Mathf.Max(0f, d);
-                // duck>1.02 rides the crouch state (depth = duck−1); the
-                // morph/shallow band rides Idle (depth = duck).
-                float s = dd > 1.02f ? 5f : 0f, dep = dd > 1.02f ? dd - 1f : dd;
-                if (!vox.TryGetEyeAnchor(out Vector3 eye, out _, out _, s, 0f, dep)) continue;
-                bestEye = Mathf.Max(bestEye, eye.y);
-                if (eye.y <= wallTop + riseMargin) continue;
-
-                // Eye clears. The muzzle gate is the BORE LINE, anchored to
-                // the sight line, not the wrist pivot: aimed fire aligns the
-                // sights to the eye, so the presented muzzle sits sightGap
-                // below the eye pushed muzzleFwd toward the target — the ray
-                // rides the same world collision the probe uses. (Diag'd
-                // 2026-10: rest-pose pivot sat 4cm under while the presented
-                // bore cleared — wrong thing measured.)
-                if (!tgt.HasValue)
-                { LastRiseDiag = $"cleared(eye-only): duck {dd:F2} · wall {wallTop:F2}"; return dd; }
-                Vector3 hd = tgt.Value - eye; hd.y = 0f;
-                Vector3 hdn = hd.sqrMagnitude > 1e-6f ? hd.normalized : transform.forward;
-                Vector3 muzzle = eye - Vector3.up * sightGap + hdn * muzzleFwd;
-                if (!sensor.LosBlocked(muzzle, tgt.Value))
-                {
-                    LastRiseDiag = $"cleared: duck {dd:F2} · wall {wallTop:F2} · eye {eye.y:F2}";
-                    return dd;
-                }
-                boreBlocked = true;
+                LastRiseDiag = verdict == 4
+                    ? $"cleared(eye-only): stand · wall {wallTop:F2}"
+                    : $"cleared: stand · wall {wallTop:F2}";
+                return r;
             }
-            LastRiseDiag = bestEye == float.MinValue ? "eye eval failed at every candidate"
-                : boreBlocked ? $"sees but can't shoot: wall {wallTop:F2} — bore path blocked at every duck"
+            LastRiseDiag = verdict == 1 ? "eye eval failed"
+                : verdict == 3 ? $"sees but can't shoot: wall {wallTop:F2} — bore path blocked at stand"
                 : $"can't see over: wall {wallTop:F2}+{riseMargin:F2} vs eye≤{bestEye:F2}";
             return -1f;
+        }
+
+        /// <summary>The rise verdict at an arbitrary stand spot — single
+        /// evaluation, FULL STAND (firing posture is upright; the crouch-band
+        /// candidate search is suspended). The eye anchor is evaluated at the
+        /// live transform, then re-anchored: the local offset (yaw-unrotated)
+        /// is carried to `stand` under `yawDeg`.
+        /// verdict: 0 cleared · 1 eye-eval-fail · 2 eye can't clear ·
+        /// 3 bore blocked · 4 cleared eye-only. Returns 0 (the stand duck) or −1.</summary>
+        float SolveRiseAtSpot(Vector3 stand, float yawDeg, float wallTop,
+            Vector3? tgt, Vector3 fwdHint, out int verdict, out float bestEye)
+        {
+            verdict = 1;
+            Quaternion invYaw = Quaternion.Euler(0f, -transform.eulerAngles.y, 0f);
+            Quaternion toYaw = Quaternion.Euler(0f, yawDeg, 0f);
+            if (!vox.TryGetEyeAnchor(out Vector3 eyeW, out _, out _, 0f, 0f, 0f))
+            { bestEye = float.MinValue; return -1f; }
+            Vector3 eye = stand + toYaw * (invYaw * (eyeW - transform.position));
+            bestEye = eye.y;
+            if (eye.y <= wallTop + riseMargin) { verdict = 2; return -1f; }
+
+            // Eye clears. The muzzle gate is the BORE LINE, anchored to the
+            // sight line, not the wrist pivot: aimed fire aligns the sights
+            // to the eye, so the presented muzzle sits sightGap below the eye
+            // pushed muzzleFwd toward the target — the ray rides the same
+            // world collision the probe uses.
+            if (!tgt.HasValue) { verdict = 4; return 0f; }
+            Vector3 hd = tgt.Value - eye; hd.y = 0f;
+            Vector3 hdn = hd.sqrMagnitude > 1e-6f ? hd.normalized : fwdHint;
+            Vector3 muzzle = eye - Vector3.up * sightGap + hdn * muzzleFwd;
+            // The gun rides the lip at minimum — a marginal eye would dip the
+            // pushed muzzle inside the wall footprint and fail a shot that
+            // presenting over the parapet actually makes.
+            if (muzzle.y < wallTop + riseMargin) muzzle.y = wallTop + riseMargin;
+            if (!sensor.LosBlocked(muzzle, tgt.Value)) { verdict = 0; return 0f; }
+            verdict = 3;
+            return -1f;
+        }
+
+        /// <summary>Faces this combat has already failed a rise on — keyed by
+        /// FACE position, not volId: one volume carries faces at different
+        /// heights (the lower parapet section beside the tall one).</summary>
+        private readonly System.Collections.Generic.HashSet<string> failedFaces
+            = new System.Collections.Generic.HashSet<string>();
+        static string FaceKey(CoverSensor.WallMark w)
+            => $"{w.volId}@{Mathf.RoundToInt(w.facePos.x * 4f)},{Mathf.RoundToInt(w.facePos.z * 4f)}";
+
+        /// <summary>Rise refused = this wall can't be fought over — re-pick for
+        /// FIGHTING cover: the nearest hidden-validated face whose OWN rise
+        /// solve clears (the spec's reposition branch). The failed face is
+        /// remembered so the re-pick never returns it. True when a relocation
+        /// was issued — SeekingCover re-runs the whole rhythm at the new spot.</summary>
+        bool TryRelocateToFightingCover()
+        {
+            if (sensor == null || sensor.walls == null) return false;
+            // Scripted mode: the user's slots own position — auto-relocation
+            // would fight the script. The verdict still counts the stage done
+            // so a filled next slot takes over; unfilled = the seam gate holds.
+            if (scriptedMode)
+            {
+                ScriptStageDone = true;
+                LastRelocateDiag = "auto-relocate suppressed — script owns position";
+                return false;
+            }
+            // Mark the face that just failed — nearest mark on his obstacle.
+            float bd = float.MaxValue;
+            foreach (var w in sensor.walls)
+            {
+                if (w.volId != CoverObstacleId) continue;
+                float d2 = (w.facePos - CoverPoint).sqrMagnitude;
+                if (d2 < bd) { bd = d2; failedFaces.Add(FaceKey(w)); }
+            }
+
+            Vector3? tgt = LastSeenTarget;
+            if (!tgt.HasValue && ThreatCharacter != null)
+                tgt = ThreatCharacter.transform.position + Vector3.up * 0.5f;
+
+            // Candidates = the field's painted cover AREAS — connected Hidden
+            // components (per volume + class + ¼-duck band), one centroid
+            // each: "the middle of each color gradient section", not one spot
+            // per wall-face mark. Each zone still borrows its owner volume's
+            // nearest face mark for the wall top the solve needs.
+            CoverField.ZoneSpot best = default;
+            float bestReq = 0f, bestD2 = float.MaxValue; bool found = false;
+            sensor.Field.EnumerateZones(zonesScratch);
+            foreach (var z in zonesScratch)
+            {
+                float md = float.MaxValue; CoverSensor.WallMark m = default; bool hasMark = false;
+                foreach (var w in sensor.walls)
+                {
+                    if (w.volId != z.volId) continue;
+                    float d2m = (w.facePos - z.stand).sqrMagnitude;
+                    if (d2m < md) { md = d2m; m = w; hasMark = true; }
+                }
+                if (!hasMark || md > 4f || failedFaces.Contains(FaceKey(m))) continue;
+                Vector3 spot = z.stand;
+                // Re-validate at the centroid — a concave zone's middle can
+                // sit in a different cell than its rim.
+                if (!sensor.TryZoneAt(spot, out _, out float rd)) continue;
+                float yaw = tgt.HasValue
+                    ? Mathf.Atan2(tgt.Value.x - spot.x, tgt.Value.z - spot.z) * Mathf.Rad2Deg
+                    : Mathf.Atan2(-m.outDir.x, -m.outDir.z) * Mathf.Rad2Deg;
+                // Solve at the stand point itself — the verdict applies to
+                // where he'll actually stand, not the column anchor.
+                if (SolveRiseAtSpot(spot, yaw, m.top, tgt,
+                        -m.outDir, out _, out _) < 0f) continue;
+                float d2 = (spot - transform.position).sqrMagnitude;
+                if (d2 < bestD2) { bestD2 = d2; best = z; bestReq = rd; found = true; }
+            }
+            if (!found)
+            {
+                LastRelocateDiag = $"refused — {failedFaces.Count} face(s) failed, none fightable";
+                LastRiseDiag += " — no fightable cover";
+                return false;
+            }
+
+            CoverPoint = best.stand; CoverObstacleId = best.volId;
+            targetDuck = bestReq; coverWallClass = best.cls;
+            Beat = EngagementBeat.None; afterSettle = EngagementBeat.None;
+            loopGate = false; buriedSince = 0f; Relocating = true;
+            if (anim != null) anim.coverContext = false;   // fresh-seek parity with EnterCombat
+            SetState(CombatState.SeekingCover);
+            anim.RequestPose(CharacterAnimation.AnimState.Walking, CharacterAnimation.PRIORITY_COMBAT);
+            anim.walkSpeed = Mathf.Clamp(moveSpeed, 0.5f, 2f);
+            LastRelocateDiag = $"→ {best.volId} stand@({best.stand.x:F0},{best.stand.z:F0}) · duck {bestReq:F2}";
+            LastResult = $"relocating to fightable cover {best.volId} ({best.cls}, duck {bestReq:F2})";
+            Debug.Log($"🥊 [Combat] {name} — rise refused → {LastResult}");
+            Notify();
+            return true;
         }
 
         /// <summary>The authored rhythm (ENGAGEMENT_BEATS.md) — runs inside
@@ -405,33 +635,74 @@ namespace SteelCity.Sim
             switch (Beat)
             {
                 case EngagementBeat.Settle:
-                    if (Time.unscaledTime >= beatUntil) EnterBeat(afterSettle);
+                    if (Time.unscaledTime >= beatUntil)
+                    {
+                        var next = afterSettle;
+                        bool parking = false;
+                        if (loopGate)
+                        {
+                            loopGate = false;
+                            // The re-cycle gate, decided at exit — a live
+                            // toggle-OFF parks here (awaitingLoop lets a
+                            // toggle-ON restart), ON proceeds to TopUp.
+                            if (!loopBeats) { next = EngagementBeat.None; parking = true; }
+                        }
+                        EnterBeat(next);
+                        // AFTER EnterBeat — it clears the flag on every entry.
+                        if (parking) awaitingLoop = true;
+                    }
+                    break;
+                case EngagementBeat.None:
+                    // Parked at the re-cycle gate — a live toggle-ON re-arms
+                    // the rhythm from the seam, same as a fresh cycle.
+                    if (awaitingLoop && loopBeats)
+                    { afterSettle = EngagementBeat.TopUp; EnterBeat(EngagementBeat.Settle); }
                     break;
                 case EngagementBeat.TopUp:
                     if (cylinder < cylinderCapacity && !reloading) StartReload();
                     if (!reloading) { afterSettle = EngagementBeat.Rise; EnterBeat(EngagementBeat.Settle); }
                     break;
                 case EngagementBeat.Rise:
-                    if (sensor != null && sensor.LastVisible.visible > 0)
+                    // Atomic — no recon window: pose converged to full stand
+                    // IS the rise completing (the eye physically IS up). The
+                    // contact verdict is taken at that instant on a FRESH
+                    // probe, not the cadenced cache.
+                    if (anim == null || Mathf.Abs(anim.duck - riseDuck) < 0.02f)
                     {
-                        LastRiseDiag = $"contact: duck {riseDuck:F2} → Engaged";
-                        EnterBeat(EngagementBeat.Engaged); break;
-                    }
-                    if (Time.unscaledTime >= riseUntil)
-                    {
-                        LastRiseDiag = $"rose clean at duck {riseDuck:F2} — zero contact {riseHoldSec:F1}s";
+                        bool contact = ThreatCharacter != null && Sensor != null
+                            && Sensor.TryGetVisibleVoxels(ThreatCharacter, out _);
+                        if (contact)
+                        {
+                            LastRiseDiag = "contact at stand → Engaged";
+                            EnterBeat(EngagementBeat.Engaged); break;
+                        }
+                        LastRiseDiag = "risen — zero contact (target occluded from this stand)";
                         Debug.Log($"🥊 [Combat] {name} — {LastRiseDiag}");
-                        afterSettle = loopBeats ? EngagementBeat.TopUp : EngagementBeat.None;
+                        afterSettle = EngagementBeat.TopUp;
                         EnterBeat(EngagementBeat.Duck);
                     }
                     break;
                 case EngagementBeat.Engaged:
-                    if (sensor != null && sensor.LastVisible.visible > 0) emptySince = Time.unscaledTime;
+                    // Buried-bore verdict: the solve cleared him but the REAL
+                    // welded muzzle ray hits the wall — sustained burial =
+                    // unfightable cover → relocate (same path as refusal).
+                    if (solver.IsAiming && solver.Blend >= 0.7f && BoreBuried(aimPointWorld))
+                        buriedSince += Time.unscaledDeltaTime;
+                    else buriedSince = 0f;
                     if (cylinder <= 0 || reloading)
                     { afterSettle = EngagementBeat.TopUp; EnterBeat(EngagementBeat.Duck); }
-                    else if (Time.unscaledTime - emptySince > emptyProbeSec)
+                    else if (buriedSince >= boreBurySec)
                     {
-                        afterSettle = loopBeats ? EngagementBeat.TopUp : EngagementBeat.None;
+                        buriedSince = 0f;
+                        LastRiseDiag = "bore buried at the wall — real muzzle ray blocked";
+                        Debug.Log($"🥊 [Combat] {name} — {LastRiseDiag}");
+                        if (!TryRelocateToFightingCover())
+                        { afterSettle = EngagementBeat.TopUp; EnterBeat(EngagementBeat.Duck); }
+                    }
+                    else if (emptyProbes >= emptyProbesToDrop)
+                    {
+                        LastRiseDiag = $"lost him — {emptyProbesToDrop} empty probes in a row";
+                        afterSettle = EngagementBeat.TopUp;
                         EnterBeat(EngagementBeat.Duck);
                     }
                     break;
@@ -471,6 +742,22 @@ namespace SteelCity.Sim
                 if (anim != null) anim.duck = keep;
                 return;
             }
+            // Live threat feed — the sensor's context tracks the ACTOR, not
+            // the entry-time snapshot: ThreatPos updates to his current feet
+            // each frame and zones re-paint at the sensor's scan cadence as
+            // he moves (awareness stays live through the whole engagement;
+            // out of combat the pickedAim sync owns the channel instead).
+            if (ThreatCharacter != null)
+            {
+                ThreatPos = ThreatFeet();
+                Sensor.Threat = ThreatPos;
+            }
+            // Scripted director — consume the next filled slot once the current
+            // stage has produced a verdict (first contact / refused or buried
+            // rise / parked seam). Never mid-move: while SeekingCover the stage
+            // is by definition unfinished, so fills queue until arrival.
+            if (scriptedMode && (ScriptCursor < 0 || ScriptStageDone))
+                ConsumeNextScriptSlot();
             // Exposure fire — probe the threat's posed silhouette, arm the IK
             // while any voxel resolves, fire on cadence/convergence/cylinder.
             // Runs before the pose pick: ExposureArmed selects the Aim lanes.
@@ -536,6 +823,7 @@ namespace SteelCity.Sim
                 pos.y += CoverPoint.y - feet.y;
                 transform.position = pos;
                 SetState(CombatState.InCover);
+                Relocating = false;   // the relocate phase ends where the seek ends
                 CrouchAndCover();
                 // The authored rhythm starts here: gather → top-up → settle → rise-check.
                 afterSettle = EngagementBeat.TopUp;
@@ -573,11 +861,13 @@ namespace SteelCity.Sim
             if (solver == null) return;
 
             // Cadenced probe — the visible-count answer is the ONLY gate on
-            // whether geometry supports firing at all.
+            // whether geometry supports firing at all. The consecutive-empty
+            // count is the Engaged drop gate (event-shaped, not a clock).
             if (ThreatCharacter != null && Time.unscaledTime >= nextVisProbe)
             {
                 nextVisProbe = Time.unscaledTime + visInterval;
-                Sensor.TryGetVisibleVoxels(ThreatCharacter, out _);
+                emptyProbes = Sensor.TryGetVisibleVoxels(ThreatCharacter, out _)
+                    ? 0 : emptyProbes + 1;
             }
             var vis = (ThreatCharacter != null && sensor != null
                        && sensor.LastVisible.target == ThreatCharacter)
@@ -601,6 +891,7 @@ namespace SteelCity.Sim
             bool wantAim = canSee && clearToArm;
             if (wantAim)
             {
+                aimPointWorld = vis.centroid;
                 if (solver.IsAiming) solver.SetTarget(vis.centroid);
                 else solver.Arm(vis.centroid);
             }
@@ -616,9 +907,12 @@ namespace SteelCity.Sim
             if (armed != ExposureArmed) { ExposureArmed = armed; Notify(); }
 
             // Fire gate: armed + converged (blend raised, bore error inside
-            // the gate) + cadence + a live round.
+            // the gate) + cadence + a live round + a FREE bore path — the
+            // welded muzzle ray is the truth; converged-into-the-wall just
+            // wastes rounds into brick.
             if (!solver.IsAiming || cylinder <= 0 || Time.unscaledTime < nextFireTime
-                || solver.Blend < 0.7f || solver.LastAngularErrorDeg > aimGateDeg) return;
+                || solver.Blend < 0.7f || solver.LastAngularErrorDeg > aimGateDeg
+                || BoreBuried(aimPointWorld)) return;
             nextFireTime = Time.unscaledTime + fireInterval;
             if (ProjectileSystem.GetOrCreate().Fire(mount, solver.LastAngularErrorDeg, vis.centroid)
                 && SpendRound())
@@ -660,6 +954,14 @@ namespace SteelCity.Sim
                 t += new Vector3(d.x * vox.voxelSize * 0.5f, 0f, d.z * vox.voxelSize * 0.5f);
             }
             return t;
+        }
+
+        /// <summary>Same corner→center for the threat — his LIVE feet.</summary>
+        private Vector3 ThreatFeet()
+        {
+            var t = ThreatCharacter.transform.position;
+            var d = ThreatCharacter.Dims;
+            return t + new Vector3(d.x * ThreatCharacter.voxelSize * 0.5f, 0f, d.z * ThreatCharacter.voxelSize * 0.5f);
         }
 
         /// <summary>Feet+chest SamplePoint walk-block, with X/Z slide — same shape as possess.</summary>

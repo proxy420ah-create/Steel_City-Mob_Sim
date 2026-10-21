@@ -70,6 +70,88 @@ namespace SteelCity.Sim
         private string pitBlockId;
         private Dictionary<string, Block> pitScanSource;
 
+        // ---- Scripted engagement director ---------------------------------
+        // Each dropdown slot picks a cover POSITION (its zone centroid — the
+        // middle of the painted gradient). Combat consumes slots in order;
+        // filling the next slot is the "advance" order. See ENGAGEMENT_BEATS.
+        private struct CoverSpot
+        {
+            public Vector3 stand;       // zone centroid — the feet target
+            public string volId;
+            public CoverSensor.WallClass cls;
+            public float reqD;
+        }
+        private readonly List<CoverSpot> coverSpots = new List<CoverSpot>();
+        private int openScriptSlot = -1;
+        private bool showCoverSpots;
+        private static readonly Color[] SlotColors =
+        {
+            new Color(1f, .8f, .2f), new Color(1f, .4f, .3f),
+            new Color(.5f, 1f, .5f), new Color(.9f, .5f, 1f),
+            new Color(1f, 1f, .4f),  new Color(.4f, .8f, 1f),
+            new Color(1f, .6f, .6f), new Color(.7f, 1f, .7f),
+        };
+
+        /// <summary>Every painted cover AREA = one dropdown option — the
+        /// field's connected Hidden zones (per volume/class/¼-duck band),
+        /// each keyed on its cell CENTROID — "the middle of the color
+        /// gradient" — sorted nearest-first.</summary>
+        private readonly List<CoverField.ZoneSpot> spotsScratch = new List<CoverField.ZoneSpot>(64);
+        void RebuildCoverSpots(CoverSensor sensor, Vector3 fromPos)
+        {
+            coverSpots.Clear();
+            if (sensor == null) return;
+            // Zones are threat-relative — the pickedAim→sensor.Threat sync
+            // (every frame, tab-independent) owns threat establishment. This
+            // only re-scans geometry + enumerates what the field knows.
+            sensor.Refresh(true);
+            sensor.Field.EnumerateZones(spotsScratch);
+            foreach (var z in spotsScratch)
+            {
+                // Centroid re-validation — a concave zone's middle can land
+                // on a non-Hidden cell; only offer genuinely standable spots.
+                if (!sensor.TryZoneAt(z.stand, out var zc, out float rd)) continue;
+                coverSpots.Add(new CoverSpot { stand = z.stand, volId = z.volId, cls = zc, reqD = rd });
+            }
+            coverSpots.Sort((a, b) =>
+                (a.stand - fromPos).sqrMagnitude.CompareTo((b.stand - fromPos).sqrMagnitude));
+        }
+
+        int ScriptSlotAt(CombatController cc, Vector3 stand)
+        {
+            for (int i = 0; i < cc.scriptSlots.Count; i++)
+                if (cc.scriptSlots[i].has && (cc.scriptSlots[i].stand - stand).sqrMagnitude < 0.04f) return i;
+            return -1;
+        }
+
+        /// <summary>A post at every cover centroid — slot-assigned posts draw
+        /// in that slot's color, thicker; free spots dim cyan.</summary>
+        void PaintCoverSpots(CombatController cc)
+        {
+            var pdr = PathDebugRenderer.Instance;
+            if (pdr == null) return;
+            for (int i = 0; i < 40; i++)
+            {
+                if (i >= coverSpots.Count) { pdr.ClearCustomBeam($"cov_{i}"); continue; }
+                var o = coverSpots[i];
+                int slot = ScriptSlotAt(cc, o.stand);
+                if (slot >= 0)
+                    pdr.SetCustomBeam($"cov_{i}", o.stand, o.stand + Vector3.up * 1.0f, 0.05f,
+                        SlotColors[slot % SlotColors.Length]);
+                else
+                    pdr.SetCustomBeam($"cov_{i}", o.stand, o.stand + Vector3.up * 0.8f, 0.03f,
+                        new Color(0.3f, 0.85f, 0.9f, 0.8f));
+            }
+        }
+
+        void ClearCoverSpots()
+        {
+            var pdr = PathDebugRenderer.Instance;
+            if (pdr == null) return;
+            for (int i = 0; i < 40; i++) pdr.ClearCustomBeam($"cov_{i}");
+            pdr.ClearCustomBeam("scr_tgt");
+        }
+
         /// <summary>The block carrying cover_stand_a — found by probing every
         /// laid block's attachment points once, re-derived if the block set
         /// changes (city rebuild). The pit is a first-class testbed: the menu
@@ -372,10 +454,23 @@ namespace SteelCity.Sim
 
                 // Cover sensor threat sync — the PICK AIM point is the shared
                 // threat context for both combat and cover inspection.
-                if (coverSensor != null && coverSensor.Threat != pickedAim)
+                // Resolve the sensor fresh: this channel must flow regardless
+                // of which tab is open — threat exists upstream of combat.
+                if (coverSensor == null && cityMap != null && cityMap.SpawnedCharacter != null)
+                    coverSensor = cityMap.SpawnedCharacter.GetComponent<CoverSensor>()
+                        ?? cityMap.SpawnedCharacter.gameObject.AddComponent<CoverSensor>();
+                if (coverSensor != null)
                 {
-                    coverSensor.Threat = pickedAim;
-                    coverSensor.Refresh(true);
+                    // Ownership split: pickedAim is the threat channel while
+                    // he's NOT in combat; in combat the controller feeds the
+                    // sensor the threat's live feet — don't fight that feed.
+                    var cvc = coverSensor.GetComponent<CombatController>();
+                    bool inCombat = cvc != null && cvc.State != CombatController.CombatState.Idle;
+                    if (!inCombat && coverSensor.Threat != pickedAim)
+                    {
+                        coverSensor.Threat = pickedAim;
+                        coverSensor.Refresh(true);
+                    }
                 }
                 // Vision testbed: the same pick point is "the thing he's looking at".
                 if (visionSensor != null) visionSensor.SetTarget(pickedAim);
@@ -1701,6 +1796,74 @@ namespace SteelCity.Sim
                     GUI.enabled = true;
                 }
                 if (pitVinny != null) PitCoverPickRow(pitId, pitVinny, pitTan);
+                // Scripted engagement director — slots = cover-position
+                // orders (zone centroids). START DUEL + scripted = he holds
+                // until slot 1 is filled; each next slot advances him.
+                var scc = pitVinny != null ? pitVinny.GetComponent<CombatController>() : null;
+                if (scc != null && SecFold("c.script", "SCRIPT — engagement director"))
+                {
+                bool sm = GUILayout.Toggle(scc.scriptedMode,
+                    " scripted — combat waits for slot orders", toggleStyle);
+                if (sm != scc.scriptedMode) scc.scriptedMode = sm;
+                GUILayout.BeginHorizontal();
+                if (GUILayout.Button($"refresh cover spots ({coverSpots.Count})", GUILayout.Height(20)))
+                    RebuildCoverSpots(pitVinny.GetComponent<CoverSensor>(),
+                        CharFeetCenter(pitVinny));
+                showCoverSpots = GUILayout.Toggle(showCoverSpots, " show", toggleStyle, GUILayout.Width(70));
+                GUILayout.EndHorizontal();
+                if (coverSpots.Count == 0)
+                {
+                    var cs0 = pitVinny.GetComponent<CoverSensor>();
+                    GUILayout.Label(cs0 != null && !cs0.Threat.HasValue
+                        ? "<i>no threat armed — SETUP PIT or PICK THREAT paints zones first</i>"
+                        : "<i>refresh — each painted zone's stand centroid, nearest first</i>", labelStyle);
+                }
+                for (int i = 0; i < scc.scriptSlots.Count; i++)
+                {
+                    var s = scc.scriptSlots[i];
+                    GUILayout.BeginHorizontal();
+                    string lab = s.has
+                        ? $"{i + 1}: {s.volId} @({s.stand.x:F0},{s.stand.z:F0}) {s.cls} d{s.reqD:F1}"
+                        : $"{i + 1}: —";
+                    if (scc.ScriptCursor == i) lab = "▶ " + lab;
+                    if (GUILayout.Button(lab, openScriptSlot == i ? tabActiveStyle : tabStyle, GUILayout.Height(20)))
+                        openScriptSlot = openScriptSlot == i ? -1 : i;
+                    GUI.enabled = s.has;
+                    if (GUILayout.Button("x", tabStyle, GUILayout.Width(22), GUILayout.Height(20)))
+                    { var c = s; c.has = false; scc.scriptSlots[i] = c; }
+                    GUI.enabled = true;
+                    GUILayout.EndHorizontal();
+                    if (openScriptSlot == i)
+                    {
+                        if (coverSpots.Count == 0)
+                            GUILayout.Label("   <i>no spots — hit refresh</i>", labelStyle);
+                        for (int o = 0; o < coverSpots.Count; o++)
+                        {
+                            var sp = coverSpots[o];
+                            if (GUILayout.Button($"   {o + 1} · {sp.volId} @({sp.stand.x:F0},{sp.stand.z:F0}) {sp.cls} d{sp.reqD:F1}", labelStyle))
+                            {
+                                scc.scriptSlots[i] = new CombatController.ScriptSlot
+                                { has = true, stand = sp.stand, volId = sp.volId, cls = sp.cls, reqD = sp.reqD };
+                                openScriptSlot = -1;
+                            }
+                        }
+                    }
+                }
+                GUILayout.BeginHorizontal();
+                if (GUILayout.Button("clear all slots", GUILayout.Height(18)))
+                    for (int i = 0; i < scc.scriptSlots.Count; i++) scc.scriptSlots[i] = default;
+                GUILayout.EndHorizontal();
+                GUILayout.Label($"cursor: {(scc.ScriptCursor < 0 ? "awaiting slot 1" : $"slot {scc.ScriptCursor + 1}")} · stage {(scc.ScriptStageDone ? "done" : "running")}", labelStyle);
+                if (showCoverSpots) PaintCoverSpots(scc);
+                else ClearCoverSpots();
+                var tpdr = PathDebugRenderer.Instance;
+                if (tpdr != null && scc.Relocating)
+                    tpdr.SetCustomBeam("scr_tgt",
+                        CharFeetCenter(pitVinny) + Vector3.up * 0.1f,
+                        scc.CoverPoint + Vector3.up * 0.1f, 0.02f, Color.yellow);
+                else tpdr?.ClearCustomBeam("scr_tgt");
+                }
+                else ClearCoverSpots();
                 if (pitTan == null)
                     GUILayout.Label("<color=#ffaa44>Civilian_02 (Tan Suit) not found.</color>", labelStyle);
             }
@@ -1936,9 +2099,11 @@ namespace SteelCity.Sim
                     nextManualProbe = Time.unscaledTime + 0.25f;
                     cs.TryGetVisibleVoxels(pitTan, out _);
                 }
-                // Pre-fight toggle — not gated on combat state: the loop is a
-                // loadout decision you arm BEFORE the duel starts.
+                // Pre-fight controls — not gated on combat state: cover gap is
+                // a pick-time input and the loop is a loadout decision you arm
+                // BEFORE the duel starts.
                 cc.loopBeats = GUILayout.Toggle(cc.loopBeats, " loop beats (re-rise after fail)", toggleStyle);
+                cs.standoff = HSlider("cover standoff", cs.standoff, 0.1f, 0.8f);
                 if (cc.State != CombatController.CombatState.Idle)
                 {
                     cc.visInterval = HSlider("probe interval", cc.visInterval, 0.05f, 0.5f);

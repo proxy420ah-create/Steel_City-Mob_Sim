@@ -173,6 +173,8 @@ namespace SteelCity.Sim
                                        ? $" · riseDuck {cc.RiseDuck:F2}" : ""));
                     if (cc.LastRiseDiag != null)
                         sb.AppendLine($"rise {cc.LastRiseDiag}");
+                    if (cc.LastRelocateDiag != null && cc.LastRelocateDiag != "—")
+                        sb.AppendLine($"relocate {cc.LastRelocateDiag}");
                 }
                 // Possess shares the same wheel — surface reload state outside
                 // combat too (LMB spends rounds, R seats them back).
@@ -239,8 +241,10 @@ namespace SteelCity.Sim
                           : $"<color=#596069>{s}</color>";
                 const string A = "<color=#3f464d>▸</color>";
                 var cs8 = cc.State;
+                // The seek slot relabels RELOCATE while a relocation drive is
+                // live — same phase (SeekingCover), different provenance.
                 sb.AppendLine($"{N("IDLE", cs8 == CombatController.CombatState.Idle)} {A} "
-                            + $"{N("SEEK", cs8 == CombatController.CombatState.SeekingCover)} {A} "
+                            + $"{N(cc.Relocating ? "RELOCATE" : "SEEK", cs8 == CombatController.CombatState.SeekingCover)} {A} "
                             + $"{N("COVER", cs8 == CombatController.CombatState.InCover)}"
                             + $"   │   {N("HOLD", cs8 == CombatController.CombatState.HoldPosition)} (no cover)");
                 // The beat lane — the authored rhythm inside COVER (spec:

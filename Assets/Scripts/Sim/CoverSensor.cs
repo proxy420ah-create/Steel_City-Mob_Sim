@@ -26,8 +26,8 @@ namespace SteelCity.Sim
         [Header("Awareness")]
         [Tooltip("Radius scanned for cover obstacles (m).")]
         public float radius = 4f;
-        [Tooltip("Gap between the stand spot and the obstacle face (m).")]
-        public float standoff = 0.55f;
+        [Tooltip("Stand-spot gap off the wall face (m) — ~half body depth = flush. The bore solve needs the eye close behind the face or a descending ray clips the lip.")]
+        public float standoff = 0.3f;
         [Tooltip("Columns with a contiguous span below this aren't walls at all (m).")]
         public float wallFloor = 0.15f;
 

@@ -166,6 +166,10 @@ quantized snap); over-1 yields the shallow→deep band (state-5 pick):
   `anim.duck` — **eased during SeekingCover** (`seekDuckEase`, combat posture),
   **immediately** on arrival/hold. Exit resets to 0. The zone itself is a
   uniform `standoff` band — it marks the stand spot, it does not reach out.
+  `standoff` default 0.55 → **0.3 m (flush)**: the eye must sit close behind
+  the face or the descending bore clips the lip even when the sight-line
+  muzzle would clear it — the rise solve's `sees but can't shoot` verdict
+  was standoff-driven as much as pose-driven. HUD slider `cover standoff`.
 
 Layers (COVER tab): **Threat** (composite score — the pick surface),
 **Quality** (whole-disc paint — air = dim red wash, cover faces hot),
