@@ -317,7 +317,7 @@
 
 **Debug & Test Harness:**
 - **`docs/systems/TEST_WEEK.md`** — the open-week debug order (formerly `target_practice`): holds the week in `Dwelling` state so feature testbeds are live
-  - Testbed registry: `shooting_range` (firing lanes), `cover_pit` (symmetric duel), `debris_test_lot` (blast testing) — routed by authored attachment points
+  - Testbed registry: `shooting_range` (firing lanes), `cover_arena` (symmetric duel, in front of tenement door), `debris_test_lot` (blast testing) — routed by authored attachment points
   - `testWeekDwells`/`testWeekSkipWalk` toggles; `Enter` releases the week
 
 **Weapon & Item Models:**

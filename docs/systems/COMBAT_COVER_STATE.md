@@ -246,35 +246,55 @@ papered, lands after this layer is proven).
 - Character↔projectile hits (spatial-hash actor damage is a separate milestone)
 - Multi-unit combat / squad orders (Phase 4d gang sim territory)
 
-## Cover pit testbed — `cover_pit` block (phase-0 duel lot)
+## Cover arena testbed — `cover_arena` block (duel lot, in front of the tenement)
 
-Dedicated debug lot modeled on the firing-range template. `block_45` ("Central
-Block 45 [COVER TESTBED]", row 4 col 4 — adjacent to the range at col 5) is a
-single-building block whose `cover_pit.stasset` (192×48×192, authored by
-`Tools/gen_cover_pit.py` → `json_to_stasset.py`) contains:
+Dedicated debug lot modeled on the firing-range template. `block_36`
+("Central Block 36 [DUEL ARENA]", row 3 col 5 — directly south of `block_26`'s
+real `tenement_block_0`) is a single-building block whose
+`cover_arena.stasset` (192×48×192, authored by `Tools/gen_cover_arena.py` →
+`json_to_stasset.py`) contains:
 
 - asphalt pad + stone curb ring (full footprint)
-- **one shared 4-box depth ladder** (layout rev4 — adaptive-crouch testbed):
-  a single straight row mid-lot (z≈92-99, ~7m ahead of Vinny's plate),
-  ascending duck-depth left→right, usable from either face:
+- **the valley wall** (z≈92-99): the pit's stepped gradient mirrored about
+  x=96 — `h16` Full ends stepping down `h15→h14→h12` (crouch) `→h9` (Low
+  band) to an `h7` dip dead-center on the door axis. Every cover class the
+  original gradient proved, doubled and symmetric; the low dip keeps the
+  door-axis sightline open. Dark-wood lip on both faces.
+- **4 stone flank stubs** (N-S, one per quadrant, stepped `h14` outer →
+  `h10` near mid) — side cover for flanking relocations
+- **4 red-brick pillars, h32 = 1.6m** — standing eye can't clear → **true
+  hide-only cover** (the "cover for hiding, not fighting" class made
+  physical; rise refusal → relocation exhibits here)
+- **4 stone planters, h12** at quadrant centers — mid-field crouch cover
+- double-mirror symmetry (x=96 AND z=96): a rotationally fair duel — every
+  quadrant offers both fighters the same options
+- painted **attachment points** straight across the lot centerline:
+  `cover_stand_a` (south — Vinny, x≈95.5 z≈24.5), `cover_stand_b` (north —
+  Tan, x≈95.5 z≈166.5, back to the facade), plus the four `cover_*` pick
+  anchors on marker pads (`cover_wall`→h16 end, `cover_crouch`→h12,
+  `cover_mid`→h9, `cover_deep`→h7 dip — the two expected-reject anchors
+  preserved) at z≈89 south / z≈103 north, plus `firing_position` /
+  `firing_target` aliases — all resolved via
+  `CityMap3D.TryGetBuildingPointLocal`.
 
-  | anchor | top | expected `reqDepth` |
-  |---|---|---|
-  | `cover_deep` | 0.8m | ~1.0 — deepest authored duck only |
-  | `cover_mid` | 1.0m | ~0.5 — between the endpoints |
-  | `cover_crouch` | 1.3m | 0 — the shallow authored crouch clears it |
-  | `cover_wall` | 2.0m | Full class — no duck at all |
+**Placement gotchas** (learned placing this lot):
 
-  Boxes 2.4×0.8m with 2.0m navigation gaps; dark-wood lip on BOTH long faces
-  (either fighter can hide on either side). Dark-wood marker pads south/north
-  of each box carry the pick anchors (`cover_*` = Vinny's south side,
-  `cover_*_n` = Tan's). Expected `reqDepth` assumes eyeShallow≈1.0m /
-  eyeDeep≈0.8m / margin 0.1m — tune `LADDER` heights in the generator against
-  the live `EyeOffset`/`EyeOffsetDeep` readouts.
-  ⚠️ **Cover-height floor**: a wall whose top sits at/below the *deepest*
-  posed eye + margin is `Low` (unusable). The `cover_deep` box deliberately
-  grazes this boundary — if it ever classifies unusable, the authored deep
-  eye is higher than assumed; raise the box or deepen the pose.
+- **One pit per layout** — `PitBlockId` scans `CachedBlocks` for the *first*
+  block whose asset carries `cover_stand_a`. Two pit-carrying blocks in the
+  layout = nondeterministic pick. Reverted blocks keep their `.stasset`
+  files; restoring is a one-line `city_layout.json` edit.
+- **Door-face direction** — `tenement_block_0`'s door front is its **low-Z**
+  face (storefront band + red awning at z≈8-19, brown door z16-19, brass
+  knob). Rows map to `−Z` (higher row index = more negative world Z), so a
+  block at `row r+1` sits directly in front of a south-facing door on row
+  `r`. `tenement_glass` is an **all-glass shell — no door face**; don't use
+  it for door-adjacent placement.
+- **Stasset `voxelSize` is per-asset** — the arena is authored at 0.05 like
+  the pit; CityMap places whatever the file declares. Unity generates the
+  `.stasset.meta` on import.
+- **Tan backs the facade** because `stand_b` is the high-z plate — a
+  tenement on the block's +Z side needs no stand swap; a north-facing door
+  would (swap `STAND_A_Z`/`STAND_B_Z` in the generator).
 - painted **attachment points** straight across the lot centerline:
   `cover_stand_a` (south — Vinny, x≈95.5 z≈24.5), `cover_stand_b` (north —
   Civilian_02 "Tan Suit", x≈95.5 z≈166.5), plus the four `cover_*` pick
@@ -288,12 +308,16 @@ phase-1 spec), teleports Vinny to stand A facing B (via `EventPlayer.DebugSnapTo
 same as range lanes) and Tan to stand B facing A (via `SnapCharacterTo` —
 generic corner-offset snap + down-raycast for non-EventPlayer rigs), and arms
 the threat marker on Tan's feet so the V-key threat layers go live.
-`START DUEL` runs Vinny's `EnterCombat` keyed to Tan's live feet. An
-**opponent mode toggle** in the pit panel selects Tan's behavior:
-**target dummy** (default — he stands Idle while Vinny's cover+aim pipeline
-gets dialed in; any live combat on him is stood down) or **AI duel**
-(symmetric — `cc.EnterCombat` fires on Tan too, keyed to Vinny's feet, so both
-advance to their own cover, crouch, and aim across the lot). Tan's rig gets
+`START DUEL` runs Vinny's `EnterCombat` keyed to Tan's live feet. A
+three-way **opponent mode** in the pit panel selects Tan's behavior:
+**dummy** (default — he stands Idle while Vinny's cover+aim pipeline gets
+dialed in; any live combat on him is stood down), **hide** (Tan runs the
+identical `EnterCombat` → seek-first-cover → arrive, but `holdInCover`
+parks him in the settle seam forever — no rise, no fire authority — the
+3-stage-search test surface: Vinny's probes go empty the moment Tan folds,
+which is exactly the lost-contact trigger), or **fight** (full symmetric
+duel — `cc.EnterCombat` fires on Tan keyed to Vinny's feet, both run the
+beat stack). Tan's rig gets
 the combat stack (`CoverSensor` + `ArmAimSolver` + `CombatController`) at
 spawn via `CityMap3D.AttachCombatStackWhenReady` — same canonical attach rule
 as Vinny; `VisionSensor` stays Vinny-only (it's the player-facing debug sense).
@@ -306,6 +330,41 @@ validated field, so `reqDepth` is honestly solved). Works mid-combat for A/B
 sweeps: pick deep → watch the duck settle → pick wall → he walks and stands.
 `LastResult` reports `depth N.NN` per pick; an anchor miss logs loudly instead
 of silently holding position.
+
+## Cover positioning quality — the INT axis (SPEC)
+
+The centroid fix surfaced a design insight: **where inside a zone a mobster
+actually stands is a skill expression, not a constant.** `Hoods.xtx` already
+carries `Intelligence` (0-255) per hood (GANGSTERS_GAME_DATA §13) — map it
+onto the destination rank inside the picked zone:
+
+- **INT max** → `ZoneSpot.stand` — the centroid member cell. Deepest legal
+  position in the painted band: the threat-facing silhouette is maximally
+  behind the wall. (What the fix made universal.)
+- **INT min** → the zone **rim** — the member cell farthest from the
+  centroid, still `Hidden` but with zero margin: a probe grazing the lip or
+  a half-step of threat movement sees him. "Sticking out."
+- **Linear between** — `t = INT_norm`, member cells sorted by distance²
+  from the centroid, `idx = round((1 − t) · (cells−1))`. A mid-INT hood
+  stands a mid-margin cell — visibly sloppier cover usage, not a different
+  code path.
+- **Sub-floor extreme (INT ~0-1)** → one cell *past* the rim into the
+  adjacent `Exposed`/unclaimed cell — he thinks the wall covers him; the
+  verdict map says no. Reserved — a real `Hidden` rim cell is the honest
+  bottom for v1.
+
+Mechanic shape (IMPLEMENTED): `CoverField` retains each zone's member
+cells during the flood (`zoneMembers`); `TryRankInZone(cellIdx, intNorm)`
+sorts members by distance² to the centroid and rank-picks
+`idx = round((1−t)·(n−1))`. Both sensor picks take `intNorm`; the
+character-facing tunable is `CombatController.coverIntNorm` ([Range 0–1],
+default 1) — Inspector-per-rig until real hood stats exist, so Vinny and
+Tan can run opposite ends of the spectrum today.
+
+Later INT axes (same pattern, deferred): search-hop bearing precision
+(45°→±drift), settle-seam discipline, rise/reposition judgment, fire
+discipline (spray vs converged). Positioning is the first surface because
+the data already exists.
 
 ## Test (manual)
 

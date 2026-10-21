@@ -329,7 +329,7 @@ IDLE → ALERT (enemy detected) → MOVING_TO_COVER → IN_COVER (peek + fire)
   → IDLE (no enemies)
 ```
 
-**Status**: SeekingCover / InCover / HoldPosition / Falling implemented in `CombatController` (cover_pit arena). The exposure-based engagement layer (§9.9) — visible-voxel aim gate, pop-up override, cylinder-count reload — is the next build and replaces the "peek + fire" script inside IN_COVER.
+**Status**: SeekingCover / InCover / HoldPosition / Falling implemented in `CombatController` (cover_arena). The exposure-based engagement layer (§9.9) — visible-voxel aim gate, pop-up override, cylinder-count reload — is the next build and replaces the "peek + fire" script inside IN_COVER.
 
 **Per-instance combat data** (backward-compatible extension to instance buffer):
 - `animState` (enum: includes combat states)

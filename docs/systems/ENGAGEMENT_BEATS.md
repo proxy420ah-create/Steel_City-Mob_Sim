@@ -141,8 +141,13 @@ Lit amber while `Settle` counts down (show `settle s left` inline),
   we get tan suit moving"). Single rise-check only this build.
 - **Interruption policy** — stray LOS during `Settle`/`TopUp` (Tan strays
   into view mid-top-up): held for the same mobility phase. Beats hold.
-- **lookScan integration** — Rise finding nothing is where the 3-step
-  visual search slots (PERCEPTION_AWARENESS).
+- **lookScan integration** — PAPERED (PERCEPTION_AWARENESS → Search &
+  resolution): Rise finding nothing is where the 3-stage search branches —
+  hop 1 at 45° bearing around `lastSeenPos`, hop 2 at ±90° from origin,
+  each hop = seek → settle → peek (`Rise` vertical or `Swing` lateral —
+  swing faces the cover edge swung around; both aim at belief
+  `lastSeenPos`, reacquisition via cone or aimed probe). Final miss →
+  ExitCombat → duties.
 - **Tan-side beats** — Tan runs the same stack in AI-duel; his mobility/
   response behavior is a separate phase.
 - **Branch table** — `NextBeatAfter` is fixed this build; the decision

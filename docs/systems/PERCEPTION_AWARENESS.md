@@ -168,13 +168,55 @@ legally shoots back — honest to the self-defense rule.
   notice-level questions and the search phase.
 - Roles feed combat metadata: `role = attacker | defender` for reports/heat.
 
-## Search & resolution (deferred — user has the 3-step pattern papered)
+## Search & resolution — the authored 3-stage procedure (papered 2026-10-21)
 
-- Inputs: `LastSeenTarget` (implemented), awareness-table `lastSeenPos`.
-- The authored lookScan sequence drives the cone over the last-seen region:
-  sweep → dwell → wider sweep (exact 3 steps per user design — do not invent).
-- Outcomes: redetect → re-engage or resume tabs; decayed/absent →
-  return-to-normal, awareness entry marked stale.
+Inputs: `LastSeenTarget` (implemented — written per positive probe), the
+awareness-table `lastSeenPos`, and the cover field's zone centroids.
+
+### Belief vs truth — the contract that keeps search honest
+
+- Search **actions aim at belief**: every peek/rise/swing targets
+  `lastSeenPos` (memory), never `ThreatCharacter`'s live position.
+- **Reacquisition comes from perception**: `VisionSensor`'s cone evaluates
+  the threat wherever he ACTUALLY is — a flank that reveals him
+  mid-relocation behind different cover is a hit even when `lastSeenPos`
+  reads empty. Search discovers; it doesn't just confirm.
+- Arena caveat: both actors are exposed at combat start, so the first
+  positive probe seeds each side's `lastSeenPos` automatically.
+
+### The procedure (atomic procedures; only settle seams between)
+
+1. **MISS IN POSITION** — contact lost in `Engaged` (`emptyProbesToDrop`
+   consecutive empty probes) → `Duck` → `Settle`. `lastSeenPos` is fresh.
+   (Already the shipped loop — the seam is the branch point.)
+2. **HOP 1 — 45°** — pick a Hidden-zone centroid whose bearing around
+   `lastSeenPos` is ~45° off the current bearing, random side (CW/CCW —
+   future: stat-influenced close-the-gap vs defensive). Seek → `Settle` →
+   **PEEK** at `lastSeenPos`.
+3. **HOP 2 — 90° FROM ORIGIN** — same pick, but the target bearing is ±90°
+   off the FIRST position's bearing (12 o'clock → 3 or 9), not cumulative
+   off hop 1. Seek → `Settle` → **PEEK**. Still nothing → `ExitCombat` →
+   resume duties; the awareness-table entry is marked stale and decays.
+
+**PEEK = two shapes**, both verdict-gated procedures ending on a fresh
+visibility probe at the converged pose:
+
+- `Rise` (vertical — existing beat; body faces the threat side of cover).
+- `Swing` (lateral — new beat): step out to a point lateral of the zone
+  centroid, body yaw facing the cover EDGE swung around (either side per
+  the chosen flank). Gun aims at `lastSeenPos` throughout — the arm solver
+  handles the twist, same as rise.
+
+During the peek dwell the **lookScan sweep runs the Looking state** — the
+authored head-yaw animation physically sweeps `VisionSensor`'s posed cone
+over the last-seen region (the scan animation IS the mechanic — cone rise
+is time-in-cone, not a binary).
+
+**Reacquire** — aimed probe sees him at `lastSeenPos` OR cone detects him
+anywhere (`AnyVisible`/`AnyDetected` on the threat's registered point) →
+restart the engagement rhythm from scratch (seek/settle/rise/engaged) and
+refresh `lastSeenPos`. The cone's `riseTime` is the honest dwell — a peek
+has to hold long enough for detection to accumulate.
 
 ## Inspectability contract
 
@@ -195,7 +237,9 @@ legally shoots back — honest to the self-defense rule.
 
 ## Explicit non-goals / deferred
 
-- The 3-step search pattern content (user-papered; do not invent).
+- ~~The 3-step search pattern content~~ — papered 2026-10-21 (Search &
+  resolution section above): 45° → 90°-from-origin hops, cone-driven
+  reacquisition, `Swing` lateral peek.
 - Identity/face-recognition tuning constants.
 - Dispatch/police response policy beyond the witness-record contract.
 - Conversation/social perception (gestures, bribes) — out of scope.

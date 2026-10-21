@@ -3198,6 +3198,21 @@ namespace SteelCity.Sim
         }
         public float CurrentResolutionScale => currentResolutionScale;
 
+        /// <summary>Render-scale options exposed to the HUD dropdown.</summary>
+        public static readonly float[] ResolutionScales = { 0.5f, 0.65f, 0.75f, 1.0f };
+
+        /// <summary>Set render scale directly — the HUD dropdown's target
+        /// (replaces the old [R]-key cycle; R is reload under possession).</summary>
+        public void SetResolutionScale(float scale)
+        {
+            currentResolutionScale = scale;
+            manualResolutionOverride = true;
+            EnsureProxyRT();
+            if (proxyMaterial != null)
+                proxyMaterial.SetVector(propScreenSize, new Vector4(renderWidth, renderHeight, 0, 0));
+            Debug.Log($"[DynRes] Manual: scale set to {currentResolutionScale:F2} | render={renderWidth}x{renderHeight}");
+        }
+
         /// <summary>Get the flat GPU voxel data array for an instanced asset (read-only copy).</summary>
         public uint[] GetSharedVoxelData(string assetFileName)
         {
@@ -3314,31 +3329,18 @@ namespace SteelCity.Sim
 
         public void RenderChunks()
         {
-            // Runtime resolution cycling: press R to cycle through 0.5 → 0.65 → 0.75 → 1.0 → 0.5
             var kb = UnityEngine.InputSystem.Keyboard.current;
             if (kb != null)
             {
                 // Debug keys — work in builds where inspector toggles can't be reached.
                 // V chosen over F-keys: F6-F10 are all taken (cam/waypoints/freeze/stress/vehicles).
+                // Render scale lives on the HUD Render-tab dropdown now — R is
+                // reload under possession and must not double-bind.
                 if (kb.vKey.wasPressedThisFrame)
                 {
                     iterVisMode = (IterVisMode)(((int)iterVisMode + 1) % 8);
                     Debug.Log($"[Vis] iterVisMode = {iterVisMode}");
                 }
-            }
-            if (kb != null && kb.rKey.wasPressedThisFrame)
-            {
-                float[] scales = { 0.5f, 0.65f, 0.75f, 1.0f };
-                int idx = 0;
-                for (int i = 0; i < scales.Length; i++)
-                {
-                    if (Mathf.Abs(currentResolutionScale - scales[i]) < 0.02f) { idx = (i + 1) % scales.Length; break; }
-                }
-                currentResolutionScale = scales[idx];
-                manualResolutionOverride = true;
-                EnsureProxyRT();
-                proxyMaterial.SetVector(propScreenSize, new Vector4(renderWidth, renderHeight, 0, 0));
-                Debug.Log($"[DynRes] Manual: scale set to {currentResolutionScale:F2} | render={renderWidth}x{renderHeight}");
             }
 
             if (renderCamera == null || (chunks.Count == 0 && bakedSectors.Count == 0 && instancedGroups.Count == 0))

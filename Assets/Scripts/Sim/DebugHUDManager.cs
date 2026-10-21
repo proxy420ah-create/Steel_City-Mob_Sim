@@ -62,11 +62,12 @@ namespace SteelCity.Sim
 
         // Combat tab state — set by clicking a range block while sim is Dwelling
         private string rangeBlockId;
-        /// <summary>Cover pit: when false the opponent stands Idle as a target
-        /// dummy (Vinny-only cover test); when true START DUEL is symmetric —
-        /// both combatants seek cover. Default dummy while Vinny's cover
-        /// behavior gets dialed in.</summary>
-        private bool pitOpponentAI = false;
+        /// <summary>Cover pit opponent mode — Dummy: stands Idle (Vinny-only
+        /// cover test); Hide: Tan seeks his first cover then parks the seam
+        /// forever (`holdInCover` — the 3-stage-search test dummy); Fight:
+        /// full symmetric duel — both combatants run the beat stack.</summary>
+        private enum PitTanMode : byte { Dummy, Hide, Fight }
+        private PitTanMode pitTanMode = PitTanMode.Dummy;
         private string pitBlockId;
         private Dictionary<string, Block> pitScanSource;
 
@@ -83,6 +84,7 @@ namespace SteelCity.Sim
         }
         private readonly List<CoverSpot> coverSpots = new List<CoverSpot>();
         private int openScriptSlot = -1;
+        private bool openResScaleDrop;
         private bool showCoverSpots;
         private static readonly Color[] SlotColors =
         {
@@ -896,7 +898,7 @@ namespace SteelCity.Sim
             hudSB.AppendLine("[`] / [O] Hide  [Tab] Next tab  [Y] Corner  [M] Minimize");
             hudSB.AppendLine("[LMB] Select/focus  [MMB] Rotate  [RMB] Pan  [Wheel] Zoom");
             hudSB.AppendLine("[G] Possess Vinny (WASD/mouse/LMB)");
-            hudSB.AppendLine("[R] Render scale  [F6] Free cam  [F7] Waypoints  [F8] Freeze  [F10] Vehicles");
+            hudSB.AppendLine("[F6] Free cam  [F7] Waypoints  [F8] Freeze  [F10] Vehicles");
             hudSB.AppendLine("<i>Drag title bar to move. Click _ to minimize.</i>");
             footerText = hudSB.ToString();
             nextFooterRefresh = Time.unscaledTime + 0.25f;
@@ -1065,6 +1067,20 @@ namespace SteelCity.Sim
                 chunkManager.GetShadowMaxSteps(), 1f, 64f, "F0"));
             if (maxSteps != chunkManager.GetShadowMaxSteps())
                 cityMap.SetShadowMaxSteps(maxSteps);
+            GUILayout.Space(4);
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("render scale", labelStyle, GUILayout.Width(86));
+            if (GUILayout.Button($"{chunkManager.CurrentResolutionScale:F2} ▾",
+                    openResScaleDrop ? tabActiveStyle : tabStyle, GUILayout.Width(56), GUILayout.Height(20)))
+                openResScaleDrop = !openResScaleDrop;
+            GUILayout.EndHorizontal();
+            if (openResScaleDrop)
+                foreach (var s in VoxelChunkManager.ResolutionScales)
+                    if (GUILayout.Button($"   {s:F2}", labelStyle))
+                    {
+                        chunkManager.SetResolutionScale(s);
+                        openResScaleDrop = false;
+                    }
         }
 
         void BuildRenderTab(System.Text.StringBuilder sb)
@@ -1077,7 +1093,7 @@ namespace SteelCity.Sim
 
             sb.AppendLine($"<b>FPS</b>: {fps:F0}  |  Frame: {frameTimeMs:F2}ms");
             sb.AppendLine($"  min:{frameTimeMin:F2}  max:{frameTimeMax:F2}  avg:{frameTimeAvg:F2}");
-            sb.AppendLine($"<b>Resolution</b>: {chunkManager.RenderWidth}x{chunkManager.RenderHeight}   <b>scale</b> {chunkManager.CurrentResolutionScale:F2}  ([R] cycles 0.5/0.65/0.75/1.0)");
+            sb.AppendLine($"<b>Resolution</b>: {chunkManager.RenderWidth}x{chunkManager.RenderHeight}   <b>scale</b> {chunkManager.CurrentResolutionScale:F2}  (dropdown below)");
             sb.AppendLine($"<b>Ortho</b>: {chunkManager.IsOrtho}  Size: {chunkManager.CameraOrthoSize:F1}");
             sb.Append('\n');
             sb.AppendLine(H("Draw Calls"));
@@ -1209,7 +1225,6 @@ namespace SteelCity.Sim
             sb.AppendLine(H("Scene / Render Debug"));
             sb.AppendLine("[F6] Free camera (also disables debris)");
             sb.AppendLine("[F7] Waypoint graph beams");
-            sb.AppendLine("[R] Cycle render scale: 0.5 / 0.65 / 0.75 / 1.0");
             sb.AppendLine("[V] Cycle ray-march debug: heat / steps / miss waste /");
             sb.AppendLine("      cover Quality·Threat·Exposure (Vinny's field) / off");
 
@@ -1217,7 +1232,7 @@ namespace SteelCity.Sim
             {
                 sb.Append('\n');
                 sb.AppendLine(H("Character Control"));
-                sb.AppendLine("[G] Possess: WASD move · mouse look · LMB fire");
+                sb.AppendLine("[G] Possess: WASD move · mouse look · LMB fire · [R] Reload");
                 sb.AppendLine("<b>Alt+pose latch — possessed OR the rig selected in</b>");
                 sb.AppendLine("<b>Clothing tab's Character Control:</b>");
                 sb.AppendLine("  [Alt+I] Idle   [Alt+W] Walk   [Alt+L] Look   [Alt+J] AimWalk");
@@ -1442,9 +1457,12 @@ namespace SteelCity.Sim
             var tanCc = tanCh.GetComponent<CombatController>();
             if (tanCc != null && tanCc.State != CombatController.CombatState.Idle)
                 tanCc.ExitCombat();   // stale combat on re-run — stand down first
-            if (pitOpponentAI && tanCc != null)
+            if (pitTanMode != PitTanMode.Dummy && tanCc != null)
             {
                 tanCc.RefillCylinder();
+                // Hide mode seeks first cover then parks — the search-test
+                // dummy; Fight mode runs the full symmetric beat stack.
+                tanCc.holdInCover = pitTanMode == PitTanMode.Hide;
                 tanCc.EnterCombat(CharFeetCenter(ch), ch);
             }
         }
@@ -1775,22 +1793,25 @@ namespace SteelCity.Sim
                     SetupCoverPit(pitId);
                 GUILayout.BeginHorizontal();
                 GUILayout.Label("opponent:", labelStyle, GUILayout.Width(62));
-                if (GUILayout.Toggle(!pitOpponentAI, " target dummy", !pitOpponentAI ? tabActiveStyle : tabStyle, GUILayout.Height(20)))
+                if (GUILayout.Toggle(pitTanMode == PitTanMode.Dummy, " dummy", pitTanMode == PitTanMode.Dummy ? tabActiveStyle : tabStyle, GUILayout.Height(20)))
                 {
-                    pitOpponentAI = false;
+                    pitTanMode = PitTanMode.Dummy;
                     var sd = pitTan != null ? pitTan.GetComponent<CombatController>() : null;
                     if (sd != null && sd.State != CombatController.CombatState.Idle) sd.ExitCombat();
                 }
-                if (GUILayout.Toggle(pitOpponentAI, " AI duel", pitOpponentAI ? tabActiveStyle : tabStyle, GUILayout.Height(20)))
-                    pitOpponentAI = true;
+                if (GUILayout.Toggle(pitTanMode == PitTanMode.Hide, " hide", pitTanMode == PitTanMode.Hide ? tabActiveStyle : tabStyle, GUILayout.Height(20)))
+                    pitTanMode = PitTanMode.Hide;
+                if (GUILayout.Toggle(pitTanMode == PitTanMode.Fight, " fight", pitTanMode == PitTanMode.Fight ? tabActiveStyle : tabStyle, GUILayout.Height(20)))
+                    pitTanMode = PitTanMode.Fight;
                 GUILayout.EndHorizontal();
                 if (!clickedPit && pitVinny != null)
                 {
                     var vcc = pitVinny.GetComponent<CombatController>();
                     if (vcc == null) vcc = pitVinny.gameObject.AddComponent<CombatController>();
                     GUI.enabled = pitTan != null && vcc.State == CombatController.CombatState.Idle;
-                    if (GUILayout.Button(pitOpponentAI ? "START DUEL — both seek cover"
-                                                       : "START DUEL — Vinny vs target dummy",
+                    if (GUILayout.Button(pitTanMode == PitTanMode.Fight ? "START DUEL — both seek cover"
+                                         : pitTanMode == PitTanMode.Hide ? "START DUEL — Vinny hunts, Tan hides"
+                                         : "START DUEL — Vinny vs target dummy",
                             tabStyle, GUILayout.Height(24)))
                         StartPitDuel(pitVinny, pitTan);
                     GUI.enabled = true;
@@ -2059,8 +2080,9 @@ namespace SteelCity.Sim
                 GUI.enabled = hasThreat;
                 string btn = pit
                     ? (tanCh != null
-                        ? (pitOpponentAI ? "START DUEL — both seek cover"
-                                         : "START DUEL — Vinny vs target dummy")
+                        ? (pitTanMode == PitTanMode.Fight ? "START DUEL — both seek cover"
+                           : pitTanMode == PitTanMode.Hide ? "START DUEL — Vinny hunts, Tan hides"
+                           : "START DUEL — Vinny vs target dummy")
                         : "START DUEL (Civilian_02 not found)")
                     : (hasThreat ? "ENTER COMBAT — seek cover vs PICK AIM"
                                  : "ENTER COMBAT (PICK AIM a threat first)");
@@ -2503,13 +2525,15 @@ namespace SteelCity.Sim
             // --- Duel mode (same flag the Combat tab drives) ---
             GUILayout.BeginHorizontal();
             GUILayout.Label("duel mode:", labelStyle, GUILayout.Width(62));
-            if (GUILayout.Toggle(!pitOpponentAI, " target dummy", !pitOpponentAI ? tabActiveStyle : tabStyle, GUILayout.Height(20)))
+            if (GUILayout.Toggle(pitTanMode == PitTanMode.Dummy, " dummy", pitTanMode == PitTanMode.Dummy ? tabActiveStyle : tabStyle, GUILayout.Height(20)))
             {
-                pitOpponentAI = false;
+                pitTanMode = PitTanMode.Dummy;
                 if (cc != null && cc.State != CombatController.CombatState.Idle) cc.ExitCombat();
             }
-            if (GUILayout.Toggle(pitOpponentAI, " AI duel", pitOpponentAI ? tabActiveStyle : tabStyle, GUILayout.Height(20)))
-                pitOpponentAI = true;
+            if (GUILayout.Toggle(pitTanMode == PitTanMode.Hide, " hide", pitTanMode == PitTanMode.Hide ? tabActiveStyle : tabStyle, GUILayout.Height(20)))
+                pitTanMode = PitTanMode.Hide;
+            if (GUILayout.Toggle(pitTanMode == PitTanMode.Fight, " fight", pitTanMode == PitTanMode.Fight ? tabActiveStyle : tabStyle, GUILayout.Height(20)))
+                pitTanMode = PitTanMode.Fight;
             GUILayout.EndHorizontal();
             }
         }
@@ -2989,7 +3013,7 @@ namespace SteelCity.Sim
             var cc = ch != null ? ch.GetComponent<CombatController>() : null;
             var sim = gameUI != null ? gameUI.Sim : null;
             sb.AppendLine($"<b>COMBAT</b>   sim: {(sim != null ? sim.State.ToString() : "no sim")}   <i>(locked — L to edit)</i>");
-            sb.AppendLine($"block: {(rangeBlockId ?? "<i>none (free-fire)</i>")}   lane {RangeLane}{(RangeAimMold ? " → glass mold" : "")}   duel: {(pitOpponentAI ? "AI" : "target dummy")}");
+            sb.AppendLine($"block: {(rangeBlockId ?? "<i>none (free-fire)</i>")}   lane {RangeLane}{(RangeAimMold ? " → glass mold" : "")}   duel: {pitTanMode}");
             sb.AppendLine($"picks — stand: {(pickedStand.HasValue ? pickedStand.Value.ToString("F1") : "—")}   aim: {(pickedAim.HasValue ? pickedAim.Value.ToString("F1") : "—")}   armed: {(pickArmed != PickSlot.None ? pickArmed.ToString() : "—")}");
             sb.AppendLine($"weapon: {(mount != null && mount.IsEquipped ? mount.ItemFileName : "<i>none</i>")}" +
                 (mount != null && mount.IsEquipped ? $"   muzzleRay {OnOff(mount.showMuzzleRay)}  sightBeam {OnOff(slv != null && slv.showSightBeam)}" : ""));
@@ -3058,7 +3082,7 @@ namespace SteelCity.Sim
             if (vis != null)
                 sb.AppendLine($"vision: {vis.range:F0}m ±{vis.halfAngleDeg:F0}°  det <b>{vis.MaxDetection * 100f:F0}%</b>  cone {OnOff(vis.showCone)}/ray {OnOff(vis.showTargetRay)}/fill {OnOff(vis.showConeFill)}  owner {OnOff(VisionSensor.ConeOwner == vis)}");
             sb.AppendLine(cc != null
-                ? $"combat: <b>{cc.State}</b>  move {cc.moveSpeed:F1}  targetDuck {cc.TargetDuck:F2}   duel {(pitOpponentAI ? "AI" : "dummy")}"
+                ? $"combat: <b>{cc.State}</b>  move {cc.moveSpeed:F1}  targetDuck {cc.TargetDuck:F2}   duel {pitTanMode}"
                 : "combat: <i>no CombatController</i>");
         }
 

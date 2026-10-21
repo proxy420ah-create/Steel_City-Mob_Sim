@@ -20,6 +20,11 @@
    192,
    48,
    192
+  ],
+  "cover_arena": [
+   192,
+   48,
+   192
   ]
  },
  "blocks": [
@@ -2147,63 +2152,15 @@
   },
   {
    "block_id": "block_36",
-   "block_name": "Central Block 36",
+   "block_name": "Central Block 36 [DUEL ARENA]",
    "row": 3,
    "col": 5,
    "buildings": [
     {
-     "type": "empty_land",
+     "type": "cover_arena",
      "illegal": false,
-     "stasset": "voxel_buildings/empty_land.stasset",
+     "stasset": "voxel_buildings/cover_arena.stasset",
      "slot": 0
-    },
-    {
-     "type": "empty_land",
-     "illegal": false,
-     "stasset": "voxel_buildings/empty_land.stasset",
-     "slot": 1
-    },
-    {
-     "type": "empty_land",
-     "illegal": false,
-     "stasset": "voxel_buildings/empty_land.stasset",
-     "slot": 2
-    },
-    {
-     "type": "empty_land",
-     "illegal": false,
-     "stasset": "voxel_buildings/empty_land.stasset",
-     "slot": 3
-    },
-    {
-     "type": "empty_land",
-     "illegal": false,
-     "stasset": "voxel_buildings/empty_land.stasset",
-     "slot": 4
-    },
-    {
-     "type": "empty_land",
-     "illegal": false,
-     "stasset": "voxel_buildings/empty_land.stasset",
-     "slot": 5
-    },
-    {
-     "type": "empty_land",
-     "illegal": false,
-     "stasset": "voxel_buildings/empty_land.stasset",
-     "slot": 6
-    },
-    {
-     "type": "empty_land",
-     "illegal": false,
-     "stasset": "voxel_buildings/empty_land.stasset",
-     "slot": 7
-    },
-    {
-     "type": "empty_land",
-     "illegal": false,
-     "stasset": "voxel_buildings/empty_land.stasset",
-     "slot": 8
     }
    ]
   },
@@ -2705,15 +2662,63 @@
   },
   {
    "block_id": "block_45",
-   "block_name": "Central Block 45 [COVER TESTBED]",
+   "block_name": "Central Block 45",
    "row": 4,
    "col": 4,
    "buildings": [
     {
-     "type": "cover_pit",
+     "type": "empty_land",
      "illegal": false,
-     "stasset": "voxel_buildings/cover_pit.stasset",
+     "stasset": "voxel_buildings/empty_land.stasset",
      "slot": 0
+    },
+    {
+     "type": "empty_land",
+     "illegal": false,
+     "stasset": "voxel_buildings/empty_land.stasset",
+     "slot": 1
+    },
+    {
+     "type": "empty_land",
+     "illegal": false,
+     "stasset": "voxel_buildings/empty_land.stasset",
+     "slot": 2
+    },
+    {
+     "type": "empty_land",
+     "illegal": false,
+     "stasset": "voxel_buildings/empty_land.stasset",
+     "slot": 3
+    },
+    {
+     "type": "empty_land",
+     "illegal": false,
+     "stasset": "voxel_buildings/empty_land.stasset",
+     "slot": 4
+    },
+    {
+     "type": "empty_land",
+     "illegal": false,
+     "stasset": "voxel_buildings/empty_land.stasset",
+     "slot": 5
+    },
+    {
+     "type": "empty_land",
+     "illegal": false,
+     "stasset": "voxel_buildings/empty_land.stasset",
+     "slot": 6
+    },
+    {
+     "type": "empty_land",
+     "illegal": false,
+     "stasset": "voxel_buildings/empty_land.stasset",
+     "slot": 7
+    },
+    {
+     "type": "empty_land",
+     "illegal": false,
+     "stasset": "voxel_buildings/empty_land.stasset",
+     "slot": 8
     }
    ]
   },
@@ -3147,7 +3152,7 @@
   },
   {
    "block_id": "block_56",
-   "block_name": "Central Block 56",
+   "block_name": "S Quarter 56 [DUEL ARENA]",
    "row": 5,
    "col": 5,
    "buildings": [

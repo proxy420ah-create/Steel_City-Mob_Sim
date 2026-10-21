@@ -266,10 +266,20 @@ namespace SteelCity.Sim
             => TryPickCover(from, out point, out volId, out reqDepth, out _);
 
         public bool TryPickCover(Vector3 from, out Vector3 point, out string volId,
-            out float reqDepth, out WallClass cls)
+            out float reqDepth, out WallClass cls, float intNorm = 1f)
         {
             point = default; volId = null; reqDepth = 0f; cls = WallClass.Low; chosenIdx = -1;
             if (!field.PickBest(out point, out volId)) return false;
+            // The zone centroid IS the destination — same contract the scripted
+            // slots ride (ZoneSpot.stand). Was: wall-column midpoint, which is
+            // why actors stopped off the painted marker. `intNorm` ranks the
+            // stand point centroid→rim inside the zone (the INT axis).
+            bool zoned = field.TryRankInZone(field.ChosenCell, intNorm, out Vector3 zp, out int zc, out var z);
+            if (zoned)
+            {
+                point = zp; volId = z.volId; reqDepth = z.reqD; cls = z.cls;
+                field.MarkChosen(zc);
+            }
             if (volId != null)
             {
                 // Volume aggregates are the WORST column anywhere in the volume
@@ -289,16 +299,18 @@ namespace SteelCity.Sim
                 if (wi >= 0)
                 {
                     var pw = walls[wi];
-                    reqDepth = pw.reqDepth; cls = pw.cls;
-                    // Destination hugs the wall — the zone is a uniform
-                    // standoff band (the stand spot), and he comes to rest
-                    // at the owning column's stand-spot inside it.
-                    Vector3 spot = pw.facePos + pw.outDir * (standoff + pw.vs * 0.25f);
-                    point = new Vector3(spot.x, pw.support, spot.z);
+                    if (!zoned)
+                    {
+                        reqDepth = pw.reqDepth; cls = pw.cls;
+                        // Fallback only: zone lookup failed — hug the owning
+                        // column's stand-spot inside its uniform band.
+                        Vector3 spot = pw.facePos + pw.outDir * (standoff + pw.vs * 0.25f);
+                        point = new Vector3(spot.x, pw.support, spot.z);
+                    }
                     PickInfo = $"wall top {pw.top:F2} · floor {pw.support:F2} · rise {pw.top - pw.support:F2}"
                              + $" (stand {HStand:F2} crouch {HShallow:F2}→{HDeep:F2}) → {pw.cls} duck{pw.reqDepth:F2}";
                 }
-                else
+                else if (!zoned)
                 {
                     if (volDepth.TryGetValue(volId, out float d)) reqDepth = d;
                     if (volClass.TryGetValue(volId, out WallClass c)) cls = c;
@@ -339,7 +351,8 @@ namespace SteelCity.Sim
         /// then the field picks that wall's nearest validated Hidden cell.
         /// Reports the wall's depth requirement and class.</summary>
         public bool TryPickCoverNear(Vector3 anchor, float maxDist,
-            out Vector3 point, out string volId, out float reqDepth, out WallClass cls)
+            out Vector3 point, out string volId, out float reqDepth, out WallClass cls,
+            float intNorm = 1f)
         {
             point = default; volId = null; reqDepth = 0f; cls = WallClass.Low; chosenIdx = -1;
             int wi = -1; float wd = maxDist * maxDist;
@@ -372,10 +385,19 @@ namespace SteelCity.Sim
             }
             Debug.Log(sb.ToString());
             if (!field.PickNear(anchor, maxDist, out point, out _, w.volId)) return false;
-            volId = w.volId; reqDepth = w.reqDepth; cls = w.cls;
-            // Same hug-the-wall destination as the generic pick.
-            Vector3 sspot = w.facePos + w.outDir * (standoff + w.vs * 0.25f);
-            point = new Vector3(sspot.x, w.support, sspot.z);
+            // Zone-ranked destination, same as the generic pick — the
+            // anchor selects WHICH zone; `intNorm` picks how deep inside it.
+            if (field.TryRankInZone(field.ChosenCell, intNorm, out Vector3 nzp, out int nzc, out var nz))
+            {
+                point = nzp; volId = nz.volId; reqDepth = nz.reqD; cls = nz.cls;
+                field.MarkChosen(nzc);
+            }
+            else
+            {
+                volId = w.volId; reqDepth = w.reqDepth; cls = w.cls;
+                Vector3 sspot = w.facePos + w.outDir * (standoff + w.vs * 0.25f);
+                point = new Vector3(sspot.x, w.support, sspot.z);
+            }
             for (int i = 0; i < candidates.Count; i++)
                 if (field.IsChosen(FieldCellOf(candidates[i].point))) { chosenIdx = i; break; }
             Redraw();

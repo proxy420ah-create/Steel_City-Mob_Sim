@@ -269,7 +269,7 @@ same combat stack (`EnterCombat(feet, ch)`) — Phase 2 lights both directions.
 - `DebugOwnsPose` / possess takeover: combat AI yields to direct control the
   same way the cover drive already does.
 
-## Test plan (cover_pit)
+## Test plan (cover_arena — block_36, in front of the tenement door)
 
 1. `SETUP PIT` → `START DUEL`, target-dummy mode:
    - Vinny advances folded; while Tan's voxels show, arm comes up, bore

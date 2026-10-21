@@ -68,6 +68,10 @@ namespace SteelCity.Sim
         public float muzzleFwd = 0.3f;
         [Tooltip("When a rhythm run ends (rise refused / no contact / target lost), loop back through the seam and try again instead of parking at None.")]
         public bool loopBeats = true;
+        [Tooltip("Hide-only combatant: seeks first cover exactly like a fighter, then parks in the settle seam forever — no rise, no fire authority anywhere. The 3-stage-search test dummy.")]
+        public bool holdInCover;
+        [Tooltip("Cover-positioning intelligence 0..1 (Hoods.xtx INT normalized): 1 = nests at the zone centroid, 0 = parks on the Hidden rim — zero margin, 'sticking out'. COMBAT_COVER_STATE → INT axis.")]
+        [Range(0f, 1f)] public float coverIntNorm = 1f;
 
         // --- Cover parameters live on CoverSensor (the always-on awareness sense);
         // these stay as proxies so existing HUD sliders keep working. ---
@@ -350,8 +354,8 @@ namespace SteelCity.Sim
                 return true;
             }
             bool picked = coverAnchor.HasValue
-                ? Sensor.TryPickCoverNear(coverAnchor.Value, maxDist, out Vector3 p, out string oid, out float reqD, out coverWallClass)
-                : Sensor.TryPickCover(Feet(), out p, out oid, out reqD, out coverWallClass);
+                ? Sensor.TryPickCoverNear(coverAnchor.Value, maxDist, out Vector3 p, out string oid, out float reqD, out coverWallClass, coverIntNorm)
+                : Sensor.TryPickCover(Feet(), out p, out oid, out reqD, out coverWallClass, coverIntNorm);
             if (picked)
             {
                 CoverPoint = p;
@@ -408,9 +412,9 @@ namespace SteelCity.Sim
         /// always-engaged lane) run exposure-gated; in cover only Rise and
         /// Engaged may hold the gun out. A stray positive probe during Settle
         /// must never pop the arm up.</summary>
-        bool BeatAllowsFire => State == CombatState.SeekingCover
+        bool BeatAllowsFire => !holdInCover && (State == CombatState.SeekingCover
             || State == CombatState.HoldPosition
-            || Beat == EngagementBeat.Rise || Beat == EngagementBeat.Engaged;
+            || Beat == EngagementBeat.Rise || Beat == EngagementBeat.Engaged);
 
         /// <summary>Beat transition — every hop emits Changed for the flow lane.</summary>
         void EnterBeat(EngagementBeat b)
@@ -637,6 +641,9 @@ namespace SteelCity.Sim
                 case EngagementBeat.Settle:
                     if (Time.unscaledTime >= beatUntil)
                     {
+                        // Hide-only: the seam IS the destination — he sought
+                        // cover and now holds it. Parks forever, arm stowed.
+                        if (holdInCover) { EnterBeat(EngagementBeat.Settle); break; }
                         var next = afterSettle;
                         bool parking = false;
                         if (loopGate)

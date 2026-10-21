@@ -486,12 +486,64 @@ namespace SteelCity.Sim
             public float reqD;          // mean required duck over the zone
             public CoverSensor.WallClass cls;  // uniform — the split key includes it
             public int cells;
+            public int cell;            // member-cell index nearest the raw centroid
         }
 
         static readonly int[] ZoneDX = { 1, -1, 0, 0 }, ZoneDZ = { 0, 0, 1, -1 };
         private bool[] zoneSeen;
+        private int[] zoneOf;                    // cell → zone index (indices into zonesBuilt)
         private readonly Queue<int> zoneQueue = new Queue<int>();
         private readonly List<int> zoneCells = new List<int>(512);
+        private readonly List<ZoneSpot> zonesBuilt = new List<ZoneSpot>(64);
+        private readonly List<int[]> zoneMembers = new List<int[]>(64);   // parallel to zonesBuilt — member cell indices
+        private readonly List<(float d2, int cell)> rankScratch = new List<(float, int)>(512);
+
+        /// <summary>The painted zone a cell belongs to — the auto-pick's
+        /// centroid resolver (the scripted slots already land on
+        /// `ZoneSpot.stand`; the picks were landing on wall-column
+        /// midpoints instead of the marked middle). Re-enumerates fresh at
+        /// call time — picks are rare (combat entry / relocate).</summary>
+        public bool TryZoneOfCell(int cellIdx, out ZoneSpot z)
+        {
+            z = default;
+            if (cellIdx < 0 || state == null || !BuiltWithThreat) return false;
+            EnumerateZones(zonesBuilt);
+            int zi = zoneOf[cellIdx];
+            if (zi < 0) return false;
+            z = zonesBuilt[zi];
+            return true;
+        }
+
+        /// <summary>Point the chosen post at the cell the actor will
+        /// actually stand on (the zone centroid cell, not the scanned pick).</summary>
+        public void MarkChosen(int idx) => ChosenCell = idx;
+
+        /// <summary>INT-modulated stand point inside a zone (COMBAT_COVER_STATE
+        /// → "Cover positioning quality — the INT axis"): members ranked by
+        /// distance² from the centroid; t=1 lands on the centroid cell (max
+        /// depth), t=0 on the rim member (Hidden but zero margin — "sticking
+        /// out"). Linear between. `point` = the ranked cell's world stand
+        /// (per-cell probed ground); `standCell` = its index for MarkChosen.</summary>
+        public bool TryRankInZone(int cellIdx, float intNorm, out Vector3 point, out int standCell, out ZoneSpot z)
+        {
+            point = default; standCell = -1; z = default;
+            if (!TryZoneOfCell(cellIdx, out z)) return false;
+            int zi = zoneOf[cellIdx];
+            var members = zoneMembers[zi];
+            rankScratch.Clear();
+            for (int i = 0; i < members.Length; i++)
+            {
+                var c = CellCenter(members[i] % N, members[i] / N);
+                float dx = c.x - z.stand.x, dz = c.z - z.stand.z;
+                rankScratch.Add((dx * dx + dz * dz, members[i]));
+            }
+            rankScratch.Sort((a, b) => a.d2.CompareTo(b.d2));
+            int rank = Mathf.RoundToInt((1f - Mathf.Clamp01(intNorm)) * (rankScratch.Count - 1));
+            standCell = rankScratch[rank].cell;
+            var sc = CellCenter(standCell % N, standCell / N);
+            point = new Vector3(sc.x, groundY[standCell], sc.z);
+            return true;
+        }
 
         /// <summary>Flood-fills the Hidden cells into zones; appends one
         /// ZoneSpot per component. `stand` is the member CELL nearest the
@@ -501,10 +553,14 @@ namespace SteelCity.Sim
         public int EnumerateZones(List<ZoneSpot> out_)
         {
             out_.Clear();
+            zoneMembers.Clear();
             if (state == null || !BuiltWithThreat) return 0;
             if (zoneSeen == null || zoneSeen.Length != state.Length)
                 zoneSeen = new bool[state.Length];
             else System.Array.Clear(zoneSeen, 0, zoneSeen.Length);
+            if (zoneOf == null || zoneOf.Length != state.Length)
+                zoneOf = new int[state.Length];
+            System.Array.Fill(zoneOf, -1);
             for (int s = 0; s < state.Length; s++)
             {
                 if (zoneSeen[s] || state[s] != CellState.Hidden || volIdOf[s] == null) continue;
@@ -543,12 +599,18 @@ namespace SteelCity.Sim
                     if (d < bd) { bd = d; bestCell = i; }
                 }
                 var standC = CellCenter(bestCell % N, bestCell / N);
+                int zoneIdx = out_.Count;
                 out_.Add(new ZoneSpot
                 {
                     stand = new Vector3(standC.x, gy / n, standC.z),
                     volId = vol, reqD = rd / n,
-                    cls = (CoverSensor.WallClass)cls, cells = n
+                    cls = (CoverSensor.WallClass)cls, cells = n, cell = bestCell
                 });
+                foreach (var i in zoneCells) zoneOf[i] = zoneIdx;
+                var mem = new int[zoneCells.Count];
+                zoneCells.CopyTo(mem);
+                if (zoneIdx < zoneMembers.Count) zoneMembers[zoneIdx] = mem;
+                else zoneMembers.Add(mem);
             }
             return out_.Count;
         }
