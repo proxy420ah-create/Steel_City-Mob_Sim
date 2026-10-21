@@ -139,9 +139,9 @@ continuously:
   in the **morph band** (Idle/Walking + `icr`/`wd` partial fold — a wall
   between stand- and shallow-top gets a proportional duck, never a snap to
   the full crouch); over-1 lands in the deep band (Crouching/Walking pick).
-- Class changes drive pose state: Full → stand (**Idle — aim lane dropped:
-  `coverContext` gates IK aim for ANY detected cover, class-agnostic — Phase 2
-  revises this to `visibleVoxels > 0`, see below**),
+- Class changes drive pose state: Full → stand (**Idle — the aim lane dropped:
+  posture used to gate IK via `coverContext`; Phase 2 landed — the gate is
+  `visibleVoxels > 0` now, see below**),
   Crouch → ducked at `duck` — **stationary = Crouching hold, moving =
   Walking + wd() crumple-gait** — Low/none → release to Idle, standing up the
   same frame.

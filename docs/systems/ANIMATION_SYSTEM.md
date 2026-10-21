@@ -87,7 +87,7 @@ hands off to the animator via sessionStorage.
 - **THE DUCK SCALAR (0..2)** — one silhouette/cover-height contract. The state
   picks which endpoint SET renders it:
 
-| | Idle | Walking | state 5.x (legacy) |
+| | Idle / Aiming | Walking / AimWalk | state 5.x (legacy) |
 |---|------|---------|---------------------|
 | endpoints | `crouching` → `crouchDeep` | `walkDuckMid` → `walkDuckPose` | same as Idle |
 | semantics | **absolute hold pose** (icr) | **crumple deltas under the gait** (wd) | `Cd = saturate(duck−1)` |
@@ -234,9 +234,13 @@ rested pose, never on the bind pose.
 ### Per-group scalar sources by state
 
 The duck channels compose additively with the state columns — `wd(·)` =
-`lerp(walkDuckMid, walkDuckPose, duckDeep)·duckIn` (Walking only), `icr(·)` =
-`lerp(crouching, crouchDeep, duckDeep)·idleIn` (Idle only), `Cd = saturate(duck−1)`,
-`Cr(a,b) = lerp(a,b,Cd)`:
+`lerp(walkDuckMid, walkDuckPose, duckDeep)·duckIn` (gait states: Walking +
+AimWalk), `icr(·)` = `lerp(crouching, crouchDeep, duckDeep)·idleIn` (stationary
+states: Idle + Aiming — the armed pose honors `duck` so `riseDuck` renders),
+`Cd = saturate(duck−1)`, `Cr(a,b) = lerp(a,b,Cd)`. The fold is **exclusive per
+channel**: `isAimingState` still owns arm swing/elbow and head aim on armed
+states — only legs/body fold — so the gun stays on target while the silhouette
+drops (cover posture overrides opportunity fire).
 
 | gid | group | Idle | Walking/AimWalk | Looking | Aiming/Sweep | Crouching (5.x) | Sit |
 |-----|-------|------|-----------------|---------|--------------|-----------|-----|
@@ -457,15 +461,27 @@ transitions but are unreachable from the grid.
   Look Scan = the crouched alert sentry. IK headTrack wins while aiming.
 - `Crouching (5) / Crouch Deep (5.1)` → ONE shared **`duck` scalar 0–2**
   bound across both stationary and moving poses — same value = same
-  silhouette height `h(duck)`, the uniform contract cover logic needs:
-  - **on Idle** — the stationary hold: `icr(k) = lerp(crouching,
+  silhouette height `h(duck)`, the uniform contract cover logic needs.
+
+  **THE CONTRACT (law)**: *every pose must express `duck`.* No state gate may
+  silently zero the fold — gait states fold via `wd()`, stationary states via
+  `icr()`, 5.x via `Cr`. Armed states fold too: the aim channels own arm
+  swing/elbow + head, the fold owns legs/body. Any new state MUST pick a fold
+  channel — a state that ignores `duck` breaks every consumer that trusts
+  `h(duck)` (cover heights, exposure eyes, rise solves) and produces the
+  classic "intent correct, render wrong" ghost bug (Vinny marching upright
+  to cover while armed).
+  - **on Idle / Aiming** — the stationary hold: `icr(k) = lerp(crouching,
     crouchDeep, max(0,d-1)) × min(1,d)` composed over the rest pose.
     `crouching`/`crouchDeep` are AUTHORED POSES (BASE CROUCH is the
-    default). No gait.
-  - **on Walking** — the moving duck: `walkDuckMid`/`walkDuckPose` are
-    CRUMPLE DELTAS under the mirrored gait (symmetric folds, NOT authored
+    default). No gait. (Aiming included since the armed rise must hold
+    `riseDuck`; the aim channels own arm/head, icr owns legs/body.)
+  - **on Walking / AimWalk** — the moving duck: `walkDuckMid`/`walkDuckPose`
+    are CRUMPLE DELTAS under the mirrored gait (symmetric folds, NOT authored
     poses — absolute strides would pin a leg against the cycle).
-    `wd(k) = lerp(mid, far, max(0,duck-1)) × min(1,duck)`.
+    `wd(k) = lerp(mid, far, max(0,duck-1)) × min(1,duck)`. (AimWalk included:
+    cover posture overrides opportunity fire — the fold must not vanish
+    just because the arm is out.)
   Unity: `PoseDriver.duck` is the ONLY height knob — state picks the
   endpoint set. Caveats: (a) gait bob modulates top-of-head on the moving
   side — `TryMeasureTopY` takes worst-of-gait; (b) endpoint sets are
@@ -505,9 +521,10 @@ Historical contract (pre-collapse, for reference):
    the arm/forearm chain on top of whatever pose exists (crouch, crouch-walk,
    idle). Out of combat (waiting, reloading) → stand, weapon idle. Breaching
    cover or maneuvering with a valid target → the solver engages over the
-   locomotion pose. The current "cannot aim while crouched" gate is a
-   temporary combat doctrine to be revisited when target acquisition exists —
-   NOT a reason to author crouch-aim states.
+   locomotion pose. The old "cannot aim while crouched" posture gate is
+   RETIRED (EXPOSURE_ENGAGEMENT.md — voxel visibility is the gate; any pose
+   may fire if the IK resolves — at duck>1.02 the solver drops torso assist
+   only).
    **Debug harness (HTML, DONE)**: the animator's "IK Aim (debug)" block
    simulates the channel — `ikAimSolve` mirrors `ArmAimSolver.Solve`
    (law-of-cosines elbow in the hint plane + cumulative forearm rotation,

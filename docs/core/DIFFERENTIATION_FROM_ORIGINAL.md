@@ -205,17 +205,17 @@ Cover isn't a flag or a binary crouch — it's a **continuous scalar solve again
 
 **Design doc reference**: `COVER_HEIGHTFIELD.md`, `COMBAT_COVER_STATE.md`, `ANIMATION_SYSTEM.md`
 
-### 9.9 Exposure-Based Engagement — the crossfire model (NEW — designed, next build)
+### 9.9 Exposure-Based Engagement — the crossfire model (✅ core implemented — pop-up trigger deferred)
 
 Industry resolves aim-at-a-bone plus scripted pop-up cycles. Steel City's doctrine derives everything from **voxel visibility** — the same raycast primitive the renderer uses:
 
 | Mechanic | Standard | Steel City | Status |
 |----------|----------|------------|--------|
-| Aim target | Bone/socket (chest/head) | **Centroid of the enemy's *visible posed voxels*** — sampled points on their live silhouette, rays from the shooter's eye. Exposed cap shrinks as they duck — the aim point tracks it | 📝 Designed |
-| Fire gate | State machine flag | `visibleFraction > 0` — as the shooter tucks, his own wall occludes his own rays → zero voxels → weapon stows. Geometry, not doctrine | 📝 Designed |
-| Pop-up | Canned lean/peek animation | **The one authored override** — suppress cover drive, stand, engage `lastSeenTarget`. The mutual-exposure window: his `h(duck)` rising makes *him* visible to the enemy's identical query → the exposure race is the combat heartbeat | 📝 Designed |
-| Reload | Timer/anim | **Cylinder count** — S&W Model 10 = 6 shots → duck to reload (crouch-idle stands in until a reload anim exists) | 📝 Designed |
-| Target memory | Last-known-position marker | `lastSeenTarget` — pop-up re-queries: still there → live centroid; gone → burst at the stale point (suppressing fire, emergent) + `lookScan` channel for the search pattern | 📝 Designed |
+| Aim target | Bone/socket (chest/head) | **Centroid of the enemy's *visible posed voxels*** — sampled points on their live silhouette, rays from the shooter's eye. Exposed cap shrinks as they duck — the aim point tracks it | ✅ Implemented |
+| Fire gate | State machine flag | `visibleCount > 0` — as the shooter tucks, his own wall occludes his own rays → zero voxels → weapon stows. Geometry, not doctrine | ✅ Implemented |
+| Pop-up | Canned lean/peek animation | **The one authored override** — suppress cover drive, stand, engage `lastSeenTarget`. The mutual-exposure window: his `h(duck)` rising makes *him* visible to the enemy's identical query → the exposure race is the combat heartbeat | 📝 Trigger deferred |
+| Reload | Timer/anim | **Cylinder count** — S&W Model 10 = 6 shots → arm dips for `reloadDwell` (crouch-idle stands in until a reload anim exists) | ✅ Implemented |
+| Target memory | Last-known-position marker | `LastSeenTarget` written every positive probe — pop-up re-queries: still there → live centroid; gone → burst at the stale point (suppressing fire, emergent) + `lookScan` channel for the search pattern | ✅ Field live, consumers pending |
 
 **The symmetry**: *cover verdict and aim solution are the same ray from opposite ends* — `hidden ⇐ ray(threatEye → myTop) blocked`; `hittable ⇐ ray(myEye → threatVoxels) clears`. One silhouette function `h(duck)`, both directions. Parapet firing is emergently headshot-only (only the head band shows over the wall) — accepted: recoil/sway plus the smaller voxel set keeps it fair.
 

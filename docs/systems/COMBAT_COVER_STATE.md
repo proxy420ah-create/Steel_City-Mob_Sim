@@ -1,7 +1,7 @@
 # Combat Cover State — Autonomous Combat
 
 **Created**: Oct 16, 2026
-**Status**: ✅ Phase 1 complete (verified cover seek + measured-silhouette duck) — Phase 2 exposure engagement 📝 designed
+**Status**: ✅ Phase 1 complete (verified cover seek + measured-silhouette duck) — Phase 2 exposure engagement ✅ implemented
 **Depends on**: PROJECTILE_SYSTEM.md, GLASS_SHATTER_MECHANIC.md, VEHICLE_VOXEL_ASSETS.md
 
 ---
@@ -179,14 +179,25 @@ private scans (wrap `CoverField` in a threat-bucketed service). The city-wide
 static half already exists: `VoxelCollisionWorld`'s registered volumes + lazy
 column profiles ARE the shared cover registry.
 
-## Phase 2 — Exposure-Based Engagement (designed, next build)
+## Phase 2 — Exposure-Based Engagement (✅ implemented)
 
-**Doctrine**: firing eligibility is geometry, not a posture flag. The shooter samples
-~30–40 candidate points across the *target's live posed voxel silhouette* and casts a
-ray from his posed eye to each through `VoxelCollisionWorld`. The **centroid of the
-visible set is the IK target** (replaces the current `feet + 1.3f` constant);
-`visibleCount > 0` arms/fire-gates, `visibleCount == 0` releases IK and leaves him in
-crouch-idle with awareness (`lastSeenTarget` — position + timestamp).
+**Full spec + as-built details**: `EXPOSURE_ENGAGEMENT.md` — query contract,
+sample generation, gates table, AI fire loop, debug viz, test plan.
+**Sequencing layer**: `ENGAGEMENT_BEATS.md` — the authored rhythm that now
+owns the arm inside `InCover` (settle → top-up → settle → rise → engaged →
+duck): the emergent "opportunity fire" rows below now run under beat
+authority — `wantAim` ANDs with `BeatAllowsFire`, and the **pop-up is the
+`Rise` beat** (solved triangulated duck, no longer a deferred trigger).
+
+**As built**: `CoverSensor.TryGetVisibleVoxels(threat)` samples the target's live
+posed silhouette (`VoxelCharacter.SampleSilhouetteWorld` — Y-sorted strided picks
+per group, ~30–60 pts) and rays the posed eye at each. `CombatController.TickExposureFire`
+probes on `visInterval`, arms `solver.Arm(centroid)` while `visible>0`, fires on
+Blend/convergence/cadence/cylinder, and stows on zero. `ArmAimSolver`'s posture
+gate is gone — any pose may fire if the IK resolves (deep duck drops torso-assist
+only). Six-shot `cylinder` → dry starts `reloading` — one chamber seats per
+`roundLoadInterval` (1.5s), arm dipped the whole beat. `LastSeenTarget` retained
+for the pop-up/search phases.
 
 **Why this subsumes scripted phases** — the phases emerge from the same query:
 
@@ -226,7 +237,7 @@ papered, lands after this layer is proven).
 
 ## Phase 1 explicit non-goals
 
-- ~~Return fire / fire discipline~~ → Phase 2 above (designed)
+- ~~Return fire / fire discipline~~ → Phase 2 above (implemented)
 - Threat is a fixed debug point — live threat tracking (last shooter, muzzle reports) next
 - Character↔projectile hits (spatial-hash actor damage is a separate milestone)
 - Multi-unit combat / squad orders (Phase 4d gang sim territory)

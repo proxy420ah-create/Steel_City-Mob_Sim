@@ -281,15 +281,7 @@ namespace SteelCity.Sim
                 qR = Quaternion.Slerp(qA, qR, trans.z);
             }
 
-            // Cell-space (+0.5) → rotate about volume center (shader convention).
-            Vector3 half = new Vector3(dims.x, dims.y, dims.z) * voxelSize * 0.5f;
-            Vector3 center = transform.position + half;
-            Vector3 localCell = new Vector3(
-                posed.x + dims.x * 0.5f + 0.5f,
-                posed.y + 0.5f,
-                posed.z + dims.z * 0.5f + 0.5f) * voxelSize;
-            Quaternion yawRot = Quaternion.Euler(0f, transform.eulerAngles.y, 0f);
-            worldPos = center + yawRot * (localCell - half);
+            worldPos = CellToWorld(posed, dims, out Quaternion yawRot);
             worldRot = yawRot * qR;
             return true;
         }
@@ -358,6 +350,90 @@ namespace SteelCity.Sim
             heightAboveFeet = (top + 0.5f) * voxelSize;   // cell-center, PoseToWorld convention
             topYCache[key] = heightAboveFeet;
             return true;
+        }
+
+        // --- silhouette sample cloud (exposure/visibility probe) ---
+
+        // Sparse rest-space picks spanning every pose group — the target
+        // profile the enemy's eye rays test (EXPOSURE_ENGAGEMENT.md). Built
+        // once per asset; posed live per query so a ducking threat presents
+        // a different silhouette.
+        private List<(int gid, Vector3 rest)> silhouetteSamples;
+
+        /// <summary>Y-sorted, evenly-spaced picks per group — vertical coverage
+        /// of each body part scaled with its voxel count (~1 per 8 voxels,
+        /// 2..8 per group ≈ 30–50 total).</summary>
+        void EnsureSilhouetteSamples()
+        {
+            if (silhouetteSamples != null || asset == null || asset.GroupIDs == null) return;
+            var groups = new Dictionary<int, List<Vector3>>();
+            int w = dimX, h = dimY, d = dimZ, wh = w * h;
+            for (int z = 0; z < d; z++)
+            for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                if (asset.Voxels[x, y, z] == 0) continue;
+                int gid = (int)asset.GroupIDs[x + y * w + z * wh];
+                if (!groups.TryGetValue(gid, out var list)) groups[gid] = list = new List<Vector3>();
+                list.Add(new Vector3(x, y, z));
+            }
+            silhouetteSamples = new List<(int, Vector3)>(64);
+            foreach (var kv in groups)
+            {
+                var list = kv.Value;
+                list.Sort((a, b) => a.y.CompareTo(b.y));
+                int want = Mathf.Clamp(Mathf.CeilToInt(list.Count / 8f), 2, 8);
+                for (int k = 0; k < want; k++)
+                {
+                    int idx = Mathf.RoundToInt((list.Count - 1) * (float)k / (want - 1));
+                    silhouetteSamples.Add((kv.Key, list[idx]));
+                }
+            }
+        }
+
+        /// <summary>Pose the silhouette sample cloud under the LIVE pose
+        /// (same instanced state/transition params TryGetJointWorld reads)
+        /// and write world-space points into dst. Returns the count written —
+        /// 0 when there's no anim/asset data. Buffer 64+ to take the whole set.</summary>
+        public int SampleSilhouetteWorld(Vector3[] dst)
+        {
+            var anim = JointAnimator;
+            if (anim == null || asset == null || dst == null) return 0;
+            EnsureSilhouetteSamples();
+            if (silhouetteSamples == null || silhouetteSamples.Count == 0) return 0;
+
+            var ic = instancedHandle;
+            float state = ic?.animState ?? 0f;
+            float time = ic?.animTime ?? 0f;
+            float speed = ic?.animSpeed ?? 1f;
+            float duck = ic?.crouchDepth ?? 0f;
+            float gait = ic?.gaitTime ?? -1f;
+            var dims = new Vector3Int(dimX, dimY, dimZ);
+            Vector4 trans = TransParams(ic, null, out float depthA);
+
+            int n = Mathf.Min(silhouetteSamples.Count, dst.Length);
+            for (int i = 0; i < n; i++)
+            {
+                var s = silhouetteSamples[i];
+                Vector3 posed = anim.PosePoint(s.rest, s.gid, dims, state, time, speed,
+                    trans.x, trans.y, trans.z, trans.w, duck, depthA, gait);
+                dst[i] = CellToWorld(posed, dims, out _);
+            }
+            return n;
+        }
+
+        /// <summary>Cell-space (+0.5) → world: rotate about the volume center
+        /// (shader convention). Shared by PoseToWorld + SampleSilhouetteWorld.</summary>
+        Vector3 CellToWorld(Vector3 posed, Vector3Int dims, out Quaternion yawRot)
+        {
+            Vector3 half = new Vector3(dims.x, dims.y, dims.z) * voxelSize * 0.5f;
+            Vector3 center = transform.position + half;
+            Vector3 localCell = new Vector3(
+                posed.x + dims.x * 0.5f + 0.5f,
+                posed.y + 0.5f,
+                posed.z + dims.z * 0.5f + 0.5f) * voxelSize;
+            yawRot = Quaternion.Euler(0f, transform.eulerAngles.y, 0f);
+            return center + yawRot * (localCell - half);
         }
 
         void Start()

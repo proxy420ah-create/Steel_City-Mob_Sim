@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -59,6 +60,8 @@ namespace SteelCity.Sim
         public CoverField.Layer heatLayer = CoverField.Layer.Composite;
         public int maxWallBeams = 500;
         public int maxCandBeams = 60;
+        [Tooltip("Draw the exposure probe: green eye→sample rays = visible, red = blocked, cyan cross = visible centroid.")]
+        public bool showTargetViz = false;
 
         /// <summary>Threat position — set by the COVER tab's PICK THREAT (shared
         /// with Combat's PICK AIM) and by CombatController.EnterCombat.</summary>
@@ -245,6 +248,7 @@ namespace SteelCity.Sim
             lastScanPos = SelfPos();
             Scan(lastScanPos);
             Redraw();
+            Notify();
         }
 
         /// <summary>
@@ -569,6 +573,123 @@ namespace SteelCity.Sim
             return point + Vector3.up * HShallow + (tm > 1e-4f ? tdir / tm * EyeFwd : Vector3.zero);
         }
 
+        // --- Exposure probe (docs/systems/EXPOSURE_ENGAGEMENT.md) ---
+        // One primitive, read from both ends: "how exposed is the threat to
+        // MY eye" is the same ray set that answers "how hidden am I" from
+        // his. The aim target is the centroid of whatever is visible — a
+        // head band over a parapet aims at the head for free.
+
+        /// <summary>One visibility probe: how much of the target's posed
+        /// silhouette the owner's eye can currently see. `visible > 0` IS
+        /// the aim/fire gate — zero = fully tucked, the IK stands down.
+        /// Note: characters aren't collision-world volumes, so "visible"
+        /// = unobstructed path to a world-space sample (no self-occlusion).</summary>
+        public struct VisibleSet
+        {
+            public int visible, tested;
+            public float fraction;
+            public Vector3 centroid;
+            public VoxelCharacter target;
+        }
+
+        /// <summary>Result of the last probe — CombatController's exposure gate.</summary>
+        public VisibleSet LastVisible { get; private set; }
+        /// <summary>Drop the cached probe result — combat exit hands back a clean slate.</summary>
+        public void ClearVisibility() { LastVisible = default; }
+        /// <summary>Fired on every display-relevant mutation — field scans and
+        /// visibility probes. Debug consumers rebuild on Changed, never poll.</summary>
+        public event Action Changed;
+        void Notify() => Changed?.Invoke();
+        /// <summary>World point the last probe cast from — for HUD/viz.</summary>
+        public Vector3 LastProbeEye { get; private set; }
+        private readonly Vector3[] visBuf = new Vector3[96];
+        private int visDrawn;            // tv_s{i} beams alive right now
+        private bool visCentroidDrawn;   // tv_c{x,y,z} cross alive
+
+        /// <summary>Sample the target's live posed silhouette (~30–50 points,
+        /// every group covered) and ray the owner's posed eye at each sample
+        /// against the collision world. Unobstructed = visible. Returns
+        /// `visible > 0`; fills `set` + LastVisible either way.</summary>
+        /// <summary>True if a segment between two world points hits world
+        /// voxels — the bore-line check for the rise solve: does the presented
+        /// gun's path to the target clip cover? Character voxels aren't in the
+        /// collision world (the probe proves targets reachable at full dist),
+        /// so full-distance is the bullet path.</summary>
+        public bool LosBlocked(Vector3 a, Vector3 b)
+        {
+            Vector3 d = b - a; float dist = d.magnitude;
+            return dist > 1e-4f && world != null && world.Raycast(a, d / dist, dist, out _);
+        }
+
+        public bool TryGetVisibleVoxels(VoxelCharacter target, out VisibleSet set)
+        {
+            set = default;
+            if (world == null) world = FindFirstObjectByType<VoxelCollisionWorld>();
+            if (target == null || world == null)
+            { LastVisible = set; ClearVisBeams(); Notify(); return false; }
+
+            // Posed-eye anchor — same FK chain the aim uses. Chest-height
+            // fallback keeps the probe live on an unanimated rig.
+            if (owner == null || !owner.TryGetEyeAnchor(out Vector3 eye, out _, out _))
+                eye = SelfPos() + Vector3.up * threatEye;
+            LastProbeEye = eye;
+
+            int n = target.SampleSilhouetteWorld(visBuf);
+            if (n <= 0) { LastVisible = set; ClearVisBeams(); Notify(); return false; }
+
+            var pdr = showTargetViz ? PathDebugRenderer.Instance : null;
+            int vis = 0; Vector3 sum = Vector3.zero;
+            for (int i = 0; i < n; i++)
+            {
+                Vector3 d = visBuf[i] - eye;
+                float dist = d.magnitude;
+                bool clear = dist < 1e-4f || !world.Raycast(eye, d / dist, dist, out _);
+                if (clear) { vis++; sum += visBuf[i]; }
+                if (pdr != null)
+                    pdr.SetCustomBeam($"tv_s{i}", eye, visBuf[i], 0.012f,
+                        clear ? new Color(0.3f, 1f, 0.4f, 0.5f)
+                              : new Color(1f, 0.25f, 0.2f, 0.35f));
+            }
+            set = new VisibleSet
+            {
+                visible = vis, tested = n,
+                fraction = (float)vis / n,
+                centroid = vis > 0 ? sum / vis : Vector3.zero,
+                target = target,
+            };
+            LastVisible = set;
+            Notify();
+
+            if (pdr != null)
+            {
+                for (int i = n; i < visDrawn; i++) pdr.ClearCustomBeam($"tv_s{i}");
+                visDrawn = n;
+                if (vis > 0)
+                {
+                    var c = new Color(0.3f, 0.95f, 1f, 0.9f);
+                    pdr.SetCustomBeam("tv_cx", set.centroid + Vector3.left * 0.14f,  set.centroid + Vector3.right * 0.14f,  0.03f, c);
+                    pdr.SetCustomBeam("tv_cy", set.centroid + Vector3.down * 0.14f,  set.centroid + Vector3.up * 0.14f,     0.03f, c);
+                    pdr.SetCustomBeam("tv_cz", set.centroid + Vector3.back * 0.14f,  set.centroid + Vector3.forward * 0.14f, 0.03f, c);
+                    visCentroidDrawn = true;
+                }
+                else { pdr.ClearCustomBeam("tv_cx"); pdr.ClearCustomBeam("tv_cy"); pdr.ClearCustomBeam("tv_cz"); visCentroidDrawn = false; }
+            }
+            else ClearVisBeams();
+            return vis > 0;
+        }
+
+        void ClearVisBeams()
+        {
+            if (visDrawn == 0 && !visCentroidDrawn) return;
+            var pdr = PathDebugRenderer.Instance;
+            if (pdr != null)
+            {
+                for (int i = 0; i < visDrawn; i++) pdr.ClearCustomBeam($"tv_s{i}");
+                pdr.ClearCustomBeam("tv_cx"); pdr.ClearCustomBeam("tv_cy"); pdr.ClearCustomBeam("tv_cz");
+            }
+            visDrawn = 0; visCentroidDrawn = false;
+        }
+
         // --- Visualization ---
 
         public void ClearViz()
@@ -577,6 +698,7 @@ namespace SteelCity.Sim
             if (pdr == null) { beamKeys.Clear(); return; }
             foreach (var k in beamKeys) pdr.ClearCustomBeam(k);
             beamKeys.Clear();
+            ClearVisBeams();
             if (heatRend != null) heatRend.enabled = false;
         }
 

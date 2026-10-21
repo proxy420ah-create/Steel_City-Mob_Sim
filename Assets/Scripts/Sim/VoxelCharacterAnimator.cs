@@ -384,15 +384,21 @@ namespace SteelCity.Sim
 
             // === SHARED DUCK SCALAR — dual endpoint sets (prototype parity) ===
             // wd(): walkDuckMid lands at duck 1, walkDuckPose at duck 2 —
-            // deltas composed UNDER the gait. Walking only.
-            // icr(): authored hold pose crouching→crouchDeep — Idle only.
-            bool isWalkAnim = animState > 0.5f && animState < 1.5f;
+            // deltas composed UNDER the gait. GAIT states: Walking + AimWalk —
+            // the fold must not vanish just because the arm is out (cover
+            // posture overrides opportunity fire; LOS loss stows him).
+            // icr(): authored hold pose crouching→crouchDeep — STATIONARY
+            // states: Idle + Aiming (the solved riseDuck must render).
+            bool isWalkAnim = (animState > 0.5f && animState < 1.5f)
+                           || (animState > 2.5f && animState < 3.5f);
             float duckIn = isWalkAnim ? Mathf.Min(1f, duck) : 0f;
             float duckDeep = Mathf.Max(0f, duck - 1f);
             var wdm = ap.walkDuckMid ?? ap.crouching;
             var wdp = ap.walkDuckPose ?? ap.crouching;
             float Wd(System.Func<CrouchingData, float> f) => Mathf.Lerp(f(wdm), f(wdp), duckDeep) * duckIn;
-            float idleIn = (animState > -0.5f && animState < 0.5f) ? Mathf.Min(1f, duck) : 0f;
+            bool isStationaryAnim = (animState > -0.5f && animState < 0.5f)
+                                 || (animState > 3.5f && animState < 4.5f);
+            float idleIn = isStationaryAnim ? Mathf.Min(1f, duck) : 0f;
             float idleDp = duckDeep;
             float Icr(System.Func<CrouchingData, float> f) => Mathf.Lerp(f(ap.crouching), f(cdeep), idleDp) * idleIn;
             float gaitClock = gaitTime >= 0f ? gaitTime : animTime * animSpeed;

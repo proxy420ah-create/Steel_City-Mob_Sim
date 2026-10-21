@@ -99,22 +99,11 @@ namespace SteelCity.Sim
                 Debug.LogWarning($"[ArmAimSolver] Arm rejected: {err}");
                 return false;
             }
-            // Posture gate: in cover = no aim — aiming lives in the
-            // exposed/pop-up phase, not behind ANY wall. Three signals:
-            // Crouching pose state (stationary hold), the cover band of the
-            // duck scalar (duck > 1.02 catches ducked-Walking movers), and
-            // coverContext (the drive's live verdict — catches FULL walls,
-            // which never duck: covered standing is still covered).
-            // The sub-1 debug duck band still composes with aim freely.
-            if (animRef == null) animRef = GetComponent<CharacterAnimation>();
-            if (animRef != null && (animRef.EffectiveState == CharacterAnimation.AnimState.Crouching
-                                    || animRef.duck > 1.02f
-                                    || animRef.coverContext))
-            {
-                LastError = "cannot aim while crouched (in cover)";
-                if (debugLogs) Debug.LogWarning($"[ArmAimSolver] Arm rejected: {LastError}");
-                return false;
-            }
+            // Exposure doctrine (EXPOSURE_ENGAGEMENT.md): ANY pose may aim —
+            // the visibility gate upstream decides armed-vs-stowed, not
+            // posture. Deep duck drops torso ASSIST inside Solve (the assist
+            // yaw would un-fold the crouch lean — the IK_TORSO_OVERRIDE bug),
+            // but the arm chain still reaches on its own.
             TargetWorld = targetWorld;
             IsAiming = true;
             LastError = null;
@@ -165,18 +154,6 @@ namespace SteelCity.Sim
         void Update()
         {
             if (animRef == null) animRef = GetComponent<CharacterAnimation>();
-            // Posture gate: entering cover drops the IK channel instantly —
-            // no blend-out, the crouch pose transition itself carries the arm
-            // down (a stale torso-assist quat would also stomp the crouch lean).
-            // duck > 1.02 catches ducked-Walking movers; coverContext catches
-            // Full walls (no duck, still covered).
-            if (animRef != null && (animRef.EffectiveState == CharacterAnimation.AnimState.Crouching
-                                    || animRef.duck > 1.02f
-                                    || animRef.coverContext))
-            {
-                ReleaseInstant();
-                return;
-            }
             if (!IsAiming && Blend <= 0f) return;
 
             Blend = Mathf.MoveTowards(Blend, IsAiming ? 1f : 0f,
@@ -324,8 +301,10 @@ namespace SteelCity.Sim
             // pivot, then solve the arm in the PRE-torso frame — the chain applies
             // bodyRot outermost (T * qArm * qFore), so transforming the target by
             // the effective inverse yaw keeps the bore landing exactly.
+            // EXCEPT the deep band (duck>1.02): the assist yaw un-folds the
+            // crouch lean (IK_TORSO_OVERRIDE), so deep-duck aiming is arms-only.
             torsoQuat = Quaternion.identity;
-            if (torsoAssist)
+            if (torsoAssist && (animRef == null || animRef.duck <= 1.02f))
             {
                 Vector3 stFlat = tv - sv;
                 stFlat.y = 0f;

@@ -13,7 +13,7 @@
 | Category | Documents | Status |
 |----------|-----------|--------|
 | **Core Design** | 6 docs | ✅ Complete |
-| **Systems Design** | 11 docs | ✅ Complete |
+| **Systems Design** | 13 docs | ✅ Complete |
 | **Data Reference** | 2 docs | ✅ Complete |
 | **Source Analysis** | 2 docs | ✅ Complete |
 | **Unity Project** | 12 docs | ✅ Complete |
@@ -276,6 +276,13 @@
   - Business radar (refined from original)
   - Friendly NPCs as informants
 
+**Perception & Awareness:**
+- **`docs/systems/PERCEPTION_AWARENESS.md`** — City-wide detection architecture (SPEC)
+  - Cone = awareness, exposure probe = geometry — noticed ≠ shootable
+  - Per-actor awareness tables, recognition tiers, hearing via SfxWaves
+  - Reaction channels (turn-to-sound, report, fight roll) + witnessed-initiation legality
+  - Combat hand-off + search resolution path
+
 **Corruption & Police:**
 - **`docs/systems/CORRUPTION_POLICE.md`** — Beat cops and bribery
   - Geographic corruption (per-beat, not global)
@@ -297,6 +304,13 @@
   - `VoxelVehicle` registers yawed collision volumes; `CoverFinder` validates cover by real LOS raycast from the threat
   - `VoxelDamageSystem.EnsureWritable` promotes `veh_*` targets into private-buffer singleton groups (bullet holes, windshield shatter)
   - `CombatController` on Vinny: EnterCombat → SeekingCover (steer, slide) → InCover (Crouching pose + ArmAimSolver)
+- **`docs/systems/EXPOSURE_ENGAGEMENT.md`** — Combat phase 2 spec: visible-voxel aim target + exposure FIRE gate (the crossfire model)
+  - `TryGetVisibleVoxels(eye, target)` — ~40 posed-silhouette samples, world-unobstructed rays → centroid = IK target, visibleCount>0 = FIRE
+  - Emergent beats: duck-in fades firing, tucked = crouch-idle + `lastSeenTarget`, pop-up = authored override + mutual exposure window, 6-shot cylinder → duck-reload
+  - Caveats: characters aren't in the collision world (no self-occlusion); AI fire loop is the first one ever; deferred triggers listed
+- **`docs/systems/ENGAGEMENT_BEATS.md`** — Combat phase 3 (✅ implemented): authored engagement rhythm over the exposure gates — opportunity fire during seek, `Settle` seam primitive, partial `TopUp`, triangulated `Rise` (eye AND muzzle clear), "stand and deliver" `Engaged`, `Duck` + seam loop
+  - Beats sequence intent; gates still decide what's possible — `wantAim` gains a per-beat authority term
+  - Deferred: rise-retry cadence + interruption policy (wait Tan mobility), lookScan slot, branch table, per-weapon cylinders
 - **`docs/systems/COVER_HEIGHTFIELD.md`** — SPEC: measured-body cover rebuild — silhouette-top `h(d)` instead of eye constants
   - `ColumnTopY` ground probe (standing on voxels is additive), `wallIdxOf` cell bookkeeping, Step layer (step-up nav), digit-atlas height blit into the field overlay
   - Canonical scale: Vinny = 0.62m (62 vox @ 0.01); world voxels = 0.05m

@@ -234,11 +234,14 @@ float3x3 ComputeOwnRotation(
 
     // === SHARED DUCK SCALAR — dual endpoint sets ===
     // wd: walkDuckMid (ASP 19-22) lands at duck 1, walkDuckPose (ASP 23-26) at
-    // duck 2 — crumple DELTAS composed under the gait. icr: the authored hold
-    // pose (crouchP1/P2 lerped by cDepth) scaled into Idle only.
-    float duckIn   = isWalkState ? min(1.0, duck) : 0.0;
+    // duck 2 — crumple DELTAS composed under the gait, on BOTH gait states
+    // (Walking + AimWalk — cover posture overrides opportunity fire). icr:
+    // the authored hold pose scaled into the stationary states (Idle +
+    // Aiming — the solved riseDuck must render while armed).
+    float duckIn   = (isWalkState || isAimWalkState) ? min(1.0, duck) : 0.0;
     float duckDeep = max(0.0, duck - 1.0);
-    float idleIn   = (animState > -0.5 && animState < 0.5) ? min(1.0, duck) : 0.0;
+    float idleIn   = ((animState > -0.5 && animState < 0.5)
+                   || (animState > 3.5 && animState < 4.5)) ? min(1.0, duck) : 0.0;
     float4 wdLegs  = lerp(ASP(19), ASP(23), duckDeep) * duckIn;   // strideL,R kneeL,R
     float4 wdArms  = lerp(ASP(20), ASP(24), duckDeep) * duckIn;   // armL,R elbowL,R
     float4 wdHead  = lerp(ASP(22), ASP(26), duckDeep) * duckIn;   // headPitch headTilt
@@ -454,11 +457,14 @@ void ComputeGroupRotation(
     // icr() idle hold (both 0 outside their states).
     bool isAimingState = (animState > 2.5 && animState < 4.5) || (animState > 9.5 && animState < 10.5);
     bool isCrouchingState = animState > 4.5 && animState < 5.5;
-    bool isWalkAnim = animState > 0.5 && animState < 1.5;
+    // Gait states (Walking + AimWalk) share wd(); stationary states (Idle +
+    // Aiming) share icr() — the duck scalar folds every pose, no exceptions.
+    bool isWalkAnim = (animState > 0.5 && animState < 1.5) || (animState > 2.5 && animState < 3.5);
     float cDepth = saturate(duck - 1.0);
     float duckIn = isWalkAnim ? min(1.0, duck) : 0.0;
     float duckDeep = max(0.0, duck - 1.0);
-    float idleIn = (animState > -0.5 && animState < 0.5) ? min(1.0, duck) : 0.0;
+    float idleIn = ((animState > -0.5 && animState < 0.5)
+                 || (animState > 3.5 && animState < 4.5)) ? min(1.0, duck) : 0.0;
     float4 wdB = lerp(ASP(21), ASP(25), duckDeep) * duckIn;   // model body fwd lean
     float torsoTwist = isAimingState ? (_AnimStaticParamsEnabled ? _AnimStaticParams[1].x : 0.2) : 0.0;
     float bodyLean = isCrouchingState ? lerp(ASP(4).x, ASP(15).x, cDepth)

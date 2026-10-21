@@ -5,13 +5,18 @@ using UnityEngine.InputSystem;
 namespace SteelCity.Sim
 {
     /// <summary>
-    /// Read-only cover-metrics overlay — right-center of screen, [F5] toggles.
-    /// One cached label rebuilt ~5Hz (the cheap text-tab pattern), drawn over
-    /// everything via GUI.depth so it survives HUD minimize for snapshots.
-    /// Sections: Vinny pose/combat · threat · sensor measurements + scan ·
-    /// possess-drive probe ring · Tan Suit combat state.
-    /// Per UI_DEVELOPMENT_PITFALLS: all resolves are cached (≥0.5s cadence),
-    /// nothing live-scans per GUI event.
+    /// Read-only cover+combat metrics overlay — right-center of screen, [F5] toggles.
+    /// THE centralized readout surface for combat debugging: the debug tab keeps
+    /// only controls (buttons, toggles, sliders); all info labels live here.
+    /// EVENT-DRIVEN rebuild: sources fire `Changed` on every display-relevant
+    /// mutation → dirty → rebuild next Update (events flag dirty, they don't
+    /// rebuild inside themselves — mutation sequences finish first). A 2Hz
+    /// "analog floor" runs only while something is LIVE (combat, possess,
+    /// probe preview) so continuous readouts stay honest; idle = zero rebuilds.
+    /// Sections: Vinny pose · combat state + exposure telemetry · engagement
+    /// flow chart · threat · sensor measurements + scan · possess-drive probe
+    /// ring · Tan Suit combat. Drawn over everything via GUI.depth so it
+    /// survives HUD minimize for snapshots.
     /// </summary>
     public class CoverMetricsPanel : MonoBehaviour
     {
@@ -23,25 +28,83 @@ namespace SteelCity.Sim
         private string cached = "cover metrics — waiting for a character…";
         private readonly GUIContent content = new GUIContent();
         private float cachedH = -1f;
-        private float nextBuild;
+        private bool dirty = true;           // event-driven rebuild flag
+        private float nextContinuous;        // analog floor — only while live
         private Texture2D bgTex;
         private GUIStyle style;
         private CityMap3D cityMap;
         private float nextResolve;
         private CombatController tanCC;
+        private CombatController ccHook;     // vinny's controller (subscribed)
+        private CoverSensor senHook;         // vinny's sensor (subscribed)
         private readonly StringBuilder sb = new StringBuilder(1024);
         private static readonly string[] dirs = { "E", "NE", "N", "NW", "W", "SW", "S", "SE" };
 
         void Awake() => cityMap = FindFirstObjectByType<CityMap3D>();
 
+        void MarkDirty() => dirty = true;
+
+        // Self-profile — same pattern as DebugHUDManager: Update+OnGUI ms
+        // summed per frame, shown on the panel title line. Answers "is THIS
+        // surface the frame tax?" on the wire, next to hud Xms.
+        private int profFrame = -1, profEvents, profEventsShown;
+        private float profMs, profMsShown, profPeak, profPeakShown;
+        private float Prof(float ms)
+        {
+            if (profFrame != Time.frameCount)
+            { profMsShown = profMs; profEventsShown = profEvents;
+              profPeakShown = profPeak; profMs = 0f; profEvents = 0; profPeak = 0f;
+              profFrame = Time.frameCount; }
+            profMs += ms; profEvents++;
+            if (ms > profPeak) profPeak = ms;
+            return ms;
+        }
+
+        /// <summary>Swap the Changed subscription when a resolved component
+        /// changes — events land on the CURRENT body, never a stale one.</summary>
+        void Rehook<T>(ref T cur, T next) where T : Component
+        {
+            if (ReferenceEquals(cur, next)) return;
+            if (cur is CombatController c1) c1.Changed -= MarkDirty;
+            else if (cur is CoverSensor s1) s1.Changed -= MarkDirty;
+            cur = next;
+            if (cur is CombatController c2) c2.Changed += MarkDirty;
+            else if (cur is CoverSensor s2) s2.Changed += MarkDirty;
+            dirty = true;
+        }
+
+        void OnDestroy()
+        {
+            if (ccHook != null) ccHook.Changed -= MarkDirty;
+            if (senHook != null) senHook.Changed -= MarkDirty;
+            if (tanCC != null) tanCC.Changed -= MarkDirty;
+        }
+
         void Update()
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            UpdateInner();
+            Prof((float)sw.Elapsed.TotalMilliseconds);
+        }
+
+        void UpdateInner()
         {
             var kb = Keyboard.current;
             if (kb != null && kb.f5Key.wasPressedThisFrame)
             {
                 Enabled = !Enabled;
+                dirty = true;
                 Debug.Log($"[CoverMetrics] panel {(Enabled ? "ON" : "OFF")} (F5)");
             }
+            // Event-driven rebuild contract: sources fire Changed on every
+            // display-relevant mutation → dirty → rebuild next Update. The
+            // analog floor (refreshHz) runs ONLY while something is live —
+            // continuous readouts (pos, blend, shot countdowns, drive ring)
+            // stay honest without pretending they're events. Idle = zero
+            // rebuilds.
+            var vinny = cityMap != null ? cityMap.SpawnedCharacter : null;
+            Rehook(ref ccHook, vinny != null ? vinny.GetComponent<CombatController>() : null);
+            Rehook(ref senHook, vinny != null ? vinny.GetComponent<CoverSensor>() : null);
             // Resolve Tan at a slow cadence — never per-GUI-event.
             if (Time.unscaledTime >= nextResolve)
             {
@@ -49,12 +112,17 @@ namespace SteelCity.Sim
                 if (tanCC == null)
                 {
                     var go = GameObject.Find("Civilian_02");
-                    if (go != null) tanCC = go.GetComponent<CombatController>();
+                    if (go != null) Rehook(ref tanCC, go.GetComponent<CombatController>());
                 }
-                else if (tanCC == null || !tanCC) tanCC = null;
+                else if (tanCC == null || !tanCC) Rehook(ref tanCC, null);
             }
-            if (Time.unscaledTime < nextBuild) return;
-            nextBuild = Time.unscaledTime + 1f / refreshHz;
+            bool live = (ccHook != null && ccHook.State != CombatController.CombatState.Idle)
+                     || (tanCC != null && tanCC.State != CombatController.CombatState.Idle)
+                     || PossessController.DriveActive || PossessController.Active
+                     || (senHook != null && senHook.showTargetViz);
+            if (!dirty && !(live && Time.unscaledTime >= nextContinuous)) return;
+            nextContinuous = Time.unscaledTime + 1f / refreshHz;
+            dirty = false;
             cached = BuildText();
         }
 
@@ -62,7 +130,7 @@ namespace SteelCity.Sim
         {
             sb.Length = 0;
             var vinny = cityMap != null ? cityMap.SpawnedCharacter : null;
-            sb.AppendLine("COVER METRICS · F5 to hide");
+            sb.AppendLine($"COVER + COMBAT · F5 to hide · {profMsShown:F2}ms/{profEventsShown}ev");
             if (vinny == null) { sb.Append("no spawned character"); return sb.ToString(); }
 
             var anim = vinny.GetComponent<CharacterAnimation>();
@@ -76,14 +144,139 @@ namespace SteelCity.Sim
                         + (ducked ? $" · duck {PossessController.CrouchLabel(anim.duck)}" : " · standing (no duck)")
                         + (PossessController.Active ? " · POSSESSED" : "")
                         + (Time.timeScale < 0.999f ? $" · ts {Time.timeScale:F2}" : ""));
-            if (cc != null)
-                sb.AppendLine($"combat {cc.State}{(cc.enabled ? "" : " · CC DISABLED — state frozen")}"
-                            + $" · {cc.LastResult}");
-            else sb.AppendLine("combat — (no CombatController)");
             var rigComp = vinny.GetComponent<CharacterRig>();
             if (rigComp != null)
                 sb.AppendLine($"rig controllable {(rigComp.Controllable ? "Y" : "n")}"
                             + $" · depth-ease {(rigComp.DepthEaseActive ? $"→ {rigComp.DepthTarget:F2}" : "off")}");
+
+            // ── Combat telemetry: state, destination cover, exposure probe,
+            // solver convergence, cylinder, last-seen. Exposure line shows at
+            // setup too (tested>0 means a manual setup-phase probe ran).
+            var solver = vinny.GetComponent<ArmAimSolver>();
+            sb.AppendLine("── combat ──────────────");
+            if (cc == null) { sb.AppendLine("(no CombatController)"); }
+            else
+            {
+                sb.AppendLine($"{cc.State}{(cc.enabled ? "" : " · CC DISABLED")} · {cc.LastResult}");
+                if (cc.State != CombatController.CombatState.Idle)
+                {
+                    sb.AppendLine($"cover {cc.CoverObstacleId ?? "—"} · {cc.CoverWallClass}"
+                                + $" · reqDuck {cc.TargetDuck:F2}");
+                    sb.AppendLine($"cadence {cc.fireInterval:F1}s · next shot {cc.NextFireIn:F1}s"
+                                + $" · shots {cc.ShotsFired}"
+                                + (cc.Reloading ? $" · +1 in {cc.NextRoundIn:F1}s · reload {cc.ReloadLeft:F1}s left" : ""));
+                    if (cc.Beat != CombatController.EngagementBeat.None)
+                        sb.AppendLine($"beat {cc.Beat}"
+                                    + (cc.BeatLeft > 0f ? $" · {cc.BeatLeft:F1}s left" : "")
+                                    + (cc.Beat == CombatController.EngagementBeat.Rise
+                                       || cc.Beat == CombatController.EngagementBeat.Engaged
+                                       ? $" · riseDuck {cc.RiseDuck:F2}" : ""));
+                    if (cc.LastRiseDiag != null)
+                        sb.AppendLine($"rise {cc.LastRiseDiag}");
+                }
+                // Possess shares the same wheel — surface reload state outside
+                // combat too (LMB spends rounds, R seats them back).
+                else if (cc.Reloading)
+                    sb.AppendLine($"reloading — +1 in {cc.NextRoundIn:F1}s · full in {cc.ReloadLeft:F1}s");
+                else if (PossessController.Active && cc.Cylinder <= 0)
+                    sb.AppendLine("cylinder empty — press R to reload");
+                // Cover-pick scan verdict — same numbers the tab used to show.
+                if (cc.lastStats.tested > 0)
+                {
+                    var st = cc.lastStats;
+                    sb.Append($"scan {st.obstacles} obs → {st.tested} pts · {st.valid} valid");
+                    if (st.reasons != null && st.reasons.Count > 0)
+                    {
+                        int shown = 0;
+                        foreach (var kv in st.reasons)
+                        {
+                            if (shown++ == 3) { sb.Append(" …"); break; }
+                            sb.Append($" {kv.Key}×{kv.Value}");
+                        }
+                    }
+                    sb.AppendLine();
+                }
+                var v = cc.Visibility;
+                if (v.tested > 0)
+                    sb.AppendLine($"exposure {v.visible}/{v.tested} ({v.fraction:P0})"
+                                + $" · armed {(cc.ExposureArmed ? "Y" : "n")}"
+                                + $" · cyl {cc.Cylinder}/{cc.cylinderCapacity}");
+                if (solver != null && (solver.IsAiming || solver.Blend > 0.02f))
+                    sb.AppendLine($"aim err {solver.LastAngularErrorDeg:F1}° · blend {solver.Blend:F2}"
+                                + $" · dist {solver.LastTargetDistanceM:F1}m");
+                if (cc.LastSeenTarget.HasValue)
+                    sb.AppendLine($"lastSeen ({cc.LastSeenTarget.Value.x:F0},{cc.LastSeenTarget.Value.z:F0})"
+                                + $" · {Time.unscaledTime - cc.LastSeenAt:F1}s ago");
+            }
+
+            // ── The seam, as its own section: a draining countdown so each
+            // Settle is watchable, plus the branch point it will exit to.
+            sb.AppendLine("── settle ──────────────");
+            if (cc == null) { sb.AppendLine("(no CombatController)"); }
+            else if (cc.Beat == CombatController.EngagementBeat.Settle)
+            {
+                float frac = cc.settleSec > 0f ? Mathf.Clamp01(cc.BeatLeft / cc.settleSec) : 0f;
+                int cells = Mathf.RoundToInt(frac * 10f);
+                sb.AppendLine($"<color=#ffb35c>SETTLE</color> {new string('▓', cells)}{new string('░', 10 - cells)}"
+                            + $" {cc.BeatLeft:F1}s / {cc.settleSec:F1}s"
+                            + $" → next: <color=#9ff2a0>{cc.NextAfterSettle}</color>");
+            }
+            else
+                sb.AppendLine($"idle · armed {cc.settleSec:F1}s per drain"
+                            + (cc.Beat != CombatController.EngagementBeat.None
+                               ? $" · beat {cc.Beat}" : ""));
+            // ── Engagement flow: the combat pipeline as a state chart — a
+            // node lights when that stage is live, greys when the chain has
+            // stalled there. Movement lane and fire lane run in parallel;
+            // the numbers above explain WHY a greyed node isn't lit.
+            sb.AppendLine("── engagement flow ──────");
+            if (cc == null) { sb.AppendLine("(no CombatController)"); }
+            else
+            {
+                // Local: a stage node, lit green when live (FIRE/RELOAD amber).
+                string N(string s, bool on, bool hot = false)
+                    => on ? (hot ? $"<color=#ffb35c>{s}</color>" : $"<color=#9ff2a0>{s}</color>")
+                          : $"<color=#596069>{s}</color>";
+                const string A = "<color=#3f464d>▸</color>";
+                var cs8 = cc.State;
+                sb.AppendLine($"{N("IDLE", cs8 == CombatController.CombatState.Idle)} {A} "
+                            + $"{N("SEEK", cs8 == CombatController.CombatState.SeekingCover)} {A} "
+                            + $"{N("COVER", cs8 == CombatController.CombatState.InCover)}"
+                            + $"   │   {N("HOLD", cs8 == CombatController.CombatState.HoldPosition)} (no cover)");
+                // The beat lane — the authored rhythm inside COVER (spec:
+                // ENGAGEMENT_BEATS.md). SETTLE appears twice = the seam on
+                // both sides of the rise-check; both light during any settle.
+                var bt = cc.Beat;
+                sb.AppendLine($"{N("SETTLE", bt == CombatController.EngagementBeat.Settle, true)} {A} "
+                            + $"{N("TOPUP", bt == CombatController.EngagementBeat.TopUp)} {A} "
+                            + $"{N("SETTLE", bt == CombatController.EngagementBeat.Settle, true)} {A} "
+                            + $"{N("RISE", bt == CombatController.EngagementBeat.Rise)} {A} "
+                            + $"{N("ENGAGED", bt == CombatController.EngagementBeat.Engaged, true)} {A} "
+                            + $"{N("DUCK", bt == CombatController.EngagementBeat.Duck)}");
+                bool inCombat = cs8 != CombatController.CombatState.Idle;
+                // PROBE lights whenever a probe is actively producing results:
+                // the combat tick, or the setup-phase manual preview (probe-rays
+                // toggle on). ARMED onward stays combat-gated — at setup the
+                // chain honestly stops at EXPOSED: "can see him, gun not out".
+                bool probing = cc.Visibility.tested > 0
+                            && (inCombat || (sensor != null && sensor.showTargetViz));
+                // Held through the same disarm-hold window — a single dropped
+                // probe mustn't flicker the node.
+                bool exposed = probing && (cc.Visibility.visible > 0
+                            || Time.unscaledTime - cc.LastSeenAt <= cc.disarmHoldSec);
+                bool converged = cc.ExposureArmed && solver != null && solver.IsAiming
+                              && solver.Blend >= 0.7f && solver.LastAngularErrorDeg <= cc.aimGateDeg;
+                bool justFired = cc.LastShotAt >= 0f && Time.unscaledTime - cc.LastShotAt < 0.4f;
+                // The wheel: ● = chambered, ○ = spent — drains per FIRE,
+                // seats back one-at-a-time during RELOAD (amber while loading).
+                bool reloading = cc.Reloading;
+                string dots = reloading
+                    ? $"<color=#ffb35c>{new string('●', cc.Cylinder)}{new string('○', cc.cylinderCapacity - cc.Cylinder)}</color>"
+                    : $"<color=#9ff2a0>{new string('●', cc.Cylinder)}</color><color=#596069>{new string('○', cc.cylinderCapacity - cc.Cylinder)}</color>";
+                sb.AppendLine($"{N("PROBE", probing)} {A} {N("EXPOSED", exposed)} {A} "
+                            + $"{N("ARMED", cc.ExposureArmed)} {A} {N("CONVERGED", converged)} {A} "
+                            + $"{N("FIRE", justFired, true)} {A} {N("RELOAD", reloading, true)} {dots}");
+            }
 
             sb.AppendLine("── sensor ──────────────");
             if (sensor == null) { sb.AppendLine("(no CoverSensor)"); }
@@ -148,11 +341,26 @@ namespace SteelCity.Sim
             {
                 sb.AppendLine("── tan suit ────────────");
                 sb.AppendLine($"{tanCC.State} · {tanCC.LastResult}");
+                var tv = tanCC.Visibility;
+                if (tv.tested > 0)
+                    sb.AppendLine($"exposure {tv.visible}/{tv.tested} ({tv.fraction:P0})"
+                                + $" · armed {(tanCC.ExposureArmed ? "Y" : "n")}"
+                                + $" · cyl {tanCC.Cylinder}/{tanCC.cylinderCapacity}");
+                if (tanCC.LastSeenTarget.HasValue)
+                    sb.AppendLine($"lastSeen ({tanCC.LastSeenTarget.Value.x:F0},{tanCC.LastSeenTarget.Value.z:F0})"
+                                + $" · {Time.unscaledTime - tanCC.LastSeenAt:F1}s ago");
             }
             return sb.ToString();
         }
 
         void OnGUI()
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            OnGUIInner();
+            Prof((float)sw.Elapsed.TotalMilliseconds);
+        }
+
+        void OnGUIInner()
         {
             if (!Enabled || Event.current.type != EventType.Repaint) return;
             if (bgTex == null)
@@ -166,7 +374,7 @@ namespace SteelCity.Sim
                 style = new GUIStyle(GUI.skin.label)
                 {
                     fontSize = 11,
-                    richText = false,
+                    richText = true,   // flow-chart nodes: lit vs greyed stages
                     padding = new RectOffset(8, 8, 6, 6),
                     normal = { textColor = new Color(0.85f, 0.95f, 1f, 1f) },
                 };

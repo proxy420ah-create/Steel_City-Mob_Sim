@@ -105,6 +105,7 @@ namespace SteelCity.Sim
         private Vector3? pickedStand, pickedAim;
         private CoverSensor coverSensor;   // Vinny's always-on cover awareness (COVER tab)
         private VisionSensor visionSensor; // Vinny's vision sense (VISION tab)
+        private float nextManualProbe;     // setup-mode exposure probe throttle
         private string inspectHud;                             // last voxel-inspect report (HUD)
         private VoxelCollisionWorld World => world != null ? world : (world = cityMap != null ? cityMap.GetComponent<VoxelCollisionWorld>() : null);
         private VoxelCollisionWorld world;
@@ -1341,12 +1342,16 @@ namespace SteelCity.Sim
             if (cc == null) return;
             Vector3 threat = CharFeetCenter(tanCh);
             pickedAim = threat;   // marker mirrors the live threat
-            cc.EnterCombat(threat);
+            cc.RefillCylinder();   // arena loadout — combat entry itself never refills
+            cc.EnterCombat(threat, tanCh);   // the BODY — exposure probe samples his silhouette
             var tanCc = tanCh.GetComponent<CombatController>();
             if (tanCc != null && tanCc.State != CombatController.CombatState.Idle)
                 tanCc.ExitCombat();   // stale combat on re-run — stand down first
             if (pitOpponentAI && tanCc != null)
-                tanCc.EnterCombat(CharFeetCenter(ch));
+            {
+                tanCc.RefillCylinder();
+                tanCc.EnterCombat(CharFeetCenter(ch), ch);
+            }
         }
 
         /// <summary>The depth-ladder pick row — deep/mid/crouch/wall buttons
@@ -1379,7 +1384,7 @@ namespace SteelCity.Sim
             }
             Vector3 threat = CharFeetCenter(tanCh);
             pickedAim = threat;
-            cc.EnterCombat(threat, cityMap.MapRoot.position + aL);
+            cc.EnterCombat(threat, tanCh, cityMap.MapRoot.position + aL);
         }
 
         /// <summary>
@@ -1905,18 +1910,42 @@ namespace SteelCity.Sim
             }
             else
             {
-                GUILayout.Label($"state: <b>{cc.State}</b>   cover: <b>{cc.CoverObstacleId ?? "—"}</b>", labelStyle);
-                if (!string.IsNullOrEmpty(cc.LastResult))
-                    GUILayout.Label($"  {cc.LastResult}", labelStyle);
-                if (cc.lastStats.tested > 0)
-                {
-                    var st = cc.lastStats;
-                    var reasons = string.Join("  ", System.Linq.Enumerable.Select(
-                        st.reasons, kv => $"{kv.Key}×{kv.Value}"));
-                    GUILayout.Label($"  scan: {st.obstacles} obstacles → {st.tested} pts, {st.valid} valid" +
-                        (st.reasons.Count > 0 ? $"  ({reasons})" : ""), labelStyle);
-                }
+                // Readouts live on the F5 COVER+COMBAT panel — the tab keeps
+                // controls only. The centroid feed stays: it's functional
+                // input to the IK-aim section below, not a display label.
                 if (GUILayout.Button("EXIT COMBAT", tabStyle, GUILayout.Height(22))) cc.ExitCombat();
+                if (cc.ThreatCharacter != null)
+                {
+                    var vv = cc.Visibility;
+                    if (vv.visible > 0) { tgtWorld = vv.centroid; hasTgt = true; }
+                    else if (cc.LastSeenTarget.HasValue) { tgtWorld = cc.LastSeenTarget.Value; hasTgt = true; }
+                }
+            }
+            // Exposure controls — probe viz + tuning. With the toggle on and
+            // no combat probing, the HUD drives a slow manual probe so the
+            // beams preview the duel's firing window; the verdict readout
+            // itself is on the F5 panel.
+            {
+                var cs = ch.GetComponent<CoverSensor>() ?? ch.gameObject.AddComponent<CoverSensor>();
+                var pitTan = pit ? TanSuitRef : null;
+                cs.showTargetViz = GUILayout.Toggle(cs.showTargetViz, " probe rays (grn=visible, red=blocked, cyan=centroid)", toggleStyle);
+                if (cs.showTargetViz && pitTan != null
+                    && cc.State == CombatController.CombatState.Idle
+                    && Time.unscaledTime >= nextManualProbe)
+                {
+                    nextManualProbe = Time.unscaledTime + 0.25f;
+                    cs.TryGetVisibleVoxels(pitTan, out _);
+                }
+                // Pre-fight toggle — not gated on combat state: the loop is a
+                // loadout decision you arm BEFORE the duel starts.
+                cc.loopBeats = GUILayout.Toggle(cc.loopBeats, " loop beats (re-rise after fail)", toggleStyle);
+                if (cc.State != CombatController.CombatState.Idle)
+                {
+                    cc.visInterval = HSlider("probe interval", cc.visInterval, 0.05f, 0.5f);
+                    cc.fireInterval = HSlider("fire cadence", cc.fireInterval, 0.3f, 3f);
+                    cc.roundLoadInterval = HSlider("round load", cc.roundLoadInterval, 0.2f, 3f);
+                    cc.settleSec = HSlider("settle seam", cc.settleSec, 0.2f, 6f);
+                }
             }
             // Pit depth-ladder picks — same row as TEST LOTS so it's visible
             // whichever path the user took (block click or the lots panel).
@@ -2507,13 +2536,21 @@ namespace SteelCity.Sim
             }
 
             bool aimed = solver != null && solver.IsAiming && solver.Blend >= 0.98f;
-            bool canFire = armedCtx && mount != null && mount.IsEquipped && aimed;
+            // Same wheel, same rules — the manual trigger spends a chamber too.
+            var fcc = mount != null ? mount.GetComponent<CombatController>() : null;
+            bool canFire = armedCtx && mount != null && mount.IsEquipped && aimed
+                        && fcc != null && fcc.Cylinder > 0 && !fcc.Reloading;
             GUI.enabled = canFire;
             if (GUILayout.Button("FIRE", canFire ? tabActiveStyle : tabStyle, GUILayout.Height(30)))
-                proj.Fire(mount, solver.LastAngularErrorDeg, hasTarget ? targetWorld : (Vector3?)null);
+            {
+                if (proj.Fire(mount, solver.LastAngularErrorDeg, hasTarget ? targetWorld : (Vector3?)null))
+                    fcc.SpendRound();
+            }
             GUI.enabled = true;
             if (!canFire)
-                GUILayout.Label("(engage IK AIM and wait for blend 1.00)", labelStyle);
+                GUILayout.Label(armedCtx && fcc != null && (fcc.Cylinder <= 0 || fcc.Reloading)
+                    ? "(cylinder — reload: R in possess, auto in combat)"
+                    : "(engage IK AIM and wait for blend 1.00)", labelStyle);
             if (proj.InFlight > 0)
                 GUILayout.Label($"in flight: {proj.InFlight}", labelStyle);
 

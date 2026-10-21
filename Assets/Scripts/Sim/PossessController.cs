@@ -73,6 +73,7 @@ namespace SteelCity.Sim
         private VoxelCharacter vinny;
         private WeaponMount mount;
         private ArmAimSolver solver;
+        private CombatController cc;   // shared cylinder — same wheel as the AI fire path
         private CharacterAnimation anim;
         private CharacterRig rig;
         private CharacterAnimation.AnimState? testPose; // Alt+mnemonic latch — beats the per-frame aim request
@@ -369,15 +370,24 @@ namespace SteelCity.Sim
                 cityMap.debugCameraOrbitDistance = boomCur;
             }
 
-            // --- Fire ---
+            // --- Fire — shares the CombatController cylinder: same six
+            // chambers, same rules. LMB spends a round; dry wheel wants a
+            // deliberate R reload (manual here, auto in combat). ---
+            if (cc == null) cc = vinny.GetComponent<CombatController>()
+                              ?? vinny.gameObject.AddComponent<CombatController>();
             fireCooldown -= Time.deltaTime;
+            if (kb != null && kb.rKey.wasPressedThisFrame) cc.StartReload();
             if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame
                 && EventSystemIsFree() && fireCooldown <= 0f
-                && mount != null && mount.IsEquipped)
+                && mount != null && mount.IsEquipped
+                && cc.Cylinder > 0 && !cc.Reloading)
             {
-                ProjectileSystem.GetOrCreate()
-                    .Fire(mount, solver != null ? solver.LastAngularErrorDeg : 0f, aimPoint);
-                fireCooldown = 0.18f;
+                if (ProjectileSystem.GetOrCreate()
+                        .Fire(mount, solver != null ? solver.LastAngularErrorDeg : 0f, aimPoint))
+                {
+                    cc.SpendRound();
+                    fireCooldown = 0.18f;
+                }
             }
         }
 

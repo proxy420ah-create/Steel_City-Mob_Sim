@@ -116,7 +116,9 @@ Cover is **not a stat modifier** — it is a **physical ray intersection** again
 
 ### Design Principle: Exposure-Based Engagement (voxel-visibility fire doctrine)
 
-**Status (Oct 20, 2026): 📝 designed — the next combat build.** Spec: `COMBAT_COVER_STATE.md` Phase 2.
+**Status (Oct 20, 2026): ✅ core implemented** — spec + as-built details:
+`EXPOSURE_ENGAGEMENT.md`. AI pop-up trigger, possess binding, and the search
+pattern remain deferred.
 
 The aim-and-fire layer inherits the same geometric honesty: instead of aiming at a bone
 or a `feet + constant` point, the shooter casts rays from **his posed eye** to ~30–40
