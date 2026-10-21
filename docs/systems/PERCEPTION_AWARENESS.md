@@ -183,6 +183,21 @@ awareness-table `lastSeenPos`, and the cover field's zone centroids.
   reads empty. Search discovers; it doesn't just confirm.
 - Arena caveat: both actors are exposed at combat start, so the first
   positive probe seeds each side's `lastSeenPos` automatically.
+- **Implemented — belief is EVENT-driven, and it stores the RING not the
+  pixel**: `CombatController.ThreatPos` only moves on perception EDGES —
+  the **acquire edge** (miss→hit) and the **loss edge** (hit→miss) both
+  write `ThreatFeet()` — the entity position at the moment of
+  confirmation, never the wandering visible-voxel centroid. While contact
+  is sustained the belief does NOT drift — the live body is the truth
+  channel and `Engaged` tracks it **contact-gated** (`contactSeen ?
+  ThreatFeet() : AimAnchor()` — a live reference alone would be
+  omniscient through his hiding). The hit-level channel is separate:
+  the muzzle still aims `vis.centroid` (aim at what's visible) and the
+  `visible>0` verdict still gates fire. `Sensor.Threat` (cover zones)
+  and `AimAnchor` (intent) ride the frozen belief — zones no longer
+  re-paint every probe tick. Debug pair: ORANGE `pick_aim` beam cross =
+  Tan's live truth; MAGENTA `last_seen` post + direction beam = Vinny's
+  belief — overlap while visible, diverge once he hides.
 
 ### The procedure (atomic procedures; only settle seams between)
 
@@ -239,7 +254,10 @@ has to hold long enough for detection to accumulate.
 
 - ~~The 3-step search pattern content~~ — papered 2026-10-21 (Search &
   resolution section above): 45° → 90°-from-origin hops, cone-driven
-  reacquisition, `Swing` lateral peek.
+  reacquisition, `Swing` lateral peek. The `Swing` peek primitive itself is
+  IMPLEMENTED (rise-refusal → lateral corner peek → step back; see
+  ENGAGEMENT_BEATS) — the hop driver that chains peeks into stages is the
+  remaining piece.
 - Identity/face-recognition tuning constants.
 - Dispatch/police response policy beyond the witness-record contract.
 - Conversation/social perception (gestures, bribes) — out of scope.

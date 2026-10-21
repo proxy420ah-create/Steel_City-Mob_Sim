@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -18,7 +19,7 @@ namespace SteelCity.Sim
     /// </summary>
     public class DebugHUDManager : MonoBehaviour
     {
-        public enum Tab { Camera, Render, Clothing, Path, Combat, Cover, Vision, Demolitions, Weapons, MatRes, BuildLog, Keys, Sfx, TanSuit }
+        public enum Tab { Camera, Render, Clothing, Path, Combat, Cover, Vision, Demolitions, Weapons, MatRes, BuildLog, Keys, Sfx, TanSuit, Forces }
         public enum Corner { TopLeft, TopRight, BottomLeft, BottomRight }
 
         [Header("Config")]
@@ -81,9 +82,9 @@ namespace SteelCity.Sim
             public string volId;
             public CoverSensor.WallClass cls;
             public float reqD;
+            public bool usable;         // stand cell is Hidden under the current threat
         }
         private readonly List<CoverSpot> coverSpots = new List<CoverSpot>();
-        private int openScriptSlot = -1;
         private bool openResScaleDrop;
         private bool showCoverSpots;
         private static readonly Color[] SlotColors =
@@ -94,10 +95,12 @@ namespace SteelCity.Sim
             new Color(1f, .6f, .6f), new Color(.7f, 1f, .7f),
         };
 
-        /// <summary>Every painted cover AREA = one dropdown option — the
-        /// field's connected Hidden zones (per volume/class/¼-duck band),
-        /// each keyed on its cell CENTROID — "the middle of the color
-        /// gradient" — sorted nearest-first.</summary>
+        /// <summary>Every painted cover AREA = one post — the field's
+        /// quality-layer zones (per volume/class/¼-duck band/face — uniform
+        /// rectangles), each keyed on its band CENTROID — "the middle of the
+        /// color gradient" — sorted nearest-first. Zones whose stand cell is
+        /// not Hidden under the current threat still draw (dimmed): the
+        /// geometric offer is real, the verdict is the threat layer's.</summary>
         private readonly List<CoverField.ZoneSpot> spotsScratch = new List<CoverField.ZoneSpot>(64);
         void RebuildCoverSpots(CoverSensor sensor, Vector3 fromPos)
         {
@@ -110,10 +113,14 @@ namespace SteelCity.Sim
             sensor.Field.EnumerateZones(spotsScratch);
             foreach (var z in spotsScratch)
             {
-                // Centroid re-validation — a concave zone's middle can land
-                // on a non-Hidden cell; only offer genuinely standable spots.
-                if (!sensor.TryZoneAt(z.stand, out var zc, out float rd)) continue;
-                coverSpots.Add(new CoverSpot { stand = z.stand, volId = z.volId, cls = zc, reqD = rd });
+                // Stand-cell verdict — the threat layer's gate on a quality
+                // offer. Unusable zones still list so every band shows its post.
+                bool usable = sensor.TryZoneAt(z.stand, out var zc, out float rd);
+                coverSpots.Add(new CoverSpot
+                {
+                    stand = z.stand, volId = z.volId, usable = usable,
+                    cls = usable ? zc : z.cls, reqD = usable ? rd : z.reqD
+                });
             }
             coverSpots.Sort((a, b) =>
                 (a.stand - fromPos).sqrMagnitude.CompareTo((b.stand - fromPos).sqrMagnitude));
@@ -127,7 +134,8 @@ namespace SteelCity.Sim
         }
 
         /// <summary>A post at every cover centroid — slot-assigned posts draw
-        /// in that slot's color, thicker; free spots dim cyan.</summary>
+        /// in that slot's color, thicker; usable spots cyan; stands not Hidden
+        /// under the current threat draw dim grey (real geometry, gated pick).</summary>
         void PaintCoverSpots(CombatController cc)
         {
             var pdr = PathDebugRenderer.Instance;
@@ -140,9 +148,12 @@ namespace SteelCity.Sim
                 if (slot >= 0)
                     pdr.SetCustomBeam($"cov_{i}", o.stand, o.stand + Vector3.up * 1.0f, 0.05f,
                         SlotColors[slot % SlotColors.Length]);
-                else
+                else if (o.usable)
                     pdr.SetCustomBeam($"cov_{i}", o.stand, o.stand + Vector3.up * 0.8f, 0.03f,
                         new Color(0.3f, 0.85f, 0.9f, 0.8f));
+                else
+                    pdr.SetCustomBeam($"cov_{i}", o.stand, o.stand + Vector3.up * 0.8f, 0.03f,
+                        new Color(0.5f, 0.5f, 0.55f, 0.45f));
             }
         }
 
@@ -406,7 +417,7 @@ namespace SteelCity.Sim
             Tab.Render => chunkManager != null,
             Tab.Clothing => allClothingSystems.Count > 0,
             Tab.Path => pathDebug != null,
-            Tab.Combat or Tab.Cover or Tab.Vision or Tab.Demolitions or Tab.TanSuit => cityMap != null,
+            Tab.Combat or Tab.Cover or Tab.Vision or Tab.Demolitions or Tab.TanSuit or Tab.Forces => cityMap != null,
             Tab.Sfx => true,
             _ => true,
         };
@@ -474,8 +485,48 @@ namespace SteelCity.Sim
                         coverSensor.Refresh(true);
                     }
                 }
-                // Vision testbed: the same pick point is "the thing he's looking at".
-                if (visionSensor != null) visionSensor.SetTarget(pickedAim);
+                var vinCc = cityMap != null && cityMap.SpawnedCharacter != null
+                    ? cityMap.SpawnedCharacter.GetComponent<CombatController>() : null;
+                bool vinFighting = vinCc != null
+                    && vinCc.State != CombatController.CombatState.Idle;
+                // Vision testbed: the same pick point is "the thing he's
+                // looking at" — out of combat only; inside combat the
+                // controller's swing dwell feeds the cone the threat's live
+                // feet (the same ownership split as Sensor.Threat).
+                if (visionSensor != null && !vinFighting) visionSensor.SetTarget(pickedAim);
+
+                // Live marker pair for the search testbed:
+                //   ORANGE `pick_aim`  = where Tan's feet ACTUALLY are (truth)
+                //   MAGENTA `last_seen` = where Vinny BELIEVES he is
+                //     (CombatController.ThreatPos — the belief channel: entry
+                //     sighting + probe refresh, never live feet) plus a
+                //     direction beam Vinny→belief — the slerp arc the
+                //     45°/90° hops will rotate around. Verify: markers
+                //     overlap while he's visible, diverge once he hides.
+                var pdrLive = PathDebugRenderer.Instance;
+                var tanLive = TanSuitRef;
+                if (vinFighting && tanLive != null)
+                {
+                    Vector3 truth = CharFeetCenter(tanLive);
+                    var oc = new Color(1f, 0.55f, 0.1f, 0.95f);
+                    pdrLive?.SetCustomBeam("pick_aim",  truth + Vector3.left * 0.25f,  truth + Vector3.right * 0.25f, 0.05f, oc);
+                    pdrLive?.SetCustomBeam("pick_aim2", truth + Vector3.down * 0.25f,  truth + Vector3.up * 0.25f,   0.05f, oc);
+                    Vector3 lp = vinCc.ThreatPos;   // belief = last seen
+                    var mc = new Color(1f, 0.15f, 0.85f, 0.95f);
+                    pdrLive?.SetCustomBeam("last_seen",    lp + Vector3.up * 0.05f, lp + Vector3.up * 1.2f, 0.09f, mc);
+                    pdrLive?.SetCustomBeam("last_seen_x",  lp + Vector3.left * 0.25f,    lp + Vector3.right * 0.25f, 0.05f, mc);
+                    pdrLive?.SetCustomBeam("last_seen_x2", lp + Vector3.forward * 0.25f, lp + Vector3.back * 0.25f,   0.05f, mc);
+                    pdrLive?.SetCustomBeam("last_seen_dir",
+                        vinCc.transform.position + Vector3.up * 0.9f,
+                        lp + Vector3.up * 0.9f, 0.04f, mc);
+                }
+                else if (pdrLive != null)
+                {
+                    pdrLive.ClearCustomBeam("last_seen");
+                    pdrLive.ClearCustomBeam("last_seen_x");
+                    pdrLive.ClearCustomBeam("last_seen_x2");
+                    pdrLive.ClearCustomBeam("last_seen_dir");
+                }
 
                 // Minimize toggle with M key
                 if (kb.mKey.wasPressedThisFrame)
@@ -767,7 +818,7 @@ namespace SteelCity.Sim
             }
 
             DrawTabRow(Tab.Camera, Tab.Render, Tab.Sfx, Tab.Clothing, Tab.Path, Tab.Keys);
-            DrawTabRow(Tab.Combat, Tab.Cover, Tab.Vision, Tab.TanSuit, Tab.Demolitions, Tab.Weapons, Tab.MatRes, Tab.BuildLog);
+            DrawTabRow(Tab.Combat, Tab.Cover, Tab.Vision, Tab.TanSuit, Tab.Demolitions, Tab.Weapons, Tab.MatRes, Tab.Forces, Tab.BuildLog);
             GUILayout.BeginHorizontal();
             GUILayout.Label("sections:", labelStyle, GUILayout.Width(60));
             if (GUILayout.Button("open all", tabStyle, GUILayout.Height(16))) SecSetAll(true);
@@ -819,6 +870,7 @@ namespace SteelCity.Sim
                 case Tab.Vision: DrawVisionTab(); break;
                 case Tab.TanSuit: DrawTanSuitTab(); break;
                 case Tab.Weapons: DrawWeaponsTab(); break;
+                case Tab.Forces: DrawForcesTab(); break;
                 case Tab.Sfx: DrawSfxTab(); break;
                 case Tab.MatRes:
                     UnityEngine.Profiling.Profiler.BeginSample("HUD.DrawMatResTab");
@@ -1817,72 +1869,69 @@ namespace SteelCity.Sim
                     GUI.enabled = true;
                 }
                 if (pitVinny != null) PitCoverPickRow(pitId, pitVinny, pitTan);
-                // Scripted engagement director — slots = cover-position
-                // orders (zone centroids). START DUEL + scripted = he holds
-                // until slot 1 is filled; each next slot advances him.
+                // TEMPO — per-beat dwell floors. Every beat holds its
+                // seconds minimum; event verdicts stay honest inside (the
+                // timer gates the LEAVE, never the observation).
                 var scc = pitVinny != null ? pitVinny.GetComponent<CombatController>() : null;
-                if (scc != null && SecFold("c.script", "SCRIPT — engagement director"))
+                if (scc != null && SecFold("c.tempo", "TEMPO — beat lengths"))
                 {
-                bool sm = GUILayout.Toggle(scc.scriptedMode,
-                    " scripted — combat waits for slot orders", toggleStyle);
-                if (sm != scc.scriptedMode) scc.scriptedMode = sm;
                 GUILayout.BeginHorizontal();
                 if (GUILayout.Button($"refresh cover spots ({coverSpots.Count})", GUILayout.Height(20)))
                     RebuildCoverSpots(pitVinny.GetComponent<CoverSensor>(),
                         CharFeetCenter(pitVinny));
                 showCoverSpots = GUILayout.Toggle(showCoverSpots, " show", toggleStyle, GUILayout.Width(70));
                 GUILayout.EndHorizontal();
-                if (coverSpots.Count == 0)
+                for (int i = 1; scc.beatDwell != null && i < scc.beatDwell.Length; i++)
                 {
-                    var cs0 = pitVinny.GetComponent<CoverSensor>();
-                    GUILayout.Label(cs0 != null && !cs0.Threat.HasValue
-                        ? "<i>no threat armed — SETUP PIT or PICK THREAT paints zones first</i>"
-                        : "<i>refresh — each painted zone's stand centroid, nearest first</i>", labelStyle);
-                }
-                for (int i = 0; i < scc.scriptSlots.Count; i++)
-                {
-                    var s = scc.scriptSlots[i];
+                    var bn = (CombatController.EngagementBeat)i;
+                    bool active = scc.Beat == bn;
                     GUILayout.BeginHorizontal();
-                    string lab = s.has
-                        ? $"{i + 1}: {s.volId} @({s.stand.x:F0},{s.stand.z:F0}) {s.cls} d{s.reqD:F1}"
-                        : $"{i + 1}: —";
-                    if (scc.ScriptCursor == i) lab = "▶ " + lab;
-                    if (GUILayout.Button(lab, openScriptSlot == i ? tabActiveStyle : tabStyle, GUILayout.Height(20)))
-                        openScriptSlot = openScriptSlot == i ? -1 : i;
-                    GUI.enabled = s.has;
-                    if (GUILayout.Button("x", tabStyle, GUILayout.Width(22), GUILayout.Height(20)))
-                    { var c = s; c.has = false; scc.scriptSlots[i] = c; }
-                    GUI.enabled = true;
+                    GUILayout.Label(active
+                            ? $"▶ {bn.ToString().ToLowerInvariant()} · {scc.BeatLeft:F1}s left"
+                            : $"   {bn.ToString().ToLowerInvariant()}",
+                        active ? toggleStyle : labelStyle, GUILayout.Width(140));
+                    if (GUILayout.Button("−", tabStyle, GUILayout.Width(22), GUILayout.Height(18)))
+                        scc.beatDwell[i] = Mathf.Max(0.5f, scc.beatDwell[i] - 0.5f);
+                    GUILayout.Label($"{scc.beatDwell[i]:F1}s", labelStyle, GUILayout.Width(38));
+                    if (GUILayout.Button("+", tabStyle, GUILayout.Width(22), GUILayout.Height(18)))
+                        scc.beatDwell[i] = Mathf.Min(30f, scc.beatDwell[i] + 0.5f);
                     GUILayout.EndHorizontal();
-                    if (openScriptSlot == i)
-                    {
-                        if (coverSpots.Count == 0)
-                            GUILayout.Label("   <i>no spots — hit refresh</i>", labelStyle);
-                        for (int o = 0; o < coverSpots.Count; o++)
-                        {
-                            var sp = coverSpots[o];
-                            if (GUILayout.Button($"   {o + 1} · {sp.volId} @({sp.stand.x:F0},{sp.stand.z:F0}) {sp.cls} d{sp.reqD:F1}", labelStyle))
-                            {
-                                scc.scriptSlots[i] = new CombatController.ScriptSlot
-                                { has = true, stand = sp.stand, volId = sp.volId, cls = sp.cls, reqD = sp.reqD };
-                                openScriptSlot = -1;
-                            }
-                        }
-                    }
                 }
-                GUILayout.BeginHorizontal();
-                if (GUILayout.Button("clear all slots", GUILayout.Height(18)))
-                    for (int i = 0; i < scc.scriptSlots.Count; i++) scc.scriptSlots[i] = default;
-                GUILayout.EndHorizontal();
-                GUILayout.Label($"cursor: {(scc.ScriptCursor < 0 ? "awaiting slot 1" : $"slot {scc.ScriptCursor + 1}")} · stage {(scc.ScriptStageDone ? "done" : "running")}", labelStyle);
+                GUILayout.Label($"beat: {scc.Beat.ToString().ToLowerInvariant()} · state {scc.State}", labelStyle);
                 if (showCoverSpots) PaintCoverSpots(scc);
                 else ClearCoverSpots();
                 var tpdr = PathDebugRenderer.Instance;
-                if (tpdr != null && scc.Relocating)
-                    tpdr.SetCustomBeam("scr_tgt",
-                        CharFeetCenter(pitVinny) + Vector3.up * 0.1f,
-                        scc.CoverPoint + Vector3.up * 0.1f, 0.02f, Color.yellow);
-                else tpdr?.ClearCustomBeam("scr_tgt");
+                if (tpdr != null && scc.State != CombatController.CombatState.Idle)
+                {
+                    // Committed destination post — compares against the cov_i
+                    // zone posts (cyan/grey) and his rendered body in one frame.
+                    var cp = scc.CoverPoint;
+                    tpdr.SetCustomBeam("cov_dst",
+                        cp, cp + Vector3.up * 1.0f, 0.05f,
+                        new Color(1.0f, 0.6f, 0.1f, 0.95f));
+                    // Anchor marker — the grid center his feet navigate to.
+                    // Green X: if this sits inside his footprint, the pose is
+                    // displacing the visible mass, not the nav target.
+                    var fc = CharFeetCenter(pitVinny);
+                    tpdr.SetCustomBeam("cov_feet",
+                        fc + Vector3.left * 0.12f, fc + Vector3.right * 0.12f,
+                        0.03f, new Color(0.2f, 1.0f, 0.3f, 0.95f));
+                    tpdr.SetCustomBeam("cov_feet2",
+                        fc + Vector3.forward * 0.12f, fc + Vector3.back * 0.12f,
+                        0.03f, new Color(0.2f, 1.0f, 0.3f, 0.95f));
+                    if (scc.Relocating)
+                        tpdr.SetCustomBeam("scr_tgt",
+                            CharFeetCenter(pitVinny) + Vector3.up * 0.1f,
+                            cp + Vector3.up * 0.1f, 0.02f, Color.yellow);
+                    else tpdr.ClearCustomBeam("scr_tgt");
+                }
+                else
+                {
+                    tpdr?.ClearCustomBeam("cov_dst");
+                    tpdr?.ClearCustomBeam("cov_feet");
+                    tpdr?.ClearCustomBeam("cov_feet2");
+                    tpdr?.ClearCustomBeam("scr_tgt");
+                }
                 }
                 else ClearCoverSpots();
                 if (pitTan == null)
@@ -2131,7 +2180,13 @@ namespace SteelCity.Sim
                     cc.visInterval = HSlider("probe interval", cc.visInterval, 0.05f, 0.5f);
                     cc.fireInterval = HSlider("fire cadence", cc.fireInterval, 0.3f, 3f);
                     cc.roundLoadInterval = HSlider("round load", cc.roundLoadInterval, 0.2f, 3f);
-                    cc.settleSec = HSlider("settle seam", cc.settleSec, 0.2f, 6f);
+                    // Master tempo — sets every beatDwell at once; the
+                    // TEMPO table (TEST LOTS) tunes them individually.
+                    float master = cc.beatDwell != null && cc.beatDwell.Length > 1
+                        ? cc.beatDwell[1] : 5f;
+                    float nm = HSlider("all beats dwell", master, 0.5f, 15f);
+                    if (cc.beatDwell != null && !Mathf.Approximately(nm, master))
+                        for (int bi = 1; bi < cc.beatDwell.Length; bi++) cc.beatDwell[bi] = nm;
                 }
             }
             // Pit depth-ladder picks — same row as TEST LOTS so it's visible
@@ -2206,6 +2261,114 @@ namespace SteelCity.Sim
                 solver.maxTorsoYawDeg = 70f;
             }
             }
+
+            GUILayout.Space(6);
+
+            // --- Channel kill-switches — bisect which driver jitters him ---
+            if (SecFold("c.dbg", "channel kill-switches (jitter bisect)"))
+            {
+            cc.dbgFacing      = GUILayout.Toggle(cc.dbgFacing,      " facing driver (ALL combat yaw writes)", toggleStyle);
+            cc.dbgEngagedTrack = GUILayout.Toggle(cc.dbgEngagedTrack, " engaged live-track (body facing)", toggleStyle);
+            cc.dbgArmSolver   = GUILayout.Toggle(cc.dbgArmSolver,   " arm solver may raise in combat", toggleStyle);
+            cc.dbgMoveYaw     = GUILayout.Toggle(cc.dbgMoveYaw,     " movement yaw (seek/swing steps)", toggleStyle);
+            cc.dbgVisionFeed  = GUILayout.Toggle(cc.dbgVisionFeed,  " swing-dwell cone feed", toggleStyle);
+            cc.yawWatch       = GUILayout.Toggle(cc.yawWatch,       " yaw logging ([Yaw]/[Yaw?] console)", toggleStyle);
+            GUILayout.Label("flip one, rerun, watch him — the channel that silences the wiggle is the culprit", labelStyle);
+            }
+        }
+
+        /// <summary>
+        /// FORCES tab — yaw force monitor. One L◀|0.0|▶R bar per yaw writer
+        /// (EMA-smoothed °/s actually written to the transform). Live tug-of-war
+        /// detector: two rows lit at once = two channels fighting; EXTERNAL in
+        /// red = yaw moved with no combat writer. The driver row shows what the
+        /// facing machine WANTS (demand) even while the deadband keeps it silent.
+        /// </summary>
+        void DrawForcesTab()
+        {
+            var ch = cityMap != null ? cityMap.SpawnedCharacter : null;
+            var cc = ch != null ? ch.GetComponent<CombatController>() : null;
+            if (cc == null)
+            {
+                GUILayout.Label("spawn the character first (sim running)", labelStyle);
+                return;
+            }
+
+            GUILayout.Label($"<b>YAW FORCES</b>   {ch.name}", boldStyle);
+            GUILayout.Label(
+                $"mode <b>{cc.DebugFaceMode}</b> · owner <b>{cc.DebugFaceOwner}</b>"
+                + $" · demand <b>{cc.FaceDemandDeg:+0.0;-0.0;0.0}°</b>"
+                + $" · yaw <b>{cc.transform.eulerAngles.y:F1}°</b>"
+                + $" · beat <b>{cc.Beat}</b> · <b>{cc.State}</b>", labelStyle);
+
+            GUILayout.Space(4);
+            cc.dbgFacing       = GUILayout.Toggle(cc.dbgFacing,       " facing driver (master)", toggleStyle);
+            cc.dbgMoveYaw      = GUILayout.Toggle(cc.dbgMoveYaw,      " movement yaw (seek/swing)", toggleStyle);
+            cc.dbgEngagedTrack = GUILayout.Toggle(cc.dbgEngagedTrack, " engaged live-track", toggleStyle);
+
+            GUILayout.Space(6);
+
+            // Scale header — L / 0.0 / R over the bar column
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(96);
+            var hr = GUILayoutUtility.GetRect(170, 12);
+            var mini = new GUIStyle(labelStyle) { fontSize = 10 };
+            GUI.Label(new Rect(hr.x - 6, hr.y, 20, 12), "<b>L</b>", mini);
+            GUI.Label(new Rect(hr.center.x - 10, hr.y, 30, 12), "<b>0.0</b>", mini);
+            GUI.Label(new Rect(hr.xMax - 12, hr.y, 20, 12), "<b>R</b>", mini);
+            GUILayout.Label("°/s written", labelStyle);
+            GUILayout.EndHorizontal();
+
+            if (cc.YawForce.Count == 0)
+                GUILayout.Label("<i>no writers yet — bars appear as owners fire</i>", labelStyle);
+
+            // Live writers float to the top — the fight shows itself.
+            var rows = cc.YawForce.OrderByDescending(kv => Mathf.Abs(kv.Value));
+            foreach (var kv in rows)
+                DrawYawForceBar(kv.Key, kv.Value, hr.width, cc);
+
+            GUILayout.Space(6);
+            GUILayout.Label(
+                "<i>sign = direction (L ◀ counterclockwise · R ▶ clockwise) ·"
+                + " two rows lit at once = tug-of-war · EXTERNAL = an unattributed"
+                + " writer (watchdog-caught)</i>", labelStyle);
+        }
+
+        void DrawYawForceBar(string who, float degsPerSec, float barW, CombatController cc)
+        {
+            const float full = 270f;   // °/s for full deflection
+            GUILayout.BeginHorizontal(GUILayout.Height(16));
+            GUILayout.Label(who.Length > 11 ? who.Substring(0, 11) : who, labelStyle,
+                GUILayout.Width(92));
+            var r = GUILayoutUtility.GetRect(barW, 14);
+
+            // track + center zero line
+            GUI.color = new Color(1f, 1f, 1f, 0.08f);
+            GUI.DrawTexture(r, Texture2D.whiteTexture);
+            GUI.color = new Color(1f, 1f, 1f, 0.35f);
+            GUI.DrawTexture(new Rect(r.center.x - 0.5f, r.y, 1f, r.height),
+                Texture2D.whiteTexture);
+
+            // signed fill from center — blue = turning right, orange = left
+            float f = Mathf.Clamp(degsPerSec / full, -1f, 1f);
+            if (Mathf.Abs(f) > 0.004f)
+            {
+                float w = Mathf.Abs(f) * r.width * 0.5f;
+                var fill = f > 0f
+                    ? new Rect(r.center.x, r.y + 2, w, r.height - 4)
+                    : new Rect(r.center.x - w, r.y + 2, w, r.height - 4);
+                GUI.color = who == "EXTERNAL" ? new Color(1f, 0.3f, 0.3f, 0.95f)
+                    : f > 0f ? new Color(0.45f, 0.85f, 1f, 0.95f)
+                             : new Color(1f, 0.72f, 0.35f, 0.95f);
+                GUI.DrawTexture(fill, Texture2D.whiteTexture);
+            }
+            GUI.color = Color.white;
+
+            GUILayout.Label($"{degsPerSec:+0;-0;0}", labelStyle, GUILayout.Width(50));
+            // Active-owner marker — the row the driver currently serves
+            if (who == cc.DebugFaceOwner && cc.DebugFaceMode != CombatController.FacingMode.Free)
+                GUILayout.Label("<color=#66ff66>▶</color>", labelStyle, GUILayout.Width(16));
+            GUILayout.EndHorizontal();
         }
 
         /// <summary>
@@ -2953,7 +3116,8 @@ namespace SteelCity.Sim
 
         private bool IsLiveTab(Tab t) =>
             t == Tab.Combat || t == Tab.Cover || t == Tab.Vision || t == Tab.TanSuit
-            || t == Tab.Demolitions || t == Tab.Sfx || t == Tab.MatRes || t == Tab.Clothing;
+            || t == Tab.Demolitions || t == Tab.Sfx || t == Tab.MatRes || t == Tab.Clothing
+            || t == Tab.Forces;
 
         private void RebuildLockedTabText()
         {
@@ -2970,6 +3134,7 @@ namespace SteelCity.Sim
                 case Tab.TanSuit:    LockTanSuit(hudSB);    break;
                 case Tab.Demolitions: LockDemolitions(hudSB); break;
                 case Tab.MatRes:     LockMatRes(hudSB);     break;
+                case Tab.Forces:     LockForces(hudSB);     break;
             }
             lockedTabText = hudSB.ToString();
         }
@@ -3041,6 +3206,17 @@ namespace SteelCity.Sim
             var st = sensor.stats;
             sb.AppendLine($"scan: {st.obstacles} vols · {st.wallCols} wall cols (full {st.wallsFull}/crouch {st.wallsCrouch}/low {st.wallsLo})"
                 + (sensor.HasThreat ? $"  → {st.tested} cand, {st.valid} valid" : ""));
+        }
+
+        private void LockForces(System.Text.StringBuilder sb)
+        {
+            var ch = cityMap != null ? cityMap.SpawnedCharacter : null;
+            var cc = ch != null ? ch.GetComponent<CombatController>() : null;
+            sb.AppendLine("<b>FORCES</b>  <i>(locked — L to edit)</i>");
+            if (cc == null) { sb.AppendLine("<i>no spawned character</i>"); return; }
+            sb.AppendLine($"facing {cc.DebugFaceMode} · owner {cc.DebugFaceOwner} · demand {cc.FaceDemandDeg:+0.0;-0.0;0.0}° · beat {cc.Beat} · {cc.State}");
+            foreach (var kv in cc.YawForce.OrderByDescending(x => Mathf.Abs(x.Value)).Take(4))
+                sb.AppendLine($"  {kv.Key}: {kv.Value:+0;-0;0}°/s");
         }
 
         private void LockVision(System.Text.StringBuilder sb)

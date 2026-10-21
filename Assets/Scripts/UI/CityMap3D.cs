@@ -658,7 +658,9 @@ namespace SteelCity.Sim
         // camera grants the free-cam path (WASD fly, full pitch, pan, zoom)
         // without F6's debris/rebake side effects.
         private bool Frozen => Time.timeScale < 0.001f;
-        private bool CamFree => debugCameraFreedom || Frozen;
+        /// <summary>Free-cam owns input (F6 freedom OR F8 freeze) — public so
+        /// possess can yield to it instead of double-driving WASD.</summary>
+        public bool CamFree => debugCameraFreedom || Frozen;
 
         // Set by GameUIController when entering/leaving Working mode
         public bool IsExecutionMode { get; set; } = false;

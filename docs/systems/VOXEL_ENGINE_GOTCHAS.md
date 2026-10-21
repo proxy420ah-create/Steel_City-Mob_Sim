@@ -389,6 +389,74 @@ bool pit = pitA && pitB;
 
 ---
 
+## Gotcha #12: The Zombie Slerp Claim — "One-Shot" Helpers That Arm Perpetual Channels
+
+**Date**: October 20, 2026
+**Severity**: HIGH — produced the standing-still jitter that took a multi-session bisect to find
+**Files**: `EventPlayer.cs` (`DebugSnapTo`, the `hasTargetRotation` slerp), `CombatController.cs` (the facing driver it fought)
+
+### Symptom
+
+Vinny jittered/shuddered in place during every cover beat. The FORCES monitor showed `settle` pinned at **−439 °/s sustained** — the driver's `Hold` writing ~7°/frame toward a *constant* target, forever — which can only happen if something else pushes the transform back ~+7°/frame every frame.
+
+### Root Cause
+
+`DebugSnapTo` (the pit teleport) computed a snap facing and armed `hasTargetRotation = true` — a **persistent slerp channel** that writes `character.transform.rotation` every frame while `EventPlayer.running`, "so FaceTarget events can aim an idle character." It only cleared on a *zero-direction move event* — for a static pit duel, effectively never. Result: the combat facing driver eased toward `settleYawDeg` while EventPlayer pulled ~8%/frame toward the snap facing — ~180° apart, two writers, one transform = standing jitter.
+
+The watchdog that should have caught it couldn't: it flagged EXTERNAL yaw only on frames with **zero combat writes** — the driver wrote every frame, so the attacker's delta hid inside each attributed write. The honest detection is a **residual**: `observed Δ − Σ combat writes` (now implemented — unattributed leftovers surface as the `EXTERNAL` row on the FORCES tab).
+
+### Fix
+
+1. `DebugSnapTo` writes `transform.rotation` **instantly** — a snap is a snap; it must not arm a persistent claim.
+2. EventPlayer's rotate channel **voids `hasTargetRotation` whenever the character's `CombatController` is non-Idle** — combat owns facing, so any pre-existing claim dies on entry (no zombie slerp wakes up post-combat either).
+
+### Defense Going Forward
+
+- **One-shot operations must not arm persistent channels.** If a helper's effect needs to persist, that's a *claim* — name it, give it an owner, and give it a death condition. `hasTargetRotation` had neither for the snap case.
+- **Detect conflicts at the point of effect with residuals, not presence flags.** "Did anyone else write?" is the wrong question on a contended channel; "does the sum of known writes explain the observed change?" is the right one. Same pattern as the orphaned-arm fix: check authority at the effector, not at the intent site.
+- **When a kill-switch makes the bug vanish, the bug is IN what the switch covered — but verify the switch covers everything.** The old `dbgYawIntent` gated a lane, not the write sites; coverage lies are worse than no toggle.
+- Ownerless claims + one-writer-per-channel architecture = the system's immune system. Every transform-channel writer should be named, toggled, and auditable.
+
+---
+
+## Gotcha #13: The Tolerance IS the Residual — `arriveEps` as a Visible Contract
+
+**Date**: October 21, 2026
+**Severity**: MEDIUM — every cover landing stopped at the loosest legal distance (~18cm), reading as "he never reaches the post"
+**Files**: `CombatController.cs` (`StepToward`, `arriveEps`), `DebugHUDManager.cs` (`cov_dst`/`cov_feet` markers), `CoverMetricsPanel.cs` (`off` readout)
+
+### Symptom
+
+After the quality-layer centroid rework landed posts squarely behind cover faces, Vinny still rendered visibly off the cyan post at every cover landing — a consistent ~0.3–0.5m-looking gap that survived three centroid redesigns (nearest-mean → distance-transform → face-projected geometry). Nothing about the *destination* was wrong anymore, but the eyes kept saying "off."
+
+### Diagnosis — measure before fixing
+
+Three simultaneous markers separated destination-vs-anchor-vs-body in one frame:
+
+- **`cov_dst`** — thick orange post at `CoverPoint` (the committed destination)
+- **`cov_feet`/`cov_feet2`** — green X at `Feet()` (the grid-center nav anchor)
+- **`off N.m` readout** — live `Feet()→CoverPoint` XZ distance on the cover panel
+
+Verdict: orange coincided with cyan (destination = centroid ✓), green X sat under his body (anchor = volume center ✓ — the render chain audited clean: `worldOffset = transform.position` per-frame, instances drawn at `worldOffset + size·0.5`), and `off` read **exactly 0.18m** — he was stopping at the loosest legal distance every single time.
+
+### Root Cause
+
+`StepToward` returned "arrived" on the first tick `dist ≤ arriveEps` (0.18m — tuned when cells/nav were coarser). The tolerance WAS the completion boundary: he stopped mid-band at whatever distance the step quantization left, every leg, every arrival. The eps wasn't protecting against overshoot (`Min(step, dist)` already clamps that) — it *was* the answer.
+
+### Fix
+
+1. `arriveEps` 0.18 → **0.06** — the destination is a cell center on open floor, reachable exactly.
+2. Entering eps now takes the remaining **sub-eps step** as final placement (`MoveWithCollision(to)`, collision-checked): "arrived" means ON the point. A refused last inch still legally arrives at eps — the stall/nudge/abort machinery bounds it honestly.
+
+INT picks *which* point (the rank axis); placement precision is footwork every actor gets — not an intelligence lever.
+
+### Rule
+
+- **A completion tolerance is a visible contract, not an implementation detail.** If the destination is reachable exactly, the eps should only bound what physics can refuse — anything larger is a systematic residual you'll see as "offset."
+- **Audit corner-vs-center before blaming the model.** The anchor chain had to be proven consistent end-to-end (`transform.position` = grid corner → `Feet()`/`SelfPos()` = corner + half-dims → `worldOffset` render anchor) before the residual could be attributed to the eps — otherwise this looked like a render/pose bug.
+
+---
+
 ## Appendix: Key Voxel Engine Constants
 
 | Constant | Value | Location |

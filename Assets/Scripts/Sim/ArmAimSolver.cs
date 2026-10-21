@@ -303,8 +303,14 @@ namespace SteelCity.Sim
             // the effective inverse yaw keeps the bore landing exactly.
             // EXCEPT the deep band (duck>1.02): the assist yaw un-folds the
             // crouch lean (IK_TORSO_OVERRIDE), so deep-duck aiming is arms-only.
+            // AND while locomoting: the root owns heading then — a second
+            // heading driver on the same spine is the seek-time tug-of-war;
+            // the arm alone carries the residual error on the move.
+            bool locomoting = animRef != null
+                && (animRef.EffectiveState == CharacterAnimation.AnimState.Walking
+                    || animRef.EffectiveState == CharacterAnimation.AnimState.AimWalk);
             torsoQuat = Quaternion.identity;
-            if (torsoAssist && (animRef == null || animRef.duck <= 1.02f))
+            if (torsoAssist && !locomoting && (animRef == null || animRef.duck <= 1.02f))
             {
                 Vector3 stFlat = tv - sv;
                 stFlat.y = 0f;

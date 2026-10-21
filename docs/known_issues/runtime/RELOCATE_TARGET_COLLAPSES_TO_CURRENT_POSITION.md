@@ -15,7 +15,7 @@ The relocate target was the **face-anchored column spot**
 (`facePos + outDir·(standoff + vs·0.25)`) of the *nearest* unfailed,
 rise-solvable face. On the terraced wall in the test scene (stepped sections
 along one volume), the nearest fightable face's anchor lands within
-`arriveEps` (0.18 m) of where he is already standing → the SeekingCover
+`arriveEps` (0.18 m then — now 0.06 m with exact sub-eps placement, GOTCHAS #13) of where he is already standing → the SeekingCover
 arrival check fires the same frame → instant `InCover → Settle`. The relocate
 *worked*; it just had nowhere to go, and it looked like a cancel.
 

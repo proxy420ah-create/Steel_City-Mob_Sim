@@ -26,12 +26,17 @@ namespace SteelCity.Sim
         /// <summary>The engagement rhythm inside InCover — the authored beat
         /// the gates answer to. None = steady hold (arm stowed; beats own the
         /// arm, not the exposure probe).</summary>
-        public enum EngagementBeat : byte { None = 0, Settle = 1, TopUp = 2, Rise = 3, Engaged = 4, Duck = 5 }
+        public enum EngagementBeat : byte { None = 0, Settle = 1, TopUp = 2, Rise = 3, Engaged = 4, Duck = 5, Swing = 6 }
 
         [Header("Movement")]
         [Tooltip("Combat hustle speed (m/s) — drives both the transform step and walk anim rate.")]
         public float moveSpeed = 2.4f;
-        public float arriveEps = 0.18f;
+        /// <summary>XZ arrival tolerance — the committed destination is a cell
+        /// center on open floor, so the residual should be visual-noise scale,
+        /// not a third of a body width. StepToward clamps the final step at
+        /// Min(step,dist), so the point is reachable exactly; a blocked last
+        /// inch surfaces as a leg abort, not a silent offset.</summary>
+        public float arriveEps = 0.06f;
         public float turnSpeedDeg = 540f;
         [Tooltip("Duck fold-in rate during SeekingCover (duck/s) — the advance is combat posture: he adopts the destination wall's requirement for the whole approach, not when a painted zone reaches him.")]
         public float seekDuckEase = 2.5f;
@@ -53,7 +58,12 @@ namespace SteelCity.Sim
 
         [Header("Engagement beats (docs/systems/ENGAGEMENT_BEATS.md)")]
         [Tooltip("The reusable seam — dwell between every beat (top-up wait, post-arrival gather, post-duck gather). 5s while debugging so each seam is watchable.")]
-        public float settleSec = 5f;
+        /// <summary>Per-beat dwell seconds — the debug tempo FLOOR. Indexed
+        /// by EngagementBeat (0 = None, unused). Event verdicts stay honest:
+        /// a beat can't exit before its dwell, but physical verdicts (probe
+        /// contact, reload done) still fire — the timer gates the LEAVE,
+        /// never the observation. HUD TEMPO table edits these live.</summary>
+        public float[] beatDwell = { 0f, 5f, 5f, 5f, 5f, 5f, 5f };
         [Tooltip("The arm survives a dropped probe this long — a single empty scan must not pump-stow him. Authority loss (reload/no weapon/beat closed) still stows instantly.")]
         public float disarmHoldSec = 0.35f;
         [Tooltip("Consecutive empty visibility probes in Engaged before he drops — a dropped-frame probe must not bounce him (4 ≈ 0.5s at visInterval). Event-count, not a clock.")]
@@ -72,6 +82,197 @@ namespace SteelCity.Sim
         public bool holdInCover;
         [Tooltip("Cover-positioning intelligence 0..1 (Hoods.xtx INT normalized): 1 = nests at the zone centroid, 0 = parks on the Hidden rim — zero margin, 'sticking out'. COMBAT_COVER_STATE → INT axis.")]
         [Range(0f, 1f)] public float coverIntNorm = 1f;
+        /// <summary>Settle posture facing: back to the wall (either side can
+        /// side-peek) or a committed side for the lateral peek. Random rolls
+        /// per settle entry — the rolled side IS the peek commitment.</summary>
+        public enum SettleFace : byte { Random, Back, Left, Right }
+        public SettleFace settleFace = SettleFace.Random;
+        /// <summary>The rolled settle commitment: 0 = back to cover (either
+        /// side open for a swing-peek), −1/+1 = facing left/right of the
+        /// threat bearing — the side the Swing beat will step out on.</summary>
+        public sbyte PeekSide { get; private set; }
+        private float settleYawDeg, engageYawDeg;
+        /// Event-driven belief: contactSeen edges snap ThreatPos to computed
+        /// centroids; lastConfirmed caches the centroid while contact holds.
+        private bool contactSeen;
+        private Vector3 lastConfirmed;
+        /// Rise endpoints — captured at EnterBeat so the turn rides the SAME
+        /// normalized progress as the unfold (one motion, not two eases).
+        private float riseFromDuck, riseFromYawDeg;
+        /// Duck endpoints — the fold-back rides the same coupling.
+        private float foldFromDuck, foldFromYawDeg;
+
+        /// THE single root-yaw write path: declaration sites set a MODE
+        /// (intent — the roll's settleYawDeg, a destination, a live body,
+        /// or an endpoint curve); <see cref="TickFacing"/> renders it
+        /// (effect — the only SetYaw caller graph). Contracts: sites always
+        /// declare SOME mode per relevant tick/entry (a kill-switch declares
+        /// Free rather than leaving stale intent); the mode LATCHES until
+        /// replaced, so EnterBeat declarations hold for the beat's life.
+        public enum FacingMode : byte { Free, Hold, Track, Curve }
+        private FacingMode faceMode = FacingMode.Free;
+        private float faceFrom, faceTo;
+        private Vector3 facePoint;
+        private Func<float> faceT;
+        private string faceWho = "free";
+
+        void FaceFree() { faceMode = FacingMode.Free; faceWho = "free"; }
+        void FaceHold(float deg, string who) { faceMode = FacingMode.Hold; faceTo = deg; faceWho = who; }
+        void FaceTrack(Vector3 p, string who) { faceMode = FacingMode.Track; facePoint = p; faceWho = who; }
+        void FaceCurve(float from, float to, Func<float> t, string who)
+        { faceMode = FacingMode.Curve; faceFrom = from; faceTo = to; faceT = t; faceWho = who; }
+
+        // Curve progress sources — the duck scalar IS the transition clock.
+        float RiseT() => anim == null || Mathf.Abs(riseFromDuck - riseDuck) < 0.02f
+            ? 1f : Mathf.InverseLerp(riseFromDuck, riseDuck, anim.duck);
+        float FoldT() => anim == null || Mathf.Abs(foldFromDuck - targetDuck) < 0.02f
+            ? 1f : Mathf.InverseLerp(foldFromDuck, targetDuck, anim.duck);
+
+        void TickFacing()
+        {
+            if (!dbgFacing) { FaceDemandDeg = 0f; return; }
+            float cur = transform.eulerAngles.y;
+            switch (faceMode)
+            {
+                case FacingMode.Curve:
+                {
+                    // The curve IS the ease — written verbatim, deadbanded.
+                    float t = Mathf.Clamp01(faceT != null ? faceT() : 0f);
+                    float want = Mathf.LerpAngle(faceFrom, faceTo, Mathf.SmoothStep(0f, 1f, t));
+                    FaceDemandDeg = Mathf.DeltaAngle(cur, want);
+                    if (Mathf.Abs(FaceDemandDeg) > 0.5f)
+                        SetYaw(want, faceWho);
+                    break;
+                }
+                case FacingMode.Hold:
+                case FacingMode.Track:
+                {
+                    float want = faceMode == FacingMode.Track
+                        ? BearingDeg(facePoint - Feet()) : faceTo;
+                    FaceDemandDeg = Mathf.DeltaAngle(cur, want);
+                    if (Mathf.Abs(FaceDemandDeg) > 0.5f)
+                        SetYaw(Mathf.MoveTowardsAngle(cur, want,
+                            turnSpeedDeg * Time.deltaTime), faceWho);
+                    break;
+                }
+                default: FaceDemandDeg = 0f; break;
+            }
+        }
+        /// The CoverPoint the facing commitment was rolled for — a new spot
+        /// re-rolls; the same spot KEEPS its posture across every seam.
+        private Vector3? settleSpot;
+        /// Duck's off-spot return — phase C (posture turn) is owned by the
+        /// return, not the seam: the turn converges BEFORE Settle begins.
+        private bool returnTurning;
+
+        /// <summary>Swing beat (lateral peek): step out past the zone edge on
+        /// PeekSide's edge, run the Looking sweep while the vision cone is the
+        /// detection channel + he's exposed out there, step back if empty.
+        /// `swingMargin` = clearance past the painted rim (m).</summary>
+        public float swingMargin = 0.4f;
+        [Range(0f, 1f), Tooltip("Dwell posture — the corner lean, shallower than the cover fold. Dwell TIME rides beatDwell[Swing].")]
+        public float swingDuck = 0.35f;
+        private byte swingPhase;                 // 0 step-out · 1 dwell · 2 step-back
+        private Vector3 swingDest, swingStuckPos;
+        private float swingDwellUntil, swingStuckT;
+        /// Per-leg unstick budget — perpendicular sidesteps spent before a
+        /// StepToward leg reports "done off-target" (caller re-verifies).
+        private int stuckNudges, stuckNudgeSide;
+        private bool returnWalked;             // Duck's off-spot return leg began
+        /// SeekingCover's last move is the posture turn to the rolled facing —
+        /// set when he first lands on the spot; the state only completes when
+        /// position ∧ facing BOTH converge (arrival ≠ just "reached the point").
+        private bool coverArrived;
+        private VisionSensor vis;
+
+        /// <summary>Yaw forensic channel: every combat write goes through
+        /// <see cref="SetYaw"/> tagged by owner; LateUpdate catches yaw that
+        /// changed with NO combat writer (external contamination — the
+        /// camera/orbit → rig leak under test).</summary>
+        [Tooltip("Log yaw writes + external writers — chase camera→rig wiggle.")]
+        public bool yawWatch = true;
+
+        [Header("DEBUG — channel kill-switches (bisect the jitter)")]
+        [Tooltip("Master gate on the facing driver — off = ZERO combat yaw writes, guaranteed.")]
+        public bool dbgFacing = true;
+        [Tooltip("Engaged live-tracks the belief target (last-known-pos facing). Off = holds entry engageYawDeg.")]
+        public bool dbgEngagedTrack = true;
+        [Tooltip("Arm solver may raise at all (wantAim/holding/swingAim). Off = permanently stowed in combat.")]
+        public bool dbgArmSolver = true;
+        [Tooltip("Movement drivers may write yaw (seek / swing steps / relocate). Off = strafe-slide.")]
+        public bool dbgMoveYaw = true;
+        [Tooltip("Swing dwell feeds the vision cone the LIVE threat point (the cone-detection channel).")]
+        public bool dbgVisionFeed = true;
+
+        private float yawAtLastCheck, lastYawLogT;
+        private string lastYawWriter = "init";
+
+        // ── Yaw force monitor (FORCES tab) — signed °/s actually written,
+        // per owner. SetYaw accumulates Δdeg per frame; LateUpdate folds it
+        // into an EMA (decays to silence when a writer stops) so the HUD
+        // can draw L/0/R bars and watch owners fire in real time.
+        public readonly Dictionary<string, float> YawForce = new();
+        readonly Dictionary<string, float> yawAccum = new();
+        public FacingMode DebugFaceMode => faceMode;
+        public string DebugFaceOwner => faceWho;
+        /// <summary>Signed ° the driver wants to close right now — the
+        /// demand, even when the deadband means nothing is written.</summary>
+        public float FaceDemandDeg { get; private set; }
+
+        void SetYaw(float y, string who)
+        {
+            float cur = transform.eulerAngles.y;
+            transform.rotation = Quaternion.Euler(0f, y, 0f);
+            float d = Mathf.DeltaAngle(cur, y);
+            yawAccum[who] = (yawAccum.TryGetValue(who, out var acc) ? acc : 0f) + d;
+            // First write per owner + a heartbeat while an ease runs —
+            // enough to name the driver without spamming every frame.
+            if (yawWatch && Mathf.Abs(d) > 0.1f
+                && (who != lastYawWriter || Time.unscaledTime - lastYawLogT > 0.5f))
+            {
+                Debug.Log($"[Yaw] {name} ← {who} · {cur:F1}→{y:F1} · beat {Beat}");
+                lastYawLogT = Time.unscaledTime;
+            }
+            lastYawWriter = who;
+        }
+
+        void LateUpdate()
+        {
+            float y = transform.eulerAngles.y;
+            // Idle = outside combat ownership — possess, teleports and the
+            // sim all legitimately rotate him there; only combat is policed.
+            if (State != CombatState.Idle)
+            {
+                // Residual = observed Δ minus THIS frame's combat writes —
+                // an external writer can't hide inside a written frame.
+                float observed = Mathf.DeltaAngle(yawAtLastCheck, y);
+                float combatDelta = 0f;
+                foreach (var v in yawAccum.Values) combatDelta += v;
+                float residual = Mathf.DeltaAngle(combatDelta, observed);
+                if (Mathf.Abs(residual) > 0.1f)
+                {
+                    yawAccum["EXTERNAL"] = (yawAccum.TryGetValue("EXTERNAL", out var ea) ? ea : 0f) + residual;
+                    if (yawWatch)
+                        Debug.Log($"[Yaw?] {name} EXTERNAL Δ{residual:F1}° → {y:F1} · beat {Beat} state {State}"
+                                + $" (residual over combat writers — last: {lastYawWriter})");
+                }
+            }
+            yawAtLastCheck = y;
+
+            // Fold this frame's impulses into the smoothed monitor — writers
+            // convert to °/s, silent owners decay toward zero.
+            float fdt = Mathf.Max(Time.unscaledDeltaTime, 1e-4f);
+            float k = 1f - Mathf.Exp(-8f * fdt);
+            foreach (var kvp in yawAccum)
+                YawForce[kvp.Key] = Mathf.Lerp(
+                    YawForce.TryGetValue(kvp.Key, out var cur2) ? cur2 : 0f,
+                    kvp.Value / fdt, k);
+            var keys = new List<string>(YawForce.Keys);
+            foreach (var key in keys)
+                if (!yawAccum.ContainsKey(key))
+                    YawForce[key] = Mathf.Lerp(YawForce[key], 0f, k);
+            yawAccum.Clear();
+        }
 
         // --- Cover parameters live on CoverSensor (the always-on awareness sense);
         // these stay as proxies so existing HUD sliders keep working. ---
@@ -89,7 +290,17 @@ namespace SteelCity.Sim
         /// <summary>Successful shots this engagement — the flow chart's FIRE beat.</summary>
         public int ShotsFired { get; private set; }
         void Notify() => Changed?.Invoke();
-        void SetState(CombatState s) { if (State == s) return; State = s; Notify(); }
+        void SetState(CombatState s)
+        {
+            if (State == s) return;
+            State = s;
+            if (s == CombatState.SeekingCover)
+            {
+                coverArrived = false;
+                swingStuckPos = Feet(); swingStuckT = Time.unscaledTime; stuckNudges = 0;
+            }
+            Notify();
+        }
 
         public CombatState State { get; private set; }
         /// <summary>Current engagement beat — the panel's third lane.</summary>
@@ -97,7 +308,10 @@ namespace SteelCity.Sim
         /// <summary>Duck the last Rise solve picked — min duck clearing eye+muzzle over the wall.</summary>
         public float RiseDuck => riseDuck;
         /// <summary>Seconds left on the current beat's timer (Settle/Rise; else 0) — the panel's inline countdown.</summary>
-        public float BeatLeft => Beat == EngagementBeat.Settle ? Mathf.Max(0f, beatUntil - Time.unscaledTime) : 0f;   // Rise is event-bound (pose convergence) — no clock left
+        public float BeatLeft => Beat == EngagementBeat.None ? 0f
+            : Mathf.Max(0f, beatUntil - Time.unscaledTime);   // every beat carries a dwell floor now
+        /// <summary>The active beat's dwell floor — progress-bar denominators.</summary>
+        public float BeatDwellNow => DwellFor(Beat);
         /// <summary>The seam's branch point — which beat this Settle exits to.</summary>
         public EngagementBeat NextAfterSettle => loopGate && !loopBeats
             ? EngagementBeat.None : afterSettle;   // honest preview of the gated exit
@@ -331,6 +545,8 @@ namespace SteelCity.Sim
             // from whatever fired last (possess or a previous engagement).
             ShotsFired = 0;
             Beat = EngagementBeat.None; afterSettle = EngagementBeat.None; riseDuck = 0f;
+            FaceFree();   // fresh combat = fresh facing intent
+            contactSeen = false;
             loopGate = false; awaitingLoop = false; failedFaces.Clear();
             nextFireTime = 0f; nextVisProbe = 0f; LastShotAt = -1f;
             ExposureArmed = false;
@@ -378,6 +594,11 @@ namespace SteelCity.Sim
             coverWallClass = CoverSensor.WallClass.Crouch;
             targetDuck = 1f;   // shallow hold — the old "depth 0" on state 5
             CrouchAndCover();
+            // Exposed last stand faces the threat — no wall to turn on.
+            // Track mode: keeps easing toward the anchor while he holds.
+            Vector3 ht = AimAnchor() - Feet(); ht.y = 0f;
+            if (ht.sqrMagnitude > 1e-6f)
+                FaceTrack(AimAnchor(), "hold-position");
             LastResult = $"no cover within {Sensor.radius:F0}m — holding position";
             return true;
         }
@@ -392,6 +613,8 @@ namespace SteelCity.Sim
             ExposureArmed = false;
             Beat = EngagementBeat.None; afterSettle = EngagementBeat.None;
             loopGate = false; awaitingLoop = false; Relocating = false; buriedSince = 0f;
+            contactSeen = false;
+            FaceFree();   // combat releases the facing channel on exit
             ScriptCursor = -1; ScriptStageDone = false;   // slots persist — the script survives iterations
             // (reloading left running — the wheel seats across mode exits,
             // same carryover rule as the cylinder itself.)
@@ -417,22 +640,52 @@ namespace SteelCity.Sim
             || Beat == EngagementBeat.Rise || Beat == EngagementBeat.Engaged);
 
         /// <summary>Beat transition — every hop emits Changed for the flow lane.</summary>
+        /// <summary>Dwell floor for a beat — the tempo table, length-guarded
+        /// (a truncated Inspector array falls back to the 5s debug default).</summary>
+        float DwellFor(EngagementBeat b) =>
+            beatDwell != null && beatDwell.Length > (int)b ? beatDwell[(int)b] : 5f;
+
         void EnterBeat(EngagementBeat b)
         {
             Beat = b;
+            FaceFree();             // fresh intent per beat — no stale facing leaks in
             awaitingLoop = false;   // any real beat clears a parked gate
+            // Universal dwell floor — EVERY beat holds beatDwell[b] seconds
+            // minimum (the debug tempo; HUD TEMPO table edits the table live).
+            beatUntil = Time.unscaledTime + DwellFor(b);
             switch (b)
             {
                 case EngagementBeat.Settle:
-                    beatUntil = Time.unscaledTime + settleSec;
+                    // Settle = the breath between actions — it OWNS NO
+                    // MOVEMENT: no roll (that lives at arrivals — see
+                    // CrouchAndCover), no fresh demand; it just holds the
+                    // committed cover-facing the arriving beat left him in.
+                    FaceHold(settleYawDeg, "settle");
+                    break;
+                case EngagementBeat.None:
+                case EngagementBeat.TopUp:
+                    FaceHold(settleYawDeg, b == EngagementBeat.None ? "none" : "topup");
                     break;
                 case EngagementBeat.Duck:
+                    returnWalked = false;   // the off-spot return leg starts cold
+                    returnTurning = false;
                     loopGate = true;   // the settle after a duck is the re-cycle gate
                     ScriptStageDone = true;   // stage verdict reached (dry/refused/empty/buried/lost)
+                    // Fold-back endpoints — turn-to-settle-facing rides the
+                    // fold's progress, same coupling as the rise.
+                    foldFromDuck = anim != null ? anim.duck : 0f;
+                    foldFromYawDeg = transform.eulerAngles.y;
+                    FaceCurve(foldFromYawDeg, settleYawDeg, FoldT, "duck");
                     break;
                 case EngagementBeat.Engaged:
                     ScriptStageDone = true;   // contact confirmed — the stop produced fire
                     emptyProbes = 0;
+                    // The Swing→Engaged path skips Rise — engage facing must
+                    // exist for the intent lane regardless of the entry beat.
+                    {
+                        Vector3 et = AimAnchor() - Feet(); et.y = 0f;
+                        if (et.sqrMagnitude > 1e-4f) engageYawDeg = BearingDeg(et);
+                    }
                     break;
                 case EngagementBeat.Rise:
                     riseDuck = SolveRiseDuck();
@@ -442,18 +695,46 @@ namespace SteelCity.Sim
                     if (riseDuck < 0f)
                     {
                         Debug.Log($"🥊 [Combat] {name} — rise refused: {LastRiseDiag}");
-                        // The reposition branch: this wall can't be fought
-                        // over → re-pick for cover whose rise DOES clear.
+                        // The wall can't be fought OVER — try looking AROUND
+                        // it first (lateral peek). Scripted mode skips it:
+                        // the script owns position.
+                        if (!scriptedMode) { EnterBeat(EngagementBeat.Swing); return; }
                         if (TryRelocateToFightingCover()) return;
                         afterSettle = EngagementBeat.TopUp;
                         EnterBeat(EngagementBeat.Duck); return;
                     }
                     // Atomic beat: the pose converging to riseDuck IS the rise
                     // completing — the contact verdict lands there. No window.
+                    // Capture the endpoints — the turn rides the unfold's
+                    // normalized progress (turn-and-stand as ONE motion).
+                    riseFromDuck = anim != null ? anim.duck : 0f;
+                    riseFromYawDeg = transform.eulerAngles.y;
+                    FaceCurve(riseFromYawDeg, engageYawDeg, RiseT, "rise");
+                    break;
+                case EngagementBeat.Swing:
+                    if (!TryStartSwing())
+                    {
+                        // No zone edge to step from — the old refusal path.
+                        if (TryRelocateToFightingCover()) return;
+                        afterSettle = EngagementBeat.TopUp;
+                        EnterBeat(EngagementBeat.Duck); return;
+                    }
                     break;
             }
             Notify();
         }
+
+        /// <summary>The point the body treats as "the threat" for facing and
+        /// solves — lastSeen (belief) first, the live threat as stand-in.</summary>
+        Vector3 AimAnchor()
+        {
+            // Belief only — the freshest sighting, else the entry report.
+            // Aiming at live truth would be omniscient; truth belongs to
+            // the physical verdicts (probe / cone), never to intent.
+            if (LastSeenTarget.HasValue) return LastSeenTarget.Value;
+            return ThreatPos;
+        }
+        static float BearingDeg(Vector3 d) => Mathf.Atan2(d.x, d.z) * Mathf.Rad2Deg;
 
         /// <summary>Can he fight over his own wall's top — at FULL STAND.
         /// Firing states are posture-uniform now: rise = stand up, no duck
@@ -485,8 +766,12 @@ namespace SteelCity.Sim
             if (!tgt.HasValue && ThreatCharacter != null)
                 tgt = ThreatCharacter.transform.position + Vector3.up * 0.5f;
 
-            float r = SolveRiseAtSpot(transform.position, transform.eulerAngles.y,
-                wallTop, tgt, transform.forward,
+            // Solve at the ENGAGE yaw — where he'll end after the turn-to-
+            // engage — not whatever the settle posture left him facing.
+            engageYawDeg = BearingDeg(AimAnchor() - transform.position);
+            Vector3 engageFwd = Quaternion.Euler(0f, engageYawDeg, 0f) * Vector3.forward;
+            float r = SolveRiseAtSpot(transform.position, engageYawDeg,
+                wallTop, tgt, engageFwd,
                 out int verdict, out float bestEye);
             if (r >= 0f)
             {
@@ -536,6 +821,78 @@ namespace SteelCity.Sim
             if (!sensor.LosBlocked(muzzle, tgt.Value)) { verdict = 0; return 0f; }
             verdict = 3;
             return -1f;
+        }
+
+        /// <summary>Set up the lateral peek: side = committed `PeekSide`
+        /// (back-facing rolls one at peek time); step-out destination = the
+        /// zone's painted rim on that side + `swingMargin` past it, so the
+        /// step clears the corner regardless of cover width. False when no
+        /// zone geometry exists to step from.</summary>
+        bool TryStartSwing()
+        {
+            sbyte side = PeekSide != 0 ? PeekSide
+                : (sbyte)(UnityEngine.Random.value < 0.5f ? -1 : 1);
+            Vector3 toT = AimAnchor() - Feet(); toT.y = 0f;
+            if (toT.sqrMagnitude < 1e-4f) return false;
+            Vector3 threatDir = toT.normalized;
+            Vector3 lat = Vector3.Cross(Vector3.up, threatDir);   // right of threat-facing
+            Vector3 stepDir = lat * side;
+            int ci = sensor != null ? sensor.Field.CellIndexOf(CoverPoint) : -1;
+            if (ci < 0 || !sensor.Field.TryZoneEdge(ci, stepDir, out Vector3 rim, out _)) return false;
+            swingDest = rim + stepDir * swingMargin;
+            // The step faces its destination — declared per-tick in
+            // StepToward as FaceTrack(dest) (the driver computes the
+            // bearing — off-axis edges can't produce a stale heading).
+            swingPhase = 0; swingStuckPos = Feet(); swingStuckT = Time.unscaledTime; stuckNudges = 0;
+            PeekSide = side;   // the rolled side is the committed side now
+            if (vis == null) vis = GetComponent<VisionSensor>();
+            Debug.Log($"🥊 [Combat] {name} — swing-peek: side {(side < 0 ? "left" : "right")} step→({swingDest.x:F1},{swingDest.z:F1})");
+            return true;
+        }
+
+        /// <summary>Walk one step toward `dest` at combat gait, yawing to
+        /// `yawDeg` — the swing's own mini-steering (SeekingCover stays the
+        /// relocation channel). True at arrival.</summary>
+        bool StepToward(Vector3 dest, string who)
+        {
+            Vector3 feet = Feet();
+            Vector3 to = dest - feet; to.y = 0f;
+            float dist = to.magnitude;
+            if (dist <= arriveEps)
+            {
+                // Arrival means ON the point: inside eps is still off it, so
+                // take the remaining sub-step as final placement (collision-
+                // checked — a refused last inch leaves him at eps, still
+                // legally arrived). INT chooses WHICH point; this is footwork.
+                if (dist > 0.005f) MoveWithCollision(to);
+                return true;
+            }
+            float step = moveSpeed * (anim != null ? anim.DuckSpeedFactor : 1f) * Time.deltaTime;
+            MoveWithCollision((to / dist) * Mathf.Min(step, dist));
+            // Movement-facing = Track-the-destination — declared, not written.
+            if (dbgMoveYaw) FaceTrack(dest, who); else FaceFree();
+            // Stuck guard — ~0.6s of no progress. Stuck is NOT arrival:
+            // first the leg spends sidestep nudges (±perpendicular hops —
+            // the greedy axis slide can't wrap a convex corner lip), and
+            // only an exhausted nudge budget reports "leg done" — CALLERS
+            // re-verify distance to distinguish arrived from aborted.
+            if ((Feet() - swingStuckPos).sqrMagnitude > 0.02f)
+            { swingStuckPos = Feet(); swingStuckT = Time.unscaledTime; stuckNudges = 0; }
+            else if (Time.unscaledTime - swingStuckT > 0.6f)
+            {
+                if (stuckNudges < 3)
+                {
+                    stuckNudges++;
+                    stuckNudgeSide = stuckNudges == 1 ? 1 : -stuckNudgeSide;
+                    Vector3 perp = new Vector3(-to.z, 0f, to.x).normalized * (0.28f * stuckNudgeSide);
+                    MoveWithCollision(perp);
+                    if (dbgMoveYaw) FaceTrack(feet + perp.normalized, who);
+                    swingStuckPos = Feet(); swingStuckT = Time.unscaledTime;
+                    return false;
+                }
+                return true;
+            }
+            return false;
         }
 
         /// <summary>Faces this combat has already failed a rise on — keyed by
@@ -590,6 +947,9 @@ namespace SteelCity.Sim
                 foreach (var w in sensor.walls)
                 {
                     if (w.volId != z.volId) continue;
+                    // The zone's own face — same-volume marks on other faces
+                    // would solve against the wrong wall's top/outDir.
+                    if (w.outDir.x * z.outDir.x + w.outDir.z * z.outDir.y < 0.999f) continue;
                     float d2m = (w.facePos - z.stand).sqrMagnitude;
                     if (d2m < md) { md = d2m; m = w; hasMark = true; }
                 }
@@ -667,14 +1027,20 @@ namespace SteelCity.Sim
                     break;
                 case EngagementBeat.TopUp:
                     if (cylinder < cylinderCapacity && !reloading) StartReload();
-                    if (!reloading) { afterSettle = EngagementBeat.Rise; EnterBeat(EngagementBeat.Settle); }
+                    // Reload starts instantly (physical); the beat LEAVES on
+                    // the tempo floor + a full cylinder.
+                    if (!reloading && Time.unscaledTime >= beatUntil)
+                    { afterSettle = EngagementBeat.Rise; EnterBeat(EngagementBeat.Settle); }
                     break;
                 case EngagementBeat.Rise:
+                    // Facing = the EnterBeat FaceCurve — the driver's Curve
+                    // mode renders turn+unfold as ONE authored motion.
                     // Atomic — no recon window: pose converged to full stand
                     // IS the rise completing (the eye physically IS up). The
                     // contact verdict is taken at that instant on a FRESH
                     // probe, not the cadenced cache.
-                    if (anim == null || Mathf.Abs(anim.duck - riseDuck) < 0.02f)
+                    if (Time.unscaledTime >= beatUntil
+                        && (anim == null || Mathf.Abs(anim.duck - riseDuck) < 0.02f))
                     {
                         bool contact = ThreatCharacter != null && Sensor != null
                             && Sensor.TryGetVisibleVoxels(ThreatCharacter, out _);
@@ -690,12 +1056,23 @@ namespace SteelCity.Sim
                     }
                     break;
                 case EngagementBeat.Engaged:
+                    // The facing declaration — live body while contact holds
+                    // (truth is smooth), frozen belief while blind. The
+                    // kill-switch demotes the track to a static Hold.
+                    if (dbgEngagedTrack)
+                        FaceTrack(contactSeen && ThreatCharacter != null
+                            ? ThreatFeet() : AimAnchor(), "engaged");
+                    else
+                        FaceHold(engageYawDeg, "engaged");
                     // Buried-bore verdict: the solve cleared him but the REAL
                     // welded muzzle ray hits the wall — sustained burial =
                     // unfightable cover → relocate (same path as refusal).
                     if (solver.IsAiming && solver.Blend >= 0.7f && BoreBuried(aimPointWorld))
                         buriedSince += Time.unscaledDeltaTime;
                     else buriedSince = 0f;
+                    // Tempo floor — he holds the stand for the dwell even
+                    // when the verdict is already in (buried keeps counting).
+                    if (Time.unscaledTime < beatUntil) break;
                     if (cylinder <= 0 || reloading)
                     { afterSettle = EngagementBeat.TopUp; EnterBeat(EngagementBeat.Duck); }
                     else if (buriedSince >= boreBurySec)
@@ -714,8 +1091,141 @@ namespace SteelCity.Sim
                     }
                     break;
                 case EngagementBeat.Duck:
-                    if (anim == null || Mathf.Abs(anim.duck - targetDuck) < 0.02f)
-                        EnterBeat(EngagementBeat.Settle);
+                {
+                    // Facing = the EnterBeat FaceCurve (fold-back coupled to
+                    // the collapse progress — one authored motion).
+                    // Arrival posture turn FIRST — return-owned, converges
+                    // before the seam (and kills the stale Track-on-self
+                    // bearing singularity while he's standing on the point).
+                    if (returnTurning)
+                    {
+                        FaceHold(settleYawDeg, "return");
+                        bool folded2 = anim == null || Mathf.Abs(anim.duck - targetDuck) < 0.02f;
+                        if (folded2 && Time.unscaledTime >= beatUntil
+                            && Mathf.Abs(Mathf.DeltaAngle(transform.eulerAngles.y, settleYawDeg)) <= 1f)
+                        { returnTurning = false; EnterBeat(EngagementBeat.Settle); }
+                        break;
+                    }
+                    bool folded = anim == null || Mathf.Abs(anim.duck - targetDuck) < 0.02f;
+                    if (!folded || Time.unscaledTime < beatUntil) break;
+                    // Off-spot when the fold lands (rim-peek engaged from the
+                    // edge / stuck-guard arrival) — duck-walk back to the
+                    // cover centroid BEFORE the seam holds: settling here
+                    // would park him in the open.
+                    Vector3 home = CoverPoint - Feet(); home.y = 0f;
+                    if (home.magnitude > arriveEps)
+                    {
+                        if (!returnWalked)
+                        {
+                            returnWalked = true;
+                            swingStuckPos = Feet(); swingStuckT = Time.unscaledTime; stuckNudges = 0;
+                        }
+                        if (anim != null && anim.EffectiveState != CharacterAnimation.AnimState.Walking)
+                            anim.RequestPose(CharacterAnimation.AnimState.Walking, CharacterAnimation.PRIORITY_COMBAT);
+                        if (StepToward(CoverPoint, "return"))
+                        {
+                            Vector3 h = CoverPoint - Feet(); h.y = 0f;
+                            if (h.magnitude <= arriveEps)
+                            {
+                                var p = transform.position;
+                                p.y += CoverPoint.y - Feet().y;
+                                transform.position = p;
+                            }
+                            else
+                            {
+                                // Aborted off-target — the nudge budget is
+                                // spent; he stands where the leg ended and
+                                // the readout says so (no fake arrival).
+                                LastResult = $"return stalled {h.magnitude:F2}m off centroid";
+                                Debug.Log($"⚠️ [Combat] {name} — return leg aborted {h.magnitude:F2}m off the centroid");
+                            }
+                            CrouchAndCover();      // rolls facing at HIS landing spot
+                            returnTurning = true;  // phase C — turn under the return
+                        }
+                        break;
+                    }
+                    EnterBeat(EngagementBeat.Settle);
+                    break;
+                }
+                case EngagementBeat.Swing:
+                    if (swingPhase == 0)
+                    {
+                        // Step out — the fold rides the gait (walking base,
+                        // duck scalar carries the crouch), yaw = the way
+                        // he's actually moving.
+                        if (anim != null && anim.EffectiveState != CharacterAnimation.AnimState.Walking)
+                            anim.RequestPose(CharacterAnimation.AnimState.Walking, CharacterAnimation.PRIORITY_COMBAT);
+                        if (StepToward(swingDest, "swing-p0"))
+                        {
+                            var p = transform.position;
+                            p.y += swingDest.y - Feet().y;
+                            transform.position = p;
+                            // The authored head-yaw sweep — physically sweeps
+                            // the posed vision cone across the threat region.
+                            anim?.RequestPose(CharacterAnimation.AnimState.Looking, CharacterAnimation.PRIORITY_COMBAT);
+                            swingDwellUntil = Time.unscaledTime + DwellFor(EngagementBeat.Swing);
+                            swingPhase = 1;
+                        }
+                    }
+                    else if (swingPhase == 1)
+                    {
+                        // Dwell at the corner — the driver tracks the aim
+                        // anchor (belief) while the sweep rides; he is
+                        // physically EXPOSED out here (probes can hit him).
+                        FaceTrack(AimAnchor(), "swing-dwell");
+                        // Honest verdict — the cone sees the threat wherever
+                        // he actually is (point fed live each frame); the
+                        // aimed silhouette probe is the second channel.
+                        bool contact = false;
+                        if (ThreatCharacter != null)
+                        {
+                            if (dbgVisionFeed && vis != null) { vis.SetTarget(ThreatFeet()); if (vis.AnyVisible) contact = true; }
+                            if (!contact && sensor != null && sensor.TryGetVisibleVoxels(ThreatCharacter, out _)) contact = true;
+                        }
+                        if (contact)
+                        {
+                            // Reacquired where he IS — refresh belief:
+                            // zones/aim converge on the new position.
+                            LastSeenTarget = ThreatFeet();
+                            LastSeenAt = Time.unscaledTime;
+                            ThreatPos = LastSeenTarget.Value;
+                            LastRiseDiag = "peek — contact at the corner";
+                            Debug.Log($"🥊 [Combat] {name} — {LastRiseDiag} → Engaged");
+                            EnterBeat(EngagementBeat.Engaged);
+                        }
+                        else if (Time.unscaledTime >= swingDwellUntil)
+                        {
+                            LastRiseDiag = "peek — zero contact, stepping back";
+                            Debug.Log($"🥊 [Combat] {name} — {LastRiseDiag}");
+                            swingPhase = 2;
+                            // The dwell left the step guard's no-progress clock
+                            // stale — reset it or the first return tick reads
+                            // "stuck 0.6s+" and declares arrival at the rim.
+                            swingStuckPos = Feet(); swingStuckT = Time.unscaledTime; stuckNudges = 0;
+                        }
+                    }
+                    else
+                    {
+                        // Step back into cover — the seam re-orients the
+                        // settle facing from here.
+                        if (anim != null && anim.EffectiveState != CharacterAnimation.AnimState.Walking)
+                            anim.RequestPose(CharacterAnimation.AnimState.Walking, CharacterAnimation.PRIORITY_COMBAT);
+                        if (StepToward(CoverPoint, "swing-p2"))
+                        {
+                            Vector3 h = CoverPoint - Feet(); h.y = 0f;
+                            if (h.magnitude <= arriveEps)
+                            {
+                                var p = transform.position;
+                                p.y += CoverPoint.y - Feet().y;
+                                transform.position = p;
+                                CrouchAndCover();   // real arrival — rolls
+                            }
+                            // else: aborted off-spot — Duck's return leg
+                            // owns the walk home; ITS arrival rolls.
+                            afterSettle = EngagementBeat.TopUp;
+                            EnterBeat(EngagementBeat.Duck);
+                        }
+                    }
                     break;
             }
         }
@@ -749,16 +1259,13 @@ namespace SteelCity.Sim
                 if (anim != null) anim.duck = keep;
                 return;
             }
-            // Live threat feed — the sensor's context tracks the ACTOR, not
-            // the entry-time snapshot: ThreatPos updates to his current feet
-            // each frame and zones re-paint at the sensor's scan cadence as
-            // he moves (awareness stays live through the whole engagement;
-            // out of combat the pickedAim sync owns the channel instead).
+            // Belief feed — ThreatPos is the BELIEVED threat position:
+            // written at combat entry and on positive sightings (the probe
+            // write below), NOT live feet. Cover zones re-paint against
+            // where he was last SEEN. Truth (ThreatFeet) is reserved for
+            // physical verdicts — the silhouette probe and the vision cone.
             if (ThreatCharacter != null)
-            {
-                ThreatPos = ThreatFeet();
                 Sensor.Threat = ThreatPos;
-            }
             // Scripted director — consume the next filled slot once the current
             // stage has produced a verdict (first contact / refused or buried
             // rise / parked seam). Never mid-move: while SeekingCover the stage
@@ -798,8 +1305,12 @@ namespace SteelCity.Sim
                     // HoldPosition has no beats — snap to the requirement.
                     if (State == CombatState.InCover)
                     {
+                        // Swing dwell unfolds to `swingDuck` — the corner
+                        // lean, not the cover fold; step phases keep it.
                         float wantD = (Beat == EngagementBeat.Rise || Beat == EngagementBeat.Engaged)
-                            ? riseDuck : targetDuck;
+                            ? riseDuck
+                            : Beat == EngagementBeat.Swing && swingPhase == 1
+                                ? swingDuck : targetDuck;
                         anim.duck = Mathf.MoveTowards(anim.duck, wantD, riseDuckEase * Time.deltaTime);
                     }
                     else if (!Mathf.Approximately(anim.duck, targetDuck))
@@ -810,46 +1321,69 @@ namespace SteelCity.Sim
                     // on the LIVE duck, not targetDuck — state 5 can only
                     // express duck>1.02, so a rise below that boundary must
                     // flip to Idle's icr channel or the eye never clears.
-                    var wantPose = ExposureArmed ? CharacterAnimation.AnimState.Aiming
-                        : (anim.duck > 1.02f ? CharacterAnimation.AnimState.Crouching
-                                             : CharacterAnimation.AnimState.Idle);
-                    if (anim.EffectiveState != wantPose)
-                        anim.RequestPose(wantPose, CharacterAnimation.PRIORITY_COMBAT);
+                    // Swing is exempt: the beat owns its own poses (Walking
+                    // step, Looking+armed dwell) — the lane would stomp them.
+                    if (Beat != EngagementBeat.Swing)
+                    {
+                        var wantPose = ExposureArmed ? CharacterAnimation.AnimState.Aiming
+                            : (anim.duck > 1.02f ? CharacterAnimation.AnimState.Crouching
+                                                 : CharacterAnimation.AnimState.Idle);
+                        if (anim.EffectiveState != wantPose)
+                            anim.RequestPose(wantPose, CharacterAnimation.PRIORITY_COMBAT);
+                    }
                 }
             }
-            if (State != CombatState.SeekingCover) return;
-
-            Vector3 feet = Feet();
-            Vector3 to = CoverPoint - feet;
-            to.y = 0f;
-            float dist = to.magnitude;
-            if (dist <= arriveEps)
+            if (State == CombatState.SeekingCover)
             {
-                // Snap onto the probed ground at the cover point, then take cover.
-                var pos = transform.position;
-                pos.y += CoverPoint.y - feet.y;
-                transform.position = pos;
-                SetState(CombatState.InCover);
-                Relocating = false;   // the relocate phase ends where the seek ends
-                CrouchAndCover();
-                // The authored rhythm starts here: gather → top-up → settle → rise-check.
-                afterSettle = EngagementBeat.TopUp;
-                EnterBeat(EngagementBeat.Settle);
-                LastResult = $"in cover behind {CoverObstacleId} ({coverWallClass}, duck {targetDuck:F2})";
-                Debug.Log($"🥊 [Combat] {name} — in cover, pose {(coverWallClass == CoverSensor.WallClass.Full ? "STAND (Idle)" : $"duck@{targetDuck:F2}")}");
-                return;
+                Vector3 feet = Feet();
+                Vector3 to = CoverPoint - feet;
+                to.y = 0f;
+                float dist = to.magnitude;
+                if (dist <= arriveEps)
+                {
+                    // Position arrived — but ARRIVAL = position ∧ facing:
+                    // the turn to the rolled settle-facing is the seek's
+                    // last move, owned HERE ("arrive"), not by the seam.
+                    var pos = transform.position;
+                    pos.y += CoverPoint.y - feet.y;
+                    transform.position = pos;
+                    if (!coverArrived) { coverArrived = true; CrouchAndCover(); }
+                    FaceHold(settleYawDeg, "arrive");
+                    if (Mathf.Abs(Mathf.DeltaAngle(transform.eulerAngles.y, settleYawDeg)) <= 1f)
+                    {
+                        // Arrival = position ∧ facing — the seek completes only
+                        // once he's converged on the rolled settle facing.
+                        SetState(CombatState.InCover);
+                        Relocating = false;   // the relocate phase ends where the seek ends
+                        // The authored rhythm starts here: gather → top-up → settle → rise-check.
+                        afterSettle = EngagementBeat.TopUp;
+                        EnterBeat(EngagementBeat.Settle);
+                        LastResult = $"in cover behind {CoverObstacleId} ({coverWallClass}, duck {targetDuck:F2})";
+                        Debug.Log($"🥊 [Combat] {name} — in cover, pose {(coverWallClass == CoverSensor.WallClass.Full ? "STAND (Idle)" : $"duck@{targetDuck:F2}")}");
+                    }
+                }
+                else
+                {
+                    // Same leg mechanics as the beat steps — duck gait, axis
+                    // slide, unstick nudges. An exhausted nudge budget aborts
+                    // (the centroid proved unreachable) → same honest last
+                    // stand as the no-cover path: hold position facing him.
+                    if (StepToward(CoverPoint, "seek"))
+                    {
+                        Debug.Log($"⚠️ [Combat] {name} — cover unreachable ({dist:F2}m out) — holding position");
+                        SetState(CombatState.HoldPosition);
+                        CoverPoint = Feet();
+                        CoverObstacleId = null;
+                        coverWallClass = CoverSensor.WallClass.Crouch;
+                        targetDuck = 1f;
+                        CrouchAndCover();
+                        FaceTrack(AimAnchor(), "hold-position");
+                        LastResult = $"cover unreachable — holding position";
+                    }
+                }
             }
-
-            Vector3 dir = to / dist;
-            // Duck gait is slower by definition — the same factor that slows
-            // his gait cycle slows the approach, so feet stay married to
-            // terrain while folded (deep-duck approach = slow crab-walk).
-            float step = moveSpeed * (anim != null ? anim.DuckSpeedFactor : 1f) * Time.deltaTime;
-            MoveWithCollision(dir * Mathf.Min(step, dist));
-
-            float wantYaw = Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg;
-            float yaw = Mathf.MoveTowardsAngle(transform.eulerAngles.y, wantYaw, turnSpeedDeg * Time.deltaTime);
-            transform.rotation = Quaternion.Euler(0f, yaw, 0f);
+            // THE single write path runs LAST — after every intent is declared.
+            TickFacing();
         }
 
         /// <summary>The exposure beat (EXPOSURE_ENGAGEMENT.md): probe the
@@ -884,31 +1418,59 @@ namespace SteelCity.Sim
             // (The staggered reload tick lives at the top of Update — the wheel
             // is physical, not combat-state.)
 
+            // Belief is EVENT-driven — it snaps at acquisition and loss edges
+            // to a computed centroid and NEVER drifts mid-contact. While
+            // contact holds, the live body (ThreatFeet) is the truth channel;
+            // the belief only matters once he's out of sight again.
             if (canSee)
             {
-                LastSeenTarget = vis.centroid;
                 LastSeenAt = Time.unscaledTime;
+                lastConfirmed = ThreatFeet();   // the RING — entity position
+                                                // at confirmation, not the
+                                                // wandering pixel centroid
+                if (!contactSeen)
+                {
+                    LastSeenTarget = lastConfirmed;
+                    ThreatPos = lastConfirmed;   // reacquired WHERE he stands
+                }
             }
+            else if (contactSeen)
+            {
+                // Loss edge — freeze belief where he was last confirmed.
+                ThreatPos = lastConfirmed;
+                LastSeenTarget = lastConfirmed;
+            }
+            contactSeen = canSee;
 
             // Arm gate = exposure + not-reloading + an equipped weapon + beat
             // authority. Arm once, retarget every tick — the centroid moves as
             // the silhouette changes. Any pose may fire if the IK resolves.
             bool clearToArm = !reloading && mount != null && mount.IsEquipped
                            && BeatAllowsFire;
-            bool wantAim = canSee && clearToArm;
+            // Swing dwell = aim-without-fire: the IK presents at the aim
+            // anchor (belief) under the Looking sweep — the arm is raised
+            // but the trigger stays beat-owned (fire gate below).
+            bool swingAim = Beat == EngagementBeat.Swing && swingPhase == 1
+                         && !reloading && mount != null && mount.IsEquipped;
+            bool wantAim = dbgArmSolver && ((canSee && clearToArm) || swingAim);
             if (wantAim)
             {
-                aimPointWorld = vis.centroid;
-                if (solver.IsAiming) solver.SetTarget(vis.centroid);
-                else solver.Arm(vis.centroid);
+                aimPointWorld = canSee ? vis.centroid : AimAnchor();
+                if (solver.IsAiming) solver.SetTarget(aimPointWorld);
+                else solver.Arm(aimPointWorld);
             }
             // Disarm hold: a lone empty probe must not pump-stow him — hold the
             // arm on lastSeen through brief misses (disarmHoldSec). Losing
             // AUTHORITY (reload starts, weapon gone, beat closed the channel)
             // stows instantly — the arm is still beat-owned.
-            bool holding = solver.IsAiming && clearToArm
+            bool holding = dbgArmSolver && solver.IsAiming && clearToArm
                         && Time.unscaledTime - LastSeenAt <= disarmHoldSec;
-            if (!wantAim && !holding && ExposureArmed && solver.IsAiming)
+            // The arm is beat-owned outright: an arm this tick didn't grant
+            // is an ORPHAN (a leftover from possess-entry, a HUD ARM test,
+            // a pre-combat carryover) — it would keep solving toward a stale
+            // point and fight the settle facing. ExposureArmed only records
+            // the display flag; it is not the ownership check.
+            if (!wantAim && !holding && solver != null && solver.IsAiming)
                 solver.Disarm();
             bool armed = (wantAim || holding) && solver.IsAiming;
             if (armed != ExposureArmed) { ExposureArmed = armed; Notify(); }
@@ -917,7 +1479,8 @@ namespace SteelCity.Sim
             // the gate) + cadence + a live round + a FREE bore path — the
             // welded muzzle ray is the truth; converged-into-the-wall just
             // wastes rounds into brick.
-            if (!solver.IsAiming || cylinder <= 0 || Time.unscaledTime < nextFireTime
+            if (!solver.IsAiming || cylinder <= 0 || !BeatAllowsFire
+                || Time.unscaledTime < nextFireTime
                 || solver.Blend < 0.7f || solver.LastAngularErrorDeg > aimGateDeg
                 || BoreBuried(aimPointWorld)) return;
             nextFireTime = Time.unscaledTime + fireInterval;
@@ -939,16 +1502,34 @@ namespace SteelCity.Sim
         // parapet; hidden = zero voxels = he simply can't fire back yet.
         void CrouchAndCover()
         {
+            // Physical arrival at the centroid = THE facing-commitment
+            // moment. The roll lives HERE — the turn rides whichever beat
+            // actually moved him (fold, return walk, approach) — Settle is
+            // the breath after; it never owns a re-face.
+            bool returning = settleSpot == CoverPoint;   // re-arriving at the same spot
+            settleSpot = CoverPoint;
+            sbyte side;
+            if (settleFace == SettleFace.Random)
+            {
+                // On a return, never the same facing twice — the other
+                // two directions, equally likely.
+                do { side = (sbyte)(UnityEngine.Random.Range(0, 3) - 1); }   // −1 left · 0 back · +1 right
+                while (returning && side == PeekSide);
+            }
+            else side = settleFace == SettleFace.Back ? (sbyte)0
+                : settleFace == SettleFace.Left ? (sbyte)-1 : (sbyte)1;
+            PeekSide = side;
+            float tb = BearingDeg(AimAnchor() - Feet());
+            settleYawDeg = side == 0 ? tb + 180f : tb + side * 90f;
             if (anim != null) anim.coverContext = true;   // Full or ducked — covered is covered
             // Scalar pick: deep band (duck>1) needs the state-5 endpoints; the
             // morph band and Full both ride Idle where icr scales the fold.
             anim?.RequestPose(targetDuck > 1.02f ? CharacterAnimation.AnimState.Crouching
                                                  : CharacterAnimation.AnimState.Idle,
                               CharacterAnimation.PRIORITY_COMBAT);
-            Vector3 to = ThreatPos - Feet();
-            to.y = 0f;
-            if (to.sqrMagnitude > 1e-6f)
-                transform.rotation = Quaternion.Euler(0f, Mathf.Atan2(to.x, to.z) * Mathf.Rad2Deg, 0f);
+            // Facing is beat-owned — the ARRIVING beat turns him to the
+            // rolled side/back ("arrive"/"return" Hold or Duck's FaceCurve);
+            // no threat-facing snap here.
         }
 
         /// <summary>Character transform sits at the volume corner — feet = XZ center.</summary>
@@ -992,10 +1573,16 @@ namespace SteelCity.Sim
 
             Vector3 dst = transform.position + delta;
             if (Free(dst)) { transform.position = dst; return; }
-            Vector3 sx = transform.position + new Vector3(delta.x, 0f, 0f);
-            if (Free(sx)) { transform.position = sx; return; }
-            Vector3 sz = transform.position + new Vector3(0f, 0f, delta.z);
-            if (Free(sz)) transform.position = sz;
+            // Slide along the DOMINANT component first — corner-wrap needs
+            // the free axis tried before the blocked one; a fixed X-then-Z
+            // order kept feeding him back into the wall lip.
+            bool xDom = Mathf.Abs(delta.x) >= Mathf.Abs(delta.z);
+            Vector3 a = xDom ? new Vector3(delta.x, 0f, 0f) : new Vector3(0f, 0f, delta.z);
+            Vector3 b = delta - a; b.y = 0f;
+            Vector3 pa = transform.position + a;
+            if (Free(pa)) { transform.position = pa; return; }
+            Vector3 pb = transform.position + b;
+            if (Free(pb)) transform.position = pb;
         }
     }
 }

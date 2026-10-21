@@ -38,6 +38,8 @@ Bug tracker per Development Guidelines Rule 13. Bugs are cataloged by category i
 | [Cover Wall Class Depends On Owner Support](runtime/COVER_CLASS_DEPENDS_ON_OWNER_SUPPORT.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-10-18 |
 | [Derived Gait Phase — Pose Rewrite On Speed/Duck Change](runtime/DERIVED_GAIT_PHASE_POSE_REWRITE.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-10-19 |
 | [Possess Hold-Exit Arm — One-Shot Race With Pose Transition](runtime/POSSESS_HOLD_EXIT_ARM_ONESHOT_RACE.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-10-19 |
+| [Orphaned IK Arm Fights Settle Facing](runtime/ORPHANED_IK_ARM_FIGHTS_SETTLE_FACING.md) | runtime | 🟡 FIX APPLIED | 🟡 HIGH | 2026-10-20 |
 | [Possess Cover Drive Ducks on the Threat Side of a Wall](runtime/POSSESS_DRIVE_DUCKS_ON_THREAT_SIDE.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-10-20 |
 | [Transition Freeze Reads Post-Write Duck — Cover Exit Snap](runtime/TRANSITION_FREEZE_READS_POSTWRITE_DUCK.md) | runtime | 🟢 FIXED | 🟢 MEDIUM | 2026-10-20 |
 | [Relocate Target Collapses to Current Position — "Cancel + Re-Settle"](runtime/RELOCATE_TARGET_COLLAPSES_TO_CURRENT_POSITION.md) | runtime | 🟡 FIX APPLIED (pending playtest) | 🟡 HIGH | 2026-10-20 |
+| [Swing Retreat Settles at the Rim — Stale Step-Guard Clock](runtime/SWING_RETREAT_SETTLES_AT_RIM.md) | runtime | 🟡 FIX APPLIED | 🟡 HIGH | 2026-10-20 |

@@ -45,6 +45,7 @@ namespace SteelCity.Sim
 
         private Quaternion targetRotation;
         private bool hasTargetRotation;
+        private CombatController combatOwner;   // lazy — combat yields this channel
 
         [Tooltip("If true, camera follows the character during execution.")]
     public bool cameraFollow = true;
@@ -140,9 +141,13 @@ namespace SteelCity.Sim
                 dir.y = 0f;
                 if (dir.sqrMagnitude > 0.001f)
                 {
-                    targetRotation = Quaternion.LookRotation(dir.normalized, Vector3.up) *
-                                     Quaternion.Euler(0f, modelFacingOffset, 0f);
-                    hasTargetRotation = true;
+                    // A snap is instant facing — arming hasTargetRotation here
+                    // made this channel slerp the character every frame
+                    // FOREVER (only a zero-dir move event clears it), fighting
+                    // the combat facing driver ~±7°/frame. Set it and done.
+                    character.transform.rotation =
+                        Quaternion.LookRotation(dir.normalized, Vector3.up) *
+                        Quaternion.Euler(0f, modelFacingOffset, 0f);
                 }
             }
         }
@@ -192,10 +197,19 @@ namespace SteelCity.Sim
 
             // Rotate toward the current target rotation — runs during moves AND
             // while standing, so FaceTarget events can aim an idle character.
+            // COMBAT OWNS FACING — while a CombatController is non-Idle, the
+            // facing driver is the single rotation writer; this channel stands
+            // down instead of tug-of-warring the same transform.
             if (character != null && hasTargetRotation)
             {
-                character.transform.rotation = Quaternion.Slerp(
-                    character.transform.rotation, targetRotation, turnSpeed * Time.deltaTime);
+                var cc = combatOwner == null
+                    ? (combatOwner = character.GetComponent<CombatController>())
+                    : combatOwner;
+                if (cc != null && cc.State != CombatController.CombatState.Idle)
+                    hasTargetRotation = false;   // combat owns facing — the claim is void
+                else
+                    character.transform.rotation = Quaternion.Slerp(
+                        character.transform.rotation, targetRotation, turnSpeed * Time.deltaTime);
             }
 
             while (currentMoveEvent == null && simManager.Events.Count > 0)

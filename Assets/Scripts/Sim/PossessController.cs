@@ -109,11 +109,12 @@ namespace SteelCity.Sim
             var cam = cityMap != null ? cityMap.MapCamera : null;
             if (cam == null) { Release(); return; }
 
-            // F8 freeze = inspection mode: the sim is halted, so possess yields
-            // camera authority to the map free-cam (WASD fly / MMB orbit / wheel).
-            // Keep look angles synced to the free-cam so control resumes without
-            // a view snap on unfreeze.
-            if (Time.timeScale < 0.001f)
+            // Free-cam owns input (F6 freedom or F8 freeze — CamFree covers
+            // both): possess yields ALL of WASD/mouse/fire to the map fly —
+            // otherwise held WASD walks Vinny mid-test while the fly sits
+            // suppressed on the Active flag. Look angles stay synced so
+            // control resumes without a view snap.
+            if (cityMap.CamFree)
             {
                 lookYaw = cityMap.GetCameraYaw();
                 lookPitch = cityMap.GetCameraPitch();

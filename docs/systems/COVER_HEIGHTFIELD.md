@@ -75,7 +75,10 @@ reqDuck = clear ≥ H_stand           → 0 (Full — stands)
 - `volIdOf[cell]` → **`wallIdxOf[cell]`** — the splatting wall index, not the
   volume id. Retires the `requireVol` pin patch and the block-volume identity
   gap (`COVER_PICK_SPLAT_OVERLAP_WRONG_VOLUME` / the `block_45` problem).
-  `PickNear` returns the owning wall directly.
+  `PickNear` returns the owning wall directly. *(Landed partially:
+  `outDirOf[cell]` — the owning face's outward normal — is the per-cell
+  identity the zone flood uses to split corner-wrapped bands into per-face
+  rectangles; full wallIdx bookkeeping still pending.)*
 - New per-cell layer `Step`: `Δtop = colTop(neighbor) − colTop(cell)` against
   `stepHeight ≈ 0.15–0.20` (≈¼ Vinny) → `Walkable | StepUp | Blocked`. Same
   `colBase`/`colSpan` data — navigation reads the cover map for free.

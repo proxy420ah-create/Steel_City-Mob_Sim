@@ -162,6 +162,17 @@ namespace SteelCity.Sim
                 {
                     sb.AppendLine($"cover {cc.CoverObstacleId ?? "—"} · {cc.CoverWallClass}"
                                 + $" · reqDuck {cc.TargetDuck:F2}");
+                    {
+                        // XZ gap between the anchor (grid center = Feet) and
+                        // the committed destination — discriminates "never
+                        // arrived" from "arrived but pose folds mass off it".
+                        var vd = vinny.Dims;
+                        Vector3 fc = p + new Vector3(vd.x * vinny.voxelSize * 0.5f,
+                                                     0f, vd.z * vinny.voxelSize * 0.5f);
+                        float off = Vector2.Distance(new Vector2(fc.x, fc.z),
+                                                     new Vector2(cc.CoverPoint.x, cc.CoverPoint.z));
+                        sb.AppendLine($"off {off:F2}m (anchor→cover) {(off > cc.arriveEps ? "⚠ NOT ON POINT" : "on point")}");
+                    }
                     sb.AppendLine($"cadence {cc.fireInterval:F1}s · next shot {cc.NextFireIn:F1}s"
                                 + $" · shots {cc.ShotsFired}"
                                 + (cc.Reloading ? $" · +1 in {cc.NextRoundIn:F1}s · reload {cc.ReloadLeft:F1}s left" : ""));
@@ -211,22 +222,22 @@ namespace SteelCity.Sim
                                 + $" · {Time.unscaledTime - cc.LastSeenAt:F1}s ago");
             }
 
-            // ── The seam, as its own section: a draining countdown so each
-            // Settle is watchable, plus the branch point it will exit to.
-            sb.AppendLine("── settle ──────────────");
+            // ── The active beat's dwell, as its own section: a draining
+            // countdown so every beat is watchable at the debug tempo.
+            sb.AppendLine("── beat ────────────────");
             if (cc == null) { sb.AppendLine("(no CombatController)"); }
-            else if (cc.Beat == CombatController.EngagementBeat.Settle)
+            else if (cc.Beat != CombatController.EngagementBeat.None)
             {
-                float frac = cc.settleSec > 0f ? Mathf.Clamp01(cc.BeatLeft / cc.settleSec) : 0f;
+                float frac = cc.BeatDwellNow > 0f ? Mathf.Clamp01(cc.BeatLeft / cc.BeatDwellNow) : 0f;
                 int cells = Mathf.RoundToInt(frac * 10f);
-                sb.AppendLine($"<color=#ffb35c>SETTLE</color> {new string('▓', cells)}{new string('░', 10 - cells)}"
-                            + $" {cc.BeatLeft:F1}s / {cc.settleSec:F1}s"
-                            + $" → next: <color=#9ff2a0>{cc.NextAfterSettle}</color>");
+                sb.AppendLine($"<color=#ffb35c>{cc.Beat.ToString().ToUpperInvariant()}</color>"
+                            + $" {new string('▓', cells)}{new string('░', 10 - cells)}"
+                            + $" {cc.BeatLeft:F1}s / {cc.BeatDwellNow:F1}s"
+                            + (cc.Beat == CombatController.EngagementBeat.Settle
+                               ? $" → next: <color=#9ff2a0>{cc.NextAfterSettle}</color>" : ""));
             }
             else
-                sb.AppendLine($"idle · armed {cc.settleSec:F1}s per drain"
-                            + (cc.Beat != CombatController.EngagementBeat.None
-                               ? $" · beat {cc.Beat}" : ""));
+                sb.AppendLine($"parked · {cc.State}");
             // ── Engagement flow: the combat pipeline as a state chart — a
             // node lights when that stage is live, greys when the chain has
             // stalled there. Movement lane and fire lane run in parallel;

@@ -35,11 +35,12 @@ SEEK ── OpportunityAdvance (covering fire channel — suppression, not attac
 | Beat | Posture | Fire authority | Exit |
 |---|---|---|---|
 | `OpportunityAdvance` | approach duck gait (existing) | armed+fire when voxels resolve (existing channel — semantic label only) | cover arrival |
-| `Settle(d)` | cover hold at `targetDuck` | **none — stowed** | timer → next beat |
-| `TopUp` | cover hold | none (reloading anyway) | `!Reloading` (cylinder full) |
-| `Rise` | **full stand** (duck 0) | arm on first positive probe → transitions | pose converged → fresh probe: contact → `Engaged`; occluded → `Duck` |
-| `Engaged` | stays at stand (duck 0) | **free** — visible+converged+cadence+cylinder | dry → `Duck`; `emptyProbesToDrop` consecutive empty probes → `Duck` |
-| `Duck` | `targetDuck` | none | → `Settle` |
+| `Settle(d)` | cover hold at `targetDuck`; yaw **holds** the committed settle-face (back / ±90° side — never threat-facing; **zero motion** — the roll and the turn both live at the arriving beat) | **none — stowed** | timer → next beat |
+| `TopUp` | cover hold — **yaw holds `settleYawDeg`** (works the cylinder facing his committed posture) | none (reloading anyway) | `!Reloading ∧ floor` |
+| `Rise` | **full stand** (duck 0); yaw **coupled to the unfold** — `LerpAngle(riseFromYawDeg→engageYawDeg, smoothstep(duckProgress))` — turn-and-stand is ONE motion, not two eases | arm on first positive probe → transitions | `converged ∧ floor` → fresh probe: contact → `Engaged`; occluded → `Duck` |
+| `Engaged` | stays at stand (duck 0); **yaw tracks the live body** (`contactSeen ? ThreatFeet() : belief`) | **free** — visible+converged+cadence+cylinder | dry → `Duck`; `emptyProbesToDrop` consecutive empty probes → `Duck` (both queued behind floor) |
+| `Duck` | `targetDuck`; **fold-back coupled the same way** — yaw `LerpAngle(foldFromYawDeg→settleYawDeg, smoothstep(foldProgress))` — collapse-and-turn as one motion | none | `folded ∧ floor` → `Settle` |
+| `Swing` | step out = walking gait at `targetDuck`; dwell = unfold to `swingDuck` + `Looking` sweep **over the armed IK** aiming `AimAnchor` (aim-without-fire) | **aim yes, fire no** — arm presents, trigger stays beat-owned | contact → `Engaged`; dwell end → step back → `Duck` → seam |
 
 `OpportunityAdvance` is not a stored beat — it IS `SeekingCover` with the
 existing armed channel; the doctrine rename matters for later legality/
@@ -55,7 +56,129 @@ fixed rhythm above; the planned "branch of actions" (reload | re-check |
 reposition | lookScan) plugs in at exactly this point without touching beat
 mechanics.
 
-- `settleSec` default ~0.5s, Inspector-tunable.
+**Settle owns no motion — it is a breath, not a beat** (implemented): the
+facing roll lives at `CrouchAndCover`, which every PHYSICAL ARRIVAL calls
+(seek landing, swing step-back, the off-spot return leg) — and the TURN
+to that fresh facing is owned by the arriving beat, never the seam:
+the seek's last move is `FaceHold(settleYawDeg, "arrive")` (arrival =
+position ∧ facing — `InCover` doesn't begin until he converges), the
+step-back's turn rides `Duck`'s `FaceCurve(foldFrom → settleYawDeg, FoldT)`,
+and the off-spot return leg ends in a `FaceHold(settleYawDeg, "return")`
+posture turn that converges before `Settle` starts. In-place seams
+therefore never re-face: `EnterBeat(Settle)` only declares
+`FaceHold(settleYawDeg, "settle")` — no roll, no new demand. Each arrival
+re-rolls `PeekSide` from `settleFace` (`Random` → −1 left / 0 back /
++1 right, **excluding the side he just used** — the other two, equally;
+fresh spots roll all three). Hiding isn't watching: the vision cone points
+away during the seam, so perception honestly only happens during the
+peek's turn-to-engage (`Rise` eases to `engageYawDeg` = bearing to
+`AimAnchor()` while unfolding). `PeekSide` is the `Swing` beat's step-out
+commitment — a committed side swings that edge; back-facing leaves either
+side open (rolled at peek entry). `SolveRiseDuck` evaluates at
+`engageYawDeg`, not the settle-facing yaw.
+
+**Facing is a single driver, not a lane** (the unified rewrite): every
+yaw intent is a *declared mode* — `Free` / `Hold(deg)` / `Track(point)` /
+`Curve(from, to, t-source)` — and **one function (`TickFacing`, last call
+in `Update`) renders ALL combat yaw writes**. Declaration sites decide
+*what* heading; the driver decides *how* it moves; the roll
+(`PeekSide`/`settleYawDeg`/`engageYawDeg`) is pure decision data and
+never touches the transform. Beat → declaration:
+
+| Beat / state | Declares |
+|---|---|
+| `Settle` | `Hold(settleYawDeg)` — **pure breath**: no roll, no new demand; the roll lives at `CrouchAndCover` arrivals, the turn at the arriving beat |
+| `TopUp` / parked `None` | `Hold(settleYawDeg)` — the seam keeps the committed facing |
+| `Rise` | `Curve(riseFromYaw → engageYawDeg, RiseT)` — coupled to the unfold |
+| `Engaged` | `Track(contactSeen ? ThreatFeet() : AimAnchor())` per-tick |
+| `Duck` | `Curve(foldFromYaw → settleYawDeg, FoldT)` — coupled fold-back |
+| `Swing` steps | `Track(dest)` via `StepToward` (movement-facing, `dbgMoveYaw`) |
+| `Swing` dwell | `Track(AimAnchor())` per-tick |
+| `SeekingCover` | `Track(CoverPoint)` while moving (`dbgMoveYaw`); arrival = position ∧ facing — `Hold(settleYawDeg, "arrive")` converges before `InCover` |
+| `Duck` return leg | `Track(CoverPoint)` walking, then `Hold(settleYawDeg, "return")` posture turn — converges before `Settle` |
+| `HoldPosition` (no cover) | `Track(AimAnchor())` |
+| `EnterCombat` / `ExitCombat` / toggle-off | `Free` — writes nothing |
+
+`EnterBeat` calls `FaceFree()` first — every beat re-declares, so intent
+never goes stale. The driver is deadbanded (|Δ| ≤ 0.5° ⇒ no write) and
+`dbgFacing` gates the whole driver: off = **zero** combat yaw, guaranteed
+— this replaced the old split (servo lane + beat-owned writes) where a
+lane-level toggle could never cover the beat-owned sites, which is what
+made the bisect toggle feel contaminated.
+
+**Coupled transitions — turn rides the fold**: `Rise`/`Duck` declare
+`Curve` modes — `EnterBeat` captures `(duck, yaw)` endpoints, and the
+driver projects yaw onto the DUCK's live normalized progress
+(`RiseT`/`FoldT` read `anim.duck` per-frame): `yaw = LerpAngle(from, to,
+SmoothStep(t))`. One scalar is the clock; turn-and-stand (and
+fold-and-turn-back) are a single motion — the old independent eases
+(540°/s yaw vs 3/s duck) finished at different times and read as two
+forces fighting. If this still doesn't read as authored, the deeper
+version is a pose-space root-yaw channel swept through the animator with
+the transform committing at t=1 (root-motion extraction) — this coupling
+is the cheap probe of whether desync was the whole issue.
+
+**Torso assist is a stationary refinement** (ArmAimSolver): while the rig
+locomotes (`EffectiveState` Walking/AimWalk) `torsoAssist` is skipped —
+the root owns heading on the move; a second heading driver on the same
+spine (seek yaw vs `ikOverrides[0]`) was the navigation-time tug-of-war.
+The arm still solves the residual error on the move — the opportunity-fire
+channel is untouched.
+
+## `Swing` — the lateral peek primitive (implemented)
+
+The lateral counterpart of `Rise` for walls too tall to fight **over** —
+he can still look **around** them. Entered from the Rise-refusal path
+(`SolveRiseDuck < 0`, unscripted): the step-out destination is the zone's
+farthest **Hidden** member along `PeekSide`'s lateral axis
+(`CoverField.TryZoneEdge` — the safety boundary under this threat, not the
+band's geometric edge) + `swingMargin` past it — step-out distance
+adapts to the cover's painted width. Phases: **step out** (Walking gait,
+duck scalar holds the fold; faces the actual step destination — off-axis
+edges no longer moonwalk him) → **dwell** at the corner (`beatDwell[Swing]` ≈
+one authored lookScan cycle; unfolds to `swingDuck` — the corner lean —
+while `AnimState.Looking` physically sweeps the vision cone AND the arm
+IK presents at `AimAnchor` = belief — aim-without-fire: the fire gate
+carries `BeatAllowsFire` so the raised gun can't discharge; verdict =
+cone `AnyVisible` on the live-fed threat point OR the aimed silhouette
+probe — he is physically exposed while out) → **step back** into
+`CoverPoint` → `Duck` → seam. Contact short-circuits to `Engaged` **at
+the rim** — the return leg is then owned by `Duck`: when the fold lands
+off-spot (> `arriveEps` from `CoverPoint`), he duck-walks back to the
+centroid (`return` owner) BEFORE the seam holds — settling at the rim
+would park him in the open. If no
+zone edge exists the beat falls through to the old path (relocate →
+duck). The stationary pose/duck lane skips `Swing` entirely — the beat
+owns its poses, otherwise the lane re-requests the cover fold and stomps
+the sweep every frame.
+
+**Leg mechanics — stuck is not arrived** (`StepToward`, shared by the
+swing steps, the `return` leg, and now `SeekingCover` itself): the step
+guard's no-progress clock (`swingStuckPos`/`T`) is reset at each phase
+boundary — a stale clock once declared instant-arrival at the rim (the
+dwell had already consumed the 0.6s budget). When a leg stalls the
+guard spends **unstick sidesteps** — ±perpendicular 0.28m hops,
+alternating sides, ≤3 per leg — because `MoveWithCollision`'s slide is
+greedy axis work (dominant component first) that can't wrap a convex
+corner lip. Only an exhausted nudge budget reports "leg done," and
+**callers re-verify distance**: `swing-p2` verified-arrival → roll at
+`CrouchAndCover`; aborted → `Duck`'s return leg owns the rest. A return
+leg abort logs `⚠️ return leg aborted Nm off centroid` and stands where
+it ended — no fake arrival, no infinite grind. `SeekingCover` aborts
+the same way → `⚠️ cover unreachable` → `HoldPosition` last-stand
+fallback (same semantics as no-cover). **Arrival is exact**: entering
+`arriveEps` (0.06m) takes the remaining sub-eps step as final
+placement — "arrived" means ON the cell center, not inside a
+tolerance (GOTCHAS #13: the eps is a stall bound, not the residual —
+INT picks which point; footwork lands on it).
+
+- `beatDwell[]` — per-beat dwell FLOOR indexed by `EngagementBeat`, all
+  5s default (the debug tempo): every beat holds its seconds minimum and
+  event verdicts stay honest inside — the timer gates the LEAVE, never
+  the observation (TopUp still exits early if the cylinder's already
+  full, Rise waits `dwell ∧ converged`, Engaged's exits queue behind the
+  floor while `buriedSince` keeps counting, Swing's corner dwell rides
+  `beatDwell[Swing]`). Editable live in the HUD **TEMPO** table.
 - Transitions emit `Changed` — the panel lane lights each beat live.
 
 ## `Rise` — the atomic pop-up (full stand)
@@ -105,9 +228,9 @@ runs exactly as built — he stays up and fires on
 
 ```csharp
 // CombatController
-enum EngagementBeat : byte { None, Settle, TopUp, Rise, Engaged, Duck }
+enum EngagementBeat : byte { None, Settle, TopUp, Rise, Engaged, Duck, Swing }
 public EngagementBeat Beat { get; private set; }
-public float settleSec = 0.5f;             // the seam — one knob, every seam
+public float[] beatDwell;                  // per-beat dwell floors (5s debug default)
 public int emptyProbesToDrop = 4;          // consecutive empty probes before Duck
 float SolveRiseDuck();                     // the stand-height verdict above
 void EnterBeat(EngagementBeat b);          // +Changed on every transition
@@ -141,12 +264,11 @@ Lit amber while `Settle` counts down (show `settle s left` inline),
   we get tan suit moving"). Single rise-check only this build.
 - **Interruption policy** — stray LOS during `Settle`/`TopUp` (Tan strays
   into view mid-top-up): held for the same mobility phase. Beats hold.
-- **lookScan integration** — PAPERED (PERCEPTION_AWARENESS → Search &
-  resolution): Rise finding nothing is where the 3-stage search branches —
-  hop 1 at 45° bearing around `lastSeenPos`, hop 2 at ±90° from origin,
-  each hop = seek → settle → peek (`Rise` vertical or `Swing` lateral —
-  swing faces the cover edge swung around; both aim at belief
-  `lastSeenPos`, reacquisition via cone or aimed probe). Final miss →
+- **lookScan integration** — the `Swing` peek primitive is LIVE (above);
+  the hop DRIVER is still pending (PERCEPTION_AWARENESS → Search &
+  resolution): the 3-stage search branches out of a miss — hop 1 at 45°
+  bearing around `lastSeenPos`, hop 2 at ±90° from origin, each hop =
+  seek → settle → peek (`Rise` vertical or `Swing` lateral). Final miss →
   ExitCombat → duties.
 - **Tan-side beats** — Tan runs the same stack in AI-duel; his mobility/
   response behavior is a separate phase.
@@ -226,9 +348,10 @@ Lit amber while `Settle` counts down (show `settle s left` inline),
 - Panel: the beat lane renders `SETTLE` twice (the seam brackets the
   rise-check; both nodes light during any settle). A `beat <name> · <s>s
   left · riseDuck <d>` line sits under the cadence readout; `BeatLeft`
-  exposes the Settle timer (Rise is event-bound — no clock).
-- Tunables shipped: `settleSec 5` (debug — every seam watchable; intended
-  ~0.5 for production feel), `disarmHoldSec .35`, `emptyProbesToDrop 4`,
+  exposes the active beat's dwell countdown (every beat is timed now).
+- Tunables shipped: `beatDwell[]` all-5s (debug tempo — HUD **TEMPO —
+  beat lengths** table edits each live, ±0.5s step; intended ~0.5 for
+  production feel), `disarmHoldSec .35`, `emptyProbesToDrop 4`,
   `riseDuckEase 3/s`, `riseMargin .02`, `sightGap .045`, `muzzleFwd .3`,
   `loopBeats true` — all Inspector-exposed under "Engagement beats".
 - **Disarm hold**: `wantAim` is per-probe, but stow now requires a *sustained*
@@ -265,24 +388,32 @@ Lit amber while `Settle` counts down (show `settle s left` inline),
   from two places: a refused rise (solve says no) AND a buried-bore
   verdict inside `Engaged` (solve said yes, the real muzzle ray says no).
 - **Stand-point centroids — a cover position is a ZONE, and its stand
-  point is the zone's centroid** (user model: "each cover position
-  exposes a stand-point centroid from the area of its cover color
-  gradient"): `CoverField.EnumerateZones()` flood-fills Hidden cells into
-  connected components keyed on `(volIdOf, clsOf, reqDepthOf ÷ ¼-duck)`
-  — a stepped terrace yields one zone per step, a corner overlap splits
-  per volume. Each `ZoneSpot` carries `stand` (the member cell nearest
-  the raw centroid — visually identical, guaranteed inside the paint
-  even for concave zones), `volId`, mean `reqD`, `cls`, `cells`. The
-  relocate candidate loop iterates ZONES (not wall-face marks — the
-  earlier per-face anchoring produced ~7 spots on a 4-step terrace,
-  biased off-band): each zone borrows its owner volume's nearest face
-  mark only for the wall top the solve needs, re-validates `TryZoneAt`
-  at the stand, and runs `SolveRiseAtSpot` there — the verdict applies
-  to where he will actually stand, so a "cleared" can't disagree with
-  arrival. The committed `CoverPoint` is a cached Vector3 — no per-frame
-  recompute, nothing rewrites it mid-seek — which is what makes the
-  relocate atomic: the only SeekingCover→InCover transition is
-  `dist ≤ arriveEps` at that point.
+  point is the zone's centroid — owned by the QUALITY layer** (user model:
+  "each cover position exposes a stand-point centroid from the area of
+  its cover color gradient" → refined to "the broader measurement owns the
+  centroid; threat simply determines which one he selects"): `BuildZones()`
+  flood-fills the **claimed quality band** (`volIdOf` set, `quality ≥
+  SeedMin`) once per Build into connected components keyed on
+  `(volIdOf, clsOf, reqDepthOf ÷ ¼-duck, outDirOf)` — the face-normal key
+  splits a box's corner-wrapped bands into per-face **rectangles**, and the
+  stand is the band's **geometric center**: the owning columns' face
+  extent (`wallIdxOf` → `facePos`/`vs`) projected out by the band depth —
+  the wireframe box's middle, immune to raster asymmetry — so the centroid
+  is threat-independent (it can't drift on belief updates — only legality
+  changes). The threat layer gates MEMBERS:
+  `TryRankInZone`/`TryZoneEdge` read Hidden members only; a zone whose
+  stand cell isn't Hidden under the current threat still posts (dimmed) —
+  the physical offer vs the verdict are now visibly distinct. Each
+  `ZoneSpot` carries `stand` (the member cell nearest the centroid), `volId`,
+  `outDir`, mean `reqD`, `cls`, `cells`. The relocate candidate loop iterates
+  ZONES (not wall-face marks): each zone resolves its **own face's** nearest
+  mark (outDir-matched — a same-volume mark on another face would solve the
+  wrong wall top), re-validates `TryZoneAt` at the stand, and runs
+  `SolveRiseAtSpot` there — the verdict applies to where he will actually
+  stand, so a "cleared" can't disagree with arrival. The committed
+  `CoverPoint` is a cached Vector3 — no per-frame recompute, nothing
+  rewrites it mid-seek — which is what makes the relocate atomic: the only
+  SeekingCover→InCover transition is `dist ≤ arriveEps` at that point.
   `LastRelocateDiag` stamps `→ <volId> stand@(x,z) · duck <d>` /
   `refused — n face(s) failed` — surfaced as a `relocate` panel line.
 - **Relocate is a named phase, not a stealth re-seek** (user model: "the
@@ -295,29 +426,15 @@ Lit amber while `Settle` counts down (show `settle s left` inline),
   Relocation hygiene: `buriedSince`, `loopGate`, `anim.coverContext` all
   reset — EnterCombat fresh-seek parity, nothing stale steps on the
   sequence.
-- **Scripted engagement director — user-authored cover orders**: a debug
-  tool for studying movement sequences. HUD `SCRIPT — engagement director`
-  fold (TEST LOTS): a `refresh cover spots` button enumerates every
-  painted cover zone (`EnumerateZones` — the same one-spot-per-section
-  stand point relocation uses), sorted nearest-first; `show` paints a
-  post at every centroid (`cov_{i}` beams — dim cyan free, slot-colored
-  when assigned). Eight
-  dropdown slots each hold one order: `{volId} stand@(x,z) cls d{req}`.
-  With `scripted — combat waits for slot orders` ON, `EnterCombat` skips
-  the auto pick — he holds at spawn until slot 1 fills (the first order
-  is a normal `SeekingCover`, later slots show `RELOCATE`). Each slot
-  commits through `ScriptedGoTo` — identical atomicity to a fighting-cover
-  relocation: cached stand point, beat state reset, full
-  `SETTLE→TOPUP→SETTLE→RISE→ENGAGED` replay on arrival. **Advance rule**:
-  filling the NEXT slot is the order — it fires the moment the current
-  stage reaches a verdict (`ScriptStageDone` = first `Engaged` contact OR
-  any `Duck` entry: refused/empty/buried/dry/lost) — never mid-move, so
-  slots can't step on each other. In scripted mode auto-relocation is
-  suppressed (`TryRelocateToFightingCover` returns false + counts the
-  stage done) — the script owns position. Slots persist across
-  `ExitCombat`/`START DUEL` iterations — same script, re-runnable.
-  `cursor: slot n · stage done|running` readout; `scr_tgt` beam draws
-  feet→target while relocating.
+- **TEMPO table — per-beat dwell floors** (replaced the scripted-director
+  slot UI): the HUD `TEMPO — beat lengths` fold lists every beat
+  (settle/topup/rise/engaged/duck/swing) with a live `▶ <beat> · Ns left`
+  marker on the active row and `−`/`+` adjusters (±0.5s, 0.5–30 range) —
+  tune the debug tempo while a duel runs. `refresh cover spots` + `show`
+  still enumerate/paint the zone centroids (`cov_{i}` beams); `scr_tgt`
+  draws feet→target while relocating. The scripted director's code path
+  (`scriptedMode`, `scriptSlots`, `ScriptedGoTo`) remains in the
+  controller for programmatic use — only its slot UI was retired.
 - **Threat upstream of combat — the channel has two owners, split by
   mode, never thrashing**: OUT of combat `pickedAim` is the shared
   awareness channel — a per-frame sync pushes it into Vinny's

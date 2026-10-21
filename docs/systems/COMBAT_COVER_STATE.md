@@ -123,14 +123,34 @@ Two phases — matching the fact that **quality is threat-independent**:
    grid (`fieldRes`² over `radius`, origin snapped), then one decayed dilation
    ring turns splats into continuous zones. Result: a dense cover-potential
    map — walls and car sides paint hot, open ground stays a dim exposed wash.
-2. **Threat combine** (cheap, re-run per threat change): only quality cells ≥
+2. **Zone formation** (still quality-layer, runs at the end of the quality
+   pass): the claimed band cells flood into per-face zones keyed
+   `(volume, class, ¼-duck band, face normal)` — the face-normal key splits
+   a box's front/side bands at the corner so every zone is a **rectangle**.
+   `ZoneSpot.stand` is not a cell statistic: it's the **owning columns' face
+   rectangle projected onto the ground** (each member's `wallIdxOf` → its
+   column's `facePos`/`vs` extents along the face tangent × band depth) —
+   the wireframe box's center, immune to rasterization noise. Zone shape
+   and stand point are **threat-independent geometry** — they cannot
+   wobble with belief updates; only legality changes.
+3. **Threat combine** (cheap, re-run per threat change): only quality cells ≥
    the test threshold get validated — facing filter → ground probe →
    free-space → authoritative threat-chest → **posed crouch eye** LOS ray.
-   Cell score = `quality × (proxBlend + proxWeight·proximity)`.
+   Cell score = `quality × (proxBlend + proxWeight·proximity)`. **The threat
+   layer selects; it does not draw.** It gates which zone members are Hidden
+   (legal stand spots) — it never reshapes the zone or moves its centroid.
 
 `TryPickCover` returns the field maximum — **the heatmap IS the decision
 surface**: the pick flashes white on the Threat (composite) layer. Candidate
-posts/LOS beams remain as *visualization of tested cells*.
+posts/LOS beams remain as *visualization of tested cells*. The cyan cover
+posts draw at every zone's quality centroid — bright when the stand cell is
+Hidden under the current threat, dim grey when the offer exists physically
+but is gated out (band faces the shooter / center exposed). Two navigation
+markers sit beside them while combat is live: **`cov_dst`** (thick orange
+post at the committed `CoverPoint` — should coincide with a zone post) and
+**`cov_feet`** (green X at `Feet()` — the grid-center anchor that should
+land inside the destination post; the `off N.m` panel line prints the live
+gap, flagging `⚠ NOT ON POINT` beyond `arriveEps` = 0.06m).
 
 ### Adaptive crouch depth — cover height picks the duck
 
@@ -338,25 +358,26 @@ actually stands is a skill expression, not a constant.** `Hoods.xtx` already
 carries `Intelligence` (0-255) per hood (GANGSTERS_GAME_DATA §13) — map it
 onto the destination rank inside the picked zone:
 
-- **INT max** → `ZoneSpot.stand` — the centroid member cell. Deepest legal
-  position in the painted band: the threat-facing silhouette is maximally
-  behind the wall. (What the fix made universal.)
-- **INT min** → the zone **rim** — the member cell farthest from the
+- **INT max** → `ZoneSpot.stand` — the quality-layer band centroid.
+  Deepest legal position in the painted band: the threat-facing
+  silhouette is maximally behind the wall. (What the fix made universal.)
+- **INT min** → the zone **rim** — the `Hidden` member farthest from the
   centroid, still `Hidden` but with zero margin: a probe grazing the lip or
   a half-step of threat movement sees him. "Sticking out."
-- **Linear between** — `t = INT_norm`, member cells sorted by distance²
-  from the centroid, `idx = round((1 − t) · (cells−1))`. A mid-INT hood
-  stands a mid-margin cell — visibly sloppier cover usage, not a different
-  code path.
+- **Linear between** — `t = INT_norm`, the zone's **Hidden members**
+  sorted by distance² from the centroid, `idx = round((1 − t) · (cells−1))`.
+  The centroid itself is quality-owned geometry; the threat layer gates
+  only which members are legal picks. A mid-INT hood stands a mid-margin
+  cell — visibly sloppier cover usage, not a different code path.
 - **Sub-floor extreme (INT ~0-1)** → one cell *past* the rim into the
   adjacent `Exposed`/unclaimed cell — he thinks the wall covers him; the
   verdict map says no. Reserved — a real `Hidden` rim cell is the honest
   bottom for v1.
 
 Mechanic shape (IMPLEMENTED): `CoverField` retains each zone's member
-cells during the flood (`zoneMembers`); `TryRankInZone(cellIdx, intNorm)`
-sorts members by distance² to the centroid and rank-picks
-`idx = round((1−t)·(n−1))`. Both sensor picks take `intNorm`; the
+cells during the quality-layer flood (`zoneMembers`); `TryRankInZone(cellIdx,
+intNorm)` sorts the zone's **Hidden** members by distance² to the centroid
+and rank-picks `idx = round((1−t)·(n−1))`. Both sensor picks take `intNorm`; the
 character-facing tunable is `CombatController.coverIntNorm` ([Range 0–1],
 default 1) — Inspector-per-rig until real hood stats exist, so Vinny and
 Tan can run opposite ends of the spectrum today.

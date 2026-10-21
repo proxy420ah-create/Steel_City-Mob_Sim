@@ -43,13 +43,16 @@ namespace SteelCity.Sim
         public float[] score;                              // composite (quality × proximity), Hidden cells only
         public float[] facing;                             // contributing wall's threat-facing dot
         public string[] volIdOf;                           // wall volume that generated the cell (null none)
+        public Vector2[] outDirOf;                         // owning face's outward normal (XZ) — per-face zone key
+        public short[] wallIdxOf;                          // owning wall-column index (COVER_HEIGHTFIELD Phase B field)
         public float[] groundY;                            // probed ground height per tested cell
         public float[] eyeTopOf;                           // owning column's silhouette top (validation eye height)
         public float[] eyeFwdOf;                           // owning column's eye forward offset
         private float[] floorOf;                           // per-cell ground Y (NaN unprobed, NoGround = no hit)
         const float NoGround = -9999f;
         VoxelCollisionWorld bWorld;
-        float bHShallow, bHDeep, bFwdShallow, bFwdDeep, bStandH, bMargin;
+        List<CoverSensor.WallMark> bWalls;
+        float bHShallow, bHDeep, bFwdShallow, bFwdDeep, bStandH, bMargin, bStandoff;
         public byte[] clsOf;                               // zone's WallClass verdict — from THIS cell's own floor
         public float[] reqDepthOf;                         // owning column's required crouch depth
         private float[] scratch;                           // dilation buffer
@@ -71,6 +74,9 @@ namespace SteelCity.Sim
             TestedCells = ValidCells = 0;
             if (state != null) System.Array.Clear(state, 0, state.Length);
             if (score != null) System.Array.Clear(score, 0, score.Length);
+            zonesBuilt.Clear();
+            zoneMembers.Clear();
+            if (zoneOf != null) System.Array.Fill(zoneOf, -1);
         }
 
         // Rejected-cell reason tallies reuse the sensor's ScanStats.reasons.
@@ -93,6 +99,10 @@ namespace SteelCity.Sim
             score = new float[cells];
             facing = new float[cells];
             volIdOf = new string[cells];
+            outDirOf = new Vector2[cells];
+            wallIdxOf = new short[cells];
+            zoneSeen = new bool[cells];
+            zoneOf = new int[cells];
             groundY = new float[cells];
             eyeTopOf = new float[cells];
             eyeFwdOf = new float[cells];
@@ -120,6 +130,7 @@ namespace SteelCity.Sim
             EnsureSize(res);
             bWorld = world; bHShallow = topOffset; bHDeep = hDeep; bFwdShallow = topFwd;
             bFwdDeep = eyeFwdDeep; bStandH = standH; bMargin = depthMargin;
+            bWalls = walls; bStandoff = standoff;
             for (int i = 0; i < floorOf.Length; i++) floorOf[i] = float.NaN;
             float size = radius * 2f;
             CellSize = size / N;
@@ -137,6 +148,8 @@ namespace SteelCity.Sim
             System.Array.Clear(proximity, 0, proximity.Length);
             System.Array.Clear(score, 0, score.Length);
             System.Array.Clear(facing, 0, facing.Length);
+            System.Array.Clear(outDirOf, 0, outDirOf.Length);
+            System.Array.Clear(wallIdxOf, 0, wallIdxOf.Length);
             System.Array.Clear(groundY, 0, groundY.Length);
             System.Array.Clear(eyeTopOf, 0, eyeTopOf.Length);
             System.Array.Clear(eyeFwdOf, 0, eyeFwdOf.Length);
@@ -194,7 +207,7 @@ namespace SteelCity.Sim
                 // requirement-scaled corridor (2x..4x) is gone. Depth covers
                 // the stand spot; guarantee ≥1 painted row on coarse grids.
                 float depth = Mathf.Max(standoff, CellSize);
-                SplatRect(w, Mathf.Max(w.vs * 0.5f, halfW), depth);
+                SplatRect(w, Mathf.Max(w.vs * 0.5f, halfW), depth, i);
             }
 
             // A gap narrower than a body is not a gap: a lone Low column (notch,
@@ -219,6 +232,13 @@ namespace SteelCity.Sim
                     m = Mathf.Max(m, scratch[idx + dz * N + dx]);
                 if (m > 0f) { quality[idx] = m * HaloDecay; }
             }
+
+            // ── ZONES ARE A QUALITY-LAYER PRODUCT ────────────────────────
+            // The uniform bands flood into per-face rectangles NOW — before
+            // the threat pass — so the zone's shape and its centroid/stand
+            // point are threat-independent geometry. Phase 2 decides which
+            // zones are usable for THIS threat; it never reshapes them.
+            BuildZones();
 
             // ── PHASE 2: THREAT (cheap combine) ────────────────────────────
             // Only quality cells get validated: ground probe → free-space →
@@ -288,7 +308,7 @@ namespace SteelCity.Sim
         /// every wall, so cover areas can't gerrymander the pick; nearest
         /// column still owns overlapping cells at corners. The verdict for each
         /// cell is solved against THAT cell's floor (curbs/debris raise him).</summary>
-        private void SplatRect(CoverSensor.WallMark w, float halfW, float depth)
+        private void SplatRect(CoverSensor.WallMark w, float halfW, float depth, int wi)
         {
             Vector3 face = w.facePos, outDir = w.outDir;
             float tx = -outDir.z, tz = outDir.x;   // wall tangent
@@ -313,6 +333,8 @@ namespace SteelCity.Sim
                 if (d2 >= claim[idx]) continue;
                 claim[idx] = d2;
                 facing[idx] = w.facing;
+                outDirOf[idx] = new Vector2(outDir.x, outDir.z);
+                wallIdxOf[idx] = (short)wi;
 
                 // Per-cell verdict from this cell's own floor.
                 float fy = floorOf[idx];
@@ -454,6 +476,8 @@ namespace SteelCity.Sim
                 var (d, s) = fills[i];
                 if (volIdOf[d] != null) continue;
                 quality[d] = quality[s]; volIdOf[d] = volIdOf[s]; facing[d] = facing[s];
+                outDirOf[d] = outDirOf[s];
+                wallIdxOf[d] = wallIdxOf[s];
                 eyeTopOf[d] = eyeTopOf[s]; eyeFwdOf[d] = eyeFwdOf[s];
                 clsOf[d] = clsOf[s]; reqDepthOf[d] = reqDepthOf[s];
             }
@@ -473,20 +497,26 @@ namespace SteelCity.Sim
 
         public bool IsChosen(int idx) => idx == ChosenCell;
 
-        /// <summary>One painted cover AREA = one stand point. A zone is a
-        /// connected component of Hidden cells sharing owner volume, wall
-        /// class and required-duck band (¼-duck quantum — stepped terraces
-        /// split per step, corner overlaps split per volume). `stand` = the
-        /// cells' centroid at their mean probed ground — literally "the
-        /// middle of that color gradient", not a per-face anchor.</summary>
+        /// <summary>One painted cover AREA = one stand point. Zones form on the
+        /// QUALITY layer — a connected component of claimed cells (`volIdOf`
+        /// set, quality ≥ SeedMin) sharing owner volume, wall class, required-
+        /// duck band (¼-duck quantum) and FACE NORMAL — a box's front and side
+        /// bands split at the corner instead of merging into an L whose
+        /// centroid would fall inside the wall. The shape is threat-
+        /// INDEPENDENT: the threat layer decides whether members are Hidden
+        /// (usable); it never reshapes the zone. `stand` = the member cell
+        /// nearest the band's GEOMETRIC center — the owning columns' face
+        /// rectangle projected out by the band depth — squarely behind the
+        /// wall's middle even when rasterization is ragged.</summary>
         public struct ZoneSpot
         {
-            public Vector3 stand;       // cell centroid, y = mean probed ground
+            public Vector3 stand;       // band's geometric center, y = mean member ground
             public string volId;        // uniform — the split key includes it
+            public Vector2 outDir;      // uniform — the owning face's outward normal
             public float reqD;          // mean required duck over the zone
             public CoverSensor.WallClass cls;  // uniform — the split key includes it
             public int cells;
-            public int cell;            // member-cell index nearest the raw centroid
+            public int cell;            // member-cell index nearest the geometric center
         }
 
         static readonly int[] ZoneDX = { 1, -1, 0, 0 }, ZoneDZ = { 0, 0, 1, -1 };
@@ -494,6 +524,7 @@ namespace SteelCity.Sim
         private int[] zoneOf;                    // cell → zone index (indices into zonesBuilt)
         private readonly Queue<int> zoneQueue = new Queue<int>();
         private readonly List<int> zoneCells = new List<int>(512);
+        private readonly HashSet<int> ownerScratch = new HashSet<int>();
         private readonly List<ZoneSpot> zonesBuilt = new List<ZoneSpot>(64);
         private readonly List<int[]> zoneMembers = new List<int[]>(64);   // parallel to zonesBuilt — member cell indices
         private readonly List<(float d2, int cell)> rankScratch = new List<(float, int)>(512);
@@ -501,13 +532,12 @@ namespace SteelCity.Sim
         /// <summary>The painted zone a cell belongs to — the auto-pick's
         /// centroid resolver (the scripted slots already land on
         /// `ZoneSpot.stand`; the picks were landing on wall-column
-        /// midpoints instead of the marked middle). Re-enumerates fresh at
-        /// call time — picks are rare (combat entry / relocate).</summary>
+        /// midpoints instead of the marked middle). Zones are enumerated
+        /// once per Build on the quality layer — this is an O(1) lookup.</summary>
         public bool TryZoneOfCell(int cellIdx, out ZoneSpot z)
         {
             z = default;
-            if (cellIdx < 0 || state == null || !BuiltWithThreat) return false;
-            EnumerateZones(zonesBuilt);
+            if (zoneOf == null || cellIdx < 0 || cellIdx >= zoneOf.Length) return false;
             int zi = zoneOf[cellIdx];
             if (zi < 0) return false;
             z = zonesBuilt[zi];
@@ -518,12 +548,41 @@ namespace SteelCity.Sim
         /// actually stand on (the zone centroid cell, not the scanned pick).</summary>
         public void MarkChosen(int idx) => ChosenCell = idx;
 
+        /// <summary>The farthest HIDDEN zone member along `dirXZ` — the
+        /// safety boundary on that side for this threat. The Swing beat
+        /// steps just past it to clear the corner (step-out distance
+        /// adapts to the cover's width instead of a fixed margin). Zone
+        /// membership is the quality band; only hidden members bound where
+        /// it's safe to stand.</summary>
+        public bool TryZoneEdge(int cellIdx, Vector3 dirXZ, out Vector3 point, out ZoneSpot z)
+        {
+            point = default; z = default;
+            if (!TryZoneOfCell(cellIdx, out z)) return false;
+            var members = zoneMembers[zoneOf[cellIdx]];
+            float best = float.MinValue; int bc = -1;
+            for (int i = 0; i < members.Length; i++)
+            {
+                int m = members[i];
+                if (state[m] != CellState.Hidden) continue;
+                var c = CellCenter(m % N, m / N);
+                float d = (c.x - z.stand.x) * dirXZ.x + (c.z - z.stand.z) * dirXZ.z;
+                if (d > best) { best = d; bc = m; }
+            }
+            if (bc < 0) return false;
+            var p = CellCenter(bc % N, bc / N);
+            point = new Vector3(p.x, groundY[bc], p.z);
+            return true;
+        }
+
         /// <summary>INT-modulated stand point inside a zone (COMBAT_COVER_STATE
-        /// → "Cover positioning quality — the INT axis"): members ranked by
-        /// distance² from the centroid; t=1 lands on the centroid cell (max
-        /// depth), t=0 on the rim member (Hidden but zero margin — "sticking
-        /// out"). Linear between. `point` = the ranked cell's world stand
-        /// (per-cell probed ground); `standCell` = its index for MarkChosen.</summary>
+        /// → "Cover positioning quality — the INT axis"): HIDDEN members ranked
+        /// by distance² from the quality-layer centroid; t=1 lands on the
+        /// hidden member nearest the center (max margin), t=0 on the farthest
+        /// hidden rim cell (Hidden but zero margin — "sticking out"). Linear
+        /// between. The zone's shape/centroid are quality-owned; the threat
+        /// layer only gates which members are legal. `point` = the ranked
+        /// cell's world stand (per-cell probed ground); `standCell` = its
+        /// index for MarkChosen.</summary>
         public bool TryRankInZone(int cellIdx, float intNorm, out Vector3 point, out int standCell, out ZoneSpot z)
         {
             point = default; standCell = -1; z = default;
@@ -533,10 +592,13 @@ namespace SteelCity.Sim
             rankScratch.Clear();
             for (int i = 0; i < members.Length; i++)
             {
-                var c = CellCenter(members[i] % N, members[i] / N);
+                int m = members[i];
+                if (state[m] != CellState.Hidden) continue;
+                var c = CellCenter(m % N, m / N);
                 float dx = c.x - z.stand.x, dz = c.z - z.stand.z;
-                rankScratch.Add((dx * dx + dz * dz, members[i]));
+                rankScratch.Add((dx * dx + dz * dz, m));
             }
+            if (rankScratch.Count == 0) return false;
             rankScratch.Sort((a, b) => a.d2.CompareTo(b.d2));
             int rank = Mathf.RoundToInt((1f - Mathf.Clamp01(intNorm)) * (rankScratch.Count - 1));
             standCell = rankScratch[rank].cell;
@@ -545,28 +607,52 @@ namespace SteelCity.Sim
             return true;
         }
 
-        /// <summary>Flood-fills the Hidden cells into zones; appends one
-        /// ZoneSpot per component. `stand` is the member CELL nearest the
-        /// raw centroid — visually identical (cells are centimetres), but
-        /// guaranteed to sit inside the painted area even for concave zones.
-        /// Returns the count.</summary>
+        /// <summary>The zones enumerated by the last Build — zones are a
+        /// quality-layer product, cached per build; this just copies the
+        /// list. Returns the count.</summary>
         public int EnumerateZones(List<ZoneSpot> out_)
         {
             out_.Clear();
+            out_.AddRange(zonesBuilt);
+            return out_.Count;
+        }
+
+        /// <summary>Member ground Y — the phase-1 floor probe, lazily probed
+        /// for gap-closed cells (fills inherit no floor). NoGround cells fall
+        /// back to the scan height; they're Invalid for play anyway.</summary>
+        private float MemberY(int i)
+        {
+            float f = floorOf[i];
+            if (float.IsNaN(f)) f = floorOf[i] = ProbeFloor(CellCenter(i % N, i / N));
+            return f == NoGround ? GroundY : f;
+        }
+
+        /// <summary>Flood-fills the QUALITY footprint into per-face zones;
+        /// runs once per Build, before the threat pass. Membership = claimed
+        /// band cells (`volIdOf` set, quality ≥ SeedMin — the uniform
+        /// rectangles, not the threat-carved Hidden residue); split key =
+        /// (volume, class, ¼-duck band, face normal). `stand` is the member
+        /// CELL nearest the band's GEOMETRIC center — the owning wall
+        /// columns' face extent (`wallIdxOf` → their `facePos`/`vs`) projected
+        /// out by the band depth. A cell mean would follow rasterization
+        /// asymmetries (corner claim-stealing, gap fills); the projected
+        /// rectangle is the physical offer. Threat verdicts gate member
+        /// legality at query time (TryRankInZone/TryZoneEdge pick Hidden
+        /// members only); they never reshape the zone.</summary>
+        private void BuildZones()
+        {
+            zonesBuilt.Clear();
             zoneMembers.Clear();
-            if (state == null || !BuiltWithThreat) return 0;
-            if (zoneSeen == null || zoneSeen.Length != state.Length)
-                zoneSeen = new bool[state.Length];
-            else System.Array.Clear(zoneSeen, 0, zoneSeen.Length);
-            if (zoneOf == null || zoneOf.Length != state.Length)
-                zoneOf = new int[state.Length];
+            if (state == null) return;
+            System.Array.Clear(zoneSeen, 0, zoneSeen.Length);
             System.Array.Fill(zoneOf, -1);
             for (int s = 0; s < state.Length; s++)
             {
-                if (zoneSeen[s] || state[s] != CellState.Hidden || volIdOf[s] == null) continue;
+                if (zoneSeen[s] || volIdOf[s] == null || quality[s] < SeedMin) continue;
                 string vol = volIdOf[s];
                 byte cls = clsOf[s];
                 int q = Mathf.RoundToInt(reqDepthOf[s] * 4f);
+                Vector2 outD = outDirOf[s];
                 zoneSeen[s] = true;
                 zoneQueue.Clear(); zoneQueue.Enqueue(s);
                 zoneCells.Clear();
@@ -576,21 +662,56 @@ namespace SteelCity.Sim
                     int i = zoneQueue.Dequeue();
                     zoneCells.Add(i);
                     var c = CellCenter(i % N, i / N);
-                    sx += c.x; sz += c.z; gy += groundY[i]; rd += reqDepthOf[i];
+                    sx += c.x; sz += c.z; gy += MemberY(i); rd += reqDepthOf[i];
                     int cx = i % N, cz = i / N;
                     for (int d = 0; d < 4; d++)
                     {
                         int x = cx + ZoneDX[d], z = cz + ZoneDZ[d];
                         if (x < 0 || x >= N || z < 0 || z >= N) continue;
                         int j = z * N + x;
-                        if (zoneSeen[j] || state[j] != CellState.Hidden) continue;
+                        if (zoneSeen[j] || volIdOf[j] == null || quality[j] < SeedMin) continue;
                         if (volIdOf[j] != vol || clsOf[j] != cls) continue;
                         if (Mathf.RoundToInt(reqDepthOf[j] * 4f) != q) continue;
+                        // Corner split: a box's two faces share the volume —
+                        // the face normal must match too or their bands merge
+                        // into an L whose centroid lands in the concavity.
+                        if (Vector2.Dot(outDirOf[j], outD) < 0.999f) continue;
                         zoneSeen[j] = true; zoneQueue.Enqueue(j);
                     }
                 }
                 int n = zoneCells.Count;
                 float mx = sx / n, mz = sz / n;
+                // GEOMETRIC CENTER — the member-cell mean is a raster
+                // statistic: claim-stealing at corners, gap fills and terrace
+                // raggedness all skew it. The true stand is the CENTER OF
+                // THE FACE'S GROUND PROJECTION — the owning columns' face
+                // line extended out by the band depth (the wireframe box's
+                // middle). Owner columns' facePos give the real extents.
+                Vector2 t2 = new Vector2(-outD.y, outD.x);   // face tangent
+                float uMin = float.MaxValue, uMax = float.MinValue;
+                float tMin = float.MaxValue, tMax = float.MinValue;
+                ownerScratch.Clear();
+                foreach (var i in zoneCells)
+                {
+                    int wi = wallIdxOf[i];
+                    if (wi < 0 || wi >= bWalls.Count || !ownerScratch.Add(wi)) continue;
+                    var m = bWalls[wi];
+                    float uf = m.facePos.x * outD.x + m.facePos.z * outD.y;
+                    float tc = m.facePos.x * t2.x + m.facePos.z * t2.y;
+                    float hw = m.vs * 0.5f;
+                    if (uf < uMin) uMin = uf;
+                    if (uf > uMax) uMax = uf;
+                    if (tc - hw < tMin) tMin = tc - hw;
+                    if (tc + hw > tMax) tMax = tc + hw;
+                }
+                if (uMin <= uMax)
+                {
+                    // Band rect: u ∈ [uMin, uMax+depth], t ∈ [tMin, tMax].
+                    float uC = (uMin + uMax + Mathf.Max(bStandoff, CellSize)) * 0.5f;
+                    float tC = (tMin + tMax) * 0.5f;
+                    mx = outD.x * uC + t2.x * tC;
+                    mz = outD.y * uC + t2.y * tC;
+                }
                 int bestCell = zoneCells[0]; float bd = float.MaxValue;
                 foreach (var i in zoneCells)
                 {
@@ -599,20 +720,18 @@ namespace SteelCity.Sim
                     if (d < bd) { bd = d; bestCell = i; }
                 }
                 var standC = CellCenter(bestCell % N, bestCell / N);
-                int zoneIdx = out_.Count;
-                out_.Add(new ZoneSpot
+                int zoneIdx = zonesBuilt.Count;
+                zonesBuilt.Add(new ZoneSpot
                 {
                     stand = new Vector3(standC.x, gy / n, standC.z),
-                    volId = vol, reqD = rd / n,
+                    volId = vol, outDir = outD, reqD = rd / n,
                     cls = (CoverSensor.WallClass)cls, cells = n, cell = bestCell
                 });
                 foreach (var i in zoneCells) zoneOf[i] = zoneIdx;
                 var mem = new int[zoneCells.Count];
                 zoneCells.CopyTo(mem);
-                if (zoneIdx < zoneMembers.Count) zoneMembers[zoneIdx] = mem;
-                else zoneMembers.Add(mem);
+                zoneMembers.Add(mem);
             }
-            return out_.Count;
         }
 
         /// <summary>World XZ of the chosen cell center (for the post marker).</summary>
