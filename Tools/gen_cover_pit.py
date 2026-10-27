@@ -32,8 +32,8 @@
 import json
 
 W, H, D = 192, 48, 192
-RED_BRICK, STONE, CONCRETE, ASPHALT = 100, 101, 102, 104
-DARK_WOOD, LIGHT_WOOD, PAINTED_METAL, WHITE_FABRIC = 106, 107, 111, 127
+RED_BRICK, STONE, SIDEWALK, ASPHALT = 100, 101, 102, 104
+DARK_WOOD, LIGHT_WOOD, DARK_TRIM, PAINTED_METAL, WHITE_FABRIC = 106, 107, 108, 111, 127
 
 STAND_A_X, STAND_A_Z = 94, 24    # Vinny — south plate, centered on x=96
 STAND_B_X, STAND_B_Z = 94, 166   # Tan — north plate, straight across
@@ -69,8 +69,9 @@ def put(x0, x1, y0, y1, z0, z1, m):
             for z in range(z0, z1):
                 vox[(x, y, z)] = m
 
-# --- ground pad ---
-put(0, W, 0, 2, 0, D, ASPHALT)
+# --- ground pad — SIDEWALK (102): the designated walkable surface (same
+#     MAT id as city sidewalks — walkableMaterials masks read this stamp).
+put(0, W, 0, 2, 0, D, SIDEWALK)
 # perimeter curb (1 voxel high over pad) — lot reads bounded, no wall class
 put(0, W, 2, 3, 0, 2, STONE); put(0, W, 2, 3, D - 2, D, STONE)
 put(0, 2, 2, 3, 0, D, STONE); put(W - 2, W, 2, 3, 0, D, STONE)
@@ -86,8 +87,11 @@ marker_pads = {}
 for x0, run, h in GRADIENT:
     x1, z0, z1 = x0 + run, GRAD_Z0, GRAD_Z0 + GRAD_D
     put(x0, x1, 2, h, z0, z1, LIGHT_WOOD)
-    put(x0, x1, h - 1, h, z0, z0 + 1, DARK_WOOD)   # south lip = Vinny's side
-    put(x0, x1, h - 1, h, z1 - 1, z1, DARK_WOOD)   # north lip = Tan's side
+    # Lip = 108 Dark Trim, NOT 106 — a dark-wood lip on the null tail would
+    # sit inside the walkable family and terrace a legal staircase over
+    # the wall's low end.
+    put(x0, x1, h - 1, h, z0, z0 + 1, DARK_TRIM)   # south lip = Vinny's side
+    put(x0, x1, h - 1, h, z1 - 1, z1, DARK_TRIM)   # north lip = Tan's side
 for key, cx in PAD_AT.items():
     # marker pads (dark wood, surface layer): south = Vinny's pick anchor,
     # north = Tan's. Centroids feed attachmentPoints directly.
@@ -136,8 +140,9 @@ def mat(i, name, r, g, b):
     return {"id": i, "name": name, "r": r, "g": g, "b": b, "hex": h, "category": "building"}
 
 materials = [
-    mat(101, "Stone", 122, 107, 87), mat(104, "Asphalt", 46, 46, 51),
+    mat(101, "Stone", 122, 107, 87), mat(102, "Sidewalk", 150, 145, 138),
     mat(106, "Dark Wood", 76, 45, 25), mat(107, "Light Wood", 153, 107, 64),
+    mat(108, "Dark Trim", 60, 35, 18),
     mat(111, "Painted Metal", 230, 224, 209),
 ]
 

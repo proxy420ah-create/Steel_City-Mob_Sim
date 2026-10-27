@@ -319,6 +319,9 @@
 - **`docs/systems/TEST_WEEK.md`** — the open-week debug order (formerly `target_practice`): holds the week in `Dwelling` state so feature testbeds are live
   - Testbed registry: `shooting_range` (firing lanes), `cover_arena` (symmetric duel, in front of tenement door), `debris_test_lot` (blast testing) — routed by authored attachment points
   - `testWeekDwells`/`testWeekSkipWalk` toggles; `Enter` releases the week
+- **`docs/systems/POSSESS_BODY_DEBUGGING.md`** — the possessed body IS the probe: wedge detection (all move lanes refused + input held 0.75s) → teleport + one structured `[Possess] UNSTUCK` emit
+  - `ExplainSquare`/`ColumnFreeDetail` iterate the identical `SquareDirs`/`ColumnFree` law — the diagnostic can't drift from the verdict; failed samples name the owning volume, cell, and world position
+  - Field opinion per emit (`walk`/`reach`/`OFF-WINDOW`) splits "map lied" from "player-steered pocket"; roadmap: combat-mover snag emits, route-commit verification, `snag.jsonl`, per-character event rings, health/hit emits
 
 **Weapon & Item Models:**
 - **`docs/systems/WEAPON_ITEM_MODEL_STANDARD.md`** — Voxel modeling standards for weapons, items, and props

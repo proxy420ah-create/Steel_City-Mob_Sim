@@ -63,7 +63,7 @@ namespace SteelCity.Sim
 
         [Header("Visuals (PathDebugRenderer beams)")]
         [Tooltip("Draw the in-flight tracer streak behind each bullet.")]
-        public bool showTracers = true;
+        public bool showTracers = false;
         [Tooltip("Draw red tick marks at impact points (last 8 kept).")]
         public bool showImpactMarks = false;  // red hit ticks — off by default, Combat tab toggle
         public float tracerLength = 0.4f;

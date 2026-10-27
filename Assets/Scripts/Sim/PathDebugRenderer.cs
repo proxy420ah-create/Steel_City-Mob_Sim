@@ -107,6 +107,19 @@ namespace SteelCity.Sim
             => customCubes[key] = (pos, rot, size, color);
         public void ClearCustomCube(string key) => customCubes.Remove(key);
 
+        // X-ray cubes — same instanced cube path, but drawn with a
+        // ZTest-Always material so marks that live INSIDE geometry still
+        // read (vision impact marks inside a target's silhouette, the
+        // bore-state orb welded inside the hand/gun volume). Debug x-ray
+        // semantic: these are status lamps, not scene geometry.
+        private readonly Dictionary<string, (Vector3 pos, Quaternion rot, float size, Color color)> xrayCubes = new();
+        public void SetXrayCube(string key, Vector3 pos, Quaternion rot, float size, Color color)
+            => xrayCubes[key] = (pos, rot, size, color);
+        public void ClearXrayCube(string key) => xrayCubes.Remove(key);
+        private readonly Dictionary<uint, List<Matrix4x4>> xrayBatches = new();
+        private readonly Dictionary<uint, Color> xrayBatchColors = new();
+        private Material xrayMaterial;
+
         /// <summary>One cell-sized debris voxel in flight — drawn as an unrotated
         /// instanced cube, batched into the same quantized-color buckets as customCubes.</summary>
         public struct VoxelParticle { public Vector3 pos; public float size; public Color col; }
@@ -196,6 +209,12 @@ namespace SteelCity.Sim
             {
                 beamMaterial = new Material(shader);
                 beamMaterial.enableInstancing = true;
+                // X-ray variant — same shader, depth test forced Always so
+                // marks buried inside voxels still render (see xrayCubes).
+                xrayMaterial = new Material(shader);
+                xrayMaterial.enableInstancing = true;
+                if (xrayMaterial.HasProperty("_ZTest"))
+                    xrayMaterial.SetFloat("_ZTest", (float)UnityEngine.Rendering.CompareFunction.Always);
             }
             else
             {
@@ -297,7 +316,7 @@ namespace SteelCity.Sim
             // after voxel chunks are rendered into the RT.
             // If no VoxelRenderBridge is present, fall back to drawing here.
             if (mapRoot == null || boxMesh == null || beamMaterial == null) return;
-            if (activePaths.Count == 0 && !showWaypointGraph && customBeams.Count == 0 && customCubes.Count == 0 && (voxelParticles == null || voxelParticles.Count == 0)) return;
+            if (activePaths.Count == 0 && !showWaypointGraph && customBeams.Count == 0 && customCubes.Count == 0 && xrayCubes.Count == 0 && (voxelParticles == null || voxelParticles.Count == 0)) return;
 
             // Cached singleton lookups — FindFirstObjectByType scans every
             // object in a city-sized scene; two of these per frame while any
@@ -325,7 +344,7 @@ namespace SteelCity.Sim
                     VLog($"[PathDebug] RenderBeamsIntoCamera SKIP: mapRoot={mapRoot != null}, boxMesh={boxMesh != null}, beamMat={beamMaterial != null}");
                 return;
             }
-            if (activePaths.Count == 0 && !showWaypointGraph && customBeams.Count == 0 && customCubes.Count == 0 && (voxelParticles == null || voxelParticles.Count == 0))
+            if (activePaths.Count == 0 && !showWaypointGraph && customBeams.Count == 0 && customCubes.Count == 0 && xrayCubes.Count == 0 && (voxelParticles == null || voxelParticles.Count == 0))
             {
                 if (Time.frameCount % 120 == 0)
                     VLog("[PathDebug] RenderBeamsIntoCamera SKIP: no active paths, graph debug off, no custom beams");
@@ -784,6 +803,32 @@ namespace SteelCity.Sim
                 beamProps.Clear();
                 beamProps.SetColor("_Color", cubeBatchColors[kv.Key]);
                 DrawInstanced(cmd, cubeScratch, list.Count, beamMaterial, beamProps);
+                segDrawCount++;
+            }
+
+            // X-ray cubes — identical bucketing, ZTest-Always material.
+            foreach (var list in xrayBatches.Values) list.Clear();
+            foreach (var cb in xrayCubes.Values)
+            {
+                uint key = QuantizeColor(cb.color);
+                if (!xrayBatches.TryGetValue(key, out var list))
+                {
+                    list = new List<Matrix4x4>(64);
+                    xrayBatches[key] = list;
+                    xrayBatchColors[key] = cb.color;
+                }
+                if (list.Count < MaxInstances)
+                    list.Add(Matrix4x4.TRS(cb.pos, cb.rot, Vector3.one * cb.size));
+            }
+            var xmat = xrayMaterial != null ? xrayMaterial : beamMaterial;
+            foreach (var kv in xrayBatches)
+            {
+                var list = kv.Value;
+                if (list.Count == 0) continue;
+                list.CopyTo(cubeScratch);
+                beamProps.Clear();
+                beamProps.SetColor("_Color", xrayBatchColors[kv.Key]);
+                DrawInstanced(cmd, cubeScratch, list.Count, xmat, beamProps);
                 segDrawCount++;
             }
 

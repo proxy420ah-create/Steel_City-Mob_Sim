@@ -129,11 +129,39 @@ namespace SteelCity.Sim
         public void DebugSnapTo(Vector3 posWorld, Vector3 dims, float voxelSize, Vector3? faceWorld, float? feetY = null)
         {
             if (character == null) return;
+            // A snap is an authoritative override — void every transient claim
+            // this player holds, or they tug the transform back: the rotation
+            // slerp (FaceTarget / move-facing arms) would slerp him BACK to the
+            // script's facing next frame, and a live move lerp would yank his
+            // position to the event's endpoint. Same one-owner rule as combat.
+            hasTargetRotation = false;
+            currentMoveEvent = null;
             Vector3 half = new Vector3(dims.x * voxelSize * 0.5f, 0f, dims.z * voxelSize * 0.5f);
             Vector3 target = posWorld - half;
             // feetY lets free-placement picks land him on a roof/floor surface;
             // callers that don't pass it get the old keep-current-height behavior.
             target.y = feetY ?? character.transform.position.y;
+            // Clearance check — a snap is authoritative but must still land on
+            // a square the body can occupy, else the mover wakes embedded and
+            // every lane refuses. Slide to the nearest certified square
+            // (ring-scan, ±1.5m level) and SAY it — silently shifted landings
+            // lie about where the click meant.
+            var w = cachedCityMap != null
+                ? cachedCityMap.GetComponent<VoxelCollisionWorld>()
+                : FindFirstObjectByType<VoxelCollisionWorld>();
+            if (w != null && character != null)
+            {
+                Vector3 center = new Vector3(posWorld.x, target.y, posWorld.z);
+                float bh = character.BodyFootprint * 0.5f;
+                if (!w.SquareFree(center, bh, character.WorldSize.y)
+                    && w.TryNearestFreeSquare(center, bh, character.WorldSize.y,
+                                              1.5f, out var free))
+                {
+                    Debug.Log($"[EventPlayer] snap adjusted → free square ({free.x:F1},{free.y:F2},{free.z:F1}) — authored point embedded");
+                    center = free;
+                }
+                target = center - half;
+            }
             character.transform.position = target;
             if (faceWorld.HasValue)
             {
@@ -179,19 +207,26 @@ namespace SteelCity.Sim
 
             if (currentMoveEvent != null)
             {
-                moveElapsed += Time.deltaTime * playbackSpeed;
-                float t = Mathf.Clamp01(moveElapsed / currentMoveEvent.duration);
-
-                Vector3 pos = Vector3.Lerp(currentFromWorld, currentToWorld, t);
-                pos.y = character.transform.position.y;
-                PlaceCharacter(pos);
-
-                if (t >= 1f)
+                // Possession owns THIS body — a live script lerp must not drag
+                // the player back to the event's endpoint. Other characters'
+                // scripts keep running (Body is null while unpossessed).
+                if (PossessController.Body == character) currentMoveEvent = null;
+                else
                 {
-                    currentMoveEvent = null;
-                    // Don't set Idle between walk segments — animTime must keep
-                    // accumulating for a continuous walk cycle. Idle is only set
-                    // when the simulation transitions away from walking states.
+                    moveElapsed += Time.deltaTime * playbackSpeed;
+                    float t = Mathf.Clamp01(moveElapsed / currentMoveEvent.duration);
+
+                    Vector3 pos = Vector3.Lerp(currentFromWorld, currentToWorld, t);
+                    pos.y = character.transform.position.y;
+                    PlaceCharacter(pos);
+
+                    if (t >= 1f)
+                    {
+                        currentMoveEvent = null;
+                        // Don't set Idle between walk segments — animTime must keep
+                        // accumulating for a continuous walk cycle. Idle is only set
+                        // when the simulation transitions away from walking states.
+                    }
                 }
             }
 
@@ -205,8 +240,9 @@ namespace SteelCity.Sim
                 var cc = combatOwner == null
                     ? (combatOwner = character.GetComponent<CombatController>())
                     : combatOwner;
-                if (cc != null && cc.State != CombatController.CombatState.Idle)
-                    hasTargetRotation = false;   // combat owns facing — the claim is void
+                if ((cc != null && cc.State != CombatController.CombatState.Idle)
+                    || PossessController.Body == character)
+                    hasTargetRotation = false;   // combat or the player owns facing — the claim is void
                 else
                     character.transform.rotation = Quaternion.Slerp(
                         character.transform.rotation, targetRotation, turnSpeed * Time.deltaTime);

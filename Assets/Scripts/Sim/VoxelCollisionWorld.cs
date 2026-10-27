@@ -30,6 +30,26 @@ namespace SteelCity.Sim
 
         public bool IsInitialized => initialized;
 
+        /// <summary>The persistent world-space walkability layer — ONE owner
+        /// of ground/material/fit verdicts for the whole map. Every write
+        /// path below dirties exactly the cells it touched; CoverField
+        /// windows bulk-copy the cache instead of re-probing per fighter.</summary>
+        public WalkLayer Walk { get; private set; }
+
+        void Awake() { Walk = new WalkLayer(this); }
+
+        /// <summary>World AABB of a registered volume — exact when axis-aligned
+        /// (yaw≈0, every current caller), conservative cover-all square for a
+        /// rotated volume (rare; over-clears, re-probes lazily).</summary>
+        public static Bounds VolumeAabb(Vector3 corner, int w, int h, int d, float vs, float yawDeg)
+        {
+            Vector3 size = new Vector3(w * vs, h * vs, d * vs);
+            if (Mathf.Abs(yawDeg) < 0.01f)
+                return new Bounds(corner + size * 0.5f, size);
+            float diag = Mathf.Sqrt(size.x * size.x + size.z * size.z);
+            return new Bounds(corner + size * 0.5f, new Vector3(diag * 2f, size.y, diag * 2f));
+        }
+
         /// <summary>Number of registered building volumes.</summary>
         public int VolumeCount => volumes.Count;
 
@@ -82,6 +102,7 @@ namespace SteelCity.Sim
 
             initialized = true;
             Debug.Log($"[VoxelCollisionWorld] Registered {registered:N0} terrain voxels ({w}x{h}x{d}) at origin {worldOrigin}, voxelSize={vs}");
+            Walk?.InvalidateAll();   // wholesale rewrite — every verdict is stale
         }
 
         /// <summary>
@@ -157,6 +178,9 @@ namespace SteelCity.Sim
                     }
                 }
             }
+            // The chunk's footprint — only its cells' verdicts are stale.
+            Vector3 csz = new Vector3(w * vs, h * vs, d * vs);
+            Walk?.Invalidate(new Bounds(chunkWorldOrigin + csz * 0.5f, csz));
         }
 
         /// <summary>
@@ -242,16 +266,30 @@ namespace SteelCity.Sim
         /// referenced, not copied; treat it as read-only. corner = world min corner of the grid.
         /// </summary>
         public void RegisterVolume(string id, uint[] voxels, int w, int h, int d, Vector3 corner, float voxelSize, float yawDegrees = 0f)
-            => volumes.Register(id, voxels, w, h, d, corner, voxelSize, yawDegrees);
+        {
+            volumes.Register(id, voxels, w, h, d, corner, voxelSize, yawDegrees);
+            Walk?.Invalidate(VolumeAabb(corner, w, h, d, voxelSize, yawDegrees));
+        }
 
-        public bool UnregisterVolume(string id) => volumes.Unregister(id);
+        public bool UnregisterVolume(string id)
+        {
+            // Capture the footprint before removal — the cells under it must
+            // re-probe to open space.
+            Bounds b = default;
+            bool had = TryGetVolume(id, out _, out int vw, out int vh, out int vd,
+                                    out Vector3 vc, out float vvs, out float vyaw);
+            if (had) b = VolumeAabb(vc, vw, vh, vd, vvs, vyaw);
+            bool ok = volumes.Unregister(id);
+            if (ok && had) Walk?.Invalidate(b);
+            return ok;
+        }
 
         /// <summary>Fetch a registered volume's array + placement — the array is shared/read-only (see SolidVolumeSet.TryGetVolume).</summary>
         public bool TryGetVolume(string id, out uint[] voxels, out int w, out int h, out int d,
             out Vector3 corner, out float voxelSize, out float yawDegrees)
             => volumes.TryGetVolume(id, out voxels, out w, out h, out d, out corner, out voxelSize, out yawDegrees);
 
-        public void ClearVolumes() => volumes.Clear();
+        public void ClearVolumes() { volumes.Clear(); Walk?.InvalidateAll(); }
 
         /// <summary>Solid volumes overlapping the XZ circle (center, radius) — feeds cover awareness.</summary>
         public int QueryVolumes(Vector3 center, float radius, List<CoverObstacle> results)
@@ -260,6 +298,187 @@ namespace SteelCity.Sim
         /// <summary>Cover-capable wall columns of volumes overlapping the XZ circle — feeds CoverSensor.</summary>
         public int QueryCoverWalls(Vector3 center, float radius, float minSpanWorld, float openAtWorld, List<CoverWall> results)
             => volumes.QueryCoverWalls(center, radius, minSpanWorld, openAtWorld, results);
+
+        /// <summary>The 5-sample body column at a feet-center position —
+        /// feet+0.06 / waist 0.35h / mid 0.55h / chest 0.75h / head 0.9h
+        /// (the top band was once untested — balcony lips and lintels at
+        /// head height passed invisibly). THE atomic body-space
+        /// primitive: the cover field's cell verdicts, the continuous
+        /// footprint probes, both movers, and the corridor sweeps all answer
+        /// "is the body column clear here" through THIS — one owner, no
+        /// re-derivation, no driftable copies. (The waist sample is what
+        /// keeps bodies out of car cabins.)</summary>
+        public bool ColumnFree(Vector3 feetCenter, float bodyH)
+            => ColumnFreeDetail(feetCenter, bodyH, out _, out _);
+
+        /// <summary>ColumnFree with the verdict explained — on failure `why`
+        /// names the failed sample (feet/waist/chest) and WHAT it hit
+        /// (terrain or the owning volume's id+cell), and `hitPos` is the
+        /// sample's world position — walkable-to coordinates of the exact
+        /// offending voxel. One implementation serves the hot bool path and
+        /// the snag diagnostic — the law can't fork.</summary>
+        public bool ColumnFreeDetail(Vector3 feetCenter, float bodyH,
+                                     out string why, out Vector3 hitPos)
+        {
+            hitPos = feetCenter + Vector3.up * 0.06f;
+            var f = SamplePoint(hitPos);
+            if (Solid(f.kind)) { why = $"feet:{Hit(f)}"; return false; }
+            hitPos = feetCenter + Vector3.up * (bodyH * 0.35f);
+            var w = SamplePoint(hitPos);
+            if (Solid(w.kind)) { why = $"waist:{Hit(w)}"; return false; }
+            hitPos = feetCenter + Vector3.up * (bodyH * 0.55f);
+            var m = SamplePoint(hitPos);
+            if (Solid(m.kind)) { why = $"mid:{Hit(m)}"; return false; }
+            hitPos = feetCenter + Vector3.up * (bodyH * 0.75f);
+            var c = SamplePoint(hitPos);
+            if (Solid(c.kind)) { why = $"chest:{Hit(c)}"; return false; }
+            hitPos = feetCenter + Vector3.up * (bodyH * 0.9f);
+            var h = SamplePoint(hitPos);
+            if (Solid(h.kind)) { why = $"head:{Hit(h)}"; return false; }
+            why = null; hitPos = feetCenter; return true;
+
+            static bool Solid(PointKind k)
+                => k == PointKind.TerrainSolid || k == PointKind.VolumeSolid;
+            static string Hit(in PointSample s)
+                => s.kind == PointKind.VolumeSolid ? $"vol:{s.volumeId}#{s.cellIdx}" : "terrain";
+        }
+
+        // The square's 9-column pattern as unit directions — center first,
+        // then corners, then edge midpoints. SquareFree, TrySquareStepUp, and
+        // ExplainSquare all iterate THIS table: the verdict, the climb probe,
+        // and the diagnostic can never drift apart.
+        private static readonly (int x, int z)[] SquareDirs =
+            { (0,0), (1,1), (1,-1), (-1,1), (-1,-1), (1,0), (-1,0), (0,1), (0,-1) };
+        private static readonly string[] SquareNames =
+            { "ctr", "+x+z", "+x-z", "-x+z", "-x-z", "+x", "-x", "+z", "-z" };
+
+        /// <summary>Collision skin — the tested square runs this much wider
+        /// than the spec'd footprint on every side, so the body can never
+        /// press flush against a face. Sub-skin discontinuities (volume-seam
+        /// steps, half-cell lips, recess wedges) live INSIDE the skin zone
+        /// the tested square never enters: wall-following slides OVER the
+        /// seam instead of jamming into it. One constant inside the shared
+        /// primitive — the field certifies, corridors sweep, and both movers
+        /// execute the identical inflated envelope (a mover-only skin would
+        /// certify cells the body can't reach).</summary>
+        public const float BodySkin = 0.06f;
+
+        /// <summary>The body SQUARE at a feet-center — the column at center
+        /// plus the 4 perimeter corners AND the 4 edge midpoints, all at
+        /// off = half + BodySkin − 0.03. Corners alone left a half-wide
+        /// blind span along each edge — a wall corner or yawed face slid
+        /// between them and the square nosed ~`half` deep before the center
+        /// column hit. THE verdict for "can this body stand centered here":
+        /// the map's certification, the mover's executor, and possess mode
+        /// all consume the identical square — physically impossible to
+        /// diverge.</summary>
+        public bool SquareFree(Vector3 feetCenter, float half, float bodyH)
+        {
+            if (!ColumnFree(feetCenter, bodyH)) return false;
+            float off = Mathf.Max(0f, half + BodySkin - 0.03f);
+            for (int i = 1; off > 0f && i < SquareDirs.Length; i++)
+                if (!ColumnFree(feetCenter + new Vector3(SquareDirs[i].x * off, 0f,
+                        SquareDirs[i].z * off), bodyH))
+                    return false;
+            return true;
+        }
+
+        /// <summary>Per-column verdict dump of the IDENTICAL SquareFree
+        /// pattern — the snag diagnostic: which of the 9 columns failed, at
+        /// which body height, and inside which volume's voxel. Appends
+        /// "name=ok|feet:vol:id…" tokens so a blocked move can report exactly
+        /// which sample of the certified envelope refused.</summary>
+        public void ExplainSquare(Vector3 feetCenter, float half, float bodyH,
+                                  System.Text.StringBuilder sb)
+        {
+            float off = Mathf.Max(0f, half + BodySkin - 0.03f);
+            for (int i = 0; i < SquareDirs.Length; i++)
+            {
+                if (i > 0 && off <= 0f) break;
+                Vector3 p = i == 0 ? feetCenter
+                    : feetCenter + new Vector3(SquareDirs[i].x * off, 0f,
+                                               SquareDirs[i].z * off);
+                bool ok = ColumnFreeDetail(p, bodyH, out string why, out Vector3 hitPos);
+                if (i > 0) sb.Append(' ');
+                sb.Append(SquareNames[i]);
+                if (ok) sb.Append("=ok");
+                else sb.Append('=').Append(why)
+                       .Append($"@({hitPos.x:F2},{hitPos.y:F2},{hitPos.z:F2})");
+            }
+        }
+
+        /// <summary>Step-up probe over the body square — every column of
+        /// SquareFree's own 9-sample pattern gets its column top; the
+        /// highest top inside (feet+0.04, feet+stepUp] wins. A thin obstacle
+        /// that only touches the square's LEADING EDGE now offers its top —
+        /// a center-only probe read the ground beyond the chunk and never
+        /// climbed (the snag-on-debris class). Caller re-verifies the whole
+        /// square at the raised height — a wall still walls.</summary>
+        public bool TrySquareStepUp(Vector3 feetCenter, float half, float stepUpMax,
+                                    out float topY)
+        {
+            float feetY = feetCenter.y;
+            float best = feetY + 0.04f;
+            bool found = false;
+            void TryCol(Vector3 p)
+            {
+                if (TryColumnTop(p, stepUpMax + 0.06f, 1f, out float t)
+                    && t > best && t <= feetY + stepUpMax)
+                { best = t; found = true; }
+            }
+            TryCol(feetCenter);
+            float off = Mathf.Max(0f, half + BodySkin - 0.03f);
+            for (int i = 1; off > 0f && i < SquareDirs.Length; i++)
+                TryCol(feetCenter + new Vector3(SquareDirs[i].x * off, 0f,
+                                                SquareDirs[i].z * off));
+            topY = best;
+            return found;
+        }
+
+        /// <summary>The mover's whole placement question as ONE primitive:
+        /// the square free at feetCenter, else a step-up top offered AND the
+        /// raised square free — TryMove's exact composition. The field's
+        /// walkable cert, both movers, and corridor sweeps all run this —
+        /// "can the body be PLACED here, climbs included" can never fork
+        /// into a map-answer the body doesn't execute.</summary>
+        public bool TryBodySquare(Vector3 feetCenter, float half, float bodyH,
+                                  float stepUp, out float placedY)
+        {
+            placedY = feetCenter.y;
+            if (SquareFree(feetCenter, half, bodyH)) return true;
+            if (TrySquareStepUp(feetCenter, half, stepUp, out float top))
+            {
+                Vector3 up = feetCenter; up.y = top;
+                if (SquareFree(up, half, bodyH)) { placedY = top; return true; }
+            }
+            return false;
+        }
+
+        /// <summary>Unstuck recovery — nearest free body-square on real
+        /// ground. Ring scan outward from `feetCenter` (8 directions per
+        /// 0.25m ring): each candidate probes its column top (must land
+        /// within ±1.5m of the current feet — a roof or a pit is a different
+        /// place, not an escape) and runs the identical skinned SquareFree.
+        /// Possess-mode escape only — routed movers never reach this state
+        /// because their edges are transition-certified.</summary>
+        public bool TryNearestFreeSquare(Vector3 feetCenter, float half, float bodyH,
+                                         float maxRadius, out Vector3 free)
+        {
+            free = feetCenter;
+            const int dirs = 8;
+            for (float r = 0.25f; r <= maxRadius; r += 0.25f)
+                for (int k = 0; k < dirs; k++)
+                {
+                    float ang = k * (Mathf.PI * 2f) / dirs;
+                    Vector3 p = feetCenter + new Vector3(Mathf.Cos(ang) * r, 0f, Mathf.Sin(ang) * r);
+                    p.y = feetCenter.y;
+                    if (!TryColumnTop(p, 0.5f, 2.5f, out float topY)) continue;
+                    if (Mathf.Abs(topY - feetCenter.y) > 1.5f) continue;
+                    Vector3 cand = new Vector3(p.x, topY, p.z);
+                    if (SquareFree(cand, half, bodyH)) { free = cand; return true; }
+                }
+            return false;
+        }
 
         /// <summary>World Y of the solid column top under `pos` — the character's
         /// support surface for the cover heightfield. Downward ray from

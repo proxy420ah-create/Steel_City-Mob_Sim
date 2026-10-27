@@ -38,7 +38,7 @@ SEEK ── OpportunityAdvance (covering fire channel — suppression, not attac
 | `Settle(d)` | cover hold at `targetDuck`; yaw **holds** the committed settle-face (back / ±90° side — never threat-facing; **zero motion** — the roll and the turn both live at the arriving beat) | **none — stowed** | timer → next beat |
 | `TopUp` | cover hold — **yaw holds `settleYawDeg`** (works the cylinder facing his committed posture) | none (reloading anyway) | `!Reloading ∧ floor` |
 | `Rise` | **full stand** (duck 0); yaw **coupled to the unfold** — `LerpAngle(riseFromYawDeg→engageYawDeg, smoothstep(duckProgress))` — turn-and-stand is ONE motion, not two eases | arm on first positive probe → transitions | `converged ∧ floor` → fresh probe: contact → `Engaged`; occluded → `Duck` |
-| `Engaged` | stays at stand (duck 0); **yaw tracks the live body** (`contactSeen ? ThreatFeet() : belief`) | **free** — visible+converged+cadence+cylinder | dry → `Duck`; `emptyProbesToDrop` consecutive empty probes → `Duck` (both queued behind floor) |
+| `Engaged` | stays at stand (duck 0); **yaw tracks the live body** (`contactSeen ? ThreatFeet() : belief`) | **free** — visible+converged+cadence+cylinder | dry → `Duck`; `dropAfterSec` of sustained empty probes → `Duck` (both queued behind floor) |
 | `Duck` | `targetDuck`; **fold-back coupled the same way** — yaw `LerpAngle(foldFromYawDeg→settleYawDeg, smoothstep(foldProgress))` — collapse-and-turn as one motion | none | `folded ∧ floor` → `Settle` |
 | `Swing` | step out = walking gait at `targetDuck`; dwell = unfold to `swingDuck` + `Looking` sweep **over the armed IK** aiming `AimAnchor` (aim-without-fire) | **aim yes, fire no** — arm presents, trigger stays beat-owned | contact → `Engaged`; dwell end → step back → `Duck` → seam |
 
@@ -220,9 +220,9 @@ runs exactly as built — he stays up and fires on
 `visible && converged && cadence && cylinder`. Ends when:
 - **dry** → `Duck` → `Settle` → `TopUp`(=reload, already staggered) →
   `Settle` → `Rise` — the rhythm loops; and/or
-- **`emptyProbesToDrop` consecutive empty probes** (target relocated/covered,
-  not a dropped frame — event-count, not a clock) → `Duck` → `Settle` →
-  re-check.
+- **`dropAfterSec` of sustained empty probes** (target relocated/covered —
+  a CLOCK now, not a count, so it holds at any `visInterval` including
+  per-frame probing) → `Duck` → `Settle` → re-check.
 
 ## API surface (implementation sketch)
 
@@ -231,7 +231,7 @@ runs exactly as built — he stays up and fires on
 enum EngagementBeat : byte { None, Settle, TopUp, Rise, Engaged, Duck, Swing }
 public EngagementBeat Beat { get; private set; }
 public float[] beatDwell;                  // per-beat dwell floors (5s debug default)
-public int emptyProbesToDrop = 4;          // consecutive empty probes before Duck
+public float dropAfterSec = 0.5f;         // sustained empty-probe seconds before Duck
 float SolveRiseDuck();                     // the stand-height verdict above
 void EnterBeat(EngagementBeat b);          // +Changed on every transition
 ```
@@ -265,11 +265,53 @@ Lit amber while `Settle` counts down (show `settle s left` inline),
 - **Interruption policy** — stray LOS during `Settle`/`TopUp` (Tan strays
   into view mid-top-up): held for the same mobility phase. Beats hold.
 - **lookScan integration** — the `Swing` peek primitive is LIVE (above);
-  the hop DRIVER is still pending (PERCEPTION_AWARENESS → Search &
-  resolution): the 3-stage search branches out of a miss — hop 1 at 45°
-  bearing around `lastSeenPos`, hop 2 at ±90° from origin, each hop =
-  seek → settle → peek (`Rise` vertical or `Swing` lateral). Final miss →
-  ExitCombat → duties.
+  the search driver is the **ORBIT** (collapsed doctrine, 2026-10-22):
+  ANY "peeked and saw nothing" verdict arms `pendingSearch`
+  (`ArmSearch()`) — the Engaged drop (N empty probes), a zero-contact
+  `Rise`, and a zero-contact `Swing` dwell are the same miss. The FIRST
+  miss of an episode records the orbit frame: anchor = `AimAnchor`
+  (belief — freshest sighting else the entry report, so a never-seen
+  target still leaves a point to circle), origin bearing = where he
+  stands, buffer radius = the standoff held at the loss — now the
+  orbit's PREFERRED radius (the drawn ring IS the hot path: scoring hugs
+  it, any depth near or far is legal), side = rolled CW/CCW (the only
+  discrete decision). Each Settle seam consumes the flag via
+  `TryOrbitStep`: the pick is the cheapest Hidden-verdict zone that
+  advances the arc ≥15° on the rolled side (cost = ring-adherence
+  |dAnchor−orbitRadius| + 0.15·travel; flow-field path cost is the
+  declared upgrade) AND whose cover face POINTS AWAY from the anchor —
+  `Dot(zone.outDir, anchor→stand) > +0.3` — outDir is the wall's outward
+  normal into the stand area, so coherent cover runs parallel to
+  anchor→stand; a zone hidden by accident
+  (third-party occlusion) rather than by its own wall is fragile cover
+  and doesn't form a coherent hop path. Legs are ROUTED: `BuildRoute`
+  Dijkstra-floods the cover field's own cell grid (voxel-solid
+  walkability — the same SamplePoint predicate MoveWithCollision
+  enforces, no corner-cutting — and `routeRingBias` adds a soft per-cell
+  cost for distance off the orbit ring so corridors hug the arc), then
+  string-pulls the chain into waypoints the seek steps through: zones
+  are the nodes, the flood is the corridor between them. No corridor →
+  the straight ray stands in; a waypoint abort counts as a leg abort
+  (spent zone, re-pick). `search_legN` markers draw the actual corridor
+  polyline. Hop classes (`orbitReconEvery`, default 3): every Nth leg is a RECON — `CommitSearchSeek` →
+  SeekingCover → the normal rhythm re-runs the peek (`Rise` vertical,
+  `Swing` lateral on refusal); the rest are TRANSIT — land, brief
+  settle, and the seam re-issues the next step without peeking
+  (2 transit → 1 recon). Hop legs run the SCOUT posture: locally-Hidden ground keeps
+  the fold at the local wall's `reqD`, open ground stands `duck→0` +
+  `AimWalk` + arm presented FORWARD (feet + facing·2.5m — training the
+  gun on belief mid-leg would twist the torso toward memory the whole
+  walk; a probe resolve retargets the arm instantly); `dbgSearchLook`
+  (default off) A/B-layers the head sweep. An aborted leg marks the zone
+  spent and re-picks the next arc step from where he stands — only full
+  arc exhaustion or a satisfied flank ends the episode. A mid-leg
+  sighting rolls 50/50: continue to the committed cover vs
+  `TryNearestCover` park + restart. `progress ≥ 90°` → the peek at that
+  stand is the answer; a following miss exits combat → duties. Panel:
+  `SEARCH ▸ ORBIT n°·(transit|recon) ▸ FLANK 90°` lane under the beats. Markers:
+  `search_ref` (white, origin bearing) / `search_aim` (yellow, the 90°
+  goal spoke) / `search_buf` (amber standoff ring) / `search_pick`,
+  `search_leg`, `search_tgt` (cyan→orange as progress → 90°).
 - **Tan-side beats** — Tan runs the same stack in AI-duel; his mobility/
   response behavior is a separate phase.
 - **Branch table** — `NextBeatAfter` is fixed this build; the decision
@@ -328,19 +370,20 @@ Lit amber while `Settle` counts down (show `settle s left` inline),
 - `Rise` carries fire authority (`BeatAllowsFire`) — a positive probe mid-
   transition can already arm him before the convergence verdict fires; the
   gate order is `TickExposureFire` then `TickBeat`.
-- The muzzle gate is the **bore line anchored to the sight line** — aimed
-  fire aligns the sights to the eye, so the presented muzzle is
-  `eye − sightGap` (0.045m, sights sit above the bore) pushed `muzzleFwd`
-  (~0.3m) horizontally toward `LastSeenTarget`/threat; require
-  `!sensor.LosBlocked(muzzle, tgt)` — the bullet path must be free on the
-  same world collision the probe uses. Two earlier models measured the
-  wrong thing: the rest-pose wrist pivot sat below the real presented
-  height (wall 0.70 vs eye 0.76 clears, pivot 0.68 fails — refused while
-  the shot path was free), and a hand+forward-reach ray stayed descending
-  under any top (no forward reach fixes a descending bore). Target
-  priority: `LastSeenTarget` → live threat; none = eye-only solve (a look,
-  not a shot). Diag strings: `can't see over` / `sees but can't shoot` /
-  `cleared` — eye-vs-bore failures are distinct.
+- The muzzle gate is **vertical lip clearance** — the cover-side question
+  "can the presented bore ride over this parapet": the aimed muzzle sits
+  `sightGap` (0.045m, sights sit above the bore) below the eye, so it
+  must clear `wallTop + riseMargin` on its own — `eye − sightGap ≥
+  wallTop + riseMargin`. It deliberately does NOT ray the path to the
+  target: whether *this* shot reaches is the fire gate's truth
+  (`BoreBuried` on the real welded muzzle at trigger time), and failing
+  a stand because the *target* sits behind the cover conflated a
+  positional problem with a cover verdict (a stand you can see over and
+  raise the gun over IS fightable — an occluded line just means relocate
+  or swing). Target presence picks the verdict tier: `LastSeenTarget` →
+  live threat; none = eye-only solve (a look, not a shot). Diag strings:
+  `can't see over` / `bore under lip` / `cleared` — eye-vs-bore failures
+  are distinct.
 - The stationary pose pick (`Crouching` vs `Idle`) follows the **live**
   `anim.duck`, not `targetDuck` — state 5 can only express duck>1.02. With
   firing posture now fixed at stand, Rise/Engaged always ride `Idle`→`Aiming`;
@@ -351,8 +394,8 @@ Lit amber while `Settle` counts down (show `settle s left` inline),
   exposes the active beat's dwell countdown (every beat is timed now).
 - Tunables shipped: `beatDwell[]` all-5s (debug tempo — HUD **TEMPO —
   beat lengths** table edits each live, ±0.5s step; intended ~0.5 for
-  production feel), `disarmHoldSec .35`, `emptyProbesToDrop 4`,
-  `riseDuckEase 3/s`, `riseMargin .02`, `sightGap .045`, `muzzleFwd .3`,
+  production feel), `disarmHoldSec .35`, `dropAfterSec .5`,
+  `riseDuckEase 3/s`, `riseMargin .02`, `sightGap .045`, `pinRecheckSec 4`,
   `loopBeats true` — all Inspector-exposed under "Engagement beats".
 - **Disarm hold**: `wantAim` is per-probe, but stow now requires a *sustained*
   miss (`disarmHoldSec` since `LastSeenAt`) — a lone dropped probe no longer
@@ -455,8 +498,20 @@ Lit amber while `Settle` counts down (show `settle s left` inline),
   threat armed" or "no hidden zones in range".
 - **`LastRiseDiag` — rise attempts are no longer silent**: every solve stamps
   the verdict — `no wall mark on <vol> within 2m of stand`, `eye eval failed`,
-  `unsolvable: wall <h> vs eye≤<h> muzzle≤<h>`, `cleared: duck <d> · wall <h>`,
-  `rose clean — zero contact`, `contact → Engaged`. Panel `rise <diag>` line +
+  `can't see over: wall <h>+<m> vs eye≤<h>`, `bore under lip: muzzle <h> <
+  wall <h>+<m>`, `cleared: stand · wall <h>`, `risen — zero contact`,
+  `contact at stand → Engaged`. Panel `rise <diag>` line +
   `🥊` console log on refusal/expiry. A refused rise means "standing over this
-  parapet is pointless" (eye AND muzzle can't both clear — full exposure, zero
-  payoff), never "he can't stand up".
+  parapet is pointless" (eye or presented bore can't clear the lip — full
+  exposure, zero payoff), never "he can't stand up".
+- **Refusal verdict cascade — swing → relocate → PINNED**: a refused rise first
+  tries the `Swing` lateral peek; a second refusal at the same stand (the swing
+  burned its look) relocates to fighting cover first. When ALL exits fail —
+  can't fight over, no rim to peek around, no fightable zone anywhere — the
+  stand is **hide-only for this fight**: `pinned` parks him at `Beat.None`
+  (head down, cover held, arm stowed) and re-arms ONE real rhythm cycle every
+  `pinRecheckSec` (4s). A real rise is a real probe, so a moved threat or a
+  cleared bore wakes the rhythm honestly; a re-refusal re-pins. The same
+  verdict covers the `Engaged` sustained-burial relocate-fail path. This is
+  the terminal answer — "pinned down" is a legitimate combat outcome, not a
+  stalled machine.

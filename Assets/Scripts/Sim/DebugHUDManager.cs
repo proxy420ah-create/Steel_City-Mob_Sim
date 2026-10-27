@@ -69,6 +69,10 @@ namespace SteelCity.Sim
         /// full symmetric duel — both combatants run the beat stack.</summary>
         private enum PitTanMode : byte { Dummy, Hide, Fight }
         private PitTanMode pitTanMode = PitTanMode.Dummy;
+        /// Parity experiment — SETUP PIT assigns Vinny the NORTH plate and Tan
+        /// the SOUTH. If "the south fighter" stumbles regardless of identity,
+        /// the asymmetry lives in the geometry/field, not the character.
+        private bool pitSwapSides = false;
         private string pitBlockId;
         private Dictionary<string, Block> pitScanSource;
 
@@ -85,8 +89,10 @@ namespace SteelCity.Sim
             public bool usable;         // stand cell is Hidden under the current threat
         }
         private readonly List<CoverSpot> coverSpots = new List<CoverSpot>();
+        private readonly List<CoverSpot> coverSpotsTan = new List<CoverSpot>();
         private bool openResScaleDrop;
-        private bool showCoverSpots;
+        private bool showCoverSpots = true;
+        private float nextCoverSpotRebuild;   // auto-refresh cadence while shown — verdicts stay live
         private static readonly Color[] SlotColors =
         {
             new Color(1f, .8f, .2f), new Color(1f, .4f, .3f),
@@ -102,9 +108,9 @@ namespace SteelCity.Sim
         /// not Hidden under the current threat still draw (dimmed): the
         /// geometric offer is real, the verdict is the threat layer's.</summary>
         private readonly List<CoverField.ZoneSpot> spotsScratch = new List<CoverField.ZoneSpot>(64);
-        void RebuildCoverSpots(CoverSensor sensor, Vector3 fromPos)
+        void RebuildCoverSpots(CoverSensor sensor, Vector3 fromPos, List<CoverSpot> into)
         {
-            coverSpots.Clear();
+            into.Clear();
             if (sensor == null) return;
             // Zones are threat-relative — the pickedAim→sensor.Threat sync
             // (every frame, tab-independent) owns threat establishment. This
@@ -116,13 +122,13 @@ namespace SteelCity.Sim
                 // Stand-cell verdict — the threat layer's gate on a quality
                 // offer. Unusable zones still list so every band shows its post.
                 bool usable = sensor.TryZoneAt(z.stand, out var zc, out float rd);
-                coverSpots.Add(new CoverSpot
+                into.Add(new CoverSpot
                 {
                     stand = z.stand, volId = z.volId, usable = usable,
                     cls = usable ? zc : z.cls, reqD = usable ? rd : z.reqD
                 });
             }
-            coverSpots.Sort((a, b) =>
+            into.Sort((a, b) =>
                 (a.stand - fromPos).sqrMagnitude.CompareTo((b.stand - fromPos).sqrMagnitude));
         }
 
@@ -134,26 +140,136 @@ namespace SteelCity.Sim
         }
 
         /// <summary>A post at every cover centroid — slot-assigned posts draw
-        /// in that slot's color, thicker; usable spots cyan; stands not Hidden
-        /// under the current threat draw dim grey (real geometry, gated pick).</summary>
-        void PaintCoverSpots(CombatController cc)
+        /// in that slot's color, thicker; usable spots cyan (vinny) / warm
+        /// amber (tan); stands not Hidden under the current threat draw dim
+        /// (real geometry, gated pick). `tag` suffixes the beam names so both
+        /// fighters' sets coexist in the world.</summary>
+        void PaintCoverSpots(CombatController cc, List<CoverSpot> spots, string tag, bool warm)
         {
             var pdr = PathDebugRenderer.Instance;
             if (pdr == null) return;
             for (int i = 0; i < 40; i++)
             {
-                if (i >= coverSpots.Count) { pdr.ClearCustomBeam($"cov_{i}"); continue; }
-                var o = coverSpots[i];
-                int slot = ScriptSlotAt(cc, o.stand);
+                if (i >= spots.Count) { pdr.ClearCustomBeam($"cov{tag}_{i}"); continue; }
+                var o = spots[i];
+                int slot = cc != null ? ScriptSlotAt(cc, o.stand) : -1;
                 if (slot >= 0)
-                    pdr.SetCustomBeam($"cov_{i}", o.stand, o.stand + Vector3.up * 1.0f, 0.05f,
+                    pdr.SetCustomBeam($"cov{tag}_{i}", o.stand, o.stand + Vector3.up * 1.0f, 0.05f,
                         SlotColors[slot % SlotColors.Length]);
                 else if (o.usable)
-                    pdr.SetCustomBeam($"cov_{i}", o.stand, o.stand + Vector3.up * 0.8f, 0.03f,
-                        new Color(0.3f, 0.85f, 0.9f, 0.8f));
+                    pdr.SetCustomBeam($"cov{tag}_{i}", o.stand, o.stand + Vector3.up * 0.8f, 0.03f,
+                        warm ? new Color(0.95f, 0.62f, 0.3f, 0.8f)
+                             : new Color(0.3f, 0.85f, 0.9f, 0.8f));
                 else
-                    pdr.SetCustomBeam($"cov_{i}", o.stand, o.stand + Vector3.up * 0.8f, 0.03f,
-                        new Color(0.5f, 0.5f, 0.55f, 0.45f));
+                    pdr.SetCustomBeam($"cov{tag}_{i}", o.stand, o.stand + Vector3.up * 0.8f, 0.03f,
+                        warm ? new Color(0.55f, 0.45f, 0.4f, 0.45f)
+                             : new Color(0.5f, 0.5f, 0.55f, 0.45f));
+            }
+        }
+
+        /// <summary>The scan-radius ring — dashed chords at `sensor.radius`
+        /// around the fighter's feet: his cover-awareness bubble (vinny cyan,
+        /// tan amber). Deliberately ground-hugging/dashed/dim so it can't be
+        /// misread as the orbit standoff ring (taller, solid, brighter).</summary>
+        void PaintRadiusRing(CoverSensor sensor, VoxelCharacter ch, string tag, bool warm)
+        {
+            var pdr = PathDebugRenderer.Instance;
+            if (pdr == null) return;
+            if (sensor == null || ch == null)
+            { for (int bi = 0; bi < 24; bi++) pdr.ClearCustomBeam($"sen_rad{tag}{bi}"); return; }
+            Vector3 c = CharFeetCenter(ch) + Vector3.up * 0.06f;
+            float r = sensor.radius;
+            var col = warm ? new Color(0.95f, 0.6f, 0.3f, 0.20f)
+                           : new Color(0.3f, 0.85f, 0.9f, 0.20f);
+            for (int bi = 0; bi < 24; bi++)
+            {
+                if ((bi & 1) == 1) { pdr.ClearCustomBeam($"sen_rad{tag}{bi}"); continue; }
+                float a0 = bi * 15f * Mathf.Deg2Rad, a1 = (bi + 1) * 15f * Mathf.Deg2Rad;
+                pdr.SetCustomBeam($"sen_rad{tag}{bi}",
+                    c + new Vector3(Mathf.Sin(a0), 0f, Mathf.Cos(a0)) * r,
+                    c + new Vector3(Mathf.Sin(a1), 0f, Mathf.Cos(a1)) * r, 0.015f, col);
+            }
+        }
+
+        /// <summary>Feet square + cert square + committed-destination post +
+        /// relocate beam — one fighter's set, `tag`-suffixed ("cov_dst",
+        /// "cov_feet*", "cov_cert*", "scr_tgt" are vinny's legacy names;
+        /// "_t" is tan's).</summary>
+        /// Master gate for the fighter body-square/destination beam paint —
+        /// off by default for clean inspection; re-enable from the cover fold.
+        public bool fighterBeams = false;
+        private bool fighterBeamsWasOn;
+
+        void PaintFighterBeams(CombatController cc, VoxelCharacter ch, string tag)
+        {
+            var tpdr = PathDebugRenderer.Instance;
+            if (tpdr == null) return;
+            if (ch != null)
+            {
+                var fc = CharFeetCenter(ch) + Vector3.up * 0.04f;
+                var gc = new Color(0.2f, 1.0f, 0.3f, 0.95f);
+                // Physical body square — the column the mover actually sweeps;
+                // grows/shrinks 1:1 with vc.footprintOverride.
+                float h = Mathf.Max(0.05f, ch.BodyFootprint * 0.5f);
+                var a = fc + new Vector3(-h, 0f, -h); var b = fc + new Vector3(h, 0f, -h);
+                var c = fc + new Vector3(h, 0f, h);   var d = fc + new Vector3(-h, 0f, h);
+                tpdr.SetCustomBeam($"cov_feet{tag}",  a, b, 0.035f, gc);
+                tpdr.SetCustomBeam($"cov_feet2{tag}", b, c, 0.035f, gc);
+                tpdr.SetCustomBeam($"cov_feet3{tag}", c, d, 0.035f, gc);
+                tpdr.SetCustomBeam($"cov_feet4{tag}", d, a, 0.035f, gc);
+                // Skin envelope — the TESTED square's outer edge (spec +
+                // BodySkin). The band between green and this line IS the
+                // standoff buffer — the body halts when the skin line kisses
+                // a face, which is why the spec box floats ~6cm off walls.
+                float hs = h + VoxelCollisionWorld.BodySkin;
+                var sc = new Color(0.2f, 1.0f, 0.3f, 0.35f);
+                var sa = fc + new Vector3(-hs, 0f, -hs); var sb = fc + new Vector3(hs, 0f, -hs);
+                var scd = fc + new Vector3(hs, 0f, hs);  var sd = fc + new Vector3(-hs, 0f, hs);
+                tpdr.SetCustomBeam($"cov_skin{tag}",  sa, sb, 0.018f, sc);
+                tpdr.SetCustomBeam($"cov_skin2{tag}", sb, scd, 0.018f, sc);
+                tpdr.SetCustomBeam($"cov_skin3{tag}", scd, sd, 0.018f, sc);
+                tpdr.SetCustomBeam($"cov_skin4{tag}", sd, sa, 0.018f, sc);
+                // Cert square — the K×K-cell block the map certifies. The gap
+                // between the two outlines IS the grid-rounding padding; at a
+                // commensurate cell size they collapse onto each other.
+                float cert = cc != null ? cc.DebugCertMeters : 0f;
+                if (cert > ch.BodyFootprint + 0.01f)
+                {
+                    float h2 = cert * 0.5f;
+                    var dc = new Color(1.0f, 0.85f, 0.2f, 0.5f);
+                    var a2 = fc + new Vector3(-h2, 0f, -h2); var b2 = fc + new Vector3(h2, 0f, -h2);
+                    var c2 = fc + new Vector3(h2, 0f, h2);   var d2 = fc + new Vector3(-h2, 0f, h2);
+                    tpdr.SetCustomBeam($"cov_cert{tag}",  a2, b2, 0.02f, dc);
+                    tpdr.SetCustomBeam($"cov_cert2{tag}", b2, c2, 0.02f, dc);
+                    tpdr.SetCustomBeam($"cov_cert3{tag}", c2, d2, 0.02f, dc);
+                    tpdr.SetCustomBeam($"cov_cert4{tag}", d2, a2, 0.02f, dc);
+                }
+                else for (int i = 1; i <= 4; i++) tpdr.ClearCustomBeam($"cov_cert{(i > 1 ? i.ToString() : "")}{tag}");
+            }
+            else
+            {
+                for (int i = 1; i <= 4; i++)
+                {
+                    tpdr.ClearCustomBeam($"cov_feet{(i > 1 ? i.ToString() : "")}{tag}");
+                    tpdr.ClearCustomBeam($"cov_cert{(i > 1 ? i.ToString() : "")}{tag}");
+                    tpdr.ClearCustomBeam($"cov_skin{(i > 1 ? i.ToString() : "")}{tag}");
+                }
+            }
+            bool live = cc != null && ch != null && cc.State != CombatController.CombatState.Idle;
+            if (live)
+            {
+                var cp = cc.CoverPoint;
+                tpdr.SetCustomBeam($"cov_dst{tag}", cp, cp + Vector3.up * 1.0f, 0.05f,
+                    new Color(1.0f, 0.6f, 0.1f, 0.95f));
+                if (cc.Relocating)
+                    tpdr.SetCustomBeam($"scr_tgt{tag}",
+                        CharFeetCenter(ch) + Vector3.up * 0.1f, cp + Vector3.up * 0.1f, 0.02f, Color.yellow);
+                else tpdr.ClearCustomBeam($"scr_tgt{tag}");
+            }
+            else
+            {
+                tpdr.ClearCustomBeam($"cov_dst{tag}");
+                tpdr.ClearCustomBeam($"scr_tgt{tag}");
             }
         }
 
@@ -161,8 +277,10 @@ namespace SteelCity.Sim
         {
             var pdr = PathDebugRenderer.Instance;
             if (pdr == null) return;
-            for (int i = 0; i < 40; i++) pdr.ClearCustomBeam($"cov_{i}");
+            for (int i = 0; i < 40; i++) { pdr.ClearCustomBeam($"cov_{i}"); pdr.ClearCustomBeam($"cov_t_{i}"); }
+            for (int bi = 0; bi < 24; bi++) { pdr.ClearCustomBeam($"sen_rad{bi}"); pdr.ClearCustomBeam($"sen_rad_t{bi}"); }
             pdr.ClearCustomBeam("scr_tgt");
+            pdr.ClearCustomBeam("scr_tgt_t");
         }
 
         /// <summary>The block carrying cover_stand_a — found by probing every
@@ -200,7 +318,6 @@ namespace SteelCity.Sim
         private Vector3? pickedStand, pickedAim;
         private CoverSensor coverSensor;   // Vinny's always-on cover awareness (COVER tab)
         private VisionSensor visionSensor; // Vinny's vision sense (VISION tab)
-        private float nextManualProbe;     // setup-mode exposure probe throttle
         private string inspectHud;                             // last voxel-inspect report (HUD)
         private VoxelCollisionWorld World => world != null ? world : (world = cityMap != null ? cityMap.GetComponent<VoxelCollisionWorld>() : null);
         private VoxelCollisionWorld world;
@@ -300,6 +417,9 @@ namespace SteelCity.Sim
         // tabs rebuild into ONE cached rich-text string at ~4 Hz; interactive
         // tabs (Clothing/Range) keep live widgets.
         private readonly System.Text.StringBuilder hudSB = new();
+        private Texture2D seamRadarTex;          // cached — repainted on Repaint events only
+        private readonly Color32[] seamRadarPx = new Color32[104 * 104];
+        private bool seamPanelOpen = true;       // the standalone SEAM window (bottom-left)
         private string tabText;
         private string footerText;
         private Tab lastBuiltTab = (Tab)(-1);
@@ -503,30 +623,27 @@ namespace SteelCity.Sim
                 //     direction beam Vinny→belief — the slerp arc the
                 //     45°/90° hops will rotate around. Verify: markers
                 //     overlap while he's visible, diverge once he hides.
-                var pdrLive = PathDebugRenderer.Instance;
-                var tanLive = TanSuitRef;
-                if (vinFighting && tanLive != null)
-                {
-                    Vector3 truth = CharFeetCenter(tanLive);
-                    var oc = new Color(1f, 0.55f, 0.1f, 0.95f);
-                    pdrLive?.SetCustomBeam("pick_aim",  truth + Vector3.left * 0.25f,  truth + Vector3.right * 0.25f, 0.05f, oc);
-                    pdrLive?.SetCustomBeam("pick_aim2", truth + Vector3.down * 0.25f,  truth + Vector3.up * 0.25f,   0.05f, oc);
-                    Vector3 lp = vinCc.ThreatPos;   // belief = last seen
-                    var mc = new Color(1f, 0.15f, 0.85f, 0.95f);
-                    pdrLive?.SetCustomBeam("last_seen",    lp + Vector3.up * 0.05f, lp + Vector3.up * 1.2f, 0.09f, mc);
-                    pdrLive?.SetCustomBeam("last_seen_x",  lp + Vector3.left * 0.25f,    lp + Vector3.right * 0.25f, 0.05f, mc);
-                    pdrLive?.SetCustomBeam("last_seen_x2", lp + Vector3.forward * 0.25f, lp + Vector3.back * 0.25f,   0.05f, mc);
-                    pdrLive?.SetCustomBeam("last_seen_dir",
-                        vinCc.transform.position + Vector3.up * 0.9f,
-                        lp + Vector3.up * 0.9f, 0.04f, mc);
-                }
-                else if (pdrLive != null)
-                {
-                    pdrLive.ClearCustomBeam("last_seen");
-                    pdrLive.ClearCustomBeam("last_seen_x");
-                    pdrLive.ClearCustomBeam("last_seen_x2");
-                    pdrLive.ClearCustomBeam("last_seen_dir");
-                }
+                // Per-fighter live combat viz — each duel participant gets
+                // the same marker set so cover choices and orbit patterns
+                // compare on screen at once:
+                //   ORANGE `pick_aim{tag}`   = where the OPPONENT's feet
+                //                            actually are (truth)
+                //   MAGENTA `last_seen{tag}` = where THIS fighter believes
+                //                            him (ThreatPos) + beam to it
+                //   WHITE  `search_ref{tag}` = orbit 0° — bearing at the miss
+                //   YELLOW `search_aim{tag}` = GOAL spoke (origin + 90°·side)
+                //   AMBER  `search_buf{tag}*`= standoff ring at bufferRadius
+                //   GREEN  `search_pick{tag}`= anchor → this hop's stand
+                //   CYAN   `search_leg{tag}*`= the routed corridor polyline
+                //   post `search_tgt{tag}`   = hop destination (cyan → orange
+                //                            as progress → 90°)
+                // Vinny keeps the legacy beam names (tag ""); Tan's carry "_t"
+                // with a dimmed palette so overlapping sets stay readable.
+                var tanCh0 = TanSuitRef;
+                var tanCc0 = tanCh0 != null ? tanCh0.GetComponent<CombatController>() : null;
+                var vinCh0 = cityMap != null ? cityMap.SpawnedCharacter : null;
+                PaintSearchViz(vinCc, vinCh0, tanCh0, "", 1f);
+                PaintSearchViz(tanCc0, tanCh0, vinCh0, "_t", 0.72f);
 
                 // Minimize toggle with M key
                 if (kb.mKey.wasPressedThisFrame)
@@ -887,6 +1004,26 @@ namespace SteelCity.Sim
 
             GUILayout.EndScrollView();
 
+            // Body/cert squares + destination posts — physical spec painted in
+            // world space, not panel content. Outside the tab switch so the
+            // beams track the body on ANY tab: a beam only moves when
+            // SetCustomBeam runs again, so gating it behind one tab left a
+            // stale corpse that read as "the square broke".
+            if (fighterBeams)
+            {
+                var beamVinny = cityMap != null ? cityMap.SpawnedCharacter : null;
+                var beamTan = TanSuitRef;
+                PaintFighterBeams(beamVinny != null ? beamVinny.GetComponent<CombatController>() : null, beamVinny, "");
+                PaintFighterBeams(beamTan != null ? beamTan.GetComponent<CombatController>() : null, beamTan, "_t");
+            }
+            else if (fighterBeamsWasOn)
+            {
+                // Toggled off — one clear pass so the corpses don't linger.
+                PaintFighterBeams(null, null, "");
+                PaintFighterBeams(null, null, "_t");
+            }
+            fighterBeamsWasOn = fighterBeams;
+
             // Footer — current tab + next tab + controls
             GUILayout.Space(4);
 
@@ -896,6 +1033,12 @@ namespace SteelCity.Sim
 
             GUILayout.EndVertical();
             GUILayout.EndArea();
+
+            // The SEAM window — its own BeginArea bottom-left, drawn AFTER
+            // the main window closes: inside the parent's layout group a
+            // nested area is clipped to the parent rect, which is why it
+            // must live out here at OnGUIInner's top level.
+            DrawSeamWindow(sw, sh);
         }
 
         void DrawTabRow(params Tab[] row)
@@ -999,6 +1142,14 @@ namespace SteelCity.Sim
                     data = vis != null
                         ? $"{vis.range:F0}m · ±{vis.halfAngleDeg:F0}° · det {vis.MaxDetection:P0}"
                         : "no vision sensor"; break;
+                case VoxelChunkManager.IterVisMode.CoverWalkable:
+                    mode = "COVER · WALKABLE"; color = "#3ce65a";
+                    desc = "the flood-served domain on the surfaces — green in · olive unpreferred · amber island · red blocked";
+                    data = coverData; break;
+                case VoxelChunkManager.IterVisMode.CoverReachable:
+                    mode = "COVER · REACHABLE"; color = "#ffb01e";
+                    desc = "flood domain on the surfaces — heat = corridor cost (red at his feet → blue far) · amber = floor but sealed";
+                    data = coverData; break;
                 default: // CoverExposure
                     mode = "COVER · EXPOSURE"; color = "#4dd8ff";
                     desc = "teal hidden · red exposed · slate invalid"; data = coverData; break;
@@ -1411,6 +1562,116 @@ namespace SteelCity.Sim
             return new Vector3(p.x + d.x * vs * 0.5f, p.y, p.z + d.z * vs * 0.5f);
         }
 
+        /// <summary>One fighter's live combat viz — truth X on the opponent,
+        /// the magenta belief post + beam (ThreatPos), and the orbit-search
+        /// spokes/ring/legs TryOrbitStep is solving. `tag` suffixes every beam
+        /// name so two fighters' sets coexist ("" = vinny's legacy keys);
+        /// `dim` scales the palette so overlapping viz stays readable.</summary>
+        void PaintSearchViz(CombatController cc, VoxelCharacter ch, VoxelCharacter opp,
+            string tag, float dim)
+        {
+            var pdrLive = PathDebugRenderer.Instance;
+            if (pdrLive == null) return;
+            bool fighting = cc != null && ch != null
+                && cc.State != CombatController.CombatState.Idle;
+            Color Dim(Color c) => new Color(c.r * dim, c.g * dim, c.b * dim, c.a);
+
+            if (fighting && opp != null)
+            {
+                Vector3 truth = CharFeetCenter(opp);
+                var oc = Dim(new Color(1f, 0.55f, 0.1f, 0.95f));
+                pdrLive.SetCustomBeam($"pick_aim{tag}",  truth + Vector3.left * 0.25f,  truth + Vector3.right * 0.25f, 0.05f, oc);
+                pdrLive.SetCustomBeam($"pick_aim2{tag}", truth + Vector3.down * 0.25f,  truth + Vector3.up * 0.25f,   0.05f, oc);
+                Vector3 lp = cc.ThreatPos;   // belief = last seen
+                var mc = Dim(new Color(1f, 0.15f, 0.85f, 0.95f));
+                pdrLive.SetCustomBeam($"last_seen{tag}",    lp + Vector3.up * 0.05f, lp + Vector3.up * 1.2f, 0.09f, mc);
+                pdrLive.SetCustomBeam($"last_seen_x{tag}",  lp + Vector3.left * 0.25f,    lp + Vector3.right * 0.25f, 0.05f, mc);
+                pdrLive.SetCustomBeam($"last_seen_x2{tag}", lp + Vector3.forward * 0.25f, lp + Vector3.back * 0.25f,   0.05f, mc);
+                pdrLive.SetCustomBeam($"last_seen_dir{tag}",
+                    ch.transform.position + Vector3.up * 0.9f,
+                    lp + Vector3.up * 0.9f, 0.04f, mc);
+            }
+            else
+            {
+                pdrLive.ClearCustomBeam($"pick_aim{tag}");
+                pdrLive.ClearCustomBeam($"pick_aim2{tag}");
+                pdrLive.ClearCustomBeam($"last_seen{tag}");
+                pdrLive.ClearCustomBeam($"last_seen_x{tag}");
+                pdrLive.ClearCustomBeam($"last_seen_x2{tag}");
+                pdrLive.ClearCustomBeam($"last_seen_dir{tag}");
+            }
+
+            // Search-orbit triangulation — the geometry TryOrbitStep solves.
+            // All spokes radiate from the belief anchor (the last_seen post):
+            // ref = orbit 0° · aim = goal spoke (origin+90°·side) · buf = the
+            // standoff ring the scorer hugs · pick = anchor→hop stand · legN =
+            // the routed corridor · tgt = hop post (cyan → orange on progress).
+            if (fighting && cc.Searching)
+            {
+                Vector3 an = cc.SearchAnchor;
+                Vector3 Spoke(float deg) => new Vector3(
+                    Mathf.Sin(deg * Mathf.Deg2Rad), 0f, Mathf.Cos(deg * Mathf.Deg2Rad));
+                const float SPOKE = 5f;
+                var wc = Dim(new Color(0.85f, 0.85f, 0.85f, 0.85f));
+                var yc = Dim(new Color(1f, 0.85f, 0.15f, 0.9f));
+                var gn = Dim(new Color(0.3f, 1f, 0.4f, 0.9f));
+                var cy = Dim(new Color(0.2f, 0.9f, 1f, 0.9f));
+                pdrLive.SetCustomBeam($"search_ref{tag}",
+                    an + Vector3.up * 0.6f,
+                    an + Vector3.up * 0.6f + Spoke(cc.SearchOriginBearing) * SPOKE, 0.03f, wc);
+                pdrLive.SetCustomBeam($"search_aim{tag}",
+                    an + Vector3.up * 0.6f,
+                    an + Vector3.up * 0.6f + Spoke(cc.SearchTargetBearing) * SPOKE, 0.03f, yc);
+                float rb = cc.SearchBufferRadius;
+                if (rb > 0.01f)
+                {
+                    var bc = Dim(new Color(1f, 0.6f, 0.2f, 0.35f));
+                    for (int bi = 0; bi < 16; bi++)
+                        pdrLive.SetCustomBeam($"search_buf{tag}{bi}",
+                            an + Vector3.up * 0.35f + Spoke(bi * 22.5f) * rb,
+                            an + Vector3.up * 0.35f + Spoke((bi + 1) * 22.5f) * rb, 0.02f, bc);
+                }
+                if (cc.SearchLegOut)
+                {
+                    Vector3 st = cc.CoverPoint;
+                    pdrLive.SetCustomBeam($"search_pick{tag}",
+                        an + Vector3.up * 0.6f, st + Vector3.up * 0.6f, 0.03f, gn);
+                    var rt = cc.LegRoute;
+                    int ri = cc.LegRouteIndex, segs = 0;
+                    Vector3 prev = CharFeetCenter(ch);
+                    if (rt != null && ri < rt.Count)
+                    {
+                        for (; ri < rt.Count && segs < 24; ri++, segs++)
+                        {
+                            pdrLive.SetCustomBeam($"search_leg{tag}{segs}",
+                                prev + Vector3.up * 0.5f, rt[ri] + Vector3.up * 0.5f, 0.04f, cy);
+                            prev = rt[ri];
+                        }
+                    }
+                    if (segs == 0)
+                    {
+                        pdrLive.SetCustomBeam($"search_leg{tag}0",
+                            prev + Vector3.up * 0.5f, st + Vector3.up * 0.5f, 0.04f, cy);
+                        segs = 1;
+                    }
+                    for (int ci = segs; ci < 24; ci++) pdrLive.ClearCustomBeam($"search_leg{tag}{ci}");
+                    var tc = Color.Lerp(cy, Dim(new Color(1f, 0.55f, 0.1f, 0.95f)),
+                        Mathf.Clamp01(cc.SearchProgress / 90f));
+                    pdrLive.SetCustomBeam($"search_tgt{tag}",
+                        st + Vector3.up * 0.05f, st + Vector3.up * 1.0f, 0.08f, tc);
+                }
+            }
+            else
+            {
+                pdrLive.ClearCustomBeam($"search_ref{tag}");
+                pdrLive.ClearCustomBeam($"search_aim{tag}");
+                pdrLive.ClearCustomBeam($"search_pick{tag}");
+                for (int ci = 0; ci < 24; ci++) pdrLive.ClearCustomBeam($"search_leg{tag}{ci}");
+                pdrLive.ClearCustomBeam($"search_tgt{tag}");
+                for (int bi = 0; bi < 16; bi++) pdrLive.ClearCustomBeam($"search_buf{tag}{bi}");
+            }
+        }
+
         /// <summary>
         /// Generic snap for non-EventPlayer characters (Civilian_02): same
         /// corner-offset math as EventPlayer.DebugSnapTo plus a down-raycast so
@@ -1425,6 +1686,21 @@ namespace SteelCity.Sim
             t.y = posWorld.y;
             if (World != null && World.Raycast(posWorld + Vector3.up * 0.5f, Vector3.down, 8f, out var gh))
                 t.y = gh.point.y;
+            // Clearance check — same contract as EventPlayer.DebugSnapTo: a
+            // snap must land on a square the body occupies or the mover wakes
+            // embedded (SeekingCover + mv 0.00 — the stand-B statue class).
+            if (World != null)
+            {
+                Vector3 center = new Vector3(posWorld.x, t.y, posWorld.z);
+                float bh = ch.BodyFootprint * 0.5f;
+                if (!World.SquareFree(center, bh, ch.WorldSize.y)
+                    && World.TryNearestFreeSquare(center, bh, ch.WorldSize.y,
+                                                  1.5f, out var free))
+                {
+                    Debug.Log($"[DebugHUD] snap adjusted → free square ({free.x:F1},{free.y:F2},{free.z:F1}) — authored point embedded");
+                    t = free - new Vector3(d.x * vs * 0.5f, 0f, d.z * vs * 0.5f);
+                }
+            }
             ch.transform.position = t;
             if (faceWorld.HasValue)
             {
@@ -1452,6 +1728,10 @@ namespace SteelCity.Sim
             }
             Vector3 aW = cityMap.MapRoot.position + aL;
             Vector3 bW = cityMap.MapRoot.position + bL;
+            // Parity experiment — swap which fighter owns which stand: if
+            // "the south fighter" stumbles regardless of identity, the
+            // asymmetry is the geometry/field, not the character.
+            if (pitSwapSides) (aW, bW) = (bW, aW);
 
             var vinny = cityMap.SpawnedCharacter;
             var mount = vinny != null ? vinny.GetComponent<WeaponMount>() : null;
@@ -1516,6 +1796,199 @@ namespace SteelCity.Sim
                 // dummy; Fight mode runs the full symmetric beat stack.
                 tanCc.holdInCover = pitTanMode == PitTanMode.Hide;
                 tanCc.EnterCombat(CharFeetCenter(ch), ch);
+            }
+        }
+
+        /// <summary>One row of duel diagnostics per fighter — the pick verdict
+        /// (LastResult) plus the live state/beat/duck/arm picture. Answers
+        /// "which path did he take" without a console scrape: pick-fail reads
+        /// "no cover within Xm", corridor-fail reads "cover unreachable",
+        /// arrival reads "in cover behind X".</summary>
+        private void DuelStatusRow(string label, VoxelCharacter ch)
+        {
+            if (ch == null)
+            { GUILayout.Label($"{label}: not found", labelStyle); return; }
+            var cc = ch.GetComponent<CombatController>();
+            var anim = ch.GetComponent<CharacterAnimation>();
+            if (cc == null)
+            { GUILayout.Label($"{label}: no CombatController", labelStyle); return; }
+            float dToCover = cc.State == CombatController.CombatState.Idle ? -1f
+                : Vector3.Distance(CharFeetCenter(ch), cc.CoverPoint);
+            GUILayout.Label(
+                $"{label}  <b>{cc.State}</b>/{cc.Beat.ToString().ToLowerInvariant()}"
+                + (cc.Watching ? " <b>+WATCH</b>" : "")
+                + $"  arm:{(cc.ExposureArmed ? "on" : "off")}  mv {cc.DebugMoved:F2}m"
+                + $"  duck {(anim != null ? anim.duck : 0f):F2}→{cc.TargetDuck:F2}"
+                + (cc.SearchLegOut ? "  SEARCH" : "")
+                + (dToCover >= 0f ? $"  dst→{cc.CoverObstacleId} {dToCover:F1}m" : ""),
+                labelStyle);
+            GUILayout.Label($"     <i>{cc.LastResult}</i>", labelStyle);
+            var cs = ch.GetComponent<CoverSensor>();
+            if (cs != null)
+                GUILayout.Label(
+                    $"     scan {cs.stats.wallCols} walls · {cs.stats.valid}/{cs.stats.tested} cells"
+                    + $" · r{cs.radius:F0}m · {(cs.Field != null && cs.Field.HasData ? $"field {cs.Field.N}²" : "no field")}",
+                    labelStyle);
+            SeamStatusBlock(label, cc);
+        }
+
+        /// <summary>Compact duel-row line — toggle + running program + last
+        /// verdict. The full analysis surface lives in the SEAM window
+        /// (bottom-left of the game view, persistent).</summary>
+        private void SeamStatusBlock(string label, CombatController cc)
+        {
+            GUILayout.BeginHorizontal();
+            bool arb = GUILayout.Toggle(cc.seamArbiter, " ARB", toggleStyle, GUILayout.Width(52));
+            if (arb != cc.seamArbiter) cc.seamArbiter = arb;
+            GUILayout.Label(
+                cc.seamArbiter
+                    ? $"<b>{cc.ArbRunning}</b>  <i>v:{cc.ArbVerdict}</i>"
+                    : "<i>authored beat chain</i>",
+                labelStyle);
+            GUILayout.EndHorizontal();
+        }
+
+        /// <summary>The standalone SEAM window — bottom-left of the game
+        /// view, drawn OUTSIDE the DEBUG window's fold system so it stays
+        /// up while the hud is used for something else (or hidden). One
+        /// fighter block each: running program, verdict, blackboard chips,
+        /// timestamped verdict history, intent radar, and ALL scores in
+        /// FIXED order with the argmax marked — stable row positions across
+        /// frames so pause/stepping is diff-able.</summary>
+        private void DrawSeamWindow(float sw, float sh)
+        {
+            var vin = cityMap != null ? cityMap.SpawnedCharacter : null;
+            var tan = TanSuitRef;
+            var vcc = vin != null ? vin.GetComponent<CombatController>() : null;
+            var tcc = tan != null ? tan.GetComponent<CombatController>() : null;
+            if (vcc == null && tcc == null) return;
+            float w = 372f, hh = seamPanelOpen ? 436f : 28f;
+            var rect = new Rect(margin, sh - hh - margin, w, hh);
+            GUILayout.BeginArea(rect, bgStyle);
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button(seamPanelOpen ? "\u25bc SEAM" : "\u25b6 SEAM", toggleStyle, GUILayout.Width(70)))
+                seamPanelOpen = !seamPanelOpen;
+            GUILayout.Label("<b>live intent field</b>", labelStyle);
+            GUILayout.EndHorizontal();
+            if (seamPanelOpen)
+            {
+                SeamPanel("vinny", vcc);
+                GUILayout.Space(4);
+                SeamPanel("tan", tcc);
+            }
+            GUILayout.EndArea();
+        }
+
+        /// <summary>One fighter's block inside the SEAM window.</summary>
+        private void SeamPanel(string label, CombatController cc)
+        {
+            GUILayout.BeginHorizontal();
+            if (cc == null)
+            { GUILayout.Label($"{label}: —", labelStyle); GUILayout.EndHorizontal(); return; }
+            bool arb = GUILayout.Toggle(cc.seamArbiter, " ARB", toggleStyle, GUILayout.Width(52));
+            if (arb != cc.seamArbiter) cc.seamArbiter = arb;
+            GUILayout.Label($"<b>{label}</b>  {cc.ArbRunning}", labelStyle);
+            GUILayout.EndHorizontal();
+            if (!cc.seamArbiter)
+            { GUILayout.Label("     <i>authored beat chain — tick ARB</i>", labelStyle); return; }
+            GUILayout.Label($"     verdict: {cc.ArbVerdict}", labelStyle);
+            if (cc.ArbBoard.Length > 0)
+                GUILayout.Label($"     board   : {cc.ArbBoard}", labelStyle);
+            if (cc.ArbHist.Length > 0)
+                GUILayout.Label($"     history : <i>{cc.ArbHist}</i>", labelStyle);
+            GUILayout.BeginHorizontal();
+            Rect rr = GUILayoutUtility.GetRect(104, 104, GUILayout.Width(104), GUILayout.Height(104));
+            PaintSeamRadar(rr, cc.ArbScores, cc.ArbRunning);
+            GUILayout.BeginVertical();
+            var s = cc.ArbScores;
+            float best = 0f; int argmax = -1;
+            for (int i = 0; i < s.Length; i++) if (s[i] > best) { best = s[i]; argmax = i; }
+            for (int i = 0; i < s.Length; i++)
+            {
+                float w = s[i];
+                int fill = Mathf.Clamp(Mathf.RoundToInt(w * 20f), 0, 20);
+                string bar = new string('\u2588', fill).PadRight(20, '\u00b7');
+                GUILayout.Label(
+                    $"{(i == argmax && w > 0f ? "\u25b6" : " ")}{CombatController.ArbNames[i],-12} {bar} {w:F2}",
+                    i == argmax && w > 0f ? boldStyle : labelStyle);
+            }
+            GUILayout.EndVertical();
+            GUILayout.EndHorizontal();
+        }
+
+        /// <summary>The intent radar — 10 axes, one polygon = the live score
+        /// field. Rasterized into a cached texture on Repaint only.</summary>
+        private void PaintSeamRadar(Rect r, float[] scores, string running)
+        {
+            const int SZ = 104;
+            if (seamRadarTex == null || seamRadarTex.width != SZ)
+            {
+                if (seamRadarTex != null) Destroy(seamRadarTex);
+                seamRadarTex = new Texture2D(SZ, SZ, TextureFormat.RGBA32, false)
+                { filterMode = FilterMode.Point };
+            }
+            if (Event.current.type != EventType.Repaint)
+            { GUI.DrawTexture(r, seamRadarTex); return; }
+            for (int i = 0; i < seamRadarPx.Length; i++) seamRadarPx[i] = new Color32(0, 0, 0, 40);
+            int cx = SZ / 2, cy = SZ / 2; float rad = SZ * 0.42f;
+            int n = scores.Length;
+            // faint guide ring at 0.5 + spokes
+            for (int a = 0; a < 72; a++)
+            {
+                float t = a * Mathf.PI * 2f / 72f;
+                int px = cx + Mathf.RoundToInt(Mathf.Cos(t) * rad * 0.5f);
+                int py = cy + Mathf.RoundToInt(Mathf.Sin(t) * rad * 0.5f);
+                SetPx(seamRadarPx, SZ, px, py, new Color32(90, 90, 90, 80));
+            }
+            for (int i = 0; i < n; i++)
+            {
+                float t = -Mathf.PI / 2f + i * Mathf.PI * 2f / n;
+                DrawLinePx(seamRadarPx, SZ, cx, cy,
+                    cx + Mathf.RoundToInt(Mathf.Cos(t) * rad),
+                    cy + Mathf.RoundToInt(Mathf.Sin(t) * rad),
+                    new Color32(70, 70, 80, 90));
+            }
+            // score polygon
+            int px0 = 0, py0 = 0, fx = 0, fy = 0; bool first = true;
+            for (int i = 0; i <= n; i++)
+            {
+                int k = i % n;
+                float t = -Mathf.PI / 2f + k * Mathf.PI * 2f / n;
+                float sc = Mathf.Clamp01(scores[k]);
+                int px = cx + Mathf.RoundToInt(Mathf.Cos(t) * rad * sc);
+                int py = cy + Mathf.RoundToInt(Mathf.Sin(t) * rad * sc);
+                if (first) { fx = px; fy = py; first = false; }
+                else
+                {
+                    DrawLinePx(seamRadarPx, SZ, px0, py0, px, py,
+                        new Color32(255, 210, 60, 220));
+                    SetPx(seamRadarPx, SZ, px, py, new Color32(255, 255, 255, 255));
+                }
+                px0 = px; py0 = py;
+            }
+            DrawLinePx(seamRadarPx, SZ, px0, py0, fx, fy, new Color32(255, 210, 60, 220));
+            seamRadarTex.SetPixels32(seamRadarPx);
+            seamRadarTex.Apply(false);
+            GUI.DrawTexture(r, seamRadarTex);
+        }
+
+        static void SetPx(Color32[] buf, int sz, int x, int y, Color32 c)
+        {
+            if ((uint)x >= (uint)sz || (uint)y >= (uint)sz) return;
+            buf[y * sz + x] = c;
+        }
+
+        static void DrawLinePx(Color32[] buf, int sz, int x0, int y0, int x1, int y1, Color32 c)
+        {
+            int dx = Mathf.Abs(x1 - x0), dy = Mathf.Abs(y1 - y0);
+            int sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1, err = dx - dy;
+            for (int guard = 0; guard < 512; guard++)
+            {
+                SetPx(buf, sz, x0, y0, c);
+                if (x0 == x1 && y0 == y1) break;
+                int e2 = 2 * err;
+                if (e2 > -dy) { err -= dy; x0 += sx; }
+                if (e2 < dx) { err += dx; y0 += sy; }
             }
         }
 
@@ -1856,6 +2329,8 @@ namespace SteelCity.Sim
                 if (GUILayout.Toggle(pitTanMode == PitTanMode.Fight, " fight", pitTanMode == PitTanMode.Fight ? tabActiveStyle : tabStyle, GUILayout.Height(20)))
                     pitTanMode = PitTanMode.Fight;
                 GUILayout.EndHorizontal();
+                pitSwapSides = GUILayout.Toggle(pitSwapSides,
+                    " swap sides (parity test — vinny→north)", toggleStyle, GUILayout.Height(18));
                 if (!clickedPit && pitVinny != null)
                 {
                     var vcc = pitVinny.GetComponent<CombatController>();
@@ -1869,16 +2344,32 @@ namespace SteelCity.Sim
                     GUI.enabled = true;
                 }
                 if (pitVinny != null) PitCoverPickRow(pitId, pitVinny, pitTan);
+
+                // DUEL — live per-fighter status. LastResult carries the
+                // EnterCombat verdict verbatim ("no cover within 8m —
+                // holding" vs "seeking cover behind X"), which is the whole
+                // pick-vs-corridor-vs-arrival question in one string.
+                if (SecFold("c.duel", "DUEL — live status"))
+                {
+                    DuelStatusRow("vinny", pitVinny);
+                    DuelStatusRow("tan",   pitTan);
+                }
                 // TEMPO — per-beat dwell floors. Every beat holds its
                 // seconds minimum; event verdicts stay honest inside (the
                 // timer gates the LEAVE, never the observation).
                 var scc = pitVinny != null ? pitVinny.GetComponent<CombatController>() : null;
+                var pitTanCC = pitTan != null ? pitTan.GetComponent<CombatController>() : null;
                 if (scc != null && SecFold("c.tempo", "TEMPO — beat lengths"))
                 {
                 GUILayout.BeginHorizontal();
-                if (GUILayout.Button($"refresh cover spots ({coverSpots.Count})", GUILayout.Height(20)))
+                var pitTanSen = pitTan != null ? pitTan.GetComponent<CoverSensor>() : null;
+                if (GUILayout.Button($"refresh cover spots ({coverSpots.Count}+{coverSpotsTan.Count})", GUILayout.Height(20)))
+                {
                     RebuildCoverSpots(pitVinny.GetComponent<CoverSensor>(),
-                        CharFeetCenter(pitVinny));
+                        CharFeetCenter(pitVinny), coverSpots);
+                    RebuildCoverSpots(pitTanSen,
+                        pitTan != null ? CharFeetCenter(pitTan) : Vector3.zero, coverSpotsTan);
+                }
                 showCoverSpots = GUILayout.Toggle(showCoverSpots, " show", toggleStyle, GUILayout.Width(70));
                 GUILayout.EndHorizontal();
                 for (int i = 1; scc.beatDwell != null && i < scc.beatDwell.Length; i++)
@@ -1898,42 +2389,33 @@ namespace SteelCity.Sim
                     GUILayout.EndHorizontal();
                 }
                 GUILayout.Label($"beat: {scc.Beat.ToString().ToLowerInvariant()} · state {scc.State}", labelStyle);
-                if (showCoverSpots) PaintCoverSpots(scc);
+                if (showCoverSpots)
+                {
+                    // Auto-refresh — spot verdicts (usable/dimmed) are
+                    // threat-relative; a manual button would go stale mid-fight.
+                    if (Time.unscaledTime >= nextCoverSpotRebuild)
+                    {
+                        nextCoverSpotRebuild = Time.unscaledTime + 0.75f;
+                        RebuildCoverSpots(pitVinny.GetComponent<CoverSensor>(),
+                            CharFeetCenter(pitVinny), coverSpots);
+                        RebuildCoverSpots(pitTanSen,
+                            pitTan != null ? CharFeetCenter(pitTan) : Vector3.zero, coverSpotsTan);
+                    }
+                    // Both fighters' quality fields — vinny cyan posts, tan
+                    // amber — plus each one's scan-radius ring (the awareness
+                    // bubble the spots live inside).
+                    PaintCoverSpots(scc, coverSpots, "", false);
+                    PaintCoverSpots(pitTanCC, coverSpotsTan, "_t", true);
+                    PaintRadiusRing(pitVinny.GetComponent<CoverSensor>(), pitVinny, "", false);
+                    PaintRadiusRing(pitTanSen, pitTan, "_t", true);
+                }
+                else if (coverSpots.Count + coverSpotsTan.Count > 0)
+                { ClearCoverSpots(); coverSpots.Clear(); coverSpotsTan.Clear(); }
                 else ClearCoverSpots();
-                var tpdr = PathDebugRenderer.Instance;
-                if (tpdr != null && scc.State != CombatController.CombatState.Idle)
-                {
-                    // Committed destination post — compares against the cov_i
-                    // zone posts (cyan/grey) and his rendered body in one frame.
-                    var cp = scc.CoverPoint;
-                    tpdr.SetCustomBeam("cov_dst",
-                        cp, cp + Vector3.up * 1.0f, 0.05f,
-                        new Color(1.0f, 0.6f, 0.1f, 0.95f));
-                    // Anchor marker — the grid center his feet navigate to.
-                    // Green X: if this sits inside his footprint, the pose is
-                    // displacing the visible mass, not the nav target.
-                    var fc = CharFeetCenter(pitVinny);
-                    tpdr.SetCustomBeam("cov_feet",
-                        fc + Vector3.left * 0.12f, fc + Vector3.right * 0.12f,
-                        0.03f, new Color(0.2f, 1.0f, 0.3f, 0.95f));
-                    tpdr.SetCustomBeam("cov_feet2",
-                        fc + Vector3.forward * 0.12f, fc + Vector3.back * 0.12f,
-                        0.03f, new Color(0.2f, 1.0f, 0.3f, 0.95f));
-                    if (scc.Relocating)
-                        tpdr.SetCustomBeam("scr_tgt",
-                            CharFeetCenter(pitVinny) + Vector3.up * 0.1f,
-                            cp + Vector3.up * 0.1f, 0.02f, Color.yellow);
-                    else tpdr.ClearCustomBeam("scr_tgt");
-                }
-                else
-                {
-                    tpdr?.ClearCustomBeam("cov_dst");
-                    tpdr?.ClearCustomBeam("cov_feet");
-                    tpdr?.ClearCustomBeam("cov_feet2");
-                    tpdr?.ClearCustomBeam("scr_tgt");
-                }
                 }
                 else ClearCoverSpots();
+                // Feet/cert squares + destination posts paint at window level
+                // (after EndScrollView) so they track the body on every tab.
                 if (pitTan == null)
                     GUILayout.Label("<color=#ffaa44>Civilian_02 (Tan Suit) not found.</color>", labelStyle);
             }
@@ -2133,7 +2615,7 @@ namespace SteelCity.Sim
                            : pitTanMode == PitTanMode.Hide ? "START DUEL — Vinny hunts, Tan hides"
                            : "START DUEL — Vinny vs target dummy")
                         : "START DUEL (Civilian_02 not found)")
-                    : (hasThreat ? "ENTER COMBAT — seek cover vs PICK AIM"
+                    : (hasThreat ? "ENTER COMBAT — Vinny ONLY vs PICK AIM"
                                  : "ENTER COMBAT (PICK AIM a threat first)");
                 if (GUILayout.Button(btn, tabStyle, GUILayout.Height(24)))
                 {
@@ -2163,13 +2645,10 @@ namespace SteelCity.Sim
                 var cs = ch.GetComponent<CoverSensor>() ?? ch.gameObject.AddComponent<CoverSensor>();
                 var pitTan = pit ? TanSuitRef : null;
                 cs.showTargetViz = GUILayout.Toggle(cs.showTargetViz, " probe rays (grn=visible, red=blocked, cyan=centroid)", toggleStyle);
-                if (cs.showTargetViz && pitTan != null
-                    && cc.State == CombatController.CombatState.Idle
-                    && Time.unscaledTime >= nextManualProbe)
-                {
-                    nextManualProbe = Time.unscaledTime + 0.25f;
-                    cs.TryGetVisibleVoxels(pitTan, out _);
-                }
+                cs.showImpactMarks = GUILayout.Toggle(cs.showImpactMarks, " impact marks (grn=seen·in-cone, slate=off-cone, red=occluder)", toggleStyle);
+                if ((cs.showTargetViz || cs.showImpactMarks) && pitTan != null
+                    && cc.State == CombatController.CombatState.Idle)
+                    cs.TryGetVisibleVoxels(pitTan, out _);   // per-frame — same live rate combat runs
                 // Pre-fight controls — not gated on combat state: cover gap is
                 // a pick-time input and the loop is a loadout decision you arm
                 // BEFORE the duel starts.
@@ -2440,6 +2919,27 @@ namespace SteelCity.Sim
             if (v != sensor.proxWeight) { sensor.proxWeight = v; dirty = true; }
             v = HSlider("facing dot", sensor.facingDot, -0.6f, 0.4f);
             if (v != sensor.facingDot) { sensor.facingDot = v; dirty = true; }
+            var sensorVc = sensor.GetComponent<VoxelCharacter>();
+            if (sensorVc != null)
+            {
+                // The slider shows and edits the RESOLVED spec — never the
+                // raw field. (auto) = torso-measured; drag-to-0 returns to auto.
+                bool auto = sensorVc.footprintOverride <= 0f;
+                v = HSlider(auto ? "body footprint m (auto)" : "body footprint m (set)",
+                            sensorVc.BodyFootprint, 0f, 1.5f, "F2");
+                if (sensorVc.BodyFootprint <= 1.5f
+                    && Mathf.Abs(v - sensorVc.BodyFootprint) > 0.0005f)
+                { sensorVc.footprintOverride = v; dirty = true; }
+                v = HSlider("step up m", sensorVc.stepUpMax, 0.05f, 1.0f, "F2");
+                if (v != sensorVc.stepUpMax) { sensorVc.stepUpMax = v; dirty = true; }
+            }
+            if (sensor.Field != null && sensor.Field.bodyHalfMeters > 0f)
+                GUILayout.Label($"  walk cert: <b>{sensor.Field.bodyHalfMeters * 2f:F2}m</b> square (continuous)" +
+                                $" · {sensor.Field.bodyHalfMeters:F2}m stand-off from hazards", labelStyle);
+            if (World != null && World.Walk != null)
+                GUILayout.Label($"  walk layer: <b>{World.Walk.BlocksAllocated}</b> blocks" +
+                                $" · {World.Walk.CellsProbed:N0} cells cached" +
+                                $" · {World.Walk.CellsInvalidated:N0} invalidated", labelStyle);
             if (dirty) sensor.Refresh(true);
             }
 
@@ -2545,6 +3045,7 @@ namespace SteelCity.Sim
             GUILayout.Label("<b>Visualize</b>", labelStyle);
             sensor.showCone = GUILayout.Toggle(sensor.showCone, " FOV cone (sweeps with head)", toggleStyle);
             sensor.showTargetRay = GUILayout.Toggle(sensor.showTargetRay, " eye→target rays", toggleStyle);
+            sensor.showDetectMarks = GUILayout.Toggle(sensor.showDetectMarks, " detect marks (pale→amber→red on visible targets)", toggleStyle);
 
             // --- Live status ---
             GUILayout.Space(6);
@@ -2581,7 +3082,7 @@ namespace SteelCity.Sim
             Vector3 tp = ch.transform.position;
             GUILayout.Label($"  pos: <b>{tp.x:F1}, {tp.y:F1}, {tp.z:F1}</b>", labelStyle);
             GUILayout.Label(cc != null
-                ? $"  combat: <b>{cc.State}</b>" + (cc.State != CombatController.CombatState.Idle ? $" · threat {cc.ThreatPos.ToString("F1")}" : "")
+                ? $"  combat: <b>{cc.State}</b>" + (cc.State != CombatController.CombatState.Idle ? $" · threat {cc.ThreatPos.ToString("F1")}" : cc.Watching ? " · <b>watching</b>" : "")
                 : "  combat: <i>no CombatController</i>", labelStyle);
 
             void Tog(ref bool f, string label)
@@ -2625,6 +3126,21 @@ namespace SteelCity.Sim
                 if (v != cov.radius) { cov.radius = v; dirty = true; }
                 v = HSlider("standoff", cov.standoff, 0.15f, 1.5f);
                 if (v != cov.standoff) { cov.standoff = v; dirty = true; }
+                var covVc = cov.GetComponent<VoxelCharacter>();
+                if (covVc != null)
+                {
+                    bool auto = covVc.footprintOverride <= 0f;
+                    v = HSlider(auto ? "body footprint m (auto)" : "body footprint m (set)",
+                                covVc.BodyFootprint, 0f, 1.5f, "F2");
+                    if (covVc.BodyFootprint <= 1.5f
+                        && Mathf.Abs(v - covVc.BodyFootprint) > 0.0005f)
+                    { covVc.footprintOverride = v; dirty = true; }
+                    v = HSlider("step up m", covVc.stepUpMax, 0.05f, 1.0f, "F2");
+                    if (v != covVc.stepUpMax) { covVc.stepUpMax = v; dirty = true; }
+                }
+                if (cov.Field != null && cov.Field.bodyHalfMeters > 0f)
+                    GUILayout.Label($"  walk cert: <b>{cov.Field.bodyHalfMeters * 2f:F2}m</b> square (continuous)" +
+                                    $" · {cov.Field.bodyHalfMeters:F2}m stand-off", labelStyle);
                 if (dirty) cov.Refresh(true);
 
                 Tog(ref cov.showRing, " scan radius ring");
@@ -2633,6 +3149,7 @@ namespace SteelCity.Sim
                 Tog(ref cov.showCandidates, " candidates");
                 Tog(ref cov.showLos, " threat→eye LOS rays");
                 Tog(ref cov.showHeat, " ground-quad field");
+                Tog(ref fighterBeams, " fighter beams (body squares / dst posts)");
                 if (GUILayout.Button("RESCAN NOW", tabStyle, GUILayout.Height(20)))
                     cov.Refresh(true);
                 var st = cov.stats;
@@ -2649,6 +3166,7 @@ namespace SteelCity.Sim
 
                 Tog(ref vis.showCone, " FOV cone rim beams");
                 Tog(ref vis.showTargetRay, " eye→target rays");
+                Tog(ref vis.showDetectMarks, " detect marks");
                 Tog(ref vis.showConeFill, " wedge fill (scene-space, legacy)");
                 bool owns = VisionSensor.ConeOwner == vis;
                 bool wantOwns = GUILayout.Toggle(owns, " owns V-mode cone globals", toggleStyle);
@@ -2669,7 +3187,7 @@ namespace SteelCity.Sim
             else
             {
                 GUILayout.Label($"  state: <b>{cc.State}</b>" +
-                    (cc.State != CombatController.CombatState.Idle ? $" · threat {cc.ThreatPos.ToString("F1")}" : ""), labelStyle);
+                    (cc.State != CombatController.CombatState.Idle ? $" · threat {cc.ThreatPos.ToString("F1")}" : cc.Watching ? " · <b>watching</b>" : ""), labelStyle);
                 cc.moveSpeed = HSlider("move speed", cc.moveSpeed, 0.5f, 5f);
                 var vinny = cityMap.SpawnedCharacter;
                 GUILayout.BeginHorizontal();
@@ -3258,7 +3776,7 @@ namespace SteelCity.Sim
             if (vis != null)
                 sb.AppendLine($"vision: {vis.range:F0}m ±{vis.halfAngleDeg:F0}°  det <b>{vis.MaxDetection * 100f:F0}%</b>  cone {OnOff(vis.showCone)}/ray {OnOff(vis.showTargetRay)}/fill {OnOff(vis.showConeFill)}  owner {OnOff(VisionSensor.ConeOwner == vis)}");
             sb.AppendLine(cc != null
-                ? $"combat: <b>{cc.State}</b>  move {cc.moveSpeed:F1}  targetDuck {cc.TargetDuck:F2}   duel {pitTanMode}"
+                ? $"combat: <b>{cc.State}</b>{(cc.Watching ? $" <b>+ watch on {(cc.WatchTarget != null ? cc.WatchTarget.name : "?")}</b>" : "")}  move {cc.moveSpeed:F1}  targetDuck {cc.TargetDuck:F2}   duel {pitTanMode}"
                 : "combat: <i>no CombatController</i>");
         }
 

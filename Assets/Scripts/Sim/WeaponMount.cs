@@ -33,8 +33,8 @@ namespace SteelCity.Sim
         public bool equipOnStart = true;
 
         [Header("Debug")]
-        public bool showGizmo = true;
-        public bool debugLogs = true;
+        public bool showGizmo = false;
+        public bool debugLogs = false;
         [Tooltip("Render a long beam from the muzzle along the bore axis in Game view (via PathDebugRenderer)")]
         public bool showMuzzleRay = false;   // debug bore axis — off by default, Combat tab toggle
         public float muzzleRayLength = 60f;

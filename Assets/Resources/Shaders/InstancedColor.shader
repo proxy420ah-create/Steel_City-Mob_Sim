@@ -3,12 +3,14 @@ Shader "Unlit/InstancedColor"
     Properties
     {
         _Color ("Color", Color) = (1,1,1,1)
+        [Enum(UnityEngine.Rendering.CompareFunction)] _ZTest ("ZTest", Float) = 4
     }
     SubShader
     {
         Tags { "RenderType"="Transparent" "Queue"="Transparent" }
         Blend SrcAlpha OneMinusSrcAlpha
         ZWrite Off
+        ZTest [_ZTest]
         Cull Off
 
         Pass

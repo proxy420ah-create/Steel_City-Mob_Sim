@@ -1556,7 +1556,7 @@ Shader "SteelCity/VoxelProxyRaymarch"
                     float3 heat = h < 0.5
                         ? lerp(float3(0.05, 0.2, 1.0), float3(0.1, 1.0, 0.3), h * 2.0)
                         : lerp(float3(0.1, 1.0, 0.3), float3(1.0, 0.12, 0.0), (h - 0.5) * 2.0);
-                    if (_IterVis > 6.5)
+                    if (_IterVis > 6.5 && _IterVis < 7.5)
                     {
                         // ── Mode 7: vision cone ──────────────────────────────
                         // Vinny's sight wedge painted on the hit surfaces —
@@ -1603,7 +1603,12 @@ Shader "SteelCity/VoxelProxyRaymarch"
                             // priority (chosen > hidden > exposed > invalid)
                             // for the threat modes.
                             float rank;
-                            if (_IterVis > 4.5)
+                            if (_IterVis > 7.5)
+                                // 8/9 = walk-domain slices carry DISPLAY
+                                // colors — strongest paint wins the union
+                                // ("any fighter's domain").
+                                rank = fs.a;
+                            else if (_IterVis > 4.5)
                                 rank = (fs.b > 0.80 && fs.b < 0.95) ? 5.0   // chosen pick
                                      : fs.b > 0.95 ? 4.0                    // hidden
                                      : fs.b > 0.55 ? 3.0                    // exposed
@@ -1618,7 +1623,14 @@ Shader "SteelCity/VoxelProxyRaymarch"
                         float3 cover = o.color.rgb;   // default: untouched scene
                         if (inField)
                         {
-                            if (_IterVis > 5.5)
+                            if (_IterVis > 7.5)
+                            {
+                                // 8/9 = Walkable/Reachable — display-color
+                                // slice, alpha-weighted onto the surface
+                                // (clear cells leave the scene untouched).
+                                cover = lerp(o.color.rgb, f.rgb, f.a);
+                            }
+                            else if (_IterVis > 5.5)
                             {
                                 // 6 = Exposure verdicts: teal hidden, red
                                 // exposed, slate invalid, dim wash = untested.

@@ -1,0 +1,122 @@
+{
+ "name": "ricochet_12",
+ "version": 4,
+ "sampleRate": 44100,
+ "duration": 1.7,
+ "seed": 311,
+ "envelope": {
+  "mode": "exp"
+ },
+ "gain": 0.8,
+ "drive": 1.6,
+ "phaseStep": 1.7,
+ "rootNote": 60,
+ "pitch": 0,
+ "coupleDecay": true,
+ "tailFade": 0.09,
+ "masterAttack": 0,
+ "masterRelease": 0.51,
+ "eq": [
+  {
+   "type": "lowshelf",
+   "hz": 250,
+   "gainDb": 0,
+   "q": 0.7,
+   "on": false
+  },
+  {
+   "type": "peaking",
+   "hz": 900,
+   "gainDb": 0,
+   "q": 1.0,
+   "on": false
+  },
+  {
+   "type": "peaking",
+   "hz": 3200,
+   "gainDb": 0,
+   "q": 1.0,
+   "on": false
+  },
+  {
+   "type": "highshelf",
+   "hz": 8000,
+   "gainDb": 0,
+   "q": 0.7,
+   "on": false
+  }
+ ],
+ "echo": {
+  "on": true,
+  "time": 0.045,
+  "feedback": 0.38,
+  "mix": 0.19
+ },
+ "layers": [
+  {
+   "type": "attack",
+   "amp": 0.58,
+   "decay": 90,
+   "tone": 3000,
+   "toneQ": 1.4
+  },
+  {
+   "type": "attack",
+   "amp": 0.33,
+   "decay": 55,
+   "src": "chirp",
+   "startHz": 711,
+   "endHz": 237,
+   "cutoff": 3000
+  },
+  {
+   "type": "sweep",
+   "amp": 0.4,
+   "decay": 4.5,
+   "startHz": 2250,
+   "endHz": 900,
+   "curve": "exp",
+   "harmN": 3,
+   "harmAmp": 0.58
+  },
+  {
+   "type": "sweep",
+   "amp": 0.3,
+   "decay": 5,
+   "startHz": 2180,
+   "endHz": 960,
+   "curve": "exp",
+   "harmN": 3,
+   "harmAmp": 0.55
+  },
+  {
+   "type": "partials",
+   "amp": 0.42,
+   "decay": 7,
+   "partials": [
+    {
+     "hz": 1250,
+     "amp": 0.4
+    },
+    {
+     "hz": 1550,
+     "amp": 0.36
+    },
+    {
+     "hz": 1700,
+     "amp": 0.3
+    },
+    {
+     "hz": 1900,
+     "amp": 0.22
+    }
+   ]
+  },
+  {
+   "type": "noiseTail",
+   "amp": 0.15,
+   "decay": 11,
+   "lowpass": 6500
+  }
+ ]
+}

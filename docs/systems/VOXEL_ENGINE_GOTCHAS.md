@@ -417,6 +417,10 @@ The watchdog that should have caught it couldn't: it flagged EXTERNAL yaw only o
 - **When a kill-switch makes the bug vanish, the bug is IN what the switch covered — but verify the switch covers everything.** The old `dbgYawIntent` gated a lane, not the write sites; coverage lies are worse than no toggle.
 - Ownerless claims + one-writer-per-channel architecture = the system's immune system. Every transform-channel writer should be named, toggled, and auditable.
 
+### Postscript (2026-10-22) — the *other* direction was still armed
+
+The #12 fix stopped `DebugSnapTo` from *creating* claims, but didn't void **pre-existing** ones — so a weekly-order `FaceTarget`/`StartMove` arm (the slerp's legitimate owners) outlived the snap and dragged Vinny's facing back to the script's within a second. User caught it on the `pitSwapSides` parity test: SETUP PIT put him on the north plate, the script's stale claim rotated him back, "doesnt face vinny correctly" — **not in combat, no combat writer involved**. Fix completes the doctrine: the snap now *voids* `hasTargetRotation` **and** `currentMoveEvent` (a live lerp would yank position to the event endpoint the same way). Same claim-void extended to the remaining ownerless window: the slerp **and** the move lerp now both die on `PossessController.Active` — the player is an owner too. The rule generalizes: **an authoritative override must void the channel, not just write through it** — writing once against a live claim is a polite request, not an override.
+
 ---
 
 ## Gotcha #13: The Tolerance IS the Residual — `arriveEps` as a Visible Contract

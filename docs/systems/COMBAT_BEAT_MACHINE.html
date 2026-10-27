@@ -1,0 +1,1452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Steel City — Combat Beat Machine</title>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --surface2: #1c2331;
+    --border: #30363d; --text: #e6edf3; --text-dim: #8b949e;
+    --accent: #58a6ff; --green: #3fb950; --orange: #f0883e;
+    --pink: #f778ba; --red: #f85149; --yellow: #d29922;
+    --cyan: #39c5cf; --purple: #bc8cff; --tan: #d2a679;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Segoe UI',system-ui,sans-serif; background:var(--bg); color:var(--text); line-height:1.6; }
+  .hero { text-align:center; padding:38px 20px 26px; background:linear-gradient(135deg,#0d1117,#1a1a2e 40%,#16213e 75%,#0f3460); border-bottom:1px solid var(--border); }
+  .hero h1 { font-size:2.1em; background:linear-gradient(90deg,var(--red),var(--orange),var(--yellow)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+  .hero .sub { color:var(--text-dim); font-size:.95em; max-width:860px; margin:6px auto 0; }
+  .wrap { max-width:1560px; margin:0 auto; padding:22px 18px 60px; }
+  .layout { display:grid; grid-template-columns:minmax(720px,1fr) 690px; gap:18px; align-items:start; }
+  .rail { position:sticky; top:10px; display:flex; flex-direction:column; max-height:calc(100vh - 20px); overflow-y:auto; overflow-x:hidden; scrollbar-width:thin; }
+  @media (max-width:1500px){ .layout{grid-template-columns:1fr;} .rail{position:static;max-height:none;} }
+  h2.sec { font-size:1.25em; margin:34px 0 6px; color:var(--accent); letter-spacing:.5px; }
+  .secsub { color:var(--text-dim); font-size:.85em; margin-bottom:14px; max-width:1000px; }
+
+  /* lifecycle strip */
+  .life { display:flex; flex-wrap:wrap; gap:6px; align-items:center; justify-content:center; margin-top:16px; }
+  .life .step { background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:4px 12px; font-size:.78em; white-space:nowrap; }
+  .life .step.mv { border-color:var(--cyan); color:var(--cyan); }
+  .life .step.bt { border-color:var(--purple); color:var(--purple); }
+  .life .step.gate { border-color:var(--orange); color:var(--orange); }
+  .life .step.term { border-color:var(--red); color:var(--red); }
+  .life .arr { color:var(--text-dim); font-size:.8em; }
+
+  /* flowchart */
+  .chart { position:relative; height:640px; background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; margin-bottom:8px; }
+  .chart svg { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+  .node { position:absolute; min-width:118px; padding:8px 10px; border-radius:10px; border:2px solid var(--border); background:var(--surface2); text-align:center; cursor:pointer; transition:transform .15s, box-shadow .15s, border-color .15s; z-index:2; }
+  .node:hover { transform:scale(1.05); box-shadow:0 0 18px rgba(88,166,255,.25); }
+  .node .nm { font-weight:700; font-size:.86em; letter-spacing:.5px; }
+  .node .tm { font-size:.68em; color:var(--text-dim); }
+  .node.state { border-color:var(--cyan); }
+  .node.beat  { border-color:var(--purple); }
+  .node.gate  { border-color:var(--orange); border-style:dashed; }
+  .node.term  { border-color:var(--red); }
+  .node.fire  { border-color:var(--red); background:#2d1a1a; }
+  .node.sel { box-shadow:0 0 0 3px var(--yellow), 0 0 24px rgba(210,153,34,.4); }
+  .edge-lbl { position:absolute; font-size:.62em; color:var(--text-dim); background:var(--surface); padding:1px 5px; border-radius:4px; z-index:1; pointer-events:none; }
+  .ftabs { display:flex; gap:6px; margin-bottom:8px; }
+  .ftab { background:var(--surface2); border:1px solid var(--border); color:var(--text-dim); font-size:.74em; font-weight:600; padding:4px 14px; border-radius:8px 8px 0 0; cursor:pointer; }
+  .ftab.active { color:var(--text); border-color:var(--accent); border-bottom-color:var(--surface); }
+  .node.vis   { border-color:var(--red); }
+  .node.lk    { border-color:var(--purple); }
+  .node.hinge { border-color:var(--orange); border-style:dashed; }
+  .engframe { position:absolute; border:1.5px dashed var(--orange); border-radius:14px; opacity:.45; pointer-events:none; z-index:0; }
+  .englbl { position:absolute; font-size:.68em; font-weight:700; color:var(--orange); background:var(--surface); padding:0 8px; pointer-events:none; z-index:3; }
+  .lanelbl { position:absolute; font-size:.66em; font-weight:700; letter-spacing:.8px; padding:1px 8px; background:var(--surface); pointer-events:none; z-index:1; }
+  .lanelbl.vis { color:var(--red); }
+  .lanelbl.lk  { color:var(--purple); }
+  .regtag { display:inline-block; font-size:.85em; font-weight:700; letter-spacing:.6px; padding:1px 7px; border-radius:4px; margin-bottom:5px; }
+  .regtag.vis { background:rgba(248,81,73,.15); color:var(--red); }
+  .regtag.lk { background:rgba(188,140,255,.15); color:var(--purple); }
+  .regtag.hinge { background:rgba(240,136,62,.15); color:var(--orange); }
+  .node.hub { border-color:var(--yellow); border-width:2.5px; min-width:150px; }
+  .node.act { border-color:var(--cyan); }
+  .caps { display:flex; flex-wrap:wrap; gap:3px; justify-content:center; margin-top:7px; }
+  .cap { font-size:.58em; font-weight:600; letter-spacing:.4px; color:var(--yellow); background:rgba(210,153,34,.12); border:1px solid rgba(210,153,34,.45); border-radius:8px; padding:1px 6px; white-space:nowrap; }
+  .cband { position:absolute; font-size:.62em; font-weight:700; color:var(--red); background:rgba(248,81,73,.08); border:1.5px solid var(--red); border-radius:10px; padding:5px 12px; text-align:center; pointer-events:none; z-index:1; }
+  .covl { position:absolute; border:1.5px dashed var(--red); border-radius:50%; opacity:.5; pointer-events:none; z-index:0; }
+  .node.ghost { border-style:dashed; opacity:.38; }
+  .node.ghost .nm { text-decoration:line-through; }
+  .vstrip { position:absolute; font-size:.6em; font-family:Consolas,monospace; color:var(--text-dim); background:var(--surface); border:1px dashed var(--border); border-radius:8px; padding:4px 10px; pointer-events:none; z-index:1; }
+  .vscore { display:grid; grid-template-columns:216px 1fr; gap:10px; margin-top:8px; padding:10px; background:var(--surface2); border:1px solid var(--border); border-radius:10px; }
+  #vradar { width:216px; height:216px; }
+  #vbars { display:flex; flex-direction:column; gap:2px; }
+  .ibar { display:grid; grid-template-columns:88px 52px 1fr 34px; align-items:center; gap:6px; font-size:.64em; padding:2px 4px; border-radius:5px; }
+  .ibar .iv { color:var(--text-dim); font-size:.85em; text-align:right; }
+  .ibar .inum { font-family:Consolas,monospace; color:var(--text-dim); text-align:right; }
+  .ibar .ifill { height:7px; background:#161b22; border-radius:4px; overflow:hidden; }
+  .ibar .ifill i { display:block; height:100%; background:var(--cyan); border-radius:4px; }
+  .ibar.win { background:rgba(210,153,34,.14); outline:1px solid var(--yellow); }
+  .ibar.win .ifill i { background:var(--yellow); }
+  .vconds { grid-column:1/-1; display:flex; flex-wrap:wrap; gap:4px; margin-top:4px; }
+  .vchip { font-size:.58em; font-family:Consolas,monospace; padding:2px 7px; border-radius:6px; border:1px solid var(--border); background:var(--surface); color:var(--text-dim); }
+  .vchip.on { color:#3fb950; border-color:#3fb950; }
+  .vchip.hot { color:var(--red); border-color:var(--red); }
+  .vchip.warm { color:var(--yellow); border-color:var(--yellow); }
+
+  /* ── Tab G — the three-tier stack (static layout, not SVG nodes) ── */
+  .chart.stack { height:auto; padding:16px; }
+  .stackwrap { display:grid; grid-template-columns:1fr 176px; gap:12px; align-items:stretch; }
+  .stackmain { display:flex; flex-direction:column; gap:9px; }
+  .strow { position:relative; border:1px dashed var(--border); border-radius:10px; padding:16px 10px 10px; background:rgba(255,255,255,.015); }
+  .sttier { position:absolute; left:10px; top:-8px; font-size:.62em; font-weight:700; letter-spacing:.5px; color:var(--orange); background:var(--surface); padding:0 7px; }
+  .sttier i { font-weight:400; color:var(--text-dim); }
+  .stflex { display:flex; gap:18px; align-items:center; justify-content:center; }
+  .stgrid4 { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+  .minigrid { display:flex; gap:6px; }
+  .minigrid .stbox { flex:1; }
+  .stbox { background:var(--surface2); border:2px solid var(--cyan); border-radius:9px; padding:8px 9px; text-align:center; font-size:.78em; cursor:pointer; transition:transform .15s, box-shadow .15s; }
+  .stbox:hover { transform:scale(1.03); box-shadow:0 0 14px rgba(88,166,255,.25); }
+  .stbox.sel { box-shadow:0 0 0 3px var(--yellow), 0 0 24px rgba(210,153,34,.4); }
+  .stbox .nm { font-weight:700; font-size:.95em; letter-spacing:.5px; }
+  .stbox .tm { font-size:.78em; color:var(--text-dim); line-height:1.35; margin-top:2px; }
+  .stbox.state { border-color:var(--cyan); }
+  .stbox.act { border-color:var(--cyan); }
+  .stbox.hub { border-color:var(--yellow); border-width:2.5px; }
+  .stbox.beat { border-color:var(--purple); }
+  .stbox.ovl { border-color:var(--red); }
+  .starr2 { font-size:.66em; font-family:Consolas,monospace; color:var(--text-dim); align-self:center; white-space:nowrap; }
+  .starrow { text-align:center; font-size:.64em; font-family:Consolas,monospace; color:var(--text-dim); }
+  .starrow b { color:var(--green); font-weight:400; }
+  .stackrail { position:relative; border:1.5px dashed var(--orange); border-radius:12px; padding:14px 10px; display:flex; flex-direction:column; gap:10px; justify-content:space-around; }
+  .stackrail::before { content:'OVERLAYS — ride every tier, never dispatched'; position:absolute; top:-8px; left:10px; font-size:.62em; font-weight:700; color:var(--orange); background:var(--surface); padding:0 7px; }
+  .stverdict { border:1px dashed var(--border); border-radius:8px; padding:6px 10px; font-size:.62em; font-family:Consolas,monospace; color:var(--text-dim); }
+
+  /* ── Tab H — ENGAGEMENT frame (outermost container: combat is live inside) ── */
+  .hframe { position:relative; border:2px solid var(--orange); border-radius:14px; padding:44px 14px 16px; min-height:640px; background:rgba(240,136,62,.03); }
+  .hframelbl { position:absolute; top:-11px; left:16px; font-size:.82em; font-weight:700; letter-spacing:.9px; color:var(--orange); background:var(--surface); padding:0 10px; }
+  .hframesub { position:absolute; top:10px; left:16px; right:16px; font-size:.68em; color:var(--text-dim); line-height:1.4; }
+  .hframesub b { color:var(--orange); font-weight:600; }
+  .hbody { display:flex; flex-direction:column; gap:9px; }
+
+  /* ── Tab H ── */
+
+  .hstage { position:relative; width:740px; height:560px; margin:6px auto; }
+  .harr { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:0; }
+  .hbox { position:absolute; background:var(--surface2); border:2.5px solid var(--text); z-index:2; }
+  .hD { position:absolute; background:var(--surface2); border:2.5px solid var(--text); z-index:2; }
+  .hD.left { border-radius:999px 0 0 999px; }
+  .hD.right { border-radius:0 999px 999px 0; }
+
+  /* ── Tab H ── */
+
+  #chartH .hbox, #chartH .hD, #chartH [data-h] { cursor:pointer; }
+  #chartH [data-h] { transition:filter .15s; }
+  #chartH [data-h]:hover { filter:brightness(1.45); }
+  #chartH .hbox:hover, #chartH .hD:hover { box-shadow:0 0 18px rgba(88,166,255,.3); }
+  #chartH .sel { outline:3px solid var(--yellow); }
+
+  /* ── Tab H ── */
+  .ccond { position:absolute; font-size:.64em; font-weight:700; color:var(--red); background:var(--surface); border:1.5px solid var(--red); border-radius:8px; padding:3px 10px; pointer-events:none; z-index:1; }
+
+  /* detail + params */
+  .cols { display:grid; grid-template-columns:1fr; gap:16px; }
+  .panel { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:16px; }
+  .panel h3 { font-size:1em; color:var(--accent); margin-bottom:8px; }
+  #beatDetail { font-size:.85em; color:var(--text); min-height:120px; }
+  #beatDetail .d-ttl { font-weight:700; font-size:1.1em; margin-bottom:4px; }
+  #beatDetail li { margin-left:18px; margin-bottom:3px; }
+  #beatDetail .kv { color:var(--text-dim); }
+  table.params { width:100%; border-collapse:collapse; font-size:.78em; }
+  table.params td, table.params th { padding:4px 6px; border-bottom:1px solid var(--border); text-align:left; }
+  table.params th { color:var(--text-dim); font-weight:600; }
+  table.params input { width:64px; background:var(--surface2); border:1px solid var(--border); color:var(--cyan); border-radius:5px; padding:2px 6px; font-size:1em; }
+  table.params td:first-child { color:var(--text); font-family:Consolas,monospace; }
+  table.params .d { color:var(--text-dim); }
+
+  /* arena 3d */
+  .view3d { position:relative; width:100%; aspect-ratio:660/470; flex:none; background:#0a0e14; border:1px solid var(--border); border-radius:12px; overflow:hidden; }
+  .view3d canvas { display:block; }
+  .vload { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--text-dim); font-size:.8em; z-index:2; }
+  .vstat { font-family:Consolas,monospace; font-size:.66em; color:var(--text-dim); margin-top:6px; line-height:1.5; }
+  .vstat b { color:var(--cyan); }
+  .vctl { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:6px; }
+  .vctl button { background:var(--surface2); border:1px solid var(--border); color:var(--text); font-size:.72em; padding:3px 10px; border-radius:6px; cursor:pointer; }
+  .vctl button:hover { border-color:var(--accent); }
+  #vverdict { font-family:Consolas,monospace; font-size:.68em; color:var(--orange); margin-left:6px; }
+  .planner { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:10px; }
+  .ecard { background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:10px; font-size:.76em; }
+  .ecard .h { font-weight:700; margin-bottom:4px; }
+  .ecard .d { color:var(--text-dim); }
+  .ecard.stim { border-color:var(--orange); }
+  .legend { display:flex; gap:14px; flex-wrap:wrap; font-size:.72em; color:var(--text-dim); margin:8px 0 0; }
+  .legend span b { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; vertical-align:middle; }
+  footer { text-align:center; color:var(--text-dim); font-size:.72em; margin-top:40px; border-top:1px solid var(--border); padding-top:16px; }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <h1>⚔ COMBAT BEAT MACHINE</h1>
+  <div class="sub">The engagement rhythm as it actually runs — <b>CombatController.cs</b> seeded.
+  States are machines, beats are InCover-scoped, movement is legs. Click nodes for doctrine + defaults; the arena is a real-asset visualization field — the arbiter rebuild is pending.</div>
+  <div class="life">
+    <span class="step mv">ENTER COMBAT</span><span class="arr">→</span>
+    <span class="step mv">SEEK COVER <i>(opportunity shot if exposed)</i></span><span class="arr">→</span>
+    <span class="step bt">SETTLE</span><span class="arr">→</span>
+    <span class="step bt">TOP-UP</span><span class="arr">→</span>
+    <span class="step bt">RISE · LOOK</span><span class="arr">→</span>
+    <span class="step gate">contact?</span><span class="arr">→</span>
+    <span class="step bt">DUCK · SETTLE</span><span class="arr">→</span>
+    <span class="step mv">BOUNDED ORBIT ±90° <i>(2 transit : 1 scout)</i></span><span class="arr">→</span>
+    <span class="step bt">FINAL RISE · LOOK</span><span class="arr">→</span>
+    <span class="step term">clear → EXIT → WATCH</span>
+  </div>
+</div>
+
+<div class="wrap">
+<div class="layout">
+<div class="main">
+
+<h2 class="sec">◈ THE BEAT FLOWCHART</h2>
+<div class="secsub">Click any node for its contract. Solid = the normal cycle · dashed = verdict gates · red = terminal/fire. Beats exist ONLY inside <b>InCover</b> — movement legs are a separate machine.</div>
+<div class="ftabs">
+  <button class="ftab active" data-t="chartA">A · BEAT MACHINE — current</button>
+  <button class="ftab" data-t="chartB">B · ENGAGEMENT REGIMES — proposed</button>
+  <button class="ftab" data-t="chartC">C · SETTLE-SEAM — proposed</button>
+  <button class="ftab" data-t="chartD">D · SEAM+PROBE — collapsed</button>
+  <button class="ftab" data-t="chartE">E · SEAM-HUB — radial</button>
+  <button class="ftab" data-t="chartF">F · FIRE=OVERLAY — collapsed</button>
+  <button class="ftab" data-t="chartG">G · STACK — the three tiers</button>
+  <button class="ftab" data-t="chartH">H · ENGAGEMENT — the roll</button>
+</div>
+<div class="chart" id="chartA"><svg></svg></div>
+<div class="chart" id="chartB" style="display:none;height:720px"><svg></svg></div>
+<div class="chart" id="chartC" style="display:none;height:700px"><svg></svg></div>
+<div class="chart" id="chartD" style="display:none;height:700px"><svg></svg></div>
+<div class="chart" id="chartE" style="display:none;height:720px"><svg></svg></div>
+<div class="chart" id="chartF" style="display:none;height:720px"><svg></svg></div>
+<div class="chart stack" id="chartG" style="display:none">
+<div class="stackwrap">
+<div class="stackmain">
+
+  <div class="strow">
+    <span class="sttier">TIER 1 · DECIDE — score 10 intents on the blackboard, argmax dispatches</span>
+    <div class="stflex">
+      <div class="stbox state" data-d="board"><div class="nm">BLACKBOARD</div><div class="tm">what the scorer reads</div>
+        <div class="caps"><span class="cap">contact</span><span class="cap">cover</span><span class="cap">cyl</span><span class="cap">zero&times;n</span><span class="cap">dead-stand</span><span class="cap">orbit</span><span class="cap">pinned</span></div></div>
+      <div class="starr2">── reads ──▶</div>
+      <div class="stbox hub" data-d="seam"><div class="nm">SEAM EVAL</div><div class="tm">scores 10 intents<br>argmax → dispatch<br>breath 0.35s · seamNow interrupts</div></div>
+    </div>
+  </div>
+
+  <div class="starrow">▼ &nbsp;dispatch — the winning intent&#39;s verb &nbsp;·&nbsp; <b>▲ verdicts travel back up</b></div>
+
+  <div class="strow">
+    <span class="sttier">TIER 2 · ACT — 4 programs, each runs to a VERDICT &nbsp;<i>(chips = the intents each serves)</i></span>
+    <div class="stgrid4">
+      <div class="stbox act" data-d="move"><div class="nm">MOVE</div><div class="tm">routed legs —<br>intent picks destination</div>
+        <div class="caps"><span class="cap">SeekCover</span><span class="cap">Relocate</span><span class="cap">Engage</span><span class="cap">OrbitSearch</span></div></div>
+      <div class="stbox act" data-d="probe"><div class="nm">PROBE</div><div class="tm">acquire sight —<br>geometry picks mode</div>
+        <div class="caps"><span class="cap">Recon</span><span class="cap">FinalConfirm</span></div></div>
+      <div class="stbox act" data-d="reload"><div class="nm">RELOAD</div><div class="tm">cylinder top-up</div>
+        <div class="caps"><span class="cap">Reload</span></div></div>
+      <div class="stbox act" data-d="hold"><div class="nm">HOLD</div><div class="tm">parked OR delivering</div>
+        <div class="caps"><span class="cap">StandDlv</span><span class="cap">Watch</span><span class="cap">Pinned</span></div></div>
+    </div>
+  </div>
+
+  <div class="starrow">▼ &nbsp;each program writes <b>Beat</b> — the motor vocabulary it drives</div>
+
+  <div class="strow">
+    <span class="sttier">TIER 3 · EXPRESS — the body (aligned under the program that writes it)</span>
+    <div class="stgrid4">
+      <div class="stbox beat" data-d="legs"><div class="nm">LEGS</div><div class="tm">SeekingCover<br>atomic leg</div></div>
+      <div class="minigrid">
+        <div class="stbox beat" data-d="rise"><div class="nm">RISE</div><div class="tm">rise-over</div></div>
+        <div class="stbox beat" data-d="swing"><div class="nm">SWING</div><div class="tm">rim step-out</div></div>
+      </div>
+      <div class="stbox beat" data-d="topup"><div class="nm">TOP-UP</div><div class="tm">hands busy<br>fire channel closed</div></div>
+      <div class="minigrid">
+        <div class="stbox beat" data-d="engaged"><div class="nm">ENGAGED</div><div class="tm">bore on threat</div></div>
+        <div class="stbox beat" data-d="parked"><div class="nm">PARKED</div><div class="tm">None·HoldPos</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="strow">
+    <span class="sttier">SHARED POSTURE — folds are vocabulary, not decisions</span>
+    <div class="stflex">
+      <div class="stbox hub" data-d="settleb"><div class="nm">SETTLE</div><div class="tm">the beat that HOSTS the seam —<br>tier-1 logic lives inside a tier-3 beat</div></div>
+      <div class="stbox beat" data-d="duck"><div class="nm">DUCK</div><div class="tm">the fold — written inside<br>ANY program (refusal · buried · reload tuck)</div></div>
+    </div>
+  </div>
+
+  <div class="stverdict">VERDICT VOCABULARY — threat registered · contact@crest · zero@crest · contact@rim · zero@rim · leg arrived · leg blocked · loaded · cylinder dry · bore buried · lost contact · pin recheck · exit</div>
+
+</div>
+<div class="stackrail">
+  <div class="stbox ovl" data-d="ovlshot"><div class="nm">◉ SHOT</div><div class="tm">TickExposureFire<br>gated impulse</div></div>
+  <div class="stbox ovl" data-d="ovlaim"><div class="nm">AIM-TRACK</div><div class="tm">yaw follows<br>threat / belief</div></div>
+  <div class="stbox ovl" data-d="ovlexp"><div class="nm">EXPOSURE</div><div class="tm">the contact channel<br>writes the blackboard</div></div>
+</div>
+</div>
+</div>
+<div class="chart stack" id="chartH" style="display:none">
+<div class="hframe" data-h="frame">
+  <span class="hframelbl">ENGAGEMENT — combat initiation</span>
+  <div class="hframesub">everything inside is LIVE — this entity has a <b>threat registered</b>: <b>visible</b> (seen contact) · <b>non-visible</b> (heard shot / intel)</div>
+  <div class="hbody">
+    <div class="hstage">
+      <svg class="harr" viewBox="0 0 740 560" preserveAspectRatio="none">
+        <defs><marker id="har" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+          <path d="M0,0 L8,4 L0,8 Z" fill="#c9d1d9"/></marker></defs>
+        <line x1="330" y1="152" x2="152" y2="283" stroke="#c9d1d9" stroke-width="2.5" marker-end="url(#har)" data-h="dispatch" style="pointer-events:all" />
+        <line x1="430" y1="152" x2="588" y2="283" stroke="#c9d1d9" stroke-width="2.5" marker-end="url(#har)" data-h="dispatch" style="pointer-events:all" />
+        <line x1="150" y1="357" x2="280" y2="357" stroke="#c9d1d9" stroke-width="2.5" marker-end="url(#har)" data-h="reload" style="pointer-events:all" />
+        <line x1="590" y1="357" x2="482" y2="357" stroke="#c9d1d9" stroke-width="2.5" marker-end="url(#har)" data-h="reload" style="pointer-events:all" />
+        <text x="215" y="346" fill="#c9d1d9" font-family="Consolas,monospace" font-size="12" font-weight="700" letter-spacing="1.5" text-anchor="middle">RELOAD</text>
+        <text x="536" y="346" fill="#c9d1d9" font-family="Consolas,monospace" font-size="12" font-weight="700" letter-spacing="1.5" text-anchor="middle">RELOAD</text>
+        <polygon points="150,384 280,412 280,434 150,434" fill="rgba(201,209,217,.05)" stroke="#c9d1d9" stroke-width="1.5" data-h="ramp" style="pointer-events:all" />
+        <line x1="171.7" y1="388.7" x2="171.7" y2="434" stroke="#c9d1d9" stroke-width="1"/>
+        <line x1="193.3" y1="393.3" x2="193.3" y2="434" stroke="#c9d1d9" stroke-width="1"/>
+        <line x1="215.0" y1="398.0" x2="215.0" y2="434" stroke="#c9d1d9" stroke-width="1"/>
+        <line x1="236.7" y1="402.7" x2="236.7" y2="434" stroke="#c9d1d9" stroke-width="1"/>
+        <line x1="258.3" y1="407.3" x2="258.3" y2="434" stroke="#c9d1d9" stroke-width="1"/>
+        <polygon points="460,412 590,384 590,434 460,434" fill="rgba(201,209,217,.05)" stroke="#c9d1d9" stroke-width="1.5" data-h="ramp" style="pointer-events:all" />
+        <line x1="481.7" y1="407.3" x2="481.7" y2="434" stroke="#c9d1d9" stroke-width="1"/>
+        <line x1="503.3" y1="402.7" x2="503.3" y2="434" stroke="#c9d1d9" stroke-width="1"/>
+        <line x1="525.0" y1="398.0" x2="525.0" y2="434" stroke="#c9d1d9" stroke-width="1"/>
+        <line x1="546.7" y1="393.3" x2="546.7" y2="434" stroke="#c9d1d9" stroke-width="1"/>
+        <line x1="568.3" y1="388.7" x2="568.3" y2="434" stroke="#c9d1d9" stroke-width="1"/>
+        <circle cx="24" cy="258" r="6" fill="#3fb950"/><text x="36" y="262" fill="#e6edf3" font-family="Consolas,monospace" font-size="12" font-weight="700">: SEEK COVER LEFT</text>
+        <circle cx="24" cy="278" r="6" fill="#f85149"/><text x="36" y="282" fill="#e6edf3" font-family="Consolas,monospace" font-size="12" font-weight="700">: STRAFE LEFT</text>
+        <circle cx="604" cy="258" r="6" fill="#58a6ff"/><text x="616" y="262" fill="#e6edf3" font-family="Consolas,monospace" font-size="12" font-weight="700">: SEEK COVER RIGHT</text>
+        <circle cx="604" cy="278" r="6" fill="#e3b341"/><text x="616" y="282" fill="#e6edf3" font-family="Consolas,monospace" font-size="12" font-weight="700">: STRAFE RIGHT</text>
+        <polygon points="345,278 345,205 323,205 380,160 437,205 415,205 415,278" fill="#c9d1d9" data-h="spotted" style="pointer-events:all" />
+        <text x="380" y="243" fill="#0d1117" font-family="Consolas,monospace" font-size="11" font-weight="700" text-anchor="middle" data-h="spotted" style="pointer-events:all">TARGET</text>
+        <text x="380" y="257" fill="#0d1117" font-family="Consolas,monospace" font-size="11" font-weight="700" text-anchor="middle" data-h="spotted" style="pointer-events:all">SPOTTED</text>
+        <line x1="340" y1="412" x2="340" y2="458" stroke="#c9d1d9" stroke-width="6" marker-end="url(#har)" data-h="hidden" style="pointer-events:all"/>
+        <text x="331" y="429" fill="#c9d1d9" font-family="Consolas,monospace" font-size="10" font-weight="700" letter-spacing="1" text-anchor="end" data-h="hidden" style="pointer-events:all">TARGET</text>
+        <text x="331" y="442" fill="#c9d1d9" font-family="Consolas,monospace" font-size="10" font-weight="700" letter-spacing="1" text-anchor="end" data-h="hidden" style="pointer-events:all">HIDDEN</text>
+        <path d="M285,487 L15,487 L15,160 L310,160 L310,158" fill="none" stroke="#3fb950" stroke-width="3" stroke-linejoin="round" marker-end="url(#har)" data-h="reacq" style="pointer-events:all"/>
+        <text x="150" y="478" fill="#3fb950" font-family="Consolas,monospace" font-size="9.5" font-weight="700" letter-spacing="1.5" text-anchor="middle" data-h="reacq" style="pointer-events:all">REACQUIRED</text>
+        <text x="150" y="493" fill="#3fb950" font-family="Consolas,monospace" font-size="7.5" text-anchor="middle" data-h="reacq" style="pointer-events:all">&#8594; straight to the roll</text>
+        <line x1="380" y1="512" x2="380" y2="530" stroke="#c9d1d9" stroke-width="2" marker-end="url(#har)" data-h="disengage" style="pointer-events:all"/>
+        <line x1="362" y1="535" x2="398" y2="535" stroke="#c9d1d9" stroke-width="4" data-h="disengage" style="pointer-events:all"/>
+        <text x="380" y="549" fill="#8b949e" font-family="Consolas,monospace" font-size="9" font-weight="700" letter-spacing="1" text-anchor="middle" data-h="disengage" style="pointer-events:all">DEEP EXHAUSTED — END</text>
+      </svg>
+      <div class="hbox" data-h="fan" style="left:285px;top:10px;width:190px;height:145px">
+        <svg viewBox="0 0 190 145" style="width:100%;height:100%">
+          <line x1="95"  y1="92" x2="64"  y2="92" stroke="#e6edf3" stroke-width="4"/>
+          <line x1="95"  y1="92" x2="126" y2="92" stroke="#e6edf3" stroke-width="4"/>
+          <path d="M58,85 L64,92 L58,99"  stroke="#e6edf3" stroke-width="4" fill="none"/>
+          <path d="M132,85 L126,92 L132,99" stroke="#e6edf3" stroke-width="4" fill="none"/>
+          <line x1="64"  y1="92" x2="44"  y2="72" stroke="#e6edf3" stroke-width="4"/>
+          <line x1="126" y1="92" x2="146" y2="72" stroke="#e6edf3" stroke-width="4"/>
+          <line x1="64"  y1="92" x2="46"  y2="112" stroke="#e6edf3" stroke-width="4"/>
+          <line x1="126" y1="92" x2="144" y2="112" stroke="#e6edf3" stroke-width="4"/>
+          <polygon points="90.5,92 90.5,46 84,46 95,26 106,46 99.5,46 99.5,92" fill="#e6edf3"/>
+          <polygon points="38,72 38,50 31,50 42,32 53,50 46,50 46,72" fill="#e6edf3"/>
+          <polygon points="144,72 144,50 137,50 148,32 159,50 152,50 152,72" fill="#e6edf3"/>
+          <polygon points="36,122 48,117 40,107" fill="#e6edf3"/>
+          <polygon points="154,122 150,107 142,117" fill="#e6edf3"/>
+          <circle cx="95"  cy="92"  r="11" fill="#e6edf3"/>
+          <circle cx="95"  cy="14"  r="7" fill="#f0883e" data-h="advance" style="pointer-events:all"/><text x="95"  y="17.5" fill="#0d1117" font-family="Consolas,monospace" font-size="9" font-weight="700" text-anchor="middle" data-h="advance" style="pointer-events:all">2</text>
+          <circle cx="26"  cy="34"  r="7" fill="#f85149" data-h="strafel" style="pointer-events:all"/><text x="26"  y="37.5" fill="#0d1117" font-family="Consolas,monospace" font-size="9" font-weight="700" text-anchor="middle" data-h="strafel" style="pointer-events:all">1</text>
+          <circle cx="164" cy="34"  r="7" fill="#e3b341" data-h="strafer" style="pointer-events:all"/><text x="164" y="37.5" fill="#0d1117" font-family="Consolas,monospace" font-size="9" font-weight="700" text-anchor="middle" data-h="strafer" style="pointer-events:all">3</text>
+          <circle cx="26"  cy="122" r="7" fill="#3fb950" data-h="coverl" style="pointer-events:all"/><text x="26"  y="125.5" fill="#0d1117" font-family="Consolas,monospace" font-size="9" font-weight="700" text-anchor="middle" data-h="coverl" style="pointer-events:all">4</text>
+          <circle cx="164" cy="122" r="7" fill="#58a6ff" data-h="coverr" style="pointer-events:all"/><text x="164" y="125.5" fill="#0d1117" font-family="Consolas,monospace" font-size="9" font-weight="700" text-anchor="middle" data-h="coverr" style="pointer-events:all">6</text>
+          <circle cx="95"  cy="128" r="7" fill="#bc8cff" data-h="stand" style="pointer-events:all"/><text x="95"  y="131.5" fill="#0d1117" font-family="Consolas,monospace" font-size="9" font-weight="700" text-anchor="middle" data-h="stand" style="pointer-events:all">5</text>
+        </svg>
+      </div>
+      <div class="hbox" data-h="legend" style="left:80px;top:10px;width:190px;height:145px">
+        <svg viewBox="0 0 190 145" style="width:100%;height:100%">
+          <circle cx="30" cy="24"  r="7" fill="#f85149"/><text x="30" y="27.5" fill="#0d1117" font-family="Consolas,monospace" font-size="9" font-weight="700" text-anchor="middle">1</text><text x="48" y="28"  fill="#e6edf3" font-family="Consolas,monospace" font-size="12.5" font-weight="700">: STRAFE LEFT</text>
+          <circle cx="30" cy="45"  r="7" fill="#f0883e"/><text x="30" y="48.5" fill="#0d1117" font-family="Consolas,monospace" font-size="9" font-weight="700" text-anchor="middle">2</text><text x="48" y="49"  fill="#e6edf3" font-family="Consolas,monospace" font-size="12.5" font-weight="700">: ADVANCE</text>
+          <circle cx="30" cy="66"  r="7" fill="#e3b341"/><text x="30" y="69.5" fill="#0d1117" font-family="Consolas,monospace" font-size="9" font-weight="700" text-anchor="middle">3</text><text x="48" y="70"  fill="#e6edf3" font-family="Consolas,monospace" font-size="12.5" font-weight="700">: STRAFE RIGHT</text>
+          <circle cx="30" cy="87"  r="7" fill="#3fb950"/><text x="30" y="90.5" fill="#0d1117" font-family="Consolas,monospace" font-size="9" font-weight="700" text-anchor="middle">4</text><text x="48" y="91"  fill="#e6edf3" font-family="Consolas,monospace" font-size="12.5" font-weight="700">: SEEK COVER LEFT</text>
+          <circle cx="30" cy="108" r="7" fill="#bc8cff"/><text x="30" y="111.5" fill="#0d1117" font-family="Consolas,monospace" font-size="9" font-weight="700" text-anchor="middle">5</text><text x="48" y="112" fill="#e6edf3" font-family="Consolas,monospace" font-size="12.5" font-weight="700">: STAND</text>
+          <circle cx="30" cy="129" r="7" fill="#58a6ff"/><text x="30" y="132.5" fill="#0d1117" font-family="Consolas,monospace" font-size="9" font-weight="700" text-anchor="middle">6</text><text x="48" y="133" fill="#e6edf3" font-family="Consolas,monospace" font-size="12.5" font-weight="700">: SEEK COVER RIGHT</text>
+        </svg>
+      </div>
+      <div class="hbox" data-h="recon" style="left:285px;top:285px;width:190px;height:125px">
+        <svg viewBox="0 0 190 125" style="width:100%;height:100%">
+          <defs><marker id="harC" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto">
+            <path d="M0,0 L7,3.5 L0,7 Z" fill="#c9d1d9"/></marker></defs>
+          <path d="M40,80 A55,55 0 0 1 150,80 Z" stroke="#e6edf3" stroke-width="2.5" fill="none"/>
+          <line x1="95" y1="78" x2="60" y2="44"  stroke="#c9d1d9" stroke-width="2.5" marker-end="url(#harC)"/>
+          <line x1="95" y1="78" x2="95" y2="33"  stroke="#c9d1d9" stroke-width="2.5" marker-end="url(#harC)"/>
+          <line x1="95" y1="78" x2="130" y2="44" stroke="#c9d1d9" stroke-width="2.5" marker-end="url(#harC)"/>
+          <text x="95" y="93" fill="#8b949e" font-family="Consolas,monospace" font-size="8.5" font-weight="700" letter-spacing="1" text-anchor="middle">SHALLOW</text>
+          <text x="95" y="110" fill="#e6edf3" font-family="Consolas,monospace" font-size="14" font-weight="700" letter-spacing="3" text-anchor="middle">RECON</text>
+        </svg>
+      </div>
+      <div class="hbox" data-h="deep" style="left:285px;top:462px;width:190px;height:50px">
+        <svg viewBox="0 0 190 50" style="width:100%;height:100%">
+          <defs><marker id="harD" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto">
+            <path d="M0,0 L7,3.5 L0,7 Z" fill="#c9d1d9"/></marker></defs>
+          <text x="95" y="14" fill="#e6edf3" font-family="Consolas,monospace" font-size="12" font-weight="700" letter-spacing="2.5" text-anchor="middle">DEEP RECON</text>
+          <path d="M25,45 A70,26 0 0 1 165,45" stroke="#c9d1d9" stroke-width="2" stroke-dasharray="5 4" fill="none"/>
+          <line x1="95" y1="45" x2="95"  y2="21" stroke="#c9d1d9" stroke-width="2" marker-end="url(#harD)"/>
+          <line x1="95" y1="45" x2="68"  y2="26" stroke="#c9d1d9" stroke-width="2" marker-end="url(#harD)"/>
+          <line x1="95" y1="45" x2="122" y2="26" stroke="#c9d1d9" stroke-width="2" marker-end="url(#harD)"/>
+        </svg>
+      </div>
+      <div class="hD left"  data-h="lcyl" style="left:80px; top:290px;width:65px;height:135px">
+        <svg viewBox="0 0 65 135" style="width:100%;height:100%">
+          <defs><marker id="harL" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto">
+            <path d="M0,0 L7,3.5 L0,7 Z" fill="#c9d1d9"/></marker></defs>
+          <line x1="63" y1="67" x2="28" y2="27"  stroke="#c9d1d9" stroke-width="2.5" marker-end="url(#harL)"/>
+          <line x1="63" y1="67" x2="16" y2="67"  stroke="#c9d1d9" stroke-width="2.5" marker-end="url(#harL)"/>
+          <line x1="63" y1="67" x2="28" y2="107" stroke="#c9d1d9" stroke-width="2.5" marker-end="url(#harL)"/>
+        </svg>
+      </div>
+      <div class="hD right" data-h="rcyl" style="left:595px;top:290px;width:65px;height:135px">
+        <svg viewBox="0 0 65 135" style="width:100%;height:100%">
+          <defs><marker id="harR" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto">
+            <path d="M0,0 L7,3.5 L0,7 Z" fill="#c9d1d9"/></marker></defs>
+          <line x1="2" y1="67" x2="37" y2="27"  stroke="#c9d1d9" stroke-width="2.5" marker-end="url(#harR)"/>
+          <line x1="2" y1="67" x2="49" y2="67"  stroke="#c9d1d9" stroke-width="2.5" marker-end="url(#harR)"/>
+          <line x1="2" y1="67" x2="37" y2="107" stroke="#c9d1d9" stroke-width="2.5" marker-end="url(#harR)"/>
+        </svg>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<div class="cols">
+  <div class="panel">
+    <h3>NODE DETAIL</h3>
+    <div id="beatDetail">Click a node above — its contract, defaults, and verdict labels land here.</div>
+  </div>
+  <div class="panel">
+    <h3>TEMPO &amp; CONSTANTS <span style="font-weight:400;color:var(--text-dim)">— live defaults from CombatController (these feed the arbiter&#39;s seam)</span></h3>
+    <table class="params">
+      <tr><th>field</th><th>val</th><th>meaning</th></tr>
+      <tbody id="paramBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<h2 class="sec">◈ EVENT / STIMULUS REFERENCE</h2>
+<div class="secsub">The injectable world-events and what the machine does with them — the "director" verbs for playtests.</div>
+<div class="planner" id="planner"></div>
+
+</div>
+<div class="rail">
+
+<h2 class="sec" style="margin-top:0">◈ ARENA 3D — sterile field</h2>
+<div class="secsub">Real assets, real geometry — <b>cover_arena.stasset</b> + <b>Civilian1.json</b> (Vinny). Visualization + decision-instrument only; Unity stays authoritative. Drag = orbit · wheel = zoom · RMB = pan.</div>
+<div class="view3d" id="view3d"><div class="vload" id="vload">loading voxels…</div></div>
+<div class="vstat" id="vstat">—</div>
+<div class="vctl" id="vctl">
+  <button data-a="duck">duck 0→1→2</button>
+  <button data-a="move">move → cover_deep</button>
+  <button data-a="los">LOS → stand_b</button>
+  <button data-a="reset">reset → stand_a</button>
+  <button data-a="shot">shot −1</button>
+  <button data-a="arbiter">arbiter ▶</button>
+  <span id="vverdict">verdict: —</span>
+</div>
+
+<div class="vscore" id="vscore">
+  <canvas id="vradar" width="432" height="432" style="width:216px;height:216px"></canvas>
+  <div>
+    <div id="vbars"></div>
+    <div id="veval" class="vstat" style="padding:2px 4px 0">—</div>
+    <div id="varb" class="vstat" style="padding:2px 4px 0;color:var(--yellow)">arbiter off — manual lab mode</div>
+  </div>
+  <div class="vconds" id="vconds"></div>
+</div>
+
+</div>
+</div>
+
+<footer>Steel City: Mob Sim — combat beat machine · seeded from CombatController.cs / CoverSensor.cs / CoverField.cs · this file is a design instrument, not shipped UI.</footer>
+</div>
+
+<script>
+// ═══ SEED — the real enum order + dwell table ═══
+const BEAT = { None:0, Settle:1, TopUp:2, Rise:3, Engaged:4, Duck:5, Swing:6 };
+const P = {   // CombatController defaults (editable — the arena reads these)
+  dwell_Settle:5, dwell_TopUp:5, dwell_Rise:5, dwell_Engaged:5, dwell_Duck:5, dwell_Swing:5,
+  moveSpeed:2.4, arriveEps:0.06, turnSpeedDeg:540, seekDuckEase:2.5, riseDuckEase:3,
+  fireInterval:0.9, cylinderCapacity:6, roundLoadInterval:1.5, aimGateDeg:14, fireSettleSec:0.15,
+  dropAfterSec:0.5, boreBurySec:0.4, disarmHoldSec:0.35, pinRecheckSec:4,
+  swingMargin:0.4, swingDuck:0.35, riseMargin:0.02, sightGap:0.045,
+  coverRadius:8, stepUpMax:0.15, bodySkin:0.06, orbitReconEvery:3, orbitArcDeg:90,
+  eyeH:1.58, dwellMin:0.35
+};
+
+// ═══ FLOWCHART DATA ═══
+const NODES = [
+ {id:'idle',   x:30,  y:30,  nm:'IDLE / WATCH', tm:'state · ExitCombat(keepWatch)', cls:'state',
+  d:'<b class="d-ttl">Idle + armed stand-down watch</b><ul><li>Organic exits (orbit verdict, blind abandon) pass keepWatch=true → TickWatch probes the last opponent on the vis cadence</li><li>A sighting or a HEARD shot re-enters EnterCombat at that position — the duel loops until nobody can answer</li><li>Manual/possess/teardown exits pass false → stood ALL the way down</li></ul>'},
+ {id:'enter',  x:200, y:30,  nm:'ENTER COMBAT', tm:'threat + belief pos', cls:'gate',
+  d:'<b class="d-ttl">EnterCombat(threatPos, body)</b><ul><li>Self-contained: get-or-adds solver/sensor, force-scans the field, picks first cover (coverIntNorm rank inside a Hidden zone)</li><li>Opportunity-shot gate rides the seek leg — if the target resolves exposed mid-transit, he fires on the move</li><li>Possessed body is exempt — PossessController.Body == vox → the player IS his controller</li></ul>'},
+ {id:'seek',   x:370, y:30,  nm:'SEEKING COVER', tm:'state · routed leg', cls:'state',
+  d:'<b class="d-ttl">SeekingCover — a leg, not a beat</b><ul><li>BuildRoute → flood chain → string-pull (CorridorFree @ 0.03m) → StepRoute</li><li>Arrival = position ∧ facing — the seek completes only when he converges on the rolled settle-facing</li><li>Stuck = goal-progress (wpDist &lt; best−5cm); a sideways shuttle burns the 3-nudge budget → honest leg-abort</li></ul>'},
+ {id:'incover',x:560, y:30,  nm:'IN COVER', tm:'state · beats live here', cls:'state',
+  d:'<b class="d-ttl">InCover — the beat sequencer&#39;s domain</b><ul><li>TickBeat() is gated on State==InCover ONLY — a relocating/searching body has no beats, just legs</li><li>EnterBeat arms beatUntil = now + dwell[b] — the 5s debug tempo floor every beat holds</li><li>Beats: the rhythm owns the body at a stand; legs own the body between stands</li></ul>'},
+ {id:'settle', x:60,  y:200, nm:'SETTLE', tm:'beat 1 · dwell 5s', cls:'beat',
+  d:'<b class="d-ttl">Settle — the breath between actions</b><ul><li>OWNS NO MOVEMENT: holds the facing the arriving beat left (FaceHold settleYaw)</li><li>The roll happens at ARRIVAL (CrouchAndCover): settleFace Random/Back/Left/Right → the rolled side commits PeekSide</li><li>loopGate fires on the settle AFTER a duck — the re-cycle seam (loopBeats toggle)</li></ul>'},
+ {id:'topup',  x:220, y:200, nm:'TOP-UP', tm:'beat 2 · dwell 5s', cls:'beat',
+  d:'<b class="d-ttl">TopUp — reload seam</b><ul><li>Starts a reload the instant cylinder &lt; capacity — physical rounds at roundLoadInterval (1.5s)</li><li>Leaves on tempo floor + full cylinder; beatHoldsReload exempts the possessed body only</li><li>→ Settle → afterSettle Rise</li></ul>'},
+ {id:'rise',   x:380, y:200, nm:'RISE', tm:'beat 3 · solve+converge', cls:'beat',
+  d:'<b class="d-ttl">Rise — the look that owns the verdict</b><ul><li>SolveRiseDuck at ENGAGE yaw: nearest wall mark ≤2m → wallTop; eye must clear wallTop+riseMargin (0.02m), bore (eye−sightGap 0.045) must clear it too — verdicts: cleared / eye-fail / can&#39;t-clear / bore-under-lip</li><li>refused (−1) → Swing peek (or relocate when burned); cleared → unfold rides FaceCurve (turn+unfold = ONE motion)</li><li>At convergence: FRESH probe — contact → Engaged · zero → ArmSearch → Duck · orbitFinalLook zero → abandon (combat ends)</li></ul>'},
+ {id:'engaged',x:560, y:200, nm:'ENGAGED', tm:'beat 4 · fire gates', cls:'fire',
+  d:'<b class="d-ttl">Engaged — stand and deliver</b><ul><li>Facing: FaceTrack(live threat) while contactSeen; FaceHold(engageYaw) while blind</li><li>Fire gates: solver blend ≥0.98 · aimGate 14° · fireSettle 0.15s · fireInterval 0.9s · cylinder 6</li><li>Exits: bore buried ≥0.4s → relocate · no contact ≥0.5s → drop+ArmSearch→Duck · dry cylinder → TopUp via Duck</li><li>Posture: riseDuck — a refused rise leaves −1 (clamped to stand at the corner — the floating-pose fix)</li></ul>'},
+ {id:'duck',   x:560, y:340, nm:'DUCK', tm:'beat 5 · fold+return', cls:'beat',
+  d:'<b class="d-ttl">Duck — fold back into cover</b><ul><li>The fold-back rides FoldT (turn-to-settle-facing shares the fold progress)</li><li>Off-spot return leg runs first — routed walk home from wherever the peek left him</li><li>→ Settle — and the loopGate re-cycle seam lives on that settle</li></ul>'},
+ {id:'swing',  x:380, y:340, nm:'SWING', tm:'beat 6 · p0/p1/p2', cls:'beat',
+  d:'<b class="d-ttl">Swing — the lateral corner peek</b><ul><li>p0: routed step-out to max(hiddenRim, wallEnd)+swingMargin — wall geometry owns the boundary, the shadow band second</li><li>p1 dwell at corner: FaceTrack(belief) + Looking sweep; contact → Engaged armed upright (the float fix); timeout → ArmSearch → p2</li><li>p2: routed return to CoverPoint → Settle. Side pick: better destination verdict wins; ties → nearer end; PeekSide breaks dead heats only</li></ul>'},
+ {id:'none',   x:60,  y:340, nm:'NONE / PINNED', tm:'beat 0 · parked', cls:'gate',
+  d:'<b class="d-ttl">None — the gate states</b><ul><li>loopBeats off → parks at the re-cycle seam; a live toggle-ON re-arms</li><li>pinned → re-tests the stand every pinRecheckSec (4s)</li><li>awaitingLoop holds a seam toggle for one rhythm cycle</li></ul>'},
+ {id:'orbit',  x:220, y:460, nm:'ORBIT SEARCH', tm:'±90° · 2 transit : 1 scout', cls:'mv',
+  d:'<b class="d-ttl">Bounded orbit — every miss arms it</b><ul><li>First miss records the frame: anchor=belief · originBearing=stand · buffer=standoff-at-loss · side=rolled CW/CCW · target=origin±90°</li><li>Hop picks score |anchorDist−buffer| + geodesic cost·0.15, unvisited Hidden zones only</li><li>Every orbitReconEvery(3)th hop lands the full settle→peek loop; transit hops just land+settle+step</li><li>At target bearing: orbitFinalLook — one last rise/swing confirm, clear → abandon</li></ul>'},
+ {id:'exit',   x:560, y:500, nm:'EXIT → WATCH', tm:'organic end', cls:'term',
+  d:'<b class="d-ttl">ExitCombat(keepWatch)</b><ul><li>Organic endings keep the watch — the flank-clear verdict, the blind abandon, the unresumable leg</li><li>TickWatch at Idle: silhouette probe ∧ posed-cone — same detection law as combat</li><li>Heard shot while watching → re-enter at the report position</li></ul>'},
+];
+
+const EDGES = [
+ ['idle','enter','sight / heard shot'],['enter','seek','picked cover'],['seek','incover','arrive+face'],
+ ['incover','settle','first arrival'],['settle','topup',''],['topup','settle','reloaded→Rise queued'],
+ ['settle','rise','afterSettle'],['rise','engaged','contact @ converge'],
+ ['rise','swing','refused (eye/bore)'],['rise','duck','zero contact → arm search'],
+ ['engaged','duck','empty/buried/lost'],['swing','engaged','corner contact'],
+ ['swing','duck','zero → return'],['duck','settle','fold done — loopGate'],
+ ['settle','none','loopBeats off / pinned'],['none','settle','pin recheck 4s'],
+ ['duck','orbit','search armed'],['orbit','incover','hop claimed a stand'],
+ ['orbit','exit','final look clear'],['swing','exit','final-look no edge'],
+];
+
+// ═══ PARAM TABLE ═══
+const PARAMS = [
+ ['dwell_Settle','dwell floor — the breath'],['dwell_TopUp','dwell floor — reload seam'],['dwell_Rise','dwell floor — rise/look'],['dwell_Engaged','dwell floor — stand &amp; deliver'],['dwell_Duck','dwell floor — fold back'],['dwell_Swing','dwell floor — corner peek'],
+ ['moveSpeed','combat gait m/s'],['arriveEps','arrival epsilon m'],['turnSpeedDeg','yaw rate °/s'],['fireInterval','seconds between shots'],['cylinderCapacity','rounds per reload'],['roundLoadInterval','s per round loaded'],['dropAfterSec','no-contact drop clock s'],['boreBurySec','buried-bore relocate s'],['pinRecheckSec','pinned re-test s'],['swingMargin','step-out past rim m'],['swingDuck','corner lean fold'],['riseMargin','rise clearance over lip m'],['sightGap','eye-to-bore drop m'],['orbitReconEvery','scout hop every N'],['orbitArcDeg','bounded orbit arc °'],
+];
+
+// ═══ PLANNER CARDS ═══
+const CARDS = [
+ {t:'👁 contactSeen edge',d:'Silhouette probe resolves → ThreatPos snaps to the computed centroid · lastConfirmed caches it. THE detection law — same in combat and the post-combat watch.',s:0},
+ {t:'🔫 OnShotHeard(pos)',d:'Sound carries his true firing position: ThreatPos + LastSeenTarget snap, live orbit re-anchors on the bang. Intel, NOT a sighting — contactSeen untouched.',s:1},
+ {t:'💥 voxel write',d:'Damage/register/unregister → Walk.Invalidate(bounds): ground, fit, square, and edge cells in the AABB re-probe lazily. Routes re-materialize on the next BuildStamp.',s:1},
+ {t:'🎯 50/50 on spotted',d:'Doctrine: if Tan spots Vinny mid-search, Tan seeks cover on a coin roll and rise/looks again — an emergent opportunity shot falls out of the machinery.',s:1},
+ {t:'⏱ dwell floor',d:'EnterBeat arms beatUntil = now + beatDwell[b]. The 5s debug tempo is a FLOOR — physics can hold a beat longer (reload needs full cylinder, rise needs pose convergence), never shorter.',s:0},
+ {t:'🚫 fire gate',d:'Stowed until: solver blend ≥0.98 · bore not buried · aim within gate ° · fireSettle · interval elapsed. "vis 0" means zero silhouette voxels — an honest nothing-to-hit, not a miss.',s:0},
+ {t:'🧱 cover verdicts',d:'Hidden = threat shadow + flood-served · Exposed = the peek breach verdict · Low-class walls aren&#39;t zones at all — you rise over them, never swing.',s:0},
+ {t:'📍 commit = certified',d:'Every stand commit snaps through CertifiedStand → NearestWalkable — never the painted centroid. The zone paints possibility; the flood answers truth.',s:0},
+ {t:'🧱 stamp walls',d:'The stamp tools are the arena\'s geometry-write channel — the sim\'s stand-in for a voxel edit. Drag = spawn (tall refuses the rise, low solves it), erase = remove. Stamps mutate LOS live mid-fight: an Engaged fighter who loses his sightline folds and arms the search.',s:1},
+];
+
+// ═══ FLOWCHART RENDER — parameterized (Tab A = current machine · Tab B = regime split) ═══
+function renderChart(cid, nodes, edges, deco) {
+  const chart = document.getElementById(cid), svg = chart.querySelector('svg');
+  (deco || []).forEach(dn => { const el = document.createElement('div'); el.className = dn.cls; el.style.cssText = dn.style; if (dn.html) el.innerHTML = dn.html; chart.appendChild(el); });
+  nodes.forEach(n => {
+    const el = document.createElement('div');
+    el.className = 'node ' + n.cls;
+    el.style.left = n.x + 'px'; el.style.top = n.y + 'px';
+    if (n.w) el.style.width = n.w + 'px';
+    el.innerHTML = '<div class="nm">' + n.nm + '</div><div class="tm">' + n.tm + '</div>' +
+      (n.caps ? '<div class="caps">' + n.caps.map(c => '<span class="cap">' + c + '</span>').join('') + '</div>' : '');
+    el.onclick = () => {
+      chart.querySelectorAll('.node').forEach(x => x.classList.remove('sel'));
+      el.classList.add('sel');
+      document.getElementById('beatDetail').innerHTML = n.d;
+    };
+    chart.appendChild(el);
+  });
+  const NC = {}; nodes.forEach(n => { NC[n.id] = { x: n.x + (n.w ? n.w / 2 : 59), y: n.y + 22, hw: (n.w ? n.w / 2 : 59), hh: n.caps ? 50 : 24 }; });
+  edges.forEach(e => {
+    const a = NC[e[0]], b = NC[e[1]];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len = Math.hypot(dx, dy), ux = dx / len, uy = dy / len;
+    const x1 = a.x + ux * (a.hw + 4), y1 = a.y + uy * (a.hh + 4), x2 = b.x - ux * (b.hw + 4), y2 = b.y - uy * (b.hh + 4);
+    const l = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    l.setAttribute('x1', x1); l.setAttribute('y1', y1); l.setAttribute('x2', x2); l.setAttribute('y2', y2);
+    l.setAttribute('stroke', e[3] === 'up' ? '#3fb950' : e[3] === 'dn' ? '#f85149' : '#4a5568');
+    l.setAttribute('stroke-width', '1.5');
+    if (e[3] === 'up' || e[3] === 'dn') l.setAttribute('stroke-dasharray', '5,3');
+    svg.appendChild(l);
+    const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+    const ah = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    ah.setAttribute('d', 'M0,-4 L8,0 L0,4 Z'); ah.setAttribute('fill', l.getAttribute('stroke'));
+    ah.setAttribute('transform', 'translate(' + x2 + ',' + y2 + ') rotate(' + Math.atan2(dy, dx) * 180 / Math.PI + ')');
+    svg.appendChild(ah);
+    if (e[3] === 'bi') {
+      const a2 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      a2.setAttribute('d', 'M0,-4 L8,0 L0,4 Z'); a2.setAttribute('fill', l.getAttribute('stroke'));
+      a2.setAttribute('transform', 'translate(' + x1 + ',' + y1 + ') rotate(' + (Math.atan2(dy, dx) * 180 / Math.PI + 180) + ')');
+      svg.appendChild(a2);
+    }
+    if (e[2]) {
+      const t = document.createElement('div');
+      t.className = 'edge-lbl'; t.textContent = e[2];
+      t.style.left = (mx - 50 + (e[4] || 0)) + 'px'; t.style.top = (my - 8 + (e[5] || 0)) + 'px';
+      t.style.width = (e[6] || 100) + 'px'; t.style.textAlign = 'center';
+      chart.appendChild(t);
+    }
+  });
+}
+
+// ── TAB A — the machine as it runs ──
+renderChart('chartA', NODES, EDGES);
+
+// ── TAB B — ENGAGEMENT umbrella → VISUAL lane / LAST-KNOWN lane / DUCK hinge ──
+const AD = {}; NODES.forEach(n => AD[n.id] = n.d);
+const RT = {
+  vis:   '<div class="regtag vis">◉ VISUAL — contactSeen true</div>',
+  lk:    '<div class="regtag lk">◌ LAST-KNOWN — belief anchor, unresolved</div>',
+  hinge: '<div class="regtag hinge">⇄ HINGE — the regime flip seam</div>'
+};
+const NODES_B = [
+ {id:'idle',   x:30,  y:18,  nm:'IDLE / WATCH', tm:'no threat registered', cls:'state', d:AD.idle},
+ {id:'enter',  x:290, y:18,  nm:'ENTER COMBAT', tm:'seeds the regime', cls:'gate',
+  d:'<b class="d-ttl">EnterCombat — the intel type IS the regime</b><ul><li>Sight edge (contactSeen) → enters under <b>VISUAL</b> — first stand fights toward a live enemy</li><li>Heard shot (OnShotHeard) → enters under <b>LAST-KNOWN</b> — belief position only, the machine opens probing</li><li>Same gate, same machinery — only the blackboard fields differ</li></ul>'},
+ // ◉ visual lane
+ {id:'engaged',x:55,  y:185, nm:'ENGAGED', tm:'the only sight-required beat', cls:'vis', d:RT.vis+AD.engaged},
+ {id:'rise_c', x:35,  y:300, nm:'RISE · contact', tm:'the look that FOUND them', cls:'vis', d:RT.vis+AD.rise},
+ {id:'swing_c',x:180, y:300, nm:'SWING · contact', tm:'the peek that found them', cls:'vis', d:RT.vis+AD.swing},
+ {id:'oppshot',x:115, y:410, nm:'OPPORTUNITY SHOT', tm:'visual resolved mid-leg', cls:'vis',
+  d:RT.vis+'<b class="d-ttl">Opportunity shot — fire on the move</b><ul><li>Not a beat — a gate riding the seek/transit leg: if the target resolves exposed while he&#39;s moving, he presents and fires mid-route</li><li>Emergent doctrine: mechanically possible = mechanically allowed — "IF tan suit is spotted … take an opportunity shot emergently since mechanically he can"</li></ul>'},
+ // ⇄ hinge
+ {id:'duck',   x:310, y:325, nm:'DUCK', tm:'hinge — the regime flips here', cls:'hinge',
+  d:RT.hinge+AD.duck+'<ul><li><b>Regime role:</b> entered from VISUAL (lost/buried/dry) and from probing (zero-contact fold) — the fold is where a visual fight degrades into a last-known search, and where pending search converts to the first orbit hop</li></ul>'},
+ // ◌ last-known lane
+ {id:'settle', x:425, y:175, nm:'SETTLE', tm:'probe cadence', cls:'lk', d:RT.lk+AD.settle},
+ {id:'topup',  x:555, y:175, nm:'TOP-UP', tm:'reload seam', cls:'lk', d:RT.lk+AD.topup},
+ {id:'rise_z', x:425, y:295, nm:'RISE · zero', tm:'probe → arm search', cls:'lk', d:RT.lk+AD.rise},
+ {id:'swing_z',x:555, y:295, nm:'SWING · zero', tm:'probing peek', cls:'lk', d:RT.lk+AD.swing},
+ {id:'orbit',  x:440, y:415, nm:'ORBIT SEARCH', tm:'±90° on belief anchor', cls:'lk', d:RT.lk+AD.orbit},
+ {id:'finlook',x:570, y:415, nm:'FINAL LOOK', tm:'arc done → confirm clear', cls:'lk',
+  d:RT.lk+'<b class="d-ttl">Final look — the honest last confirmation</b><ul><li>The orbit target performs a genuine rise/look before combat exits — an aborted search is a LIE without it</li><li>Contact reacquired even here → combat resumes (the upgrade interrupt never sleeps)</li></ul>'},
+ {id:'pinned', x:495, y:510, nm:'NONE / PINNED', tm:'parked gate — re-verdict 4s', cls:'gate', d:RT.lk+AD.none},
+ {id:'exit',   x:310, y:625, nm:'EXIT → WATCH', tm:'engagement ends — stale watch point', cls:'term', d:AD.exit},
+];
+const EDGES_B = [
+ ['idle','enter','sight · heard shot'],
+ ['enter','rise_c','visual entry'],['enter','settle','last-known entry'],
+ ['rise_c','engaged','contact @ converge'],['swing_c','engaged','corner contact'],['oppshot','engaged','resolved mid-leg'],
+ ['engaged','duck','lost/buried/dry — regime ↓','dn'],
+ ['settle','topup',''],['topup','settle','→rise queued'],
+ ['settle','rise_z','probe'],['rise_z','swing_z','refused'],['rise_z','duck','zero — arm search'],
+ ['swing_z','settle','zero → return'],
+ ['duck','orbit','search armed'],['orbit','finlook','arc exhausted'],['finlook','exit','clear → abandon'],
+ ['settle','pinned','pinned'],['pinned','settle','re-verdict 4s'],
+ ['rise_z','engaged','contact edge ↑','up'],['swing_z','engaged','contact ↑','up'],['orbit','engaged','reacquired ↑','up'],
+ ['duck','settle','fold done'],
+];
+const DECO_B = [
+ {cls:'englbl',  style:'left:26px;top:88px',  html:'ENGAGEMENT — armed by sight OR last-known report'},
+ {cls:'engframe',style:'left:14px;top:96px;width:672px;height:510px'},
+ {cls:'lanelbl vis',style:'left:42px;top:106px',  html:'◉ VISUAL — contactSeen'},
+ {cls:'lanelbl lk', style:'left:424px;top:106px', html:'◌ LAST-KNOWN — belief only'},
+];
+renderChart('chartB', NODES_B, EDGES_B, DECO_B);
+
+// ── TAB C — the collapse: EnterCombat/Engaged dissolve, SETTLE is the only beat ──
+//   verbs nest their arbiter INTENTS as capsules · ENGAGED = CONTACT overlay band
+const NODES_C = [
+ {id:'watch',  x:295, y:12,  nm:'WATCH', tm:'ambient — no threat registered', cls:'state', d:AD.idle},
+ {id:'settle', x:250, y:120, nm:'SETTLE', tm:'the seam — evaluates on verdicts · interrupts', cls:'hub', w:210,
+  d:'<b class="d-ttl">Settle — the only real beat</b><ul><li>Not a pose — the SEAM: motor posts a verdict, blackboard writes it, the arbiter evaluates and picks the next INTENT</li><li><b>Threat registration forces an INSTANT evaluation (zero dwell)</b> — the first intent dispatches immediately; the dwell floor only applies BETWEEN completed actions</li><li>The folded posture is just what settling LOOKS like — everything else on the old chart was a verb pretending to be a state</li></ul>'},
+ // verbs — each nests the INTENTS that execute through it
+ {id:'look',   x:22,  y:235, nm:'LOOK', tm:'rise probe', cls:'act', caps:['Recon'],
+  d:'<b class="d-ttl">LOOK — the rise probe (was RISE)</b><ul><li>A verb: solve rise, converge, report the verdict — <b>Contact / Zero / Refused</b></li><li>No "rise state" — it runs, it reports, it returns to the seam</li></ul>'},
+ {id:'peek',   x:165, y:235, nm:'PEEK', tm:'corner swing probe', cls:'act', caps:['Recon','Flank'],
+  d:'<b class="d-ttl">PEEK — the swing probe (was SWING)</b><ul><li>p0 step-out → p1 corner dwell/look → p2 return — one program, one verdict</li><li>Same verdict set: Contact / Zero / Refused / Blocked</li></ul>'},
+ {id:'move',   x:305, y:235, nm:'MOVE', tm:'legs — destination from the field', cls:'act', w:196, caps:['SeekCover','Relocate','OrbitSearch'],
+  d:'<b class="d-ttl">MOVE — legs (was SEEK/ORBIT hops)</b><ul><li><b>Seek cover IS this verb</b> — it&#39;s not a motor program, it&#39;s an INTENT that chooses MOVE&#39;s destination: cover-field evaluation picks the certified stand, MOVE walks it to verdict</li><li>Routed legs, cover seeks, and orbit hops are the same verb at different scales</li><li>Verdicts: <b>Arrived / Blocked</b> · the bounded ±90° search arc is a budget on this verb, not a state</li></ul>'},
+ {id:'reload', x:548, y:235, nm:'RELOAD', tm:'top-up cylinder', cls:'act', caps:['Reload'],
+  d:'<b class="d-ttl">RELOAD (was TOP-UP)</b><ul><li>A maintenance verb — one round per roundLoadInterval until full or interrupted</li><li>Under the seam model it stops being a scheduled beat and becomes a scored intent — wins the seam when the cylinder needs it</li></ul>'},
+ {id:'fire',   x:150, y:455, nm:'FIRE', tm:'stand &amp; deliver', cls:'vis', w:170, caps:['Engage','OpportunityShot'],
+  d:'<b class="d-ttl">FIRE — was ENGAGED, now just a verb + a condition</b><ul><li>Not a place: while <b>contactSeen</b> holds, fire cadence (solver blend · aim gate · interval · cylinder) applies to whatever he&#39;s doing — opportunity shots are this overlay on MOVE</li><li>Chosen at the seam when contact holds; drops to a memory verdict when contact drops</li></ul>'},
+ {id:'hold',   x:455, y:455, nm:'HOLD / PINNED', tm:'cannot act — parked', cls:'gate', caps:['Watch','PinnedGate'],
+  d:'<b class="d-ttl">HOLD — was NONE/PINNED</b><ul><li>A parked verdict, not a scored choice: rise refused + no rim + relocation failed → hold until pinRecheckSec re-tests the stand</li><li>An evaluation gate — the seam doesn&#39;t score while pinned, just waits out the constraint</li></ul>'},
+ {id:'exit',   x:290, y:630, nm:'EXIT → WATCH', tm:'search exhausted · final look clear', cls:'term', d:AD.exit},
+];
+const EDGES_C = [
+ ['watch','settle','threat registered → instant eval + dispatch','',62,-6,190],
+ ['settle','look',''],['settle','peek',''],['settle','move',''],['settle','reload',''],
+ ['settle','fire',''],['settle','hold',''],
+ ['move','settle',''],['look','settle',''],['peek','settle',''],
+ ['reload','settle',''],['fire','settle','','dn'],['hold','settle',''],
+ ['settle','exit','arc done · final look','',0,-30]
+];
+const DECO_C = [
+ {cls:'englbl',  style:'left:26px;top:74px',   html:'ENGAGEMENT — a condition, not a machine'},
+ {cls:'vstrip',  style:'left:255px;top:203px', html:'▼ intent dispatched &nbsp;·&nbsp; ▲ verdict returned'},
+ {cls:'engframe',style:'left:14px;top:82px;width:672px;height:512px'},
+ {cls:'cband',   style:'left:70px;top:400px;width:560px', html:'◉ CONTACT — while contactSeen holds, FIRE rides ANY running action (opportunity shots free)'},
+ {cls:'vstrip',  style:'left:155px;top:555px',html:'VERDICTS — Contact · Zero · Refused · Blocked · Arrived · Dry · ArcDone'},
+];
+renderChart('chartC', NODES_C, EDGES_C, DECO_C);
+
+// ── TAB D — deeper collapse: LOOK+PEEK are two solvers of ONE PROBE verb ──
+//   Recon selects the intent · stand geometry (lip vs rim) selects the solver mode
+const NODES_D = [
+ {id:'watch',  x:295, y:12,  nm:'WATCH', tm:'ambient — no threat registered', cls:'state', d:AD.idle},
+ {id:'settle', x:250, y:120, nm:'SETTLE', tm:'the seam — evaluates on verdicts · interrupts', cls:'hub', w:210,
+  d:'<b class="d-ttl">Settle — the only real beat</b><ul><li>Not a pose — the SEAM: motor posts a verdict, blackboard writes it, the arbiter evaluates and picks the next INTENT</li><li><b>Threat registration forces an INSTANT evaluation (zero dwell)</b> — the first intent dispatches immediately; the dwell floor only applies BETWEEN completed actions</li><li>The folded posture is just what settling LOOKS like — everything else on the old chart was a verb pretending to be a state</li></ul>'},
+ {id:'probe',  x:40,  y:235, nm:'PROBE', tm:'acquire sight — solver picks mode', cls:'act', w:190, caps:['Recon','FinalConfirm'],
+  d:'<b class="d-ttl">PROBE — LOOK + PEEK collapsed (was RISE/SWING)</b><ul><li>ONE verb, TWO solvers — the stand&#39;s geometry picks the mode:<br>· <b>rise-over</b>: wall top within rise reach → converge + probe<br>· <b>swing-around</b>: rim within lateral reach → step out, dwell, return</li><li>Same verdict set either way: <b>Contact / Zero / Refused / Blocked</b> — Refused means NEITHER solver fits this stand</li><li>FinalConfirm = same verb flagged as the exit confirmation look</li></ul>'},
+ {id:'move',   x:270, y:235, nm:'MOVE', tm:'legs — destination from the field', cls:'act', w:196, caps:['SeekCover','Relocate','OrbitSearch'],
+  d:'<b class="d-ttl">MOVE — legs (was SEEK/ORBIT hops)</b><ul><li><b>Seek cover IS this verb</b> — it&#39;s not a motor program, it&#39;s an INTENT that chooses MOVE&#39;s destination: cover-field evaluation picks the certified stand, MOVE walks it to verdict</li><li>Routed legs, cover seeks, and orbit hops are the same verb at different scales — also carries PROBE&#39;s swing step-out legs internally</li><li>Verdicts: <b>Arrived / Blocked</b> · the bounded ±90° search arc is a budget on this verb, not a state</li></ul>'},
+ {id:'reload', x:520, y:235, nm:'RELOAD', tm:'top-up cylinder', cls:'act', caps:['Reload'],
+  d:'<b class="d-ttl">RELOAD (was TOP-UP)</b><ul><li>A maintenance verb — one round per roundLoadInterval until full or interrupted</li><li>Under the seam model it stops being a scheduled beat and becomes a scored intent — wins the seam when the cylinder needs it</li></ul>'},
+ {id:'fire',   x:150, y:455, nm:'FIRE', tm:'stand &amp; deliver', cls:'vis', w:170, caps:['Engage','OpportunityShot'],
+  d:'<b class="d-ttl">FIRE — was ENGAGED, now just a verb + a condition</b><ul><li>Not a place: while <b>contactSeen</b> holds, fire cadence (solver blend · aim gate · interval · cylinder) applies to whatever he&#39;s doing — opportunity shots are this overlay on MOVE</li><li>Chosen at the seam when contact holds; drops to a memory verdict when contact drops</li></ul>'},
+ {id:'hold',   x:455, y:455, nm:'HOLD / PINNED', tm:'cannot act — parked', cls:'gate', caps:['Watch','PinnedGate'],
+  d:'<b class="d-ttl">HOLD — was NONE/PINNED</b><ul><li>A parked verdict, not a scored choice: both solvers refused + no rim + relocation failed → hold until pinRecheckSec re-tests the stand</li><li>An evaluation gate — the seam doesn&#39;t score while pinned, just waits out the constraint</li></ul>'},
+ {id:'exit',   x:290, y:630, nm:'EXIT → WATCH', tm:'search exhausted · final look clear', cls:'term', d:AD.exit},
+];
+const EDGES_D = [
+ ['watch','settle','threat registered → instant eval + dispatch','',62,-6,190],
+ ['settle','probe',''],['settle','move',''],['settle','reload',''],['settle','fire',''],['settle','hold',''],
+ ['probe','settle',''],['move','settle',''],['reload','settle',''],['fire','settle','','dn'],['hold','settle',''],
+ ['settle','exit','arc done · final look','',0,-30]
+];
+const DECO_D = [
+ {cls:'englbl',  style:'left:26px;top:74px',   html:'ENGAGEMENT — a condition, not a machine'},
+ {cls:'vstrip',  style:'left:255px;top:203px', html:'▼ intent dispatched &nbsp;·&nbsp; ▲ verdict returned'},
+ {cls:'engframe',style:'left:14px;top:82px;width:672px;height:512px'},
+ {cls:'cband',   style:'left:70px;top:400px;width:560px', html:'◉ CONTACT — while contactSeen holds, FIRE rides ANY running action (opportunity shots free)'},
+ {cls:'vstrip',  style:'left:155px;top:555px',html:'VERDICTS — Contact · Zero · Refused · Blocked · Arrived · Dry · ArcDone'},
+];
+renderChart('chartD', NODES_D, EDGES_D, DECO_D);
+
+// ── TAB E — radial: SETTLE is the hub, not a pipeline stage ──
+//   spokes carry intent out + verdict back · CONTACT oval wraps the whole ring
+const NODES_E = [
+ {id:'watch',  x:285, y:12,  nm:'WATCH', tm:'ambient — threat registers → instant eval', cls:'state', w:190, d:AD.idle},
+ {id:'settle', x:270, y:310, nm:'SETTLE', tm:'the hub — evaluates on verdicts · interrupts', cls:'hub', w:170,
+  d:'<b class="d-ttl">Settle — the only real beat</b><ul><li>Not a pipeline stage — the HUB: every spoke dispatches an intent and returns a verdict to the same seam</li><li><b>Threat registration forces an INSTANT evaluation (zero dwell)</b> — the first intent dispatches immediately; the dwell floor only applies BETWEEN completed actions</li><li>The folded posture is just what settling LOOKS like</li></ul>'},
+ {id:'move',   x:115, y:135, nm:'MOVE', tm:'legs — destination from the field', cls:'act', w:196, caps:['SeekCover','Relocate','OrbitSearch'],
+  d:'<b class="d-ttl">MOVE — legs (was SEEK/ORBIT hops)</b><ul><li><b>Seek cover IS this verb</b> — it&#39;s not a motor program, it&#39;s an INTENT that chooses MOVE&#39;s destination: cover-field evaluation picks the certified stand, MOVE walks it to verdict</li><li>Routed legs, cover seeks, and orbit hops are the same verb at different scales — also carries PROBE&#39;s swing step-out legs internally</li><li>Verdicts: <b>Arrived / Blocked</b> · the bounded ±90° search arc is a budget on this verb, not a state</li></ul>'},
+ {id:'reload', x:490, y:135, nm:'RELOAD', tm:'top-up cylinder', cls:'act', caps:['Reload'],
+  d:'<b class="d-ttl">RELOAD (was TOP-UP)</b><ul><li>A maintenance verb — one round per roundLoadInterval until full or interrupted</li><li>Under the seam model it stops being a scheduled beat and becomes a scored intent — wins the seam when the cylinder needs it</li></ul>'},
+ {id:'probe',  x:25,  y:300, nm:'PROBE', tm:'acquire sight — solver picks mode', cls:'act', w:190, caps:['Recon','FinalConfirm'],
+  d:'<b class="d-ttl">PROBE — LOOK + PEEK collapsed (was RISE/SWING)</b><ul><li>ONE verb, TWO solvers — the stand&#39;s geometry picks the mode:<br>· <b>rise-over</b>: wall top within rise reach → converge + probe<br>· <b>swing-around</b>: rim within lateral reach → step out, dwell, return</li><li>Same verdict set either way: <b>Contact / Zero / Refused / Blocked</b> — Refused means NEITHER solver fits this stand</li><li>FinalConfirm = same verb flagged as the exit confirmation look</li></ul>'},
+ {id:'hold',   x:525, y:300, nm:'HOLD / PINNED', tm:'cannot act — parked', cls:'gate', caps:['Watch','PinnedGate'],
+  d:'<b class="d-ttl">HOLD — was NONE/PINNED</b><ul><li>A parked verdict, not a scored choice: both solvers refused + no rim + relocation failed → hold until pinRecheckSec re-tests the stand</li><li>An evaluation gate — the seam doesn&#39;t score while pinned, just waits out the constraint</li></ul>'},
+ {id:'fire',   x:105, y:505, nm:'FIRE', tm:'stand &amp; deliver', cls:'vis', w:170, caps:['Engage','OpportunityShot'],
+  d:'<b class="d-ttl">FIRE — was ENGAGED, now just a verb + a condition</b><ul><li>Not a place: while <b>contactSeen</b> holds, fire cadence (solver blend · aim gate · interval · cylinder) applies to whatever he&#39;s doing — opportunity shots are this overlay on MOVE</li><li>Chosen at the seam when contact holds; drops to a memory verdict when contact drops</li></ul>'},
+ {id:'exit',   x:290, y:640, nm:'EXIT → WATCH', tm:'search exhausted · final look clear', cls:'term', d:AD.exit},
+];
+const EDGES_E = [
+ ['watch','settle',''],
+ ['settle','move','','bi'],['settle','probe','','bi'],['settle','reload','','bi'],
+ ['settle','fire','','bi'],['settle','hold','','bi'],
+ ['settle','exit','arc done · final look'],
+];
+const DECO_E = [
+ {cls:'englbl',  style:'left:26px;top:74px',   html:'ENGAGEMENT — a condition, not a machine'},
+ {cls:'vstrip',  style:'left:425px;top:74px',  html:'VERDICTS — Contact · Zero · Refused · Blocked · Arrived · Dry · ArcDone'},
+ {cls:'engframe',style:'left:14px;top:82px;width:672px;height:612px'},
+ {cls:'covl',    style:'left:20px;top:105px;width:660px;height:480px'},
+ {cls:'cband',   style:'left:190px;top:99px;width:330px', html:'◉ CONTACT — while contactSeen holds, FIRE rides ANY running action'},
+ {cls:'vstrip',  style:'left:20px;top:645px',  html:'each spoke = intent ▼ out · verdict ▲ back to the seam'},
+];
+renderChart('chartE', NODES_E, EDGES_E, DECO_E);
+
+// ── TAB F — FIRE dissolves: "stand and deliver" = MOVE/HOLD + aim overlay ──
+//   SHOT = gated impulse inside ◉ CONTACT, rides ANY running verb — never a program
+const NODES_F = [
+ {id:'watch',  x:285, y:12,  nm:'WATCH', tm:'ambient — threat registers → instant eval', cls:'state', w:190, d:AD.idle},
+ {id:'settle', x:270, y:310, nm:'SETTLE', tm:'the hub — evaluates on verdicts · interrupts', cls:'hub', w:170,
+  d:'<b class="d-ttl">Settle — the only real beat</b><ul><li>Not a pipeline stage — the HUB: every spoke dispatches an intent and returns a verdict to the same seam</li><li><b>Threat registration forces an INSTANT evaluation (zero dwell)</b> — the first intent dispatches immediately; the dwell floor only applies BETWEEN completed actions</li><li>The folded posture is just what settling LOOKS like</li></ul>'},
+ {id:'move',   x:115, y:135, nm:'MOVE', tm:'legs — destination from the field', cls:'act', w:196, caps:['SeekCover','Relocate','OrbitSearch','Engage'],
+  d:'<b class="d-ttl">MOVE — legs (was SEEK/ORBIT hops)</b><ul><li><b>Seek cover IS this verb</b> — an INTENT that chooses MOVE&#39;s destination: cover-field evaluation picks the stand, MOVE walks it to verdict</li><li><b>Engage = MOVE to a fightable stand</b> — the brave alternative to SeekCover: close the angle and let the ◉ overlay shoot on the walk</li><li><b>OrbitSearch = subroutine</b> — ~zero weight until last-known exists + probes have failed; the bounded ±90° arc is a budget, not a state</li><li>Verdicts: <b>Arrived / Blocked</b></li></ul>'},
+ {id:'reload', x:490, y:135, nm:'RELOAD', tm:'top-up cylinder', cls:'act', caps:['Reload'],
+  d:'<b class="d-ttl">RELOAD (was TOP-UP)</b><ul><li>A maintenance verb — one round per roundLoadInterval until full or interrupted</li><li>Wins the seam when the cylinder needs it — the overlay can still fire opportunistically around the shell loop</li></ul>'},
+ {id:'probe',  x:25,  y:300, nm:'PROBE', tm:'acquire sight — solver picks mode', cls:'act', w:190, caps:['Recon','FinalConfirm'],
+  d:'<b class="d-ttl">PROBE — LOOK + PEEK collapsed</b><ul><li>ONE verb, TWO solvers — the stand&#39;s geometry picks the mode:<br>· <b>rise-over</b>: wall top within rise reach → converge + probe<br>· <b>swing-around</b>: rim within lateral reach → step out, dwell, return</li><li><b>Recon = the routine look</b> — every scout hop&#39;s "can I see him now" + the heard-shot entry probe<br><b>FinalConfirm = same verb, terminal flag</b> — dispatched when OrbitSearch&#39;s arc is spent; its ZeroContact authorizes EXIT</li><li>Verdicts: <b>Contact / Zero / Refused / Blocked</b> — Refused = NEITHER solver fits this stand</li></ul>'},
+ {id:'hold',   x:525, y:300, nm:'HOLD / PINNED', tm:'parked OR delivering', cls:'gate', caps:['Watch','PinnedGate','Stand&Deliver'],
+  d:'<b class="d-ttl">HOLD — parked verdict AND "stand &amp; deliver"</b><ul><li>Parked: solvers refused + relocation failed → hold until pinRecheckSec re-tests the stand</li><li><b>Standing and delivering = HOLD at a fightable stand + aim overlay</b> — it was never its own program, it&#39;s stationary posture with the ◉ CONTACT overlay doing the work</li></ul>'},
+ {id:'firex',  x:105, y:505, nm:'FIRE', tm:'dissolved — see overlays', cls:'ghost', w:170,
+  d:'<b class="d-ttl">FIRE — dissolved, was never a verb</b><ul><li><b>The posture part</b>: upright, presented, tracking — that&#39;s the aim overlay riding MOVE / PROBE / HOLD, not a program</li><li><b>The trigger part</b>: a gated IMPULSE — solver blend ≥0.98 · aim gate · settle · interval · cylinder &gt; 0 — fires inside ◉ CONTACT on whatever&#39;s running</li><li><b>The verdicts it "returned"</b> were conditions the seam watches: contact dropped → re-eval · cylinder dry → RELOAD · bore buried → PROBE/MOVE</li></ul>'},
+ {id:'exit',   x:290, y:640, nm:'EXIT → WATCH', tm:'search exhausted · final look clear', cls:'term', d:AD.exit},
+];
+const EDGES_F = [
+ ['watch','settle',''],
+ ['settle','move','','bi'],['settle','probe','','bi'],['settle','reload','','bi'],
+ ['settle','hold','','bi'],
+ ['settle','exit','arc done · final look'],
+];
+const DECO_F = [
+ {cls:'englbl',  style:'left:26px;top:74px',   html:'ENGAGEMENT — a condition, not a machine · aim-track rides everything inside'},
+ {cls:'vstrip',  style:'left:425px;top:74px',  html:'VERDICTS — Contact · Zero · Refused · Blocked · Arrived · Dry · ArcDone'},
+ {cls:'engframe',style:'left:14px;top:82px;width:672px;height:612px'},
+ {cls:'covl',    style:'left:20px;top:105px;width:660px;height:480px'},
+ {cls:'cband',   style:'left:150px;top:99px;width:410px', html:'◉ CONTACT — SHOT fires inline when gates pass (blend·aim·settle·interval·cylinder) — on ANY running verb'},
+ {cls:'vstrip',  style:'left:20px;top:645px',  html:'each spoke = intent ▼ out · verdict ▲ back to the seam'},
+];
+renderChart('chartF', NODES_F, EDGES_F, DECO_F);
+
+
+// ── TAB G — STACK: static tier layout (no SVG machinery — the rows ARE the tiers) ──
+const DETAIL_G = {
+ board:'<b class="d-ttl">BLACKBOARD — SeamEval&#39;s inputs</b><ul><li><b>contactSeen</b> — live visual flag (exposure channel writes it; contact verdicts write it too, before re-eval)</li><li><b>TryZoneAt cover</b> — is the feet-cell covered from the threat</li><li><b>cyl fraction</b> · <b>zeroStreak</b> (consecutive zero-contact probes — powers OrbitSearch) · <b>probeDeadAt</b>/<b>fireDeadAt</b> (negative memory: this stand already failed) · <b>arbBlocked</b> (aborted-leg avoid-list) · <b>orbitLive / orbitDone / searchProgress</b> · <b>pinned</b> · last-known staleness</li><li>Verdicts WRITE it — the seam&#39;s memory is the blackboard itself</li></ul>',
+ seam:'<b class="d-ttl">SEAM EVAL — SeamEval()</b><ul><li>Scores <b>arbScores[10]</b> on the blackboard, argmax dispatches the winner&#39;s verb — the SEAM window&#39;s bars are this array, not a re-derivation</li><li><b>seamBreath = 0.35s</b> — dwell floor BETWEEN completed programs only</li><li><b>seamNow</b> interrupts bypass the breath: contact edge · heard shot · leg blocked · intel moved</li><li><b>ArbActive = seamArbiter ∧ ¬scriptedMode</b> — scripted fighters keep their slot authority</li></ul>',
+ move:'<b class="d-ttl">MOVE — one leg program, four destinations</b><ul><li><b>SeekCover</b> → ArbMoveHidden(false): nearest stand hidden from threat · <b>Relocate</b> → ArbMoveHidden(true): second-choice hidden</li><li><b>Engage</b> → ArbMoveFightable: a stand with LOS to fight from · <b>OrbitSearch</b> → TryOrbitStep → CommitSearchSeek: unvisited hidden cells on the ±90° arc</li><li>The intent chooses WHERE; the walk is identical. Verdicts: <b>arrived / leg blocked</b> (blocked → arbBlocked + instant re-eval)</li></ul>',
+ probe:'<b class="d-ttl">PROBE — EnterBeat(Rise)</b><ul><li><b>Sub-decision inside the verb</b>: rise-over is default; solver refusal falls back internally to EnterBeat(Swing) — the geometry-selected acquire mode. Both refusing marks the stand <b>probeDeadAt</b></li><li><b>Recon</b> = the routine look · <b>FinalConfirm</b> = orbitFinalLook — the terminal look whose ZeroContact authorizes EXIT</li><li>Verdicts: <b>contact@crest · zero@crest · contact@rim · zero@rim · refused</b> — contact verdicts write contactSeen BEFORE the re-eval</li></ul>',
+ reload:'<b class="d-ttl">RELOAD — EnterBeat(TopUp)</b><ul><li>Shell-by-shell top-up; wins the seam when the cylinder needs it and cover permits — never dispatched at full</li><li>Interrupted by contact edge (seamNow). Verdict: <b>loaded</b></li></ul>',
+ hold:'<b class="d-ttl">HOLD — one family, three bodies</b><ul><li><b>StandDlv → Engaged</b>: bore on threat, the SHOT overlay delivers · <b>Watch → None/HoldPosition</b>: ambient park, HoldPosition polls the seam (arbHoldUntil)</li><li><b>Pinned → None + recheck clock</b>: suppressed — parked until pinRecheckSec re-tests</li><li>Verdicts: <b>cylinder dry · bore buried · lost contact · pin recheck</b> — buried marks fireDeadAt, which suppresses StandDlv at that stand and steers Engage</li></ul>',
+ legs:'<b class="d-ttl">LEGS — the physical leg</b><ul><li>SeekingCover state + routed path over the goal-seeded DistMap; CommitSearchSeek certifies the stand centroid — a leg is ATOMIC: it runs to arrival or abort</li><li>SeekingCover ∈ BeatAllowsFire — the SHOT overlay can fire mid-route (the opportunity shot)</li></ul>',
+ rise:'<b class="d-ttl">RISE — motor program</b><ul><li>Unfold → converge → crest LOS check — the crest check IS the probe&#39;s truth</li></ul>',
+ swing:'<b class="d-ttl">SWING — motor program</b><ul><li>Lateral rim step-out → dwell → return. PROBE&#39;s fallback mode when rise can&#39;t see over the wall</li></ul>',
+ topup:'<b class="d-ttl">TOP-UP — motor program</b><ul><li>Shell loop posture — BeatAllowsFire CLOSED during it: the real cost of "dry while exposed"</li></ul>',
+ engaged:'<b class="d-ttl">ENGAGED — motor program</b><ul><li>Upright presented posture, bore tracking — the delivery platform the SHOT overlay rides</li></ul>',
+ parked:'<b class="d-ttl">PARKED — None / HoldPosition</b><ul><li>The open-ground stand — HoldPosition still polls the seam so a parked fighter re-evals</li></ul>',
+ settleb:'<b class="d-ttl">SETTLE — one box, two tiers</b><ul><li>Physically a parked posture; logically the decision site — DwellFor(Settle) = seamBreath under arbiter</li><li>The wrinkle: the seam (tier 1) lives inside a beat (tier 3)</li></ul>',
+ duck:'<b class="d-ttl">DUCK — the fold</b><ul><li>Written inside ANY program: rise refusal, bore-buried fold, reload tuck. Shared motor vocabulary, not a decision</li></ul>',
+ ovlshot:'<b class="d-ttl">SHOT — the fire overlay</b><ul><li><b>clearToArm = ¬reloading ∧ equipped ∧ BeatAllowsFire</b> where BeatAllowsFire = SeekingCover | HoldPosition | Rise | Engaged — it can fire MID-MOVE</li><li>Then exposure + aim + cylinder&gt;0 gates on its own interval. Never a program — rides whatever is running</li></ul>',
+ ovlaim:'<b class="d-ttl">AIM-TRACK — the facing overlay</b><ul><li>Yaw tracks the threat (or the belief anchor) whenever the running program doesn&#39;t own facing — the "blend" half of every armed posture</li></ul>',
+ ovlexp:'<b class="d-ttl">EXPOSURE — the seam&#39;s eyes</b><ul><li>Cadenced channel that writes contactSeen + lastConfirmed into the blackboard — beat-independent, always running</li></ul>',
+};
+// ── TAB H — ENGAGEMENT: the directional design (click elements for contracts) ──
+const DETAIL_H = {
+ frame:'<b class="d-ttl">ENGAGEMENT — combat initiation</b><ul><li>The outer boundary: everything inside is LIVE because this entity has a <b>threat registered</b> — <b>visible</b> (seen contact) or <b>non-visible</b> (heard shot / intel)</li><li><b>Firing is live the entire time</b> — any valid firing solution means a shot; the trigger is never a decision</li><li>Turret model: <b>legs resolve movement</b>, the torso + arms IK-aim like a turret — aiming takes care of itself</li><li>So movement is the only open question inside this frame</li></ul>',
+ legend:'<b class="d-ttl">The maneuver vocabulary — key</b><ul><li>Six directional intents = the entire action space. No abstract programs — the question is always <b>which direction</b></li><li>Upper arc = aggressive (strafes + advance) · lower arc = defensive (cover-seeks) · purple = the null maneuver</li></ul>',
+ fan:'<b class="d-ttl">MOVEMENT ROLL — a literal 1d6</b><ul><li>Each cycle rolls one die face = <b>one movement quantum</b>: execute a bounded move &#8594; stop &#8594; cylinder count-check &#8594; recon</li><li>The die is <b>geometry-agnostic</b> — it picks a channel, the cylinders + geometry resolve the substance</li><li>Faces: 1 strafe-L · 2 advance · 3 strafe-R · 4 cover-L · 5 stand · 6 cover-R</li><li>Fed by SPOTTED (shallow) and REACQUIRED (deep bypass)</li></ul>',
+ recon:'<b class="d-ttl">RECON — the in-cover look (SHALLOW)</b><ul><li>The regular check: <b>rise or peek</b> — cheap, runs every pass</li><li>Sees the target &#8594; <b>TARGET SPOTTED</b> &#8593; into the roll</li><li>Comes up empty &#8594; <b>TARGET HIDDEN</b> &#8595; graduates down to DEEP RECON</li><li>Fed continuously by both cylinders</li></ul>',
+ lcyl:'<b class="d-ttl">LEFT CYLINDER — the left maneuver channel</b><ul><li>Hosts this side&#39;s two maneuvers: <b>SEEK COVER LEFT</b> · <b>STRAFE LEFT</b> (incl. the standing variant — short relocate / stand &amp; deliver)</li><li>The 3 internal arrows = a <b>1d3 bearing pick</b>: back-left · pure-left · forward-left — then geometry resolves the concrete target (nearest certified stand / lateral step)</li><li>A dry bearing bumps to the next in the arc; all three dry &#8594; channel is spent</li></ul>',
+ rcyl:'<b class="d-ttl">RIGHT CYLINDER — the right maneuver channel</b><ul><li>Hosts <b>SEEK COVER RIGHT</b> · <b>STRAFE RIGHT</b> — mirrored <b>1d3 bearing pick</b>: back-right · pure-right · forward-right</li><li>Same job as the left cylinder — the world splits into two side arcs, each owning its own bearings</li></ul>',
+ spotted:'<b class="d-ttl">TARGET SPOTTED — the contact verdict</b><ul><li>RECON&#39;s live picture flows UP into the movement roll — when the target is seen, the question becomes "which maneuver"</li><li>This is the up-channel: perception → intent</li></ul>',
+ hidden:'<b class="d-ttl">TARGET HIDDEN — the down verdict</b><ul><li>Shallow recon came up dark — the verdict drops into <b>DEEP RECON</b>: the rise/peek look graduates to a full-area sweep</li><li>Down is a graduation, not an exit — the frame is still live</li></ul>',
+ dispatch:'<b class="d-ttl">Maneuver dispatch</b><ul><li>The roll&#39;s side-intents route down to their cylinder — left maneuvers land in the left lobe&#39;s top, right in the right&#39;s</li><li>The cylinder then resolves the concrete bearing</li></ul>',
+ reload:'<b class="d-ttl">RELOAD — the return lane + the reckoning</b><ul><li>The maneuver channel hands back to RECON here — and the ramp beneath it is where the cylinder count is read</li><li>Pass the roll → feed continues with whatever&#39;s left · take the roll → the channel pauses, chambers refill, then feeds full</li></ul>',
+ ramp:'<b class="d-ttl">RELOAD ramp — the cylinder count-check</b><ul><li>Every completed move passes through here and reads the gun: <b>"N spent, 6−N to fight with"</b></li><li>Then a roll: top-up chance scales with empties — <b>2/6 spent ≈ light urge · 6/6 → 100% mandatory</b></li><li>Reloading is therefore emergent — driven by necessity at the junction, never scheduled or scored</li></ul>',
+ deep:'<b class="d-ttl">DEEP RECON — the wide sweep (the orbit search)</b><ul><li>Bounded arc around the <b>freshest-evidence anchor</b> — ONE live guess, no anchor queue</li><li>Fresh evidence re-anchors mid-sweep: a new shot heard &#8594; last-seen slides &#8594; the arc pivots to the new direction</li><li>Visits <b>unvisited hidden stands</b> leg-by-leg — checked positions stay <b>spent</b> even across re-anchors</li><li>Resolves exactly two ways — <b>live target</b> &#8594; REACQUIRED (bypasses to the roll) · <b>nobody</b> &#8594; END at the frame edge</li></ul>',
+ disengage:'<b class="d-ttl">END — termination at the frame edge</b><ul><li>DEEP recon swept every last-seen position and found nobody — the threat registration expires, engagement terminates here</li><li>Replaces the old FinalConfirm intent: combat ends by starvation, not by a named verdict</li></ul>',
+ reacq:'<b class="d-ttl">REACQUIRED — the bypass lane</b><ul><li>Deep recon re-made contact — a <b>confirmed sighting</b>, full authority, and it <b>carries the live position</b> (last-seen syncs to live anchor on landing)</li><li>Binary by construction: deep recon can only resolve a LIVE target — anything else exhausts to END, so this lane can never carry a stale anchor</li><li>Does NOT re-enter shallow recon — runs the far-left margin straight into the <b>MOVEMENT ROLL</b> (the roll&#39;s second feed)</li></ul>',
+ strafel:'<b class="d-ttl">STRAFE LEFT</b><ul><li><b>Face 1</b> — standing gait, lateral step</li><li>Lateral relocate on the left channel — the standing variant doubles as a short relocate / stand-and-deliver step</li></ul>',
+ strafer:'<b class="d-ttl">STRAFE RIGHT</b><ul><li><b>Face 3</b> — standing gait, lateral step</li><li>Lateral relocate on the right channel</li></ul>',
+ advance:'<b class="d-ttl">ADVANCE</b><ul><li><b>Face 2</b> — upright gait, closes toward the live anchor a bounded distance, then stops</li><li>Center maneuver — resolves in place, no cylinder dispatch</li></ul>',
+ coverl:'<b class="d-ttl">SEEK COVER LEFT</b><ul><li><b>Face 4</b> — <b>ducking gait</b>, commits to the resolved stand</li><li>Cylinder resolves which of the 3 left bearings actually holds cover</li></ul>',
+ coverr:'<b class="d-ttl">SEEK COVER RIGHT</b><ul><li><b>Face 6</b> — <b>ducking gait</b>, commits to the resolved stand</li><li>Cylinder resolves which of the 3 right bearings actually holds cover</li></ul>',
+ stand:'<b class="d-ttl">STAND — the null maneuver</b><ul><li><b>Face 5</b> — no travel, no dispatch</li><li>The engagement&#39;s "stay and deal" — the cycle still runs (fire rides, count-check applies)</li></ul>',
+};
+document.getElementById('chartH').addEventListener('click', ev => {
+  const b = ev.target.closest('[data-h]'); if (!b) return;
+  document.querySelectorAll('#chartH .sel').forEach(x => x.classList.remove('sel'));
+  b.classList.add('sel');
+  document.getElementById('beatDetail').innerHTML = DETAIL_H[b.dataset.h];
+});
+
+document.getElementById('chartG').addEventListener('click', ev => {
+  const b = ev.target.closest('.stbox'); if (!b || !b.dataset.d) return;
+  document.querySelectorAll('#chartG .stbox').forEach(x => x.classList.remove('sel'));
+  b.classList.add('sel');
+  document.getElementById('beatDetail').innerHTML = DETAIL_G[b.dataset.d];
+});
+
+
+// ── tab switching ──
+
+document.querySelector('.ftabs').addEventListener('click', ev => {
+  const t = ev.target.dataset && ev.target.dataset.t; if (!t) return;
+  document.querySelectorAll('.ftab').forEach(b => b.classList.toggle('active', b.dataset.t === t));
+  ['chartA','chartB','chartC','chartD','chartE','chartF','chartG','chartH'].forEach(c => document.getElementById(c).style.display = c === t ? '' : 'none');
+});
+
+// live occupancy — each agent's machine position mapped onto a node id
+// ═══ PARAM TABLE ═══
+const pb = document.getElementById('paramBody');
+PARAMS.forEach(([k, d]) => {
+  const tr = document.createElement('tr');
+  tr.innerHTML = '<td>' + k + '</td><td><input data-k="' + k + '" value="' + P[k] + '" type="number" step="any"></td><td class="d">' + d + '</td>';
+  pb.appendChild(tr);
+});
+pb.addEventListener('input', ev => { const k = ev.target.dataset.k; if (k) P[k] = parseFloat(ev.target.value) || 0; });
+
+// ═══ PLANNER CARDS ═══
+const pl = document.getElementById('planner');
+CARDS.forEach(c => {
+  const el = document.createElement('div');
+  el.className = 'ecard' + (c.s ? ' stim' : '');
+  el.innerHTML = '<div class="h">' + c.t + '</div><div class="d">' + c.d + '</div>';
+  pl.appendChild(el);
+});
+
+</script>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const ASSETS = '../../Assets/StreamingAssets/';
+const V3 = document.getElementById('view3d');
+const VSTAT = document.getElementById('vstat');
+const VLOAD = document.getElementById('vload');
+
+// ── MOB palette — ported from StAssetReader.cs MobColors (id → rgb 0-1) ──
+const MOB = {100:[.58,.26,.20],101:[.48,.42,.34],102:[.58,.58,.54],103:[.82,.80,.74],104:[.18,.18,.20],105:[.42,.38,.34],
+ 106:[.30,.18,.10],107:[.60,.42,.25],108:[.42,.36,.26],109:[.28,.24,.22],110:[.42,.40,.36],111:[.90,.88,.82],
+ 112:[.45,.55,.65],114:[.55,.65,.70],115:[.95,.15,.15],116:[.15,.30,.95],117:[.15,.85,.25],118:[.28,.24,.20],119:[.55,.32,.20],
+ 120:[.45,.12,.10],121:[.15,.28,.18],122:[.22,.12,.08],129:[.12,.20,.45],123:[.78,.62,.20],124:[1,.85,.50],
+ 125:[.82,.68,.55],126:[.06,.06,.07],127:[.88,.86,.82],128:[.12,.08,.06],134:[.82,.88,.92],137:[.10,.25,.45],
+ 140:[.23,.49,.36],141:[.14,.16,.15],142:[.75,.78,.82],143:[.18,.18,.19],144:[.96,.90,.69],145:[.71,.16,.14],146:[.42,.29,.18],147:[.59,.67,.73]};
+
+// ── scene ──
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x0d1117);
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+V3.appendChild(renderer.domElement);
+const camera = new THREE.PerspectiveCamera(50, 1, 0.05, 500);
+camera.position.set(16, 13, 20);
+const ctl = new OrbitControls(camera, renderer.domElement);
+ctl.enableDamping = true; ctl.target.set(9.6, 1.0, 9.6);
+scene.add(new THREE.HemisphereLight(0xcfe4ff, 0x2a241c, 1.05));
+const sun = new THREE.DirectionalLight(0xfff1d8, 1.5); sun.position.set(18, 26, 10); scene.add(sun);
+scene.add(new THREE.AmbientLight(0x404860, .35));
+
+// ── loaders ──
+async function loadStasset(url) {           // binary .stasset → voxel grid + SKEL tail
+  const buf = await (await fetch(url)).arrayBuffer();
+  const dv = new DataView(buf);
+  if (dv.getUint8(0) !== 0x53 || dv.getUint8(1) !== 0x54 || dv.getUint8(2) !== 0x41 || dv.getUint8(3) !== 0x53) throw 'bad STAS magic';
+  const w = dv.getUint16(6, true), h = dv.getUint16(8, true), d = dv.getUint16(10, true);
+  const vox = new Uint16Array(w * h * d);
+  for (let i = 0; i < vox.length; i++) vox[i] = dv.getUint16(16 + i * 2, true);   // X-major
+  let attach = {};                            // SKEL blocks: 'SKEL' + u32 len + JSON
+  for (let off = 16 + w * h * d * 2; off + 8 <= buf.byteLength;) {
+    if (dv.getUint32(off, true) !== 0x4c454b53) break;                          // 'SKEL' LE
+    const jl = dv.getUint32(off + 4, true);
+    try {
+      const j = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, off + 8, jl)));
+      if (j.attachments) j.attachments.forEach(pt => attach[pt.name] = pt.position);
+      if (j.building && j.building.attachmentPoints)
+        Object.entries(j.building.attachmentPoints).forEach(([k, p]) => attach[k] = [p.x, p.y, p.z]);
+    } catch (_) {}
+    off += 8 + jl;
+  }
+  return { w, h, d, vox, attach };
+}
+const vidx = (g, x, y, z) => z * g.h * g.w + y * g.w + x;                        // X-major order
+
+// surface-culled instanced box per solid voxel (same idea as VoxelBuildingMeshifier)
+function voxelMesh(grid, vs, palette) {
+  const air = (x, y, z) => x < 0 || y < 0 || z < 0 || x >= grid.w || y >= grid.h || z >= grid.d || grid.vox[vidx(grid, x, y, z)] === 0;
+  const list = [];
+  for (let z = 0; z < grid.d; z++) for (let y = 0; y < grid.h; y++) for (let x = 0; x < grid.w; x++) {
+    const m = grid.vox[vidx(grid, x, y, z)]; if (!m) continue;
+    if (air(x+1,y,z)||air(x-1,y,z)||air(x,y+1,z)||air(x,y-1,z)||air(x,y,z+1)||air(x,y,z-1)) list.push([x,y,z,m]);
+  }
+  const im = new THREE.InstancedMesh(new THREE.BoxGeometry(vs, vs, vs), new THREE.MeshLambertMaterial(), list.length);
+  const o = new THREE.Object3D(), c = new THREE.Color();
+  list.forEach((v, i) => {
+    o.position.set((v[0]+.5)*vs, (v[1]+.5)*vs, (v[2]+.5)*vs); o.updateMatrix(); im.setMatrixAt(i, o.matrix);
+    const p = palette[v[3]] || [.6,.6,.6]; c.setRGB(p[0], p[1], p[2]); im.setColorAt(i, c);
+  });
+  im.instanceColor.needsUpdate = true;
+  return { mesh: im, shown: list.length };
+}
+// explicit-voxel-list → same mesh (character JSON: voxels = [x,y,z,mat][])
+function charMesh(j, palette) {
+  const vs = j.voxelSize || 0.01;
+  const set = new Set(j.voxels.map(v => v[0] + ',' + v[1] + ',' + v[2]));
+  const air = (x,y,z) => !set.has(x + ',' + y + ',' + z);
+  const surf = j.voxels.filter(v => air(v[0]+1,v[1],v[2])||air(v[0]-1,v[1],v[2])||air(v[0],v[1]+1,v[2])||air(v[0],v[1]-1,v[2])||air(v[0],v[1],v[2]+1)||air(v[0],v[1],v[2]-1));
+  const im = new THREE.InstancedMesh(new THREE.BoxGeometry(vs, vs, vs), new THREE.MeshLambertMaterial(), surf.length);
+  const o = new THREE.Object3D(), c = new THREE.Color();
+  surf.forEach((v, i) => {
+    o.position.set((v[0]+.5)*vs, (v[1]+.5)*vs, (v[2]+.5)*vs); o.updateMatrix(); im.setMatrixAt(i, o.matrix);
+    const p = palette[v[3]] || [.6,.6,.6]; c.setRGB(p[0], p[1], p[2]); im.setColorAt(i, c);
+  });
+  im.instanceColor.needsUpdate = true;
+  return { mesh: im, shown: surf.length, vs };
+}
+
+// ── build the sterile field ──
+const LAB = { scene, camera, ctl };
+window.LAB = LAB;
+if (location.protocol === 'file:') {
+  VLOAD.innerHTML = '<b>assets need a local server</b> — run <code>python -m http.server 8137</code> at the repo root, then open <code>http://localhost:8137/docs/systems/COMBAT_BEAT_MACHINE.html</code>';
+  VLOAD.style.color = 'var(--orange)';
+  VLOAD.style.padding = '20px'; VLOAD.style.textAlign = 'center';
+} else try {
+  const arena = await loadStasset(ASSETS + 'voxel_buildings/cover_arena.stasset');
+  const a = voxelMesh(arena, 0.1, MOB);                 // buildings = 0.1 m/voxel
+  a.mesh.scale.x = -1;                                   // UNITY VIEW — mirror X like the editor's badge
+  scene.add(a.mesh);
+
+  // column top (y of first solid from above) + air headroom — feet need REAL floor, not a wall crown
+  const colTop = (x, z) => { for (let y = arena.h - 1; y >= 0; y--) if (arena.vox[vidx(arena, x, y, z)] !== 0) return y + 1; return 0; };
+  const groundY = (x, z) => colTop(x, z) * 0.1;
+  // spiral out from the target column for a floor-level spot (top ≤0.4m) with ≥7 voxels of air above
+  function findFloor(tx, tz) {
+    for (let r = 0; r < 40; r += 2) for (let a = 0; a < Math.PI * 2; a += 0.5) {
+      const x = Math.round(tx + Math.cos(a) * r), z = Math.round(tz + Math.sin(a) * r);
+      if (x < 2 || z < 2 || x >= arena.w - 2 || z >= arena.d - 2) continue;
+      const t = colTop(x, z);
+      if (t > 0 && t <= 4) {
+        let clear = true;
+        for (let y = t + 1; y <= t + 7 && y < arena.h; y++) if (arena.vox[vidx(arena, x, y, z)]) { clear = false; break; }
+        if (clear) return { x, z, top: t };
+      }
+    }
+    return { x: tx, z: tz, top: colTop(tx, tz) };
+  }
+
+  const civ = await (await fetch(ASSETS + 'voxel_characters/Civilian1.json')).json();
+  const sw = await (await fetch(ASSETS + 'voxel_items/SW_Model_10.json')).json();
+  const cpal = Object.assign({}, MOB); (civ.materials || []).forEach(m => cpal[m.id] = [m.r/255, m.g/255, m.b/255]);
+
+  // ═══ FIGHTER RIG — port of VoxelCharacterAnimator's stationary-duck path ═══
+  // bind → rest (arms down) → per-eval authored duck chains:
+  //   P(f,d) = lerp(crouching[f], crouchDeep[f], clamp01(d-1)) * min(1,d)     [Icr()]
+  //   chain  = [axis,angle,pivot] own→parent (gid0 outer bodyRot for upper groups)
+  const CD = civ.dims || [96, 96, 96];
+  const cgrp = civ.groups || {}, creg = civ.regions || {}, apts = civ.attachmentPoints;
+  const OUTFIT = { 3:126, 4:126, 6:126, 7:105 };                 // Suit Blue preset
+  const pivB = {};                                               // gid → bind pivot (voxel units)
+  for (const k in civ.pivots) pivB[+k] = { x: civ.pivots[k].x * CD[0], y: civ.pivots[k].y * CD[1], z: civ.pivots[k].z * CD[2] };
+  const restPt = (x, y, z, g) => {                               // arms down: 2/8 rotZ(-90)@piv2 · 3/9 rotZ(+90)@piv3
+    if (g === 2 || g === 8) { const dx = x-pivB[2].x, dy = y-pivB[2].y; return { x: pivB[2].x+dy, y: pivB[2].y-dx, z }; }
+    if (g === 3 || g === 9) { const dx = x-pivB[3].x, dy = y-pivB[3].y; return { x: pivB[3].x-dy, y: pivB[3].y+dx, z }; }
+    return { x, y, z };
+  };
+  const rigVox = [], rigGid = [];
+  for (const v of civ.voxels) {
+    const key = v[0]+','+v[1]+','+v[2], rid = creg[key], g = cgrp[key] ?? 0;
+    const mat = (rid != null && OUTFIT[rid] != null) ? OUTFIT[rid] : v[3];
+    const p = restPt(v[0], v[1], v[2], g);
+    rigVox.push([p.x, p.y, p.z, mat]); rigGid.push(g);
+  }
+  const pivP = {}; for (const k in pivB) pivP[k] = restPt(pivB[k].x, pivB[k].y, pivB[k].z, +k);
+  const CRO = civ.animParams.crouching, CDE = civ.animParams.crouchDeep || CRO;
+  const Pd = (f, d) => { const t = Math.max(0, Math.min(1, d-1)), w = Math.min(1, d); return ((CRO[f]||0) + ((CDE[f]||0)-(CRO[f]||0))*t) * w; };
+  function duckChains(d) {
+    const bL = Pd('bodyLower',d), mL = Pd('modelLower',d), bF = Pd('bodyForward',d), lean = Pd('bodyLean',d);
+    const body = [0, lean, pivP[0]];                                     // bodyRot = rotX(lean) @piv0
+    const upOff = [0, -bL-mL, bF], legOff = [0, -mL, 0];
+    const aL = [0,  Pd('armSwingL',d), pivP[2]], aR = [0,  Pd('armSwingR',d), pivP[3]];
+    const lL = [0, -Pd('legStrideL',d), pivP[4]], lR = [0, -Pd('legStrideR',d), pivP[5]];
+    return {
+      0: { c: [body], o: upOff },
+      1: { c: [[0, Pd('headPitch',d), pivP[1]], body], o: upOff },
+      2: { c: [aL, body], o: upOff }, 3: { c: [aR, body], o: upOff },
+      4: { c: [lL], o: legOff },        5: { c: [lR], o: legOff },
+      6: { c: [[0, Pd('kneeBendL',d), pivP[6]], lL], o: legOff },
+      7: { c: [[0, Pd('kneeBendR',d), pivP[7]], lR], o: legOff },
+      8: { c: [[1,  Pd('elbowBendL',d), pivP[8]], aL, body], o: upOff },
+      9: { c: [[1, -Pd('elbowBendR',d), pivP[9]], aR, body], o: upOff },
+    };
+  }
+
+  // instanced mesh over ALL voxels (limbs expose interiors when posed — no cull)
+  const vs = civ.voxelSize || 0.01;
+  const im = new THREE.InstancedMesh(new THREE.BoxGeometry(vs, vs, vs), new THREE.MeshLambertMaterial(), rigVox.length);
+  { const c = new THREE.Color(); rigVox.forEach((v,i) => { const p = cpal[v[3]] || [.6,.6,.6]; c.setRGB(p[0],p[1],p[2]); im.setColorAt(i,c); }); }
+  im.instanceColor.needsUpdate = true;
+  const _o = new THREE.Object3D();
+  function poseEval(duck) {
+    const ch = duckChains(duck), cs = Math.cos, sn = Math.sin;
+    for (let i = 0; i < rigVox.length; i++) {
+      const v = rigVox[i], R = ch[rigGid[i]];
+      let x = v[0], y = v[1], z = v[2];
+      if (R) for (const [ax, ang, p] of R.c) {
+        if (!ang) continue;
+        if (ax === 0)      { const dy=y-p.y, dz=z-p.z, c=cs(ang), s=sn(ang); y=p.y+dy*c-dz*s; z=p.z+dy*s+dz*c; }
+        else if (ax === 1) { const dx=x-p.x, dz=z-p.z, c=cs(ang), s=sn(ang); x=p.x+dx*c+dz*s; z=p.z-dx*s+dz*c; }
+        else               { const dx=x-p.x, dy=y-p.y, c=cs(ang), s=sn(ang); x=p.x+dx*c-dy*s; y=p.y+dx*s+dy*c; }
+      }
+      if (R) { x+=R.o[0]; y+=R.o[1]; z+=R.o[2]; }
+      _o.position.set((x+0.5)*vs, (y+0.5)*vs, (z+0.5)*vs); _o.updateMatrix(); im.setMatrixAt(i, _o.matrix);
+    }
+    im.instanceMatrix.needsUpdate = true;
+  }
+  poseEval(0);
+
+  // posed point through a group's chain (WeaponMount PosePoint) — returns voxel coords + quat product
+  function posePoint(pt, gid, d) {
+    const ch = duckChains(d)[gid]; let x = pt.x, y = pt.y, z = pt.z;
+    const q = new THREE.Quaternion(), qi = new THREE.Quaternion(), AX = [[1,0,0],[0,1,0],[0,0,1]];
+    if (ch) for (const [ax, ang, p] of ch.c) {
+      if (ax === 0)      { const dy=y-p.y, dz=z-p.z, c=Math.cos(ang), s=Math.sin(ang); y=p.y+dy*c-dz*s; z=p.z+dy*s+dz*c; }
+      else if (ax === 1) { const dx=x-p.x, dz=z-p.z, c=Math.cos(ang), s=Math.sin(ang); x=p.x+dx*c+dz*s; z=p.z-dx*s+dz*c; }
+      else               { const dx=x-p.x, dy=y-p.y, c=Math.cos(ang), s=Math.sin(ang); x=p.x+dx*c-dy*s; y=p.y+dx*s+dy*c; }
+      qi.setFromAxisAngle(new THREE.Vector3(...AX[ax]), ang); q.premultiply(qi);
+    }
+    if (ch) { x+=ch.o[0]; y+=ch.o[1]; z+=ch.o[2]; }
+    return { x, y, z, q };
+  }
+
+  // ── placement: authored cover_stand_a, feet on painted pad ──
+  let mnx=1e9,mny=1e9,mnz=1e9,mxx=-1e9,mxy=-1e9,mxz=-1e9;
+  rigVox.forEach(v=>{mnx=Math.min(mnx,v[0]);mny=Math.min(mny,v[1]);mnz=Math.min(mnz,v[2]);mxx=Math.max(mxx,v[0]);mxy=Math.max(mxy,v[1]);mxz=Math.max(mxz,v[2]);});
+  const stand = arena.attach.cover_stand_a || [95.5, 2.0, 24.5];
+  const standB = arena.attach.cover_stand_b || [95.5, 2.0, 166.5];
+  const deep = arena.attach.cover_deep || [95.5, 2.0, 89.0];
+  const sx = stand[0]*0.1, sz = stand[2]*0.1;
+  const padY = Math.max(colTop(95,24), colTop(96,24), colTop(95,25), colTop(96,25)) * 0.1;
+  const vinnyH = (mxy - mny + 1) * vs;
+  const vinnyG = new THREE.Group();
+  vinnyG.scale.x = -1;
+  vinnyG.add(im);
+  vinnyG.position.set(-sx + (mnx+mxx+1)/2*vs, padY - mny*vs, sz - (mnz+mxz+1)/2*vs);
+  scene.add(vinnyG);
+
+  // ── gun weld — WeaponMount port: qWorld = yaw∘R∘B∘attachRot(+180 mirrored-rig comp) ──
+  const gpal = Object.assign({}, MOB); (sw.materials || []).forEach(m => gpal[m.id] = [m.r/255, m.g/255, m.b/255]);
+  const ivs = sw.voxelSize || 0.005;
+  const grip = sw.attachmentPoints.grip_right;
+  const gunG = new THREE.Group();
+  {
+    const gim = new THREE.InstancedMesh(new THREE.BoxGeometry(ivs,ivs,ivs), new THREE.MeshLambertMaterial(), sw.voxels.length);
+    const o = new THREE.Object3D(), c = new THREE.Color();
+    sw.voxels.forEach((v,i) => {
+      o.position.set((v[0]-grip.x)*ivs, (v[1]-grip.y)*ivs, (v[2]-grip.z)*ivs); o.updateMatrix(); gim.setMatrixAt(i,o.matrix);
+      const p = gpal[v[3]] || [.6,.6,.6]; c.setRGB(p[0],p[1],p[2]); gim.setColorAt(i,c);
+    });
+    gim.instanceColor.needsUpdate = true;
+    gunG.add(gim);
+  }
+  const p8 = apts.pivot_8; let fc = [0,0,0], fn = 0;
+  for (const k in cgrp) if (cgrp[k] === 8) { const p = k.split(',').map(Number); fc[0]+=p[0]; fc[1]+=p[1]; fc[2]+=p[2]; fn++; }
+  const restDir = new THREE.Vector3(fc[0]/fn-p8.x, fc[1]/fn-p8.y, fc[2]/fn-p8.z).normalize();
+  const uAxis = new THREE.Vector3(0,1,0).sub(restDir.clone().multiplyScalar(restDir.y)).normalize();
+  const rAxis = new THREE.Vector3().crossVectors(restDir, uAxis);
+  const qB = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(restDir, uAxis, rAxis));
+  const qRestZ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1), -Math.PI/2);   // the rest arm-down rot
+  const qA = new THREE.Quaternion().setFromEuler(new THREE.Euler(THREE.MathUtils.degToRad((sw.attachRotation ? sw.attachRotation.x : 0) + 180), 0, 0));
+  vinnyG.add(gunG);
+  function reweld(duck) {
+    const hp = posePoint(restPt(apts.right_hand.x, apts.right_hand.y, apts.right_hand.z, 8), 8, duck);   // right_hand gid 8
+    const qR = hp.q.clone().multiply(qRestZ);                          // chain ∘ rest shoulder rot
+    gunG.quaternion.copy(qR.clone().multiply(qB).multiply(qA));
+    gunG.position.set((hp.x + 0.5) * vs, (hp.y + 0.5) * vs, (hp.z + 0.5) * vs);
+  }
+  reweld(0);
+
+  // ═══ MOTOR — moveTo legs on real voxels · DDA LOS · duck ease · verdicts ═══
+  const F = { g: vinnyG, x: -sx, z: sz, feetY: padY, duck: 0, duckTgt: 0, yaw: 0, yawTgt: 0,
+              leg: null, verdict: 'None', eyeH: d => 0.58 - 0.14 * Math.min(1, d) };
+  const cellOf = (wx, wz) => [Math.floor(-wx / 0.1), Math.floor(wz / 0.1)];
+  const colClear = (fx, fz, top, duck) => {                      // headroom ≥ (7 − 3·min(1,duck)) vox
+    const need = Math.round(7 - 3 * Math.min(1, duck));
+    for (let y = top + 1; y <= top + need && y < arena.h; y++) if (arena.vox[vidx(arena, fx, y, fz)]) return false;
+    return true;
+  };
+  function moveTo(tx, tz) { F.leg = { tx, tz, stuck: 0, best: 1e9 }; F.verdict = 'None'; }
+  function losWorld(ax, ay, az, bx, by, bz) {                    // Amanatides–Woo in FILE coords (world x → file −x)
+    let x = -ax/0.1, y = ay/0.1, z = az/0.1; const ex = -bx/0.1, ey = by/0.1, ez = bz/0.1;
+    const dx = ex-x, dy = ey-y, dz = ez-z, len = Math.hypot(dx,dy,dz); if (len < 1e-6) return { clear: true };
+    const u = [dx/len, dy/len, dz/len]; let cx = Math.floor(x), cy = Math.floor(y), cz = Math.floor(z);
+    const s = [Math.sign(u[0]), Math.sign(u[1]), Math.sign(u[2])];
+    const tD = [s[0]?Math.abs(1/u[0]):1e9, s[1]?Math.abs(1/u[1]):1e9, s[2]?Math.abs(1/u[2]):1e9];
+    const tM = [s[0]>0?(cx+1-x)*tD[0]:(x-cx)*tD[0], s[1]>0?(cy+1-y)*tD[1]:(y-cy)*tD[1], s[2]>0?(cz+1-z)*tD[2]:(z-cz)*tD[2]];
+    for (let i = 0; i < 512; i++) {
+      const m = tM[0]<tM[1] ? (tM[0]<tM[2]?0:2) : (tM[1]<tM[2]?1:2);
+      const t = tM[m];
+      if (t >= len) break;
+      cx += s[m]; cy += m===1?s[1]:0; cz += m===2?s[2]:0;
+      if (m===0){tM[0]+=tD[0];}else if(m===1){tM[1]+=tD[1];}else{tM[2]+=tD[2];}
+      if (cx===Math.floor(ex)&&cy===Math.floor(ey)&&cz===Math.floor(ez)) break;   // reached target cell
+      if (cx<0||cy<0||cz<0||cx>=arena.w||cy>=arena.h||cz>=arena.d) break;
+      if (arena.vox[vidx(arena, cx, cy, cz)]) {
+        const hx = x+u[0]*t, hy = y+u[1]*t, hz = z+u[2]*t;
+        return { clear:false, hit:[-hx*0.1, hy*0.1, hz*0.1] };
+      }
+    }
+    return { clear: true };
+  }
+  let rayLine = null, probe = null, probeDot = null;
+  function tickProbe() {                                          // live eye→target ray — re-aims every frame, follows the body
+    if (!probe) {
+      if (rayLine) { scene.remove(rayLine); rayLine.geometry.dispose(); rayLine = null; }
+      if (probeDot) { scene.remove(probeDot); probeDot = null; }
+      F.probeMsg = ''; return;
+    }
+    const eye = new THREE.Vector3(F.x, F.feetY + F.eyeH(F.duck), F.z);
+    const r = losWorld(eye.x, eye.y, eye.z, probe.x, probe.y, probe.z);
+    const end = r.hit ? new THREE.Vector3(...r.hit) : probe.clone();
+    if (!rayLine) { rayLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x3fb950 })); scene.add(rayLine); }
+    rayLine.geometry.setFromPoints([eye, end]);
+    rayLine.material.color.set(r.clear ? 0x3fb950 : 0xf85149);
+    if (!probeDot) { probeDot = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.12), new THREE.MeshBasicMaterial({ color: 0xf0883e })); scene.add(probeDot); }
+    probeDot.position.copy(probe);
+    F.probeMsg = 'LOS ' + (r.clear ? 'CLEAR' : 'BLOCKED @' + r.hit.map(v => v.toFixed(1)).join(','));
+    F.losClear = r.clear;
+  }
+  function updateFighter(dt) {
+    // duck ease → repose + reweld
+    if (F.duck !== F.duckTgt) {
+      const s = Math.sign(F.duckTgt - F.duck);
+      F.duck = Math.abs(F.duckTgt-F.duck) < dt*P.riseDuckEase ? F.duckTgt : F.duck + s*dt*P.riseDuckEase;
+      poseEval(F.duck); reweld(F.duck);
+    }
+    // facing ease
+    if (Math.abs(F.yawTgt - F.yaw) > 0.01) {
+      const s = Math.sign(F.yawTgt - F.yaw);
+      F.yaw += s * Math.min(Math.abs(F.yawTgt-F.yaw), dt * P.turnSpeedDeg * Math.PI/180);
+      F.g.rotation.y = F.yaw;
+    }
+    // leg stepping — axis-decomposed, column-height walk on the real grid
+    if (F.leg) {
+      const L = F.leg, dx = L.tx - F.x, dz = L.tz - F.z, dist = Math.hypot(dx, dz);
+      if (dist < P.arriveEps) { F.leg = null; F.verdict = 'Arrived'; }
+      else {
+        const step = P.moveSpeed * dt * (1 - 0.55*Math.min(1, F.duck));           // duck gait coupling
+        const try_ = (nx, nz) => {
+          const [fx, fz] = cellOf(nx, nz);
+          const t = colTop(fx, fz);
+          return t > 0 && t*0.1 <= F.feetY + P.stepUpMax && colClear(fx, fz, t, F.duck) ? { ok: true, top: t*0.1 } : { ok: false };
+        };
+        const s = Math.min(step, dist);
+        let nx = F.x + dx/dist*s, nz = F.z + dz/dist*s, r = try_(nx, nz);
+        if (!r.ok) { r = try_(F.x + dx/dist*s, F.z); if (r.ok) { nx = F.x + dx/dist*s; nz = F.z; } }
+        if (!r.ok) { r = try_(F.x, F.z + dz/dist*s); if (r.ok) { nx = F.x; nz = F.z + dz/dist*s; } }
+        if (r.ok) {
+          F.x = nx; F.z = nz; F.stuck = 0;
+          F.feetY += (r.top - F.feetY) * Math.min(1, dt * 10);
+          F.g.position.x = F.x + (mnx+mxx+1)/2*vs;    // world = pos.x − localX (mirrored group)
+          F.g.position.z = F.z - (mnz+mxz+1)/2*vs;
+          F.g.position.y = F.feetY - mny*vs;
+          F.yawTgt = Math.atan2(-dx, dz);
+          L.stuck = dist < L.best - 0.05 ? 0 : L.stuck + dt; L.best = Math.min(L.best, dist);
+        } else {
+          L.stuck += dt;
+        }
+        if (L.stuck > 0.8) { F.leg = null; F.verdict = 'Blocked'; }
+      }
+    }
+    tickProbe();
+    document.getElementById('vverdict').textContent = 'verdict: ' + F.verdict + (F.leg ? ' · leg→(' + L_safe(F.leg) + ')' : '') + (F.probeMsg ? ' · ' + F.probeMsg : '');
+  }
+  const L_safe = l => l ? l.tx.toFixed(1) + ',' + l.tz.toFixed(1) : '—';
+
+  // ── controls ──
+  document.getElementById('vctl').addEventListener('click', ev => {
+    const a = ev.target.dataset && ev.target.dataset.a; if (!a) return;
+    if (a === 'duck') F.duckTgt = F.duckTgt === 0 ? 1 : (F.duckTgt === 1 ? 2 : 0);
+    else if (a === 'move') moveTo(-deep[0]*0.1, deep[2]*0.1);
+    else if (a === 'reset') {   // true snap-reset: position + upright + facing + state — not a leg (route-free mover can stall on mid-walls)
+      F.leg = null; F.x = -sx; F.z = sz; F.feetY = padY; F.duckTgt = 0; F.yawTgt = 0; F.verdict = 'Reset';
+      F.g.position.set(F.x + (mnx+mxx+1)/2*vs, F.feetY - mny*vs, F.z - (mnz+mxz+1)/2*vs);
+      ARB.visited.clear(); ARB.avoid.clear(); ARB.zeroStreak = 0; ARB.orbitDone = false; ARB.orbitSide = 0; ARB.log.length = 0;
+    }
+    else if (a === 'shot') F.cylinder = Math.max(0, F.cylinder - 1);
+    else if (a === 'arbiter') { ARB.on = !ARB.on; ARB.running = null; ARB.dwellUntil = 0; if (!ARB.on) markDest(null); }
+    else if (a === 'los') {
+      probe = probe ? null : new THREE.Vector3(-standB[0]*0.1, standB[1]*0.1 + 0.55, standB[2]*0.1);  // toggle — live eye→stand_b probe
+    }
+  });
+
+  LAB.vinny = vinnyG; LAB.gun = gunG; LAB.F = F; LAB.arenaGrid = arena; LAB.groundY = groundY;
+  LAB.moveTo = moveTo; LAB.losWorld = losWorld; LAB.poseEval = poseEval; LAB.duck = d => F.duckTgt = d;
+  LAB.update = updateFighter;
+
+  // ═══ ARBITER PREVIEW — live intent weights off real lab signals (heuristic, pre-arbiter) ═══
+  // probe toggled = threat registered (Tan @ stand_b) · losClear = live contact · blocked = last-known only
+  F.cylinder = 6; F.shots = 0; F.shotCd = 0; F.lkAge = 0; F.contactSeen = false; F.losClear = false;
+  const TB = { x: -standB[0]*0.1, z: standB[2]*0.1 };
+  const INTENT_DEFS = [
+    ['SeekCover','→MOVE'], ['Relocate','→MOVE'], ['Engage','→MOVE'], ['OrbitSearch','→MOVE'],
+    ['Recon','→PROBE'], ['FinalConfirm','→PROBE'], ['Reload','→RELOAD'], ['StandDlv','→HOLD'], ['Watch','→HOLD'],
+  ];
+  function bb() {
+    const dist = Math.hypot(F.x - TB.x, F.z - TB.z);
+    return { threat: probe != null, contact: F.contactSeen, belief: probe != null && !F.contactSeen,
+             covered: probe != null && !F.losClear, exposed: F.contactSeen && F.duck < 1.5,
+             cyl: F.cylinder / 6, dist, duckF: F.duck / 2, lk: F.lkAge };
+  }
+  function scoreIntents(c) {          // heuristic weights 0..1 — stand-in for the real arbiter's scorers
+    const min = Math.min, max = Math.max;
+    return [
+      c.contact ? (c.exposed ? .85 : .40) : (c.belief ? .35 : .05),                                   // SeekCover
+      c.belief && !c.covered ? .50 : .12,                                                           // Relocate
+      c.contact ? min(.8, .35 + .35*(1 - c.dist/15) + .15*(c.exposed?0:1)) : 0,                     // Engage
+      c.belief ? min(.8, ARB.zeroStreak * .28 + max(0, c.lk - 3) * .03) : 0,                        // OrbitSearch (subroutine: arms on failed reacquire probes)
+      c.belief ? max(.1, .55 - ARB.zeroStreak * .12 + min(.2, c.lk * .02)) : .08,                   // Recon (routine look — decays as zeros stack)
+      c.belief && ARB.orbitDone ? .75 : 0,                                                          // FinalConfirm (arc spent → terminal probe)
+      (1 - c.cyl) * (c.contact ? .25 : c.covered ? .80 : .55),                                      // Reload (waits for cover)
+      c.contact ? (c.covered ? .80 : .55) : .04,                                                    // StandDeliver
+      c.threat ? .15 : .90,                                                                         // Watch
+    ];
+  }
+  const AXES = INTENT_DEFS.map(d => d[0]);
+  function drawRadar(scores) {
+    const cv = document.getElementById('vradar'), g = cv.getContext('2d'), S = 432, C = S/2, R = 170;
+    g.clearRect(0, 0, S, S);
+    const pt = (i, r) => { const a = -Math.PI/2 + i * 2*Math.PI/AXES.length; return [C + Math.cos(a)*r*R, C + Math.sin(a)*r*R]; };
+    for (let ring = 1; ring <= 4; ring++) {
+      g.beginPath();
+      for (let i = 0; i <= AXES.length; i++) { const [x,y] = pt(i % AXES.length, ring/4); i ? g.lineTo(x,y) : g.moveTo(x,y); }
+      g.strokeStyle = 'rgba(74,85,104,' + (ring === 4 ? '.9' : '.35') + ')'; g.stroke();
+    }
+    g.font = '22px Segoe UI'; g.textAlign = 'center';
+    for (let i = 0; i < AXES.length; i++) {
+      const [x1,y1] = pt(i, 0), [x2,y2] = pt(i, 1);
+      g.beginPath(); g.moveTo(C, C); g.lineTo(x2, y2); g.strokeStyle = 'rgba(74,85,104,.35)'; g.stroke();
+      const [lx,ly] = pt(i, 1.16); g.fillStyle = '#8b949e'; g.fillText(AXES[i], lx, ly + 6);
+    }
+    g.beginPath();
+    scores.forEach((s, i) => { const [x,y] = pt(i, Math.max(.02, s)); i ? g.lineTo(x,y) : g.moveTo(x,y); });
+    g.closePath(); g.fillStyle = 'rgba(88,166,255,.18)'; g.fill(); g.strokeStyle = '#58a6ff'; g.lineWidth = 2; g.stroke(); g.lineWidth = 1;
+  }
+  function drawBars(scores) {
+    const order = scores.map((s,i) => [s,i]).sort((a,b) => b[0]-a[0]);
+    const win = order[0][1];
+    document.getElementById('vbars').innerHTML = order.map(([s,i]) =>
+      '<div class="ibar' + (i === win ? ' win' : '') + '"><span>' + INTENT_DEFS[i][0] + '</span>' +
+      '<span class="iv">' + INTENT_DEFS[i][1] + '</span>' +
+      '<div class="ifill"><i style="width:' + Math.round(s*100) + '%"></i></div>' +
+      '<span class="inum">' + s.toFixed(2) + '</span></div>').join('');
+    return INTENT_DEFS[win][0];
+  }
+  function drawConds(c) {
+    document.getElementById('vconds').innerHTML =
+      '<span class="vchip ' + (c.threat ? 'on' : '') + '">threat ' + (c.threat ? 'REG' : '—') + '</span>' +
+      '<span class="vchip ' + (c.contact ? 'hot' : '') + '">◉ contact ' + (c.contact ? 'LIVE' : 'off') + '</span>' +
+      '<span class="vchip ' + (c.belief ? 'warm' : '') + '">◌ last-known ' + (c.belief ? c.lk.toFixed(0) + 's' : '—') + '</span>' +
+      '<span class="vchip ' + (c.covered ? 'on' : '') + '">cover ' + (c.covered ? 'YES' : 'no') + '</span>' +
+      '<span class="vchip ' + (c.exposed ? 'hot' : '') + '">exposed ' + (c.exposed ? 'YES' : 'no') + '</span>' +
+      '<span class="vchip">cyl ' + F.cylinder + '/6</span>' +
+      '<span class="vchip">dist ' + c.dist.toFixed(1) + 'm</span>' +
+      '<span class="vchip ' + (F.shotCd > -1 && c.contact && F.cylinder > 0 ? 'hot' : '') + '">SHOT ' + (c.contact && F.cylinder > 0 ? 'LIVE ×' + F.shots : 'gates closed') + '</span>';
+  }
+  function tickScores(dt) {
+    // blackboard writes
+    if (probe) {
+      F.contactSeen = !!F.losClear;
+      F.lkAge = F.contactSeen ? 0 : F.lkAge + dt;
+    } else { F.contactSeen = false; F.lkAge = 0; }
+    // SHOT impulse — gated, fires inline regardless of running verb (opportunity shot IS the overlay)
+    if (F.contactSeen && F.cylinder > 0 && F.duck < 1.2) {
+      F.shotCd -= dt;
+      if (F.shotCd <= 0) { F.cylinder--; F.shots++; F.shotCd = 0.8; if (!F.leg) F.verdict = 'Shot ×' + F.shots; }
+    } else F.shotCd = 0;
+    const c = bb(), scores = scoreIntents(c), win = drawBars(scores);
+    drawRadar(scores); drawConds(c);
+    document.getElementById('veval').textContent = 'seam eval → ' + win +
+      '  ·  verb ' + (F.leg ? 'MOVE(leg)' : F.duckTgt > 0 ? 'folded' : 'idle-at-seam');
+  }
+  // ═══ ARBITER v1 — Tab F live: seam → intent → verb → verdict → seam ═══
+  // Informational/debug driver: real signals feed heuristic scorers; the winner
+  // dispatches a verb onto the real motor. Unity remains authoritative.
+  const ARB = { on: false, running: null, dwellUntil: 0, zeroStreak: 0, orbitDone: false,
+                orbitSide: 0, visited: new Set(), avoid: new Set(), lastContact: false, log: [] };
+  // real cover candidates from the arena's authored attachment points (file → world)
+  const COVER_STANDS = Object.keys(arena.attach)
+    .filter(k => /^cover_/.test(k) && k !== 'cover_stand_a' && k !== 'cover_stand_b')
+    .map(k => { const a = arena.attach[k];
+      return { name: k, x: -a[0]*0.1, z: a[2]*0.1, eye: { x: -a[0]*0.1, y: a[1]*0.1 + 0.30, z: a[2]*0.1 } }; });
+  const threatEye = { x: TB.x, y: standB[1]*0.1 + 0.30, z: TB.z };
+  const hidden  = s => !losWorld(s.eye.x, s.eye.y, s.eye.z, threatEye.x, threatEye.y, threatEye.z).clear;
+  const fights  = s =>  losWorld(s.eye.x, s.eye.y, s.eye.z, threatEye.x, threatEye.y, threatEye.z).clear;
+  const dMe     = s => Math.hypot(F.x - s.x, F.z - s.z);
+  const dThreat = s => Math.hypot(s.x - TB.x, s.z - TB.z);
+  let destPole = null;
+  function markDest(s) {
+    if (destPole) { scene.remove(destPole); destPole = null; }
+    if (!s) return;
+    destPole = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.9, 0.08), new THREE.MeshBasicMaterial({ color: 0xd29922 }));
+    destPole.position.set(s.x, 0.75, s.z); scene.add(destPole);
+  }
+  function pickStand(wantHidden, avoidNearest) {
+    const pool = COVER_STANDS.filter(s => !ARB.avoid.has(s.name) && (wantHidden ? hidden(s) : fights(s)));
+    if (!pool.length) return null;
+    pool.sort((a, b) => dMe(a) - dMe(b));
+    return avoidNearest && pool.length > 1 ? pool[1] : pool[0];
+  }
+  function pickOrbitHop() {   // bounded ±90° arc around the belief anchor — unvisited hidden stands only
+    const pool = COVER_STANDS.filter(s => hidden(s) && !ARB.visited.has(s.name) && !ARB.avoid.has(s.name));
+    if (!pool.length) { ARB.orbitDone = true; return null; }
+    const b0 = Math.atan2(F.x - TB.x, F.z - TB.z);
+    const wrap = d => ((Math.atan2(Math.sin(d), Math.cos(d)) * ARB.orbitSide) % (2*Math.PI) + 2*Math.PI) % (2*Math.PI);
+    pool.sort((a, b) => wrap(Math.atan2(a.x - TB.x, a.z - TB.z) - b0) - wrap(Math.atan2(b.x - TB.x, b.z - TB.z) - b0));
+    return pool[0];
+  }
+  function arbDispatch(intent) {
+    const R = { intent, verb: INTENT_DEFS.find(d => d[0] === intent)[1].slice(1), t: 0 };
+    if (R.verb === 'MOVE') {
+      let s = null;
+      if (intent === 'SeekCover')  s = pickStand(true, false);
+      if (intent === 'Relocate')   s = pickStand(true, true);
+      if (intent === 'Engage')     s = pickStand(false, false) || pickStand(true, false);
+      if (intent === 'OrbitSearch'){ if (!ARB.orbitSide) ARB.orbitSide = Math.random() < .5 ? 1 : -1; s = pickOrbitHop(); }
+      if (!s) { R.verb = 'HOLD'; R.parked = 'no destination'; }
+      else { moveTo(s.x, s.z); R.dest = s; markDest(s); }
+    }
+    if (R.verb === 'PROBE') { F.duckTgt = 0; R.phase = 'rise'; }
+    if (R.verb === 'RELOAD') { R.shells = 6 - F.cylinder; R.t = 0; }
+    ARB.running = R;
+    ARB.log.unshift(intent + '→' + R.verb); if (ARB.log.length > 3) ARB.log.pop();
+  }
+  function arbEval(why) {
+    const c = bb(), scores = scoreIntents(c);
+    let win = 0; scores.forEach((s, i) => { if (s > scores[win]) win = i; });
+    arbDispatch(INTENT_DEFS[win][0]);
+  }
+  function tickArbiter(dt) {
+    if (!ARB.on) { markDest(null); return; }
+    const c = bb();
+    // INTERRUPT — contact edge: instant re-eval, zero dwell (registration rule)
+    if (F.losClear && !ARB.lastContact && probe) {
+      if (ARB.running) { F.leg = null; markDest(null); ARB.running = null; }
+      ARB.dwellUntil = 0;
+      F.verdict = 'Interrupt: contact';
+    }
+    ARB.lastContact = !!F.losClear;
+    // aim-track overlay — rides everything while threat registered (idle/hold verbs own facing; MOVE's leg owns it while stepping)
+    if (c.threat && !F.leg) F.yawTgt = Math.atan2(-(TB.x - F.x), TB.z - F.z);
+    // running program → verdict
+    const R = ARB.running;
+    if (R) {
+      if (R.verb === 'MOVE') {
+        if (!F.leg) {   // leg ended — verdict already on F.verdict
+          if (F.verdict === 'Blocked' && R.dest) ARB.avoid.add(R.dest.name);
+          if (R.dest) ARB.visited.add(R.dest.name);
+          markDest(null); ARB.running = null; ARB.dwellUntil = 0.35;
+        }
+      } else if (R.verb === 'PROBE') {
+        if (R.phase === 'rise' && F.duck <= 0.05) {           // converged → fresh probe at lkPos
+          const eye = { x: F.x, y: F.feetY + F.eyeH(0), z: F.z };
+          const r = losWorld(eye.x, eye.y, eye.z, threatEye.x, threatEye.y, threatEye.z);
+          R.probeClear = r.clear; R.phase = 'fold'; F.duckTgt = 1;
+        } else if (R.phase === 'fold' && F.duck >= 0.95) {
+          if (R.probeClear) { F.verdict = 'Contact'; ARB.zeroStreak = 0; }
+          else { F.verdict = 'ZeroContact'; ARB.zeroStreak++; }
+          ARB.running = null; ARB.dwellUntil = 0.4;
+          if (R.intent === 'FinalConfirm' && !R.probeClear) { ARB.on = false; ARB.log.unshift('EXIT→WATCH'); }
+        }
+      } else if (R.verb === 'RELOAD') {
+        R.t += dt; if (R.t >= 0.45 * Math.max(1, R.shells)) { F.cylinder = 6; F.verdict = 'Loaded'; ARB.running = null; ARB.dwellUntil = 0.3; }
+      } else if (R.verb === 'HOLD') {
+        R.t += dt;
+        const dwell = R.intent === 'StandDlv' ? 0.8 : (c.belief ? 1.2 : 2.0);   // brief hold — the seam re-scores continuously anyway
+        if (R.t >= dwell) { ARB.running = null; ARB.dwellUntil = 0.25; }
+      }
+    } else {
+      ARB.dwellUntil -= dt;
+      if (ARB.dwellUntil <= 0) arbEval('verdict');
+    }
+    document.getElementById('varb').textContent = ARB.on
+      ? 'ARB ' + (R ? (R.verb + '(' + R.intent + ')' + (R.dest ? ' → ' + R.dest.name : '') + (R.parked ? ' · ' + R.parked : '')) : '·settle·') +
+        '  ·  ' + ARB.log.join(' ← ')
+      : 'arbiter off — manual lab mode';
+  }
+  const _upd = updateFighter;
+  LAB.update = dt => { _upd(dt); tickScores(dt); tickArbiter(dt); };
+
+  ctl.target.set(-sx, padY + 0.45, sz);
+  VSTAT.innerHTML = '<b>cover_arena.stasset</b> ' + arena.w + '×' + arena.h + '×' + arena.d + ' @0.1m · ' + a.shown.toLocaleString() + ' surface voxels' +
+                    ' &nbsp;·&nbsp; <b>Vinny</b> (Civilian1) ' + rigVox.length.toLocaleString() + ' vox @' + vs + 'm · <b>' + vinnyH.toFixed(2) + 'm</b> tall' +
+                    ' &nbsp;·&nbsp; wardrobe <b>Suit Blue</b> · sidearm <b>SW_Model_10</b>' +
+                    ' &nbsp;·&nbsp; stand <b>cover_stand_a</b> (world ' + (-sx).toFixed(2) + ', ' + padY.toFixed(2) + ', ' + sz.toFixed(2) + ') · motor live: duck/legs/LOS';
+  VLOAD.remove();
+} catch (e) {
+  VLOAD.textContent = 'load failed: ' + e + ' — serve from repo root (python -m http.server) and open /docs/systems/COMBAT_BEAT_MACHINE.html';
+  VLOAD.style.color = 'var(--orange)';
+}
+
+function size() { const w = V3.clientWidth, h = V3.clientHeight; renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+new ResizeObserver(size).observe(V3); size();
+let _lt = 0;
+renderer.setAnimationLoop(t => { const dt = Math.min(0.05, (t - _lt) / 1000 || 0.016); _lt = t; if (LAB.update) LAB.update(dt); ctl.update(); renderer.render(scene, camera); });
+</script>
+</body>
+</html>

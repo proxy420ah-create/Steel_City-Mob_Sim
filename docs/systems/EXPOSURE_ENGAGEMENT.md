@@ -91,8 +91,8 @@ scale gets a note (share the shooter's tick; N shooters × M targets later).
 | Gate | Source | Role |
 |---|---|---|
 | Posture | `ArmAimSolver` — gate **REMOVED** per user ruling | any pose can fire if the IK resolved. The one carved-out consequence: at `duck > 1.02` the solver drops *torso assist* inside `Solve` (its yaw would un-fold the crouch lean — `IK_TORSO_OVERRIDE` bound), arms-only reach. |
-| Exposure | `visibleCount > 0` → `ExposureArmed` | THE gate — arms + fires; zero → stow |
-| Convergence | `solver.Blend ≥ 0.7` + `LastAngularErrorDeg ≤ aimGateDeg` (14°) | shots only leave while the bore's actually on |
+| Exposure | `visibleCount > 0` ∧ `ConeCovers(centroid)` → `canSee` | THE contact gate — geometric unocclusion alone is not detection; the vision cone supersedes all aiming (PERCEPTION_AWARENESS → detection stack) |
+| Convergence | `solver.Blend ≥ 0.7` + `LastAngularErrorDeg ≤ aimGateDeg` (14°) **held** `fireSettleSec` (0.15s) | shots only leave while the bore's actually on — the error channel is a frame stale, so a retarget must persist inside the gate (`convergeSince` latch); acquisition edges re-arm it |
 | Cadence | `fireInterval` (0.9s default) | max trigger rate |
 | Ammo | `cylinder` = 6 (Model 10) → `roundLoadInterval` (1.5s) | empty → `Reloading` = arm dips while ONE chamber seats per interval — swing-out model, can't fire mid-load — full wheel → re-engage |
 
@@ -118,10 +118,11 @@ pose pick so `ExposureArmed` selects the lane):
 
 ```
 probe cadence (visInterval 0.12s) → Sensor.TryGetVisibleVoxels(ThreatCharacter)
-canSee (visible>0) && !reloading && mount equipped && BeatAllowsFire → wantAim
-  armed  → solver.SetTarget(centroid) per tick (Arm once); ExposureArmed = true
-  stowed → Disarm — only if combat armed it (a player's manual arm survives)
-fire → Blend ≥ 0.7 && boreErr ≤ aimGateDeg && cadence && cylinder>0
+canSee = visible>0 ∧ ConeCovers(centroid)   ← cone supersedes: out-of-fan = undetected
+wantAim = (canSee && clearToArm) || peekAim (rise/swing → belief) || searchAim (scout → forward)
+  arm point: live centroid | AimAnchor belief | forward — one IK channel, two modes
+fire → canSee && converged-HELD (Blend≥0.7 && err≤gate for fireSettleSec)
+     && cadence && cylinder>0 && !BoreBuried
      → ProjectileSystem.Fire(mount, err, centroid); cylinder--
      → cylinder==0 → reloading=true → nextRoundLoad = now+1.5s
         → cylinder++ each interval → full → reloading=false → re-engage

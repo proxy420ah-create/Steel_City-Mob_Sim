@@ -131,20 +131,63 @@ namespace SteelCity.Sim
             sb.Length = 0;
             var vinny = cityMap != null ? cityMap.SpawnedCharacter : null;
             sb.AppendLine($"COVER + COMBAT · F5 to hide · {profMsShown:F2}ms/{profEventsShown}ev");
-            if (vinny == null) { sb.Append("no spawned character"); return sb.ToString(); }
+            if (vinny != null) AppendSubject("vinny", vinny, true);
+            else sb.AppendLine("no spawned character");
 
-            var anim = vinny.GetComponent<CharacterAnimation>();
-            var sensor = vinny.GetComponent<CoverSensor>();
-            var cc = vinny.GetComponent<CombatController>();
-            Vector3 p = vinny.transform.position;
+            sb.AppendLine("── drive (possess) ──────");
+            if (PossessController.DriveActive)
+            {
+                int b = PossessController.DriveBestDir;
+                sb.AppendLine($"supportY {PossessController.DriveSupport:F2} · best duck {PossessController.DriveBestD:F2}"
+                            + $" → req {PossessController.DriveReq:F2}"
+                            + (b >= 0 ? $" · win {dirs[b]} {PossessController.ProbeTop[b]:F2} [{PossessController.ProbeVol[b]}]" : "")
+                            + (PossessController.ZoneCls != CoverSensor.WallClass.Low
+                                ? $" · zone {PossessController.ZoneCls} duck{PossessController.ZoneD:F2}" : ""));
+                for (int i = 0; i < 8; i += 4)
+                {
+                    for (int j = i; j < i + 4; j++)
+                    {
+                        float d = PossessController.ProbeD[j];
+                        if (float.IsNaN(d)) { sb.Append($"{dirs[j]} —     ".PadRight(13)); continue; }
+                        char cls = PossessController.ProbeFull[j] ? 'F' : d <= 2f ? 'C' : 'L';
+                        string vol = PossessController.ProbeVol[j];
+                        string tag = vol == null ? "·" : vol == "terrain" ? "t" : "v";
+                        sb.Append($"{dirs[j]} {PossessController.ProbeTop[j]:F2}{cls}{tag}".PadRight(13));
+                    }
+                    sb.AppendLine();
+                }
+            }
+            else sb.AppendLine(PossessController.HoldActive
+                ? "combat hold — inheriting combat pose until he leaves the spot"
+                : PossessController.Active
+                ? "idle — no threat context (combat-gated)"
+                : "idle — not possessed");
 
-            sb.AppendLine("── vinny ──────────────");
+            var tan = tanCC != null ? tanCC.GetComponent<VoxelCharacter>() : null;
+            if (tan != null) AppendSubject("tan suit", tan, false);
+            return sb.ToString();
+        }
+
+        /// <summary>One fighter's full readout — pose · combat telemetry ·
+        /// beat bar · engagement flow chart · sensor measurements. Rendered
+        /// for BOTH duel participants so cover picks, beat rhythms, reloads
+        /// and orbit progress compare side-by-side. `isVinny` gates the
+        /// possess-only annotations (POSSESSED tag, threat pin, possess
+        /// reload hints).</summary>
+        void AppendSubject(string label, VoxelCharacter ch, bool isVinny)
+        {
+            var anim = ch.GetComponent<CharacterAnimation>();
+            var sensor = ch.GetComponent<CoverSensor>();
+            var cc = ch.GetComponent<CombatController>();
+            Vector3 p = ch.transform.position;
+
+            sb.AppendLine($"── {label} ──────────────");
             bool ducked = anim != null && anim.duck > 0.02f;
             sb.AppendLine($"pos ({p.x:F1}, {p.z:F1}) · pose {(anim != null ? anim.EffectiveState.ToString() : "?")}"
                         + (ducked ? $" · duck {PossessController.CrouchLabel(anim.duck)}" : " · standing (no duck)")
-                        + (PossessController.Active ? " · POSSESSED" : "")
+                        + (isVinny && PossessController.Active ? " · POSSESSED" : "")
                         + (Time.timeScale < 0.999f ? $" · ts {Time.timeScale:F2}" : ""));
-            var rigComp = vinny.GetComponent<CharacterRig>();
+            var rigComp = ch.GetComponent<CharacterRig>();
             if (rigComp != null)
                 sb.AppendLine($"rig controllable {(rigComp.Controllable ? "Y" : "n")}"
                             + $" · depth-ease {(rigComp.DepthEaseActive ? $"→ {rigComp.DepthTarget:F2}" : "off")}");
@@ -152,12 +195,13 @@ namespace SteelCity.Sim
             // ── Combat telemetry: state, destination cover, exposure probe,
             // solver convergence, cylinder, last-seen. Exposure line shows at
             // setup too (tested>0 means a manual setup-phase probe ran).
-            var solver = vinny.GetComponent<ArmAimSolver>();
+            var solver = ch.GetComponent<ArmAimSolver>();
             sb.AppendLine("── combat ──────────────");
             if (cc == null) { sb.AppendLine("(no CombatController)"); }
             else
             {
-                sb.AppendLine($"{cc.State}{(cc.enabled ? "" : " · CC DISABLED")} · {cc.LastResult}");
+                sb.AppendLine($"{cc.State}{(cc.enabled ? "" : " · CC DISABLED")} · {cc.LastResult}"
+                            + (cc.Searching ? $" · SEARCH {cc.SearchProgress:F0}°" : ""));
                 if (cc.State != CombatController.CombatState.Idle)
                 {
                     sb.AppendLine($"cover {cc.CoverObstacleId ?? "—"} · {cc.CoverWallClass}"
@@ -166,9 +210,9 @@ namespace SteelCity.Sim
                         // XZ gap between the anchor (grid center = Feet) and
                         // the committed destination — discriminates "never
                         // arrived" from "arrived but pose folds mass off it".
-                        var vd = vinny.Dims;
-                        Vector3 fc = p + new Vector3(vd.x * vinny.voxelSize * 0.5f,
-                                                     0f, vd.z * vinny.voxelSize * 0.5f);
+                        var vd = ch.Dims;
+                        Vector3 fc = p + new Vector3(vd.x * ch.voxelSize * 0.5f,
+                                                     0f, vd.z * ch.voxelSize * 0.5f);
                         float off = Vector2.Distance(new Vector2(fc.x, fc.z),
                                                      new Vector2(cc.CoverPoint.x, cc.CoverPoint.z));
                         sb.AppendLine($"off {off:F2}m (anchor→cover) {(off > cc.arriveEps ? "⚠ NOT ON POINT" : "on point")}");
@@ -191,7 +235,7 @@ namespace SteelCity.Sim
                 // combat too (LMB spends rounds, R seats them back).
                 else if (cc.Reloading)
                     sb.AppendLine($"reloading — +1 in {cc.NextRoundIn:F1}s · full in {cc.ReloadLeft:F1}s");
-                else if (PossessController.Active && cc.Cylinder <= 0)
+                else if (isVinny && PossessController.Active && cc.Cylinder <= 0)
                     sb.AppendLine("cylinder empty — press R to reload");
                 // Cover-pick scan verdict — same numbers the tab used to show.
                 if (cc.lastStats.tested > 0)
@@ -268,6 +312,17 @@ namespace SteelCity.Sim
                             + $"{N("RISE", bt == CombatController.EngagementBeat.Rise)} {A} "
                             + $"{N("ENGAGED", bt == CombatController.EngagementBeat.Engaged, true)} {A} "
                             + $"{N("DUCK", bt == CombatController.EngagementBeat.Duck)}");
+                // The orbit-search lane — SEARCH lights the moment a miss
+                // arms the driver and stays lit until a reacquire or
+                // ExitCombat. ORBIT shows accumulated bearing around the
+                // anchor; FLANK lights once the 90° offset is satisfied
+                // (the peeks between hops still light the beat lane above —
+                // the rhythm is unchanged, the orbit is just its
+                // relocation source).
+                sb.AppendLine($"{N("SEARCH", cc.Searching, true)} {A} "
+                            + $"ORBIT {(cc.Searching ? cc.SearchProgress.ToString("F0") : "0")}°"
+                            + (cc.SearchLegOut ? (cc.OrbitLegRecon ? " ·recon" : " ·transit") : "")
+                            + $" {A} {N("FLANK 90°", cc.Searching && cc.SearchProgress >= 90f)}");
                 bool inCombat = cs8 != CombatController.CombatState.Idle;
                 // PROBE lights whenever a probe is actively producing results:
                 // the combat tick, or the setup-phase manual preview (probe-rays
@@ -290,7 +345,7 @@ namespace SteelCity.Sim
                     : $"<color=#9ff2a0>{new string('●', cc.Cylinder)}</color><color=#596069>{new string('○', cc.cylinderCapacity - cc.Cylinder)}</color>";
                 sb.AppendLine($"{N("PROBE", probing)} {A} {N("EXPOSED", exposed)} {A} "
                             + $"{N("ARMED", cc.ExposureArmed)} {A} {N("CONVERGED", converged)} {A} "
-                            + $"{N("FIRE", justFired, true)} {A} {N("RELOAD", reloading, true)} {dots}");
+                            + $"{N("FIRE", justFired, true)}{(!justFired && cc.FireHold != null ? $"·{cc.FireHold}" : "")} {A} {N("RELOAD", reloading, true)} {dots}");
             }
 
             sb.AppendLine("── sensor ──────────────");
@@ -299,7 +354,7 @@ namespace SteelCity.Sim
             {
                 sb.AppendLine(sensor.HasThreat
                     ? $"threat ({sensor.Threat.Value.x:F0},{sensor.Threat.Value.z:F0})"
-                      + (PossessController.ThreatPinned ? " · pinned" : "")
+                      + (isVinny && PossessController.ThreatPinned ? " · pinned" : "")
                     : "threat — none");
                 sb.AppendLine($"heights stand {sensor.HStand:F2} · crouch {sensor.HShallow:F2}→{sensor.HDeep:F2}"
                             + (sensor.HeightsMeasured ? "" : " · FALLBACK"));
@@ -322,50 +377,6 @@ namespace SteelCity.Sim
                     sb.AppendLine();
                 }
             }
-
-            sb.AppendLine("── drive (possess) ──────");
-            if (PossessController.DriveActive)
-            {
-                int b = PossessController.DriveBestDir;
-                sb.AppendLine($"supportY {PossessController.DriveSupport:F2} · best duck {PossessController.DriveBestD:F2}"
-                            + $" → req {PossessController.DriveReq:F2}"
-                            + (b >= 0 ? $" · win {dirs[b]} {PossessController.ProbeTop[b]:F2} [{PossessController.ProbeVol[b]}]" : "")
-                            + (PossessController.ZoneCls != CoverSensor.WallClass.Low
-                                ? $" · zone {PossessController.ZoneCls} duck{PossessController.ZoneD:F2}" : ""));
-                for (int i = 0; i < 8; i += 4)
-                {
-                    for (int j = i; j < i + 4; j++)
-                    {
-                        float d = PossessController.ProbeD[j];
-                        if (float.IsNaN(d)) { sb.Append($"{dirs[j]} —     ".PadRight(13)); continue; }
-                        char cls = PossessController.ProbeFull[j] ? 'F' : d <= 2f ? 'C' : 'L';
-                        string vol = PossessController.ProbeVol[j];
-                        string tag = vol == null ? "·" : vol == "terrain" ? "t" : "v";
-                        sb.Append($"{dirs[j]} {PossessController.ProbeTop[j]:F2}{cls}{tag}".PadRight(13));
-                    }
-                    sb.AppendLine();
-                }
-            }
-            else sb.AppendLine(PossessController.HoldActive
-                ? "combat hold — inheriting combat pose until he leaves the spot"
-                : PossessController.Active
-                ? "idle — no threat context (combat-gated)"
-                : "idle — not possessed");
-
-            if (tanCC != null)
-            {
-                sb.AppendLine("── tan suit ────────────");
-                sb.AppendLine($"{tanCC.State} · {tanCC.LastResult}");
-                var tv = tanCC.Visibility;
-                if (tv.tested > 0)
-                    sb.AppendLine($"exposure {tv.visible}/{tv.tested} ({tv.fraction:P0})"
-                                + $" · armed {(tanCC.ExposureArmed ? "Y" : "n")}"
-                                + $" · cyl {tanCC.Cylinder}/{tanCC.cylinderCapacity}");
-                if (tanCC.LastSeenTarget.HasValue)
-                    sb.AppendLine($"lastSeen ({tanCC.LastSeenTarget.Value.x:F0},{tanCC.LastSeenTarget.Value.z:F0})"
-                                + $" · {Time.unscaledTime - tanCC.LastSeenAt:F1}s ago");
-            }
-            return sb.ToString();
         }
 
         void OnGUI()

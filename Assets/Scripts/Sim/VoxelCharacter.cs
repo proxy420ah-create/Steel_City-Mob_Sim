@@ -31,7 +31,7 @@ namespace SteelCity.Sim
         [Header("Rendering")]
         [Tooltip("Auto-find VoxelChunkManager in scene if not assigned.")]
         public VoxelChunkManager chunkManager;
-        public bool showGizmo = true;
+        public bool showGizmo = false;
 
         [Header("Positioning")]
         [Tooltip("World-space center position for the character volume. Set externally before Start().")]
@@ -109,6 +109,71 @@ namespace SteelCity.Sim
         /// <summary>World-space center of the character volume (corner + half size).</summary>
         public Vector3 WorldCenter => transform.position + WorldSize * 0.5f;
 
+        [Tooltip("Body ground square (m) the walk domain certifies — the character column's footprint. " +
+                 "0 = auto: the torso band's measured extent (waist→chest voxels — render bounds overstate " +
+                 "it: arm spread, hat brims, foot splay all inflate the bbox without being the column). " +
+                 "Set explicitly to declare a tighter/looser column. Single owner: the cover field stamps " +
+                 "it, the mover tests it — map and body certify the identical square.")]
+        public float footprintOverride = 0f;
+
+        [Tooltip("Max ledge height this body can step UP — curbs, thresholds, " +
+                 "rubble, low walls. Single owner of the step law: the flood's " +
+                 "edge gate, the footprint's deck rule, and both movers' " +
+                 "climb probes all read this identical value.")]
+        public float stepUpMax = 0.15f;
+
+        // Auto measure cache — computed once from the loaded voxel volume.
+        private float autoFootprint = -1f;
+
+        /// <summary>Ground-square side (m) used by walkable certification and collision.</summary>
+        public float BodyFootprint
+        {
+            get
+            {
+                if (footprintOverride > 0f) return footprintOverride;
+                if (autoFootprint < 0f) autoFootprint = MeasureTorsoFootprint();
+                return autoFootprint > 0f ? autoFootprint
+                     : Mathf.Max(WorldSize.x, WorldSize.z);   // pre-load fallback (legacy)
+            }
+        }
+
+        /// <summary>The auto body spec: the standing column — XZ extent of
+        /// the voxels in the hip band (10–50% of model height, below arm
+        /// spread), percentile-trimmed so outlier columns (hand tips, props)
+        /// can't define the body. Shoulders overhang; hips must FIT — the
+        /// band measures the part the world actually has to admit. Returns
+        /// &lt;0 when voxelData isn't loaded yet.</summary>
+        float MeasureTorsoFootprint()
+        {
+            if (voxelData == null) return -1f;
+            int y0 = Mathf.CeilToInt(dimY * 0.10f), y1 = Mathf.FloorToInt(dimY * 0.50f);
+            var cx = new int[dimX]; var cz = new int[dimZ]; int total = 0;
+            for (int y = y0; y <= y1; y++)
+            for (int z = 0; z < dimZ; z++)
+            for (int x = 0; x < dimX; x++)
+                if (voxelData[x, y, z] != 0) { cx[x]++; cz[z]++; total++; }
+            if (total == 0) return -1f;
+            int xSpan = TrimmedSpan(cx, total), zSpan = TrimmedSpan(cz, total);
+            float m = Mathf.Max(xSpan, zSpan) * voxelSize;
+            Debug.Log($"[VoxelCharacter] {name} auto body footprint: {m:F2}m " +
+                      $"(hip band y{y0}–{y1}: x {xSpan}vox · z {zSpan}vox of " +
+                      $"{dimX}×{dimZ}; raw bbox {Mathf.Max(dimX, dimZ) * voxelSize:F2}m)");
+            return Mathf.Max(0.10f, m);
+        }
+
+        /// <summary>The smallest voxel-column span containing 90% of the
+        /// band's voxels — trims 5% off each edge so thin protrusions can't
+        /// widen the certified column.</summary>
+        static int TrimmedSpan(int[] col, int total)
+        {
+            int drop = Mathf.CeilToInt(total * 0.05f), acc = 0;
+            int lo = 0, hi = col.Length - 1;
+            while (lo <= hi && acc + col[lo] <= drop) { acc += col[lo]; lo++; }
+            acc = 0;
+            while (hi >= lo && acc + col[hi] <= drop) { acc += col[hi]; hi--; }
+            return lo <= hi ? hi - lo + 1 : 1;
+        }
+
         // --- Posed joint queries ---
         // The pose data is authoritative for perception systems: the head joint
         // (gid 1) is the eye/FOV anchor, so a crouch pose yields a lower eye
@@ -139,6 +204,16 @@ namespace SteelCity.Sim
                 }
                 return jointAnimator;
             }
+        }
+
+        /// <summary>Live head-track channel (radians, body-relative yaw;
+        /// NaN = off) — forwards into the CPU poser so the eye anchor — and
+        /// therefore the vision cone — can be aimed at a live target while
+        /// the body faces elsewhere. No-op on an unanimated rig.</summary>
+        public float HeadYawOverride
+        {
+            get => jointAnimator != null ? jointAnimator.headYawOverride : float.NaN;
+            set { if (JointAnimator != null) JointAnimator.headYawOverride = value; }
         }
 
         /// <summary>

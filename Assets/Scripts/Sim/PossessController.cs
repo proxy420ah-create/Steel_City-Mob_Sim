@@ -27,6 +27,11 @@ namespace SteelCity.Sim
     public class PossessController : MonoBehaviour
     {
         public static bool Active { get; private set; }
+        /// <summary>WHICH body is possessed — combat controllers gate their
+        /// stand-down on this, not on Active alone: possessing Vinny hands
+        /// HIS rig to the player while every other combatant keeps fighting.
+        /// </summary>
+        public static VoxelCharacter Body { get; private set; }
 
         [Header("Feel")]
         [SerializeField] private float walkSpeed = 2.5f;
@@ -47,6 +52,8 @@ namespace SteelCity.Sim
         [SerializeField] private float coverProbeRadius = 0.5f;  // min reach for the horizontal face-find rays
         // (coverDriveEase removed — crouchDepth writes are immediate now)
         [SerializeField] private float crouchMoveFactor = 0.45f; // speed multiplier at full duck (2) — deep crouch shuffles
+        // Step law lives on VoxelCharacter.stepUpMax — the same spec the
+        // flood, footprint deck rule, and combat mover read. One owner.
 
         private bool combatHold;          // possessed straight out of InCover — combat's pose/depth rules until he leaves the spot
         private float holdDepth;          // combat's duck at possess-time — frozen while combatHold
@@ -80,6 +87,8 @@ namespace SteelCity.Sim
         private bool prevControllable;
         private bool prevFreedom;
         private float prevOrbit;
+        private float stuckT;            // wedged-with-input accumulator → unstuck teleport
+        private float nextUnstuckProbe;  // retry cadence — the ring scan isn't free
         private bool prevSightBeam;
 
         private Vector3 aimPoint;          // current crosshair hit / fallback point
@@ -118,8 +127,15 @@ namespace SteelCity.Sim
             {
                 lookYaw = cityMap.GetCameraYaw();
                 lookPitch = cityMap.GetCameraPitch();
+                // The fly owns the cursor too — a locked invisible pointer
+                // can't hit UI or pick blocks in the inspect pass. Re-locks
+                // below the moment control returns.
+                if (Cursor.lockState != CursorLockMode.None)
+                { Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
                 return;
             }
+            if (Cursor.lockState != CursorLockMode.Locked)
+            { Cursor.lockState = CursorLockMode.Locked; Cursor.visible = false; }
 
             // --- Crosshair target: center of the map viewport into the voxel world ---
             aimPoint = cam.transform.position + cam.transform.forward * 60f;
@@ -392,32 +408,105 @@ namespace SteelCity.Sim
             }
         }
 
-        /// <summary>Move with voxel-wall blocking: sample feet and chest at the
-        /// destination; try X/Z slide when the combined move is blocked.</summary>
+        /// <summary>Move with voxel-wall blocking: the SHARED body-square
+        /// verdict at the destination — possess mode collides with the
+        /// identical BodyFootprint square the field certifies and the combat
+        /// mover sweeps (the footprint spec now genuinely gates WASD); try
+        /// X/Z slide when the combined move is blocked.</summary>
         private void MoveWithCollision(Transform body, Vector3 delta)
         {
             if (world == null) { body.position += delta; return; }
 
             Vector3 dims = vinny.WorldSize;
+            // `half` offsets the min-corner transform to the MODEL center;
+            // the square = the spec'd footprint — one owner, all consumers.
             Vector3 half = new Vector3(dims.x * 0.5f, 0f, dims.z * 0.5f);
+            float bodyHalf = vinny.BodyFootprint * 0.5f;
 
-            bool Free(Vector3 corner)
+            // TryMove = the shared placement verdict — square free, else a
+            // step-up top offered and the raised square free. One primitive
+            // (TryBodySquare) owns the composition: the field certifies the
+            // identical question this mover executes.
+            bool TryMove(Vector3 dst, out Vector3 placed)
             {
-                Vector3 feet = corner + half + Vector3.up * 0.06f;
-                Vector3 chest = corner + half + Vector3.up * (dims.y * 0.6f);
-                var f = world.SamplePoint(feet);
-                if (f.kind == VoxelCollisionWorld.PointKind.TerrainSolid ||
-                    f.kind == VoxelCollisionWorld.PointKind.VolumeSolid) return false;
-                var c = world.SamplePoint(chest);
-                return c.kind != VoxelCollisionWorld.PointKind.TerrainSolid &&
-                       c.kind != VoxelCollisionWorld.PointKind.VolumeSolid;
+                placed = dst;
+                if (world.TryBodySquare(dst + half, bodyHalf, dims.y, vinny.stepUpMax,
+                                        out float py))
+                { placed.y = py; return true; }
+                return false;
             }
 
-            if (Free(body.position + delta)) { body.position += delta; return; }
+            if (TryMove(body.position + delta, out var p0)) { body.position = p0; stuckT = 0f; return; }
             Vector3 dx = new Vector3(delta.x, 0f, 0f);
             Vector3 dz = new Vector3(0f, 0f, delta.z);
-            if (Free(body.position + dx)) body.position += dx;
-            else if (Free(body.position + dz)) body.position += dz;
+            if (TryMove(body.position + dx, out var p1)) { body.position = p1; stuckT = 0f; return; }
+            if (TryMove(body.position + dz, out var p2)) { body.position = p2; stuckT = 0f; return; }
+
+            // Wedged — every lane refused while input is held. A routed actor
+            // can't reach this state (edges are transition-certified now),
+            // but a PLAYER can steer into a pocket the slide can't exit.
+            // Hold ~0.75s → teleport to the nearest free square on same-level
+            // ground: an honest "slip out", not a nudge fighting geometry.
+            if (delta.sqrMagnitude < 1e-6f) return;
+            stuckT += Time.deltaTime;
+            if (stuckT < 0.75f || Time.unscaledTime < nextUnstuckProbe) return;
+            nextUnstuckProbe = Time.unscaledTime + 0.2f;
+            if (world.TryNearestFreeSquare(body.position + half, bodyHalf, dims.y,
+                                           2f, out var free))
+            {
+                Vector3 fc = body.position + half;
+                string report = BuildUnstuckReport(fc, fc + delta, free, delta);
+                body.position = new Vector3(free.x - half.x, free.y, free.z - half.z);
+                stuckT = 0f;
+                Debug.Log(report);
+            }
+        }
+
+        /// <summary>One-emit snag report — WHY every lane refused at the wedge:
+        /// the identical 9-column square re-probed at the blocked destination
+        /// (failed sample names its height + the owning volume id), the
+        /// step-up verdict, and the field's own opinion of both cells. A
+        /// green+reachable wedge cell means the MAP lied; red means the map
+        /// knew and the player walked past the warning.</summary>
+        private string BuildUnstuckReport(Vector3 fc, Vector3 blocked, Vector3 free, Vector3 delta)
+        {
+            var sb = new System.Text.StringBuilder(384);
+            sb.Append($"[Possess] UNSTUCK t={Time.time:F1} held={stuckT:F2}s\n");
+            float esc = Mathf.Sqrt((free.x - fc.x) * (free.x - fc.x) + (free.z - fc.z) * (free.z - fc.z));
+            sb.Append($"  pos ({fc.x:F2},{fc.y:F2},{fc.z:F2}) → free ({free.x:F2},{free.y:F2},{free.z:F2})  esc {esc:F2}m\n");
+            sb.Append($"  input ({delta.x:F3},{delta.z:F3})  body sq {vinny.BodyFootprint:F2} stepup {vinny.stepUpMax:F2}\n");
+            sb.Append($"  blocked ({blocked.x:F2},{blocked.y:F2},{blocked.z:F2})\n  sq9: ");
+            world.ExplainSquare(blocked, vinny.BodyFootprint * 0.5f, vinny.WorldSize.y, sb);
+            sb.Append('\n');
+            sb.Append(world.TrySquareStepUp(blocked, vinny.BodyFootprint * 0.5f, vinny.stepUpMax, out float topY)
+                ? $"  stepup: top={topY:F2} offered but raised square refused\n"
+                : "  stepup: no ledge in band\n");
+            if (world.TryColumnTop(blocked, 0.5f, 2f, out float dg))
+                sb.Append($"  dst ground={dg:F2} (Δfeet {dg - blocked.y:+0.00;-0.00})\n");
+            var f = coverSensor != null ? coverSensor.Field : null;
+            if (f != null && f.HasData)
+            {
+                int ci = f.CellIndexOf(fc), di = f.CellIndexOf(blocked);
+                var map = cc != null ? cc.DebugMeMap : null;
+                if (ci < 0)
+                {
+                    // Off the scan window entirely — the field has no opinion
+                    // here; say how far out, not just "no cell".
+                    Vector3 o = f.Origin; float span = f.N * f.CellSize;
+                    float ox = Mathf.Max(0f, Mathf.Max(o.x - fc.x, fc.x - (o.x + span)));
+                    float oz = Mathf.Max(0f, Mathf.Max(o.z - fc.z, fc.z - (o.z + span)));
+                    sb.Append($"  field: OFF-WINDOW by ({ox:F1},{oz:F1})m of {span:F0}m field at ({o.x:F1},{o.z:F1})");
+                }
+                else
+                {
+                    sb.Append($"  field: cell[{ci}] walk={f.Walkable(ci, vinny.WorldSize.y)}");
+                    if (map != null && map.stamp == f.BuildStamp) sb.Append($" reach={map.Reaches(ci)}");
+                }
+                if (di >= 0) sb.Append($"  dst[{di}] walk={f.Walkable(di, vinny.WorldSize.y)}");
+                sb.Append('\n');
+            }
+            sb.Append($"  zone={ZoneCls} reqD={ZoneD:F2}  combat={(cc != null ? cc.State.ToString() : "none")}  duck={(anim != null ? anim.duck : 0f):F2}");
+            return sb.ToString();
         }
 
         /// <summary>Orbit pivot: head height, so the camera frames over his
@@ -462,9 +551,13 @@ namespace SteelCity.Sim
             if (rig != null) { prevControllable = rig.Controllable; rig.Controllable = false; }
             if (solver != null) { prevSightBeam = solver.showSightBeam; solver.showSightBeam = false; }
 
-            // Borrow the F6 freedom clamps without its debris/rebake side effects.
-            prevFreedom = cityMap.debugCameraFreedom;
-            cityMap.debugCameraFreedom = true;
+            // Borrow the freedom CLAMPS without claiming the MODE — setting
+            // debugCameraFreedom itself doubles as CamFree and made the yield
+            // return early every frame (Active but all input dead). The user's
+            // own F6 flag stays theirs: toggling it mid-possession is the
+            // inspect handoff, and it persists through Release.
+            prevFreedom = cityMap.borrowedFreedomClamps;
+            cityMap.borrowedFreedomClamps = true;
             prevOrbit = cityMap.debugCameraOrbitDistance;
             cityMap.debugCameraOrbitDistance = orbitSuggest;
 
@@ -489,13 +582,13 @@ namespace SteelCity.Sim
                 holdPos = vinny.transform.position;
             }
             else solver.Arm(vinny.WorldCenter + vinny.transform.forward * 10f);
-            Active = true;
+            Active = true; Body = vinny;
             Debug.Log("[Possess] G=take control ON — WASD move, mouse look, LMB fire; G releases (camera holds)");
         }
 
         private void Release()
         {
-            Active = false;
+            Active = false; Body = null;
             combatHold = false; HoldActive = false;
             testPose = null;
             pinnedThreat = null;
@@ -511,7 +604,7 @@ namespace SteelCity.Sim
             if (solver != null) solver.showSightBeam = prevSightBeam;
             if (cityMap != null)
             {
-                cityMap.debugCameraFreedom = prevFreedom;
+                cityMap.borrowedFreedomClamps = prevFreedom;
                 cityMap.debugCameraOrbitDistance = prevOrbit;
                 // Camera focus deliberately left where it is — that's the "lock".
             }

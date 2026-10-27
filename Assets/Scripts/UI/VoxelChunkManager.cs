@@ -38,6 +38,7 @@ namespace SteelCity.Sim
         // constant buffer on this pipeline — instance matrices arrive stale or
         // not at all. sectorMaterial already proves the dedicated pattern works.
         private Material groupMaterial;
+        private VoxelCollisionWorld walkWorld;   // lazy — the shared walk layer's owner (UploadVoxelEdits invalidation)
         private Mesh proxyCubeMesh;
         private RenderTexture proxyRT;
 
@@ -124,9 +125,10 @@ namespace SteelCity.Sim
         [Range(0f, 1f)] public float flaggedGlassAlpha = 0.6f;
 
         public enum IterVisMode { Off = 0, IterationHeat = 1, StepChannels = 2, MissWaste = 3,
-            CoverQuality = 4, CoverThreat = 5, CoverExposure = 6, VisionCone = 7 }
+            CoverQuality = 4, CoverThreat = 5, CoverExposure = 6, VisionCone = 7,
+            CoverWalkable = 8, CoverReachable = 9 }
         [Header("Raymarch Debug")]
-        [Tooltip("V key. IterationHeat: blue<80 green~160 red>160 | StepChannels: R=voxel steps, B=shadow steps | MissWaste: heat on no-hit rays | CoverQuality/Threat/Exposure: Vinny's cover field sampled at world XZ | VisionCone: Vinny's sight wedge painted on surfaces")]
+        [Tooltip("V key. IterationHeat: blue<80 green~160 red>160 | StepChannels: R=voxel steps, B=shadow steps | MissWaste: heat on no-hit rays | CoverQuality/Threat/Exposure: Vinny's cover field sampled at world XZ | VisionCone: Vinny's sight wedge painted on surfaces | CoverWalkable/Reachable: each fighter's walk domain tiles painted on the world")]
         public IterVisMode iterVisMode = IterVisMode.Off;
 
         [Header("Debug")]
@@ -1628,6 +1630,43 @@ namespace SteelCity.Sim
         {
             if (data == null || dirtyIndices == null || dirtyIndices.Count == 0)
                 return true;
+
+            // Walk-layer invalidation — the single funnel every voxel write
+            // lands in (blasts, slumps, plan playback). The dirty index span
+            // localizes stale verdicts to the crater, not the whole building;
+            // the CPU data is already changed even if the GPU upload below
+            // can't find its buffer.
+            if (walkWorld == null) walkWorld = FindFirstObjectByType<VoxelCollisionWorld>();
+            if (walkWorld != null && walkWorld.Walk != null
+                && walkWorld.TryGetVolume(chunkName, out _, out int vw, out int vh, out int vd,
+                    out Vector3 vcorner, out float vvs, out float vyaw))
+            {
+                int x0 = int.MaxValue, y0 = int.MaxValue, z0 = int.MaxValue;
+                int x1 = int.MinValue, y1 = int.MinValue, z1 = int.MinValue;
+                int wh = vw * vh;
+                for (int i = 0; i < dirtyIndices.Count; i++)
+                {
+                    int idx = dirtyIndices[i];
+                    int z = idx / wh, rem = idx - z * wh, y = rem / vw, x = rem - y * vw;
+                    if (x < x0) x0 = x; if (x > x1) x1 = x;
+                    if (y < y0) y0 = y; if (y > y1) y1 = y;
+                    if (z < z0) z0 = z; if (z > z1) z1 = z;
+                }
+                if (x1 >= x0)
+                {
+                    if (Mathf.Abs(vyaw) > 0.01f)
+                    {
+                        // Rotated volume — conservative whole-volume bound covers any pivot.
+                        walkWorld.Walk.Invalidate(VoxelCollisionWorld.VolumeAabb(vcorner, vw, vh, vd, vvs, vyaw));
+                    }
+                    else
+                    {
+                        Vector3 lo = vcorner + new Vector3(x0 * vvs, y0 * vvs, z0 * vvs);
+                        Vector3 hi = vcorner + new Vector3((x1 + 1) * vvs, (y1 + 1) * vvs, (z1 + 1) * vvs);
+                        walkWorld.Walk.Invalidate(new Bounds((lo + hi) * 0.5f, hi - lo));
+                    }
+                }
+            }
 
             ComputeBuffer voxelBuf, paneBuf;
             int indexBase = 0;                      // sector path: + bufferOffset
@@ -3338,7 +3377,7 @@ namespace SteelCity.Sim
                 // reload under possession and must not double-bind.
                 if (kb.vKey.wasPressedThisFrame)
                 {
-                    iterVisMode = (IterVisMode)(((int)iterVisMode + 1) % 8);
+                    iterVisMode = (IterVisMode)(((int)iterVisMode + 1) % 10);
                     Debug.Log($"[Vis] iterVisMode = {iterVisMode}");
                 }
             }

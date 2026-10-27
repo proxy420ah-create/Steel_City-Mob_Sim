@@ -43,3 +43,14 @@ Bug tracker per Development Guidelines Rule 13. Bugs are cataloged by category i
 | [Transition Freeze Reads Post-Write Duck — Cover Exit Snap](runtime/TRANSITION_FREEZE_READS_POSTWRITE_DUCK.md) | runtime | 🟢 FIXED | 🟢 MEDIUM | 2026-10-20 |
 | [Relocate Target Collapses to Current Position — "Cancel + Re-Settle"](runtime/RELOCATE_TARGET_COLLAPSES_TO_CURRENT_POSITION.md) | runtime | 🟡 FIX APPLIED (pending playtest) | 🟡 HIGH | 2026-10-20 |
 | [Swing Retreat Settles at the Rim — Stale Step-Guard Clock](runtime/SWING_RETREAT_SETTLES_AT_RIM.md) | runtime | 🟡 FIX APPLIED | 🟡 HIGH | 2026-10-20 |
+| [Render Floats Above Grounded Anchor — Crouch Pose Beside Wall](runtime/RENDER_FLOATS_ABOVE_GROUNDED_ANCHOR.md) | runtime | 🟡 INVESTIGATING | 🟡 HIGH | 2026-10-22 |
+| [Fires on Belief — Trigger Never Required Contact](runtime/FIRES_ON_BELIEF_NO_CONTACT.md) | runtime | 🟢 FIXED | 🔴 CRITICAL | 2026-10-22 |
+| [Sees-Can't-Shoot Livelock — Buried Bore Loops Peek/Swing](runtime/SEES_CANT_SHOOT_LIVELOCK.md) | runtime | 🟡 FIX APPLIED | 🔴 CRITICAL | 2026-10-22 |
+| [Probe Viz Blink — Redraw Wipe + Setup Throttle](runtime/PROBE_VIZ_BLINK_REDRAW_WIPE.md) | runtime | 🟡 FIX APPLIED | 🟢 MEDIUM | 2026-10-22 |
+| [Walk Column Samples Miss Vehicle Door Band](runtime/WALK_COLUMN_SAMPLES_MISS_DOOR_BAND.md) | runtime | 🟡 FIX APPLIED | 🟡 HIGH | 2026-10-22 |
+| [Possess Dead Input — Freedom Flag Aliasing](runtime/POSSESS_DEAD_INPUT_FREEDOM_FLAG_ALIAS.md) | runtime | 🟡 FIX APPLIED | 🔴 CRITICAL | 2026-10-22 |
+| [Pit Stands Outside Sensor Radius — Duel Never Sought](runtime/PIT_STANDS_OUTSIDE_SENSOR_RADIUS.md) | runtime | 🟢 FIXED | 🔴 CRITICAL | 2026-10-22 |
+| [Relocate Livelock — Corridor-Dead Stands Never Marked Failed](runtime/RELOCATE_CORRIDOR_DEAD_STANDS_LIVELOCK.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-10-21 |
+| [Route Crossing Center Arena Wall Mid-Fight](runtime/ROUTE_CROSSING_CENTER_WALL_MIDFIGHT.md) | runtime | 🟡 FIX APPLIED | 🟡 HIGH | 2026-10-20 |
+| [Swing Step-Out Bypassed Map Corridor — Corner Clip Grind](runtime/SWING_STEP_OUT_CORNER_CLIP.md) | runtime | 🟡 FIX APPLIED | 🟡 HIGH | 2026-10-22 |
+| [Swing Peek Measured Shadow Rim, Not Wall End — Wall-Side Bias](runtime/SWING_PEEK_SHADOW_RIM_VS_WALL_END.md) | runtime | 🟡 FIX APPLIED | 🟡 HIGH | 2026-10-23 |

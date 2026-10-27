@@ -43,6 +43,12 @@ namespace SteelCity.Sim
         // Idle + duck + scan). Yields to IK overrides while aiming.
         public bool lookScanEnabled = false;
         public float lookScanBlend = 1f;
+        // Live head-track channel (radians, body-relative yaw; NaN = off) —
+        // combat's eyes-on-threat: the vision cone is the POV authority, so a
+        // leg that knows the threat poses the head AT it while the body runs
+        // elsewhere. Replaces the layered result — a track is a deliberate
+        // look, not a sweep. CPU-pose only for now (eye anchor / cone truth).
+        public float headYawOverride = float.NaN;
         private static readonly int[] CHILD_GROUPS = { 6, 7, 8, 9 };
         private static readonly int[] UPPER_BODY_GROUPS = { 1, 2, 3 };
         private static readonly int[] ROOT_PARENT_GROUPS = { 1, 2, 3, 4, 5 };
@@ -531,6 +537,7 @@ namespace SteelCity.Sim
                 // IK aim: the eye-line belongs to the weapon while overrides run.
                 if (lookScanEnabled && lookScanBlend > 0f && ap.looking != null && ikOverrides.Count == 0)
                     headYaw += Mathf.Sin(animTime * ap.looking.headYawFreq) * ap.looking.headYaw * lookScanBlend;
+                if (!float.IsNaN(headYawOverride)) headYaw = headYawOverride;
 
                 if (ownRot == null)
                     ownRot = MatMul3(RotationY(headYaw), MatMul3(RotationX(headPitch), RotationZ(headTilt)));

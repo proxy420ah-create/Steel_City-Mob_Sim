@@ -75,6 +75,18 @@
         <button id="btnVariant" title="seed++ and preview — roll until it sounds right">🎲</button></div>
     </div>
     <div class="panel">
+      <h2>Variant Lab <span class="hint">children of the current recipe — load, edit, re-roll</span></h2>
+      <div class="row"><label>count</label><input type="number" id="vCount" value="12" min="1" max="64" style="width:48px">
+        <label>depth</label><select id="vDepth">
+          <option value="subtle">subtle</option><option value="medium" selected>medium</option><option value="wild">wild</option></select>
+        <button id="btnGenFamily" class="primary">🧬 generate</button></div>
+      <div class="chk" style="margin-top:2px"><input type="checkbox" id="vLockMaster" checked>
+        <label for="vLockMaster">lock master knobs — mutate structure only (layers / partials / seed)</label></div>
+      <div id="variantList" style="max-height:190px;overflow-y:auto;margin-top:6px"></div>
+      <div class="row" style="margin-top:4px"><button id="btnSaveFamily">💾 save all → sounds dir</button>
+        <span class="hint" id="vInfo"></span></div>
+    </div>
+    <div class="panel">
       <h2>Master</h2>
       <div class="knobs" id="masterKnobs"></div>
     </div>
@@ -102,18 +114,18 @@
         <label for="echoOn">enable echo (alley bounce — needs duration room for the tail)</label></div>
     </div>
     <div class="panel">
-      <h2>Layers <button id="addLayer" style="float:right;font-size:10px">+ add</button></h2>
+      <h2>Layers <span style="float:right"><select id="layerTypeSel" style="font-size:10px"></select> <button id="addLayer" style="font-size:10px" title="add a layer of the chosen type — sweeps STACK: two at different registers/rates = the double-tone ricochet whine">+ add</button></span></h2>
       <div id="layers"></div>
     </div>
   </div>
   <div class="right">
     <div class="panel" style="margin-bottom:0">
-      <h2>Sound Library <span class="hint">project sounds dir — load for further work, save straight back</span></h2>
+      <h2>Sound Library <span class="hint">project sounds dir — load for further work; 💾 always prompts save-as</span></h2>
       <div class="toolbar" style="margin-bottom:6px">
         <button id="btnReconnect" style="display:none;border-color:var(--acc);color:var(--acc)">↻ reconnect catalog</button>
         <button id="btnBrowseDir">📁 set sounds folder</button>
         <button id="btnRescan">↻ rescan</button>
-        <button id="btnSave">💾 save</button>
+        <button id="btnSave">💾 save as…</button>
         <button id="btnImportFile">📥 import file</button>
         <span class="hint" id="dirLabel">pick once — remembered across sessions</span>
       </div>
@@ -168,9 +180,10 @@ const isBlack = m => [1,3,6,8,10].includes(m%12);
 
 // ---------- recipe model v3
 function defaultRecipe(){
-  return { name:"new_sound", version:3, sampleRate:RATE, duration:0.28, seed:1337,
+  return { name:"new_sound", version:4, sampleRate:RATE, duration:0.28, seed:1337,
     envelope:{mode:"exp"}, gain:0.8, drive:1.0, phaseStep:1.7,
     rootNote:60, pitch:0, coupleDecay:true, tailFade:0.04,
+    masterAttack:0, masterRelease:0,
     eq:[
       {type:"lowshelf",  hz:250,  gainDb:0, q:0.7, on:false},
       {type:"peaking",   hz:900,  gainDb:0, q:1.0, on:false},
@@ -204,7 +217,10 @@ const PRESETS = {
     {type:"noiseTail",amp:0.50,decay:8,lowpass:4000}]},
   ricochet:{ name:"ricochet", duration:0.50, seed:77, layers:[
     {type:"attack",amp:0.35,decay:80},
-    {type:"sweep",amp:0.40,decay:12,startHz:3200,endHz:900},
+    {type:"sweep",amp:0.40,decay:12,startHz:3200,endHz:900,curve:"exp",vibRate:11,vibDepth:90},
+    // second whine an octave+ down, different tumble — the two glides
+    // detune against each other = the classic double-tone ricochet
+    {type:"sweep",amp:0.22,decay:16,startHz:1850,endHz:520,curve:"exp",vibRate:14,vibDepth:120},
     {type:"partials",amp:0.6,decay:14,partials:[{hz:2400,amp:0.3},{hz:4100,amp:0.15}]}]},
   footstep:{ name:"footstep", duration:0.12, seed:11, layers:[
     {type:"attack",amp:0.40,decay:90},
@@ -352,12 +368,46 @@ function render(r, note, vel){
   const fs_=Math.pow(2,semi/12), ds=r.coupleDecay?Math.max(fs_,0.05):1;
   const n=Math.floor(RATE*r.duration);
   const out=new Float32Array(n), rng=mulberry32((r.seed|0)||0);
-  const st=r.layers.map(()=>({lp:0,phase:0}));
+  const st=r.layers.map(()=>({lp:0,cut:0,phase:0,x1:0,x2:0,y1:0,y2:0,cN:0,cG:1}));
+  // attack tone — resonant bandpass on the click noise (tone>0). RBJ bandpass,
+  // constant 0dB peak: b0=α, b2=−α — center freq scales with pitch like lowpass.
+  const abp=r.layers.map(L=>{
+    if(L.type!=="attack"||(L.tone??0)<=0) return null;
+    const w=2*Math.PI*Math.min(L.tone*fs_,RATE*0.45)/RATE;
+    const al=Math.sin(w)/(2*Math.max(0.05,L.toneQ??1)), a0=1+al;
+    return {b0:al/a0,b1:0,b2:-al/a0,a1:-2*Math.cos(w)/a0,a2:(1-al)/a0};
+  });
   for(let i=0;i<n;i++){
     const t=i/RATE; let v=0;
     for(let li=0;li<r.layers.length;li++){
       const L=r.layers[li],S=st[li],env=envOf(r,L,t,ds);
-      if(L.type==="attack") v+=(rng()*2-1)*L.amp*Math.exp(-L.decay*ds*t);
+      if(L.type==="attack"){
+        const src=L.src??"noise";
+        let x;
+        if(src==="impulse") x=i===0?1:0;                     // single-sample spike — clean resonator ping
+        else if(src==="chirp"){                              // pitch-drop sine — the thump/punch exciter
+          const cs=L.startHz??900, ce=Math.max(20,L.endHz??90);
+          const f=cs*Math.exp(-Math.log(cs/ce)*L.decay*ds*t/6.9078)*fs_;
+          S.phase+=2*Math.PI*f/RATE; x=Math.sin(S.phase);
+        }
+        else x=rng()*2-1;                                    // noise (default) — the gritty strike
+        const bp=abp[li];
+        if(bp){ const y=bp.b0*x+bp.b1*S.x1+bp.b2*S.x2-bp.a1*S.y1-bp.a2*S.y2;
+                S.x2=S.x1;S.x1=x;S.y2=S.y1;S.y1=y; x=y; }
+        if((L.cutoff??0)>0){                                  // 1-pole LP — the click's brightness
+          const fc=Math.min(L.cutoff*fs_,RATE*0.49), a=fc>=RATE*0.49?1:1-Math.exp(-2*Math.PI*fc/RATE);
+          S.cut=a*x+(1-a)*S.cut; x=S.cut;
+        }
+        // crack — stochastic fracture texture: block-rate random gain (~1.1ms
+        // grain) during the first ~35ms. Turns the smooth drum-machine decay
+        // into a fracturing crack — the tom killer. 0 = off (legacy).
+        const ck=L.crack??0;
+        if(ck>0&&t<Math.min(0.035,3.5/Math.max(1,L.decay*ds))){
+          if(--S.cN<=0){S.cN=48;S.cG=1+ck*(rng()*2-1)*1.2;}
+          x*=Math.max(0.12,S.cG);
+        }
+        v+=x*L.amp*Math.exp(-L.decay*ds*t);
+      }
       else if(L.type==="partials"){
         const ps=L.partials||[];
         for(let p=0;p<ps.length;p++)
@@ -368,8 +418,22 @@ function render(r, note, vel){
         S.lp=a*x+(1-a)*S.lp; v+=S.lp*L.amp*env;
       } else if(L.type==="sweep"){
         const k=t/r.duration;
-        S.phase+=2*Math.PI*((L.startHz??2000)+((L.endHz??800)-(L.startHz??2000))*k)*fs_/RATE;
-        v+=Math.sin(S.phase)*L.amp*env;
+        const s=L.startHz??2000, e=L.endHz??800;
+        // curve: lin = Hz/sec ramp; exp = equal semitones/sec (musically-true
+        // dive OR rise — works with e>s for the ascending ricochet)
+        let f=L.curve==="exp"?s*Math.pow(Math.max(0.01,e/Math.max(1,s)),k):s+(e-s)*k;
+        f*=fs_;
+        const vd=L.vibDepth??0, vr=L.vibRate??0;
+        if(vd>0&&vr>0) f*=Math.pow(2,(vd/1200)*Math.sin(2*Math.PI*vr*t));   // tumble warble (FM)
+        S.phase+=2*Math.PI*f/RATE;
+        // harmonic glide — extra sines at 2f,3f,4f riding the same pitch track:
+        // a lone sine = test tone; harmonics = resonant howl (the ricochet fix)
+        let x=Math.sin(S.phase);
+        const hn=Math.min(4,L.harmN??0), ha=L.harmAmp??0.5;
+        for(let h=2;h<=1+hn;h++) x+=Math.pow(ha,h-1)*Math.sin(S.phase*h);
+        const ad=L.amDepth??0, ar=L.amRate??0;                              // AM — the tumble's
+        if(ad>0&&ar>0) x*=1+ad*Math.sin(2*Math.PI*ar*t);                    // loudness pulse
+        v+=x*L.amp*env;
       }
     }
     out[i]=v;
@@ -383,6 +447,13 @@ function render(r, note, vel){
   }
   const drv=r.drive??1, g=(r.gain??0.8)*vel;
   for(let i=0;i<n;i++) out[i]=Math.max(-1,Math.min(1,Math.tanh(out[i]*drv)))*g;
+  // master trims — global fades on the whole mix (0 = off). attack softens the
+  // strike; release shapes how the entire tail dies. tailFade still runs after
+  // as the sub-100ms click guard — they compose.
+  const man=Math.floor(RATE*(r.masterAttack??0));
+  for(let i=0;i<Math.min(man,n);i++) out[i]*=0.5-0.5*Math.cos(Math.PI*i/man);
+  const rn=Math.floor(RATE*(r.masterRelease??0));
+  for(let i=Math.max(0,n-rn);i<n&&rn>0;i++){ const k=(n-i)/rn; out[i]*=0.5+0.5*Math.cos(Math.PI*(1-k)); }
   const tf=Math.max(0.005,r.tailFade??0.04), tfn=Math.floor(RATE*tf);   // click guard
   for(let i=Math.max(0,n-tfn);i<n;i++){ const k=(n-i)/tfn; out[i]*=0.5+0.5*Math.cos(Math.PI*(1-k)); }
   return out;
@@ -402,6 +473,10 @@ function buildMaster(){
     fmt:v=>v.toFixed(2),tip:"master level after all processing — velocity multiplies this at play time"});
   knob(h,{label:"drive",min:1,max:8,def:1,get:()=>recipe.drive,set:v=>recipe.drive=v,color:"#e05c5c",
     fmt:v=>v.toFixed(1)+"x",tip:"tanh soft-clip saturation — squash transients into harmonics (gunshots, impacts)"});
+  knob(h,{label:"attack",min:0,max:0.5,hardMax:2,def:0,unit:"ms",get:()=>recipe.masterAttack??0,set:v=>recipe.masterAttack=v,
+    fmt:v=>(v*1000).toFixed(0)+"ms",tip:"MASTER fade-in — 0 = instant strike (the ka- hits full force); small values soften the onset into a swell"});
+  knob(h,{label:"release",min:0,max:1.5,hardMax:5,def:0,unit:"ms",get:()=>recipe.masterRelease??0,set:v=>recipe.masterRelease=v,
+    fmt:v=>(v*1000).toFixed(0)+"ms",tip:"MASTER fade-out on the buffer's last N — shapes how the WHOLE tail dies (whine + echo + noise together); 0 = off, tail fade still guards the edge"});
   knob(h,{label:"tail fade",min:0,max:0.3,def:0.04,unit:"ms",get:()=>recipe.tailFade??0.04,set:v=>recipe.tailFade=v,
     fmt:v=>(v*1000).toFixed(0)+"ms",tip:"raised-cosine fade on the buffer's last ms — kills the abrupt cutoff click"});
 }
@@ -460,19 +535,69 @@ function buildLayers(){
       attack:"broadband click at t=0 — the strike. amp = punch, decay = click length (higher = sharper)",
       partials:"resonant sine stack — this is the TONE. inharmonic = glass/metal, harmonic = wood/body",
       noiseTail:"filtered noise decay — the crunch/texture. lowpass shapes it (low = thud, high = sizzle)",
-      sweep:"frequency that slides — descending = ricochet whine, whistles"};
+      sweep:"frequency that slides — descending = ricochet whine, whistles; stack TWO at different registers/vib rates for the double-tone ricochet"};
     const kt=tips[L.type]||"";
     knob(ks,{label:"amp",min:0,max:1.5,def:0.5,get:()=>L.amp,set:v=>L.amp=v,tip:kt});
     knob(ks,{label:"ring",min:1,max:L.type==="attack"?200:120,def:L.type==="attack"?60:24,unit:"rt60",
       get:()=>L.decay,set:v=>L.decay=v,
       fmt:v=>(6.9078/v*1000).toFixed(0)+"ms",
       tip:"RING TIME — how long this layer sounds (ms to silence). type e.g. 250ms — drag left = longer ring"});
+    if(L.type==="attack"){
+      knob(ks,{label:"tone",min:0,max:8000,hardMax:16000,def:0,unit:"hz",get:()=>L.tone??0,set:v=>L.tone=v,
+        fmt:v=>v<=0?"off":v>=1000?(v/1000).toFixed(1)+"k":v.toFixed(0)+"Hz",
+        tip:"resonant band on the click noise — 0/off = raw white clunk; ~500 = tok/thump, ~2-3k = metallic ka-, 5k+ = tick"});
+      knob(ks,{label:"tone q",min:0.3,max:12,def:1,get:()=>L.toneQ??1,set:v=>L.toneQ=v,
+        fmt:v=>v.toFixed(1),tip:"resonance width — low Q = broad thwack; high Q = the filter RINGS — a pitched ping edge on the strike (the ka- in ka-pwang)"});
+      knob(ks,{label:"cutoff",min:0,max:20000,def:0,unit:"hz",get:()=>L.cutoff??0,set:v=>L.cutoff=v,
+        fmt:v=>v<=0?"off":v>=1000?(v/1000).toFixed(1)+"k":v.toFixed(0)+"Hz",
+        tip:"1-pole lowpass on the click — 0/off = full bandwidth; pull down to shave the sizzle and darken the strike into a thud (applies AFTER tone)"});
+      knob(ks,{label:"crack",min:0,max:1,def:0,get:()=>L.crack??0,set:v=>L.crack=v,
+        fmt:v=>v<=0?"off":v.toFixed(2),
+        tip:"fracture texture — random gain breakup in the first ~35ms: smooth electronic decay → shattering crack. ~0.6+ = concrete/brick; 0 = off (smooth, drum-like)"});
+      const sr=document.createElement("div");sr.className="row";sr.style.margin="2px 0 0";
+      const sl=document.createElement("label");sl.style.cssText="font-size:10px";sl.textContent="src";sr.appendChild(sl);
+      const ss=document.createElement("select");ss.style.fontSize="10px";
+      ss.innerHTML='<option value="noise">noise — white burst (gritty strike)</option>'
+        +'<option value="impulse">impulse — one-sample spike (clean resonator tock)</option>'
+        +'<option value="chirp">chirp — pitch-drop sine (thump/punch, kick-drum style)</option>';
+      ss.value=L.src??"noise";
+      ss.onchange=()=>{if(ss.value==="noise")delete L.src;else L.src=ss.value;buildLayers();live();};
+      ss.title="the EXCITER — what hits the body. noise = gritty broad strike; impulse = clean spike that rings tone/toneQ like a struck bar; chirp = pitch-dropping sine = the deep thump/punch noise can't make. STACK two attack layers for crack+body.";
+      sr.appendChild(ss);d.appendChild(sr);
+      if((L.src??"noise")==="chirp"){
+        knob(ks,{label:"drop from",min:20,max:4000,def:900,unit:"hz",get:()=>L.startHz??900,set:v=>L.startHz=v,
+          fmt:v=>v>=1000?(v/1000).toFixed(1)+"k":v.toFixed(0)+"Hz",tip:"chirp start pitch — the pitch DROP is the thump; 600-1200 start = punch"});
+        knob(ks,{label:"drop to",min:15,max:2000,def:90,unit:"hz",get:()=>L.endHz??90,set:v=>L.endHz=v,
+          fmt:v=>v.toFixed(0)+"Hz",tip:"chirp lands here as the envelope dies — ~80-150 = kick body, 300-600 = woody knock"});
+      }
+    }
     if(L.type==="noiseTail")
       knob(ks,{label:"lowpass",min:100,max:20000,def:4000,unit:"hz",get:()=>L.lowpass,set:v=>L.lowpass=v,
         fmt:v=>v>=1000?(v/1000).toFixed(1)+"k":v.toFixed(0),tip:"noise texture filter — type 800 or 8k; low = dirt/thud, high = air/sizzle"});
     if(L.type==="sweep"){
-      knob(ks,{label:"start",min:50,max:8000,def:2000,unit:"hz",get:()=>L.startHz,set:v=>L.startHz=v,fmt:v=>v.toFixed(0)+"Hz",tip:"where the sweep begins"});
-      knob(ks,{label:"end",min:50,max:8000,def:800,unit:"hz",get:()=>L.endHz,set:v=>L.endHz=v,fmt:v=>v.toFixed(0)+"Hz",tip:"where the sweep lands"});
+      knob(ks,{label:"start",min:20,max:12000,def:2000,unit:"hz",get:()=>L.startHz,set:v=>L.startHz=v,fmt:v=>v>=1000?(v/1000).toFixed(1)+"k":v.toFixed(0)+"Hz",
+        tip:"where the sweep begins — ABOVE end = the classic descending ricochet dive, BELOW end = the rising whine"});
+      knob(ks,{label:"end",min:20,max:12000,def:800,unit:"hz",get:()=>L.endHz,set:v=>L.endHz=v,fmt:v=>v>=1000?(v/1000).toFixed(1)+"k":v.toFixed(0)+"Hz",
+        tip:"where the sweep lands — big distance to start = the whine; ~800Hz after a 3k+ start is the classic dive"});
+      knob(ks,{label:"vib rate",min:0,max:30,def:0,unit:"hz",get:()=>L.vibRate??0,set:v=>L.vibRate=v,fmt:v=>v.toFixed(1)+"Hz",
+        tip:"vibrato speed — 0 = clean glide; 8-15 Hz = the tumbling-bullet warble"});
+      knob(ks,{label:"vib depth",min:0,max:400,def:0,get:()=>L.vibDepth??0,set:v=>L.vibDepth=v,fmt:v=>v.toFixed(0)+"¢",
+        tip:"vibrato width in cents — 50-150¢ = audible warble, 300¢+ = siren/cartoon"});
+      knob(ks,{label:"harms",min:0,max:4,def:0,get:()=>L.harmN??0,set:v=>L.harmN=Math.round(v),
+        fmt:v=>v<=0?"sine":v.toFixed(0),tip:"extra harmonics riding the glide — 0 = pure sine (test tone); 1-3 = resonant howl (THE ricochet fix — a real whine is a fundamental + overtones)"});
+      knob(ks,{label:"harm amp",min:0.1,max:0.9,def:0.5,get:()=>L.harmAmp??0.5,set:v=>L.harmAmp=v,
+        fmt:v=>v.toFixed(2),tip:"rolloff per harmonic (h2=this, h3=this²…) — low = subtle sheen, high = bright buzzy howl"});
+      knob(ks,{label:"am rate",min:0,max:30,def:0,unit:"hz",get:()=>L.amRate??0,set:v=>L.amRate=v,fmt:v=>v.toFixed(1)+"Hz",
+        tip:"loudness wobble speed — the tumble's AM pulse; 0 = off; 3-8Hz = bullet spin throb"});
+      knob(ks,{label:"am depth",min:0,max:1,def:0,get:()=>L.amDepth??0,set:v=>L.amDepth=v,fmt:v=>v.toFixed(2),
+        tip:"loudness wobble amount — 0.2-0.5 = breathing howl, 1.0 = full gate throb"});
+      const cr=document.createElement("div");cr.className="row";cr.style.margin="2px 0 0";
+      const cl=document.createElement("label");cl.style.cssText="font-size:10px";cl.textContent="curve";cr.appendChild(cl);
+      const sel=document.createElement("select");sel.style.fontSize="10px";
+      sel.innerHTML='<option value="lin">lin — flat Hz ramp</option><option value="exp">exp — equal semitones/sec (musical dive)</option>';
+      sel.value=L.curve??"lin";sel.onchange=()=>{L.curve=sel.value;live();};
+      sel.title="lin = constant Hz/sec — sounds like it slows as it falls; exp = constant semitones/sec — a true pitch dive (or rise, if end > start)";
+      cr.appendChild(sel);d.appendChild(cr);
     }
     if(L.type==="partials"){
       const t=document.createElement("table"); t.className="ptable";
@@ -502,6 +627,136 @@ function buildLayers(){
   });
 }
 const layerTypes={attack:"attack click",partials:"partials",noiseTail:"noise tail",sweep:"freq sweep"};
+
+// ---------- variant lab — STRUCTURAL mutation of the current recipe
+// The 🎲 button rolls ONE value (seed++). The lab rewrites the recipe's
+// content around a snapshot of the base — partial counts/frequencies,
+// layer mix, sweep shape, noise filter — so every child is the same
+// FAMILY, never a copy. lockMaster keeps master/env/eq/echo frozen so
+// only structure moves.
+let variants=[], baseSnapshot=null, vRngSeed=0, vRolls=0;
+const jit=(rng,a,b)=>a+(b-a)*rng();
+
+function mutateRecipe(base,rng,depth,lockMaster){
+  const r=JSON.parse(JSON.stringify(base));
+  const j=depth==="subtle"?0.12:depth==="wild"?0.55:0.30;
+  r.seed=((base.seed|0)+1+Math.floor(rng()*1e6))|0;
+  for(const L of r.layers){
+    L.amp  =+(L.amp  *jit(rng,1-j,     1+j)).toFixed(3);
+    L.decay=+(L.decay*jit(rng,1-j*0.8, 1+j*0.8)).toFixed(2);
+    if(L.type==="partials"&&L.partials){
+      // count mutation — drop one (35%) or grow one off the top (45%)
+      if(L.partials.length>1&&rng()<0.35)
+        L.partials.splice(Math.floor(rng()*L.partials.length),1);
+      else if(L.partials.length<8&&rng()<0.45){
+        const top=L.partials.reduce((m,p)=>Math.max(m,p.hz),300);
+        L.partials.push({hz:Math.min(18000,Math.round(top*jit(rng,1.3,2.4))),amp:+(0.1+rng()*0.3).toFixed(3)});
+      }
+      for(const p of L.partials){
+        p.hz =Math.min(18000,Math.max(20,Math.round(p.hz*jit(rng,1-j*0.5,1+j*0.5))));
+        p.amp=+Math.min(1,p.amp*jit(rng,1-j,1+j)).toFixed(3);
+      }
+      L.partials.sort((a,b)=>a.hz-b.hz);
+    }
+    if(L.type==="attack"){
+      if((L.tone  ??0)>0)   L.tone  =Math.round(Math.min(16000,Math.max(40 ,L.tone  *jit(rng,1-j*0.8,1+j*0.8))));
+      if((L.toneQ ??1)>0.3) L.toneQ =+Math.min(12,L.toneQ*jit(rng,0.75,1.35)).toFixed(2);
+      if((L.cutoff??0)>0)   L.cutoff=Math.round(Math.min(20000,Math.max(300,L.cutoff*jit(rng,1-j,1+j))));
+      if((L.crack ??0)>0)   L.crack =+Math.min(1,L.crack*jit(rng,0.7,1.3)).toFixed(2);
+      if(L.src==="chirp"){
+        L.startHz=Math.round(Math.min(4000,Math.max(200,(L.startHz??900)*jit(rng,1-j*0.6,1+j*0.6))));
+        L.endHz  =Math.round(Math.min(2000,Math.max(15 ,(L.endHz  ?? 90)*jit(rng,1-j*0.6,1+j*0.6))));
+      }
+    }
+    if(L.type==="noiseTail")
+      L.lowpass=Math.round(Math.min(20000,Math.max(100,L.lowpass*jit(rng,1-j*1.2,1+j*1.2))));
+    if(L.type==="sweep"){
+      L.startHz=Math.round(L.startHz*jit(rng,1-j*0.7,1+j*0.7));
+      L.endHz  =Math.round(L.endHz  *jit(rng,1-j*0.7,1+j*0.7));
+      if(rng()<0.2){const t=L.startHz;L.startHz=L.endHz;L.endHz=t;}   // direction flip
+      if((L.vibDepth??0)>0) L.vibDepth=Math.min(400,Math.round(L.vibDepth*jit(rng,0.7,1.4)));
+      if((L.vibRate ??0)>0) L.vibRate =+Math.min(30,+(L.vibRate*jit(rng,0.7,1.4)).toFixed(1));
+      if((L.harmN   ??0)>0){L.harmN=Math.min(4,Math.max(1,Math.round(L.harmN+jit(rng,-1,1))));
+                            L.harmAmp=+Math.min(0.9,Math.max(0.15,(L.harmAmp??0.5)*jit(rng,0.7,1.4))).toFixed(2);}
+      if((L.amDepth ??0)>0){L.amDepth=+Math.min(1,L.amDepth*jit(rng,0.7,1.4)).toFixed(2);
+                            L.amRate =+Math.min(30,(L.amRate??5)*jit(rng,0.7,1.4)).toFixed(1);}
+    }
+  }
+  // layer-mix mutation — drop a layer (15%) or duplicate one at half amp (15%)
+  if(r.layers.length>1&&rng()<0.15)
+    r.layers.splice(Math.floor(rng()*r.layers.length),1);
+  else if(r.layers.length<6&&rng()<0.15){
+    const c=JSON.parse(JSON.stringify(r.layers[Math.floor(rng()*r.layers.length)]));
+    c.amp=+(c.amp*0.6).toFixed(3); c.decay=+(c.decay*jit(rng,0.8,1.4)).toFixed(2);
+    r.layers.push(c);
+  }
+  if(!lockMaster){
+    r.duration=+Math.max(0.03,r.duration*jit(rng,1-j*0.4,1+j*0.4)).toFixed(3);
+    r.drive   =+(r.drive*jit(rng,1-j*0.3,1+j*0.3)).toFixed(2);
+    r.gain    =+Math.min(1.2,r.gain*jit(rng,0.9,1.1)).toFixed(3);
+    if((r.masterAttack ??0)>0) r.masterAttack =+Math.max(0.001,r.masterAttack *jit(rng,0.7,1.4)).toFixed(3);
+    if((r.masterRelease??0)>0) r.masterRelease=+Math.max(0.05 ,r.masterRelease*jit(rng,0.8,1.3)).toFixed(3);
+    if(r.echo&&r.echo.on){
+      r.echo.time    =+Math.max(0.02,r.echo.time    *jit(rng,0.7,1.4)).toFixed(3);
+      r.echo.feedback=+Math.min(0.9 ,r.echo.feedback*jit(rng,0.7,1.3)).toFixed(3);
+    }
+  }
+  return r;
+}
+
+// Preview an arbitrary recipe WITHOUT loading it into the editor —
+// catalog re-rolls audition the child before you commit to it.
+function previewRecipe(r,note,vel){
+  ensureCtx();stop();
+  const data=render(r,note??r.rootNote,vel??1);drawWave(data);
+  const buf=actx.createBuffer(1,data.length,RATE);buf.getChannelData(0).set(data);
+  const src=actx.createBufferSource();src.buffer=buf;src.connect(analyser);src.start();liveSrc=src;
+  $("stats").textContent=`${r.name} · ${r.duration.toFixed(2)}s · ${data.length} samples · seed ${r.seed}`;
+  drawSpectrum();
+}
+
+function renderVariantList(){
+  const box=$("variantList");box.innerHTML="";
+  variants.forEach((v,i)=>{
+    const row=document.createElement("div");row.style.cssText="display:flex;gap:3px;margin:2px 0";
+    const b=document.createElement("button");b.className="sfile";b.style.flex="1";
+    b.textContent=`${i+1}. ${v.name}`;
+    b.title="load into the editor — knobs/layers/JSON update — and preview";
+    b.onclick=()=>{recipe=JSON.parse(JSON.stringify(v));curFile=null;curDirty=false;
+      syncUIFromRecipe();preview();};
+    const rr=document.createElement("button");rr.textContent="↻";
+    rr.title="re-roll this slot — a fresh mutation from the same base";
+    rr.onclick=()=>{const rng=mulberry32(vRngSeed+((i+1)*7919)+(++vRolls*104729));
+      const nv=mutateRecipe(baseSnapshot,rng,$("vDepth").value,$("vLockMaster").checked);
+      nv.name=`${baseSnapshot.name}_${String(i+1).padStart(2,"0")}`;variants[i]=nv;
+      renderVariantList();previewRecipe(nv);};
+    row.append(b,rr);box.appendChild(row);
+  });
+}
+$("btnGenFamily").onclick=()=>{
+  baseSnapshot=JSON.parse(JSON.stringify(recipe));   // family base = whatever's loaded NOW
+  vRngSeed=(Date.now()%2000000000)|0;
+  const rng=mulberry32(vRngSeed);
+  const n=Math.max(1,Math.min(64,+$("vCount").value||12));
+  variants=[];
+  for(let i=0;i<n;i++){
+    const v=mutateRecipe(baseSnapshot,rng,$("vDepth").value,$("vLockMaster").checked);
+    v.name=`${baseSnapshot.name}_${String(i+1).padStart(2,"0")}`;
+    variants.push(v);
+  }
+  renderVariantList();
+  $("vInfo").textContent=`${n} children of ${baseSnapshot.name} — click loads for editing`;
+};
+$("btnSaveFamily").onclick=async()=>{
+  if(!soundsDir){alert("no sounds folder bound — click 📁 first");return;}
+  if(!variants.length){$("vInfo").textContent="nothing generated yet — hit 🧬 first";return;}
+  for(const v of variants){
+    const h=await soundsDir.getFileHandle(v.name+".stsound",{create:true});
+    const w=await h.createWritable();await w.write(JSON.stringify(v,null,1));await w.close();
+  }
+  refreshSoundList();
+  $("vInfo").textContent=`saved ${variants.length} → ${soundsDir.name}/`;
+};
 
 // ---------- sound library — persistent live catalog of StreamingAssets/sounds
 // The dir handle is stored in IndexedDB: pick once, catalog re-binds on every
@@ -549,13 +804,28 @@ $("btnRescan").onclick=()=>refreshSoundList();
 $("btnReconnect").onclick=async()=>{ if(!pendingDir)return;
   try{ if(await pendingDir.requestPermission({mode:"readwrite"})==="granted") bindDir(pendingDir); }
   catch(e){} };
-$("btnSave").onclick=async()=>{ if(!soundsDir){alert("no sounds folder bound — click 📁 first");return;}
-  try{ const nm=(recipe.name||"sound")+".stsound";
-    const h=await soundsDir.getFileHandle(nm,{create:true});
+$("btnSave").onclick=async()=>{
+  // Save-As every time: the dialog picks name+location; overwriting an
+  // existing file goes through the OS "replace?" prompt = explicit consent.
+  // suggestedName prefers the LOADED file's name over recipe.name — internal
+  // names can lie (ricochet_01 holds name:"ricochet_09") and caused clobbers.
+  const suggested=curFile||((recipe.name||"sound")+".stsound");
+  if(!window.showSaveFilePicker){               // non-Chromium fallback
+    if(!soundsDir){alert("Save As needs a Chromium browser — use ⬇ download");return;}
+    if(!confirm(`overwrite ${suggested} in ${soundsDir.name}/?`))return;
+    try{ const h=await soundsDir.getFileHandle(suggested,{create:true});
+      const w=await h.createWritable(); await w.write(JSON.stringify(recipe,null,1)); await w.close();
+      curFile=suggested; curDirty=false; refreshSoundList();
+      $("dirLabel").textContent=soundsDir.name+"/ — saved "+suggested;
+    }catch(e){alert("save failed: "+e.message);} return; }
+  try{
+    const h=await showSaveFilePicker({suggestedName:suggested,
+      startIn:soundsDir||undefined,
+      types:[{description:"Steel sound recipe",accept:{"application/json":[".stsound"]}}]});
     const w=await h.createWritable(); await w.write(JSON.stringify(recipe,null,1)); await w.close();
-    curFile=nm; curDirty=false; refreshSoundList();
-    $("dirLabel").textContent=soundsDir.name+"/ — saved "+nm;
-  }catch(e){alert("save failed: "+e.message);} };
+    curFile=h.name; curDirty=false; refreshSoundList();
+    $("dirLabel").textContent="saved "+h.name;
+  }catch(e){ if(e.name!=="AbortError") alert("save failed: "+e.message); } };
 $("btnImportFile").onclick=()=>{
   const inp=document.createElement("input"); inp.type="file"; inp.accept=".stsound,.json";
   inp.onchange=async()=>{ const f=inp.files[0]; if(!f)return;
@@ -684,13 +954,13 @@ $("rEnv").onchange=e=>{const m=e.target.value; recipe.envelope=m==="adsr"
   buildEnv();live();};
 $("octDown").onclick=()=>{octBase=Math.max(-1,octBase-1);drawPiano();};
 $("octUp").onclick=()=>{octBase=Math.min(7,octBase+1);drawPiano();};
+{const sel=$("layerTypeSel");sel.innerHTML=Object.entries(layerTypes).map(([k,v])=>`<option value="${k}">${v}</option>`).join("");sel.value="sweep";}
 $("addLayer").onclick=()=>{
-  const names=Object.keys(layerTypes);
-  const t=names[recipe.layers.length%names.length];
+  const t=$("layerTypeSel").value;
   const L={type:t,amp:0.3,decay:30};
   if(t==="partials")L.partials=[{hz:1000,amp:0.5}];
   if(t==="noiseTail")L.lowpass=4000;
-  if(t==="sweep"){L.startHz=2000;L.endHz=800;}
+  if(t==="sweep"){L.startHz=2000;L.endHz=800;L.curve="exp";}
   recipe.layers.push(L);buildLayers();live(); };
 $("btnPlay").onclick=()=>preview(lastNote??recipe.rootNote,lastNote!==null?lastVel:1);
 // SPACE = preview (DAW convention) — plays the last-clicked piano note/velocity

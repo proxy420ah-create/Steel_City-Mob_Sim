@@ -43,6 +43,8 @@ namespace SteelCity.Sim
 
         [Header("Visualization (VISION tab)")]
         public bool showCone = false;
+        [Tooltip("X-ray impact mark at each detected target's point — pale while the cone accumulates, amber mid-level, red at full detection. Independent of cone/ray toggles.")]
+        public bool showDetectMarks = false;
         [Tooltip("Sprite wedge fill — renders BEHIND the raymarched world (depth-tested scene mesh); superseded by V-mode 7 painting the cone on the voxels. Off by default.")]
         public bool showConeFill = false;
         public bool showTargetRay = false;
@@ -70,6 +72,7 @@ namespace SteelCity.Sim
         private readonly Dictionary<Vector3, float> detection = new();
         private readonly List<Vector3> pruneBuf = new();
         private readonly HashSet<string> beamKeys = new();
+        private int detectMarkHi;          // high-water slot count for vdm_ mark cleanup
 
         void Awake()
         {
@@ -82,6 +85,12 @@ namespace SteelCity.Sim
         /// won and the painted cone could follow Tan Suit instead of the
         /// character being inspected. null = no owner → legacy all-write.</summary>
         public static VisionSensor ConeOwner;
+        /// <summary>Who SHOULD own the cone while nobody's explicitly claimed
+        /// it — set once at the inspected character's spawn. Explicit claims
+        /// (vision-tab inspection toggle) still win; this only kills the
+        /// all-write windows — OnDisable clears, pre-spawn frames, toggle-off
+        /// — where every sensor pushed and the last Update won (Tan).</summary>
+        public static VisionSensor PreferredOwner;
 
         void OnDisable()
         {
@@ -91,6 +100,7 @@ namespace SteelCity.Sim
                 Shader.SetGlobalVector("_VisConeB", Vector4.zero);   // mode-7 cone off
                 ConeOwner = null;
             }
+            if (PreferredOwner == this) PreferredOwner = null;
         }
 
         /// <summary>Testbed target source — a single observed point.</summary>
@@ -103,10 +113,43 @@ namespace SteelCity.Sim
         public void AddTarget(Vector3 t) { if (!targets.Contains(t)) targets.Add(t); }
         public bool TryGetDetection(Vector3 t, out float level) => detection.TryGetValue(t, out level);
 
+        /// <summary>Is a world point inside the POSED eye fan — range + XZ yaw
+        /// angle against the resolved eye anchor (head-joint/face forward,
+        /// NOT body forward). The single definition of cone coverage:
+        /// CombatController's canSee gate and CoverSensor's per-sample mark
+        /// coloring both consume this so the viz can't claim "seen" where the
+        /// gate says "not looking".</summary>
+        public bool Covers(Vector3 point)
+        {
+            Vector3 to = point - EyePos; to.y = 0f;
+            float dist = to.magnitude;
+            if (dist > range) return false;
+            if (dist < 1e-4f) return true;
+            Vector3 fwd = EyeDir; fwd.y = 0f;
+            return Vector3.Angle(fwd, to) <= halfAngleDeg;
+        }
+
+        private bool legacyBeamWiped;
         void Update()
         {
             if (world == null) world = FindFirstObjectByType<VoxelCollisionWorld>();
             if (world == null) return;
+            // One-time wipe of the pre-namespaced beam names — two sensors
+            // used to share vs_e0/vs_a*/vs_center/vs_t*; whatever the old
+            // scheme last wrote would orphan forever now that keys are
+            // per-sensor.
+            if (!legacyBeamWiped)
+            {
+                legacyBeamWiped = true;
+                var pdr0 = PathDebugRenderer.Instance;
+                if (pdr0 != null)
+                {
+                    pdr0.ClearCustomBeam("vs_e0"); pdr0.ClearCustomBeam("vs_e1");
+                    pdr0.ClearCustomBeam("vs_center");
+                    for (int i = 0; i <= 24; i++) pdr0.ClearCustomBeam($"vs_a{i}");
+                    for (int i = 0; i < 8; i++) pdr0.ClearCustomBeam($"vs_t{i}");
+                }
+            }
             ResolveEye();
             Evaluate(Time.deltaTime);
             PushConeGlobals();
@@ -119,7 +162,8 @@ namespace SteelCity.Sim
         /// Pushed every frame: two SetGlobalVector calls.</summary>
         void PushConeGlobals()
         {
-            if (ConeOwner != null && ConeOwner != this) return;
+            var owner = ConeOwner != null ? ConeOwner : PreferredOwner;
+            if (owner != null && owner != this) return;
             Vector3 d = DirXZ(EyePos, EyePos + EyeDir);
             Shader.SetGlobalVector("_VisConeA", new Vector4(EyePos.x, EyePos.z, d.x, d.z));
             Shader.SetGlobalVector("_VisConeB", new Vector4(
@@ -167,6 +211,15 @@ namespace SteelCity.Sim
         {
             MaxDetection = 0f; AnyDetected = false; AnyVisible = false;
             Vector3 eyeDirXZ = DirXZ(EyePos, EyePos + EyeDir);
+            var pdrM = PathDebugRenderer.Instance;
+            bool wantDM = showDetectMarks && pdrM != null;
+            // Mark slot lifecycle — clear stale keys when the toggle drops or
+            // the target list shrank; a mark only lives while its target is
+            // actually visible in-cone.
+            if (pdrM != null)
+                for (int i = wantDM ? targets.Count : 0; i < detectMarkHi; i++)
+                    pdrM.ClearXrayCube($"vdm_{name}_{i}");
+            detectMarkHi = wantDM ? targets.Count : 0;
             for (int i = 0; i < targets.Count; i++)
             {
                 Vector3 t = targets[i];
@@ -189,6 +242,19 @@ namespace SteelCity.Sim
                 if (visible) AnyVisible = true;
                 if (lvl > MaxDetection) MaxDetection = lvl;
                 if (lvl >= 0.99f) AnyDetected = true;
+
+                // Detection mark — the SAME alertness ramp the target ray
+                // uses: pale while accumulating, amber mid, red detected.
+                if (wantDM)
+                {
+                    string mk = $"vdm_{name}_{i}";
+                    if (visible)
+                        pdrM.SetXrayCube(mk, t, Quaternion.identity, 0.07f,
+                            lvl >= 0.99f ? new Color(1f, 0.25f, 0.2f, 0.9f)
+                            : lvl > 0.01f ? new Color(1f, 0.75f, 0.2f, 0.85f)
+                            : new Color(0.5f, 0.9f, 1f, 0.6f));
+                    else pdrM.ClearXrayCube(mk);
+                }
             }
             // Prune fully-decayed entries so the dict stays small.
             if (detection.Count > 16)
@@ -255,11 +321,23 @@ namespace SteelCity.Sim
             wedgeRange = range; wedgeHalf = halfAngleDeg; wedgeSegs = coneArcSegs;
         }
 
+        /// <summary>Full wipe — disable/reset only. Detect marks are NOT
+        /// cleared here in the per-frame path; Evaluate's slot-trim owns them.
+        /// (Clearing them post-Evaluate killed every mark before render.)</summary>
         public void ClearViz()
         {
+            ClearBeams();
             var pdr = PathDebugRenderer.Instance;
             if (pdr != null)
-                foreach (var k in beamKeys) pdr.ClearCustomBeam(k);
+                for (int i = 0; i < detectMarkHi; i++) pdr.ClearXrayCube($"vdm_{name}_{i}");
+            detectMarkHi = 0;
+            if (wedgeRenderer != null) wedgeRenderer.enabled = false;
+        }
+
+        void ClearBeams()
+        {
+            var pdr = PathDebugRenderer.Instance;
+            if (pdr != null) foreach (var k in beamKeys) pdr.ClearCustomBeam(k);
             beamKeys.Clear();
             if (wedgeRenderer != null) wedgeRenderer.enabled = false;
         }
@@ -268,15 +346,18 @@ namespace SteelCity.Sim
         {
             var pdr = PathDebugRenderer.Instance;
             if (pdr == null) return;
-            pdr.SetCustomBeam(key, a, b, w, col);
-            beamKeys.Add(key);
+            // Per-sensor key — the bare "vs_*" names let two sensors overwrite
+            // the same beams (last Update won → only Tan's wedge drew).
+            string k = $"{name}_{key}";
+            pdr.SetCustomBeam(k, a, b, w, col);
+            beamKeys.Add(k);
         }
 
         void Redraw()
         {
             var pdr = PathDebugRenderer.Instance;
             if (pdr == null) return;
-            ClearViz();
+            ClearBeams();   // beams rebuild every frame — detect marks persist via Evaluate
             if (!showCone && !showTargetRay) return;
 
             // Alertness colors: idle pale blue → amber while detecting → red when seen.

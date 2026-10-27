@@ -25,7 +25,7 @@ namespace SteelCity.Sim
     {
         [Header("Awareness")]
         [Tooltip("Radius scanned for cover obstacles (m).")]
-        public float radius = 4f;
+        public float radius = 8f;   // arena stands sit ~6.4m off the cover rows — 4m saw no wall at all
         [Tooltip("Stand-spot gap off the wall face (m) — ~half body depth = flush. The bore solve needs the eye close behind the face or a descending ray clips the lip.")]
         public float standoff = 0.3f;
         [Tooltip("Columns with a contiguous span below this aren't walls at all (m).")]
@@ -52,7 +52,7 @@ namespace SteelCity.Sim
         public bool showFootprints = false;
         public bool showWalls = false;
         [Tooltip("With a threat set, dim walls whose open side faces the threat.")]
-        public bool tintWallFacing = true;
+        public bool tintWallFacing = false;
         public bool showCandidates = false;
         public bool showLos = false;
         [Tooltip("Ground-projected cover influence field — fallback when not using the V-key modes.")]
@@ -62,6 +62,12 @@ namespace SteelCity.Sim
         public int maxCandBeams = 60;
         [Tooltip("Draw the exposure probe: green eye→sample rays = visible, red = blocked, cyan cross = visible centroid.")]
         public bool showTargetViz = false;
+        [Tooltip("Paint impact marks instead of rays: green = ray resolved a target voxel AND it's inside the posed vision cone (actually seen), slate = clear ray outside the cone (reachable, not looking), red = ray died on the occluder. Tan lights up exactly where he's seen — no ray clutter.")]
+        public bool showImpactMarks = false;
+        public Color visMarkColor = new Color(0.25f, 1f, 0.35f, 0.9f);
+        public Color occlMarkColor = new Color(1f, 0.3f, 0.15f, 0.55f);
+        public Color offConeMarkColor = new Color(0.55f, 0.5f, 0.8f, 0.45f);  // clear ray but OUTSIDE the posed cone — reachable, not seen
+        private VisionSensor coneSensor;   // same-owner eye fan — gates the "seen" color
 
         /// <summary>Threat position — set by the COVER tab's PICK THREAT (shared
         /// with Combat's PICK AIM) and by CombatController.EnterCombat.</summary>
@@ -166,13 +172,16 @@ namespace SteelCity.Sim
         private MeshRenderer heatRend;
         private Texture2D heatTex;
         private Color32[] heatPx;
+        private Color32[] cellPx;        // per-cell verdicts — stamped to tiles on the walk layers
         private int bakedRes = -1;
+        private static readonly Color32 GRID_LINE = new Color32(10, 10, 16, 110);
         private Color32[] fieldPx;       // packed field → texture-array slice
 
         void Awake()
         {
             world = FindFirstObjectByType<VoxelCollisionWorld>();
             owner = GetComponent<VoxelCharacter>();
+            coneSensor = GetComponent<VisionSensor>();
         }
 
         void OnDisable()
@@ -234,6 +243,7 @@ namespace SteelCity.Sim
                 var m = chunkManager.iterVisMode;
                 if (m >= VoxelChunkManager.IterVisMode.CoverQuality
                     && m <= VoxelChunkManager.IterVisMode.CoverExposure) return true;
+                if (m >= VoxelChunkManager.IterVisMode.CoverWalkable) return true;
             }
             return false;
         }
@@ -266,15 +276,17 @@ namespace SteelCity.Sim
             => TryPickCover(from, out point, out volId, out reqDepth, out _);
 
         public bool TryPickCover(Vector3 from, out Vector3 point, out string volId,
-            out float reqDepth, out WallClass cls, float intNorm = 1f)
+            out float reqDepth, out WallClass cls, float intNorm = 1f, CoverField.DistMap reach = null)
         {
             point = default; volId = null; reqDepth = 0f; cls = WallClass.Low; chosenIdx = -1;
-            if (!field.PickBest(out point, out volId)) return false;
+            if (!field.PickBest(out point, out volId, reach)) return false;
             // The zone centroid IS the destination — same contract the scripted
             // slots ride (ZoneSpot.stand). Was: wall-column midpoint, which is
             // why actors stopped off the painted marker. `intNorm` ranks the
-            // stand point centroid→rim inside the zone (the INT axis).
-            bool zoned = field.TryRankInZone(field.ChosenCell, intNorm, out Vector3 zp, out int zc, out var z);
+            // stand point centroid→rim inside the zone (the INT axis);
+            // `reach` keeps the ranked members legal — unreachable members
+            // can't host the stand.
+            bool zoned = field.TryRankInZone(field.ChosenCell, intNorm, out Vector3 zp, out int zc, out var z, reach);
             if (zoned)
             {
                 point = zp; volId = z.volId; reqDepth = z.reqD; cls = z.cls;
@@ -316,6 +328,11 @@ namespace SteelCity.Sim
                     if (volClass.TryGetValue(volId, out WallClass c)) cls = c;
                 }
             }
+            // The issued point must itself be reachable — PickBest gates the
+            // cell, but the wall-mark fallback above can land somewhere the
+            // actor's map can't serve. Reject the pick, don't strand him.
+            if (reach != null && !reach.Reaches(field.CellIndexOf(point)))
+            { Redraw(); return false; }
             // Map the chosen cell back onto its candidate post for the cyan beam.
             for (int i = 0; i < candidates.Count; i++)
                 if (field.IsChosen(FieldCellOf(candidates[i].point))) { chosenIdx = i; break; }
@@ -352,7 +369,7 @@ namespace SteelCity.Sim
         /// Reports the wall's depth requirement and class.</summary>
         public bool TryPickCoverNear(Vector3 anchor, float maxDist,
             out Vector3 point, out string volId, out float reqDepth, out WallClass cls,
-            float intNorm = 1f)
+            float intNorm = 1f, CoverField.DistMap reach = null)
         {
             point = default; volId = null; reqDepth = 0f; cls = WallClass.Low; chosenIdx = -1;
             int wi = -1; float wd = maxDist * maxDist;
@@ -384,10 +401,10 @@ namespace SteelCity.Sim
                 sb.Append($" [{cw.volId} face {cw.facePos:F1} top+{cw.top - cw.baseY:F1}m {cw.cls} d{cand[k].d:F1}]");
             }
             Debug.Log(sb.ToString());
-            if (!field.PickNear(anchor, maxDist, out point, out _, w.volId)) return false;
+            if (!field.PickNear(anchor, maxDist, out point, out _, w.volId, reach)) return false;
             // Zone-ranked destination, same as the generic pick — the
             // anchor selects WHICH zone; `intNorm` picks how deep inside it.
-            if (field.TryRankInZone(field.ChosenCell, intNorm, out Vector3 nzp, out int nzc, out var nz))
+            if (field.TryRankInZone(field.ChosenCell, intNorm, out Vector3 nzp, out int nzc, out var nz, reach))
             {
                 point = nzp; volId = nz.volId; reqDepth = nz.reqD; cls = nz.cls;
                 field.MarkChosen(nzc);
@@ -398,6 +415,10 @@ namespace SteelCity.Sim
                 Vector3 sspot = w.facePos + w.outDir * (standoff + w.vs * 0.25f);
                 point = new Vector3(sspot.x, w.support, sspot.z);
             }
+            // Same reach gate as the generic pick — the button pick can't
+            // commit a destination the map can't serve.
+            if (reach != null && !reach.Reaches(field.CellIndexOf(point)))
+            { Redraw(); return false; }
             for (int i = 0; i < candidates.Count; i++)
                 if (field.IsChosen(FieldCellOf(candidates[i].point))) { chosenIdx = i; break; }
             Redraw();
@@ -538,6 +559,23 @@ namespace SteelCity.Sim
             // Build only runs when a threat exists.
             field.Build(pos, Threat, radius, walls, world, standoff, HShallow, EyeFwd,
                 threatEye, facingDot, proxWeight, fieldRes, HDeep, EyeFwdDeep, HStand, depthMargin);
+            // The actor's ground signature: one square column, the SAME square
+            // the mover claims — every Walkable verdict on this field answers
+            // "can the body-square be placed here" at continuous resolution
+            // (meters, not cells), so the flood, picks, and corridors all
+            // agree with the body by construction.
+            var vc = GetComponent<VoxelCharacter>();
+            if (vc != null)
+            {
+                field.bodyHalfMeters = vc.BodyFootprint * 0.5f;   // the character owns the spec
+                // Deck tolerance has ONE owner — the mover's stepUpMax (the
+                // same constant the flood's EdgeOpen is called with). Two
+                // literals would drift: a tuned stepUp would split "can stand"
+                // from "can reach".
+                var ccl = GetComponent<CombatController>();
+                field.bodyStepUp = ccl != null ? ccl.stepUpMax : 0.15f;
+                field.walkBodyH = vc.WorldSize.y;   // fit verdicts cache at THIS height next build
+            }
             if (hasT) DeriveCandidates(tp);
         }
 
@@ -558,7 +596,7 @@ namespace SteelCity.Sim
                 var cand = new CandMark
                 {
                     volId = field.volIdOf[i] ?? "",
-                    point = new Vector3(c.x, field.groundY[i], c.z),
+                    point = new Vector3(c.x, field.StandY(i), c.z),
                     valid = field.state[i] == CoverField.CellState.Hidden,
                     reason = field.state[i] == CoverField.CellState.Hidden ? null
                            : field.state[i] == CoverField.CellState.Exposed ? "exposed" : "invalid",
@@ -627,6 +665,7 @@ namespace SteelCity.Sim
         private readonly Vector3[] visBuf = new Vector3[96];
         private int visDrawn;            // tv_s{i} beams alive right now
         private bool visCentroidDrawn;   // tv_c{x,y,z} cross alive
+        private int marksDrawn;          // vmk_<name>_{i} impact cubes alive right now
 
         /// <summary>Sample the target's live posed silhouette (~30–50 points,
         /// every group covered) and ray the owner's posed eye at each sample
@@ -660,18 +699,40 @@ namespace SteelCity.Sim
             if (n <= 0) { LastVisible = set; ClearVisBeams(); Notify(); return false; }
 
             var pdr = showTargetViz ? PathDebugRenderer.Instance : null;
+            var pdrMark = PathDebugRenderer.Instance;
+            bool wantMarks = showImpactMarks && pdrMark != null;
             int vis = 0; Vector3 sum = Vector3.zero;
             for (int i = 0; i < n; i++)
             {
                 Vector3 d = visBuf[i] - eye;
                 float dist = d.magnitude;
-                bool clear = dist < 1e-4f || !world.Raycast(eye, d / dist, dist, out _);
+                VoxelRayHit rh = default;
+                bool clear = dist < 1e-4f || !world.Raycast(eye, d / dist, dist, out rh);
                 if (clear) { vis++; sum += visBuf[i]; }
                 if (pdr != null)
                     pdr.SetCustomBeam($"tv_s{i}", eye, visBuf[i], 0.012f,
                         clear ? new Color(0.3f, 1f, 0.4f, 0.5f)
                               : new Color(1f, 0.25f, 0.2f, 0.35f));
+                // Impact marks — the probe as a point-cloud, cone-gated per
+                // sample: GREEN = resolved AND inside the posed eye fan (the
+                // voxels canSee actually counts), SLATE = geometrically clear
+                // but outside the fan (reachable if he turned — never "seen"),
+                // RED = ray died on the occluder. No cone rig → unconstrained
+                // (testbeds stay green-only).
+                if (wantMarks)
+                {
+                    bool inCone = !clear || coneSensor == null || coneSensor.Covers(visBuf[i]);
+                    pdrMark.SetXrayCube($"vmk_{name}_{i}", clear ? visBuf[i] : rh.point,
+                        Quaternion.identity, 0.045f,
+                        !clear ? occlMarkColor : inCone ? visMarkColor : offConeMarkColor);
+                }
             }
+            if (pdrMark != null)
+            {
+                for (int i = wantMarks ? n : 0; i < marksDrawn; i++) pdrMark.ClearXrayCube($"vmk_{name}_{i}");
+                marksDrawn = wantMarks ? n : 0;
+            }
+            else marksDrawn = 0;
             set = new VisibleSet
             {
                 visible = vis, tested = n,
@@ -696,11 +757,13 @@ namespace SteelCity.Sim
                 }
                 else { pdr.ClearCustomBeam("tv_cx"); pdr.ClearCustomBeam("tv_cy"); pdr.ClearCustomBeam("tv_cz"); visCentroidDrawn = false; }
             }
-            else ClearVisBeams();
+            else ClearVisRays();   // beams off — marks stay owned by their own toggle
             return vis > 0;
         }
 
-        void ClearVisBeams()
+        /// <summary>Kill ALL probe viz — early-outs and ClearViz only.</summary>
+        void ClearVisBeams() { ClearVisRays(); ClearVisMarks(); }
+        void ClearVisRays()
         {
             if (visDrawn == 0 && !visCentroidDrawn) return;
             var pdr = PathDebugRenderer.Instance;
@@ -711,16 +774,32 @@ namespace SteelCity.Sim
             }
             visDrawn = 0; visCentroidDrawn = false;
         }
+        void ClearVisMarks()
+        {
+            if (marksDrawn == 0) return;
+            var pdr = PathDebugRenderer.Instance;
+            if (pdr != null)
+                for (int i = 0; i < marksDrawn; i++) pdr.ClearXrayCube($"vmk_{name}_{i}");
+            marksDrawn = 0;
+        }
 
         // --- Visualization ---
 
+        /// <summary>Full wipe — disable/consumer-loss only. Probe rays and
+        /// impact marks are owned by TryGetVisibleVoxels's own trim loops —
+        /// the field Redraw must not touch them (it fires on scan cadence and
+        /// would erase them between probes).</summary>
         public void ClearViz()
         {
-            var pdr = PathDebugRenderer.Instance;
-            if (pdr == null) { beamKeys.Clear(); return; }
-            foreach (var k in beamKeys) pdr.ClearCustomBeam(k);
-            beamKeys.Clear();
+            ClearFieldBeams();
             ClearVisBeams();
+        }
+
+        void ClearFieldBeams()
+        {
+            var pdr = PathDebugRenderer.Instance;
+            if (pdr != null) foreach (var k in beamKeys) pdr.ClearCustomBeam(k);
+            beamKeys.Clear();
             if (heatRend != null) heatRend.enabled = false;
         }
 
@@ -755,7 +834,7 @@ namespace SteelCity.Sim
         {
             var pdr = PathDebugRenderer.Instance;
             if (pdr == null) return;
-            ClearViz();
+            ClearFieldBeams();   // field viz only — probe rays/marks belong to the probe
             Vector3 p = lastScanPos;
 
             if (showFootprints)
@@ -879,7 +958,25 @@ namespace SteelCity.Sim
             EnsureFieldTexArray();
             if (fieldPx == null || fieldPx.Length != field.N * field.N)
                 fieldPx = new Color32[field.N * field.N];
-            field.BakePacked(fieldPx);
+            // Walk-domain V-modes: the slice carries DISPLAY colors (each
+            // fighter's own mask/flood — the union reads "any fighter's
+            // domain"), painted on the raymarched surfaces themselves. The
+            // packed score/verdict channels stay for modes 4-6.
+            var vm = chunkManager != null ? chunkManager.iterVisMode
+                : (chunkManager = FindFirstObjectByType<VoxelChunkManager>()) != null
+                    ? chunkManager.iterVisMode : VoxelChunkManager.IterVisMode.Off;
+            if (vm == VoxelChunkManager.IterVisMode.CoverWalkable
+                || vm == VoxelChunkManager.IterVisMode.CoverReachable)
+            {
+                var dcc = GetComponent<CombatController>();
+                field.Bake(fieldPx,
+                    vm == VoxelChunkManager.IterVisMode.CoverWalkable
+                        ? CoverField.Layer.Walkable : CoverField.Layer.Reachable,
+                    dcc != null ? dcc.DebugWalkMask : null,
+                    dcc != null ? dcc.DebugBodyH : 1.8f,
+                    dcc != null ? dcc.DebugMeMap : null);
+            }
+            else field.BakePacked(fieldPx);
             fieldTexArr.SetPixels32(fieldPx, vizSlot, 0);   // (colors, slice, mip=0)
             fieldTexArr.Apply(false, false);
             float size = field.CellSize * field.N;
@@ -892,7 +989,11 @@ namespace SteelCity.Sim
             if (fieldTexArr != null) return;
             fieldTexArr = new Texture2DArray(FIELD_TEX_RES, FIELD_TEX_RES,
                 MAX_FIELD_SOURCES, TextureFormat.RGBA32, false);
-            fieldTexArr.filterMode = FilterMode.Bilinear;
+            // 1 texel = 1 cell exactly (fieldRes is pinned to FIELD_TEX_RES) —
+            // Point sampling paints each cell's own verdict with hard borders.
+            // Bilinear interpolated BETWEEN cells, fabricating half-verdicts
+            // at seams (a "half-walkable" color doesn't exist).
+            fieldTexArr.filterMode = FilterMode.Point;
             fieldTexArr.wrapMode = TextureWrapMode.Clamp;
             Shader.SetGlobalTexture("_CoverFieldTexArr", fieldTexArr);
         }
@@ -905,7 +1006,11 @@ namespace SteelCity.Sim
         /// </summary>
         void DrawHeat()
         {
-            bool want = showHeat && HasThreat && field.HasData;
+            // Walkable/Reachable are threat-independent — the domain exists
+            // with or without a fight (a stale field still paints the last
+            // build's truth).
+            bool walkLayer = heatLayer >= CoverField.Layer.Walkable;
+            bool want = showHeat && field.HasData && (HasThreat || walkLayer);
             if (!want)
             {
                 if (heatRend != null) heatRend.enabled = false;
@@ -915,21 +1020,58 @@ namespace SteelCity.Sim
             if (heatRend == null) return;
 
             // Rebake when resolution or layer changes (field contents change
-            // every scan — bake each Redraw, it's 64² pixels).
+            // every scan — bake each Redraw, it's 64² cells; the walk layers
+            // stamp GRID texels per cell so the domain reads as tiles).
             int n = field.N;
-            if (heatTex.width != n || bakedRes != n)
+            int grid = walkLayer ? 4 : 1;
+            int res = n * grid;
+            if (heatTex.width != res || bakedRes != res)
             {
-                heatTex.Reinitialize(n, n);
-                heatPx = new Color32[n * n];
-                bakedRes = n;
+                heatTex.Reinitialize(res, res);
+                heatPx = new Color32[res * res];
+                bakedRes = res;
             }
-            field.Bake(heatPx, heatLayer);
+            // The walkable layers bake the domain through the ACTOR's own
+            // mask + flood — the field holds channels, the controller owns
+            // designation.
+            System.Collections.Generic.ICollection<int> wmask = null;
+            float wbh = 1.8f;
+            CoverField.DistMap reach = null;
+            if (walkLayer)
+            {
+                var cc = GetComponent<CombatController>();
+                if (cc != null)
+                { wmask = cc.DebugWalkMask; wbh = cc.DebugBodyH; reach = cc.DebugMeMap; }
+            }
+            // Bake per-cell verdicts first, then stamp tiles for the walk
+            // layers: `grid` texels per cell + a dark border — the domain
+            // reads as a literal tile grid on the ground, not a color wash.
+            int cn = n * n;
+            if (cellPx == null || cellPx.Length != cn) cellPx = new Color32[cn];
+            field.Bake(cellPx, heatLayer, wmask, wbh, reach);
+            heatTex.filterMode = walkLayer ? FilterMode.Point : FilterMode.Bilinear;
+            if (grid == 1) System.Array.Copy(cellPx, heatPx, cn);
+            else
+            {
+                for (int cz = 0; cz < n; cz++)
+                    for (int cx = 0; cx < n; cx++)
+                    {
+                        Color32 c = cellPx[cz * n + cx];
+                        for (int ty = 0; ty < grid; ty++)
+                            for (int tx = 0; tx < grid; tx++)
+                                heatPx[(cz * grid + ty) * res + cx * grid + tx] =
+                                    (tx == 0 || ty == 0) ? GRID_LINE : c;
+                    }
+            }
             heatTex.SetPixels32(heatPx);
             heatTex.Apply(false, false);
 
             float size = field.CellSize * n;
+            // Two fighters' quads paint the same arena — vizSlot gives each a
+            // 2cm lift so both can display at once without z-fighting.
+            float lift = 0.09f + Mathf.Max(0, vizSlot) * 0.02f;
             heatGO.transform.position = new Vector3(
-                field.Origin.x + size * 0.5f, field.GroundY + 0.09f,
+                field.Origin.x + size * 0.5f, field.GroundY + lift,
                 field.Origin.z + size * 0.5f);
             heatGO.transform.localScale = new Vector3(size, size, 1f);
             heatRend.enabled = true;

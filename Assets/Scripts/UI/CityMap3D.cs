@@ -31,6 +31,8 @@ namespace SteelCity.Sim
         [Header("Debug Toggles")]
         [Tooltip("When true, removes camera zoom/pitch/orbit restrictions for close-up animation inspection. Toggle in Inspector or via code.")]
         public bool debugCameraFreedom = false;
+        [Tooltip("Non-modal borrow of the freedom clamps (pitch/orbit/zoom) — possess uses this instead of setting debugCameraFreedom, which doubles as CamFree and would yield all input away.")]
+        public bool borrowedFreedomClamps = false;
         [Tooltip("Orbit distance when debugCameraFreedom is enabled. Smaller = closer to character.")]
         public float debugCameraOrbitDistance = 5f;
         [Range(0f, 1f)]
@@ -170,7 +172,7 @@ namespace SteelCity.Sim
         public void SetCameraOrthoSize(float size)
         {
             if (mapCamera != null)
-                mapCamera.orthographicSize = Mathf.Clamp(size, debugCameraFreedom ? 0.1f : 1f, 60f);
+                mapCamera.orthographicSize = Mathf.Clamp(size, debugCameraFreedom || borrowedFreedomClamps ? 0.1f : 1f, 60f);
         }
 
         public void SetCameraPerspective(bool perspective)
@@ -215,7 +217,7 @@ namespace SteelCity.Sim
 
         public void SetCameraPitch(float pitch)
         {
-            targetPitch = Mathf.Clamp(pitch, debugCameraFreedom ? -89f : 10f, debugCameraFreedom ? 89f : 80f);
+            targetPitch = Mathf.Clamp(pitch, debugCameraFreedom || borrowedFreedomClamps ? -89f : 10f, debugCameraFreedom || borrowedFreedomClamps ? 89f : 80f);
         }
 
         /// <summary>Set orbit angles immediately (current AND target) — possess-mode
@@ -223,7 +225,7 @@ namespace SteelCity.Sim
         /// allows negative pitch: camera drops below the focus and looks up.</summary>
         public void SetCameraAnglesImmediate(float yaw, float pitch)
         {
-            float p = Mathf.Clamp(pitch, debugCameraFreedom ? -89f : 10f, debugCameraFreedom ? 89f : 80f);
+            float p = Mathf.Clamp(pitch, debugCameraFreedom || borrowedFreedomClamps ? -89f : 10f, debugCameraFreedom || borrowedFreedomClamps ? 89f : 80f);
             cameraYaw = targetYaw = yaw;
             cameraPitch = targetPitch = p;
         }
@@ -262,7 +264,7 @@ namespace SteelCity.Sim
             cameraPitch = Mathf.Lerp(cameraPitch, targetPitch, Time.unscaledDeltaTime * 5f);
 
             // Compute camera position from yaw/pitch orbiting focus point
-            float orbitDist = debugCameraFreedom ? debugCameraOrbitDistance : CameraOrbitDistance;
+            float orbitDist = debugCameraFreedom || borrowedFreedomClamps ? debugCameraOrbitDistance : CameraOrbitDistance;
             float yawRad = cameraYaw * Mathf.Deg2Rad;
             float pitchRad = cameraPitch * Mathf.Deg2Rad;
             float horizDist = orbitDist * Mathf.Cos(pitchRad);
@@ -747,7 +749,11 @@ namespace SteelCity.Sim
             // WASD free-look while F6 camera freedom is on: moves the focus
             // point along the camera's view axes — W/S fly along view dir
             // (pitch-aware), A/D strafe, Q/E descend/ascend, Shift = 3x speed.
-            if (kb != null && CamFree && mapCamera != null && (Frozen || !PossessController.Active))
+            // CamFree owns the camera — even while possessed (possess yields
+            // input under F6/F8 and keeps its look angles synced for the
+            // hand-back). The old !Active clause left WASD dead for BOTH
+            // when F6 was toggled while still possessing.
+            if (kb != null && CamFree && mapCamera != null)
             {
                 Vector3 move = Vector3.zero;
                 if (kb.wKey.isPressed) move += mapCamera.transform.forward;
@@ -854,10 +860,11 @@ namespace SteelCity.Sim
         private void HandleMouseCamera()
         {
             if (Mouse.current == null || mapCamera == null) return;
-            // Possess owns all mouse look — don't let MMB-rotate/RMB-pan/wheel
-            // fight the locked-cursor third-person camera. Under F8 freeze it
-            // yields camera authority so the scene can be inspected.
-            if (PossessController.Active && !Frozen)
+            // Possess owns all mouse look while it HOLDS input — don't let
+            // MMB-rotate/RMB-pan/wheel fight the locked-cursor third-person
+            // camera. Under any free cam (F6/F8) camera authority returns:
+            // possess has already yielded, so pan/zoom/orbit belong here.
+            if (PossessController.Active && !CamFree)
             {
                 isRotating = false;
                 isPanning = false;
@@ -1729,6 +1736,18 @@ namespace SteelCity.Sim
                 // as fallback for other spawn paths.
                 if (SpawnedCharacter.GetComponent<VisionSensor>() == null)
                     SpawnedCharacter.gameObject.AddComponent<VisionSensor>();
+                // The drawn cone belongs to the spawned (inspected) character
+                // — claim deterministically at spawn. Unclaimed, every sensor's
+                // PushConeGlobals writes and the last Update wins → Tan's cone
+                // painted over Vinny's whenever he happened to update later.
+                var spawnedVis = SpawnedCharacter.GetComponent<VisionSensor>();
+                VisionSensor.ConeOwner = spawnedVis;
+                // The spawn claim only covers the moment it runs — every
+                // LATER null window (OnDisable clear, toggle-off, pre-spawn
+                // frames) fell back to all-write and the last Update won.
+                // PreferredOwner is the standing default behind explicit
+                // claims: Vinny's cone unless someone deliberately claims it.
+                VisionSensor.PreferredOwner = spawnedVis;
                 AttachCombatStack(SpawnedCharacter.gameObject);
 
                 Debug.Log($"[CityMap3D] SpawnedCharacter assigned from CharacterRig (asset={rig.Character.assetFileName})");
@@ -1743,9 +1762,9 @@ namespace SteelCity.Sim
         /// <summary>
         /// Cover pit phase-1 (symmetric duel): secondary rigs need the same
         /// cover/combat stack so they can seek cover on their own. Waits for
-        /// the rig's delayed character init, then attaches. VisionSensor stays
-        /// Vinny-only — it's the player-facing debug sense; NPC sight is a
-        /// separate milestone.
+        /// the rig's delayed character init, then attaches. VisionSensor is in
+        /// the stack — a missing sensor means UNGATED 360° geometric detection
+        /// (ConeCovers returns true), not blind — symmetric parity requires it.
         /// </summary>
         private System.Collections.IEnumerator AttachCombatStackWhenReady(CharacterRig rig)
         {
@@ -1759,15 +1778,26 @@ namespace SteelCity.Sim
             }
         }
 
-        /// <summary>The cover/combat component set every duel participant needs.</summary>
+        /// <summary>The cover/combat component set every duel participant needs —
+        /// VisionSensor included: without it ConeCovers() degenerates to
+        /// always-true and the NPC detects through a full 360° with no posed-eye
+        /// gating (the player character gets the same contract, not a weaker one).</summary>
         private static void AttachCombatStack(GameObject go)
         {
             if (go.GetComponent<CoverSensor>() == null)
                 go.AddComponent<CoverSensor>();
             if (go.GetComponent<ArmAimSolver>() == null)
                 go.AddComponent<ArmAimSolver>();
+            if (go.GetComponent<VisionSensor>() == null)
+                go.AddComponent<VisionSensor>();
             if (go.GetComponent<CombatController>() == null)
                 go.AddComponent<CombatController>();
+            // The arena duel lot's floor is painted sidewalk + floor-class
+            // plates — give the combatants the designation mask unless the
+            // scene already authored one (empty = physics-only legacy).
+            var duelCc = go.GetComponent<CombatController>();
+            if (duelCc.walkableMaterials == null || duelCc.walkableMaterials.Length == 0)
+                duelCc.walkableMaterials = CombatController.ArenaWalkableMaterials;
         }
 
         private void BuildRaymarchBlock(Transform root, string blockId, Block block,
@@ -2351,6 +2381,10 @@ namespace SteelCity.Sim
         private void HandleClick()
         {
             if (Mouse.current == null || !Mouse.current.leftButton.wasPressedThisFrame) return;
+            // Possess holds LMB for the trigger while it holds input — a shot
+            // must not ALSO pick a block. Free cam (F6/F8) restores picking:
+            // the gun can't fire under CamFree anyway.
+            if (PossessController.Active && !CamFree) return;
             if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject()) return;
 
             Vector2 mousePos = Mouse.current.position.ReadValue();

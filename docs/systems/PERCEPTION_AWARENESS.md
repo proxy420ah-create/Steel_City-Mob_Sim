@@ -79,6 +79,14 @@ Current contract, kept:
 - Detection `0..1` rises while visible (`riseTime`), decays out of cone
   (`decayTime`); sweep gaps produce natural detection stalls — the Looking
   state's authored head-yaw sweep physically sweeps the cone.
+- **Live head-track channel**: `VoxelAnimator.headYawOverride` (radians,
+  body-relative, NaN = off) poses the head group's yaw at the eval layer, so
+  the eye anchor — and therefore the cone — can be aimed at a world target
+  while the body faces elsewhere. `CombatController` drives it during
+  threat-armed `SeekingCover` legs: eyes ride `AimAnchor()` (belief: freshest
+  sighting else entry report, never live truth) while feet run the route —
+  the transit opportunity channel can genuinely produce contact instead of
+  holding `cone off` forever. In-cover beats release it to authored poses.
 - V-mode 7 paints the cone on the raymarched world.
 
 Required evolution:
@@ -163,10 +171,40 @@ legally shoots back — honest to the self-defense rule.
 
 - `EnterCombat` remains an **explicit order** for player-directed fights and
   for the perception→combat path once a reaction channel decides "engage".
-- The exposure probe stays combat-scoped and **not gated on the cone**: in
-  combat the shooter already knows the threat; the cone remains for
-  notice-level questions and the search phase.
+- ⚠️ **Corrected 2026-10-22** — the earlier draft said combat probes bypass
+  the cone ("the shooter already knows the threat"). That conflated
+  threat-AWARENESS with CONTACT and produced blind-fire bugs (shots at
+  last-known while the cone pointed elsewhere). The order establishes that
+  a fight exists and a belief anchor — **contact still requires the cone**.
+  See the detection stack below.
 - Roles feed combat metadata: `role = attacker | defender` for reports/heat.
+
+### The detection → contact → aim → fire stack (implemented 2026-10-22)
+
+Every "did he see him / can he shoot" question has exactly one owner layer;
+lower layers never substitute for higher ones:
+
+| Layer | Owner | Contract | Failure mode it prevents |
+|---|---|---|---|
+| **DETECTION** | `VisionSensor` (posed eye fan — `EyeDir` ± `halfAngleDeg`, `range`, LOS) | Is the target inside the cone *and* unoccluded? | awareness without attention — a flank-exposed actor the shooter never faced |
+| **CONTACT** | `TickExposureFire` probe = `TryGetVisibleVoxels` ∧ `ConeCovers(centroid)` | Resolved voxels inside the fan, this cadence tick | geometric truth without attention = phantom sightings, stale belief writes |
+| **AIM** | `ArmAimSolver`, one IK channel, two modes | TARGETED: `vis.centroid` on contact, `AimAnchor()` (belief) while peeking; AT-READY: forward present on scout legs | arm raised ≠ permission to fire — painting last-known is legal, firing at it isn't |
+| **FIRE** | `TickExposureFire` gate | `canSee` ∧ held convergence (`convergeSince` + `fireSettleSec`) ∧ cadence ∧ cylinder ∧ `BoreBuried` | stale-error instant shots; belief discharge; bore-in-wall waste |
+
+Invariants worth stating plainly:
+
+- **Contact requires the cone.** `emptyProbes`, the acquisition edge, the
+  last-known write, and the trigger all ride the same `canSee` — one gate,
+  no side channels.
+- **Aim ≠ fire.** Peek/scout/hold channels may keep the gun up on belief or
+  forward indefinitely; the hammer needs contact. (Fires-on-belief was the
+  shipped violation: `FIRES_ON_BELIEF_NO_CONTACT`.)
+- **Converged means held.** The solver's error channel is a frame stale —
+  a retarget must *persist* inside `aimGateDeg` for `fireSettleSec` before
+  the trigger falls.
+- **Head yaw is physical coverage.** `EyeDir` rides the posed head;
+  `dbgSearchLook`'s sweep and `FaceTrack` move the fan — sightlines are a
+  facing resource, not a boolean.
 
 ## Search & resolution — the authored 3-stage procedure (papered 2026-10-21)
 
@@ -181,6 +219,16 @@ awareness-table `lastSeenPos`, and the cover field's zone centroids.
   the threat wherever he ACTUALLY is — a flank that reveals him
   mid-relocation behind different cover is a hit even when `lastSeenPos`
   reads empty. Search discovers; it doesn't just confirm.
+- **The vision cone supersedes all aiming** (2026-10-22): `canSee` =
+  geometric unocclusion ∧ `ConeCovers(centroid)` — resolved voxels must
+  sit inside the posed eye fan (`EyeDir` ± `halfAngleDeg`, within
+  `range`), including for `emptyProbes`. Voxels outside the fan are
+  undetected — a flank-exposed leg can't phantom-snap. Head yaw sweeps
+  the fan physically (`dbgSearchLook` widens mid-leg coverage), and
+  movement-facing on legs means off-axis threats stay unseen until the
+  corridor turns his head. Detection-LEVEL accumulation (hold-in-cone
+  before acquisition) exists in `VisionSensor.detection` but is not yet
+  wired into the contact contract.
 - Arena caveat: both actors are exposed at combat start, so the first
   positive probe seeds each side's `lastSeenPos` automatically.
 - **Implemented — belief is EVENT-driven, and it stores the RING not the
@@ -201,17 +249,39 @@ awareness-table `lastSeenPos`, and the cover field's zone centroids.
 
 ### The procedure (atomic procedures; only settle seams between)
 
-1. **MISS IN POSITION** — contact lost in `Engaged` (`emptyProbesToDrop`
-   consecutive empty probes) → `Duck` → `Settle`. `lastSeenPos` is fresh.
-   (Already the shipped loop — the seam is the branch point.)
-2. **HOP 1 — 45°** — pick a Hidden-zone centroid whose bearing around
-   `lastSeenPos` is ~45° off the current bearing, random side (CW/CCW —
-   future: stat-influenced close-the-gap vs defensive). Seek → `Settle` →
-   **PEEK** at `lastSeenPos`.
-3. **HOP 2 — 90° FROM ORIGIN** — same pick, but the target bearing is ±90°
-   off the FIRST position's bearing (12 o'clock → 3 or 9), not cumulative
-   off hop 1. Seek → `Settle` → **PEEK**. Still nothing → `ExitCombat` →
-   resume duties; the awareness-table entry is marked stale and decays.
+1. **MISS IN POSITION** — ANY empty-peek verdict: contact lost in
+   `Engaged` (`emptyProbesToDrop` consecutive empty probes), a
+   zero-contact `Rise`, or a zero-contact `Swing` dwell → `Duck` →
+   `Settle`. `lastSeenPos`/belief is fresh (or the entry report, if he
+   was never seen — the search still orbits something). The Settle seam
+   is the branch point.
+2. **THE ORBIT (collapsed stages, 2026-10-22)** — the goal is not two
+   fixed hops but **~90° of bearing around the anchor**, accumulated
+   through as many Hidden-zone hops as geometry offers (the user:
+   "across the street, down a block, around a block — even behind enemy
+   lines"). At arm: anchor = `AimAnchor`, origin bearing = where he
+   stands, **orbit radius** = the standoff held at the loss — the ring
+   drawn in-world is the HOT PATH: hop scoring hugs it
+   (|stand→anchor dist − radius| + 0.15·travel), any depth near or far
+   is legal, side = rolled CW/CCW. Each `TryOrbitStep` picks the
+   cheapest unvisited Hidden zone advancing the arc ≥15° (fallback: any
+   forward progress) whose cover face **points away from the anchor**
+   (`outDir · anchor→stand > +0.3` — outDir points outward into the
+   stand area, so facing-away cover reads parallel; the hop path is a chain of
+   genuinely opposing cover, not accidental hiding). Legs are ROUTED —
+   `BuildRoute` Dijkstra-floods the cover field's own cell grid with
+   voxel-solid walkability (the same SamplePoint predicate as
+   MoveWithCollision), the orbit ring as a soft per-cell cost
+   (`routeRingBias`), and a string-pull into waypoints; `search_legN`
+   draws the corridor polyline.
+   Hop classes (`orbitReconEvery` = 3): RECON legs land and run the
+   peek; TRANSIT legs land → brief settle → next step without peeking
+   (2 transit → 1 recon). An aborted leg marks the zone spent and
+   re-picks from where he stands.
+3. **RESOLUTION** — `progress ≥ 90°` = the flank is satisfied; the peek
+   at that stand is the answer, and a following miss → `ExitCombat` →
+   resume duties (stale awareness). Full arc exhaustion (no unvisited
+   Hidden zone advances on the rolled side) ends it the same way.
 
 **PEEK = two shapes**, both verdict-gated procedures ending on a fresh
 visibility probe at the converged pose:
@@ -252,12 +322,27 @@ has to hold long enough for detection to accumulate.
 
 ## Explicit non-goals / deferred
 
-- ~~The 3-step search pattern content~~ — papered 2026-10-21 (Search &
-  resolution section above): 45° → 90°-from-origin hops, cone-driven
-  reacquisition, `Swing` lateral peek. The `Swing` peek primitive itself is
-  IMPLEMENTED (rise-refusal → lateral corner peek → step back; see
-  ENGAGEMENT_BEATS) — the hop driver that chains peeks into stages is the
-  remaining piece.
+- ~~The 3-step search pattern content~~ — papered 2026-10-21,
+  implemented 2026-10-22, then **collapsed to the ORBIT doctrine same
+  day** (user: "the goal is a ±90° bearing offset to the anchor, hops
+  however far the cover chain leads"): `ArmSearch()` arms at ANY
+  empty-peek verdict and records the orbit frame (anchor = `AimAnchor`,
+  origin bearing, buffer radius = standoff at loss, rolled CW/CCW side).
+  `TryOrbitStep` — consumed at each Settle seam — picks the cheapest
+  unvisited Hidden zone advancing the arc ≥15° at ≥ buffer radius
+  (`searchVisited` prevents ping-pong; a two-pass min-step relaxes to
+  "any advance" before declaring exhaustion). Progress is cumulative;
+  overshoot past 90° is legal. Legs run the scout posture (local Hidden
+  verdict folds to `reqD`, open ground = `duck 0` + `AimWalk` + arm
+  presented FORWARD; `dbgSearchLook` A/Bs the head sweep). Abort → zone
+  spent → re-pick; only arc exhaustion or `progress ≥ 90°` ends the
+  episode. Mid-leg sighting rolls 50/50 continue-vs-`TryNearestCover`
+  park. Panel lane `SEARCH ▸ ORBIT n° ▸ FLANK 90°`; markers
+  `search_ref`/`search_aim` (goal spoke)/`search_buf` (standoff ring)/
+  `search_pick`/`search_leg`/`search_tgt`. Still deferred: stat-weighted
+  side choice, the lookScan-authored sweep during peeks, the **flow-
+  field flood** replacing Euclidean hop cost + bounding where-Tan-could-
+  be (reachable-set gate).
 - Identity/face-recognition tuning constants.
 - Dispatch/police response policy beyond the witness-record contract.
 - Conversation/social perception (gestures, bribes) — out of scope.
