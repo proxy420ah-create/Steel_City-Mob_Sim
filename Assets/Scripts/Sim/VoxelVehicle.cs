@@ -52,6 +52,80 @@ namespace SteelCity.Sim
         private bool regValid;
         private uint[] flatVoxels;
         private static readonly Dictionary<int, VoxelVehicle> byCollisionId = new();
+        private static readonly List<VoxelVehicle> allVehicles = new();
+
+        // --- Motion (cover / map consumers) ---
+        private Vector3 lastPos; private bool lastPosValid;
+        private float lastMoveTime = -999f;
+        private Vector3 velocity;
+        private VehicleAgent agent;
+        /// <summary>Planar velocity estimate (m/s) from the transform delta.</summary>
+        public Vector3 Velocity => velocity;
+        /// <summary>Driving (agent says so) or moved within the last 1.5 s. A moving car is never cover and its swept footprint is
+        /// priced out of the actor flood; a parked car (scenery or pulled over) stays valid cover.</summary>
+        public bool IsMoving
+        {
+            get
+            {
+                if (agent == null) agent = GetComponent<VehicleAgent>();
+                if (agent != null && agent.IsDriving && !agent.IsParked) return true;
+                return Time.time - lastMoveTime < 1.5f;
+            }
+        }
+
+        void OnEnable() { if (!allVehicles.Contains(this)) allVehicles.Add(this); }
+        void OnDisable() { allVehicles.Remove(this); }
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        static void HookCoverExclusion()
+        {
+            allVehicles.Clear(); byCollisionId.Clear();
+            SolidVolumeSet.ExcludeFromCover = IsVolumeMoving;
+        }
+
+        /// <summary>True when the collision volume id belongs to a vehicle that is currently moving.</summary>
+        public static bool IsVolumeMoving(string volId)
+            => TryGetByCollisionId(volId, out var v) && v.IsMoving;
+
+        /// <summary>Mark every field cell a moving vehicle occupies now or will sweep within horizonSec.
+        /// A cell p is hit iff p - v*s lies inside the car's CURRENT volume for some s in [0, horizon] - answered by the collision
+        /// world itself (yaw handled by the volume), so the mask can't disagree with what blocks the body.</summary>
+        public static void PaintMovingFootprints(CoverField f, VoxelCollisionWorld world, float horizonSec)
+        {
+            if (f == null || !f.HasData || world == null) return;
+            for (int vi = 0; vi < allVehicles.Count; vi++)
+            {
+                var v = allVehicles[vi];
+                if (v == null || v.collisionId == null || !v.IsMoving) continue;
+                Vector3 size = v.WorldSize;
+                Vector3 c = v.transform.position + new Vector3(size.x * 0.5f, 0f, size.z * 0.5f);
+                Vector3 vel = v.velocity; vel.y = 0f;
+                Vector3 end = c + vel * horizonSec;
+                float r = 0.5f * Mathf.Sqrt(size.x * size.x + size.z * size.z) + 0.4f;
+                int n = f.N; float cs = f.CellSize;
+                if (cs <= 0f) return;
+                // swept AABB -> cell rect, clamped to the field; a car whose sweep misses the field entirely costs nothing
+                int x0 = Mathf.Max(0, Mathf.FloorToInt((Mathf.Min(c.x, end.x) - r - f.Origin.x) / cs));
+                int z0 = Mathf.Max(0, Mathf.FloorToInt((Mathf.Min(c.z, end.z) - r - f.Origin.z) / cs));
+                int x1 = Mathf.Min(n - 1, Mathf.FloorToInt((Mathf.Max(c.x, end.x) + r - f.Origin.x) / cs));
+                int z1 = Mathf.Min(n - 1, Mathf.FloorToInt((Mathf.Max(c.z, end.z) + r - f.Origin.z) / cs));
+                if (x0 > x1 || z0 > z1) continue;
+                float y = v.transform.position.y + 0.4f;
+                for (int cz = z0; cz <= z1; cz++)
+                for (int cx = x0; cx <= x1; cx++)
+                {
+                    Vector3 p = f.CellCenter(cx, cz);
+                    for (int k = 0; k <= 4; k++)
+                    {
+                        float t = horizonSec * (k / 4f);
+                        Vector3 q = p - vel * t;
+                        var ps = world.SamplePoint(new Vector3(q.x, y, q.z));
+                        if (ps.kind == VoxelCollisionWorld.PointKind.VolumeSolid && ps.volumeId == v.collisionId)
+                        { f.MarkDyn(cz * n + cx); break; }
+                    }
+                }
+            }
+        }
         private static readonly Dictionary<string, uint[]> voxelCache = new();
 
         /// <summary>Collision-world volume id ("veh_<instanceID>") — null until first registration.</summary>
@@ -163,6 +237,14 @@ namespace SteelCity.Sim
         /// </summary>
         void Update()
         {
+            Vector3 np = transform.position;
+            if (lastPosValid && Time.deltaTime > 1e-4f)
+            {
+                Vector3 raw = (np - lastPos) / Time.deltaTime; raw.y = 0f;
+                velocity = Vector3.Lerp(velocity, raw, 0.35f);
+                if (raw.sqrMagnitude > 0.0025f) lastMoveTime = Time.time;
+            }
+            lastPos = np; lastPosValid = true;
             if (!solidCollider || flatVoxels == null) return;
             if (collisionWorld == null)
             {

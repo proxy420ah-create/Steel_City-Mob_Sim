@@ -263,7 +263,7 @@ namespace SteelCity.Sim
                                 + $" · dist {solver.LastTargetDistanceM:F1}m");
                 if (cc.LastSeenTarget.HasValue)
                     sb.AppendLine($"lastSeen ({cc.LastSeenTarget.Value.x:F0},{cc.LastSeenTarget.Value.z:F0})"
-                                + $" · {Time.unscaledTime - cc.LastSeenAt:F1}s ago");
+                                + $" · {SimClock.Now - cc.LastSeenAt:F1}s ago");
             }
 
             // ── DICE readout — when the dice frame owns the fighter the
@@ -273,7 +273,7 @@ namespace SteelCity.Sim
             {
                 sb.AppendLine("── dice ────────────────");
                 sb.AppendLine(
-                    (cc.diceManual ? (cc.diceMimic ? "MANUAL·mimic" : "MANUAL") : "auto")
+                    (cc.diceManual ? "MANUAL" : "auto")
                     + $" · quantum #{cc.DiceCycle}"
                     + $" · face {cc.DiceFace} ({CombatController.DiceFaceNames[cc.DiceFace]})"
                     + (cc.DiceSubRoll > 0 ? $" · sub {cc.DiceSubRoll}/6" : "")
@@ -361,10 +361,10 @@ namespace SteelCity.Sim
                 // Held through the same disarm-hold window — a single dropped
                 // probe mustn't flicker the node.
                 bool exposed = probing && (cc.Visibility.visible > 0
-                            || Time.unscaledTime - cc.LastSeenAt <= cc.disarmHoldSec);
+                            || SimClock.Now - cc.LastSeenAt <= cc.disarmHoldSec);
                 bool converged = cc.ExposureArmed && solver != null && solver.IsAiming
                               && solver.Blend >= 0.7f && solver.LastAngularErrorDeg <= cc.aimGateDeg;
-                bool justFired = cc.LastShotAt >= 0f && Time.unscaledTime - cc.LastShotAt < 0.4f;
+                bool justFired = cc.LastShotAt >= 0f && SimClock.Now - cc.LastShotAt < 0.4f;
                 // The wheel: ● = chambered, ○ = spent — drains per FIRE,
                 // seats back one-at-a-time during RELOAD (amber while loading).
                 bool reloading = cc.Reloading;

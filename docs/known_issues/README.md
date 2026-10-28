@@ -55,3 +55,9 @@ Bug tracker per Development Guidelines Rule 13. Bugs are cataloged by category i
 | [Swing Step-Out Bypassed Map Corridor — Corner Clip Grind](runtime/SWING_STEP_OUT_CORNER_CLIP.md) | runtime | 🟡 FIX APPLIED | 🟡 HIGH | 2026-10-22 |
 | [Swing Peek Measured Shadow Rim, Not Wall End — Wall-Side Bias](runtime/SWING_PEEK_SHADOW_RIM_VS_WALL_END.md) | runtime | 🟡 FIX APPLIED | 🟡 HIGH | 2026-10-23 |
 | [Dice Ownership Leaks — Authored Systems Act Under the Roll](runtime/DICE_AUTHORED_SYSTEM_LEAKS.md) | runtime | 🟢 FIXED | 🔴 CRITICAL | 2026-10-27 |
+| [Dice Turn-Based Scaffolding Leaks Into Real-Time](runtime/DICE_TURN_BASED_SCAFFOLDING_VS_REALTIME.md) | runtime | 🟡 FIX APPLIED | 🟡 HIGH | 2026-10-27 |
+| [Eye Sees, Muzzle Cant - Aware != Shootable](runtime/EYE_SEES_MUZZLE_CANT_SHOOTABLE_GAP.md) | runtime | 🟡 FIX APPLIED | 🔴 CRITICAL | 2026-10-28 |
+| [Step-Guard State Inherited Across Legs - Instant Refused Aborts](runtime/STUCK_GUARD_STATE_POISONS_NEXT_LEG.md) | runtime | 🟡 FIX APPLIED | 🔴 CRITICAL | 2026-10-28 |
+| [Point-Blank Standoff - Aim Angle Meaningless Within Arms Length](runtime/POINT_BLANK_STANDOFF_AIM_ANGLE.md) | runtime | 🟡 FIX APPLIED / INVESTIGATING | 🟡 HIGH | 2026-10-28 |
+| [Moving Vehicles As Cover / Bodies Embedded In Cars / Guard Reset Regression](runtime/MOVING_VEHICLES_COVER_EMBED_GUARD_REGRESSION.md) | runtime | 🟡 FIX APPLIED | 🔴 CRITICAL | 2026-10-28 |
+| [Deep-Recon Stops Stale At Dispatch](runtime/DEEP_RECON_STOPS_STALE_AT_DISPATCH.md) | runtime | 🟡 FIX APPLIED | 🟡 HIGH | 2026-10-28 |

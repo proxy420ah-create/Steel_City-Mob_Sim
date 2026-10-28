@@ -325,6 +325,10 @@ namespace SteelCity.Sim
         /// on a side whose neighbor does not cover at `openAtWorld` height (open space a
         /// body could stand in). `openAtWorld` is a world-space Y (typically crouch eye).
         /// </summary>
+        /// <summary>Optional predicate: true = this volume must NOT supply cover walls (a MOVING car leaves; it is
+        /// still an obstacle everywhere else). Set by VoxelVehicle; null in the offline selftest.</summary>
+        public static System.Func<string, bool> ExcludeFromCover;
+
         public int QueryCoverWalls(Vector3 center, float radius, float minSpanWorld, float openAtWorld, List<CoverWall> results)
         {
             results.Clear();
@@ -351,6 +355,7 @@ namespace SteelCity.Sim
                         float cz = Mathf.Clamp(center.z, v.wMin.z, v.wMax.z);
                         float ddx = center.x - cx, ddz = center.z - cz;
                         if (ddx * ddx + ddz * ddz > r2) continue;
+                        if (ExcludeFromCover != null && ExcludeFromCover(v.id)) continue;
                         EmitWalls(v, minSpanWorld, openAtWorld, results);
                     }
                 }

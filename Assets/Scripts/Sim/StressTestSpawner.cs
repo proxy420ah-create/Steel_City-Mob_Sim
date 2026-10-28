@@ -8,7 +8,7 @@ namespace SteelCity.Sim
     /// <summary>
     /// Stress test: spawns N VoxelCharacter instances, each uses real A* pathfinding
     /// through the WaypointGraph to reach a random target block, then paths home and self-destructs.
-    /// Activate via F8 key or call RunTest() from code.
+    /// Activate via F11 key or call RunTest() from code.
     /// </summary>
     public class StressTestSpawner : MonoBehaviour
     {
@@ -27,8 +27,8 @@ namespace SteelCity.Sim
 
         [Header("Debug")]
         [SerializeField] private bool verboseLogging = false;
-        [Tooltip("Press this key to spawn Vinnys. Default: F8")]
-        [SerializeField] private Key spawnKey = Key.F8;
+        [Tooltip("Press this key to spawn Vinnys. Default: F11")]
+        [SerializeField] private Key spawnKey = Key.F11;
         [Tooltip("Press this key to cycle path beam count. Default: F7")]
         [SerializeField] private Key beamCycleKey = Key.F7;
 

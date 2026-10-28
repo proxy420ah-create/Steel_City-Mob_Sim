@@ -559,6 +559,10 @@ namespace SteelCity.Sim
             // Build only runs when a threat exists.
             field.Build(pos, Threat, radius, walls, world, standoff, HShallow, EyeFwd,
                 threatEye, facingDot, proxWeight, fieldRes, HDeep, EyeFwdDeep, HStand, depthMargin);
+            // Moving vehicles: their occupied + swept cells go into the field's dynamic mask so every
+            // flood/pick built on this scan prices them (cars invalidate the map as they drive).
+            field.ClearDynBlock();
+            VoxelVehicle.PaintMovingFootprints(field, world, 1.5f);
             // The actor's ground signature: one square column, the SAME square
             // the mover claims — every Walkable verdict on this field answers
             // "can the body-square be placed here" at continuous resolution
@@ -650,6 +654,11 @@ namespace SteelCity.Sim
             public float fraction;
             public Vector3 centroid;
             public VoxelCharacter target;
+            /// <summary>Samples visible from BOTH the eye and the live muzzle — the SHOOTABLE set.
+            /// Equals `visible` when no muzzle probe ran (muzzleGated=false: unknown, permissive).</summary>
+            public int shootable;
+            public Vector3 shootCentroid;
+            public bool muzzleGated;
         }
 
         /// <summary>Result of the last probe — CombatController's exposure gate.</summary>
@@ -662,6 +671,12 @@ namespace SteelCity.Sim
         void Notify() => Changed?.Invoke();
         /// <summary>World point the last probe cast from — for HUD/viz.</summary>
         public Vector3 LastProbeEye { get; private set; }
+        /// <summary>Muzzle probe — when HasMuzzleProbe, every probe sample is ALSO rayed from
+        /// MuzzleProbeOrigin: eye-visible = AWARE, eye∧muzzle-visible = SHOOTABLE (VisibleSet.shootable).</summary>
+        public bool HasMuzzleProbe;
+        public Vector3 MuzzleProbeOrigin;
+        public int LastMuzzleVisible { get; private set; }
+        public int LastBothVisible { get; private set; }
         private readonly Vector3[] visBuf = new Vector3[96];
         private int visDrawn;            // tv_s{i} beams alive right now
         private bool visCentroidDrawn;   // tv_c{x,y,z} cross alive
@@ -685,6 +700,7 @@ namespace SteelCity.Sim
         public bool TryGetVisibleVoxels(VoxelCharacter target, out VisibleSet set)
         {
             set = default;
+            LastMuzzleVisible = 0; LastBothVisible = 0;
             if (world == null) world = FindFirstObjectByType<VoxelCollisionWorld>();
             if (target == null || world == null)
             { LastVisible = set; ClearVisBeams(); Notify(); return false; }
@@ -701,7 +717,7 @@ namespace SteelCity.Sim
             var pdr = showTargetViz ? PathDebugRenderer.Instance : null;
             var pdrMark = PathDebugRenderer.Instance;
             bool wantMarks = showImpactMarks && pdrMark != null;
-            int vis = 0; Vector3 sum = Vector3.zero;
+            int vis = 0, visM = 0, visB = 0; Vector3 sum = Vector3.zero, sumB = Vector3.zero;
             for (int i = 0; i < n; i++)
             {
                 Vector3 d = visBuf[i] - eye;
@@ -709,6 +725,12 @@ namespace SteelCity.Sim
                 VoxelRayHit rh = default;
                 bool clear = dist < 1e-4f || !world.Raycast(eye, d / dist, dist, out rh);
                 if (clear) { vis++; sum += visBuf[i]; }
+                if (HasMuzzleProbe)
+                {
+                    Vector3 dm = visBuf[i] - MuzzleProbeOrigin; float dd = dm.magnitude;
+                    if (dd < 1e-4f || !world.Raycast(MuzzleProbeOrigin, dm / dd, dd, out _))
+                    { visM++; if (clear) { visB++; sumB += visBuf[i]; } }
+                }
                 if (pdr != null)
                     pdr.SetCustomBeam($"tv_s{i}", eye, visBuf[i], 0.012f,
                         clear ? new Color(0.3f, 1f, 0.4f, 0.5f)
@@ -739,8 +761,12 @@ namespace SteelCity.Sim
                 fraction = (float)vis / n,
                 centroid = vis > 0 ? sum / vis : Vector3.zero,
                 target = target,
+                muzzleGated = HasMuzzleProbe,
+                shootable = HasMuzzleProbe ? visB : vis,
+                shootCentroid = HasMuzzleProbe ? (visB > 0 ? sumB / visB : Vector3.zero) : (vis > 0 ? sum / vis : Vector3.zero),
             };
             LastVisible = set;
+            LastMuzzleVisible = visM; LastBothVisible = visB;
             Notify();
 
             if (pdr != null)

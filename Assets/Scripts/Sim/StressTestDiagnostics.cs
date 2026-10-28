@@ -7,7 +7,7 @@ namespace SteelCity.Sim
 {
     /// <summary>
     /// Frame-by-frame diagnostic logger activated during stress test.
-    /// Logs every frame from F8 press until all agents have received their paths.
+    /// Logs every frame from F11 press until all agents have received their paths.
     /// Captures FPS, pathfinding throughput, GC, render stats, and timing.
     /// </summary>
     public class StressTestDiagnostics : MonoBehaviour
@@ -17,7 +17,7 @@ namespace SteelCity.Sim
         [SerializeField] private VoxelChunkManager chunkManager;
 
         [Header("Settings")]
-        [SerializeField] private Key activationKey = Key.F8;
+        [SerializeField] private Key activationKey = Key.F11;
         [SerializeField] private Key stopKey = Key.F9;
         [SerializeField] private bool logToConsole = true;
         [SerializeField] private bool logToFile = true;

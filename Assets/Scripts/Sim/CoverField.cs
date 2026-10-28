@@ -1043,6 +1043,26 @@ namespace SteelCity.Sim
         /// should" — the domain is physics; the paint is the discount.</summary>
         public const float UnstampedCost = 2.0f;
 
+        // ── DYNAMIC OBSTACLES - cells a MOVING vehicle occupies or will sweep within the horizon. Repainted
+        //    every scan (VoxelVehicle.PaintMovingFootprints). Not a wall: the flood prices these cells
+        //    DynBlockCostMult x so routes avoid them but a body standing in one can still flee; pickers
+        //    reject stands / step cells inside them (IsDyn).
+        public const float DynBlockCostMult = 12f;
+        public bool[] dynBlock;
+        public bool HasDynBlock { get; private set; }
+        public void ClearDynBlock()
+        {
+            if (dynBlock == null || dynBlock.Length != N * N) dynBlock = new bool[N * N];
+            else System.Array.Clear(dynBlock, 0, dynBlock.Length);
+            HasDynBlock = false;
+        }
+        public void MarkDyn(int idx)
+        {
+            if (dynBlock == null || idx < 0 || idx >= dynBlock.Length) return;
+            dynBlock[idx] = true; HasDynBlock = true;
+        }
+        public bool IsDyn(int idx) => HasDynBlock && idx >= 0 && idx < dynBlock.Length && dynBlock[idx];
+
         /// <summary>Goal-seeded Dijkstra over the walkable channel — one
         /// flood, all consumers read. Seeds are snapped to walkable cells;
         /// unreachable cells keep dist = INF (the prefilter verdict).
@@ -1091,6 +1111,7 @@ namespace SteelCity.Sim
                         continue;
                     float step = (dx != 0 && dz != 0 ? 1.4142f : 1f) * CellSize;
                     if (pref && !preferred.Contains(floorMat[ni])) step *= UnstampedCost;
+                    if (HasDynBlock && dynBlock[ni]) step *= DynBlockCostMult;
                     float gc = map.dist[c] + step;
                     if (gc >= map.dist[ni]) continue;
                     if (map.dist[ni] == DistMap.INF) map.ReachedCount++;

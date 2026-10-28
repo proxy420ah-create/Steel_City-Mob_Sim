@@ -246,13 +246,9 @@ namespace SteelCity.Sim
         private byte  diceFace;                  // 0 unrolled · 1-6 the live face
         private int   diceBearing = -1;          // -1 center · 0-2 the cylinder's 1d3 (phase 3+)
         private int   diceCycle;                 // quanta since frame entry
-        private float diceParkUntil;             // recheck clock while a top-up owns the channel
-        private float diceLastEvidence;          // freshest contact-or-heard evidence — the starve clock
         private string diceRunning = "—", diceVerdict = "—", diceHist = "";
         [Tooltip("MANUAL — the roll gates on the HUD's 🎲 button: each click resolves ONE decision (ramp → face → next turn). Off = the quantum timer drives as before.")]
         public bool diceManual = false;
-        [Tooltip("MIMIC — manual-only lockstep: this fighter's rolls are consumed by the partner's click (his own 🎲 button is slaved). The driver's roll waits until BOTH are seam-ready — one click, two dice. Inert in auto mode (unleashed).")]
-        public bool diceMimic = false;
         [Tooltip("Movement quantum — one face's ground: STRAFE and ADVANCE both step exactly this far.")]
         public float diceStepM = 2.5f;
         private bool diceAwaitRoll;            // parked awaiting a click (face roll OR ramp check)
@@ -270,6 +266,12 @@ namespace SteelCity.Sim
         private readonly List<Vector3> diceDeepPoints = new List<Vector3>(3);   // stage positions — drawn from reachable cells, not pure geometry
         private readonly List<string>  diceDeepTags   = new List<string>(3);    // per-stop: "flank" (on-arc) | "push-in" (fallback)
         private bool diceDeepBare;             // the live stop is on its bare-point leg (fallback or no snap)
+        [Header("Dice flight recorder")]
+        [Tooltip("Append this fighter's edge events + periodic SNAP lines to Logs/dice_trace.log (see DiceTrace). Edges: state/beat, contact, armed/aim, pose, duck snaps, fire gate, shots, dice flags, clicks, consumes, every DicePost.")]
+        public bool diceTrace = true;
+        [Tooltip("Seconds between full-state SNAP lines per fighter (edge events always log the instant they happen).")]
+        public float diceTraceSnapSec = 0.5f;
+        [HideInInspector] public string traceLabel;
         private readonly System.Collections.Generic.HashSet<int> deepChosen
             = new System.Collections.Generic.HashSet<int>();   // cells already claimed this fan
         const float DeepSnapM = 1.5f;          // how far off-arc a cover stand can be before the stop goes bare
@@ -279,9 +281,19 @@ namespace SteelCity.Sim
         private bool diceLegBuilt;             // StepRouted's one-build latch for the live micro-leg
         private bool diceMoveDone;             // a dice-dispatched seek completed — re-park signal
         private string diceAwaitText = "";     // what the next click resolves
-        [Range(0f, 15f), Tooltip("MANUAL — the seam between rolls: seconds of live fight-time between decisions (fire rides the whole seam — the pause is for the operator's eyes, not his gun).")]
+        [Range(0f, 15f), Tooltip("MANUAL ONLY — operator window between clicks. AUTO ignores it: decisions are event-driven (the next roll fires the tick the previous action lands).")]
         public float diceRollCooldownSec = 5f;
-        private float diceNextRollAt;          // unscaled-time gate the next click waits on
+        [Range(0f, 10f), Tooltip("STAND hold — how long a rolled STAND (or a refused move that stands) occupies the fighter before the next roll. Fire rides it. A real duration so a no-op face can't spin the dice at tick rate.")]
+        public float diceStandHoldSec = 1.5f;
+        [Tooltip("SHOOTABLE SET — while the gun is up (aim blend ≥ 0.7) the exposure probe also rays every silhouette sample from the live MUZZLE. Aware (eye) ≠ shootable (eye ∧ muzzle): the trigger and the aim point use the shootable set, so the gun is never aimed at a point it can't hit.")]
+        public bool muzzleShootGate = true;
+        [Range(0.02f, 0.5f), Tooltip("Convergence by MISS DISTANCE - the bore counts as converged when it passes within this many metres of the aim point (muzzle->point distance x tan(err)), even if the angle exceeds aimGateDeg. Makes point-blank shooting possible.")]
+        public float hitRadiusM = 0.1f;
+        [Range(0f, 20f), Tooltip("RELOAD FROM COVER — a reload is a committed, vulnerable action. When exposed (target in sight) the fighter first breaks line of sight: nearest reachable Hidden stand within this path distance, not closing on the enemy. 0 disables (always reload in place).")]
+        public float diceReloadCoverMaxM = 8f;
+        private bool diceReloadAfterMove;     // a reload-cover seek is live - arrival starts the wheel (no extra roll)
+        private int  diceReloadCoverTries;    // cover attempts for THIS reload need (2 max, then reload in place)
+        private float diceNextRollAt;          // sim-clock (SimClock.Now) gate the next click waits on
         private readonly List<CoverField.ZoneSpot> diceSubCands = new List<CoverField.ZoneSpot>(8);
         /// <summary>One logged decision — what was rolled, what it meant in
         /// plain english, and what the NEXT roll decides. kind: 0 info ·
@@ -304,12 +316,12 @@ namespace SteelCity.Sim
         public int    DiceSubRoll     => diceSubRoll;
         public string DiceAwaitText   => diceAwaitText;
         public bool   DiceRampPending => diceRampPending;
-        public float  DiceRollReadyIn => Mathf.Max(0f, diceNextRollAt - Time.unscaledTime);
+        public float  DiceRollReadyIn => Mathf.Max(0f, diceNextRollAt - SimClock.Now);
         public int    DiceSubCount    => diceSubCands.Count;
         public bool   DiceLegActive   => diceLegActive;
         public Vector3 DiceLegTarget  => diceLeg;
         public bool   DiceReconChecking => diceReconCheck;
-        public float  DiceReconLeft   => diceReconSettleUntil > 0f ? Mathf.Max(0f, diceReconSettleUntil - Time.unscaledTime) : 0f;
+        public float  DiceReconLeft   => diceReconSettleUntil > 0f ? Mathf.Max(0f, diceReconSettleUntil - SimClock.Now) : 0f;
         public bool   DiceDeepActive  => diceDeepActive;
         public static readonly string[] DiceFaceNames =
             { "—", "STRAFE-L", "ADVANCE", "STRAFE-R", "COVER-L", "STAND", "COVER-R" };
@@ -396,16 +408,17 @@ namespace SteelCity.Sim
             // writer flap legible (the `who` field still alternates) at a
             // bounded cost.
             if (yawWatch && Mathf.Abs(d) > 0.1f
-                && Time.unscaledTime - lastYawLogT > 0.25f)
+                && SimClock.Now - lastYawLogT > 0.25f)
             {
                 Debug.Log($"[Yaw] {name} ← {who} · {cur:F1}→{y:F1} · beat {Beat}");
-                lastYawLogT = Time.unscaledTime;
+                lastYawLogT = SimClock.Now;
             }
             lastYawWriter = who;
         }
 
         void LateUpdate()
         {
+            if (diceTrace && DiceActive && State != CombatState.Idle) DiceTraceTick();   // after Update — final pose/duck of the frame
             float y = transform.eulerAngles.y;
             // Idle = outside combat ownership — possess, teleports and the
             // sim all legitimately rotate him there; only combat is policed.
@@ -465,7 +478,7 @@ namespace SteelCity.Sim
             if (s == CombatState.SeekingCover)
             {
                 coverArrived = false;
-                swingStuckPos = Feet(); swingStuckT = Time.unscaledTime; stuckNudges = 0; stuckBest = float.MaxValue;
+                swingStuckPos = Feet(); swingStuckT = SimClock.Now; stuckNudges = 0; stuckBest = float.MaxValue;
             }
             Notify();
         }
@@ -477,7 +490,7 @@ namespace SteelCity.Sim
         public float RiseDuck => riseDuck;
         /// <summary>Seconds left on the current beat's timer (Settle/Rise; else 0) — the panel's inline countdown.</summary>
         public float BeatLeft => Beat == EngagementBeat.None ? 0f
-            : Mathf.Max(0f, beatUntil - Time.unscaledTime);   // every beat carries a dwell floor now
+            : Mathf.Max(0f, beatUntil - SimClock.Now);   // every beat carries a dwell floor now
         /// <summary>The active beat's dwell floor — progress-bar denominators.</summary>
         public float BeatDwellNow => DwellFor(Beat);
         /// <summary>The seam's branch point — which beat this Settle exits to.</summary>
@@ -517,7 +530,7 @@ namespace SteelCity.Sim
         /// <summary>Time of the last successful shot — the flow panel's FIRE node.</summary>
         public float LastShotAt { get; private set; } = -1f;
         /// <summary>Seconds until the cadence window opens (0 = clear to fire).</summary>
-        public float NextFireIn => Mathf.Max(0f, nextFireTime - Time.unscaledTime);
+        public float NextFireIn => Mathf.Max(0f, nextFireTime - SimClock.Now);
         /// <summary>The fire gate's first refusal this tick — null = gate clear.
         /// The flow strip lights FIRE on the event; this names WHY it held.</summary>
         public string FireHold { get; private set; }
@@ -526,10 +539,10 @@ namespace SteelCity.Sim
         /// <summary>Seconds until the wheel is full again — next seat plus the
         /// remaining chambers' intervals (0 unless reloading).</summary>
         public float ReloadLeft => reloading
-            ? Mathf.Max(0f, nextRoundLoad - Time.unscaledTime) + (cylinderCapacity - cylinder - 1) * roundLoadInterval
+            ? Mathf.Max(0f, nextRoundLoad - SimClock.Now) + (cylinderCapacity - cylinder - 1) * roundLoadInterval
             : 0f;
         /// <summary>Seconds until the NEXT chamber seats — the flow dots' next tick.</summary>
-        public float NextRoundIn => reloading ? Mathf.Max(0f, nextRoundLoad - Time.unscaledTime) : 0f;
+        public float NextRoundIn => reloading ? Mathf.Max(0f, nextRoundLoad - SimClock.Now) : 0f;
 
         /// <summary>Spend one chamber — the shared trigger debit for BOTH the
         /// AI fire loop and the possess LMB path. No-op on an empty wheel.</summary>
@@ -543,7 +556,7 @@ namespace SteelCity.Sim
         {
             if (reloading || cylinder >= cylinderCapacity) return;
             reloading = true;
-            nextRoundLoad = Time.unscaledTime + roundLoadInterval;
+            nextRoundLoad = SimClock.Now + roundLoadInterval;
             Notify();
         }
 
@@ -569,7 +582,7 @@ namespace SteelCity.Sim
         private int cylinder;
         private bool reloading;
         private float nextVisProbe, nextFireTime, nextRoundLoad;
-        private float convergeSince = -1f;   // unscaledTime the bore has CONTINUOUSLY held aim inside the gate (−1 = not holding); acquisition edges reset it
+        private float convergeSince = -1f;   // SimClock.Now the bore has CONTINUOUSLY held aim inside the gate (−1 = not holding); acquisition edges reset it
         // Loop-gate state: `loopGate` arms on every Duck entry — the settle that
         // follows a duck is the re-cycle gate, decided LIVE at its exit (not
         // at duck-entry time, so a mid-seam toggle takes effect). `awaitingLoop`
@@ -581,6 +594,16 @@ namespace SteelCity.Sim
         // was aimed at; `buriedSince` = sustained-buried hysteresis.
         private float buriedSince;
         private Vector3 aimPointWorld;
+        // Contact-hold — the DISPLAY channel's debounced "is he there". The
+        // fire gate + verdicts read raw `contactSeen` (live truth, one tick);
+        // the pose pick + the aim-source pick read this instead, so a
+        // 1-frame voxel miss can't whip the solver/head between the live
+        // point and the belief anchor (the retarget feedback loop that
+        // showed as the AimSweep↔Aiming bob). Live supersedes — the anchor
+        // only becomes the fallback when contact is genuinely stale.
+        private Vector3 liveAimPoint;
+        private bool   contactHold;
+        const float ContactHoldSec = 0.45f;
         [Tooltip("How long the real muzzle ray must stay blocked before the wall is declared unfightable (buried-bore verdict → relocate).")]
         public float boreBurySec = 0.4f;
         /// <summary>Scratch for EnumerateZones — relocation candidates are the
@@ -775,8 +798,7 @@ namespace SteelCity.Sim
             LastSeenTarget = shotPos;
             lastConfirmed = shotPos;
             if (searching) ArmSearch();   // re-anchor the orbit on the bang
-            if (DiceActive) diceLastEvidence = Time.unscaledTime;   // feed — evidence slides the anchor, never interrupts
-            else if (ArbActive) seamNow = true;   // intel moved — instant re-eval
+            if (!DiceActive && ArbActive) seamNow = true;   // intel moved — instant re-eval
         }
 
         void ResetSearch()
@@ -798,8 +820,8 @@ namespace SteelCity.Sim
             if (!watching) return;
             if (watchTarget == null) { watching = false; return; }
             if (PossessController.Body == vox) return;   // the player owns THIS body — others keep watching
-            if (Time.unscaledTime < nextWatchProbe) return;
-            nextWatchProbe = Time.unscaledTime + Mathf.Max(visInterval, 0.1f);
+            if (SimClock.Now < nextWatchProbe) return;
+            nextWatchProbe = SimClock.Now + Mathf.Max(visInterval, 0.1f);
             if (sensor == null) return;
             if (vis == null) vis = GetComponent<VisionSensor>();
             if (!sensor.TryGetVisibleVoxels(watchTarget, out var pv) || !ConeCovers(pv.centroid)) return;
@@ -946,8 +968,6 @@ namespace SteelCity.Sim
                 coverWallClass = CoverSensor.WallClass.Crouch; targetDuck = 0f;
                 if (anim != null) anim.duck = 0f;
                 diceFace = 0; diceBearing = -1; diceCycle = 0;
-                diceParkUntil = 0f;
-                diceLastEvidence = Time.unscaledTime;
                 // The first decision is armed in BOTH modes — the seam clock
                 // is zeroed so auto's first boundary and manual's first
                 // click both fire immediately.
@@ -955,13 +975,16 @@ namespace SteelCity.Sim
                 diceRampPending = false; diceReconPending = false;
                 diceReconCheck = false; diceReconBearing = 0; diceReconSettleUntil = 0f;
                 diceDeepPending = false; diceDeepActive = false; diceDeepBare = false;
-                diceLegActive = false; diceLegBuilt = false; diceMoveDone = false; diceSubCands.Clear();
+                diceLegActive = false; diceLegBuilt = false; diceMoveDone = false; diceSubCands.Clear(); diceReloadAfterMove = false; diceReloadCoverTries = 0;
                 diceLog.Clear();
                 diceAwaitText = "first roll";
                 diceRunning = "frame"; diceVerdict = "threat registered"; diceHist = "";
                 FaceTrack(AimAnchor(), "dice-frame");
                 LastResult = "DICE frame — threat registered";
                 Debug.Log($"🥊 [Combat] {name} — DICE frame entered");
+                TraceReset();
+                if (diceTrace)
+                    TraceW("ENTER", $"=== DICE frame — man={TB(diceManual)} cyl={cylinder}/{cylinderCapacity} threat={(ThreatCharacter != null ? ThreatCharacter.name : "pos-only")} ===");
                 // ENGAGEMENT ROLL — activating the fight IS the first roll
                 // ("when engagement starts, rolling starts automatically"):
                 // consume one face now — a legit STAND is then an honest
@@ -1016,6 +1039,8 @@ namespace SteelCity.Sim
         /// down.</summary>
         public void ExitCombat(bool keepWatch)
         {
+            if (diceTrace && diceArbiter && State != CombatState.Idle)
+                TraceW("EXIT", $"=== combat exit — keepWatch={TB(keepWatch)} st={State} shots={ShotsFired} ===");
             watching = keepWatch && !scriptedMode && ThreatCharacter != null;
             watchTarget = watching ? ThreatCharacter : null;
             seamNow = false; zeroStreak = 0; orbitDone = false; arbBlocked.Clear();
@@ -1027,7 +1052,7 @@ namespace SteelCity.Sim
             diceReconCheck = false; diceReconBearing = 0; diceReconSettleUntil = 0f;
             diceDeepPending = false; diceDeepActive = false;
             if (anim != null) anim.lookScan = reconSavedLook;
-            diceLegActive = false; diceLegBuilt = false; diceMoveDone = false; diceSubCands.Clear();
+            diceLegActive = false; diceLegBuilt = false; diceMoveDone = false; diceSubCands.Clear(); diceReloadAfterMove = false; diceReloadCoverTries = 0;
             diceLog.Clear();
             diceAwaitText = "";
             diceRunning = "—"; diceVerdict = "exit"; diceHist = "";
@@ -1089,7 +1114,7 @@ namespace SteelCity.Sim
             awaitingLoop = false;   // any real beat clears a parked gate
             // Universal dwell floor — EVERY beat holds beatDwell[b] seconds
             // minimum (the debug tempo; HUD TEMPO table edits the table live).
-            beatUntil = Time.unscaledTime
+            beatUntil = SimClock.Now
                 + (seamArbiter && b == EngagementBeat.Settle ? seamBreath : DwellFor(b));
             switch (b)
             {
@@ -1171,7 +1196,7 @@ namespace SteelCity.Sim
                         // the script owns position.
                         if (!scriptedMode) { EnterBeat(EngagementBeat.Swing); return; }
                         if (TryRelocateToFightingCover()) return;
-                        pinned = true; pinUntil = Time.unscaledTime + pinRecheckSec;
+                        pinned = true; pinUntil = SimClock.Now + pinRecheckSec;
                         afterSettle = EngagementBeat.TopUp;
                         EnterBeat(EngagementBeat.Duck); return;
                     }
@@ -1210,7 +1235,7 @@ namespace SteelCity.Sim
                         // re-test on a slow clock (a real rise = a real probe,
                         // so a moved threat wakes it) instead of flapping
                         // settle→topup→rise→duck forever.
-                        pinned = true; pinUntil = Time.unscaledTime + pinRecheckSec;
+                        pinned = true; pinUntil = SimClock.Now + pinRecheckSec;
                         LastRiseDiag = "pinned — stand can't fight, no peek edge, no fightable cover";
                         Debug.Log($"🥊 [Combat] {name} — {LastRiseDiag}");
                         afterSettle = EngagementBeat.TopUp;
@@ -1380,7 +1405,7 @@ namespace SteelCity.Sim
             // The step faces its destination — declared per-tick in
             // StepToward as FaceTrack(dest) (the driver computes the
             // bearing — off-axis edges can't produce a stale heading).
-            swingPhase = 0; swingStuckPos = Feet(); swingStuckT = Time.unscaledTime; stuckNudges = 0; stuckBest = float.MaxValue;
+            swingPhase = 0; swingStuckPos = Feet(); swingStuckT = SimClock.Now; stuckNudges = 0; stuckBest = float.MaxValue;
             swingP0Built = false;   // phase-0 routes through the map corridor
             PeekSide = side;   // the rolled side is the committed side now
             if (vis == null) vis = GetComponent<VisionSensor>();
@@ -1437,8 +1462,8 @@ namespace SteelCity.Sim
             // arrived from aborted.
             Vector3 dwp = dest - Feet(); dwp.y = 0f; float wpDist = dwp.magnitude;
             if (wpDist < stuckBest - 0.05f)
-            { stuckBest = wpDist; swingStuckPos = Feet(); swingStuckT = Time.unscaledTime; stuckNudges = 0; }
-            else if (Time.unscaledTime - swingStuckT > 0.6f)
+            { stuckBest = wpDist; swingStuckPos = Feet(); swingStuckT = SimClock.Now; stuckNudges = 0; }
+            else if (SimClock.Now - swingStuckT > 0.6f)
             {
                 if (stuckNudges < 3)
                 {
@@ -1447,7 +1472,7 @@ namespace SteelCity.Sim
                     Vector3 perp = new Vector3(-to.z, 0f, to.x).normalized * (0.28f * stuckNudgeSide);
                     MoveWithCollision(perp);
                     if (dbgMoveYaw) FaceTrack(feet + perp.normalized, who);
-                    swingStuckPos = Feet(); swingStuckT = Time.unscaledTime;
+                    swingStuckPos = Feet(); swingStuckT = SimClock.Now;
                     return false;
                 }
                 return true;
@@ -1622,7 +1647,7 @@ namespace SteelCity.Sim
                 if (d.magnitude <= arriveEps + 0.04f)
                 {
                     legRouteIdx++;   // fresh nudge budget per segment
-                    swingStuckPos = Feet(); swingStuckT = Time.unscaledTime; stuckNudges = 0; stuckBest = float.MaxValue;
+                    swingStuckPos = Feet(); swingStuckT = SimClock.Now; stuckNudges = 0; stuckBest = float.MaxValue;
                     return false;
                 }
                 return true;   // waypoint aborted → corridor blocked → leg report
@@ -1645,6 +1670,12 @@ namespace SteelCity.Sim
             // its cert world has moved (else the actor walks a ghost map).
             if (!built || (routedLeg && fld != null && fld.BuildStamp != routeStamp))
             {
+                // A NEW leg starts with a CLEAN step-guard (stuckBest / swingStuckT / stuckNudges are
+                // per-leg state; inheriting a prior leg's exhausted budget aborted on the FIRST tick).
+                // A stale-stamp RE-ROUTE must NOT reset it: the field rebuilds every scanInterval
+                // (0.4 s) so the stamp changes constantly - resetting there kept the guard under its
+                // 0.6 s window forever (a wedged leg never aborted).
+                if (!built) { swingStuckPos = Feet(); swingStuckT = SimClock.Now; stuckNudges = 0; stuckBest = float.MaxValue; }
                 built = true;
                 routedLeg = BuildRoute(Feet(), dest);
                 routeStamp = fld != null ? fld.BuildStamp : -1;
@@ -1860,7 +1891,7 @@ namespace SteelCity.Sim
             LastRiseDiag = diag; LastRelocateDiag = diag;
             Debug.Log($"🥊 [Combat] {name} — {diag}");
             if (State != CombatState.SeekingCover) SetState(CombatState.SeekingCover);
-            else { coverArrived = false; swingStuckPos = Feet(); swingStuckT = Time.unscaledTime; stuckNudges = 0; stuckBest = float.MaxValue; }
+            else { coverArrived = false; swingStuckPos = Feet(); swingStuckT = SimClock.Now; stuckNudges = 0; stuckBest = float.MaxValue; }
         }
 
         /// <summary>Faces this combat has already failed a rise on — keyed by
@@ -1974,7 +2005,7 @@ namespace SteelCity.Sim
         void SeamDone(string verdict)
         {
             arbVerdict = verdict;
-            arbHist = $"t{Time.unscaledTime:F1} {arbRunning} → {verdict}" +
+            arbHist = $"t{SimClock.Now:F1} {arbRunning} → {verdict}" +
                 (arbHist.Length > 0 ? "  ·  " + arbHist : "");
             if (arbHist.Length > 400) arbHist = arbHist.Substring(0, 400);
             Debug.Log($"🥊 [Combat] {name} — seam verdict: {verdict}");
@@ -1995,7 +2026,7 @@ namespace SteelCity.Sim
         {
             // A taken reload roll owns the channel until the wheel seats.
             if (reloading)
-            { diceRunning = $"RELOAD {cylinder}/{cylinderCapacity}"; diceParkUntil = Time.unscaledTime + 0.25f; return; }
+            { diceRunning = $"RELOAD {cylinder}/{cylinderCapacity}"; return; }
             // SHARED turn mechanics — legs and dwells run identically
             // whichever way the decisions are driven (the click or the
             // clock). Only the parked-await tail is manual-specific.
@@ -2016,6 +2047,7 @@ namespace SteelCity.Sim
                         bool arrived = shortBy <= 0.45f;
                         bool noCorr  = routeLegs && !routedLeg
                             && sensor?.Field != null && sensor.Field.HasData && world != null;
+                        if (!arrived) TraceRefuse(diceLeg, noCorr);
                         if (diceDeepActive)
                         {   // Bare-point stop: arrived → rise+sweep HERE;
                             // aborted → spent stop (bare was already the
@@ -2034,7 +2066,7 @@ namespace SteelCity.Sim
                         else if (diceReconCheck)
                         {   // Peek landed (or wedged — he sweeps where he
                             // stands; the geometry answered either way).
-                            diceReconSettleUntil = Time.unscaledTime + diceReconDwellSec;
+                            diceReconSettleUntil = SimClock.Now + diceReconDwellSec;
                             if (anim != null) anim.lookScan = true;
                         }
                         else
@@ -2069,10 +2101,10 @@ namespace SteelCity.Sim
                     if (contactSeen) { DiceReconVerdict(); return; }
                     if (diceReconSettleUntil <= 0f)
                     {
-                        diceReconSettleUntil = Time.unscaledTime + diceReconDwellSec;
+                        diceReconSettleUntil = SimClock.Now + diceReconDwellSec;
                         if (anim != null) anim.lookScan = true;
                     }
-                    else if (Time.unscaledTime >= diceReconSettleUntil) DiceReconVerdict();
+                    else if (SimClock.Now >= diceReconSettleUntil) DiceReconVerdict();
                     return;
                 }
             // Self-heal — a landed turn with nothing armed re-arms the next
@@ -2097,7 +2129,7 @@ namespace SteelCity.Sim
             }
             // AUTO — the clock plays the click's role: DiceClick's exact
             // gate, its exact consume → identical semantics minus the
-            // operator. One decision per 5s seam; fire rides throughout.
+            // operator. Event-driven: the next roll fires the tick the previous action lands; fire rides throughout.
             // (DiceRollGateOpen's reloading/DiceActive terms are implied
             // inside TickDice — same truth either way.)
             if (!DiceRollGateOpen())
@@ -2105,15 +2137,19 @@ namespace SteelCity.Sim
             DiceConsume(0);
         }
 
-        /// <summary>Arm the next decision — always through the seam. Manual:
-        /// the cooldown gates the CLICK (the operator's monitor window, 5s
-        /// default). Auto: the quantum gates the next BOUNDARY (one decision
-        /// per beat). Fire rides both.</summary>
-        void ArmRoll(string awaitText)
+        /// <summary>The armed-roll label — surfaces the post-reload trigger-cold
+        /// window so the stop reads as a rule, not silence.</summary>
+        string DiceNextAwaitText => "next turn roll";
+
+        /// <summary>Arm the next decision. Manual: the cooldown gates the CLICK
+        /// (the operator's monitor window). Auto: event-driven — no wait
+        /// unless the caller passes a real action duration (STAND hold).
+        /// Fire rides both.</summary>
+        void ArmRoll(string awaitText, float autoHoldSec = 0f)
         {
             diceAwaitRoll = true;
             diceAwaitText = awaitText;
-            diceNextRollAt = Time.unscaledTime + diceRollCooldownSec;
+            diceNextRollAt = SimClock.Now + (diceManual ? diceRollCooldownSec : autoHoldSec);
         }
 
         /// <summary>MANUAL turn advance — the HUD's 🎲 button; forceFace 1-6
@@ -2124,47 +2160,36 @@ namespace SteelCity.Sim
         /// a seek in flight (the move IS the turn).</summary>
         public bool DiceClick(int forceFace = 0)
         {
-            if (!diceManual || diceMimic || !DiceRollGateOpen()) return false;
-            // MIMIC lockstep — a slaved partner's gate must ALSO be open
-            // before the click resolves; then it consumes BOTH fighters'
-            // armed decisions in the same frame (mirrors the CLICK, never
-            // the face — a slaved die still rolls its own).
-            var slave = MimicSlave();
-            if (slave != null && !slave.DiceRollGateOpen()) return false;
+            if (!diceManual || !DiceRollGateOpen())
+            {
+                if (diceTrace)
+                    TraceW("CLICK", $"REFUSED pin={forceFace} — {(!diceManual ? "not manual" : DiceGateWhy())}");
+                return false;
+            }
+            if (diceTrace)
+                TraceW("CLICK", $"OK pin={forceFace} | me: {diceAwaitText}");
             DiceConsume(forceFace);
-            if (slave != null) slave.DiceConsume(0);
             return true;
         }
 
         /// <summary>The roll's open gate — armed + seam elapsed + parked +
-        /// not reloading. The click and a mimic driver's lockstep check
-        /// share it (the auto tail runs the same shape inline).</summary>
+        /// not reloading. The manual click and the auto tail share it.</summary>
         public bool DiceRollGateOpen()
             => DiceActive && !reloading && State == CombatState.HoldPosition
-               && diceAwaitRoll && Time.unscaledTime >= diceNextRollAt;
+               && diceAwaitRoll && SimClock.Now >= diceNextRollAt;
 
         /// <summary>Shared consume — post-gate pending chain + boundary.
-        /// Called by the click and by a driver's mimic (one click, two dice).</summary>
+        /// Called by the click and by the auto clock.</summary>
         void DiceConsume(int forceFace)
         {
+            if (diceTrace)
+                TraceW("ROLL", $"consume → {(diceRampPending ? "ramp" : diceReconPending ? "recon" : diceDeepPending ? "deep" : $"FACE(pin={forceFace})")}"
+                             + $" | armed-for '{diceAwaitText}' st={State} see={TB(contactSeen)} hold={TB(contactHold)} duck={(anim != null ? anim.duck : 0f):F2}");
             diceAwaitRoll = false;
             if (diceRampPending) { DiceRampCheck(); return; }
             if (diceReconPending) { DiceReconRoll(); return; }
             if (diceDeepPending) { DiceDeepRoll(); return; }
             DiceBoundary(forceFace);
-        }
-
-        /// <summary>The mimic slave — the threat fighter when HE is running
-        /// manual dice with diceMimic on (Tan slaved to Vinny's click in the
-        /// lockstep lab). Null when the threat is position-only or he's not
-        /// mimicking — then the click runs free.</summary>
-        public CombatController MimicSlave()
-        {
-            var t = ThreatCharacter;
-            if (t == null) return null;
-            var cc = t.GetComponent<CombatController>();
-            return (cc != null && cc != this && cc.diceArbiter
-                    && cc.diceManual && cc.diceMimic) ? cc : null;
         }
 
         /// <summary>THE boundary — END (ceased only) → the roll →
@@ -2185,6 +2210,56 @@ namespace SteelCity.Sim
             DiceExecFace();
         }
 
+        /// <summary>RELOAD IS VULNERABLE - cover first. When the target is in sight (he can see me), run
+        /// to the nearest reachable Hidden stand BEFORE the wheel turns. Candidates are flood-reachable
+        /// stands (same gate as COVER faces), within diceReloadCoverMaxM of path, scored by path cost
+        /// plus a penalty for closing on the enemy. No candidate / not exposed / 2 failed tries = reload
+        /// in place (fire holds as before). True = a cover seek was committed.</summary>
+        bool DiceReloadCoverSeek()
+        {
+            if (diceReloadCoverMaxM <= 0f || ThreatCharacter == null || !(contactSeen || contactHold)) return false;
+            if (++diceReloadCoverTries > 2) return false;
+            var f = sensor?.Field; var me = MeMap();
+            if (f == null || !f.HasData || me == null) return false;
+            Vector3 feet = Feet(), thr = AimAnchor();
+            float dNow = Vector3.Distance(feet, thr);
+            int curCell = -1;
+            int ci = f.CellIndexOf(feet);
+            if (ci >= 0 && f.TryZoneOfCell(ci, out var own)) curCell = own.cell;
+            var all = zoneScratch;
+            f.EnumerateZones(all);
+            CoverField.ZoneSpot pick = default; bool found = false; float best = float.MaxValue, bestCost = 0f;
+            foreach (var z in all)
+            {
+                if (z.cell == curCell || f.state[z.cell] != CoverField.CellState.Hidden) continue;
+                if (!f.ZoneReachable(z.cell, me) || !StandReachable(f, me, z)) continue;
+                int sc = f.NearestWalkable(f.CellIndexOf(CertifiedStand(z.stand)), BodyH);
+                float cost = sc >= 0 ? me.CostFrom(sc) : float.PositiveInfinity;
+                if (float.IsInfinity(cost) || cost > diceReloadCoverMaxM) continue;
+                float closer = Mathf.Max(0f, dNow - Vector3.Distance(z.stand, thr));   // metres CLOSER to him
+                float score = cost + 2f * closer;
+                if (score < best) { best = score; bestCost = cost; pick = z; found = true; }
+            }
+            if (!found) { if (diceTrace) TraceW("RELOAD", $"no reachable Hidden stand within {diceReloadCoverMaxM:F0}m - reloading in place"); return false; }
+            diceMoveDone = true; diceReloadAfterMove = true;
+            diceRunning = "reload-cover";
+            DicePost("reload", $"exposed - breaks line of sight first -> {pick.volId} ({bestCost:F1}m)", "reloads on arrival", 1);
+            CommitSearchSeek(pick, $"dice reload cover -> {pick.volId}");
+            return true;
+        }
+
+        /// <summary>Start the wheel NOW (in cover, or in place when cover can't be had) and arm what follows:
+        /// hidden target -> shallow recon after the wheel seats; visible -> straight back to the roll.</summary>
+        void DiceReloadNow(string how)
+        {
+            diceReloadCoverTries = 0; diceReloadAfterMove = false;
+            StartReload();
+            diceRunning = $"RELOAD {cylinder}/{cylinderCapacity}";
+            DicePost("reload", how, contactSeen ? "next roll" : "recon bearing roll", 1);
+            if (!contactSeen) { diceReconPending = true; ArmRoll("recon (bearing)"); }
+            else ArmRoll(DiceNextAwaitText);
+        }
+
         /// <summary>The manual ramp — a completed move reads the cylinder as
         /// its own roll: literal d6, faces ≤ spent take the top-up (1 spent =
         /// reload on a 1; dry = any face — the count-check weighted by shots
@@ -2192,6 +2267,7 @@ namespace SteelCity.Sim
         void DiceRampCheck()
         {
             diceRampPending = false;
+            diceReloadAfterMove = false;   // a new count-check supersedes any stale reload-cover intent
             if (ThreatCharacter != null && !ThreatCharacter.gameObject.activeInHierarchy)
             { DicePost("END", "target ceased — combat over", "—", 3); ExitCombat(true); return; }
             int spent = cylinderCapacity - cylinder;
@@ -2199,9 +2275,10 @@ namespace SteelCity.Sim
             diceSubRoll = r;
             if (spent >= cylinderCapacity || r <= spent)
             {
-                StartReload();
-                diceRunning = $"RELOAD 0/{cylinderCapacity}";
-                DicePost($"ramp {r}/6", $"top-up needed ≤{spent} ({spent} spent) — rolled {r} → reloads", "recon bearing once loaded", 1);
+                DicePost($"ramp {r}/6", $"top-up needed ≤{spent} ({spent} spent) — rolled {r} → reloads", "break line of sight first if exposed", 1);
+                if (DiceReloadCoverSeek()) return;   // legs to cover; arrival starts the wheel
+                DiceReloadNow("reloads in place");
+                return;
             }
             else DicePost($"ramp {r}/6", $"top-up needed ≤{spent} ({spent} spent) — rolled {r} → safe", "recon bearing roll", 2);
             // SHALLOW RECON follows the count-check — after a top-up the click
@@ -2211,7 +2288,7 @@ namespace SteelCity.Sim
             // click while he's visible is a dead click that ejects on the
             // already-true sighting. Recon is the HIDDEN-target phase.
             if (!contactSeen) { diceReconPending = true; ArmRoll("recon (bearing)"); }
-            else ArmRoll("next turn roll");
+            else ArmRoll(DiceNextAwaitText);
         }
 
         /// <summary>SHALLOW RECON — the stationary peek after the count-check.
@@ -2226,13 +2303,13 @@ namespace SteelCity.Sim
             if (contactSeen)
             {   // Spotted during the seam — the bearing die's question is
                 // already answered; post the verdict, don't burn the roll.
-                diceLastEvidence = Time.unscaledTime;
                 DicePost("recon", "target spotted — visual on the anchor", "next turn roll", 2);
-                ArmRoll("next turn roll");
+                ArmRoll(DiceNextAwaitText);
                 return;
             }
             int r = UnityEngine.Random.Range(1, 7);
             diceSubRoll = r;
+            diceRunning = $"recon {r}/6";
             diceReconBearing = r <= 2 ? 1 : r <= 4 ? 2 : 3;
             // lookScan arms only when the dwell begins — the travel step keeps
             // eyes forward on the anchor (the sweep IS the recon, at the spot).
@@ -2253,8 +2330,10 @@ namespace SteelCity.Sim
                 Vector3 perp = diceReconBearing == 1
                     ? new Vector3(-fwd.z, 0f, fwd.x)
                     : new Vector3(fwd.z, 0f, -fwd.x);
-                diceLeg = feet + perp * 0.55f;   // the peek step — around the edge, not a reposition
-                diceLegActive = true; diceLegBuilt = false;
+                // the peek step - around the edge, not a reposition; no reachable room = peek in place (rise)
+                if (DicePickStepCell(perp, 0.55f, 0.25f, null, out Vector3 pd, out _))
+                { diceLeg = pd; TraceDest(); diceLegActive = true; diceLegBuilt = false; }
+                else { diceReconBearing = 2; bname += " — no room, rises"; }
             }
             diceReconCheck = true;
             DicePost($"recon {r}/6", $"shallow recon — {bname}", "sight verdict on settle", 1);
@@ -2263,8 +2342,10 @@ namespace SteelCity.Sim
         /// <summary>Arm the deep-recon dwell — same rise + lookScan + clock as
         /// the shallow peek; the verdict lands in DiceReconVerdict's deep
         /// branch (spotted → REACQUIRED · miss → next stop · fan dry → END).</summary>
+        private int diceDeepSwept;   // stops actually stood + swept this fan (a skipped stop is not a sweep)
         void DiceDeepDwellArm()
         {
+            diceDeepSwept++;
             diceReconBearing = 2;
             diceReconSettleUntil = 0f;
             if (anim != null) reconSavedLook = anim.lookScan;
@@ -2289,9 +2370,8 @@ namespace SteelCity.Sim
                     ResetSearch();   // the hunt resolved — clears the orbit
                                     // frame so a LATER deep recon re-anchors
                                     // (ArmSearch skips reframing while it's up)
-                    diceLastEvidence = Time.unscaledTime;
                     DicePost("deep recon", "reacquired — visual re-established", "next turn roll", 2);
-                    ArmRoll("next turn roll");
+                    ArmRoll(DiceNextAwaitText);
                 }
                 else if (DiceDeepNext())
                     DicePost("deep recon", $"miss — pushing to stop {diceDeepStep + 1}/{diceDeepPoints.Count}", "hop walks", 1);
@@ -2300,9 +2380,8 @@ namespace SteelCity.Sim
             }
             if (contactSeen)
             {
-                diceLastEvidence = Time.unscaledTime;
                 DicePost("recon", "target spotted — visual on the anchor", "next turn roll", 2);
-                ArmRoll("next turn roll");
+                ArmRoll(DiceNextAwaitText);
             }
             else
             {   // TARGET HIDDEN → DEEP RECON — the diagram's only path down:
@@ -2325,13 +2404,13 @@ namespace SteelCity.Sim
             if (contactSeen)
             {   // Reacquired during the seam — the hunt is answered before
                 // the orbit die drops; post it, don't burn the roll.
-                diceLastEvidence = Time.unscaledTime;
                 DicePost("deep recon", "reacquired — visual re-established", "next turn roll", 2);
-                ArmRoll("next turn roll");
+                ArmRoll(DiceNextAwaitText);
                 return;
             }
             int r = UnityEngine.Random.Range(1, 7);
             diceSubRoll = r;
+            diceRunning = $"deep {r}/6"; diceDeepSwept = 0;
             ArmSearch();                            // anchors origin bearing + buffer radius
             orbitSide = (sbyte)(r <= 3 ? -1 : 1);   // the die, not the coin —
                                                     // picks the sweep direction
@@ -2360,7 +2439,7 @@ namespace SteelCity.Sim
                     float bestScore = float.MaxValue, pushBest = float.MaxValue;
                     for (int i = 0; i < n * n; i++)
                     {
-                        if (!fm.Reaches(i) || !ff.Walkable(i, BodyH)
+                        if (!fm.Reaches(i) || !ff.Walkable(i, BodyH) || ff.IsDyn(i)
                             || deepChosen.Contains(i)) continue;
                         Vector3 gp = ff.GroundPoint(i);
                         Vector3 d = gp - searchAnchorPos; d.y = 0f;
@@ -2421,7 +2500,7 @@ namespace SteelCity.Sim
             {
                 if (z.cell == curCell || searchVisited.Contains(z.cell)) continue;
                 if (f.state[z.cell] != CoverField.CellState.Hidden) continue;
-                if (me != null && !f.ZoneReachable(z.cell, me)) continue;
+                if (me != null && (!f.ZoneReachable(z.cell, me) || !StandReachable(f, me, z))) continue;
                 float d = (z.stand - want).sqrMagnitude;
                 if (d < best) { best = d; pick = z; }
             }
@@ -2451,12 +2530,58 @@ namespace SteelCity.Sim
                 CommitSearchSeek(z, $"deep recon stop {diceDeepStep + 1}/{diceDeepPoints.Count}");
             }
             else
-            {   // Bare point — the arc position itself; he stands it.
+            {   // Bare point — the arc position itself; he stands it. The point was chosen under an
+                // OLDER field build (and an older feet seed): re-resolve it under the LIVE map so a
+                // rebuilt origin / shifted flood can't refuse a stop that was reachable when picked.
                 diceDeepBare = true;
                 DiceDeepMark(diceDeepStep, new Color(0.35f, 0.8f, 1f, 0.95f));   // live BARE stop = blue
-                diceLeg = diceDeepPoints[diceDeepStep];
-                diceLegActive = true; diceLegBuilt = false;
+                if (ResolveDeepPoint(diceDeepPoints[diceDeepStep], out Vector3 rp))
+                {
+                    diceLeg = rp; diceLegActive = true; diceLegBuilt = false;
+                    if (diceTrace && (rp - diceDeepPoints[diceDeepStep]).sqrMagnitude > 0.04f)
+                        TraceW("DEST", $"deep {diceDeepStep + 1}/6 re-resolved -> ({rp.x:F1},{rp.z:F1}) | {CellDiag(rp)}");
+                }
+                else
+                {   // The live map serves nothing near this stop — it dies honestly, push the fan on.
+                    if (diceTrace) TraceW("REFUSE", $"deep {diceDeepStep + 1}/6 stop stale — nothing reachable within {DeepResolveM:F1}m of ({diceDeepPoints[diceDeepStep].x:F1},{diceDeepPoints[diceDeepStep].z:F1}) | flood={(MeMap()?.ReachedCount ?? -1)}");
+                    return DiceDeepNext();
+                }
             }
+            return true;
+        }
+
+        const float DeepResolveM = 3f;
+
+        /// <summary>Re-resolve a stored deep-fan point under the CURRENT field + flood: nearest reachable,
+        /// walkable, non-swept cell within DeepResolveM (ties prefer the cheaper path). False when the
+        /// live map can't serve the neighbourhood (point left the rebuilt window, flood cut off).</summary>
+        bool ResolveDeepPoint(Vector3 want, out Vector3 p)
+        {
+            p = want;
+            var f = sensor?.Field; var me = MeMap();
+            if (f == null || !f.HasData || me == null) return false;
+            int n = f.N;
+            int wc = f.CellIndexOf(want);
+            if (wc < 0) return false;
+            int wx = wc % n, wz = wc / n;
+            int R = Mathf.Max(2, Mathf.CeilToInt(DeepResolveM / Mathf.Max(0.05f, f.CellSize)));
+            float bestSq = DeepResolveM * DeepResolveM, bestCost = float.MaxValue;
+            int best = -1;
+            for (int dz = -R; dz <= R; dz++)
+            for (int dx = -R; dx <= R; dx++)
+            {
+                int cx = wx + dx, cz = wz + dz;
+                if (cx < 0 || cx >= n || cz < 0 || cz >= n) continue;
+                int i = cz * n + cx;
+                if (!me.Reaches(i) || !f.Walkable(i, BodyH) || f.IsDyn(i)) continue;
+                Vector3 gp = f.GroundPoint(i);
+                float d2 = (gp - want).sqrMagnitude;
+                float cost = me.CostFrom(i);
+                if (d2 < bestSq || (d2 < bestSq + 1e-4f && cost < bestCost))
+                { bestSq = Mathf.Min(bestSq, d2); best = i; bestCost = Mathf.Min(cost, bestCost); }
+            }
+            if (best < 0) return false;
+            p = f.GroundPoint(best);
             return true;
         }
 
@@ -2501,7 +2626,7 @@ namespace SteelCity.Sim
         {
             diceDeepActive = false;
             ResetSearch();
-            DicePost("deep recon", "deep exhausted — he was never there", "END — combat over", 3);
+            DicePost("deep recon", $"deep exhausted — swept {diceDeepSwept}/{diceDeepPoints.Count} stops, he was never there", "END — combat over", 3);
             ExitCombat(true);
         }
 
@@ -2510,6 +2635,134 @@ namespace SteelCity.Sim
         /// laterally off the threat line, ADVANCE steps it forward, COVER
         /// dispatches to the nearest Hidden zone on the rolled side. Legs
         /// re-park when the move lands; seeks re-park on arrival.</summary>
+        // ── DICE MOVES ARE MAP-DERIVED — a face is an INTENT; its destination is a cell
+        //    the actor flood (MeMap) already reaches, so BuildRoute can't refuse it. When no
+        //    reachable cell serves the intent the fighter STANDS (a resolved outcome, never a
+        //    failed leg). STRAFE/PEEK = nearest reachable cell to the ideal lateral point;
+        //    ADVANCE = the reachable cell that makes the most GEODESIC progress toward the anchor.
+        private CoverField.DistMap diceAdvMap;
+        private int diceAdvSeed = -1, diceAdvStamp = -1;
+
+        /// <summary>The STAND cell itself must be flood-reachable - ZoneReachable only proves some
+        /// Hidden zone member is. Same snap BuildRoute applies, so a candidate that passes cannot be
+        /// ruled "map unreachable" at dispatch.</summary>
+        bool StandReachable(CoverField f, CoverField.DistMap me, CoverField.ZoneSpot z)
+        {
+            // A MOVING vehicle is never cover (it leaves), and a stand inside a moving car's swept
+            // footprint is a death trap - both are gated here so every dice picker inherits them.
+            if (VoxelVehicle.IsVolumeMoving(z.volId)) return false;
+            if (me == null) return true;
+            int c = f.CellIndexOf(CertifiedStand(z.stand));
+            if (c < 0) return false;
+            if (f.IsDyn(c)) return false;
+            int d = f.NearestWalkable(c, BodyH);
+            return d >= 0 && me.Reaches(d);
+        }
+
+        CoverField.DistMap DiceAdvMap()
+        {
+            var f = sensor?.Field;
+            if (f == null || !f.HasData) return null;
+            int s = f.NearestWalkable(f.CellIndexOf(AimAnchor()), BodyH);
+            if (s < 0) return null;
+            if (diceAdvMap == null || diceAdvStamp != f.BuildStamp || diceAdvSeed != s)
+            {
+                diceAdvMap ??= new CoverField.DistMap();
+                f.BuildDistMap(diceAdvMap, s, WalkMask, BodyH, stepUpMax);
+                diceAdvSeed = s; diceAdvStamp = f.BuildStamp;
+            }
+            return diceAdvMap;
+        }
+
+        bool DicePickStepCell(Vector3 dir, float stepM, float minProg, CoverField.DistMap goalMap,
+                              out Vector3 dest, out string why)
+        {
+            dest = default; why = "no field";
+            var f = sensor?.Field; var map = MeMap();
+            if (f == null || !f.HasData || map == null) return false;
+            Vector3 feet = Feet();
+            int fc = f.NearestWalkable(f.CellIndexOf(feet), BodyH);
+            if (fc < 0) { why = "no walkable cell under feet"; return false; }
+            float baseGoal = goalMap != null ? goalMap.CostFrom(fc) : 0f;
+            if (goalMap != null && float.IsInfinity(baseGoal)) goalMap = null;   // anchor unreachable from here — straight-line intent
+            int n = f.N, R = Mathf.CeilToInt(stepM * 1.6f / Mathf.Max(0.01f, f.CellSize)) + 1;
+            int fx = fc % n, fz = fc / n, win = 0, reach = 0, cand = 0, best = -1;
+            Vector3 ideal = feet + dir * stepM;
+            float maxLen = goalMap != null ? stepM * 1.15f : stepM * 1.6f, bestScore = float.MaxValue;
+            for (int dz = -R; dz <= R; dz++)
+            for (int dx = -R; dx <= R; dx++)
+            {
+                int cx = fx + dx, cz = fz + dz;
+                if (cx < 0 || cx >= n || cz < 0 || cz >= n) continue;
+                win++;
+                int idx = cz * n + cx;
+                if (!map.Reaches(idx) || f.IsDyn(idx)) continue;
+                reach++;
+                Vector3 p = f.GroundPoint(idx);
+                Vector3 v = p - feet; v.y = 0f;
+                float len = v.magnitude;
+                if (len > maxLen || len < 0.3f) continue;
+                float cost = map.CostFrom(idx);
+                if (cost > len * 2.4f + 0.3f) continue;   // a detour around something - not a step in that direction
+                float score;
+                if (goalMap != null)
+                {
+                    float g = goalMap.CostFrom(idx);
+                    if (float.IsInfinity(g) || g < 0.4f) continue;
+                    float prog = baseGoal - g;
+                    if (prog < minProg) continue;
+                    score = -prog + 0.2f * cost;
+                }
+                else
+                {
+                    if (Vector3.Dot(v, dir) < minProg) continue;
+                    Vector3 e = p - ideal; e.y = 0f;
+                    score = e.sqrMagnitude;
+                }
+                cand++;
+                if (score < bestScore) { bestScore = score; best = idx; }
+            }
+            if (best < 0)
+            { why = $"no reachable cell serves it (window {win}, reachable {reach}, candidates {cand})"; return false; }
+            dest = f.GroundPoint(best);
+            return true;
+        }
+
+        /// <summary>7x7 ASCII of the cells around the actor (x right, z down): @ me - R walkable+reached -
+        /// w walkable, unreached - # not walkable - X outside the field. Shows a pocket at a glance.</summary>
+        string CellGrid()
+        {
+            var f = sensor?.Field; var map = MeMap();
+            if (f == null || !f.HasData) return "nofield";
+            int c = f.CellIndexOf(Feet());
+            if (c < 0) return "OUT";
+            int n = f.N, cx = c % n, cz = c / n;
+            var sb = new System.Text.StringBuilder(64);
+            for (int dz = -3; dz <= 3; dz++)
+            {
+                for (int dx = -3; dx <= 3; dx++)
+                {
+                    int x = cx + dx, z = cz + dz;
+                    if (x < 0 || x >= n || z < 0 || z >= n) { sb.Append('X'); continue; }
+                    int i = z * n + x;
+                    sb.Append(dx == 0 && dz == 0 ? '@' : !f.Walkable(i, BodyH) ? '#' : (map != null && map.Reaches(i) ? 'R' : 'w'));
+                }
+                if (dz < 3) sb.Append('/');
+            }
+            return sb.ToString();
+        }
+
+        void DiceStandResolved(string outcome)
+        {
+            if (diceTrace)
+            {
+                var m = MeMap();
+                TraceW("MOVEFAIL", $"{diceRunning} {outcome} | me={CellDiag(Feet())} | flood={(m != null ? m.ReachedCount : 0)} | grid={CellGrid()}");
+            }
+            DicePost(diceRunning, outcome + " — stands", "reload check", 3);
+            diceRampPending = true; ArmRoll("reload check", diceStandHoldSec);
+        }
+
         void DiceExecFace()
         {
             switch (diceFace)
@@ -2523,16 +2776,19 @@ namespace SteelCity.Sim
                     Vector3 perp = diceFace == 1
                         ? new Vector3(-fwd.z, 0f, fwd.x)          // 90° left of the threat line
                         : new Vector3(fwd.z, 0f, -fwd.x);         // 90° right
-                    diceLeg = feet + perp * diceStepM;
+                    string side = diceFace == 1 ? "left" : "right";
+                    if (!DicePickStepCell(perp, diceStepM, 0.5f, null, out Vector3 sd, out string swhy))
+                    { DiceStandResolved($"can't strafe {side}: {swhy}"); break; }
+                    diceLeg = sd; TraceDest();
                     diceLegActive = true; diceLegBuilt = false;
-                    DicePost(diceRunning, $"strafes {diceStepM:F1}m {(diceFace == 1 ? "left" : "right")}", "reload check on arrival", 1);
+                    DicePost(diceRunning, $"strafes {Vector3.Distance(feet, sd):F1}m {side}", "reload check on arrival", 1);
                     break;
                 }
                 case 4: case 6:                                   // COVER-L/R — nearest spot that side
                     if (!DiceCoverCands(diceFace == 4))
                     {
                         DicePost(diceRunning, "no hidden cover that side — stands", "reload check", 3);
-                        diceRampPending = true; ArmRoll("reload check");
+                        diceRampPending = true; ArmRoll("reload check", diceStandHoldSec);
                         break;
                     }
                     {
@@ -2549,16 +2805,18 @@ namespace SteelCity.Sim
                     Vector3 to = AimAnchor() - feet; to.y = 0f;
                     float d = to.magnitude;
                     if (d < 0.5f)
-                    { DicePost(diceRunning, "already on the anchor — stands", "reload check", 0); diceRampPending = true; ArmRoll("reload check"); break; }
+                    { DicePost(diceRunning, "already on the anchor — stands", "reload check", 0); diceRampPending = true; ArmRoll("reload check", diceStandHoldSec); break; }
                     float step = Mathf.Min(diceStepM, d - 0.4f);
-                    diceLeg = feet + to.normalized * step;
+                    if (!DicePickStepCell(to.normalized, step, 0.5f, DiceAdvMap(), out Vector3 ad, out string awhy))
+                    { DiceStandResolved($"can't advance: {awhy}"); break; }
+                    diceLeg = ad; TraceDest();
                     diceLegActive = true; diceLegBuilt = false;
-                    DicePost(diceRunning, $"advances {step:F1}m toward the threat", "reload check on arrival", 1);
+                    DicePost(diceRunning, $"advances {Vector3.Distance(feet, ad):F1}m toward the threat", "reload check on arrival", 1);
                     break;
                 }
                 default:                                          // STAND — holds, fire rides
                     DicePost(diceRunning, "holds position — fire continues", "reload check", 0);
-                    diceRampPending = true; ArmRoll("reload check");
+                    diceRampPending = true; ArmRoll("reload check", diceStandHoldSec);
                     break;
             }
         }
@@ -2585,7 +2843,7 @@ namespace SteelCity.Sim
             {
                 if (z.cell == curCell) continue;
                 if (f.state[z.cell] != CoverField.CellState.Hidden) continue;
-                if (me != null && !f.ZoneReachable(z.cell, me)) continue;
+                if (me != null && (!f.ZoneReachable(z.cell, me) || !StandReachable(f, me, z))) continue;
                 Vector3 dz = z.stand - feet; dz.y = 0f;
                 if (dz.sqrMagnitude < 0.25f) continue;
                 // Left/right of the threat line: cross.y — positive = right.
@@ -2598,6 +2856,163 @@ namespace SteelCity.Sim
             return diceSubCands.Count > 0;
         }
 
+        // ───────────────────────── DICE FLIGHT RECORDER ─────────────────────────
+        // Read-only. One text file, both fighters, same t-stamps as the panel.
+        // EDGE lines fire the frame something changes; SNAP lines carry the
+        // whole picture on a cadence (and on the HUD's MARK button).
+        string TL => string.IsNullOrEmpty(traceLabel) ? name : traceLabel;
+        float traceNextSnap, trDuck;
+        bool trSeen, trHold, trArmed, trAiming;
+        int trShots = -1;
+        string trState = "", trPose = "", trFire = "", trFlags = "";
+        static string TB(bool b) => b ? "1" : "0";
+
+        void TraceW(string tag, string msg)
+            => DiceTrace.Write($"t{SimClock.Now:F2} {TL,-5} {tag,-5} {msg}");
+
+        string CellDiag(Vector3 p)
+        {
+            var f = sensor?.Field;
+            if (f == null || !f.HasData) return $"({p.x:F1},{p.z:F1}) nofield";
+            int c = f.CellIndexOf(p);
+            if (c < 0) return $"({p.x:F1},{p.z:F1}) OUT-OF-FIELD";
+            bool w = f.Walkable(c, BodyH);
+            int nw = w ? c : f.NearestWalkable(c, BodyH);
+            var map = MeMap();
+            string reach = map != null && nw >= 0 ? (map.Reaches(nw) ? $"Y@{map.CostFrom(nw):F1}m" : "N") : "-";
+            return $"({p.x:F1},{p.z:F1}) c{c} walk={TB(w)} snap={nw} reach={reach} st={f.state[c]}";
+        }
+
+        /// <summary>Pre-flight line for a dice micro-leg — what the destination looks like to the map BEFORE the body moves.</summary>
+        void TraceDest()
+        {
+            if (!diceTrace) return;
+            TraceW("DEST", $"{diceRunning} → {CellDiag(diceLeg)} | me={CellDiag(Feet())} | straightClear={TB(CorridorFree(Feet(), diceLeg))}"
+                         + $" anchorBlk={TB(sensor != null && sensor.LosBlocked(Feet() + Vector3.up * 0.9f, AimAnchor()))}");
+        }
+
+        /// <summary>Why a leg died — the verdict plus every map fact needed to tell geometry from stale-field from a real wall.</summary>
+        void TraceRefuse(Vector3 dest, bool noCorr)
+        {
+            if (!diceTrace) return;
+            var f = sensor?.Field; var map = MeMap();
+            string mp = map != null && f != null ? $"{map.ReachedCount}/{f.N * f.N}" : "-";
+            TraceW("REFUSE", $"{diceRunning} short={(dest - Feet()).magnitude:F2}m noCorr={TB(noCorr)} routed={TB(routedLeg)} fail='{(routedLeg ? "(routed - mover aborted)" : routeFail ?? "-")}'"
+                           + $" | dest={CellDiag(dest)} | me={CellDiag(Feet())} | mapReach={mp} straightClear={TB(CorridorFree(Feet(), dest))}");
+        }
+
+        /// <summary>Eye vs muzzle truth — body-frame offset (right/up/forward), and which ray the world blocks to the aim target.</summary>
+        string BoreDiag()
+        {
+            if (mount == null || !mount.IsEquipped || sensor == null) return "bore=n/a";
+            Vector3 eye = sensor.LastProbeEye, mz = mount.MuzzleWorld, d = mz - eye;
+            Vector3 tg = solver != null && solver.IsAiming ? solver.TargetWorld : liveAimPoint;
+            string los = eye != Vector3.zero
+                ? $"eye→t={(sensor.LosBlocked(eye, tg) ? "BLK" : "ok")} muz→t={(sensor.LosBlocked(mz, tg) ? "BLK" : "ok")}" : "los=?";
+            Vector3 u = tg - eye; float ul = u.magnitude;
+            string off = "off=?";
+            if (ul > 0.05f)
+            {
+                u /= ul; Vector3 perp = d - u * Vector3.Dot(d, u);
+                off = $"off={perp.magnitude:F2}(h{Vector3.Dot(perp, Vector3.Cross(Vector3.up, u).normalized):F2} v{perp.y:F2})";
+            }
+            return $"muz-eye(r{Vector3.Dot(d, transform.right):F2} u{d.y:F2} f{Vector3.Dot(d, transform.forward):F2}) {off} {los} tgtD={Vector3.Distance(mz, tg):F1}";
+        }
+
+        void TraceReset()
+        {
+            traceNextSnap = 0f; trSeen = trHold = trArmed = trAiming = false;
+            trShots = -1; trState = trPose = trFire = trFlags = ""; trDuck = anim != null ? anim.duck : 0f;
+        }
+
+        string DiceGateWhy()
+            => !DiceActive ? "dice off" : reloading ? "reloading"
+             : State != CombatState.HoldPosition ? $"state={State}"
+             : !diceAwaitRoll ? "not armed"
+             : SimClock.Now < diceNextRollAt ? $"seam {diceNextRollAt - SimClock.Now:F1}s left"
+             : "open";
+
+        string TraceFlags()
+            => $"await={(diceAwaitRoll ? diceAwaitText : "-")} ramp={TB(diceRampPending)} recon={TB(diceReconPending)}"
+             + $" deep={TB(diceDeepPending)} rchk={TB(diceReconCheck)} dact={TB(diceDeepActive)} leg={TB(diceLegActive)}"
+             + $" rel={TB(reloading)} man={TB(diceManual)}";
+
+        /// <summary>Full-state line — public so the HUD's MARK button can force one per fighter.</summary>
+        public void TraceSnap()
+        {
+            var lv = (ThreatCharacter != null && sensor != null && sensor.LastVisible.target == ThreatCharacter)
+                ? sensor.LastVisible : default;
+            bool cone = lv.visible > 0 && ConeCovers(lv.centroid);
+            Vector3 feet = Feet();
+            Vector3 to = ThreatCharacter != null ? ThreatFeet() - feet : Vector3.zero; to.y = 0f;
+            float dist = to.magnitude;
+            float fa = dist > 1e-3f ? Mathf.DeltaAngle(transform.eulerAngles.y, BearingDeg(to)) : 0f;
+            // Symmetric truth check — eye↔eye ray, independent of silhouette
+            // sampling and cone. If this is "clear" both ways but one side
+            // reports see=0, the asymmetry lives in sampling/cone/pose.
+            string e2e = "n/a"; float eyeY = 0f;
+            var partner = ThreatCharacter != null ? ThreatCharacter.GetComponent<CombatController>() : null;
+            if (sensor != null)
+            {
+                Vector3 me = sensor.LastProbeEye; eyeY = me.y - feet.y;
+                if (partner != null && partner.sensor != null && me != Vector3.zero
+                    && partner.sensor.LastProbeEye != Vector3.zero)
+                    e2e = sensor.LosBlocked(me, partner.sensor.LastProbeEye) ? "BLOCKED" : "clear";
+            }
+            TraceW("SNAP",
+                $"st={State}/{Beat} | {TraceFlags()} rdy={DiceRollReadyIn:F1}"
+              + $" | see={TB(contactSeen)} hold={TB(contactHold)} lsAge={SimClock.Now - LastSeenAt:F1}"
+              + $" vis={lv.visible}/{lv.tested} e/m/b={lv.visible}/{(sensor != null ? sensor.LastMuzzleVisible : 0)}/{(sensor != null ? sensor.LastBothVisible : 0)} cone={TB(cone)} e2e={e2e} eyeY={eyeY:F2}"
+              + $" | {BoreDiag()}"
+              + $" | armed={TB(ExposureArmed)} aim={TB(solver != null && solver.IsAiming)}"
+              + $" err={(solver != null ? solver.LastAngularErrorDeg : 0f):F1} blend={(solver != null ? solver.Blend : 0f):F2}"
+              + $" fire={FireHold ?? "CLEAR"}"
+              + $" | duck={(anim != null ? anim.duck : 0f):F2}/{targetDuck:F2} pose={(anim != null ? anim.EffectiveState.ToString() : "-")}"
+              + $" | cyl={cylinder}/{cylinderCapacity} shots={ShotsFired}"
+              + $" | pos=({feet.x:F1},{feet.z:F1}) yaw={transform.eulerAngles.y:F0} faceErr={fa:F0} dist={dist:F1}");
+        }
+
+        void DiceTraceTick()
+        {
+            if (Time.timeScale <= 0f) return;   // frozen sim — nothing changes, don't flood the file (MARK still snaps)
+            var lv = (ThreatCharacter != null && sensor != null && sensor.LastVisible.target == ThreatCharacter)
+                ? sensor.LastVisible : default;
+            bool cone = lv.visible > 0 && ConeCovers(lv.centroid);
+            string pose = anim != null ? anim.EffectiveState.ToString() : "-";
+            float duck = anim != null ? anim.duck : 0f;
+            bool aiming = solver != null && solver.IsAiming;
+            string st = $"{State}/{Beat}", fire = FireHold ?? "CLEAR", flags = TraceFlags();
+            string ctx = $"pose={pose} duck={duck:F2} armed={TB(ExposureArmed)} aim={TB(aiming)}";
+
+            if (st != trState) { TraceW("STATE", $"{(trState.Length > 0 ? trState : "—")} → {st}"); trState = st; }
+            if (contactSeen != trSeen)
+            { TraceW("SEE", $"{(contactSeen ? "GAINED" : "LOST")} vis={lv.visible}/{lv.tested} cone={TB(cone)} | {ctx}"); trSeen = contactSeen; }
+            if (contactHold != trHold)
+            { TraceW("HOLD", $"display-contact {(contactHold ? "ON" : "OFF")} | {ctx}"); trHold = contactHold; }
+            if (ExposureArmed != trArmed)
+            { TraceW("ARM", $"armed {(ExposureArmed ? "ON" : "OFF")} see={TB(contactSeen)} | {ctx}"); trArmed = ExposureArmed; }
+            if (aiming != trAiming)
+            { TraceW("AIM", $"solver {(aiming ? "ARMED" : "STOWED")} | {ctx}"); trAiming = aiming; }
+            if (pose != trPose)
+            { TraceW("POSE", $"{(trPose.Length > 0 ? trPose : "—")} → {pose} | see={TB(contactSeen)} hold={TB(contactHold)} duck={duck:F2}"); trPose = pose; }
+            if (Mathf.Abs(duck - trDuck) > 0.4f)
+                TraceW("DUCK", $"SNAP {trDuck:F2} → {duck:F2} | st={st} leg={TB(diceLegActive)} rchk={TB(diceReconCheck)} armed={TB(ExposureArmed)}");
+            trDuck = duck;
+            if (fire != trFire)
+            { TraceW("FIRE", $"gate {(trFire.Length > 0 ? trFire : "—")} → {fire} | see={TB(contactSeen)} err={(solver != null ? solver.LastAngularErrorDeg : 0f):F1}"
+                       + (fire == "bore buried" || fire == "cone off" || fire == "muzzle blocked" ? $" | e/m/b={lv.visible}/{(sensor != null ? sensor.LastMuzzleVisible : 0)}/{(sensor != null ? sensor.LastBothVisible : 0)} {BoreDiag()}" : "")); trFire = fire; }
+            if (ShotsFired != trShots)
+            {
+                if (trShots >= 0 && ShotsFired > trShots)
+                    TraceW("SHOT", $"#{ShotsFired} cyl={cylinder}/{cylinderCapacity} err={(solver != null ? solver.LastAngularErrorDeg : 0f):F1} st={st}");
+                trShots = ShotsFired;
+            }
+            if (flags != trFlags) { TraceW("FLAGS", flags); trFlags = flags; }
+
+            if (SimClock.Now >= traceNextSnap)
+            { traceNextSnap = SimClock.Now + Mathf.Max(0.1f, diceTraceSnapSec); TraceSnap(); }
+        }
+
         /// <summary>Cycle verdict post — rolled (what the die produced) ·
         /// outcome (plain-english result) · next (what the next roll decides).
         /// diceHist keeps the compact seam row; diceLog stores the structured
@@ -2605,14 +3020,16 @@ namespace SteelCity.Sim
         void DicePost(string rolled, string outcome, string next, int kind = 0)
         {
             diceVerdict = $"{rolled} → {outcome}";
-            string line = $"t{Time.unscaledTime:F1} #{diceCycle} {diceVerdict}";
+            string line = $"t{SimClock.Now:F1} #{diceCycle} {diceVerdict}";
             diceHist = line + (diceHist.Length > 0 ? "  ·  " + diceHist : "");
             if (diceHist.Length > 400) diceHist = diceHist.Substring(0, 400);
             diceLog.Add(new DiceStep {
-                t = Time.unscaledTime, cycle = diceCycle, kind = kind,
+                t = SimClock.Now, cycle = diceCycle, kind = kind,
                 rolled = rolled, outcome = outcome, next = next });
             if (diceLog.Count > 24) diceLog.RemoveAt(0);
             Debug.Log($"🎲 [Dice] {name} — {diceVerdict}");
+            if (diceTrace)
+                TraceW("DICE", $"#{diceCycle} {rolled} | {outcome} | next: {next} | st={State} see={TB(contactSeen)} cyl={cylinder}/{cylinderCapacity}");
             Notify();
         }
 
@@ -2626,7 +3043,7 @@ namespace SteelCity.Sim
         {
             if (reloading)
             {   // A RELOAD program owns the wait wherever it was started.
-                arbHoldUntil = Time.unscaledTime + 0.4f;
+                arbHoldUntil = SimClock.Now + 0.4f;
                 arbRunning = "RELOAD";
                 return;
             }
@@ -2641,7 +3058,7 @@ namespace SteelCity.Sim
             bool orbitLive = searchActive && !orbitDone;
             float cyl = cylinderCapacity > 0 ? (float)cylinder / cylinderCapacity : 1f;
             float stale = threat
-                ? Time.unscaledTime - Mathf.Max(0f, LastSeenAt)
+                ? SimClock.Now - Mathf.Max(0f, LastSeenAt)
                 : 999f;
             arbBoard = $"{(contact ? "◉contact" : threat ? $"◬lk {stale:F0}s" : "·idle")}" +
                 $" · {(covered ? "cover" : "EXPOSED")}" +
@@ -2722,7 +3139,7 @@ namespace SteelCity.Sim
                         // channel; the HoldPosition seam waits it out.
                         StartReload();
                         EnterBeat(EngagementBeat.None);
-                        arbHoldUntil = Time.unscaledTime + 1f;
+                        arbHoldUntil = SimClock.Now + 1f;
                     }
                     arbRunning = "RELOAD"; return true;
                 case 7:                                                    // StandDeliver → HOLD(armed)
@@ -2732,15 +3149,15 @@ namespace SteelCity.Sim
                     {   // Standing in the open — the hold IS the program;
                         // the contact overlay does the firing.
                         EnterBeat(EngagementBeat.None);
-                        arbHoldUntil = Time.unscaledTime + 1.2f;
+                        arbHoldUntil = SimClock.Now + 1.2f;
                     }
                     arbRunning = "HOLD(StandDlv)"; return true;
                 case 8:                                                    // Watch — park + recheck cadence
                     EnterBeat(EngagementBeat.None);
-                    arbHoldUntil = Time.unscaledTime + (contactSeen ? 0.8f : 1.6f);
+                    arbHoldUntil = SimClock.Now + (contactSeen ? 0.8f : 1.6f);
                     arbRunning = "HOLD(Watch)"; return true;
                 case 9:                                                    // PinnedGate
-                    pinned = true; pinUntil = Time.unscaledTime + pinRecheckSec;
+                    pinned = true; pinUntil = SimClock.Now + pinRecheckSec;
                     EnterBeat(EngagementBeat.None);
                     arbHoldUntil = pinUntil;
                     arbRunning = "HOLD(PinnedGate)"; return true;
@@ -2752,7 +3169,7 @@ namespace SteelCity.Sim
         /// existing pinned machinery (slow re-verdict clock).</summary>
         void ArbPark()
         {
-            pinned = true; pinUntil = Time.unscaledTime + pinRecheckSec;
+            pinned = true; pinUntil = SimClock.Now + pinRecheckSec;
             arbHoldUntil = pinUntil;
             if (State == CombatState.InCover || State == CombatState.HoldPosition)
                 EnterBeat(EngagementBeat.None);
@@ -2865,10 +3282,10 @@ namespace SteelCity.Sim
                 case EngagementBeat.Settle:
                     if (ArbActive)
                     {   // THE SEAM — dwell floor or interrupt → evaluate.
-                        if (seamNow || Time.unscaledTime >= beatUntil) SeamEval();
+                        if (seamNow || SimClock.Now >= beatUntil) SeamEval();
                         break;
                     }
-                    if (Time.unscaledTime >= beatUntil)
+                    if (SimClock.Now >= beatUntil)
                     {
                         // Hide-only: the seam IS the destination — he sought
                         // cover and now holds it. Parks forever, arm stowed.
@@ -2916,9 +3333,9 @@ namespace SteelCity.Sim
                     if (ArbActive)
                     {
                         if (reloading) break;              // RELOAD's wait owns the park
-                        if (pinned && Time.unscaledTime >= pinUntil)
+                        if (pinned && SimClock.Now >= pinUntil)
                         { pinned = false; arbVerdict = "pin recheck"; EnterBeat(EngagementBeat.Settle); }
-                        else if (seamNow || Time.unscaledTime >= arbHoldUntil)
+                        else if (seamNow || SimClock.Now >= arbHoldUntil)
                             EnterBeat(EngagementBeat.Settle);
                         break;
                     }
@@ -2929,7 +3346,7 @@ namespace SteelCity.Sim
                     // Parked PINNED — the re-verdict clock fired: release one
                     // rhythm cycle. Still unfightable = the refusal path
                     // re-pins for another pinRecheckSec.
-                    else if (pinned && Time.unscaledTime >= pinUntil)
+                    else if (pinned && SimClock.Now >= pinUntil)
                     {
                         pinned = false;
                         Debug.Log($"🥊 [Combat] {name} — pin re-check: testing the stand again");
@@ -2940,7 +3357,7 @@ namespace SteelCity.Sim
                     if (cylinder < cylinderCapacity && !reloading) StartReload();
                     // Reload starts instantly (physical); the beat LEAVES on
                     // the tempo floor + a full cylinder.
-                    if (!reloading && Time.unscaledTime >= beatUntil)
+                    if (!reloading && SimClock.Now >= beatUntil)
                     {
                         if (ArbActive) SeamDone("loaded");
                         else { afterSettle = EngagementBeat.Rise; EnterBeat(EngagementBeat.Settle); }
@@ -2953,7 +3370,7 @@ namespace SteelCity.Sim
                     // IS the rise completing (the eye physically IS up). The
                     // contact verdict is taken at that instant on a FRESH
                     // probe, not the cadenced cache.
-                    if (Time.unscaledTime >= beatUntil
+                    if (SimClock.Now >= beatUntil
                         && (anim == null || Mathf.Abs(anim.duck - riseDuck) < 0.02f))
                     {
                         bool contact = ThreatCharacter != null && Sensor != null
@@ -2964,7 +3381,7 @@ namespace SteelCity.Sim
                             if (ArbActive)
                             {   // Interrupt verdict — zero-dwell re-eval;
                                 // StandDeliver wins the seam on contact.
-                                LastSeenTarget = ThreatFeet(); LastSeenAt = Time.unscaledTime;
+                                LastSeenTarget = ThreatFeet(); LastSeenAt = SimClock.Now;
                                 ThreatPos = LastSeenTarget.Value;
                                 contactSeen = true;      // the crest probe IS the contact determination
                                 zeroStreak = 0; arbVerdict = "contact at crest";
@@ -3008,11 +3425,11 @@ namespace SteelCity.Sim
                     // welded muzzle ray hits the wall — sustained burial =
                     // unfightable cover → relocate (same path as refusal).
                     if (solver.IsAiming && solver.Blend >= 0.7f && BoreBuried(aimPointWorld))
-                        buriedSince += Time.unscaledDeltaTime;
+                        buriedSince += SimClock.Dt;
                     else buriedSince = 0f;
                     // Tempo floor — he holds the stand for the dwell even
                     // when the verdict is already in (buried keeps counting).
-                    if (Time.unscaledTime < beatUntil) break;
+                    if (SimClock.Now < beatUntil) break;
                     if (cylinder <= 0 || reloading)
                     {
                         if (ArbActive) { arbVerdict = "cylinder dry"; }
@@ -3036,12 +3453,12 @@ namespace SteelCity.Sim
                         {
                             // Buried AND nowhere fightable — same pinned
                             // verdict as the exhausted rise-refusal path.
-                            pinned = true; pinUntil = Time.unscaledTime + pinRecheckSec;
+                            pinned = true; pinUntil = SimClock.Now + pinRecheckSec;
                             afterSettle = EngagementBeat.TopUp; EnterBeat(EngagementBeat.Duck);
                         }
                     }
                     else if (emptyProbeSince >= 0f
-                          && Time.unscaledTime - emptyProbeSince >= dropAfterSec)
+                          && SimClock.Now - emptyProbeSince >= dropAfterSec)
                     {
                         // MISS — stage 1 is miss-in-position (this Duck→Settle
                         // is it). The seam is the branch point: pendingSearch
@@ -3065,13 +3482,13 @@ namespace SteelCity.Sim
                     {
                         FaceHold(settleYawDeg, "return");
                         bool folded2 = anim == null || Mathf.Abs(anim.duck - targetDuck) < 0.02f;
-                        if (folded2 && Time.unscaledTime >= beatUntil
+                        if (folded2 && SimClock.Now >= beatUntil
                             && Mathf.Abs(Mathf.DeltaAngle(transform.eulerAngles.y, settleYawDeg)) <= 1f)
                         { returnTurning = false; EnterBeat(EngagementBeat.Settle); }
                         break;
                     }
                     bool folded = anim == null || Mathf.Abs(anim.duck - targetDuck) < 0.02f;
-                    if (!folded || Time.unscaledTime < beatUntil) break;
+                    if (!folded || SimClock.Now < beatUntil) break;
                     // Off-spot when the fold lands (rim-peek engaged from the
                     // edge / stuck-guard arrival) — duck-walk back to the
                     // cover centroid BEFORE the seam holds: settling here
@@ -3082,7 +3499,7 @@ namespace SteelCity.Sim
                         if (!returnWalked)
                         {
                             returnWalked = true;
-                            swingStuckPos = Feet(); swingStuckT = Time.unscaledTime; stuckNudges = 0; stuckBest = float.MaxValue;
+                            swingStuckPos = Feet(); swingStuckT = SimClock.Now; stuckNudges = 0; stuckBest = float.MaxValue;
                             returnBuilt = false;   // the off-spot return routes
                         }
                         if (anim != null && anim.EffectiveState != CharacterAnimation.AnimState.Walking)
@@ -3128,7 +3545,7 @@ namespace SteelCity.Sim
                             // The authored head-yaw sweep — physically sweeps
                             // the posed vision cone across the threat region.
                             anim?.RequestPose(CharacterAnimation.AnimState.Looking, CharacterAnimation.PRIORITY_COMBAT);
-                            swingDwellUntil = Time.unscaledTime + DwellFor(EngagementBeat.Swing);
+                            swingDwellUntil = SimClock.Now + DwellFor(EngagementBeat.Swing);
                             swingPhase = 1;
                         }
                     }
@@ -3152,7 +3569,7 @@ namespace SteelCity.Sim
                             // Reacquired where he IS — refresh belief:
                             // zones/aim converge on the new position.
                             LastSeenTarget = ThreatFeet();
-                            LastSeenAt = Time.unscaledTime;
+                            LastSeenAt = SimClock.Now;
                             ThreatPos = LastSeenTarget.Value;
                             ResetSearch();   // corner reacquire — search answered
                             if (ArbActive)
@@ -3166,7 +3583,7 @@ namespace SteelCity.Sim
                             Debug.Log($"🥊 [Combat] {name} — {LastRiseDiag} → Engaged");
                             EnterBeat(EngagementBeat.Engaged);
                         }
-                        else if (Time.unscaledTime >= swingDwellUntil)
+                        else if (SimClock.Now >= swingDwellUntil)
                         {
                             LastRiseDiag = "peek — zero contact, stepping back";
                             Debug.Log($"🥊 [Combat] {name} — {LastRiseDiag}");
@@ -3176,7 +3593,7 @@ namespace SteelCity.Sim
                             // The dwell left the step guard's no-progress clock
                             // stale — reset it or the first return tick reads
                             // "stuck 0.6s+" and declares arrival at the rim.
-                            swingStuckPos = Feet(); swingStuckT = Time.unscaledTime; stuckNudges = 0; stuckBest = float.MaxValue;
+                            swingStuckPos = Feet(); swingStuckT = SimClock.Now; stuckNudges = 0; stuckBest = float.MaxValue;
                             swingP2Built = false;   // the walk home routes too
                         }
                     }
@@ -3216,11 +3633,11 @@ namespace SteelCity.Sim
             bool beatHoldsReload = PossessController.Body != vox   // the possessed body reloads free (manual); others hold mid-motion
                 && State == CombatState.InCover && Beat != EngagementBeat.TopUp;
             if (reloading && beatHoldsReload)
-                nextRoundLoad += Time.unscaledDeltaTime;
-            else if (reloading && Time.unscaledTime >= nextRoundLoad)
+                nextRoundLoad += SimClock.Dt;
+            else if (reloading && SimClock.Now >= nextRoundLoad)
             {
                 cylinder++;
-                nextRoundLoad = Time.unscaledTime + roundLoadInterval;
+                nextRoundLoad = SimClock.Now + roundLoadInterval;
                 if (cylinder >= cylinderCapacity) reloading = false;
                 Notify();   // the flow chart's cylinder dots tick on this event
             }
@@ -3256,29 +3673,29 @@ namespace SteelCity.Sim
             // is by definition unfinished, so fills queue until arrival.
             if (scriptedMode && (ScriptCursor < 0 || ScriptStageDone))
                 ConsumeNextScriptSlot();
+            TickUnembed();
             // Exposure fire — probe the threat's posed silhouette, arm the IK
             // while any voxel resolves, fire on cadence/convergence/cylinder.
             // Runs before the pose pick: ExposureArmed selects the Aim lanes.
             TickExposureFire();
-            if (DiceActive)
-            {   // FEED — evidence keeps the frame alive; nothing here
-                // interrupts the live quantum (atomic by design).
-                if (contactSeen) diceLastEvidence = Time.unscaledTime;
-            }
-            if (DiceActive && diceDeepActive && contactSeen)
-            {   // REACQUIRED — a sighting interrupts the hunt NOW, mid-leg or
-                // mid-dwell (the diagram's green edge): cancel the orbit,
-                // park, the next click is a fresh MOVE roll. Firing stays
-                // live throughout — cadence/convergence own the shot.
+            if (DiceActive && contactSeen && (diceDeepActive || diceReconCheck))
+            {   // RELEASED ON SIGHT — symmetric across SHALLOW and DEEP: a
+                // sighting ends the recon NOW, mid-leg or mid-dwell (the
+                // diagram's green edge). Cancel the peek/orbit leg, park,
+                // the next click is a fresh MOVE roll. Firing stays live
+                // throughout — cadence/convergence own the shot.
+                bool deep = diceDeepActive;
                 diceDeepActive = false; diceMoveDone = false; diceLegActive = false;
                 diceReconCheck = false; diceReconBearing = 0; diceReconSettleUntil = 0f;
                 if (anim != null) anim.lookScan = reconSavedLook;
-                diceLastEvidence = Time.unscaledTime;
-                ResetSearch();
+                if (deep) ResetSearch();
                 SetState(CombatState.HoldPosition);
                 CoverPoint = Feet(); CoverObstacleId = null;
-                DicePost("deep recon", "reacquired — visual re-established", "next turn roll", 2);
-                ArmRoll("next turn roll");
+                DicePost(deep ? "deep recon" : "recon",
+                    deep ? "reacquired — visual re-established"
+                         : "target spotted — visual on the anchor",
+                    "next turn roll", 2);
+                ArmRoll(DiceNextAwaitText);
             }
             else if (DiceActive && State == CombatState.InCover && (diceMoveDone || diceDeepActive))
             {
@@ -3292,9 +3709,8 @@ namespace SteelCity.Sim
                     {
                         diceDeepActive = false;
                         ResetSearch();   // clears the orbit frame + fan marks
-                        diceLastEvidence = Time.unscaledTime;
                         DicePost("deep recon", "reacquired — visual re-established", "next turn roll", 2);
-                        ArmRoll("next turn roll");
+                        ArmRoll(DiceNextAwaitText);
                     }
                     else DiceDeepDwellArm();   // the spot gets its own sweep
                 }
@@ -3303,9 +3719,17 @@ namespace SteelCity.Sim
                     // re-park to HoldPosition where the dice channel awaits.
                     // (Must precede the TickBeat branch or InCover never reaches it.)
                     diceMoveDone = false;
-                    DicePost(diceRunning, "arrived — move complete", "reload check", 2);
-                    SetState(CombatState.HoldPosition);
-                    diceRampPending = true; ArmRoll("reload check");
+                    if (diceReloadAfterMove)
+                    {   // The move WAS the reload's first half - the wheel turns now, behind cover.
+                        SetState(CombatState.HoldPosition);
+                        DiceReloadNow(contactSeen ? "reloads (still in sight)" : "reloads behind cover");
+                    }
+                    else
+                    {
+                        DicePost(diceRunning, "arrived — move complete", "reload check", 2);
+                        SetState(CombatState.HoldPosition);
+                        diceRampPending = true; ArmRoll("reload check");
+                    }
                 }
             }
             else if (State == CombatState.InCover) TickBeat();
@@ -3313,7 +3737,7 @@ namespace SteelCity.Sim
                 TickDice();
             else if (ArbActive && State == CombatState.HoldPosition
                   && !reloading
-                  && (seamNow || Time.unscaledTime >= arbHoldUntil))
+                  && (seamNow || SimClock.Now >= arbHoldUntil))
             {   // Parked in the open IS a seam state under the arbiter —
                 // the eval runs on the recheck clock and interrupts.
                 SeamEval();
@@ -3423,7 +3847,7 @@ namespace SteelCity.Sim
                             : diceReconCheck
                             ? CharacterAnimation.AnimState.AimSweep
                             : ExposureArmed
-                            ? (contactSeen ? CharacterAnimation.AnimState.Aiming
+                            ? (contactHold ? CharacterAnimation.AnimState.Aiming
                                            : CharacterAnimation.AnimState.AimSweep)
                             : (anim.duck > 1.02f ? CharacterAnimation.AnimState.Crouching
                                                  : CharacterAnimation.AnimState.Idle);
@@ -3526,6 +3950,7 @@ namespace SteelCity.Sim
                             if (hasDead && cf <= 4f) failedFaces.Add(FaceKey(wDead));
                         }
                         Debug.Log($"⚠️ [Combat] {name} — no corridor to {CoverObstacleId} ({dist:F1}m) — leg ruled unreachable ({routeFail})");
+                        TraceRefuse(CoverPoint, true);
                     }
                     if (StepRoute("seek", CoverPoint) || noCorridor)
                     {
@@ -3575,7 +4000,7 @@ namespace SteelCity.Sim
                                 // avoid-listed; the parked seam re-evals NOW.
                                 if (lastMoveCell >= 0) arbBlocked.Add(lastMoveCell);
                                 arbVerdict = "leg blocked"; arbRunning = "HOLD(Watch)";
-                                seamNow = true; arbHoldUntil = Time.unscaledTime;
+                                seamNow = true; arbHoldUntil = SimClock.Now;
                             }
                             CrouchAndCover();
                             FaceTrack(AimAnchor(), "hold-position");
@@ -3607,18 +4032,29 @@ namespace SteelCity.Sim
             // vision cone: geometric unocclusion alone is not detection.
             // Voxels resolved outside the posed eye fan don't count — the
             // cone supersedes all aiming.
-            if (ThreatCharacter != null && Time.unscaledTime >= nextVisProbe)
+            bool muzzleExpected = muzzleShootGate && mount != null && mount.IsEquipped
+                               && solver.IsAiming && solver.Blend >= 0.7f;
+            if (sensor != null)
             {
-                nextVisProbe = Time.unscaledTime + visInterval;
+                sensor.HasMuzzleProbe = muzzleExpected;
+                if (muzzleExpected) sensor.MuzzleProbeOrigin = mount.MuzzleWorld;
+            }
+            if (ThreatCharacter != null && SimClock.Now >= nextVisProbe)
+            {
+                nextVisProbe = SimClock.Now + visInterval;
                 bool probeContact = Sensor.TryGetVisibleVoxels(ThreatCharacter, out var pv)
                                  && ConeCovers(pv.centroid);
                 emptyProbeSince = probeContact ? -1f
-                    : (emptyProbeSince < 0f ? Time.unscaledTime : emptyProbeSince);
+                    : (emptyProbeSince < 0f ? SimClock.Now : emptyProbeSince);
             }
             var vis = (ThreatCharacter != null && sensor != null
                        && sensor.LastVisible.target == ThreatCharacter)
                 ? sensor.LastVisible : default;
             bool canSee = vis.visible > 0 && ConeCovers(vis.centroid);
+            // AWARE (eye) vs SHOOTABLE (eye ∧ muzzle): with the gun up the trigger
+            // needs a probe that was actually cast from the muzzle.
+            bool canShoot = canSee && (!muzzleExpected || (vis.muzzleGated && vis.shootable > 0));
+            Vector3 firePoint = vis.muzzleGated && vis.shootable > 0 ? vis.shootCentroid : vis.centroid;
 
             // (The staggered reload tick lives at the top of Update — the wheel
             // is physical, not combat-state.)
@@ -3629,7 +4065,10 @@ namespace SteelCity.Sim
             // the belief only matters once he's out of sight again.
             if (canSee)
             {
-                LastSeenAt = Time.unscaledTime;
+                LastSeenAt = SimClock.Now;
+                liveAimPoint = vis.muzzleGated && vis.shootable > 0 ? vis.shootCentroid : vis.centroid;    // the precise aim point — held
+                                                // through the grace so misses
+                                                // don't retarget to the anchor
                 lastConfirmed = ThreatFeet();   // the RING — entity position
                                                 // at confirmation, not the
                                                 // wandering pixel centroid
@@ -3664,6 +4103,11 @@ namespace SteelCity.Sim
                 LastSeenTarget = lastConfirmed;
             }
             contactSeen = canSee;
+            // DISPLAY channel — the debounced twin of contactSeen: live plus a
+            // short grace, so a single voxel-miss doesn't retarget the solver
+            // or flip the pose. Fire + verdicts above keep the raw signal.
+            contactHold = canSee
+                       || SimClock.Now - LastSeenAt < ContactHoldSec;
 
             // Arm gate = exposure + not-reloading + an equipped weapon + beat
             // authority. Arm once, retarget every tick — the centroid moves as
@@ -3694,7 +4138,11 @@ namespace SteelCity.Sim
                     Vector3 fwd = transform.forward; fwd.y = 0f;
                     aimPointWorld = Feet() + fwd.normalized * 2.5f + Vector3.up * 0.9f;
                 }
-                else aimPointWorld = canSee ? vis.centroid : AimAnchor();
+                else aimPointWorld = contactHold ? liveAimPoint : AimAnchor();
+                // live point held through the grace — the anchor is the
+                // fallback, engaged only on a genuine loss (a 1-frame miss
+                // used to whip the solver between the two world points —
+                // the retarget loop behind the AimSweep↔Aiming bob)
                 if (solver.IsAiming) solver.SetTarget(aimPointWorld);
                 else solver.Arm(aimPointWorld);
             }
@@ -3703,7 +4151,7 @@ namespace SteelCity.Sim
             // AUTHORITY (reload starts, weapon gone, beat closed the channel)
             // stows instantly — the arm is still beat-owned.
             bool holding = dbgArmSolver && solver.IsAiming && clearToArm
-                        && Time.unscaledTime - LastSeenAt <= disarmHoldSec;
+                        && SimClock.Now - LastSeenAt <= disarmHoldSec;
             // The arm is beat-owned outright: an arm this tick didn't grant
             // is an ORPHAN (a leftover from possess-entry, a HUD ARM test,
             // a pre-combat carryover) — it would keep solving toward a stale
@@ -3741,9 +4189,15 @@ namespace SteelCity.Sim
             // Convergence = the bore HOLDING the current aim inside the gate,
             // not one sample — a retarget reads a stale error until the solver
             // re-solves, so convergence must persist fireSettleSec to count.
+            // Range-aware: an ANGLE measured from a muzzle 10 cm off the aim point is meaningless (4 cm
+            // lateral = 22 deg). Converged = within the angular gate OR the bore passes within hitRadiusM
+            // of the aim point (missM = muzzle->point distance * tan(err)). Point-blank standoffs
+            // (err 20-37 deg, tgtD 0.1 m = 4-7 cm miss) used to hold the trigger forever.
+            float tgtDist = mount != null && mount.IsEquipped ? Vector3.Distance(mount.MuzzleWorld, aimPointWorld) : 99f;
+            float missM = tgtDist * Mathf.Tan(Mathf.Min(solver.LastAngularErrorDeg, 80f) * Mathf.Deg2Rad);
             bool errLive = solver.IsAiming && solver.Blend >= 0.7f
-                        && solver.LastAngularErrorDeg <= aimGateDeg;
-            convergeSince = errLive ? (convergeSince < 0f ? Time.unscaledTime : convergeSince) : -1f;
+                        && (solver.LastAngularErrorDeg <= aimGateDeg || missM <= hitRadiusM);
+            convergeSince = errLive ? (convergeSince < 0f ? SimClock.Now : convergeSince) : -1f;
 
             // Sustained "sees but can't shoot" is a RELOCATE verdict, not a
             // firing position: cone holds him, bore never will — parked at
@@ -3752,11 +4206,11 @@ namespace SteelCity.Sim
             // One welded-muzzle eval per frame — feeds the relocate clock
             // (needs contact+authority) AND the bore orb (needs only aim).
             bool boreBuriedNow = solver.IsAiming && BoreBuried(aimPointWorld);
-            bool boreBlocked = boreBuriedNow && canSee && BeatAllowsFire;
+            bool boreBlocked = (boreBuriedNow || (solver.IsAiming && !canShoot)) && canSee && BeatAllowsFire;
             if (boreBlocked)
             {
-                if (boreBuriedSince < 0f) boreBuriedSince = Time.unscaledTime;
-                else if (Time.unscaledTime - boreBuriedSince > 1.2f)
+                if (boreBuriedSince < 0f) boreBuriedSince = SimClock.Now;
+                else if (SimClock.Now - boreBuriedSince > 1.2f)
                 {
                     if (DiceActive)
                     {   // The roll owns every movement decision — a buried
@@ -3764,7 +4218,7 @@ namespace SteelCity.Sim
                         // MaxValue stamps the episode spent: no re-post until
                         // the block clears (else-branch resets the clock).
                         boreBuriedSince = float.MaxValue;
-                        DicePost("verdict", "bore buried — can't fight from here", "next roll decides", 2);
+                        DicePost("verdict", boreBuriedNow ? "bore buried — can't fight from here" : "muzzle blocked — eye sees, gun can't", "next roll decides", 2);
                     }
                     else
                     {
@@ -3803,11 +4257,12 @@ namespace SteelCity.Sim
             FireHold =
                 !solver.IsAiming ? "stowed"
                 : !canSee ? (vis.visible > 0 ? "cone off" : "no voxels")
+                : !canShoot ? "muzzle blocked"
                 : cylinder <= 0 ? "dry"
                 : !BeatAllowsFire ? "beat closed"
-                : Time.unscaledTime < nextFireTime ? "cadence"
+                : SimClock.Now < nextFireTime ? "cadence"
                 : convergeSince < 0f ? "losing lock"
-                : Time.unscaledTime - convergeSince < fireSettleSec ? "settling"
+                : SimClock.Now - convergeSince < fireSettleSec ? "settling"
                 : BoreBuried(aimPointWorld) ? "bore buried"
                 : null;
             // Transition log — the strip is too busy to read a transient hold;
@@ -3816,25 +4271,25 @@ namespace SteelCity.Sim
             if (FireHold != fireHoldLogged)
             {
                 fireHoldFlips++;
-                if (Time.unscaledTime >= nextFireHoldLog)
+                if (SimClock.Now >= nextFireHoldLog)
                 {
                     Debug.Log($"🥊 [Combat] {name} — fire gate: {FireHold ?? "CLEAR"}"
                             + $" (vis {vis.visible} · cone {(ConeCovers(vis.centroid) ? "on" : "off")}"
                             + $" · err {solver.LastAngularErrorDeg:F1}° blend {solver.Blend:F2}"
                             + $" · {Beat}/{State})"
                             + (fireHoldFlips > 1 ? $" ×{fireHoldFlips} flips" : ""));
-                    nextFireHoldLog = Time.unscaledTime + 0.2f;
+                    nextFireHoldLog = SimClock.Now + 0.2f;
                     fireHoldFlips = 0;
                 }
                 fireHoldLogged = FireHold;
             }
             if (FireHold != null) return;
-            nextFireTime = Time.unscaledTime + fireInterval;
-            if (ProjectileSystem.GetOrCreate().Fire(mount, solver.LastAngularErrorDeg, vis.centroid)
+            nextFireTime = SimClock.Now + fireInterval;
+            if (ProjectileSystem.GetOrCreate().Fire(mount, solver.LastAngularErrorDeg, firePoint)
                 && SpendRound())
             {
                 ShotsFired++;
-                LastShotAt = Time.unscaledTime;
+                LastShotAt = SimClock.Now;
                 // The trigger pull IS a decision event — log it (the gate's
                 // CLEAR transition may have been eaten by the flap coalescer).
                 Debug.Log($"🥊 [Combat] {name} — FIRED #{ShotsFired} → ({vis.centroid.x:F0},{vis.centroid.z:F0})"
@@ -3918,6 +4373,71 @@ namespace SteelCity.Sim
             var t = ThreatCharacter.transform.position;
             var d = ThreatCharacter.Dims;
             return t + new Vector3(d.x * ThreatCharacter.voxelSize * 0.5f, 0f, d.z * ThreatCharacter.voxelSize * 0.5f);
+        }
+
+        private float unembedSince = -1f, nextUnembedProbe;
+        private Vector3 lastGoodFeet; private bool lastGoodValid;
+
+        /// <summary>ESCAPE from a place the body can stand but the map cannot route out of. Two triggers, one
+        /// breadcrumb: (a) EMBEDDED - the body square is blocked (a volume was re-registered over it); (b) POCKET -
+        /// the actor flood serves < 12 cells (own cell unwalkable / sealed pocket: e.g. clipped into a car tub).
+        /// After 0.4 s (embedded) / 1.0 s (pocket) the body returns to the last position that had a real flood
+        /// (>= 200 cells, own cell walkable), else slips to the nearest free square (possess's wedge-escape
+        /// primitive). Logged as UNEMBED with the reason.</summary>
+        void TickUnembed()
+        {
+            if (world == null || SimClock.Now < nextUnembedProbe) return;
+            nextUnembedProbe = SimClock.Now + 0.2f;
+            Vector3 fc = Feet();
+            var f = sensor?.Field;
+            bool embedded = !world.SquareFree(fc, BodySqHalf, BodyH);
+            var map = f != null && f.HasData ? MeMap() : null;
+            bool pocket = f != null && f.HasData && (map == null || map.ReachedCount < 12);
+            if (!embedded && !pocket)
+            {
+                unembedSince = -1f;
+                if (map != null && map.ReachedCount >= 200)
+                {
+                    int oc = f.CellIndexOf(fc);
+                    if (oc >= 0 && f.Walkable(oc, BodyH)) { lastGoodFeet = fc; lastGoodValid = true; }
+                }
+                return;
+            }
+            if (unembedSince < 0f) { unembedSince = SimClock.Now; return; }
+            if (SimClock.Now - unembedSince < (embedded ? 0.4f : 1.0f)) return;
+            Vector3 dims = vox != null ? vox.WorldSize : new Vector3(0.6f, 1.8f, 0.6f);
+            Vector3 half = new Vector3(dims.x * 0.5f, 0f, dims.z * 0.5f);
+            Vector3 free; string how;
+            if (lastGoodValid && Vector3.Distance(fc, lastGoodFeet) <= 15f
+                && world.SquareFree(lastGoodFeet, BodySqHalf, BodyH))
+            { free = lastGoodFeet; how = "breadcrumb"; }
+            else if (world.TryNearestFreeSquare(fc, BodySqHalf, BodyH, 3f, out free)) how = "nearest-free";
+            else return;
+            transform.position = new Vector3(free.x - half.x, free.y, free.z - half.z);
+            unembedSince = -1f;
+            diceLegActive = false; diceLegBuilt = false; swingStuckT = SimClock.Now; stuckNudges = 0; stuckBest = float.MaxValue;
+            legRouteTarget = new Vector3(float.NaN, 0f, 0f); legRoute.Clear();   // any live route was built from the old spot
+            string why = embedded ? "embedded in a volume" : $"sealed pocket (flood {(map != null ? map.ReachedCount : 0)} cells)";
+            string obst = DescribeBlock(fc);
+            Debug.Log($"🥊 [Combat] {name} - UNEMBED ({why}): {how}, moved {Vector3.Distance(fc, free):F2}m to ({free.x:F1},{free.z:F1}) | {obst}");
+            if (diceTrace) TraceW("UNEMBED", $"{why} - {how} {Vector3.Distance(fc, free):F2}m | {obst} | from {CellDiag(fc)} -> {CellDiag(free)}");
+        }
+
+        /// <summary>WHAT refused the body square here: the 9-column verdict dump (same samples as SquareFree),
+        /// compressed to the failing entries, with the volume id resolved and a moving-vehicle flag when the
+        /// blocker is a vehicle. Pocket (map-side) escapes add the 7x7 cell grid instead.</summary>
+        string DescribeBlock(Vector3 fc)
+        {
+            var sb = new System.Text.StringBuilder(200);
+            world.ExplainSquare(fc, BodySqHalf, BodyH, sb);
+            string ex = sb.ToString();
+            var v = System.Text.RegularExpressions.Regex.Match(ex, @"vol:([^\s#]+)");
+            if (v.Success)
+            {
+                string id = v.Groups[1].Value;
+                ex += $" [{id}{(VoxelVehicle.IsVolumeMoving(id) ? " MOVING" : " parked/unknown")}]";
+            }
+            return ex.Length > 0 ? ex : "square-clear?";
         }
 
         /// <summary>Feet+chest SamplePoint walk-block, with X/Z slide — same shape as possess.</summary>

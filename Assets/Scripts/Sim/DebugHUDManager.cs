@@ -1095,7 +1095,7 @@ namespace SteelCity.Sim
             hudSB.AppendLine("[`] / [O] Hide  [Tab] Next tab  [Y] Corner  [M] Minimize");
             hudSB.AppendLine("[LMB] Select/focus  [MMB] Rotate  [RMB] Pan  [Wheel] Zoom");
             hudSB.AppendLine("[G] Possess Vinny (WASD/mouse/LMB)");
-            hudSB.AppendLine("[F6] Free cam  [F7] Waypoints  [F8] Freeze  [F10] Vehicles");
+            hudSB.AppendLine("[F6] Free cam  [F7] Waypoints  [F8] Freeze ([.] step 0.08s)  [F10] Vehicles");
             hudSB.AppendLine("<i>Drag title bar to move. Click _ to minimize.</i>");
             footerText = hudSB.ToString();
             nextFooterRefresh = Time.unscaledTime + 0.25f;
@@ -1464,11 +1464,11 @@ namespace SteelCity.Sim
                 sb.AppendLine(H("Stress Test"));
                 if (stressTest != null)
                 {
-                    sb.AppendLine("[F8] Spawn agents and run test");
+                    sb.AppendLine("[F11] Spawn agents and run test");
                     sb.AppendLine("[F7] Cycle path-beam count (during test)");
                 }
                 if (stressDiag != null)
-                    sb.AppendLine("[F8] Start diagnostics    [F9] Stop");
+                    sb.AppendLine("[F11] Start diagnostics    [F9] Stop");
             }
 
             if (hoodSpawner != null || testRigPresent)
@@ -1788,13 +1788,14 @@ namespace SteelCity.Sim
             pickedAim = threat;   // marker mirrors the live threat
             cc.RefillCylinder();   // arena loadout — combat entry itself never refills
             var tanCc = tanCh.GetComponent<CombatController>();
-            // Dice-lab preset — the current test config: Fight mode pairs
-            // Vinny as the manual DRIVER (dice+manual) with Tan slaved
-            // (dice+manual+mimic). Flags land BEFORE EnterCombat — the dice
-            // branch reads them at frame entry. Toggles stay runtime-live.
+            // Dice-lab preset — Fight mode runs BOTH fighters on the dice,
+            // auto (real-time, event-driven). Flags land BEFORE EnterCombat —
+            // the dice branch reads them at frame entry. Toggles stay runtime-live.
             if (pitTanMode == PitTanMode.Fight)
             { cc.diceArbiter = true; cc.seamArbiter = false; cc.scriptedMode = false;
-              cc.diceManual = true; cc.diceMimic = false; }
+              cc.diceManual = false; }
+            cc.traceLabel = "vinny";   // flight-recorder labels match the SEAM panel
+            if (tanCc != null) tanCc.traceLabel = "tan";
             cc.EnterCombat(threat, tanCh);   // the BODY — exposure probe samples his silhouette
             if (tanCc != null && tanCc.State != CombatController.CombatState.Idle)
                 tanCc.ExitCombat();   // stale combat on re-run — stand down first
@@ -1806,7 +1807,7 @@ namespace SteelCity.Sim
                 tanCc.holdInCover = pitTanMode == PitTanMode.Hide;
                 if (pitTanMode == PitTanMode.Fight)
                 { tanCc.diceArbiter = true; tanCc.seamArbiter = false; tanCc.scriptedMode = false;
-                  tanCc.diceManual = true; tanCc.diceMimic = true; }
+                  tanCc.diceManual = false; }
                 tanCc.EnterCombat(CharFeetCenter(ch), ch);
             }
         }
@@ -1906,6 +1907,11 @@ namespace SteelCity.Sim
             if (GUILayout.Button(seamPanelOpen ? "\u25bc SEAM" : "\u25b6 SEAM", toggleStyle, GUILayout.Width(70)))
                 seamPanelOpen = !seamPanelOpen;
             GUILayout.Label("<b>live intent field</b>", labelStyle);
+            if (GUILayout.Button("\U0001F4DD MARK", toggleStyle, GUILayout.Width(74)))
+            {   // Drop a flag + a full SNAP of both fighters into Logs/dice_trace.log
+                DiceTrace.Write($"t{SimClock.Now:F2} ==== MARK — user flagged this moment ====");
+                vcc?.TraceSnap(); tcc?.TraceSnap();
+            }
             GUILayout.EndHorizontal();
             if (seamPanelOpen)
             {
@@ -1945,40 +1951,28 @@ namespace SteelCity.Sim
                 bool man = GUILayout.Toggle(cc.diceManual, " MANUAL", toggleStyle, GUILayout.Width(70));
                 if (man != cc.diceManual) cc.diceManual = man;
                 if (cc.diceManual)
-                {   // MIMIC — manual-only lockstep: slave this fighter's rolls
-                    // to the partner's click. The driver waits for BOTH gates.
-                    bool mim = GUILayout.Toggle(cc.diceMimic, " MIMIC", toggleStyle, GUILayout.Width(62));
-                    if (mim != cc.diceMimic) cc.diceMimic = mim;
-                    var slave = cc.MimicSlave();
-                    bool slaveWait = slave != null && !slave.DiceRollGateOpen();
-                    bool can = !cc.diceMimic && cc.DiceAwaiting && !cc.Reloading
-                               && cc.DiceRollReadyIn <= 0f && !slaveWait;
+                {
+                    bool can = cc.DiceAwaiting && !cc.Reloading && cc.DiceRollReadyIn <= 0f;
                     GUI.enabled = can;
                     if (GUILayout.Button(
-                            cc.diceMimic ? "🎲 MIMIC — partner drives"
-                            : $"🎲 ROLL — {(cc.DiceAwaiting ? cc.DiceAwaitText : "…")}" +
-                              (cc.DiceAwaiting && cc.DiceRollReadyIn > 0f ? $" · {cc.DiceRollReadyIn:F1}s" : "") +
-                              (slaveWait ? $" · wait {slave.name}" : ""),
+                            $"🎲 ROLL — {(cc.DiceAwaiting ? cc.DiceAwaitText : "…")}" +
+                              (cc.DiceAwaiting && cc.DiceRollReadyIn > 0f ? $" · {cc.DiceRollReadyIn:F1}s" : ""),
                             can ? tabActiveStyle : tabStyle,
                             GUILayout.Width(210), GUILayout.Height(22)))
                         cc.DiceClick(0);
                     GUI.enabled = true;
-                    if (!cc.diceMimic)
+                    GUILayout.Label("pin:", labelStyle, GUILayout.Width(24));
+                    for (int f = 1; f <= 6; f++)
                     {
-                        GUILayout.Label("pin:", labelStyle, GUILayout.Width(24));
-                        for (int f = 1; f <= 6; f++)
-                        {
-                            int ff = f;
-                            GUI.enabled = can;
-                            if (GUILayout.Button(ff.ToString(), tabStyle, GUILayout.Width(20), GUILayout.Height(18)))
-                                cc.DiceClick(ff);
-                            GUI.enabled = true;
-                        }
+                        int ff = f;
+                        GUI.enabled = can;
+                        if (GUILayout.Button(ff.ToString(), tabStyle, GUILayout.Width(20), GUILayout.Height(18)))
+                            cc.DiceClick(ff);
+                        GUI.enabled = true;
                     }
                 }
                 else GUILayout.Label(
-                    $"     {(cc.DiceAwaiting ? $"await {cc.DiceAwaitText}" + (cc.DiceRollReadyIn > 0f ? $" · {cc.DiceRollReadyIn:F1}s" : " · READY") : "executing…")}"
-                    + (cc.diceMimic ? "  (mimic inert — unleashed)" : ""), labelStyle);
+                    $"     {(cc.DiceAwaiting ? $"await {cc.DiceAwaitText}" + (cc.DiceRollReadyIn > 0f ? $" · {cc.DiceRollReadyIn:F1}s" : " · READY") : "executing…")}", labelStyle);
                 GUILayout.EndHorizontal();
                 GUILayout.Label(
                     $"     quantum #{cc.DiceCycle}  face {cc.DiceFace} ({CombatController.DiceFaceNames[cc.DiceFace]})"
@@ -2071,7 +2065,7 @@ namespace SteelCity.Sim
                     l2 = $"→ {cc.CoverObstacleId} {Vector3.Distance(feet, cc.CoverPoint):F1}m"; hot = true; }
                 else if (cc.DiceAwaiting)
                 {   l1 = cc.DiceRampPending
-                        ? $"🎲 reload check — spent {cc.cylinderCapacity - cc.Cylinder}/{cc.cylinderCapacity}"
+                        ? $"🎲 {(cc.DiceRollReadyIn > 0f ? "holding → " : "")}reload check — spent {cc.cylinderCapacity - cc.Cylinder}/{cc.cylinderCapacity}"
                         : $"🎲 {cc.DiceAwaitText}";
                     if (cc.DiceRollReadyIn > 0f) l1 += $" · {cc.DiceRollReadyIn:F1}s";
                     l2 = $"{cc.DiceVerdict}"; hot = false; }

@@ -322,25 +322,34 @@ namespace SteelCity.Sim
         {
             hitPos = feetCenter + Vector3.up * 0.06f;
             var f = SamplePoint(hitPos);
-            if (Solid(f.kind)) { why = $"feet:{Hit(f)}"; return false; }
+            if (BodySolid(f)) { why = $"feet:{Hit(f)}"; return false; }
             hitPos = feetCenter + Vector3.up * (bodyH * 0.35f);
             var w = SamplePoint(hitPos);
-            if (Solid(w.kind)) { why = $"waist:{Hit(w)}"; return false; }
+            if (BodySolid(w)) { why = $"waist:{Hit(w)}"; return false; }
             hitPos = feetCenter + Vector3.up * (bodyH * 0.55f);
             var m = SamplePoint(hitPos);
-            if (Solid(m.kind)) { why = $"mid:{Hit(m)}"; return false; }
+            if (BodySolid(m)) { why = $"mid:{Hit(m)}"; return false; }
             hitPos = feetCenter + Vector3.up * (bodyH * 0.75f);
             var c = SamplePoint(hitPos);
-            if (Solid(c.kind)) { why = $"chest:{Hit(c)}"; return false; }
+            if (BodySolid(c)) { why = $"chest:{Hit(c)}"; return false; }
             hitPos = feetCenter + Vector3.up * (bodyH * 0.9f);
             var h = SamplePoint(hitPos);
-            if (Solid(h.kind)) { why = $"head:{Hit(h)}"; return false; }
+            if (BodySolid(h)) { why = $"head:{Hit(h)}"; return false; }
             why = null; hitPos = feetCenter; return true;
 
             static bool Solid(PointKind k)
                 => k == PointKind.TerrainSolid || k == PointKind.VolumeSolid;
+            // A VEHICLE is a solid block for bodies: its whole volume (yawed grid, incl. the open cabin /
+            // tub air between its voxels) blocks occupancy. Without this a body steps up onto the 10-15 cm
+            // floor / running boards (<= stepUpMax) and stands INSIDE an open touring car - legal for the
+            // mover, invisible to the map (cabin ground probes read the canopy), and a permanent pocket.
+            // Bullets / LOS (Raycast) are unchanged: open cabin air still passes shots.
+            static bool BodySolid(in PointSample s)
+                => Solid(s.kind) || (s.kind == PointKind.VolumeOpen && IsVehicleVolume(s.volumeId));
+            static bool IsVehicleVolume(string id)
+                => id != null && id.Length > 4 && id[0] == 'v' && id[1] == 'e' && id[2] == 'h' && id[3] == '_';
             static string Hit(in PointSample s)
-                => s.kind == PointKind.VolumeSolid ? $"vol:{s.volumeId}#{s.cellIdx}" : "terrain";
+                => s.volumeId != null ? $"vol:{s.volumeId}#{s.cellIdx}" : "terrain";
         }
 
         // The square's 9-column pattern as unit directions — center first,
