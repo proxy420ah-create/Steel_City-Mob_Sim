@@ -266,6 +266,34 @@ namespace SteelCity.Sim
                                 + $" · {Time.unscaledTime - cc.LastSeenAt:F1}s ago");
             }
 
+            // ── DICE readout — when the dice frame owns the fighter the
+            // authored beat bar + engagement-flow chart are inert (TickBeat
+            // early-returns); surface the turn engine + per-line roll log.
+            if (cc != null && cc.diceArbiter)
+            {
+                sb.AppendLine("── dice ────────────────");
+                sb.AppendLine(
+                    (cc.diceManual ? (cc.diceMimic ? "MANUAL·mimic" : "MANUAL") : "auto")
+                    + $" · quantum #{cc.DiceCycle}"
+                    + $" · face {cc.DiceFace} ({CombatController.DiceFaceNames[cc.DiceFace]})"
+                    + (cc.DiceSubRoll > 0 ? $" · sub {cc.DiceSubRoll}/6" : "")
+                    + $" · {(cc.DiceAwaiting ? $"await {cc.DiceAwaitText}" + (cc.DiceRollReadyIn > 0f ? $" ({cc.DiceRollReadyIn:F1}s)" : " · READY") : "executing…")}");
+                sb.AppendLine($"verdict {cc.DiceVerdict}");
+                // Rolling log — ROLLED (die) / outcome (plain english) /
+                // next (what the next roll decides), colored by kind.
+                string[] kindCol = { "#aeb8c4", "#ffb35c", "#9fd89f", "#ff8f7a" };
+                int dFrom = Mathf.Max(0, cc.DiceLog.Count - 6);
+                for (int di = cc.DiceLog.Count - 1; di >= dFrom; di--)
+                {
+                    var st = cc.DiceLog[di];
+                    string kc = kindCol[Mathf.Clamp(st.kind, 0, 3)];
+                    sb.AppendLine($"<color=#8fb8d8>t{st.t:F1}</color> <color={kc}><b>ROLLED {st.rolled}</b></color>");
+                    sb.AppendLine($"   → {st.outcome}");
+                    sb.AppendLine($"   <color=#8fb8d8>next: {st.next}</color>");
+                }
+            }
+            else
+            {
             // ── The active beat's dwell, as its own section: a draining
             // countdown so every beat is watchable at the debug tempo.
             sb.AppendLine("── beat ────────────────");
@@ -347,6 +375,7 @@ namespace SteelCity.Sim
                             + $"{N("ARMED", cc.ExposureArmed)} {A} {N("CONVERGED", converged)} {A} "
                             + $"{N("FIRE", justFired, true)}{(!justFired && cc.FireHold != null ? $"·{cc.FireHold}" : "")} {A} {N("RELOAD", reloading, true)} {dots}");
             }
+            }   // end authored beat/flow — skipped entirely under dice
 
             sb.AppendLine("── sensor ──────────────");
             if (sensor == null) { sb.AppendLine("(no CoverSensor)"); }
@@ -356,6 +385,16 @@ namespace SteelCity.Sim
                     ? $"threat ({sensor.Threat.Value.x:F0},{sensor.Threat.Value.z:F0})"
                       + (isVinny && PossessController.ThreatPinned ? " · pinned" : "")
                     : "threat — none");
+                if (cc != null && cc.diceArbiter)
+                {   // Dice-relevant sensor surface — the field the sub-rolls
+                        // pick from; heights/wall classes/reject reasons are
+                        // authored-chain tuning noise here.
+                        sb.AppendLine($"field r{sensor.radius:F0}m · {sensor.Field.N}² · cell {sensor.Field.CellSize:F2}m");
+                        sb.AppendLine($"cells tested {sensor.stats.tested} · valid {sensor.stats.valid}"
+                                    + $" · pick {(sensor.chosenIdx >= 0 ? "#" + sensor.chosenIdx : "—")}");
+                }
+                else
+                {
                 sb.AppendLine($"heights stand {sensor.HStand:F2} · crouch {sensor.HShallow:F2}→{sensor.HDeep:F2}"
                             + (sensor.HeightsMeasured ? "" : " · FALLBACK"));
                 sb.AppendLine($"support y{sensor.SupportY:F2} · walls {sensor.stats.obstacles}→"
@@ -375,6 +414,7 @@ namespace SteelCity.Sim
                         sb.Append($" {kv.Key}×{kv.Value}");
                     }
                     sb.AppendLine();
+                }
                 }
             }
         }

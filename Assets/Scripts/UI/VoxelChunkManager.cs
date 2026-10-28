@@ -3223,6 +3223,8 @@ namespace SteelCity.Sim
         public bool IsOrtho => renderCamera != null && renderCamera.orthographic;
         public float CameraOrthoSize => renderCamera != null && renderCamera.orthographic ? renderCamera.orthographicSize : 0f;
         public float CameraFov => renderCamera != null && !renderCamera.orthographic ? renderCamera.fieldOfView : 0f;
+        /// <summary>The camera the voxel RT actually renders from (follow cam while possessed/following, map camera otherwise).</summary>
+        public Camera RenderCam => renderCamera;
         public bool ShowOrthoHud => showOrthoHud;
         public int RenderWidth => renderWidth;
         public int RenderHeight => renderHeight;

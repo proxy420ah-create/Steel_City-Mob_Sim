@@ -54,3 +54,4 @@ Bug tracker per Development Guidelines Rule 13. Bugs are cataloged by category i
 | [Route Crossing Center Arena Wall Mid-Fight](runtime/ROUTE_CROSSING_CENTER_WALL_MIDFIGHT.md) | runtime | 🟡 FIX APPLIED | 🟡 HIGH | 2026-10-20 |
 | [Swing Step-Out Bypassed Map Corridor — Corner Clip Grind](runtime/SWING_STEP_OUT_CORNER_CLIP.md) | runtime | 🟡 FIX APPLIED | 🟡 HIGH | 2026-10-22 |
 | [Swing Peek Measured Shadow Rim, Not Wall End — Wall-Side Bias](runtime/SWING_PEEK_SHADOW_RIM_VS_WALL_END.md) | runtime | 🟡 FIX APPLIED | 🟡 HIGH | 2026-10-23 |
+| [Dice Ownership Leaks — Authored Systems Act Under the Roll](runtime/DICE_AUTHORED_SYSTEM_LEAKS.md) | runtime | 🟢 FIXED | 🔴 CRITICAL | 2026-10-27 |

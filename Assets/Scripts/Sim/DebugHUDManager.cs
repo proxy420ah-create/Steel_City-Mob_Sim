@@ -68,7 +68,7 @@ namespace SteelCity.Sim
         /// forever (`holdInCover` — the 3-stage-search test dummy); Fight:
         /// full symmetric duel — both combatants run the beat stack.</summary>
         private enum PitTanMode : byte { Dummy, Hide, Fight }
-        private PitTanMode pitTanMode = PitTanMode.Dummy;
+        private PitTanMode pitTanMode = PitTanMode.Fight;   // lab default — symmetric duel (was Dummy)
         /// Parity experiment — SETUP PIT assigns Vinny the NORTH plate and Tan
         /// the SOUTH. If "the south fighter" stumbles regardless of identity,
         /// the asymmetry lives in the geometry/field, not the character.
@@ -420,6 +420,7 @@ namespace SteelCity.Sim
         private Texture2D seamRadarTex;          // cached — repainted on Repaint events only
         private readonly Color32[] seamRadarPx = new Color32[104 * 104];
         private bool seamPanelOpen = true;       // the standalone SEAM window (bottom-left)
+        private Vector2 seamScrollPos;           // SEAM window's internal scroll
         private string tabText;
         private string footerText;
         private Tab lastBuiltTab = (Tab)(-1);
@@ -833,6 +834,7 @@ namespace SteelCity.Sim
         {
             InitStyles();
             DrawModeTicker();   // bottom banner — persists while a V-key debug view is on, even with the panel hidden
+            DrawCombatBubbles();   // in-world fighter bubbles — same always-on overlay contract
             if (!visible) return;
             // FindFirstObjectByType scans the scene — 8 of them per IMGUI
             // event (~4-6 events/frame) was a measurable stall. Throttled.
@@ -1785,8 +1787,15 @@ namespace SteelCity.Sim
             Vector3 threat = CharFeetCenter(tanCh);
             pickedAim = threat;   // marker mirrors the live threat
             cc.RefillCylinder();   // arena loadout — combat entry itself never refills
-            cc.EnterCombat(threat, tanCh);   // the BODY — exposure probe samples his silhouette
             var tanCc = tanCh.GetComponent<CombatController>();
+            // Dice-lab preset — the current test config: Fight mode pairs
+            // Vinny as the manual DRIVER (dice+manual) with Tan slaved
+            // (dice+manual+mimic). Flags land BEFORE EnterCombat — the dice
+            // branch reads them at frame entry. Toggles stay runtime-live.
+            if (pitTanMode == PitTanMode.Fight)
+            { cc.diceArbiter = true; cc.seamArbiter = false; cc.scriptedMode = false;
+              cc.diceManual = true; cc.diceMimic = false; }
+            cc.EnterCombat(threat, tanCh);   // the BODY — exposure probe samples his silhouette
             if (tanCc != null && tanCc.State != CombatController.CombatState.Idle)
                 tanCc.ExitCombat();   // stale combat on re-run — stand down first
             if (pitTanMode != PitTanMode.Dummy && tanCc != null)
@@ -1795,6 +1804,9 @@ namespace SteelCity.Sim
                 // Hide mode seeks first cover then parks — the search-test
                 // dummy; Fight mode runs the full symmetric beat stack.
                 tanCc.holdInCover = pitTanMode == PitTanMode.Hide;
+                if (pitTanMode == PitTanMode.Fight)
+                { tanCc.diceArbiter = true; tanCc.seamArbiter = false; tanCc.scriptedMode = false;
+                  tanCc.diceManual = true; tanCc.diceMimic = true; }
                 tanCc.EnterCombat(CharFeetCenter(ch), ch);
             }
         }
@@ -1838,12 +1850,18 @@ namespace SteelCity.Sim
         private void SeamStatusBlock(string label, CombatController cc)
         {
             GUILayout.BeginHorizontal();
-            bool arb = GUILayout.Toggle(cc.seamArbiter, " ARB", toggleStyle, GUILayout.Width(52));
-            if (arb != cc.seamArbiter) cc.seamArbiter = arb;
+            // Mutually exclusive arbiters — ticking one unticks the other
+            // so the systems never cross-contaminate a live frame.
+            bool arb = GUILayout.Toggle(cc.seamArbiter && !cc.diceArbiter, " ARB", toggleStyle, GUILayout.Width(52));
+            if (arb != (cc.seamArbiter && !cc.diceArbiter)) { cc.seamArbiter = arb; if (arb) cc.diceArbiter = false; }
+            bool die = GUILayout.Toggle(cc.diceArbiter, " DICE", toggleStyle, GUILayout.Width(52));
+            if (die != cc.diceArbiter) { cc.diceArbiter = die; if (die) cc.seamArbiter = false; }
             GUILayout.Label(
-                cc.seamArbiter
-                    ? $"<b>{cc.ArbRunning}</b>  <i>v:{cc.ArbVerdict}</i>"
-                    : "<i>authored beat chain</i>",
+                cc.diceArbiter
+                    ? $"<b>{cc.DiceRunning}</b>  <i>v:{cc.DiceVerdict}</i>"
+                    : cc.seamArbiter
+                        ? $"<b>{cc.ArbRunning}</b>  <i>v:{cc.ArbVerdict}</i>"
+                        : "<i>authored beat chain</i>",
                 labelStyle);
             GUILayout.EndHorizontal();
         }
@@ -1862,7 +1880,26 @@ namespace SteelCity.Sim
             var vcc = vin != null ? vin.GetComponent<CombatController>() : null;
             var tcc = tan != null ? tan.GetComponent<CombatController>() : null;
             if (vcc == null && tcc == null) return;
-            float w = 372f, hh = seamPanelOpen ? 436f : 28f;
+            // Wide short band — fighters lay out side-by-side instead of
+            // stacked, so the window shows more information laterally and
+            // stays clear of the main HUD's column.
+            float w = Mathf.Min(sw - margin * 2f, 800f);
+            float hh = seamPanelOpen ? 208f : 28f;
+            // Adaptive cap — the main HUD hangs from the top-left corner, so
+            // the SEAM panel must stop short of ITS bottom edge or the two
+            // boxes overlap on short game views. When the main window is
+            // dragged away from the left corner the cap frees up.
+            if (seamPanelOpen)
+            {
+                float hudBottom = currentWindowRect.height > 0f
+                    ? Screen.height - currentWindowRect.yMax   // GUI-space bottom edge
+                    : windowH + margin;
+                bool hudOnLeft = currentWindowRect.width <= 0f
+                    || currentWindowRect.xMin < margin + w;    // only collides when left-anchored
+                if (hudOnLeft)
+                    hh = Mathf.Max(120f,
+                        Mathf.Min(208f, sh - hudBottom - margin * 2f));
+            }
             var rect = new Rect(margin, sh - hh - margin, w, hh);
             GUILayout.BeginArea(rect, bgStyle);
             GUILayout.BeginHorizontal();
@@ -1872,9 +1909,17 @@ namespace SteelCity.Sim
             GUILayout.EndHorizontal();
             if (seamPanelOpen)
             {
+                seamScrollPos = GUILayout.BeginScrollView(seamScrollPos);
+                GUILayout.BeginHorizontal();
+                GUILayout.BeginVertical(GUILayout.Width(382));
                 SeamPanel("vinny", vcc);
-                GUILayout.Space(4);
+                GUILayout.EndVertical();
+                GUILayout.Space(10);
+                GUILayout.BeginVertical(GUILayout.Width(382));
                 SeamPanel("tan", tcc);
+                GUILayout.EndVertical();
+                GUILayout.EndHorizontal();
+                GUILayout.EndScrollView();
             }
             GUILayout.EndArea();
         }
@@ -1885,12 +1930,66 @@ namespace SteelCity.Sim
             GUILayout.BeginHorizontal();
             if (cc == null)
             { GUILayout.Label($"{label}: —", labelStyle); GUILayout.EndHorizontal(); return; }
-            bool arb = GUILayout.Toggle(cc.seamArbiter, " ARB", toggleStyle, GUILayout.Width(52));
-            if (arb != cc.seamArbiter) cc.seamArbiter = arb;
-            GUILayout.Label($"<b>{label}</b>  {cc.ArbRunning}", labelStyle);
+            bool arb = GUILayout.Toggle(cc.seamArbiter && !cc.diceArbiter, " ARB", toggleStyle, GUILayout.Width(52));
+            if (arb != (cc.seamArbiter && !cc.diceArbiter)) { cc.seamArbiter = arb; if (arb) cc.diceArbiter = false; }
+            bool die = GUILayout.Toggle(cc.diceArbiter, " DICE", toggleStyle, GUILayout.Width(52));
+            if (die != cc.diceArbiter) { cc.diceArbiter = die; if (die) cc.seamArbiter = false; }
+            GUILayout.Label($"<b>{label}</b>  {(cc.diceArbiter ? cc.DiceRunning : cc.ArbRunning)}", labelStyle);
             GUILayout.EndHorizontal();
+            if (cc.diceArbiter)
+            {   // THE ROLL — the cycle log until the ENGAGEMENT panel lands (phase 7).
+                // MANUAL row — the turn engine: every click resolves ONE
+                // decision (ramp → face → sub-pick). The small dice pin the
+                // face for testing a specific branch.
+                GUILayout.BeginHorizontal();
+                bool man = GUILayout.Toggle(cc.diceManual, " MANUAL", toggleStyle, GUILayout.Width(70));
+                if (man != cc.diceManual) cc.diceManual = man;
+                if (cc.diceManual)
+                {   // MIMIC — manual-only lockstep: slave this fighter's rolls
+                    // to the partner's click. The driver waits for BOTH gates.
+                    bool mim = GUILayout.Toggle(cc.diceMimic, " MIMIC", toggleStyle, GUILayout.Width(62));
+                    if (mim != cc.diceMimic) cc.diceMimic = mim;
+                    var slave = cc.MimicSlave();
+                    bool slaveWait = slave != null && !slave.DiceRollGateOpen();
+                    bool can = !cc.diceMimic && cc.DiceAwaiting && !cc.Reloading
+                               && cc.DiceRollReadyIn <= 0f && !slaveWait;
+                    GUI.enabled = can;
+                    if (GUILayout.Button(
+                            cc.diceMimic ? "🎲 MIMIC — partner drives"
+                            : $"🎲 ROLL — {(cc.DiceAwaiting ? cc.DiceAwaitText : "…")}" +
+                              (cc.DiceAwaiting && cc.DiceRollReadyIn > 0f ? $" · {cc.DiceRollReadyIn:F1}s" : "") +
+                              (slaveWait ? $" · wait {slave.name}" : ""),
+                            can ? tabActiveStyle : tabStyle,
+                            GUILayout.Width(210), GUILayout.Height(22)))
+                        cc.DiceClick(0);
+                    GUI.enabled = true;
+                    if (!cc.diceMimic)
+                    {
+                        GUILayout.Label("pin:", labelStyle, GUILayout.Width(24));
+                        for (int f = 1; f <= 6; f++)
+                        {
+                            int ff = f;
+                            GUI.enabled = can;
+                            if (GUILayout.Button(ff.ToString(), tabStyle, GUILayout.Width(20), GUILayout.Height(18)))
+                                cc.DiceClick(ff);
+                            GUI.enabled = true;
+                        }
+                    }
+                }
+                else GUILayout.Label(
+                    $"     {(cc.DiceAwaiting ? $"await {cc.DiceAwaitText}" + (cc.DiceRollReadyIn > 0f ? $" · {cc.DiceRollReadyIn:F1}s" : " · READY") : "executing…")}"
+                    + (cc.diceMimic ? "  (mimic inert — unleashed)" : ""), labelStyle);
+                GUILayout.EndHorizontal();
+                GUILayout.Label(
+                    $"     quantum #{cc.DiceCycle}  face {cc.DiceFace} ({CombatController.DiceFaceNames[cc.DiceFace]})"
+                    + (cc.DiceSubRoll > 0 ? $"  · sub {cc.DiceSubRoll}/6" : ""), labelStyle);
+                GUILayout.Label($"     verdict: {cc.DiceVerdict}", labelStyle);
+                if (cc.DiceHist.Length > 0)
+                    GUILayout.Label($"     history : <i>{cc.DiceHist}</i>", labelStyle);
+                return;
+            }
             if (!cc.seamArbiter)
-            { GUILayout.Label("     <i>authored beat chain — tick ARB</i>", labelStyle); return; }
+            { GUILayout.Label("     <i>authored beat chain — tick ARB or DICE</i>", labelStyle); return; }
             GUILayout.Label($"     verdict: {cc.ArbVerdict}", labelStyle);
             if (cc.ArbBoard.Length > 0)
                 GUILayout.Label($"     board   : {cc.ArbBoard}", labelStyle);
@@ -1914,6 +2013,85 @@ namespace SteelCity.Sim
             }
             GUILayout.EndVertical();
             GUILayout.EndHorizontal();
+        }
+
+        /// <summary>In-world combat bubbles — the live action floating over
+        /// each fighter's head, drawn ahead of the panel-visible gate so the
+        /// fight stays readable with the HUD hidden. Dice mode shows the
+        /// turn state + the metrics the decision is using (remaining
+        /// distance, reload seconds, cylinder); arbiter/authored show their
+        /// running program. Amber = executing, blue = awaiting.</summary>
+        void DrawCombatBubbles()
+        {
+            var vin = cityMap != null ? cityMap.SpawnedCharacter : null;
+            var tan = TanSuitRef;
+            var vcc = vin != null ? vin.GetComponent<CombatController>() : null;
+            var tcc = tan != null ? tan.GetComponent<CombatController>() : null;
+            if (vcc == null && tcc == null) return;
+            // Project through the camera the voxel RT actually renders from — it
+            // swaps between the follow cam and the map camera, so resolve per event.
+            Camera cam = (chunkManager != null ? chunkManager.RenderCam : null)
+                ?? (followCamera != null ? followCamera.GetComponent<Camera>() : null)
+                ?? Camera.main;
+            if (cam == null) return;
+            if (vin != null && vcc != null) DrawBubble(vin.transform, vcc, cam);
+            if (tan != null && tcc != null) DrawBubble(tan.transform, tcc, cam);
+        }
+
+        void DrawBubble(Transform t, CombatController cc, Camera cam)
+        {
+            // Emit whenever DICE is toggled on or combat is live — a lit bubble
+            // over an idle fighter is the sanity check that the display works.
+            if (cc.State == CombatController.CombatState.Idle && !cc.diceArbiter) return;
+            Vector3 head = t.position + Vector3.up * 0.9f;
+            Vector3 sp = cam.WorldToScreenPoint(head);
+            if (sp.z <= 0f) return;
+            float sx = sp.x, sy = Screen.height - sp.y;
+
+            string l1, l2; bool hot;
+            Vector3 feet = t.position;
+            if (cc.diceArbiter)
+            {
+                if (cc.State == CombatController.CombatState.Idle)
+                {   l1 = "🎲 DICE armed"; l2 = "awaiting combat"; hot = false; }
+                else if (cc.Reloading)
+                {   l1 = $"RELOADING {cc.Cylinder}/{cc.cylinderCapacity}";
+                    l2 = $"+1 in {cc.NextRoundIn:F1}s · full {cc.ReloadLeft:F1}s"; hot = true; }
+                else if (cc.DiceLegActive)
+                {   l1 = cc.DiceRunning;
+                    l2 = $"→ dest {Vector3.Distance(feet, cc.DiceLegTarget):F1}m"; hot = true; }
+                else if (cc.DiceReconChecking)
+                {   l1 = "recon — eyes on last-known";
+                    l2 = cc.DiceReconLeft > 0f ? $"sweep {cc.DiceReconLeft:F1}s" : "peeking…"; hot = true; }
+                else if (cc.DiceDeepActive)
+                {   l1 = "deep recon — orbiting last-known";
+                    l2 = cc.SearchLegOut ? "probe hop walking" : "scanning…"; hot = true; }
+                else if (cc.State == CombatController.CombatState.SeekingCover)
+                {   l1 = cc.DiceRunning;
+                    l2 = $"→ {cc.CoverObstacleId} {Vector3.Distance(feet, cc.CoverPoint):F1}m"; hot = true; }
+                else if (cc.DiceAwaiting)
+                {   l1 = cc.DiceRampPending
+                        ? $"🎲 reload check — spent {cc.cylinderCapacity - cc.Cylinder}/{cc.cylinderCapacity}"
+                        : $"🎲 {cc.DiceAwaitText}";
+                    if (cc.DiceRollReadyIn > 0f) l1 += $" · {cc.DiceRollReadyIn:F1}s";
+                    l2 = $"{cc.DiceVerdict}"; hot = false; }
+                else { l1 = cc.DiceRunning; l2 = cc.DiceVerdict; hot = false; }
+            }
+            else if (cc.ArbActive) { l1 = cc.ArbRunning; l2 = cc.ArbVerdict; hot = true; }
+            else
+            {   l1 = cc.Beat != CombatController.EngagementBeat.None
+                    ? $"beat {cc.Beat}" : cc.State.ToString();
+                l2 = cc.LastResult; hot = cc.State == CombatController.CombatState.SeekingCover; }
+
+            if (cc.ThreatPos.sqrMagnitude > 0.01f)
+                l2 += $" · threat {Vector3.Distance(feet, cc.ThreatPos):F0}m";
+            if (l2.Length > 76) l2 = l2.Substring(0, 73) + "…";
+            string col = hot ? "#ffb35c" : "#8fb8d8";
+            var rect = new Rect(sx - 96f, sy - 46f, 192f, 48f);
+            GUILayout.BeginArea(rect, bgStyle);
+            GUILayout.Label($"<b><color={col}>{l1}</color></b>", labelStyle);
+            GUILayout.Label($"<color=#aeb8c4>{l2}</color>", labelStyle);
+            GUILayout.EndArea();
         }
 
         /// <summary>The intent radar — 10 axes, one polygon = the live score

@@ -228,12 +228,91 @@ namespace SteelCity.Sim
         public static readonly string[] ArbNames =
             { "SeekCover", "Relocate", "Engage", "OrbitSearch", "Recon",
               "FinalConfirm", "Reload", "StandDlv", "Watch", "Pinned" };
-        public bool   ArbActive  => seamArbiter && !scriptedMode;
+        public bool   ArbActive  => seamArbiter && !diceArbiter && !scriptedMode;   // dice wins precedence — no cross-contamination
         public string ArbRunning => arbRunning;
         public string ArbVerdict => arbVerdict;
         public string ArbHist    => arbHist;
         public string ArbBoard   => arbBoard;
         public float[] ArbScores => arbScores;
+
+        // ── Dice arbiter (Tab H) — THE ROLL. ENGAGEMENT frame + literal
+        //    1d6 movement + spent/6 ramp + shallow/deep recon. Sibling of
+        //    the seam; the authored chain runs when both flags are off.
+        //    Quanta are atomic — opponent events are feed, never
+        //    interrupts; only self-side impossibility ends one early.
+        [Header("Dice arbiter — THE ROLL (Tab H)")]
+        [Tooltip("Tab-H model: ENGAGEMENT frame + 1d6 movement roll + spent/6 count-check + shallow/deep recon. Wins precedence over seamArbiter when both are on.")]
+        public bool diceArbiter = false;
+        private byte  diceFace;                  // 0 unrolled · 1-6 the live face
+        private int   diceBearing = -1;          // -1 center · 0-2 the cylinder's 1d3 (phase 3+)
+        private int   diceCycle;                 // quanta since frame entry
+        private float diceParkUntil;             // recheck clock while a top-up owns the channel
+        private float diceLastEvidence;          // freshest contact-or-heard evidence — the starve clock
+        private string diceRunning = "—", diceVerdict = "—", diceHist = "";
+        [Tooltip("MANUAL — the roll gates on the HUD's 🎲 button: each click resolves ONE decision (ramp → face → next turn). Off = the quantum timer drives as before.")]
+        public bool diceManual = false;
+        [Tooltip("MIMIC — manual-only lockstep: this fighter's rolls are consumed by the partner's click (his own 🎲 button is slaved). The driver's roll waits until BOTH are seam-ready — one click, two dice. Inert in auto mode (unleashed).")]
+        public bool diceMimic = false;
+        [Tooltip("Movement quantum — one face's ground: STRAFE and ADVANCE both step exactly this far.")]
+        public float diceStepM = 2.5f;
+        private bool diceAwaitRoll;            // parked awaiting a click (face roll OR ramp check)
+        private bool diceRampPending;          // a completed move owes the cylinder count-check — next click is the reload roll
+        private bool diceReconPending;         // ramp resolved — next click is the SHALLOW RECON bearing roll
+        private bool diceReconCheck;           // a recon peek is in flight — verdict lands after the dwell
+        private int  diceReconBearing;         // 0 none · 1 swing-L · 2 rise · 3 swing-R
+        private bool reconSavedLook;           // lookScan before the peek — restored at the verdict
+        [Tooltip("SHALLOW RECON dwell — seconds of IK-aim + lookScan sweep at the peek spot before the sight verdict lands.")]
+        public float diceReconDwellSec = 5f;
+        private float diceReconSettleUntil;    // 0 = not settled yet; else the dwell deadline
+        private bool diceDeepPending;          // still-hidden recon verdict — next click is the DEEP RECON roll
+        private bool diceDeepActive;           // the orbit search is running under the dice frame
+        private int  diceDeepStep = -1;        // index into the 3-stop fan currently being hunted
+        private readonly List<Vector3> diceDeepPoints = new List<Vector3>(3);   // stage positions — drawn from reachable cells, not pure geometry
+        private readonly List<string>  diceDeepTags   = new List<string>(3);    // per-stop: "flank" (on-arc) | "push-in" (fallback)
+        private bool diceDeepBare;             // the live stop is on its bare-point leg (fallback or no snap)
+        private readonly System.Collections.Generic.HashSet<int> deepChosen
+            = new System.Collections.Generic.HashSet<int>();   // cells already claimed this fan
+        const float DeepSnapM = 1.5f;          // how far off-arc a cover stand can be before the stop goes bare
+        private int  diceSubRoll;              // the last die result for display (ramp/recon rolls)
+        private bool diceLegActive;            // a strafe/advance micro-leg is executing
+        private Vector3 diceLeg;               // the micro-leg's XZ destination
+        private bool diceLegBuilt;             // StepRouted's one-build latch for the live micro-leg
+        private bool diceMoveDone;             // a dice-dispatched seek completed — re-park signal
+        private string diceAwaitText = "";     // what the next click resolves
+        [Range(0f, 15f), Tooltip("MANUAL — the seam between rolls: seconds of live fight-time between decisions (fire rides the whole seam — the pause is for the operator's eyes, not his gun).")]
+        public float diceRollCooldownSec = 5f;
+        private float diceNextRollAt;          // unscaled-time gate the next click waits on
+        private readonly List<CoverField.ZoneSpot> diceSubCands = new List<CoverField.ZoneSpot>(8);
+        /// <summary>One logged decision — what was rolled, what it meant in
+        /// plain english, and what the NEXT roll decides. kind: 0 info ·
+        /// 1 action · 2 good/clear · 3 warn/end — the panel colors on it.</summary>
+        public struct DiceStep
+        {
+            public float t; public int cycle; public int kind;
+            public string rolled, outcome, next;
+        }
+        private readonly List<DiceStep> diceLog = new List<DiceStep>(32);   // per-line roll log — one entry per decision
+        public IReadOnlyList<DiceStep> DiceLog => diceLog;
+        public bool   DiceActive  => diceArbiter && !scriptedMode;
+        public byte   DiceFace    => diceFace;
+        public int    DiceBearing => diceBearing;   // -1 center · 0-2 cylinder bearing (phase 3+)
+        public int    DiceCycle   => diceCycle;
+        public string DiceRunning => diceRunning;
+        public string DiceVerdict => diceVerdict;
+        public string DiceHist    => diceHist;
+        public bool   DiceAwaiting    => diceAwaitRoll;
+        public int    DiceSubRoll     => diceSubRoll;
+        public string DiceAwaitText   => diceAwaitText;
+        public bool   DiceRampPending => diceRampPending;
+        public float  DiceRollReadyIn => Mathf.Max(0f, diceNextRollAt - Time.unscaledTime);
+        public int    DiceSubCount    => diceSubCands.Count;
+        public bool   DiceLegActive   => diceLegActive;
+        public Vector3 DiceLegTarget  => diceLeg;
+        public bool   DiceReconChecking => diceReconCheck;
+        public float  DiceReconLeft   => diceReconSettleUntil > 0f ? Mathf.Max(0f, diceReconSettleUntil - Time.unscaledTime) : 0f;
+        public bool   DiceDeepActive  => diceDeepActive;
+        public static readonly string[] DiceFaceNames =
+            { "—", "STRAFE-L", "ADVANCE", "STRAFE-R", "COVER-L", "STAND", "COVER-R" };
         private Vector3 lastPos;
         private float movedAccum;              // XZ distance covered since EnterCombat — wedge diagnostic
         private float swingDwellUntil, swingStuckT;
@@ -696,11 +775,13 @@ namespace SteelCity.Sim
             LastSeenTarget = shotPos;
             lastConfirmed = shotPos;
             if (searching) ArmSearch();   // re-anchor the orbit on the bang
-            if (seamArbiter) seamNow = true;   // intel moved — instant re-eval
+            if (DiceActive) diceLastEvidence = Time.unscaledTime;   // feed — evidence slides the anchor, never interrupts
+            else if (ArbActive) seamNow = true;   // intel moved — instant re-eval
         }
 
         void ResetSearch()
         {
+            DiceDeepMarkClear();
             pendingSearch = false; searchActive = false; transitPending = false; orbitFinalLook = false;
             searchProgress = 0f; orbitSide = 0; orbitHops = 0; orbitLegRecon = false;
             searchVisited.Clear();
@@ -853,6 +934,43 @@ namespace SteelCity.Sim
                 Notify();
                 return true;
             }
+            if (DiceActive)
+            {
+                // FRAME ENTERED — threat registered (FCFS: the first
+                // registration owns this frame). No authored first-pick:
+                // the skeleton parks at HoldPosition, firing stays live
+                // via BeatAllowsFire, and the boundary rolls from the
+                // first recheck. Face the anchor — the turret does the rest.
+                SetState(CombatState.HoldPosition);
+                CoverPoint = Feet(); CoverObstacleId = null;
+                coverWallClass = CoverSensor.WallClass.Crouch; targetDuck = 0f;
+                if (anim != null) anim.duck = 0f;
+                diceFace = 0; diceBearing = -1; diceCycle = 0;
+                diceParkUntil = 0f;
+                diceLastEvidence = Time.unscaledTime;
+                // The first decision is armed in BOTH modes — the seam clock
+                // is zeroed so auto's first boundary and manual's first
+                // click both fire immediately.
+                diceAwaitRoll = true; diceSubRoll = 0; diceNextRollAt = 0f;
+                diceRampPending = false; diceReconPending = false;
+                diceReconCheck = false; diceReconBearing = 0; diceReconSettleUntil = 0f;
+                diceDeepPending = false; diceDeepActive = false; diceDeepBare = false;
+                diceLegActive = false; diceLegBuilt = false; diceMoveDone = false; diceSubCands.Clear();
+                diceLog.Clear();
+                diceAwaitText = "first roll";
+                diceRunning = "frame"; diceVerdict = "threat registered"; diceHist = "";
+                FaceTrack(AimAnchor(), "dice-frame");
+                LastResult = "DICE frame — threat registered";
+                Debug.Log($"🥊 [Combat] {name} — DICE frame entered");
+                // ENGAGEMENT ROLL — activating the fight IS the first roll
+                // ("when engagement starts, rolling starts automatically"):
+                // consume one face now — a legit STAND is then an honest
+                // rolled outcome, not an unrolled standing default. The
+                // manual cadence takes over from the next armed decision.
+                DiceConsume(0);
+                Notify();
+                return true;
+            }
             bool picked = coverAnchor.HasValue
                 ? Sensor.TryPickCoverNear(coverAnchor.Value, maxDist, out Vector3 p, out string oid, out float reqD, out coverWallClass, coverIntNorm, MeMap())
                 : Sensor.TryPickCover(Feet(), out p, out oid, out reqD, out coverWallClass, coverIntNorm, MeMap());
@@ -903,6 +1021,16 @@ namespace SteelCity.Sim
             seamNow = false; zeroStreak = 0; orbitDone = false; arbBlocked.Clear();
             probeDeadAt = new Vector3(float.NaN, 0f, 0f); fireDeadAt = probeDeadAt;
             arbRunning = "—"; arbVerdict = "exit"; arbHist = "";
+            diceFace = 0; diceBearing = -1; diceCycle = 0;
+            diceAwaitRoll = false; diceSubRoll = 0; diceNextRollAt = 0f;
+            diceRampPending = false; diceReconPending = false;
+            diceReconCheck = false; diceReconBearing = 0; diceReconSettleUntil = 0f;
+            diceDeepPending = false; diceDeepActive = false;
+            if (anim != null) anim.lookScan = reconSavedLook;
+            diceLegActive = false; diceLegBuilt = false; diceMoveDone = false; diceSubCands.Clear();
+            diceLog.Clear();
+            diceAwaitText = "";
+            diceRunning = "—"; diceVerdict = "exit"; diceHist = "";
             nextWatchProbe = 0f;
             targetDuck = 0f;
             if (anim != null) { anim.duck = 0f; anim.coverContext = false; }
@@ -1509,7 +1637,7 @@ namespace SteelCity.Sim
         /// step-guard resets); falls back to the bare StepToward line only
         /// when the map can't serve (routeLegs off / no field / unreached
         /// dest — e.g. an out-of-field swing rim) — the pre-map contract.</summary>
-        bool StepRouted(Vector3 dest, string who, ref bool built)
+        bool StepRouted(Vector3 dest, string who, ref bool built, bool allowBare = true)
         {
             var fld = sensor?.Field;
             // Stale-route guard — the field rebuilds under threat motion /
@@ -1521,8 +1649,14 @@ namespace SteelCity.Sim
                 routedLeg = BuildRoute(Feet(), dest);
                 routeStamp = fld != null ? fld.BuildStamp : -1;
                 if (!routedLeg && routeLegs)
-                    Debug.Log($"⚠️ [Combat] {name} — {who}: no corridor to step-dest ({routeFail}) — bare line");
+                    Debug.Log($"⚠️ [Combat] {name} — {who}: no corridor to step-dest ({routeFail})" +
+                              (allowBare ? " — bare line" : " — leg refused"));
             }
+            // allowBare=false: a refused corridor ABORTS the leg at the line
+            // (true = "leg done"; the caller's distance re-verify reports it
+            // as unreachable, never as a wall-wedge) — walking blind into a
+            // wall is authored-code legacy, not a dice verdict.
+            if (!routedLeg && !allowBare) return true;
             return routedLeg ? StepRoute(who, dest) : StepToward(dest, who);
         }
 
@@ -1848,6 +1982,640 @@ namespace SteelCity.Sim
             EnterBeat(EngagementBeat.Settle);
         }
 
+        // ── THE ROLL (Tab H) — the dice cycle runner ────────────────────
+        //  A quantum is ATOMIC: it runs its full window while the live
+        //  trigger fires freely (TickExposureFire — BeatAllowsFire covers
+        //  HoldPosition); opponent events can never cut it short. The
+        //  boundary then reckons: END checks → ramp count-check → roll.
+
+        /// <summary>The cycle — parks the channel during a taken top-up,
+        /// runs the shared mechanics (legs/dwells), then the mode decides:
+        /// manual parks for the click, auto's clock consumes the seam.</summary>
+        void TickDice()
+        {
+            // A taken reload roll owns the channel until the wheel seats.
+            if (reloading)
+            { diceRunning = $"RELOAD {cylinder}/{cylinderCapacity}"; diceParkUntil = Time.unscaledTime + 0.25f; return; }
+            // SHARED turn mechanics — legs and dwells run identically
+            // whichever way the decisions are driven (the click or the
+            // clock). Only the parked-await tail is manual-specific.
+            if (diceLegActive)
+                {
+                    // Routed legs — the corridor flood (Dijkstra + string-pull)
+                    // owns the path, same as seek legs. allowBare=false: when
+                    // no corridor exists the leg refuses at the LINE instead
+                    // of walking blind into the wall (user: "advance from
+                    // cover running into a wall isn't desirable or logical").
+                    if (StepRouted(diceLeg, "dice-leg", ref diceLegBuilt, false))
+                    {   // StepToward's contract: arrived AND stuck-abort both
+                        // return true — distance re-verifies which. An abort
+                        // is a VERDICT (blocked/no-corridor), never a fake
+                        // completion.
+                        diceLegActive = false;
+                        float shortBy = (diceLeg - Feet()).magnitude;
+                        bool arrived = shortBy <= 0.45f;
+                        bool noCorr  = routeLegs && !routedLeg
+                            && sensor?.Field != null && sensor.Field.HasData && world != null;
+                        if (diceDeepActive)
+                        {   // Bare-point stop: arrived → rise+sweep HERE;
+                            // aborted → spent stop (bare was already the
+                            // fallback) — the fan pushes on or ends.
+                            if (arrived) DiceDeepDwellArm();
+                            else
+                            {
+                                int spent = diceDeepStep + 1;
+                                if (DiceDeepRetryOrNext())
+                                    DicePost("deep recon",
+                                        $"stop {spent} unreachable — pushing to stop {diceDeepStep + 1}/{diceDeepPoints.Count}",
+                                        "hop walks", 1);
+                                else DiceDeepExhaust();
+                            }
+                        }
+                        else if (diceReconCheck)
+                        {   // Peek landed (or wedged — he sweeps where he
+                            // stands; the geometry answered either way).
+                            diceReconSettleUntil = Time.unscaledTime + diceReconDwellSec;
+                            if (anim != null) anim.lookScan = true;
+                        }
+                        else
+                        {
+                            if (arrived)
+                                DicePost(diceRunning, "move complete", "reload check", 2);
+                            else if (noCorr)
+                                DicePost(diceRunning, "no corridor — can't reach the step point", "reload check", 3);
+                            else
+                                DicePost(diceRunning, $"blocked — leg aborted {shortBy:F1}m short", "reload check", 3);
+                            diceRampPending = true; ArmRoll("reload check");
+                        }
+                    }
+                    else if (diceFace == 1 || diceFace == 3 || diceReconCheck)
+                    {   // A strafe is the turret gait — legs step laterally,
+                        // torso stays on the anchor. FaceTrack is demand-
+                        // based, last write of the frame wins: this call
+                        // AFTER StepToward overrides its destination-facing.
+                        // Recon peeks ride the same override — gun on last-known.
+                        FaceTrack(AimAnchor(), diceReconCheck ? "dice-recon" : "dice-strafe");
+                    }
+                    return;
+                }
+                if (diceReconCheck)
+                {   // The dwell — the first check frame arms the clock: gun on
+                    // the anchor, lookScan sweeps for the dwell seconds, THEN
+                    // the verdict. (No duck gate — the sweep pose floors duck,
+                    // so waiting for the fold to release deadlocked the recon:
+                    // the rise plays out DURING the sweep instead.) A spotted
+                    // target ends it early — straight back to the roll.
+                    FaceTrack(AimAnchor(), "dice-recon");
+                    if (contactSeen) { DiceReconVerdict(); return; }
+                    if (diceReconSettleUntil <= 0f)
+                    {
+                        diceReconSettleUntil = Time.unscaledTime + diceReconDwellSec;
+                        if (anim != null) anim.lookScan = true;
+                    }
+                    else if (Time.unscaledTime >= diceReconSettleUntil) DiceReconVerdict();
+                    return;
+                }
+            // Self-heal — a landed turn with nothing armed re-arms the next
+            // decision (manual: heals a dead ROLL button; auto: a stalled
+            // boundary). May fire mid-seek — harmless: ArmRoll only stamps
+            // clocks, and both modes' gates refuse mid-turn anyway.
+            if (!diceAwaitRoll)
+            {
+                if (diceMoveDone)
+                {
+                    diceMoveDone = false;
+                    DicePost(diceRunning, "move ended — holding", "reload check", 2);
+                    diceRampPending = true; ArmRoll("reload check");
+                }
+                else ArmRoll("next roll");
+            }
+            if (diceManual)
+            {   // MANUAL — the click owns the clock: everything landed parks
+                // awaiting a roll — including seeks aborted back to hold.
+                FaceTrack(AimAnchor(), "dice-await");
+                return;
+            }
+            // AUTO — the clock plays the click's role: DiceClick's exact
+            // gate, its exact consume → identical semantics minus the
+            // operator. One decision per 5s seam; fire rides throughout.
+            // (DiceRollGateOpen's reloading/DiceActive terms are implied
+            // inside TickDice — same truth either way.)
+            if (!DiceRollGateOpen())
+            { FaceTrack(AimAnchor(), "dice-quantum"); return; }
+            DiceConsume(0);
+        }
+
+        /// <summary>Arm the next decision — always through the seam. Manual:
+        /// the cooldown gates the CLICK (the operator's monitor window, 5s
+        /// default). Auto: the quantum gates the next BOUNDARY (one decision
+        /// per beat). Fire rides both.</summary>
+        void ArmRoll(string awaitText)
+        {
+            diceAwaitRoll = true;
+            diceAwaitText = awaitText;
+            diceNextRollAt = Time.unscaledTime + diceRollCooldownSec;
+        }
+
+        /// <summary>MANUAL turn advance — the HUD's 🎲 button; forceFace 1-6
+        /// pins the roll for testing (0 = real 1d6). One click = ONE
+        /// decision: a queued sub-roll resolves first (the face's "where"),
+        /// else the boundary runs END → ramp → roll → execute. False when
+        /// the click is illegal — not dice/manual, a turn mid-execution, or
+        /// a seek in flight (the move IS the turn).</summary>
+        public bool DiceClick(int forceFace = 0)
+        {
+            if (!diceManual || diceMimic || !DiceRollGateOpen()) return false;
+            // MIMIC lockstep — a slaved partner's gate must ALSO be open
+            // before the click resolves; then it consumes BOTH fighters'
+            // armed decisions in the same frame (mirrors the CLICK, never
+            // the face — a slaved die still rolls its own).
+            var slave = MimicSlave();
+            if (slave != null && !slave.DiceRollGateOpen()) return false;
+            DiceConsume(forceFace);
+            if (slave != null) slave.DiceConsume(0);
+            return true;
+        }
+
+        /// <summary>The roll's open gate — armed + seam elapsed + parked +
+        /// not reloading. The click and a mimic driver's lockstep check
+        /// share it (the auto tail runs the same shape inline).</summary>
+        public bool DiceRollGateOpen()
+            => DiceActive && !reloading && State == CombatState.HoldPosition
+               && diceAwaitRoll && Time.unscaledTime >= diceNextRollAt;
+
+        /// <summary>Shared consume — post-gate pending chain + boundary.
+        /// Called by the click and by a driver's mimic (one click, two dice).</summary>
+        void DiceConsume(int forceFace)
+        {
+            diceAwaitRoll = false;
+            if (diceRampPending) { DiceRampCheck(); return; }
+            if (diceReconPending) { DiceReconRoll(); return; }
+            if (diceDeepPending) { DiceDeepRoll(); return; }
+            DiceBoundary(forceFace);
+        }
+
+        /// <summary>The mimic slave — the threat fighter when HE is running
+        /// manual dice with diceMimic on (Tan slaved to Vinny's click in the
+        /// lockstep lab). Null when the threat is position-only or he's not
+        /// mimicking — then the click runs free.</summary>
+        public CombatController MimicSlave()
+        {
+            var t = ThreatCharacter;
+            if (t == null) return null;
+            var cc = t.GetComponent<CombatController>();
+            return (cc != null && cc != this && cc.diceArbiter
+                    && cc.diceManual && cc.diceMimic) ? cc : null;
+        }
+
+        /// <summary>THE boundary — END (ceased only) → the roll →
+        /// DiceExecFace. Shared: the manual click calls it with a real
+        /// forceFace; the auto clock calls it with 0. The ramp is its OWN
+        /// decision (DiceRampCheck via diceRampPending) — "move completes →
+        /// roll for reload → roll for the next move".</summary>
+        void DiceBoundary(int forceFace)
+        {
+            if (ThreatCharacter != null && !ThreatCharacter.gameObject.activeInHierarchy)
+            { DicePost("END", "target ceased — combat over", "—", 3); ExitCombat(true); return; }
+            diceCycle++;
+            diceSubRoll = 0;
+            diceFace = (byte)(forceFace >= 1 && forceFace <= 6
+                ? forceFace : UnityEngine.Random.Range(1, 7));
+            diceBearing = -1;
+            diceRunning = $"f{diceFace} {DiceFaceNames[diceFace]}";
+            DiceExecFace();
+        }
+
+        /// <summary>The manual ramp — a completed move reads the cylinder as
+        /// its own roll: literal d6, faces ≤ spent take the top-up (1 spent =
+        /// reload on a 1; dry = any face — the count-check weighted by shots
+        /// fired). Posted either way; the NEXT click rolls the face.</summary>
+        void DiceRampCheck()
+        {
+            diceRampPending = false;
+            if (ThreatCharacter != null && !ThreatCharacter.gameObject.activeInHierarchy)
+            { DicePost("END", "target ceased — combat over", "—", 3); ExitCombat(true); return; }
+            int spent = cylinderCapacity - cylinder;
+            int r = UnityEngine.Random.Range(1, 7);
+            diceSubRoll = r;
+            if (spent >= cylinderCapacity || r <= spent)
+            {
+                StartReload();
+                diceRunning = $"RELOAD 0/{cylinderCapacity}";
+                DicePost($"ramp {r}/6", $"top-up needed ≤{spent} ({spent} spent) — rolled {r} → reloads", "recon bearing once loaded", 1);
+            }
+            else DicePost($"ramp {r}/6", $"top-up needed ≤{spent} ({spent} spent) — rolled {r} → safe", "recon bearing roll", 2);
+            // SHALLOW RECON follows the count-check — after a top-up the click
+            // is refused while the wheel turns, so recon lands after reload.
+            // TARGET ACQUIRED skips recon entirely: the firefight is live and
+            // the roll owns emergent movement (face → ramp → face) — a recon
+            // click while he's visible is a dead click that ejects on the
+            // already-true sighting. Recon is the HIDDEN-target phase.
+            if (!contactSeen) { diceReconPending = true; ArmRoll("recon (bearing)"); }
+            else ArmRoll("next turn roll");
+        }
+
+        /// <summary>SHALLOW RECON — the stationary peek after the count-check.
+        /// The bearing die picks the fan: 1-2 swing left · 3-4 rise · 5-6 swing
+        /// right. Swings step a short peek leg off the threat line; rise stands
+        /// in place. Gun holds the anchor (AimWalk + FaceTrack), the lookScan
+        /// sweep rides the head — then the sight verdict decides spotted vs
+        /// still-hidden (deep recon's job, later).</summary>
+        void DiceReconRoll()
+        {
+            diceReconPending = false;
+            if (contactSeen)
+            {   // Spotted during the seam — the bearing die's question is
+                // already answered; post the verdict, don't burn the roll.
+                diceLastEvidence = Time.unscaledTime;
+                DicePost("recon", "target spotted — visual on the anchor", "next turn roll", 2);
+                ArmRoll("next turn roll");
+                return;
+            }
+            int r = UnityEngine.Random.Range(1, 7);
+            diceSubRoll = r;
+            diceReconBearing = r <= 2 ? 1 : r <= 4 ? 2 : 3;
+            // lookScan arms only when the dwell begins — the travel step keeps
+            // eyes forward on the anchor (the sweep IS the recon, at the spot).
+            if (anim != null) reconSavedLook = anim.lookScan;
+            string bname = diceReconBearing == 1 ? "swing left"
+                         : diceReconBearing == 2 ? "rise" : "swing right";
+            if (diceReconBearing == 2)
+            {
+                // Rise — stand tall on the spot; the verdict waits for the
+                // fold to release (event: duck ≈ 0, checked in TickDice).
+            }
+            else
+            {
+                Vector3 feet = Feet();
+                Vector3 fwd = AimAnchor() - feet; fwd.y = 0f;
+                if (fwd.sqrMagnitude < 1e-4f) fwd = transform.forward; fwd.y = 0f;
+                fwd.Normalize();
+                Vector3 perp = diceReconBearing == 1
+                    ? new Vector3(-fwd.z, 0f, fwd.x)
+                    : new Vector3(fwd.z, 0f, -fwd.x);
+                diceLeg = feet + perp * 0.55f;   // the peek step — around the edge, not a reposition
+                diceLegActive = true; diceLegBuilt = false;
+            }
+            diceReconCheck = true;
+            DicePost($"recon {r}/6", $"shallow recon — {bname}", "sight verdict on settle", 1);
+        }
+
+        /// <summary>Arm the deep-recon dwell — same rise + lookScan + clock as
+        /// the shallow peek; the verdict lands in DiceReconVerdict's deep
+        /// branch (spotted → REACQUIRED · miss → next stop · fan dry → END).</summary>
+        void DiceDeepDwellArm()
+        {
+            diceReconBearing = 2;
+            diceReconSettleUntil = 0f;
+            if (anim != null) reconSavedLook = anim.lookScan;
+            diceReconCheck = true;
+        }
+
+        /// <summary>The recon verdict — did the peek clear the anchor? Reads
+        /// the live sensor verdict (contactSeen) at settle: spotted refreshes
+        /// the evidence clock; still-hidden is the signal DEEP RECON exists
+        /// for (phase 6 — logged, not acted on yet).</summary>
+        void DiceReconVerdict()
+        {
+            diceReconCheck = false; diceReconBearing = 0; diceReconSettleUntil = 0f;
+            if (anim != null) anim.lookScan = reconSavedLook;
+            if (diceDeepActive)
+            {   // The hop's sweep is done — this spot answered. Spotted ends
+                // the hunt; a miss pushes the orbit to the next probe — the
+                // fan running dry means the last lookScan just ran → END.
+                if (contactSeen)
+                {
+                    diceDeepActive = false;
+                    ResetSearch();   // the hunt resolved — clears the orbit
+                                    // frame so a LATER deep recon re-anchors
+                                    // (ArmSearch skips reframing while it's up)
+                    diceLastEvidence = Time.unscaledTime;
+                    DicePost("deep recon", "reacquired — visual re-established", "next turn roll", 2);
+                    ArmRoll("next turn roll");
+                }
+                else if (DiceDeepNext())
+                    DicePost("deep recon", $"miss — pushing to stop {diceDeepStep + 1}/{diceDeepPoints.Count}", "hop walks", 1);
+                else DiceDeepExhaust();
+                return;
+            }
+            if (contactSeen)
+            {
+                diceLastEvidence = Time.unscaledTime;
+                DicePost("recon", "target spotted — visual on the anchor", "next turn roll", 2);
+                ArmRoll("next turn roll");
+            }
+            else
+            {   // TARGET HIDDEN → DEEP RECON — the diagram's only path down:
+                // one committed orbit around last-known, reacquire or END.
+                DicePost("recon", "still hidden — last-known not cleared", "deep recon roll", 3);
+                diceDeepPending = true; ArmRoll("deep recon (orbit)");
+            }
+        }
+
+        /// <summary>DEEP RECON — the hidden-target commitment. The die picks
+        /// the sweep side (1-3 left · 4-6 right); the fan is a FIXED three
+        /// stops along the rolled arc — origin+30/60/90° at the loss-radius,
+        /// each snapped to its nearest valid Hidden-zone stand. Every stop
+        /// walks in, stands, lookScans at the anchor, verdicts; misses chain,
+        /// a sighting ejects (REACQUIRED), the last stop's empty sweep is
+        /// DEEP EXHAUSTED — END.</summary>
+        void DiceDeepRoll()
+        {
+            diceDeepPending = false;
+            if (contactSeen)
+            {   // Reacquired during the seam — the hunt is answered before
+                // the orbit die drops; post it, don't burn the roll.
+                diceLastEvidence = Time.unscaledTime;
+                DicePost("deep recon", "reacquired — visual re-established", "next turn roll", 2);
+                ArmRoll("next turn roll");
+                return;
+            }
+            int r = UnityEngine.Random.Range(1, 7);
+            diceSubRoll = r;
+            ArmSearch();                            // anchors origin bearing + buffer radius
+            orbitSide = (sbyte)(r <= 3 ? -1 : 1);   // the die, not the coin —
+                                                    // picks the sweep direction
+            searchTargetBearing = searchOriginBearing + orbitSide * 90f;
+            pendingSearch = false;                  // the dice seam issues steps itself
+            // FLANK THE FRONTIER — the fan v2. The ring's flaw: it ordered
+            // stops in absolute space the flood can't serve (a "perfect"
+            // arc point across a wall is a dead dispatch). Stage positions
+            // are now drawn from what the map can actually WALK: scored
+            // reachable cells matched to the rolled side's ~30/60/90°
+            // progression — Hidden-state "door" cells preferred — with a
+            // push-in fallback (close the range, re-look) when a bearing
+            // bucket holds nothing reachable. Positions are walkable by
+            // construction; walls degrade the fan honestly, never silently.
+            diceDeepPoints.Clear(); diceDeepTags.Clear(); deepChosen.Clear();
+            var ff = sensor?.Field; var fm = MeMap();
+            if (ff != null && fm != null)
+            {
+                int n = ff.N;
+                Vector3 feet = Feet();
+                float feetToAnchor = (feet - searchAnchorPos).magnitude;
+                for (int k = 1; k <= 3; k++)
+                {
+                    float want = searchOriginBearing + orbitSide * 30f * k;
+                    int bestCell = -1, pushCell = -1;
+                    float bestScore = float.MaxValue, pushBest = float.MaxValue;
+                    for (int i = 0; i < n * n; i++)
+                    {
+                        if (!fm.Reaches(i) || !ff.Walkable(i, BodyH)
+                            || deepChosen.Contains(i)) continue;
+                        Vector3 gp = ff.GroundPoint(i);
+                        Vector3 d = gp - searchAnchorPos; d.y = 0f;
+                        float rad = d.magnitude;
+                        // Push-in candidate: meaningfully closer to the anchor
+                        // than he stands and not on top of it.
+                        if (rad < pushBest && rad >= 0.6f
+                            && rad < feetToAnchor - 0.5f
+                            && (gp - feet).sqrMagnitude > 1f)
+                        { pushBest = rad; pushCell = i; }
+                        float bErr = Mathf.Abs(Mathf.DeltaAngle(want,
+                            BearingAround(searchAnchorPos, gp)));
+                        if (bErr > 20f) continue;          // outside this stage's bucket
+                        float score = bErr
+                            + 0.3f * Mathf.Abs(rad - searchBufferRadius)
+                            - (ff.state[i] == CoverField.CellState.Hidden ? 6f : 0f);
+                        if (score < bestScore) { bestScore = score; bestCell = i; }
+                    }
+                    if (bestCell >= 0)
+                    { deepChosen.Add(bestCell); diceDeepPoints.Add(ff.GroundPoint(bestCell)); diceDeepTags.Add("flank"); }
+                    else if (pushCell >= 0)
+                    { deepChosen.Add(pushCell); diceDeepPoints.Add(ff.GroundPoint(pushCell)); diceDeepTags.Add("push-in"); }
+                    // else: nothing reachable serves this stage — it dies
+                    // honestly (fewer stops, markers show what exists).
+                }
+            }
+            diceDeepActive = true; diceDeepStep = -1; diceDeepBare = false;
+            // Paint the fan — the stops in-world so the search is verifiable
+            // by eye: amber = flank stop · violet = push-in fallback ·
+            // green/blue = live (cover/bare leg) · grey = spent. Cleared when
+            // the fan resolves.
+            for (int i = 0; i < diceDeepPoints.Count; i++)
+                DiceDeepMark(i, diceDeepTags[i] == "push-in"
+                    ? new Color(0.8f, 0.4f, 1f, 0.85f)
+                    : new Color(1f, 0.65f, 0.15f, 0.85f));
+            DicePost($"deep {r}/6", $"deep recon — flank {(r <= 3 ? "left" : "right")} around last-known", "reacquire or exhaust", 1);
+            if (diceDeepTags.Contains("push-in"))
+                DicePost("deep recon", "flank starved — a stage pushes toward last-known instead", "hop walks", 1);
+            if (!DiceDeepNext()) DiceDeepExhaust();
+        }
+
+        /// <summary>The cover preference — nearest valid Hidden-zone stand
+        /// within DeepSnapM of the arc point, unvisited this fan. False = the
+        /// stop runs bare (he stands the point itself).</summary>
+        bool DiceDeepSnap(Vector3 want, out CoverField.ZoneSpot pick)
+        {
+            pick = new CoverField.ZoneSpot { cell = -1 };
+            var f = sensor?.Field;
+            if (f == null || !f.HasData) return false;
+            var me = MeMap();
+            int curCell = -1;
+            int ci = f.CellIndexOf(Feet());
+            if (ci >= 0 && f.TryZoneOfCell(ci, out var own)) curCell = own.cell;
+            var all = zoneScratch;
+            f.EnumerateZones(all);
+            float best = DeepSnapM * DeepSnapM;
+            foreach (var z in all)
+            {
+                if (z.cell == curCell || searchVisited.Contains(z.cell)) continue;
+                if (f.state[z.cell] != CoverField.CellState.Hidden) continue;
+                if (me != null && !f.ZoneReachable(z.cell, me)) continue;
+                float d = (z.stand - want).sqrMagnitude;
+                if (d < best) { best = d; pick = z; }
+            }
+            return pick.cell >= 0;
+        }
+
+        /// <summary>Advance to the next stop in the deep-recon fan and
+        /// dispatch it. False when the fan is spent — the caller owns the
+        /// exhausted verdict.</summary>
+        bool DiceDeepNext()
+        {
+            DiceDeepMark(diceDeepStep, new Color(0.55f, 0.55f, 0.6f, 0.4f));   // the finished stop dims
+            if (++diceDeepStep >= diceDeepPoints.Count) return false;
+            return DiceDeepDispatch();
+        }
+
+        /// <summary>Dispatch the CURRENT stop: snapped cover walks a real
+        /// seek leg; no snap → the bare arc point via the micro-leg channel.
+        /// Either way the dwell arms on arrival.</summary>
+        bool DiceDeepDispatch()
+        {
+            if (DiceDeepSnap(diceDeepPoints[diceDeepStep], out var z))
+            {
+                searchVisited.Add(z.cell);
+                diceDeepBare = false;
+                DiceDeepMark(diceDeepStep, new Color(0.35f, 1f, 0.45f, 0.95f));  // live stop = green
+                CommitSearchSeek(z, $"deep recon stop {diceDeepStep + 1}/{diceDeepPoints.Count}");
+            }
+            else
+            {   // Bare point — the arc position itself; he stands it.
+                diceDeepBare = true;
+                DiceDeepMark(diceDeepStep, new Color(0.35f, 0.8f, 1f, 0.95f));   // live BARE stop = blue
+                diceLeg = diceDeepPoints[diceDeepStep];
+                diceLegActive = true; diceLegBuilt = false;
+            }
+            return true;
+        }
+
+        /// <summary>An aborted leg: a snapped-cover leg falls back to the
+        /// bare arc point for the SAME stop — the position is the contract
+        /// and a dead corridor must not silently skip it. A bare leg dying
+        /// means the stop itself is spent → next stop. False = fan dry.</summary>
+        bool DiceDeepRetryOrNext()
+        {
+            if (!diceDeepBare)
+            {
+                diceDeepBare = true;
+                DiceDeepMark(diceDeepStep, new Color(0.35f, 0.8f, 1f, 0.95f));
+                diceLeg = diceDeepPoints[diceDeepStep];
+                diceLegActive = true; diceLegBuilt = false;
+                DicePost("deep recon", $"stop {diceDeepStep + 1} cover unreachable — walking the bare point", "hop walks", 1);
+                return true;
+            }
+            return DiceDeepNext();
+        }
+
+        /// <summary>Fan markers — the three stops painted in-world so the
+        /// arc is verifiable: amber = pending · green = live cover leg ·
+        /// blue = live bare leg · grey = spent. Cleared at fan end.</summary>
+        void DiceDeepMark(int i, Color c)
+        {
+            var pdr = PathDebugRenderer.Instance;
+            if (pdr == null || i < 0 || i >= diceDeepPoints.Count) return;
+            pdr.SetXrayCube($"deepfan_{name}_{i}", diceDeepPoints[i] + Vector3.up * 0.4f,
+                Quaternion.identity, 0.28f, c);
+        }
+        void DiceDeepMarkClear()
+        {
+            var pdr = PathDebugRenderer.Instance;
+            if (pdr == null) return;
+            for (int i = 0; i < 3; i++) pdr.ClearXrayCube($"deepfan_{name}_{i}");
+        }
+
+        /// <summary>DEEP EXHAUSTED — the one chance spent without a sighting.
+        /// The diagram's terminal edge: END.</summary>
+        void DiceDeepExhaust()
+        {
+            diceDeepActive = false;
+            ResetSearch();
+            DicePost("deep recon", "deep exhausted — he was never there", "END — combat over", 3);
+            ExitCombat(true);
+        }
+
+        /// <summary>Execute the rolled face — ONE roll = ONE complete action.
+        /// The face's cardinality IS the destination: STRAFE steps diceStepM
+        /// laterally off the threat line, ADVANCE steps it forward, COVER
+        /// dispatches to the nearest Hidden zone on the rolled side. Legs
+        /// re-park when the move lands; seeks re-park on arrival.</summary>
+        void DiceExecFace()
+        {
+            switch (diceFace)
+            {
+                case 1: case 3:                                   // STRAFE-L/R — fixed lateral step
+                {
+                    Vector3 feet = Feet();
+                    Vector3 fwd = AimAnchor() - feet; fwd.y = 0f;
+                    if (fwd.sqrMagnitude < 1e-4f) fwd = transform.forward; fwd.y = 0f;
+                    fwd.Normalize();
+                    Vector3 perp = diceFace == 1
+                        ? new Vector3(-fwd.z, 0f, fwd.x)          // 90° left of the threat line
+                        : new Vector3(fwd.z, 0f, -fwd.x);         // 90° right
+                    diceLeg = feet + perp * diceStepM;
+                    diceLegActive = true; diceLegBuilt = false;
+                    DicePost(diceRunning, $"strafes {diceStepM:F1}m {(diceFace == 1 ? "left" : "right")}", "reload check on arrival", 1);
+                    break;
+                }
+                case 4: case 6:                                   // COVER-L/R — nearest spot that side
+                    if (!DiceCoverCands(diceFace == 4))
+                    {
+                        DicePost(diceRunning, "no hidden cover that side — stands", "reload check", 3);
+                        diceRampPending = true; ArmRoll("reload check");
+                        break;
+                    }
+                    {
+                        var z = diceSubCands[0];
+                        diceMoveDone = true;
+                        DicePost(diceRunning, $"seeks nearest cover {(diceFace == 4 ? "left" : "right")} → {z.volId} ({z.cls}, duck {z.reqD:F2})",
+                                 "reload check on arrival", 1);
+                        CommitSearchSeek(z, $"dice {diceRunning} → {z.volId}");
+                    }
+                    break;
+                case 2:                                           // ADVANCE — fixed step toward the anchor
+                {
+                    Vector3 feet = Feet();
+                    Vector3 to = AimAnchor() - feet; to.y = 0f;
+                    float d = to.magnitude;
+                    if (d < 0.5f)
+                    { DicePost(diceRunning, "already on the anchor — stands", "reload check", 0); diceRampPending = true; ArmRoll("reload check"); break; }
+                    float step = Mathf.Min(diceStepM, d - 0.4f);
+                    diceLeg = feet + to.normalized * step;
+                    diceLegActive = true; diceLegBuilt = false;
+                    DicePost(diceRunning, $"advances {step:F1}m toward the threat", "reload check on arrival", 1);
+                    break;
+                }
+                default:                                          // STAND — holds, fire rides
+                    DicePost(diceRunning, "holds position — fire continues", "reload check", 0);
+                    diceRampPending = true; ArmRoll("reload check");
+                    break;
+            }
+        }
+
+        /// <summary>Cover candidates for a COVER-L/R face — Hidden zones on
+        /// the rolled side of the threat line, reachable and not his own,
+        /// nearest first. The sub-roll indexes this list.</summary>
+        bool DiceCoverCands(bool left)
+        {
+            diceSubCands.Clear();
+            var f = sensor?.Field;
+            if (f == null || !f.HasData) return false;
+            var me = MeMap();
+            Vector3 feet = Feet();
+            Vector3 fwd = AimAnchor() - feet; fwd.y = 0f;
+            if (fwd.sqrMagnitude < 1e-4f) fwd = transform.forward; fwd.y = 0f;
+            fwd.Normalize();
+            int curCell = -1;
+            int ci = f.CellIndexOf(feet);
+            if (ci >= 0 && f.TryZoneOfCell(ci, out var own)) curCell = own.cell;
+            var all = zoneScratch;
+            f.EnumerateZones(all);
+            foreach (var z in all)
+            {
+                if (z.cell == curCell) continue;
+                if (f.state[z.cell] != CoverField.CellState.Hidden) continue;
+                if (me != null && !f.ZoneReachable(z.cell, me)) continue;
+                Vector3 dz = z.stand - feet; dz.y = 0f;
+                if (dz.sqrMagnitude < 0.25f) continue;
+                // Left/right of the threat line: cross.y — positive = right.
+                float side = fwd.z * dz.x - fwd.x * dz.z;
+                if (left ? side >= 0f : side <= 0f) continue;
+                diceSubCands.Add(z);
+            }
+            diceSubCands.Sort((a, b) =>
+                ((a.stand - feet).sqrMagnitude).CompareTo((b.stand - feet).sqrMagnitude));
+            return diceSubCands.Count > 0;
+        }
+
+        /// <summary>Cycle verdict post — rolled (what the die produced) ·
+        /// outcome (plain-english result) · next (what the next roll decides).
+        /// diceHist keeps the compact seam row; diceLog stores the structured
+        /// step for the colored per-roll readout.</summary>
+        void DicePost(string rolled, string outcome, string next, int kind = 0)
+        {
+            diceVerdict = $"{rolled} → {outcome}";
+            string line = $"t{Time.unscaledTime:F1} #{diceCycle} {diceVerdict}";
+            diceHist = line + (diceHist.Length > 0 ? "  ·  " + diceHist : "");
+            if (diceHist.Length > 400) diceHist = diceHist.Substring(0, 400);
+            diceLog.Add(new DiceStep {
+                t = Time.unscaledTime, cycle = diceCycle, kind = kind,
+                rolled = rolled, outcome = outcome, next = next });
+            if (diceLog.Count > 24) diceLog.RemoveAt(0);
+            Debug.Log($"🎲 [Dice] {name} — {diceVerdict}");
+            Notify();
+        }
+
         /// <summary>The seam — Tab F's arbiter. Runs where NO program is
         /// running (Beat == Settle breath, Beat == None parked, or the
         /// HoldPosition park): score every intent on the live blackboard,
@@ -2091,6 +2859,7 @@ namespace SteelCity.Sim
         /// future branch point (reload | re-check | reposition).</summary>
         void TickBeat()
         {
+            if (DiceActive) return;   // dice owns the cycle — beats are authored/seam posture machinery
             switch (Beat)
             {
                 case EngagementBeat.Settle:
@@ -2491,7 +3260,57 @@ namespace SteelCity.Sim
             // while any voxel resolves, fire on cadence/convergence/cylinder.
             // Runs before the pose pick: ExposureArmed selects the Aim lanes.
             TickExposureFire();
-            if (State == CombatState.InCover) TickBeat();
+            if (DiceActive)
+            {   // FEED — evidence keeps the frame alive; nothing here
+                // interrupts the live quantum (atomic by design).
+                if (contactSeen) diceLastEvidence = Time.unscaledTime;
+            }
+            if (DiceActive && diceDeepActive && contactSeen)
+            {   // REACQUIRED — a sighting interrupts the hunt NOW, mid-leg or
+                // mid-dwell (the diagram's green edge): cancel the orbit,
+                // park, the next click is a fresh MOVE roll. Firing stays
+                // live throughout — cadence/convergence own the shot.
+                diceDeepActive = false; diceMoveDone = false; diceLegActive = false;
+                diceReconCheck = false; diceReconBearing = 0; diceReconSettleUntil = 0f;
+                if (anim != null) anim.lookScan = reconSavedLook;
+                diceLastEvidence = Time.unscaledTime;
+                ResetSearch();
+                SetState(CombatState.HoldPosition);
+                CoverPoint = Feet(); CoverObstacleId = null;
+                DicePost("deep recon", "reacquired — visual re-established", "next turn roll", 2);
+                ArmRoll("next turn roll");
+            }
+            else if (DiceActive && State == CombatState.InCover && (diceMoveDone || diceDeepActive))
+            {
+                if (diceDeepActive)
+                {   // Deep-recon hop landed — the spot gets its own sweep:
+                    // stand, gun on the anchor, lookScan the sector for the
+                    // dwell, THEN the verdict. A mid-leg sighting skips it
+                    // (he saw him walking in).
+                    SetState(CombatState.HoldPosition);
+                    if (contactSeen)
+                    {
+                        diceDeepActive = false;
+                        ResetSearch();   // clears the orbit frame + fan marks
+                        diceLastEvidence = Time.unscaledTime;
+                        DicePost("deep recon", "reacquired — visual re-established", "next turn roll", 2);
+                        ArmRoll("next turn roll");
+                    }
+                    else DiceDeepDwellArm();   // the spot gets its own sweep
+                }
+                else
+                {   // A dice-dispatched seek completed — the move WAS the turn;
+                    // re-park to HoldPosition where the dice channel awaits.
+                    // (Must precede the TickBeat branch or InCover never reaches it.)
+                    diceMoveDone = false;
+                    DicePost(diceRunning, "arrived — move complete", "reload check", 2);
+                    SetState(CombatState.HoldPosition);
+                    diceRampPending = true; ArmRoll("reload check");
+                }
+            }
+            else if (State == CombatState.InCover) TickBeat();
+            else if (DiceActive && State == CombatState.HoldPosition)
+                TickDice();
             else if (ArbActive && State == CombatState.HoldPosition
                   && !reloading
                   && (seamNow || Time.unscaledTime >= arbHoldUntil))
@@ -2573,7 +3392,9 @@ namespace SteelCity.Sim
                     else if (!Mathf.Approximately(anim.duck, targetDuck))
                         // HoldPosition seam — same verdict: an armed body holds
                         // firing posture (stand), an unarmed one folds to req.
-                        anim.duck = ExposureArmed ? 0f : targetDuck;    // arrival/hold — committed posture, immediate
+                        // A live dice leg or recon peek counts as armed-posture
+                        // — the strafe/rise keeps him upright on the anchor.
+                        anim.duck = (diceLegActive || diceReconCheck || ExposureArmed) ? 0f : targetDuck;
                     // Stationary lanes follow the exposure gate: armed = the
                     // Aiming hold (the gun-forward pose the IK needs); stowed =
                     // the cover hold (deep band) or Idle (morph/Full). Picked
@@ -2589,7 +3410,19 @@ namespace SteelCity.Sim
                         // rise/peek gets AimSweep — arm holds last-known while
                         // the head sweeps the sector (the cone physically
                         // scans — sweep = "target hidden, keep looking").
-                        var wantPose = ExposureArmed
+                        // A dice micro-leg (strafe/advance) takes AimWalk —
+                        // gun forward on the tracked anchor, at the ready,
+                        // regardless of the fire-cleared ExposureArmed verdict.
+                        // A recon dwell is a COMMITTED sweep — pin AimSweep
+                        // for its whole run. Reading contactSeen live let the
+                        // sensor's flickering voxel verdict thrash the pose
+                        // (Aiming↔AimSweep every frame); the end-verdict still
+                        // reports what the eye actually resolved.
+                        var wantPose = diceLegActive
+                            ? CharacterAnimation.AnimState.AimWalk
+                            : diceReconCheck
+                            ? CharacterAnimation.AnimState.AimSweep
+                            : ExposureArmed
                             ? (contactSeen ? CharacterAnimation.AnimState.Aiming
                                            : CharacterAnimation.AnimState.AimSweep)
                             : (anim.duck > 1.02f ? CharacterAnimation.AnimState.Crouching
@@ -2709,6 +3542,15 @@ namespace SteelCity.Sim
                                 // commit; the seam re-picks the next arc step.
                                 arbVerdict = "orbit leg blocked";
                             }
+                            else if (DiceActive)
+                            {   // A dice turn's leg aborting is a verdict,
+                                // never an exit — the hold below re-parks.
+                                // Under deep recon a dead cover leg falls
+                                // back to the bare arc point first (the
+                                // position is the contract); a bare death
+                                // spends the stop — the fan advances or ends.
+                                resumed = diceDeepActive ? DiceDeepRetryOrNext() : false;
+                            }
                             else
                             {
                                 resumed = TryOrbitStep();
@@ -2717,6 +3559,7 @@ namespace SteelCity.Sim
                         }
                         if (!resumed)
                         {
+                            if (diceDeepActive) { DiceDeepExhaust(); return; }
                             Debug.Log($"⚠️ [Combat] {name} — cover unreachable ({dist:F2}m out) — holding position");
                             LastResult = noCorridor
                                 ? $"no corridor to {CoverObstacleId} ({routeFail}) — holding position"
@@ -2809,9 +3652,9 @@ namespace SteelCity.Sim
                     // EndSearchSeek clears the flag the roll reads.
                     bool wasOrbitLeg = searching && State == CombatState.SeekingCover;
                     ResetSearch();   // contact = the search answered itself
-                    if (seamArbiter) seamNow = true;   // contact edge → instant seam re-eval
-                    else if (wasOrbitLeg && UnityEngine.Random.value < 0.5f)
-                        TryNearestCover();
+                    if (ArbActive) seamNow = true;   // contact edge → instant seam re-eval
+                    else if (!DiceActive && wasOrbitLeg && UnityEngine.Random.value < 0.5f)
+                        TryNearestCover();   // dice: contact edge is feed — the quantum rides
                 }
             }
             else if (contactSeen)
@@ -2915,9 +3758,20 @@ namespace SteelCity.Sim
                 if (boreBuriedSince < 0f) boreBuriedSince = Time.unscaledTime;
                 else if (Time.unscaledTime - boreBuriedSince > 1.2f)
                 {
-                    boreBuriedSince = -1f;
-                    if (TryRelocateToFightingCover())
-                        Debug.Log($"🥊 [Combat] {name} — bore permanently buried at {CoverObstacleId} → relocating to fighting cover");
+                    if (DiceActive)
+                    {   // The roll owns every movement decision — a buried
+                        // bore is a VERDICT for the roller, never a dispatch.
+                        // MaxValue stamps the episode spent: no re-post until
+                        // the block clears (else-branch resets the clock).
+                        boreBuriedSince = float.MaxValue;
+                        DicePost("verdict", "bore buried — can't fight from here", "next roll decides", 2);
+                    }
+                    else
+                    {
+                        boreBuriedSince = -1f;
+                        if (TryRelocateToFightingCover())
+                            Debug.Log($"🥊 [Combat] {name} — bore permanently buried at {CoverObstacleId} → relocating to fighting cover");
+                    }
                 }
             }
             else boreBuriedSince = -1f;
@@ -2992,8 +3846,21 @@ namespace SteelCity.Sim
                 ThreatCharacter?.GetComponent<CombatController>()?.OnShotHeard(Feet());
                 // Combat reloads automatically on dry — but inside the cover
                 // rhythm the TopUp beat owns the wheel; a dry Engaged ducks
-                // and settles first, reload only starts at the beat.
-                if (cylinder <= 0 && State != CombatState.InCover) StartReload();
+                // and settles first, reload only starts at the beat. Under
+                // DICE the wheel is a DECISION, not a reflex: a dry bore
+                // parks + arms the count-check — the next roll resolves the
+                // reload (the definitive stop). Mid-execution is skipped —
+                // the completion lands its own ramp arm.
+                if (cylinder <= 0 && State != CombatState.InCover)
+                {
+                    if (DiceActive)
+                    {
+                        if (!diceRampPending && !diceLegActive && !diceReconCheck
+                            && State == CombatState.HoldPosition)
+                        { diceRampPending = true; ArmRoll("reload check — cylinder DRY"); }
+                    }
+                    else StartReload();
+                }
                 Notify();   // FIRE beat — the flow chart lights on THIS event, not a poll window
             }
         }
