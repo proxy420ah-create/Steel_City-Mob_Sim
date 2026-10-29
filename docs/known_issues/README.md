@@ -61,3 +61,4 @@ Bug tracker per Development Guidelines Rule 13. Bugs are cataloged by category i
 | [Point-Blank Standoff - Aim Angle Meaningless Within Arms Length](runtime/POINT_BLANK_STANDOFF_AIM_ANGLE.md) | runtime | 🟡 FIX APPLIED / INVESTIGATING | 🟡 HIGH | 2026-10-28 |
 | [Moving Vehicles As Cover / Bodies Embedded In Cars / Guard Reset Regression](runtime/MOVING_VEHICLES_COVER_EMBED_GUARD_REGRESSION.md) | runtime | 🟡 FIX APPLIED | 🔴 CRITICAL | 2026-10-28 |
 | [Deep-Recon Stops Stale At Dispatch](runtime/DEEP_RECON_STOPS_STALE_AT_DISPATCH.md) | runtime | 🟡 FIX APPLIED | 🟡 HIGH | 2026-10-28 |
+| [Reload Gesture Not an Animated State — Folded Forearm, Frozen Gun Arm](runtime/RELOAD_GESTURE_NOT_ANIMATED_STATE.md) | runtime | 🟡 FIX APPLIED | 🟡 HIGH | 2026-10-28 |

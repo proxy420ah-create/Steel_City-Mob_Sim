@@ -46,6 +46,18 @@ namespace SteelCity.Sim
         public float maxTorsoYawDeg = 70f;
         [Tooltip("Sign flip if the torso yaws away from the target (model-forward convention)")]
         public float torsoYawSign = 1f;
+        [Tooltip("Gun-side blade (AIM_RIG phase 2): extra waist yaw that swings the gun shoulder's azimuth toward the aim azimuth — the boxing-stance lead. SignedAngle makes it handedness-correct automatically.")]
+        [Range(0f, 1f)] public float torsoBladeShare = 0.5f;
+        [Tooltip("Max blade yaw (deg)")]
+        public float torsoBladeMaxDeg = 40f;
+        [Tooltip("Forward stance pitch share of target elevation — posture hunch, not aim correction")]
+        [Range(0f, 1f)] public float torsoPitchShare = 0.25f;
+        [Tooltip("Max stance pitch (deg)")]
+        public float torsoPitchMaxDeg = 12f;
+        [Tooltip("Sign flip if the stance pitch hunches the wrong way")]
+        public float torsoPitchSign = 1f;
+        [Tooltip("Allow the torso stance during AimWalk (aiming while locomoting): legs run the route, upper body tracks the target — reads far more natural than arms-only aim on the move. Plain Walking stays suspended.")]
+        public bool bladeWhileAimWalk = true;
         public bool debugLogs = false;
 
         [Header("Aim Feel — sway + recoil (COMBAT_VEHICLE_DESIGN.md §14)")]
@@ -65,6 +77,8 @@ namespace SteelCity.Sim
         [Range(2f, 20f)] public float maxOffsetDeg = 11f;
         [Tooltip("Draw the cyan muzzle→target sight beam while aiming (PathDebugRenderer).")]
         public bool showSightBeam = false;   // off by default — Combat/Sfx debugs opt in
+        [Tooltip("Head track blend while aiming (AIM_RIG phase 1): the head's gid-1 quat looks along eye→target — same solve the JS animator previews as ikAim.headTrack. 0 = authored head pose.")]
+        [Range(0f, 1f)] public float headTrack = 1f;
 
         // --- State ---
         public bool IsAiming { get; private set; }
@@ -82,6 +96,9 @@ namespace SteelCity.Sim
         private VoxelChunkManager.InstancedCharacter instHandle;
         private string sightBeamKey;
         private Quaternion torsoQuat = Quaternion.identity; // gid-0 override from torso assist
+        private Quaternion headQuat = Quaternion.identity;  // gid-1 override — head aim (headTrack)
+        private bool headOn;
+        const float NeckClampDeg = 77.2f;   // head solve yaw clamp (±1.35 rad) — torso shares up past this
         private AimFeelSpring feelSpring;
         private Vector2 swaySeed;
         private bool shotHooked;
@@ -195,7 +212,7 @@ namespace SteelCity.Sim
                 mount.Animator.ikOverrides.Clear();
                 mount.Animator.ikBlend = 1f;
             }
-            if (instHandle != null) { instHandle.ikEnabled = false; instHandle.ikTorsoEnabled = false; }
+            if (instHandle != null) { instHandle.ikEnabled = false; instHandle.ikTorsoEnabled = false; instHandle.ikHeadEnabled = false; instHandle.ikPair2Enabled = false; }
         }
 
         // ------------------------------------------------------------------
@@ -303,26 +320,75 @@ namespace SteelCity.Sim
             // the effective inverse yaw keeps the bore landing exactly.
             // EXCEPT the deep band (duck>1.02): the assist yaw un-folds the
             // crouch lean (IK_TORSO_OVERRIDE), so deep-duck aiming is arms-only.
-            // AND while locomoting: the root owns heading then — a second
-            // heading driver on the same spine is the seek-time tug-of-war;
-            // the arm alone carries the residual error on the move.
-            bool locomoting = animRef != null
+            // AND while WALKING UN-AIMED: the root owns heading then — a second
+            // heading driver on the same spine is the seek-time tug-of-war.
+            // AimWalk keeps the stance (bladeWhileAimWalk): aiming at a live
+            // target while moving demands the upper body track too — legs run
+            // the route, torso serves the aim.
+            bool noStance = animRef != null
                 && (animRef.EffectiveState == CharacterAnimation.AnimState.Walking
-                    || animRef.EffectiveState == CharacterAnimation.AnimState.AimWalk);
+                    || (animRef.EffectiveState == CharacterAnimation.AnimState.AimWalk && !bladeWhileAimWalk));
             torsoQuat = Quaternion.identity;
-            if (torsoAssist && !locomoting && (animRef == null || animRef.duck <= 1.02f))
+            if (torsoAssist && !noStance && (animRef == null || animRef.duck <= 1.02f))
             {
                 Vector3 stFlat = tv - sv;
                 stFlat.y = 0f;
                 if (stFlat.sqrMagnitude > 1e-6f)
                 {
-                    float yawErr = Vector3.SignedAngle(Vector3.forward, stFlat, Vector3.up);
-                    float yawDeg = Mathf.Clamp(yawErr * torsoYawSign * torsoShare, -maxTorsoYawDeg, maxTorsoYawDeg);
-                    torsoQuat = Quaternion.AngleAxis(yawDeg, Vector3.up);
-                    Quaternion torsoEff = Quaternion.Slerp(Quaternion.identity, torsoQuat, Blend);
                     Vector3 bp = mount.Pivots.TryGetValue(0, out var bp0)
                         ? ScalePivot(bp0, dimsF)
                         : dimsF * 0.5f;
+
+                    // Yaw blade — fraction of the flat aim error. Share-UP rule
+                    // (AIM_RIG §3.2): when the residual yaw after the torso's
+                    // share would still clamp the neck short of F, the torso
+                    // absorbs more so head + torso together reach.
+                    float yawErr = Vector3.SignedAngle(Vector3.forward, stFlat, Vector3.up);
+                    float share = torsoShare;
+                    float yawAbs = Mathf.Abs(yawErr);
+                    if (yawAbs > NeckClampDeg)
+                        share = Mathf.Max(share, 1f - NeckClampDeg / yawAbs);
+                    Quaternion qYaw = Quaternion.AngleAxis(
+                        Mathf.Clamp(yawErr * torsoYawSign * share,
+                            -maxTorsoYawDeg, maxTorsoYawDeg), Vector3.up);
+
+                    // Blade — stance yaw about the waist (AIM_RIG phase 2):
+                    // swing the gun-side shoulder's azimuth toward the aim
+                    // azimuth so the gun side leads (boxing stance). SignedAngle
+                    // is handedness-correct: the solver's own arm pivot picks
+                    // the side. Composes with the aim-share yaw on the same axis.
+                    Quaternion qBlade = Quaternion.identity;
+                    Vector3 sOff = sv - bp; sOff.y = 0f;
+                    Vector3 aFlat = tv - bp; aFlat.y = 0f;
+                    if (torsoBladeShare > 0f
+                        && sOff.sqrMagnitude > 1e-6f && aFlat.sqrMagnitude > 1e-6f)
+                    {
+                        float bladeDeg = Mathf.Clamp(
+                            Vector3.SignedAngle(sOff.normalized, aFlat.normalized, Vector3.up)
+                                * torsoBladeShare * torsoYawSign,
+                            -torsoBladeMaxDeg, torsoBladeMaxDeg);
+                        qBlade = Quaternion.AngleAxis(bladeDeg, Vector3.up);
+                    }
+
+                    // Stance pitch — a modest hunch with target elevation
+                    // (posture, not aim correction). Sign param: model-space
+                    // conventions are verified at runtime, not assumed.
+                    Quaternion qPitch = Quaternion.identity;
+                    if (torsoPitchShare > 0f)
+                    {
+                        Vector3 dAim = tv - sv;
+                        Vector3 rAxis = Vector3.Cross(dAim, Vector3.up);
+                        if (rAxis.sqrMagnitude > 1e-6f && dAim.sqrMagnitude > 1e-6f)
+                        {
+                            float elev = Mathf.Asin(Mathf.Clamp(dAim.normalized.y, -1f, 1f)) * Mathf.Rad2Deg;
+                            qPitch = Quaternion.AngleAxis(
+                                Mathf.Clamp(-elev * torsoPitchShare * torsoPitchSign,
+                                    -torsoPitchMaxDeg, torsoPitchMaxDeg), rAxis.normalized);
+                        }
+                    }
+
+                    torsoQuat = qPitch * qBlade * qYaw;   // extrinsic: blade+share yaw → stance pitch
+                    Quaternion torsoEff = Quaternion.Slerp(Quaternion.identity, torsoQuat, Blend);
                     tv = bp + Quaternion.Inverse(torsoEff) * (tv - bp);
                 }
             }
@@ -387,6 +453,28 @@ namespace SteelCity.Sim
                 }
             }
 
+            // Head aim (AIM_RIG phase 1) — the unified gid-1 quat channel, solved in
+            // the SAME pre-torso frame as the arm (tv already carries the torso-assist
+            // inverse): look the bind-forward head at the target, neck-clamped —
+            // yaw ±1.35 rad (existing clamp), pitch ±0.9. headTrack blends it.
+            headOn = false;
+            if (headTrack > 0.001f && mount.Pivots.TryGetValue(1, out var hpiv))
+            {
+                headOn = true;
+                Vector3 hv = ScalePivot(hpiv, dimsF);
+                Vector3 dh = tv - hv;
+                if (dh.sqrMagnitude > 1e-6f)
+                {
+                    dh /= dh.magnitude;
+                    float hy = Mathf.Clamp(Mathf.Atan2(dh.x, dh.z), -1.35f, 1.35f);
+                    float hp2 = Mathf.Clamp(Mathf.Atan2(dh.y, Mathf.Sqrt(dh.x * dh.x + dh.z * dh.z)), -0.9f, 0.9f);
+                    var dc = new Vector3(Mathf.Sin(hy) * Mathf.Cos(hp2), Mathf.Sin(hp2), Mathf.Cos(hy) * Mathf.Cos(hp2));
+                    headQuat = Quaternion.Slerp(Quaternion.identity,
+                        BasisDelta(Vector3.forward, dc, Vector3.up, Vector3.up), headTrack);
+                }
+                else headOn = false;
+            }
+
             // Real angular error: welded bore dir vs muzzle→target (1 frame stale — ground truth)
             Vector3 toTargetWorld = targetWorld - mount.MuzzleWorld;
             if (mount.IsEquipped && toTargetWorld.sqrMagnitude > 1e-8f)
@@ -405,6 +493,9 @@ namespace SteelCity.Sim
             // the body-transform path (outermost rotation in the FK chain).
             if (torsoAssist) animator.ikOverrides[0] = torsoQuat;
             else animator.ikOverrides.Remove(0);
+            // Head override rides gid 1 — CPU and GPU get the identical quat.
+            if (headOn) animator.ikOverrides[1] = headQuat;
+            else animator.ikOverrides.Remove(1);
 
             instHandle = character.GetInstancedHandle(); // re-fetch — handle can change on re-registration
             if (instHandle != null)
@@ -417,6 +508,8 @@ namespace SteelCity.Sim
                 instHandle.ikQuatB = ArmGid >= 0 ? qFore : Quaternion.identity;
                 instHandle.ikTorsoEnabled = torsoAssist;
                 instHandle.ikTorsoQuat = torsoQuat;
+                instHandle.ikHeadEnabled = headOn;
+                instHandle.ikHeadQuat = headOn ? headQuat : Quaternion.identity;
             }
 
             // Sight beam — muzzle → target while engaged (residual aim error is
@@ -435,17 +528,17 @@ namespace SteelCity.Sim
 
         // --- Math helpers (voxel-space, matching animator/shader conventions) ---
 
-        private static Vector3 ScalePivot(Vector3 normalizedPivot, Vector3 dimsF)
+        internal static Vector3 ScalePivot(Vector3 normalizedPivot, Vector3 dimsF)
             => new Vector3(normalizedPivot.x * dimsF.x, normalizedPivot.y * dimsF.y, normalizedPivot.z * dimsF.z);
 
         /// <summary>Inverse of the weld's world = center + yawRot * ((v+0.5)*vs - half).</summary>
-        private static Vector3 WorldToVoxel(Vector3 w, Vector3 center, Quaternion yawRot, Vector3 half, float vs)
+        internal static Vector3 WorldToVoxel(Vector3 w, Vector3 center, Quaternion yawRot, Vector3 half, float vs)
         {
             Vector3 local = Quaternion.Inverse(yawRot) * (w - center);
             return (local + half) / vs - Vector3.one * 0.5f;
         }
 
-        private static Vector3 PerpOf(Vector3 refV, Vector3 f)
+        internal static Vector3 PerpOf(Vector3 refV, Vector3 f)
         {
             Vector3 u = refV - f * Vector3.Dot(refV, f);
             if (u.sqrMagnitude < 1e-6f)
@@ -458,7 +551,7 @@ namespace SteelCity.Sim
         /// full bases built from projected refs, so no arbitrary roll about the bone axis.
         /// refB/refS are projected perp to bindF/solF respectively.
         /// </summary>
-        private static Quaternion BasisDelta(Vector3 bindF, Vector3 solF, Vector3 refB, Vector3 refS)
+        internal static Quaternion BasisDelta(Vector3 bindF, Vector3 solF, Vector3 refB, Vector3 refS)
         {
             Quaternion bBind = Quaternion.LookRotation(bindF, PerpOf(refB, bindF));
             Quaternion bSol = Quaternion.LookRotation(solF, PerpOf(refS, solF));

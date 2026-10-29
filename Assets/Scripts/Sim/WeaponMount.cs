@@ -80,6 +80,21 @@ namespace SteelCity.Sim
 
         // --- IK solver context (read-only, consumed by ArmAimSolver) ---
         public VoxelCharacterAnimator Animator => animator;
+
+        /// <summary>Ground-level body-center (same convention as
+        /// CombatController.Feet) — the semantic "shooter position" that
+        /// hearing intel snaps to.</summary>
+        public Vector3 FeetCenter
+        {
+            get
+            {
+                if (character == null) return transform.position;
+                var d = character.Dims;
+                return transform.position + new Vector3(
+                    d.x * character.voxelSize * 0.5f, 0f,
+                    d.z * character.voxelSize * 0.5f);
+            }
+        }
         public IReadOnlyDictionary<int, Vector3> Pivots => pivots;
         public Vector3Int Dims => dims;
         public float CharVoxelSize => voxelSize;
@@ -331,6 +346,15 @@ namespace SteelCity.Sim
             float tSA = ic?.transStateA ?? -1f, tTA = ic?.transTimeA ?? 0f;
             float tB = ic?.transBlend ?? 1f, tDp = ic?.transDip ?? 0f;
             float tDA = ic?.transDepthA ?? -1f;
+            // Reload tap channel — the weld must ride the same pulse the posed
+            // hand carries (states 13/14 add tap* deltas to the arm rotations).
+            // Gun side comes from our own hand gid's parent arm — reload arm
+            // params are role-assigned (support = L column, gun = R column).
+            if (animator != null)
+            {
+                animator.tapPulse = ic?.tapPulse ?? 0f;
+                animator.reloadGunSide = animator.GetParentGroup(handGid) == 2 ? -1f : 1f;
+            }
 
             // Posed hand point (voxel units, centered x/z) + cumulative group rotation
             Vector3 posed = animator != null

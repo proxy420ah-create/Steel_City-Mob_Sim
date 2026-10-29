@@ -206,14 +206,25 @@ namespace SteelCity.Sim
             }
         }
 
-        /// <summary>Live head-track channel (radians, body-relative yaw;
-        /// NaN = off) — forwards into the CPU poser so the eye anchor — and
-        /// therefore the vision cone — can be aimed at a live target while
-        /// the body faces elsewhere. No-op on an unanimated rig.</summary>
-        public float HeadYawOverride
+        /// <summary>Unified head-aim channel (AIM_RIG phase 1): writes the SAME
+        /// model-space quaternion to the CPU pose (ikOverrides[1]) and the GPU
+        /// slot (ikHeadQuat) — the rendered head follows the CPU head that
+        /// places the probe eye. blend feeds the shared ikBlend for all IK
+        /// channels; only call while ArmAimSolver is NOT aiming (the solver
+        /// owns every IK slot — head included via headTrack — when engaged).</summary>
+        public void SetHeadAim(Quaternion q, float blend)
         {
-            get => jointAnimator != null ? jointAnimator.headYawOverride : float.NaN;
-            set { if (JointAnimator != null) JointAnimator.headYawOverride = value; }
+            if (JointAnimator != null) { JointAnimator.ikOverrides[1] = q; JointAnimator.ikBlend = blend; }
+            var h = GetInstancedHandle();
+            if (h != null) { h.ikHeadEnabled = true; h.ikHeadQuat = q; h.ikBlend = blend; }
+        }
+
+        /// <summary>Release the head channel — gid-1 override removed on both paths.</summary>
+        public void ClearHeadAim()
+        {
+            if (JointAnimator != null) JointAnimator.ikOverrides.Remove(1);
+            var h = GetInstancedHandle();
+            if (h != null) h.ikHeadEnabled = false;
         }
 
         /// <summary>
@@ -239,6 +250,8 @@ namespace SteelCity.Sim
             float duck = animDepthOverride >= 0f ? DepthToDuck(state, animDepthOverride)
                 : (animStateOverride.HasValue ? 0f : (ic?.crouchDepth ?? 0f));
             float gait = ic?.gaitTime ?? -1f;
+            anim.tapPulse = animStateOverride.HasValue ? 0f : (ic?.tapPulse ?? 0f);
+            anim.reloadGunSide = ic?.reloadGunSide ?? 1f;
             var dims = new Vector3Int(dimX, dimY, dimZ);
 
             Vector3 rest = new Vector3(pv.x * dims.x, pv.y * dims.y, pv.z * dims.z);
@@ -280,6 +293,8 @@ namespace SteelCity.Sim
             float duck = animDepthOverride >= 0f ? DepthToDuck(state, animDepthOverride)
                 : (animStateOverride.HasValue ? 0f : (ic?.crouchDepth ?? 0f));
             float gait = ic?.gaitTime ?? -1f;
+            anim.tapPulse = animStateOverride.HasValue ? 0f : (ic?.tapPulse ?? 0f);
+            anim.reloadGunSide = ic?.reloadGunSide ?? 1f;
             var dims = new Vector3Int(dimX, dimY, dimZ);
 
             // Region centroids are index-space (mean of tagged voxel indices);
@@ -483,6 +498,8 @@ namespace SteelCity.Sim
             float speed = ic?.animSpeed ?? 1f;
             float duck = ic?.crouchDepth ?? 0f;
             float gait = ic?.gaitTime ?? -1f;
+            anim.tapPulse = ic?.tapPulse ?? 0f;
+            anim.reloadGunSide = ic?.reloadGunSide ?? 1f;
             var dims = new Vector3Int(dimX, dimY, dimZ);
             Vector4 trans = TransParams(ic, null, out float depthA);
 
@@ -921,7 +938,7 @@ namespace SteelCity.Sim
             // as 27 float4s for the GPU shader — same ParamsData source as above.
             // [15..18] = the deep-crouch endpoint: the duck scalar's 1..2 band.
             // [19..26] = walk-duck endpoints (D1 at duck=1, D2 at duck=2).
-            var asp = new Vector4[27];
+            var asp = new Vector4[35];
             // [0] = looking params
             var lp = p.looking;
             asp[0] = new Vector4(lp.headYaw, lp.headYawFreq, lp.headPitch, lp.headPitchFreq);
@@ -978,6 +995,18 @@ namespace SteelCity.Sim
             asp[24] = new Vector4(wdp.armSwingL, wdp.armSwingR, wdp.elbowBendL, wdp.elbowBendR);
             asp[25] = new Vector4(wdp.modelLower, wdp.bodyLower, wdp.bodyForward, wdp.bodyLean);
             asp[26] = new Vector4(wdp.headPitch, wdp.headTilt, 0, 0);
+            // [27..30] = reload (state 13): arms / elbows+twists / head+torso / tap deltas
+            var rp = p.reload;
+            asp[27] = new Vector4(rp.armSwingL, rp.armSwingR, rp.shoulderReachL, rp.shoulderReachR);
+            asp[28] = new Vector4(rp.elbowBendL, rp.elbowBendR, rp.forearmTwistL, rp.forearmTwistR);
+            asp[29] = new Vector4(rp.headYaw, rp.headPitch, rp.headTilt, rp.torsoTwist);
+            asp[30] = new Vector4(rp.tapReachL, rp.tapReachR, rp.tapBendL, rp.tapBendR);
+            // [31..34] = reloadCrouch (state 14) — same arm/head layout (body rides crouch)
+            var rc = p.reloadCrouch;
+            asp[31] = new Vector4(rc.armSwingL, rc.armSwingR, rc.shoulderReachL, rc.shoulderReachR);
+            asp[32] = new Vector4(rc.elbowBendL, rc.elbowBendR, rc.forearmTwistL, rc.forearmTwistR);
+            asp[33] = new Vector4(rc.headYaw, rc.headPitch, rc.headTilt, rc.torsoTwist);
+            asp[34] = new Vector4(rc.tapReachL, rc.tapReachR, rc.tapBendL, rc.tapBendR);
             chunkManager.SetAnimStaticParams(assetFileName, asp);
             Debug.Log($"[VoxelCharacter] Static anim params packed and uploaded (looking/aiming/crouching/jointOffset)");
         }

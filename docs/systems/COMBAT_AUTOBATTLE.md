@@ -45,7 +45,7 @@ Lookup table per weapon → 4 wound states: Winded, Lightly Wounded, Badly Wound
 
 ### Design Principle: Firearm Combat Has Diverged
 
-The original resolved all combat as a **single instant dice roll** — plug skills + range into the formula, get hit/miss, lookup damage, done. Steel City **diverges** for firearm combat by wrapping the original formula inside a **round-based tactical simulation with physical projectiles**.
+The original resolved all combat as a **single instant dice roll** — plug skills + range into the formula, get hit/miss, lookup damage, done. Steel City **diverges** for firearm combat by wrapping the original formula inside a **continuous real-time tactical simulation with physical projectiles** — autonomous combat runs on the `SimClock` fixed step (0.08 s, the RE tickInterval) with dice resolving *within* the stream (beats provide engagement rhythm, not discrete rounds).
 
 The formula is preserved as the base skill check, but the resolution method is fundamentally different:
 - **Cone of fire** replaces binary hit/miss — bullet direction = aim + perturbation, skill tightens cone, movement widens it

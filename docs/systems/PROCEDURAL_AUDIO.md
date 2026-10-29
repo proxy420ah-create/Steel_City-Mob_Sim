@@ -1,6 +1,7 @@
 # Procedural Audio — Synthesized Sound Effects
 
-**Status**: ✅ Implemented (glass shatter + **gunshot recipe live in-game**) · 🧪 `VoxelAssetStudio/audio_studio.html` editor built
+**Status**: ✅ Implemented (glass shatter + **gunshot + surface-impact/ricochet file pools live in-game**) · 🧪 `VoxelAssetStudio/audio_studio.html` editor built
+**Runtime architecture**: `docs/systems/SFX_PIPELINE.md` (pool routing, LiveTesting, modulation, per-file tuning — read that for the current system; this doc covers the synthesis layer + studio)
 **Since**: February 2026
 **Implementation**: `VoxelDamageSystem.GlassClip()` + `PreviewGlassSound()` + `audio_studio.html`
 
@@ -52,10 +53,11 @@ Clips are generated **once** and cached by bucket (`clipCache`) — synthesis co
 ### Playback
 
 ```csharp
-AudioSource.PlayClipAtPoint(clip, r.point, volume);
+ProceduralAudio.PlayAt(clip, r.point, v, glassRefDistance, glassAudibleRange);   // gameplay hits
+AudioSource.PlayClipAtPoint(clip, listener.transform.position, volume);          // HUD preview only
 ```
 
-Positional 3D audio — the impact point's world position, log-rolloff against the active `AudioListener`. Volume scales with removal count: `0.4 + removed/20` clamped to 1, times `glassAudioVolume`.
+Positional 3D audio — the impact point's world position, linear rolloff `refDist`→`audibleRange` against the active `AudioListener`. Volume scales with removal count: `0.4 + removed/20` clamped to 1, times `glassAudioVolume`.
 
 **Critical requirement**: an active `AudioListener`. The MapCamera auto-adds one during planning; FollowCamera takes over (disabling others) when it spawns. Without a listener, `PlayClipAtPoint` is a silent no-op — this was the actual "no sound" bug.
 
@@ -177,7 +179,7 @@ Single-file tool, same conventions as `voxel_editor.html` / `city_editor.html`:
 
 **Schema v4**: `recipe {name, version, sampleRate, duration, seed, envelope{mode|adsr}, gain, drive, phaseStep, rootNote, pitch, coupleDecay, tailFade, masterAttack, masterRelease, eq[], echo{on,time,feedback,mix}, layers[]}` — v4 adds `curve`/`vibRate`/`vibDepth` to the sweep layer (absent = "lin"/off) `masterAttack`/`masterRelease` global fades on the final mix (raised-cosine, seconds, 0 = off — they compose with `tailFade`, which stays the sub-100ms click guard), and `tone`/`toneQ`/`cutoff` on the attack layer — a resonant bandpass on the click noise (RBJ bandpass, constant-0dB peak, Hz center scales with pitch; tone 0 = legacy white click; ~500 = thump, ~2–3k = metallic "ka-", high Q rings a pitched edge onto the strike) followed by a `cutoff` 1-pole lowpass (Hz, 0 = off — independent brightness: darkens a harsh strike into a thud, softens the resonance's ringing edge), and a `src` exciter select on the attack layer — `noise` (default white burst) | `impulse` (1-sample spike → the resonator rings clean) | `chirp` (pitch-drop sine over the layer's decay window, `startHz`→`endHz`, ~750→110 = thump/punch — the exciter noise can't make); attacks stack, so crack+thump layering is a recipe shape; v3 recipes render identically. **Reference-analysis path**: `VoxelAssetStudio/analyze_sfx.py` turns any mp3/wav into a starting `.stsound` (ffmpeg decodes mp3 → onset/decay → coherent-run glide fit → strike-band/thump detection → ring partials + per-partial decay → band-energy amp attribution → glide-residual vibrato fit → envelope-autocorr echo → crest-factor drive); structure-fitting, not sample-accurate — load the result and finish by ear. `gen_ricochet_catalog.py` is the batch-generation sibling.
 
-- `layers[]` — `{type, amp, decay}` plus per-type fields (partials[], lowpass, startHz/endHz, curve, vibRate, vibDepth). One-pole lowpass uses `α = 1 − exp(−2π·fc/rate)`; sweep integrates instantaneous frequency for phase-correct bends — `curve:"lin"` is a constant Hz ramp, `curve:"exp"` interpolates `start·(end/start)^k` (equal semitones/sec — a true musical dive, or rise when `endHz > startHz` for ascending ricochets); `vibRate`(Hz)+`vibDepth`(cents) multiply the glide by `2^((depth/1200)·sin(2π·rate·t))` — the tumbling-bullet warble (8–15 Hz · 50–150 ¢ reads as ricochet; both absent/0 = clean sweep). Sweep layers keep independent phases and STACK — two at different registers/vib rates detune into the double-tone ricochet whine (see the `ricochet` preset). v4 also adds `harmN`(0–4)/`harmAmp` — overtone sines at 2f–5f riding the same glide (a lone sine = test tone, harmonics = resonant howl — the ricochet-whine fix) — and `amRate`/`amDepth` — a loudness LFO on the sweep (the tumble's AM pulse, independent of the FM vibrato); all absent/0 = off.
+- `layers[]` — `{type, amp, decay}` plus per-type fields (partials[], lowpass, startHz/endHz, curve, vibRate, vibDepth) and the universal `delay` — the layer is silent until `t = delay` (seconds, pitch-scaled by `coupleDecay` like decays), then runs on its own timeline: ring, glide, crack, AM and phase all start fresh. A second `attack` at ~30 ms is a fully adjustable two-stage click ("Cu-Lick" — contact vs seat), which echo can't produce (echo repeats the whole buffer in one timbre). One-pole lowpass uses `α = 1 − exp(−2π·fc/rate)`; sweep integrates instantaneous frequency for phase-correct bends — `curve:"lin"` is a constant Hz ramp, `curve:"exp"` interpolates `start·(end/start)^k` (equal semitones/sec — a true musical dive, or rise when `endHz > startHz` for ascending ricochets); `vibRate`(Hz)+`vibDepth`(cents) multiply the glide by `2^((depth/1200)·sin(2π·rate·t))` — the tumbling-bullet warble (8–15 Hz · 50–150 ¢ reads as ricochet; both absent/0 = clean sweep). Sweep layers keep independent phases and STACK — two at different registers/vib rates detune into the double-tone ricochet whine (see the `ricochet` preset). v4 also adds `harmN`(0–4)/`harmAmp` — overtone sines at 2f–5f riding the same glide (a lone sine = test tone, harmonics = resonant howl — the ricochet-whine fix) — and `amRate`/`amDepth` — a loudness LFO on the sweep (the tumble's AM pulse, independent of the FM vibrato); all absent/0 = off.
 - **Pitch/note model** — `rootNote` is the MIDI note the recipe was authored at (default 60/C4). Previewing at note N scales ALL Hz-domain params (partials, sweep endpoints, lowpass cutoffs) by `2^((N − root + pitch)/12)`. `coupleDecay` (default on) also scales layer decays by the same ratio — higher pitch = shorter ring, physically true for struck objects.
 - **Piano roll** — 3-octave clickable keyboard (◂ ▸ window shift); key click-Y position = velocity (0.4–1.0 → master gain). Root note is highlighted.
 - **Parametric EQ** — 4 bands (low shelf / 2 peaking / high shelf) rendered INTO the buffer via RBJ biquads (Direct Form I). `eq[]` rides the recipe JSON — Unity port = the same ~20 lines of coefficient math. Orange response curve drawn over the live spectrum.
@@ -190,7 +192,7 @@ Single-file tool, same conventions as `voxel_editor.html` / `city_editor.html`:
 
 **3D propagation — `ProceduralAudio.PlayAt`**: all positional sfx use a configured AudioSource — `spatialBlend=1`, **Linear rolloff**, `minDistance=refDist` (full-volume zone, the "strength"), `maxDistance=audibleRange` (the "persistence" — linear fade dies at the edge, and it IS the NPC hearing radius). Gunshot defaults 4m/50m (playtest-tuned); glass 2m/30m — all live sliders on the Sfx tab.
 
-**Report-wave visualizer — `SfxWaves`**: every PlayAt emitter also fires `SfxWaves.Emit(origin, range, refDist, tag)` — an expanding 3-ring wireframe shell (PathDebugRenderer beams) growing at a *visual* speed (default 45 m/s; real 343 m/s is an option but crosses the map in a blink). Rim color = live audibility: TEAL loud → VIOLET fading (alpha follows `AmplitudeAt`), static teal ring marks the refDist boundary. Shell dies at `range`. `SfxWaves.AmplitudeAt(dist, ref, range)` is the shared audibility law — the NPC "heard the shot" hook consumes it later (characters the shell passes over are inside the report). Remaining: material→recipe table so picks/impacts resolve by material id.
+**Report-wave visualizer — `SfxWaves`**: every PlayAt emitter also fires `SfxWaves.Emit(origin, range, refDist, tag)` — an expanding 3-ring wireframe shell (PathDebugRenderer beams) growing at a *visual* speed (default 45 m/s; real 343 m/s is an option but crosses the map in a blink). Rim color = live audibility: TEAL loud → VIOLET fading (alpha follows `AmplitudeAt`), static teal ring marks the refDist boundary. Shell dies at `range`.  `SfxWaves.AmplitudeAt(dist, ref, range)` is the shared audibility law — the NPC "heard the shot" hook consumes it later (characters the shell passes over are inside the report). **Material→pool routing shipped**: `SurfaceImpactAudio` (`SFX_PIPELINE.md`) picks `sounds/Impacts/` files by `<pool>_<tag>_NN` material tags (stone/wood/metal/flesh).
 
 
 ---
@@ -199,14 +201,15 @@ Single-file tool, same conventions as `voxel_editor.html` / `city_editor.html`:
 
 - `VoxelDamageSystem.GlassClip(removed)` — current glass bucket synth + cache
 - `VoxelDamageSystem.PreviewGlassSound(bucket)` — planning-phase HUD preview (plays at listener, no distance falloff)
-- `ProjectileSystem.PlayShotSound` — **live**: `sounds/gunshot.stsound` → cached clip → `PlayClipAtPoint` at `mount.MuzzleWorld`
+- `ProjectileSystem.PlayShotSound` — **live**: `sounds/gunshot.stsound` → cached clip → `PlayAt` at `mount.MuzzleWorld` (toggle: `shotAudioEnabled`)
+- `SurfaceImpactAudio` (`ShotResolved` subscriber) — **live**: `sounds/Impacts/` pools (ricochet vs impact by incidence/distance), LiveTesting exclusive pool, seeded Variant-Lab children, per-file `.cull.json` tuning — see `SFX_PIPELINE.md`
 - `PathDebugRenderer` — the shard/particle system already proved the "gameplay data → presentation" pattern; audio recipes ride the same event (a glass hit already knows count, position, material)
 
 ## 7. Open Questions
 
-- Should recipes be **per-material** (glass/wood/metal/flesh get their own struck-sound sets)? Likely yes — a material ID → recipe table is a small dictionary.
-- Should `shotSeed` seed the synth so identical shots sound identical? Cheap, deterministic — probably yes.
-- `.stsound` is now real — the editor exports schema-v2 JSON. Open Q: should notes/velocity become gameplay inputs (e.g., bullet caliber → pitch, impact force → velocity)?
+- ~~Should recipes be **per-material**?~~ **Done** — `MatTag` routes palette ids → stone/wood/metal/flesh file tags (`SFX_PIPELINE.md` §3). Remaining: author the non-stone pools.
+- ~~Should `shotSeed` seed the synth?~~ **Done** — pool pick + variant slot derive from `r.seed`; child seeds are stable per (file, slot) via `VariantSeed`.
+- `.stsound` is now real — the editor exports schema-v2/v4 JSON. Open Q: should notes/velocity become gameplay inputs (e.g., bullet caliber → pitch, impact force → velocity)? `SynthFromRecipe(note, vel)` is wired but unused by gameplay — `vel` currently carries the per-file gain chain instead.
 
 ## References
 

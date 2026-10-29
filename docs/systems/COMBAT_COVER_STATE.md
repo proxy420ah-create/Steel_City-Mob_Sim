@@ -233,7 +233,7 @@ for the pop-up/search phases.
 | Tucked | zero visible voxels → stow, crouch-idle, `lastSeenTarget` retained |
 | Opportunity fire | enemy strays into his sightline while tucked → voxels appear → he fires — no pop-up logic needed |
 | **Pop-up** | the one *authored* override: suppress cover drive, stand, re-query `lastSeenTarget` → live centroid if still exposed, stale point if he moved (suppressing fire, emergent) |
-| Reload | cylinder count — S&W Model 10 = **6 shots** → auto-duck back into crouch-idle as the reload beat (no reload anim exists yet) |
+| Reload | cylinder count — S&W Model 10 = **6 shots** → duck + authored reload states (13 `Reloading` / 14 `ReloadCrouch` — support arm taps per `RoundSeated`-locked `tapPulse`, role-assigned by `reloadGunSide`) |
 
 **Symmetric crossfire**: *cover verdict and aim solution are the same ray from opposite
 ends* — `hidden ⇐ ray(threatEye → myTop) blocked`; `hittable ⇐ ray(myEye → threatVoxels)

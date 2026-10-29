@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -1443,6 +1444,7 @@ namespace SteelCity.Sim
                 sb.AppendLine("  [Alt+I] Idle   [Alt+W] Walk   [Alt+L] Look   [Alt+J] AimWalk");
                 sb.AppendLine("  [Alt+A] Aim    [Alt+C] Crouch [Alt+F] Flinch [Alt+D] Down");
                 sb.AppendLine("  [Alt+T] T-Pose [Alt+S] AimSweep              [Alt+B] Sit");
+                sb.AppendLine("  [Alt+R] Reload stand   [Alt+E] Reload crouch");
                 sb.AppendLine("  [Alt+X] release latch → back to locomotion");
                 sb.AppendLine("<b>Numpad pose panel — same latch, no modifier/ding:</b>");
                 sb.AppendLine("  [Num7] T-Pose [Num8] Down    [Num9] Sit");
@@ -2767,6 +2769,24 @@ namespace SteelCity.Sim
 
             GUILayout.Space(6);
 
+            // --- Unified fighter aim/sight viz — the same five rays for every fighter,
+            // toggled side-by-side instead of scattered across per-tab per-component folds.
+            var projV = ProjectileSystem.GetOrCreate();
+            if (SecFold("c.aimviz", "AIM & SIGHT — uniform per-fighter viz"))
+            {
+            FighterVizRow("VINNY", ch, projV);
+            FighterVizRow("TAN", TanSuitRef, projV);
+            GUILayout.Space(4);
+            bool trV = GUILayout.Toggle(projV.showTracers, " tracers", toggleStyle);
+            if (trV != projV.showTracers) { projV.showTracers = trV; if (!trV) projV.ClearTracers(); }
+            bool imV = GUILayout.Toggle(projV.showImpactMarks, " impact marks", toggleStyle);
+            if (imV != projV.showImpactMarks) { projV.showImpactMarks = imV; if (!imV) projV.ClearImpactMarks(); }
+            fighterBeams = GUILayout.Toggle(fighterBeams, " fighter beams (body squares / dst posts)", toggleStyle);
+            GUILayout.Label("<i>sight=cyan aim line · bore=red muzzle ray · fov=vision cone rim · eye→tgt=vision ray · det=detect marks · los=threat→eye probe · cone=spread wireframe (one owner at a time)</i>", labelStyle);
+            }
+
+            GUILayout.Space(6);
+
             // --- Combat mode: autonomous cover-seek (COMBAT_COVER_STATE.md) ---
             // Threat = the PICK AIM point — simulates a shooter standing there.
             var cc = ch.GetComponent<CombatController>();
@@ -3176,6 +3196,54 @@ namespace SteelCity.Sim
         /// cone and decays outside it — the sweep produces intermittent exposure.
         /// Testbed target = the shared PICK AIM point ("the thing he's looking at").
         /// </summary>
+        private VoxelCharacter spreadConeFighter;   // spread cone is single-owner — last checked fighter wins
+
+        /// <summary>Uniform aim/sight debug toggles for one fighter — identical rays for
+        /// Vinny and Tan so both can be verified side-by-side. Each toggle maps to the
+        /// component that already owns that beam (ArmAimSolver/WeaponMount/VisionSensor/
+        /// CoverSensor); the spread cone is single-owner (aimSource follows ONE mount).</summary>
+        void FighterVizRow(string name, VoxelCharacter ch, ProjectileSystem proj)
+        {
+            GUILayout.Label($"<b>{name}</b>", labelStyle);
+            if (ch == null) { GUILayout.Label("  <i>not spawned</i>", labelStyle); return; }
+            var mnt = ch.GetComponent<WeaponMount>();
+            var slv = ch.GetComponent<ArmAimSolver>();
+            var vis = ch.GetComponent<VisionSensor>();
+            var cov = ch.GetComponent<CoverSensor>();
+            GUILayout.BeginHorizontal();
+            if (slv != null) slv.showSightBeam = GUILayout.Toggle(slv.showSightBeam, " sight", toggleStyle);
+            if (mnt != null)
+            {
+                GUI.enabled = mnt.IsEquipped;
+                mnt.showMuzzleRay = GUILayout.Toggle(mnt.showMuzzleRay, " bore", toggleStyle);
+                GUI.enabled = true;
+            }
+            if (vis != null) vis.showCone = GUILayout.Toggle(vis.showCone, " fov", toggleStyle);
+            GUILayout.EndHorizontal();
+            GUILayout.BeginHorizontal();
+            if (vis != null)
+            {
+                vis.showTargetRay = GUILayout.Toggle(vis.showTargetRay, " eye→tgt", toggleStyle);
+                vis.showDetectMarks = GUILayout.Toggle(vis.showDetectMarks, " det", toggleStyle);
+            }
+            if (cov != null) cov.showLos = GUILayout.Toggle(cov.showLos, " los", toggleStyle);
+            GUI.enabled = mnt != null && mnt.IsEquipped;
+            bool coneOn = spreadConeFighter == ch && proj.showSpreadCone;
+            if (GUILayout.Toggle(coneOn, " cone", toggleStyle) != coneOn)
+            {
+                if (!coneOn) { spreadConeFighter = ch; proj.showSpreadCone = true; }
+                else { spreadConeFighter = null; proj.showSpreadCone = false; }
+            }
+            GUI.enabled = true;
+            GUILayout.EndHorizontal();
+            if (spreadConeFighter == ch && proj.showSpreadCone && mnt != null)
+            {
+                proj.aimSource = mnt;
+                proj.aimTarget = null;          // auto length (4 m fan)
+                proj.aimSourceStamp = Time.time;
+            }
+        }
+
         void DrawVisionTab()
         {
             var ch = cityMap != null ? cityMap.SpawnedCharacter : null;
@@ -3321,7 +3389,7 @@ namespace SteelCity.Sim
                 Tog(ref cov.showCandidates, " candidates");
                 Tog(ref cov.showLos, " threat→eye LOS rays");
                 Tog(ref cov.showHeat, " ground-quad field");
-                Tog(ref fighterBeams, " fighter beams (body squares / dst posts)");
+                fighterBeams = GUILayout.Toggle(fighterBeams, " fighter beams (body squares / dst posts)", toggleStyle);
                 if (GUILayout.Button("RESCAN NOW", tabStyle, GUILayout.Height(20)))
                     cov.Refresh(true);
                 var st = cov.stats;
@@ -3642,6 +3710,7 @@ namespace SteelCity.Sim
             GUILayout.Space(4);
             if (SecFold("x.shot", "GUNSHOT — sounds/gunshot.stsound"))
             {
+            proj.shotAudioEnabled = GUILayout.Toggle(proj.shotAudioEnabled, " gunshot sfx", toggleStyle);
             proj.shotAudioVolume = HSlider("level ×", proj.shotAudioVolume, 0.1f, 2f, "F2");
             proj.shotRefDistance = HSlider("full-vol radius m", proj.shotRefDistance, 0.5f, 20f, "F1");
             proj.shotAudibleRange = HSlider("report range m", proj.shotAudibleRange, 5f, 200f, "F0");
@@ -3669,6 +3738,57 @@ namespace SteelCity.Sim
             GUILayout.Label("<i>reference = at the listener (studio loudness) · muzzle = real 3D path + trim, emits the wave</i>", labelStyle);
             if (mnt == null || !mnt.IsEquipped)
                 GUILayout.Label("<i>  muzzle test needs Vinny armed — possess (G) or equip via Combat</i>", labelStyle);
+            }
+
+            GUILayout.Space(6);
+            if (SecFold("x.reload", "RELOAD — sounds/reload_click.stsound (LiveTesting wins)"))
+            {
+            var rel = ReloadAudio.GetOrCreate();
+            rel.reloadAudioEnabled = GUILayout.Toggle(rel.reloadAudioEnabled, " reload sfx", toggleStyle);
+            if (rel.reloadAudioEnabled)
+            {
+                rel.reloadAudioVolume = HSlider("level × (src vol, caps at 1)", rel.reloadAudioVolume, 0.1f, 1f, "F2");
+                rel.reloadRefDistance = HSlider("full-vol radius m", rel.reloadRefDistance, 0.2f, 20f, "F1");
+                rel.reloadAudibleRange = HSlider("report range m", rel.reloadAudibleRange, 1f, 50f, "F0");
+                GUILayout.BeginHorizontal();
+                GUI.enabled = listener != null;
+                if (GUILayout.Button("▶ preview", tabStyle, GUILayout.Height(22)))
+                {
+                    var clip = ProceduralAudio.GetClip("sounds/reload_click.stsound");
+                    if (clip != null) AudioSource.PlayClipAtPoint(clip, listener.transform.position, 1f);
+                }
+                GUI.enabled = true;
+                GUILayout.EndHorizontal();
+                GUILayout.Label($"<i>one click per seated round — the staggered wheel IS the rhythm · wave is display-only</i>", labelStyle);
+                GUILayout.Label($"<i>last: {rel.LastInfo}</i>", labelStyle);
+            }
+            }
+
+            GUILayout.Space(6);
+            if (SecFold("x.ric", "SURFACE IMPACT — sounds/Impacts/ (LiveTesting wins)"))
+            {
+            var sfx = SurfaceImpactAudio.GetOrCreate();
+            sfx.impactAudioEnabled = GUILayout.Toggle(sfx.impactAudioEnabled, " surface impact sfx", toggleStyle);
+            if (sfx.impactAudioEnabled)
+            {
+                sfx.ricMinIncidenceDeg = HSlider("ricochet min incidence ° vs normal", sfx.ricMinIncidenceDeg, 20f, 89f, "F0");
+                sfx.ricMaxDistanceM = HSlider("ricochet max muzzle dist m", sfx.ricMaxDistanceM, 1f, 300f, "F0");
+                sfx.impactAudioVolume = HSlider("level × (src vol, caps at 1)", sfx.impactAudioVolume, 0.1f, 1f, "F2");
+                sfx.impactGain = HSlider("gain × (samples — real loudness)", sfx.impactGain, 0.25f, 8f, "F2");
+                sfx.impactRefDistance = HSlider("full-vol radius m", sfx.impactRefDistance, 0.5f, 20f, "F1");
+                sfx.impactAudibleRange = HSlider("report range m", sfx.impactAudibleRange, 5f, 200f, "F0");
+                GUILayout.Label($"<i>grazing+close → ricochet pool · otherwise → impact pool · glass owns its sfx</i>", labelStyle);
+                GUILayout.Label($"<i>last: {sfx.LastInfo}</i>", labelStyle);
+            }
+            // Preview what the game resolves: LiveTesting/<name>.stsound shadows its
+            // main-folder twin (GetClip resolves it); LIVE rows are test files.
+            sfx.modEnabled = GUILayout.Toggle(sfx.modEnabled, " modulation — variant per hit", toggleStyle);
+            if (sfx.modEnabled)
+            {
+                sfx.modJitter = HSlider("jitter (.12 subtle .30 med .55 wild)", sfx.modJitter, 0f, 0.6f, "F2");
+                sfx.modLockMaster = GUILayout.Toggle(sfx.modLockMaster, " lock master knobs (structure only)", toggleStyle);
+            }
+            RicPoolGroup("Impacts", "Impacts (ricochet_* rows = ricochet pool)", listener);
             }
 
             GUILayout.Space(6);
@@ -3703,6 +3823,115 @@ namespace SteelCity.Sim
 
             GUILayout.Space(6);
             GUILayout.Label($"hot-reload <b>{(ProceduralAudio.liveReload ? "on" : "off")}</b> — save in audio_studio → next trigger pulls the new recipe", labelStyle);
+        }
+
+        private readonly Dictionary<string, float> poolScanAt = new();
+        private readonly Dictionary<string, List<string>> poolLive = new(), poolMain = new();
+
+        /// <summary>Scan a pool dir (main + LiveTesting) at ~2 Hz — the SFX panel draws every GUI frame.</summary>
+        void RicPoolGroup(string pool, string title, Component listener)
+        {
+            poolScanAt.TryGetValue(pool, out float at);
+            if (Time.unscaledTime >= at)
+            {
+                poolScanAt[pool] = Time.unscaledTime + 0.5f;
+                string root = Path.Combine(Application.streamingAssetsPath, "sounds", pool);
+                string live = Path.Combine(root, "LiveTesting");
+                var liveList = poolLive[pool] = new List<string>();
+                var mainList = poolMain[pool] = new List<string>();
+                if (Directory.Exists(live))
+                    liveList.AddRange(Directory.GetFiles(live, "*.stsound", SearchOption.TopDirectoryOnly)
+                                               .Select(Path.GetFileName));
+                if (Directory.Exists(root))
+                    mainList.AddRange(Directory.GetFiles(root, "*.stsound", SearchOption.TopDirectoryOnly)
+                                               .Select(Path.GetFileName));
+                liveList.Sort(); mainList.Sort();
+            }
+            var lv = poolLive[pool]; var mn = poolMain[pool];
+            if (lv.Count == 0 && mn.Count == 0)
+            {
+                GUILayout.Label($"<i>{title}: no .stsound in sounds/{pool}/ or LiveTesting/</i>", labelStyle);
+                return;
+            }
+            if (lv.Count > 0)
+            {
+                GUILayout.Label($"<i>{title}/LiveTesting ({lv.Count}) — pool uses ONLY these:</i>", labelStyle);
+                foreach (var fn in lv) PoolBtn(pool, fn, "LIVE", listener != null, listener);
+            }
+            if (lv.Count > 0 && mn.Count > 0)
+                GUILayout.Label($"<i>{title} main ({mn.Count}) — shadowed files marked:</i>", labelStyle);
+            foreach (var fn in mn)
+                PoolBtn(pool, fn, lv.Contains(fn) ? "live" : "shipped", listener != null, listener);
+        }
+
+        private readonly HashSet<string> varExpanded = new();
+
+        /// <summary>One preview row: plays the resolved clip at the listener (studio loudness).
+        /// The ▸ expander lists the file's bounded children (v01..vNN) for audition; an
+        /// unchecked child is CUT from the runtime pool and persisted to a sidecar.</summary>
+        void PoolBtn(string pool, string fileName, string tag, bool canPlay, Component listener)
+        {
+            string rel = $"sounds/{pool}/{fileName}";
+            var sfx = SurfaceImpactAudio.Instance;
+            GUILayout.BeginHorizontal();
+            GUI.enabled = canPlay;
+            if (GUILayout.Button($"▶ {fileName} <i>({tag})</i>", tabStyle, GUILayout.Height(20)))
+            {
+                var r0 = ProceduralAudio.LoadRecipe(rel);
+                var fm = SurfaceImpactAudio.FileMix(rel);
+                var clip = r0 != null ? ProceduralAudio.SynthFromRecipe(r0,
+                    vel: (sfx != null ? sfx.impactGain : 1f) * fm.gain, bypassCache: true) : null;
+                if (clip != null) AudioSource.PlayClipAtPoint(clip, listener.transform.position,
+                    Mathf.Clamp01((sfx != null ? sfx.impactAudioVolume : 1f) * fm.volume));
+            }
+            GUI.enabled = true;
+            if (sfx != null)
+            {
+                bool ex = varExpanded.Contains(fileName);
+                if (GUILayout.Button(ex ? "▾" : "▸", tabStyle, GUILayout.Width(24), GUILayout.Height(20)))
+                {
+                    if (ex) varExpanded.Remove(fileName); else varExpanded.Add(fileName);
+                }
+            }
+            GUILayout.EndHorizontal();
+
+            if (sfx == null || !varExpanded.Contains(fileName)) return;
+
+            // per-file tuning — this SFX's own gain/volume (sidecar persists per recipe)
+            var fmix = SurfaceImpactAudio.FileMix(rel);
+            float ng = HSlider("  gain × this file", fmix.gain, 0.25f, 8f, "F2");
+            float nv = HSlider("  level × this file", fmix.volume, 0.05f, 1f, "F2");
+            if (ng != fmix.gain || nv != fmix.volume)
+                SurfaceImpactAudio.SetFileMix(rel, ng, nv);
+
+            if (!sfx.modEnabled) return;
+            var culled = SurfaceImpactAudio.CulledSlots(rel);
+            int n = sfx.modVariants;
+            for (int i = 0; i < n; i += 4)
+            {
+                GUILayout.BeginHorizontal();
+                for (int k = i; k < Mathf.Min(i + 4, n); k++)
+                {
+                    int slot = k;
+                    GUI.enabled = canPlay;
+                    if (GUILayout.Button("▶", tabStyle, GUILayout.Width(26), GUILayout.Height(18)))
+                    {
+                        var baseR = ProceduralAudio.LoadRecipe(rel);
+                        var child = ProceduralAudio.MutateRecipe(baseR,
+                            SurfaceImpactAudio.VariantSeed(fileName, slot), sfx.modJitter, sfx.modLockMaster);
+                        var c = child != null ? ProceduralAudio.SynthFromRecipe(child,
+                            vel: sfx.impactGain * fmix.gain, bypassCache: true) : null;
+                        if (c != null) AudioSource.PlayClipAtPoint(c, listener.transform.position,
+                            Mathf.Clamp01(sfx.impactAudioVolume * fmix.volume));
+                    }
+                    GUI.enabled = true;
+                    bool keep = GUILayout.Toggle(!culled.Contains(slot), $"v{slot + 1:D2}", toggleStyle, GUILayout.Width(46));
+                    if (keep == culled.Contains(slot))
+                        SurfaceImpactAudio.SetSlotCulled(rel, slot, !keep);
+                }
+                GUILayout.EndHorizontal();
+            }
+            GUILayout.Label("<i>audition ▶ · unchecked = cut from the pool (sidecar saved)</i>", labelStyle);
         }
 
         /// <summary>

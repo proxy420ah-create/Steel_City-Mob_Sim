@@ -43,12 +43,22 @@ namespace SteelCity.Sim
         // Idle + duck + scan). Yields to IK overrides while aiming.
         public bool lookScanEnabled = false;
         public float lookScanBlend = 1f;
-        // Live head-track channel (radians, body-relative yaw; NaN = off) —
-        // combat's eyes-on-threat: the vision cone is the POV authority, so a
-        // leg that knows the threat poses the head AT it while the body runs
-        // elsewhere. Replaces the layered result — a track is a deliberate
-        // look, not a sweep. CPU-pose only for now (eye anchor / cone truth).
-        public float headYawOverride = float.NaN;
+        // Reload tap channel — ReloadGestureSolver pulses 0..1 per RoundSeated;
+        // the reload states add authored tap* deltas on top. GPU twin = animData[3].x.
+        public float tapPulse = 0f;
+        // Reload gun side — +1 when the mount's gun arm is gid 3, -1 when gid 2.
+        // Reload arm params are role-assigned (support arm = L column, gun arm =
+        // R column); direction-sensitive terms (reach/twist) mirror by this sign.
+        // Written per-eval from the instanced handle (GPU twin = animData[3].y).
+        public float reloadGunSide = 1f;
+        // Head-aim rides the shared quaternion channel: ikOverrides[1], written
+        // by VoxelCharacter.SetHeadAim (ArmAimSolver while aiming — full yaw/
+        // pitch track; CombatController while seeking — yaw). The SAME quat goes
+        // to the GPU ikHeadQuat slot, so the rendered head == the CPU head that
+        // places the probe eye (AIM_RIG phase 1). The override replaces the
+        // head's whole ownRot — producers compose yaw/pitch/tilt themselves.
+        // (headYawOverride retired: it was CPU-only, yaw-only, and the drawn
+        // head silently diverged from the probe eye.)
         private static readonly int[] CHILD_GROUPS = { 6, 7, 8, 9 };
         private static readonly int[] UPPER_BODY_GROUPS = { 1, 2, 3 };
         private static readonly int[] ROOT_PARENT_GROUPS = { 1, 2, 3, 4, 5 };
@@ -419,11 +429,17 @@ namespace SteelCity.Sim
             float sweepYaw = isSweepState ? Mathf.Sin(animTime * ap.aimSweep.freq) * ap.aimSweep.amp : 0f;
             bool isCrouchingState = animState > 4.5f && animState < 5.5f; // Crouching (5)
             bool isSittingState = animState > 10.5f && animState < 11.5f; // Sit (11)
-            float torsoTwist = isAimingState ? ap.aiming.torsoTwist : 0f;
-            float bodyLean = isCrouchingState ? Cr(ap.crouching.bodyLean, cdeep.bodyLean) : Wd(d => d.bodyLean) + Icr(d => d.bodyLean);
-            float bodyLower = isCrouchingState ? Cr(ap.crouching.bodyLower, cdeep.bodyLower) : Wd(d => d.bodyLower) + Icr(d => d.bodyLower);
-            float modelLower = isCrouchingState ? Cr(ap.crouching.modelLower, cdeep.modelLower) : Wd(d => d.modelLower) + Icr(d => d.modelLower);
-            float bodyForward = isCrouchingState ? Cr(ap.crouching.bodyForward, cdeep.bodyForward) : Wd(d => d.bodyForward) + Icr(d => d.bodyForward);
+            bool isReloadState = animState > 12.5f && animState < 13.5f;          // Reload (13)
+            bool isReloadCrouchState = animState > 13.5f && animState < 14.5f;    // Reload Crouch (14)
+            var rl = (isReloadCrouchState && ap.reloadCrouch != null ? ap.reloadCrouch : ap.reload)
+                     ?? ap.reload;   // reloadCrouch falls back to the shared block
+            float torsoTwist = isAimingState ? ap.aiming.torsoTwist
+                : (isReloadState || isReloadCrouchState) ? rl.torsoTwist : 0f;
+            bool isCrouchBody = isCrouchingState || isReloadCrouchState;
+            float bodyLean = isCrouchBody ? Cr(ap.crouching.bodyLean, cdeep.bodyLean) : Wd(d => d.bodyLean) + Icr(d => d.bodyLean);
+            float bodyLower = isCrouchBody ? Cr(ap.crouching.bodyLower, cdeep.bodyLower) : Wd(d => d.bodyLower) + Icr(d => d.bodyLower);
+            float modelLower = isCrouchBody ? Cr(ap.crouching.modelLower, cdeep.modelLower) : Wd(d => d.modelLower) + Icr(d => d.modelLower);
+            float bodyForward = isCrouchBody ? Cr(ap.crouching.bodyForward, cdeep.bodyForward) : Wd(d => d.bodyForward) + Icr(d => d.bodyForward);
             bool hasBodyRot = torsoTwist != 0f || bodyLean != 0f;
             // Torso IK override (gid 0) — participates in bodyRot so it propagates
             // through the same body-transform path into arm/forearm/head chains.
@@ -510,6 +526,10 @@ namespace SteelCity.Sim
                     var aim = ap.aiming;
                     headYaw = aim.headYaw + sweepYaw * ap.aimSweep.headFollow; headPitch = aim.headPitch; headTilt = aim.headTilt;
                 }
+                else if (isReloadState || isReloadCrouchState) // Reload (13/14) — eyes to the work
+                {
+                    headYaw = rl.headYaw; headPitch = rl.headPitch; headTilt = rl.headTilt;
+                }
                 else if (animState > 4.5f && animState < 5.5f) // Crouching
                 {
                     headPitch = Cr(ap.crouching.headPitch, cdeep.headPitch);
@@ -537,7 +557,7 @@ namespace SteelCity.Sim
                 // IK aim: the eye-line belongs to the weapon while overrides run.
                 if (lookScanEnabled && lookScanBlend > 0f && ap.looking != null && ikOverrides.Count == 0)
                     headYaw += Mathf.Sin(animTime * ap.looking.headYawFreq) * ap.looking.headYaw * lookScanBlend;
-                if (!float.IsNaN(headYawOverride)) headYaw = headYawOverride;
+                // (head overrides arrive as a full quat on ikOverrides[1] — applied below)
 
                 if (ownRot == null)
                     ownRot = MatMul3(RotationY(headYaw), MatMul3(RotationX(headPitch), RotationZ(headTilt)));
@@ -556,6 +576,16 @@ namespace SteelCity.Sim
                 {
                     swing = asc.signL * ap.aiming.armSwingL;
                     reach = ap.aiming.shoulderReachL + (swing != 0f ? sweepYaw : 0f);
+                }
+                else if (isReloadState || isReloadCrouchState) // Reload (13/14) — hold + tap delta
+                {
+                    // Role-assigned: L column = support arm, R column = gun arm.
+                    // This arm (gid 2) is the gun arm when reloadGunSide < 0.
+                    bool gunArm = reloadGunSide < 0f;
+                    float gs = reloadGunSide >= 0f ? 1f : -1f;
+                    swing = asc.signL * (gunArm ? rl.armSwingR : rl.armSwingL);
+                    reach = gs * ((gunArm ? rl.shoulderReachR : rl.shoulderReachL)
+                                + tapPulse * (gunArm ? rl.tapReachR : rl.tapReachL));
                 }
                 else if (animState > 4.5f && animState < 5.5f) // Crouching
                 {
@@ -587,6 +617,16 @@ namespace SteelCity.Sim
                     swing = asc.signR * ap.aiming.armSwingR;
                     reach = ap.aiming.shoulderReachR + (swing != 0f ? sweepYaw : 0f);
                 }
+                else if (isReloadState || isReloadCrouchState) // Reload (13/14) — hold + tap delta
+                {
+                    // Role-assigned (mirror of the gid-2 branch): this arm is
+                    // the gun arm when reloadGunSide > 0.
+                    bool gunArm = reloadGunSide > 0f;
+                    float gs = reloadGunSide >= 0f ? 1f : -1f;
+                    swing = asc.signR * (gunArm ? rl.armSwingR : rl.armSwingL);
+                    reach = gs * ((gunArm ? rl.shoulderReachR : rl.shoulderReachL)
+                                + tapPulse * (gunArm ? rl.tapReachR : rl.tapReachL));
+                }
                 else if (animState > 4.5f && animState < 5.5f) // Crouching
                 {
                     swing = asc.signR * Cr(ap.crouching.armSwingR, cdeep.armSwingR);
@@ -612,7 +652,7 @@ namespace SteelCity.Sim
                     var wp = GetGaitPose();
                     stride = ls.signL * (wp.pose["legStrideL"] + Wd(d => d.legStrideL));
                 }
-                else if (animState > 4.5f && animState < 5.5f) // Crouching
+                else if (isCrouchBody) // Crouching / Reload Crouch
                 {
                     stride = ls.signL * Cr(ap.crouching.legStrideL, cdeep.legStrideL);
                 }
@@ -637,7 +677,7 @@ namespace SteelCity.Sim
                     var wp = GetGaitPose();
                     stride = ls.signR * (wp.pose["legStrideR"] + Wd(d => d.legStrideR));
                 }
-                else if (animState > 4.5f && animState < 5.5f) // Crouching
+                else if (isCrouchBody) // Crouching / Reload Crouch
                 {
                     stride = ls.signR * Cr(ap.crouching.legStrideR, cdeep.legStrideR);
                 }
@@ -667,6 +707,14 @@ namespace SteelCity.Sim
                 {
                     bend = eb.signL * ap.aiming.elbowBendL;
                 }
+                else if (isReloadState || isReloadCrouchState) // Reload (13/14) — hold + tap bend
+                {
+                    bool gunArm = reloadGunSide < 0f;
+                    float gs = reloadGunSide >= 0f ? 1f : -1f;
+                    bend = eb.signL * ((gunArm ? rl.elbowBendR : rl.elbowBendL)
+                                     + tapPulse * (gunArm ? rl.tapBendR : rl.tapBendL));
+                    twist = gs * (gunArm ? rl.forearmTwistR : rl.forearmTwistL);
+                }
                 else if (animState > 4.5f && animState < 5.5f) // Crouching — rest + static bend
                 {
                     bend += eb.signL * Cr(ap.crouching.elbowBendL, cdeep.elbowBendL);
@@ -689,6 +737,14 @@ namespace SteelCity.Sim
                 {
                     bend = eb.signR * ap.aiming.elbowBendR;
                 }
+                else if (isReloadState || isReloadCrouchState) // Reload (13/14) — hold + tap bend
+                {
+                    bool gunArm = reloadGunSide > 0f;
+                    float gs = reloadGunSide >= 0f ? 1f : -1f;
+                    bend = eb.signR * ((gunArm ? rl.elbowBendR : rl.elbowBendL)
+                                     + tapPulse * (gunArm ? rl.tapBendR : rl.tapBendL));
+                    twist = gs * (gunArm ? rl.forearmTwistR : rl.forearmTwistL);
+                }
                 else if (animState > 4.5f && animState < 5.5f) // Crouching — rest + static bend
                 {
                     bend += eb.signR * Cr(ap.crouching.elbowBendR, cdeep.elbowBendR);
@@ -705,7 +761,7 @@ namespace SteelCity.Sim
                     var wp = GetGaitPose();
                     bend = kb.signL * (wp.pose["kneeBendL"] + Wd(d => d.kneeBendL));
                 }
-                else if (animState > 4.5f && animState < 5.5f) // Crouching — static knee bend
+                else if (isCrouchBody) // Crouching / Reload Crouch — static knee bend
                 {
                     bend += kb.signL * Cr(ap.crouching.kneeBendL, cdeep.kneeBendL);
                 }
@@ -724,7 +780,7 @@ namespace SteelCity.Sim
                     var wp = GetGaitPose();
                     bend = kb.signR * (wp.pose["kneeBendR"] + Wd(d => d.kneeBendR));
                 }
-                else if (animState > 4.5f && animState < 5.5f) // Crouching — static knee bend
+                else if (isCrouchBody) // Crouching / Reload Crouch — static knee bend
                 {
                     bend += kb.signR * Cr(ap.crouching.kneeBendR, cdeep.kneeBendR);
                 }
@@ -1025,10 +1081,24 @@ namespace SteelCity.Sim
             if (Missing("kneeBend")) p.kneeBend = null;
             if (Missing("walkKeyframes")) p.walkKeyframes = null;
             if (Missing("aimSweep")) p.aimSweep = null;
+            if (Missing("reload")) p.reload = null;
+            if (Missing("reloadCrouch")) p.reloadCrouch = null;
             if (Missing("walkDuckMid")) p.walkDuckMid = null;
             if (Missing("walkDuckPose")) p.walkDuckPose = null;
             if (p.aimSweep == null)
                 p.aimSweep = new AimSweepData { amp = 0.55f, freq = 1.6f, headFollow = 0.6f };
+            if (p.reload == null)
+                p.reload = new ReloadData { armSwingL = -0.8f, armSwingR = -0.95f, shoulderReachL = 0.5f, shoulderReachR = -0.35f,
+                    elbowBendL = 1.1f, elbowBendR = 0.9f, headPitch = 0.55f, headTilt = 0.08f, tapReachL = 0.2f, tapBendL = 0.25f };
+            if (p.reloadCrouch == null)
+                p.reloadCrouch = new ReloadData { armSwingL = p.reload.armSwingL, armSwingR = p.reload.armSwingR,
+                    shoulderReachL = p.reload.shoulderReachL, shoulderReachR = p.reload.shoulderReachR,
+                    elbowBendL = p.reload.elbowBendL, elbowBendR = p.reload.elbowBendR,
+                    forearmTwistL = p.reload.forearmTwistL, forearmTwistR = p.reload.forearmTwistR,
+                    headYaw = p.reload.headYaw, headPitch = p.reload.headPitch, headTilt = p.reload.headTilt,
+                    torsoTwist = p.reload.torsoTwist,
+                    tapReachL = p.reload.tapReachL, tapReachR = p.reload.tapReachR,
+                    tapBendL = p.reload.tapBendL, tapBendR = p.reload.tapBendR };
             if (p.restPose == null)
                 p.restPose = new RestPoseData { leftArmZ = -Mathf.PI / 2f, rightArmZ = Mathf.PI / 2f };
             if (p.looking == null)
@@ -1273,9 +1343,19 @@ namespace SteelCity.Sim
             public CrouchingData walkDuckPose;
             public SittingData sitting;
             public AimSweepData aimSweep;
+            public ReloadData reload;
+            public ReloadData reloadCrouch;
         }
 
         [System.Serializable]
+        public class ReloadData
+        {
+            public float armSwingL, armSwingR, shoulderReachL, shoulderReachR;
+            public float elbowBendL, elbowBendR, forearmTwistL, forearmTwistR;
+            public float headYaw, headPitch, headTilt, torsoTwist;
+            public float tapReachL, tapReachR, tapBendL, tapBendR;
+        }
+
         public class AimSweepData
         {
             public float amp;         // sweep amplitude (radians)

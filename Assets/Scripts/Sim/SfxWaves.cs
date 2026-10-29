@@ -56,12 +56,31 @@ namespace SteelCity.Sim
         }
 
         /// <summary>Emit a report shell. tag drives nothing visual — it's the semantic
-        /// source id for the future NPC-hearing hook (e.g. "gunshot", "glass").</summary>
+        /// source id for the NPC-hearing hook (e.g. "gunshot", "glass"). Preview/
+        /// test shells use this directly — it draws only, it never reaches AI.</summary>
         public void Emit(Vector3 origin, float range, float refDist, string tag)
         {
             if (!showWaves || range <= 0f) return;
             waves.Add(new Wave { id = nextId++, origin = origin, range = range,
                                  refDist = Mathf.Min(refDist, range), age = 0f, tag = tag });
+        }
+
+        /// <summary>The hearing channel — fired for every REAL report regardless
+        /// of the showWaves debug layer. Subscribers run their own range checks
+        /// (AmplitudeAt) and shooter filters. Instant propagation: real sound
+        /// crosses street ranges in ~0.1 s — same-tick intel at game scale.</summary>
+        public delegate void SfxReport(Vector3 origin, float range, float refDist, string tag, Component shooter);
+        public static event SfxReport Heard;
+
+        /// <summary>A real sound report: raises <see cref="Heard"/> for AI hearing
+        /// AND draws the visual shell. `origin` is the semantic position (the
+        /// shooter's position — what intel snaps to); `visualOrigin` lets the
+        /// display ring sit at the acoustic source (muzzle) when it differs.</summary>
+        public void Report(Vector3 origin, float range, float refDist, string tag,
+            Component shooter, Vector3? visualOrigin = null)
+        {
+            Heard?.Invoke(origin, range, refDist, tag, shooter);
+            Emit(visualOrigin ?? origin, range, refDist, tag);
         }
 
         void Update()

@@ -2,7 +2,7 @@
 
 **Purpose**: Central hub for all project documentation — helps coding agents find information fast and efficiently.
 
-**Last Updated**: October 9, 2026
+**Last Updated**: October 29, 2026
 **Project**: Steel City: Mob Sim — Organized Crime Simulation
 **Status**: 🔄 ALPHA — Vertical Slice Playable (Unity 6)
 
@@ -245,8 +245,8 @@
 
 **Animation System (canonical):**
 - **`docs/systems/ANIMATION_SYSTEM.md`** — End-to-end animation pipeline truth: HTML authoring → `.character.json`/`<name>.json` → Unity
-  - Authoring surface (`character_animator.html`): states incl. pseudo-state 5.1 (deep-crouch endpoint), diffed `animParams` export, carriedFields
-  - Full `animParams` schema (walkKeyframes, crouching/`crouchDeep`, aiming, sitting, vision…) + C# default-fill rules
+  - Authoring surface (`character_animator.html`): states incl. pseudo-state 5.1 (deep-crouch endpoint) + authored reload 13/14, diffed `animParams` export, carriedFields
+  - Full `animParams` schema (walkKeyframes, crouching/`crouchDeep`, aiming, reload/reloadCrouch, sitting, vision…) + C# default-fill rules
   - Two blend mechanisms: timed dual-eval transitions vs `crouchDepth` axis; the stand→shallow gap + planned unified `duck` axis
   - GPU/CPU/JS parity contract, `_InstanceAnimData`/`_InstanceIKData` layout, silhouette measurement → `h(d)` cover contract
   - Crouch-walk state contract (born from the duck-axis work)
@@ -277,10 +277,10 @@
   - Friendly NPCs as informants
 
 **Perception & Awareness:**
-- **`docs/systems/PERCEPTION_AWARENESS.md`** — City-wide detection architecture (SPEC)
+- **`docs/systems/PERCEPTION_AWARENESS.md`** — City-wide detection architecture (SPEC + partial implementation)
   - Cone = awareness, exposure probe = geometry — noticed ≠ shootable
-  - Per-actor awareness tables, recognition tiers, hearing via SfxWaves
-  - Reaction channels (turn-to-sound, report, fight roll) + witnessed-initiation legality
+  - **Hearing channel shipped**: `SfxWaves.Report`/`Heard` — radius broadcast on every real shot; `CombatController.OnSfxHeard` self-filters (in `AmplitudeAt` earshot, shooter is threat/watch target) → `OnShotHeard` belief snap = intel, not a sighting
+  - Still spec: per-actor awareness tables, recognition tiers, citizen turn-to-sound/report/flee reactions
   - Combat hand-off + search resolution path
 
 **Corruption & Police:**
@@ -291,7 +291,7 @@
   - Rival gang corruption competition
 
 **Combat System:**
-- **`docs/systems/COMBAT_AUTOBATTLE.md`** — Auto-resolved encounters
+- **`docs/systems/COMBAT_AUTOBATTLE.md`** — Auto-resolved encounters (📐 core live — continuous real-time fixed-step sim, not round-based)
   - Intelligence as tactical decision quality
   - Skills determine effectiveness
   - Environment factors (cover, crowds, time of day)
@@ -310,7 +310,7 @@
   - Caveats: characters aren't in the collision world (no self-occlusion); AI fire loop is the first one ever; deferred triggers listed
 - **`docs/systems/ENGAGEMENT_BEATS.md`** — Combat phase 3 (✅ implemented): authored engagement rhythm over the exposure gates — opportunity fire during seek, `Settle` seam primitive, partial `TopUp`, triangulated `Rise` (eye AND muzzle clear), "stand and deliver" `Engaged`, `Duck` + seam loop
   - Beats sequence intent; gates still decide what's possible — `wantAim` gains a per-beat authority term
-- **`docs/systems/AIM_RIG.md`** — SPEC (not started): one focal point drives torso, head, arm(s) and weapon so the muzzle sits near the eye line
+- **`docs/systems/AIM_RIG.md`** — SPEC + phases 1–2 implemented & playtest-validated: one focal point drives torso, head, arm(s) and weapon so the muzzle sits near the eye line
   - Measured eye/shoulder/muzzle offsets (muzzle ~12.5 cm lateral of the eye), solve order, GPU/CPU/JS channel gaps (head override CPU-only, one arm channel pair), 5 phases with trace gates; two-handed rifle/shotgun path
   - Runtime safety net already shipped: `muzzleShootGate` (shootable = eye ∧ muzzle visible) — see `docs/known_issues/runtime/EYE_SEES_MUZZLE_CANT_SHOOTABLE_GAP.md`
   - Deferred: rise-retry cadence + interruption policy (wait Tan mobility), lookScan slot, branch table, per-weapon cylinders
@@ -407,6 +407,10 @@
   - Bucket mapping (removed-count → tink/crack/crash); `PlayClipAtPoint` requires an active `AudioListener`
   - Generalizable sound palette (gunshot/ricochet/footstep/engine) + `SynthRecipe` struct → HTML editor path
   - **Editor built**: `VoxelAssetStudio/audio_studio.html` — layer-based synth (attack/partials/noiseTail/sweep), ADSR, presets, spectrum, 🎲 seeded variants, `.stsound` JSON export
+- **`docs/systems/SFX_PIPELINE.md`** — Runtime audio architecture handoff (delegate SFX work here)
+  - Event flow: `ShotResolved` family — ProjectileSystem owns gunshot, SurfaceImpactAudio owns impact/ricochet, VoxelDamageSystem owns glass
+  - `sounds/Impacts/` one-folder-two-pools split by filename; `LiveTesting/` exclusive test pool; per-file `.cull.json` sidecars (variant culls + gain/volume trims)
+  - Runtime Variant-Lab modulation (seeded children per hit), physics gate (incidence ≥85° + ≤40m → ricochet), per-family mute toggles, SfxWaves two-layer split (`Report` = semantic `Heard` → AI hearing on every real report; `Emit` = visual debug shell only)
 
 **Voxel Engine Gotchas:**
 - **`docs/systems/VOXEL_ENGINE_GOTCHAS.md`** — Non-obvious bugs and traps in the voxel rendering/collision/terrain system

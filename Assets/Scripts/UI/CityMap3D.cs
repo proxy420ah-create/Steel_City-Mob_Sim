@@ -502,7 +502,9 @@ namespace SteelCity.Sim
             CharacterAnimation.AnimState.Falling,
             CharacterAnimation.AnimState.Down,
             CharacterAnimation.AnimState.TPose,
-            CharacterAnimation.AnimState.AimSweep
+            CharacterAnimation.AnimState.AimSweep,
+            CharacterAnimation.AnimState.Reloading,
+            CharacterAnimation.AnimState.ReloadCrouch
         };
         public Dictionary<string, Block> CachedBlocks => cachedBlocks;
 
@@ -1788,6 +1790,8 @@ namespace SteelCity.Sim
                 go.AddComponent<CoverSensor>();
             if (go.GetComponent<ArmAimSolver>() == null)
                 go.AddComponent<ArmAimSolver>();
+            if (go.GetComponent<ReloadGestureSolver>() == null)
+                go.AddComponent<ReloadGestureSolver>();
             if (go.GetComponent<VisionSensor>() == null)
                 go.AddComponent<VisionSensor>();
             if (go.GetComponent<CombatController>() == null)

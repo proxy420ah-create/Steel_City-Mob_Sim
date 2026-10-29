@@ -34,6 +34,7 @@ namespace SteelCity.Sim
             public float harmAmp = 0.5f;              // sweep only: rolloff per harmonic (h_n = harmAmp^(n-1))
             public float amRate, amDepth;             // sweep only: loudness LFO — rate Hz, depth 0-1 (0 = off)
             public SynthPartial[] partials;           // partials only
+            public float delay;                       // any layer — silent until t=delay (s, pitch-scaled like decay), then runs its own timeline
         }
 
         [Serializable] public class Envelope
@@ -89,13 +90,25 @@ namespace SteelCity.Sim
         class FileEntry { public AudioClip clip; public DateTime stamp; }
         static readonly Dictionary<string, FileEntry> fileClips = new();
 
+        /// <summary>LIVETESTING OVERRIDE — sounds/<dir>/LiveTesting/<file>.stsound shadows
+        /// sounds/<dir>/<file>.stsound for every consumer. Drop a recipe in LiveTesting and
+        /// the game plays it in place of the shipped one; delete it and the shipped one returns.
+        /// (Also enables "sounds/LiveTesting/<file>" for top-level files like gunshot.stsound.)</summary>
+        internal static string ResolveLiveTesting(string rel)   // internal — SurfaceImpactAudio cull sidecars anchor to the resolved file
+        {
+            string dir = Path.GetDirectoryName(rel)?.Replace('\\', '/');
+            string test = (string.IsNullOrEmpty(dir) ? "LiveTesting/" : dir + "/LiveTesting/") + Path.GetFileName(rel);
+            return File.Exists(Path.Combine(Application.streamingAssetsPath, test)) ? test : rel;
+        }
+
         /// <summary>The clip for a .stsound under StreamingAssets (e.g. "sounds/gunshot.stsound").
         /// Stat-checks the file's write time each call — free when unchanged, re-synthesizes
         /// (once) when the studio saves a new version. This is the live-iteration path:
-        /// save in audio_studio → next trigger pull plays the new recipe, same Play session.</summary>
+        /// save in audio_studio → next trigger pull plays the new recipe, same Play session.
+        /// A same-named file in the folder's LiveTesting/ subfolder wins (in-game testing).</summary>
         public static AudioClip GetClip(string streamingAssetsRelPath)
         {
-            string path = Path.Combine(Application.streamingAssetsPath, streamingAssetsRelPath);
+            string path = Path.Combine(Application.streamingAssetsPath, ResolveLiveTesting(streamingAssetsRelPath));
             DateTime stamp = File.Exists(path) ? File.GetLastWriteTimeUtc(path) : DateTime.MinValue;
             if (fileClips.TryGetValue(streamingAssetsRelPath, out var e)
                 && (!liveReload || e.stamp == stamp))
@@ -103,6 +116,7 @@ namespace SteelCity.Sim
 
             var r = LoadRecipe(streamingAssetsRelPath);
             var clip = r != null ? SynthFromRecipe(r, bypassCache: true) : null;
+            if (clip == null) return null;   // never cache a failure — a missing/overridden file retries next call
             if (e?.clip != null) UnityEngine.Object.Destroy(e.clip);
             fileClips[streamingAssetsRelPath] = new FileEntry { clip = clip, stamp = stamp };
             if (e != null && clip != null)
@@ -132,10 +146,12 @@ namespace SteelCity.Sim
         }
 
         /// <summary>Load a .stsound JSON from StreamingAssets (e.g. "sounds/gunshot.stsound").
-        /// Returns null with a warning on any failure.</summary>
+        /// A same-named file in the folder's LiveTesting/ subfolder wins (GetClip resolves
+        /// for its stat check; LoadRecipe resolves here so direct calls and the pool pick
+        /// honor the override too). Returns null with a warning on any failure.</summary>
         public static SoundRecipe LoadRecipe(string streamingAssetsRelPath)
         {
-            string path = Path.Combine(Application.streamingAssetsPath, streamingAssetsRelPath);
+            string path = Path.Combine(Application.streamingAssetsPath, ResolveLiveTesting(streamingAssetsRelPath));
             try
             {
                 if (!File.Exists(path))
@@ -149,6 +165,11 @@ namespace SteelCity.Sim
                     Debug.LogWarning($"[ProceduralAudio] 🔊 recipe parse failed: {path}");
                     return null;
                 }
+                // Filename is the single source of truth — the internal `name` field is
+                // only a clip label and can lie (files renamed by hand / exported under a
+                // different name than the recipe). Logs and debug objects name the FILE.
+                string fileName = Path.GetFileNameWithoutExtension(path);
+                if (r.name != fileName) r.name = fileName;
                 return r;
             }
             catch (Exception e)
@@ -200,18 +221,23 @@ namespace SteelCity.Sim
                 for (int li = 0; li < r.layers.Length; li++)
                 {
                     var L = r.layers[li];
-                    float env = EnvOf(r, L, t, ds);
+                    // delay — silent until t=delay (pitch-scaled like decay), then
+                    // the layer runs on its OWN timeline: ring/glide/crack/AM start fresh.
+                    float dl = L.delay * ds;
+                    if (t < dl) continue;
+                    float lt = t - dl;
+                    float env = EnvOf(r, L, lt, ds);
                     switch (L.type)
                     {
                         case "attack":
                             {
                                 float x;
-                                if (L.src == "impulse") x = i == 0 ? 1f : 0f;          // 1-sample spike — clean resonator ping
+                                if (L.src == "impulse") x = lt < 1f / Rate ? 1f : 0f;  // 1-sample spike — clean resonator ping
                                 else if (L.src == "chirp")                             // pitch-drop sine — thump/punch exciter
                                 {
                                     float cs = L.startHz > 0f ? L.startHz : 900f;
                                     float ce = Mathf.Max(20f, L.endHz > 0f ? L.endHz : 90f);
-                                    float f = cs * Mathf.Exp(-Mathf.Log(cs / ce) * L.decay * ds * t / 6.9078f) * fs;
+                                    float f = cs * Mathf.Exp(-Mathf.Log(cs / ce) * L.decay * ds * lt / 6.9078f) * fs;
                                     phases[li] += 2f * Mathf.PI * f / Rate;
                                     x = Mathf.Sin(phases[li]);
                                 }
@@ -231,7 +257,7 @@ namespace SteelCity.Sim
                                     cutSt[li] = a * x + (1f - a) * cutSt[li];
                                     x = cutSt[li];
                                 }
-                                if (L.crack > 0f && t < Mathf.Min(0.035f, 3.5f / Mathf.Max(1f, L.decay * ds)))
+                                if (L.crack > 0f && lt < Mathf.Min(0.035f, 3.5f / Mathf.Max(1f, L.decay * ds)))
                                 {                                       // fracture window — block-rate random
                                     if (--crackN[li] <= 0)              // gain every ~1.1ms: gritty crackle,
                                     {                                   // not white hash — the tom killer
@@ -240,13 +266,13 @@ namespace SteelCity.Sim
                                     }
                                     x *= Mathf.Max(0.12f, crackG[li]);
                                 }
-                                v += x * L.amp * Mathf.Exp(-L.decay * ds * t);
+                                v += x * L.amp * Mathf.Exp(-L.decay * ds * lt);
                             }
                             break;
                         case "partials":
                             if (L.partials != null)
                                 for (int p = 0; p < L.partials.Length; p++)
-                                    v += Mathf.Sin(2f * Mathf.PI * L.partials[p].hz * fs * t + p * r.phaseStep)
+                                    v += Mathf.Sin(2f * Mathf.PI * L.partials[p].hz * fs * lt + p * r.phaseStep)
                                          * L.partials[p].amp * L.amp * env;
                             break;
                         case "noiseTail":
@@ -260,7 +286,7 @@ namespace SteelCity.Sim
                             break;
                         case "sweep":
                             {
-                                float k = t / r.duration;
+                                float k = lt / r.duration;
                                 float s = Mathf.Max(1f, L.startHz), e = Mathf.Max(0.01f * s, L.endHz);
                                 // curve: "exp" = equal semitones/sec — a true pitch
                                 // dive (or rise when end>start); else the linear Hz ramp.
@@ -270,7 +296,7 @@ namespace SteelCity.Sim
                                 // Vibrato — the tumbling-bullet warble: pitch wobble in
                                 // cents around the glide (0/off = the clean sweep).
                                 if (L.vibDepth > 0f && L.vibRate > 0f)
-                                    f *= Mathf.Pow(2f, (L.vibDepth / 1200f) * Mathf.Sin(2f * Mathf.PI * L.vibRate * t));
+                                    f *= Mathf.Pow(2f, (L.vibDepth / 1200f) * Mathf.Sin(2f * Mathf.PI * L.vibRate * lt));
                                 phases[li] += 2f * Mathf.PI * f / Rate;
                                 // harmonic glide — overtones at 2f,3f,4f riding the same
                                 // track: a lone sine = test tone, harmonics = resonant howl
@@ -279,7 +305,7 @@ namespace SteelCity.Sim
                                 for (int h = 2; h <= 1 + hn; h++)
                                     x2 += Mathf.Pow(L.harmAmp, h - 1) * Mathf.Sin(phases[li] * h);
                                 if (L.amDepth > 0f && L.amRate > 0f)      // AM — loudness pulse
-                                    x2 *= 1f + L.amDepth * Mathf.Sin(2f * Mathf.PI * L.amRate * t);
+                                    x2 *= 1f + L.amDepth * Mathf.Sin(2f * Mathf.PI * L.amRate * lt);
                                 v += x2 * L.amp * env;
                             }
                             break;
@@ -347,6 +373,106 @@ namespace SteelCity.Sim
                 return e.sustain;
             }
             return Mathf.Exp(-L.decay * ds * t);
+        }
+
+        // ── runtime variant modulation — port of audio_studio's Variant Lab
+        // mutateRecipe(): same FAMILY, never a copy. jitter j mirrors the depth
+        // presets (subtle .12 / medium .30 / wild .55); lockMaster freezes
+        // duration/master/env/eq/echo so only structure moves. Seed the rng from
+        // a shot seed → replay produces the identical child.
+
+        /// <summary>Return a mutated CHILD of baseRecipe (base untouched — deep-cloned via
+        /// the same JsonUtility round-trip the recipe format already guarantees).</summary>
+        public static SoundRecipe MutateRecipe(SoundRecipe baseRecipe, int seed, float j, bool lockMaster)
+        {
+            if (baseRecipe == null || baseRecipe.layers == null) return null;
+            var r = JsonUtility.FromJson<SoundRecipe>(JsonUtility.ToJson(baseRecipe));
+            var rng = new System.Random(seed);
+            float Jit(float a, float b) => a + (b - a) * (float)rng.NextDouble();
+            float Rf() => (float)rng.NextDouble();
+
+            r.seed = baseRecipe.seed + 1 + rng.Next(1000000);
+            var layers = new List<RecipeLayer>(r.layers);
+            foreach (var L in layers)
+            {
+                L.amp *= Jit(1f - j, 1f + j);
+                L.decay *= Jit(1f - j * 0.8f, 1f + j * 0.8f);
+                if (L.type == "partials" && L.partials != null && L.partials.Length > 0)
+                {
+                    var ps = new List<SynthPartial>(L.partials);
+                    if (ps.Count > 1 && Rf() < 0.35f)
+                        ps.RemoveAt(rng.Next(ps.Count));
+                    else if (ps.Count < 8 && Rf() < 0.45f)
+                    {
+                        float top = 300f; foreach (var p in ps) top = Mathf.Max(top, p.hz);
+                        ps.Add(new SynthPartial { hz = Mathf.Min(18000f, Mathf.Round(top * Jit(1.3f, 2.4f))), amp = 0.1f + Rf() * 0.3f });
+                    }
+                    foreach (var p in ps)
+                    {
+                        p.hz = Mathf.Clamp(Mathf.Round(p.hz * Jit(1f - j * 0.5f, 1f + j * 0.5f)), 20f, 18000f);
+                        p.amp = Mathf.Min(1f, p.amp * Jit(1f - j, 1f + j));
+                    }
+                    ps.Sort((a, b) => a.hz.CompareTo(b.hz));
+                    L.partials = ps.ToArray();
+                }
+                if (L.type == "attack")
+                {
+                    if (L.tone > 0f) L.tone = Mathf.Clamp(Mathf.Round(L.tone * Jit(1f - j * 0.8f, 1f + j * 0.8f)), 40f, 16000f);
+                    if (L.toneQ > 0.3f) L.toneQ = Mathf.Min(12f, L.toneQ * Jit(0.75f, 1.35f));
+                    if (L.cutoff > 0f) L.cutoff = Mathf.Clamp(Mathf.Round(L.cutoff * Jit(1f - j, 1f + j)), 300f, 20000f);
+                    if (L.crack > 0f) L.crack = Mathf.Min(1f, L.crack * Jit(0.7f, 1.3f));
+                    if (L.src == "chirp")
+                    {
+                        L.startHz = Mathf.Clamp(Mathf.Round(Mathf.Max(1f, L.startHz) * Jit(1f - j * 0.6f, 1f + j * 0.6f)), 200f, 4000f);
+                        L.endHz = Mathf.Clamp(Mathf.Round(Mathf.Max(1f, L.endHz) * Jit(1f - j * 0.6f, 1f + j * 0.6f)), 15f, 2000f);
+                    }
+                }
+                if (L.type == "noiseTail")
+                    L.lowpass = Mathf.Clamp(Mathf.Round(L.lowpass * Jit(1f - j * 1.2f, 1f + j * 1.2f)), 100f, 20000f);
+                if (L.type == "sweep")
+                {
+                    L.startHz *= Jit(1f - j * 0.7f, 1f + j * 0.7f);
+                    L.endHz *= Jit(1f - j * 0.7f, 1f + j * 0.7f);
+                    if (Rf() < 0.2f) (L.startHz, L.endHz) = (L.endHz, L.startHz);
+                    if (L.vibDepth > 0f) L.vibDepth = Mathf.Min(400f, Mathf.Round(L.vibDepth * Jit(0.7f, 1.4f)));
+                    if (L.vibRate > 0f) L.vibRate = Mathf.Min(30f, L.vibRate * Jit(0.7f, 1.4f));
+                    if (L.harmN > 0f)
+                    {
+                        L.harmN = Mathf.Clamp(Mathf.RoundToInt(L.harmN + Jit(-1f, 1f)), 1, 4);
+                        L.harmAmp = Mathf.Clamp(L.harmAmp * Jit(0.7f, 1.4f), 0.15f, 0.9f);
+                    }
+                    if (L.amDepth > 0f)
+                    {
+                        L.amDepth = Mathf.Min(1f, L.amDepth * Jit(0.7f, 1.4f));
+                        L.amRate = Mathf.Min(30f, L.amRate * Jit(0.7f, 1.4f));
+                    }
+                }
+            }
+            // layer-mix mutation — drop a layer (15%) or duplicate one at ~60% amp (15%)
+            if (layers.Count > 1 && Rf() < 0.15f)
+                layers.RemoveAt(rng.Next(layers.Count));
+            else if (layers.Count < 6 && Rf() < 0.15f)
+            {
+                var c = JsonUtility.FromJson<RecipeLayer>(JsonUtility.ToJson(layers[rng.Next(layers.Count)]));
+                c.amp *= 0.6f; c.decay *= Jit(0.8f, 1.4f);
+                layers.Add(c);
+            }
+            r.layers = layers.ToArray();
+
+            if (!lockMaster)
+            {
+                r.duration = Mathf.Max(0.03f, r.duration * Jit(1f - j * 0.4f, 1f + j * 0.4f));
+                r.drive *= Jit(1f - j * 0.3f, 1f + j * 0.3f);
+                r.gain = Mathf.Min(1.2f, r.gain * Jit(0.9f, 1.1f));
+                if (r.masterAttack > 0f) r.masterAttack = Mathf.Max(0.001f, r.masterAttack * Jit(0.7f, 1.4f));
+                if (r.masterRelease > 0f) r.masterRelease = Mathf.Max(0.05f, r.masterRelease * Jit(0.8f, 1.3f));
+                if (r.echo != null && r.echo.on)
+                {
+                    r.echo.time = Mathf.Max(0.02f, r.echo.time * Jit(0.7f, 1.4f));
+                    r.echo.feedback = Mathf.Min(0.9f, r.echo.feedback * Jit(0.7f, 1.3f));
+                }
+            }
+            return r;
         }
 
         // --- RBJ Audio EQ Cookbook biquads (Direct Form I) — mirrors audio_studio.html

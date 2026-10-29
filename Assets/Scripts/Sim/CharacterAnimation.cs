@@ -27,7 +27,9 @@ namespace SteelCity.Sim
             Down = 8,
             TPose = 9,
             AimSweep = 10,  // aiming pose + shoulder-yaw sweep (must match animator/shader state)
-            Sitting = 11    // seated pose — thighs forward, shins down, upright torso (seat anchor contract)
+            Sitting = 11,   // seated pose — thighs forward, shins down, upright torso (seat anchor contract)
+            Reloading = 13, // standing reload hold — reload params + tapPulse deltas per seated round
+            ReloadCrouch = 14 // crouched reload — reload arms over the crouch body channel
         }
 
         [Header("Animation")]
@@ -158,6 +160,10 @@ namespace SteelCity.Sim
         public bool lookScan = false;
         [Range(0f, 1f)] public float lookScanBlend = 1f;
 
+        /// <summary>Reload tap channel (0..1) — driven by ReloadGestureSolver;
+        /// the reload states (13/14) add authored tap* deltas on the support arm.</summary>
+        [HideInInspector] public float tapPulse = 0f;
+
         private VoxelCharacter voxelChar;
         private float animTime = 0f;
         private float gaitTime = 0f;   // integrated gait clock — survives state changes
@@ -265,6 +271,7 @@ namespace SteelCity.Sim
             instancedHandle.crouchDepth = duck;          // field carries THE duck scalar now
             instancedHandle.gaitTime = gaitTime;
             instancedHandle.lookScanBlend = lookScan ? lookScanBlend : 0f;
+            instancedHandle.tapPulse = tapPulse;
             prevFrameDuck = duck;   // snapshot AFTER all writers — consumed by
                                     // the next flip's transFromDepth freeze
         }

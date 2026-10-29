@@ -339,6 +339,8 @@ namespace SteelCity.Sim
                 else if (kb.dKey.wasPressedThisFrame) pick = CharacterAnimation.AnimState.Down;
                 else if (kb.tKey.wasPressedThisFrame) pick = CharacterAnimation.AnimState.TPose;
                 else if (kb.sKey.wasPressedThisFrame) pick = CharacterAnimation.AnimState.AimSweep;
+                else if (kb.rKey.wasPressedThisFrame) pick = CharacterAnimation.AnimState.Reloading;
+                else if (kb.eKey.wasPressedThisFrame) pick = CharacterAnimation.AnimState.ReloadCrouch;
                 else if (kb.bKey.wasPressedThisFrame) pick = CharacterAnimation.AnimState.Sitting;
                 else if (kb.xKey.wasPressedThisFrame)
                 { testPose = null; Debug.Log("[Possess] test pose released — back to aim"); }
@@ -357,7 +359,10 @@ namespace SteelCity.Sim
                 // merely chooses HOW that duck renders: deep band (>1.02) needs
                 // the state-5 endpoint path; the morph band (0<duck<=1) rides
                 // Idle/Walking where icr/wd scale it continuously.
-                anim.RequestPose(testPose ?? (anim.duck > 1.02f
+                anim.RequestPose(testPose ?? (cc != null && cc.Reloading
+                                         ? (anim.duck > 1.02f ? CharacterAnimation.AnimState.ReloadCrouch
+                                                              : CharacterAnimation.AnimState.Reloading)
+                                         : anim.duck > 1.02f
                                          ? (moving ? CharacterAnimation.AnimState.Walking
                                                    : CharacterAnimation.AnimState.Crouching)
                                      : anim.coverContext          // Full or morph — covered

@@ -222,6 +222,16 @@ const PRESETS = {
     // detune against each other = the classic double-tone ricochet
     {type:"sweep",amp:0.22,decay:16,startHz:1850,endHz:520,curve:"exp",vibRate:14,vibDepth:120},
     {type:"partials",amp:0.6,decay:14,partials:[{hz:2400,amp:0.3},{hz:4100,amp:0.15}]}]},
+  reload_click:{ name:"reload_click", duration:0.15, seed:23, gain:0.9, drive:1.25, tailFade:0.02, layers:[
+    // Model 10 seat snap — "Cu-Lick" two-stage: dull contact strike + a
+    // DELAYED brighter seat strike at 34ms (delay field), AM-lobed glide
+    // paces the slide-in. Alternates in
+    // sounds/LiveTesting/reload_click_{am,deep,crisp,chirp,mech}.stsound
+    {type:"attack",amp:0.4,decay:420,tone:3400,toneQ:3,cutoff:8000},
+    {type:"attack",amp:0.5,decay:620,tone:5400,toneQ:3,cutoff:12000,delay:0.034},
+    {type:"sweep",amp:0.13,decay:110,startHz:5200,endHz:2400,curve:"exp",amRate:20,amDepth:0.35},
+    {type:"partials",amp:0.4,decay:170,partials:[{hz:2600,amp:0.4},{hz:5200,amp:0.16}]},
+    {type:"noiseTail",amp:0.025,decay:140,lowpass:6500}]},
   footstep:{ name:"footstep", duration:0.12, seed:11, layers:[
     {type:"attack",amp:0.40,decay:90},
     {type:"noiseTail",amp:0.35,decay:30,lowpass:800}]},
@@ -380,14 +390,19 @@ function render(r, note, vel){
   for(let i=0;i<n;i++){
     const t=i/RATE; let v=0;
     for(let li=0;li<r.layers.length;li++){
-      const L=r.layers[li],S=st[li],env=envOf(r,L,t,ds);
+      const L=r.layers[li],S=st[li];
+      // delay — silent until t=delay (pitch-scaled like decay), then the layer
+      // runs on its OWN timeline: ring/glide/crack/AM all start fresh.
+      const dl=(L.delay??0)*ds;
+      if(t<dl) continue;
+      const tl=t-dl, env=envOf(r,L,tl,ds);
       if(L.type==="attack"){
         const src=L.src??"noise";
         let x;
-        if(src==="impulse") x=i===0?1:0;                     // single-sample spike — clean resonator ping
+        if(src==="impulse") x=tl<1/RATE?1:0;                 // single-sample spike — clean resonator ping
         else if(src==="chirp"){                              // pitch-drop sine — the thump/punch exciter
           const cs=L.startHz??900, ce=Math.max(20,L.endHz??90);
-          const f=cs*Math.exp(-Math.log(cs/ce)*L.decay*ds*t/6.9078)*fs_;
+          const f=cs*Math.exp(-Math.log(cs/ce)*L.decay*ds*tl/6.9078)*fs_;
           S.phase+=2*Math.PI*f/RATE; x=Math.sin(S.phase);
         }
         else x=rng()*2-1;                                    // noise (default) — the gritty strike
@@ -402,29 +417,29 @@ function render(r, note, vel){
         // grain) during the first ~35ms. Turns the smooth drum-machine decay
         // into a fracturing crack — the tom killer. 0 = off (legacy).
         const ck=L.crack??0;
-        if(ck>0&&t<Math.min(0.035,3.5/Math.max(1,L.decay*ds))){
+        if(ck>0&&tl<Math.min(0.035,3.5/Math.max(1,L.decay*ds))){
           if(--S.cN<=0){S.cN=48;S.cG=1+ck*(rng()*2-1)*1.2;}
           x*=Math.max(0.12,S.cG);
         }
-        v+=x*L.amp*Math.exp(-L.decay*ds*t);
+        v+=x*L.amp*Math.exp(-L.decay*ds*tl);
       }
       else if(L.type==="partials"){
         const ps=L.partials||[];
         for(let p=0;p<ps.length;p++)
-          v+=Math.sin(2*Math.PI*ps[p].hz*fs_*t+p*(r.phaseStep??1.7))*ps[p].amp*(L.amp??1)*env;
+          v+=Math.sin(2*Math.PI*ps[p].hz*fs_*tl+p*(r.phaseStep??1.7))*ps[p].amp*(L.amp??1)*env;
       } else if(L.type==="noiseTail"){
         const x=rng()*2-1, fc=Math.min((L.lowpass??20000)*fs_,RATE*0.49);
         const a=fc>=RATE*0.49?1:1-Math.exp(-2*Math.PI*fc/RATE);
         S.lp=a*x+(1-a)*S.lp; v+=S.lp*L.amp*env;
       } else if(L.type==="sweep"){
-        const k=t/r.duration;
+        const k=tl/r.duration;
         const s=L.startHz??2000, e=L.endHz??800;
         // curve: lin = Hz/sec ramp; exp = equal semitones/sec (musically-true
         // dive OR rise — works with e>s for the ascending ricochet)
         let f=L.curve==="exp"?s*Math.pow(Math.max(0.01,e/Math.max(1,s)),k):s+(e-s)*k;
         f*=fs_;
         const vd=L.vibDepth??0, vr=L.vibRate??0;
-        if(vd>0&&vr>0) f*=Math.pow(2,(vd/1200)*Math.sin(2*Math.PI*vr*t));   // tumble warble (FM)
+        if(vd>0&&vr>0) f*=Math.pow(2,(vd/1200)*Math.sin(2*Math.PI*vr*tl));  // tumble warble (FM)
         S.phase+=2*Math.PI*f/RATE;
         // harmonic glide — extra sines at 2f,3f,4f riding the same pitch track:
         // a lone sine = test tone; harmonics = resonant howl (the ricochet fix)
@@ -432,7 +447,7 @@ function render(r, note, vel){
         const hn=Math.min(4,L.harmN??0), ha=L.harmAmp??0.5;
         for(let h=2;h<=1+hn;h++) x+=Math.pow(ha,h-1)*Math.sin(S.phase*h);
         const ad=L.amDepth??0, ar=L.amRate??0;                              // AM — the tumble's
-        if(ad>0&&ar>0) x*=1+ad*Math.sin(2*Math.PI*ar*t);                    // loudness pulse
+        if(ad>0&&ar>0) x*=1+ad*Math.sin(2*Math.PI*ar*tl);                   // loudness pulse
         v+=x*L.amp*env;
       }
     }
@@ -542,6 +557,9 @@ function buildLayers(){
       get:()=>L.decay,set:v=>L.decay=v,
       fmt:v=>(6.9078/v*1000).toFixed(0)+"ms",
       tip:"RING TIME — how long this layer sounds (ms to silence). type e.g. 250ms — drag left = longer ring"});
+    knob(ks,{label:"delay",min:0,max:0.3,hardMax:2,def:0,unit:"ms",get:()=>L.delay??0,set:v=>L.delay=v,
+      fmt:v=>v<=0?"off":(v*1000).toFixed(0)+"ms",
+      tip:"delayed start — layer stays silent this long, then plays on its OWN timeline (ring/glide/crack all start fresh). A second attack at ~30ms = a two-stage 'cl-ick' with its own tone/decay; scales with pitch like decay"});
     if(L.type==="attack"){
       knob(ks,{label:"tone",min:0,max:8000,hardMax:16000,def:0,unit:"hz",get:()=>L.tone??0,set:v=>L.tone=v,
         fmt:v=>v<=0?"off":v>=1000?(v/1000).toFixed(1)+"k":v.toFixed(0)+"Hz",
@@ -791,7 +809,7 @@ async function refreshSoundList(){
     b.onclick=async()=>{ try{
       const f=await h.getFile(); const txt=await f.text();
       recipe=Object.assign(defaultRecipe(),JSON.parse(txt));
-      curFile=h.name; curDirty=false; refreshSoundList(); syncUIFromRecipe(); preview(); }
+      curFile=h.name; curDirty=false; refreshSoundList(); $("rName").value=recipe.name; syncUIFromRecipe(); preview(); }
       catch(e){alert("load failed: "+e.message);} };
     list.appendChild(b);
   }
@@ -814,16 +832,18 @@ $("btnSave").onclick=async()=>{
     if(!soundsDir){alert("Save As needs a Chromium browser — use ⬇ download");return;}
     if(!confirm(`overwrite ${suggested} in ${soundsDir.name}/?`))return;
     try{ const h=await soundsDir.getFileHandle(suggested,{create:true});
+      recipe.name=suggested.replace(/\.stsound$/i,""); // filename is the single source of truth
       const w=await h.createWritable(); await w.write(JSON.stringify(recipe,null,1)); await w.close();
-      curFile=suggested; curDirty=false; refreshSoundList();
+      curFile=suggested; curDirty=false; refreshSoundList(); $("rName").value=recipe.name;
       $("dirLabel").textContent=soundsDir.name+"/ — saved "+suggested;
     }catch(e){alert("save failed: "+e.message);} return; }
   try{
     const h=await showSaveFilePicker({suggestedName:suggested,
       startIn:soundsDir||undefined,
       types:[{description:"Steel sound recipe",accept:{"application/json":[".stsound"]}}]});
+    recipe.name=h.name.replace(/\.stsound$/i,""); // filename is the single source of truth
     const w=await h.createWritable(); await w.write(JSON.stringify(recipe,null,1)); await w.close();
-    curFile=h.name; curDirty=false; refreshSoundList();
+    curFile=h.name; curDirty=false; refreshSoundList(); $("rName").value=recipe.name;
     $("dirLabel").textContent="saved "+h.name;
   }catch(e){ if(e.name!=="AbortError") alert("save failed: "+e.message); } };
 $("btnImportFile").onclick=()=>{

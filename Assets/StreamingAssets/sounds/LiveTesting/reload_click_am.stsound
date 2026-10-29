@@ -1,0 +1,105 @@
+{
+ "name": "reload_click_am",
+ "version": 4,
+ "sampleRate": 44100,
+ "duration": 0.15,
+ "seed": 23,
+ "envelope": {
+  "mode": "exp"
+ },
+ "gain": 0.92,
+ "drive": 1.2,
+ "phaseStep": 1.7,
+ "rootNote": 60,
+ "pitch": 0,
+ "coupleDecay": true,
+ "tailFade": 0.02,
+ "eq": [
+  {
+   "type": "lowshelf",
+   "hz": 250,
+   "gainDb": 0,
+   "q": 0.7,
+   "on": false
+  },
+  {
+   "type": "peaking",
+   "hz": 1000,
+   "gainDb": 0,
+   "q": 1,
+   "on": false
+  },
+  {
+   "type": "peaking",
+   "hz": 4000,
+   "gainDb": 0,
+   "q": 1,
+   "on": false
+  },
+  {
+   "type": "highshelf",
+   "hz": 8000,
+   "gainDb": 0,
+   "q": 0.7,
+   "on": false
+  }
+ ],
+ "echo": {
+  "on": false,
+  "time": 0.09,
+  "feedback": 0.35,
+  "mix": 0.25
+ },
+ "layers": [
+  {
+   "type": "attack",
+   "amp": 0.35,
+   "decay": 480,
+   "tone": 4200,
+   "toneQ": 2.5,
+   "cutoff": 9500
+  },
+  {
+   "type": "attack",
+   "amp": 0.45,
+   "decay": 560,
+   "tone": 5000,
+   "toneQ": 2.5,
+   "cutoff": 11000,
+   "delay": 0.045
+  },
+  {
+   "type": "sweep",
+   "amp": 0.3,
+   "decay": 75,
+   "startHz": 4600,
+   "endHz": 2100,
+   "curve": "exp",
+   "harmN": 1,
+   "harmAmp": 0.4,
+   "amRate": 22,
+   "amDepth": 0.85
+  },
+  {
+   "type": "partials",
+   "amp": 0.4,
+   "decay": 160,
+   "partials": [
+    {
+     "hz": 2400,
+     "amp": 0.4
+    },
+    {
+     "hz": 4900,
+     "amp": 0.16
+    }
+   ]
+  },
+  {
+   "type": "noiseTail",
+   "amp": 0.02,
+   "decay": 120,
+   "lowpass": 6000
+  }
+ ]
+}

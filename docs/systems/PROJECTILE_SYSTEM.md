@@ -88,6 +88,8 @@ Volume ids use the per-building convention (`{blockId}_building` for a block's o
 
 Surfaces: Combat tab (last shot), console line `[Projectile] #n HIT …`, and `ProjectileSystem.ShotResolved` / `LastShot` for code. This is exactly the payload later systems need — glass puncture wants the pane voxel (`material` 112–114/147 reports "(glass)"), cover wants the blocking volume, damage wants the material.
 
+The fire path also emits the **hearing report**: `PlayShotSound` calls `SfxWaves.Report(FeetCenter, shotAudibleRange, shotRefDistance, "gunshot", mount, MuzzleWorld)` — the semantic `Heard` event feeds AI intel (engaged opponents in earshot snap their last-known to the firing position); the visual shell draws at the muzzle. Both ride inside `shotAudioEnabled` — muting silences AI hearing by design.
+
 ---
 
 ## Combat tab (Debug HUD) — Firearm panel

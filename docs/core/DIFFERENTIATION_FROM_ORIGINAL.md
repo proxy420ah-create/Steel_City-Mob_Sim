@@ -120,7 +120,7 @@ This document catalogs every known differentiation — both by design intent and
 | Feature | Original | Steel City | Status |
 |---------|----------|------------|--------|
 | **Character models** | 2D portrait + sprite | Procedural voxel characters with per-instance clothing | ✅ Implemented |
-| **Animation states** | Sprite frames | 9 GPU compute states (Idle, Walking, Looking, Checking, Aiming, Crouching, Flinching, Falling, Down) | ✅ Implemented (Crouching needs tuning) |
+| **Animation states** | Sprite frames | 15 GPU compute states incl. authored combat poses — `Reloading`(13)/`ReloadCrouch`(14): support arm taps per seat-locked `tapPulse`, arms role-assigned by `reloadGunSide` — plus the continuous `duck` scalar (0..2) that discrete states can't express | ✅ Implemented |
 | **Per-instance appearance** | None | Unique outfits per instance via material remap buffer — 1 draw call | ✅ Implemented |
 | **Character spawning** | Single "Vinny" debug character | Consolidated hierarchy: Civilians/Civilian_01 + Civilian_02 | ✅ Implemented |
 | **Debug control** | None | Debug HUD with character selector (hotkey routing) + clothing instance selector | ✅ Implemented |
@@ -141,9 +141,9 @@ Steel City **diverges** by wrapping the original formula inside a **round-based 
 | Feature | Original | Steel City | Status |
 |---------|----------|------------|--------|
 | **Hit formula** | `((Atk+1)/(Def+1)) × RangeFactor` | **Preserved** as base skill check — but modified by cone of fire, cover geometry, movement | ✅ Data extracted |
-| **Damage resolution** | `Range(locations) × 8 + rand(0-7)` → lookup | **Preserved** — same damage table, 4 wound states | ✅ Data extracted |
-| **Resolution method** | Single instant math roll | Round-based simulation with physical projectiles, cover, movement, morale | 📝 Designed |
-| **Cone of fire** | Not modeled (binary hit/miss) | Weapon-specific cone of fire — bullet direction = aim + perturbation. Skill tightens cone, movement widens it. Missed shots continue as stray projectiles | 📝 Designed |
+| **Damage resolution** | `Range(locations) × 8 + rand(0-7)` → lookup | **Preserved** — same damage table, 4 wound states | 📋 Data extracted — wound/health resolution not wired yet |
+| **Resolution method** | Single instant math roll | **Continuous real-time fixed-step simulation** (`SimClock` 0.08 s — the RE tickInterval) with physical projectiles, cover, movement, engagement beats; dice resolve *within* the stream, not as a roll-up | ✅ Implemented |
+| **Cone of fire** | Not modeled (binary hit/miss) | Weapon-specific cone of fire — bullet direction = aim + perturbation. Skill tightens cone, movement widens it. Missed shots continue as stray projectiles | ✅ Implemented (`ProjectileSystem`; per-weapon inaccuracy tables + Firearms-stat binding pending — placeholder skill 1–10) |
 | **Era-appropriate inaccuracy** | Not modeled | 1920s firearms are inherently inaccurate — revolvers wild past 15yd, Tommy gun = area saturation not marksmanship, shotgun = spread pattern | 📝 Designed |
 | **Player role** | Assign orders, see results | **Preserved** — manager, not fighter. Before/after, not during | ✅ Design locked |
 
@@ -214,8 +214,9 @@ Industry resolves aim-at-a-bone plus scripted pop-up cycles. Steel City's doctri
 | Aim target | Bone/socket (chest/head) | **Centroid of the enemy's *visible posed voxels*** — sampled points on their live silhouette, rays from the shooter's eye. Exposed cap shrinks as they duck — the aim point tracks it | ✅ Implemented |
 | Fire gate | State machine flag | `visibleCount > 0` — as the shooter tucks, his own wall occludes his own rays → zero voxels → weapon stows. Geometry, not doctrine | ✅ Implemented |
 | Pop-up | Canned lean/peek animation | **The one authored override** — suppress cover drive, stand, engage `lastSeenTarget`. The mutual-exposure window: his `h(duck)` rising makes *him* visible to the enemy's identical query → the exposure race is the combat heartbeat | 📝 Trigger deferred |
-| Reload | Timer/anim | **Cylinder count** — S&W Model 10 = 6 shots → arm dips for `reloadDwell` (crouch-idle stands in until a reload anim exists) | ✅ Implemented |
-| Target memory | Last-known-position marker | `LastSeenTarget` written every positive probe — pop-up re-queries: still there → live centroid; gone → burst at the stale point (suppressing fire, emergent) + `lookScan` channel for the search pattern | ✅ Field live, consumers pending |
+| Reload | Timer/anim | **Cylinder count** — S&W Model 10 = 6 shots → authored states 13/14 (stand + crouch variants share `reload` arm params; support arm taps per `RoundSeated`-locked `tapPulse`; `reloadGunSide` assigns support/gun roles) | ✅ Implemented |
+| Target memory | Last-known-position marker | `LastSeenTarget` written every positive probe — consumers live: search/orbit re-anchoring (`ArmSearch`), heard-report intel snap, `lookScan` channel for the authored scan | ✅ Implemented (pop-up re-query pending) |
+| Gunshot report (hearing) | n/a in the original | `SfxWaves.Report`/`Heard` radius broadcast on every real shot — receivers self-filter (not self, inside `AmplitudeAt` earshot, shooter is their threat/watch target) → belief snap + orbit re-anchor. **Intel, not a sighting** — `contactSeen`/`LastSeenAt` stay on the eye channel; a heard shot can't create a shootable target | ✅ Implemented (scoped to engaged fighters; citizen/police reactions pending) |
 
 **The symmetry**: *cover verdict and aim solution are the same ray from opposite ends* — `hidden ⇐ ray(threatEye → myTop) blocked`; `hittable ⇐ ray(myEye → threatVoxels) clears`. One silhouette function `h(duck)`, both directions. Parapet firing is emergently headshot-only (only the head band shows over the wall) — accepted: recoil/sway plus the smaller voxel set keeps it fair.
 
@@ -304,7 +305,9 @@ The bullet goes *somewhere* — just maybe not where aimed. Missed shots natural
 | **Cover interaction** | Not modeled | Ray intersection against VoxelCollisionWorld — cover physically blocks projectiles |
 | **Implementation** | N/A | Pure CPU spatial hash — no Unity physics, scales to 500+ instances |
 
-**Design doc reference**: `COMBAT_VEHICLE_DESIGN.md` §13 — Physical Projectiles & Spatial Hash
+**As-built**: travel, stray bullets, building hits, and cover interaction are ✅ live in `ProjectileSystem` (voxel-DDA swept flight, exact volume/voxel/material on the `ShotReport`, `ShotFired`/`ShotResolved` events). Crossfire scattering, drive-by sprays, and suppression behavior remain pending.
+
+**Design doc reference**: `COMBAT_VEHICLE_DESIGN.md` §13 — Physical Projectiles & Spatial Hash, `PROJECTILE_SYSTEM.md`
 
 ### 9.6 Cover System (NEW — Not in Original)
 
@@ -329,7 +332,7 @@ IDLE → ALERT (enemy detected) → MOVING_TO_COVER → IN_COVER (peek + fire)
   → IDLE (no enemies)
 ```
 
-**Status**: SeekingCover / InCover / HoldPosition / Falling implemented in `CombatController` (cover_arena). The exposure-based engagement layer (§9.9) — visible-voxel aim gate, pop-up override, cylinder-count reload — is the next build and replaces the "peek + fire" script inside IN_COVER.
+**Status**: SeekingCover / InCover / HoldPosition / Falling implemented in `CombatController` (cover_arena), plus the shipped layers since: exposure engagement (§9.9), engagement beats (`ENGAGEMENT_BEATS.md` — settle/seam/rise/top-up rhythm), last-known search orbits, gunshot-report hearing (`SfxWaves.Heard`), and the IK aim rig (arm solve + torso stance blade + head track, `AIM_RIG.md` phases 1–2). Health/wound states (Flinch→Falling→Down) remain pending — current fights resolve position and fire, not attrition.
 
 **Per-instance combat data** (backward-compatible extension to instance buffer):
 - `animState` (enum: includes combat states)
@@ -359,7 +362,7 @@ The original had `COMBAT_3` (drive-by shooting) limited to ordered combat. Steel
 
 | Feature | Original | Steel City |
 |---------|----------|------------|
-| **Gunfire noise** | Not modeled | NoiseEvent with radius — any AI within range reacts |
+| **Gunfire noise** | Not modeled | `SfxWaves.Heard` radius report — any *engaged* AI within `AmplitudeAt` earshot snaps intel to the firing position (✅ shipped, scoped); citizen flee / police dispatch reactions pending |
 | **Escalation ladder** | Not documented | Gunfight → police dispatch → 3-way combat → roadblocks → city-wide panic |
 | **Police AI states** | Not documented | Patrol → Respond → Engage → Search → Patrol |
 | **Roadblocks** | Not modeled | Static objects placed on road, mutates collision world, causes crashes |
@@ -370,12 +373,13 @@ The original had `COMBAT_3` (drive-by shooting) limited to ordered combat. Steel
 
 | Animation | Technique | Status |
 |-----------|-----------|--------|
-| **Firing recoil** | Procedural shader (pulse on fireTime) | 📝 Designed |
+| **Firing recoil** | `AimFeelSpring` impulse on `ShotFired` — 65% instant + carry, skill-scaled settle | ✅ Implemented |
 | **Hit flinch** | Procedural shader (exp decay from hitTime) | 📝 Designed |
-| **Falling/death** | Voxel swap (2-3 poses) or procedural rotation | 📝 Designed |
-| **Cover crouch** | Morph target blend (standing ↔ crouching) | 📝 Designed |
-| **Aiming arms** | Voxel group transforms (arm raises toward target) | 📝 Designed |
-| **Head tracking** | Procedural yaw offset on head group | ✅ Implemented (Looking state) |
+| **Falling/death** | Voxel swap (2-3 poses) or procedural rotation | 📝 Designed (needs the health layer) |
+| **Cover crouch** | Continuous `duck` scalar 0..2 — morph band + deep band, silhouette-measured | ✅ Implemented |
+| **Aiming arms** | `ArmAimSolver` two-bone IK + torso stance blade (`torsoBladeShare`, boxing-stance lead) + head quat track | ✅ Implemented |
+| **Reload** | Authored states 13/14 in `character_animator.html` — support arm reaches + taps per seat-locked `tapPulse`, roles mirrored by `reloadGunSide` | ✅ Implemented |
+| **Head tracking** | Full-quat head channel (`ikOverrides[1]` / `ikHeadQuat`) — eyes-on-threat during seek legs, solver-owned while aiming | ✅ Implemented |
 
 **Design doc reference**: `COMBAT_VEHICLE_DESIGN.md` §5 — NPC Animation Without Skeletons
 
@@ -392,7 +396,7 @@ The original had `COMBAT_3` (drive-by shooting) limited to ordered combat. Steel
 | **Terrain** | Per-tile rendering | Sector baking — 100 chunks → 1 sector (1 draw call) | ✅ Implemented |
 | **Instancing** | None | GPU instancing with per-instance data (position, yaw, anim, clothing) | ✅ Implemented |
 | **Data format** | .xtx (XOR-encoded text) | JSON / ScriptableObjects | ✅ Implemented |
-| **Time system** | 12000-tick weekly budget | Preserved — same tick budget concept | 📝 Planned |
+| **Time system** | 12000-tick weekly budget | **Preserved + layered**: `TickBudget = 12000`/hood/week drives order costs at `tickInterval = 0.08 s` (`SimulationManager.Tick` via `EventPlayer` accumulator); a parallel `SimClock` fixed step (same 0.08 s) drives real-time decisions (combat dice, cooldowns) — deterministic, F8-freezable, `[.]` single-step. Same cadence, two consumers | ✅ Implemented |
 | **SIM_TICK** | 16,980-byte monolithic function | Split into per-state classes (SimulationManager) | 📝 Planned |
 | **Pathfinding** | Waypoint graph with countdown timer | A* on WaypointGraph (Pathfinder.cs) | ✅ Implemented |
 
@@ -435,7 +439,7 @@ These are **not** differentiations — they are the core of the original that St
 
 ## 13. What We Explicitly Don't Do
 
-- **No real-time tactical combat** (no XCOM-style encounters)
+- **No separate tactical encounter screen** (no XCOM-style battle maps — autonomous real-time combat plays out *in the world* at the fixed sim step; the player stays a manager)
 - **No scripted narrative** (no story missions, no cutscenes, no dialogue trees)
 - **No player-controlled combat** (manager, not action hero)
 - **No microtransactions / live service / multiplayer** (initially)
@@ -447,14 +451,16 @@ These are **not** differentiations — they are the core of the original that St
 
 Based on existing design docs and current codebase state:
 
-| Phase | Feature | Effort | Dependencies |
-|-------|---------|--------|--------------|
-| **1** | Finish combat animations (Flinch, Falling, firing recoil) | ~6 hrs | Existing CSPose kernel |
-| **2** | Combat data model (weapons, damage, per-instance combat state) | ~8 hrs | Data from GANGSTERS_GAME_DATA.md |
-| **3** | Cover point scanner (collision world query) | ~4 hrs | VoxelCollisionWorld |
-| **4** | Combat AI state machine + round-based resolution | ~12 hrs | Phases 1-3 |
-| **5** | Physical projectiles + spatial hash | ~13 hrs | Phase 4 |
-| **6** | Visual feedback (tracers, muzzle flash, hit reactions) | ~6 hrs | Phases 4-5 |
+| Phase | Feature | Status |
+|-------|---------|--------|
+| ~~1~~ | Combat animations | ✅ aim/reload states + recoil spring shipped (Flinch/Falling await the health layer) |
+| ~~2~~ | Combat data model | 📋 tables extracted; per-instance combat fields live (animState/faction) — wound wiring pending |
+| ~~3~~ | Cover point scanner | ✅ `CoverFinder` + `CoverSensor` measured-silhouette (`COVER_HEIGHTFIELD.md`) |
+| ~~4~~ | Combat AI + resolution | ✅ `CombatController` states + engagement beats on `SimClock` fixed step |
+| ~~5~~ | Physical projectiles + spatial hash | ✅ `ProjectileSystem` voxel-DDA, cone of fire, impact/audio/glass reports |
+| ~~6~~ | Visual feedback | ✅ recoil spring, reload anim, waves/shell debug; tracers + hit reactions pending |
+
+**Shipped beyond this table**: gunshot-report hearing channel, last-known search orbits, IK aim rig (arm + torso blade + head), vehicle-body occupancy correction, possess-driven live debugging (`POSSESS_BODY_DEBUGGING.md`).
 | **7** | Vehicle physics (Tier A + Tier B) | ~32 hrs | Independent of 1-6 |
 | **8** | Vehicle combat + car chases | ~25 hrs | Phases 5, 7 |
 | **9** | Police escalation + noise events | ~24 hrs | Phases 5, 8 |

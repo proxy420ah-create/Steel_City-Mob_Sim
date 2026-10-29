@@ -1,0 +1,106 @@
+{
+ "name": "ricochet_01",
+ "version": 4,
+ "sampleRate": 44100,
+ "duration": 1.5,
+ "seed": 973829,
+ "envelope": {
+  "mode": "exp"
+ },
+ "gain": 0.8,
+ "drive": 1.8,
+ "phaseStep": 1.7,
+ "rootNote": 60,
+ "pitch": 0,
+ "coupleDecay": true,
+ "tailFade": 0.09,
+ "masterAttack": 0.012,
+ "masterRelease": 0.45,
+ "eq": [
+  {
+   "type": "lowshelf",
+   "hz": 250,
+   "gainDb": 0,
+   "q": 0.7,
+   "on": false
+  },
+  {
+   "type": "peaking",
+   "hz": 900,
+   "gainDb": 0,
+   "q": 1,
+   "on": false
+  },
+  {
+   "type": "peaking",
+   "hz": 3200,
+   "gainDb": 0,
+   "q": 1,
+   "on": false
+  },
+  {
+   "type": "highshelf",
+   "hz": 8000,
+   "gainDb": 0,
+   "q": 0.7,
+   "on": false
+  }
+ ],
+ "echo": {
+  "on": true,
+  "time": 0.05,
+  "feedback": 0.35,
+  "mix": 0.18
+ },
+ "layers": [
+  {
+   "type": "attack",
+   "amp": 0.578,
+   "decay": 80.15,
+   "toneQ": 0
+  },
+  {
+   "type": "noiseTail",
+   "amp": 0.424,
+   "decay": 29.26,
+   "lowpass": 647
+  },
+  {
+   "type": "sweep",
+   "amp": 0.5,
+   "decay": 4.18,
+   "startHz": 1592,
+   "endHz": 722,
+   "curve": "exp",
+   "harmN": 1,
+   "harmAmp": 0.42
+  },
+  {
+   "type": "sweep",
+   "amp": 0.265,
+   "decay": 6.23,
+   "startHz": 1559,
+   "endHz": 803,
+   "curve": "exp",
+   "harmN": 2,
+   "harmAmp": 0.4
+  },
+  {
+   "type": "partials",
+   "amp": 0.139,
+   "decay": 12.22,
+   "partials": [
+    {
+     "hz": 788,
+     "amp": 0.25
+    }
+   ]
+  },
+  {
+   "type": "noiseTail",
+   "amp": 0.391,
+   "decay": 12.29,
+   "lowpass": 3851
+  }
+ ]
+}

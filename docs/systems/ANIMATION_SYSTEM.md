@@ -33,8 +33,8 @@ character_animator.html   pose authoring + preview
         │   ParamsData + defaults,      crouchDepth field,          data upload)
         │   measurement, weld)          RequestPose authority)          │
         │        │                          │                         ▼
-        │        │                          └──── InstancedCharacter ─ _InstanceAnimData (3×float4)
-        │        │                                fields (single      _InstanceIKData   (4×float4)
+        │        │                          └──── InstancedCharacter ─ _InstanceAnimData (4×float4)
+        │        │                                fields (single      _InstanceIKData   (7×float4)
         │        │                                write site)              │
         │        │                                                      ▼
         │        └──────── parity twin ──────── CharacterPoseCompute.compute
@@ -83,6 +83,8 @@ hands off to the animator via sessionStorage.
 | 10 | Aim Sweep | aim + sinusoidal shoulder yaw (debug/posterity) |
 | 11 | Sit | seated — pelvis anchored by runtime transform |
 | 12 | Crouch Walk | **archived** — walking duck is now state 1 + `duck` |
+| 13 | Reloading | authored two-hand reload — support arm taps per `tapPulse` (sim-driven, seat-locked) |
+| 14 | Reload Crouch | same `reload` arm/head params over the crouch body channel (`reloadCrouch` block) |
 
 - **THE DUCK SCALAR (0..2)** — one silhouette/cover-height contract. The state
   picks which endpoint SET renders it:
@@ -203,16 +205,23 @@ instancedHandle.crouchDepth
 `VoxelChunkManager` packs them per frame:
 
 ```
-_InstanceAnimData[i*3+0] = (animState, animTime, animSpeed, transBlend)
-_InstanceAnimData[i*3+1] = (posedBufferOffset, transStateA, transTimeA, transDip)
-_InstanceAnimData[i*3+2] = (duck, transDuckA, gaitTime, lookScanBlend)
-_InstanceIKData  [i*4+0..3] = quat(gidA), quat(gidB), quat(torso),
-                              (gidA, gidB, blend, flags{bit0 arm, bit1 torso})
+_InstanceAnimData[i*4+0] = (animState, animTime, animSpeed, transBlend)
+_InstanceAnimData[i*4+1] = (posedBufferOffset, transStateA, transTimeA, transDip)
+_InstanceAnimData[i*4+2] = (duck, transDuckA, gaitTime, lookScanBlend)
+_InstanceAnimData[i*4+3] = (tapPulse, reloadGunSide, -, -)
+_InstanceIKData  [i*7+0..6] = quat(gidA), quat(gidB), quat(torso), quat(head),
+                              quat(gidC), quat(gidD),
+                              (gidA|B|C|D nibble-packed, blend,
+                               flags{bit0 armA, bit1 torso, bit2 head, bit3 armCD})
 ```
 
 `crouchDepth` on the handle now carries the duck scalar; `transDepthA` freezes
-duck at transition start. `gaitTime`/`lookScanBlend` ride the two free slots —
-no stride change.
+duck at transition start. `gaitTime`/`lookScanBlend` ride the two free slots of
+row 2. Row 3 carries the **reload channels**: `tapPulse` (0..1 press envelope,
+driven by `ReloadGestureSolver` off `RoundSeated`/`SimClock`) and
+`reloadGunSide` (±1 — which arm holds the weapon, resolved from
+`mount.HandGid`; direction-sensitive reload angles mirror by it so the L/R
+param columns read as **roles**: support/work vs gun arm).
 
 ---
 
@@ -250,6 +259,13 @@ drops (cover posture overrides opportunity fire).
 | 4/5 | Legs | twist + `icr` stride | kf + `wd` legStride | — | (AimWalk: kf) | `Cr(·)` legStride | `sitting.legStride*` |
 | 6/7 | Shins | rest + `icr` knee | kf + `wd` kneeBend | — | — | rest + `Cr(·)` kneeBend | `sitting.kneeBend*` |
 | 8/9 | Forearms | rest + `icr` elbow | kf + `wd` elbowBend | — | `aiming.elbowBend*` | rest + `Cr(·)` elbowBend | rest |
+
+Reload states (13/14) read the `reload`/`reloadCrouch` columns instead:
+arms/forearms compose exactly like Aiming (same axes/signs/rest rolls), head +
+torso twist come from the same block, and state 14 takes legs/shins/bodyLower
+from the `crouching→crouchDeep` lerp (`isCrouchBody` — the crouch
+posture under reload arms). `tapPulse` adds `tapReach`/`tapBend` deltas onto
+the SUPPORT-role arm only — the press lands on the seat click.
 
 Walk overlay: `bodyBobY = -cos(4π·phase)·amp` on Y,
 `weightShiftX = sin(2π·phase)·amp` on X — `phase` derives from the integrated
@@ -292,6 +308,11 @@ param-derived `ownRot` (`Slerp(base, ik, blend)`); children still inherit via
 FK. gid 0 (torso) participates in the body transform so assist propagates to
 arm/forearm chains. Written by `ArmAimSolver` (aim) — CPU mirror drives the
 weapon weld; GPU mirror via `_InstanceIKData`.
+The channel is **stride 7**: arm pair A/B (aim solve), torso (gid 0, flag
+bit 1), head (gid 1, flag bit 2 — `SetHeadAim`/`ArmAimSolver.headTrack`,
+the eyes-on-threat track), and a **second arm pair C/D** (flag bit 3 —
+plumbing shipped for the two-handed support arm; dormant until the rifle
+work). All four gids pack into `meta.x` as nibbles.
 **Posture gate**: the solver refuses to engage while crouched, and entering a
 crouch drops the channel instantly — the crouch pose transition carries the
 arm down; a stale torso quat would stomp the authored crouch lean
@@ -320,6 +341,8 @@ must agree.
 | `looking` | `headYaw, headYawFreq, headPitch, headPitchFreq` | sinusoid scan |
 | `aiming` | `weaponType, torsoTwist, headYaw/Pitch/Tilt, armSwingL/R, shoulderReachL/R, elbowBendL/R` | static aim base; `weaponType` = pistol/dual/rifle presets authored in HTML (`AIM_WEAPON_PRESETS`) |
 | `aimSweep` | `amp, freq, headFollow` | state-10 shoulder-yaw sweep |
+| `reload` | `armSwingL/R, shoulderReachL/R, elbowBendL/R, forearmTwistL/R, headYaw/Pitch/Tilt, torsoTwist, tapReachL/R, tapBendL/R` | state-13 two-hand reload; arm composition = the AimSweep convention (`QY(reach)·QAxis(axis,sign·swing)·QZ(restZ)`); `tap*` = deltas scaled by `tapPulse`; L/R = **roles** (support vs gun) mirrored by `reloadGunSide` |
+| `reloadCrouch` | *same fields as reload* | state-14 — arm/head/twist params only; legs/lean/lower come from `crouching→crouchDeep` |
 | `crouching` | `bodyLower, modelLower, bodyLean, headPitch, armSwingL/R, legStrideL/R, kneeBendL/R, elbowBendL/R` | **shallow endpoint (depth 0)** |
 | `crouchDeep` | *same fields as crouching* | **deep endpoint (depth 1)** — absent → clones shallow (inert) |
 | `sitting` | `headPitch, armSwingL/R, legStrideL/R, kneeBendL/R` | seat pose; NO bodyLower/modelLower — the seat anchor positions the pelvis |

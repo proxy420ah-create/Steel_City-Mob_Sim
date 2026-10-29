@@ -13,9 +13,10 @@ RWStructuredBuffer<uint> _RestVoxelData;     // [dimX*dimY*dimZ] — rest voxel 
 StructuredBuffer<uint> _GroupIDs;            // [dimX*dimY*dimZ] — per-voxel groupID
 
 // ---- Per-instance animation state ----
-// _InstanceAnimData[instanceIdx*2 + 0] = float4(animState, animTime, animSpeed, transBlend)
-// _InstanceAnimData[instanceIdx*2 + 1] = float4(posedBufferOffset, transStateA, transTimeA, transDip)
-// _InstanceAnimData[instanceIdx*2 + 2] = float4(crouchDepth, transDepthA, 0, 0)
+// _InstanceAnimData[instanceIdx*4 + 0] = float4(animState, animTime, animSpeed, transBlend)
+// _InstanceAnimData[instanceIdx*4 + 1] = float4(posedBufferOffset, transStateA, transTimeA, transDip)
+// _InstanceAnimData[instanceIdx*4 + 2] = float4(crouchDepth, transDepthA, gaitTime, lookScanBlend)
+// _InstanceAnimData[instanceIdx*4 + 3] = float4(tapPulse, 0, 0, 0)
 //   — transDepthA freezes the depth axis with the pose; the A-eval ducks at
 //   the OLD depth so a depth change rides the blend instead of snapping.
 //   transBlend in (0,1) = pose transition active: second eval under the frozen
@@ -24,10 +25,14 @@ StructuredBuffer<uint> _GroupIDs;            // [dimX*dimY*dimZ] — per-voxel g
 StructuredBuffer<float4> _InstanceAnimData;
 
 // ---- Per-instance IK overrides (solver-driven, e.g. ArmAimSolver) ----
-// _InstanceIKData[instanceIdx*4 + 0] = quaternion override for gidA (xyzw, model space)
-// _InstanceIKData[instanceIdx*4 + 1] = quaternion override for gidB
-// _InstanceIKData[instanceIdx*4 + 2] = quaternion override for gid 0 (torso assist)
-// _InstanceIKData[instanceIdx*4 + 3] = float4(gidA, gidB, blend, flags: bit0 arm, bit1 torso)
+// _InstanceIKData[instanceIdx*7 + 0] = quaternion override for gidA (xyzw, model space)
+// _InstanceIKData[instanceIdx*7 + 1] = quaternion override for gidB
+// _InstanceIKData[instanceIdx*7 + 2] = quaternion override for gid 0 (torso assist)
+// _InstanceIKData[instanceIdx*7 + 3] = quaternion override for gid 1 (head aim)
+// _InstanceIKData[instanceIdx*7 + 4] = quaternion override for gidC (second arm pair)
+// _InstanceIKData[instanceIdx*7 + 5] = quaternion override for gidD
+// _InstanceIKData[instanceIdx*7 + 6] = float4(packedGids (4 nibbles A|B|C|D), blend,
+//                                           flags: bit0 pair1, bit1 torso, bit2 head, bit3 pair2)
 StructuredBuffer<float4> _InstanceIKData;
 int _IKDataEnabled;
 
@@ -175,7 +180,7 @@ struct TransformEntry {
 float3x3 ComputeOwnRotation(
     uint gid, float3 dims, float voxelSize,
     float animState, float animTime, float animSpeed,
-    float duck, float gaitTime, float scanBlend)
+    float duck, float gaitTime, float scanBlend, float tapPulse, float gunSide)
 {
     float3x3 rot = float3x3(1,0,0, 0,1,0, 0,0,1);
 
@@ -190,6 +195,8 @@ float3x3 ComputeOwnRotation(
     bool isAimingState = (animState > 2.5 && animState < 4.5) || isSweepState;
     bool isCrouchingState = animState > 4.5 && animState < 5.5;
     bool isSittingState = animState > 10.5 && animState < 11.5; // Sit (11)
+    bool isReloadState = animState > 12.5 && animState < 13.5;        // Reload (13)
+    bool isReloadCrouchState = animState > 13.5 && animState < 14.5;  // Reload Crouch (14)
 
     // Legacy state-5.x depth axis — duck 1+d ≡ old crouchDepth d.
     float cDepth = saturate(duck - 1.0);
@@ -227,6 +234,13 @@ float3x3 ComputeOwnRotation(
     // transform positions the pelvis at runtime.
     float4 sitP    = ASP(13); if (!_AnimStaticParamsEnabled) sitP = float4(1.45, 1.45, 1.45, 1.45);
     float4 sitP2   = ASP(14); if (!_AnimStaticParamsEnabled) sitP2 = float4(0.2, 0.2, 0, 0);
+    // Reload (13) / Reload Crouch (14) — ASP 27-30 / 31-34. rl* = arms,
+    // elbows+twists, head+torso, tap deltas; state14 rides the crouch body.
+    int rlBase = isReloadCrouchState ? 31 : 27;
+    float4 rl1 = ASP(rlBase);     if (!_AnimStaticParamsEnabled) rl1 = float4(-0.8, -0.95, 0.5, -0.35);
+    float4 rl2 = ASP(rlBase + 1); if (!_AnimStaticParamsEnabled) rl2 = float4(1.1, 0.9, 0, 0);
+    float4 rl3 = ASP(rlBase + 2); if (!_AnimStaticParamsEnabled) rl3 = float4(0, 0.55, 0.08, 0);
+    float4 rl4 = ASP(rlBase + 3); if (!_AnimStaticParamsEnabled) rl4 = float4(0.2, 0, 0.25, 0);
 
     // Aim Sweep (state 10): sinusoidal shoulder-yaw added to the ARMED arm's
     // reach (the arm whose aim swing is non-zero); head follows at headFollow.
@@ -258,6 +272,8 @@ float3x3 ComputeOwnRotation(
             headPitch = sin(animTime * lookP.w) * lookP.z;
         } else if (isAimingState) {
             headYaw = aimP1.y + sweepYaw * sweepP.z; headPitch = aimP1.z; headTilt = aimP1.w;
+        } else if (isReloadState || isReloadCrouchState) { // Reload (13/14) — eyes to the work
+            headYaw = rl3.x; headPitch = rl3.y; headTilt = rl3.z;
         } else if (isCrouchingState) {
             headPitch = crouchP1.y;
         } else if (isWalkState && duck > 0.0) {   // walk-duck head deltas
@@ -281,6 +297,13 @@ float3x3 ComputeOwnRotation(
         } else if (isAimingState) {
             swing = armCfg.z * aimP2.x;
             reach = aimP2.z + (swing != 0.0 ? sweepYaw : 0.0);
+        } else if (isReloadState || isReloadCrouchState) { // Reload (13/14) — hold + tap delta
+            // Role-assigned: L column = support arm, R column = gun arm.
+            // gid 2 is the gun arm when gunSide < 0.
+            bool gunArm = gunSide < 0.0;
+            float gs = gunSide >= 0.0 ? 1.0 : -1.0;
+            swing = armCfg.z * (gunArm ? rl1.y : rl1.x);
+            reach = gs * ((gunArm ? rl1.w : rl1.z) + tapPulse * (gunArm ? rl4.y : rl4.x));
         } else if (isCrouchingState) {
             swing = armCfg.z * crouchP1.z;
         } else if (isSittingState) {
@@ -298,6 +321,12 @@ float3x3 ComputeOwnRotation(
         } else if (isAimingState) {
             swing = armCfg.w * aimP2.y;
             reach = aimP2.w + (swing != 0.0 ? sweepYaw : 0.0);
+        } else if (isReloadState || isReloadCrouchState) { // Reload (13/14) — hold + tap delta
+            // Role-assigned (mirror of gid 2): this arm is the gun arm when gunSide > 0.
+            bool gunArm = gunSide > 0.0;
+            float gs = gunSide >= 0.0 ? 1.0 : -1.0;
+            swing = armCfg.w * (gunArm ? rl1.y : rl1.x);
+            reach = gs * ((gunArm ? rl1.w : rl1.z) + tapPulse * (gunArm ? rl4.y : rl4.x));
         } else if (isCrouchingState) {
             swing = armCfg.w * crouchP1.w;
         } else if (isSittingState) {
@@ -313,7 +342,7 @@ float3x3 ComputeOwnRotation(
         float stride = 0;
         if (useKeyframesWalkOrAimWalk) {
             stride = legCfg.z * (GetWalkPoseValue(2, walkPhase) + wdLegs.x);
-        } else if (isCrouchingState) {
+        } else if (isCrouchingState || isReloadCrouchState) {
             stride = legCfg.z * crouchP2.x;
         } else if (isSittingState) {
             stride = legCfg.z * sitP.x;
@@ -328,7 +357,7 @@ float3x3 ComputeOwnRotation(
         float stride = 0;
         if (useKeyframesWalkOrAimWalk) {
             stride = legCfg.w * (GetWalkPoseValue(3, walkPhase) + wdLegs.y);
-        } else if (isCrouchingState) {
+        } else if (isCrouchingState || isReloadCrouchState) {
             stride = legCfg.w * crouchP2.y;
         } else if (isSittingState) {
             stride = legCfg.w * sitP.y;
@@ -346,6 +375,11 @@ float3x3 ComputeOwnRotation(
             twist = GetWalkPoseValue(8, walkPhase);
         } else if (isAimingState) {
             bend = elbowCfg.z * aimP3.x;
+        } else if (isReloadState || isReloadCrouchState) { // Reload (13/14) — hold + tap bend
+            bool gunArm = gunSide < 0.0;
+            float gs = gunSide >= 0.0 ? 1.0 : -1.0;
+            bend = elbowCfg.z * ((gunArm ? rl2.y : rl2.x) + tapPulse * (gunArm ? rl4.w : rl4.z));
+            twist = gs * (gunArm ? rl2.w : rl2.z);
         } else if (isCrouchingState) {
             bend += elbowCfg.z * lerp(ASP(17).z, ASP(18).x, cDepth);
         }
@@ -361,6 +395,11 @@ float3x3 ComputeOwnRotation(
             twist = GetWalkPoseValue(9, walkPhase);
         } else if (isAimingState) {
             bend = elbowCfg.w * aimP3.y;
+        } else if (isReloadState || isReloadCrouchState) { // Reload (13/14) — hold + tap bend
+            bool gunArm = gunSide > 0.0;
+            float gs = gunSide >= 0.0 ? 1.0 : -1.0;
+            bend = elbowCfg.w * ((gunArm ? rl2.y : rl2.x) + tapPulse * (gunArm ? rl4.w : rl4.z));
+            twist = gs * (gunArm ? rl2.w : rl2.z);
         } else if (isCrouchingState) {
             bend += elbowCfg.w * lerp(ASP(17).w, ASP(18).y, cDepth);
         }
@@ -372,7 +411,7 @@ float3x3 ComputeOwnRotation(
         float bend = kneeCfg.z * (kneeRest.x + icrP2.z);
         if (useKeyframesWalkOrAimWalk) {
             bend = kneeCfg.z * (GetWalkPoseValue(6, walkPhase) + wdLegs.z);
-        } else if (isCrouchingState) {
+        } else if (isCrouchingState || isReloadCrouchState) {
             bend += kneeCfg.z * crouchP2.z;
         } else if (isSittingState) {
             bend += kneeCfg.z * sitP.z;
@@ -384,7 +423,7 @@ float3x3 ComputeOwnRotation(
         float bend = kneeCfg.w * (kneeRest.y + icrP2.w);
         if (useKeyframesWalkOrAimWalk) {
             bend = kneeCfg.w * (GetWalkPoseValue(7, walkPhase) + wdLegs.w);
-        } else if (isCrouchingState) {
+        } else if (isCrouchingState || isReloadCrouchState) {
             bend += kneeCfg.w * crouchP2.w;
         } else if (isSittingState) {
             bend += kneeCfg.w * sitP.w;
@@ -457,6 +496,12 @@ void ComputeGroupRotation(
     // icr() idle hold (both 0 outside their states).
     bool isAimingState = (animState > 2.5 && animState < 4.5) || (animState > 9.5 && animState < 10.5);
     bool isCrouchingState = animState > 4.5 && animState < 5.5;
+    bool isReloadState = animState > 12.5 && animState < 13.5;
+    bool isReloadCrouchState = animState > 13.5 && animState < 14.5;
+    bool isCrouchBody = isCrouchingState || isReloadCrouchState;
+    float tapPulse = _InstanceAnimData[instIdx * 4 + 3].x;
+    float gunSide = _InstanceAnimData[instIdx * 4 + 3].y; // +1 gun arm = gid3, -1 = gid2
+    if (gunSide == 0.0) gunSide = 1.0;
     // Gait states (Walking + AimWalk) share wd(); stationary states (Idle +
     // Aiming) share icr() — the duck scalar folds every pose, no exceptions.
     bool isWalkAnim = (animState > 0.5 && animState < 1.5) || (animState > 2.5 && animState < 3.5);
@@ -466,14 +511,15 @@ void ComputeGroupRotation(
     float idleIn = ((animState > -0.5 && animState < 0.5)
                  || (animState > 3.5 && animState < 4.5)) ? min(1.0, duck) : 0.0;
     float4 wdB = lerp(ASP(21), ASP(25), duckDeep) * duckIn;   // model body fwd lean
-    float torsoTwist = isAimingState ? (_AnimStaticParamsEnabled ? _AnimStaticParams[1].x : 0.2) : 0.0;
-    float bodyLean = isCrouchingState ? lerp(ASP(4).x, ASP(15).x, cDepth)
+    float torsoTwist = isAimingState ? (_AnimStaticParamsEnabled ? _AnimStaticParams[1].x : 0.2)
+        : (isReloadState || isReloadCrouchState) ? ASP(isReloadCrouchState ? 33 : 29).w : 0.0;
+    float bodyLean = isCrouchBody ? lerp(ASP(4).x, ASP(15).x, cDepth)
         : wdB.w + lerp(ASP(4).x, ASP(15).x, cDepth) * idleIn;
-    float bodyLower = isCrouchingState ? lerp(ASP(3).z, ASP(17).x, cDepth)
+    float bodyLower = isCrouchBody ? lerp(ASP(3).z, ASP(17).x, cDepth)
         : wdB.y + lerp(ASP(3).z, ASP(17).x, cDepth) * idleIn;
-    float modelLower = isCrouchingState ? lerp(ASP(3).w, ASP(17).y, cDepth)
+    float modelLower = isCrouchBody ? lerp(ASP(3).w, ASP(17).y, cDepth)
         : wdB.x + lerp(ASP(3).w, ASP(17).y, cDepth) * idleIn;
-    float bodyForward = isCrouchingState ? lerp(ASP(18).z, ASP(18).w, cDepth)
+    float bodyForward = isCrouchBody ? lerp(ASP(18).z, ASP(18).w, cDepth)
         : wdB.z + lerp(ASP(18).z, ASP(18).w, cDepth) * idleIn;
     bool hasBodyRot = (torsoTwist != 0.0) || (bodyLean != 0.0);
 
@@ -488,14 +534,21 @@ void ComputeGroupRotation(
     // (chain[body] on gid 0 and the bodyApplies appends on arm chains).
     float4 ikMeta = float4(0,0,0,0);
     bool ikArmOn = false;
+    bool ikArm2On = false;
+    bool ikHeadOn = false;
     float ikBlendF = 0.0;
+    int ikGidA = 0, ikGidB = 0, ikGidC = 0, ikGidD = 0;
     if (_IKDataEnabled != 0) {
-        ikMeta = _InstanceIKData[instIdx * 4 + 3];
-        int ikFlags = (int)ikMeta.w;
+        ikMeta = _InstanceIKData[instIdx * 7 + 6];
+        int pk = (int)ikMeta.x;
+        ikGidA = pk & 15; ikGidB = (pk >> 4) & 15; ikGidC = (pk >> 8) & 15; ikGidD = (pk >> 12) & 15;
+        int ikFlags = (int)ikMeta.z;
         ikArmOn = (ikFlags & 1) != 0;
-        ikBlendF = ikMeta.z;
+        ikHeadOn = (ikFlags & 4) != 0;
+        ikArm2On = (ikFlags & 8) != 0;
+        ikBlendF = ikMeta.y;
         if ((ikFlags & 2) != 0) {
-            bodyRot = ApplyIKOverride(bodyRot, _InstanceIKData[instIdx * 4 + 2], ikBlendF);
+            bodyRot = ApplyIKOverride(bodyRot, _InstanceIKData[instIdx * 7 + 2], ikBlendF);
             hasBodyRot = true;
         }
     }
@@ -525,7 +578,7 @@ void ComputeGroupRotation(
     // Compute own rotation (always returns a rotation; identity if no transform)
     // Look-scan yields to IK arm aim — eye-line belongs to the weapon.
     float effScan = ikArmOn ? 0.0 : scanBlend;
-    float3x3 ownRot = ComputeOwnRotation(groupID, dims, 1.0, animState, animTime, animSpeed, duck, gaitTime, effScan);
+    float3x3 ownRot = ComputeOwnRotation(groupID, dims, 1.0, animState, animTime, animSpeed, duck, gaitTime, effScan, tapPulse, gunSide);
     // Groups 1-9 always have some rotation (even if identity for idle head).
     // Group 0 (body) is handled separately above.
     bool hasOwnRot = (groupID >= 1u);
@@ -534,23 +587,41 @@ void ComputeGroupRotation(
     float3x3 parentRot = float3x3(1,0,0, 0,1,0, 0,0,1);
     bool hasParentRot = false;
     if (hasParent) {
-        parentRot = ComputeOwnRotation(parentGid, dims, 1.0, animState, animTime, animSpeed, duck, gaitTime, effScan);
+        parentRot = ComputeOwnRotation(parentGid, dims, 1.0, animState, animTime, animSpeed, duck, gaitTime, effScan, tapPulse, gunSide);
         hasParentRot = true;
     }
+
+    // Head IK override (gid 1) — the unified head-aim channel; CPU applies the
+    // identical quaternion through ikOverrides[1], so the rendered head follows
+    // the CPU head that places the probe eye. Bit 2, independent of the arm pair.
+    if (ikHeadOn && groupID == 1u)
+        ownRot = ApplyIKOverride(ownRot, _InstanceIKData[instIdx * 7 + 3], ikBlendF);
 
     // Arm IK overrides — solver rotations blend into the param-derived
     // rotations for the named groups. Applied to ownRot for this group AND
     // to parentRot when the override targets this group's parent (e.g.
-    // forearm voxels inherit the arm solve). Meta loaded above.
+    // forearm voxels inherit the arm solve). gids nibble-decoded above.
     if (ikArmOn) {
-        if ((int)groupID == (int)ikMeta.x)
-            ownRot = ApplyIKOverride(ownRot, _InstanceIKData[instIdx * 4 + 0], ikBlendF);
-        if ((int)groupID == (int)ikMeta.y)
-            ownRot = ApplyIKOverride(ownRot, _InstanceIKData[instIdx * 4 + 1], ikBlendF);
-        if (hasParentRot && (int)parentGid == (int)ikMeta.x)
-            parentRot = ApplyIKOverride(parentRot, _InstanceIKData[instIdx * 4 + 0], ikBlendF);
-        if (hasParentRot && (int)parentGid == (int)ikMeta.y)
-            parentRot = ApplyIKOverride(parentRot, _InstanceIKData[instIdx * 4 + 1], ikBlendF);
+        if ((int)groupID == ikGidA)
+            ownRot = ApplyIKOverride(ownRot, _InstanceIKData[instIdx * 7 + 0], ikBlendF);
+        if ((int)groupID == ikGidB)
+            ownRot = ApplyIKOverride(ownRot, _InstanceIKData[instIdx * 7 + 1], ikBlendF);
+        if (hasParentRot && (int)parentGid == ikGidA)
+            parentRot = ApplyIKOverride(parentRot, _InstanceIKData[instIdx * 7 + 0], ikBlendF);
+        if (hasParentRot && (int)parentGid == ikGidB)
+            parentRot = ApplyIKOverride(parentRot, _InstanceIKData[instIdx * 7 + 1], ikBlendF);
+    }
+
+    // Second arm pair (bit 3) — support arm channel (reload gesture, two-handed).
+    if (ikArm2On) {
+        if ((int)groupID == ikGidC)
+            ownRot = ApplyIKOverride(ownRot, _InstanceIKData[instIdx * 7 + 4], ikBlendF);
+        if ((int)groupID == ikGidD)
+            ownRot = ApplyIKOverride(ownRot, _InstanceIKData[instIdx * 7 + 5], ikBlendF);
+        if (hasParentRot && (int)parentGid == ikGidC)
+            parentRot = ApplyIKOverride(parentRot, _InstanceIKData[instIdx * 7 + 4], ikBlendF);
+        if (hasParentRot && (int)parentGid == ikGidD)
+            parentRot = ApplyIKOverride(parentRot, _InstanceIKData[instIdx * 7 + 5], ikBlendF);
     }
 
     // Body applies to groups 1,2,3 and their children (8,9 via parent 2,3)
@@ -654,7 +725,7 @@ void CSClear(uint3 dtid : SV_DispatchThreadID)
     if (dtid.x >= (uint)sliceSize) return;
     if (dtid.y >= (uint)_InstanceCount) return;
 
-    float4 instMeta = _InstanceAnimData[dtid.y * 3 + 1];
+    float4 instMeta = _InstanceAnimData[dtid.y * 4 + 1];
     uint posedOffset = (uint)instMeta.x;
     _PosedVoxelData[posedOffset + dtid.x] = 0u;
 }
@@ -695,18 +766,18 @@ void CSPose(uint3 dtid : SV_DispatchThreadID)
     uint gid = _GroupIDs[restIdx];
 
     // Read instance animation state
-    float4 animData = _InstanceAnimData[instIdx * 3];
+    float4 animData = _InstanceAnimData[instIdx * 4];
     float animState = animData.x;
     float animTime = animData.y;
     float animSpeed = animData.z;
     // Slot [2]: x = duck scalar (0..2), y = frozen duck at transition start,
     //           z = integrated gait clock, w = look-scan blend.
-    float4 duckData = _InstanceAnimData[instIdx * 3 + 2];
+    float4 duckData = _InstanceAnimData[instIdx * 4 + 2];
     float duck = duckData.x;
     float gaitTime = duckData.z;
     float scanBlend = duckData.w;
 
-    float4 instMeta = _InstanceAnimData[instIdx * 3 + 1];
+    float4 instMeta = _InstanceAnimData[instIdx * 4 + 1];
     uint posedBufferOffset = (uint)instMeta.x;
 
     float3 dims = float3((float)_RestDimX, (float)_RestDimY, (float)_RestDimZ);

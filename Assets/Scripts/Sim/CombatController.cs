@@ -468,6 +468,10 @@ namespace SteelCity.Sim
         /// (Flags are marked dirty, not rebuilt inside the event — the
         /// mutation sequence finishes first.)</summary>
         public event Action Changed;
+        /// <summary>A chamber seated during the staggered reload — STATIC so one
+        /// subscription (ReloadAudio) hears every fighter's wheel; the seat is the
+        /// audio family's event channel. Changed stays the payload-free display bus.</summary>
+        public static event Action<CombatController> RoundSeated;
         /// <summary>Successful shots this engagement — the flow chart's FIRE beat.</summary>
         public int ShotsFired { get; private set; }
         void Notify() => Changed?.Invoke();
@@ -779,6 +783,28 @@ namespace SteelCity.Sim
         /// arc complete. Deliberately untouched: contactSeen, LastSeenAt,
         /// convergeSince — a report is intel, not a sighting; the arm-hold
         /// grace and the drop clock keep running on the eye channel's truth.</summary>
+        void OnEnable()  { SfxWaves.Heard += OnSfxHeard; }
+        void OnDisable() { SfxWaves.Heard -= OnSfxHeard; }
+
+        /// <summary>Radius hearing — every real gunshot report reaches every
+        /// fighter in earshot; the report IS intel on the shooter. Delivered
+        /// only when the shooter is who I'm already tracking (ThreatCharacter)
+        /// or watching post-fight — a stranger's bang doesn't re-anchor this
+        /// duel (third-party intel belongs to the awareness table, later).
+        /// Distance rides the authored audio rolloff (AmplitudeAt > 0 = inside
+        /// the report). Possess-fired shots report through the same channel —
+        /// the player is no longer silent to AI.</summary>
+        void OnSfxHeard(Vector3 origin, float range, float refDist, string tag, Component shooter)
+        {
+            if (tag != "gunshot" || shooter == null) return;
+            var shotVox = shooter.GetComponentInParent<VoxelCharacter>();
+            if (shotVox == null || shotVox == vox) return;                 // no actor / own report
+            float d = Vector3.Distance(Feet(), origin);
+            if (SfxWaves.AmplitudeAt(d, refDist, range) <= 0f) return;     // outside earshot
+            if (shotVox != ThreatCharacter && shotVox != watchTarget) return; // not my fight
+            OnShotHeard(origin);
+        }
+
         public void OnShotHeard(Vector3 shotPos)
         {
             if (State == CombatState.Idle)
@@ -3639,6 +3665,8 @@ namespace SteelCity.Sim
                 cylinder++;
                 nextRoundLoad = SimClock.Now + roundLoadInterval;
                 if (cylinder >= cylinderCapacity) reloading = false;
+                ReloadAudio.GetOrCreate();   // spawn the seat-click listener before the event (ProjectileSystem→SurfaceImpactAudio precedent)
+                RoundSeated?.Invoke(this);   // the audio family's event — ReloadAudio owns the click
                 Notify();   // the flow chart's cylinder dots tick on this event
             }
             if (State == CombatState.Idle) { TickWatch(); return; }
@@ -3842,7 +3870,10 @@ namespace SteelCity.Sim
                         // sensor's flickering voxel verdict thrash the pose
                         // (Aiming↔AimSweep every frame); the end-verdict still
                         // reports what the eye actually resolved.
-                        var wantPose = diceLegActive
+                        var wantPose = reloading
+                            ? (anim.duck > 1.02f ? CharacterAnimation.AnimState.ReloadCrouch
+                                                 : CharacterAnimation.AnimState.Reloading)
+                            : diceLegActive
                             ? CharacterAnimation.AnimState.AimWalk
                             : diceReconCheck
                             ? CharacterAnimation.AnimState.AimSweep
@@ -4171,19 +4202,21 @@ namespace SteelCity.Sim
             // target. In-cover beats keep their authored head poses.
             if (vox != null)
             {
-                if (State == CombatState.SeekingCover && ThreatCharacter != null)
+                var hSlv = vox.GetComponent<ArmAimSolver>();
+                bool solverOwns = hSlv != null && hSlv.IsAiming;   // aiming rig owns the head (headTrack)
+                if (State == CombatState.SeekingCover && ThreatCharacter != null && !solverOwns)
                 {
                     Vector3 et = AimAnchor() - transform.position; et.y = 0f;
-                    // Animator RotationY is the transposed convention —
-                    // positive headYaw = NEGATIVE Unity yaw — so the body→target
-                    // delta flips sign here (and the ±1.35rad neck clamp rides).
-                    vox.HeadYawOverride = et.sqrMagnitude > 1e-4f
-                        ? Mathf.Clamp(-Mathf.DeltaAngle(transform.eulerAngles.y,
-                              Mathf.Atan2(et.x, et.z) * Mathf.Rad2Deg) * Mathf.Deg2Rad,
-                              -1.35f, 1.35f)
-                        : float.NaN;
+                    // Unified head channel — yaw-only model-space quat, written to
+                    // CPU ikOverrides[1] AND GPU ikHeadQuat (identical). Model fwd
+                    // is +Z, so the Unity yaw delta composes directly; ±1.35 rad neck.
+                    float yawDeg = et.sqrMagnitude > 1e-4f
+                        ? Mathf.Clamp(Mathf.DeltaAngle(transform.eulerAngles.y,
+                              Mathf.Atan2(et.x, et.z) * Mathf.Rad2Deg), -77.2f, 77.2f)
+                        : 0f;
+                    vox.SetHeadAim(Quaternion.AngleAxis(yawDeg, Vector3.up), 1f);
                 }
-                else vox.HeadYawOverride = float.NaN;
+                else if (!solverOwns) vox.ClearHeadAim();
             }
 
             // Convergence = the bore HOLDING the current aim inside the gate,
@@ -4294,11 +4327,9 @@ namespace SteelCity.Sim
                 // CLEAR transition may have been eaten by the flap coalescer).
                 Debug.Log($"🥊 [Combat] {name} — FIRED #{ShotsFired} → ({vis.centroid.x:F0},{vis.centroid.z:F0})"
                         + $" (vis {vis.visible} · err {solver.LastAngularErrorDeg:F1}° · {Beat}/{State})");
-                // The report is a spatially-exact stimulus: the opponent hears
-                // the bang — his last-known snaps to the firing position and a
-                // live orbit re-anchors on it. Scoped to the declared threat;
-                // a radius broadcast is the crowd-scale version of this hook.
-                ThreatCharacter?.GetComponent<CombatController>()?.OnShotHeard(Feet());
+                // The report reaches every fighter in earshot through
+                // SfxWaves.Report (inside ProjectileSystem.PlayShotSound) —
+                // receivers self-filter by shooter identity + audible range.
                 // Combat reloads automatically on dry — but inside the cover
                 // rhythm the TopUp beat owns the wheel; a dry Engaged ducks
                 // and settles first, reload only starts at the beat. Under

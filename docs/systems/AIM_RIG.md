@@ -1,6 +1,6 @@
 # Aim Rig — one focal point drives torso, head, arm(s) and weapon
 
-**Status**: 📐 SPEC (not implemented) — born from the eye/muzzle mismatch found in the first auto dice duels
+**Status**: ✅ PHASES 1–2 IMPLEMENTED + PLAYTEST-VALIDATED (head parity + torso stance — blading reads correctly per playtest); phase-4 channel plumbing shipped (dormant); phases 3–5 solve work spec — born from the eye/muzzle mismatch found in the first auto dice duels
 **Owner systems**: `ArmAimSolver`, `WeaponMount`, `VoxelCharacterAnimator`, `CharacterPoseCompute.compute`, `CombatController` (consumer)
 **Related**: `ANIMATION_SYSTEM.md` (parity contract), `WEAPON_ATTACHMENT_SYSTEM.md` (anchors), `EXPOSURE_ENGAGEMENT.md`, `PERCEPTION_AWARENESS.md`
 
@@ -50,17 +50,17 @@ Targets:
 | Piece | Today | Needed |
 |---|---|---|
 | Torso | Full quaternion on the GPU (`ikTorsoQuat`, flag bit 2), propagates to head + arms; solver feeds yaw only | Pitch/lean/stance solve — **no shader change** |
-| Arm | One arm + forearm channel (`ikGidA/B`) | A second pair for the support arm (widen `_InstanceIKData` stride, shader + buffer) |
-| Head | `headYawOverride` on the **CPU animator only**; no pitch/tilt override; no match in `CharacterPoseCompute.compute` | Head yaw/pitch/tilt override on CPU **and** GPU **and** JS animator. **Verify the rendered head follows the CPU head** — if not, the probe eye already diverges from what is drawn |
+| Arm | One arm + forearm channel (`ikGidA/B`) | ~~A second pair for the support arm~~ -> **shipped**: stride-7 `_InstanceIKData`, pair C/D + flag bit 3; the two-handed support-arm SOLVE remains |
+| Head | ~~`headYawOverride` CPU-only, yaw-only~~ -> **done**: unified quat channel - `ikOverrides[1]` (CPU) = `ikHeadQuat` flag bit 2 (GPU `_InstanceIKData` slot 3) = JS `ikAim.headTrack`; written via `VoxelCharacter.SetHeadAim` / `ArmAimSolver.headTrack`. Buffer is now **stride 7** (`[A,B,torso,head,C,D,meta]`, four gids nibble-packed in `meta.x`) — the second arm pair (flag bit 3) shipped as phase-4 plumbing during the reload work | ✅ validated: rendered head tracks the threat through cover-seek legs and aim |
 | Anchors | `SW_Model_10`: `grip_right`, `muzzle`, `bore_root` | `grip_left`, `cheek`, `right_shoulder` per weapon (docs already plan them); rifle/shotgun items to author |
 | Eye | `TryGetEyeAnchor` (Eyes centroid + 1.5 cm) | One eye definition for probe, cone, rise solve (today: live pose, idle pose, crouch pose) |
 
 ## 5. Phases (each independently testable)
 
-1. **Head parity** — CPU/GPU/JS head yaw+pitch+tilt overrides; verify rendered head == CPU head (probe eye).
-2. **Torso stance + head look from one `F`** — existing torso channel; gate: `muz-eye(r u f)` lateral offset in the dice trace drops from ~0.12-0.20 m toward ~0.05 m.
+1. **Head parity** - done in code: `_InstanceIKData` stride 4->5, head quat slot + flag bit 2 in `CharacterPoseCompute.compute`; `ArmAimSolver.headTrack` solves `qHead` (yaw +/-1.35 rad, pitch +/-0.9, `BasisDelta(forward->dir)`) in the same pre-torso frame as the arm; `CombatController` eyes-on-threat drives `SetHeadAim` (yaw-only quat) whenever the solver is not aiming. **Gate remaining**: rendered head == CPU head (probe eye) on both fighters - check AIM & SIGHT `sight`/`bore`/`eye->tgt` beams while aiming and during cover-seek legs.
+2. **Torso stance + head look from one `F`** - done in code: `torsoQuat` composes yaw blade (neck-clamp share-up - torso absorbs past +/-77.2 deg so head+torso reach `F`) + **stance blade** (`torsoBladeShare` 0.5 / `torsoBladeMaxDeg` 40 deg: waist yaw swinging the gun shoulder's azimuth toward the aim azimuth - boxing-stance lead, SignedAngle = handedness-correct) + modest stance pitch (`torsoPitchShare` 0.25, cap 12 deg, sign param). NOTE: an earlier roll-about-the-aim-axis "lean" was reverted on sight - it tilted the whole torso sideways; blading is waist yaw, not roll. Gates: suspended while WALKING UN-AIMED (root owns heading) / deep duck; AimWalk keeps the stance (bladeWhileAimWalk) - upper body tracks the target while legs run the route. **Gate**: `muz-eye(r u f)` lateral drops toward ~0.05 m; fighter visibly blades into the shot.
 3. **Aim-line arm solve** — bore on `L`; current solve as fallback; gate: `e/m/b` gap (eye-visible vs muzzle-visible) closes.
-4. **Two-handed** — second IK channel pair + rifle/shotgun anchor authoring; gate: bore line from two grips, stable under sway.
+4. **Two-handed** — channel pair shipped (stride 7 + `ikPair2Enabled`); remains: the support-arm solve to `grip_left` + rifle/shotgun anchor authoring; gate: bore line from two grips, stable under sway.
 5. **Cleanup** — rise solve reads the aimed eye/muzzle (not idle-pose eye + `sightGap`); retire `sightGap` as a constant; keep the muzzle shootable probe as a runtime safety net.
 
 ## 6. Verification
@@ -71,7 +71,7 @@ Targets:
 
 ## 7. Open questions
 
-1. Handedness: does the rig mirror per `handedness`, or is gun side a per-character property?
+1. Handedness: does the rig mirror per `handedness`, or is gun side a per-character property? — *partial answer shipped with the reload work*: `reloadGunSide` (±1) resolves per-character from `mount.HandGid`'s parent arm gid and mirrors the authored reload params by **role** (support vs gun). The aim solve can reuse the same resolution.
 2. Crouch/deep-duck bands: torso assist is disabled there today (it un-folds the crouch lean — `IK_TORSO_OVERRIDE`). The rig needs a duck-aware torso solve instead of a hard gate.
-3. Locomotion: root owns heading while walking. Is aim-stance blending allowed during `AimWalk`, or only when parked?
+3. ~~Locomotion: root owns heading while walking. Is aim-stance blending allowed during `AimWalk`, or only when parked?~~ -> **answered**: `AimWalk` keeps the stance (`bladeWhileAimWalk`, default on — aiming at a live target while moving makes the upper body track while legs run the route); plain `Walking` still suspends it.
 4. Animator authoring: do `aiming` params (`torsoTwist`, `headYaw/Pitch/Tilt`, per `weaponType` preset) become the *rest* the rig solves from, or are they replaced by it?

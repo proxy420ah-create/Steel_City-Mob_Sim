@@ -1,0 +1,71 @@
+{
+ "name": "Impact_01",
+ "version": 4,
+ "sampleRate": 44100,
+ "duration": 1.7152000000000003,
+ "seed": 706837,
+ "envelope": {
+  "mode": "exp"
+ },
+ "gain": 0.8,
+ "drive": 1.2800000000000002,
+ "phaseStep": 1.7,
+ "rootNote": 60,
+ "pitch": 0,
+ "coupleDecay": true,
+ "tailFade": 0.04,
+ "masterAttack": 0,
+ "masterRelease": 0,
+ "eq": [
+  {
+   "type": "lowshelf",
+   "hz": 1568.5333333333333,
+   "gainDb": 2.16,
+   "q": 0.2,
+   "on": true
+  },
+  {
+   "type": "peaking",
+   "hz": 11088.666666666666,
+   "gainDb": -10.32,
+   "q": 2.04,
+   "on": true
+  },
+  {
+   "type": "peaking",
+   "hz": 3200,
+   "gainDb": 0,
+   "q": 1,
+   "on": false
+  },
+  {
+   "type": "highshelf",
+   "hz": 8000,
+   "gainDb": 0,
+   "q": 0.7,
+   "on": false
+  }
+ ],
+ "echo": {
+  "on": false,
+  "time": 0.09,
+  "feedback": 0.35,
+  "mix": 0.25
+ },
+ "layers": [
+  {
+   "type": "attack",
+   "amp": 0.705,
+   "decay": 89.63666666666667,
+   "toneQ": null,
+   "crack": 0.41333333333333333,
+   "src": "impulse"
+  },
+  {
+   "type": "noiseTail",
+   "amp": 0.363,
+   "decay": 26.98,
+   "lowpass": 902
+  }
+ ]
+}

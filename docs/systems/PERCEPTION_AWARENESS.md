@@ -1,7 +1,7 @@
 # Perception & Awareness — city-wide detection architecture
 
 **Created**: October 20, 2026
-**Status**: 📝 SPEC — doctrine/architecture only; no implementation yet
+**Status**: 📝 SPEC + 🟢 PARTIAL IMPLEMENTATION — the **hearing channel is live** (`SfxWaves.Report`/`Heard` → `CombatController.OnSfxHeard` → `OnShotHeard`, scoped to threat/watch targets); vision-layered detection (`VisionSensor` dwell/decay) also shipped. Still spec: the awareness table, identity tiers, citizen `TurnToSound`, `Report`, `Flee`, police dispatch
 **Depends on**: EXPOSURE_ENGAGEMENT.md (implemented), COMBAT_COVER_STATE.md,
 ANIMATION_SYSTEM.md (Looking sweep, duck scalar), PROCEDURAL_AUDIO.md (SfxWaves)
 
@@ -103,19 +103,38 @@ Required evolution:
   scale. Registry partitions by distance bucket; far actors are skipped or
   ticked at low cadence. Detection is per-observer — no shared truth table.
 
-### Hearing (exists — `SfxWaves`; consumer channel needed)
+### Hearing (✅ channel shipped — `SfxWaves.Report`/`Heard`)
 
-`SfxWaves.Emit(pos, audibleRange, refDistance, kind)` already fans positional
-sound events (used by gunshots). The missing piece is a per-actor **hearing
-subscription**:
+`SfxWaves` is now two layers: `Emit` = the visual debug shell only (draws,
+never reaches AI — preview/test emits use it directly), and
+`Report(origin, range, refDist, tag, shooter, visualOrigin?)` = the semantic
+channel — fires the static `SfxWaves.Heard` event on EVERY real report
+regardless of `showWaves`, then draws the shell. Propagation is same-tick
+(sound crosses earshot in ~0.1 s at street scale) and synchronous inside the
+fixed-step fire → deterministic, freezes under F8.
+
+The shipped consumer is `CombatController.OnSfxHeard` (subscribed in
+`OnEnable`): tag `gunshot` + shooter resolves to a different `VoxelCharacter` +
+`AmplitudeAt(distance) > 0` (the authored audio rolloff IS the audibility
+gate) + shooter is the listener's `ThreatCharacter` or post-fight `watchTarget`
+→ `OnShotHeard(origin)` — the belief channel snaps (`ThreatPos` /
+`LastSeenTarget` / `lastConfirmed`), a live orbit re-anchors, post-fight watch
+re-enters combat. `contactSeen`/`LastSeenAt`/`convergeSince` stay on the eye
+channel — **a report is intel, not a sighting**. Possess-fired shots report
+identically — the player is no longer silent to AI.
 
 ```
-OnHeard(event) → if within range: queue reaction (turn-to-sound)
+OnSfxHeard(origin, range, refDist, tag, shooter)
+  → in range ∧ shooter is who I'm fighting/watching
+  → belief snap + orbit re-anchor        (shipped)
+  → queue reaction (turn-to-sound)       (pending — per-actor reaction queue)
 ```
 
-Reactions are authored once, consumed by every actor type — citizens turn and
-stare; hoods may investigate; police respond per dispatch rules. No
-per-scenario scripting.
+Still spec (this doc's scope): reactions authored once consumed by every actor
+type — citizens turn and stare; hoods investigate a stranger's shot; police
+respond per dispatch rules. The current scope filter (threat/watch only)
+means a stranger's bang is *heard but ignored* — widening it is the
+awareness-table work, not more plumbing.
 
 ## Cognition layer — the awareness table
 

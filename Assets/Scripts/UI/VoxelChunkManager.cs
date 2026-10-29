@@ -188,7 +188,7 @@ namespace SteelCity.Sim
         private ComputeBuffer dummyWalkKeyframeBuffer; // 10 float4s of zeros — bound when walk keyframes disabled
         private ComputeBuffer dummyJointConfigBuffer;   // 7 float4s of zeros — bound when walk keyframes disabled
         private ComputeBuffer dummyPivotBuffer;         // 10 float4s of zeros — bound when authored pivots disabled
-        private ComputeBuffer dummyAnimStaticParamsBuffer; // 15 float4s of zeros — bound when anim static params disabled
+        private ComputeBuffer dummyAnimStaticParamsBuffer; // 35 float4s of zeros — bound when anim static params disabled
         private ComputeBuffer dummyRegionIDBuffer;       // single uint(0) — bound when no region data
         private ComputeBuffer dummyMaterialRemapBuffer;  // single uint(0) — bound when no remap
         private ComputeBuffer defaultOccBuffer;          // single uint(0xFFFFFFFF = occupied) — bound when a volume has no occupancy grid
@@ -728,10 +728,10 @@ namespace SteelCity.Sim
                         group.posedVoxelBuffer = new ComputeBuffer(posedSize, sizeof(uint));
                         grew = true;
                     }
-                    if (group.instanceAnimDataBuffer == null || group.instanceAnimDataBuffer.count < capacity * 3)
+                    if (group.instanceAnimDataBuffer == null || group.instanceAnimDataBuffer.count < capacity * 4)
                     {
                         if (group.instanceAnimDataBuffer != null) group.instanceAnimDataBuffer.Release();
-                        group.instanceAnimDataBuffer = new ComputeBuffer(Mathf.Max(capacity * 3, 16), sizeof(float) * 4);
+                        group.instanceAnimDataBuffer = new ComputeBuffer(Mathf.Max(capacity * 4, 16), sizeof(float) * 4);
                         grew = true;
                     }
                     if (group.instanceIKDataBuffer == null || group.instanceIKDataBuffer.count < capacity * 4)
@@ -873,8 +873,8 @@ namespace SteelCity.Sim
             GpuUpload.SetData(dummyJointConfigBuffer, new Vector4[7]);
             dummyPivotBuffer = new ComputeBuffer(10, sizeof(float) * 4);
             GpuUpload.SetData(dummyPivotBuffer, new Vector4[10]);
-            dummyAnimStaticParamsBuffer = new ComputeBuffer(15, sizeof(float) * 4);
-            GpuUpload.SetData(dummyAnimStaticParamsBuffer, new Vector4[15]);
+            dummyAnimStaticParamsBuffer = new ComputeBuffer(35, sizeof(float) * 4);
+            GpuUpload.SetData(dummyAnimStaticParamsBuffer, new Vector4[35]);
             dummyRegionIDBuffer = new ComputeBuffer(1, sizeof(uint));
             GpuUpload.SetData(dummyRegionIDBuffer, new uint[] { 0 });
             dummyMaterialRemapBuffer = new ComputeBuffer(1, sizeof(uint));
@@ -1919,6 +1919,14 @@ namespace SteelCity.Sim
             // Look-scan channel blend (0 = off) — yaw-only head sweep layered
             // over any pose; yields to IK arm aim.
             public float lookScanBlend;
+            // Reload tap channel (0..1) — pulses once per seated round; the
+            // reload states add authored tap* deltas on the support arm.
+            public float tapPulse;
+            // Reload gun side — +1 when the mount's gun arm is gid 3 (data-right),
+            // -1 when gid 2. Reload params are applied by ROLE (support arm =
+            // L column, gun arm = R column), mirrored by this sign, so the tap
+            // always lands on the free hand regardless of the Unity L/R flip.
+            public float reloadGunSide = 1f;
             // Per-instance material remap (clothing system): regionId → materialId (0 = no remap)
             // Sized to match the group's maxRegions. Null = no remap for this instance.
             public uint[] materialRemap;
@@ -1931,6 +1939,16 @@ namespace SteelCity.Sim
             // Torso override (gid 0) — propagates through the body-transform path
             public bool ikTorsoEnabled;
             public Quaternion ikTorsoQuat = Quaternion.identity;
+            // Head override (gid 1) — the unified head-aim channel: same model-space
+            // quaternion on CPU (ikOverrides[1]) and here → rendered head == CPU head.
+            public bool ikHeadEnabled;
+            public Quaternion ikHeadQuat = Quaternion.identity;
+            // Second arm pair (gids C/D) — the support arm channel (AIM_RIG phase 4
+            // plumbing, first consumer = ReloadGestureSolver driving both arms).
+            public bool ikPair2Enabled;
+            public int ikGidC, ikGidD;
+            public Quaternion ikQuatC = Quaternion.identity;
+            public Quaternion ikQuatD = Quaternion.identity;
         }
 
         private class InstancedGroup
@@ -1940,8 +1958,8 @@ namespace SteelCity.Sim
             public ComputeBuffer posedVoxelBuffer;    // posed voxel data (per-instance slices, GPU compute output)
             public ComputeBuffer groupIDBuffer;     // per-voxel groupID (animation groups)
             public ComputeBuffer instanceOffsetBuffer;
-            public ComputeBuffer instanceAnimDataBuffer; // per-instance anim state (3 float4s each)
-            public ComputeBuffer instanceIKDataBuffer;   // per-instance IK overrides (4 float4s each)
+            public ComputeBuffer instanceAnimDataBuffer; // per-instance anim state (4 float4s each)
+            public ComputeBuffer instanceIKDataBuffer;   // per-instance IK overrides (7 float4s each)
             public int dimX, dimY, dimZ;
             public float voxelSize;
             public readonly List<InstancedCharacter> instances = new();
@@ -1957,7 +1975,7 @@ namespace SteelCity.Sim
             public ComputeBuffer pivotBuffer;
             public bool pivotsEnabled = false;
             // Static animation parameters (looking/aiming/crouching/jointOffset)
-            public ComputeBuffer animStaticParamsBuffer; // 15 float4s
+            public ComputeBuffer animStaticParamsBuffer; // 35 float4s
             public bool animStaticParamsEnabled = false;
             // GPU compute forward-transform
             public bool useComputePose = false;  // true when groupIDBuffer is available
@@ -2227,18 +2245,18 @@ namespace SteelCity.Sim
                 return;
             }
 
-            if (animParams == null || animParams.Length != 27)
+            if (animParams == null || animParams.Length != 35)
             {
-                Debug.LogWarning($"[VoxelChunkManager] SetAnimStaticParams: expected 27 entries, got {(animParams == null ? "null" : animParams.Length.ToString())}");
+                Debug.LogWarning($"[VoxelChunkManager] SetAnimStaticParams: expected 35 entries, got {(animParams == null ? "null" : animParams.Length.ToString())}");
                 return;
             }
 
             if (group.animStaticParamsBuffer != null) group.animStaticParamsBuffer.Release();
-            group.animStaticParamsBuffer = new ComputeBuffer(27, sizeof(float) * 4);
+            group.animStaticParamsBuffer = new ComputeBuffer(35, sizeof(float) * 4);
             GpuUpload.SetData(group.animStaticParamsBuffer, animParams);
             group.animStaticParamsEnabled = true;
 
-            Debug.Log($"[VoxelChunkManager] Anim static params set for {assetFileName} (27 float4s)");
+            Debug.Log($"[VoxelChunkManager] Anim static params set for {assetFileName} (35 float4s)");
         }
 
         /// <summary>
@@ -2330,9 +2348,9 @@ namespace SteelCity.Sim
 
             // Build per-instance offset buffer + anim data buffer
             // For compute pose: also build instanceAnimData (2 float4s per instance)
-            var animData = useComputePose ? new Vector4[visibleCount * 3] : null;
+            var animData = useComputePose ? new Vector4[visibleCount * 4] : null;
             // Per-instance IK override data (4 float4s each: quatA, quatB, quatTorso, meta)
-            var ikData = useComputePose ? new Vector4[visibleCount * 4] : null;
+            var ikData = useComputePose ? new Vector4[visibleCount * 7] : null;
 
             foreach (var ic in group.instances)
             {
@@ -2357,14 +2375,22 @@ namespace SteelCity.Sim
 
                 if (useComputePose)
                 {
-                    animData[writeIdx * 3] = new Vector4(ic.animState, ic.animTime, ic.animSpeed, ic.transBlend);
-                    animData[writeIdx * 3 + 1] = new Vector4(writeIdx * totalVoxels, ic.transStateA, ic.transTimeA, ic.transDip); // posed buffer offset + pose-transition source
-                    animData[writeIdx * 3 + 2] = new Vector4(ic.crouchDepth, ic.transDepthA, ic.gaitTime, ic.lookScanBlend);
-                    ikData[writeIdx * 4] = new Vector4(ic.ikQuatA.x, ic.ikQuatA.y, ic.ikQuatA.z, ic.ikQuatA.w);
-                    ikData[writeIdx * 4 + 1] = new Vector4(ic.ikQuatB.x, ic.ikQuatB.y, ic.ikQuatB.z, ic.ikQuatB.w);
-                    ikData[writeIdx * 4 + 2] = new Vector4(ic.ikTorsoQuat.x, ic.ikTorsoQuat.y, ic.ikTorsoQuat.z, ic.ikTorsoQuat.w);
-                    float ikFlags = (ic.ikEnabled ? 1f : 0f) + (ic.ikTorsoEnabled ? 2f : 0f);
-                    ikData[writeIdx * 4 + 3] = new Vector4(ic.ikGidA, ic.ikGidB, ic.ikBlend, ikFlags);
+                    animData[writeIdx * 4] = new Vector4(ic.animState, ic.animTime, ic.animSpeed, ic.transBlend);
+                    animData[writeIdx * 4 + 1] = new Vector4(writeIdx * totalVoxels, ic.transStateA, ic.transTimeA, ic.transDip); // posed buffer offset + pose-transition source
+                    animData[writeIdx * 4 + 2] = new Vector4(ic.crouchDepth, ic.transDepthA, ic.gaitTime, ic.lookScanBlend);
+                    animData[writeIdx * 4 + 3] = new Vector4(ic.tapPulse, ic.reloadGunSide, 0f, 0f); // reload tap channel + gun side
+                    ikData[writeIdx * 7] = new Vector4(ic.ikQuatA.x, ic.ikQuatA.y, ic.ikQuatA.z, ic.ikQuatA.w);
+                    ikData[writeIdx * 7 + 1] = new Vector4(ic.ikQuatB.x, ic.ikQuatB.y, ic.ikQuatB.z, ic.ikQuatB.w);
+                    ikData[writeIdx * 7 + 2] = new Vector4(ic.ikTorsoQuat.x, ic.ikTorsoQuat.y, ic.ikTorsoQuat.z, ic.ikTorsoQuat.w);
+                    ikData[writeIdx * 7 + 3] = new Vector4(ic.ikHeadQuat.x, ic.ikHeadQuat.y, ic.ikHeadQuat.z, ic.ikHeadQuat.w);
+                    ikData[writeIdx * 7 + 4] = new Vector4(ic.ikQuatC.x, ic.ikQuatC.y, ic.ikQuatC.z, ic.ikQuatC.w);
+                    ikData[writeIdx * 7 + 5] = new Vector4(ic.ikQuatD.x, ic.ikQuatD.y, ic.ikQuatD.z, ic.ikQuatD.w);
+                    float ikFlags = (ic.ikEnabled ? 1f : 0f) + (ic.ikTorsoEnabled ? 2f : 0f)
+                                  + (ic.ikHeadEnabled ? 4f : 0f) + (ic.ikPair2Enabled ? 8f : 0f);
+                    // All four arm gids nibble-packed into meta.x (gids are <16)
+                    float packedGids = (ic.ikGidA & 15) + ((ic.ikGidB & 15) << 4)
+                                     + ((ic.ikGidC & 15) << 8) + ((ic.ikGidD & 15) << 12);
+                    ikData[writeIdx * 7 + 6] = new Vector4(packedGids, ic.ikBlend, ikFlags, 0f);
                 }
                 writeIdx++;
             }
@@ -2391,20 +2417,20 @@ namespace SteelCity.Sim
                 }
 
                 // Ensure anim data buffer is large enough
-                if (group.instanceAnimDataBuffer == null || group.instanceAnimDataBuffer.count < visibleCount * 3)
+                if (group.instanceAnimDataBuffer == null || group.instanceAnimDataBuffer.count < visibleCount * 4)
                 {
                     if (group.instanceAnimDataBuffer != null) group.instanceAnimDataBuffer.Release();
-                    group.instanceAnimDataBuffer = new ComputeBuffer(Mathf.Max(visibleCount * 3, 16), sizeof(float) * 4);
+                    group.instanceAnimDataBuffer = new ComputeBuffer(Mathf.Max(visibleCount * 4, 16), sizeof(float) * 4);
                 }
-                GpuUpload.SetData(group.instanceAnimDataBuffer, animData, 0, 0, visibleCount * 3);
+                GpuUpload.SetData(group.instanceAnimDataBuffer, animData, 0, 0, visibleCount * 4);
 
                 // Ensure IK override buffer exists (always bound — meta.w=0 disables per instance)
-                if (group.instanceIKDataBuffer == null || group.instanceIKDataBuffer.count < visibleCount * 4)
+                if (group.instanceIKDataBuffer == null || group.instanceIKDataBuffer.count < visibleCount * 7)
                 {
                     if (group.instanceIKDataBuffer != null) group.instanceIKDataBuffer.Release();
-                    group.instanceIKDataBuffer = new ComputeBuffer(Mathf.Max(visibleCount * 4, 16), sizeof(float) * 4);
+                    group.instanceIKDataBuffer = new ComputeBuffer(Mathf.Max(visibleCount * 7, 16), sizeof(float) * 4);
                 }
-                GpuUpload.SetData(group.instanceIKDataBuffer, ikData, 0, 0, visibleCount * 4);
+                GpuUpload.SetData(group.instanceIKDataBuffer, ikData, 0, 0, visibleCount * 7);
 
                 // Set compute shader params for CSPose kernel
                 cmd.SetComputeBufferParam(poseComputeShader, kernelCSPose, "_RestVoxelData", group.sharedVoxelBuffer);

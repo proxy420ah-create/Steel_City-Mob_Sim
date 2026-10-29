@@ -129,6 +129,11 @@ Working Phase (simulation begins)
 1. **No special-cased hoods** — Vinny is hood #0, not a unique entity. All hoods use the same spawn, movement, and rendering path.
 2. **N independent SimulationManagers** — one per hood. Each has its own order queue, time budget, and state machine. The gang dispatcher iterates all of them.
 3. **Real-time movement, tick-based game logic** — movement uses `StressTestAgent`'s proven real-time lerp + A* pathfinding. Game logic (order resolution, dialog, tick budgets) uses `SimulationManager`'s tick system. These are decoupled: movement is visual, ticks are logical.
+
+   **Timing as-built (three layers, one 0.08 s cadence)**:
+   - **`SimulationManager.Tick()`** — the order/world layer: `TickBudget = 12000` per hood per week, order action costs from RE data (extort=166, kill=6000), movement duration = `cost · tickInterval · TicksPerWorldUnit(3)`. `EventPlayer` accumulates scaled frame time × `playbackSpeed` and calls `Tick()` per 0.08 s. `SimState.Dwelling` consumes no ticks (Test Week harness).
+   - **`SimClock`** — the decision layer (shipped later than this doc): fixed `Step = 0.08 s` (the same RE tickInterval), driven by scaled frame time × `Speed`. Combat dice, cooldowns, dwells, heard-report envelopes read `SimClock.Now` — it only changes on step boundaries → frame-rate independent + replayable. `MaxStepsPerFrame = 8` caps catch-up.
+   - **Freeze/step debug**: F8 holds `timeScale = 0` (camera/HUD stay live); `[.]` runs exactly one step — `SimClockDriver` sets timeScale so the next frame's `deltaTime ≈ Step` (bodies move one step), forces one tick, returns to 0. Both clocks scale/freeze together since both integrate scaled `deltaTime`.
 4. **GPU instanced rendering for all hoods** — Tier 2 from `DYNAMIC_OBJECT_RENDERING_TIERS.md`. 1 draw call regardless of hood count. Already implemented.
 5. **Ground probe at spawn** — use `VoxelCollisionWorld.ProbeGround()` to find correct Y at spawn XZ. No more `groundY + 0.5f` guesswork.
 

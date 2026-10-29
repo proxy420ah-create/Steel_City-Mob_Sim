@@ -63,7 +63,7 @@ namespace SteelCity.Sim
 
         [Header("Visuals (PathDebugRenderer beams)")]
         [Tooltip("Draw the in-flight tracer streak behind each bullet.")]
-        public bool showTracers = false;
+        public bool showTracers = true;
         [Tooltip("Draw red tick marks at impact points (last 8 kept).")]
         public bool showImpactMarks = false;  // red hit ticks — off by default, Combat tab toggle
         public float tracerLength = 0.4f;
@@ -175,6 +175,7 @@ namespace SteelCity.Sim
             // before anyone opened Combat/Demolitions would otherwise resolve into
             // zero subscribers: tracers + impact marks, but no damage.
             VoxelDamageSystem.GetOrCreate();
+            SurfaceImpactAudio.GetOrCreate();  // impact/ricochet file pools — same ShotResolved family
 
             shotCounter++;
             uint seed = forcedSeed != 0 ? forcedSeed : MakeSeed(shotCounter);
@@ -209,9 +210,14 @@ namespace SteelCity.Sim
             live1.report = r;
             live.Add(live1);
             ShotFired?.Invoke(mount, r);   // after the direction is sampled — the kick only deflects FOLLOW-UP shots
-            PlayShotSound(mount);
+            if (shotAudioEnabled) PlayShotSound(mount);
             return true;
         }
+
+        /// <summary>Gate — SFX panel isolates other sounds by muting the report.
+        /// Kills playback AND the gunshot wave (wave lives inside PlayShotSound);
+        /// AI hearing rides that wave, so muting also silences gunshot awareness.</summary>
+        public bool shotAudioEnabled = true;
 
         /// <summary>Muzzle report — from sounds/gunshot.stsound (audio_studio recipe),
         /// played positionally at the muzzle. GetClip stat-checks the file each shot —
@@ -222,7 +228,12 @@ namespace SteelCity.Sim
             if (clip == null || shotAudioVolume <= 0f) return;
             ProceduralAudio.PlayAt(clip, mount.MuzzleWorld, shotAudioVolume,
                 shotRefDistance, shotAudibleRange);
-            SfxWaves.GetOrCreate().Emit(mount.MuzzleWorld, shotAudibleRange, shotRefDistance, "gunshot");
+            // The report IS a hearing event — semantic origin = the shooter's
+            // position (what intel snaps to); the display shell stays at the
+            // muzzle. Replaces the old scoped ThreatCharacter→OnShotHeard call:
+            // now every fighter in earshot gets the report and self-filters.
+            SfxWaves.GetOrCreate().Report(mount.FeetCenter, shotAudibleRange,
+                shotRefDistance, "gunshot", mount, mount.MuzzleWorld);
         }
 
         void Update()
