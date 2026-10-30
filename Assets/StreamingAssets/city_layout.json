@@ -45,6 +45,11 @@
    64,
    8,
    64
+  ],
+  "barber_shop": [
+   64,
+   36,
+   64
   ]
  },
  "blocks": [
@@ -2451,9 +2456,9 @@
      "slot": 1
     },
     {
-     "type": "empty_land",
+     "type": "barber_shop",
      "illegal": false,
-     "stasset": "voxel_buildings/empty_land.stasset",
+     "stasset": "voxel_buildings/barber_shop.stasset",
      "slot": 2
     },
     {
@@ -2502,9 +2507,9 @@
    "laneOpenings": "we",
    "buildings": [
     {
-     "type": "empty_land",
+     "type": "barber_shop",
      "illegal": false,
-     "stasset": "voxel_buildings/empty_land.stasset",
+     "stasset": "voxel_buildings/barber_shop.stasset",
      "slot": 0
     },
     {

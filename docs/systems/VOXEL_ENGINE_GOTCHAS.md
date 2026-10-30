@@ -461,6 +461,35 @@ INT picks *which* point (the rank axis); placement precision is footwork every a
 
 ---
 
+## Gotcha #14: Stasset Bake Pipeline — Silent Skips, Positional-Arg Converter, Dead Layout Fields
+
+**Date**: October 30, 2026
+**Severity**: HIGH — two barber shops placed in the layout rendered nowhere; zero console output explained why
+**Files**: `SectorBaker.cs` (`BakeAllSectors`), `Tools/json_to_stasset.py`, `Assets/Editor/StassetBuildMenu.cs` (new)
+
+### Symptom
+
+`city_layout.json` referenced `voxel_buildings/barber_shop.stasset` in two slots; both lots rendered empty after a full rebuild — no error, no warning, nothing.
+
+### Root Cause (stacked)
+
+1. **The converter's output path is positional — there is no `-o` flag.** Invoked with `-o <dst>`, `json_to_stasset.py` silently treats `-o` as the output filename and writes a file named `-o` into the CWD. The expected `.stasset` never exists.
+2. **`GetStassetDimensions` failure is a silent `continue`.** Every placement site in `BakeAllSectors` (single-building, full-block detect, 3×3 sub-grid) does `if (vw == 0) continue;` — an unreadable stasset vanishes without a trace. Fixed: each site now `Debug.LogError`s block id/name, slot index, and stasset path.
+
+### Fix
+
+- Loud `LogError` on `vw == 0` at the dim-probe sites (the full-block detection loop already reads every entry, so it covers the sub-grid skip).
+- New menu **Steel City → Voxel Assets → Convert WIP → Stassets** — scans `JSON Models In Progress/`, converts `assetType=="building"` files newer than their `.stasset` (or missing), reports converted/skipped/failed. Removes the manual CLI step entirely.
+
+### Rules (pipeline semantics worth memorizing)
+
+- **Only `stasset` is read by the bake.** Layout fields `type`, `illegal`, `slot`, and the `building_types` table are **dead metadata** — placement is pure `buildings[]` array order (row-major on the 3×3 sub-grid). If a slot looks "wrong," check array order, not the `slot` number.
+- **Declared `voxelSize` in a stasset header is ignored.** Every building bakes at the 0.05 world grid (`voxelSize × scale` where `scale = subSize/buildingWidth`). Author geometry assuming 0.05 m/voxel; the header field is documentation only.
+- **Any dimension ≥128 voxels flips the block to single-building mode** — it gets centered and *eats every other slot*. This will bite the future 3-lot alley row building (192×64); placement needs a span model before that asset ships.
+- **Each slot asset paints its own ground pad** — a building on a 64v lot must emit its 64×64 pad or the ground disappears with it.
+
+---
+
 ## Appendix: Key Voxel Engine Constants
 
 | Constant | Value | Location |

@@ -1639,8 +1639,17 @@ let W = 64, H = 40, D = 64;
 // exported JSON itself. Store it here so a model is self-describing: the
 // editor sets up the right grid conventions/defaults, and Unity's importer
 // no longer has to guess scale from a filename or folder convention.
+//
+// UPDATE (Dec 2025 grid audit): Unity's SectorBaker ignores the file's
+// declared voxelSize and forces every city building onto the terrain grid —
+// info.voxelSize = CityMap3D.voxelSize (0.05) * scale, scale=1 for 64v lots.
+// The legacy 0.1 header on old files is a stale authoring artifact. Building
+// voxelSize here is the UNITY RENDER TRUTH (0.05), not the stale header —
+// this is what getCharScaleRatio() and the ref-preview walk speed consume,
+// so it must match what Unity renders or reference models preview at the
+// wrong size (0.1 previewed characters half their in-game relative size).
 const ASSET_TYPE_PRESETS = {
-  building: { label: 'Building', icon: '🏢', voxelSize: 0.1, defaultDims: [64, 40, 64], defaultModel: null },
+  building: { label: 'Building', icon: '🏢', voxelSize: 0.05, defaultDims: [64, 40, 64], defaultModel: null },
   character: { label: 'Character', icon: '🧍', voxelSize: 0.01, defaultDims: [96, 96, 96], defaultModel: '../Assets/StreamingAssets/voxel_characters/Civilian1.json' },
   prop: { label: 'Item / Decor', icon: '🔫', voxelSize: 0.005, defaultDims: [48, 26, 10], defaultModel: '../Assets/StreamingAssets/voxel_items/SW_Model_10.json' },
   // Vehicle at CHARACTER scale (0.01m): same voxel grain as the pedestrians standing

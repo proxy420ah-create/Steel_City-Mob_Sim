@@ -503,10 +503,14 @@ namespace SteelCity.Sim
 
         /// <summary>
         /// Fill a rectangular region with sidewalk (edges) and stone (interior).
-        /// laneMask (bits N=1 E=2 S=4 W=8) marks edges with a block-interior lane
-        /// mouth (alley_block): the ring is gapped there — painted asphalt over
-        /// the center 32 voxels so the lane road continues flush into the street,
-        /// while the ring's sidewalk still meets the lane's sidewalk flanks.
+        /// laneMask (bits N=1 E=2 S=4 W=8) marks a block-interior lane (alley_block):
+        ///   - Edge mouths: the ring cell inside the center 32v becomes asphalt —
+        ///     a curb cut continuing the street into the block at grade.
+        ///   - Interior strip: the same center-32v band across the interior becomes
+        ///     asphalt — the lane road itself, at street grade (building bases sit
+        ///     one slab up, so a block-interior road must come from terrain).
+        /// The lane's raised sidewalk flanks are supplied by the alley_lane slot
+        /// assets, not the terrain.
         /// </summary>
         private static void FillGroundTile(
             uint[] data, int w, int h, int d, Vector3 origin, float voxelSize,
@@ -520,14 +524,19 @@ namespace SteelCity.Sim
 
             int sw = Mathf.Max(1, Mathf.RoundToInt(sidewalkWidth / voxelSize));
 
-            // Lane-mouth band: center 32v of the interior — matches the authored
-            // alley road (interior z 80..111 of the 192v block). On flagged edges
-            // the ring cell inside this band becomes asphalt instead of sidewalk.
+            // Lane geometry for laneMask blocks — all at terrain grade (the city's
+            // sidewalks are material bands at road grade, not raised geometry):
+            //   mouth band: center 32v of the interior = the alley road
+            //   lane band:  middle third of the interior = sidewalk 16v | road 32v | sidewalk 16v
+            // On flagged edges the ring cell inside the mouth band becomes asphalt
+            // (curb cut); interior lane-band cells become the cross-section.
             const int mouthHalf = 16;
             int cxMid = ((x0 + sw) + (x1 - sw + 1)) / 2;
             int czMid = ((z0 + sw) + (z1 - sw + 1)) / 2;
             int mouthX0 = cxMid - mouthHalf, mouthX1 = cxMid + mouthHalf;
             int mouthZ0 = czMid - mouthHalf, mouthZ1 = czMid + mouthHalf;
+            int laneBandX0 = x0 + sw + 64, laneBandX1 = x0 + sw + 128;
+            int laneBandZ0 = z0 + sw + 64, laneBandZ1 = z0 + sw + 128;
 
             for (int z = z0; z <= z1; z++)
             {
@@ -546,6 +555,15 @@ namespace SteelCity.Sim
                             (isEdgeS && (laneMask & 4) != 0 && x >= mouthX0 && x < mouthX1) ||
                             (isEdgeN && (laneMask & 1) != 0 && x >= mouthX0 && x < mouthX1);
                         mat = mouth ? MAT_ASPHALT : MAT_SIDEWALK;
+                    }
+                    else if (laneMask != 0)
+                    {
+                        // Interior lane cross-section — W/E mouths → lane along X
+                        // (z-band: sidewalk|asphalt|sidewalk); N/S → x-band
+                        if ((laneMask & 0b1010) != 0 && z >= laneBandZ0 && z < laneBandZ1)
+                            mat = (z >= mouthZ0 && z < mouthZ1) ? MAT_ASPHALT : MAT_SIDEWALK;
+                        else if ((laneMask & 0b0101) != 0 && x >= laneBandX0 && x < laneBandX1)
+                            mat = (x >= mouthX0 && x < mouthX1) ? MAT_ASPHALT : MAT_SIDEWALK;
                     }
 
                     for (int y = 0; y < h; y++)

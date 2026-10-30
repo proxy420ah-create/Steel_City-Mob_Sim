@@ -312,6 +312,7 @@
   - Beats sequence intent; gates still decide what's possible — `wantAim` gains a per-beat authority term
 - **`docs/systems/AIM_RIG.md`** — SPEC + phases 1–3 implemented & playtest-validated: one focal point drives torso, head, arm(s) and weapon so the muzzle sits near the eye line
 - **`docs/systems/MOVEMENT.md`** — Locomotion model as-built: `StepToward`/`StepRouted` mover (per-frame integration, swept collision, stuck-guard nudges), static universal `moveSpeed`, foot-locked gait (`horSpeed→walkSpeed→gaitTime`), HUD tuning surface; includes the rolled-back ramp experiment notes
+- **`docs/systems/COMBAT_PARAMETER_MATRIX.html`** — Interactive relationship graph of the whole combat system: every HUD dial, broadcast channel, per-fighter blackboard state, decision engine and body output, with labeled edges showing which feeds which; includes the menace/IFF chain and closed firefight loop views + stimulus→response and coupling tables
   - Measured eye/shoulder/muzzle offsets (muzzle ~12.5 cm lateral of the eye), solve order, GPU/CPU/JS channel gaps (head override CPU-only, one arm channel pair), 5 phases with trace gates; two-handed rifle/shotgun path
   - Runtime safety net already shipped: `muzzleShootGate` (shootable = eye ∧ muzzle visible) — see `docs/known_issues/runtime/EYE_SEES_MUZZLE_CANT_SHOOTABLE_GAP.md`
   - Deferred: rise-retry cadence + interruption policy (wait Tan mobility), lookScan slot, branch table, per-weapon cylinders
@@ -507,6 +508,23 @@
   - Supersedes GAME_DATA_REFERENCE.md with more complete data from decrypted files
 
 **Keywords**: data, reference, constants, crime, weapons, economics, businesses
+
+---
+
+### 4. The Commission — Deliberation & Verdict Machine
+
+Multi-agent deliberation system living in `docs/` — the boss proposes, the CHAIR tables, the ARCHITECT drafts designs, the INFORMANT gates them for completeness, the table votes, the BUTTON builds only on a unanimous SHIP + explicit boss GO CODE, the CHAIR certifies. Eleven proposals shipped (DVM-002 … DVM-014) as of 2026-10-30.
+
+- **`docs/COMMISSION_PROTOCOL.md`** — THE LAW: bus contract (`window.DVM_FEED`), message kinds, boss semantics (`@SEAT` routes the floor), seat lifecycle, write discipline (read → append ONE → rewrite whole file, strict JSON)
+- **`docs/DELIBERATION_MACHINE.html`** — THE DASHBOARD: noir 3D back-room (three.js) where bus state is made visible — lamps = presence (burn down to deadline), amber underglow = floor, neon sign = phase, chair bubbles = latest speech, wall pegboard = proposal lifecycle (TABLED→…→CLOSED); files navigator over `board.files[]`/`staged[]`; honest 2D fallback; SSE push + script-tag poll
+- **`docs/deliberation_feed.js`** — THE TABLE: whole-state append-only bus (proposal, phase, turn, seats, messages, verdict, board{rules,agenda,closed,seat_rules,staged,files}, adjourned)
+- **`docs/commission_watch.py`** — THE EAR: `python commission_watch.py <SEAT> [timeout]` — stamps `presence_<SEAT>.js` once per arm, polls the bus, exits on turn/boss; dormant mode under `adjourned`
+- **`docs/commission_server.py`** — Boss write-path + static host (`:8723`): `/boss`, `/table` (evicts matching `staged[]`), `/adjourn`, `/reconvene`, `/events` (SSE)
+- **`docs/drafts/`** — Implement-draft archive, one file per DVM (the INFORMANT's gate works these)
+- **`docs/induction_<SEAT>.txt`** — Per-seat induction briefs (ARCHITECT, INFORMANT, BUTTON, AUDITOR)
+- **`docs/presence_<SEAT>.js`** — Ephemeral watcher stamps (gitignored — runtime state, not source)
+
+**Keywords**: commission, deliberation, agents, DVM, bus, dashboard, three.js, seats
 
 ---
 

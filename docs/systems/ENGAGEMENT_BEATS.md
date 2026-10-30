@@ -515,3 +515,26 @@ Lit amber while `Settle` counts down (show `settle s left` inline),
   verdict covers the `Engaged` sustained-burial relocate-fail path. This is
   the terminal answer — "pinned down" is a legitimate combat outcome, not a
   stalled machine.
+
+## Incoming-fire menace (`ShotFired` consumer — Oct 29)
+
+**Only the SHOT is combat input — impacts stay flavor** (audio/damage).
+Broadcast-all / evaluate-individually, the same law as `SfxWaves.Heard`:
+every fighter subscribes `ProjectileSystem.ShotFired` and runs the same
+geometry eval against himself, then nearby teammates.
+
+- **Menace to self** = the shooter's `intendedTarget` lands within
+  `menaceIntentM` of the chest (aimed AT me — intent survives a wide cone),
+  OR the bullet line passes within `menaceRadius` (whiz-by). Pure geometry
+  on the trigger-pull report — no impact position involved.
+- **`incomingDanger`** (+`menacePerShot`, decays over `menaceDecaySec`).
+  While `≥ menaceSuppressAt`, `EnterBeat` converts `Rise→Duck` — one gate
+  suppresses authored/arbiter/dice dispatches alike; the head stays down.
+- **IFF**: `VoxelCharacter.teamId` (0 = solo/neutral). Allied fire
+  suppresses (geometry) but never latches the shooter as hostile; a
+  non-ally fired-on while Idle enters combat on the shooter by act.
+- **Tier 2**: the same eval on a same-team fighter within
+  `menaceTeamAlertM` → half-danger + alert (seam re-eval / accelerated
+  move roll), not suppression. `CombatController.All` backs the scan.
+- Bubble line 3 shows the `mnz` bar + `team {id}` live; thresholds are
+  the `c.menace` fold sliders on the Combat tab.

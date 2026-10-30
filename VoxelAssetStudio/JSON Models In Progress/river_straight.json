@@ -7,7 +7,7 @@
   ],
   "assetType": "building",
   "pivots": {},
-  "voxelSize": 0.1,
+  "voxelSize": 0.05,
   "materials": [
     {
       "id": 101,

@@ -20,6 +20,25 @@ This document supersedes the door-size table in `MOB_SIM_SCALE_STANDARD.md` (kep
 size constants and reference object list, which are still accurate) and consolidates orientation
 rules that were previously scattered across code docstrings and `COORDINATE_SYSTEM.md`.
 
+> **⚠ Update (Oct 30, 2026) — voxel sizes migrated, door table superseded.** The world grid is
+> now **0.05 m per building voxel** (`SectorBaker` bakes every building at
+> `voxelSize = 0.05 × scale` and *ignores* the stasset's declared `voxelSize` header — it is
+> documentation only). `voxel_editor.html` presets now match (building `0.05`). Everywhere this
+> document says "building voxels @ 0.1m", read **0.05m** — i.e., all building-voxel *counts*
+> double for the same physical size. Verified current values:
+>
+> | Thing | Old (this doc) | Current truth |
+> |---|---|---|
+> | Building voxel size | 0.1 m | **0.05 m** |
+> | Character voxel size | 0.02 m | **0.01 m** (`Civilian1`/`Vinny`) |
+> | NPC height | 31 vox @ 0.02 | **~12.4 building voxels** (0.62 m) |
+> | Door convention | 8v @ 0.1 | **12v wide × 16v high** (tenement convention; 0.6×0.8 m) — see `barber_shop` |
+> | CityMap3D `voxelSize` | 0.1f | **0.05f** (scene serialized) |
+>
+> The §-by-§ voxel counts below (8v doors, story pitches, window heights) are written in the old
+> 0.1 m units — **halve the physical size or double the voxel count** when reading them. The
+> *rules* (proportions, orientation, audit method) still hold; the constants moved.
+
 ---
 
 ## 1. The Scale Root: Vinny Moretti (NPC Wise Guy)

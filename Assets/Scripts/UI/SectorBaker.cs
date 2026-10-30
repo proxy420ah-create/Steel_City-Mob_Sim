@@ -326,7 +326,12 @@ namespace SteelCity.Sim
                         // Single building — centered on anchor
                         string fullPath = Path.Combine(Application.streamingAssetsPath, lb.buildings[0].stasset);
                         var (vw, vh, vd) = VoxelChunkManager.GetStassetDimensions(fullPath);
-                        if (vw == 0) continue;
+                        if (vw == 0)
+                        {
+                            Debug.LogError($"[SectorBaker] {lb.block_id} ({lb.block_name}): buildings[0] stasset unreadable — " +
+                                           $"'{lb.buildings[0].stasset}' (expected under StreamingAssets/). Building will not render.");
+                            continue;
+                        }
 
                         Vector3 cornerPos = anchorPos - new Vector3(vw * voxelSize * 0.5f, 0f, vd * voxelSize * 0.5f);
                         buildingInfos.Add(new BuildingInfo
@@ -343,11 +348,19 @@ namespace SteelCity.Sim
                     else
                     {
                         // Check for full-block buildings (tenements)
+                        // Also probes every entry's dims — warn loudly on unreadable
+                        // stassets here so the silent skips below are already diagnosed.
                         bool hasFullBlock = false;
                         for (int i = 0; i < buildingCount; i++)
                         {
                             string fullPath = Path.Combine(Application.streamingAssetsPath, lb.buildings[i].stasset);
                             var (vw, vh, vd) = VoxelChunkManager.GetStassetDimensions(fullPath);
+                            if (vw == 0)
+                            {
+                                Debug.LogError($"[SectorBaker] {lb.block_id} ({lb.block_name}): buildings[{i}] stasset unreadable — " +
+                                               $"'{lb.buildings[i].stasset}' (expected under StreamingAssets/). Slot will be empty.");
+                                continue;
+                            }
                             if (vw >= VoxelChunkManager.FullBlockVoxelThreshold ||
                                 vd >= VoxelChunkManager.FullBlockVoxelThreshold)
                             {

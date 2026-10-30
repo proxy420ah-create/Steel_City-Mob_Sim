@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Steel City — Combat Parameter Matrix</title>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --surface2: #1c2331;
+    --border: #30363d; --text: #e6edf3; --text-dim: #8b949e;
+    --accent: #58a6ff; --green: #3fb950; --orange: #f0883e;
+    --pink: #f778ba; --red: #f85149; --yellow: #d29922;
+    --cyan: #39c5cf; --purple: #bc8cff; --tan: #d2a679;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Segoe UI',system-ui,sans-serif; background:var(--bg); color:var(--text); line-height:1.6; }
+  .hero { text-align:center; padding:38px 20px 26px; background:linear-gradient(135deg,#0d1117,#1a1a2e 40%,#16213e 75%,#0f3460); border-bottom:1px solid var(--border); }
+  .hero h1 { font-size:2.1em; background:linear-gradient(90deg,var(--cyan),var(--accent),var(--purple)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+  .hero .sub { color:var(--text-dim); font-size:.95em; max-width:920px; margin:6px auto 0; }
+  .wrap { max-width:1780px; margin:0 auto; padding:22px 18px 60px; }
+  .layout { display:grid; grid-template-columns:minmax(1100px,1fr) 560px; gap:18px; align-items:start; }
+  .rail { position:sticky; top:10px; display:flex; flex-direction:column; max-height:calc(100vh - 20px); overflow-y:auto; overflow-x:hidden; scrollbar-width:thin; }
+  @media (max-width:1560px){ .layout{grid-template-columns:1fr;} .rail{position:static;max-height:none;} }
+  h2.sec { font-size:1.25em; margin:34px 0 6px; color:var(--accent); letter-spacing:.5px; }
+  .secsub { color:var(--text-dim); font-size:.85em; margin-bottom:14px; max-width:1000px; }
+  .ftabs { display:flex; gap:6px; margin-bottom:8px; }
+  .ftab { background:var(--surface2); border:1px solid var(--border); color:var(--text-dim); font-size:.74em; font-weight:600; padding:4px 14px; border-radius:8px 8px 0 0; cursor:pointer; }
+  .ftab.active { color:var(--text); border-color:var(--accent); border-bottom-color:var(--surface); }
+
+  /* the graph — isometric floor grid for depth */
+  .chart { position:relative; height:1120px; background:var(--surface);
+    background-image:
+      repeating-linear-gradient(30deg, rgba(88,166,255,.045) 0 1px, transparent 1px 34px),
+      repeating-linear-gradient(150deg, rgba(88,166,255,.045) 0 1px, transparent 1px 34px);
+    border:1px solid var(--border); border-radius:12px; overflow-x:auto; overflow-y:hidden; margin-bottom:8px; }
+  .chart svg { position:absolute; top:0; left:0; height:100%; pointer-events:none; }
+  .lane { position:absolute; border:1.5px dashed var(--border); border-radius:14px; opacity:.55; pointer-events:none; z-index:0; }
+  .lanelbl { position:absolute; font-size:.66em; font-weight:700; letter-spacing:.9px; padding:1px 8px; background:var(--surface); pointer-events:none; z-index:1; }
+  .lanelbl.dial { color:var(--cyan); } .lanelbl.chan { color:var(--orange); }
+  .lanelbl.brd  { color:var(--purple); } .lanelbl.eng  { color:var(--green); }
+  .lanelbl.bod  { color:var(--accent); } .lanelbl.flv  { color:var(--text-dim); }
+
+  .node { position:absolute; min-width:118px; padding:7px 9px; border-radius:10px; border:2px solid var(--border);
+    background:var(--surface2); text-align:center; cursor:pointer; z-index:2;
+    box-shadow:0 6px 14px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.05);
+    transition:transform .15s, box-shadow .15s, border-color .15s; }
+  .node:hover { transform:translateY(-3px) scale(1.04); box-shadow:0 12px 22px rgba(0,0,0,.55), 0 0 18px rgba(88,166,255,.25); }
+  .node .nm { font-weight:700; font-size:.8em; letter-spacing:.4px; }
+  .node .tm { font-size:.64em; color:var(--text-dim); }
+  .node.dial { border-color:var(--cyan); }
+  .node.chan { border-color:var(--orange); }
+  .node.brd  { border-color:var(--purple); }
+  .node.eng  { border-color:var(--green); }
+  .node.bod  { border-color:var(--accent); }
+  .node.gate { border-color:var(--orange); border-style:dashed; }
+  .node.fire { border-color:var(--red); background:#2d1a1a; }
+  .node.flv  { border-color:var(--text-dim); border-style:dashed; opacity:.75; }
+  .node.roll { border:none; min-width:230px; background:#2b2418; padding:16px 34px;
+    clip-path:polygon(18% 0,82% 0,100% 50%,82% 100%,18% 100%,0 50%); }
+  .node.legend { border-style:dashed; border-color:var(--orange); }
+  .node.pocket { border-color:var(--pink); min-height:96px; }
+  .node.pocket.pl { border-radius:70px 14px 14px 70px; }
+  .node.pocket.pr { border-radius:14px 70px 70px 14px; }
+  .node.sel { filter:drop-shadow(0 0 8px var(--yellow)); }
+  .node.sel  { box-shadow:0 0 0 3px var(--yellow), 0 0 24px rgba(210,153,34,.4); }
+  .edge-lbl { position:absolute; font-size:.6em; color:var(--text-dim); background:var(--surface); padding:1px 5px; border-radius:4px; z-index:1; pointer-events:none; white-space:nowrap; }
+  .edge-lbl.hot { color:var(--red); font-weight:700; }
+  .edge-lbl.cool { color:var(--cyan); }
+
+  /* click-to-trace: selected node's paths lit, everything else falls back */
+  .chart.litup .node      { opacity:.28; }
+  .chart.litup .node.hi   { opacity:1; }
+  .chart.litup svg path   { opacity:.07 !important; }
+  .chart.litup .edge-lbl  { opacity:.07; }
+  .chart.litup svg path.lo  { opacity:1 !important; stroke-width:3px; }
+  .chart.litup svg path.ld  { opacity:.5 !important; }
+  .chart.litup svg path.li  { opacity:1 !important; stroke:var(--cyan); stroke-width:2px; }
+  .chart.litup .edge-lbl.lo { opacity:1; color:var(--orange); font-weight:700; }
+  .chart.litup .edge-lbl.ld { opacity:.45; }
+  .chart.litup .edge-lbl.li { opacity:1; color:var(--cyan); }
+
+  /* detail rail */
+  .card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin-bottom:14px; }
+  .card h3 { font-size:1.02em; color:var(--yellow); margin-bottom:4px; }
+  .card .meta { font-size:.72em; color:var(--text-dim); margin-bottom:8px; }
+  .card p { font-size:.84em; margin-bottom:8px; }
+  .card ul { font-size:.8em; padding-left:18px; }
+  .card li { margin-bottom:3px; }
+  .card .io { display:flex; gap:8px; margin:8px 0; flex-wrap:wrap; }
+  .card .io span { font-size:.68em; padding:2px 8px; border-radius:10px; border:1px solid var(--border); }
+  .card .io .in { color:var(--cyan); border-color:var(--cyan); }
+  .card .io .out { color:var(--orange); border-color:var(--orange); }
+  table.mtx { width:100%; border-collapse:collapse; font-size:.78em; }
+  table.mtx th { text-align:left; color:var(--accent); padding:6px 8px; border-bottom:1px solid var(--border); }
+  table.mtx td { padding:5px 8px; border-bottom:1px solid #21262d; vertical-align:top; }
+  .legend { display:flex; gap:14px; flex-wrap:wrap; font-size:.72em; color:var(--text-dim); margin:6px 0 14px; }
+  .legend b { padding:1px 9px; border-radius:8px; border:2px solid; font-weight:600; }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <h1>COMBAT PARAMETER MATRIX</h1>
+  <div class="sub">Every dial, channel, blackboard flag, engine and body system in the autonomous
+  firefight — and which one feeds which. Click any node for its card. Oct 29 — includes the
+  incoming-fire menace system, universal movement rates, and the Layer-2 engagement roll
+  (the original initiation chart rebuilt with the menace rail overlaid).</div>
+</div>
+
+<div class="wrap">
+
+<h2 class="sec">The map</h2>
+<div class="secsub">DIALS (HUD) → CHANNELS (broadcasts) → BLACKBOARD (per-fighter state) → ENGINES (decision logic) → BODY (physical output) → FLAVOR (non-combat outputs). Edges are labeled with the verb.</div>
+<div class="legend">
+  <span><b class="node dial" style="position:static;display:inline-block">dial</b> HUD-tunable (statics = universal)</span>
+  <span><b class="node chan" style="position:static;display:inline-block">channel</b> broadcast event</span>
+  <span><b class="node brd" style="position:static;display:inline-block">blackboard</b> per-fighter state</span>
+  <span><b class="node eng" style="position:static;display:inline-block">engine</b> decision logic</span>
+  <span><b class="node bod" style="position:static;display:inline-block">body</b> physical output</span>
+  <span><b class="node flv" style="position:static;display:inline-block">flavor</b> no combat input</span>
+</div>
+
+<div class="ftabs">
+  <div class="ftab active" onclick="showChart('A',this)">THE MATRIX</div>
+  <div class="ftab" onclick="showChart('B',this)">MENACE / IFF CHAIN</div>
+  <div class="ftab" onclick="showChart('C',this)">THE FIREFIGHT LOOP</div>
+  <div class="ftab" onclick="showChart('D',this)">LAYER 2 — THE ROLL, MENACE-AWARE</div>
+</div>
+<div class="layout">
+  <div>
+    <div class="chart" id="chartA"><svg></svg></div>
+    <div class="chart" id="chartB" style="display:none;height:980px"><svg></svg></div>
+    <div class="chart" id="chartC" style="display:none;height:760px"><svg></svg></div>
+    <div class="chart" id="chartD" style="display:none;height:900px"><svg></svg></div>
+  </div>
+  <div class="rail">
+    <div class="card" id="detail">
+      <h3>Click a node</h3>
+      <p>Each card: what it is, where it lives, what it reads and what it writes.</p>
+    </div>
+    <div class="card">
+      <h3>Reading the matrix</h3>
+      <ul>
+        <li><b>Cyan dials</b> are pure inputs — most are <i>static</i> fields now: one value, every character, no drift.</li>
+        <li><b>Orange channels</b> are broadcast-all / evaluate-individually. Nothing is scoped at emit time.</li>
+        <li><b>Purple blackboard</b> is the per-fighter memory the engines argue over.</li>
+        <li><b>Dashed flavor</b> nodes consume events but never feed back — impacts are audio/damage only by user rule.</li>
+        <li>Red-labeled edges are <b>interrupts</b> — they bypass normal ordering (flank reload-cancel, suppression gate).</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<h2 class="sec">Stimulus → response (as implemented)</h2>
+<div class="secsub">The menace eval's verdict table — same data as the graph, listed flat.</div>
+<div class="card">
+<table class="mtx">
+  <tr><th>Stimulus</th><th>Response</th></tr>
+  <tr><td>Non-ally shot <b>aimed at me</b> while idle</td><td><code>EnterCombat(shooter)</code> — hostile by act</td></tr>
+  <tr><td>Non-ally shot aimed at / whizzing me in combat</td><td>danger +0.34 · seam re-eval or accelerated move-roll</td></tr>
+  <tr><td><b>Ally</b> shot aimed at / whizzing me</td><td>danger +0.34 — suppresses, never latches</td></tr>
+  <tr><td>Danger ≥ 0.6 (≈2 shots)</td><td><code>Rise→Duck</code> at EnterBeat — head stays down</td></tr>
+  <tr><td>Shot from covered arc mid-reload</td><td>wheel keeps seating — cover does its job</td></tr>
+  <tr><td><b>Flanked</b> shot mid-reload (&gt;60° off threat bearing)</td><td>wheel drops → move roll NOW, STAND off the table</td></tr>
+  <tr><td>Teammate (same teamId, &lt;15 m) under fire</td><td>danger +0.17 · <code>teamAlertAt</code> · re-eval</td></tr>
+  <tr><td>Stranger shots, own shots, shots heading away</td><td>ignored entirely</td></tr>
+</table>
+</div>
+
+<h2 class="sec">Coupling index</h2>
+<div class="secsub">Where each dial's effect is felt — the "what touches what" cheat-sheet.</div>
+<div class="card">
+<table class="mtx">
+  <tr><th>Dial</th><th>Feels at</th><th>Note</th></tr>
+  <tr><td><code>walk speed</code></td><td>mover step → gait rate</td><td>foot-locked; static/universal</td></tr>
+  <tr><td><code>turn deg/s</code></td><td>mover yaw</td><td>per-frame cap</td></tr>
+  <tr><td><code>pose blend s</code></td><td>every pose transition</td><td>longer = more flowing; interruption free</td></tr>
+  <tr><td><code>fire cadence</code></td><td>FIRE gate</td><td>min seconds between shots</td></tr>
+  <tr><td><code>reload s/round</code></td><td>wheel seating</td><td>staggered reload pace</td></tr>
+  <tr><td><code>min threat m</code></td><td>dice scheduler</td><td>inside → re-roll until separated</td></tr>
+  <tr><td><code>whiz / aim radius</code></td><td>menace eval</td><td>geometry of "that was at me"</td></tr>
+  <tr><td><code>danger / shot</code></td><td>incomingDanger</td><td>bar fill per menacing shot</td></tr>
+  <tr><td><code>decay s</code></td><td>incomingDanger</td><td>drain tail 1→0</td></tr>
+  <tr><td><code>suppress at</code></td><td>EnterBeat gate</td><td>Rise→Duck threshold</td></tr>
+  <tr><td><code>flank angle °</code></td><td>flank eval</td><td>covered arc half-width vs threat bearing</td></tr>
+  <tr><td><code>team alert m</code></td><td>tier-2 scan</td><td>teammate proximity bound</td></tr>
+  <tr><td><code>team id</code></td><td>IFF filter</td><td>0 = solo; matching = allies</td></tr>
+</table>
+</div>
+
+</div>
+
+<script>
+// ── data: {id,x,y,cls,nm,tm,d, io:{in:[],out:[]}} ─────────────────────────
+const CHARTS = {
+A: {
+lanes: [
+  {x:8,   w:196, t:8,   b:1100, cls:'dial', lbl:'DIALS — HUD tuning surface (all statics)'},
+  {x:236, w:200, t:8,   b:1100, cls:'chan', lbl:'CHANNELS — broadcast events'},
+  {x:468, w:210, t:8,   b:1100, cls:'brd',  lbl:'BLACKBOARD — per-fighter state'},
+  {x:740, w:230, t:8,   b:1100, cls:'eng',  lbl:'ENGINES — decision logic'},
+  {x:1002,w:200, t:8,   b:1100, cls:'bod',  lbl:'BODY — physical output'},
+  {x:1234,w:210, t:8,   b:1100, cls:'flv',  lbl:'FLAVOR — no combat input'},
+],
+nodes: [
+ {id:'d_loco', x:16, y:30,  cls:'dial', nm:'locomotion dials', tm:'walk speed · turn · pose blend · duck eases',
+  d:'Movement tab, locomotion + pose folds. moveSpeed (0.85), turnSpeedDeg (540), transitionDuration (0.32), seekDuckEase, riseDuckEase — all <b>static</b>: one value every character reads.',
+  io:{out:['bod_move','bod_post']}},
+ {id:'d_cad', x:16, y:108, cls:'dial', nm:'cadence dials', tm:'fire cadence 0.9 · reload 0.75 s/rnd',
+  d:'Movement tab, action speeds. fireInterval gates the trigger; roundLoadInterval is seconds per chamber seated on the wheel.',
+  io:{out:['eng_firegate','bod_wheel']}},
+ {id:'d_rules', x:16, y:186, cls:'dial', nm:'combat rules', tm:'min threat · probe · dwell · reload-cover max',
+  d:'Combat fold: minThreatDistM (5m keep-out re-roll), visInterval (probe rate), beatDwell (tempo floor per beat), diceReloadCoverMaxM.',
+  io:{out:['eng_dice','eng_probe','eng_beat']}},
+ {id:'d_aim', x:16, y:264, cls:'dial', nm:'aim & fire params', tm:'skill · cone · settle · gap · cyl',
+  d:'shooterSkill × baseConeDeg = spread; fireSettleSec + aimGateDeg hold the trigger until converged; sightGap drops the bore below the eye line; cylinderCapacity = 6.',
+  io:{out:['eng_aim','eng_firegate','bod_wheel']}},
+ {id:'d_mrad', x:16, y:342, cls:'dial', nm:'whiz radius 0.9 m', tm:'menaceRadius',
+  d:'Bullet line within this of the chest = a whiz menace — even if the shot was not aimed at you.',
+  io:{out:['eng_eval']}},
+ {id:'d_mint', x:16, y:412, cls:'dial', nm:'aim radius 1.2 m', tm:'menaceIntentM',
+  d:'intendedTarget landing within this of the chest = aimed AT you — intent survives a wide cone miss.',
+  io:{out:['eng_eval']}},
+ {id:'d_mshot', x:16, y:482, cls:'dial', nm:'danger / shot 0.34', tm:'menacePerShot',
+  d:'incomingDanger added per menacing shot — ~3 shots to full. Morale scaling per-hood is a future hook on this number.',
+  io:{out:['brd_danger']}},
+ {id:'d_mdec', x:16, y:552, cls:'dial', nm:'decay 3 s', tm:'menaceDecaySec',
+  d:'incomingDanger drains 1→0 over this tail. The recovery beat you watch on the bar.',
+  io:{out:['brd_danger']}},
+ {id:'d_msup', x:16, y:622, cls:'dial', nm:'suppress at 0.6', tm:'menaceSuppressAt',
+  d:'Danger at/above this → every Rise dispatch converts to Duck. ≈2 menacing shots pins the head down.',
+  io:{out:['eng_beat']}},
+ {id:'d_mteam', x:16, y:692, cls:'dial', nm:'team alert 15 m', tm:'menaceTeamAlertM',
+  d:'A teammate within this of you counts for the tier-2 alert eval.',
+  io:{out:['eng_eval']}},
+ {id:'d_flank', x:16, y:762, cls:'dial', nm:'flank angle 60°', tm:'flankAngleDeg',
+  d:'Shot bearing vs believed-threat bearing — outside this arc you are flanked. The covered-arc half-width.',
+  io:{out:['eng_flank']}},
+ {id:'d_team', x:16, y:832, cls:'dial', nm:'team id 0–4', tm:'teamId (per character)',
+  d:'IFF side: 0 = solo/neutral, matching nonzero = allies. Serialized per character; menace fold slider assigns it.',
+  io:{out:['eng_iff','brd_alert']}},
+ {id:'ch_fired', x:252, y:120, cls:'chan', nm:'ShotFired', tm:'trigger pull',
+  d:'ProjectileSystem event — fires at the pull, BEFORE flight. Carries the WeaponMount (shooter identity comes free) + muzzle, aimDir, shotDir, intendedTarget. <b>The combat report.</b>',
+  io:{in:['eng_firegate'], out:['eng_iff','eng_eval','ch_waves']}},
+ {id:'ch_waves', x:252, y:290, cls:'chan', nm:'SfxWaves.Heard', tm:'gunshot report',
+  d:'Radius hearing broadcast at the muzzle — semantic intel: every fighter in earshot self-filters (range → is the shooter my tracked threat) → OnShotHeard snaps belief to the shooter position.',
+  io:{out:['brd_threat']}},
+ {id:'ch_res', x:252, y:480, cls:'chan', nm:'ShotResolved', tm:'impact / expiry',
+  d:'Fires on every resolution — hits AND misses. Subscribers: SurfaceImpactAudio, VoxelDamageSystem only. <b>Impacts are flavor — no combat input, per user rule.</b>',
+  io:{in:['bod_shot'], out:['flv_impact']}},
+ {id:'ch_seat', x:252, y:640, cls:'chan', nm:'RoundSeated', tm:'per chamber',
+  d:'ReloadAudio family event — one tick per seated round, drives the click SFX.',
+  io:{in:['bod_wheel'], out:['flv_audio']}},
+ {id:'brd_danger', x:484, y:60, cls:'brd', nm:'incomingDanger', tm:'the menace bar',
+  d:'Per-fighter suppression meter 0–1. +menacePerShot per menacing shot (+0.17 flanked, +half tier-2), drains over menaceDecaySec. Bubble line 3 renders it.',
+  io:{in:['d_mshot','d_mdec','eng_eval'], out:['eng_beat','eng_dice','eng_seam','bod_bill']}},
+ {id:'brd_threat', x:484, y:190, cls:'brd', nm:'ThreatPos / LastSeen', tm:'belief, not truth',
+  d:'Where he THINKS the threat is — written at combat entry, sightings, and gunshot reports. Cover zones and the flank arc evaluate against this.',
+  io:{in:['ch_waves','eng_probe'], out:['eng_cover','eng_flank','eng_aim']}},
+ {id:'brd_contact', x:484, y:310, cls:'brd', nm:'contactSeen / Hold', tm:'live visual flag',
+  d:'The exposure channel\u2019s verdict — a posed-silhouette probe with LOS. Gates beat authority (wantAim) and drives the seam board.',
+  io:{in:['eng_probe'], out:['eng_seam','eng_beat']}},
+ {id:'brd_pinned', x:484, y:420, cls:'brd', nm:'pinned', tm:'geometry verdict park',
+  d:'Hide-only stand — can\u2019t fight over, no rim to peek, no fightable zone. Parks at Beat.None, re-verdicts every pinRecheckSec (4s). Different axis from suppression: walls vs bullets.',
+  io:{in:['eng_cover'], out:['eng_beat']}},
+ {id:'brd_reload', x:484, y:530, cls:'brd', nm:'reloading + cylinder', tm:'the wheel owns the channel',
+  d:'Staggered reload — one chamber per roundLoadInterval. DiceRollGateOpen hard-gates on !reloading: no roll fires mid-wheel.',
+  io:{in:['eng_dice','eng_flank'], out:['eng_gate','bod_wheel']}},
+ {id:'brd_fflee', x:484, y:640, cls:'brd', nm:'diceFlankFlee', tm:'STAND off the table',
+  d:'Set by the flank interrupt — the boundary roll that fires next re-rolls face 5. One-shot flag, cleared on consume.',
+  io:{in:['eng_flank'], out:['eng_dice']}},
+ {id:'brd_alert', x:484, y:750, cls:'brd', nm:'teamAlertAt', tm:'tier-2 stamp',
+  d:'SimClock stamp of the last teammate-under-fire alert — drives the bubble\u2019s "!" flash.',
+  io:{in:['eng_eval','d_team'], out:['bod_bill']}},
+ {id:'eng_iff', x:756, y:40, cls:'eng', nm:'IFF filter', tm:'team compare',
+  d:'shotVox.teamId vs mine. Allied fire still suppresses (geometry is honest) but never latches hostility or re-evals. 0 = solo.',
+  io:{in:['d_team','ch_fired'], out:['eng_eval']}},
+ {id:'eng_eval', x:756, y:150, cls:'eng', nm:'menace eval', tm:'self → team geometry',
+  d:'Per fighter: aimed-at-me (intendedTarget radius) OR bullet line within whiz radius → danger + re-eval. Same eval replayed on teammates in range for tier-2.',
+  io:{in:['d_mrad','d_mint','d_mteam','eng_iff','ch_fired'], out:['brd_danger','brd_alert','eng_idle']}},
+ {id:'eng_idle', x:756, y:255, cls:'gate', nm:'idle latch', tm:'hostile by act',
+  d:'Non-ally fires on an Idle fighter → EnterCombat(shooter) at the muzzle. No team tag needed — the act declares the enemy.',
+  io:{in:['eng_eval'], out:['brd_threat']}},
+ {id:'eng_flank', x:756, y:350, cls:'eng', nm:'flank bearing eval', tm:'covered-arc check',
+  d:'angle(me→ThreatPos, me→muzzle) > flankAngleDeg → flanked. ThreatPos is belief, muzzle is truth — a repositioned threat reads flank automatically.',
+  io:{in:['d_flank','brd_threat','ch_fired'], out:['brd_reload','brd_fflee','brd_danger']}},
+ {id:'eng_beat', x:756, y:455, cls:'gate', nm:'EnterBeat gate', tm:'suppression choke',
+  d:'Every beat dispatch (authored / arbiter / dice) funnels here. Rise + danger≥suppressAt → Duck instead. One line, universal coverage.',
+  io:{in:['d_msup','brd_danger','brd_pinned','eng_seam','eng_dice','d_rules'], out:['bod_post']}},
+ {id:'eng_seam', x:756, y:560, cls:'eng', nm:'seam arbiter', tm:'scored board',
+  d:'The Settle seam\u2019s candidate scoring — reads the whole blackboard (cover, contact, cylinder, pinned, danger) and dispatches a beat. seamNow forces an instant re-eval.',
+  io:{in:['brd_danger','brd_contact','brd_threat'], out:['eng_beat']}},
+ {id:'eng_dice', x:756, y:660, cls:'eng', nm:'dice boundary', tm:'1d6 face table',
+  d:'f1/3 STRAFE · f2 ADVANCE · f4/6 COVER · f5 STAND — 5/6 displacement. Accelerate = diceNextRollAt→Now; flank-flee removes f5. Mid-leg/recon/reload finish first.',
+  io:{in:['d_rules','brd_fflee','brd_danger','eng_gate'], out:['bod_move','eng_beat','brd_reload']}},
+ {id:'eng_gate', x:756, y:765, cls:'gate', nm:'DiceRollGateOpen', tm:'armed · seam · parked · !reloading',
+  d:'The roll\u2019s open gate — the wheel OWNS the channel while reloading, which is why the flank interrupt must drop it before any move can fire.',
+  io:{in:['brd_reload'], out:['eng_dice']}},
+ {id:'eng_cover', x:756, y:855, cls:'eng', nm:'cover eval', tm:'CoverField zones',
+  d:'Hidden/Fightable zones measured against ThreatPos — the arc cover actually protects. Feeds the pinned verdict and COVER faces.',
+  io:{in:['brd_threat'], out:['brd_pinned','eng_dice','eng_seam']}},
+ {id:'eng_probe', x:756, y:950, cls:'eng', nm:'exposure probe', tm:'TryGetVisibleVoxels',
+  d:'~40 posed-silhouette rays eye→target — centroid = IK target, visibleCount>0 = FIRE window open.',
+  io:{in:['d_rules','brd_threat'], out:['brd_contact','eng_aim']}},
+ {id:'eng_aim', x:1018, y:30, cls:'eng', nm:'aim solver + FIRE gate', tm:'bore-on-line + convergence',
+  d:'ArmAimSolver puts the muzzle on the eye line; the gate holds the trigger until aimError<aimGateDeg for fireSettleSec. Pull → ShotFired + projectile.',
+  io:{in:['d_aim','eng_probe','brd_threat'], out:['ch_fired','bod_shot','eng_firegate']}},
+ {id:'eng_firegate', x:1018, y:118, cls:'gate', nm:'cadence gate', tm:'fireInterval',
+  d:'Minimum seconds between shots — deliberate double-action pace.',
+  io:{in:['d_cad'], out:['eng_aim']}},
+ {id:'bod_move', x:1018, y:230, cls:'bod', nm:'mover', tm:'StepToward / StepRouted',
+  d:'Per-frame integration + swept collision + slide + stuck-nudges. Consumes dice legs, seeks, strafes. walk speed × duck factor × dt.',
+  io:{in:['d_loco','eng_dice'], out:['bod_gait']}},
+ {id:'bod_gait', x:1018, y:340, cls:'bod', nm:'gait + posture', tm:'foot-locked + duck',
+  d:'horSpeed → walkSpeed → gaitTime — feet can\u2019t treadmill. Duck eases fold posture; beat requests drive anim state.',
+  io:{in:['bod_move','d_loco','eng_beat'], out:['bod_post']}},
+ {id:'bod_post', x:1018, y:445, cls:'bod', nm:'posed body', tm:'the visible fighter',
+  d:'What the world sees — folded depth from duck, stride from gait, aim rig channels from the solver. The silhouette the enemy probes.',
+  io:{in:['bod_gait','eng_beat'], out:['eng_probe']}},
+ {id:'bod_shot', x:1018, y:560, cls:'bod', nm:'projectile', tm:'swept flight',
+  d:'Physical ray-marched round — voxel DDA, travels maxRange or hits. Resolves to ShotResolved.',
+  io:{in:['eng_aim'], out:['ch_res']}},
+ {id:'bod_wheel', x:1018, y:660, cls:'bod', nm:'reload wheel', tm:'chamber ×6',
+  d:'Seats one round per roundLoadInterval; cancelled mid-wheel keeps seated rounds. RoundSeated ticks the click.',
+  io:{in:['d_cad','d_aim','brd_reload'], out:['ch_seat']}},
+ {id:'bod_bill', x:1018, y:770, cls:'bod', nm:'billboard', tm:'mnz bar · team · status',
+  d:'Always-on head bubble — state lines + menace bar (grey→amber→red) + teamId + "!" on team alert. The sanity surface.',
+  io:{in:['brd_danger','brd_alert','d_team']}},
+ {id:'flv_impact', x:1250, y:480, cls:'flv', nm:'impact effects', tm:'glass · decals · damage · audio',
+  d:'ShotResolved consumers — puncture, marks, shard debris, positional audio. FLAVOR ONLY: no combat-logic path back (user rule).',
+  io:{in:['ch_res']}},
+ {id:'flv_audio', x:1250, y:640, cls:'flv', nm:'seat click sfx', tm:'ReloadAudio',
+  d:'Reload click per chamber — LiveTesting .stsound pool, positional.',
+  io:{in:['ch_seat']}},
+ {id:'flv_cit', x:1250, y:800, cls:'flv', nm:'citizens flee (future)', tm:'awareness layer',
+  d:'Deferred: non-combatants react to reports/impacts via the perception layer — not wired yet.',
+  io:{}},
+],
+edges: [
+ ['d_loco','bod_move','drives','cool'],['d_loco','bod_gait','','cool'],
+ ['d_cad','eng_firegate','','cool'],['d_cad','bod_wheel','s/rnd','cool'],
+ ['d_rules','eng_dice','','cool'],['d_rules','eng_probe','','cool'],['d_rules','eng_beat','dwell','cool'],
+ ['d_aim','eng_aim','','cool'],['d_aim','bod_wheel','cyl','cool'],
+ ['d_mrad','eng_eval','','cool'],['d_mint','eng_eval','','cool'],
+ ['d_mshot','brd_danger','+per shot','cool'],['d_mdec','brd_danger','drain','cool'],
+ ['d_msup','eng_beat','threshold','cool'],['d_mteam','eng_eval','','cool'],
+ ['d_flank','eng_flank','','cool'],['d_team','eng_iff','sides','cool'],
+ ['ch_fired','eng_iff','broadcast','hot'],['ch_fired','eng_eval','broadcast','hot'],
+ ['ch_fired','ch_waves','report',''],['ch_waves','brd_threat','intel snap','hot'],
+ ['ch_res','flv_impact','flavor only',''],['ch_seat','flv_audio','',''],
+ ['brd_danger','eng_beat','≥0.6 Rise→Duck','hot'],['brd_danger','eng_dice','accelerate',''],
+ ['brd_danger','eng_seam','seamNow',''],['brd_danger','bod_bill','',''],
+ ['brd_threat','eng_flank','belief arc',''],['brd_threat','eng_cover','',''],['brd_threat','eng_aim','',''],
+ ['brd_contact','eng_seam','',''],['brd_contact','eng_beat','authority',''],
+ ['brd_pinned','eng_beat','park',''],['brd_reload','eng_gate','blocks rolls','hot'],
+ ['brd_fflee','eng_dice','no STAND','hot'],['brd_alert','bod_bill','!',''],
+ ['eng_iff','eng_eval','ally=geometry only',''],['eng_eval','brd_danger','','hot'],
+ ['eng_eval','brd_alert','tier-2',''],['eng_eval','eng_idle','aimed@me','hot'],
+ ['eng_idle','brd_threat','EnterCombat','hot'],
+ ['eng_flank','brd_reload','cancel wheel','hot'],['eng_flank','brd_fflee','','hot'],['eng_flank','brd_danger','+0.17',''],
+ ['eng_seam','eng_beat','dispatch',''],['eng_dice','eng_beat','',''],
+ ['eng_dice','bod_move','legs',''],['eng_dice','brd_reload','reload check',''],
+ ['eng_gate','eng_dice','',''],['eng_cover','brd_pinned','hide-only',''],
+ ['eng_cover','eng_dice','COVER faces',''],['eng_probe','brd_contact','probe',''],
+ ['eng_probe','eng_aim','centroid',''],['eng_aim','ch_fired','pull','hot'],
+ ['eng_aim','bod_shot','',''],['eng_firegate','eng_aim','cadence',''],
+ ['bod_move','bod_gait','horSpeed',''],['bod_gait','bod_post','',''],
+ ['bod_post','eng_probe','silhouette',''],['bod_shot','ch_res','resolve',''],
+ ['brd_reload','bod_wheel','',''],['bod_wheel','ch_seat','',''],
+ ['d_team','bod_bill','',''],
+]},
+B: {
+lanes: [
+  {x:8,   w:300, t:8,  b:970, cls:'chan', lbl:'THE REPORT'},
+  {x:340, w:340, t:8,  b:970, cls:'eng',  lbl:'EVAL — per fighter, individually'},
+  {x:712, w:330, t:8,  b:970, cls:'brd',  lbl:'EFFECTS — blackboard writes'},
+  {x:1074,w:340, t:8,  b:970, cls:'bod',  lbl:'OUTCOMES'},
+],
+nodes: [
+ {id:'b_pull', x:20, y:60, cls:'fire', nm:'trigger pull', tm:'WeaponMount + ShotReport',
+  d:'The pull event: shooter mount, muzzle, aimDir (intent), shotDir (post-cone path), intendedTarget. Delivered BEFORE flight — instant reaction, impacts irrelevant.',
+  io:{out:['b_broad']}},
+ {id:'b_broad', x:20, y:200, cls:'chan', nm:'ShotFired broadcast', tm:'every fighter, same report',
+  d:'Broadcast-all — no scoping at emit. Each CombatController evaluates individually, identical data.',
+  io:{in:['b_pull'], out:['b_own','b_team']}},
+ {id:'b_own', x:352, y:60, cls:'gate', nm:'own shot?', tm:'shotVox == vox',
+  d:'Self-filter first: your own fire never menaces you.',
+  io:{in:['b_broad'], out:['b_iff']}},
+ {id:'b_iff', x:352, y:170, cls:'eng', nm:'IFF — teamId', tm:'ally vs not-ally',
+  d:'teamId match (nonzero) = ally: geometry still applies (danger rises) but every hostile path is skipped.',
+  io:{in:['b_own'], out:['b_aim','b_line']}},
+ {id:'b_aim', x:352, y:290, cls:'eng', nm:'aimed at me?', tm:'intendedTarget < 1.2m of chest',
+  d:'INTENT check — the shooter pointed at you. Survives a wide cone: he meant it even when the bullet goes wide.',
+  io:{in:['b_iff'], out:['b_onme']}},
+ {id:'b_line', x:352, y:400, cls:'eng', nm:'line near me?', tm:'bullet path < 0.9m of chest',
+  d:'PHYSICAL check — distance from your chest to the muzzle+shotDir line, shots heading your way only (t>0). The whiz-by.',
+  io:{in:['b_iff'], out:['b_onme']}},
+ {id:'b_onme', x:352, y:520, cls:'gate', nm:'menace to SELF', tm:'aimed OR whizzed',
+  d:'Either check → the shot is on you.',
+  io:{in:['b_aim','b_line'], out:['b_danger','b_state']}},
+ {id:'b_team', x:352, y:660, cls:'eng', nm:'menace to TEAM', tm:'same eval on teammates < 15m',
+  d:'Tier-2: replay the geometry on same-team bodies in range. Alerts you — half-danger + teamAlertAt.',
+  io:{in:['b_broad'], out:['b_talert']}},
+ {id:'b_danger', x:724, y:60, cls:'brd', nm:'incomingDanger', tm:'+0.34 (+0.17 flank)',
+  d:'The bar climbs per menacing shot, drains over decay s. Visible on the bubble.',
+  io:{in:['b_onme','b_talert'], out:['b_supp']}},
+ {id:'b_state', x:724, y:200, cls:'gate', nm:'state fork', tm:'idle? in combat? reloading?',
+  d:'Where the menace lands depends on what he\u2019s doing.',
+  io:{in:['b_onme'], out:['b_latch','b_reev','b_flank']}},
+ {id:'b_latch', x:724, y:340, cls:'eng', nm:'idle → EnterCombat', tm:'hostile by act',
+  d:'Shot AT while idle → the shooter becomes the threat at his muzzle.',
+  io:{in:['b_state'], out:['b_out_fight']}},
+ {id:'b_reev', x:724, y:460, cls:'eng', nm:'in combat → re-eval', tm:'seamNow / accel roll',
+  d:'Pressure: the seam re-votes or the next move roll fires early.',
+  io:{in:['b_state'], out:['b_out_move']}},
+ {id:'b_flank', x:724, y:580, cls:'gate', nm:'flank check', tm:'bearing > 60° off threat',
+  d:'Covered arc around ThreatPos vs the real muzzle bearing.',
+  io:{in:['b_state'], out:['b_cancel','b_fflee']}},
+ {id:'b_cancel', x:724, y:720, cls:'fire', nm:'RELOAD INTERRUPT', tm:'wheel drops',
+  d:'Flanked mid-reload: the wheel is cancelled (seated rounds keep). Channel frees.',
+  io:{in:['b_flank'], out:['b_fflee']}},
+ {id:'b_talert', x:724, y:830, cls:'brd', nm:'teamAlertAt', tm:'bubble "!" flash',
+  d:'Stamp for the tier-2 alert — informed, not suppressed.',
+  io:{in:['b_team']}},
+ {id:'b_supp', x:1086, y:60, cls:'fire', nm:'SUPPRESSION', tm:'Rise→Duck ≥0.6',
+  d:'Bar hot → every rise dispatch folds. Head stays down until the drain lets it through.',
+  io:{in:['b_danger']}},
+ {id:'b_out_fight', x:1086, y:340, cls:'bod', nm:'joins the fight', tm:'new combatant',
+  d:'The idle fighter is now in combat on the shooter.',
+  io:{in:['b_latch']}},
+ {id:'b_out_move', x:1086, y:480, cls:'bod', nm:'relocation pressure', tm:'earlier rolls',
+  d:'Accelerated decisions — moves come sooner.',
+  io:{in:['b_reev']}},
+ {id:'b_fflee', x:1086, y:640, cls:'bod', nm:'MOVE roll NOW', tm:'STAND off the table',
+  d:'The armed roll fires next tick with face 5 removed — guaranteed displacement. The event-driven answer.',
+  io:{in:['b_cancel','b_flank']}},
+ {id:'b_decay', x:1086, y:800, cls:'bod', nm:'decay tail', tm:'~3s to calm',
+  d:'Fire stops → bar drains → he rises on his own. The recovery beat.',
+  io:{}},
+],
+edges: [
+ ['b_pull','b_broad','','hot'],['b_broad','b_own','','hot'],['b_broad','b_team','tier-2',''],
+ ['b_own','b_iff','',''],['b_iff','b_aim','intent',''],['b_iff','b_line','path',''],
+ ['b_aim','b_onme','','hot'],['b_line','b_onme','','hot'],
+ ['b_onme','b_danger','+shot','hot'],['b_onme','b_state','','hot'],
+ ['b_team','b_talert','½ danger',''],
+ ['b_state','b_latch','idle','hot'],['b_state','b_reev','in combat',''],['b_state','b_flank','reloading','hot'],
+ ['b_latch','b_out_fight','','hot'],['b_reev','b_out_move','',''],
+ ['b_flank','b_cancel','>60°','hot'],['b_flank','b_fflee','','hot'],['b_cancel','b_fflee','frees gate','hot'],
+ ['b_danger','b_supp','≥0.6','hot'],
+]},
+C: {
+lanes: [
+  {x:8, w:1436, t:8, b:752, cls:'eng', lbl:'THE CLOSED LOOP — decide → move → expose → aim → fire → report → pressure → decide'},
+],
+nodes: [
+ {id:'c_dec', x:60,  y:120, cls:'eng', nm:'DECIDE', tm:'dice face · seam score · authored beat',
+  d:'Three engines, one dispatch point (EnterBeat). Reads the whole blackboard.',
+  io:{out:['c_move'], in:['c_danger','c_intel','c_expose']}},
+ {id:'c_move', x:330, y:120, cls:'bod', nm:'MOVE', tm:'legs · strafes · seeks',
+  d:'StepToward walks the verdict — walk speed × duck × dt, collision-swept, foot-locked gait.',
+  io:{in:['c_dec'], out:['c_stand']}},
+ {id:'c_stand', x:600, y:120, cls:'bod', nm:'ON THE STAND', tm:'cover zone + posture',
+  d:'Arrived — the wall\u2019s zone (Hidden/Fightable vs threat bearing) sets what\u2019s possible; duck holds posture.',
+  io:{in:['c_move'], out:['c_expose']}},
+ {id:'c_expose', x:870, y:120, cls:'eng', nm:'EXPOSE', tm:'silhouette probe',
+  d:'Can my presented body see his? ~40 rays eye→posed target. The firing window is a physical verdict.',
+  io:{in:['c_stand'], out:['c_aim','c_dec']}},
+ {id:'c_aim', x:1140, y:120, cls:'eng', nm:'AIM + FIRE', tm:'bore-on-line, settle, cadence',
+  d:'Muzzle on the eye line, error gate holds the trigger until converged — then the pull.',
+  io:{in:['c_expose'], out:['c_report']}},
+ {id:'c_report', x:1140, y:400, cls:'chan', nm:'REPORT', tm:'ShotFired + Heard',
+  d:'One pull, two broadcasts: the combat report (geometry — who\u2019s menaced) and the hearing report (intel — where the shooter is).',
+  io:{in:['c_aim'], out:['c_danger','c_intel']}},
+ {id:'c_danger', x:760, y:400, cls:'brd', nm:'MENACE', tm:'danger + flank + suppression',
+  d:'Their shots at me — the pressure loop. Suppresses rises, interrupts exposed reloads, latches idle fighters into the fight.',
+  io:{in:['c_report'], out:['c_dec']}},
+ {id:'c_intel', x:380, y:400, cls:'brd', nm:'INTEL', tm:'belief updates',
+  d:'ThreatPos re-anchored to the shooter — aim and cover re-evaluate against the new belief.',
+  io:{in:['c_report'], out:['c_dec']}},
+ {id:'c_loop', x:60, y:400, cls:'gate', nm:'CLOSED LOOP', tm:'autonomous',
+  d:'No player input anywhere — every arrow is a system verdict. The dice supply the unpredictability; the geometry keeps it honest.',
+  io:{}},
+],
+edges: [
+ ['c_dec','c_move','verdict',''],['c_move','c_stand','arrives',''],
+ ['c_stand','c_expose','presents',''],['c_expose','c_aim','window',''],
+ ['c_expose','c_dec','no contact',''],['c_aim','c_report','pull','hot'],
+ ['c_report','c_danger','shots at me','hot'],['c_report','c_intel','shots by him','hot'],
+ ['c_danger','c_dec','pressure','hot'],['c_intel','c_dec','belief',''],
+]},
+D: {
+lanes: [
+  {x:8,    w:272, t:8,  b:884, cls:'chan', lbl:'LAYER 2 — INCOMING FIRE (menace rail)'},
+  {x:308,  w:824, t:8,  b:884, cls:'eng',  lbl:'ENGAGEMENT — combat initiation · inside is LIVE: threat registered — visible (seen contact) · non-visible (heard shot / intel / menaced)'},
+  {x:1160, w:288, t:8,  b:884, cls:'brd',  lbl:'PRESSURE OUTCOMES'},
+],
+nodes: [
+ /* ── LEFT RAIL: the menace rail (outside the LIVE frame) ── */
+ {id:'d_report', x:16, y:60,  cls:'chan', nm:'ShotFired report', tm:'pull-time: mount · muzzle · aim · line',
+  d:'Layer 2\'s only input — the trigger-pull broadcast. Every fighter evaluates it individually; impacts are flavor and never enter here.',
+  io:{out:['d_iff','d_flank']}},
+ {id:'d_iff', x:16, y:190, cls:'eng', nm:'IFF — teamId', tm:'ally = suppress only',
+  d:'teamId match (nonzero) = ally: the geometry still applies — you duck friendly fire — but no hostile path fires. 0 = solo.',
+  io:{in:['d_report'], out:['d_eval']}},
+ {id:'d_eval', x:16, y:320, cls:'eng', nm:'menace eval', tm:'aimed@me 1.2 m · whiz line 0.9 m',
+  d:'Two geometry checks on the same report: intendedTarget near the chest (intent — survives a cone miss) OR the shot line passing the chest (the whiz).',
+  io:{in:['d_iff'], out:['d_danger','d_idle','d_tier2']}},
+ {id:'d_flank', x:16, y:460, cls:'gate', nm:'flank check', tm:'shot bearing > 60° off threat bearing',
+  d:'ThreatPos is belief; the report\'s muzzle is truth. A shooter outside the covered arc — new OR repositioned — is a flank.',
+  io:{in:['d_report'], out:['d_roll','d_reload']}},
+ {id:'d_danger', x:16, y:600, cls:'brd', nm:'incomingDanger', tm:'+0.34/shot · flanked +0.17 · drains 3 s',
+  d:'The menace bar — Layer 2\'s write into Layer 1\'s blackboard.',
+  io:{in:['d_eval','d_flank'], out:['d_supp','d_roll']}},
+ /* ── CENTER: the original engagement machine, geometry preserved ── */
+ {id:'d_legend', x:322, y:40, cls:'legend', nm:'THE DIE — face table',
+  tm:'<b style="color:#f85149">1</b> strafe-L · <b style="color:#f0883e">2</b> advance · <b style="color:#d29922">3</b> strafe-R · <b style="color:#3fb950">4</b> cover-L · <b style="color:#f778ba">5</b> stand · <b style="color:#39c5cf">6</b> cover-R',
+  d:'One face = one movement quantum. The die picks the channel; geometry resolves the substance.',
+  io:{}},
+ {id:'d_roll', x:600, y:34, cls:'roll', nm:'THE ROLL — 1d6',
+  tm:'<b style="color:#f85149">1</b> · <b style="color:#f0883e">2</b> · <b style="color:#d29922">3</b> · <b style="color:#3fb950">4</b> · <b style="color:#f778ba">5</b> · <b style="color:#39c5cf">6</b>',
+  d:'Feeds: ▲ SPOTTED (shallow) · REACQUIRED (deep bypass) · MINDIST (proximity) · <b>FLANKED</b> (Layer-2 interrupt — face 5 removed) · <b>danger pressure</b> (accelerate).',
+  io:{in:['d_spotted','d_mindist','d_flank','d_deep','d_idle','d_danger','d_stand5'], out:['d_pocketL','d_pocketR','d_recon']}},
+ {id:'d_mindist', x:916, y:44, cls:'gate', nm:'MINDIST', tm:'two threats < 5 m → re-roll',
+  d:'Feet-to-feet inside minThreatDistM → accelerated re-rolls until separated. The "too close" pressure — mirrors the legend box on the left.',
+  io:{out:['d_roll']}},
+ {id:'d_spotted', x:620, y:150, cls:'gate', nm:'▲ TARGET SPOTTED', tm:'contact → feed the roll',
+  d:'The recon verdict that re-arms the machine — the big up-arrow into the roll.',
+  io:{in:['d_recon'], out:['d_roll']}},
+ {id:'d_pocketL', x:336, y:300, cls:'pocket pl', nm:'LEFT POCKET',
+  tm:'<b style="color:#f85149">1</b> strafe-L<br><b style="color:#3fb950">4</b> cover-L',
+  d:'The left-side landing zone — strafe and cover-seek legs resolve here, then drain toward the reload.',
+  io:{in:['d_roll'], out:['d_reload']}},
+ {id:'d_pocketR', x:930, y:300, cls:'pocket pr', nm:'RIGHT POCKET',
+  tm:'<b style="color:#d29922">3</b> strafe-R<br><b style="color:#39c5cf">6</b> cover-R',
+  d:'The right-side landing zone — mirror of the left.',
+  io:{in:['d_roll'], out:['d_reload']}},
+ {id:'d_reload', x:620, y:310, cls:'bod', nm:'RELOAD', tm:'wheel seats · owns the dice channel',
+  d:'Cylinder dry → staggered wheel, 0.75 s per chamber. DiceRollGateOpen hard-gates on !reloading — nothing rolls mid-wheel. <b>Layer 2 cut:</b> a flank shot drops it (seated rounds keep) and the move roll fires NOW.',
+  io:{in:['d_pocketL','d_pocketR','d_flank'], out:['d_recon']}},
+ {id:'d_recon', x:620, y:430, cls:'eng', nm:'SHALLOW RECON', tm:'peek / scan window',
+  d:'The post-move look — is the target still there? Suppression holds this folded while the bar is hot.',
+  io:{in:['d_roll','d_reload','d_supp'], out:['d_spotted','d_hidden']}},
+ {id:'d_hidden', x:620, y:540, cls:'gate', nm:'▼ TARGET HIDDEN', tm:'contact lost',
+  d:'No sight on the recon peek.',
+  io:{in:['d_recon'], out:['d_deep']}},
+ {id:'d_deep', x:620, y:650, cls:'eng', nm:'DEEP RECON', tm:'extended search orbits',
+  d:'The extended hunt — bounded; exhaustion exits LIVE. A reacquire bypasses recon and goes straight to the roll.',
+  io:{in:['d_hidden'], out:['d_roll','d_end']}},
+ {id:'d_end', x:620, y:760, cls:'flv', nm:'DEEP EXHAUSTED — END', tm:'drops out of LIVE',
+  d:'Search budget spent — the engagement dissolves.',
+  io:{in:['d_deep']}},
+ /* ── RIGHT RAIL: where Layer-2 pressure lands (mirrors the left rail) ── */
+ {id:'d_idle', x:1170, y:60, cls:'fire', nm:'IDLE LATCH', tm:'aimed@me while idle → joins LIVE',
+  d:'A non-ally shot aimed at an idle fighter enters him into combat on the shooter — hostile by act. How outsiders get pulled into the frame.',
+  io:{in:['d_eval'], out:['d_roll']}},
+ {id:'d_supp', x:1170, y:190, cls:'fire', nm:'SUPPRESSION', tm:'danger ≥ 0.6 → Rise→Duck',
+  d:'While the bar is hot every rise dispatch folds into a duck at EnterBeat — the head stays down inside the recon/cover postures until the drain lets it through.',
+  io:{in:['d_danger'], out:['d_recon']}},
+ {id:'d_tier2', x:1170, y:320, cls:'brd', nm:'TIER-2 ALERT', tm:'teammate menaced < 15 m',
+  d:'Same eval replayed on same-team bodies in range: half danger + "!" flash on the bubble — informed, not suppressed.',
+  io:{in:['d_eval']}},
+ {id:'d_stand5', x:1170, y:460, cls:'gate', nm:'face 5 — STAND', tm:'removed when flanked',
+  d:'diceFlankFlee: the interrupt-triggered roll re-rolls face 5 — guaranteed displacement, still dice-resolved.',
+  io:{in:['d_flank'], out:['d_roll']}},
+ {id:'d_note', x:1170, y:620, cls:'flv', nm:'THE CONTRACT', tm:'menace moves WHEN/WHETHER — dice own WHICH',
+  d:'Layer 2 never picks a face. It decides when the roll fires early, whether STAND is allowed, and whether the head stays down — the die stays authoritative over the move itself.',
+  io:{}},
+],
+edges: [
+ /* menace rail down the left */
+ ['d_report','d_iff','shooter + line','hot'],['d_report','d_flank','muzzle bearing','hot'],
+ ['d_iff','d_eval','non-ally',''],['d_eval','d_danger','+shot','hot'],
+ /* rail → frame: converging pressure edges (mirror-symmetric) */
+ ['d_flank','d_roll','flanked → roll NOW','hot'],['d_flank','d_reload','cancel wheel','hot'],
+ ['d_danger','d_supp','≥0.6','hot'],['d_danger','d_roll','accelerate','hot'],
+ ['d_eval','d_idle','aimed@me · idle','hot'],['d_eval','d_tier2','teammate <15m',''],
+ ['d_idle','d_roll','EnterCombat','hot'],['d_stand5','d_roll','flank removes','hot'],
+ ['d_supp','d_recon','stays folded','hot'],
+ /* the engagement machine — original geometry */
+ ['d_mindist','d_roll','<5 m',''],['d_spotted','d_roll','','cool'],
+ ['d_roll','d_pocketL','1 · 4',''],['d_roll','d_pocketR','3 · 6',''],
+ ['d_roll','d_recon','2 advance · 5 stand',''],
+ ['d_pocketL','d_reload','RELOAD',''],['d_pocketR','d_reload','RELOAD',''],
+ ['d_reload','d_recon','seated → peek',''],
+ ['d_recon','d_spotted','contact','cool'],['d_recon','d_hidden','no sight',''],
+ ['d_hidden','d_deep','still hidden',''],['d_deep','d_end','exhausted',''],
+ ['d_deep','d_roll','REACQUIRED → straight to roll','cool'],
+]},
+};
+
+// ── renderer ────────────────────────────────────────────────────────────
+const DRAWN = {};
+function build(key){
+  const ch = CHARTS[key], el = document.getElementById('chart'+key);
+  ch.lanes.forEach(L=>{
+    const d=document.createElement('div'); d.className='lane';
+    d.style.left=L.x+'px'; d.style.top=L.t+'px'; d.style.width=L.w+'px'; d.style.height=(L.b-L.t)+'px';
+    el.appendChild(d);
+    const lb=document.createElement('div'); lb.className='lanelbl '+L.cls; lb.textContent=L.lbl;
+    lb.style.left=(L.x+10)+'px'; lb.style.top=(L.t-9)+'px'; el.appendChild(lb);
+  });
+  const cx={};
+  ch.nodes.forEach(n=>{
+    const d=document.createElement('div'); d.className='node '+n.cls; d.dataset.id=n.id;
+    d.style.left=n.x+'px'; d.style.top=n.y+'px';
+    d.innerHTML='<div class="nm">'+n.nm+'</div><div class="tm">'+n.tm+'</div>';
+    d.onclick=()=>select(key,n.id);
+    el.appendChild(d); cx[n.id]=n;
+  });
+  ch._cx=cx;
+}
+// edges must be drawn while the chart is visible (offsetWidth needs layout)
+function drawEdges(key){
+  if(DRAWN[key]) return; DRAWN[key]=true;
+  const ch=CHARTS[key], el=document.getElementById('chart'+key), svg=el.querySelector('svg'), cx=ch._cx;
+  svg.style.width = Math.max.apply(null, ch.lanes.map(L=>L.x+L.w)) + 16 + 'px';
+  requestAnimationFrame(()=>{
+    const NS='http://www.w3.org/2000/svg';
+    svg.innerHTML='<defs><marker id="ah'+key+'" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6" fill="none" stroke="#58a6ff" stroke-width="1.4"/></marker>'
+      +'<marker id="ahH'+key+'" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6" fill="none" stroke="#f85149" stroke-width="1.6"/></marker></defs>';
+    ch.edges.forEach(e=>{
+      const a=cx[e[0]], b=cx[e[1]]; if(!a||!b) return;
+      const da=el.querySelector('[data-id="'+a.id+'"]'), db=el.querySelector('[data-id="'+b.id+'"]');
+      const ax=a.x+da.offsetWidth/2, ay=a.y+da.offsetHeight/2, bx=b.x+db.offsetWidth/2, by=b.y+db.offsetHeight/2;
+      // shorten to node borders (approx): pull back ~55px from each center toward the other
+      const dx=bx-ax, dy=by-ay, len=Math.hypot(dx,dy)||1;
+      const x1=ax+dx/len*62, y1=ay+dy/len*26, x2=bx-dx/len*62, y2=by-dy/len*26;
+      const p=document.createElementNS(NS,'path');
+      const mx=(x1+x2)/2, my=(y1+y2)/2 - Math.min(40, len*0.12);
+      const hot=e[3]==='hot';
+      p.setAttribute('d',`M${x1},${y1} Q${mx},${my} ${x2},${y2}`);
+      p.setAttribute('fill','none');
+      p.setAttribute('stroke',hot?'#f85149':'#3d4a5c');
+      p.setAttribute('stroke-width',hot?'1.8':'1.2');
+      p.setAttribute('stroke-dasharray',e[3]===''?'5 4':'none');
+      p.setAttribute('marker-end',`url(#${hot?'ahH':'ah'}${key})`);
+      p.setAttribute('opacity','.8'); svg.appendChild(p);
+      p.dataset.a=e[0]; p.dataset.b=e[1];
+      if(e[2]){
+        const lb=document.createElement('div');
+        lb.className='edge-lbl'+(hot?' hot':(e[3]==='cool'?' cool':''));
+        lb.textContent=e[2]; lb.style.left=mx-30+'px'; lb.style.top=my-8+'px';
+        lb.dataset.a=e[0]; lb.dataset.b=e[1];
+        el.appendChild(lb);
+      }
+    });
+  });
+}
+function select(key,id){
+  const ch=CHARTS[key], el=document.getElementById('chart'+key);
+  const was = el.querySelector('.node.sel');
+  el.querySelectorAll('.node.sel').forEach(n=>n.classList.remove('sel'));
+  if(was && was.dataset.id===id){ el.classList.remove('litup'); return; } // click again = clear
+  el.classList.add('litup');
+  const d=el.querySelector('[data-id="'+id+'"]'); if(d){ d.classList.add('sel'); d.classList.add('hi'); }
+  // downstream reach set (out-edges, transitive)
+  const reach=new Set([id]); let grow=true;
+  while(grow){ grow=false; ch.edges.forEach(e=>{ if(reach.has(e[0])&&!reach.has(e[1])){reach.add(e[1]);grow=true;} }); }
+  // classify every edge + label: lo=direct out, ld=downstream, li=direct in
+  el.querySelectorAll('svg path').forEach(p=>{
+    p.classList.remove('lo','ld','li');
+    if(p.dataset.a===id) p.classList.add('lo');
+    else if(p.dataset.b===id) p.classList.add('li');
+    else if(reach.has(p.dataset.a)&&reach.has(p.dataset.b)) p.classList.add('ld');
+  });
+  el.querySelectorAll('.edge-lbl').forEach(l=>{
+    l.classList.remove('lo','ld','li');
+    if(l.dataset.a===id) l.classList.add('lo');
+    else if(l.dataset.b===id) l.classList.add('li');
+    else if(reach.has(l.dataset.a)&&reach.has(l.dataset.b)) l.classList.add('ld');
+  });
+  // un-dim every node on the lit path (downstream + direct feeders)
+  el.querySelectorAll('.node').forEach(n=>{
+    n.classList.remove('hi');
+    if(reach.has(n.dataset.id)) n.classList.add('hi');
+    else if(ch.edges.some(e=>e[1]===id&&e[0]===n.dataset.id)) n.classList.add('hi');
+  });
+  const n=ch.nodes.find(x=>x.id===id);
+  const nm=id2nm=>(ch.nodes.find(x=>x.id===id2nm)||{nm:id2nm}).nm;
+  let io='';
+  if(n.io){ 
+    const ins=(n.io.in||[]).map(x=>'<span class="in">◀ '+nm(x)+'</span>').join('');
+    const outs=(n.io.out||[]).map(x=>'<span class="out">'+nm(x)+' ▶</span>').join('');
+    if(ins||outs) io='<div class="io">'+ins+outs+'</div>';
+  }
+  document.getElementById('detail').innerHTML=
+    '<h3>'+n.nm+'</h3><div class="meta">'+n.tm+' · <code>'+n.id+'</code></div><p>'+n.d+'</p>'+io;
+}
+function showChart(k,tab){
+  ['A','B','C','D'].forEach(x=>document.getElementById('chart'+x).style.display = x===k?'block':'none');
+  document.querySelectorAll('.ftab').forEach(t=>t.classList.remove('active'));
+  tab.classList.add('active');
+  drawEdges(k);
+}
+['A','B','C','D'].forEach(build);
+drawEdges('A');
+</script>
+</body>
+</html>

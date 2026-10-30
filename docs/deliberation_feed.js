@@ -1992,6 +1992,13 @@ window.DVM_FEED = {
       "kind": "boss",
       "to": [],
       "text": "this is a great milestone. lets  update and create any relevant documents capturing our progress and commit and push the progress so the game repo preserves this system"
+    },
+    {
+      "id": "CHAIR-108",
+      "speaker": "CHAIR",
+      "round": 0,
+      "kind": "position",
+      "text": "<b>Preserved, boss — commit <code>aebf5b1</code> pushed to master.</b> Twenty-six files, 5295 insertions, scoped clean: the whole system and nothing else — dashboard, feed (the full transcript, every scar and win), server, watcher, protocol (freshened to current law — seats, registers, status stamps, verified log ×11), all eleven implement drafts, four inductions, RECENT_CHANGES per-build ledger, and both cataloged known-issues. Deliberately left out: live presence files and server logs (runtime state, not source) and the repo's unrelated in-flight game work — the commit touches only the commission. The machine that deliberated itself into existence is now part of Steel City's history — the game repo preserves the panel that will help design the game."
     }
   ],
   "verdict": {

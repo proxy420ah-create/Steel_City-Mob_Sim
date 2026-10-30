@@ -167,13 +167,20 @@ consolidated `.stasset JSON` format instead. Round-trip:
    `VoxelAssetStudio/JSON Models In Progress/` (`tenement_block_0.json`,
    `mainstreet_ew.json`, `river_straight.json`, etc.)
 3. Edit with paint/fill/shape/select tools
-4. Export the edited `.stasset JSON`, then convert back:
+4. Export the edited `.stasset JSON` into `JSON Models In Progress/`, then
+   convert back — **preferred: Unity menu `Steel City → Voxel Assets →
+   Convert WIP → Stassets`** (converts every stale/missing building JSON at
+   once, reports converted/skipped/failed). Manual equivalent:
    `python tools/json_to_stasset.py <file>.json "Assets/StreamingAssets/voxel_buildings/<name>.stasset"`
-5. Verify in-game (stassets load at scene build — restart Play)
+   — ⚠ the output path is **positional**; there is no `-o` flag (a `-o` arg
+   silently becomes the output filename in the CWD).
+5. Verify in-game (stassets load at scene build — restart Play; a missing
+   file now logs `[SectorBaker] <block>: stasset unreadable` instead of
+   silently rendering nothing)
 
 **Binary-only stassets** (no JSON sidecar — e.g. `empty_land`, `road_tile_0`,
 vehicles): convert first —
-`python tools/stasset_to_json.py "Assets/StreamingAssets/voxel_buildings/<name>.stasset" --type building --voxel-size 0.1`
+`python tools/stasset_to_json.py "Assets/StreamingAssets/voxel_buildings/<name>.stasset" --type building --voxel-size 0.05`
 
 **Preserves**: V2 exports keep attachment points + building metadata in the SKEL
 tail — authored points survive the round-trip (spot-check `firing_position`

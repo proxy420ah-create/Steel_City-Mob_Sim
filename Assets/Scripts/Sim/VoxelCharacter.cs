@@ -39,6 +39,10 @@ namespace SteelCity.Sim
         [Tooltip("If true, position is treated as world-space. If false, local-space relative to parent.")]
         public bool useWorldPosition = true;
 
+        [Header("Identity")]
+        [Tooltip("IFF side — 0 = solo/no team (everyone neutral); matching nonzero ids = allies. Read by CombatController's incoming-fire menace eval, shown on the combat bubble.")]
+        public byte teamId;
+
         [Header("Collision — SteelTide VoxelWorld approach")]
         [Tooltip("Reference to VoxelCollisionWorld for ground probing. Auto-found if not assigned.")]
         public VoxelCollisionWorld collisionWorld;

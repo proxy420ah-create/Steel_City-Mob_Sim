@@ -2028,15 +2028,15 @@ namespace SteelCity.Sim
                 ?? (followCamera != null ? followCamera.GetComponent<Camera>() : null)
                 ?? Camera.main;
             if (cam == null) return;
-            if (vin != null && vcc != null) DrawBubble(vin.transform, vcc, cam);
-            if (tan != null && tcc != null) DrawBubble(tan.transform, tcc, cam);
+            if (vin != null && vcc != null) DrawBubble(vin, vcc, cam);
+            if (tan != null && tcc != null) DrawBubble(tan, tcc, cam);
         }
 
-        void DrawBubble(Transform t, CombatController cc, Camera cam)
+        void DrawBubble(VoxelCharacter v, CombatController cc, Camera cam)
         {
-            // Emit whenever DICE is toggled on or combat is live — a lit bubble
-            // over an idle fighter is the sanity check that the display works.
-            if (cc.State == CombatController.CombatState.Idle && !cc.diceArbiter) return;
+            // Always-on billboard — persists indefinitely so the menace bar
+            // and team id stay visible before/during/after the fight.
+            Transform t = v.transform;
             Vector3 head = t.position + Vector3.up * 0.9f;
             Vector3 sp = cam.WorldToScreenPoint(head);
             if (sp.z <= 0f) return;
@@ -2081,10 +2081,17 @@ namespace SteelCity.Sim
                 l2 += $" · threat {Vector3.Distance(feet, cc.ThreatPos):F0}m";
             if (l2.Length > 76) l2 = l2.Substring(0, 73) + "…";
             string col = hot ? "#ffb35c" : "#8fb8d8";
-            var rect = new Rect(sx - 96f, sy - 46f, 192f, 48f);
+            float mnz = cc.incomingDanger;
+            int fill = Mathf.Clamp(Mathf.RoundToInt(mnz * 12f), 0, 12);
+            string bar = new string('\u2588', fill).PadRight(12, '\u00b7');
+            string mnzCol = mnz >= CombatController.menaceSuppressAt ? "#ff5544"
+                          : mnz > 0.05f ? "#ffb35c" : "#5b6b7c";
+            string teamNote = SimClock.Now - cc.teamAlertAt < 2f ? " <color=#ffb35c>!</color>" : "";
+            var rect = new Rect(sx - 96f, sy - 60f, 192f, 64f);
             GUILayout.BeginArea(rect, bgStyle);
             GUILayout.Label($"<b><color={col}>{l1}</color></b>", labelStyle);
             GUILayout.Label($"<color=#aeb8c4>{l2}</color>", labelStyle);
+            GUILayout.Label($"<color={mnzCol}>mnz {bar}</color> <color=#8fb8d8>team {v.teamId}</color>{teamNote}", labelStyle);
             GUILayout.EndArea();
         }
 
@@ -2864,6 +2871,20 @@ namespace SteelCity.Sim
             if (pit && PitBlockId != null)
                 PitCoverPickRow(PitBlockId, ch, TanSuitRef);
             GUILayout.Label("cover detection tuning lives on the COVER tab", labelStyle);
+            }
+
+            // Incoming-fire menace — IFF eval + suppression thresholds.
+            GUILayout.Space(6);
+            if (SecFold("c.menace", "incoming fire / menace"))
+            {
+            ch.teamId = (byte)Mathf.RoundToInt(HSlider("team id", ch.teamId, 0f, 4f, "F0"));
+            CombatController.menaceRadius = HSlider("whiz radius m", CombatController.menaceRadius, 0.2f, 3f);
+            CombatController.menaceIntentM = HSlider("aim radius m", CombatController.menaceIntentM, 0.2f, 4f);
+            CombatController.menacePerShot = HSlider("danger / shot", CombatController.menacePerShot, 0.05f, 1f);
+            CombatController.menaceDecaySec = HSlider("decay s", CombatController.menaceDecaySec, 0.5f, 15f);
+            CombatController.menaceSuppressAt = HSlider("suppress at", CombatController.menaceSuppressAt, 0.1f, 1f);
+            CombatController.menaceTeamAlertM = HSlider("team alert m", CombatController.menaceTeamAlertM, 3f, 60f);
+            CombatController.flankAngleDeg = HSlider("flank angle °", CombatController.flankAngleDeg, 30f, 150f, "F0");
             }
 
             GUILayout.Space(6);

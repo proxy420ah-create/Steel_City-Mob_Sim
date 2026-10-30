@@ -794,8 +794,19 @@ namespace SteelCity.Sim
         /// arc complete. Deliberately untouched: contactSeen, LastSeenAt,
         /// convergeSince — a report is intel, not a sighting; the arm-hold
         /// grace and the drop clock keep running on the eye channel's truth.</summary>
-        void OnEnable()  { SfxWaves.Heard += OnSfxHeard; }
-        void OnDisable() { SfxWaves.Heard -= OnSfxHeard; }
+        void OnEnable()
+        {
+            SfxWaves.Heard += OnSfxHeard;
+            All.Add(this);
+            projSub = ProjectileSystem.GetOrCreate();
+            if (projSub != null) projSub.ShotFired += OnShotFired;
+        }
+        void OnDisable()
+        {
+            SfxWaves.Heard -= OnSfxHeard;
+            All.Remove(this);
+            if (projSub != null) projSub.ShotFired -= OnShotFired;
+        }
 
         /// <summary>Radius hearing — every real gunshot report reaches every
         /// fighter in earshot; the report IS intel on the shooter. Delivered
@@ -817,6 +828,117 @@ namespace SteelCity.Sim
             if (shotVox == null || shotVox == vox) return;                 // no actor / own report
             if (shotVox != ThreatCharacter && shotVox != watchTarget) return; // not my fight
             OnShotHeard(origin);
+        }
+
+        // ── Incoming fire / menace (IFF-evaluated gunshot reports) ────────────
+        // Only the SHOT matters — impacts are flavor (audio/damage), never
+        // combat input. Every ShotFired broadcast reaches every fighter; each
+        // evaluates menace to SELF then team, individually — broadcast-all,
+        // filter-individually, the same law as SfxWaves.Heard.
+        //   menace to self  = aimed at me (intendedTarget near my chest) OR
+        //                     the bullet line passes within menaceRadius —
+        //                     geometry only: allied fire suppresses but never
+        //                     latches the shooter as hostile.
+        //   menace to team  = the same eval on a teammate within alert range —
+        //                     alerted (re-eval), not suppressed.
+        public static float menaceRadius = 0.9f;     // shot LINE within this of the chest = whiz
+        public static float menaceIntentM = 1.2f;    // intendedTarget within this = aimed at me
+        public static float menacePerShot = 0.34f;   // danger added per menacing shot (~3 shots → pinned)
+        public static float menaceDecaySec = 3f;     // 1.0 → 0 tail, seconds
+        public static float menaceSuppressAt = 0.6f; // danger ≥ this: Rise converts to Duck
+        public static float menaceTeamAlertM = 15f;  // teammate within this of me counts
+        public static float flankAngleDeg = 60f;     // shot bearing off the threat bearing past this = flanked
+        private bool diceFlankFlee;                  // flank-interrupt owed a MOVE roll — STAND is off the table
+        public float incomingDanger { get; private set; }
+        public float teamAlertAt { get; private set; }
+        /// <summary>Every live controller — the teammate scan for the tier-2
+        /// menace eval. Registered in OnEnable, removed in OnDisable.</summary>
+        public static readonly System.Collections.Generic.List<CombatController> All
+            = new System.Collections.Generic.List<CombatController>();
+        private ProjectileSystem projSub;
+
+        /// <summary>The trigger-pull event IS the combat report — the shooter,
+        /// his aim intent and the bullet's real path, delivered before flight.
+        /// Self-evaluates menace, then the same eval against nearby teammates.</summary>
+        void OnShotFired(WeaponMount mount, ProjectileSystem.ShotReport r)
+        {
+            if (mount == null || vox == null) return;
+            var shotVox = mount.Character ?? mount.GetComponentInParent<VoxelCharacter>();
+            if (shotVox == null || shotVox == vox) return;              // no actor / own shot
+            bool ally = shotVox.teamId != 0 && shotVox.teamId == vox.teamId;
+            Vector3 sd = r.shotDir.sqrMagnitude > 1e-6f ? r.shotDir.normalized : r.aimDir;
+            Vector3 chest = Feet() + Vector3.up * (BodyH * 0.55f);
+            bool aimed = r.hasIntended
+                && (r.intendedTarget - chest).sqrMagnitude < menaceIntentM * menaceIntentM;
+            float t = Vector3.Dot(chest - r.muzzle, sd);
+            bool onMe = aimed
+                || (t > 0f && Vector3.Distance(chest, r.muzzle + sd * t) < menaceRadius);
+            if (onMe)
+            {
+                bool wasSupp = incomingDanger >= menaceSuppressAt;
+                incomingDanger = Mathf.Min(1f, incomingDanger + menacePerShot);
+                if (!ally)
+                {
+                    if (State == CombatState.Idle)
+                    {
+                        // Shot AT — hostile act: he IS my fight now.
+                        var tgt = shotVox; watching = false; watchTarget = null;
+                        Debug.Log($"🥊 [Combat] {name} — MENACE: fired on by {shotVox.name} — entering combat");
+                        EnterCombat(r.muzzle, tgt);
+                    }
+                    else
+                    {
+                        // Covered vs flanked — cover only protects the arc around
+                        // the believed threat bearing; fire arriving from outside
+                        // it means I'm exposed on this side (new shooter OR my
+                        // own threat who repositioned since the last sighting).
+                        Vector3 toThr = ThreatPos - Feet(); toThr.y = 0f;
+                        Vector3 toSh  = r.muzzle - Feet();  toSh.y  = 0f;
+                        bool flanked = toThr.sqrMagnitude < 0.01f
+                            || Vector3.Angle(toThr, toSh) > flankAngleDeg;
+                        if (flanked) incomingDanger = Mathf.Min(1f, incomingDanger + 0.17f);
+                        if (reloading && flanked)
+                        {
+                            // Shot from my OPEN side mid-wheel — the reload is
+                            // dead, the dice advance to a MOVE roll NOW (the
+                            // flank flag keeps STAND off this roll's table).
+                            reloading = false; diceRampPending = false;
+                            if (DiceActive)
+                            {
+                                if (!diceAwaitRoll) ArmRoll("flanked!");
+                                diceNextRollAt = SimClock.Now;
+                                diceFlankFlee = true;
+                            }
+                            Debug.Log($"🥊 [Combat] {name} — FLANKED mid-reload by {shotVox.name} — wheel dropped, move roll NOW");
+                        }
+                        if (searching) ArmSearch();                     // fire on me re-anchors the orbit
+                        if (!DiceActive && ArbActive) seamNow = true;   // pressure — instant re-eval
+                        else if (DiceActive && !diceLegActive)
+                            diceNextRollAt = SimClock.Now;              // accelerate the next move roll
+                    }
+                }
+                if (!wasSupp && incomingDanger >= menaceSuppressAt)
+                    Debug.Log($"🥊 [Combat] {name} — SUPPRESSED by incoming fire");
+                return;
+            }
+            // ── Tier 2: a teammate of mine is the one under fire ──
+            for (int i = 0; i < All.Count; i++)
+            {
+                var tm = All[i];
+                if (tm == this || tm.vox == null) continue;
+                if (tm.vox.teamId == 0 || tm.vox.teamId != vox.teamId) continue;
+                if ((tm.Feet() - Feet()).sqrMagnitude > menaceTeamAlertM * menaceTeamAlertM) continue;
+                Vector3 tc = tm.Feet() + Vector3.up * (tm.BodyH * 0.55f);
+                float tt = Vector3.Dot(tc - r.muzzle, sd);
+                bool onTm = (tt > 0f && Vector3.Distance(tc, r.muzzle + sd * tt) < menaceRadius)
+                    || (r.hasIntended && (r.intendedTarget - tc).sqrMagnitude < menaceIntentM * menaceIntentM);
+                if (!onTm) continue;
+                incomingDanger = Mathf.Min(1f, incomingDanger + menacePerShot * 0.5f);
+                teamAlertAt = SimClock.Now;
+                if (!DiceActive && ArbActive) seamNow = true;
+                else if (DiceActive && !diceLegActive) diceNextRollAt = SimClock.Now;
+                break;
+            }
         }
 
         public void OnShotHeard(Vector3 shotPos)
@@ -1149,6 +1271,10 @@ namespace SteelCity.Sim
 
         void EnterBeat(EngagementBeat b)
         {
+            // Menace gate — rising while suppressed folds him back instead.
+            // Covers every dispatch path (authored rhythm, seam arbiter, dice).
+            if (b == EngagementBeat.Rise && incomingDanger >= menaceSuppressAt)
+            { b = EngagementBeat.Duck; LastRiseDiag = $"suppressed — incoming fire ({incomingDanger:F2})"; }
             Beat = b;
             FaceFree();             // fresh intent per beat — no stale facing leaks in
             awaitingLoop = false;   // any real beat clears a parked gate
@@ -2271,6 +2397,11 @@ namespace SteelCity.Sim
             diceSubRoll = 0;
             diceFace = (byte)(forceFace >= 1 && forceFace <= 6
                 ? forceFace : UnityEngine.Random.Range(1, 7));
+            if (diceFlankFlee)
+            {
+                diceFlankFlee = false;
+                while (diceFace == 5) diceFace = (byte)UnityEngine.Random.Range(1, 7);   // flank trigger removed STAND
+            }
             diceBearing = -1;
             diceRunning = $"f{diceFace} {DiceFaceNames[diceFace]}";
             DiceExecFace();
@@ -3725,6 +3856,9 @@ namespace SteelCity.Sim
 
         void Update()
         {
+            // Menace decays continuously — a sensory field, not a decision
+            // clock; verdicts sample it at SimClock boundaries.
+            incomingDanger = Mathf.MoveTowards(incomingDanger, 0f, Time.deltaTime / Mathf.Max(0.1f, menaceDecaySec));
 
             // The wheel is world-physical — keep seating rounds even at Idle so
             // a reload started in one mode finishes in whatever mode he's in.
