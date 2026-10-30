@@ -80,6 +80,21 @@ namespace SteelCity.Sim
         [Tooltip("Head track blend while aiming (AIM_RIG phase 1): the head's gid-1 quat looks along eye→target — same solve the JS animator previews as ikAim.headTrack. 0 = authored head pose.")]
         [Range(0f, 1f)] public float headTrack = 1f;
 
+        [Header("Bore on line (AIM_RIG phase 3)")]
+        [Tooltip("0 = legacy (bore along shoulder to target, muzzle lands wherever the arm ends); 1 = the arm places the MUZZLE on the eye-to-target sight line (offset by sightGapM) with the bore converging on the target. Blends the two. Off automatically in the deep-duck band and without head tracking / a muzzle anchor.")]
+        [Range(0f, 1f)] public float boreOnLine = 1f;
+        [Tooltip("How far BELOW the eye sight line the bore runs (revolver sights sit above the barrel).")]
+        public float sightGapM = 0.045f;
+        [Tooltip("The muzzle is kept at least this far forward of the eye along the sight line.")]
+        public float minMuzzleAheadM = 0.15f;
+
+        /// <summary>True when the last solve used the bore-on-line arm solution.</summary>
+        public bool LastBoreOnLine { get; private set; }
+        /// <summary>How far the SOLVED muzzle misses the sight line (m) - 0 when the line was reachable.</summary>
+        public float LastBoreResidualM { get; private set; }
+        /// <summary>Ground truth, 1 frame stale: distance from the welded muzzle to the live eye-target line (m); -1 when unavailable.</summary>
+        public float LastMuzzleLineGapM { get; private set; } = -1f;
+
         // --- State ---
         public bool IsAiming { get; private set; }
         public float Blend { get; private set; }
@@ -406,6 +421,29 @@ namespace SteelCity.Sim
                 tv = sv + toRaw;
             }
 
+            // Head first - the bore-on-line arm solve needs the solved head pose to know where the eye sits.
+            // Head aim (AIM_RIG phase 1) — the unified gid-1 quat channel, solved in
+            // the SAME pre-torso frame as the arm (tv already carries the torso-assist
+            // inverse): look the bind-forward head at the target, neck-clamped —
+            // yaw ±1.35 rad (existing clamp), pitch ±0.9. headTrack blends it.
+            headOn = false;
+            if (headTrack > 0.001f && mount.Pivots.TryGetValue(1, out var hpiv))
+            {
+                headOn = true;
+                Vector3 hv = ScalePivot(hpiv, dimsF);
+                Vector3 dh = tv - hv;
+                if (dh.sqrMagnitude > 1e-6f)
+                {
+                    dh /= dh.magnitude;
+                    float hy = Mathf.Clamp(Mathf.Atan2(dh.x, dh.z), -1.35f, 1.35f);
+                    float hp2 = Mathf.Clamp(Mathf.Atan2(dh.y, Mathf.Sqrt(dh.x * dh.x + dh.z * dh.z)), -0.9f, 0.9f);
+                    var dc = new Vector3(Mathf.Sin(hy) * Mathf.Cos(hp2), Mathf.Sin(hp2), Mathf.Cos(hy) * Mathf.Cos(hp2));
+                    headQuat = Quaternion.Slerp(Quaternion.identity,
+                        BasisDelta(Vector3.forward, dc, Vector3.up, Vector3.up), headTrack);
+                }
+                else headOn = false;
+            }
+
             Vector3 st = tv - sv;
             float dist = st.magnitude;
             Vector3 toT = dist > 1e-6f ? st / dist : Vector3.forward;
@@ -450,35 +488,90 @@ namespace SteelCity.Sim
 
                     // Forearm: cumulative must equal qRDesired → ownRot = inv(qArm) * qRDesired
                     qFore = Quaternion.Inverse(qArm) * qRDesired;
-                }
-            }
 
-            // Head aim (AIM_RIG phase 1) — the unified gid-1 quat channel, solved in
-            // the SAME pre-torso frame as the arm (tv already carries the torso-assist
-            // inverse): look the bind-forward head at the target, neck-clamped —
-            // yaw ±1.35 rad (existing clamp), pitch ±0.9. headTrack blends it.
-            headOn = false;
-            if (headTrack > 0.001f && mount.Pivots.TryGetValue(1, out var hpiv))
-            {
-                headOn = true;
-                Vector3 hv = ScalePivot(hpiv, dimsF);
-                Vector3 dh = tv - hv;
-                if (dh.sqrMagnitude > 1e-6f)
-                {
-                    dh /= dh.magnitude;
-                    float hy = Mathf.Clamp(Mathf.Atan2(dh.x, dh.z), -1.35f, 1.35f);
-                    float hp2 = Mathf.Clamp(Mathf.Atan2(dh.y, Mathf.Sqrt(dh.x * dh.x + dh.z * dh.z)), -0.9f, 0.9f);
-                    var dc = new Vector3(Mathf.Sin(hy) * Mathf.Cos(hp2), Mathf.Sin(hp2), Mathf.Cos(hy) * Mathf.Cos(hp2));
-                    headQuat = Quaternion.Slerp(Quaternion.identity,
-                        BasisDelta(Vector3.forward, dc, Vector3.up, Vector3.up), headTrack);
+                    LastBoreOnLine = false; LastBoreResidualM = 0f;
+                    if (boreOnLine > 0.001f
+                        && TrySolveBoreOnLine(sv, ev, hv, tv, K, wUp, vs, dimsF, out Quaternion qArmN, out Quaternion qForeN))
+                    {
+                        qArm = boreOnLine >= 0.999f ? qArmN : Quaternion.Slerp(qArm, qArmN, boreOnLine);
+                        qFore = boreOnLine >= 0.999f ? qForeN : Quaternion.Slerp(qFore, qForeN, boreOnLine);
+                        LastBoreOnLine = true;
+                    }
                 }
-                else headOn = false;
             }
 
             // Real angular error: welded bore dir vs muzzle→target (1 frame stale — ground truth)
             Vector3 toTargetWorld = targetWorld - mount.MuzzleWorld;
             if (mount.IsEquipped && toTargetWorld.sqrMagnitude > 1e-8f)
                 LastAngularErrorDeg = Vector3.Angle(mount.AimDirection, toTargetWorld);
+
+            // Gate metric: how far the welded muzzle sits from the live eye-target line.
+            LastMuzzleLineGapM = -1f;
+            if (mount.IsEquipped && character != null && character.TryGetEyeAnchor(out Vector3 eyeW, out _, out _))
+            {
+                Vector3 ld = targetWorld - eyeW;
+                if (ld.sqrMagnitude > 1e-8f)
+                {
+                    ld.Normalize();
+                    Vector3 mv = mount.MuzzleWorld - eyeW;
+                    LastMuzzleLineGapM = (mv - ld * Vector3.Dot(mv, ld)).magnitude;
+                }
+            }
+        }
+
+        /// <summary>
+        /// AIM_RIG phase 3 - place the MUZZLE on the eye-to-target sight line and converge the bore on the target.
+        /// Everything is in the pre-torso model frame the legacy solve uses (rest pivots, tv already carrying the
+        /// torso-assist inverse). FK: muzzle = sv + qArm*(ev-sv) + qCum*((hv-ev) + gunOffset), with
+        /// qCum = qArm*qFore fixed by the bore direction - so the muzzle lies on a sphere of radius |ev-sv| around
+        /// sv + qCum*(forearm + gunOffset) and the sight line meets it in AimRigGeometry.MuzzleOnLine.
+        /// The bore direction depends weakly on the muzzle (converges on the target), so two refinement passes settle it.
+        /// Returns false (legacy solve stands) in the deep-duck band, without a posed head / muzzle anchor, or when degenerate.
+        /// </summary>
+        private bool TrySolveBoreOnLine(Vector3 sv, Vector3 ev, Vector3 hv, Vector3 tv, Vector3 K, Vector3 wUp,
+            float vs, Vector3 dimsF, out Quaternion qArm, out Quaternion qFore)
+        {
+            qArm = Quaternion.identity; qFore = Quaternion.identity;
+            if (!headOn || !mount.HasMuzzle || character == null || vs < 1e-6f) return false;
+            if (animRef != null && animRef.duck > 1.02f) return false;
+            if (!mount.Pivots.TryGetValue(1, out var hpiv) || !character.TryGetEyeRest(out Vector3 eyeRest)) return false;
+
+            Vector3 headPiv = ScalePivot(hpiv, dimsF);
+            Vector3 headFwd = headQuat * Vector3.forward;
+            Vector3 proud = new Vector3(headFwd.x, 0f, headFwd.z);
+            proud = proud.sqrMagnitude > 1e-6f ? proud.normalized * 1.5f : Vector3.zero;
+            Vector3 eye = headPiv + headQuat * (eyeRest - headPiv) + proud;
+
+            Vector3 d = tv - eye;
+            if (d.sqrMagnitude < 1e-4f) return false;
+            d.Normalize();
+
+            Vector3 up = Vector3.up;
+            Vector3 p0 = eye - up * (sightGapM / vs);
+            Vector3 forearm = hv - ev;
+            Vector3 gun = mount.BasisB * mount.ItemAttachRot * (mount.MuzzleFromGripLocal / vs);
+            float l1 = (ev - sv).magnitude;
+            if (l1 < 1e-4f) return false;
+            float minAhead = minMuzzleAheadM / vs;
+
+            Vector3 b = d, m = p0 + d * minAhead;
+            float residual = 0f;
+            for (int it = 0; it < 3; it++)
+            {
+                Quaternion qc = BasisDelta(K, b, wUp, up);
+                m = AimRigGeometry.MuzzleOnLine(p0, d, sv + qc * (forearm + gun), l1, minAhead, out residual);
+                Vector3 toF = tv - m;
+                if (toF.sqrMagnitude < 4f) break;
+                b = toF.normalized;
+            }
+
+            Quaternion qCum = BasisDelta(K, b, wUp, up);
+            Vector3 eDir = m - sv - qCum * (forearm + gun);
+            if (eDir.sqrMagnitude < 1e-6f) return false;
+            qArm = BasisDelta((ev - sv).normalized, eDir.normalized, armTwistRef, armTwistRef);
+            qFore = Quaternion.Inverse(qArm) * qCum;
+            LastBoreResidualM = residual * vs;
+            return true;
         }
 
         /// <summary>Push the solve into both the CPU animator (weld) and GPU per-instance channel.</summary>

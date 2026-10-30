@@ -20,7 +20,7 @@ namespace SteelCity.Sim
     /// Layout: lazily-allocated 64×64-cell blocks (16m × 16m), so the layer
     /// pays only for regions someone actually queries — never a full-map pass.
     /// </summary>
-    public sealed class WalkLayer
+    public sealed class WalkLayer : IEditLog
     {
         /// <summary>Canonical tile — a field window is servable iff its
         /// CellSize equals this. 0.25m = fieldRes 64 @ radius 8m (pit config).</summary>

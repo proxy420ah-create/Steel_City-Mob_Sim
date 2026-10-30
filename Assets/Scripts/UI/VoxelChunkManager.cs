@@ -127,6 +127,10 @@ namespace SteelCity.Sim
         public enum IterVisMode { Off = 0, IterationHeat = 1, StepChannels = 2, MissWaste = 3,
             CoverQuality = 4, CoverThreat = 5, CoverExposure = 6, VisionCone = 7,
             CoverWalkable = 8, CoverReachable = 9 }
+        [Header("Raymarch Cost")]
+        [Tooltip("A/B toggle: rasterize proxy cubes' BACK faces only. The default (Cull Off) shades every covered pixel twice per volume — the fragment shader writes SV_Depth so early-Z can't reject, and each fragment runs a full ray-AABB + DDA march. Back-faces-only gives the same rays with one fragment per pixel per volume.")]
+        public bool proxyBackFacesOnly = false;
+
         [Header("Raymarch Debug")]
         [Tooltip("V key. IterationHeat: blue<80 green~160 red>160 | StepChannels: R=voxel steps, B=shadow steps | MissWaste: heat on no-hit rays | CoverQuality/Threat/Exposure: Vinny's cover field sampled at world XZ | VisionCone: Vinny's sight wedge painted on surfaces | CoverWalkable/Reachable: each fighter's walk domain tiles painted on the world")]
         public IterVisMode iterVisMode = IterVisMode.Off;
@@ -3683,6 +3687,7 @@ namespace SteelCity.Sim
             int opaquePass = useGlassCompositePass ? 1 : 0;
 
             Shader.SetGlobalFloat(propIterVis, (float)iterVisMode);
+            Shader.SetGlobalFloat("_ProxyCull", proxyBackFacesOnly ? 1f : 0f);   // CullMode: Off = 0, Front = 1
             SyncDebugViewKeyword(iterVisMode != IterVisMode.Off);
             Shader.SetGlobalInt("_GlassLayerVis", debugGlassLayers ? 1 : 0);
 

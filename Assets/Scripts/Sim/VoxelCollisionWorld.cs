@@ -267,8 +267,16 @@ namespace SteelCity.Sim
         /// </summary>
         public void RegisterVolume(string id, uint[] voxels, int w, int h, int d, Vector3 corner, float voxelSize, float yawDegrees = 0f)
         {
+            // A REPLACE vacates the old footprint too — the cells under where a car (or a damaged
+            // building's old placement) WAS must re-probe to open space, exactly like Unregister.
+            // Every cache keyed on the edit log (walk layer, cover ground/wall caches) depends on it.
+            bool had = volumes.TryGetVolume(id, out _, out int ow, out int oh, out int od,
+                                            out Vector3 oc, out float ovs, out float oyaw);
+            Bounds oldB = had ? VolumeAabb(oc, ow, oh, od, ovs, oyaw) : default;
             volumes.Register(id, voxels, w, h, d, corner, voxelSize, yawDegrees);
-            Walk?.Invalidate(VolumeAabb(corner, w, h, d, voxelSize, yawDegrees));
+            Bounds newB = VolumeAabb(corner, w, h, d, voxelSize, yawDegrees);
+            if (had && (oldB.center != newB.center || oldB.size != newB.size)) Walk?.Invalidate(oldB);
+            Walk?.Invalidate(newB);
         }
 
         public bool UnregisterVolume(string id)
@@ -294,6 +302,12 @@ namespace SteelCity.Sim
         /// <summary>Solid volumes overlapping the XZ circle (center, radius) — feeds cover awareness.</summary>
         public int QueryVolumes(Vector3 center, float radius, List<CoverObstacle> results)
             => volumes.QueryVolumes(center, radius, results);
+
+        /// <summary>Per-volume cached wall sets (same volumes, same order, same columns as
+        /// <see cref="QueryCoverWalls"/>) — feeds the world-fixed wall-column cache.</summary>
+        public int QueryCoverWallSets(Vector3 center, float radius, float minSpanWorld, float openAtWorld,
+            List<SolidVolumeSet.VolumeWalls> results)
+            => volumes.QueryCoverWallSets(center, radius, minSpanWorld, openAtWorld, results);
 
         /// <summary>Cover-capable wall columns of volumes overlapping the XZ circle — feeds CoverSensor.</summary>
         public int QueryCoverWalls(Vector3 center, float radius, float minSpanWorld, float openAtWorld, List<CoverWall> results)

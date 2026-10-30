@@ -565,8 +565,23 @@ namespace SteelCity.Sim
             // depth + threat-LOS do the precise validation after.
             // Prefilter is permissive (-0.3m): the owner's own support is only a
             // hint — each wall is classified against the ground at ITS stand-spot.
-            world.QueryCoverWalls(pos, radius, wallFloor, supportY + h1 - 0.3f, wallBuf);
-            stats.wallCols = wallBuf.Count;
+            // World-fixed wall-column cache: each volume's emitted columns AND their
+            // classification are computed once per (volume, body spec, edit stamp) and
+            // reused by every scan (bit-identical to the legacy loop — Tools/cover_selftest).
+            bool cached = useWallCache && world.Walk != null;
+            float openAt = supportY + h1 - 0.3f;
+            if (cached)
+            {
+                world.QueryCoverWallSets(pos, radius, wallFloor, openAt, wallSets);
+                int tot = 0;
+                for (int i = 0; i < wallSets.Count; i++) tot += wallSets[i].walls.Count;
+                stats.wallCols = tot;
+            }
+            else
+            {
+                world.QueryCoverWalls(pos, radius, wallFloor, openAt, wallBuf);
+                stats.wallCols = wallBuf.Count;
+            }
             Profiler.EndSample();
             Profiler.BeginSample("Scan.Classify");
 
@@ -574,46 +589,21 @@ namespace SteelCity.Sim
             SyncSupportCache(world.Walk);
             Vector3 tp = Threat ?? default;
             bool hasT = Threat.HasValue;
-            for (int i = 0; i < wallBuf.Count; i++)
+            if (cached)
             {
-                CoverWall w = wallBuf[i];
-                // Class/depth are properties of the wall vs the ground where
-                // someone stands behind it — NOT of where the owner happens to
-                // be. Same wall, same class, wherever Vinny walks.
-                float sy = LocalSupport(w.facePos + w.outDir * (standoff + w.voxelSize * 0.25f), supportY);
-                // Floor relief is not a wall: the volume query measures span from
-                // the volume's BOTTOM (ground slab included), so a 1-voxel pad,
-                // curb or stand plate passes `wallFloor` and — as a Low column —
-                // would claim cells at quality 0 and carve holes in real zones.
-                // A wall must stand wallFloor above the floor behind it.
-                if (w.spanTop - sy < wallFloor) continue;
-                WallClass cls = Covers(w, sy + hStand) ? WallClass.Full
-                              : Covers(w, sy + h1) ? WallClass.Crouch : WallClass.Low;
-                float reqD = cls == WallClass.Low ? 0f : DuckForTop(w.spanTop, sy);
-                float facing = 0f;
-                if (hasT)
+                var prm = new CoverWallClassifier.Params
                 {
-                    Vector3 dt = tp - w.facePos; dt.y = 0f;
-                    facing = dt.sqrMagnitude > 1e-6f ? Vector3.Dot(w.outDir, dt.normalized) : 0f;
-                }
-                if (cls == WallClass.Full) stats.wallsFull++;
-                else if (cls == WallClass.Crouch) stats.wallsCrouch++;
-                else stats.wallsLo++;
-                walls.Add(new WallMark
-                {
-                    facePos = w.facePos, outDir = w.outDir,
-                    baseY = w.firstSolidY, top = w.spanTop, cls = cls,
-                    facing = facing, volId = w.volumeId, vs = w.voxelSize,
-                    reqDepth = reqD, support = sy,
-                });
-                if (cls != WallClass.Low && w.volumeId != null)
-                {
-                    // Deepest requirement wins when several walls share a volume —
-                    // fallback aggregate for the pick when no column resolves.
-                    if (!volDepth.TryGetValue(w.volumeId, out float pd) || reqD > pd)
-                    { volDepth[w.volumeId] = reqD; volClass[w.volumeId] = cls; }
-                }
+                    hStand = hStand, hShallow = h0, hDeep = h1,
+                    standoff = standoff, wallFloor = wallFloor, depthMargin = depthMargin,
+                };
+                aggBuf.Clear();
+                groundProbe ??= TryGroundAt;
+                classifier.Classify<WallMark, WallMarkFactory>(wallSets, prm, supportY, groundProbe, world.Walk,
+                    hasT, tp, default, walls, aggBuf, ref stats.wallsFull, ref stats.wallsCrouch, ref stats.wallsLo);
+                for (int i = 0; i < aggBuf.Count; i++)
+                { volDepth[aggBuf[i].volId] = aggBuf[i].depth; volClass[aggBuf[i].volId] = (WallClass)aggBuf[i].cls; }
             }
+            else ClassifyLegacy(supportY, hStand, h1, hasT, tp);
             Profiler.EndSample();
             stats.facing = 0;
             if (hasT)
@@ -717,16 +707,86 @@ namespace SteelCity.Sim
             supportVer = walk.Version;
         }
 
+        [Tooltip("World-fixed wall-column cache (classification once per volume/body/edit stamp). Off = the original per-scan loop — identical output, kept as the A/B reference.")]
+        public bool useWallCache = true;
+        private readonly List<SolidVolumeSet.VolumeWalls> wallSets = new();
+        private readonly CoverWallClassifier classifier = new();
+        private readonly List<CoverWallClassifier.VolAgg> aggBuf = new();
+        private CoverWallClassifier.GroundProbe groundProbe;
+
+        struct WallMarkFactory : IMarkFactory<WallMark>
+        {
+            public WallMark Make(in CoverWall w, byte cls, float reqDepth, float support, float facing) => new WallMark
+            {
+                facePos = w.facePos, outDir = w.outDir,
+                baseY = w.firstSolidY, top = w.spanTop, cls = (WallClass)cls,
+                facing = facing, volId = w.volumeId, vs = w.voxelSize,
+                reqDepth = reqDepth, support = support,
+            };
+        }
+
+        /// <summary>The original per-scan classification loop — the reference the cached path must equal.</summary>
+        void ClassifyLegacy(float supportY, float hStand, float h1, bool hasT, Vector3 tp)
+        {
+            for (int i = 0; i < wallBuf.Count; i++)
+            {
+                CoverWall w = wallBuf[i];
+                // Class/depth are properties of the wall vs the ground where
+                // someone stands behind it — NOT of where the owner happens to
+                // be. Same wall, same class, wherever Vinny walks.
+                float sy = LocalSupport(w.facePos + w.outDir * (standoff + w.voxelSize * 0.25f), supportY);
+                // Floor relief is not a wall: the volume query measures span from
+                // the volume's BOTTOM (ground slab included), so a 1-voxel pad,
+                // curb or stand plate passes `wallFloor` and — as a Low column —
+                // would claim cells at quality 0 and carve holes in real zones.
+                // A wall must stand wallFloor above the floor behind it.
+                if (w.spanTop - sy < wallFloor) continue;
+                WallClass cls = Covers(w, sy + hStand) ? WallClass.Full
+                              : Covers(w, sy + h1) ? WallClass.Crouch : WallClass.Low;
+                float reqD = cls == WallClass.Low ? 0f : DuckForTop(w.spanTop, sy);
+                float facing = 0f;
+                if (hasT)
+                {
+                    Vector3 dt = tp - w.facePos; dt.y = 0f;
+                    facing = dt.sqrMagnitude > 1e-6f ? Vector3.Dot(w.outDir, dt.normalized) : 0f;
+                }
+                if (cls == WallClass.Full) stats.wallsFull++;
+                else if (cls == WallClass.Crouch) stats.wallsCrouch++;
+                else stats.wallsLo++;
+                walls.Add(new WallMark
+                {
+                    facePos = w.facePos, outDir = w.outDir,
+                    baseY = w.firstSolidY, top = w.spanTop, cls = cls,
+                    facing = facing, volId = w.volumeId, vs = w.voxelSize,
+                    reqDepth = reqD, support = sy,
+                });
+                if (cls != WallClass.Low && w.volumeId != null)
+                {
+                    // Deepest requirement wins when several walls share a volume —
+                    // fallback aggregate for the pick when no column resolves.
+                    if (!volDepth.TryGetValue(w.volumeId, out float pd) || reqD > pd)
+                    { volDepth[w.volumeId] = reqD; volClass[w.volumeId] = cls; }
+                }
+            }
+        }
+
         /// <summary>Ground height at a stand-spot, cached per scan on a 0.1m
         /// grid so thousands of wall columns share a few probes.</summary>
         private float LocalSupport(Vector3 spot, float fallback)
         {
+            return TryGroundAt(spot, out float gy) ? gy : fallback;
+        }
+
+        /// <summary>Ground at a stand-spot through the shared support cache — false = probed, no ground.</summary>
+        private bool TryGroundAt(Vector3 spot, out float y)
+        {
             long key = SupportKey(Mathf.FloorToInt(spot.x * 10f), Mathf.FloorToInt(spot.z * 10f));
-            if (supportCache.TryGetValue(key, out float sy)) return float.IsNaN(sy) ? fallback : sy;
+            if (supportCache.TryGetValue(key, out float sy)) { y = sy; return !float.IsNaN(sy); }
             stats.supportProbes++;
             bool ok = world.TryColumnTop(spot, 0.5f, 1.5f, out float gy);
             supportCache[key] = ok ? gy : float.NaN;
-            return ok ? gy : fallback;
+            y = ok ? gy : 0f;
+            return ok;
         }
 
         /// <summary>Column covers a horizontal ray at world height `eye`: solid band spans it.</summary>

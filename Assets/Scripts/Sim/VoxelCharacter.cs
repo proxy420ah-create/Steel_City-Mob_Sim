@@ -324,6 +324,19 @@ namespace SteelCity.Sim
             return true;
         }
 
+        /// <summary>The eye's REST position in model index space (Eyes, then Face, then head pivot - same priority as
+        /// <see cref="TryGetEyeAnchor"/>) - what the aim rig poses through its own head solve.</summary>
+        public bool TryGetEyeRest(out Vector3 rest)
+        {
+            rest = default;
+            var anim = JointAnimator;
+            if (asset != null && asset.TryGetRegionCentroid("Eyes", out Vector3 c, out _)) { rest = c; return true; }
+            if (asset != null && asset.TryGetRegionCentroid("Face", out c, out _)) { rest = c; return true; }
+            if (anim != null && anim.pivots.TryGetValue(JointHead, out Vector3 pv))
+            { rest = new Vector3(pv.x * dimX, pv.y * dimY, pv.z * dimZ); return true; }
+            return false;
+        }
+
         /// <summary>Transition params for a live pose query — pulled off the
         /// instanced handle. Hypothetical evals (animStateOverride set) must
         /// NOT blend: they answer "where will I be in state X", not "where am I

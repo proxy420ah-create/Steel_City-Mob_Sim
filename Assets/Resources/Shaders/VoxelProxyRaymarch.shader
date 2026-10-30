@@ -26,7 +26,12 @@ Shader "SteelCity/VoxelProxyRaymarch"
     SubShader
     {
         Tags { "RenderType" = "Opaque" "Queue" = "Geometry" }
-        Cull Off
+        // Global _ProxyCull (set by VoxelChunkManager.proxyBackFacesOnly): 0 = Off (default — two
+        // fragments per pixel per volume, front AND back face), 1 = Front (back faces only — ONE
+        // fragment per pixel per volume). The ray comes from the screen position (ortho) or camera
+        // through the fragment (perspective), so it is identical for either face; back faces also
+        // cover the camera-inside-volume case. Glass pass keeps its own `Cull Front`.
+        Cull [_ProxyCull]
         ZWrite On
         ZTest LEqual
 

@@ -106,6 +106,11 @@ namespace SteelCity.Sim
         public Quaternion ItemAttachRot => itemAttachRot;
         public string ItemFileName => itemFileName;
         public Vector3 BoreAxisLocal => boreAxisLocal;
+        /// <summary>True when the item authors a `muzzle` anchor.</summary>
+        public bool HasMuzzle => !float.IsNaN(muzzlePoint.x);
+        /// <summary>Grip to muzzle in ITEM-local metres (same axes the weld rotates by qWorld) - the muzzle offset the
+        /// bore-on-line arm solve needs to place the hand so the MUZZLE lands on the eye line.</summary>
+        public Vector3 MuzzleFromGripLocal => HasMuzzle ? (muzzlePoint - gripPoint) * itemVoxelSize : Vector3.zero;
 
         void Start()
         {

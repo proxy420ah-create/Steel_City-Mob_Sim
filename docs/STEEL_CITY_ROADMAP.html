@@ -386,7 +386,7 @@
       <p style="margin: 4px 0 0 0; color: var(--text-dim); font-size: 0.9em;">
         This roadmap must be updated whenever new features are discussed, design documents are created, or phases change status.
         If you're working on a design doc or brainstorming a new system, update the corresponding phase here afterward.
-        Last review: <strong>Oct 29, 2026</strong> — autonomous combat + doc freshness refresh. Since Oct 16: the deterministic real-time combat sim matured into its own phase (4f) — <code>SimClock</code> fixed-step + F8/[.] freeze-step, measured-silhouette cover (<code>h(duck)</code>), exposure engagement beats (settle/seam/rise/top-up), last-known search orbits, the IK aim rig (arm solve + torso stance blade + head track, playtest-validated), authored reload states 13/14 with seat-locked <code>tapPulse</code> + <code>reloadGunSide</code> role assignment, reload seat audio (<code>RoundSeated</code> → reload_click .stsound), the gunshot-report <b>hearing channel</b> (<code>SfxWaves.Report</code>/<code>Heard</code> → engaged fighters snap intel to the firing position — intel, not a sighting), and vehicle body-occupancy correction. Full doc freshness pass: DIFFERENTIATION_FROM_ORIGINAL + combat/timing/system docs re-stated to as-built truth.</p>
+        Last review: <strong>Oct 29, 2026</strong> — autonomous combat + doc freshness refresh. Since Oct 16: the deterministic real-time combat sim matured into its own phase (4f) — <code>SimClock</code> fixed-step + F8/[.] freeze-step, measured-silhouette cover (<code>h(duck)</code>), exposure engagement beats (settle/seam/rise/top-up), last-known search orbits, the IK aim rig phases 1–3 (arm bore-on-line solve + torso stance blade + head track, playtest-validated), authored reload states 13/14 with seat-locked <code>tapPulse</code> + <code>reloadGunSide</code> role assignment, reload seat audio (<code>RoundSeated</code> → reload_click .stsound), the gunshot-report <b>hearing channel</b> (<code>SfxWaves.Report</code>/<code>Heard</code> → engaged fighters snap intel to the firing position — intel, not a sighting), and vehicle body-occupancy correction. Full doc freshness pass: DIFFERENTIATION_FROM_ORIGINAL + combat/timing/system docs re-stated to as-built truth.</p>
     </div>
   </div>
 </div>
@@ -1166,7 +1166,7 @@
       <div class="feature">
         <div class="feature-head">
           <div class="feature-status-icon done">✓</div>
-          <div class="feature-name">IK Aim Rig — phases 1–2</div>
+          <div class="feature-name">IK Aim Rig — phases 1–3</div>
           <div class="feature-tag done">VALIDATED</div>
         </div>
         <div class="feature-desc">One focal point drives head, torso and arms — <code>AIM_RIG.md</code> (phase 3 arm-on-line pending)</div>
@@ -1215,7 +1215,9 @@
         <ul class="feature-items">
           <li class="pending">Health/wound layer — Flinch→Falling→Down states exist; hits don't attrit yet</li>
           <li class="pending">Awareness table + identity tiers — widen hearing beyond threat/watch (citizens, police)</li>
-          <li class="pending">Aim-rig phase 3: bore-on-line arm solve; phase 4 support-arm solve to grip_left</li>
+          <li class="pending">Aim-rig phase 4: support-arm solve to <code>grip_left</code> — <b>blocked</b>: needs a long-gun asset (rifle/shotgun/Tommy) with the anchor authored (phase-3 bore-on-line done Oct 29)</li>
+          <li class="pending">Min-distance threat avoidance: forced move re-roll for both fighters inside a min range, re-rolled until separated</li>
+          <li class="pending">Aim-rig phase 5 cleanup: rise solve certifies the aimed pose, retire sightGap constant</li>
           <li class="pending">Pop-up trigger + lookScan search consumers; per-weapon cone/damage table wiring</li>
           <li class="pending">Walk-cycle speed matching vs ground speed (reads "treadmill" on reposition legs)</li>
         </ul>
@@ -1521,7 +1523,7 @@
   <p>Steel City: Mob Sim — Vertical Slice Roadmap</p>
   <p>Companion to <code>GAME_DESIGN_SKELETON.md</code> and <code>docs/core/DOCUMENTATION_INDEX.md</code></p>
   <div class="update-note">
-    📝 Last updated: Oct 20, 2026 — Unified `duck` scalar (0..2) + measured-silhouette cover landed: morph band reachable, live wall solve owns depth, legacy 0–1 axis decontaminated. Now building: exposure-based engagement — visible-voxel aim target, exposure FIRE gate, pop-up override, 6-shot cylinder reload (spec: COMBAT_COVER_STATE.md Phase 2). Queued: NPC hearing &amp; reactions, then Phase 4d gang sim.</div>
+    📝 Last updated: Oct 29, 2026 — exposure engagement live; aim rig phases 1–3 validated; phase 4 awaits a long-gun asset. Min-distance re-roll in progress; walk-speed matching + health/damage up next. Decided: no AI pop-up trigger (combat emergent enough). — Unified `duck` scalar (0..2) + measured-silhouette cover landed: morph band reachable, live wall solve owns depth, legacy 0–1 axis decontaminated. Now building: exposure-based engagement — visible-voxel aim target, exposure FIRE gate, pop-up override, 6-shot cylinder reload (spec: COMBAT_COVER_STATE.md Phase 2). Queued: NPC hearing &amp; reactions, then Phase 4d gang sim.</div>
   <div style="margin-top: 10px; padding: 10px 14px; background: var(--surface2); border: 1px solid var(--yellow); border-radius: 6px; font-size: 0.85em; color: var(--text-dim);">
     ⚠️ <strong style="color: var(--yellow);">Keep this roadmap current.</strong>
     Update phases, timeline, and progress whenever new design documents are created or features are discussed.

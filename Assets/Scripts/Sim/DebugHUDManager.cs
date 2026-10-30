@@ -816,10 +816,10 @@ namespace SteelCity.Sim
 
         void OnGUI()
         {
-            var sw = System.Diagnostics.Stopwatch.StartNew();
+            // Timestamp, not `Stopwatch.StartNew()` — that allocated an object per IMGUI event.
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
             OnGUIInner();
-            sw.Stop();
-            float ms = (float)sw.Elapsed.TotalMilliseconds;
+            float ms = (float)((System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency);
             if (hudProfFrame != Time.frameCount)
             {
                 hudProfMsShown = hudProfMs; hudProfEventsShown = hudProfEvents;
@@ -833,6 +833,17 @@ namespace SteelCity.Sim
 
         void OnGUIInner()
         {
+            // Mouse-flood events FIRST. The Editor queues dozens of MouseMove/MouseDrag events per
+            // frame and `PreUpdate.IMGUISendQueuedEvents` replays every one through every OnGUI. The
+            // ticker + combat bubbles below (GetComponent, string building, WorldToScreenPoint, a
+            // GUILayout text layout) used to run for EACH of them before the filter further down —
+            // measured at ~47 % of an 81 ms frame mid-fight. Same predicate as the later early-out
+            // (those events never paint and the window ignores them), so nothing is lost; nothing
+            // layout-related is consumed on a skipped event, so GUILayout stays aligned.
+            var ev0 = Event.current;
+            if (ev0 != null && (ev0.type == EventType.MouseMove
+                || (ev0.type == EventType.MouseDrag && !isDragging && GUIUtility.hotControl == 0)))
+                return;
             InitStyles();
             DrawModeTicker();   // bottom banner — persists while a V-key debug view is on, even with the panel hidden
             DrawCombatBubbles();   // in-world fighter bubbles — same always-on overlay contract
@@ -1273,6 +1284,9 @@ namespace SteelCity.Sim
                 chunkManager.GetShadowMaxSteps(), 1f, 64f, "F0"));
             if (maxSteps != chunkManager.GetShadowMaxSteps())
                 cityMap.SetShadowMaxSteps(maxSteps);
+            GUILayout.Space(4);
+            chunkManager.proxyBackFacesOnly = GUILayout.Toggle(chunkManager.proxyBackFacesOnly,
+                " proxy back-faces only  (A/B: halves fragment overdraw — same image)", toggleStyle);
             GUILayout.Space(4);
             GUILayout.BeginHorizontal();
             GUILayout.Label("render scale", labelStyle, GUILayout.Width(86));

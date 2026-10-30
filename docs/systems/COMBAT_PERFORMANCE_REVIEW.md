@@ -148,3 +148,30 @@ and the CPU is half cover scan.
 **Known semantic note**: the support key is (x, z) on a 0.1 m grid, as before — it ignores Y. In single-level terrain this is identical to the old per-scan cache; in genuinely stacked geometry (bridge over road) the first probe at an (x,z) now wins until evicted instead of until the scan ends. If that ever shows up, add quantized Y to `SupportKey`.
 
 **Next capture**: same protocol, but run 20 s and read `Scan.Classify` Self on a frame *after* the first scan in the area, and glance at the HUD `ground probes` number. If Classify is still > 2 ms warm, the per-column loop itself (not the raycast) is the cost and the answer is a world-fixed wall-column classification layer (cache `WallMark` per column per world version, like `WalkLayer`) — larger change, wait for the data.
+
+## 10. Capture #3 reading + Option A landed: world-fixed wall-column cache
+
+**HUD**: Vinny 7,952 walls · **0 ground probes**; Tan 11,928 walls · **0 ground probes** — the support cache serves everything warm.
+**Capture**: `Scan.Classify` 9.0 → **1.74 ms, 0 B**; `Scan.Query` 0.94 ms; `Vehicles` 0.16; `Candidates` 0.04. The remaining cost scaled with
+wall-column COUNT (≈170 ns/column over 8–12k columns): the loop and the column emission, not raycasts.
+
+**Option A (landed)** — classify once per world, not once per scan:
+- `SolidVolumeSet.QueryCoverWallSets` — same traversal as `QueryCoverWalls`, but each volume's emitted columns come from a per-volume
+  cache (`VolumeWalls`) keyed `(minSpan, openCell)`. It hangs off the `Volume` object, and `Register()` makes a new `Volume` on every
+  replace/damage swap, so the cache dies exactly when `colBase/colSpan` do. LRU-trimmed at 400k columns (~40 MB).
+- `CoverWallClassifier` (new, pure C#) — per-volume cached classification (`sy`, class, required duck, drop flag, class counts, deepest-wall
+  aggregate) keyed on the body spec (`hStand/hShallow/hDeep/standoff/wallFloor/depthMargin`) and **validated against `WalkLayer`'s edit log
+  over the volume's padded AABB** — an edit that lands in a volume reclassifies only that volume. Per scan it only copies cached entries
+  into `WallMark`s and adds the genuinely per-scan terms: threat facing, and (rare) the owner's support fallback for columns with no ground.
+- `CoverSensor.useWallCache` (default on) — off = the original loop (`ClassifyLegacy`, kept verbatim) for A/B.
+- **Correctness fix found on the way**: `RegisterVolume` now also invalidates the *old* footprint on a replace (a car / damage swap vacated
+  cells that were never re-probed). Every edit-log consumer needed it; it also repairs pre-existing `WalkLayer` staleness.
+
+**Proof** (`Tools/cover_selftest/run.sh`, offline): 1,500 randomized iterations — random volumes/yaw/body specs/owner support/threat,
+interleaved with voxel edits and damage swaps — marks, per-volume aggregates and class counts **bit-identical** to the legacy path
+(6,000 checks, 0 fails; 5,521 cache hits / 1,055 rebuilds so the HIT path under edits is exercised hard). Warm scan, 35–61k columns:
+**3.1–3.8× faster** (e.g. 15.1 → 4.0 ms) with the ground cache already warm on both sides. In-Engine numbers will be smaller (fewer columns,
+~10k) — expect `Scan.Query + Scan.Classify` ≈ 2.7 ms → ≈ 0.8–1 ms; confirm in the Profiler.
+
+**What this does NOT fix**: `CoverField.Build` still consumes ~10k walls per scan (splat per column) — merging columns (Option B) is the next
+lever for Build itself, but it changes zone painting and needs a playtest.

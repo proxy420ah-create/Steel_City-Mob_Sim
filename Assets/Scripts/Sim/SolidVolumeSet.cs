@@ -70,6 +70,23 @@ namespace SteelCity.Sim
             // colBase = first solid cell (255 = empty), colSpan = contiguous solid run
             // above it. Lazy so a damaged/re-registered array rebuilds on next query.
             public byte[] colBase, colSpan;
+            // Emitted wall columns, cached per (minSpan, openCell). Hangs off THIS Volume object, and
+            // Register() makes a new Volume on every replace/damage swap — so the cache dies exactly
+            // when colBase/colSpan do. Nothing else can make the columns stale.
+            public VolumeWalls wallCache;
+        }
+
+        /// <summary>One volume's emitted cover-wall columns, cached for a given (minSpan, openCell) key.
+        /// `consumerData` is the consumer's own derived product (CoverSensor's classification) — it lives
+        /// and dies with this set, so a re-emitted set can never serve a stale classification.</summary>
+        public sealed class VolumeWalls
+        {
+            public string id;
+            public int minSpan, openCell;
+            public readonly List<CoverWall> walls = new List<CoverWall>();
+            public Bounds bounds;            // volume world AABB
+            public object consumerData;
+            internal int lastUsed;           // query stamp — LRU trim
         }
 
         private readonly List<Volume> volumes = new List<Volume>();
@@ -121,7 +138,11 @@ namespace SteelCity.Sim
                 v.wMax = mx;
             }
 
-            if (index.TryGetValue(id, out int existing)) volumes[existing] = v;
+            if (index.TryGetValue(id, out int existing))
+            {
+                if (volumes[existing].wallCache != null) wallCacheColumns -= volumes[existing].wallCache.walls.Count;
+                volumes[existing] = v;
+            }
             else { index[id] = volumes.Count; volumes.Add(v); }
             gridDirty = true;
         }
@@ -148,6 +169,7 @@ namespace SteelCity.Sim
         public bool Unregister(string id)
         {
             if (id == null || !index.TryGetValue(id, out int i)) return false;
+            if (volumes[i].wallCache != null) wallCacheColumns -= volumes[i].wallCache.walls.Count;
             int last = volumes.Count - 1;
             if (i != last) { volumes[i] = volumes[last]; index[volumes[i].id] = i; }
             volumes.RemoveAt(last);
@@ -156,7 +178,7 @@ namespace SteelCity.Sim
             return true;
         }
 
-        public void Clear() { volumes.Clear(); index.Clear(); gridDirty = true; }
+        public void Clear() { volumes.Clear(); index.Clear(); gridDirty = true; wallCacheColumns = 0; }
 
         /// <summary>
         /// Nearest hit within maxDistance. dir must be a unit vector. Allocation-free.
@@ -360,6 +382,86 @@ namespace SteelCity.Sim
                     }
                 }
             return results.Count;
+        }
+
+        // Emitted-wall cache budget — a roaming fighter touches many volumes; cap total cached columns
+        // (≈100 B each) and trim least-recently-used sets when over.
+        public int WallCacheMaxColumns = 400000;
+        private int wallCacheColumns;
+        private int wallQueryStamp;
+        public int WallCacheColumns => wallCacheColumns;
+
+        static void WallKey(Volume v, float minSpanWorld, float openAtWorld, out int minSpan, out int openCell)
+        {
+            minSpan = Mathf.Max(1, Mathf.CeilToInt(minSpanWorld / v.vs));
+            openCell = Mathf.FloorToInt((openAtWorld - v.corner.y) / v.vs);
+        }
+
+        /// <summary>Same traversal as <see cref="QueryCoverWalls"/> (identical volumes, order, per-volume
+        /// columns), but each volume's emitted columns come from a per-volume cache keyed (minSpan, openCell)
+        /// — the column walk over every cell of every volume in range runs once, not once per scan.</summary>
+        public int QueryCoverWallSets(Vector3 center, float radius, float minSpanWorld, float openAtWorld, List<VolumeWalls> results)
+        {
+            results.Clear();
+            if (gridDirty) RebuildGrid();
+            if (seen == null || seen.Length == 0) return 0;
+            if (seenStamp == int.MaxValue) { seenStamp = 0; System.Array.Clear(seen, 0, seen.Length); }
+            ++seenStamp;
+            int stamp = ++wallQueryStamp;
+            int x0 = Mathf.FloorToInt((center.x - radius) / gridCell);
+            int x1 = Mathf.FloorToInt((center.x + radius) / gridCell);
+            int z0 = Mathf.FloorToInt((center.z - radius) / gridCell);
+            int z1 = Mathf.FloorToInt((center.z + radius) / gridCell);
+            float r2 = radius * radius;
+            for (int x = x0; x <= x1; x++)
+                for (int z = z0; z <= z1; z++)
+                {
+                    if (!grid.TryGetValue(x * 65536 + z, out var list)) continue;
+                    for (int li = 0; li < list.Count; li++)
+                    {
+                        int i = list[li];
+                        if (seen[i] == seenStamp) continue;
+                        seen[i] = seenStamp;
+                        Volume v = volumes[i];
+                        float cx = Mathf.Clamp(center.x, v.wMin.x, v.wMax.x);
+                        float cz = Mathf.Clamp(center.z, v.wMin.z, v.wMax.z);
+                        float ddx = center.x - cx, ddz = center.z - cz;
+                        if (ddx * ddx + ddz * ddz > r2) continue;
+                        if (ExcludeFromCover != null && ExcludeFromCover(v.id)) continue;
+                        WallKey(v, minSpanWorld, openAtWorld, out int ms, out int oc);
+                        var vw = v.wallCache;
+                        if (vw == null || vw.minSpan != ms || vw.openCell != oc)
+                        {
+                            if (vw != null) wallCacheColumns -= vw.walls.Count;
+                            vw = new VolumeWalls { id = v.id, minSpan = ms, openCell = oc, bounds = new Bounds((v.wMin + v.wMax) * 0.5f, v.wMax - v.wMin) };
+                            EmitWalls(v, minSpanWorld, openAtWorld, vw.walls);
+                            v.wallCache = vw;
+                            wallCacheColumns += vw.walls.Count;
+                        }
+                        vw.lastUsed = stamp;
+                        results.Add(vw);
+                    }
+                }
+            if (wallCacheColumns > WallCacheMaxColumns) TrimWallCache(stamp);
+            return results.Count;
+        }
+
+        /// <summary>Drop least-recently-used wall sets (never ones used by the query in flight) until under budget.</summary>
+        private void TrimWallCache(int currentStamp)
+        {
+            while (wallCacheColumns > WallCacheMaxColumns)
+            {
+                Volume oldest = null; int oldestStamp = int.MaxValue;
+                for (int i = 0; i < volumes.Count; i++)
+                {
+                    var c = volumes[i].wallCache;
+                    if (c == null || c.lastUsed == currentStamp) continue;
+                    if (c.lastUsed < oldestStamp) { oldestStamp = c.lastUsed; oldest = volumes[i]; }
+                }
+                if (oldest == null) break;
+                wallCacheColumns -= oldest.wallCache.walls.Count;
+                oldest.wallCache = null;
+            }
         }
 
         /// <summary>Build colBase/colSpan for a volume on first cover query (or after re-registration).</summary>

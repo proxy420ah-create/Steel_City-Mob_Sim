@@ -421,9 +421,9 @@ namespace SteelCity.Sim
 
         void OnGUI()
         {
-            var sw = System.Diagnostics.Stopwatch.StartNew();
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();   // no per-event Stopwatch allocation
             OnGUIInner();
-            Prof((float)sw.Elapsed.TotalMilliseconds);
+            Prof((float)((System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency));
         }
 
         void OnGUIInner()
