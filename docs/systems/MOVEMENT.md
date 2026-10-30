@@ -15,17 +15,23 @@ All combat movement funnels through **`StepToward(dest, who)`**:
 - **Arrival** — `dist ≤ arriveEps` (0.06 m) takes the remaining sub-step as final placement; the leg reports arrived/aborted by distance re-verify.
 - **Stuck guard** — ~0.6 s with no ≥5 cm progress toward the waypoint → up to 3 perpendicular nudges (±0.28 m, alternating side); exhausted budget returns "leg done" and callers re-verify (a corner trap is a *verdict*, never a fake arrival).
 - **Routed legs** — `StepRouted` wraps corridor routing (Dijkstra flood + string-pull) around `StepToward`; `allowBare=false` at the dice-leg call site refuses no-corridor legs at the line instead of walking blind into walls.
-- **Facing** — `FaceTrack(dest, who)` vs `FaceFree()` per step; `turnSpeedDeg` caps yaw rate at **540 °/s**. Facing is demand-based, last write of the frame wins (movement-facing after `StepToward`, combat-facing overrides it when engaged).
+- **Facing** — `FaceTrack(dest, who)` vs `FaceFree()` per step; `turnSpeedDeg` caps yaw rate at **540 °/s** (static — universal). Facing is demand-based, last write of the frame wins (movement-facing after `StepToward`, combat-facing overrides it when engaged).
 
-## 2. Speed — `moveSpeed` is STATIC + universal
+## 2. Speed & action rates — STATIC + universal
 
 ```csharp
-public static float moveSpeed = 2.4f;   // CombatController
+public static float moveSpeed = 0.85f;        // CombatController — base walk, the tuning foundation
+public static float turnSpeedDeg = 540f;      // CombatController — yaw cap
+public static float seekDuckEase = 2.5f;      // CombatController — duck fold-in during seeks
+public static float riseDuckEase = 3f;        // CombatController — duck rise/drop during beats
+public static float fireInterval = 0.9f;      // CombatController — shot cadence
+public static float roundLoadInterval = 1.5f; // CombatController — reload: s per chamber seated
+public static float transitionDuration = 0.32f; // CharacterAnimation — pose blend pace
 ```
 
-- **Universal by construction** — one field, every fighter reads it; per-character tuning cannot drift (user decision, Oct 29).
-- **Caveat** — statics aren't serialized: Play-mode edits reset to the compiled default on stop. Tune live via the HUD slider (`move speed (all)`), then bake the chosen number into the default.
-- **Scope** — universality currently covers **CombatController fighters**. Citizens (`PedestrianController`) and the possess drive channel have their own movers and don't read this field yet.
+- **Universal by construction** — one field, every character reads it; per-character tuning cannot drift (user decision, Oct 29 — extended from `moveSpeed` to all movement/action rates).
+- **Caveat** — statics aren't serialized: Play-mode edits reset to the compiled default on stop. Tune live on the **Movement** HUD tab, then bake the chosen numbers into the defaults.
+- **Scope** — universality currently covers **CombatController fighters** (+ `transitionDuration` on every `CharacterAnimation`). Citizens (`PedestrianController`) and the possess drive channel have their own movers and don't read these fields yet.
 - `anim.walkSpeed = Mathf.Clamp(moveSpeed, 0.5f, 2f)` writers exist at four intent sites (seeks/legs) — they set the animation's *intent* rate; the measured auto-detect overrides it during actual walking.
 
 ## 3. Gait — `CharacterAnimation` is foot-locked to measured speed
@@ -45,11 +51,15 @@ gaitTime   += dt × walkSpeed × DuckSpeedFactor              // integrated phas
 
 ## 4. Tuning surface (HUD)
 
-| Control | Where | Drives |
+The **Movement tab** ("MOVEMENT / ACTIONS SPEED", left HUD) is the canonical surface — every slider is a universal static:
+
+| Fold | Sliders | Drives |
 |---|---|---|
-| `move speed (all)` | Combat tab → each fighter block + "combat mode & movement" fold | `CombatController.moveSpeed` (static — universal) |
-| `min threat m` | same | `minThreatDistM` — MINDIST keep-out radius |
-| gait/duck sliders | anim section | `transitionDuration`, `transitionDip`, `transitionEase`, `duck`, `duckSpeedMin` |
+| `locomotion` | `walk speed m/s`, `turn deg/s` | `moveSpeed`, `turnSpeedDeg` |
+| `pose & posture rates` | `pose blend s`, `seek duck ease /s`, `rise/drop duck /s` | `transitionDuration`, `seekDuckEase`, `riseDuckEase` |
+| `action speeds` | `fire cadence s`, `reload — s per round` | `fireInterval`, `roundLoadInterval` |
+
+Combat tab keeps the rules (not rates): `min threat m`, `probe interval`, `all beats dwell`. Per-character anim sliders (`transitionDip`, `transitionEase`, `duck`, `duckSpeedMin`) stay in the anim section; its `duration` slider now edits the shared static too.
 
 Model: `moveSpeed → step → measured horSpeed → walkSpeed → gaitTime`. One direction only — nothing feeds back upstream.
 
@@ -62,7 +72,7 @@ Movement-feel pass that was tried and reverted to baseline per user — document
 - **`gaitScale`** (cadence-per-speed knob replacing the hardcoded 0.5) — removed; the fixed `×0.5` coupling remains.
 - **Velocity smoothing** for gait rate — removed with it.
 
-Baseline restored = `moveSpeed 2.4`, `turnSpeedDeg 540`, direct `moveSpeed × DuckSpeedFactor × dt` step.
+Baseline restored = direct `moveSpeed × DuckSpeedFactor × dt` step, `turnSpeedDeg 540`. The default then moved 2.4 → **0.85 m/s** as the user-chosen base-walk foundation.
 
 ## 6. Open / future work
 

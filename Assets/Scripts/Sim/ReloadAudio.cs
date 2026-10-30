@@ -30,9 +30,9 @@ namespace SteelCity.Sim
         public bool reloadAudioEnabled = true;
 
         [Header("Mix")]
-        [Range(0.1f, 1f)] public float reloadAudioVolume = 0.9f;
+        [Range(0.1f, 1f)] public float reloadAudioVolume = 1.0f;
         [Tooltip("Full-volume zone (m) — a near-field foley click.")]
-        [Range(0.2f, 20f)] public float reloadRefDistance = 1.2f;
+        [Range(0.2f, 20f)] public float reloadRefDistance = 2.5f;
         [Range(1f, 50f)] public float reloadAudibleRange = 10f;
 
         /// <summary>Last seat served, for the SFX panel + logs.</summary>

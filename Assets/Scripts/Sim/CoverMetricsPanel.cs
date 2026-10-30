@@ -231,7 +231,7 @@ namespace SteelCity.Sim
                                                      new Vector2(cc.CoverPoint.x, cc.CoverPoint.z));
                         sb.AppendLine($"off {off:F2}m (anchor→cover) {(off > cc.arriveEps ? "⚠ NOT ON POINT" : "on point")}");
                     }
-                    sb.AppendLine($"cadence {cc.fireInterval:F1}s · next shot {cc.NextFireIn:F1}s"
+                    sb.AppendLine($"cadence {CombatController.fireInterval:F1}s · next shot {cc.NextFireIn:F1}s"
                                 + $" · shots {cc.ShotsFired}"
                                 + (cc.Reloading ? $" · +1 in {cc.NextRoundIn:F1}s · reload {cc.ReloadLeft:F1}s left" : ""));
                     if (cc.Beat != CombatController.EngagementBeat.None)

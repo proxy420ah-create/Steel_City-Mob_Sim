@@ -20,7 +20,7 @@ namespace SteelCity.Sim
     /// </summary>
     public class DebugHUDManager : MonoBehaviour
     {
-        public enum Tab { Camera, Render, Clothing, Path, Combat, Cover, Vision, Demolitions, Weapons, MatRes, BuildLog, Keys, Sfx, TanSuit, Forces }
+        public enum Tab { Camera, Render, Clothing, Path, Combat, Cover, Vision, Demolitions, Weapons, MatRes, BuildLog, Keys, Sfx, TanSuit, Forces, Movement }
         public enum Corner { TopLeft, TopRight, BottomLeft, BottomRight }
 
         [Header("Config")]
@@ -539,7 +539,7 @@ namespace SteelCity.Sim
             Tab.Render => chunkManager != null,
             Tab.Clothing => allClothingSystems.Count > 0,
             Tab.Path => pathDebug != null,
-            Tab.Combat or Tab.Cover or Tab.Vision or Tab.Demolitions or Tab.TanSuit or Tab.Forces => cityMap != null,
+            Tab.Combat or Tab.Cover or Tab.Vision or Tab.Demolitions or Tab.TanSuit or Tab.Forces or Tab.Movement => cityMap != null,
             Tab.Sfx => true,
             _ => true,
         };
@@ -949,7 +949,8 @@ namespace SteelCity.Sim
             }
 
             DrawTabRow(Tab.Camera, Tab.Render, Tab.Sfx, Tab.Clothing, Tab.Path, Tab.Keys);
-            DrawTabRow(Tab.Combat, Tab.Cover, Tab.Vision, Tab.TanSuit, Tab.Demolitions, Tab.Weapons, Tab.MatRes, Tab.Forces, Tab.BuildLog);
+            DrawTabRow(Tab.Combat, Tab.Movement, Tab.Cover, Tab.Vision, Tab.TanSuit);
+            DrawTabRow(Tab.Demolitions, Tab.Weapons, Tab.MatRes, Tab.Forces, Tab.BuildLog);
             GUILayout.BeginHorizontal();
             GUILayout.Label("sections:", labelStyle, GUILayout.Width(60));
             if (GUILayout.Button("open all", tabStyle, GUILayout.Height(16))) SecSetAll(true);
@@ -989,6 +990,7 @@ namespace SteelCity.Sim
             switch (activeTab)
             {
                 case Tab.Clothing: DrawClothingTab(); break;
+                case Tab.Movement: DrawMovementTab(); break;
                 case Tab.Combat:
                     UnityEngine.Profiling.Profiler.BeginSample("HUD.DrawCombatTab");
                     try { DrawCombatTab(); } finally { UnityEngine.Profiling.Profiler.EndSample(); }
@@ -1377,8 +1379,8 @@ namespace SteelCity.Sim
                 {
                     GUILayout.Label("<b>Pose transition (snapshot → target lerp)</b>", boldStyle);
                     selAnim.poseTransitions = GUILayout.Toggle(selAnim.poseTransitions, " enabled", toggleStyle);
-                    GUILayout.Label($"  duration: {selAnim.transitionDuration:F2}s", labelStyle);
-                    selAnim.transitionDuration = GUILayout.HorizontalSlider(selAnim.transitionDuration, 0.05f, 1.0f);
+                    GUILayout.Label($"  duration (all): {CharacterAnimation.transitionDuration:F2}s", labelStyle);
+                    CharacterAnimation.transitionDuration = GUILayout.HorizontalSlider(CharacterAnimation.transitionDuration, 0.05f, 1.0f);
                     GUILayout.Label($"  settle dip: {selAnim.transitionDip:F2} vox", labelStyle);
                     selAnim.transitionDip = GUILayout.HorizontalSlider(selAnim.transitionDip, 0f, 1.5f);
                     GUILayout.Label($"  ease: {(selAnim.transitionEase == 0 ? "linear" : selAnim.transitionEase == 2 ? "cosine" : "smoothstep")}  [click to cycle]", labelStyle);
@@ -2788,9 +2790,8 @@ namespace SteelCity.Sim
             // Threat = the PICK AIM point — simulates a shooter standing there.
             var cc = ch.GetComponent<CombatController>();
             if (cc == null) cc = ch.gameObject.AddComponent<CombatController>();
-            if (SecFold("c.combat", "combat mode & movement (autonomous)"))
+            if (SecFold("c.combat", "combat mode (autonomous)"))
             {
-            CombatController.moveSpeed = HSlider("move speed (all)", CombatController.moveSpeed, 0.5f, 5f);
             cc.minThreatDistM = HSlider("min threat m", cc.minThreatDistM, 0f, 10f);
             if (cc.State == CombatController.CombatState.Idle)
             {
@@ -2849,8 +2850,6 @@ namespace SteelCity.Sim
                 // mid-fight and shuffle every slider below (user: "fighting scrolling").
                 GUI.enabled = cc.State != CombatController.CombatState.Idle;
                 cc.visInterval = HSlider("probe interval", cc.visInterval, 0.05f, 0.5f);
-                cc.fireInterval = HSlider("fire cadence", cc.fireInterval, 0.3f, 3f);
-                cc.roundLoadInterval = HSlider("round load", cc.roundLoadInterval, 0.2f, 3f);
                 // Master tempo — sets every beatDwell at once; the
                 // TEMPO table (TEST LOTS) tunes them individually.
                 float master = cc.beatDwell != null && cc.beatDwell.Length > 1
@@ -3410,7 +3409,6 @@ namespace SteelCity.Sim
             }
             else
             {
-                CombatController.moveSpeed = HSlider("move speed (all)", CombatController.moveSpeed, 0.5f, 5f);
             cc.minThreatDistM = HSlider("min threat m", cc.minThreatDistM, 0f, 10f);
                 var vinny = cityMap.SpawnedCharacter;
                 GUILayout.BeginHorizontal();
@@ -3440,6 +3438,37 @@ namespace SteelCity.Sim
                 pitTanMode = PitTanMode.Fight;
             GUILayout.EndHorizontal();
             }
+        }
+
+        /// <summary>MOVEMENT / ACTIONS SPEED — the universal pacing surface.
+        /// Every slider is a STATIC shared by all characters (walk, turn, fire
+        /// cadence, reload, duck rates, pose blend) — one knob, zero drift.
+        /// Locomotion + action rates only; combat rules (threat distance,
+        /// beats dwell, probe cadence) stay on the Combat tab.</summary>
+        void DrawMovementTab()
+        {
+            GUILayout.Label("<b>MOVEMENT / ACTIONS SPEED</b>  <i>universal — every character shares these</i>", boldStyle);
+            GUILayout.Space(4);
+            if (SecFold("m.loco", "locomotion"))
+            {
+                CombatController.moveSpeed = HSlider("walk speed m/s", CombatController.moveSpeed, 0.2f, 4f);
+                CombatController.turnSpeedDeg = HSlider("turn deg/s", CombatController.turnSpeedDeg, 90f, 720f, "F0");
+            }
+            GUILayout.Space(4);
+            if (SecFold("m.pose", "pose &amp; posture rates"))
+            {
+                CharacterAnimation.transitionDuration = HSlider("pose blend s", CharacterAnimation.transitionDuration, 0.05f, 1.0f);
+                CombatController.seekDuckEase = HSlider("seek duck ease /s", CombatController.seekDuckEase, 0.5f, 10f);
+                CombatController.riseDuckEase = HSlider("rise/drop duck /s", CombatController.riseDuckEase, 0.5f, 10f);
+            }
+            GUILayout.Space(4);
+            if (SecFold("m.action", "action speeds"))
+            {
+                CombatController.fireInterval = HSlider("fire cadence s", CombatController.fireInterval, 0.2f, 3f);
+                CombatController.roundLoadInterval = HSlider("reload — s per round", CombatController.roundLoadInterval, 0.2f, 4f);
+            }
+            GUILayout.Space(4);
+            GUILayout.Label("<i>statics aren't serialized — bake tuned defaults into source when the feel is right</i>", labelStyle);
         }
 
         /// <summary>Demolitions: blast/inspect picks, the global voxel-damage &amp; debris
@@ -4068,7 +4097,7 @@ namespace SteelCity.Sim
             var rig = (selectedRigIndex >= 0 && selectedRigIndex < allCharacterRigs.Count) ? allCharacterRigs[selectedRigIndex] : null;
             var anim = rig != null ? rig.GetComponent<CharacterAnimation>() : null;
             if (anim != null)
-                sb.AppendLine($"pose transitions {OnOff(anim.poseTransitions)}  dur {anim.transitionDuration:F2}s  dip {anim.transitionDip:F2}  ease {anim.transitionEase}  duck {anim.duck:F2}  gait {anim.GaitTime:F2}  speed×{anim.DuckSpeedFactor:F2}  scan {OnOff(anim.lookScan)}");
+                sb.AppendLine($"pose transitions {OnOff(anim.poseTransitions)}  dur {CharacterAnimation.transitionDuration:F2}s  dip {anim.transitionDip:F2}  ease {anim.transitionEase}  duck {anim.duck:F2}  gait {anim.GaitTime:F2}  speed×{anim.DuckSpeedFactor:F2}  scan {OnOff(anim.lookScan)}");
             sb.AppendLine($"clothing systems: {allClothingSystems.Count}  selected: {(clothingSystem != null ? clothingSystem.gameObject.name : "none")}");
         }
 

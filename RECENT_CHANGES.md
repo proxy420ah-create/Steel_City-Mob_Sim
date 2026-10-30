@@ -1,4 +1,16 @@
 
+## Movement / Actions Speed tab + universal rates (Oct 29)
+- **Base walk speed 0.85** — `CombatController.moveSpeed` static default 2.4 → 0.85 m/s (user's foundation pick; tune live, bake when right).
+- **Universalized the rate fields** — all now `static` (one value, every character, zero drift): `turnSpeedDeg`, `seekDuckEase`, `riseDuckEase`, `fireInterval`, `roundLoadInterval` (reload), `CharacterAnimation.transitionDuration`.
+- **New left-panel tab `Movement`** — "MOVEMENT / ACTIONS SPEED": `locomotion` (walk speed, turn), `pose & posture rates` (pose blend, both duck eases), `action speeds` (fire cadence, reload s/round). Tab rows rebalanced to 3 rows; Movement sits next to Combat. Stays interactive under hud LOCK.
+- Combat fold drops `move speed`/`fire cadence`/`round load` (moved to the tab); `min threat m`, `probe interval`, `beats dwell` stay (rules, not rates).
+- Housekeeping: `compile.rsp` refreshed — 7 sources were missing (stale since the aim-rig/reload work); headless csc check is green again.
+
+## Tuned defaults baked (Oct 29)
+- `roundLoadInterval` 1.5 → **0.75 s/round** (reload wheel pace — user-tuned on the Movement tab).
+- `reloadAudioVolume` 0.9 → **1.0**, `reloadRefDistance` 1.2 → **2.5 m** (reload SFX presence — SFX tab tuned).
+- fire cadence 0.90 s and walk speed 0.85 m/s confirmed as defaults.
+
 ## Movement exploration session (Oct 29 — baseline kept, findings recorded)
 - **Camera detach**: `X` in F6 toggles `EventPlayer.cameraFollow` — focus freezes and WASD/QE pans a static point (true free cam); `X` re-follows with offset reset. `FollowCamera.detached` also added for its own context.
 - **Universal move speed**: `CombatController.moveSpeed` is now **static** — one value for every fighter, tuned via `move speed (all)` HUD slider (statics aren't serialized — bake the tuned number as the default).

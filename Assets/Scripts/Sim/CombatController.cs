@@ -29,17 +29,17 @@ namespace SteelCity.Sim
         public enum EngagementBeat : byte { None = 0, Settle = 1, TopUp = 2, Rise = 3, Engaged = 4, Duck = 5, Swing = 6 }
 
         [Header("Movement")]
-        [Tooltip("Combat hustle speed (m/s) — drives both the transform step and walk anim rate. STATIC: universal — one pace for every fighter so per-character tuning can't drift (user).")]
-        public static float moveSpeed = 2.4f;
+        [Tooltip("Base walk speed (m/s) — drives both the transform step and walk anim rate. STATIC: universal — one pace for every character so per-character tuning can't drift. 0.85 = foundation/base walk; tune live on the Movement tab.")]
+        public static float moveSpeed = 0.85f;
         /// <summary>XZ arrival tolerance — the committed destination is a cell
         /// center on open floor, so the residual should be visual-noise scale,
         /// not a third of a body width. StepToward clamps the final step at
         /// Min(step,dist), so the point is reachable exactly; a blocked last
         /// inch surfaces as a leg abort, not a silent offset.</summary>
         public float arriveEps = 0.06f;
-        public float turnSpeedDeg = 540f;
+        public static float turnSpeedDeg = 540f;   // STATIC: universal — one rate, no drift
         [Tooltip("Duck fold-in rate during SeekingCover (duck/s) — the advance is combat posture: he adopts the destination wall's requirement for the whole approach, not when a painted zone reaches him.")]
-        public float seekDuckEase = 2.5f;
+        public static float seekDuckEase = 2.5f;   // STATIC: universal
         // (crouchDepthSpeed removed — duck writes are immediate now)
         [Tooltip("Max ledge height the body can step UP — curbs, arena aprons, thresholds. Applied to the walk gate, route corridors, and the cell flood's neighbor edges.")]
         /// The body's step law — single-owned by VoxelCharacter (the flood's
@@ -65,11 +65,11 @@ namespace SteelCity.Sim
         [Tooltip("Seconds between posed-silhouette visibility probes — 0 = every frame (probe verdicts are clock-based now).")]
         public float visInterval = 0f;
         [Tooltip("Revolver cadence — deliberate double-action seconds between shots.")]
-        public float fireInterval = 0.9f;
+        public static float fireInterval = 0.9f;   // STATIC: universal
         [Tooltip("Model 10 cylinder — after this many shots he lowers the gun for the reload beat.")]
         public int cylinderCapacity = 6;
         [Tooltip("Staggered reload — once the wheel runs dry, one round seats every N seconds; the arm stays dipped until all chambers are full (no reload anim exists — the dip IS the beat).")]
-        public float roundLoadInterval = 1.5f;
+        public static float roundLoadInterval = 0.75f;   // STATIC: universal — tuned live (was 1.5)
         [Tooltip("Max bore-vs-centroid error (deg) that still counts as converged.")]
         public float aimGateDeg = 14f;
         [Tooltip("Seconds the bore must hold the CURRENT aim point inside aimGateDeg before the trigger falls — kills the instant shot on the acquisition edge (the error channel is a frame stale, so one sample after a retarget is measured against the OLD point).")]
@@ -88,7 +88,7 @@ namespace SteelCity.Sim
         [Tooltip("Sustained no-contact seconds in Engaged before he drops — a dropped-frame probe must not bounce him. A CLOCK, not a count — correct at any visInterval including 0 (probe every frame).")]
         public float dropAfterSec = 0.5f;
         [Tooltip("Duck ease while rising / dropping back into cover (duck/s).")]
-        public float riseDuckEase = 3f;
+        public static float riseDuckEase = 3f;   // STATIC: universal
         [Tooltip("Clearance margin above the wall top for the rise solve (m).")]
         public float riseMargin = 0.02f;
         [Tooltip("Bore sits ~this far BELOW the eye when aimed — sights sit above the bore line (sight radius). The presented muzzle is eye−sightGap, not the wrist pivot.")]

@@ -66,7 +66,7 @@ namespace SteelCity.Sim
         // bob-flavored dip-and-recover on the vertical channel.
         [Header("Pose transitions (snapshot → target lerp)")]
         public bool poseTransitions = true;
-        public float transitionDuration = 0.32f;
+        public static float transitionDuration = 0.32f;   // STATIC: universal — one blend pace for every character
         public float transitionDip = 0.45f;   // voxel units — peak of the settle dip
         [Range(0, 2)] public int transitionEase = 1; // 0 linear · 1 smoothstep · 2 cosine
 
