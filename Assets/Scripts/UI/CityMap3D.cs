@@ -345,18 +345,29 @@ namespace SteelCity.Sim
         /// </summary>
         public static void ExtractTerrainAndSeams(CityLayout layout,
             out Dictionary<Vector2Int, string> terrainByCell,
-            out string[][] hSeams, out string[][] vSeams)
+            out string[][] hSeams, out string[][] vSeams,
+            out Dictionary<Vector2Int, int> laneMaskByCell)
         {
             terrainByCell = null;
             hSeams = null;
             vSeams = null;
+            laneMaskByCell = null;
             if (layout == null) return;
 
             if (layout.blocks != null)
             {
                 terrainByCell = new Dictionary<Vector2Int, string>(layout.blocks.Length);
+                laneMaskByCell = new Dictionary<Vector2Int, int>(layout.blocks.Length);
                 foreach (var lb in layout.blocks)
+                {
                     terrainByCell[new Vector2Int(lb.col, lb.row)] = lb.terrain;
+                    int lm = 0;
+                    if (!string.IsNullOrEmpty(lb.laneOpenings))
+                        foreach (char e in lb.laneOpenings)
+                            lm |= e == 'n' ? 1 : e == 'e' ? 2 : e == 's' ? 4 : e == 'w' ? 8 : 0;
+                    if (lm != 0)
+                        laneMaskByCell[new Vector2Int(lb.col, lb.row)] = lm;
+                }
             }
             if (layout.hSeamRows != null)
             {
@@ -757,6 +768,16 @@ namespace SteelCity.Sim
             // when F6 was toggled while still possessing.
             if (kb != null && CamFree && mapCamera != null)
             {
+                // X detaches the execution-camera follow: focus freezes where it is and
+                // WASD pans a static point — true free cam. X again re-follows the character.
+                var epx = GetEventPlayer();
+                if (IsExecutionMode && epx != null && epx.IsRunning
+                    && kb.xKey.wasPressedThisFrame)
+                {
+                    epx.cameraFollow = !epx.cameraFollow;
+                    if (epx.cameraFollow) epx.ResetCameraPanOffset();
+                    Debug.Log($"[CityMap3D] camera {(epx.cameraFollow ? "re-following character" : "DETACHED — true free cam (X re-follows)")}");
+                }
                 Vector3 move = Vector3.zero;
                 if (kb.wKey.isPressed) move += mapCamera.transform.forward;
                 if (kb.sKey.isPressed) move -= mapCamera.transform.forward;
@@ -1326,7 +1347,8 @@ namespace SteelCity.Sim
                 // Null/absent means land — fully backward-compatible with old layouts.
                 ExtractTerrainAndSeams(cachedLayout,
                     out Dictionary<Vector2Int, string> terrainByCell,
-                    out string[][] hSeams, out string[][] vSeams);
+                    out string[][] hSeams, out string[][] vSeams,
+                    out Dictionary<Vector2Int, int> laneMaskByCell);
 
                 var tGen = Stopwatch.StartNew();
                 var terrainChunks = VoxelTerrainBuilder.GeneratePerBlockTerrain(
@@ -1334,7 +1356,7 @@ namespace SteelCity.Sim
                     centerRow, centerCol,
                     spacing, groundTile, roadWidth, voxelSize, sidewalkWidth,
                     mapRoot.position,
-                    terrainByCell, hSeams, vSeams,
+                    terrainByCell, hSeams, vSeams, laneMaskByCell,
                     out blockAnchors);
                 tGen.Stop();
 
@@ -2529,6 +2551,7 @@ namespace SteelCity.Sim
         public int row;
         public int col;
         public string terrain;          // "land" | "water" | "bridge" | "mainstreet" | "oob" (absent = land)
+        public string laneOpenings;     // subset of "nsew": edges where a block-interior lane (alley_block) exits — gaps the sidewalk ring at the mouth (absent = none)
         public CityLayoutBuilding[] buildings;
     }
 

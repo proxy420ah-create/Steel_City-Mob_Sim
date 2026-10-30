@@ -63,6 +63,10 @@ namespace SteelCity.Sim
         private float lookYaw = 0f;
         private float lookPitch = 0f;
         private bool freeLook = false;
+        /// <summary>X detaches the camera from the target entirely — true free cam:
+        /// this component stops writing position/rotation so whoever owns free-cam
+        /// movement (F6 path / map input) has full control. X re-follows.</summary>
+        public bool detached = false;
         private Vector3 lastTargetPos;
         private float chaseYaw;
         private bool chaseYawInitialized;
@@ -244,6 +248,17 @@ namespace SteelCity.Sim
                 CaptureToLog();
             }
 
+            // X detaches from the target — true free cam. The HUD/perf/capture
+            // keys above still work; everything below is targeting input.
+            if (kb.xKey.wasPressedThisFrame)
+            {
+                detached = !detached;
+                Debug.Log(detached
+                    ? "[FollowCamera] DETACHED - true free cam; X re-follows the target"
+                    : "[FollowCamera] re-following target");
+            }
+            if (detached) return;
+
             // Toggle free-look mode with Left Shift (hold) or T (toggle)
             freeLook = kb.leftShiftKey.isPressed;
 
@@ -305,6 +320,7 @@ namespace SteelCity.Sim
         void LateUpdate()
         {
             if (target == null || cam == null) return;
+            if (detached) return;   // hands off - free-cam input owns position + rotation
 
             // Aim at the character's world center, not the corner of the voxel volume
             Vector3 aimPoint = character != null ? character.WorldCenter : target.position + Vector3.up * 0.5f;
@@ -433,7 +449,7 @@ namespace SteelCity.Sim
             GUILayout.BeginArea(new Rect(10, 10, w, h), bgStyle);
             GUILayout.Label("<b>FOLLOW CAMERA DEBUG</b>", style);
             GUILayout.Label("", style);
-            GUILayout.Label($"Mode: {(chaseMode ? "CHASE" : "ORBIT")}{(freeLook ? " + FREE LOOK" : "")}", style);
+            GUILayout.Label($"Mode: {(chaseMode ? "CHASE" : "ORBIT")}{(freeLook ? " + FREE LOOK" : "")}{(detached ? " + DETACHED" : "")}", style);
             GUILayout.Label("", style);
             if (chaseMode && !freeLook)
             {

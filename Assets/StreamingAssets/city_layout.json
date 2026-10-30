@@ -25,6 +25,26 @@
    192,
    48,
    192
+  ],
+  "alley_block": [
+   192,
+   16,
+   192
+  ],
+  "alley_block_ns": [
+   192,
+   16,
+   192
+  ],
+  "alley_lane": [
+   64,
+   8,
+   64
+  ],
+  "alley_lane_ns": [
+   64,
+   8,
+   64
   ]
  },
  "blocks": [
@@ -2476,9 +2496,10 @@
   },
   {
    "block_id": "block_42",
-   "block_name": "W Quarter 42",
+   "block_name": "W Quarter 42 [ALLEY BLOCK]",
    "row": 4,
    "col": 1,
+   "laneOpenings": "we",
    "buildings": [
     {
      "type": "empty_land",
@@ -2499,21 +2520,21 @@
      "slot": 2
     },
     {
-     "type": "empty_land",
+     "type": "alley_lane",
      "illegal": false,
-     "stasset": "voxel_buildings/empty_land.stasset",
+     "stasset": "voxel_buildings/alley_lane.stasset",
      "slot": 3
     },
     {
-     "type": "empty_land",
+     "type": "alley_lane",
      "illegal": false,
-     "stasset": "voxel_buildings/empty_land.stasset",
+     "stasset": "voxel_buildings/alley_lane.stasset",
      "slot": 4
     },
     {
-     "type": "empty_land",
+     "type": "alley_lane",
      "illegal": false,
-     "stasset": "voxel_buildings/empty_land.stasset",
+     "stasset": "voxel_buildings/alley_lane.stasset",
      "slot": 5
     },
     {

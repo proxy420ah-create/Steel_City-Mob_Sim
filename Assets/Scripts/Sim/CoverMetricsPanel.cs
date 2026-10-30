@@ -38,6 +38,12 @@ namespace SteelCity.Sim
         private CombatController ccHook;     // vinny's controller (subscribed)
         private CoverSensor senHook;         // vinny's sensor (subscribed)
         private readonly StringBuilder sb = new StringBuilder(1024);
+        /// <summary>Right-panel compartments — the readout was one dense scroll; tabs split it.
+        /// 0 combat · 1 sensor · 2 drive · 3 flow · 4 all (everything, old behavior).</summary>
+        private int panelTab = 0;   // default compact — combat
+        static readonly string[] PanelTabs = { "combat", "sensor", "drive", "flow", "all" };
+        bool Tab(int t) => panelTab == 4 || panelTab == t;
+        private Vector2 panelScroll;          // scrolls when a tab's content still exceeds the view
         private static readonly string[] dirs = { "E", "NE", "N", "NW", "W", "SW", "S", "SE" };
 
         void Awake() => cityMap = FindFirstObjectByType<CityMap3D>();
@@ -134,6 +140,8 @@ namespace SteelCity.Sim
             if (vinny != null) AppendSubject("vinny", vinny, true);
             else sb.AppendLine("no spawned character");
 
+            if (Tab(2))
+            {
             sb.AppendLine("── drive (possess) ──────");
             if (PossessController.DriveActive)
             {
@@ -162,6 +170,7 @@ namespace SteelCity.Sim
                 : PossessController.Active
                 ? "idle — no threat context (combat-gated)"
                 : "idle — not possessed");
+            }
 
             var tan = tanCC != null ? tanCC.GetComponent<VoxelCharacter>() : null;
             if (tan != null) AppendSubject("tan suit", tan, false);
@@ -182,6 +191,8 @@ namespace SteelCity.Sim
             Vector3 p = ch.transform.position;
 
             sb.AppendLine($"── {label} ──────────────");
+            if (Tab(0))
+            {
             bool ducked = anim != null && anim.duck > 0.02f;
             sb.AppendLine($"pos ({p.x:F1}, {p.z:F1}) · pose {(anim != null ? anim.EffectiveState.ToString() : "?")}"
                         + (ducked ? $" · duck {PossessController.CrouchLabel(anim.duck)}" : " · standing (no duck)")
@@ -191,11 +202,14 @@ namespace SteelCity.Sim
             if (rigComp != null)
                 sb.AppendLine($"rig controllable {(rigComp.Controllable ? "Y" : "n")}"
                             + $" · depth-ease {(rigComp.DepthEaseActive ? $"→ {rigComp.DepthTarget:F2}" : "off")}");
+            }
 
             // ── Combat telemetry: state, destination cover, exposure probe,
             // solver convergence, cylinder, last-seen. Exposure line shows at
             // setup too (tested>0 means a manual setup-phase probe ran).
             var solver = ch.GetComponent<ArmAimSolver>();
+            if (Tab(0))
+            {
             sb.AppendLine("── combat ──────────────");
             if (cc == null) { sb.AppendLine("(no CombatController)"); }
             else
@@ -259,16 +273,23 @@ namespace SteelCity.Sim
                                 + $" · armed {(cc.ExposureArmed ? "Y" : "n")}"
                                 + $" · cyl {cc.Cylinder}/{cc.cylinderCapacity}");
                 if (solver != null && (solver.IsAiming || solver.Blend > 0.02f))
+                {
                     sb.AppendLine($"aim err {solver.LastAngularErrorDeg:F1}° · blend {solver.Blend:F2}"
-                                + $" · dist {solver.LastTargetDistanceM:F1}m");
+                                + $" · dist {solver.LastTargetDistanceM:F1}m · arm {solver.ArmGid}→{solver.ForearmGid}");
+                    if (solver.LastMuzzleLineGapM >= 0f)
+                        sb.AppendLine($"muz→line {solver.LastMuzzleLineGapM * 100f:F1}cm · {(solver.LastBoreOnLine ? "bore-on-line" : "legacy")}");
+                }
                 if (cc.LastSeenTarget.HasValue)
                     sb.AppendLine($"lastSeen ({cc.LastSeenTarget.Value.x:F0},{cc.LastSeenTarget.Value.z:F0})"
                                 + $" · {SimClock.Now - cc.LastSeenAt:F1}s ago");
+            }
             }
 
             // ── DICE readout — when the dice frame owns the fighter the
             // authored beat bar + engagement-flow chart are inert (TickBeat
             // early-returns); surface the turn engine + per-line roll log.
+            if (Tab(3))
+            {
             if (cc != null && cc.diceArbiter)
             {
                 sb.AppendLine("── dice ────────────────");
@@ -376,7 +397,10 @@ namespace SteelCity.Sim
                             + $"{N("FIRE", justFired, true)}{(!justFired && cc.FireHold != null ? $"·{cc.FireHold}" : "")} {A} {N("RELOAD", reloading, true)} {dots}");
             }
             }   // end authored beat/flow — skipped entirely under dice
+            }
 
+            if (Tab(1))
+            {
             sb.AppendLine("── sensor ──────────────");
             if (sensor == null) { sb.AppendLine("(no CoverSensor)"); }
             else
@@ -417,6 +441,7 @@ namespace SteelCity.Sim
                 }
                 }
             }
+            }
         }
 
         void OnGUI()
@@ -428,7 +453,8 @@ namespace SteelCity.Sim
 
         void OnGUIInner()
         {
-            if (!Enabled || Event.current.type != EventType.Repaint) return;
+            if (!Enabled) return;
+            bool isRepaint = Event.current.type == EventType.Repaint;   // buttons need MouseDown+Layout too — Repaint-only gating made them inert
             if (bgTex == null)
             {
                 bgTex = new Texture2D(1, 1);
@@ -451,11 +477,28 @@ namespace SteelCity.Sim
             // GC-alloc profile.
             if (content.text != cached) { content.text = cached; cachedH = -1f; }
             if (cachedH < 0f) cachedH = style.CalcHeight(content, panelWidth) + 12f;
-            float h = cachedH;
-            Rect r = new Rect(Screen.width - panelWidth - 36f,
-                              Screen.height * 0.5f - h * 0.5f, panelWidth, h);
-            GUI.DrawTexture(r, bgTex);
-            GUI.Label(r, content, style);
+            const float tabH = 20f;
+            float maxH = Screen.height * 0.92f;
+            float pw = panelWidth;
+            // Grow wider (up to 1.35x) to reclaim height before scrolling kicks in.
+            if (cachedH + tabH > maxH && pw < panelWidth * 1.35f)
+            { pw = panelWidth * 1.35f; cachedH = style.CalcHeight(content, pw) + 12f; }
+            float h = Mathf.Min(cachedH + tabH, maxH);   // never taller than the view
+            Rect r = new Rect(Screen.width - pw - 36f,
+                              Screen.height * 0.5f - h * 0.5f, pw, h);
+            float tw = (panelWidth - 16f) / PanelTabs.Length;
+            for (int i = 0; i < PanelTabs.Length; i++)
+            {
+                bool sel = GUI.Toggle(new Rect(r.x + 8f + tw * i, r.y + 2f, tw - 2f, tabH - 3f),
+                                      panelTab == i, PanelTabs[i], GUI.skin.button);
+                if (sel && panelTab != i) { panelTab = i; dirty = true; panelScroll = Vector2.zero; }
+            }
+            if (isRepaint) GUI.DrawTexture(r, bgTex);
+            // ScrollView on ALL events so wheel/drag input lands; the label inside is repaint-cheap anyway.
+            panelScroll = GUI.BeginScrollView(new Rect(r.x, r.y + tabH, r.width, r.height - tabH),
+                                              panelScroll, new Rect(0f, 0f, pw - 24f, cachedH));
+            GUI.Label(new Rect(0f, 0f, pw - 24f, cachedH), content, style);
+            GUI.EndScrollView();
         }
     }
 }

@@ -310,7 +310,8 @@
   - Caveats: characters aren't in the collision world (no self-occlusion); AI fire loop is the first one ever; deferred triggers listed
 - **`docs/systems/ENGAGEMENT_BEATS.md`** — Combat phase 3 (✅ implemented): authored engagement rhythm over the exposure gates — opportunity fire during seek, `Settle` seam primitive, partial `TopUp`, triangulated `Rise` (eye AND muzzle clear), "stand and deliver" `Engaged`, `Duck` + seam loop
   - Beats sequence intent; gates still decide what's possible — `wantAim` gains a per-beat authority term
-- **`docs/systems/AIM_RIG.md`** — SPEC + phases 1–2 implemented & playtest-validated: one focal point drives torso, head, arm(s) and weapon so the muzzle sits near the eye line
+- **`docs/systems/AIM_RIG.md`** — SPEC + phases 1–3 implemented & playtest-validated: one focal point drives torso, head, arm(s) and weapon so the muzzle sits near the eye line
+- **`docs/systems/MOVEMENT.md`** — Locomotion model as-built: `StepToward`/`StepRouted` mover (per-frame integration, swept collision, stuck-guard nudges), static universal `moveSpeed`, foot-locked gait (`horSpeed→walkSpeed→gaitTime`), HUD tuning surface; includes the rolled-back ramp experiment notes
   - Measured eye/shoulder/muzzle offsets (muzzle ~12.5 cm lateral of the eye), solve order, GPU/CPU/JS channel gaps (head override CPU-only, one arm channel pair), 5 phases with trace gates; two-handed rifle/shotgun path
   - Runtime safety net already shipped: `muzzleShootGate` (shootable = eye ∧ muzzle visible) — see `docs/known_issues/runtime/EYE_SEES_MUZZLE_CANT_SHOOTABLE_GAP.md`
   - Deferred: rise-retry cadence + interruption policy (wait Tan mobility), lookScan slot, branch table, per-weapon cylinders

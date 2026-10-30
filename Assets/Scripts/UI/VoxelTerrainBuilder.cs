@@ -83,6 +83,7 @@ namespace SteelCity.Sim
             public string terrain;      // normalized: land/water/bridge/mainstreet/oob
             public int openMask;        // bits N=1 E=2 S=4 W=8: neighbor is channel (water|bridge)
             public int mainstMask;      // same bit order: neighbor is mainstreet
+            public int laneMask;        // same bit order: block-interior lane mouths (alley_block) — gap the sidewalk ring
             public Vector3 worldOrigin;
             public Vector3 localOrigin;
         }
@@ -113,6 +114,7 @@ namespace SteelCity.Sim
             IReadOnlyDictionary<Vector2Int, string> terrainByCell,
             string[][] hSeams,   // [row][col] = seam between (row,col) and (row+1,col)
             string[][] vSeams,   // [row][col] = seam between (row,col) and (row,col+1)
+            IReadOnlyDictionary<Vector2Int, int> laneMaskByCell,   // (col,row) -> lane-mouth edge mask; null/absent = 0
             out Dictionary<string, Vector3> anchorPositions)
         {
             float halfRoad = roadWidth * 0.5f;
@@ -173,6 +175,10 @@ namespace SteelCity.Sim
                     int d = Mathf.Max(1, Mathf.CeilToInt((czMax - czMin) / voxelSize));
 
                     string terr = TerrainAt(col, row);
+                    int laneMask = 0;
+                    if (laneMaskByCell != null &&
+                        laneMaskByCell.TryGetValue(new Vector2Int(col, row), out int lm))
+                        laneMask = lm;
                     int openMask = 0, mainstMask = 0;
                     if (IsChannelTerrain(TerrainAt(col, row - 1))) openMask |= 1;
                     if (IsChannelTerrain(TerrainAt(col + 1, row))) openMask |= 2;
@@ -194,6 +200,7 @@ namespace SteelCity.Sim
                         cxMin = cxMin, cxMax = cxMax, czMin = czMin, czMax = czMax,
                         blockX = blockX, blockZ = blockZ,
                         terrain = terr, openMask = openMask, mainstMask = mainstMask,
+                        laneMask = laneMask,
                         worldOrigin = new Vector3(cxMin, yBase, czMin) + mapRootOffset,
                         localOrigin = new Vector3(cxMin, yBase, czMin)
                     };
@@ -496,10 +503,15 @@ namespace SteelCity.Sim
 
         /// <summary>
         /// Fill a rectangular region with sidewalk (edges) and stone (interior).
+        /// laneMask (bits N=1 E=2 S=4 W=8) marks edges with a block-interior lane
+        /// mouth (alley_block): the ring is gapped there — painted asphalt over
+        /// the center 32 voxels so the lane road continues flush into the street,
+        /// while the ring's sidewalk still meets the lane's sidewalk flanks.
         /// </summary>
         private static void FillGroundTile(
             uint[] data, int w, int h, int d, Vector3 origin, float voxelSize,
-            float minX, float maxX, float minZ, float maxZ, float sidewalkWidth)
+            float minX, float maxX, float minZ, float maxZ, float sidewalkWidth,
+            int laneMask = 0)
         {
             int x0 = Mathf.Clamp(Mathf.FloorToInt((minX - origin.x) / voxelSize), 0, w - 1);
             int x1 = Mathf.Clamp(Mathf.CeilToInt((maxX - origin.x) / voxelSize), 0, w - 1);
@@ -508,12 +520,33 @@ namespace SteelCity.Sim
 
             int sw = Mathf.Max(1, Mathf.RoundToInt(sidewalkWidth / voxelSize));
 
+            // Lane-mouth band: center 32v of the interior — matches the authored
+            // alley road (interior z 80..111 of the 192v block). On flagged edges
+            // the ring cell inside this band becomes asphalt instead of sidewalk.
+            const int mouthHalf = 16;
+            int cxMid = ((x0 + sw) + (x1 - sw + 1)) / 2;
+            int czMid = ((z0 + sw) + (z1 - sw + 1)) / 2;
+            int mouthX0 = cxMid - mouthHalf, mouthX1 = cxMid + mouthHalf;
+            int mouthZ0 = czMid - mouthHalf, mouthZ1 = czMid + mouthHalf;
+
             for (int z = z0; z <= z1; z++)
             {
                 for (int x = x0; x <= x1; x++)
                 {
-                    bool isEdge = x < x0 + sw || x > x1 - sw || z < z0 + sw || z > z1 - sw;
-                    uint mat = isEdge ? MAT_SIDEWALK : MAT_STONE;
+                    bool isEdgeW = x < x0 + sw, isEdgeE = x > x1 - sw;
+                    bool isEdgeS = z < z0 + sw, isEdgeN = z > z1 - sw;
+                    bool isEdge = isEdgeW || isEdgeE || isEdgeS || isEdgeN;
+
+                    uint mat = MAT_STONE;
+                    if (isEdge)
+                    {
+                        bool mouth =
+                            (isEdgeW && (laneMask & 8) != 0 && z >= mouthZ0 && z < mouthZ1) ||
+                            (isEdgeE && (laneMask & 2) != 0 && z >= mouthZ0 && z < mouthZ1) ||
+                            (isEdgeS && (laneMask & 4) != 0 && x >= mouthX0 && x < mouthX1) ||
+                            (isEdgeN && (laneMask & 1) != 0 && x >= mouthX0 && x < mouthX1);
+                        mat = mouth ? MAT_ASPHALT : MAT_SIDEWALK;
+                    }
 
                     for (int y = 0; y < h; y++)
                     {
@@ -558,7 +591,7 @@ namespace SteelCity.Sim
             Func<int, int, int, string> seamAt)
         {
             FillCorridors(data, m, w, h, d, voxelSize, halfRoad, centerRow, centerCol, spacing, eps, seamAt);
-            FillGroundTile(data, w, h, d, m.localOrigin, voxelSize, iMinX, iMaxX, iMinZ, iMaxZ, sidewalkWidth);
+            FillGroundTile(data, w, h, d, m.localOrigin, voxelSize, iMinX, iMaxX, iMinZ, iMaxZ, sidewalkWidth, m.laneMask);
         }
 
         /// <summary>

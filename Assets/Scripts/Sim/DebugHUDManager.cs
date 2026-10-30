@@ -1841,23 +1841,8 @@ namespace SteelCity.Sim
             var anim = ch.GetComponent<CharacterAnimation>();
             if (cc == null)
             { GUILayout.Label($"{label}: no CombatController", labelStyle); return; }
-            float dToCover = cc.State == CombatController.CombatState.Idle ? -1f
-                : Vector3.Distance(CharFeetCenter(ch), cc.CoverPoint);
-            GUILayout.Label(
-                $"{label}  <b>{cc.State}</b>/{cc.Beat.ToString().ToLowerInvariant()}"
-                + (cc.Watching ? " <b>+WATCH</b>" : "")
-                + $"  arm:{(cc.ExposureArmed ? "on" : "off")}  mv {cc.DebugMoved:F2}m"
-                + $"  duck {(anim != null ? anim.duck : 0f):F2}→{cc.TargetDuck:F2}"
-                + (cc.SearchLegOut ? "  SEARCH" : "")
-                + (dToCover >= 0f ? $"  dst→{cc.CoverObstacleId} {dToCover:F1}m" : ""),
-                labelStyle);
-            GUILayout.Label($"     <i>{cc.LastResult}</i>", labelStyle);
+            // readouts hoisted → right panel COMBAT tab
             var cs = ch.GetComponent<CoverSensor>();
-            if (cs != null)
-                GUILayout.Label(
-                    $"     scan {cs.stats.wallCols} walls · {cs.stats.valid}/{cs.stats.tested} cells · {cs.stats.supportProbes} ground probes"
-                    + $" · r{cs.radius:F0}m · {(cs.Field != null && cs.Field.HasData ? $"field {cs.Field.N}²" : "no field")}",
-                    labelStyle);
             SeamStatusBlock(label, cc);
         }
 
@@ -1994,17 +1979,14 @@ namespace SteelCity.Sim
                     $"     quantum #{cc.DiceCycle}  face {cc.DiceFace} ({CombatController.DiceFaceNames[cc.DiceFace]})"
                     + (cc.DiceSubRoll > 0 ? $"  · sub {cc.DiceSubRoll}/6" : ""), labelStyle);
                 GUILayout.Label($"     verdict: {cc.DiceVerdict}", labelStyle);
-                if (cc.DiceHist.Length > 0)
-                    GUILayout.Label($"     history : <i>{cc.DiceHist}</i>", labelStyle);
+                GUILayout.Label(cc.DiceHist.Length > 0 ? $"     history : <i>{cc.DiceHist}</i>" : "     history :", labelStyle);
                 return;
             }
             if (!cc.seamArbiter)
             { GUILayout.Label("     <i>authored beat chain — tick ARB or DICE</i>", labelStyle); return; }
             GUILayout.Label($"     verdict: {cc.ArbVerdict}", labelStyle);
-            if (cc.ArbBoard.Length > 0)
-                GUILayout.Label($"     board   : {cc.ArbBoard}", labelStyle);
-            if (cc.ArbHist.Length > 0)
-                GUILayout.Label($"     history : <i>{cc.ArbHist}</i>", labelStyle);
+            GUILayout.Label(cc.ArbBoard.Length > 0 ? $"     board   : {cc.ArbBoard}" : "     board   :", labelStyle);
+            GUILayout.Label(cc.ArbHist.Length > 0 ? $"     history : <i>{cc.ArbHist}</i>" : "     history :", labelStyle);
             GUILayout.BeginHorizontal();
             Rect rr = GUILayoutUtility.GetRect(104, 104, GUILayout.Width(104), GUILayout.Height(104));
             PaintSeamRadar(rr, cc.ArbScores, cc.ArbRunning);
@@ -2538,9 +2520,10 @@ namespace SteelCity.Sim
                 // holding" vs "seeking cover behind X"), which is the whole
                 // pick-vs-corridor-vs-arrival question in one string.
                 if (SecFold("c.duel", "DUEL — live status"))
-                {
-                    DuelStatusRow("vinny", pitVinny);
-                    DuelStatusRow("tan",   pitTan);
+                {   // live dice/status rows live in the right panel now (combat + flow
+                    // tabs) — inline copies changed row count mid-fight and shuffled
+                    // the sliders (user: "fighting scrolling").
+                    GUILayout.Label("live per-fighter status → right panel · <b>combat</b> / <b>flow</b> tabs (F5 shows)", labelStyle);
                 }
                 // TEMPO — per-beat dwell floors. Every beat holds its
                 // seconds minimum; event verdicts stay honest inside (the
@@ -2805,8 +2788,10 @@ namespace SteelCity.Sim
             // Threat = the PICK AIM point — simulates a shooter standing there.
             var cc = ch.GetComponent<CombatController>();
             if (cc == null) cc = ch.gameObject.AddComponent<CombatController>();
-            if (SecFold("c.combat", "combat mode (autonomous)"))
+            if (SecFold("c.combat", "combat mode & movement (autonomous)"))
             {
+            CombatController.moveSpeed = HSlider("move speed (all)", CombatController.moveSpeed, 0.5f, 5f);
+            cc.minThreatDistM = HSlider("min threat m", cc.minThreatDistM, 0f, 10f);
             if (cc.State == CombatController.CombatState.Idle)
             {
                 // Pit mode: symmetric duel — both combatants enter combat,
@@ -2860,25 +2845,25 @@ namespace SteelCity.Sim
                 // BEFORE the duel starts.
                 cc.loopBeats = GUILayout.Toggle(cc.loopBeats, " loop beats (re-rise after fail)", toggleStyle);
                 cs.standoff = HSlider("cover standoff", cs.standoff, 0.1f, 0.8f);
-                if (cc.State != CombatController.CombatState.Idle)
-                {
-                    cc.visInterval = HSlider("probe interval", cc.visInterval, 0.05f, 0.5f);
-                    cc.fireInterval = HSlider("fire cadence", cc.fireInterval, 0.3f, 3f);
-                    cc.roundLoadInterval = HSlider("round load", cc.roundLoadInterval, 0.2f, 3f);
-                    // Master tempo — sets every beatDwell at once; the
-                    // TEMPO table (TEST LOTS) tunes them individually.
-                    float master = cc.beatDwell != null && cc.beatDwell.Length > 1
-                        ? cc.beatDwell[1] : 5f;
-                    float nm = HSlider("all beats dwell", master, 0.5f, 15f);
-                    if (cc.beatDwell != null && !Mathf.Approximately(nm, master))
-                        for (int bi = 1; bi < cc.beatDwell.Length; bi++) cc.beatDwell[bi] = nm;
-                }
+                // Always drawn — combat-state changes used to insert/remove these rows
+                // mid-fight and shuffle every slider below (user: "fighting scrolling").
+                GUI.enabled = cc.State != CombatController.CombatState.Idle;
+                cc.visInterval = HSlider("probe interval", cc.visInterval, 0.05f, 0.5f);
+                cc.fireInterval = HSlider("fire cadence", cc.fireInterval, 0.3f, 3f);
+                cc.roundLoadInterval = HSlider("round load", cc.roundLoadInterval, 0.2f, 3f);
+                // Master tempo — sets every beatDwell at once; the
+                // TEMPO table (TEST LOTS) tunes them individually.
+                float master = cc.beatDwell != null && cc.beatDwell.Length > 1
+                    ? cc.beatDwell[1] : 5f;
+                float nm = HSlider("all beats dwell", master, 0.5f, 15f);
+                if (cc.beatDwell != null && !Mathf.Approximately(nm, master))
+                    for (int bi = 1; bi < cc.beatDwell.Length; bi++) cc.beatDwell[bi] = nm;
+                GUI.enabled = true;
             }
             // Pit depth-ladder picks — same row as TEST LOTS so it's visible
             // whichever path the user took (block click or the lots panel).
             if (pit && PitBlockId != null)
                 PitCoverPickRow(PitBlockId, ch, TanSuitRef);
-            cc.moveSpeed = HSlider("move speed", cc.moveSpeed, 0.5f, 5f);
             GUILayout.Label("cover detection tuning lives on the COVER tab", labelStyle);
             }
 
@@ -2899,24 +2884,14 @@ namespace SteelCity.Sim
                 else solver.Arm(tgtWorld);
             }
             GUI.enabled = true;
-            if (!string.IsNullOrEmpty(solver.LastError))
-                GUILayout.Label($"<color=#ff6666>solver: {solver.LastError}</color>", labelStyle);
+            GUILayout.Label(!string.IsNullOrEmpty(solver.LastError)
+                ? $"<color=#ff6666>solver: {solver.LastError}</color>" : " ", labelStyle);   // reserved row — errors mustn't shuffle
 
             if (SecFold("c.fire", "fire controls"))
                 DrawFireControls(hasPos || freeFire, mount, tgtWorld, hasTgt);
 
             // --- Telemetry ---
-            if (solver.Blend > 0f || aiming)
-            {
-                GUILayout.Space(4);
-                GUILayout.Label($"blend {solver.Blend:F2}   arm {solver.ArmGid} → fore {solver.ForearmGid}", labelStyle);
-                GUILayout.Label($"target dist: {solver.LastTargetDistanceM:F2}m   aim err: {solver.LastAngularErrorDeg:F1}°", labelStyle);
-                if (mount != null && mount.IsEquipped)
-                {
-                    GUILayout.Label($"muzzle: {mount.MuzzleWorld}", labelStyle);
-                    GUILayout.Label($"aim dir: {mount.AimDirection}", labelStyle);
-                }
-            }
+
             }
 
             GUILayout.Space(6);
@@ -2935,6 +2910,9 @@ namespace SteelCity.Sim
             solver.blendOutSpeed = HSlider("blend out", solver.blendOutSpeed, 0.5f, 8f);
             solver.azimuthOffsetDeg = HSlider("azimuth °", solver.azimuthOffsetDeg, -45f, 45f);
             solver.elevationOffsetDeg = HSlider("elevation °", solver.elevationOffsetDeg, -45f, 45f);
+            solver.boreOnLine = HSlider("bore on line", solver.boreOnLine, 0f, 1f);
+            solver.sightGapM = HSlider("sight gap m", solver.sightGapM, 0f, 0.15f);
+            solver.minMuzzleAheadM = HSlider("muzzle ahead m", solver.minMuzzleAheadM, 0f, 0.5f);
             if (GUILayout.Button("Reset tuning", GUILayout.Height(20)))
             {
                 solver.reachFraction = 0.97f;
@@ -3331,14 +3309,6 @@ namespace SteelCity.Sim
             var cc  = ch.GetComponent<CombatController>();
             var solver = ch.GetComponent<ArmAimSolver>();
 
-            // --- Status ---
-            GUILayout.Label("<b>Status</b>", labelStyle);
-            Vector3 tp = ch.transform.position;
-            GUILayout.Label($"  pos: <b>{tp.x:F1}, {tp.y:F1}, {tp.z:F1}</b>", labelStyle);
-            GUILayout.Label(cc != null
-                ? $"  combat: <b>{cc.State}</b>" + (cc.State != CombatController.CombatState.Idle ? $" · threat {cc.ThreatPos.ToString("F1")}" : cc.Watching ? " · <b>watching</b>" : "")
-                : "  combat: <i>no CombatController</i>", labelStyle);
-
             void Tog(ref bool f, string label)
             {
                 f = GUILayout.Toggle(f, label, toggleStyle);
@@ -3440,9 +3410,8 @@ namespace SteelCity.Sim
             }
             else
             {
-                GUILayout.Label($"  state: <b>{cc.State}</b>" +
-                    (cc.State != CombatController.CombatState.Idle ? $" · threat {cc.ThreatPos.ToString("F1")}" : cc.Watching ? " · <b>watching</b>" : ""), labelStyle);
-                cc.moveSpeed = HSlider("move speed", cc.moveSpeed, 0.5f, 5f);
+                CombatController.moveSpeed = HSlider("move speed (all)", CombatController.moveSpeed, 0.5f, 5f);
+            cc.minThreatDistM = HSlider("min threat m", cc.minThreatDistM, 0f, 10f);
                 var vinny = cityMap.SpawnedCharacter;
                 GUILayout.BeginHorizontal();
                 GUI.enabled = cc.State == CombatController.CombatState.Idle;
@@ -4191,7 +4160,7 @@ namespace SteelCity.Sim
             if (vis != null)
                 sb.AppendLine($"vision: {vis.range:F0}m ±{vis.halfAngleDeg:F0}°  det <b>{vis.MaxDetection * 100f:F0}%</b>  cone {OnOff(vis.showCone)}/ray {OnOff(vis.showTargetRay)}/fill {OnOff(vis.showConeFill)}  owner {OnOff(VisionSensor.ConeOwner == vis)}");
             sb.AppendLine(cc != null
-                ? $"combat: <b>{cc.State}</b>{(cc.Watching ? $" <b>+ watch on {(cc.WatchTarget != null ? cc.WatchTarget.name : "?")}</b>" : "")}  move {cc.moveSpeed:F1}  targetDuck {cc.TargetDuck:F2}   duel {pitTanMode}"
+                ? $"combat: <b>{cc.State}</b>{(cc.Watching ? $" <b>+ watch on {(cc.WatchTarget != null ? cc.WatchTarget.name : "?")}</b>" : "")}  move {CombatController.moveSpeed:F1}  targetDuck {cc.TargetDuck:F2}   duel {pitTanMode}"
                 : "combat: <i>no CombatController</i>");
         }
 

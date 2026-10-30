@@ -70,6 +70,16 @@ namespace SteelCity.Sim
         public void AddCameraPanOffset(Vector3 worldDelta)
         {
             cameraPanOffset += worldDelta;
+            // Detached (cameraFollow=false): currentCameraTarget is frozen — apply the
+            // pan there too or the free-cam's WASD does nothing (the offset only feeds
+            // the followed target inside the cameraFollow branch).
+            if (!cameraFollow) currentCameraTarget += worldDelta;
+        }
+
+        /// <summary>Re-attach helper — clears the accumulated offset so the re-follow snaps behind the character.</summary>
+        public void ResetCameraPanOffset()
+        {
+            cameraPanOffset = Vector3.zero;
         }
 
         public void Initialize(SimulationManager manager, VoxelCharacter charComponent, Transform root)
@@ -262,31 +272,31 @@ namespace SteelCity.Sim
             // Camera follow: smoothly track character position + user pan offset
             // Only follow when NOT paused — during transition hold, camera stays on HQ.
             // Under F8 freeze the map free-cam owns the focus for inspection.
-            if (cameraFollow && character != null && !isPaused && Time.timeScale > 0.001f)
+            bool camAlive = character != null && !isPaused && Time.timeScale > 0.001f;
+            if (camAlive && hasCameraTarget && cachedCityMap != null && !PossessController.Active)
             {
-                Vector3 charWorld = character.useWorldPosition
-                    ? character.WorldCenter
-                    : character.transform.localPosition + mapRoot.position;
-
-                Vector3 desiredTarget = charWorld + cameraPanOffset;
-
-                if (!hasCameraTarget)
+                if (cameraFollow)
                 {
-                    currentCameraTarget = desiredTarget;
-                    hasCameraTarget = true;
-                }
-                else
-                {
+                    Vector3 charWorld = character.useWorldPosition
+                        ? character.WorldCenter
+                        : character.transform.localPosition + mapRoot.position;
+                    Vector3 desiredTarget = charWorld + cameraPanOffset;
                     currentCameraTarget = Vector3.Lerp(
                         currentCameraTarget, desiredTarget,
                         cameraFollowSpeed * Time.deltaTime);
                 }
-
-                // Update camera focus using cached reference
-                if (cachedCityMap != null && !PossessController.Active)
-                {
-                    cachedCityMap.SetCameraFocus(currentCameraTarget);
-                }
+                // Push runs either way — detached (cameraFollow=false) leaves the target
+                // frozen except for WASD pans, which IS the free cam (was: push lived
+                // inside the follow branch, so detach froze input too).
+                cachedCityMap.SetCameraFocus(currentCameraTarget);
+            }
+            else if (cameraFollow && camAlive && !hasCameraTarget)
+            {   // first-follow init path (was the !hasCameraTarget snap inside the old block)
+                Vector3 charWorld = character.useWorldPosition
+                    ? character.WorldCenter
+                    : character.transform.localPosition + mapRoot.position;
+                currentCameraTarget = charWorld + cameraPanOffset;
+                hasCameraTarget = true;
             }
         }
 

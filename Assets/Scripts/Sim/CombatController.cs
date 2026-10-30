@@ -29,8 +29,8 @@ namespace SteelCity.Sim
         public enum EngagementBeat : byte { None = 0, Settle = 1, TopUp = 2, Rise = 3, Engaged = 4, Duck = 5, Swing = 6 }
 
         [Header("Movement")]
-        [Tooltip("Combat hustle speed (m/s) — drives both the transform step and walk anim rate.")]
-        public float moveSpeed = 2.4f;
+        [Tooltip("Combat hustle speed (m/s) — drives both the transform step and walk anim rate. STATIC: universal — one pace for every fighter so per-character tuning can't drift (user).")]
+        public static float moveSpeed = 2.4f;
         /// <summary>XZ arrival tolerance — the committed destination is a cell
         /// center on open floor, so the residual should be visual-noise scale,
         /// not a third of a body width. StepToward clamps the final step at
@@ -3725,6 +3725,7 @@ namespace SteelCity.Sim
 
         void Update()
         {
+
             // The wheel is world-physical — keep seating rounds even at Idle so
             // a reload started in one mode finishes in whatever mode he's in.
             // Except inside the rhythm: the seam is pure — a carryover reload

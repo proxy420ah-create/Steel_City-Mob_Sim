@@ -171,7 +171,7 @@ namespace SteelCity.Sim
                 return;
             }
             roadGraph = new RoadGraph();
-            CityMap3D.ExtractTerrainAndSeams(layout, out _, out var hSeams, out var vSeams);
+            CityMap3D.ExtractTerrainAndSeams(layout, out _, out var hSeams, out var vSeams, out _);
             roadGraph.GenerateFromLayout(layout, cityMap.Spacing, hSeams, vSeams);
 
             // Curbside parking inventory — computed from the same links (measured
