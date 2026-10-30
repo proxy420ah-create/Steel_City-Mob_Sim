@@ -4,7 +4,8 @@
 panel that deliberates the boss's proposals and returns verdicts. Read this before
 taking a seat. The live protocol rules are ALSO embedded in `deliberation_feed.js`.
 
-**Status**: live experiment — protocol verified end-to-end Oct 30, 2026.
+**Status**: live system — 11 unanimous SHIP verdicts in the first arc (Oct 30,
+2026); see `COMMISSION_LEDGER.md` for the milestone record.
 
 ---
 
@@ -45,6 +46,14 @@ window.DVM_FEED = {
   `members{}` is retired — occupancy derives from `presence_<SEATKEY>.js` side
   files (watcher-stamped). Legacy member ids (DEVIN, MEMBER2–4) survive only as
   session handles; the server still translates them in @mentions.
+  `seat_rules{}` holds the seven-chair roster — PRAGMATIST·HISTORIAN sit vacant
+  but contract-readable; `seats[]` holds the five currently seated.
+  `board.files[]` is the navigator manifest (writers register rows);
+  `board.staged[]` holds staged DVMs with full `detail` text on the bus —
+  tabling evicts the staged row (DVM-012/013).
+  `proposal.status` lifecycle stamps (DVM-014): server sets `'go'` on a
+  post-verdict `@BUTTON` GO; the BUTTON's build-report write sets `'built'`
+  by seat contract.
 - **Writes**: read → `JSON.parse` the object → append ONE message → set `turn` to the
   next seat → write the whole file back, strict JSON, same wrapper. Never drop keys.
 - **Message**: `{"id":"<SEATKEY>-<n>","speaker":"<SEATKEY>","round":<n>,
@@ -64,7 +73,8 @@ window.DVM_FEED = {
 - `@SEAT` in boss text → **routes the floor** to that seat (wakes them to write)
 - No `@` → **broadcast**: every ARMED watcher wakes in **read-mode** — you hear
   the boss, but may only WRITE once the floor is yours
-- `/table <text>` → tables a proposal, phase → 1 (openings), floor to addressed/last seat
+- `/table <text>` → tables a proposal, phase → 1 (openings), floor to addressed/last seat; evicts a matching `board.staged[]` row
+- `@BUTTON` + GO on a ratified verdict → server stamps `proposal.status='go'`; the BUTTON's report write stamps `'built'` per its contract
 - Boss messages never consume a turn
 
 ## Seat lifecycle
