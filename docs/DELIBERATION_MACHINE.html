@@ -1,0 +1,1286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Steel City — Deliberation &amp; Verdict Machine</title>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --surface2: #1c2331;
+    --border: #30363d; --text: #e6edf3; --text-dim: #8b949e;
+    --accent: #58a6ff; --green: #3fb950; --orange: #f0883e;
+    --pink: #f778ba; --red: #f85149; --yellow: #d29922;
+    --cyan: #39c5cf; --purple: #bc8cff; --tan: #d2a679;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Segoe UI',system-ui,sans-serif; background:var(--bg); color:var(--text); line-height:1.6;
+         height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+  .hero { text-align:center; padding:12px 20px 8px; background:linear-gradient(135deg,#0d1117,#1a1a2e 40%,#16213e 75%,#0f3460); border-bottom:1px solid var(--border); flex:none; }
+  .hero h1 { font-size:1.35em; background:linear-gradient(90deg,var(--yellow),var(--orange),var(--red)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+  .hero .sub { color:var(--text-dim); font-size:.78em; max-width:880px; margin:3px auto 0; }
+
+  /* phase strip (house .life pattern) */
+  .life { display:flex; flex-wrap:wrap; gap:6px; align-items:center; justify-content:center; margin-top:8px; }
+  .life .step { background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:4px 12px; font-size:.78em; white-space:nowrap; color:var(--text-dim); transition:border-color .2s,color .2s; }
+  .life .step.done { border-color:var(--green); color:var(--green); }
+  .life .step.live { border-color:var(--yellow); color:var(--yellow); box-shadow:0 0 12px rgba(210,153,34,.35); }
+  .life .step.term { border-color:var(--red); color:var(--red); }
+  .life .arr { color:var(--text-dim); font-size:.8em; }
+
+  .feedstat { display:flex; gap:14px; align-items:center; justify-content:center; margin-top:6px; font-family:Consolas,monospace; font-size:.66em; color:var(--text-dim); }
+  .dot { display:inline-block; width:9px; height:9px; border-radius:50%; background:var(--text-dim); margin-right:5px; vertical-align:middle; }
+  .dot.live { background:var(--green); box-shadow:0 0 8px var(--green); animation:pulse 2s infinite; }
+  .dot.demo { background:var(--purple); box-shadow:0 0 8px var(--purple); animation:pulse 2s infinite; }
+  .dot.idle { background:var(--text-dim); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  .wrap { margin:0; padding:10px 18px; flex:1; min-height:0; display:flex; flex-direction:column; }
+  .layout { display:grid; grid-template-columns:1fr minmax(400px,34%); gap:14px; flex:1; min-height:0; }
+  .main { display:flex; flex-direction:column; min-height:0; }
+  @media (max-width:1100px){ .layout{grid-template-columns:1fr;} body{overflow:auto;} }
+
+  .panel { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px 16px; }
+  .panel h3 { font-size:.95em; color:var(--accent); margin-bottom:8px; letter-spacing:.4px; }
+
+  /* commission roster */
+  .roster { max-height:100%; overflow:hidden; scrollbar-width:thin; display:flex; flex-direction:column; }
+  .railtabs { display:flex; gap:6px; margin-bottom:8px; flex:none; }
+  .rtab { font-size:.62em; font-family:Consolas,monospace; letter-spacing:.8px; color:var(--text-dim); border:1px solid var(--border); border-radius:7px; padding:3px 10px; cursor:pointer; }
+  .rtab:hover { color:var(--text); border-color:var(--accent); }
+  .rtab.active { color:var(--accent); border-color:var(--accent); }
+  .tabview { display:none; min-height:0; }
+  .tabview.active { display:block; flex:1; overflow-y:auto; scrollbar-width:thin; }
+  .seat { display:flex; align-items:center; gap:9px; background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:8px 11px; margin-bottom:8px; transition:border-color .2s; }
+  .seat .s-dot { width:10px; height:10px; border-radius:50%; background:var(--text-dim); flex:none; }
+  .seat.speaking { border-color:var(--cyan); box-shadow:0 0 10px rgba(57,197,207,.25); }
+  .seat.speaking .s-dot { background:var(--cyan); animation:pulse 1s infinite; }
+  .seat.vetoed { border-color:var(--red); }
+  .seat.vetoed .s-dot { background:var(--red); }
+  .seat .s-name { font-weight:700; font-size:.8em; letter-spacing:.5px; }
+  .seat .s-motto { font-size:.68em; color:var(--text-dim); line-height:1.3; }
+  .seat .s-tag { margin-left:auto; font-size:.6em; font-family:Consolas,monospace; color:var(--text-dim); flex:none; }
+  .seat.vetoed .s-tag { color:var(--red); font-weight:700; }
+
+  /* proposal box */
+  .propbox { margin-bottom:14px; border-left:3px solid var(--accent); }
+  .propbox .p-id { font-family:Consolas,monospace; font-size:.68em; color:var(--text-dim); }
+  .propbox .p-text { font-size:.95em; margin-top:3px; }
+  .propbox.empty .p-text { color:var(--text-dim); font-style:italic; }
+
+  /* verdict card */
+  .verdict { margin-bottom:14px; border:1.5px dashed var(--border); text-align:center; padding:10px; }
+  .verdict .v-word { font-size:1.3em; font-weight:800; letter-spacing:2px; }
+  .verdict.waiting .v-word { color:var(--text-dim); font-size:.95em; font-weight:600; letter-spacing:1px; }
+  .verdict.approved { border-color:var(--green); border-style:solid; }
+  .verdict.approved .v-word { color:var(--green); }
+  .verdict.revise { border-color:var(--yellow); border-style:solid; }
+  .verdict.revise .v-word { color:var(--yellow); }
+  .verdict.vetoed { border-color:var(--red); border-style:solid; }
+  .verdict.vetoed .v-word { color:var(--red); }
+  .verdict .v-conds { display:flex; flex-wrap:wrap; gap:5px; justify-content:center; margin-top:10px; }
+  .verdict .v-chip { font-size:.68em; font-family:Consolas,monospace; padding:2px 9px; border-radius:6px; border:1px solid var(--border); background:var(--surface2); color:var(--text-dim); }
+  .verdict .v-meta { font-size:.7em; font-family:Consolas,monospace; color:var(--text-dim); margin-top:8px; }
+
+  /* transcript feed — the main feature */
+  .feed { flex:1; min-height:0; margin-bottom:0; display:flex; flex-direction:column; }
+  .feed .f-head { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+  .feed .f-head h3 { margin-bottom:0; }
+  .feed .f-ctl { margin-left:auto; display:flex; gap:6px; }
+  .feed .f-ctl button { background:var(--surface2); border:1px solid var(--border); color:var(--text-dim); font-size:.7em; padding:3px 11px; border-radius:6px; cursor:pointer; }
+  .feed .f-ctl button:hover { border-color:var(--accent); color:var(--text); }
+  #msglist { flex:1; min-height:0; overflow-y:auto; padding-right:6px; scrollbar-width:thin; }
+  .msg { display:grid; grid-template-columns:96px 1fr; gap:10px; padding:8px 10px; border-radius:9px; margin-bottom:7px; background:var(--surface2); border:1px solid var(--border); border-left-width:3px; animation:slidein .25s ease; }
+  @keyframes slidein { from{opacity:0; transform:translateY(6px)} to{opacity:1; transform:none} }
+  .msg .m-speaker { font-weight:700; font-size:.72em; letter-spacing:.4px; padding-top:1px; }
+  .msg .m-meta { font-size:.6em; font-family:Consolas,monospace; color:var(--text-dim); margin-top:2px; }
+  .msg .m-body { font-size:.84em; line-height:1.5; }
+  .msg .m-kind { display:inline-block; font-size:.58em; font-weight:700; letter-spacing:.5px; padding:0 7px; border-radius:8px; border:1px solid var(--border); margin-right:6px; text-transform:uppercase; }
+  .msg .m-round { font-size:.6em; font-family:Consolas,monospace; color:var(--text-dim); }
+  .msg.sys { background:transparent; border-style:dashed; grid-template-columns:1fr; text-align:center; padding:5px; }
+  .msg.sys .m-body { font-size:.72em; font-family:Consolas,monospace; color:var(--text-dim); }
+  .msg.k-veto { border-left-color:var(--red); background:rgba(248,81,73,.07); }
+  .msg.k-objection { border-left-color:var(--orange); }
+  .msg.k-position { border-left-color:var(--cyan); }
+  .msg.k-support { border-left-color:var(--green); }
+  .msg.k-verdict { border-left-color:var(--yellow); }
+  .msg .m-kind.k-veto { color:var(--red); border-color:var(--red); }
+  .msg .m-kind.k-objection { color:var(--orange); border-color:var(--orange); }
+  .msg .m-kind.k-position { color:var(--cyan); border-color:var(--cyan); }
+  .msg .m-kind.k-support { color:var(--green); border-color:var(--green); }
+  .msg .m-kind.k-verdict { color:var(--yellow); border-color:var(--yellow); }
+  .feed-empty { text-align:center; color:var(--text-dim); font-size:.8em; padding:60px 20px; font-style:italic; }
+  .newmsg { position:sticky; bottom:6px; align-self:center; background:var(--accent); color:#0d1117; font-size:.7em; font-weight:700; padding:3px 14px; border-radius:14px; cursor:pointer; display:none; }
+  .newmsg.show { display:block; }
+
+  /* boss input — chat with the whole table */
+  .bossbox { margin-top:10px; border-top:1px solid var(--border); padding-top:10px; }
+  .bossbox .b-row { display:flex; gap:8px; }
+  .bossbox textarea { flex:1; background:var(--surface2); border:1px solid var(--border); border-radius:8px; color:var(--text); font:inherit; font-size:.84em; padding:8px 10px; resize:none; height:46px; }
+  .bossbox textarea:focus { outline:none; border-color:var(--tan); }
+  .bossbox button { background:var(--surface2); border:1px solid var(--tan); color:var(--tan); font-weight:700; font-size:.74em; padding:0 18px; border-radius:8px; cursor:pointer; letter-spacing:.5px; }
+  .bossbox button:hover { background:var(--tan); color:#0d1117; }
+  .bossbox .b-hint { font-size:.64em; color:var(--text-dim); margin-top:5px; }
+  .bossbox .b-hint b { color:var(--tan); font-weight:600; }
+  .sendstat { font-family:Consolas,monospace; color:var(--orange); margin-left:10px; }
+  .pushchip { font-family:Consolas,monospace; font-size:.6em; font-weight:700; color:var(--accent); border:1px solid var(--border); border-radius:8px; padding:0 6px; margin-left:6px; vertical-align:1px; }
+  .at { color:var(--accent); font-weight:700; }
+  .mtag { color:var(--accent); font-weight:700; }
+  .msg.k-boss { border-left-color:var(--tan); background:rgba(210,166,121,.07); }
+  .msg .m-kind.k-boss { color:var(--tan); border-color:var(--tan); }
+  .seat { cursor:pointer; }
+  .seat.vacant { opacity:.45; }
+  .seat.vacant .s-tag { color:var(--text-dim); }
+  .seat.away { opacity:.65; }
+  .seat.away .s-tag { color:var(--orange); }
+  .seat .s-ear { font-size:.62em; font-family:Consolas,monospace; color:var(--green); margin-top:2px; letter-spacing:.3px; }
+  .seat .s-ear.dead { color:var(--orange); }
+  .seat.vacant .s-ear { display:none; }
+  .seat:hover { border-color:var(--accent); box-shadow:0 0 10px rgba(88,166,255,.15); }
+  .m-speaker { cursor:pointer; }
+  .m-speaker:hover { text-decoration:underline; }
+
+  /* standing ledger (board.rules / board.agenda) */
+  .board { margin-top:14px; border-top:1px dashed var(--border); padding-top:10px; }
+  .board h4 { font-size:.66em; letter-spacing:.9px; color:var(--text-dim); margin:10px 0 6px; }
+  .board h4:first-child { margin-top:0; }
+  .board .bi { font-size:.72em; padding:5px 9px; border-left:2px solid var(--border); margin-bottom:5px; color:var(--text-dim); line-height:1.45; }
+  .board .bi.rule { border-left-color:var(--yellow); color:var(--text); }
+  .board .bi.ag { border-left-color:var(--cyan); }
+  .board .cl-link { cursor:pointer; font-family:Consolas,monospace; font-size:.66em; }
+  .board .cl-link:hover { color:var(--text); }
+  .board .bi.closed { border-left-color:var(--green); font-size:.66em; opacity:.75; }
+  .board .bi.contract { border-left-color:var(--purple); }
+  .board .bi.contract .c-tag { font-family:Consolas,monospace; font-size:.85em; color:var(--text-dim); }
+  .board .c-duty { font-size:.9em; color:var(--text-dim); font-style:italic; margin:2px 0 4px; }
+  .board .c-rule { font-size:.9em; color:var(--text); padding-left:9px; position:relative; }
+  .board .c-rule:before { content:'·'; position:absolute; left:2px; }
+  /* seat card rules expander (DVM-005) */
+  .seat .s-rules { display:inline-block; font-size:.58em; font-family:Consolas,monospace; color:var(--text-dim); cursor:pointer; margin-top:3px; letter-spacing:.4px; }
+  .seat .s-rules:hover { color:var(--accent); }
+  .seat .s-contract { margin-top:4px; padding:5px 8px; border-left:2px solid var(--accent); background:var(--surface); border-radius:0 6px 6px 0; }
+  .seat .s-contract .c-duty { font-size:.95em; }
+  .seat .s-contract .c-rule { font-size:.95em; line-height:1.45; padding-left:8px; position:relative; color:var(--text-dim); }
+  .seat .s-contract .c-rule:before { content:'·'; position:absolute; left:0; }
+
+  /* ══ DVM-013/014 ops deck — strips' successor; now the rail's too: full-height column ══ */
+  #deck { min-height:0; display:flex; flex-direction:column; position:relative; border:1px solid var(--border);
+          border-radius:12px; background:linear-gradient(135deg,#0b0e14,#141a26 60%,#0d1117); overflow:hidden; }
+  #deckhead { display:flex; align-items:center; gap:7px; padding:4px 10px; font-family:Consolas,monospace;
+              font-size:.62em; color:var(--text-dim); border-bottom:1px solid var(--border); flex-wrap:wrap; flex:none; }
+  body.dk-collapsed #deckhead { border-bottom:none; }
+  .dk-title { color:var(--yellow); font-weight:800; letter-spacing:1px; margin-right:4px; }
+  .dk-chip { border:1px solid var(--border); border-radius:8px; padding:0 7px; white-space:nowrap; background:rgba(13,17,23,.6); }
+  .dk-chip b { color:var(--text); font-weight:700; }
+  .dk-chip.accent { color:var(--accent); }
+  .dk-sp { flex:1; }
+  .dk-btn { border:1px solid var(--border); border-radius:8px; padding:0 8px; cursor:pointer; color:var(--text-dim); }
+  .dk-btn:hover { color:var(--text); border-color:var(--accent); }
+  #deckbody { flex:1; min-height:0; position:relative; }
+  body.dk-collapsed #deckbody { display:none; }            /* collapses to the header strip */
+  #deckview { position:absolute; inset:0; }
+  #deckview canvas { display:block; }
+  #deckhover { position:absolute; left:10px; bottom:6px; z-index:3; font-family:Consolas,monospace;
+               font-size:.62em; color:var(--accent); pointer-events:none; }
+  /* 2D column view — the takeover leaves 2D richer than the rail was */
+  #deck2d { position:absolute; inset:0; overflow-y:auto; scrollbar-width:thin; padding:8px; }
+  .d2slots { display:flex; gap:3px; flex-wrap:wrap; font-family:Consolas,monospace; font-size:.56em;
+             color:var(--text-dim); margin-bottom:8px; }
+  .d2slots b { font-weight:400; }
+  .d2slots b.on { color:var(--yellow); text-shadow:0 0 8px rgba(210,153,34,.6); }
+  .d2row { display:flex; align-items:center; gap:8px; border:1px solid var(--border); border-radius:8px;
+           padding:6px 9px; margin-bottom:6px; font-size:.66em; cursor:pointer; }
+  .d2row:hover { border-color:var(--accent); }
+  .d2row.floor { border-color:var(--yellow); box-shadow:0 0 8px rgba(210,153,34,.35); }
+  .d2row .l { width:9px; height:9px; border-radius:50%; flex:none; }
+  .d2row .nm { font-weight:700; letter-spacing:.4px; }
+  .d2row .er { margin-left:auto; font-family:Consolas,monospace; color:var(--text-dim); font-size:.9em; }
+  .d2row .lm { display:block; font-size:.9em; color:var(--text-dim); margin-top:1px; }
+  .d2row.vac { opacity:.45; }
+  #decknav { position:absolute; top:0; right:0; bottom:0; width:min(250px,88%); z-index:5; overflow-y:auto;
+             scrollbar-width:thin; padding:5px 7px; background:rgba(11,14,20,.97); border-left:1px solid var(--border); }
+  body.dk-navhide #decknav { display:none; }
+  .dk-g { font-family:Consolas,monospace; font-size:.58em; letter-spacing:1px; color:var(--text-dim);
+          margin:6px 2px 3px; cursor:pointer; }
+  .dk-g:hover { color:var(--text); }
+  .acc { overflow:hidden; }
+  .acc.folded { display:none; }
+  .frow { display:flex; gap:6px; align-items:center; padding:3px 5px; border-radius:6px; cursor:pointer; font-size:.68em; }
+  .frow:hover { background:var(--surface2); }
+  .frow .fk { font-family:Consolas,monospace; font-size:.8em; padding:0 5px; border-radius:5px; border:1px solid var(--border); flex:none; }
+  .frow .ft { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); }
+  .frow.blocked { opacity:.55; }
+  .frow.blocked .ft:after { content:' ·server'; color:var(--orange); font-size:.85em; }
+  .fk.k-draft{color:var(--cyan);border-color:var(--cyan);} .fk.k-induction{color:var(--pink);border-color:var(--pink);}
+  .fk.k-protocol{color:var(--yellow);border-color:var(--yellow);} .fk.k-feed{color:var(--green);border-color:var(--green);}
+  .fk.k-staged{color:var(--orange);border-color:var(--orange);} .fk.k-other{color:var(--text-dim);}
+  .lnav { font-size:.64em; color:var(--text-dim); padding:2px 6px; border-left:2px solid var(--border); margin:2px 0 2px 4px; line-height:1.4; }
+  .lnav.rule { border-left-color:var(--yellow); color:var(--text); }
+  .lnav.ag { border-left-color:var(--cyan); }
+  .lnav.closed { border-left-color:var(--green); }
+  .lnav .cn { color:var(--text); font-weight:700; }
+  .lnav .cd { font-style:italic; }
+  /* chair inspector — the contract's home, DOM over the scene */
+  #inspector { position:absolute; left:8px; bottom:8px; width:min(240px,90%); z-index:6; display:none;
+               background:var(--surface); border:1px solid var(--accent); border-left:3px solid var(--accent);
+               border-radius:10px; padding:8px 11px; font-size:.72em; box-shadow:0 0 20px rgba(88,166,255,.15); }
+  #inspector.open { display:block; }
+  #inspector .i-name { font-weight:800; font-size:.95em; letter-spacing:.5px; }
+  #inspector .i-occ { font-family:Consolas,monospace; font-size:.82em; color:var(--green); margin:1px 0 4px; }
+  #inspector .i-occ.dead { color:var(--orange); }
+  #inspector .i-duty { font-size:.9em; color:var(--text-dim); font-style:italic; }
+  #inspector .i-rule { font-size:.86em; color:var(--text-dim); padding-left:9px; position:relative; line-height:1.4; }
+  #inspector .i-rule:before { content:'·'; position:absolute; left:2px; }
+  #inspector .i-at { display:inline-block; margin-top:6px; font-family:Consolas,monospace; font-size:.8em;
+                     color:var(--accent); border:1px solid var(--accent); border-radius:7px; padding:1px 10px; cursor:pointer; }
+  #inspector .i-at:hover { background:var(--accent); color:#0d1117; }
+  #inspector .i-x { position:absolute; top:5px; right:8px; cursor:pointer; color:var(--text-dim); font-family:Consolas,monospace; }
+  #inspector .i-x:hover { color:var(--red); }
+  /* reader overlay — in-deck surface, slides over the column not the page */
+  #deckreader { position:absolute; top:0; left:0; right:0; bottom:0; z-index:7;
+    background:var(--surface); border-left:3px solid var(--accent);
+    box-shadow:0 0 26px rgba(88,166,255,.18); display:none; flex-direction:column; }
+  #deckreader.open { display:flex; }
+  #deckreader .dr-head { display:flex; align-items:center; gap:8px; padding:7px 12px; border-bottom:1px solid var(--border); font-family:Consolas,monospace; font-size:.68em; }
+  #deckreader .dr-x { margin-left:auto; cursor:pointer; color:var(--text-dim); border:1px solid var(--border); border-radius:6px; padding:0 8px; }
+  #deckreader .dr-x:hover { color:var(--text); border-color:var(--red); }
+  #deckreader .dr-body { flex:1; overflow-y:auto; padding:10px 16px; font-size:.78em; line-height:1.55; scrollbar-width:thin; }
+  .dk-md h3,.dk-md h4,.dk-md h5 { color:var(--accent); margin:10px 0 4px; font-size:1em; }
+  .dk-md p { margin:4px 0; }
+  .dk-md code { font-family:Consolas,monospace; background:var(--surface2); padding:0 4px; border-radius:4px; font-size:.92em; }
+  .dk-md pre { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:8px 10px; overflow-x:auto; font-size:.85em; }
+  .dk-md blockquote { border-left:3px solid var(--yellow); margin:6px 0; padding:2px 10px; color:var(--text-dim); }
+  .dk-md ul { margin:4px 0 4px 18px; } .dk-md hr { border:none; border-top:1px dashed var(--border); margin:8px 0; }
+  body.deck3d .hero { display:none; }                      /* scene claims the strip zone only after first render */
+
+  footer { flex:none; text-align:center; color:var(--text-dim); font-size:.6em; border-top:1px solid var(--border); padding:5px 16px; line-height:1.3; }
+  footer code { font-family:Consolas,monospace; color:var(--cyan); }
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+               "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+</script>
+</head>
+<body>
+
+<div class="hero">
+  <h1>⚖ THE DELIBERATION &amp; VERDICT MACHINE</h1>
+  <div class="sub">A panel of agents argues a proposal, calls vetoes, and hands the boss a verdict.
+  <b>Persistent live feed</b> — this page watches <b>deliberation_feed.js</b> (same folder, reloaded every 2s); any process that rewrites it drives the board.</div>
+  <div class="life" id="phasestrip">
+    <span class="step" data-ph="0">TABLED</span><span class="arr">→</span>
+    <span class="step" data-ph="1">OPENINGS</span><span class="arr">→</span>
+    <span class="step" data-ph="2">REBUTTAL</span><span class="arr">→</span>
+    <span class="step" data-ph="3">VETO POLL</span><span class="arr">→</span>
+    <span class="step" data-ph="4">VERDICT</span>
+  </div>
+  <div class="feedstat">
+    <span><i class="dot idle" id="srcdot"></i><span id="srclbl">watching deliberation_feed.js</span> <span class="pushchip" id="pushchip">poll</span></span>
+    <span id="turnlbl"></span>
+    <span id="clock"></span>
+    <span id="msgcount">0 messages</span>
+  </div>
+</div>
+
+<div class="wrap">
+<div class="layout">
+
+  <div class="main">
+    <div class="panel propbox empty" id="propbox">
+      <div class="p-id">NO PROPOSAL ON THE TABLE</div>
+      <div class="p-text">Waiting for the boss to table a proposal… <span style="font-style:normal">(or run <b>?demo=1</b>)</span></div>
+    </div>
+
+    <div class="panel verdict waiting" id="verdictbox">
+      <div class="v-word">· AWAITING DELIBERATION ·</div>
+    </div>
+
+    <div class="panel feed">
+      <div class="f-head">
+        <h3>◈ LIVE TRANSCRIPT</h3>
+        <div class="f-ctl">
+          <button id="btndemo">▶ demo</button>
+          <button id="btnclear">clear</button>
+        </div>
+      </div>
+      <div id="msglist">
+        <div class="feed-empty" id="feedempty">Transcript empty. The Commission has not convened.<br>
+        Push a message via <code style="font-family:Consolas">deliberation_feed.js</code> or press ▶ demo.</div>
+        <div class="newmsg" id="newmsg">▼ new messages</div>
+      </div>
+      <div class="bossbox">
+        <div class="b-row">
+          <textarea id="bossin" placeholder="THE BOSS speaks — Enter to send. Click a seat or a speaker to @address them; @SEAT hands them the floor. `/table <text>` tables a proposal."></textarea>
+          <button id="bosssend">SEND</button>
+          <button id="adjournbtn" title="recess control — flag the table; seats stand down / re-arm">ADJOURN</button>
+        </div>
+        <div class="b-hint"><b>@SEAT</b> in text routes the floor · <b>/table</b> tables a proposal · click chairs or speaker names to address<span class="sendstat" id="sendstat"></span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ DVM-014 room takeover — the rail's successor: full-height scene column ══ -->
+  <div id="deck">
+    <div id="deckhead">
+      <span class="dk-title">⚖ DVM OPS</span>
+      <span class="dk-chip" id="d_phase">phase —</span>
+      <span class="dk-chip">floor <b id="d_turn">—</b></span>
+      <span class="dk-chip"><i class="dot idle" id="d_srcdot"></i><span id="d_srclbl">feed</span></span>
+      <span class="dk-chip accent" id="d_push">…</span>
+      <span class="dk-chip" id="d_mode">boot</span>
+      <span class="dk-chip" id="d_clock"></span>
+      <span class="dk-chip" id="d_msg">0 messages</span>
+      <span class="dk-chip" id="d_closed">closed 0</span>
+      <span class="dk-sp"></span>
+      <span class="dk-btn" id="d_navbtn">FILES ▸</span>
+      <span class="dk-btn" id="d_collapse">COLLAPSE ▾</span>
+    </div>
+    <div id="deckbody">
+      <div id="deckview"><div id="deck2d"></div><div id="deckhover"></div></div>
+      <div id="decknav"></div>
+      <div id="inspector"></div>
+      <div id="deckreader">
+        <div class="dr-head"><span class="fk" id="dr_kind"></span><b id="dr_title"></b><span class="dr-x" id="dr_x">✕</span></div>
+        <div class="dr-body dk-md" id="dr_body"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<footer>
+  Feed contract — <code>deliberation_feed.js</code> sets <code>window.DVM_FEED = { proposal:{id,text}, phase:0..4, members:{}, messages:[], verdict:{} }</code>.<br>
+  Message: <code>{ id, speaker, kind:'position|objection|support|veto|verdict|phase|sys', round, text, ts }</code> — dedupe by <code>id</code>.
+</footer>
+
+<script>
+/* ── roster: SEATS = the standing commission (always rendered).
+   DVM-009: chair names ARE the identity — members{} retired; occupancy
+   derives from presence_<SEAT>.js (file exists → held; expired → away). ── */
+const SEATS = {
+  ARCHITECT:  { name:'THE ARCHITECT',  color:'var(--cyan)',   motto:'systemic purity · nothing without a contract' },
+  INFORMANT:  { name:'THE INFORMANT',  color:'var(--pink)',   motto:'checks the draft for fullness · accuracy before the table attacks' },
+  PRAGMATIST: { name:'THE PRAGMATIST', color:'var(--green)',  motto:'ship it · perfect is the enemy of tuesday' },
+  AUDITOR:    { name:'THE AUDITOR',    color:'var(--orange)', motto:'finds the failure mode before production does' },
+  HISTORIAN:  { name:'THE HISTORIAN',  color:'var(--purple)', motto:'precedent, the RE, and what the docs say' },
+  CHAIR:      { name:'THE CHAIR',      color:'var(--yellow)', motto:'synthesizes · speaks last · carries the verdict' },
+  BUTTON:     { name:'THE BUTTON',     color:'var(--red)',    motto:'delegated · codes only on verdict + GO CODE', delegated:true },
+};
+const LEGACY_SEAT = { DEVIN:'CHAIR', MEMBER2:'ARCHITECT', MEMBER3:'BUTTON', MEMBER4:'INFORMANT' };  // resolve old transcript ids
+const MTAG = new Set([...Object.keys(SEATS), 'BOSS', 'DEVIN', 'MEMBER2', 'MEMBER3', 'MEMBER4']);      // call-ons render bold
+let expandedSeat = null;   // DVM-005: one seat contract open at a time (accordion)
+const PHASE_NAMES = ['tabled','openings','rebuttal','veto poll','verdict'];
+
+/* ── state ── */
+const FEED_FILE = 'deliberation_feed.js', POLL_MS = 2000;
+const seen = new Set(); let msgSeq = 0, msgCount = 0, curPhase = -1;
+const msglist = document.getElementById('msglist');
+
+/* ── seats ── (DVM-014: the rail retired — the room IS the seat panel;
+   renderSeats/seatState stay as no-op guards for legacy call sites) ── */
+function renderSeats(){
+  const el = document.getElementById('seats'); if (!el) return; el.innerHTML = '';
+  for (const [key,seat] of Object.entries(SEATS)){
+    const occ = PRESENCE[key] != null;                 // presence file = seat held (DVM-009)
+    const einfo = occ ? earInfo(key) : null;
+    const dead = einfo && einfo.dead;
+    const contract = LASTBOARD && (LASTBOARD.seat_rules || {})[key];
+    const d = document.createElement('div');
+    d.className = 'seat' + (occ ? (dead ? ' away' : '') : ' vacant'); d.id = 'seat_' + key;
+    d.title = 'click to @address';
+    const dotc = occ ? (dead ? 'var(--orange)' : seat.color) : 'var(--border)';
+    const namec = occ ? (dead ? 'var(--text-dim)' : seat.color) : 'var(--text-dim)';
+    const tagc = occ ? (dead ? 'dead' : 'live') : (seat.delegated ? 'delegated' : 'vacant');
+    d.innerHTML = `<i class="s-dot" style="background:${dotc}"></i>
+      <div><div class="s-name" style="color:${namec}">${seat.name}</div>
+      <div class="s-motto">${seat.motto}</div>
+      ${occ ? `<div class="s-ear${dead ? ' dead' : ''}" id="ear_${key}">${einfo.txt}</div>` : ''}
+      ${contract ? `<div class="s-rules" data-seat="${key}">rules ${expandedSeat === key ? '▾' : '▸'}</div>` : ''}
+      ${contract && expandedSeat === key ? `<div class="s-contract"><div class="c-duty">${contract.duty || ''}</div>${(contract.rules || []).map(r => `<div class="c-rule">${r}</div>`).join('')}</div>` : ''}</div>
+      <span class="s-tag" id="stag_${key}">${tagc}</span>`;
+    el.appendChild(d);
+  }
+}
+function seatKeyFor(id){
+  if (SEATS[id]) return id;                                   // seat keys are the namespace
+  return LEGACY_SEAT[id] || null;                             // legacy member ids resolve once
+}
+function seatState(id, state, tag){
+  const key = seatKeyFor(id); if (!key) return;
+  const s = document.getElementById('seat_' + key); if (!s) return;
+  s.classList.toggle('speaking', state === 'speaking');
+  if (state === 'vetoed') s.classList.add('vetoed');
+  if (state === 'clear') s.classList.remove('speaking','vetoed');
+  if (tag !== undefined) document.getElementById('stag_' + key).textContent = tag;
+}
+const whoIs = id => SEATS[id] || SEATS[LEGACY_SEAT[id]] || null;
+
+/* ── phase strip ── */
+function setPhase(p){
+  if (p === curPhase) return; curPhase = p;
+  document.querySelectorAll('#phasestrip .step').forEach(el => {
+    const i = +el.dataset.ph;
+    el.classList.toggle('done', i < p);
+    el.classList.toggle('live', i === p);
+  });
+  if (p === 0) Object.keys(SEATS).forEach(k => seatState(k,'clear',''));
+  const dp = document.getElementById('d_phase'); if (dp) dp.textContent = 'phase ' + (PHASE_NAMES[p] || '—').toUpperCase();
+  DS.phase = p; DECK.note();
+}
+
+/* ── ingest: the one public API ── */
+function ingest(msg){
+  if (msg.id && seen.has(msg.id)) return;
+  if (msg.id) seen.add(msg.id); else msg.id = 'auto_' + (msgSeq++);
+  if (msg.kind === 'phase'){ setPhase(+msg.phase || 0); }
+  if (msg.kind === 'verdict' && msg.vresult){ renderVerdict(msg.vresult, msg.text, msg.conds); }
+  appendMsg(msg);
+  if (msg.speaker && whoIs(msg.speaker)){
+    DS.lastMsg[seatKeyFor(msg.speaker)] = { text: msg.text || '', kind: msg.kind || 'position' };   // chair bubbles (DVM-014)
+    DECK.speech(seatKeyFor(msg.speaker));
+    if (msg.kind === 'veto' || msg.kind === 'objection') DECK.pulse(seatKeyFor(msg.speaker));
+    if (msg.kind === 'veto') DECK.pin(seatKeyFor(msg.speaker));            // ballot pins on the pegboard
+    if (msg.kind === 'veto') seatState(msg.speaker, 'vetoed', 'VETO');
+    else { seatState(msg.speaker, 'speaking'); setTimeout(() => seatState(msg.speaker,'clear',''), 2600); }
+  }
+}
+function appendMsg(msg){
+  document.getElementById('feedempty')?.remove();
+  const m = whoIs(msg.speaker);
+  const kind = (msg.kind || 'sys'), ts = msg.ts || new Date().toLocaleTimeString();
+  const d = document.createElement('div');
+  if (kind === 'sys' || kind === 'phase' || kind === 'boss'){   // unseated speech → wall monitor (DVM-014)
+    DS.wallMsg = { text: msg.text || '', kind: kind }; DECK.speech('WALL');
+  }
+  if (kind === 'sys' || kind === 'phase'){
+    d.className = 'msg sys';
+    d.innerHTML = `<div class="m-body">${kind === 'phase' ? '── ' + (PHASE_NAMES[msg.phase]||'').toUpperCase() + ' ──' : ''} ${msg.text}</div>`;
+  } else {
+    const sname = msg.speaker === 'BOSS' ? 'THE BOSS' : (m ? m.name : (msg.speaker || 'SYSTEM'));
+    const scolor = msg.speaker === 'BOSS' ? 'var(--tan)' : (m ? m.color : 'var(--text)');
+    const toChips = (msg.to || []).map(t => `<span class="at">@${LEGACY_SEAT[t] || t}</span>`).join(' ');
+    const bodyHtml = msg.text.replace(/@([A-Za-z0-9_]+)/g, (m, t) =>
+      MTAG.has(t) ? `<b class="mtag">${m}</b>` : `<span class="at">${m}</span>`);  // call-ons wear a bold tag (DVM-009)
+    d.className = 'msg k-' + kind;
+    d.innerHTML = `
+      <div><div class="m-speaker" data-seat="${msg.speaker || ''}" style="color:${scolor}">${sname}</div>
+      <div class="m-meta">${ts}${msg.round ? ' · R'+msg.round : ''}</div></div>
+      <div class="m-body"><span class="m-kind k-${kind}">${kind}</span>${toChips ? toChips + ' ' : ''}${bodyHtml}</div>`;
+  }
+  const pill = document.getElementById('newmsg');
+  const atBottom = msglist.scrollHeight - msglist.scrollTop - msglist.clientHeight < 60;
+  msglist.insertBefore(d, pill);
+  if (atBottom) d.scrollIntoView({block:'end'}); else pill.classList.add('show');
+  document.getElementById('msgcount').textContent = (++msgCount) + ' messages';
+  const dm = document.getElementById('d_msg'); if (dm) dm.textContent = msgCount + ' messages';
+}
+document.getElementById('newmsg').onclick = function(){ this.classList.remove('show'); msglist.scrollTop = msglist.scrollHeight; };
+msglist.addEventListener('scroll', () => {
+  if (msglist.scrollHeight - msglist.scrollTop - msglist.clientHeight < 60)
+    document.getElementById('newmsg').classList.remove('show');
+});
+
+/* ── proposal + verdict ── */
+function setProposal(p){
+  DS.prop = p || null; DECK.note();
+  const box = document.getElementById('propbox');
+  if (!p || p.status === 'closed'){   // closed/null — slot returns to awaiting business (DVM-003)
+    box.className = 'panel propbox empty';
+    box.innerHTML = '<div class="p-id">NO PROPOSAL ON THE TABLE</div>' +
+      '<div class="p-text">Waiting for the boss to table a proposal… <span style="font-style:normal">(or run <b>?demo=1</b>)</span></div>';
+    return;
+  }
+  box.className = 'panel propbox';
+  box.innerHTML = '<div class="p-id">PROPOSAL ' + (p.id || '') + '</div>' +
+    '<div class="p-text">' + (p.title || p.text || '') + '</div>';
+}
+function renderVerdict(result, text, conds){
+  const box = document.getElementById('verdictbox');
+  const key = (result || '').toString().toLowerCase();
+  const cls = { approved:'approved', ship:'approved', revise:'revise', vetoed:'vetoed' }[key] || 'waiting';
+  const word = { approved:'✓ APPROVED', ship:'✓ SHIP', revise:'↺ REVISE & RESUBMIT', vetoed:'✕ VETOED' }[key]
+    || (result || 'awaiting').toString().toUpperCase();   // schema drift renders, never throws (DVM-004)
+  box.className = 'panel verdict ' + cls;
+  box.innerHTML = `<div class="v-word">${word}</div>
+    <div style="font-size:.82em;margin-top:6px">${text || ''}</div>
+    <div class="v-conds">${(conds||[]).map(c => `<span class="v-chip">${c}</span>`).join('')}</div>
+    <div class="v-meta">${new Date().toLocaleTimeString()} · verdict is advisory — the boss ratifies</div>`;
+}
+
+/* ── state snapshot application (feed file drives this) ── */
+const safe = fn => { try { fn(); } catch(e){ console.warn('render block failed:', e); } };
+function applyState(s){
+  if (!s) return;
+  safe(() => setProposal(s.proposal));
+  safe(renderSeats);                                    // seats render every state pass — occupancy is presence-derived (DVM-009)
+  if (typeof s.phase === 'number') safe(() => setPhase(s.phase));
+  safe(() => (s.messages || []).forEach(ingest));
+  if (s.verdict) safe(() => renderVerdict(s.verdict.ruling, s.verdict.summary, s.verdict.conds));  // live schema: ruling/summary (DVM-004)
+  if (s.verdict){ const vk = s.verdict.ts || s.verdict.ruling; if (vk !== DS.vts){ DS.vts = vk; DECK.note('verdict'); }
+    DS.vid = s.verdict.id || ''; }
+  if (s.messages) safe(() => {   // DVM-014 fallbacks — bus msgs carry no ts; array order IS the timeline
+    const msgs = s.messages, pid = (s.proposal || {}).id || '';
+    let g = -1, b2 = -1, vt = -1, cs = -1; const vs = [];
+    for (let i = 0; i < msgs.length; i++){
+      const m = msgs[i], t = m.text || '';
+      if (m.kind === 'verdict') vt = i;
+      if (m.kind === 'phase' || (pid && t.indexOf(pid + ' TABLED') >= 0)) cs = i;
+      if (m.speaker === 'BOSS' && /@BUTTON/i.test(t) && /\bGO\b/i.test(t)) g = i;
+      if (m.speaker === 'BUTTON' && /\bSHIP/i.test(t)) b2 = i;
+      if (m.kind === 'veto' && seatKeyFor(m.speaker) && i > cs) vs.push(seatKeyFor(m.speaker));
+    }
+    DS.goOK = g > vt;                            // a GO only counts after the verdict it unleashes
+    DS.builtOK = b2 > Math.max(vt, g);
+    DS.vetoSeats = vs;
+  });
+  if (s.turn) safe(() => { document.getElementById('turnlbl').textContent = 'floor: ' + s.turn;
+    const dt = document.getElementById('d_turn'); if (dt) dt.textContent = s.turn; DS.turn = s.turn; DECK.note(); });
+  if (s.board) safe(() => renderBoard(s.board));
+  safe(() => { adjourned = !!s.adjourned; DS.adj = adjourned; syncAdjBtn(); DECK.note(); });  // DVM-007: recess flag drives the toggle label
+}
+
+/* ── live feed: script-tag poll (works over file://, unlike fetch) ── */
+function setSource(mode){
+  const d = document.getElementById('srcdot'), l = document.getElementById('srclbl');
+  d.className = 'dot ' + (mode === 'demo' ? 'demo' : mode === 'live' ? 'live' : 'idle');
+  l.textContent = mode === 'demo' ? 'demo mode' : mode === 'live' ? 'feed connected' : 'watching ' + FEED_FILE;
+  const dd = document.getElementById('d_srcdot'), dl = document.getElementById('d_srclbl');
+  if (dd) dd.className = d.className;
+  if (dl) dl.textContent = mode === 'demo' ? 'demo' : mode === 'live' ? 'live' : 'feed';
+}
+let pollTag = null, pollBorn = 0;
+function poll(){
+  if (pollTag){
+    if (Date.now() - pollBorn < 8000) return;
+    pollTag.remove(); pollTag = null;   // wedged load — force reset
+  }
+  pollBorn = Date.now();
+  const t = document.createElement('script');
+  t.src = FEED_FILE + '?_=' + Date.now();
+  t.onload = () => { setSource('live'); if (window.DVM_FEED){ applyState(window.DVM_FEED); window.DVM_FEED = null; } pollTag = null; t.remove(); };
+  t.onerror = () => { pollTag = null; t.remove(); };
+  pollTag = t; document.head.appendChild(t);
+}
+/* ── DVM-010: push over HTTP (SSE signals), 2s poll fallback (file:// or
+   dead server). Signal carries the filename; script-tag still carries the
+   payload — one serialization path either way. ── */
+let pollTimers = null, pushOk = false;
+function setPushChip(m){
+  const c = document.getElementById('pushchip'); if (c) c.textContent = m;
+  const d = document.getElementById('d_push'); if (d) d.textContent = m;
+}
+function armPolling(){
+  if (pollTimers) return;
+  pollTimers = [setInterval(poll, POLL_MS), setInterval(pollPresence, POLL_MS)];
+  setPushChip('poll');
+}
+function startPush(){
+  try {
+    const es = new EventSource('/events');       // throws synchronously on file://
+    es.onopen  = () => { pushOk = true; setPushChip('push'); };
+    es.onerror = () => { if (!pushOk) armPolling(); };   // EventSource auto-reconnects; poll arms only if push never engaged
+    es.onmessage = ev => {
+      try {
+        const f = (JSON.parse(ev.data) || {}).file;
+        if (f === 'deliberation_feed') poll();
+        else if (typeof f === 'string' && f.indexOf('presence_') === 0) loadPresence(f.slice(9));
+      } catch(e){}
+    };
+  } catch(e) { armPolling(); }
+}
+
+/* ── presence side-channel (DVM-002): each armed ear sole-writes
+   presence_<AGENT>.js; polled by script-tag like the feed. Binary by the
+   boss's ruling: chip ticks the armed_at+ttl countdown through relay
+   hops; dead only on expiry or missing file — status flag retired. ── */
+const PRESENCE = {};   // seat key -> {armed_at, ttl_ms, pulse_at} | null (DVM-009)
+function earInfo(aid){
+  const p = PRESENCE[aid];
+  const rem = p ? p.armed_at + p.ttl_ms - Date.now() : -1;
+  if (!p || rem <= 0) return { dead:true, txt:'ear dead' };
+  const s = Math.ceil(rem / 1000);
+  return { dead:false, txt:'ear ' + Math.floor(s/60) + ':' + String(s%60).padStart(2,'0') };
+}
+function loadPresence(key){
+  const t = document.createElement('script');
+  t.src = 'presence_' + key + '.js?_=' + Date.now();
+  t.onload = () => { PRESENCE[key] = window['DVM_PRESENCE_' + key] || null; window['DVM_PRESENCE_' + key] = null; t.remove(); };
+  t.onerror = () => { PRESENCE[key] = null; t.remove(); };
+  document.head.appendChild(t);
+}
+function pollPresence(){ for (const key of Object.keys(SEATS)) loadPresence(key); }
+/* 1s tick — countdown chips + dead-ear seat state (countdown deadline) */
+setInterval(() => {
+  for (const key of Object.keys(SEATS)){
+    if (!PRESENCE[key]) continue;
+    const info = earInfo(key);
+    const chip = document.getElementById('ear_' + key);
+    if (chip){ chip.textContent = info.txt; chip.classList.toggle('dead', info.dead); }
+    document.getElementById('seat_' + key)?.classList.toggle('away', info.dead);
+    const tag = document.getElementById('stag_' + key);
+    if (tag && (tag.textContent === 'live' || tag.textContent === 'dead'))
+      tag.textContent = info.dead ? 'dead' : 'live';
+  }
+  const sig = Object.keys(SEATS).map(k => lampState(k) + ':' + lampFrac(k)).join(',');   // fuse fraction rides the signature (DVM-014)
+  if (sig !== DS.lamps){ DS.lamps = sig; DECK.presence(); if (DECK.mode !== '3d') render2D(); }
+  const iEl = document.getElementById('inspector');                    // inspector countdown stays live while open
+  if (iEl && iEl.classList.contains('open') && iEl.dataset.seat) refreshInspectorOcc(iEl.dataset.seat);
+}, 1000);
+
+/* ── clock ── */
+setInterval(() => { const t = new Date().toLocaleTimeString();
+  document.getElementById('clock').textContent = t;
+  const dc = document.getElementById('d_clock'); if (dc) dc.textContent = t; }, 1000);
+
+/* ── clear ── */
+document.getElementById('btnclear').onclick = () => {
+  seen.clear(); msgCount = 0;
+  msglist.querySelectorAll('.msg').forEach(e => e.remove());
+  setPhase(-1); renderSeats();
+  document.getElementById('verdictbox').className = 'panel verdict waiting';
+  document.getElementById('verdictbox').innerHTML = '<div class="v-word">· AWAITING DELIBERATION ·</div>';
+};
+
+/* ── demo: scripted mock deliberation ── */
+const DEMO = [
+  [300,  {kind:'phase', phase:0}],
+  [900,  () => setProposal({id:'DVM-001', text:'Should Steel City combat stay dice-driven, or move to deterministic menace rules?'})],
+  [1400, {kind:'phase', phase:1}],
+  [2000, {id:'d1', speaker:'ARCHITECT', kind:'position', round:1, text:'Dice-driven. The contract is clean: menace moves <b>when/whether</b>, dice own <b>which</b>. Deterministic rules collapse the two channels into one and the matrix loses its shape.'}],
+  [3200, {id:'d2', speaker:'PRAGMATIST', kind:'position', round:1, text:'Deterministic. We have spent three sessions tuning dice edge cases — MINDIST loops, flank interrupts. A rules table is one file, tunable on the Movement tab, done.'}],
+  [4400, {id:'d3', speaker:'AUDITOR', kind:'objection', round:1, text:'Deterministic menace has a failure mode: identical inputs → identical outcomes → players learn the table and game it. Dice preserve variance where it matters.'}],
+  [5600, {id:'d4', speaker:'HISTORIAN', kind:'position', round:1, text:'The original resolved everything by table lookup — 8 weapons × 8 range bands. Dice are <b>faithful modernization</b>. Deterministic rules are the differentiator only if they produce visible state.'}],
+  [7000, {kind:'phase', phase:2}],
+  [7600, {id:'d5', speaker:'PRAGMATIST', kind:'objection', round:2, text:'Rebuttal: the AUDITOR\u2019s variance point is real but we can inject jitter into deterministic thresholds — menace ±15% — without a roll table.'}],
+  [8600, {id:'d6', speaker:'AUDITOR', kind:'sys', text:'…wait, that is actually the same thing wearing a different hat. Noted.'}],
+  [9400, {kind:'phase', phase:3}],
+  [10000,{id:'d7', speaker:'AUDITOR', kind:'veto', round:3, text:'<b>VETO</b> on pure deterministic menace. Jittered deterministic is acceptable; full removal of stochastic combat is not.'}],
+  [10800,{id:'d8', speaker:'PRAGMATIST', kind:'support', round:3, text:'Concede — jittered deterministic keeps my tuning surface and their variance. Withdraw opposition.'}],
+  [11800,{kind:'phase', phase:4}],
+  [12400,{id:'d9', speaker:'CHAIR', kind:'verdict', vresult:'revise', round:3,
+          text:'Resubmit as <b>hybrid</b>: deterministic menace thresholds with bounded jitter; dice retained for which-outcome resolution. One veto recorded, sustained on the pure-deterministic variant only.',
+          conds:['menace ±15% jitter','dice keep WHICH-outcome','tunable on Movement tab','document in COMBAT_PARAMETER_MATRIX']}]
+];
+let demoRunning = false;
+function runDemo(){
+  if (demoRunning) return; demoRunning = true;
+  setSource('demo');
+  DEMO.forEach(([delay, ev]) => setTimeout(() => { (typeof ev === 'function' ? ev() : ingest(ev)); }, delay));
+  setTimeout(() => { demoRunning = false; }, DEMO[DEMO.length-1][0] + 500);
+}
+document.getElementById('btndemo').onclick = runDemo;
+
+/* ── standing ledger (rail DOM retired DVM-014 — LASTBOARD + nav drawer own it) ── */
+function renderBoard(b){
+  LASTBOARD = b;
+  renderNav(b);          // navigator: STAGED / FILES / LEDGER accordions
+  const dc = document.getElementById('d_closed'); if (dc) dc.textContent = 'closed ' + ((b.closed || []).length);
+  const el = document.getElementById('board'); if (!el) return; el.innerHTML = '';
+  if (b.rules && b.rules.length)
+    el.innerHTML += '<h4>STANDING RULES</h4>' + b.rules.map(r => `<div class="bi rule">${r}</div>`).join('');
+  if (b.agenda && b.agenda.length)
+    el.innerHTML += '<h4>OPEN BUSINESS</h4>' + b.agenda.map(r => `<div class="bi ag">${r}</div>`).join('');
+  const sr = b.seat_rules || {}, skeys = Object.keys(sr);
+  if (skeys.length)
+    el.innerHTML += '<h4>SEAT CONTRACTS</h4>' + skeys.map(k => {
+      const c = sr[k] || {}, name = (SEATS[k] && SEATS[k].name) || k;
+      return `<div class="bi contract"><b style="color:var(--text)">${name}</b> <span class="c-tag">${k}</span>` +
+        `<div class="c-duty">${c.duty || ''}</div>` +
+        (c.rules || []).map(r => `<div class="c-rule">${r}</div>`).join('') + '</div>';
+    }).join('');
+  renderClosed();
+}
+/* closed-business ledger (DVM-003): one line, collapsible, newest first */
+let LASTBOARD = null, closedOpen = false;
+function renderClosed(){
+  const wrap = document.getElementById('closedwrap'), link = document.getElementById('closedlink'), list = document.getElementById('closedlist');
+  if (!wrap || !link || !list) return;   // rail retired (DVM-014) — closed lives in the LEDGER accordion + HUD chip
+  const items = (LASTBOARD && LASTBOARD.closed) || [];
+  wrap.style.display = items.length ? '' : 'none';
+  document.getElementById('ledgern').textContent = items.length;
+  link.textContent = (closedOpen ? '▾' : '▸') + ' closed business (' + items.length + ')';
+  list.style.display = closedOpen && items.length ? 'block' : 'none';
+  if (closedOpen && items.length)
+    list.innerHTML = items.slice().reverse().map(c =>
+      `<div class="bi closed">${c.id} — ${c.title || ''}, ${c.ruling || ''}</div>`).join('');
+}
+document.getElementById('closedlink')?.addEventListener('click', () => { closedOpen = !closedOpen; renderClosed(); });
+
+/* ── boss input — chat with the table ── */
+const bossin = document.getElementById('bossin');
+function address(key){
+  const v = bossin.value;
+  bossin.value = (v && !v.endsWith(' ') ? v + ' ' : v) + '@' + key + ' ';
+  bossin.focus();
+}
+// rail click handler retired (DVM-014) — chair inspector owns @address now
+msglist.addEventListener('click', e => {
+  const sp = e.target.closest('.m-speaker'); if (sp && sp.dataset.seat)
+    address(seatKeyFor(sp.dataset.seat) || sp.dataset.seat);   // legacy ids resolve to chair names
+});
+function setSendStat(t){ document.getElementById('sendstat').textContent = t ? ' · ' + t : ''; }
+async function sendBoss(){
+  const text = bossin.value.trim(); if (!text) return;
+  try {
+    const r = await fetch('/boss', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({text})});
+    if (!r.ok) throw new Error('bad status');
+    const res = await r.json();
+    bossin.value = '';
+    (res.msgs || []).forEach(ingest);
+    setSendStat(res.turn ? '→ floor: ' + res.turn : 'sent to bus');
+  } catch(e) {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify({speaker:'BOSS', kind:'boss', text}));
+      setSendStat('no server — message JSON on clipboard, paste to an agent');
+    } catch { setSendStat('no server reachable'); }
+  }
+  setTimeout(() => setSendStat(''), 5000);
+}
+/* ── DVM-007: recess control — ADJOURN/RECONVENE toggle (label follows the polled flag) ── */
+let adjourned = false;
+function syncAdjBtn(){
+  const b = document.getElementById('adjournbtn');
+  if (b) b.textContent = adjourned ? 'RECONVENE' : 'ADJOURN';
+}
+async function toggleAdjourn(){
+  try {
+    const r = await fetch(adjourned ? '/reconvene' : '/adjourn', {method:'POST'});
+    if (!r.ok) throw new Error('bad status');
+    const res = await r.json();
+    adjourned = !!res.adjourned;
+    (res.msgs || []).forEach(ingest);
+    syncAdjBtn();
+    setSendStat(adjourned ? 'meeting adjourned — seats stand down' : 'reconvened — seats re-arm');
+  } catch(e) { setSendStat('no server reachable'); }
+  setTimeout(() => setSendStat(''), 5000);
+}
+document.getElementById('adjournbtn').onclick = toggleAdjourn;
+syncAdjBtn();
+document.getElementById('bosssend').onclick = sendBoss;
+bossin.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); sendBoss(); }
+});
+
+/* ══════════════ DVM-013 — OPS DECK ══════════════
+   Compact band (~160px, collapsible to its header strip): noir round-table
+   scene + board.files[] navigator + HUD chips. The strips die standing —
+   the scene claims their zone only after a first successful render; any
+   failure (no WebGL, CDN unreachable, context lost) keeps them and the chip
+   reads 2D honestly. Render-on-dirty: no unbounded rAF on an hours-open page. */
+const DS = { phase:-1, turn:'', adj:false, prop:null, vts:'', vid:'', lamps:'',
+             lastMsg:{}, wallMsg:null, goOK:false, builtOK:false, vetoSeats:[] };
+const DECK = { mode:'boot', note(){ if (DECK.mode !== '3d') render2D(); }, pulse(){}, pin(){},
+               speech(){ if (DECK.mode !== '3d') render2D(); },
+               presence(){ if (DECK.mode !== '3d') render2D(); }, dirty(){} };
+const SEAT_HEX = { CHAIR:0xd29922, ARCHITECT:0x39c5cf, INFORMANT:0xf778ba, BUTTON:0xf85149,
+                   PRAGMATIST:0x3fb950, AUDITOR:0xf0883e, HISTORIAN:0xbc8cff };
+const SEAT_CSS = { CHAIR:'#d29922', ARCHITECT:'#39c5cf', INFORMANT:'#f778ba', BUTTON:'#f85149',
+                   PRAGMATIST:'#3fb950', AUDITOR:'#f0883e', HISTORIAN:'#bc8cff' };
+function lampState(k){                 // 'lit' | 'dead' | 'vacant' | 'ember' — the scene grammar
+  const p = PRESENCE[k];
+  if (!p) return 'vacant';
+  if (DS.adj) return 'ember';
+  return earInfo(k).dead ? 'dead' : 'lit';
+}
+function lampFrac(k){                  // the lamp is a fuse — rounded remaining-life fraction rides the signature
+  const p = PRESENCE[k];
+  if (!p || !p.ttl_ms) return 0;
+  const f = Math.max(0, Math.min(1, (p.armed_at + p.ttl_ms - Date.now()) / p.ttl_ms));
+  return Math.round(f * 20) / 20;      // ~30s quanta on a 600s ear — burn-down renders only on change
+}
+/* propStage — every pegboard slot gets a named source; stamped data first,
+   named sniffing second (gate doctrine: sniffing that exists is written down) */
+function propStage(){
+  const p = DS.prop; if (!p || !p.id) return -1;
+  const b = LASTBOARD || {};
+  if ((b.closed || []).some(c => c.id === p.id)) return 6;                    // CLOSED — closed[] outright
+  if (p.status === 'built' || DS.builtOK) return 5;                           // BUILT — stamp or fallback
+  if (p.status === 'go' || DS.goOK) return 4;                                 // GO CODE — stamp or fallback
+  if (DS.vid && DS.vid === p.id) return 3;                                    // VERDICT — verdict.id matches
+  if (DS.phase === 2) return 2;                                               // VETO POLL (rebuttal+poll per record)
+  if (DS.phase >= 1) return 1;                                                // DELIBERATION
+  return 0;                                                                   // TABLED
+}
+function deckMode(m){
+  if (DECK.mode === m) return; DECK.mode = m;
+  const c = document.getElementById('d_mode'); if (c) c.textContent = m.toUpperCase();
+  document.body.classList.toggle('deck3d', m === '3d');
+  render2D();
+}
+/* 2D column view — the takeover leaves 2D richer than the rail was (DVM-014 §6) */
+const SLOT_NAMES = ['TABLED','DELIB','POLL','VERDICT','GO','BUILT','CLOSED'];
+function render2D(){
+  const host = document.getElementById('deck2d'); if (!host) return;
+  const st = propStage();
+  let h = '<div class="d2slots">' + SLOT_NAMES.map((n,i) =>
+    `<b class="${i === st ? 'on' : ''}">${n}</b>${i < 6 ? '▸' : ''}`).join(' ') +
+    ` <b style="margin-left:auto">${(PHASE_NAMES[DS.phase] || '—').toUpperCase()} · ${DECK.mode.toUpperCase()}</b></div>`;
+  h += Object.keys(SEATS).map(k => {
+    const s = lampState(k), seat = SEATS[k];
+    const col = s === 'lit' ? SEAT_CSS[k] : s === 'ember' ? '#b05900' : s === 'dead' ? '#555' : 'transparent';
+    const occ = s === 'vacant' ? 'vacant' : s === 'ember' ? 'in recess' : s === 'dead' ? 'ear dead' : earInfo(k).txt;
+    const lm = DS.lastMsg[k];
+    return `<div class="d2row${DS.turn === k ? ' floor' : ''}${s === 'vacant' ? ' vac' : ''}" data-k="${k}">` +
+      `<i class="l" style="background:${col}"></i>` +
+      `<div><span class="nm" style="color:${s === 'vacant' ? 'var(--text-dim)' : seat.color}">${seat.name}</span>` +
+      (lm ? `<span class="lm">last: “${lm.text.replace(/<[^>]*>/g,'').slice(0,64)}…”</span>` : '') +
+      `</div><span class="er">${occ}</span></div>`;
+  }).join('');
+  host.innerHTML = h;
+}
+document.getElementById('deck2d').addEventListener('click', e => {   // inspector works identically in 2D
+  const r = e.target.closest('.d2row'); if (r) openInspector(r.dataset.k);
+});
+/* deck chrome: collapse + navigator toggles */
+document.getElementById('d_collapse').addEventListener('click', function(){
+  const c = document.body.classList.toggle('dk-collapsed');
+  this.textContent = c ? 'EXPAND ▸' : 'COLLAPSE ▾';
+  DECK.dirty();
+});
+document.getElementById('d_navbtn').addEventListener('click', function(){
+  const c = document.body.classList.toggle('dk-navhide');
+  this.textContent = c ? 'FILES ◂' : 'FILES ▸';
+  DECK.dirty();
+});
+
+/* ── navigator — STAGED / FILES / LEDGER accordions (the rail's ledger folds in here, DVM-014 §2) ── */
+const navOpen = new Set(['STAGED','FILES']);
+function renderNav(b){
+  const nav = document.getElementById('decknav'); if (!nav) return;
+  const staged = b.staged || [], files = b.files || [], closed = b.closed || [];
+  const acc = (name, n, body) =>
+    `<div class="dk-g" data-acc="${name}">${navOpen.has(name) ? '▾' : '▸'} ${name} (${n})</div>` +
+    `<div class="acc${navOpen.has(name) ? '' : ' folded'}">${body}</div>`;
+  let h = acc('STAGED', staged.length,
+      staged.map((s,i) => `<div class="frow" data-s="${i}"><span class="fk k-staged">staged</span>` +
+        `<span class="ft" title="${(s.title || '').replace(/"/g,'&quot;')}">${s.id} — ${s.title || ''}</span></div>`).join('')
+        || '<div class="frow" style="opacity:.5;cursor:default"><span class="ft">queue empty</span></div>');
+  h += acc('FILES', files.length,
+      files.map((f,i) => {
+        const blocked = f.detail == null && location.protocol === 'file:';   // marked, not hidden
+        return `<div class="frow${blocked ? ' blocked' : ''}" data-f="${i}"><span class="fk k-${f.kind || 'other'}">${f.kind || 'file'}</span>` +
+          `<span class="ft" title="${(f.path || '').replace(/"/g,'&quot;')}">${f.title || f.id || f.path}</span></div>`;
+      }).join(''));
+  const sr = b.seat_rules || {};
+  h += acc('LEDGER', (b.rules || []).length + (b.agenda || []).length + Object.keys(sr).length + closed.length,
+      ((b.rules || []).length ? '<div class="dk-g" style="cursor:default">STANDING RULES</div>' +
+        b.rules.map(r => `<div class="lnav rule">${r}</div>`).join('') : '') +
+      ((b.agenda || []).length ? '<div class="dk-g" style="cursor:default">OPEN BUSINESS</div>' +
+        b.agenda.map(r => `<div class="lnav ag">${r}</div>`).join('') : '') +
+      '<div class="dk-g" style="cursor:default">SEAT CONTRACTS</div>' +
+      Object.keys(sr).map(k => `<div class="lnav"><span class="cn">${(SEATS[k] || {}).name || k}</span><br>` +
+        `<span class="cd">${(sr[k] || {}).duty || ''}</span></div>`).join('') +
+      '<div class="dk-g" style="cursor:default">CLOSED BUSINESS</div>' +
+      (closed.slice().reverse().map(c => `<div class="lnav closed">${c.id} — ${c.title || ''}, ${c.ruling || ''}</div>`).join('')
+        || '<div class="lnav">none</div>'));
+  nav.innerHTML = h;
+  nav._staged = staged; nav._files = files;
+}
+document.getElementById('decknav').addEventListener('click', e => {
+  const nav = e.currentTarget;
+  const g = e.target.closest('.dk-g[data-acc]');
+  if (g){ const k = g.dataset.acc; navOpen.has(k) ? navOpen.delete(k) : navOpen.add(k); if (LASTBOARD) renderNav(LASTBOARD); return; }
+  const r = e.target.closest('.frow'); if (!r) return;
+  if (r.dataset.s != null){ const s = nav._staged[+r.dataset.s];
+    if (s) openReader({kind:'staged', title:s.id + ' — ' + (s.title || ''), detail:s.detail, note:'staged by ' + (s.staged_by || '?')});
+  } else if (r.dataset.f != null){ const f = nav._files[+r.dataset.f]; if (f) openReader(f); }
+});
+/* ── chair inspector — the contract's home; works in 3D and 2D (DVM-014 §5) ── */
+function refreshInspectorOcc(k){
+  const el = document.getElementById('inspector'); if (!el || el.dataset.seat !== k) return;
+  const occ = el.querySelector('.i-occ'); if (!occ) return;
+  const s = lampState(k);
+  occ.textContent = s === 'vacant' ? 'vacant chair' : s === 'ember' ? 'in recess' : s === 'dead' ? 'ear dead' : earInfo(k).txt;
+  occ.classList.toggle('dead', s !== 'lit');
+}
+function openInspector(k){
+  const el = document.getElementById('inspector'), seat = SEATS[k]; if (!el || !seat) return;
+  const c = (LASTBOARD && (LASTBOARD.seat_rules || {})[k]) || {};
+  el.dataset.seat = k;
+  el.innerHTML = `<span class="i-x" id="i_x">✕</span>` +
+    `<div class="i-name" style="color:${seat.color}">${seat.name}</div>` +
+    `<div class="i-occ"></div>` +
+    (c.duty ? `<div class="i-duty">${c.duty}</div>` : '') +
+    (c.rules || []).map(r => `<div class="i-rule">${r}</div>`).join('') +
+    `<span class="i-at" data-k="${k}">@ ${k} ▸</span>`;
+  el.classList.add('open');
+  refreshInspectorOcc(k);
+  el.querySelector('#i_x').onclick = () => el.classList.remove('open');
+  el.querySelector('.i-at').onclick = () => { address(k); el.classList.remove('open'); };
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') document.getElementById('inspector')?.classList.remove('open'); });
+/* ── reader overlay — bus-carried detail opens everywhere; paths fetch over HTTP ── */
+const escHtml = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function openReader(f){
+  const R = document.getElementById('deckreader');
+  document.getElementById('dr_kind').textContent = f.kind || 'file';
+  document.getElementById('dr_kind').className = 'fk k-' + (f.kind || 'other');
+  document.getElementById('dr_title').textContent = f.title || f.id || f.path || '';
+  const body = document.getElementById('dr_body');
+  body.innerHTML = '<p style="color:var(--text-dim)">reading…</p>';
+  R.classList.add('open');
+  if (f.detail != null){ body.innerHTML = miniMd(f.detail); return; }
+  if (location.protocol === 'file:'){
+    body.innerHTML = '<p>Transport-blocked: this row carries no bus detail and <code>file://</code> cannot fetch. ' +
+      'Serve the page over HTTP (or stage the file) to read it here.</p>'; return;
+  }
+  fetch(f.path).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+    .then(t => { body.innerHTML = (f.kind === 'feed' || f.kind === 'induction') ? '<pre>' + escHtml(t) + '</pre>' : miniMd(t); })
+    .catch(e => { body.innerHTML = '<p>Fetch failed: ' + escHtml(e.message) + '</p>'; });
+}
+document.getElementById('dr_x').addEventListener('click', () => document.getElementById('deckreader').classList.remove('open'));
+/* ── mini markdown (DVM-012 language): headers, bold/italic/code, bullets, quotes, fences ── */
+function miniMd(src){
+  const inline = t => t.replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>').replace(/\*([^*]+)\*/g,'<i>$1</i>').replace(/`([^`]+)`/g,'<code>$1</code>');
+  let out = '', inCode = false, inList = false;
+  for (const ln of escHtml(src).split('\n')){
+    if (/^```/.test(ln)){ out += inCode ? '</pre>' : '<pre>'; inCode = !inCode; continue; }
+    if (inCode){ out += ln + '\n'; continue; }
+    const t = ln.trimEnd();
+    if (inList && !/^\s*[-*] /.test(t)){ out += '</ul>'; inList = false; }
+    if (/^### /.test(t)) out += '<h5>' + inline(t.slice(4)) + '</h5>';
+    else if (/^## /.test(t)) out += '<h4>' + inline(t.slice(3)) + '</h4>';
+    else if (/^# /.test(t)) out += '<h3>' + inline(t.slice(2)) + '</h3>';
+    else if (/^> ?/.test(t)) out += '<blockquote>' + inline(t.replace(/^> ?/,'')) + '</blockquote>';
+    else if (/^\s*[-*] /.test(t)){ if (!inList){ out += '<ul>'; inList = true; } out += '<li>' + inline(t.replace(/^\s*[-*] /,'')) + '</li>'; }
+    else if (/^-{3,}$/.test(t)) out += '<hr>';
+    else if (t !== '') out += '<p>' + inline(t) + '</p>';
+  }
+  if (inList) out += '</ul>'; if (inCode) out += '</pre>';
+  return out;
+}
+
+/* ── the scene — noir round-table back-room, state made visible ── */
+function initDeck3D(THREE, OrbitControls){
+  const host = document.getElementById('deckview');
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ antialias:true }); }
+  catch(e){ deckMode('2d'); return; }                                     // no WebGL → strips stay
+  const W = () => Math.max(1, host.clientWidth), H = () => Math.max(1, host.clientHeight);
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+  renderer.setSize(W(), H());
+  renderer.domElement.style.cssText = 'position:absolute;inset:0;';
+  host.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0a0d13);
+  scene.fog = new THREE.Fog(0x0a0d13, 7, 15);
+  const camera = new THREE.PerspectiveCamera(44, W() / H(), .1, 50);
+  camera.position.set(0, 3.1, 4.9);
+  const controls = new OrbitControls(camera, renderer.domElement);
+  Object.assign(controls, { enableDamping:true, dampingFactor:.12, enablePan:false,
+    minDistance:3, maxDistance:8.5, minPolarAngle:.5, maxPolarAngle:1.32,
+    minAzimuthAngle:-1.15, maxAzimuthAngle:1.15 });   // constrained: no under-floor, no behind-wall
+  controls.target.set(0, .8, 0);
+
+  const amb = new THREE.AmbientLight(0x2a3550, .9);
+  const key = new THREE.PointLight(0xffd9a0, 26, 14); key.position.set(0, 4.2, .4);
+  scene.add(amb, key);
+  const std = o => new THREE.MeshStandardMaterial(o);
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(4.5, 40), std({color:0x11151d, roughness:.95}));
+  floor.rotation.x = -Math.PI/2; scene.add(floor);
+  const table = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.28, .11, 36), std({color:0x33251a, roughness:.8}));
+  table.position.y = .92;
+  const ped = new THREE.Mesh(new THREE.CylinderGeometry(.13, .2, .9, 20), std({color:0x241a12, roughness:.85}));
+  ped.position.y = .45;
+  scene.add(table, ped);
+  // proposal doc on the table
+  const card = new THREE.Mesh(new THREE.PlaneGeometry(.7, .45), new THREE.MeshBasicMaterial({color:0xd8d2c4}));
+  card.rotation.x = -1.25; card.position.set(.15, 1.02, 0); card.visible = false; scene.add(card);
+  // verdict stamp — slams the card once, on transition
+  const stamp = new THREE.Group();
+  stamp.add(new THREE.Mesh(new THREE.CylinderGeometry(.16, .19, .12, 20), std({color:0x8c2f2f, roughness:.6})));
+  const sHand = new THREE.Mesh(new THREE.CylinderGeometry(.05, .05, .22, 12), std({color:0x241a12}));
+  sHand.position.y = .16; stamp.add(sHand);
+  stamp.position.set(.15, 1.7, 0); stamp.visible = false; scene.add(stamp);
+  // back wall — pegboard + neon sign get a mount
+  const wall = new THREE.Mesh(new THREE.PlaneGeometry(9, 3.6), std({color:0x0c0f16, roughness:1}));
+  wall.position.set(0, 1.8, -3.55); scene.add(wall);
+  // neon phase sign + wall-monitor ticker (boss/sys speech lands here, DVM-014)
+  const nCan = document.createElement('canvas'); nCan.width = 512; nCan.height = 150;
+  const nTex = new THREE.CanvasTexture(nCan);
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.6, .76), new THREE.MeshBasicMaterial({map:nTex, transparent:true}));
+  sign.position.set(-1.3, 2.35, -3.4); scene.add(sign);
+  function drawSign(txt, color, tick){
+    const c = nCan.getContext('2d'); c.clearRect(0, 0, 512, 150);
+    c.font = '800 50px Consolas,monospace'; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.shadowColor = color; c.shadowBlur = 22; c.fillStyle = color;
+    c.fillText(txt, 256, 52); c.shadowBlur = 7; c.fillText(txt, 256, 52);
+    if (tick){ c.shadowBlur = 0; c.font = '22px Consolas,monospace'; c.fillStyle = '#d2a679'; c.fillText(tick, 256, 122); }
+    nTex.needsUpdate = true;
+  }
+  let signKey = '';
+  function updateSign(){
+    const tick = DS.wallMsg ? (DS.wallMsg.kind === 'boss' ? 'BOSS: ' : '· ') +
+      DS.wallMsg.text.replace(/<[^>]*>/g, '').slice(0, 62) : '';
+    const k2 = DS.phase + '|' + DS.adj + '|' + tick;
+    if (k2 === signKey) return; signKey = k2;
+    drawSign((PHASE_NAMES[DS.phase] || '—').toUpperCase(), DS.adj ? '#8a5a2a' : '#39c5cf', tick);
+  }
+  /* ── the pegboard — the proposal's journey is physical (DVM-014 §4) ── */
+  const pbCan = document.createElement('canvas'); pbCan.width = 1024; pbCan.height = 240;
+  const pbTex = new THREE.CanvasTexture(pbCan);
+  const pboard = new THREE.Mesh(new THREE.PlaneGeometry(2.75, .65), new THREE.MeshBasicMaterial({map:pbTex, transparent:true}));
+  pboard.position.set(1.55, 1.98, -3.4); scene.add(pboard);
+  (function paintBoard(){
+    const c = pbCan.getContext('2d');
+    c.fillStyle = '#141a24'; c.fillRect(0, 0, 1024, 240);
+    c.strokeStyle = '#3a4356'; c.lineWidth = 6; c.strokeRect(4, 4, 1016, 232);
+    c.font = '700 25px Consolas,monospace'; c.textAlign = 'center'; c.fillStyle = '#8b949e';
+    SLOT_NAMES.forEach((n, i) => c.fillText(n, (i + .5) * (1024 / 7), 208));
+    c.fillStyle = '#3a4356';
+    SLOT_NAMES.forEach((n, i) => c.fillRect((i + .5) * (1024 / 7) - 2, 55, 4, 95));
+    pbTex.needsUpdate = true;
+  })();
+  const slotPos = i => new THREE.Vector3(1.55 - 1.375 + (i + .5) * (2.75 / 7), 1.98, -3.36);
+  let cardStage = -2, cardAnim = null;
+  const pins = [];
+  const goGlow = new THREE.PointLight(0x3fb950, 0, 1.9); goGlow.position.copy(slotPos(4)); goGlow.position.z += .35;
+  scene.add(goGlow);
+  const shelf = new THREE.Mesh(new THREE.BoxGeometry(1.5, .04, .3), std({color:0x241a12, roughness:.85}));
+  shelf.position.set(-1.9, 1.28, -3.42); scene.add(shelf);
+  const shelfCards = []; let shelfSig = '';
+  const tray = new THREE.Mesh(new THREE.BoxGeometry(.52, .04, .18), std({color:0x241a12, roughness:.85}));
+  tray.position.set(3.0, 1.58, -3.42); scene.add(tray);
+  const trayCards = []; let traySig = '';
+  function addPin(k){
+    const c = chairs[k]; if (!c) return;
+    const pin = new THREE.Mesh(new THREE.SphereGeometry(.035, 10, 8), new THREE.MeshBasicMaterial({color:c.hex}));
+    const i = pins.length, sl = slotPos(2);          // ballots pin up around the POLL slot
+    pin.position.set(sl.x + (i % 4) * .09 - .135, sl.y + .24 - Math.floor(i / 4) * .09, sl.z + .03);
+    pins.push(pin); scene.add(pin);
+  }
+  function moveCard(){
+    const st = propStage();
+    if (st === cardStage) return;
+    card.visible = st >= 0;
+    if (st < 0){ cardStage = st; return; }
+    const to = st >= 6
+      ? new THREE.Vector3(shelf.position.x - .55 + Math.min(shelfCards.length, 4) * .28, shelf.position.y + .1, shelf.position.z + .05)
+      : slotPos(st);                                            // CLOSED slides off the rail onto the shelf
+    cardAnim = { fx:card.position.x, fy:card.position.y, fz:card.position.z, tx:to.x, ty:to.y, tz:to.z, t:0 };
+    cardStage = st;
+  }
+  function rebuildShelf(closed){
+    const sig = closed.map(c => c.id).join(',');
+    if (sig === shelfSig) return; shelfSig = sig;
+    shelfCards.forEach(m => scene.remove(m)); shelfCards.length = 0;
+    closed.slice(-5).forEach((c, i) => {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(.16, .1), new THREE.MeshBasicMaterial({color:0xb8b0a0}));
+      m.position.set(shelf.position.x - .55 + i * .28, shelf.position.y + .07, shelf.position.z + .03);
+      m.rotation.x = -.45; scene.add(m); shelfCards.push(m);
+    });
+  }
+  function rebuildTray(staged){
+    const sig = staged.map(s => s.id).join(',');
+    if (sig === traySig) return; traySig = sig;
+    trayCards.forEach(m => scene.remove(m)); trayCards.length = 0;
+    staged.slice(0, 4).forEach((s, i) => {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(.13, .09), new THREE.MeshBasicMaterial({color:0xd8d2c4}));
+      m.position.set(tray.position.x - .16 + i * .11, tray.position.y + .055, tray.position.z + .03);
+      m.rotation.x = -.5; m.rotation.z = .1 * (i - 1.5); scene.add(m); trayCards.push(m);
+    });
+  }
+  /* chair bubbles — a seat's latest word floats over its chair ~45s (DVM-014 §3) */
+  const bubbles = {};
+  function drawBubble(k){
+    const lm = DS.lastMsg[k], ch = chairs[k]; if (!lm || !ch) return;
+    let b = bubbles[k];
+    if (!b){
+      const can = document.createElement('canvas'); can.width = 340; can.height = 150;
+      const tex = new THREE.CanvasTexture(can);
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:tex, transparent:true, opacity:0}));
+      sp.scale.set(1.55, .68, 1); sp.position.set(0, 1.98, 0);
+      ch.g.add(sp);
+      b = bubbles[k] = { can, tex, sp, op:0, t0:0, until:0 };
+    }
+    const c = b.can.getContext('2d'); c.clearRect(0, 0, 340, 150);
+    const kindc = { objection:'#f0883e', veto:'#d29922', support:'#3fb950', verdict:'#d29922' }[lm.kind] || '#39c5cf';
+    c.fillStyle = 'rgba(13,17,23,.93)'; c.strokeStyle = SEAT_CSS[k]; c.lineWidth = 3;
+    c.beginPath(); c.roundRect(6, 4, 328, 116, 14); c.fill(); c.stroke();
+    c.fillStyle = kindc; c.fillRect(6, 4, 6, 116);
+    c.fillStyle = 'rgba(13,17,23,.93)';
+    c.beginPath(); c.moveTo(150, 118); c.lineTo(170, 146); c.lineTo(190, 118); c.closePath(); c.fill();
+    c.fillStyle = '#e6edf3'; c.font = '24px Consolas,monospace'; c.textAlign = 'left';
+    const words = lm.text.replace(/<[^>]*>/g, '').split(/\s+/), lines = []; let ln = '';
+    for (const w of words){ if ((ln + ' ' + w).trim().length > 30){ lines.push(ln.trim()); ln = w; } else ln += ' ' + w; }
+    lines.push(ln.trim());
+    lines.slice(0, 4).forEach((l, i) => c.fillText(l + (i === 3 && lines.length > 4 ? '…' : ''), 22, 40 + i * 26));
+    b.tex.needsUpdate = true;
+    b.key = lm.text + '|' + lm.kind;
+    b.t0 = performance.now() / 1000; b.until = b.t0 + 45; b.op = 0;
+    setTimeout(mark, 45500);                       // wake once for the fade-out ramp
+    mark();
+  }
+  // seven chairs — roster is SEATS{}/seat_rules keys, NOT seats[] (gate finding)
+  const chairs = {}, hitList = [];
+  const skeys = Object.keys(SEATS);
+  skeys.forEach((k, i) => {
+    const a = (i / skeys.length) * Math.PI * 2 - Math.PI/2;
+    const g = new THREE.Group(); g.position.set(Math.sin(a) * 1.95, 0, Math.cos(a) * 1.95); g.lookAt(0, 0, 0);
+    const hex = SEAT_HEX[k], seatM = std({color:0x1c2230, roughness:.8});
+    const base = new THREE.Mesh(new THREE.BoxGeometry(.55, .09, .55), seatM); base.position.y = .42;
+    const back = new THREE.Mesh(new THREE.BoxGeometry(.55, .62, .08), seatM); back.position.set(0, .78, -.3);
+    const lampM = new THREE.MeshBasicMaterial({color:hex});
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(.07, 14, 12), lampM); lamp.position.set(0, 1.18, -.3);
+    const lpt = new THREE.PointLight(hex, 0, 2.4); lpt.position.set(0, 1.3, -.3);
+    const ring = new THREE.Mesh(new THREE.RingGeometry(.34, .52, 32),
+      new THREE.MeshBasicMaterial({color:0xd29922, transparent:true, opacity:0, side:THREE.DoubleSide}));
+    ring.rotation.x = -Math.PI/2; ring.position.y = .02;
+    const pc = document.createElement('canvas'); pc.width = 256; pc.height = 56;
+    const pctx = pc.getContext('2d'); pctx.font = '700 28px Consolas,monospace'; pctx.textAlign = 'center';
+    pctx.fillStyle = '#e6edf3'; pctx.fillText(SEATS[k].name, 128, 28);
+    pctx.fillStyle = SEAT_CSS[k]; pctx.fillRect(58, 40, 140, 4);
+    const plate = new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(pc), transparent:true, opacity:.92}));
+    plate.scale.set(1.05, .23, 1); plate.position.set(0, 1.52, 0);
+    const hit = new THREE.Mesh(new THREE.BoxGeometry(.8, 1.5, .8), new THREE.MeshBasicMaterial({visible:false}));
+    hit.position.y = .75; hit.userData.key = k;
+    g.add(base, back, lamp, lpt, ring, plate, hit); scene.add(g);
+    chairs[k] = { g, lamp, lampM, lpt, ring, plate, base, back, hex };
+    hitList.push(hit);
+  });
+
+  /* render-on-dirty scheduler: frames exist only while something changed —
+     interaction, animation, or a bus/presence diff; idle deck ≈ zero GPU. */
+  let queued = false, interacting = false, settle = 0, breath = 0, stampT = -1, pulseT = -1, pulseK = null;
+  let lastSlam = 'INIT';
+  function mark(){ if (!queued){ queued = true; requestAnimationFrame(frame); } }
+  function syncScene(){
+    for (const k of skeys){
+      const st = lampState(k), c = chairs[k], ghost = st === 'vacant';
+      [c.base, c.back].forEach(m => { m.material.transparent = ghost; m.material.opacity = ghost ? .25 : 1; });
+      c.plate.material.opacity = ghost ? .3 : .92;
+      c.lamp.visible = !ghost;
+      c.lampM.color.set(st === 'ember' ? 0xb05900 : st === 'lit' ? c.hex : 0x333842);
+      const f = lampFrac(k);                       // the lamp is a fuse — burns down toward the deadline
+      c.lpt.intensity = st === 'lit' ? .3 + 1.3 * f : st === 'ember' ? .5 : 0;
+      const hasFloor = DS.turn === k;
+      c.ring.material.opacity = hasFloor ? .85 : 0;
+      c.plate.position.y = hasFloor ? 1.62 : 1.52;
+    }
+    amb.intensity = DS.adj ? .28 : .9;
+    key.intensity = DS.adj ? 7 : 26;
+    moveCard();                                    // pegboard reads real state, slots named by propStage()
+    const want = DS.vetoSeats || [];               // ballot pins derive from state — hydration and live share one path
+    while (pins.length > want.length) scene.remove(pins.pop());
+    while (pins.length < want.length) addPin(want[pins.length]);
+    for (const k in DS.lastMsg){                   // bubbles likewise — draw only content the scene lacks
+      const lm = DS.lastMsg[k], b = bubbles[k];
+      if (!b || b.key !== lm.text + '|' + lm.kind) drawBubble(k);
+    }
+    updateSign();
+    rebuildShelf((LASTBOARD && LASTBOARD.closed) || []);
+    rebuildTray((LASTBOARD && LASTBOARD.staged) || []);
+    goGlow.intensity = cardStage === 4 ? 2.4 : 0;
+    if (DS.vts && DS.vts !== lastSlam){            // verdict transition → one stamp-slam, at the VERDICT slot
+      lastSlam = DS.vts; stampT = 0; stamp.visible = true;
+      stamp.position.set(card.position.x, card.position.y + .62, card.position.z + .02);
+    }
+  }
+  function frame(){
+    queued = false;
+    if (stampT >= 0){                              // slam: ease-in drop onto the card at its slot
+      stampT++;
+      const t = Math.min(1, stampT / 9);
+      stamp.position.y = (card.position.y + .62) - .58 * t * t;
+      if (t >= 1) stampT = -1;
+    }
+    if (pulseT >= 0){                              // veto/objection: brief speaker-chair pulse
+      pulseT++;
+      const d = Math.max(0, 1 - pulseT / 24), c = chairs[pulseK];
+      if (c){ c.lpt.intensity = (lampState(pulseK) === 'lit' ? .3 + 1.3 * lampFrac(pulseK) : 0) + 3 * d; c.lamp.scale.setScalar(1 + .5 * d); }
+      if (pulseT >= 24){ pulseT = -1; if (c) c.lamp.scale.setScalar(1); }
+    }
+    if (cardAnim){                                 // the doc travels the pegboard — ease + a little lift
+      cardAnim.t += 1 / 22;
+      const t = Math.min(1, cardAnim.t), e = t * t * (3 - 2 * t);
+      card.position.set(
+        cardAnim.fx + (cardAnim.tx - cardAnim.fx) * e,
+        cardAnim.fy + (cardAnim.ty - cardAnim.fy) * e + Math.sin(t * Math.PI) * .3,
+        cardAnim.fz + (cardAnim.tz - cardAnim.fz) * e);
+      card.rotation.x *= (1 - e);
+      if (t >= 1){ cardAnim = null; card.rotation.x = 0; }
+    }
+    let bubAct = false;                            // bubble ramps only while opacity is moving
+    const nowS = performance.now() / 1000;
+    for (const k in bubbles){
+      const b = bubbles[k];
+      const o = nowS > b.until ? Math.max(0, 1 - (nowS - b.until) / .9) : Math.min(1, (nowS - b.t0) / .45);
+      if (o !== b.op){ b.op = o; b.sp.material.opacity = o; }
+      if (b.op > 0 && (nowS < b.t0 + .45 || nowS > b.until)) bubAct = true;
+    }
+    if (settle > 0) settle--;
+    controls.update();
+    breath += .3;
+    for (const k of skeys){ const c = chairs[k];
+      if (c.lamp.visible && lampState(k) === 'lit' && pulseK !== k) c.lamp.scale.setScalar(1 + .1 * Math.sin(breath)); }
+    renderer.render(scene, camera);
+    if (interacting || settle > 0 || stampT >= 0 || pulseT >= 0 || cardAnim || bubAct) mark();   // alive only while moving
+  }
+  controls.addEventListener('change', mark);
+  controls.addEventListener('start', () => { interacting = true; mark(); });
+  controls.addEventListener('end',   () => { interacting = false; settle = 16; mark(); });
+
+  /* hover shows the seat, click writes @SEAT — same affordance as the rail cards */
+  const ray = new THREE.Raycaster(), ptr = new THREE.Vector2(), hoverEl = document.getElementById('deckhover');
+  const el = renderer.domElement;
+  let hoverK = null, downXY = null;
+  el.addEventListener('pointermove', e => {
+    const r = el.getBoundingClientRect();
+    ptr.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    ray.setFromCamera(ptr, camera);
+    const hits = ray.intersectObjects(hitList);
+    const k = hits.length ? hits[0].object.userData.key : null;
+    if (k !== hoverK){ hoverK = k; el.style.cursor = k ? 'pointer' : ''; if (hoverEl) hoverEl.textContent = k ? '@' + k : ''; mark(); }
+  });
+  el.addEventListener('pointerdown', e => { downXY = [e.clientX, e.clientY]; });
+  el.addEventListener('pointerup', e => {
+    if (downXY && Math.hypot(e.clientX - downXY[0], e.clientY - downXY[1]) < 6){
+      if (hoverK) openInspector(hoverK);                                    // chair → inspector (contract + @SEAT)
+      else document.getElementById('inspector').classList.remove('open');   // click elsewhere dismisses
+    }
+    downXY = null;
+  });
+  /* context loss over an hours-open page must never freeze a lie — drop to
+     honest 2D: strips' data restored to the HUD, chip flips 3D→2D */
+  el.addEventListener('webglcontextlost', e => {
+    e.preventDefault();
+    controls.dispose(); renderer.dispose(); el.remove();
+    DECK.note = DECK.presence = DECK.speech = function(){ render2D(); };   // scene impls gone — 2D keeps following state
+    DECK.pulse = DECK.pin = DECK.dirty = function(){};
+    deckMode('2d');
+  });
+  new ResizeObserver(() => {
+    if (host.clientHeight < 10) return;                                  // collapsed — nothing to size
+    renderer.setSize(W(), H()); camera.aspect = W() / H(); camera.updateProjectionMatrix(); mark();
+  }).observe(host);
+
+  DECK.note     = () => { syncScene(); mark(); };
+  DECK.presence = () => { syncScene(); mark(); };
+  DECK.pulse    = k => { if (chairs[k]){ pulseK = k; pulseT = 0; mark(); } };
+  DECK.pin      = k => { if (!chairs[k]) return; (DS.vetoSeats = DS.vetoSeats || []).push(k); addPin(k); mark(); };
+  DECK.speech   = k => { if (k === 'WALL'){ updateSign(); mark(); } else drawBubble(k); };
+  DECK.dirty    = mark;
+  setInterval(() => { if (DECK.mode === '3d') mark(); }, 500);             // 2 Hz idle tick — lamp breathing only
+  syncScene();                                                            // hydration rides the same diff path
+  renderer.render(scene, camera);                                        // first real render…
+  deckMode('3d');                                                        // …now the scene claims the strip zone
+}
+
+render2D();   // viewport slot is never empty while the module loads
+document.body.classList.add('dk-navhide');   // drawer starts folded — the scene is the face
+
+/* ── boot ── */
+renderSeats();
+setSource('idle');
+poll(); pollPresence(); startPush();          // one immediate load each; push or 2s-poll carries it after
+/* DVM-013: scene init runs async after the strips render — any failure keeps them */
+Promise.all([import('three'), import('three/addons/controls/OrbitControls.js')])
+  .then(([THREE, m]) => { try { initDeck3D(THREE, m.OrbitControls); } catch(e){ console.warn('deck3d init failed:', e); deckMode('2d'); } })
+  .catch(() => deckMode('2d'));               // CDN unreachable / no network → strips stay, chip reads 2D
+if (new URLSearchParams(location.search).has('demo')) runDemo();
+
+window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, LEGACY_SEAT };
+</script>
+</body>
+</html>

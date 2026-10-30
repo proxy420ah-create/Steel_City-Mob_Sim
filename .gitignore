@@ -68,3 +68,12 @@ desktop.ini
 
 # Local working export of the production tenement (hand-edited, not tracked)
 /VoxelAssetStudio/tenement_block_0.json
+
+# ── Commission machine — ephemeral runtime state ────────────────
+# presence_*.js are watcher-stamped heartbeats (regenerate every arm)
+# server logs + stray shell artifacts — not source
+docs/presence_*.js
+docs/presence_*.js.tmp
+docs/server*.log
+docs/server_log.txt
+docs/nul

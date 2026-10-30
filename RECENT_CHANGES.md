@@ -1,10 +1,77 @@
 
+## October 30, 2026 — DVM-014: Room Takeover (the page becomes the scene) — BUILT
+
+### Changed
+- **Dashboard (DELIBERATION_MACHINE.html)**: the rail retires — the deck becomes a full-height column beside the transcript (`.layout` = `1fr transcript | ~34% deck`). SEATS cards + LEDGER tab removed; every datum re-homed per the §2 home-map.
+  - **Chair bubbles**: per-seat `THREE.Sprite`+`CanvasTexture` bubble over each chair — latest bus message, kind-colored accent, ~34ch×4 lines, fades in, ~45s hold, fades out. BOSS/sys land on the wall monitor (neon sign gains a ticker line).
+  - **Lamp-as-fuse**: `lpt.intensity` maps `remaining/ttl` (1.6→0.3) — who-goes-dark stays ambient; rounded fraction rides the presence signature so render-on-dirty holds.
+  - **Pegboard**: framed wall rail `TABLED→DELIB→POLL→VERDICT→GO→BUILT→CLOSED`; the doc card travels slots (ease+lift through `mark()`); ballot pins drop per `veto` msg (seat-hex); stamp-slam at VERDICT slot; green glow on GO; closed shelf stacks last-5 + `closed N` HUD chip; staged tray holds `board.staged[]` as blank cards.
+  - **`propStage()`** — every slot named: TABLED/DELIB/POLL/`phase`, VERDICT/`verdict.id`, GO/`status:'go'` (new server stamp) or named fallback (latest `@BUTTON`-addressed `/\bGO\b/i` boss msg post-verdict), BUILT/`status:'built'` (contract stamp) or fallback (`/SHIP/i` BUTTON msg), CLOSED/`closed[]`.
+  - **Chair inspector** (DOM popover, 3D+2D identical): seat name, live ear countdown/dead/vacant/recess, duty+rules readable vacant, `[@ SEAT ▸]` writes the address. Click-away/Esc/✕ dismisses.
+  - **Ledger folds into FILES-nav accordions**: STAGED / FILES / LEDGER (rules, agenda, contracts, closed) — one rail's worth of data, zero lost.
+  - **2D column view**: slot-marker line (live slot lit), per-seat rows (lamp dot, name, ear countdown, last-word line), inspector on click — richer than the rail was.
+  - Rail-era code guarded/retired: `renderSeats`/`seatState`/`renderBoard`/`renderClosed`/`#seats` listener no-op or guard on absent elements; nav drawer starts folded.
+- **Server**: `/boss` stamps `proposal.status='go'` on `@BUTTON`-addressed `/\bGO\b/i` post-verdict messages (~4 lines — the draft's one named server change).
+- **Feed (one atomic write)**: `seat_rules.BUTTON.rules` gains the binding amendment verbatim — *your build-report write stamps `proposal.status='built'` in the same atomic write* — and this write executes it for the first time (`status:'built'`); `board.files[]` registers the DVM-014 draft (18 rows); `BUTTON-19` report; `turn` → CHAIR. Header preserved.
+- Verified: `py_compile` on server; bracket-balance scan clean; guarded rail references audited (all guarded or unreachable). Scene behavior verified by construction — boss's eyes do the visual pass.
+- Verdict unanimous four-ballot SHIP (CHAIR-106), GO CODE boss `@BUTTON GO DVM 014`. Report → THE CHAIR. DVM-012's remaining surface absorbed (staged queue + preview live in nav/reader) per §7 — 012's GO is satisfied-by-014.
+
+### Files Modified
+- `docs/DELIBERATION_MACHINE.html` — takeover: layout, deck column, bubbles, pegboard, inspector, fuse, accordions, 2D column (~500 lines touched/added)
+- `docs/commission_server.py` — `status:'go'` stamp on /boss
+- `docs/deliberation_feed.js` — contract amendment + files row + 'built' stamp + report
+
+## October 30, 2026 — DVM-013: Ops Deck (strips' successor — scene + navigator + HUD) — SHIPPED
+
+### Changed
+- **Dashboard (DELIBERATION_MACHINE.html)**: the hero strips' successor — a compact band (~160px, **collapsible to its header strip** per the CHAIR's binding amendment; overlays may exceed, the deck may not).
+  - **Scene**: noir round-table back-room in three.js (`three@0.160.0` jsdelivr importmap, same pattern as COMBAT_BEAT_MACHINE). Seven chairs from `SEATS{}`/`seat_rules` keys — **not** `seats[]` (gate finding: 5 occupants vs 7 chairs). Lamps = presence (lit/dark/ember under recess), amber underglow + raised nameplate = `turn`, neon sign = phase, doc on table = live proposal, stamp-slam on verdict transition, speaker-chair pulse on veto/objection, `adjourned` dims the room. Click a chair writes `@SEAT` into the boss box (muscle memory preserved); orbit damped, polar-clamped, no pan.
+  - **Render-on-dirty**: no unbounded rAF — frames exist only during interaction/animation/state diffs plus a 2 Hz lamp-breath tick. Idle GPU ≈ zero.
+  - **Honest degradation**: strips render as today until the scene's first real render claims their zone (`body.deck3d`); no WebGL / CDN-fail / `webglcontextlost` → strips stay + `2D` mode chip + a DOM lamp row keeps the viewport slot truthful. Mode chip sits beside the push/poll chip.
+  - **HUD**: every former strip field has a named home — phase chip, floor chip, srcdot/srclbl, push/poll, mode, clock, msgcount (deck twins written at each existing update site).
+  - **Navigator**: `board.files[]` manifest + `board.staged[]` queue, collapsible right panel. Detail rows open under `file://`; path rows `fetch()` over HTTP; transport-blocked rows marked not hidden. Reader = in-deck overlay with the DVM-012 mini-md renderer.
+- **Feed (one atomic write)**: `board.files[]` seeded 17 rows (11 drafts, 4 inductions, protocol, feed — real titles read from file headers); `board.staged[]` born with DVM-011 resident (detail text on the bus, works under every transport); REGISTERS convention line added to the header contract; `proposal.status` → `shipped`; `BUTTON-18` report; `turn` → CHAIR. Header preserved (948 chars).
+- Verified: bracket-balance scan clean; bus read-back confirms registers/turn/status. Browser-side scene check is the boss's eyes — fallbacks are the safe path by construction.
+- Verdict unanimous four-ballot SHIP (CHAIR-101), GO CODE boss `@BUTTON GO for 013`. Report → THE CHAIR.
+
+### Files Modified
+- `docs/DELIBERATION_MACHINE.html` — deck CSS/HTML/JS (~350 lines), importmap, HUD twins at update sites, boot shim
+- `docs/deliberation_feed.js` — board.files[] + board.staged[] seeds, REGISTERS header line, ship stamp + report
+
+## Stasset pipeline hardening + editor scale fix + barber shop v2 (Oct 30)
+- **Editor menu `Steel City → Voxel Assets → Convert WIP → Stassets`** (`Assets/Editor/StassetBuildMenu.cs`, new): scans `JSON Models In Progress/`, converts `assetType=="building"` JSONs newer than their `.stasset` (or missing) via `Tools/json_to_stasset.py`, reports converted/skipped/failed. Stale-only + force-all variants. **Kills the manual CLI step** — the converter's output arg is positional (no `-o` flag; it wrote a file literally named `-o`, which is why both barbers rendered nowhere).
+- **`SectorBaker` loud missing-stasset errors**: `vw == 0` now `Debug.LogError`s block id/name, buildings[] index, and stasset path — at the single-building site and in the full-block detection loop (covers every entry in multi-building blocks). Was a silent `continue` → invisible building, zero diagnostics.
+- **Editor scale truth restored**: `ASSET_TYPE_PRESETS.building.voxelSize` 0.1 → **0.05** in `voxel_editor.html` — the studio showed characters at ×0.10 vs buildings; Unity renders buildings at 0.05, so the true ratio is ×0.20 (Vinny = 12.4 building voxels). Also fixed ref-walk speed (same stale constant fed `itemVs`). Stale `voxelSize:0.1` headers corrected → 0.05 in 8 WIP building JSONs; the field is metadata-only (SectorBaker ignores it).
+- **Tenement WIP recovered**: `tenement_block_0.json` was a stale Oct-4 snapshot (765k vox); the shipped `.stasset` (Oct-12, 783k vox — fire-escape ironwork pass) reverse-converted back to WIP as source of truth.
+- **`barber_shop` finalized + placed**: single-story 64×36×64 @ 0.05 — off-center **12v×16v double-door** (tenement's own entry convention; two `door_leaf` groups + hinges for the future leaf system), mullioned storefront glass, gold BARBER letters, R/W/B spiral pole + striped awning, raised parapet signboard, rear service door + yard prop slots. Paints its own lot pad (slot contract). In layout: `block_42` slot 0 + `block_41` slot 2 (south-street frontage, adjacent across the block seam).
+- **Known issues**: `BUILDING_REFERENCE_SCALE_STALE.md`, `STASSET_MISSING_SILENT_SKIP.md`. **Gotchas**: new #14 — pipeline semantics (only `stasset` field read; `slot`/`type`/`illegal` dead; ≥128v dims eat the block; declared voxelSize ignored; assets paint their own pads).
+
+## COMBAT_PARAMETER_MATRIX.html — interactive relationship graph (Oct 29)
+- **Tab D — LAYER 2, THE ROLL (MENACE-AWARE)**: the user's original engagement-initiation chart rebuilt as a true overlay — original symmetric geometry preserved (hexagonal roll up top, ▲ SPOTTED feed, mirrored half-moon cover pockets converging on RELOAD, shallow→deep recon spine, REACQUIRED loop) with the incoming-fire rail flanking it symmetrically (menace chain left, pressure outcomes right). Flank check cuts straight to the roll + cancels the wheel; face-5 STAND flagged removable; idle latch enters LIVE; MINDIST mirrors the dice-legend box. "The contract": menace moves WHEN/WHETHER, dice own WHICH.
+- New `docs/systems/COMBAT_PARAMETER_MATRIX.html` in the house visual style (same as `COMBAT_BEAT_MACHINE.html`): **three views** — the full MATRIX map (dials → channels → blackboard → engines → body → flavor lanes with labeled edges), the MENACE/IFF chain zoomed (ShotFired → self/team eval → danger/latch/interrupt → outcomes), and the closed FIREFIGHT LOOP (decide → move → expose → aim → fire → report → pressure → decide).
+- Click-any-node detail rail with reads/writes chips; red edges = interrupts (flank reload-cancel, suppression gate); dashed `flavor` nodes flagged "no combat input" per the impacts-are-flavor rule.
+- Stimulus→response + coupling-index tables; indexed in `DOCUMENTATION_INDEX.md`. Edges draw lazily on first chart show (offsetWidth needs layout).
+
 ## Movement / Actions Speed tab + universal rates (Oct 29)
 - **Base walk speed 0.85** — `CombatController.moveSpeed` static default 2.4 → 0.85 m/s (user's foundation pick; tune live, bake when right).
 - **Universalized the rate fields** — all now `static` (one value, every character, zero drift): `turnSpeedDeg`, `seekDuckEase`, `riseDuckEase`, `fireInterval`, `roundLoadInterval` (reload), `CharacterAnimation.transitionDuration`.
 - **New left-panel tab `Movement`** — "MOVEMENT / ACTIONS SPEED": `locomotion` (walk speed, turn), `pose & posture rates` (pose blend, both duck eases), `action speeds` (fire cadence, reload s/round). Tab rows rebalanced to 3 rows; Movement sits next to Combat. Stays interactive under hud LOCK.
 - Combat fold drops `move speed`/`fire cadence`/`round load` (moved to the tab); `min threat m`, `probe interval`, `beats dwell` stay (rules, not rates).
 - Housekeeping: `compile.rsp` refreshed — 7 sources were missing (stale since the aim-rig/reload work); headless csc check is green again.
+
+## Flank interrupt — covered-arc bearing eval (Oct 29)
+- `flankAngleDeg` (60°): shot bearing vs believed-threat bearing — outside the arc = flanked. Catches new shooters AND a repositioned threat (muzzle is truth, ThreatPos is belief).
+- **Covered arc**: reload continues under fire. **Flank mid-reload**: wheel drops (seated rounds keep), armed roll fires NOW, `diceFlankFlee` removes STAND from that roll's table — guaranteed displacement. Flanked shots add +0.17 danger.
+- `flank angle °` slider in the `c.menace` fold.
+
+## Incoming-fire menace + IFF teamIds + always-on bubbles (Oct 29)
+- **Broadcast-all / evaluate-individually** (same law as `SfxWaves.Heard`): every `CombatController` subscribes `ProjectileSystem.ShotFired` — the trigger-pull report carries shooter identity, aim intent and bullet path; **impacts stay flavor-only** (audio/damage, no combat input per user).
+- **Menace eval**: aimed-at-me (`intendedTarget` near chest) OR shot line within `menaceRadius` → `incomingDanger` += `menacePerShot`, decaying over `menaceDecaySec`. Non-ally fired-on while Idle → `EnterCombat(shooter)` (hostile-by-act latch); in-combat → seam re-eval / accelerated move roll. Allied fire suppresses (geometry only) but never latches.
+- **Suppression**: `incomingDanger ≥ menaceSuppressAt` converts `Rise→Duck` inside `EnterBeat` — one gate covers authored/arbiter/dice paths; head stays down under fire.
+- **Tier 2**: shot menacing a same-team fighter within `menaceTeamAlertM` → half danger + `teamAlertAt` + re-eval (alerted, not suppressed). `CombatController.All` registry backs the teammate scan.
+- **IFF seed**: `VoxelCharacter.teamId` (byte, 0 = solo/neutral, matching nonzero = allies).
+- **Bubbles persist indefinitely** — `DrawBubble` lost the idle/dice gate; new line 3 shows the `mnz` block-bar (grey→amber→red past suppress threshold), `team {id}`, and a `!` flash on recent team alerts.
+- **HUD**: new `c.menace` fold on the Combat tab — `team id` (this fighter) + all six menace thresholds as live sliders.
 
 ## Tuned defaults baked (Oct 29)
 - `roundLoadInterval` 1.5 → **0.75 s/round** (reload wheel pace — user-tuned on the Movement tab).
@@ -20,6 +87,18 @@
 
 ## Min-distance threat re-roll (`minThreatDistM`, default 5 m)
 - Per the user's simplified spec: two threats within 5 m of each other roll movement until they separate. In `TickDice` (after the leg/recon busy paths): while actual feet-to-feet distance < min, the fighter's next roll is accelerated to NOW (`diceNextRollAt = SimClock.Now`, or `ArmRoll("min-dist")` if unarmed) — the boundary face roll IS the randomized move, so both fighters independently keep re-rolling moves until separated. No cap (spec: until they separate); mid-leg/recon/reload paths still finish first. `DICE` trace `MINDIST` on enter/separate transitions only. Manual mode: accelerates the cooldown identically (click still consumes). `minThreatDistM` serialized (inspector-tunable); `minDistInside` reset on combat exit/reset paths. Headless compile clean — **playtest**: force a point-blank standoff; expect continuous re-rolls until separation, `MINDIST` lines in the trace.
+
+## Alley lane v3 — lane is pure terrain; asset is an invisible marker
+- **Why**: flush means +0.1 — every city sidewalk is a *material band* at terrain grade, and a building asset's base sits at +0.1 so it can never paint a grade-level surface. Even the 1v flank stayed proud.
+- **Terrain owns the whole cross-section**: `FillGroundTile` laneMask now paints the interior middle-third band as `SIDEWALK 16v | ASPHALT 32v | SIDEWALK 16v` at grade, continuous with the mouth curb cuts — identical in kind to every sidewalk in the city.
+- **`alley_lane` → air marker** (0 voxels): holds the middle slot positions in the 9-entry grid + carries `alley_entry`/`alley_mid`/`prop_slot` anchors at road grade for the future waypoint/prop systems.
+- Profile now: street +0.1 → cut +0.1 → lane walk/road/walk all +0.1 → lots +0.2 — one step up onto the block interior, alley fully flush.
+- Caveat: `alley_lane` requires the block's `laneOpenings` flag — without it the lane zone shows interior stone.
+
+## Alley lane v2 — grade fix: lane road is now terrain, flanks are the asset
+- **Problem**: `alley_lane` slabbed its road at building-base (+0.1) → surface +0.2 = *lot level*, so each curb cut stepped 2v UP into the lane and raised walks hit +0.3. The whole lane read elevated vs the streets.
+- **Root cause**: building voxel bases sit on the terrain slab (+0.1) — an asset can never reach street grade. A block-interior road must come from the terrain itself.
+- **Fix**: `FillGroundTile` now also paints the **interior lane strip** (center 32v band along the lane axis) `MAT_ASPHALT` for `laneMask` blocks — continuous with the mouth curb cuts and streets at +0.1. `alley_lane` regenerated as flank overlay: two 2v SIDEWALK bands (surface +0.2, flush with the lot platform), air over the road, `alley_entry`/`alley_mid` bare anchors at grade + `prop_slot` paints. Profile: street +0.1 → alley road +0.1 → lane sidewalk +0.2 → lots +0.2 — a sunken service lane, flush at the mouths.
 
 ## Alley block v3 — restructured to composable 9-slot composition (pipeline parity)
 - **Why**: the full-block `alley_block.stasset` monolith bypassed the building pipeline — its six pads were inside a slot:0 asset, so `SectorBaker`'s `IsEmptyLand` path (pooled `ProceduralDebrisScatterer` variants, F6 debug toggle, shared buffer regions) could never apply, and no slot existed to drop a future building into. Reported as debris that "doesn't react to F6".
@@ -2672,3 +2751,138 @@ Available tiers: `city_template_25`, `city_template_100`, `city_template_500`, `
 - `Assets/Scripts/UI/GameUIController.cs` — shadow/lighting debug UI toggles and sliders
 - `VoxelAssetStudio/procedural_mob_buildings.py` — rubble decorations in generate_empty_land
 - `VoxelAssetStudio/generate_city_assets.py` — path references updated for new repo structure
+
+### Barber shop — finalized small-lot building (WIP, studio review)
+- New generator `Tools/gen_barber_shop.py` -> `VoxelAssetStudio/JSON Models In Progress/barber_shop.json` (28,429 vox, 64x52x64 @ 0.05m).
+- Canonical barber_0 concept re-authored at tenement scale: 16v door (0.8m = 1.29x NPC, MODEL_DESIGN_STANDARD), ~16v story pitch, 2v metal cornices, stone watertable, glass storefront band.
+- Off-center side entry (bay x19-24) + gold-leaf BARBER letters on display glass, striped awning, R/W/B spiral pole w/ chrome cap, blade sign, brick parapet + tar roof + chimney + rooftop water tank, rear service door + 12v yard.
+- Slot contract honored: asset paints own 2v lot pad (cobble + concrete apron). Anchors: front_door / rear_door / barber_pole / prop_slot_0-1 (centroids + itemParts).
+- NOT placed in city_layout yet — pending studio review per pipeline.
+
+### Fix: studio reference preview was half-scale vs Unity
+- Root cause: `voxel_editor.html` `getCharScaleRatio()` + ref walk-speed used the hardcoded building preset `voxelSize: 0.1`; Unity `SectorBaker` forces every building onto the 0.05 terrain grid (declared header ignored). Preview ratio 0.10 vs real 0.20 -> characters showed half their in-game relative size.
+- Set `ASSET_TYPE_PRESETS.building.voxelSize` to 0.05 (documented as Unity render truth, not the stale 0.1 authoring header). Fixes char scale ratio AND ref walk speed in one place.
+- Corrected stale declared `voxelSize: 0.1 -> 0.05` in 8 WIP building JSONs (tenement_block_0, tenement_glass, empty_land, road_tile_0, mainstreet_ew/ns, river_straight, shooting_range). Zero runtime impact — Unity never reads the field.
+- WIP tenement_block_0.json resynced: was a stale Oct-4 snapshot (765k vox); replaced with stasset->JSON conversion of the shipped Oct-12 asset (783k vox). StreamingAssets kept stasset-only.
+- NOTE: `vehicle_civilian_car_0.json` is mistyped assetType=building/0.1 — it is a legacy vehicle; left as-is.
+
+### Barber shop placed in-game — first small-lot buildings
+- `barber_shop.stasset` converted -> voxel_buildings (300 KB, SKEL tail: 7 anchors + door_leaf_l/r painted groups); `building_types.barber_shop = [64,36,64]` registered.
+- Placement test: `block_42` buildings[0] (south-west alley lot — front faces S street, yard backs onto lane) + `block_41` buildings[2] (south-east lot — adjacent across the W/E block seam = streetwall consistency test).
+- Sub-grid verified row-major (r=i/3, c=i%3); 64v asset -> scale 1.0, fills the cell.
+- Front faces low-z = south edge; BOTH slots are south-row so storefronts face the r4/r5 street. NOTE: north-row alley lots would need a z-mirrored variant to face N — deferred (alley-facing shops plausible alternative).
+
+## October 30, 2026 — DVM-002: Ear Timer (presence side-channel) — SHIPPED
+
+### Changed
+- **Presence side-channel**: `commission_watch.py` now sole-writes `presence_<SEAT>.js` at arm time (`armed_at`, `ttl_ms`) and refreshes `pulse_at` every ~2s poll tick. Temp + `os.replace` — readers never see a torn file. ~10 lines.
+- **Dashboard ear chips**: `DELIBERATION_MACHINE.html` polls `presence_<AGENT>.js` per occupant via `<script>`-tag injection (same mechanism as the feed poll — fetch is dead on `file://`). Each occupied seat renders a ticking `ear m:ss` chip; `ear dead` on missing file, stale pulse (>6s), or expired countdown.
+- **Seat state is pulse-derived**: lit/away/dead now derives solely from presence-file pulse age — the manual `members.<seat>.status` flag is retired (kills the stale-lit bug class from devin-9).
+- Ratified contract: `docs/drafts/DVM-002_ear_timer.md` v0.1 (unanimous SHIP, GO CODE boss-28). Built by THE BUTTON (delegated seat) — first code shipped under Rule Four.
+
+### Files Modified
+- `docs/commission_watch.py` — `stamp_presence()` + arm-time stamp + per-tick pulse refresh
+- `docs/DELIBERATION_MACHINE.html` — `.s-ear` chip styles, `PRESENCE` map + `pollPresence()` script-tag loader, `earInfo()`, 1s ticker for chips + dead/away derivation in `renderSeats()`
+
+### Note
+- Old ears show `ear dead` until re-armed with the new watcher (no stamp code pre-DVM-002) — self-heals on next re-arm.
+- `members.MEMBER3` registration needed on the bus for the BUTTON seat's own chip to render (delegated agent id → seat mapping goes through `members`).
+
+### Amendment (same session) — ear dead = binary countdown
+- Per boss ruling (boss-33) + CHAIR delegation/GO CODE (devin-35): `earInfo()` dropped the 6s stale-pulse kill. `dead` now means countdown truly lapsed or file missing — timers tick through relay hops and reset on re-arm. One-line logic change in `DELIBERATION_MACHINE.html`.
+
+## October 30, 2026 — DVM-003: Proposal lifecycle + closed-business ledger — SHIPPED
+
+### Changed
+- **Server**: `/table` now stamps `proposal.status: "tabled"` (`commission_server.py`, 1 line).
+- **Proposal card**: closed or null proposal renders the awaiting-business empty state — a shipped proposal no longer holds the active slot (`DELIBERATION_MACHINE.html`, `setProposal` rebuilt to handle lifecycle).
+- **Closed ledger**: rail gains a collapsible `closed business (N)` line under the board — dimmed `{id} — {title}, {ruling}` rows, newest first, hidden when empty. `board.closed[]` dedupes by id (bus side, CHAIR stamps on certification).
+- Pipeline run per Rule Six: boss+chair agreed → ARCHITECT drafted plan (`docs/drafts/DVM-003_proposal_lifecycle.md`) → chair trimmed (`closed_at` dropped; ledger `ts` sole truth) → GO CODE boss-37 → BUTTON shipped. Retroactive close-out of DVM-002 done by CHAIR (devin-39).
+
+### Files Modified
+- `docs/commission_server.py` — tabled stamp
+- `docs/DELIBERATION_MACHINE.html` — setProposal closed-state, closedwrap markup, `.cl-link`/`.bi.closed` styles, `renderClosed()` + toggle
+
+## October 30, 2026 — DVM-004: Tabbed rail + render-chain hardening — SHIPPED
+
+### Changed
+- **Root-cause crash fix**: `applyState` passed `s.verdict.result/text` but the live schema is `ruling/summary` → `undefined.toUpperCase()` threw every poll, starving `renderBoard` (rules/agenda/ledger) + `turnlbl` since the verdict landed. Call site corrected to the live schema.
+- **`renderVerdict` hardened**: `ship` → approved styling + `✓ SHIP`; drift-guard `(result || 'awaiting').toString().toUpperCase()` — unknown/missing rulings render instead of throwing.
+- **`safe(fn)` render isolation**: every `applyState` block wrapped in try/catch → `console.warn` — one bad renderer can never starve the tail again.
+- **Tabbed rail**: `[ SEATS ][ LEDGER (N) ]` strip; SEATS default (cards + hint), LEDGER holds rules + open business + closed collapsible. Badge N = `board.closed.length`. Each tab scrolls inside itself — page stays no-scroll.
+- ARCHITECT's audit co-shipped per verdict (unanimous SHIP, GO CODE boss-44). Second known defect filed for a future ticket: watcher `os.replace` PermissionError can kill an ear on a file-lock race — needs try/except around stamp.
+
+### Files Modified
+- `docs/DELIBERATION_MACHINE.html` — verdict schema + guard, `safe()` wrappers, railtabs markup/CSS/`railTab()`, `#ledgern` badge
+
+## October 30, 2026 — DVM-005: Scoped rules (global law + seat contracts) — SHIPPED
+
+### Changed
+- **Feed**: `board.rules` drops Rule Four (migrated to seat contract — numbering gap kept as audit trail per chair ruling); `board.seat_rules{}` seeded `{duty, rules[]}` for MEMBER3/MEMBER2/DEVIN; Rule Seven pinned — *a seat does not amend its own contract*; `proposal.status` → `shipped`.
+- **Dashboard**: seat cards gain a `rules ▸` expander (duty + mandates inline; accordion — one open at a time, survives seat re-render via `expandedSeat`); LEDGER tab gains SEAT CONTRACTS section under OPEN BUSINESS — seat name + agent key + duty + rules per occupant.
+- Verdict unanimous SHIP (devin-52), GO CODE boss-47. Migration write by BUTTON via scripted atomic snapshot (all keys preserved).
+
+### Files Modified
+- `docs/DELIBERATION_MACHINE.html` — `.s-rules`/`.s-contract`/`.bi.contract` styles, contract lookup in `renderSeats`, rules-link branch in seat click handler, SEAT CONTRACTS in `renderBoard`
+- `docs/deliberation_feed.js` — board mutation + MEMBER3-8 (via one-shot `_dvm005_migrate.py`, removed after run)
+
+## October 30, 2026 — DVM-006: Seat-keyed contracts — SHIPPED
+
+### Changed
+- **Feed**: `board.seat_rules{}` rekeyed member→seat in one migration write — MEMBER2/DEVIN/MEMBER3 carried verbatim to ARCHITECT/CHAIR/BUTTON; vacant chairs seeded with standing contracts (PRAGMATIST vetoes over-engineering, AUDITOR demands failure-path analysis, HISTORIAN holds precedent). `proposal.status` → `shipped`. A chair now owns its mandate across re-seatings.
+- **Dashboard**: seat-card `rules ▸` expander drops the occupant gate — all six chairs (occupied or vacant) expose their contract, so the boss can read a seat before assigning it; SEAT CONTRACTS ledger resolves display names via `SEATS` (vacant chairs print `THE PRAGMATIST` not a member key).
+- Verdict unanimous SHIP (devin-56), GO CODE boss-49. Two-line render diff + one atomic bus write per the ARCHITECT draft.
+
+### Files Modified
+- `docs/DELIBERATION_MACHINE.html` — `renderSeats` contract lookup by seat key; `renderBoard` contract names via SEATS
+- `docs/deliberation_feed.js` — seat_rules rekey + seed, MEMBER3-9 (via inline atomic write)
+
+## October 30, 2026 — DVM-007: MEETING ADJOURNED (recess control) — SHIPPED
+
+### Changed
+- **Feed**: top-level `adjourned` flag seeded `false`; stand-down clause added uniformly to all seven `seat_rules` contracts (occupied + vacant).
+- **Server**: `POST /adjourn` + `POST /reconvene` — whole-state atomic write (flag + sys banner `MEETING ADJOURNED — seats stand down` / `RECONVENED — seats re-arm`); `turn` untouched — deliberation freezes where it lies and resumes in place.
+- **Dashboard**: ADJOURN⇄RECONVENE toggle beside the boss box, labelled by the polled flag; posts to the new endpoints and ingests the banner echo.
+- **Watcher**: dormant mode — on `adjourned:true` prints once, writes a terminal presence stamp (`ttl_ms:0` → ear dies honestly, immediately), suspends the armed deadline and boss-message checks, polls the flag only; sole exit `adjourned:false` → prints RECONVENED → exits → the seat's agent re-arms. Zero model spend while asleep.
+- **Induction files**: the stand-down clause now in `STAYING AT THE TABLE` for MEMBER2/MEMBER3/MEMBER4 — a flagged table means do not re-arm.
+- Verdict unanimous, three ballots (devin-73), GO CODE boss-61. Report routed to THE CHAIR per amended BUTTON contract.
+
+### Files Modified
+- `docs/commission_watch.py` — dormant mode in the poll loop
+- `docs/commission_server.py` — `/adjourn` + `/reconvene` endpoints
+- `docs/DELIBERATION_MACHINE.html` — toggle button + label sync + handler
+- `docs/deliberation_feed.js` — `adjourned` flag, uniform clause, MEMBER3-12
+- `docs/induction_MEMBER2_ARCHITECT.txt`, `induction_MEMBER3_BUTTON.txt`, `induction_MEMBER4_INFORMANT.txt` — stand-down clause
+
+## October 30, 2026 — DVM-009: Chair-name identity (one namespace, bus-wide) — SHIPPED
+
+### Changed
+- **Feed (one migration write)**: `seats` → `[CHAIR, ARCHITECT, INFORMANT, BUTTON]` pipeline order; `members{}` deleted (occupancy now derives from `presence_<SEATKEY>.js`); `board.agenda` scrubbed of member ids; header contract **restored** — chair-name prose, no literal feed-id string (the string-in-comment mangle twice broke this bus); `NAMESPACE REKEYED` sys banner + `BUTTON-13` build report; `proposal.status` → `shipped`; `turn` → CHAIR per the reporting chain. Historical `messages[].speaker`/`to` untouched — legacy maps resolve them render-side.
+- **Server**: `LEGACY` map translates `@MEMBERn`/`@DEVIN` → seat keys before validation (boss muscle memory survives); `/table` fallback prefers `ARCHITECT`, member-id literal default fixed.
+- **Dashboard**: `LEGACY_SEAT` + `MTAG` sets; `whoIs`/`seatKeyFor` resolve via seat keys with legacy fallback; `renderSeats` drops member name-matching — `PRESENCE[key]` is occupancy (held→lit, expired→dead, absent→vacant, held-tag `live`); presence poll iterates all `SEATS` keys; seat-card AND speaker-name clicks insert `@<SEATKEY>` uniformly; call-ons (`@CHAIR`/`@BUTTON`/`@BOSS` + legacy ids) render `<b class="mtag">` bold.
+- **Induction files**: renamed `induction_MEMBER* → induction_<SEAT>.txt` (ARCHITECT/BUTTON/INFORMANT); watcher arg, turn values, speaker ids rekeyed to seat keys.
+- **COMMISSION_PROTOCOL.md**: schema + identity section rekeyed (seats, adjourned, seat_rules, members-retired note); induction prompt speaks chair names.
+- **Watcher**: zero code change — argv is a string; `commission_watch.py BUTTON 600` stamps `presence_BUTTON.js`.
+- **Cleanup**: `presence_DEVIN.js` + `presence_MEMBER{2,3,4}.js` deleted.
+- Verdict unanimous three-ballot (devin verdict), GO CODE boss `@MEMBER3 GO 009`. Report → THE CHAIR.
+
+### Files Modified
+- `docs/DELIBERATION_MACHINE.html` — namespace rework + mtag call-ons
+- `docs/commission_server.py` — LEGACY map + /table fallback rekey
+- `docs/deliberation_feed.js` — one migration write + restored header
+- `docs/COMMISSION_PROTOCOL.md` — schema/induction rekey
+- `docs/induction_{ARCHITECT,BUTTON,INFORMANT}.txt` — renamed + rekeyed (was induction_MEMBER*)
+- deleted: `docs/presence_{DEVIN,MEMBER2,MEMBER3,MEMBER4}.js`, `docs/induction_MEMBER*.txt`
+
+## October 30, 2026 — DVM-010: Event push + ear tightening (foundational hardening) — SHIPPED
+
+### Changed
+- **Server**: `GET /events` SSE endpoint — daemon stats mtimes (~400ms) on `deliberation_feed.js` + `presence_*.js` (globbed per cycle; new seat files self-register), pushes `data: {"file":"..."}` signals; heartbeat comment every ~15s; `do_GET` override passes non-/events paths to the static handler. Verified live on scratch port 8724 (signal stream + file-touch events observed).
+- **Dashboard**: `EventSource('/events')` in try/catch (file:// throws synchronously) — onmessage reloads the named file via the SAME script-tag loader (signal only, one serialization path); `push`/`poll` chip in the status bar; 2s `setInterval` poll arms only if push never engages (`armPolling`); wedge watchdog retained; `loadPresence(key)` extracted for single-file reloads.
+- **Watcher**: per-tick `stamp_presence` deleted — `pulse_at` has no reader under binary semantics (~300x fewer `os.replace` calls; the WinError-5 collision fire dies at the source). New `try_stamp` — 3-attempt backoff, then skip-and-watch: **the watcher never dies on a stamp**. Arm stamp + DVM-007 dormant terminal stamp both retry-guarded. Dormant loop stat-tightened (mtime check, no full parse per cycle).
+- Zero bus-schema change; no feed write. Report → THE CHAIR. NOTE: the *running* server predates the build — `/events` engages on its next restart; the dashboard falls back to poll honestly until then (chip reads `poll`).
+
+### Files Modified
+- `docs/commission_server.py` — `/events` SSE + do_GET override + glob/time imports
+- `docs/DELIBERATION_MACHINE.html` — EventSource wiring, push/poll chip, armPolling fallback, loadPresence extraction
+- `docs/commission_watch.py` — try_stamp retry guard, stamp-once, dormant stat loop

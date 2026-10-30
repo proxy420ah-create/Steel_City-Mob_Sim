@@ -38,6 +38,8 @@ Bug tracker per Development Guidelines Rule 13. Bugs are cataloged by category i
 | [Cover Wall Class Depends On Owner Support](runtime/COVER_CLASS_DEPENDS_ON_OWNER_SUPPORT.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-10-18 |
 | [Derived Gait Phase — Pose Rewrite On Speed/Duck Change](runtime/DERIVED_GAIT_PHASE_POSE_REWRITE.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-10-19 |
 | [Possess Hold-Exit Arm — One-Shot Race With Pose Transition](runtime/POSSESS_HOLD_EXIT_ARM_ONESHOT_RACE.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-10-19 |
+| [Building Reference Ratio Halved — Stale Building Preset](editor/BUILDING_REFERENCE_SCALE_STALE.md) | editor | 🟢 FIXED | 🟡 HIGH | 2026-10-30 |
+| [Missing Stasset Silently Skipped — Invisible Building](runtime/STASSET_MISSING_SILENT_SKIP.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-10-30 |
 | [Orphaned IK Arm Fights Settle Facing](runtime/ORPHANED_IK_ARM_FIGHTS_SETTLE_FACING.md) | runtime | 🟡 FIX APPLIED | 🟡 HIGH | 2026-10-20 |
 | [Possess Cover Drive Ducks on the Threat Side of a Wall](runtime/POSSESS_DRIVE_DUCKS_ON_THREAT_SIDE.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-10-20 |
 | [Transition Freeze Reads Post-Write Duck — Cover Exit Snap](runtime/TRANSITION_FREEZE_READS_POSTWRITE_DUCK.md) | runtime | 🟢 FIXED | 🟢 MEDIUM | 2026-10-20 |
@@ -62,3 +64,5 @@ Bug tracker per Development Guidelines Rule 13. Bugs are cataloged by category i
 | [Moving Vehicles As Cover / Bodies Embedded In Cars / Guard Reset Regression](runtime/MOVING_VEHICLES_COVER_EMBED_GUARD_REGRESSION.md) | runtime | 🟡 FIX APPLIED | 🔴 CRITICAL | 2026-10-28 |
 | [Deep-Recon Stops Stale At Dispatch](runtime/DEEP_RECON_STOPS_STALE_AT_DISPATCH.md) | runtime | 🟡 FIX APPLIED | 🟡 HIGH | 2026-10-28 |
 | [Reload Gesture Not an Animated State — Folded Forearm, Frozen Gun Arm](runtime/RELOAD_GESTURE_NOT_ANIMATED_STATE.md) | runtime | 🟡 FIX APPLIED | 🟡 HIGH | 2026-10-28 |
+| [Boss @-Route Cannot Reach Delegated Seat](runtime/BOSS_AT_ROUTE_DELEGATED_SEAT_GAP.md) | runtime | 🔴 ACTIVE | 🟢 MEDIUM | 2026-10-30 |
+| [Watcher Ear Killed by Presence-File Replace Race](runtime/WATCHER_PRESENCE_REPLACE_RACE.md) | runtime | 🔴 ACTIVE | 🟡 HIGH | 2026-10-30 |
