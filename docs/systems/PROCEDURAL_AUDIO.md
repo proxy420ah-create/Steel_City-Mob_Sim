@@ -11,7 +11,7 @@
 
 The project is all-procedural — voxel assets are generated, materials are palette entries, there are zero binary art assets. Audio was the missing piece:
 
-- **No audio files exist** anywhere in the project. No `.wav`, no `.mp3`, no AudioMixer.
+- **No game audio files exist** — no `.wav`/`.mp3` plays at runtime, no AudioMixer. (One exception ships in StreamingAssets: `sounds/Impacts/reference/ricochet.mp3` — a real recording kept as the tuning target the synth was authored against; nothing loads it.)
 - **Determinism** — the whole sim is seeded. Synthesized sound can be seeded too (same shot → same scar → could be the same tink).
 - **Version-control friendly** — a sound recipe is ~15 lines of C# or a JSON blob, not a binary blob.
 - **Iteration speed** — change a number, hear a new sound. No DAW, no export, no import pipeline.

@@ -1841,7 +1841,7 @@ namespace SteelCity.Sim
             var cs = ch.GetComponent<CoverSensor>();
             if (cs != null)
                 GUILayout.Label(
-                    $"     scan {cs.stats.wallCols} walls · {cs.stats.valid}/{cs.stats.tested} cells"
+                    $"     scan {cs.stats.wallCols} walls · {cs.stats.valid}/{cs.stats.tested} cells · {cs.stats.supportProbes} ground probes"
                     + $" · r{cs.radius:F0}m · {(cs.Field != null && cs.Field.HasData ? $"field {cs.Field.N}²" : "no field")}",
                     labelStyle);
             SeamStatusBlock(label, cc);

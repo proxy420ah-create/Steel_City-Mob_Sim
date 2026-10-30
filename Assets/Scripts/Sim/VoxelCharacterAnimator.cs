@@ -23,7 +23,7 @@ namespace SteelCity.Sim
 
         // ---- Cached pose state ----
         private WalkPose _walkPoseCache;
-        private string _walkPoseCacheKey = "";
+        private float _walkKeyTime = float.NaN, _walkKeySpeed = float.NaN;   // NaN never equals — a cold cache always misses
 
         // ---- Constants ----
         private static readonly Dictionary<int, int> PARENT_OF = new Dictionary<int, int>
@@ -239,8 +239,11 @@ namespace SteelCity.Sim
 
         private WalkPose GetWalkPose(float animTime, float animSpeed, AnimParamsData p)
         {
-            string cacheKey = animTime.ToString("F4") + ":" + animSpeed.ToString("F2");
-            if (_walkPoseCacheKey == cacheKey && _walkPoseCache.pose != null)
+            // One-entry cache keyed on the raw inputs. The key used to be built as
+            // `animTime.ToString("F4") + ":" + animSpeed.ToString("F2")` — three string
+            // allocations per call, on EVERY posed point in a walking state. Same-frame
+            // callers pass identical floats, so the hit rate is unchanged.
+            if (_walkPoseCache.pose != null && animTime == _walkKeyTime && animSpeed == _walkKeySpeed)
                 return _walkPoseCache;
 
             var wkf = p.walkKeyframes;
@@ -332,7 +335,7 @@ namespace SteelCity.Sim
                 weightShiftX = weightShiftX
             };
             _walkPoseCache = result;
-            _walkPoseCacheKey = cacheKey;
+            _walkKeyTime = animTime; _walkKeySpeed = animSpeed;
             return result;
         }
 
@@ -920,56 +923,129 @@ namespace SteelCity.Sim
             float transBlend = 1f, float transDip = 0f,
             float duck = 0f, float transDuckA = -1f, float gaitTime = -1f)
         {
-            var pB = PosePointCore(restPos, gid, dims, animState, animTime, animSpeed, duck, gaitTime);
-            if (transBlend >= 1f || transStateA < 0f) return pB;
-            float duckA = transDuckA >= 0f ? transDuckA : duck;
-            var pA = PosePointCore(restPos, gid, dims, transStateA, transTimeA, animSpeed, duckA, gaitTime);
-            var p = Vector3.Lerp(pA, pB, transBlend);
-            p.y += transDip;
-            return p;
+            var gp = PreparePose(gid, dims, animState, animTime, animSpeed,
+                transStateA, transTimeA, transBlend, transDip, duck, transDuckA, gaitTime);
+            return ApplyPose(in gp, restPos, dims);
         }
 
-        Vector3 PosePointCore(
-            Vector3 restPos, int gid, Vector3Int dims,
-            float animState, float animTime, float animSpeed,
-            float duck = 0f, float gaitTime = -1f)
-        {
-            float gaitClock = gaitTime >= 0f ? gaitTime : animTime * animSpeed;
-            bool isWalkState = (animState > 0.5f && animState < 1.5f) || (animState > 2.5f && animState < 3.5f);
-            WalkPose walkPose = isWalkState ? GetWalkPose(gaitClock, 1f, paramsData) : default(WalkPose);
-            float bodyBobY = isWalkState ? walkPose.bodyBobY : 0f;
-            float weightShiftX = isWalkState ? walkPose.weightShiftX : 0f;
+        // ── Single-evaluation pose API ────────────────────────────────────
+        // A group's FK chain depends only on (gid, pose params) — NOT on the point
+        // being carried through it. PosePoint used to re-run ComputeGroupRotation
+        // (≈20 small heap allocs: float[3,3] matrices + chain arrays) for EVERY point:
+        // the exposure probe posed ~40 silhouette samples = ~40 chain evals, the eye
+        // anchor and the weapon weld each ran the SAME chain twice (point, then
+        // rotation). PreparePose evaluates it ONCE; ApplyPose/PoseRotation then reuse
+        // it for any number of points / the orientation. PosePoint is now this pair,
+        // so there is a single source of truth and results are bit-identical.
 
+        /// <summary>One pose's per-group evaluation — the chain + offset + walk overlay.</summary>
+        public struct PoseEval
+        {
+            public GroupTransformResult? result;
+            public bool isWalk;
+            public float bobY, shiftX;
+            public bool hasGid;
+        }
+
+        /// <summary>A group under the live pose, plus the outgoing pose when a transition is blending.</summary>
+        public struct GroupPose
+        {
+            public PoseEval b, a;
+            public bool blend;
+            public float blendT, dip;
+        }
+
+        PoseEval EvalPose(int gid, Vector3Int dims, float animState, float animTime, float animSpeed,
+            float duck, float gaitTime)
+        {
+            var e = new PoseEval();
+            float gaitClock = gaitTime >= 0f ? gaitTime : animTime * animSpeed;
+            e.isWalk = (animState > 0.5f && animState < 1.5f) || (animState > 2.5f && animState < 3.5f);
+            if (e.isWalk)
+            {
+                WalkPose walkPose = GetWalkPose(gaitClock, 1f, paramsData);
+                e.bobY = walkPose.bodyBobY;
+                e.shiftX = walkPose.weightShiftX;
+            }
+            e.hasGid = gid >= 0;
+            if (e.hasGid)
+                e.result = ComputeGroupRotation(gid, dims, 1.0f, animState, animTime, animSpeed, duck, gaitTime);
+            return e;
+        }
+
+        /// <summary>Evaluate the group's pose once (dual-eval through a transition — same
+        /// blend rule PosePoint always used: blending iff transBlend &lt; 1 and transStateA ≥ 0).</summary>
+        public GroupPose PreparePose(int gid, Vector3Int dims,
+            float animState, float animTime, float animSpeed,
+            float transStateA = -1f, float transTimeA = 0f,
+            float transBlend = 1f, float transDip = 0f,
+            float duck = 0f, float transDuckA = -1f, float gaitTime = -1f)
+        {
+            var gp = new GroupPose { b = EvalPose(gid, dims, animState, animTime, animSpeed, duck, gaitTime) };
+            if (transBlend >= 1f || transStateA < 0f) return gp;
+            float duckA = transDuckA >= 0f ? transDuckA : duck;
+            gp.blend = true; gp.blendT = transBlend; gp.dip = transDip;
+            gp.a = EvalPose(gid, dims, transStateA, transTimeA, animSpeed, duckA, gaitTime);
+            return gp;
+        }
+
+        static Vector3 ApplyEval(in PoseEval e, Vector3 restPos, Vector3Int dims)
+        {
             float px = restPos.x - dims.x * 0.5f;
             float py = restPos.y;
             float pz = restPos.z - dims.z * 0.5f;
 
-            if (gid >= 0)
+            if (e.hasGid && e.result.HasValue && e.result.Value.chain != null && e.result.Value.chain.Length > 0)
             {
-                var result = ComputeGroupRotation(gid, dims, 1.0f, animState, animTime, animSpeed, duck, gaitTime);
-                if (result.HasValue && result.Value.chain != null && result.Value.chain.Length > 0)
+                var chain = e.result.Value.chain;
+                var pos = restPos;
+                for (int c = 0; c < chain.Length; c++)
                 {
-                    var pos = restPos;
-                    for (int c = 0; c < result.Value.chain.Length; c++)
-                    {
-                        var entry = result.Value.chain[c];
-                        var rel = pos - entry.pivot;
-                        pos = MatVec3(entry.rot, rel) + entry.pivot;
-                    }
-                    var off = result.Value.offset;
-                    px = pos.x + off.x - dims.x * 0.5f;
-                    py = pos.y + off.y;
-                    pz = pos.z + off.z - dims.z * 0.5f;
+                    var entry = chain[c];
+                    var rel = pos - entry.pivot;
+                    pos = MatVec3(entry.rot, rel) + entry.pivot;
                 }
+                var off = e.result.Value.offset;
+                px = pos.x + off.x - dims.x * 0.5f;
+                py = pos.y + off.y;
+                pz = pos.z + off.z - dims.z * 0.5f;
             }
 
-            if (isWalkState)
+            if (e.isWalk)
             {
-                px += weightShiftX;
-                py += bodyBobY;
+                px += e.shiftX;
+                py += e.bobY;
             }
-
             return new Vector3(px, py, pz);
+        }
+
+        /// <summary>Carry one rest-space point through a prepared pose (voxel units, x/z centered).</summary>
+        public static Vector3 ApplyPose(in GroupPose gp, Vector3 restPos, Vector3Int dims)
+        {
+            var pB = ApplyEval(in gp.b, restPos, dims);
+            if (!gp.blend) return pB;
+            var pA = ApplyEval(in gp.a, restPos, dims);
+            var p = Vector3.Lerp(pA, pB, gp.blendT);
+            p.y += gp.dip;
+            return p;
+        }
+
+        static Quaternion ChainRotation(in PoseEval e)
+        {
+            Quaternion q = Quaternion.identity;
+            if (e.result.HasValue && e.result.Value.chain != null)
+                foreach (var entry in e.result.Value.chain)
+                    q = QuatFromMat3(entry.rot) * q;
+            return q;
+        }
+
+        /// <summary>Cumulative group orientation of a prepared pose — slerped through the
+        /// transition window exactly as the weld / joint queries always did.</summary>
+        public static Quaternion PoseRotation(in GroupPose gp)
+        {
+            Quaternion qB = ChainRotation(in gp.b);
+            if (!gp.blend) return qB;
+            return Quaternion.Slerp(ChainRotation(in gp.a), qB, gp.blendT);
         }
 
         /// <summary>
@@ -995,7 +1071,7 @@ namespace SteelCity.Sim
             float weightShiftX = isWalkState ? walkPose.weightShiftX : 0f;
 
             // Invalidate walk pose cache for next frame
-            _walkPoseCacheKey = "";
+            _walkKeyTime = float.NaN;
 
             for (int i = 0; i < count; i++)
             {

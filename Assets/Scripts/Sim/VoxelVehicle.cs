@@ -73,6 +73,36 @@ namespace SteelCity.Sim
             }
         }
 
+        /// <summary>How many registered vehicles are moving right now — the cover scan's dynamic-world
+        /// signature (moving cars are excluded from cover and priced out of the flood, and `IsMoving`
+        /// flips on a timer, so a scan is only reusable while this is 0 and unchanged).</summary>
+        public static int MovingCount()
+        {
+            int n = 0;
+            for (int i = 0; i < allVehicles.Count; i++)
+                if (allVehicles[i] != null && allVehicles[i].IsMoving) n++;
+            return n;
+        }
+
+        /// <summary>Moving vehicles whose swept footprint could reach a `radius` window around `center`
+        /// (distance minus its 1.5 s sweep and half-diagonal, same horizon PaintMovingFootprints uses).
+        /// Traffic across town can't touch a fighter's cover scan, so it must not defeat scan reuse.</summary>
+        public static int MovingNear(Vector3 center, float radius)
+        {
+            int n = 0;
+            for (int i = 0; i < allVehicles.Count; i++)
+            {
+                var v = allVehicles[i];
+                if (v == null || !v.IsMoving) continue;
+                Vector3 size = v.WorldSize;
+                Vector3 c = v.transform.position + new Vector3(size.x * 0.5f, 0f, size.z * 0.5f);
+                float reach = radius + 0.5f * Mathf.Sqrt(size.x * size.x + size.z * size.z) + v.velocity.magnitude * 1.5f + 1f;
+                float dx = c.x - center.x, dz = c.z - center.z;
+                if (dx * dx + dz * dz <= reach * reach) n++;
+            }
+            return n;
+        }
+
         void OnEnable() { if (!allVehicles.Contains(this)) allVehicles.Add(this); }
         void OnDisable() { allVehicles.Remove(this); }
 

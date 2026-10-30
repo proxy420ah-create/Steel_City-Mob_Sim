@@ -80,6 +80,8 @@ namespace SteelCity.Sim
 
         // --- IK solver context (read-only, consumed by ArmAimSolver) ---
         public VoxelCharacterAnimator Animator => animator;
+        /// <summary>The body this mount is welded to — cached at Start (hearing resolves the shooter's actor through this, not a hierarchy walk per listener).</summary>
+        public VoxelCharacter Character => character;
 
         /// <summary>Ground-level body-center (same convention as
         /// CombatController.Feet) — the semantic "shooter position" that
@@ -356,35 +358,22 @@ namespace SteelCity.Sim
                 animator.reloadGunSide = animator.GetParentGroup(handGid) == 2 ? -1f : 1f;
             }
 
-            // Posed hand point (voxel units, centered x/z) + cumulative group rotation
-            Vector3 posed = animator != null
-                ? animator.PosePoint(handPoint, handGid, dims, state, time, speed,
-                    tSA, tTA, tB, tDp, depth, tDA, gait)
-                : new Vector3(handPoint.x - dims.x * 0.5f, handPoint.y, handPoint.z - dims.z * 0.5f);
-
-            // Cumulative hand-chain rotation — dual-eval + slerp through the
-            // transition window so the gun's ORIENTATION eases with the body,
-            // mirroring PosePoint's position lerp.
+            // Posed hand point (voxel units, centered x/z) + cumulative group rotation.
+            // The hand chain is evaluated ONCE and serves both — dual-eval + slerp
+            // through the transition window so the gun's ORIENTATION eases with the
+            // body, mirroring the position lerp. (Was PosePoint + two
+            // ComputeGroupRotation passes over the identical chain, ×2 mid-transition.)
+            Vector3 posed;
             Quaternion qR = Quaternion.identity;
             if (animator != null)
             {
-                Quaternion qB = Quaternion.identity;
-                var gr = animator.ComputeGroupRotation(handGid, dims, 1.0f, state, time, speed, depth, gait);
-                if (gr.HasValue && gr.Value.chain != null)
-                    foreach (var e in gr.Value.chain)
-                        qB = QuatFromMat3(e.rot) * qB;
-                qR = qB;
-                if (tB < 1f && tSA >= 0f)
-                {
-                    float duckA = tDA >= 0f ? tDA : depth;
-                    Quaternion qA = Quaternion.identity;
-                    var grA = animator.ComputeGroupRotation(handGid, dims, 1.0f, tSA, tTA, speed, duckA, gait);
-                    if (grA.HasValue && grA.Value.chain != null)
-                        foreach (var e in grA.Value.chain)
-                            qA = QuatFromMat3(e.rot) * qA;
-                    qR = Quaternion.Slerp(qA, qB, tB);
-                }
+                var gp = animator.PreparePose(handGid, dims, state, time, speed,
+                    tSA, tTA, tB, tDp, depth, tDA, gait);
+                posed = VoxelCharacterAnimator.ApplyPose(in gp, handPoint, dims);
+                qR = VoxelCharacterAnimator.PoseRotation(in gp);
             }
+            else
+                posed = new Vector3(handPoint.x - dims.x * 0.5f, handPoint.y, handPoint.z - dims.z * 0.5f);
 
             // Hand world position: cell-space (+0.5) → rotate about volume center (shader convention)
             Vector3 half = new Vector3(dims.x, dims.y, dims.z) * voxelSize * 0.5f;
@@ -431,46 +420,6 @@ namespace SteelCity.Sim
                 else
                     pdr.ClearCustomBeam(muzzleBeamKey);
             }
-        }
-
-        static Quaternion QuatFromMat3(float[,] m)
-        {
-            // Standard trace-based 3x3 → quaternion (columns = basis vectors)
-            float tr = m[0, 0] + m[1, 1] + m[2, 2];
-            float w, x, y, z;
-            if (tr > 0f)
-            {
-                float s = Mathf.Sqrt(tr + 1f) * 2f;
-                w = 0.25f * s;
-                x = (m[2, 1] - m[1, 2]) / s;
-                y = (m[0, 2] - m[2, 0]) / s;
-                z = (m[1, 0] - m[0, 1]) / s;
-            }
-            else if (m[0, 0] > m[1, 1] && m[0, 0] > m[2, 2])
-            {
-                float s = Mathf.Sqrt(1f + m[0, 0] - m[1, 1] - m[2, 2]) * 2f;
-                w = (m[2, 1] - m[1, 2]) / s;
-                x = 0.25f * s;
-                y = (m[0, 1] + m[1, 0]) / s;
-                z = (m[0, 2] + m[2, 0]) / s;
-            }
-            else if (m[1, 1] > m[2, 2])
-            {
-                float s = Mathf.Sqrt(1f + m[1, 1] - m[0, 0] - m[2, 2]) * 2f;
-                w = (m[0, 2] - m[2, 0]) / s;
-                x = (m[0, 1] + m[1, 0]) / s;
-                y = 0.25f * s;
-                z = (m[1, 2] + m[2, 1]) / s;
-            }
-            else
-            {
-                float s = Mathf.Sqrt(1f + m[2, 2] - m[0, 0] - m[1, 1]) * 2f;
-                w = (m[1, 0] - m[0, 1]) / s;
-                x = (m[0, 2] + m[2, 0]) / s;
-                y = (m[1, 2] + m[2, 1]) / s;
-                z = 0.25f * s;
-            }
-            return new Quaternion(x, y, z, w).normalized;
         }
 
         void OnDrawGizmos()

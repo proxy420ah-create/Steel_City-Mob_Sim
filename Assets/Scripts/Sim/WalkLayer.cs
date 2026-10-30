@@ -67,6 +67,29 @@ namespace SteelCity.Sim
         // ─── Diagnostics (HUD readout) ────────────────────────────────────
         public int BlocksAllocated => blocks.Count;
         public int CellsProbed { get; private set; }
+        /// <summary>Bumps on EVERY voxel-write invalidation (the contract is "call on any voxel write") —
+        /// the world's edit stamp. Consumers that cache derived products (cover scans) key on it to know
+        /// the geometry is unchanged without re-deriving it.</summary>
+        public int Version { get; private set; }
+
+        // Change log — WHERE each versioned edit landed, so consumers can ask "did anything change in MY
+        // window?" instead of "did anything change anywhere?" (a bullet hole across the map must not flush
+        // a fighter's cover scan). Ring of the last LogCap edit bounds; older = treated as "changed".
+        public const int LogCap = 4096;   // power of two
+        private readonly Bounds[] changeLog = new Bounds[LogCap];
+        private void LogChange(Bounds b) { Version++; changeLog[Version & (LogCap - 1)] = b; }
+        /// <summary>Bounds of the edit that produced `version` (valid for Version-LogCap &lt; version ≤ Version).</summary>
+        public Bounds ChangeAt(int version) => changeLog[version & (LogCap - 1)];
+        /// <summary>True if any edit after `sinceVersion` touched `window` — or the log wrapped (unknown ⇒ yes).</summary>
+        public bool ChangedSince(int sinceVersion, Bounds window)
+        {
+            int n = Version - sinceVersion;
+            if (n <= 0) return false;
+            if (n > LogCap) return true;
+            for (int v = sinceVersion + 1; v <= Version; v++)
+                if (changeLog[v & (LogCap - 1)].Intersects(window)) return true;
+            return false;
+        }
         public int CellsInvalidated { get; private set; }
 
         static int CellCoord(float w) => Mathf.FloorToInt(w / CellSize);
@@ -223,6 +246,7 @@ namespace SteelCity.Sim
         /// cells re-derive lazily on the next window fill.</summary>
         public void Invalidate(Bounds b)
         {
+            LogChange(b);   // unconditional — a write to an UNPROBED cell still changes what a cover scan would see
             int x0 = CellCoord(b.min.x), x1 = CellCoord(b.max.x);
             int z0 = CellCoord(b.min.z), z1 = CellCoord(b.max.z);
             for (int wz = z0; wz <= z1; wz++)
@@ -253,6 +277,7 @@ namespace SteelCity.Sim
         /// — drops every cached verdict; blocks stay allocated.</summary>
         public void InvalidateAll()
         {
+            LogChange(new Bounds(Vector3.zero, new Vector3(1e9f, 1e9f, 1e9f)));   // intersects every window
             foreach (var b in blocks.Values)
             {
                 for (int i = 0; i < b.fl.Length; i++)

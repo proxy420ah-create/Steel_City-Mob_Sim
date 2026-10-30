@@ -15,6 +15,7 @@ WHAT IT FLIPS
   animParams.aiming     L/R swap: armSwing, elbowBend, shoulderReach; Y-axis rotations negate:
                         torsoTwist, headYaw, shoulderReach, headTilt (Z) also negates
   animParams.crouching  L/R swap: armSwing, legStride, kneeBend
+  animParams.sitting    L/R swap: armSwing, legStride, kneeBend
   animParams.legTwist / elbowBend / kneeBend rests  L/R swap (legTwist also negates: Y rotation)
   NOT touched: walkKeyframes (autoMirror half-cycle is symmetric), restPose (geometric, per-gid),
   pivots, jointOffset, voxels/groups/regions (geometry never changes).
@@ -78,6 +79,9 @@ def flip_params(p):
     c = p.get("crouching")
     if c:
         for base in ("armSwing", "legStride", "kneeBend"): swap_keys(c, base + "L", base + "R")
+    s = p.get("sitting")
+    if s:
+        for base in ("armSwing", "legStride", "kneeBend"): swap_keys(s, base + "L", base + "R")
     lt = p.get("legTwist")
     if lt:
         swap_keys(lt, "leftRest", "rightRest"); neg(lt, "leftRest"); neg(lt, "rightRest")

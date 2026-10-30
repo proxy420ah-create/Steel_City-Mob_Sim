@@ -138,17 +138,12 @@ namespace SteelCity.Sim
                     slot = -1;
                 }
                 if (culled.Count >= modVariants) slot = -1;   // every child culled → authored clip
-                var baseR = ProceduralAudio.LoadRecipe(rel);
-                var child = slot >= 0
-                    ? ProceduralAudio.MutateRecipe(baseR, VariantSeed(file, slot), modJitter, modLockMaster)
-                    : baseR;
-                clip = child != null ? ProceduralAudio.SynthFromRecipe(child, vel: impactGain * FileMix(rel).gain, bypassCache: true) : null;
             }
-            else
-            {
-                var r2 = ProceduralAudio.LoadRecipe(rel);
-                clip = r2 != null ? ProceduralAudio.SynthFromRecipe(r2, vel: impactGain * FileMix(rel).gain, bypassCache: true) : null;
-            }
+            // The rendered clip is cached per (file, slot, vel, recipe-write-time) —
+            // the old path synthesized UNCACHED every impact: disk read + JSON clone
+            // + full PCM render + ~1.5 MB allocs on the main thread → stalls → mixer
+            // underrun crackle right after each bang. Bounded set, safe to keep.
+            clip = VariantClip(rel, slot, impactGain * FileMix(rel).gain);
             if (clip == null) { LastInfo = $"#{r.id} clip missing: {pool}/{file}"; return; }
 
             var mix = FileMix(rel);   // per-file sidecar tuning — this SFX's own gain/volume
@@ -156,6 +151,32 @@ namespace SteelCity.Sim
             SfxWaves.GetOrCreate().Emit(r.point, impactAudibleRange, impactRefDistance, pool);
             LastInfo = $"#{r.id} {StAssetReader.GetMaterialName(r.material)} inc {incidence:F0}° dist {r.distance:F1}m → {pool}/{file}{(modEnabled ? $" v{(slot >= 0 ? (slot + 1).ToString("D2") : "base")}" : "")}";
             Debug.Log($"[ImpactAudio] 🔊 {LastInfo}");
+        }
+
+        /// <summary>Variant-clip cache — children are a bounded set (pool files ×
+        /// modVariants), so render each once and keep it. Key carries the recipe
+        /// file's write-time: a studio save mints a new key → hot-reload for free,
+        /// while the stale clip stays referenced (never Destroyed mid-play — the
+        /// crackle guard). slot &lt; 0 = the authored clip itself.</summary>
+        static readonly Dictionary<string, AudioClip> variantCache = new();
+
+        AudioClip VariantClip(string rel, int slot, float vel)
+        {
+            string path = Path.Combine(Application.streamingAssetsPath,
+                ProceduralAudio.ResolveLiveTesting(rel));
+            long stamp = File.Exists(path) ? File.GetLastWriteTimeUtc(path).Ticks : 0L;
+            string key = $"{rel}|{slot}|{vel:F3}|{stamp}";
+            if (variantCache.TryGetValue(key, out var hit)) return hit;
+            var baseR = ProceduralAudio.LoadRecipe(rel);
+            var child = slot >= 0
+                ? ProceduralAudio.MutateRecipe(baseR,
+                    VariantSeed(Path.GetFileName(rel), slot), modJitter, modLockMaster)
+                : baseR;
+            var clip = child != null
+                ? ProceduralAudio.SynthFromRecipe(child, vel: vel, bypassCache: true)
+                : null;
+            if (clip != null) variantCache[key] = clip;
+            return clip;
         }
 
         // ── pool pick ─────────────────────────────────────────────────────

@@ -352,24 +352,13 @@ namespace SteelCity.Sim
             float state, float time, float speed, Vector4 trans, float duck,
             float transDuckA, float gaitTime, out Vector3 worldPos, out Quaternion worldRot)
         {
-            Vector3 posed = anim.PosePoint(rest, gid, dims, state, time, speed,
+            // ONE group-chain evaluation serves both the point and the orientation
+            // (this used to run the identical ComputeGroupRotation twice per query,
+            // four times through a transition).
+            var gp = anim.PreparePose(gid, dims, state, time, speed,
                 trans.x, trans.y, trans.z, trans.w, duck, transDuckA, gaitTime);
-
-            Quaternion qR = Quaternion.identity;
-            var gr = anim.ComputeGroupRotation(gid, dims, 1.0f, state, time, speed, duck, gaitTime);
-            if (gr.HasValue && gr.Value.chain != null)
-                foreach (var e in gr.Value.chain)
-                    qR = VoxelCharacterAnimator.QuatFromMat3(e.rot) * qR;
-            if (trans.z < 1f && trans.x >= 0f)
-            {
-                Quaternion qA = Quaternion.identity;
-                var grA = anim.ComputeGroupRotation(gid, dims, 1.0f, trans.x, trans.y, speed,
-                    transDuckA >= 0f ? transDuckA : duck, gaitTime);
-                if (grA.HasValue && grA.Value.chain != null)
-                    foreach (var e in grA.Value.chain)
-                        qA = VoxelCharacterAnimator.QuatFromMat3(e.rot) * qA;
-                qR = Quaternion.Slerp(qA, qR, trans.z);
-            }
+            Vector3 posed = VoxelCharacterAnimator.ApplyPose(in gp, rest, dims);
+            Quaternion qR = VoxelCharacterAnimator.PoseRotation(in gp);
 
             worldPos = CellToWorld(posed, dims, out Quaternion yawRot);
             worldRot = yawRot * qR;
@@ -449,6 +438,10 @@ namespace SteelCity.Sim
         // once per asset; posed live per query so a ducking threat presents
         // a different silhouette.
         private List<(int gid, Vector3 rest)> silhouetteSamples;
+        // Per-group pose scratch for SampleSilhouetteWorld — sized to the highest gid in the sample set.
+        private int silMaxGid;
+        private VoxelCharacterAnimator.GroupPose[] silPoseScratch;
+        private bool[] silPoseValid;
 
         /// <summary>Y-sorted, evenly-spaced picks per group — vertical coverage
         /// of each body part scaled with its voxel count (~1 per 8 voxels,
@@ -477,6 +470,7 @@ namespace SteelCity.Sim
                 {
                     int idx = Mathf.RoundToInt((list.Count - 1) * (float)k / (want - 1));
                     silhouetteSamples.Add((kv.Key, list[idx]));
+                    if (kv.Key > silMaxGid) silMaxGid = kv.Key;
                 }
             }
         }
@@ -503,12 +497,23 @@ namespace SteelCity.Sim
             var dims = new Vector3Int(dimX, dimY, dimZ);
             Vector4 trans = TransParams(ic, null, out float depthA);
 
+            // The samples span ~10 pose groups with ~4 points each — every point of a
+            // group rides the SAME chain, so evaluate it once per group (lazy, scratch
+            // reused across calls) instead of once per sample (~40 chain evals/probe).
             int n = Mathf.Min(silhouetteSamples.Count, dst.Length);
+            if (silPoseScratch == null || silPoseScratch.Length <= silMaxGid)
+            { silPoseScratch = new VoxelCharacterAnimator.GroupPose[silMaxGid + 1]; silPoseValid = new bool[silMaxGid + 1]; }
+            System.Array.Clear(silPoseValid, 0, silPoseValid.Length);
             for (int i = 0; i < n; i++)
             {
                 var s = silhouetteSamples[i];
-                Vector3 posed = anim.PosePoint(s.rest, s.gid, dims, state, time, speed,
-                    trans.x, trans.y, trans.z, trans.w, duck, depthA, gait);
+                if (!silPoseValid[s.gid])
+                {
+                    silPoseScratch[s.gid] = anim.PreparePose(s.gid, dims, state, time, speed,
+                        trans.x, trans.y, trans.z, trans.w, duck, depthA, gait);
+                    silPoseValid[s.gid] = true;
+                }
+                Vector3 posed = VoxelCharacterAnimator.ApplyPose(in silPoseScratch[s.gid], s.rest, dims);
                 dst[i] = CellToWorld(posed, dims, out _);
             }
             return n;

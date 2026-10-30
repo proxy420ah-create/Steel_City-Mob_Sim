@@ -314,6 +314,7 @@
   - Measured eye/shoulder/muzzle offsets (muzzle ~12.5 cm lateral of the eye), solve order, GPU/CPU/JS channel gaps (head override CPU-only, one arm channel pair), 5 phases with trace gates; two-handed rifle/shotgun path
   - Runtime safety net already shipped: `muzzleShootGate` (shootable = eye ∧ muzzle visible) — see `docs/known_issues/runtime/EYE_SEES_MUZZLE_CANT_SHOOTABLE_GAP.md`
   - Deferred: rise-retry cadence + interruption policy (wait Tan mobility), lookScan slot, branch table, per-weapon cylinders
+- **`docs/systems/COMBAT_PERFORMANCE_REVIEW.md`** — End-to-end combat performance review (Oct 29): what's already optimal, what was costing (redundant pose eval + per-frame garbage), shipped behavior-identical fixes with offline proof (`Tools/anim_selftest/run.sh`: 156k bit-exact checks, 2.6–3.6× probe pose), group-fight scaling map, and a ranked backlog of behavior-affecting items awaiting decisions (rescan gating, probe cadence, timing consistency)
 - **`docs/systems/COVER_HEIGHTFIELD.md`** — SPEC: measured-body cover rebuild — silhouette-top `h(d)` instead of eye constants
   - `ColumnTopY` ground probe (standing on voxels is additive), `wallIdxOf` cell bookkeeping, Step layer (step-up nav), digit-atlas height blit into the field overlay
   - Canonical scale: Vinny = 0.62m (62 vox @ 0.01); world voxels = 0.05m
@@ -407,6 +408,7 @@
   - Bucket mapping (removed-count → tink/crack/crash); `PlayClipAtPoint` requires an active `AudioListener`
   - Generalizable sound palette (gunshot/ricochet/footstep/engine) + `SynthRecipe` struct → HTML editor path
   - **Editor built**: `VoxelAssetStudio/audio_studio.html` — layer-based synth (attack/partials/noiseTail/sweep), ADSR, presets, spectrum, 🎲 seeded variants, `.stsound` JSON export
+- **`docs/systems/SFX_SOUND_CATALOG.md`** — Living design log: per-sound intent, recipe anatomy, tuning history, variant families (every sound gets an entry; recipes hold numbers, this holds the why)
 - **`docs/systems/SFX_PIPELINE.md`** — Runtime audio architecture handoff (delegate SFX work here)
   - Event flow: `ShotResolved` family — ProjectileSystem owns gunshot, SurfaceImpactAudio owns impact/ricochet, VoxelDamageSystem owns glass
   - `sounds/Impacts/` one-folder-two-pools split by filename; `LiveTesting/` exclusive test pool; per-file `.cull.json` sidecars (variant culls + gain/volume trims)

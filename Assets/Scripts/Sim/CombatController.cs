@@ -448,12 +448,17 @@ namespace SteelCity.Sim
                 YawForce[kvp.Key] = Mathf.Lerp(
                     YawForce.TryGetValue(kvp.Key, out var cur2) ? cur2 : 0f,
                     kvp.Value / fdt, k);
-            var keys = new List<string>(YawForce.Keys);
-            foreach (var key in keys)
+            yawKeysScratch.Clear();
+            yawKeysScratch.AddRange(YawForce.Keys);   // snapshot — the loop below writes YawForce
+            for (int ki = 0; ki < yawKeysScratch.Count; ki++)
+            {
+                var key = yawKeysScratch[ki];
                 if (!yawAccum.ContainsKey(key))
                     YawForce[key] = Mathf.Lerp(YawForce[key], 0f, k);
+            }
             yawAccum.Clear();
         }
+        private readonly List<string> yawKeysScratch = new List<string>(8);   // per-frame snapshot buffer — was `new List<string>` every LateUpdate per fighter
 
         // --- Cover parameters live on CoverSensor (the always-on awareness sense);
         // these stay as proxies so existing HUD sliders keep working. ---
@@ -797,10 +802,13 @@ namespace SteelCity.Sim
         void OnSfxHeard(Vector3 origin, float range, float refDist, string tag, Component shooter)
         {
             if (tag != "gunshot" || shooter == null) return;
-            var shotVox = shooter.GetComponentInParent<VoxelCharacter>();
-            if (shotVox == null || shotVox == vox) return;                 // no actor / own report
+            // Cheapest filter first (pure distance — most listeners are out of earshot
+            // or uninvolved), identity lookup only for the survivors: one broadcast
+            // used to cost every listener a GetComponentInParent.
             float d = Vector3.Distance(Feet(), origin);
             if (SfxWaves.AmplitudeAt(d, refDist, range) <= 0f) return;     // outside earshot
+            var shotVox = (shooter as WeaponMount)?.Character ?? shooter.GetComponentInParent<VoxelCharacter>();
+            if (shotVox == null || shotVox == vox) return;                 // no actor / own report
             if (shotVox != ThreatCharacter && shotVox != watchTarget) return; // not my fight
             OnShotHeard(origin);
         }
@@ -2891,6 +2899,9 @@ namespace SteelCity.Sim
         bool trSeen, trHold, trArmed, trAiming;
         int trShots = -1;
         string trState = "", trPose = "", trFire = "", trFlags = "";
+        // Raw-value shadows of the strings above — edge detection compares these so
+        // the per-frame trace tick allocates nothing (strings built on change only).
+        bool trKeysValid; CombatState trStateE; EngagementBeat trBeatE; int trPoseKey = -2, trFlagBits = -1; string trAwaitTxt;
         static string TB(bool b) => b ? "1" : "0";
 
         void TraceW(string tag, string msg)
@@ -2949,6 +2960,7 @@ namespace SteelCity.Sim
         {
             traceNextSnap = 0f; trSeen = trHold = trArmed = trAiming = false;
             trShots = -1; trState = trPose = trFire = trFlags = ""; trDuck = anim != null ? anim.duck : 0f;
+            trKeysValid = false; trPoseKey = -2; trFlagBits = -1; trAwaitTxt = null;
         }
 
         string DiceGateWhy()
@@ -3004,23 +3016,41 @@ namespace SteelCity.Sim
             var lv = (ThreatCharacter != null && sensor != null && sensor.LastVisible.target == ThreatCharacter)
                 ? sensor.LastVisible : default;
             bool cone = lv.visible > 0 && ConeCovers(lv.centroid);
-            string pose = anim != null ? anim.EffectiveState.ToString() : "-";
             float duck = anim != null ? anim.duck : 0f;
             bool aiming = solver != null && solver.IsAiming;
-            string st = $"{State}/{Beat}", fire = FireHold ?? "CLEAR", flags = TraceFlags();
-            string ctx = $"pose={pose} duck={duck:F2} armed={TB(ExposureArmed)} aim={TB(aiming)}";
+            string fire = FireHold ?? "CLEAR";
 
-            if (st != trState) { TraceW("STATE", $"{(trState.Length > 0 ? trState : "—")} → {st}"); trState = st; }
+            // Edge detection runs on RAW values (enums / bools / a flag bitmask) — the
+            // trace strings are built only when something actually changed. This used
+            // to interpolate state, flags and ctx strings (+ enum ToString boxing) on
+            // EVERY frame per fighter just to compare them. Output is identical.
+            bool firstTick = !trKeysValid;
+            bool stChanged = firstTick || State != trStateE || Beat != trBeatE;
+            string st = stChanged ? $"{State}/{Beat}" : trState;    // unchanged → trState IS the current text
+            int poseKey = anim != null ? (int)anim.EffectiveState : -1;
+            string PoseNow() => poseKey < 0 ? "-" : ((CharacterAnimation.AnimState)poseKey).ToString();
+            string Ctx() => $"pose={PoseNow()} duck={duck:F2} armed={TB(ExposureArmed)} aim={TB(aiming)}";
+
+            if (stChanged)
+            {
+                if (st != trState) { TraceW("STATE", $"{(trState.Length > 0 ? trState : "—")} → {st}"); trState = st; }
+                trStateE = State; trBeatE = Beat;
+            }
             if (contactSeen != trSeen)
-            { TraceW("SEE", $"{(contactSeen ? "GAINED" : "LOST")} vis={lv.visible}/{lv.tested} cone={TB(cone)} | {ctx}"); trSeen = contactSeen; }
+            { TraceW("SEE", $"{(contactSeen ? "GAINED" : "LOST")} vis={lv.visible}/{lv.tested} cone={TB(cone)} | {Ctx()}"); trSeen = contactSeen; }
             if (contactHold != trHold)
-            { TraceW("HOLD", $"display-contact {(contactHold ? "ON" : "OFF")} | {ctx}"); trHold = contactHold; }
+            { TraceW("HOLD", $"display-contact {(contactHold ? "ON" : "OFF")} | {Ctx()}"); trHold = contactHold; }
             if (ExposureArmed != trArmed)
-            { TraceW("ARM", $"armed {(ExposureArmed ? "ON" : "OFF")} see={TB(contactSeen)} | {ctx}"); trArmed = ExposureArmed; }
+            { TraceW("ARM", $"armed {(ExposureArmed ? "ON" : "OFF")} see={TB(contactSeen)} | {Ctx()}"); trArmed = ExposureArmed; }
             if (aiming != trAiming)
-            { TraceW("AIM", $"solver {(aiming ? "ARMED" : "STOWED")} | {ctx}"); trAiming = aiming; }
-            if (pose != trPose)
-            { TraceW("POSE", $"{(trPose.Length > 0 ? trPose : "—")} → {pose} | see={TB(contactSeen)} hold={TB(contactHold)} duck={duck:F2}"); trPose = pose; }
+            { TraceW("AIM", $"solver {(aiming ? "ARMED" : "STOWED")} | {Ctx()}"); trAiming = aiming; }
+            if (firstTick || poseKey != trPoseKey)
+            {
+                string pose = PoseNow();
+                if (pose != trPose)
+                { TraceW("POSE", $"{(trPose.Length > 0 ? trPose : "—")} → {pose} | see={TB(contactSeen)} hold={TB(contactHold)} duck={duck:F2}"); trPose = pose; }
+                trPoseKey = poseKey;
+            }
             if (Mathf.Abs(duck - trDuck) > 0.4f)
                 TraceW("DUCK", $"SNAP {trDuck:F2} → {duck:F2} | st={st} leg={TB(diceLegActive)} rchk={TB(diceReconCheck)} armed={TB(ExposureArmed)}");
             trDuck = duck;
@@ -3033,7 +3063,19 @@ namespace SteelCity.Sim
                     TraceW("SHOT", $"#{ShotsFired} cyl={cylinder}/{cylinderCapacity} err={(solver != null ? solver.LastAngularErrorDeg : 0f):F1} st={st}");
                 trShots = ShotsFired;
             }
-            if (flags != trFlags) { TraceW("FLAGS", flags); trFlags = flags; }
+            // FLAGS — same raw-input edge detect: the nine bools + the await text fully
+            // determine TraceFlags(), so the string is only built when one of them moved.
+            int flagBits = (diceRampPending ? 1 : 0) | (diceReconPending ? 2 : 0) | (diceDeepPending ? 4 : 0)
+                         | (diceReconCheck ? 8 : 0) | (diceDeepActive ? 16 : 0) | (diceLegActive ? 32 : 0)
+                         | (reloading ? 64 : 0) | (diceManual ? 128 : 0) | (diceAwaitRoll ? 256 : 0);
+            string awaitNow = diceAwaitRoll ? diceAwaitText : null;
+            if (firstTick || flagBits != trFlagBits || !string.Equals(awaitNow, trAwaitTxt))
+            {
+                string flags = TraceFlags();
+                if (flags != trFlags) { TraceW("FLAGS", flags); trFlags = flags; }
+                trFlagBits = flagBits; trAwaitTxt = awaitNow;
+            }
+            trKeysValid = true;
 
             if (SimClock.Now >= traceNextSnap)
             { traceNextSnap = SimClock.Now + Mathf.Max(0.1f, diceTraceSnapSec); TraceSnap(); }
@@ -4202,8 +4244,7 @@ namespace SteelCity.Sim
             // target. In-cover beats keep their authored head poses.
             if (vox != null)
             {
-                var hSlv = vox.GetComponent<ArmAimSolver>();
-                bool solverOwns = hSlv != null && hSlv.IsAiming;   // aiming rig owns the head (headTrack)
+                bool solverOwns = solver.IsAiming;   // aiming rig owns the head (headTrack) — `solver` is this GO's ArmAimSolver (non-null: guarded at the top)
                 if (State == CombatState.SeekingCover && ThreatCharacter != null && !solverOwns)
                 {
                     Vector3 et = AimAnchor() - transform.position; et.y = 0f;

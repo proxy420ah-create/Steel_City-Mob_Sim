@@ -57,7 +57,24 @@ namespace SteelCity.Sim
         public Vector3 EyeDir { get; private set; } = Vector3.forward;
         public bool EyePosed { get; private set; }
         /// <summary>HUD readout — mirrors the animator's anchor status line.</summary>
-        public string EyeAnchorDesc { get; private set; } = "unresolved";
+        public string EyeAnchorDesc
+        {
+            // Built on READ (HUD only) from the raw resolve result — ResolveEye runs every
+            // frame per fighter and used to allocate this string each time.
+            get
+            {
+                if (!eyeResolved) return "unresolved";
+                if (!EyePosed) return "body fallback (no anim data)";
+                return eyeSrc == VoxelCharacter.EyeAnchorKind.Eyes
+                    ? $"eyes centroid ({eyeVox} vox) — posed"
+                    : eyeSrc == VoxelCharacter.EyeAnchorKind.Face
+                    ? $"face centroid ({eyeVox} vox) — posed"
+                    : "head joint — posed";
+            }
+        }
+        private bool eyeResolved;
+        private VoxelCharacter.EyeAnchorKind eyeSrc;
+        private int eyeVox;
 
         /// <summary>Highest current detection level (0..1) across targets.</summary>
         public float MaxDetection { get; private set; }
@@ -181,22 +198,18 @@ namespace SteelCity.Sim
             Vector3 p = default, f = Vector3.forward;
             VoxelCharacter.EyeAnchorKind src = VoxelCharacter.EyeAnchorKind.None;
             EyePosed = owner != null && owner.TryGetEyeAnchor(out p, out f, out src);
+            eyeResolved = true;
             if (EyePosed)
             {
                 EyePos = p;
                 EyeDir = f;
-                EyeAnchorDesc = src == VoxelCharacter.EyeAnchorKind.Eyes
-                    ? $"eyes centroid ({owner.LastEyeAnchorVox} vox) — posed"
-                    : src == VoxelCharacter.EyeAnchorKind.Face
-                    ? $"face centroid ({owner.LastEyeAnchorVox} vox) — posed"
-                    : "head joint — posed";
+                eyeSrc = src; eyeVox = owner.LastEyeAnchorVox;
             }
             else
             {
                 Vector3 dims = owner != null ? owner.WorldSize : new Vector3(0.6f, 1.8f, 0.6f);
                 EyePos = transform.position + new Vector3(dims.x * 0.5f, eyeFallback, dims.z * 0.5f);
                 EyeDir = transform.forward;
-                EyeAnchorDesc = "body fallback (no anim data)";
             }
         }
 

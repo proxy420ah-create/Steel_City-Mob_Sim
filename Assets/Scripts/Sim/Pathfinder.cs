@@ -255,6 +255,10 @@ namespace SteelCity.Sim
 
         public int Count => items.Count;
 
+        /// <summary>Empty the heap but keep its grown backing capacity — an emptied list
+        /// behaves exactly like a fresh queue, so reuse across floods never changes pop order.</summary>
+        public void Clear() => items.Clear();
+
         public void Enqueue(TElement element, TPriority priority)
         {
             items.Add((element, priority));

@@ -117,7 +117,10 @@ namespace SteelCity.Sim
             var r = LoadRecipe(streamingAssetsRelPath);
             var clip = r != null ? SynthFromRecipe(r, bypassCache: true) : null;
             if (clip == null) return null;   // never cache a failure — a missing/overridden file retries next call
-            if (e?.clip != null) UnityEngine.Object.Destroy(e.clip);
+            // Deferred retire — destroying the old clip NOW would cut any source
+            // still playing it at a non-zero sample (hot-reload click). Sources
+            // that started earlier finish within clip.length; +1 s of margin.
+            if (e?.clip != null) UnityEngine.Object.Destroy(e.clip, e.clip.length + 1f);
             fileClips[streamingAssetsRelPath] = new FileEntry { clip = clip, stamp = stamp };
             if (e != null && clip != null)
                 Debug.Log($"[ProceduralAudio] 🔊 hot-reloaded {streamingAssetsRelPath}");
@@ -187,6 +190,7 @@ namespace SteelCity.Sim
             float n_ = note ?? r.rootNote;
             string key = $"{r.name}|{n_:F2}|{vel:F3}";
             if (!bypassCache && cache.TryGetValue(key, out var hit)) return hit;
+            var synthWatch = System.Diagnostics.Stopwatch.StartNew();
 
             int n = Mathf.Max(1, Mathf.RoundToInt(Rate * r.duration));
             var smp = new float[n];
@@ -331,9 +335,20 @@ namespace SteelCity.Sim
                     smp[i] = dry[i] * (1f - mix) + wet[i] * mix;
             }
 
-            float g = r.gain * vel;
+            // gain/vel scale AFTER the tanh limiter, so a trim > 1 pushes the waveform
+            // past full scale and the mixer hard-clips it (flat-topped decay = crackle).
+            // SoftLimit rounds only the overs (knee 0.95 — in-range sounds stay bit-exact
+            // with the studio); peak is logged so a hot trim is visible, not guessed.
+            float g = r.gain * vel, peak = 0f;
             for (int i = 0; i < n; i++)
-                smp[i] = Mathf.Clamp((float)Math.Tanh(smp[i] * r.drive), -1f, 1f) * g;
+            {
+                float y = (float)Math.Tanh(smp[i] * r.drive) * g;
+                float ay = Mathf.Abs(y);
+                if (ay > peak) peak = ay;
+                smp[i] = SoftLimit(y);
+            }
+            if (peak > 1f)
+                Debug.LogWarning($"[ProceduralAudio] 🔊 {r.name} peak {peak:F2} > 1.0 — soft-limited (trim/gain too hot: lower recipe gain or the sidecar gain ×)");
 
             // Master trims — global fades on the whole mix (0 = off). tailFade
             // still runs after as the click guard; the fades compose.
@@ -358,7 +373,18 @@ namespace SteelCity.Sim
             var clip = AudioClip.Create($"sts_{r.name}", n, 1, Rate, false);
             clip.SetData(smp, 0);
             if (!bypassCache) cache[key] = clip;
+            if (synthWatch.ElapsedMilliseconds >= 8)
+                Debug.Log($"[ProceduralAudio] 🔊 synth {r.name} took {synthWatch.ElapsedMilliseconds} ms on the main thread ({n / (float)Rate:F2}s clip) — first-play hitch; cached after");
             return clip;
+        }
+
+        const float LimitKnee = 0.95f;
+        static float SoftLimit(float y)
+        {
+            float a = Mathf.Abs(y);
+            if (a <= LimitKnee) return y;
+            float room = 1f - LimitKnee;
+            return Mathf.Sign(y) * (LimitKnee + room * (float)Math.Tanh((a - LimitKnee) / room));
         }
 
         static float EnvOf(SoundRecipe r, RecipeLayer L, float t, float ds)

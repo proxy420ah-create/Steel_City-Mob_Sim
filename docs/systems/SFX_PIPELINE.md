@@ -2,6 +2,7 @@
 
 **Status**: ✅ Live — gunshot + surface impacts + glass all play in game
 **Read first**: `docs/systems/PROCEDURAL_AUDIO.md` (synthesis math, `.stsound` schema v4, audio_studio.html)
+**Design layer**: `docs/systems/SFX_SOUND_CATALOG.md` — per-sound intent, anatomy, tuning history (living doc; every sound gets an entry)
 **Key files**: `Assets/Scripts/Sim/ProceduralAudio.cs`, `SurfaceImpactAudio.cs`, `ProjectileSystem.cs`, `VoxelDamageSystem.cs`, `DebugHUDManager.cs` (Sfx tab), `VoxelAssetStudio/audio_studio.html`
 
 ---
@@ -11,7 +12,7 @@
 `.stsound` JSON recipes (authored in `audio_studio.html`, saved into `Assets/StreamingAssets/sounds/`) → `ProceduralAudio.LoadRecipe` (JSON → `SoundRecipe`) → `SynthFromRecipe` (sample-level synth → `AudioClip`, mulberry32 bit-exact vs the studio) → `ProceduralAudio.PlayAt` (positional `AudioSource`, linear rolloff `refDist`→`audibleRange`) + `SfxWaves.Report` (semantic `Heard` event → AI hearing) + `SfxWaves.Emit` (expanding wireframe shell for the debug layer — visual only).
 
 Two loudness stages, deliberately separate:
-- **gain ×** = sample amplitude at synth (`vel` param multiplies `recipe.gain` — REAL loudness, clips >1)
+- **gain ×** = sample amplitude at synth (`vel` param multiplies `recipe.gain` — applied AFTER the tanh limiter, so a trim pushing peak > 1.0 is soft-limited by `ProceduralAudio.SoftLimit` (knee 0.95) and warns `peak X > 1.0` in the console. Treat that warning as "trim too hot": over-full-scale audio saturates/crackles instead of getting louder)
 - **level ×** = `AudioSource.volume` (caps at 1, then distance-rolled-off — a mixer fader)
 
 ## 2. Sound families and who owns them
@@ -47,6 +48,7 @@ Two loudness stages, deliberately separate:
 
 - **`modVariants`** bounded child slots per file (default 8). Child `vN` = `MutateRecipe(base, VariantSeed(file, N))` — a FIXED seed per (file, slot), so `v03` sounds the same in panel audition and in game.
 - Per hit: seeded pick → file → seeded pick → kept slot → `MutateRecipe` → `SynthFromRecipe` → play. One authored file = a family of children.
+- **Variant clips are cached** (`SurfaceImpactAudio.variantCache`, key = `rel | slot | vel | recipe write-time`). The original path ran `LoadRecipe` + `MutateRecipe` + uncached `SynthFromRecipe` **on the main thread per impact** — disk IO + JSON clone + full PCM render + ~1.5 MB allocs per bullet landing → frame stalls + GC churn → mixer crackle right after each bang. The set is bounded so caching is safe; the write-time in the key keeps studio-save hot-reload, and stale clips are never Destroyed mid-play.
 - **Culling**: SFX panel ▸-expand on a file shows `v01…vN` cells (▶ audition + keep-checkbox); unchecked children never play (all culled → authored file, `vbase`).
 
 ## 6. Per-file tuning — sidecar JSON

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Profiling;
 
 namespace SteelCity.Sim
 {
@@ -105,8 +106,10 @@ namespace SteelCity.Sim
         public struct ScanStats
         {
             public int obstacles, wallCols, wallsLo, wallsCrouch, wallsFull, facing, tested, valid;
+            /// <summary>Ground raycasts this scan actually fired for wall stand-spots (cache MISSES — 0 = fully served from the persistent support cache).</summary>
+            public int supportProbes;
             public Dictionary<string, int> reasons;
-            public void Reset() { obstacles = wallCols = wallsLo = wallsCrouch = wallsFull = facing = tested = valid = 0;
+            public void Reset() { obstacles = wallCols = wallsLo = wallsCrouch = wallsFull = facing = tested = valid = supportProbes = 0;
                 reasons ??= new Dictionary<string, int>(); reasons.Clear(); }
         }
 
@@ -218,7 +221,14 @@ namespace SteelCity.Sim
             {
                 dataWasLive = true;
                 if ((p - lastScanPos).sqrMagnitude >= rescanMoveDist * rescanMoveDist) Refresh(true);
-                else if (Time.unscaledTime >= nextScan) Refresh();
+                else if (Time.unscaledTime >= nextScan)
+                {
+                    // Timer rescan — only worth running if the scan's INPUTS changed. An
+                    // identical rescan rebuilds the whole field and bumps BuildStamp, which
+                    // throws away every cached flood for no new information.
+                    if (ScanInputsUnchanged(p)) nextScan = Time.unscaledTime + scanInterval;
+                    else Refresh();
+                }
             }
             else if (dataWasLive) { ClearViz(); dataWasLive = false; }
             if (showRing) { DrawRing(p); ringLive = true; }   // live radius indicator — not scan data
@@ -233,10 +243,13 @@ namespace SteelCity.Sim
         /// <summary>Any live consumer of field data: an armed threat, a beam
         /// viz toggle, or a cover V-mode. Combat picks bypass this entirely —
         /// they force a scan at request time.</summary>
-        bool ConsumersWantData()
+        bool ConsumersWantData() => HasThreat || VizWantsData();
+
+        /// <summary>A debug display (beam toggle or cover V-mode) is consuming the field — the
+        /// scan-reuse gate stands down so a viz toggle always repaints on the legacy cadence.</summary>
+        bool VizWantsData()
         {
-            if (HasThreat || showFootprints || showWalls || showCandidates
-                || showLos || showHeat) return true;
+            if (showFootprints || showWalls || showCandidates || showLos || showHeat) return true;
             if (chunkManager == null) chunkManager = FindFirstObjectByType<VoxelChunkManager>();
             if (chunkManager != null)
             {
@@ -248,6 +261,48 @@ namespace SteelCity.Sim
             return false;
         }
 
+        // ── Scan reuse (timer rescans only) ───────────────────────────────
+        // Everything Scan() reads: owner position, threat, the world's voxel edit stamp
+        // (WalkLayer.Version — every write funnels through Invalidate), the dynamic
+        // vehicle set, and the tunables. Equal key ⇒ the rebuilt field would be identical.
+        // Conservative by construction: moving vehicles (excluded from cover, `IsMoving`
+        // flips on a timer), no WalkLayer (edits untracked), or any active debug viz
+        // all fall back to the legacy always-rescan cadence.
+        struct ScanKey
+        {
+            public Vector3 pos, threat; public bool hasThreat;
+            public int worldVer, moving, res;
+            public float radius, standoff, wallFloor, facingDot, threatEye, proxWeight, depthMargin;
+        }
+        private ScanKey lastKey; private bool haveKey;
+
+        ScanKey CurrentKey(Vector3 p) => new ScanKey
+        {
+            pos = p, hasThreat = Threat.HasValue, threat = Threat ?? default,
+            worldVer = world != null && world.Walk != null ? world.Walk.Version : -1,
+            moving = VoxelVehicle.MovingNear(p, radius), res = fieldRes,
+            radius = radius, standoff = standoff, wallFloor = wallFloor, facingDot = facingDot,
+            threatEye = threatEye, proxWeight = proxWeight, depthMargin = depthMargin,
+        };
+
+        bool ScanInputsUnchanged(Vector3 p)
+        {
+            if (!haveKey || world == null || world.Walk == null || VizWantsData()) return false;
+            var k = CurrentKey(p);
+            if (k.moving != 0 || lastKey.moving != 0) return false;           // dynamic world near us — never reuse
+            // Geometry: only edits that landed INSIDE this scan's window matter (a bullet hole across
+            // the map must not flush the field). Ring overflow / InvalidateAll ⇒ "changed".
+            float wr = radius + 1f;
+            if (world.Walk.ChangedSince(lastKey.worldVer, new Bounds(p, new Vector3(wr * 2f, 1000f, wr * 2f)))) return false;
+            return (k.pos - lastKey.pos).sqrMagnitude < 1e-6f                 // < 1 mm
+                && k.hasThreat == lastKey.hasThreat && k.threat == lastKey.threat
+                && k.res == lastKey.res
+                && k.radius == lastKey.radius && k.standoff == lastKey.standoff
+                && k.wallFloor == lastKey.wallFloor && k.facingDot == lastKey.facingDot
+                && k.threatEye == lastKey.threatEye && k.proxWeight == lastKey.proxWeight
+                && k.depthMargin == lastKey.depthMargin;
+        }
+
         /// <summary>Run the scan (rate-limited by callers — pass force for demand scans).</summary>
         public void Refresh(bool force = false)
         {
@@ -257,7 +312,10 @@ namespace SteelCity.Sim
             nextScan = Time.unscaledTime + scanInterval;
             lastScanPos = SelfPos();
             Scan(lastScanPos);
+            lastKey = CurrentKey(lastScanPos); haveKey = true;   // the inputs this field was built from
+            Profiler.BeginSample("CoverSensor.Redraw");
             Redraw();
+            Profiler.EndSample();
             Notify();
         }
 
@@ -460,6 +518,13 @@ namespace SteelCity.Sim
 
         void Scan(Vector3 pos)
         {
+            Profiler.BeginSample("CoverSensor.Scan");
+            ScanCore(pos);
+            Profiler.EndSample();
+        }
+
+        void ScanCore(Vector3 pos)
+        {
             stats.Reset();
             walls.Clear(); candidates.Clear(); candEyes.Clear();
             chosenIdx = -1;
@@ -493,6 +558,7 @@ namespace SteelCity.Sim
             if (world.TryColumnTop(pos, 0.5f, 1.5f, out float gy)) supportY = gy;
             SupportY = supportY;
 
+            Profiler.BeginSample("Scan.Query");
             stats.obstacles = world.QueryVolumes(pos, radius, obstacleBuf);
             // Walls tall enough to matter, with an open side at the deepest
             // silhouette-top band — the permissive superset; per-wall required
@@ -501,9 +567,11 @@ namespace SteelCity.Sim
             // hint — each wall is classified against the ground at ITS stand-spot.
             world.QueryCoverWalls(pos, radius, wallFloor, supportY + h1 - 0.3f, wallBuf);
             stats.wallCols = wallBuf.Count;
+            Profiler.EndSample();
+            Profiler.BeginSample("Scan.Classify");
 
             volDepth.Clear(); volClass.Clear();
-            supportCache.Clear();
+            SyncSupportCache(world.Walk);
             Vector3 tp = Threat ?? default;
             bool hasT = Threat.HasValue;
             for (int i = 0; i < wallBuf.Count; i++)
@@ -546,6 +614,7 @@ namespace SteelCity.Sim
                     { volDepth[w.volumeId] = reqD; volClass[w.volumeId] = cls; }
                 }
             }
+            Profiler.EndSample();
             stats.facing = 0;
             if (hasT)
             {
@@ -557,12 +626,16 @@ namespace SteelCity.Sim
             // (cover-height faces are cover no matter who's shooting), so the
             // V-key cover modes paint passively. The threat combine inside
             // Build only runs when a threat exists.
+            Profiler.BeginSample("CoverField.Build");
             field.Build(pos, Threat, radius, walls, world, standoff, HShallow, EyeFwd,
                 threatEye, facingDot, proxWeight, fieldRes, HDeep, EyeFwdDeep, HStand, depthMargin);
+            Profiler.EndSample();
             // Moving vehicles: their occupied + swept cells go into the field's dynamic mask so every
             // flood/pick built on this scan prices them (cars invalidate the map as they drive).
             field.ClearDynBlock();
+            Profiler.BeginSample("Scan.Vehicles");
             VoxelVehicle.PaintMovingFootprints(field, world, 1.5f);
+            Profiler.EndSample();
             // The actor's ground signature: one square column, the SAME square
             // the mover claims — every Walkable verdict on this field answers
             // "can the body-square be placed here" at continuous resolution
@@ -580,7 +653,7 @@ namespace SteelCity.Sim
                 field.bodyStepUp = ccl != null ? ccl.stepUpMax : 0.15f;
                 field.walkBodyH = vc.WorldSize.y;   // fit verdicts cache at THIS height next build
             }
-            if (hasT) DeriveCandidates(tp);
+            if (hasT) { Profiler.BeginSample("Scan.Candidates"); DeriveCandidates(tp); Profiler.EndSample(); }
         }
 
         /// <summary>
@@ -610,17 +683,50 @@ namespace SteelCity.Sim
             }
         }
 
-        private readonly Dictionary<long, float> supportCache = new();
+        // Ground height at a wall's stand-spot is a property of the WORLD, not of this scan or this
+        // fighter. It used to be re-probed (a raycast per distinct 0.1 m cell, thousands per scan) after
+        // `Clear()` on every scan — the bulk of Scan.Classify. Now ONE static cache is shared by every
+        // sensor and kept alive across scans; it is evicted per-cell from WalkLayer's edit log, so a
+        // bullet hole evicts a handful of cells instead of flushing everything. NaN = probed, no ground
+        // (the per-scan fallback is applied at READ time, so the cache never bakes a fighter's fallback in).
+        private static readonly Dictionary<long, float> supportCache = new();
+        private static WalkLayer supportOwner;
+        private static int supportVer;
+        private const int SupportEvictMaxCells = 4096;   // bigger edit than this ⇒ cheaper to drop the lot
+
+        static long SupportKey(int ix, int iz) => ((long)ix << 32) ^ (uint)iz;
+
+        static void SyncSupportCache(WalkLayer walk)
+        {
+            if (walk == null) { supportCache.Clear(); supportOwner = null; return; }   // edits untracked ⇒ legacy per-scan flush
+            if (supportOwner != walk) { supportCache.Clear(); supportOwner = walk; supportVer = walk.Version; return; }
+            int n = walk.Version - supportVer;
+            if (n == 0) return;
+            if (n > WalkLayer.LogCap) supportCache.Clear();
+            else
+                for (int v = supportVer + 1; v <= walk.Version && supportCache.Count > 0; v++)
+                {
+                    Bounds b = walk.ChangeAt(v);
+                    int x0 = Mathf.FloorToInt((b.min.x - 0.35f) * 10f), x1 = Mathf.FloorToInt((b.max.x + 0.35f) * 10f);
+                    int z0 = Mathf.FloorToInt((b.min.z - 0.35f) * 10f), z1 = Mathf.FloorToInt((b.max.z + 0.35f) * 10f);
+                    long cells = (long)(x1 - x0 + 1) * (z1 - z0 + 1);
+                    if (cells > SupportEvictMaxCells || cells < 0) { supportCache.Clear(); break; }
+                    for (int ix = x0; ix <= x1; ix++)
+                        for (int iz = z0; iz <= z1; iz++) supportCache.Remove(SupportKey(ix, iz));
+                }
+            supportVer = walk.Version;
+        }
 
         /// <summary>Ground height at a stand-spot, cached per scan on a 0.1m
         /// grid so thousands of wall columns share a few probes.</summary>
         private float LocalSupport(Vector3 spot, float fallback)
         {
-            long key = ((long)Mathf.FloorToInt(spot.x * 10f) << 32) ^ (uint)Mathf.FloorToInt(spot.z * 10f);
-            if (supportCache.TryGetValue(key, out float sy)) return sy;
-            sy = world.TryColumnTop(spot, 0.5f, 1.5f, out float gy) ? gy : fallback;
-            supportCache[key] = sy;
-            return sy;
+            long key = SupportKey(Mathf.FloorToInt(spot.x * 10f), Mathf.FloorToInt(spot.z * 10f));
+            if (supportCache.TryGetValue(key, out float sy)) return float.IsNaN(sy) ? fallback : sy;
+            stats.supportProbes++;
+            bool ok = world.TryColumnTop(spot, 0.5f, 1.5f, out float gy);
+            supportCache[key] = ok ? gy : float.NaN;
+            return ok ? gy : fallback;
         }
 
         /// <summary>Column covers a horizontal ray at world height `eye`: solid band spans it.</summary>
@@ -698,6 +804,14 @@ namespace SteelCity.Sim
         }
 
         public bool TryGetVisibleVoxels(VoxelCharacter target, out VisibleSet set)
+        {
+            Profiler.BeginSample("CoverSensor.Probe");
+            bool r = TryGetVisibleVoxelsCore(target, out set);
+            Profiler.EndSample();
+            return r;
+        }
+
+        bool TryGetVisibleVoxelsCore(VoxelCharacter target, out VisibleSet set)
         {
             set = default;
             LastMuzzleVisible = 0; LastBothVisible = 0;

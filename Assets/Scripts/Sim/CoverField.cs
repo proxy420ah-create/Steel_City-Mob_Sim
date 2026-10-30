@@ -1071,15 +1071,34 @@ namespace SteelCity.Sim
         /// without it ever walling them in.</summary>
         public void BuildDistMap(DistMap map, int seedCell,
             System.Collections.Generic.ICollection<int> preferred, float bodyH, float stepUp)
-            => BuildDistMap(map, new[] { seedCell }, preferred, bodyH, stepUp);
+            => BuildDistMap(map, SeedScratch(seedCell), preferred, bodyH, stepUp);
+
+        // Single-seed floods are the common call — one reusable seed array instead
+        // of `new[] { seedCell }` per flood.
+        private readonly int[] seedScratch1 = new int[1];
+        private int[] SeedScratch(int seedCell) { seedScratch1[0] = seedCell; return seedScratch1; }
+
+        // The open set keeps its grown capacity across floods (it used to be a fresh
+        // PriorityQueue per build, regrowing through thousands of enqueues each time).
+        // Clear() restores the exact fresh-queue state — pop order is unchanged.
+        private readonly PriorityQueue<int, float> floodOpen = new PriorityQueue<int, float>();
 
         public void BuildDistMap(DistMap map, int[] seeds,
+            System.Collections.Generic.ICollection<int> preferred, float bodyH, float stepUp)
+        {
+            UnityEngine.Profiling.Profiler.BeginSample("CoverField.BuildDistMap");
+            BuildDistMapCore(map, seeds, preferred, bodyH, stepUp);
+            UnityEngine.Profiling.Profiler.EndSample();
+        }
+
+        void BuildDistMapCore(DistMap map, int[] seeds,
             System.Collections.Generic.ICollection<int> preferred, float bodyH, float stepUp)
         {
             int cells = N * N;
             map.Ensure(cells);
             for (int i = 0; i < cells; i++) { map.dist[i] = DistMap.INF; map.next[i] = -1; }
-            var open = new PriorityQueue<int, float>();
+            var open = floodOpen;
+            open.Clear();
             map.seed = -1; map.ReachedCount = 0;
             bool pref = preferred != null && preferred.Count > 0;
             for (int k = 0; k < seeds.Length; k++)
