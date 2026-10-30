@@ -294,6 +294,12 @@ namespace SteelCity.Sim
         private bool diceReloadAfterMove;     // a reload-cover seek is live - arrival starts the wheel (no extra roll)
         private int  diceReloadCoverTries;    // cover attempts for THIS reload need (2 max, then reload in place)
         private float diceNextRollAt;          // sim-clock (SimClock.Now) gate the next click waits on
+        /// <summary>Threats inside this distance of each other resolve movement continuously: while inside,
+        /// each fighter's next roll is accelerated to NOW (the boundary roll IS the randomized move), so the dice
+        /// keep re-rolling moves until the pair separates. Actual proximity, no belief gate. 0 = off.</summary>
+        [Tooltip("Roll movement until threats separate (min-distance re-roll)")]
+        public float minThreatDistM = 5f;
+        private bool minDistInside;
         private readonly List<CoverField.ZoneSpot> diceSubCands = new List<CoverField.ZoneSpot>(8);
         /// <summary>One logged decision — what was rolled, what it meant in
         /// plain english, and what the NEXT roll decides. kind: 0 info ·
@@ -1009,7 +1015,7 @@ namespace SteelCity.Sim
                 diceRampPending = false; diceReconPending = false;
                 diceReconCheck = false; diceReconBearing = 0; diceReconSettleUntil = 0f;
                 diceDeepPending = false; diceDeepActive = false; diceDeepBare = false;
-                diceLegActive = false; diceLegBuilt = false; diceMoveDone = false; diceSubCands.Clear(); diceReloadAfterMove = false; diceReloadCoverTries = 0;
+                diceLegActive = false; diceLegBuilt = false; diceMoveDone = false; diceSubCands.Clear(); diceReloadAfterMove = false; diceReloadCoverTries = 0; minDistInside = false;
                 diceLog.Clear();
                 diceAwaitText = "first roll";
                 diceRunning = "frame"; diceVerdict = "threat registered"; diceHist = "";
@@ -1086,7 +1092,7 @@ namespace SteelCity.Sim
             diceReconCheck = false; diceReconBearing = 0; diceReconSettleUntil = 0f;
             diceDeepPending = false; diceDeepActive = false;
             if (anim != null) anim.lookScan = reconSavedLook;
-            diceLegActive = false; diceLegBuilt = false; diceMoveDone = false; diceSubCands.Clear(); diceReloadAfterMove = false; diceReloadCoverTries = 0;
+            diceLegActive = false; diceLegBuilt = false; diceMoveDone = false; diceSubCands.Clear(); diceReloadAfterMove = false; diceReloadCoverTries = 0; minDistInside = false;
             diceLog.Clear();
             diceAwaitText = "";
             diceRunning = "—"; diceVerdict = "exit"; diceHist = "";
@@ -2141,6 +2147,32 @@ namespace SteelCity.Sim
                     else if (SimClock.Now >= diceReconSettleUntil) DiceReconVerdict();
                     return;
                 }
+            // MIN-DISTANCE — threats inside minThreatDistM resolve movement continuously
+            // (user: "roll movement until they separate"): while inside the keep-out, this
+            // fighter's next roll is accelerated to NOW — the boundary face roll IS the
+            // randomized move — so the pair keeps re-rolling moves until separated. Actual
+            // feet-to-feet proximity, no belief gate. Both fighters run this independently.
+            if (minThreatDistM > 0f && DiceActive && ThreatCharacter != null)
+            {
+                var occ = ThreatCharacter.GetComponent<CombatController>();
+                Vector3 them = occ != null ? occ.transform.position : ThreatCharacter.transform.position;
+                float d2 = (them - transform.position).sqrMagnitude;
+                float md2 = minThreatDistM * minThreatDistM;
+                bool inside = d2 < md2;
+                if (inside != minDistInside)
+                {
+                    minDistInside = inside;
+                    if (diceTrace) TraceW("MINDIST",
+                        inside ? $"inside {Mathf.Sqrt(d2):F1}m < {minThreatDistM:F1}m — rolling movement"
+                               : "separated — normal rolls resume");
+                }
+                if (inside)
+                {
+                    if (diceAwaitRoll) diceNextRollAt = SimClock.Now;    // the roll is NOW
+                    else ArmRoll("min-dist");
+                }
+            }
+
             // Self-heal — a landed turn with nothing armed re-arms the next
             // decision (manual: heals a dead ROLL button; auto: a stalled
             // boundary). May fire mid-seek — harmless: ArmRoll only stamps
