@@ -390,7 +390,6 @@
       <span class="dk-chip" id="d_msg">0 messages</span>
       <span class="dk-chip" id="d_closed">closed 0</span>
       <span class="dk-sp"></span>
-      <span class="dk-btn" id="d_roomab" title="A: classic primitives · B: voxel-pipeline table">ROOM A</span>
       <span class="dk-btn" id="d_lights" title="lighting rig — adjust / save">💡</span>
       <span class="dk-btn" id="d_navbtn">FILES ▸</span>
       <span class="dk-btn" id="d_swap">SWAP</span>
@@ -1307,6 +1306,7 @@ function initDeck3D(THREE, OrbitControls){
   window.__THREE = THREE; window.__scene = scene; window.__camera = camera;   // DVM-2252 — expose for the char block
   camera.position.set(0, 3.1, 4.9);
   const controls = new OrbitControls(camera, renderer.domElement);
+  window.__controls = controls;                                              // DVM-2252 — orbit handle for the char block/tests
   Object.assign(controls, { enableDamping:true, dampingFactor:.12, enablePan:false,
     minDistance:3, maxDistance:8.5, minPolarAngle:.5, maxPolarAngle:1.32,
     minAzimuthAngle:-1.15, maxAzimuthAngle:1.15 });   // constrained: no under-floor, no behind-wall
@@ -1321,63 +1321,18 @@ function initDeck3D(THREE, OrbitControls){
   let lastSlam = 'INIT';
   function mark(){ if (!queued){ queued = true; requestAnimationFrame(frame); } }
   const std = o => new THREE.MeshStandardMaterial(o);
-  const floor = new THREE.Mesh(new THREE.CircleGeometry(4.5, 40), std({color:0x11151d, roughness:.95}));
-  floor.rotation.x = -Math.PI/2; scene.add(floor);
-  const table = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.28, .11, 36), std({color:0x33251a, roughness:.8}));
-  table.position.y = .92;
-  const ped = new THREE.Mesh(new THREE.CylinderGeometry(.13, .2, .9, 20), std({color:0x241a12, roughness:.85}));
-  ped.position.y = .45;
-  scene.add(table, ped);
-
-  /* ── A/B room — B swaps the primitive set for voxel-pipeline assets ──
+  /* ── ROOM B — the voxel-pipeline room is THE room (A prims retired, DVM-2253) ──
      Loader consumes the same steelcity_item JSON the studio exports (dogfooding):
      /voxel/<name> serves Assets/StreamingAssets/voxel_items/<name>.json.
      KIT: file → placement. Building grain (.06u) for shell, fine grain for props —
-     the same scale split the pipeline uses. */
-  const ROOM = { style:'A', vox:null };
+     the same scale split the pipeline uses. The layout below is baked to B —
+     chair ring, mounts, sprite heights are chibi constants, not a style toggle. */
   const KIT = [
     { file:'commission_table', vs:.0093, pos:[0, 0, 0] },
     { file:'commission_floor', vs:.03,   pos:[0, -.09, 0] },     // chibi grain — 4.5m plate covers the seat ring, tops y=0
     { file:'commission_wall',  vs:.03,   pos:[0, 0, -2.295] },   // 4.5x1.8 wall backs the set — front face at z=-2.25
     { file:'commission_filecabinet', vs:.0115, pos:[1.85, 0, -2.03], rotY:-.18 },  // 1920s 4-drawer, back-right corner, back flush (D=.44)
   ];
-  function setRoomStyle(s){
-    ROOM.style = s;
-    const isB = s === 'B' && ROOM.vox;
-    table.visible = ped.visible = floor.visible = wall.visible = !isB;
-    if (ROOM.vox) ROOM.vox.visible = isB;
-    skeys.forEach(k => { const c = chairs[k]; if (!c) return;
-      c.base.visible = c.back.visible = !isB;
-      if (c.voxg) c.voxg.visible = isB;
-      if (!c.g.userData.apos) c.g.userData.apos = c.g.position.clone();
-      c.g.position.copy(c.g.userData.apos).multiplyScalar(isB ? .59 : 1);   // chibi ring — chairs scoot to the 1.34m table (r~1.15)
-      c.lamp.position.y  = isB ? .62 : 1.18;                              // orb rides the voxel chair's back, not the prim chair's
-      c.lpt.position.y   = isB ? .75 : 1.3;
-      c.plate.position.y = isB ? .95 : 1.52;
-      c.plate.scale.set(isB ? .68 : 1.05, isB ? .15 : .23, 1);
-      c.work.position.y  = isB ? 1.12 : 1.86;
-      c.ring.scale.setScalar(isB ? .6 : 1);
-      if (hitList){ const h = c.g.children.find(m => m.userData && m.userData.key);
-        if (h){ h.position.y = isB ? .35 : .75; h.scale.setScalar(isB ? .55 : 1); } } });
-    if (stamp.userData.prim) stamp.userData.prim.visible = !isB;
-    if (stamp.userData.vox) stamp.userData.vox.visible = isB;
-    swaps.forEach(sw => { sw.prim.visible = sw.keepPrim ? true : !isB; sw.vox.visible = isB; });
-    // card + stamp ride table-top height — prim ~1.02/1.7, voxel table tops .49
-    card.position.y = isB ? .51 : 1.02;
-    card.scale.setScalar(isB ? .55 : 1);
-    stamp.position.y = isB ? .62 : 1.7;
-    applyMounts();
-    cardStage = -2; moveCard();              // the card is stage-driven: force the re-seat so it follows its slot to the new wall (CHAIR's orphan survivor)
-    goGlow.position.copy(slotPos(4)); goGlow.position.z += .35;
-    supBulb.position.set(...(isB ? [1.95, 1.5, -2.2] : [2.98, 2.28, -3.38]));   // daemon bulb rides its room's wall
-    supGlow.position.copy(supBulb.position); supGlow.position.z += .12;
-    skeys.forEach(k => { const b = bubbles[k]; if (!b) return;              // speech bubbles re-seat too
-      b.sp.position.y = isB ? 1.25 : 1.98;
-      b.sp.scale.set(isB ? 1.0 : 1.55, isB ? .44 : .68, 1); });
-    const b = document.getElementById('d_roomab');
-    if (b) b.textContent = 'ROOM ' + (isB ? 'B' : 'A');
-    mark();
-  }
   (function loadKit(){
     const g = new THREE.Group(); g.visible = false; scene.add(g);
     let pending = KIT.length;
@@ -1398,7 +1353,7 @@ function initDeck3D(THREE, OrbitControls){
       const part = new THREE.Group(); part.add(im); part.position.set(k.pos[0], k.pos[1], k.pos[2]);
       if (k.rotY) part.rotation.y = k.rotY;
       g.add(part);
-    }).catch(() => {}).finally(() => { if (!--pending){ ROOM.vox = g; setRoomStyle(ROOM.style); } }));
+    }).catch(() => {}).finally(() => { if (!--pending){ g.visible = true; mark(); } }));
     /* chair kit — one voxel build per seat; metaphor sprites (lamp/plate/work)
        stay primitive — they're state, not furniture. Back faces -z like the set. */
     fetch('/voxel/chair').then(r => r.json()).then(m => {   // boss's authored chair — same dims/materials schema, drop-in for commission_chair (C29 step 1)
@@ -1418,10 +1373,9 @@ function initDeck3D(THREE, OrbitControls){
         });
         im.instanceMatrix.needsUpdate = true;
         if (im.instanceColor) im.instanceColor.needsUpdate = true;
-        const g = new THREE.Group(); g.add(im); g.rotation.y = Math.PI; g.visible = false;
+        const g = new THREE.Group(); g.add(im); g.rotation.y = Math.PI;
         c.g.add(g); c.voxg = g;
       });
-      if (ROOM.vox && ROOM.style === 'B') setRoomStyle('B');
       mark();
     }).catch(() => {});
     /* stamper — voxel mallet rides the same stamp group the slam animates */
@@ -1439,16 +1393,14 @@ function initDeck3D(THREE, OrbitControls){
       });
       im.instanceMatrix.needsUpdate = true;
       if (im.instanceColor) im.instanceColor.needsUpdate = true;
-      const vg = new THREE.Group(); vg.add(im); vg.visible = false;
+      const vg = new THREE.Group(); vg.add(im);
       stamp.add(vg); stamp.userData.vox = vg;
-      if (ROOM.vox && ROOM.style === 'B') setRoomStyle('B');
       mark();
     }).catch(() => {});
   })();
-  /* voxSwap — wall-mounted furniture pair-swaps: prim mesh <-> voxel twin at
-     the same anchor; setRoomStyle toggles which side draws (DVM A/B). */
-  const swaps = [];
-  function voxSwap(prim, name, vs, off, keepPrim){
+  /* voxSwap — wall-mounted furniture: a prim anchor (or live canvas) plus its
+     voxel twin at the same mount. ROOM B only — the twin is the draw (DVM-2253). */
+  function voxSwap(prim, name, vs, off){
     fetch('/voxel/' + name).then(r => r.json()).then(m => {
       if (!m.voxels) return;
       const mats = {}; (m.materials || []).forEach(mt => mats[mt.id] = new THREE.Color(mt.hex));
@@ -1462,20 +1414,19 @@ function initDeck3D(THREE, OrbitControls){
       });
       im.instanceMatrix.needsUpdate = true;
       if (im.instanceColor) im.instanceColor.needsUpdate = true;
-      const vg = new THREE.Group(); vg.add(im); vg.visible = false;
+      const vg = new THREE.Group(); vg.add(im);
       vg.position.copy(prim.position);
       if (off) vg.position.add(new THREE.Vector3(off[0], off[1], off[2]));
-      scene.add(vg); swaps.push({prim: prim, vox: vg, keepPrim: !!keepPrim});
+      scene.add(vg);
       const mt = (typeof MOUNTS !== 'undefined') && MOUNTS.find(m => m.prim === prim);
       if (mt){ mt.sw = vg; applyMounts(); }
-      if (ROOM.style === 'B') setRoomStyle('B');
       mark();
     }).catch(() => {});
   }
 
   /* ── lighting rig — studio's 💡 modal pattern: polar key + ambient, live-apply ──
      Persistence: /room_lights.json (shared default) → localStorage → constants. */
-  const LDEF = { kaz:5, kel:85, kint:120, aint:1.4, style:'A' };
+  const LDEF = { kaz:5, kel:85, kint:120, aint:1.4 };
   const LIGHTS = Object.assign({}, LDEF);
   function polarPos(az, el, dist){
     const a = az * Math.PI / 180, e = el * Math.PI / 180;
@@ -1500,8 +1451,8 @@ function initDeck3D(THREE, OrbitControls){
     if (saved) Object.assign(LIGHTS, saved);
     fetch('/room_lights.json').then(r => r.ok ? r.json() : null).then(j => {
       if (j) Object.assign(LIGHTS, j);
-      applyLights(); lpSync(); if (LIGHTS.style) setRoomStyle(LIGHTS.style);
-    }).catch(() => { applyLights(); lpSync(); if (LIGHTS.style) setRoomStyle(LIGHTS.style); });
+      applyLights(); lpSync();
+    }).catch(() => { applyLights(); lpSync(); });
     const lp = document.getElementById('lightpanel');
     document.getElementById('d_lights').onclick = () => lp.classList.toggle('open');
     document.getElementById('lp_x').onclick = () => lp.classList.remove('open');
@@ -1513,31 +1464,22 @@ function initDeck3D(THREE, OrbitControls){
       fetch('/room/lights', { method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify(LIGHTS) }).catch(() => {});
     document.getElementById('lp_reset').onclick = () => { Object.assign(LIGHTS, LDEF); lpSync(); applyLights(); };
-    const ab = document.getElementById('d_roomab');
-    if (ab) ab.onclick = () => { LIGHTS.style = ROOM.style === 'A' ? 'B' : 'A'; setRoomStyle(LIGHTS.style); applyLights(); };
     applyLights(); lpSync();
   })();
   // proposal doc on the table
   const card = new THREE.Mesh(new THREE.PlaneGeometry(.7, .45), new THREE.MeshBasicMaterial({color:0xd8d2c4}));
-  card.rotation.x = -1.25; card.position.set(.15, 1.02, 0); card.visible = false; scene.add(card);
-  // verdict stamp — slams the card once, on transition
+  card.rotation.x = -1.25; card.position.set(.15, .51, 0); card.scale.setScalar(.55);   // chibi table-top (ROOM B)
+  card.visible = false; scene.add(card);
+  // verdict stamp — slams the card once, on transition; the voxel stamper is the only draw (ROOM B)
   const stamp = new THREE.Group();
-  stamp.add(new THREE.Mesh(new THREE.CylinderGeometry(.16, .19, .12, 20), std({color:0x8c2f2f, roughness:.6})));
-  const sHand = new THREE.Mesh(new THREE.CylinderGeometry(.05, .05, .22, 12), std({color:0x241a12}));
-  sHand.position.y = .16; stamp.add(sHand);
-  stamp.position.set(.15, 1.7, 0); stamp.visible = false; scene.add(stamp);
-  const stampPrim = new THREE.Group();
-  stamp.children.slice().forEach(ch => { stamp.remove(ch); stampPrim.add(ch); });
-  stamp.add(stampPrim); stamp.userData.prim = stampPrim;
-  // back wall — pegboard + neon sign get a mount
-  const wall = new THREE.Mesh(new THREE.PlaneGeometry(9, 3.6), std({color:0x0c0f16, roughness:1}));
-  wall.position.set(0, 1.8, -3.55); scene.add(wall);
+  stamp.position.set(.15, .62, 0); stamp.visible = false; scene.add(stamp);
+  // back wall — the KIT's voxel wall carries the pegboard + neon sign mounts
   // neon phase sign + wall-monitor ticker (boss/sys speech lands here, DVM-014)
   // DVM-U: the sign is also the BURN board — phase+ticker on top, token-usage chart below.
   const nCan = document.createElement('canvas'); nCan.width = 512; nCan.height = 400;
   const nTex = new THREE.CanvasTexture(nCan);
   const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 2.03), new THREE.MeshBasicMaterial({map:nTex, transparent:true}));
-  sign.position.set(-1.3, 2.14, -3.4); scene.add(sign);
+  sign.position.set(-1.25, 1.05, -2.245); sign.scale.setScalar(.35); scene.add(sign);   // ROOM B wall mount
   function fmtTok(n){ return n >= 1e6 ? (n/1e6).toFixed(2) + 'M' : n >= 1e3 ? Math.round(n/1e3) + 'K' : '' + Math.round(n); }
   function drawSign(txt, color, tick){
     const c = nCan.getContext('2d'); c.clearRect(0, 0, 512, 400);
@@ -1611,7 +1553,7 @@ function initDeck3D(THREE, OrbitControls){
   const pbCan = document.createElement('canvas'); pbCan.width = 1024; pbCan.height = 240;
   const pbTex = new THREE.CanvasTexture(pbCan);
   const pboard = new THREE.Mesh(new THREE.PlaneGeometry(2.75, .65), new THREE.MeshBasicMaterial({map:pbTex, transparent:true}));
-  pboard.position.set(1.55, 1.98, -3.4); scene.add(pboard);
+  pboard.position.set(1.05, 1.02, -2.245); pboard.scale.setScalar(.65); scene.add(pboard);   // ROOM B wall mount
   (function paintBoard(){
     const c = pbCan.getContext('2d');
     c.fillStyle = '#141a24'; c.fillRect(0, 0, 1024, 240);
@@ -1629,28 +1571,27 @@ function initDeck3D(THREE, OrbitControls){
   const pins = [];
   const goGlow = new THREE.PointLight(0x3fb950, 0, 1.9); goGlow.position.copy(slotPos(4)); goGlow.position.z += .35;
   scene.add(goGlow);
-  const shelf = new THREE.Mesh(new THREE.BoxGeometry(1.5, .04, .3), std({color:0x241a12, roughness:.85}));
-  shelf.position.set(-1.9, 1.28, -3.42); scene.add(shelf);
+  const shelf = new THREE.Group();                                   // anchor only — the voxel shelf carries the draw (DVM-2253)
+  shelf.position.set(-1.35, .48, -2.245); scene.add(shelf);
   const shelfCards = []; let shelfSig = '';
-  const tray = new THREE.Mesh(new THREE.BoxGeometry(.52, .04, .18), std({color:0x241a12, roughness:.85}));
-  tray.position.set(3.0, 1.58, -3.42); scene.add(tray);
+  const tray = new THREE.Group();                                    // anchor only — the voxel tray carries the draw (DVM-2253)
+  tray.position.set(1.55, .42, -2.245); scene.add(tray);
   const trayCards = []; let traySig = '';
-  /* room envelope fit — wall features mount per style: prim wall (A, face
-     z=-3.55) vs chibi wall (B, face z=-2.25). prim sits .02 proud of the
-     face; the voxel twin's center lands at face + depth/2. bs = prim scale
-     for B so canvases/boxes read chibi. */
+  /* room envelope fit — wall features mount on the voxel wall (face z=-2.25).
+     prim anchors sit proud of the face; each voxel twin's center lands at face
+     + depth/2. bs = prim scale so the live canvases read chibi. (DVM-2253: the
+     A-side ap/ao anchors are retired — bp/bo is the only mount.) */
   const MOUNTS = [
-    { prim:sign,   ap:[-1.3, 2.14, -3.4],  bp:[-1.25, 1.05, -2.245], ao:[0,0,-.095],       bo:[0,0,-.045],  bs:.35 },
-    { prim:pboard, ap:[1.55, 1.98, -3.4],  bp:[1.05,  1.02, -2.245], ao:[0,0,-.111],       bo:[0,0,-.029],  bs:.65 },
-    { prim:shelf,  ap:[-1.9, 1.28, -3.42], bp:[-1.35, .48, -2.245],  ao:[0,-.085,-.019],   bo:[0,-.085,-.121], bs:.8 },
-    { prim:tray,   ap:[3.0, 1.58, -3.42],  bp:[1.55,  .42, -2.245],  ao:[0,0,-.067],       bo:[0,0,-.0735], bs:.85 },
+    { prim:sign,   bp:[-1.25, 1.05, -2.245], bo:[0,0,-.045],     bs:.35 },
+    { prim:pboard, bp:[1.05,  1.02, -2.245], bo:[0,0,-.029],     bs:.65 },
+    { prim:shelf,  bp:[-1.35, .48, -2.245],  bo:[0,-.085,-.121], bs:.8  },
+    { prim:tray,   bp:[1.55,  .42, -2.245],  bo:[0,0,-.0735],    bs:.85 },
   ];
   function applyMounts(){
-    const isB = ROOM.style === 'B';
     MOUNTS.forEach(m => {
-      const p = isB ? m.bp : m.ap, o = isB ? m.bo : m.ao;
+      const p = m.bp, o = m.bo;
       m.prim.position.set(p[0], p[1], p[2]);
-      m.prim.scale.setScalar(isB ? m.bs : 1);
+      m.prim.scale.setScalar(m.bs);
       if (m.sw) m.sw.position.set(p[0] + o[0], p[1] + o[1], p[2] + o[2]);
     });
     // Room-B defect ②: orphan children re-lay with their parents — pins ride the
@@ -1660,15 +1601,16 @@ function initDeck3D(THREE, OrbitControls){
     shelfCards.forEach((m, i) => m.position.set(shelf.position.x - .55 + i * .28, shelf.position.y + .07, shelf.position.z + .03));
     trayCards.forEach((m, i) => m.position.set(tray.position.x - .16 + i * .11, tray.position.y + .055, tray.position.z + .03));
   }
-  voxSwap(sign,   'commission_monitor',  .0068, [0, 0, -.095], true);
-  voxSwap(pboard, 'commission_pegboard', .013, [0, 0, -.111], true);
+  applyMounts();                                       // seat the anchors on the B wall now (was: first style toggle)
+  voxSwap(sign,   'commission_monitor',  .0068, [0, 0, -.095]);    // sign/pboard keep their live canvases —
+  voxSwap(pboard, 'commission_pegboard', .013, [0, 0, -.111]);     // the voxel twin sits behind the face
   voxSwap(shelf,  'commission_shelf',    .0164, [0, -.085, -.019]);
   voxSwap(tray,   'commission_tray',     .0167, [0, 0, -.067]);
   /* DVM-922: daemon-health wall bulb — reads presence_SUPERVISOR.js live.
      Same honesty law as the seat burns: fresh stamp -> green beat, stale -> dark. */
   const supBulb = new THREE.Mesh(new THREE.SphereGeometry(.07, 16, 12),
     new THREE.MeshBasicMaterial({color:0x2a2f36}));
-  supBulb.position.set(2.98, 2.28, -3.38); scene.add(supBulb);
+  supBulb.position.set(1.95, 1.5, -2.2); scene.add(supBulb);            // daemon bulb rides the voxel wall (ROOM B)
   const supGlow = new THREE.PointLight(0x3fb950, 0, 1.1);
   supGlow.position.copy(supBulb.position); supGlow.position.z += .12; scene.add(supGlow);
   function syncSupBulb(){
@@ -1726,8 +1668,7 @@ function initDeck3D(THREE, OrbitControls){
       const can = document.createElement('canvas'); can.width = 340; can.height = 150;
       const tex = new THREE.CanvasTexture(can);
       const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:tex, transparent:true, opacity:0}));
-      const bR = ROOM.style === 'B' && ROOM.vox;
-      sp.scale.set(bR ? 1.0 : 1.55, bR ? .44 : .68, 1); sp.position.set(0, bR ? 1.25 : 1.98, 0);
+      sp.scale.set(1.0, .44, 1); sp.position.set(0, 1.25, 0);            // ROOM B mount
       ch.g.add(sp);
       b = bubbles[k] = { can, tex, sp, op:0, t0:0, until:0 };
     }
@@ -1755,32 +1696,30 @@ function initDeck3D(THREE, OrbitControls){
   const skeys = Object.keys(SEATS);
   skeys.forEach((k, i) => {
     const a = (i / skeys.length) * Math.PI * 2 - Math.PI/2;
-    const g = new THREE.Group(); g.position.set(Math.sin(a) * 1.95, 0, Math.cos(a) * 1.95); g.lookAt(0, 0, 0);
-    const hex = SEAT_HEX[k], seatM = std({color:0x1c2230, roughness:.8});
-    const base = new THREE.Mesh(new THREE.BoxGeometry(.55, .09, .55), seatM); base.position.y = .42;
-    const back = new THREE.Mesh(new THREE.BoxGeometry(.55, .62, .08), seatM); back.position.set(0, .78, -.3);
+    const g = new THREE.Group(); g.position.set(Math.sin(a) * 1.15, 0, Math.cos(a) * 1.15); g.lookAt(0, 0, 0);   // ROOM B chibi ring (1.95 × .59 ≈ r1.15)
+    const hex = SEAT_HEX[k];
     const lampM = new THREE.MeshBasicMaterial({color:hex});
-    const lamp = new THREE.Mesh(new THREE.SphereGeometry(.07, 14, 12), lampM); lamp.position.set(0, 1.18, -.3);
-    const lpt = new THREE.PointLight(hex, 0, 2.4); lpt.position.set(0, 1.3, -.3);
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(.07, 14, 12), lampM); lamp.position.set(0, .62, -.3);
+    const lpt = new THREE.PointLight(hex, 0, 2.4); lpt.position.set(0, .75, -.3);
     const ring = new THREE.Mesh(new THREE.RingGeometry(.34, .52, 32),
       new THREE.MeshBasicMaterial({color:0xd29922, transparent:true, opacity:0, side:THREE.DoubleSide}));
-    ring.rotation.x = -Math.PI/2; ring.position.y = .02;
+    ring.rotation.x = -Math.PI/2; ring.position.y = .02; ring.scale.setScalar(.6);
     const pc = document.createElement('canvas'); pc.width = 256; pc.height = 56;
     const pctx = pc.getContext('2d'); pctx.font = '700 28px Consolas,monospace'; pctx.textAlign = 'center';
     pctx.fillStyle = '#e6edf3'; pctx.fillText(SEATS[k].name, 128, 28);
     pctx.fillStyle = SEAT_CSS[k]; pctx.fillRect(58, 40, 140, 4);
     const plate = new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(pc), transparent:true, opacity:.92}));
-    plate.scale.set(1.05, .23, 1); plate.position.set(0, 1.52, 0);
+    plate.scale.set(.68, .15, 1); plate.position.set(0, .95, 0);
     /* WORKING/COMPOSING label (DVM-016) — white text drawn once; the material color
        tints it, so the blink is a white↔seat-color flip, not a redraw. */
     const wc = document.createElement('canvas'); wc.width = 256; wc.height = 48;
     const wctx = wc.getContext('2d'); wctx.font = '800 30px Consolas,monospace'; wctx.textAlign = 'center';
     const work = new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(wc), transparent:true, opacity:.95}));
-    work.scale.set(.9, .17, 1); work.position.set(0, 1.86, 0); work.visible = false;
+    work.scale.set(.9, .17, 1); work.position.set(0, 1.12, 0); work.visible = false;
     const hit = new THREE.Mesh(new THREE.BoxGeometry(.8, 1.5, .8), new THREE.MeshBasicMaterial({visible:false}));
-    hit.position.y = .75; hit.userData.key = k;
-    g.add(base, back, lamp, lpt, ring, plate, work, hit); scene.add(g);
-    chairs[k] = { g, lamp, lampM, lpt, ring, plate, base, back, hex, work, wctx, wtex: work.material.map, wword: '' };
+    hit.position.y = .35; hit.scale.setScalar(.55); hit.userData.key = k;   // ROOM B seat hitbox
+    g.add(lamp, lpt, ring, plate, work, hit); scene.add(g);
+    chairs[k] = { g, lamp, lampM, lpt, ring, plate, hex, work, wctx, wtex: work.material.map, wword: '' };
     hitList.push(hit);
   });
 
@@ -1796,7 +1735,6 @@ function initDeck3D(THREE, OrbitControls){
   function syncScene(){
     for (const k of skeys){
       const st = lampState(k), c = chairs[k], ghost = st === 'vacant';
-      [c.base, c.back].forEach(m => { m.material.transparent = ghost; m.material.opacity = ghost ? .25 : 1; });
       c.plate.material.opacity = ghost ? .3 : .92;
       c.lamp.visible = !ghost;
       c.lampM.color.set(st === 'ember' ? 0xb05900 : (st === 'lit' || st === 'throne') ? c.hex : 0x333842);
@@ -1806,7 +1744,7 @@ function initDeck3D(THREE, OrbitControls){
       const hasFloor = DS.turn === k, silent = DS.silentK === k, ghostFloor = DS.ghostK === k;   // DVM-015 §6c red; C1 violet — renamed: `ghost` is the vacant-chair flag two lines up
       c.ring.material.color.setHex(ghostFloor ? 0xbc8cff : (hasFloor && st === 'dead') ? 0xb05900 : silent ? 0xff3b30 : 0xd29922);  // DVM-017 §3: ember floor — the token rests on a dead seat
       c.ring.material.opacity = hasFloor ? (silent || ghostFloor || st === 'dead' ? .55 : .85) : 0;
-      c.plate.position.y = hasFloor ? (ROOM.style === 'B' ? 1.05 : 1.62) : (ROOM.style === 'B' ? .95 : 1.52);   // floor-hold lift rides the room, not an A-origin constant
+      c.plate.position.y = hasFloor ? 1.05 : .95;          // floor-hold lift on the chibi chair
     }
     applyLights(false);          // single source: rig values + adjourn dimming live together
     moveCard();                                    // pegboard reads real state, slots named by propStage()
@@ -1968,101 +1906,185 @@ if (new URLSearchParams(location.search).has('demo')) runDemo();
 window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, LEGACY_SEAT };
 </script>
 <script>
-/* ── DVM-2252 — walkable Vinny: char loader + poser + WASD + bounds + cam ── */
+/* ── DVM-2252 — walkable Vinny: Civilian1 rig · Civilian_01 wardrobe · animator pose port · Unity gait driver · WASD + bounds ── */
 (async () => {
   while (!window.__THREE) await new Promise(r => setTimeout(r, 100));   // wait for the module to expose the scene
   const THREE = window.__THREE, scene = window.__scene, camera = window.__camera;
-  const WALK = 2.5, SPRINT = 2.2, TURN = 10;                    // Unity constants (DVM-2252)
-  const rig = await fetch('/char/Civilian1').then(r => r.json());
-  const params = rig.animParams || {};                           // dict-keyed pose recipes
-  const pivots = rig.pivots || {};                               // {i:{x,y,z}} normalized pivots
-  const bodyGroups = rig.bodyGroups || [];                       // 10 groups, each {name, voxels:[{x,y,z,m}]}
-  const dims = rig.dims || [96, 96, 96];
-  const VS = rig.voxelSize || .01;
-  const CH = new THREE.Group(); scene.add(CH);                   // the character root
-  const grpMesh = {};                                            // name -> InstancedMesh
-  const grpVox = {};                                             // name -> [{x,y,z,mat}]
-  const idToName = {}; bodyGroups.forEach(g => idToName[g.id] = g.name);
-  const matById = {}; (rig.materials || []).forEach(m => matById[m.id] = m);
-  (rig.voxels || []).forEach(v => {                              // [x,y,z,matId] → group via rig.groups
-    const gid = (rig.groups || {})[v[0] + ',' + v[1] + ',' + v[2]];
-    const gname = idToName[gid] || 'Body';
-    (grpVox[gname] = grpVox[gname] || []).push({x: v[0], y: v[1], z: v[2], mat: v[3]});
-  });
-  bodyGroups.forEach(g => {
-    const voxels = grpVox[g.name] || [];
-    const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(VS, VS, VS), new THREE.MeshLambertMaterial(), Math.max(1, voxels.length));
-    const mtx = new THREE.Matrix4(), col = new THREE.Color();
-    voxels.forEach((v, i) => {
-      mtx.setPosition((v.x - dims[0]/2) * VS, v.y * VS, (v.z - dims[2]/2) * VS);
-      inst.setMatrixAt(i, mtx);
-      const m = matById[v.mat] || {};
-      inst.setColorAt(i, col.setRGB(m.r != null ? m.r/255 : .53, m.g != null ? m.g/255 : .53, m.b != null ? m.b/255 : .53));
-    });
-    inst.instanceMatrix.needsUpdate = true;
-    if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
-    grpMesh[g.name] = inst; CH.add(inst);
-  });
-  /* poser — map animParams block → per-group rotation about its pivot (FK) */
-  const groupOf = n => grpMesh[n];
-  function pose(state, phase) {                                  // state:'idle'|'walk'; phase=distance/stride
-    const p = state === 'walk' ? (params.walkDuckMid || params.walkDuckPose || {}) : {};
-    const swing = Math.sin(phase * Math.PI * 2);                 // gait phase → stride swing
-    const A = {                                                  // param → [group, axis, scale]
-      legStrideL: ['Left Leg', 'x', 1], legStrideR: ['Right Leg', 'x', -1],
-      kneeBendL: ['Left Shin', 'x', 1], kneeBendR: ['Right Shin', 'x', 1],
-      armSwingL: ['Left Arm', 'x', -1], armSwingR: ['Right Arm', 'x', 1],
-      elbowBendL: ['Left Forearm', 'x', 1], elbowBendR: ['Right Forearm', 'x', 1],
-      headPitch: ['Head', 'x', 1], headTilt: ['Head', 'z', 1],
-      bodyLean: ['Body', 'x', 1], bodyForward: ['Body', 'x', .3],
+  const WALK = 2.5, SPRINT = 2.2, TURN = 10;                    // PossessController.cs: walkSpeed / sprintMult / turnSpeed
+  const MOVE_EPS = .1, TRANS_DUR = .32, TRANS_DIP = .45;        // CharacterAnimation.cs: walkVelocityThreshold / transitionDuration / transitionDip
+  const OUTFIT = { 3: 126, 4: 126, 6: 126, 7: 105 };            // Civilian_01 "Suit Blue" (CityMap3D.ApplyCivilianOutfits): Torso/Arms/Legs → 126 Black Fabric, Feet → 105 Cobblestone
+  const rig = await fetch('/char/Civilian1').then(r => r.json()).catch(e => console.warn('DVM-2252 — Civilian1 unavailable:', e));
+  if (!rig || !rig.voxels) return;
+
+  /* ═══ POSE ENGINE — character_animator.html computeGroupRotation ≡ VoxelCharacterAnimator.cs ≡ CharacterPoseCompute.compute,
+         cut down to the two states this scene drives (Idle 0 · Walking 1, duck 0). Same rotation matrices, same child→parent FK
+         chains about the authored pivots, same Catmull-Rom gait, same bob/shift. Positions stay in voxel-index space. ═══ */
+  function poseEngine(rig) {
+    const DEF = {                                                // DEFAULT_PARAMS (animator ≡ C# defaults) — only the sections Idle/Walking read
+      restPose:    { leftArmZ: -Math.PI / 2, rightArmZ: Math.PI / 2 },
+      jointOffset: { 1: { x: 0, y: 0, z: 0 }, 2: { x: 0, y: 0, z: 0 }, 3: { x: 0, y: 0, z: 0 }, 4: { x: 0, y: 0, z: 0 }, 5: { x: 0, y: 0, z: 0 } },
+      armSwing:    { axisL: 0, axisR: 0, signL: 1, signR: 1 },
+      legStride:   { axisL: 0, axisR: 0, signL: 1, signR: 1 },
+      legTwist:    { leftRest: 0, rightRest: 0 },
+      elbowBend:   { leftRest: 0, rightRest: 0, axisL: 1, axisR: 1, signL: 1, signR: -1, twistL: 0, twistR: 0 },
+      kneeBend:    { leftRest: 0, rightRest: 0, axisL: 0, axisR: 0, signL: 1, signR: 1 },
+      walkKeyframes: { autoMirror: true, cycleDuration: 1.2, bodyBob: { enabled: true, amplitude: .6 }, weightShift: { enabled: true, amplitude: .4 },
+        kf0: { armSwingL: .3, armSwingR: -.3, legStrideL: -.4, legStrideR: .4, elbowBendL: .1, elbowBendR: .1, kneeBendL: 0, kneeBendR: 0, forearmTwistL: 0, forearmTwistR: 0 },
+        kf1: { armSwingL: 0, armSwingR: 0, legStrideL: .3, legStrideR: -.1, elbowBendL: .3, elbowBendR: .3, kneeBendL: .8, kneeBendR: .15, forearmTwistL: 0, forearmTwistR: 0 },
+        kf2: null, kf3: null },
     };
-    bodyGroups.forEach(g => { const m = grpMesh[g.name]; if (m) { m.rotation.set(0,0,0); } });
-    for (const k in p) {
-      const spec = A[k]; if (!spec) continue;
-      const m = groupOf(spec[0]); if (!m) continue;
-      const piv = pivots[String(bodyGroups.findIndex(g => g.name === spec[0]))] || {x:.5,y:.5,z:.5};
-      const deg = (state === 'walk' ? p[k] * swing : p[k]) * spec[2];   // walk=phase-swung, idle=static
-      m.rotation[spec[1]] = deg * Math.PI / 180;
+    const ap = rig.animParams || {}, P = {};
+    for (const k in DEF) P[k] = Object.assign({}, DEF[k], ap[k]);   // animator load rule: per-section shallow merge over the defaults
+    const dims = rig.dims || [96, 96, 96], piv = {}, jo = {};
+    for (const g in rig.pivots || {}) { const p = rig.pivots[g]; piv[g] = [p.x * dims[0], p.y * dims[1], p.z * dims[2]]; }   // normalized → voxel units
+    for (let g = 1; g <= 5; g++) { const o = P.jointOffset[g] || {}; jo[g] = [o.x || 0, o.y || 0, o.z || 0]; }
+    jo[6] = jo[4]; jo[7] = jo[5]; jo[8] = jo[2]; jo[9] = jo[3];   // shins/forearms inherit their parent's offset
+    const vox = rig.voxels, N = vox.length, grp = rig.groups || {};
+    const vx = new Float32Array(N), vy = new Float32Array(N), vz = new Float32Array(N), vg = new Uint8Array(N);
+    vox.forEach((v, i) => { vx[i] = v[0]; vy[i] = v[1]; vz[i] = v[2]; vg[i] = grp[v[0] + ',' + v[1] + ',' + v[2]] || 0; });
+    /* rotations — row-major 3×3, the animator/C#/HLSL convention (rY is Unity-handed: [[c,0,-s],[0,1,0],[s,0,c]]) */
+    const rX = a => { const c = Math.cos(a), s = Math.sin(a); return [1, 0, 0, 0, c, -s, 0, s, c]; };
+    const rY = a => { const c = Math.cos(a), s = Math.sin(a); return [c, 0, -s, 0, 1, 0, s, 0, c]; };
+    const rZ = a => { const c = Math.cos(a), s = Math.sin(a); return [c, -s, 0, s, c, 0, 0, 0, 1]; };
+    const rA = (ax, a) => ax === 1 ? rY(a) : ax === 2 ? rZ(a) : rX(a);
+    const mm = (a, b) => [a[0] * b[0] + a[1] * b[3] + a[2] * b[6], a[0] * b[1] + a[1] * b[4] + a[2] * b[7], a[0] * b[2] + a[1] * b[5] + a[2] * b[8],
+                          a[3] * b[0] + a[4] * b[3] + a[5] * b[6], a[3] * b[1] + a[4] * b[4] + a[5] * b[7], a[3] * b[2] + a[4] * b[5] + a[5] * b[8],
+                          a[6] * b[0] + a[7] * b[3] + a[8] * b[6], a[6] * b[1] + a[7] * b[4] + a[8] * b[7], a[6] * b[2] + a[7] * b[5] + a[8] * b[8]];
+    /* gait — 4 keyframes at phase 0/.25/.5/.75, kf2/kf3 = L↔R mirror of kf0/kf1, cyclic Catmull-Rom; phase from the integrated gaitTime */
+    const WK = P.walkKeyframes;
+    const mirror = k => ({ armSwingL: k.armSwingR, armSwingR: k.armSwingL, legStrideL: k.legStrideR, legStrideR: k.legStrideL, elbowBendL: k.elbowBendR, elbowBendR: k.elbowBendL,
+                           kneeBendL: k.kneeBendR, kneeBendR: k.kneeBendL, forearmTwistL: k.forearmTwistR, forearmTwistR: k.forearmTwistL });
+    const KF = [WK.kf0, WK.kf1, WK.kf2 || (WK.autoMirror ? mirror(WK.kf0) : WK.kf0), WK.kf3 || (WK.autoMirror ? mirror(WK.kf1) : WK.kf1)];
+    const cr = (a, b, c, d, t) => .5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t * t + (-a + 3 * b - 3 * c + d) * t * t * t);
+    function gait(gt) {
+      const dur = WK.cycleDuration, ph = (((gt % dur) + dur) % dur) / dur, s = Math.min(3, Math.floor(ph * 4)), t = ph * 4 - s;
+      const A = KF[(s + 3) % 4], B = KF[s], C = KF[(s + 1) % 4], D = KF[(s + 2) % 4], pose = {};
+      for (const k in B) pose[k] = cr(A[k] || 0, B[k] || 0, C[k] || 0, D[k] || 0, t);
+      return { pose,
+        bobY:   WK.bodyBob.enabled ? -Math.cos(ph * 4 * Math.PI) * WK.bodyBob.amplitude : 0,         // lowest at contact, highest at mid-stance
+        shiftX: WK.weightShift.enabled ? Math.sin(ph * 2 * Math.PI) * WK.weightShift.amplitude : 0 };  // lateral weight shift over the stance leg
     }
-  }
-  /* WASD controller — camera-relative, state machine idle<->walk */
-  const keys = {}; window.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
-  window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
-  let chPos = new THREE.Vector3(0, 0, 1.2), chYaw = 0, chDist = 0, chState = 'idle';
-  const FLOOR = {x:[-2.2,2.2], z:[-1.5,2.8]};                    // room bounds (analytic clamp)
-  const BLOCKS = [[-.9,-.2,.1,.6],[-1.6,.5,-1.2,.9],[1.2,.4,1.6,.8]]; // furniture AABBs (table,chair rows)
-  function tickChar(dt) {
-    const f = (keys.w?1:0)-(keys.s?1:0), r = (keys.d?1:0)-(keys.a?1:0);
-    const sprint = keys.shift ? SPRINT : 1, spd = WALK * sprint;
-    if (f || r) {
-      const ca = Math.atan2(camera.position.x - chPos.x, camera.position.z - chPos.z);
-      const dx = Math.sin(ca)*f + Math.cos(ca)*r, dz = Math.cos(ca)*f - Math.sin(ca)*r;
-      const len = Math.hypot(dx,dz)||1, vx = dx/len*spd, vz = dz/len*spd;
-      const ty = Math.atan2(vx, vz);
-      let dy = ty - chYaw; while (dy > Math.PI) dy -= 2*Math.PI; while (dy < -Math.PI) dy += 2*Math.PI;
-      chYaw += Math.sign(dy) * Math.min(Math.abs(dy), TURN * dt);
-      chPos.x += vx*dt; chPos.z += vz*dt;
-      chDist += Math.hypot(vx,vz)*dt; chState = 'walk';
-    } else chState = 'idle';
-    chPos.x = Math.max(FLOOR.x[0], Math.min(FLOOR.x[1], chPos.x));
-    chPos.z = Math.max(FLOOR.z[0], Math.min(FLOOR.z[1], chPos.z));
-    for (const b of BLOCKS) {                                     // capsule→AABB pushback
-      if (chPos.x > b[0]-.15 && chPos.x < b[0]+b[2]+.15 && chPos.z > b[1]-.15 && chPos.z < b[1]+b[3]+.15) {
-        const cx = b[0]+b[2]/2, cz = b[1]+b[3]/2;
-        const px = chPos.x-cx, pz = chPos.z-cz;
-        if (Math.abs(px/b[2]) > Math.abs(pz/b[3])) chPos.x = cx + Math.sign(px)*(b[2]/2+.15);
-        else chPos.z = cz + Math.sign(pz)*(b[3]/2+.15);
+    /* out[3i..3i+2] ← posed voxel-index position of voxel i under (state, gaitTime) */
+    function evalPose(state, gt, out) {
+      const g = state === 1 ? gait(gt) : null, k = g && g.pose;   // Idle: rest pose only · Walking: rest pose + gait + bob + shift
+      const AS = P.armSwing, LS = P.legStride, EB = P.elbowBend, KB = P.kneeBend, RP = P.restPose, LT = P.legTwist;
+      const armL = mm(rA(AS.axisL, AS.signL * (k ? k.armSwingL : 0)), rZ(RP.leftArmZ)), armR = mm(rA(AS.axisR, AS.signR * (k ? k.armSwingR : 0)), rZ(RP.rightArmZ));
+      const legL = mm(rA(LS.axisL, LS.signL * (k ? k.legStrideL : 0)), rY(LT.leftRest)), legR = mm(rA(LS.axisR, LS.signR * (k ? k.legStrideR : 0)), rY(LT.rightRest));
+      const twL = k ? k.forearmTwistL : EB.twistL, twR = k ? k.forearmTwistR : EB.twistR;
+      let foreL = rA(EB.axisL, EB.signL * (k ? k.elbowBendL : EB.leftRest)), foreR = rA(EB.axisR, EB.signR * (k ? k.elbowBendR : EB.rightRest));
+      if (twL) foreL = mm(foreL, rX(twL)); if (twR) foreR = mm(foreR, rX(twR));
+      const shinL = rA(KB.axisL, KB.signL * (k ? k.kneeBendL : KB.leftRest)), shinR = rA(KB.axisR, KB.signR * (k ? k.kneeBendR : KB.rightRest));
+      const C = [null, { c: [], o: jo[1] },                                                              // 0 Body: no transform · 1 Head: identity at rest
+        { c: [[piv[2], armL]], o: jo[2] }, { c: [[piv[3], armR]], o: jo[3] },                           // 2/3 arms: restPose Z drop (arms down), then swing
+        { c: [[piv[4], legL]], o: jo[4] }, { c: [[piv[5], legR]], o: jo[5] },                           // 4/5 legs: hip stride
+        { c: [[piv[6], shinL], [piv[4], legL]], o: jo[4] }, { c: [[piv[7], shinR], [piv[5], legR]], o: jo[5] },   // 6/7 shins: knee hinge FIRST, then the hip carries the bent limb
+        { c: [[piv[8], foreL], [piv[2], armL]], o: jo[2] }, { c: [[piv[9], foreR], [piv[3], armR]], o: jo[3] }]; // 8/9 forearms: elbow hinge FIRST, then the shoulder
+      const sx = g ? g.shiftX : 0, by = g ? g.bobY : 0;
+      for (let i = 0; i < N; i++) {
+        const ch = C[vg[i]]; let x = vx[i], y = vy[i], z = vz[i];
+        if (ch) {
+          for (let c = 0; c < ch.c.length; c++) {
+            const pv = ch.c[c][0], m = ch.c[c][1], dx = x - pv[0], dy = y - pv[1], dz = z - pv[2];
+            x = pv[0] + m[0] * dx + m[1] * dy + m[2] * dz; y = pv[1] + m[3] * dx + m[4] * dy + m[5] * dz; z = pv[2] + m[6] * dx + m[7] * dy + m[8] * dz;
+          }
+          x += ch.o[0]; y += ch.o[1]; z += ch.o[2];
+        }
+        out[3 * i] = x + sx; out[3 * i + 1] = y + by; out[3 * i + 2] = z;
       }
     }
-    CH.position.copy(chPos); CH.rotation.y = chYaw;
-    pose(chState, chDist / 1.2);                                 // gait keyed to distance (no skate)
+    return { N, evalPose };
   }
-  const _frame = window.__frameHook = () => {};                  // hook into the scene's frame loop
-  const _orig = typeof frame === 'function' ? frame : null;
-  if (_orig) { const _f = _orig; window.__charTick = dt => tickChar(dt); }
-  setInterval(() => { if (DECK.mode === '3d') tickChar(1/60); }, 16);   // ~60fps char tick
-  pose('idle', 0);                                               // spawn posed
-  console.log('DVM-2252 — Vinny loaded:', Object.keys(grpMesh).length, 'bodyGroups');
+  /* ═══ /POSE ENGINE ═══ */
+
+  const E = poseEngine(rig), N = E.N, VS = rig.voxelSize || .01, dims = rig.dims || [96, 96, 96];
+  const CH = new THREE.Group(); scene.add(CH);                   // the character root (floor position + yaw)
+  const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(VS, VS, VS), new THREE.MeshLambertMaterial(), N);   // ONE mesh, every voxel — axis-aligned cubes at posed positions, like the animator
+  inst.frustumCulled = false;                                    // matrices are rewritten per pose; a load-time bounding sphere would go stale
+  const MA = inst.instanceMatrix.array; for (let i = 0; i < N; i++) MA[16 * i] = MA[16 * i + 5] = MA[16 * i + 10] = MA[16 * i + 15] = 1;   // translation-only matrices
+  /* wardrobe — region remap exactly as CSPose applies it (a non-zero remap material replaces the voxel's own), colors via the room kit's sRGB-hex path */
+  const pal = {}; (rig.materials || []).forEach(m => pal[m.id] = new THREE.Color(m.hex));
+  const dflt = new THREE.Color(0x888888), reg = rig.regions || {};
+  rig.voxels.forEach((v, i) => inst.setColorAt(i, pal[OUTFIT[reg[v[0] + ',' + v[1] + ',' + v[2]]] || v[3]] || dflt));
+  inst.instanceColor.needsUpdate = true;
+  CH.add(inst);
+  const bufA = new Float64Array(3 * N), bufB = new Float64Array(3 * N);
+  function upload(A, B, blend, dip) {                            // voxel-index → CH-local metres: centred on x/z, soles on y=0 (+½ voxel — index = cube centre)
+    const hx = dims[0] / 2, hz = dims[2] / 2;
+    for (let i = 0, j = 12; i < N; i++, j += 16) {
+      let x = B[3 * i], y = B[3 * i + 1], z = B[3 * i + 2];
+      if (A) { x = A[3 * i] + (x - A[3 * i]) * blend; y = A[3 * i + 1] + (y - A[3 * i + 1]) * blend + dip; z = A[3 * i + 2] + (z - A[3 * i + 2]) * blend; }
+      MA[j] = (x - hx) * VS; MA[j + 1] = (y + .5) * VS; MA[j + 2] = (z - hz) * VS;
+    }
+    inst.instanceMatrix.needsUpdate = true;
+  }
+
+  /* gait driver — CharacterAnimation.cs: measured ground speed → Idle↔Walking, walkSpeed = clamp(horSpeed·.5, .5, 2), gaitTime integrated (never reset),
+     0.32s dual-eval transition (frozen outgoing state, smoothstep blend, −sin(πt) settle dip) */
+  let state = 0, prevState = 0, transFrom = 0, transT = -1, blend = 1, dip = 0, walkSpeed = 1, gaitTime = 0;
+  function pose() {
+    E.evalPose(state, gaitTime, bufB);
+    if (transT >= 0) { E.evalPose(transFrom, gaitTime, bufA); upload(bufA, bufB, blend, dip); } else upload(null, bufB, 1, 0);
+  }
+
+  /* controller — camera-relative WASD, Shift sprints; typed text never moves Vinny */
+  const keys = {}, typing = e => { const t = e.target; return !!t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)); };
+  window.addEventListener('keydown', e => {
+    if (typing(e) || e.ctrlKey || e.metaKey || e.altKey) return;
+    const k = (e.key || '').toLowerCase(); keys[k] = true; if (/^[wasd]$/.test(k)) kick();
+  });
+  window.addEventListener('keyup', e => { keys[(e.key || '').toLowerCase()] = false; });
+  window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });   // alt-tab with a key down must not leave Vinny walking
+  const chPos = new THREE.Vector3(0, 0, 1.85); let chYaw = Math.PI;      // open floor front-center, facing the table (−z)
+  const FLOOR = { x: [-2.15, 2.15], z: [-2.15, 2.15] };          // ROOM B: 4.5m commission_floor plate (tops y=0) − .1 margin
+  const SOLIDS = [[0, 0, .82], [1.85, -2.03, .42]];              // capsule-vs-circle: commission_table ø1.34 + .15 capsule, file cabinet
+  for (let i = 0; i < 7; i++){                                   // seat ring — same a = i/7·2π − π/2, r = 1.15 as the chair build
+    const a = i / 7 * Math.PI * 2 - Math.PI / 2;
+    SOLIDS.push([Math.sin(a) * 1.15, Math.cos(a) * 1.15, .3]);
+  }
+  function step(dt) {
+    const f = (keys.w ? 1 : 0) - (keys.s ? 1 : 0), r = (keys.d ? 1 : 0) - (keys.a ? 1 : 0), ox = chPos.x, oz = chPos.z;
+    if (f || r) {
+      const cx = chPos.x - camera.position.x, cz = chPos.z - camera.position.z, cl = Math.hypot(cx, cz) || 1, fx = cx / cl, fz = cz / cl;   // camera look direction on the floor (W = away from the lens)
+      const dx = fx * f - fz * r, dz = fz * f + fx * r, len = Math.hypot(dx, dz) || 1, spd = WALK * (keys.shift ? SPRINT : 1);                 // right = forward × up = (−fz, fx)
+      const vx = dx / len * spd, vz = dz / len * spd;
+      let dy = Math.atan2(vx, vz) - chYaw; while (dy > Math.PI) dy -= 2 * Math.PI; while (dy < -Math.PI) dy += 2 * Math.PI;
+      chYaw += Math.sign(dy) * Math.min(Math.abs(dy), TURN * dt);
+      chPos.x += vx * dt; chPos.z += vz * dt;
+    }
+    chPos.x = Math.max(FLOOR.x[0], Math.min(FLOOR.x[1], chPos.x));
+    chPos.z = Math.max(FLOOR.z[0], Math.min(FLOOR.z[1], chPos.z));
+    for (const s of SOLIDS) {                                     // capsule→circle pushout
+      const px = chPos.x - s[0], pz = chPos.z - s[1], rr = s[2] + .15, d = Math.hypot(px, pz);
+      if (d < rr && d > 1e-4) { chPos.x = s[0] + px / d * rr; chPos.z = s[1] + pz / d * rr; }
+    }
+    CH.position.copy(chPos); CH.rotation.y = chYaw;
+    const hs = Math.hypot(chPos.x - ox, chPos.z - oz) / dt;       // MEASURED speed after collision — a blocked Vinny stops walking in place
+    const was = state === 1 || transT >= 0;
+    if (hs > MOVE_EPS) { state = 1; walkSpeed = Math.min(2, Math.max(.5, hs * .5)); } else state = 0;
+    if (state !== prevState) { transFrom = prevState; prevState = state; transT = 0; }
+    gaitTime += dt * walkSpeed;
+    if (transT >= 0) {
+      transT += dt; const t = Math.min(1, transT / TRANS_DUR);
+      blend = t * t * (3 - 2 * t); dip = -Math.sin(Math.PI * t) * TRANS_DIP;
+      if (t >= 1) { transT = -1; blend = 1; dip = 0; }
+    }
+    if (was || state === 1 || transT >= 0) pose();                // the settled idle pose never re-evaluates
+    return keys.w || keys.a || keys.s || keys.d || state === 1 || transT >= 0;
+  }
+  /* the deck is render-on-dirty — the loop runs only while Vinny is live, and marks the scene dirty every frame it moves him */
+  let raf = 0, last = 0;
+  function kick() { if (!raf) { last = performance.now(); raf = requestAnimationFrame(loop); } }
+  function loop(now) {
+    raf = 0;
+    if (DECK.mode !== '3d') return;
+    const dt = Math.min(.1, Math.max(0, (now - last) / 1000)); last = now;
+    const busy = dt > 1e-4 ? step(dt) : true;
+    DECK.dirty();
+    if (busy) raf = requestAnimationFrame(loop);
+  }
+  window.__vinny = { root: CH, mesh: inst, engine: E, anim: () => ({ state, walkSpeed, gaitTime, blend, yaw: chYaw, pos: chPos.toArray() }) };   // console/debug handle
+  pose(); DECK.dirty();                                          // spawn posed: Idle, arms down, dressed
+  console.log('DVM-2252 — Vinny loaded:', N, 'voxels · Civilian_01 outfit · Idle/Walking pose engine');
 })();
 </script>
 </body>

@@ -25,6 +25,7 @@
 | C17 | [Persist-mode lamp gap — ear live, agent halted](#c17) | 🟡 FIX APPLIED (DVM-921 built; awaiting certification) | 🟡 HIGH | 2026-10-31 |
 | C18 | [Feed id collision eats seat speech via reader dedup](#c18) | 🟢 FIXED (CHAIR renumber + max(prefix)+1 issuance law) | 🟡 HIGH | 2026-10-31 |
 | C29 | [files[] row snapshot drift — draft card 404s on a live file](#c29) | 🟡 FIX APPLIED (bench: BUTTON+ARCHITECT path repair; residual rail-note open) | 🟢 MEDIUM | 2026-11-02 |
+| C30 | [msg.to shape drift — string `to:` crashes two readers](#c30) | 🔴 ACTIVE (cataloged during DVM-2252 verification) | 🟢 MEDIUM | 2026-11-02 |
 
 ---
 
@@ -389,3 +390,25 @@ BUTTON + ARCHITECT repaired the stale `files[]` path rows in place (bench class 
 ## Law for any fresh session reading this
 - **A stored path is a snapshot, not a symlink** — any `files[]`-class row written once and never re-validated will eventually point at a moved/renamed file. The durable fix (rail note, open): a path-validation or re-resolution pass on read, or write-time path lint.
 - Same night the boss decreed the lane split that governs this fix: **Bench work** (repairs/swaps of what exists — standing GO) vs **DVM Table work** (new behavior/schema/law — the full rail). See COMMISSION_PROTOCOL.md §"Bench work vs DVM Table work".
+
+---
+
+## C30 - msg.to Shape Drift: a String to: Crashes Two Dashboard Readers
+
+**Status**: ACTIVE (cataloged during DVM-2252 headless verification; not regression-related) - **Severity**: MEDIUM (each bad message silently kills one render block; the room keeps running) - **Filed**: 2026-11-02
+
+## Defect
+Two dashboard readers assume msg.to is an array:
+- appendMsg - const toChips = (msg.to || []).map(...) (transcript card render)
+- pendingTask derivation - const tos = (m.to || []).map(...) (tasking lifecycle)
+
+When a feed message carries to as a **string** (observed in live feed traffic during the DVM-2252 verification run), .map is not a function throws inside the safe() render wrapper - the message's render block aborts. Console shows render block failed: TypeError: (msg.to || []).map is not a function twice per affected load (once per reader).
+
+## Reproduce
+Load the page against a feed whose messages[] contains { ..., to: 'CHAIR', ... } (string, not ['CHAIR']). Console logs the two TypeErrors; the affected message renders without to-chips and its tasking contribution is skipped.
+
+## Fix shape (not applied - out of DVM-2252 scope)
+Normalize at read, not at each site: const tos = [].concat(m.to || []) - same idiom the rest of the bus uses for maybe-one maybe-many fields. Or contract: server/writers always emit to: [...] even for a single addressee (check which writer emits the string form first - probably a hand-stamped or legacy-path message).
+
+## Law for any fresh session reading this
+- **Feed fields are schema-lax at the edges** - hand-stamped and legacy-path messages don't always honor the array contract. Readers that assume shape should normalize ([].concat(x||[])) instead of indexing directly.

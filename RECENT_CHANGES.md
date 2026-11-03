@@ -1,4 +1,30 @@
 
+## November 2, 2026 — DVM-2252 Vinny rebuilt to Unity parity + ROOM A retired (DVM-2253) — SHIPPED + boss-verified live ("walk and everything works exactly right")
+
+### Changed
+- **DVM-2252 Vinny — full rewrite to canonical pose math**: the char block now ports `character_animator.html`'s `computeGroupRotation` FK (≡ `VoxelCharacterAnimator.cs` ≡ `CharacterPoseCompute.compute`), cut to Idle + Walking. Numerically verified against `VoxelAssetStudio/character_pose_engine.js`: 73 (state, gaitTime) samples × 12,608 voxels, worst |Δ| = 2.1e-14, zero non-finite. One divergence found post-harness (embedded `legStride` signs −1/−1 vs engine +1/+1 — legs anti-phase to arms) caught by a default-table audit and fixed; the embedded DEF now diffs clean vs `DEFAULT_PARAMS` on all used sections.
+- **Civilian_01 wardrobe**: region remap exactly as `ClothingSystem.SetOutfit` applies it — `{3,4,6 → 126 Black Fabric, 7 → 105}` over the all-125-Flesh base (all 12,608 voxels are mat 125; the outfit IS the clothes). Matches `CityMap3D.ApplyCivilianOutfits` byte-for-byte.
+- **Unity gait driver**: measured ground speed → Idle↔Walking at 0.1 m/s threshold, `walkSpeed = clamp(h·0.5, .5, 2)`, `gaitTime` integrated (never reset — no foot-slide on speed change), 0.32s dual-eval transition with smoothstep blend + −sin(πt)·0.45 settle dip — all `CharacterAnimation.cs` constants.
+- **Render loop**: replaced the 30 FPS interval with a RAF loop that only runs while Vinny is live and calls `DECK.dirty()` per moved frame — settled Idle costs zero frames (render-on-dirty preserved).
+- **Controller**: camera-relative WASD (W = away from lens — fixes the forward-axis drift), Shift sprint ×2.2, turn 10 rad/s, `blur` clears keys, and typing into inputs/textareas/contenteditable never moves him.
+- **DVM-2253 — ROOM A retired**: the classic-primitives room set is deleted (prim floor/table/pedestal/wall, prim chair bases+backs, prim stamp, `setRoomStyle`, the ROOM A/B toolbar toggle, `LIGHTS.style` persistence). ROOM B layout is now baked at construction: chibi seat ring r≈1.15, voxel wall mounts at bp/bo, shelf/tray as position anchors for their voxel twins, sign+pegboard canvases keep live at .35/.65 scale.
+- **Vinny bounds → real ROOM B geometry**: 4.5 m floor plate (±2.15 with margin), commission_table keep-out r=0.82 at origin, seven seat-circle colliders on the r=1.15 ring, file-cabinet collider at (1.85,−2.03); capsule-vs-circle pushout replaces the guessed AABBs. Spawn front-center (0,0,1.85) facing the table.
+- **C30 cataloged**: `msg.to` shape drift — a string `to:` crashes `appendMsg` + pendingTask (`(msg.to||[]).map` on a string). Pre-existing; observed in console during verification; filed in `docs/COMMISSION_BUGS.md`.
+
+### Verified
+- `node --check` clean on all script blocks after each stage.
+- Pose-engine parity: 73 samples × 12,608 voxels, worst 2.1e-14, 0 non-finite.
+- Headless Edge (SwiftShader): `__vinny` loads 12,608 voxels; Idle state 0 arms-down (screenshot); W walks him −z toward the table at walkSpeed 1.25 with `gaitTime` integrating; transition blend/dip runs; floor-edge clamp + circle pushout engage; release settles back to Idle; typing in an input moves him 0.000 m; 0 non-finite instance matrices.
+- ROOM B renders: voxel table/floor/wall/chairs/pegboard/sign/filecabinet all present; no ROOM A artifacts; toolbar shows no room toggle.
+
+### Files Modified
+- `docs/DELIBERATION_MACHINE.html` — DVM-2252 char block rewrite (pose engine port, wardrobe remap, gait driver, RAF/DECK.dirty loop, controller); DVM-2253 ROOM A retirement (28-site patch); `window.__controls` exposure; Vinny bounds/spawn → ROOM B geometry
+- `docs/COMMISSION_BUGS.md` — C30 filed (msg.to shape drift)
+
+### Playtest result
+- Boss live-fire confirmed: walk, idle, outfit, bounds all correct.
+
+
 ## November 2, 2026 — Commission wall fixes: repaint chain, tasking semantics, console-swarm kill, WAKING derived state — SHIPPED + boss-verified live
 
 ### Changed
