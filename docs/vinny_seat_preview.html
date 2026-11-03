@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Vinny x Commission Chair — seat test</title>
+<style>
+  body{margin:0;background:#0a0a12;color:#ccc;font-family:'Segoe UI',monospace;overflow:hidden}
+  #hud{position:fixed;top:10px;left:10px;z-index:9;background:rgba(0,0,0,.75);
+       border:1px solid #333;border-radius:8px;padding:10px 14px;font-size:12px;line-height:1.7;max-width:340px}
+  #hud b{color:#ffd37a} #hud .dim{color:#888}
+  #err{color:#ff7a7a;white-space:pre-wrap}
+  canvas{display:block}
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+               "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+</script></head>
+<body>
+<div id="hud"><b>VINNY × COMMISSION CHAIR</b> — authored Sit (state 11)<br>
+<span class="dim">legStride 1.45 · kneeBend 1.45 · armSwing 0.2 · rest-pose arms down · geometry-detected pivots</span><br>
+<span id="stats" class="dim">loading…</span><br>
+<span id="err"></span>
+<label class="dim" style="margin-top:6px;display:block">…or pick the file manually:
+<input type="file" id="filepick" accept=".json" style="font-size:10px;width:100%"></label></div>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0a12);
+scene.fog = new THREE.Fog(0x0a0a12, 3, 10);
+const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, .01, 100);
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+document.body.appendChild(renderer.domElement);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+scene.add(new THREE.AmbientLight(0xffffff, .55));
+const key = new THREE.DirectionalLight(0xfff2dd, 1.6);
+key.position.set(2, 4, 3); scene.add(key);
+const fill = new THREE.DirectionalLight(0x8fb8ff, .5);
+fill.position.set(-3, 2, -2); scene.add(fill);
+scene.add(new THREE.GridHelper(2, 40, 0x223344, 0x141c26));
+
+const errEl = document.getElementById('err');
+const statsEl = document.getElementById('stats');
+
+function build(data) {
+  const matById = {};
+  for (const m of (data.materials||[])) matById[m.id] = m.hex || ('#'+((m.r<<16)|(m.g<<8)|m.b).toString(16).padStart(6,'0'));
+  const vs = data.voxelSize || .02;
+  const buckets = {};
+  for (const q of data.voxels) {
+    const h = matById[q[3]] || '#888';
+    (buckets[h] = buckets[h] || []).push(q);
+  }
+  const group = new THREE.Group();
+  const unit = new THREE.BoxGeometry(vs*0.96, vs*0.96, vs*0.96);
+  for (const hex in buckets) {
+    const list = buckets[hex];
+    const mesh = new THREE.InstancedMesh(unit, new THREE.MeshLambertMaterial({color: hex}), list.length);
+    const M = new THREE.Matrix4();
+    list.forEach((p,i) => { M.setPosition(p[0]*vs, p[1]*vs, p[2]*vs); mesh.setMatrixAt(i,M); });
+    mesh.instanceMatrix.needsUpdate = true;
+    group.add(mesh);
+  }
+  group.position.set(-14.5*vs, 0, -14.5*vs);
+  scene.add(group);
+  let ymin=1e9;
+  for (const q of data.voxels) if (q[1]<ymin) ymin=q[1];
+  statsEl.textContent = `${data.voxels.length} voxels · feet dangle ${ymin} vx (~${(ymin*vs).toFixed(2)}m)`;
+}
+
+async function tryFetch(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(url + ' → HTTP ' + r.status);
+  return r.json();
+}
+
+let data = null;
+for (const url of ['/voxel/vinny_seated_preview', 'vinny_seated_preview.json']) {
+  try { data = await tryFetch(url); errEl.textContent = ''; break; }
+  catch (e) { errEl.textContent += e.message + '\n'; }
+}
+if (data) build(data);
+else statsEl.textContent = 'fetch failed — use the file picker below';
+
+document.getElementById('filepick').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => { try { build(JSON.parse(rd.result)); errEl.textContent=''; } catch(x){ errEl.textContent = 'parse: '+x.message; } };
+  rd.readAsText(f);
+});
+
+camera.position.set(.9, .75, 1.1);
+controls.target.set(0, .55, 0);
+addEventListener('resize', () => {
+  camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+</script></body></html>

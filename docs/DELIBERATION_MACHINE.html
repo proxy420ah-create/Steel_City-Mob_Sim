@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Steel City — Deliberation &amp; Verdict Machine</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>⚖</text></svg>">
 <style>
   :root {
     --bg: #0d1117; --surface: #161b22; --surface2: #1c2331;
@@ -35,8 +36,11 @@
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 
   .wrap { margin:0; padding:10px 18px; flex:1; min-height:0; display:flex; flex-direction:column; }
-  .layout { display:grid; grid-template-columns:1fr minmax(400px,34%); gap:14px; flex:1; min-height:0; }
+  .layout { display:grid; grid-template-columns:1fr minmax(400px,34%); grid-template-rows:minmax(0,1fr); gap:14px; flex:1; min-height:0; }
   .main { display:flex; flex-direction:column; min-height:0; }
+  /* preview: occupants swap slots — the scene inherits the transcript's column and size, and vice versa (grid skeleton unchanged) */
+  body.swap .layout .main { grid-column:2; }
+  body.swap .layout #deck { grid-column:1; grid-row:1; }
   @media (max-width:1100px){ .layout{grid-template-columns:1fr;} body{overflow:auto;} }
 
   .panel { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px 16px; }
@@ -79,6 +83,27 @@
   .verdict.vetoed .v-word { color:var(--red); }
   .verdict .v-conds { display:flex; flex-wrap:wrap; gap:5px; justify-content:center; margin-top:10px; }
   .verdict .v-chip { font-size:.68em; font-family:Consolas,monospace; padding:2px 9px; border-radius:6px; border:1px solid var(--border); background:var(--surface2); color:var(--text-dim); }
+
+  /* ── SIDE TABLE placeholder (boss preview — propbox/verdict yield the slot; live stream arrives with DVM-017) ── */
+  .propbox, #verdictbox { display:none; }
+  .tabs-bar { display:flex; gap:8px; align-items:center; }
+  .tab-unread { background:var(--accent); color:#0d1117; font-weight:800; border-radius:8px; padding:0 6px; margin-left:6px; font-size:.95em; }
+  .tab-unread:empty { display:none; }
+  #tab_side .tab-unread { background:var(--pink); }
+  #tab_tech .tab-unread { background:var(--yellow); }
+  #tab_tech .tab-unread.dark { background:var(--red); }
+  #tlist { flex:1; min-height:0; overflow-y:auto; scrollbar-width:thin; padding-right:6px; }
+  #tlist .tmsg { padding:4px 8px; margin:3px 0; border-left:2px solid var(--border); font-size:.75rem; color:var(--dim); }
+  #tlist .tmsg .tts { font-size:.6rem; letter-spacing:.5px; opacity:.6; display:block; }
+  #tlist .tmsg.tdark { border-left-color:var(--red); color:var(--red); }
+  #stlist { flex:1; min-height:0; overflow-y:auto; scrollbar-width:thin; padding-right:6px; }
+  .bossbox button.armed { box-shadow:0 0 9px currentColor; }   /* lit state — the armed verb glows in its own color */
+  .st-msg { background:var(--surface2); border:1px solid var(--border); border-left:3px solid var(--pink); border-radius:8px; padding:6px 10px; margin-bottom:6px; font-size:.8em; font-style:italic; }
+  .st-msg.boss { border-left-color:var(--tan); opacity:1; }       /* v0.7: boss gossip carries a mark — never masquerades as seat voice */
+  .st-msg.boss .st-who { color:var(--tan); }
+  .st-who { font-family:Consolas,monospace; font-size:.68em; font-weight:700; color:var(--pink); margin-right:8px; }
+  #btntable { border-color:var(--accent) !important; color:var(--accent) !important; }
+  #btnside { border-color:var(--pink) !important; color:var(--pink) !important; }
   .verdict .v-meta { font-size:.7em; font-family:Consolas,monospace; color:var(--text-dim); margin-top:8px; }
 
   /* transcript feed — the main feature */
@@ -113,7 +138,7 @@
   .newmsg.show { display:block; }
 
   /* boss input — chat with the whole table */
-  .bossbox { margin-top:10px; border-top:1px solid var(--border); padding-top:10px; }
+  .bossbox { grid-column:1/-1; margin:10px -18px -10px; border-top:1px solid var(--border); padding:10px 18px 0; }   /* AUDITOR's call: it's a third .layout grid child — span both cols or it camps in row2/col1; negative margins negate .wrap's rind */
   .bossbox .b-row { display:flex; gap:8px; }
   .bossbox textarea { flex:1; background:var(--surface2); border:1px solid var(--border); border-radius:8px; color:var(--text); font:inherit; font-size:.84em; padding:8px 10px; resize:none; height:46px; }
   .bossbox textarea:focus { outline:none; border-color:var(--tan); }
@@ -127,6 +152,25 @@
   .mtag { color:var(--accent); font-weight:700; }
   .msg.k-boss { border-left-color:var(--tan); background:rgba(210,166,121,.07); }
   .msg .m-kind.k-boss { color:var(--tan); border-color:var(--tan); }
+  /* DVM-015 — the handshake: ack (relayed understanding) and ok (the thumbs-up) */
+  .msg.k-ack { border-left-color:var(--cyan); }
+  .msg.k-ok { border-left-color:var(--green); }
+  .msg .m-kind.k-ack { color:var(--cyan); border-color:var(--cyan); }
+  .msg .m-kind.k-ok { color:var(--green); border-color:var(--green); }
+  .msg .hs { font-size:.62em; font-family:Consolas,monospace; font-weight:700; margin-left:7px; }
+  .msg .hs.h-await { color:var(--yellow); } .msg .hs.h-stale { color:var(--orange); }
+  .msg .hs.h-acked { color:var(--cyan); }  .msg .hs.h-oked  { color:var(--green); }
+  #turnlbl.burn, .dk-chip.burn { color:var(--red); border-color:var(--red); animation:burn 1s infinite; }
+  #turnlbl.ghost, .dk-chip.ghost { color:#bc8cff; border-color:#bc8cff; animation:burn .6s infinite; }
+  @keyframes burn { 50% { opacity:.4; } }
+  .d2row.silent { border-color:var(--red); box-shadow:0 0 8px rgba(248,81,73,.4); }
+  .d2row.silent .er { color:var(--red); }
+  .d2row.ghost { border-color:#bc8cff; border-style:dashed; box-shadow:0 0 8px rgba(188,140,255,.4); }
+  .d2row.ghost .er { color:#bc8cff; }
+  .d2row.deadfl { border-color:#b05900; animation:emberP 2.4s infinite; }
+  @keyframes emberP { 50% { box-shadow:0 0 12px rgba(176,89,0,.6); } }
+  .d2row .btag { font-size:.56em; font-weight:800; font-family:Consolas,monospace; letter-spacing:.5px; margin-left:6px; animation:wblink 1s steps(1) infinite; }
+  @keyframes wblink { 0% { color:#fff; } 50% { color:var(--wc,#fff); } }
   .seat { cursor:pointer; }
   .seat.vacant { opacity:.45; }
   .seat.vacant .s-tag { color:var(--text-dim); }
@@ -163,7 +207,7 @@
   .seat .s-contract .c-rule:before { content:'·'; position:absolute; left:0; }
 
   /* ══ DVM-013/014 ops deck — strips' successor; now the rail's too: full-height column ══ */
-  #deck { min-height:0; display:flex; flex-direction:column; position:relative; border:1px solid var(--border);
+  #deck { order:-1; min-height:0; display:flex; flex-direction:column; position:relative; border:1px solid var(--border);
           border-radius:12px; background:linear-gradient(135deg,#0b0e14,#141a26 60%,#0d1117); overflow:hidden; }
   #deckhead { display:flex; align-items:center; gap:7px; padding:4px 10px; font-family:Consolas,monospace;
               font-size:.62em; color:var(--text-dim); border-bottom:1px solid var(--border); flex-wrap:wrap; flex:none; }
@@ -181,6 +225,19 @@
   #deckview canvas { display:block; }
   #deckhover { position:absolute; left:10px; bottom:6px; z-index:3; font-family:Consolas,monospace;
                font-size:.62em; color:var(--accent); pointer-events:none; }
+  /* lighting rig panel — adjust live, persist shared default (server) + local */
+  #lightpanel { position:absolute; left:10px; top:8px; z-index:6; width:200px; display:none;
+    background:var(--surface2,#161b26); border:1px solid var(--border); border-radius:10px;
+    padding:8px 10px; font-family:Consolas,monospace; font-size:.66em; }
+  #lightpanel.open { display:block; }
+  #lightpanel .lp-head { display:flex; justify-content:space-between; color:var(--text); font-weight:700; margin-bottom:6px; }
+  #lightpanel .lp-x { cursor:pointer; color:var(--text-dim); }
+  #lightpanel .lp-x:hover { color:var(--red); }
+  #lightpanel .lp-row { display:flex; align-items:center; gap:6px; margin:5px 0; color:var(--text-dim); }
+  #lightpanel .lp-row label { width:52px; flex:none; }
+  #lightpanel .lp-row input { flex:1; accent-color:var(--accent); }
+  #lightpanel .lp-row span { width:36px; text-align:right; color:var(--text); }
+  #lightpanel .lp-btns { display:flex; gap:8px; margin-top:8px; }
   /* 2D column view — the takeover leaves 2D richer than the rail was */
   #deck2d { position:absolute; inset:0; overflow-y:auto; scrollbar-width:thin; padding:8px; }
   .d2slots { display:flex; gap:3px; flex-wrap:wrap; font-family:Consolas,monospace; font-size:.56em;
@@ -235,6 +292,10 @@
   #inspector .i-at:hover { background:var(--accent); color:#0d1117; }
   #inspector .i-x { position:absolute; top:5px; right:8px; cursor:pointer; color:var(--text-dim); font-family:Consolas,monospace; }
   #inspector .i-x:hover { color:var(--red); }
+  #inspector .i-eject { margin-top:8px; padding:3px 10px; display:inline-block; cursor:pointer;
+    font-family:Consolas,monospace; font-size:.8em; font-weight:700; letter-spacing:1px;
+    color:var(--red); border:1px solid var(--red); border-radius:4px; }
+  #inspector .i-eject:hover { background:var(--red); color:#0d1117; }
   /* reader overlay — in-deck surface, slides over the column not the page */
   #deckreader { position:absolute; top:0; left:0; right:0; bottom:0; z-index:7;
     background:var(--surface); border-left:3px solid var(--accent);
@@ -296,7 +357,11 @@
 
     <div class="panel feed">
       <div class="f-head">
-        <h3>◈ LIVE TRANSCRIPT</h3>
+        <div class="tabs-bar">
+          <span class="rtab active" id="tab_feed">◈ LIVE TRANSCRIPT<span class="tab-unread" id="un_feed"></span></span>
+          <span class="rtab" id="tab_side">◇ SIDE TABLE<span class="tab-unread" id="un_side"></span></span>
+          <span class="rtab" id="tab_tech">▣ TECH LOG<span class="tab-unread" id="un_tech"></span></span>
+        </div>
         <div class="f-ctl">
           <button id="btndemo">▶ demo</button>
           <button id="btnclear">clear</button>
@@ -307,14 +372,8 @@
         Push a message via <code style="font-family:Consolas">deliberation_feed.js</code> or press ▶ demo.</div>
         <div class="newmsg" id="newmsg">▼ new messages</div>
       </div>
-      <div class="bossbox">
-        <div class="b-row">
-          <textarea id="bossin" placeholder="THE BOSS speaks — Enter to send. Click a seat or a speaker to @address them; @SEAT hands them the floor. `/table <text>` tables a proposal."></textarea>
-          <button id="bosssend">SEND</button>
-          <button id="adjournbtn" title="recess control — flag the table; seats stand down / re-arm">ADJOURN</button>
-        </div>
-        <div class="b-hint"><b>@SEAT</b> in text routes the floor · <b>/table</b> tables a proposal · click chairs or speaker names to address<span class="sendstat" id="sendstat"></span></div>
-      </div>
+      <div class="st-list" id="stlist" style="display:none"></div>
+      <div id="tlist" style="display:none"></div>
     </div>
   </div>
 
@@ -331,18 +390,40 @@
       <span class="dk-chip" id="d_msg">0 messages</span>
       <span class="dk-chip" id="d_closed">closed 0</span>
       <span class="dk-sp"></span>
+      <span class="dk-btn" id="d_roomab" title="A: classic primitives · B: voxel-pipeline table">ROOM A</span>
+      <span class="dk-btn" id="d_lights" title="lighting rig — adjust / save">💡</span>
       <span class="dk-btn" id="d_navbtn">FILES ▸</span>
+      <span class="dk-btn" id="d_swap">SWAP</span>
       <span class="dk-btn" id="d_collapse">COLLAPSE ▾</span>
+      <span class="dk-btn" id="adjournbtn" title="recess control — flag the table; seats stand down / re-arm">ADJOURN</span>
     </div>
     <div id="deckbody">
       <div id="deckview"><div id="deck2d"></div><div id="deckhover"></div></div>
       <div id="decknav"></div>
       <div id="inspector"></div>
+      <div id="lightpanel">
+        <div class="lp-head">💡 ROOM RIG <span class="lp-x" id="lp_x">✕</span></div>
+        <div class="lp-row"><label>key az</label><input type="range" id="lp_kaz" min="-180" max="180" step="1"><span id="lp_kazv"></span></div>
+        <div class="lp-row"><label>key el</label><input type="range" id="lp_kel" min="5" max="85" step="1"><span id="lp_kelv"></span></div>
+        <div class="lp-row"><label>key int</label><input type="range" id="lp_kint" min="0" max="120" step="1"><span id="lp_kintv"></span></div>
+        <div class="lp-row"><label>ambient</label><input type="range" id="lp_aint" min="0" max="4" step="0.05"><span id="lp_aintv"></span></div>
+        <div class="lp-btns"><span class="dk-btn" id="lp_save">SAVE DEFAULT</span><span class="dk-btn" id="lp_reset">RESET</span></div>
+      </div>
       <div id="deckreader">
         <div class="dr-head"><span class="fk" id="dr_kind"></span><b id="dr_title"></b><span class="dr-x" id="dr_x">✕</span></div>
         <div class="dr-body dk-md" id="dr_body"></div>
       </div>
     </div>
+  </div>
+
+  <div class="bossbox">
+    <div class="b-row">
+      <textarea id="bossin" placeholder="THE BOSS speaks — Enter to send. Click a seat or a speaker to @address them; @SEAT hands them the floor. `/table <text>` tables a proposal."></textarea>
+      <button id="bosssend">SEND</button>
+      <button id="btntable" title="arms the table verb — Enter tables the text as a proposal; click again to disarm">TABLE</button>
+      <button id="btnside" title="arms the side-table verb — Enter posts the text as an aside; click again to disarm">SIDE-TABLE</button>
+    </div>
+    <div class="b-hint"><b>@SEAT</b> in text routes the floor · <b>/table</b> tables a proposal · click chairs or speaker names to address<span class="sendstat" id="sendstat"></span></div>
   </div>
 
 </div>
@@ -360,13 +441,13 @@
 const SEATS = {
   ARCHITECT:  { name:'THE ARCHITECT',  color:'var(--cyan)',   motto:'systemic purity · nothing without a contract' },
   INFORMANT:  { name:'THE INFORMANT',  color:'var(--pink)',   motto:'checks the draft for fullness · accuracy before the table attacks' },
-  PRAGMATIST: { name:'THE PRAGMATIST', color:'var(--green)',  motto:'ship it · perfect is the enemy of tuesday' },
+  BOSS:       { name:'THE BOSS',      color:'#e6d5b0',        motto:'the table is his · reserved seat', boss:true },
   AUDITOR:    { name:'THE AUDITOR',    color:'var(--orange)', motto:'finds the failure mode before production does' },
-  HISTORIAN:  { name:'THE HISTORIAN',  color:'var(--purple)', motto:'precedent, the RE, and what the docs say' },
+  HISTORIAN:  { name:'THE HISTORIAN',  color:'var(--purple)', motto:'precedent, the RE, and what the docs say', retired:true },
   CHAIR:      { name:'THE CHAIR',      color:'var(--yellow)', motto:'synthesizes · speaks last · carries the verdict' },
   BUTTON:     { name:'THE BUTTON',     color:'var(--red)',    motto:'delegated · codes only on verdict + GO CODE', delegated:true },
 };
-const LEGACY_SEAT = { DEVIN:'CHAIR', MEMBER2:'ARCHITECT', MEMBER3:'BUTTON', MEMBER4:'INFORMANT' };  // resolve old transcript ids
+const LEGACY_SEAT = { DEVIN:'CHAIR', MEMBER2:'ARCHITECT', MEMBER3:'BUTTON', MEMBER4:'INFORMANT', PRAGMATIST:'ARCHITECT' };  // resolve old transcript ids (C4: read-only bridge — authors never write these)
 const MTAG = new Set([...Object.keys(SEATS), 'BOSS', 'DEVIN', 'MEMBER2', 'MEMBER3', 'MEMBER4']);      // call-ons render bold
 let expandedSeat = null;   // DVM-005: one seat contract open at a time (accordion)
 const PHASE_NAMES = ['tabled','openings','rebuttal','veto poll','verdict'];
@@ -381,8 +462,8 @@ const msglist = document.getElementById('msglist');
 function renderSeats(){
   const el = document.getElementById('seats'); if (!el) return; el.innerHTML = '';
   for (const [key,seat] of Object.entries(SEATS)){
-    const occ = PRESENCE[key] != null;                 // presence file = seat held (DVM-009)
-    const einfo = occ ? earInfo(key) : null;
+    const occ = PRESENCE[key] != null || seat.boss;    // presence file = seat held (DVM-009); the boss's chair is always held
+    const einfo = occ && !seat.boss ? earInfo(key) : null;
     const dead = einfo && einfo.dead;
     const contract = LASTBOARD && (LASTBOARD.seat_rules || {})[key];
     const d = document.createElement('div');
@@ -394,7 +475,7 @@ function renderSeats(){
     d.innerHTML = `<i class="s-dot" style="background:${dotc}"></i>
       <div><div class="s-name" style="color:${namec}">${seat.name}</div>
       <div class="s-motto">${seat.motto}</div>
-      ${occ ? `<div class="s-ear${dead ? ' dead' : ''}" id="ear_${key}">${einfo.txt}</div>` : ''}
+      ${occ ? `<div class="s-ear${dead ? ' dead' : ''}" id="ear_${key}">${seat.boss ? 'reserved' : einfo.txt}</div>` : ''}
       ${contract ? `<div class="s-rules" data-seat="${key}">rules ${expandedSeat === key ? '▾' : '▸'}</div>` : ''}
       ${contract && expandedSeat === key ? `<div class="s-contract"><div class="c-duty">${contract.duty || ''}</div>${(contract.rules || []).map(r => `<div class="c-rule">${r}</div>`).join('')}</div>` : ''}</div>
       <span class="s-tag" id="stag_${key}">${tagc}</span>`;
@@ -434,14 +515,21 @@ function ingest(msg){
   if (msg.id) seen.add(msg.id); else msg.id = 'auto_' + (msgSeq++);
   if (msg.kind === 'phase'){ setPhase(+msg.phase || 0); }
   if (msg.kind === 'verdict' && msg.vresult){ renderVerdict(msg.vresult, msg.text, msg.conds); }
+  if (msg.kind === 'aside'){ appendAside(msg); return; }      // DVM-017 §4b: the side channel never enters the transcript
+  if (msg.kind === 'sys' || msg.channel === 'tech'){ appendTech(msg); return; }   // DVM-922: machine speech routes to the TECH LOG — record stays on the bus, the view splits
   appendMsg(msg);
   if (msg.speaker && whoIs(msg.speaker)){
-    DS.lastMsg[seatKeyFor(msg.speaker)] = { text: msg.text || '', kind: msg.kind || 'position' };   // chair bubbles (DVM-014)
-    DECK.speech(seatKeyFor(msg.speaker));
-    if (msg.kind === 'veto' || msg.kind === 'objection') DECK.pulse(seatKeyFor(msg.speaker));
+    // boss-ordered (AUDITOR-verified): hydrate replays history — suppress the
+    // lastMsg write AND transient speech effects so old chatter never draws a
+    // bubble; live arrivals still emit. Stateful effects (pins, vetoed) plant.
+    if (!booting){
+      DS.lastMsg[seatKeyFor(msg.speaker)] = { text: msg.text || '', kind: msg.kind || 'position' };   // chair bubbles (DVM-014)
+      DECK.speech(seatKeyFor(msg.speaker));
+      if (msg.kind === 'veto' || msg.kind === 'objection' || msg.kind === 'ack') DECK.pulse(seatKeyFor(msg.speaker));
+      if (msg.kind !== 'veto'){ seatState(msg.speaker, 'speaking'); setTimeout(() => seatState(msg.speaker,'clear',''), 2600); }
+    }
     if (msg.kind === 'veto') DECK.pin(seatKeyFor(msg.speaker));            // ballot pins on the pegboard
     if (msg.kind === 'veto') seatState(msg.speaker, 'vetoed', 'VETO');
-    else { seatState(msg.speaker, 'speaking'); setTimeout(() => seatState(msg.speaker,'clear',''), 2600); }
   }
 }
 function appendMsg(msg){
@@ -461,23 +549,104 @@ function appendMsg(msg){
     const toChips = (msg.to || []).map(t => `<span class="at">@${LEGACY_SEAT[t] || t}</span>`).join(' ');
     const bodyHtml = msg.text.replace(/@([A-Za-z0-9_]+)/g, (m, t) =>
       MTAG.has(t) ? `<b class="mtag">${m}</b>` : `<span class="at">${m}</span>`);  // call-ons wear a bold tag (DVM-009)
+    const hsB = msg.needs_ack || (kind === 'boss' && (msg.to || []).length);   // handshake-bearing directive (DVM-015)
     d.className = 'msg k-' + kind;
+    d.dataset.mid = msg.id || '';
     d.innerHTML = `
       <div><div class="m-speaker" data-seat="${msg.speaker || ''}" style="color:${scolor}">${sname}</div>
       <div class="m-meta">${ts}${msg.round ? ' · R'+msg.round : ''}</div></div>
-      <div class="m-body"><span class="m-kind k-${kind}">${kind}</span>${toChips ? toChips + ' ' : ''}${bodyHtml}</div>`;
+      <div class="m-body"><span class="m-kind k-${kind}">${kind}</span>${toChips ? toChips + ' ' : ''}${bodyHtml}${hsB ? ' <span class="hs"></span>' : ''}</div>`;
   }
   const pill = document.getElementById('newmsg');
   const atBottom = msglist.scrollHeight - msglist.scrollTop - msglist.clientHeight < 60;
   msglist.insertBefore(d, pill);
   if (atBottom) d.scrollIntoView({block:'end'}); else pill.classList.add('show');
+  if (!booting && (activeTab !== 'feed' || !atBottom)) unread.feed++;   // unread = inactive tab, or active but scrolled up
+  syncUnread();
   document.getElementById('msgcount').textContent = (++msgCount) + ' messages';
   const dm = document.getElementById('d_msg'); if (dm) dm.textContent = msgCount + ' messages';
 }
+/* ── SIDE TABLE (DVM-017 §4b): floor-free voice — same bus, separate render ── */
+function appendAside(msg){
+  const list = document.getElementById('stlist'); if (!list) return;
+  const boss = msg.speaker === 'BOSS', w = whoIs(msg.speaker) || {};
+  const d = document.createElement('div');
+  d.className = 'st-msg' + (boss ? ' boss' : '');
+  d.innerHTML = `<span class="st-who" style="color:${boss ? 'var(--tan)' : (w.color || 'var(--pink)')}">💭 ${boss ? 'THE BOSS' : (w.name || msg.speaker || 'SYS')}</span>${msg.text || ''}`;
+  const atB = list.scrollHeight - list.scrollTop - list.clientHeight < 60;
+  list.appendChild(d);
+  if (activeTab === 'side' && atB) list.scrollTop = list.scrollHeight;
+  if (!booting && (activeTab !== 'side' || !atB)) unread.side++;
+  syncUnread();
+}
+/* DVM-015: handshake state rides the directive — ⏳ awaiting → ✓ acknowledged → 👍 authorized.
+   pending >120s flags amber (soft timeout: visible, judgment stays with the sender). */
+function syncHandshake(){
+  msglist.querySelectorAll('.hs').forEach(el => {
+    const mid = el.closest('.msg').dataset.mid, st = (mid && DS.hs[mid]) || null;
+    const txt = !st ? '' : st.o ? '👍 authorized' : st.a ? '✓ acknowledged'
+              : (st.ts && Date.now()/1000 - st.ts > 120) ? '⏳ stale' : '⏳ awaiting';
+    if (el.textContent !== txt){
+      el.textContent = txt;
+      el.className = 'hs ' + (!st ? '' : st.o ? 'h-oked' : st.a ? 'h-acked'
+                  : (st.ts && Date.now()/1000 - st.ts > 120) ? 'h-stale' : 'h-await');
+    }
+  });
+}
 document.getElementById('newmsg').onclick = function(){ this.classList.remove('show'); msglist.scrollTop = msglist.scrollHeight; };
 msglist.addEventListener('scroll', () => {
-  if (msglist.scrollHeight - msglist.scrollTop - msglist.clientHeight < 60)
+  if (msglist.scrollHeight - msglist.scrollTop - msglist.clientHeight < 60){
     document.getElementById('newmsg').classList.remove('show');
+    if (activeTab === 'feed'){ unread.feed = 0; syncUnread(); }
+  }
+});
+/* ── DVM-922: the TECH LOG — machine speech renders here, never the transcript.
+   Diversion is render-level ONLY: posts stay on the bus (AUDITOR's law). ── */
+let unreadDark = 0;
+function appendTech(msg){
+  const list = document.getElementById('tlist'); if (!list) return;
+  const dark = /DARK|dark/.test(msg.text || '');
+  const d = document.createElement('div');
+  d.className = 'tmsg' + (dark ? ' tdark' : '');
+  const ts = msg.ts ? new Date(msg.ts).toLocaleTimeString() : new Date().toLocaleTimeString();
+  d.innerHTML = `<span class="tts">${ts} · ${msg.id || 'sys'}</span>${msg.text || ''}`;
+  list.appendChild(d);
+  if (activeTab === 'tech') list.scrollTop = list.scrollHeight;
+  else { unread.tech++; if (dark) unreadDark++; }
+  syncUnread();
+  if (msg.kind === 'sys'){ DS.wallMsg = { text: msg.text || '', kind: 'sys' }; DECK.speech('WALL'); }   // wall monitor keeps its feed
+}
+/* ── tabbed pane (boss-directed): transcript + side table share one element; unread tags clear on read ── */
+let activeTab = 'feed', unread = {feed:0, side:0, tech:0}, booting = true;
+function syncUnread(){
+  document.getElementById('un_feed').textContent = unread.feed || '';
+  document.getElementById('un_side').textContent = unread.side || '';
+  const un = document.getElementById('un_tech');
+  un.textContent = unread.tech || '';
+  un.classList.toggle('dark', unreadDark > 0);
+}
+function setTab(t){
+  activeTab = t;
+  document.getElementById('tab_feed').classList.toggle('active', t === 'feed');
+  document.getElementById('tab_side').classList.toggle('active', t === 'side');
+  document.getElementById('tab_tech').classList.toggle('active', t === 'tech');
+  msglist.style.display = t === 'feed' ? '' : 'none';
+  const st = document.getElementById('stlist');
+  st.style.display = t === 'side' ? '' : 'none';
+  const tl = document.getElementById('tlist');
+  tl.style.display = t === 'tech' ? '' : 'none';
+  if (t === 'side') st.scrollTop = st.scrollHeight;
+  if (t === 'tech'){ tl.scrollTop = tl.scrollHeight; unreadDark = 0; }
+  unread[t] = 0; syncUnread();
+}
+document.getElementById('tab_feed').onclick = () => { setTab('feed'); setSendMode('send'); };
+document.getElementById('tab_side').onclick = () => { setTab('side'); setSendMode('side'); };
+document.getElementById('tab_tech').onclick = () => setTab('tech');
+document.getElementById('stlist').addEventListener('scroll', () => {
+  const st = document.getElementById('stlist');
+  if (st.scrollHeight - st.scrollTop - st.clientHeight < 60 && activeTab === 'side'){
+    unread.side = 0; syncUnread();
+  }
 });
 
 /* ── proposal + verdict ── */
@@ -486,7 +655,7 @@ function setProposal(p){
   const box = document.getElementById('propbox');
   if (!p || p.status === 'closed'){   // closed/null — slot returns to awaiting business (DVM-003)
     box.className = 'panel propbox empty';
-    box.innerHTML = '<div class="p-id">NO PROPOSAL ON THE TABLE</div>' +
+    box.innerHTML = '<div class="p-id">TABLE IDLE — awaiting new business</div>' +
       '<div class="p-text">Waiting for the boss to table a proposal… <span style="font-style:normal">(or run <b>?demo=1</b>)</span></div>';
     return;
   }
@@ -503,7 +672,7 @@ function renderVerdict(result, text, conds){
   box.className = 'panel verdict ' + cls;
   box.innerHTML = `<div class="v-word">${word}</div>
     <div style="font-size:.82em;margin-top:6px">${text || ''}</div>
-    <div class="v-conds">${(conds||[]).map(c => `<span class="v-chip">${c}</span>`).join('')}</div>
+    <div class="v-conds">${((typeof conds === 'string' ? conds.split(/\s*;\s*/).filter(Boolean) : conds) || []).map(c => `<span class="v-chip">${c}</span>`).join('')}</div>
     <div class="v-meta">${new Date().toLocaleTimeString()} · verdict is advisory — the boss ratifies</div>`;
 }
 
@@ -515,6 +684,7 @@ function applyState(s){
   safe(renderSeats);                                    // seats render every state pass — occupancy is presence-derived (DVM-009)
   if (typeof s.phase === 'number') safe(() => setPhase(s.phase));
   safe(() => (s.messages || []).forEach(ingest));
+  booting = false;                                          // first applyState is hydrate — replay never counts unread
   if (s.verdict) safe(() => renderVerdict(s.verdict.ruling, s.verdict.summary, s.verdict.conds));  // live schema: ruling/summary (DVM-004)
   if (s.verdict){ const vk = s.verdict.ts || s.verdict.ruling; if (vk !== DS.vts){ DS.vts = vk; DECK.note('verdict'); }
     DS.vid = s.verdict.id || ''; }
@@ -532,9 +702,57 @@ function applyState(s){
     DS.goOK = g > vt;                            // a GO only counts after the verdict it unleashes
     DS.builtOK = b2 > Math.max(vt, g);
     DS.vetoSeats = vs;
+    /* DVM-015 handshake derivation — needs_ack materialized, or VIRTUAL on boss+to≠∅
+       past ack_epoch (§4 F2a named-not-materialized; §8: no retroactive handshakes). */
+    const ep = typeof s.ack_epoch === 'number' ? s.ack_epoch : Infinity;
+    const dirs = {}, acks = {}, oks = {};
+    for (let i = 0; i < msgs.length; i++){
+      const m = msgs[i];
+      if (m.id && (m.needs_ack || (m.kind === 'boss' && (m.to || []).length && i >= ep)))
+        dirs[m.id] = { ts: m.ts || 0, a:'', o:'', hold: !!m.hold || (m.kind === 'boss' && (m.to || []).length && i >= ep) };   // boss taskings hold by ratified default
+      if (m.kind === 'ack' && m.ack_of) acks[m.ack_of] = m.id;
+      if (m.kind === 'ok'  && m.ack_of) oks[m.ack_of]  = m.id;
+    }
+    for (const id in dirs){ const a = acks[id]; if (a){ dirs[id].a = a; if (oks[a]) dirs[id].o = oks[a]; } }
+    DS.hs = dirs;
+    /* DVM-018 pending_task — the handshake lifecycle derived per seat from the tail:
+       aimed → acked → released → delivered → expired. Zero new bus fields:
+       needs_ack = aim (C26: to: is pure addressing, never tasking);
+       ack+ack_of = ack; ok+ack_of = release;
+       floor-class write (aside/sys/phase/ack/ok excluded — voice, not product)
+       or a delivers:true ack = delivery; ear-dark or now−aimed > TASKED_TTL = expiry.
+       Newest tasking per seat wins (v1 bound). */
+    const SIDE = { aside:1, sys:1, phase:1, ack:1, ok:1 }, TASKED_TTL = 600000;
+    DS.pendingTask = {};
+    for (let i = msgs.length - 1; i >= 0; i--){
+      const m = msgs[i], tos = (m.to || []).map(t => seatKeyFor(t) || t);
+      const tasked = m.needs_ack;
+      if (!tasked) continue;
+      for (const k of tos){
+        if (k === 'BOSS' || DS.pendingTask[k]) continue;
+        const rec = { id: m.id, by: m.speaker, aimed: m.ts || 0, state: 'aimed' };
+        let ackId = '';
+        for (let j = i + 1; j < msgs.length && rec.state !== 'delivered'; j++){
+          const n = msgs[j], nk = seatKeyFor(n.speaker);
+          if (nk === k && n.kind === 'ack' && n.ack_of === m.id){
+            ackId = n.id; rec.state = 'acked'; rec.acked = n.ts || 0;
+            if (n.delivers) rec.state = 'delivered';
+          } else if (ackId && n.kind === 'ok' && n.ack_of === ackId){
+            if (rec.state === 'acked') rec.state = 'released';
+          } else if (nk === k && !SIDE[n.kind]){
+            rec.state = 'delivered';
+          }
+        }
+        if (rec.state !== 'delivered' && rec.aimed && Date.now() - rec.aimed > TASKED_TTL) rec.state = 'expired';
+        DS.pendingTask[k] = rec;
+      }
+    }
   });
+  safe(syncHandshake);
+  if (s.seats) safe(() => { DS.live = s.seats.concat('BOSS'); });          // C1/C4: LIVE := feed.seats ∪ {BOSS} — the floor domain, never SEATS{}
   if (s.turn) safe(() => { document.getElementById('turnlbl').textContent = 'floor: ' + s.turn;
-    const dt = document.getElementById('d_turn'); if (dt) dt.textContent = s.turn; DS.turn = s.turn; DECK.note(); });
+    const dt = document.getElementById('d_turn'); if (dt) dt.textContent = s.turn; DS.turn = s.turn;
+    if (s.turn_at) DS.turnAt = s.turn_at < 1e12 ? s.turn_at * 1000 : s.turn_at; DECK.note(); });  // C6: ms canon; seconds-era values self-correct on read
   if (s.board) safe(() => renderBoard(s.board));
   safe(() => { adjourned = !!s.adjourned; DS.adj = adjourned; syncAdjBtn(); DECK.note(); });  // DVM-007: recess flag drives the toggle label
 }
@@ -564,7 +782,8 @@ function poll(){
 /* ── DVM-010: push over HTTP (SSE signals), 2s poll fallback (file:// or
    dead server). Signal carries the filename; script-tag still carries the
    payload — one serialization path either way. ── */
-let pollTimers = null, pushOk = false;
+let pollTimers = null, pushOk = false, sseBk = 0;
+const SSE_BACKOFF = [5000, 15000, 30000, 60000];   /* DVM-011 §3: permanent-failure ladder — 5s→15s→30s→60s cap */
 function setPushChip(m){
   const c = document.getElementById('pushchip'); if (c) c.textContent = m;
   const d = document.getElementById('d_push'); if (d) d.textContent = m;
@@ -577,13 +796,20 @@ function armPolling(){
 function startPush(){
   try {
     const es = new EventSource('/events');       // throws synchronously on file://
-    es.onopen  = () => { pushOk = true; setPushChip('push'); };
-    es.onerror = () => { if (!pushOk) armPolling(); };   // EventSource auto-reconnects; poll arms only if push never engaged
+    es.onopen  = () => { pushOk = true; sseBk = 0; setPushChip('push'); };
+    es.onerror = () => {
+      if (!pushOk) armPolling();                 // EventSource auto-reconnects; poll arms only if push never engaged
+      if (es.readyState === EventSource.CLOSED){ // permanent failure — native retry stops; manual backoff re-construct (DVM-011 §3)
+        setPushChip('retry');
+        setTimeout(startPush, SSE_BACKOFF[Math.min(sseBk++, SSE_BACKOFF.length - 1)]);
+      }
+    };
     es.onmessage = ev => {
       try {
         const f = (JSON.parse(ev.data) || {}).file;
-        if (f === 'deliberation_feed') poll();
+        if (f === 'deliberation_feed'){ poll(); setTimeout(() => Object.keys(SEATS).forEach(loadInbox), 400); }   // every batch lands in every inbox — the feed event IS the doorbell; 400ms covers daemon write latency
         else if (typeof f === 'string' && f.indexOf('presence_') === 0) loadPresence(f.slice(9));
+        else if (typeof f === 'string' && f.indexOf('busy_') === 0) loadBusy(f.slice(5));   // C27: server watches busy_* mtimes — without this branch BUSY froze at hydrate under push, so tags only ever drew on F5
       } catch(e){}
     };
   } catch(e) { armPolling(); }
@@ -596,8 +822,12 @@ function startPush(){
 const PRESENCE = {};   // seat key -> {armed_at, ttl_ms, pulse_at} | null (DVM-009)
 function earInfo(aid){
   const p = PRESENCE[aid];
-  const rem = p ? p.armed_at + p.ttl_ms - Date.now() : -1;
-  if (!p || rem <= 0) return { dead:true, txt:'ear dead' };
+  if (!p) return { dead:true, txt:'ear dead' };
+  const rem = p.armed_at + p.ttl_ms - Date.now();
+  if (rem <= 0){                                            /* DVM-011 §2: post-expiry age — a 40s relay-gap stops reading like a 4h stall */
+    const d = Math.floor(-rem / 1000);
+    return { dead:true, txt:'ear dead ' + (d < 60 ? d + 's' : d < 3600 ? Math.floor(d/60) + 'm' : Math.floor(d/3600) + 'h') };
+  }
   const s = Math.ceil(rem / 1000);
   return { dead:false, txt:'ear ' + Math.floor(s/60) + ':' + String(s%60).padStart(2,'0') };
 }
@@ -608,7 +838,29 @@ function loadPresence(key){
   t.onerror = () => { PRESENCE[key] = null; t.remove(); };
   document.head.appendChild(t);
 }
-function pollPresence(){ for (const key of Object.keys(SEATS)) loadPresence(key); }
+/* DVM-921: busy_<SEAT>.js — the agent-alive mark, second file of the dual-stamp.
+   presence = loop-alive (watcher-owned); busy = agent-alive (host sole-writer). */
+const BUSY = {};
+function loadBusy(key){
+  const t = document.createElement('script');
+  t.src = 'busy_' + key + '.js?_=' + Date.now();
+  t.onload = () => { BUSY[key] = window['DVM_BUSY_' + key] || null; window['DVM_BUSY_' + key] = null; t.remove(); };
+  t.onerror = () => { BUSY[key] = null; t.remove(); };
+  document.head.appendChild(t);
+}
+/* C27+: inbox_n_<SEAT>.js — the daemon's delivery heartbeat, sole-written by the
+   listener. Renderer reads it for the WAKING derived state: doorbell fact, not a
+   seat claim — sits below stamped labor in busyTier like QUEUED/STALLED do. */
+const INBOX = {};
+function loadInbox(key){
+  const t = document.createElement('script');
+  t.src = 'inbox_n_' + key + '.js?_=' + Date.now();
+  t.onload = () => { INBOX[key] = window['DVM_INBOX_' + key] || null; window['DVM_INBOX_' + key] = null; t.remove(); };
+  t.onerror = () => { INBOX[key] = null; t.remove(); };
+  document.head.appendChild(t);
+}
+function busyMark(k){ const b = BUSY[k]; return !!(b && b.busy && (Date.now() - (b.armed_at || 0)) < (b.ttl_ms || 30000)); }
+function pollPresence(){ for (const key of Object.keys(SEATS)) if (!SEATS[key].retired && !SEATS[key].boss){ loadPresence(key); loadBusy(key); loadInbox(key); } loadPresence('SUPERVISOR'); }   // DVM-922: the watchdog's own lamp rides the same glob
 /* 1s tick — countdown chips + dead-ear seat state (countdown deadline) */
 setInterval(() => {
   for (const key of Object.keys(SEATS)){
@@ -621,8 +873,21 @@ setInterval(() => {
     if (tag && (tag.textContent === 'live' || tag.textContent === 'dead'))
       tag.textContent = info.dead ? 'dead' : 'live';
   }
-  const sig = Object.keys(SEATS).map(k => lampState(k) + ':' + lampFrac(k)).join(',');   // fuse fraction rides the signature (DVM-014)
+  const sig = Object.keys(SEATS).map(k => { const ls = lampState(k); return ls + ':' + lampFrac(k) + (ls === 'dead' ? ':' + earInfo(k).txt : '') + '|' + (busyTier(k) || ''); }).join(',');   // fuse fraction rides the signature (DVM-014); dead-age label too (DVM-011); busy tier too — tag changes must repaint live, not only on F5 (C27)
   if (sig !== DS.lamps){ DS.lamps = sig; DECK.presence(); if (DECK.mode !== '3d') render2D(); }
+  /* DVM-015 §6c: floorSilent = turn ∈ seats && turn_at && !adjourned && >120s — the render
+     alarm needs ZERO writers; recess is deliberate silence, not dead silence (binding nit). */
+  const sk = (DS.turn && DS.turn !== 'BOSS' && DS.live.includes(DS.turn) && DS.turnAt && !DS.adj
+              && (Date.now() - DS.turnAt) > 120000 && !busyTier(DS.turn)) ? DS.turn : '';   // C1/C6: LIVE domain, ms clock; DVM-018: the whole aimed→released lifecycle is sanctioned labor — suppresses while the lamp is lit
+  if (sk !== DS.silentK){ DS.silentK = sk; DECK.note(); }             // note() = syncScene+mark (3D) / render2D (else)
+  const ghost = (DS.turn && !DS.adj && !DS.live.includes(DS.turn)) ? DS.turn : '';          // C1: non-LIVE floor burns instantly — no grace, no writers needed
+  if (ghost !== DS.ghostK){ DS.ghostK = ghost;
+    const tl2 = document.getElementById('turnlbl'); if (tl2) tl2.textContent = 'floor: ' + DS.turn + (ghost ? ' — GHOST' : '');
+    DECK.note(); }
+  const tl = document.getElementById('turnlbl'); if (tl){ tl.classList.toggle('burn', !!sk); tl.classList.toggle('ghost', !!ghost); }
+  const dtc = document.getElementById('d_turn');
+  if (dtc && dtc.parentElement){ dtc.parentElement.classList.toggle('burn', !!sk); dtc.parentElement.classList.toggle('ghost', !!ghost); }
+  syncHandshake();                                     // pending >120s flips amber on the tick
   const iEl = document.getElementById('inspector');                    // inspector countdown stays live while open
   if (iEl && iEl.classList.contains('open') && iEl.dataset.seat) refreshInspectorOcc(iEl.dataset.seat);
 }, 1000);
@@ -756,10 +1021,43 @@ async function toggleAdjourn(){
 }
 document.getElementById('adjournbtn').onclick = toggleAdjourn;
 syncAdjBtn();
-document.getElementById('bosssend').onclick = sendBoss;
+/* send-mode triad (DVM-021 v0.3, full-M1) — SEND is momentary: flashes on click, never holds
+   .armed. TABLE / SIDE-TABLE are arm-toggles: clicks arm + retab ONLY, never fire — Enter
+   (and SEND, for floor speech) is the sole fire path. Clicking the armed verb disarms to
+   the rest pose (send,feed). Invariant: armed channel ≡ viewed tab under every gesture. */
+let sendMode = 'send';
+function setSendMode(m){
+  sendMode = m;
+  document.getElementById('btntable').classList.toggle('armed', m === 'table');
+  document.getElementById('btnside').classList.toggle('armed', m === 'side');
+}
+let sendFlash = 0;
+function flashSend(){
+  const b = document.getElementById('bosssend');
+  b.classList.add('armed');
+  clearTimeout(sendFlash);
+  sendFlash = setTimeout(() => b.classList.remove('armed'), 180);
+}
+function sendBossCmd(prefix){
+  const v = bossin.value.trim(); if (!v) return;
+  bossin.value = prefix + ' ' + v;
+  sendBoss();
+}
+function sendArmed(){
+  if (sendMode === 'table') sendBossCmd('/table');
+  else if (sendMode === 'side') sendBossCmd('/aside');
+  else sendBoss();
+}
+document.getElementById('bosssend').onclick = () => { sendBoss(); setSendMode('send'); setTab('feed'); flashSend(); };
+document.getElementById('btntable').onclick = () => { setSendMode(sendMode === 'table' ? 'send' : 'table'); setTab('feed'); };
+document.getElementById('btnside').onclick = () => {
+  if (sendMode === 'side'){ setSendMode('send'); setTab('feed'); }
+  else { setSendMode('side'); setTab('side'); }
+};
 bossin.addEventListener('keydown', e => {
-  if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); sendBoss(); }
+  if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); sendArmed(); }
 });
+setSendMode('send');
 
 /* ══════════════ DVM-013 — OPS DECK ══════════════
    Compact band (~160px, collapsible to its header strip): noir round-table
@@ -768,15 +1066,18 @@ bossin.addEventListener('keydown', e => {
    failure (no WebGL, CDN unreachable, context lost) keeps them and the chip
    reads 2D honestly. Render-on-dirty: no unbounded rAF on an hours-open page. */
 const DS = { phase:-1, turn:'', adj:false, prop:null, vts:'', vid:'', lamps:'',
-             lastMsg:{}, wallMsg:null, goOK:false, builtOK:false, vetoSeats:[] };
+             lastMsg:{}, wallMsg:null, goOK:false, builtOK:false, vetoSeats:[],
+             turnAt:0, silentK:'', hs:{}, pendingTask:{},
+             live:['CHAIR','ARCHITECT','INFORMANT','AUDITOR','BUTTON','BOSS'], ghostK:'' };  // C1: LIVE fallback = feed.seats ∪ {BOSS} until applyState ingests
 const DECK = { mode:'boot', note(){ if (DECK.mode !== '3d') render2D(); }, pulse(){}, pin(){},
                speech(){ if (DECK.mode !== '3d') render2D(); },
                presence(){ if (DECK.mode !== '3d') render2D(); }, dirty(){} };
 const SEAT_HEX = { CHAIR:0xd29922, ARCHITECT:0x39c5cf, INFORMANT:0xf778ba, BUTTON:0xf85149,
-                   PRAGMATIST:0x3fb950, AUDITOR:0xf0883e, HISTORIAN:0xbc8cff };
+                   PRAGMATIST:0x3fb950, AUDITOR:0xf0883e, HISTORIAN:0xbc8cff, BOSS:0xe6d5b0 };
 const SEAT_CSS = { CHAIR:'#d29922', ARCHITECT:'#39c5cf', INFORMANT:'#f778ba', BUTTON:'#f85149',
-                   PRAGMATIST:'#3fb950', AUDITOR:'#f0883e', HISTORIAN:'#bc8cff' };
-function lampState(k){                 // 'lit' | 'dead' | 'vacant' | 'ember' — the scene grammar
+                   PRAGMATIST:'#3fb950', AUDITOR:'#f0883e', HISTORIAN:'#bc8cff', BOSS:'#e6d5b0' };
+function lampState(k){                 // 'lit' | 'dead' | 'vacant' | 'ember' | 'throne' — the scene grammar
+  if (SEATS[k] && SEATS[k].boss) return 'throne';
   const p = PRESENCE[k];
   if (!p) return 'vacant';
   if (DS.adj) return 'ember';
@@ -790,6 +1091,28 @@ function lampFrac(k){                  // the lamp is a fuse — rounded remaini
 }
 /* propStage — every pegboard slot gets a named source; stamped data first,
    named sniffing second (gate doctrine: sniffing that exists is written down) */
+/* busyTier — DVM-925: returns the tag TEXT directly (stamped kinds + derived
+   states). '' = dark/idle (falsy). Stamped labor is the seat's own claim;
+   derived states (QUEUED/FLOOR-HELD/STALLED/DEAF-WORK) are machine-computed —
+   neither crosses, per the taxonomy law. */
+function busyTier(k){
+  const mark = busyMark(k);
+  const ib = INBOX[k], waking = !!(ib && ib.at && (Date.now() - ib.at) < 8000);   // C27+: fresh daemon delivery = doorbell rang — machine fact, no seat claim needed
+  if (lampState(k) !== 'lit') return mark ? 'DEAF-WORK' : (waking ? 'WAKING' : '');   // live mark under dark ear = sealed-ear blind-work (derived); fresh doorbell under dark ear still surfaces
+  if (k === 'BUTTON' && DS.prop && DS.prop.status === 'go') return 'WORKING';  // build-lane, GO-stamped
+  if (mark) return BUSY[k].kind || 'COMPOSING';                              // stamped kind wins; absent kind = COMPOSING (back-compat)
+  if (waking) return 'WAKING';                                               // doorbell delivered, host hasn't claimed labor yet
+  const pt = DS.pendingTask && DS.pendingTask[k];
+  const tasked = pt && pt.state !== 'delivered' && pt.state !== 'expired';
+  if (tasked && DS.turn !== k) return 'QUEUED';                              // addressed ∧ turn≠me (derived)
+  if (tasked) return 'COMPOSING';                                            // tasked + floor-held = sanctioned labor
+  if (DS.turn === k && DS.turnAt){
+    const age = Date.now() - DS.turnAt;
+    if (age >= 180000 && !mark) return 'STALLED';                            // DVM-924 + fix: floor held ≥180s AND no live mark — a seat still claiming labor is working, not stuck
+    if (age < 120000) return 'FLOOR-HELD';                                   // register held <120s, no labor claimed
+  }
+  return '';
+}
 function propStage(){
   const p = DS.prop; if (!p || !p.id) return -1;
   const b = LASTBOARD || {};
@@ -817,12 +1140,13 @@ function render2D(){
     ` <b style="margin-left:auto">${(PHASE_NAMES[DS.phase] || '—').toUpperCase()} · ${DECK.mode.toUpperCase()}</b></div>`;
   h += Object.keys(SEATS).map(k => {
     const s = lampState(k), seat = SEATS[k];
-    const col = s === 'lit' ? SEAT_CSS[k] : s === 'ember' ? '#b05900' : s === 'dead' ? '#555' : 'transparent';
-    const occ = s === 'vacant' ? 'vacant' : s === 'ember' ? 'in recess' : s === 'dead' ? 'ear dead' : earInfo(k).txt;
-    const lm = DS.lastMsg[k];
-    return `<div class="d2row${DS.turn === k ? ' floor' : ''}${s === 'vacant' ? ' vac' : ''}" data-k="${k}">` +
+    const col = (s === 'lit' || s === 'throne') ? SEAT_CSS[k] : s === 'ember' ? '#b05900' : s === 'dead' ? '#555' : 'transparent';
+    const occ = DS.ghostK === k ? '▲ GHOST FLOOR' : DS.silentK === k ? '▲ floor silent' : s === 'throne' ? 'reserved' : s === 'vacant' ? 'vacant' : s === 'ember' ? 'in recess' : earInfo(k).txt;
+    const lm = DS.lastMsg[k], tier = busyTier(k);
+    return `<div class="d2row${DS.turn === k ? ' floor' : ''}${DS.silentK === k ? ' silent' : ''}${DS.ghostK === k ? ' ghost' : ''}${DS.turn === k && s === 'dead' ? ' deadfl' : ''}${s === 'vacant' ? ' vac' : ''}" data-k="${k}">` +
       `<i class="l" style="background:${col}"></i>` +
       `<div><span class="nm" style="color:${s === 'vacant' ? 'var(--text-dim)' : seat.color}">${seat.name}</span>` +
+      (tier ? `<span class="btag" style="--wc:${SEAT_CSS[k]}">${tier}</span>` : '') +
       (lm ? `<span class="lm">last: “${lm.text.replace(/<[^>]*>/g,'').slice(0,64)}…”</span>` : '') +
       `</div><span class="er">${occ}</span></div>`;
   }).join('');
@@ -840,6 +1164,10 @@ document.getElementById('d_collapse').addEventListener('click', function(){
 document.getElementById('d_navbtn').addEventListener('click', function(){
   const c = document.body.classList.toggle('dk-navhide');
   this.textContent = c ? 'FILES ◂' : 'FILES ▸';
+  DECK.dirty();
+});
+document.getElementById('d_swap').addEventListener('click', function(){
+  document.body.classList.toggle('swap');          // preview only — layout flips live, scene re-fits itself
   DECK.dirty();
 });
 
@@ -890,8 +1218,10 @@ function refreshInspectorOcc(k){
   const el = document.getElementById('inspector'); if (!el || el.dataset.seat !== k) return;
   const occ = el.querySelector('.i-occ'); if (!occ) return;
   const s = lampState(k);
-  occ.textContent = s === 'vacant' ? 'vacant chair' : s === 'ember' ? 'in recess' : s === 'dead' ? 'ear dead' : earInfo(k).txt;
-  occ.classList.toggle('dead', s !== 'lit');
+  occ.textContent = s === 'vacant' ? 'vacant chair' : s === 'throne' ? 'reserved — the boss' : s === 'ember' ? 'in recess' : earInfo(k).txt;
+  const pt = DS.pendingTask && DS.pendingTask[k];                                  // DVM-018: inspector carries the lifecycle sub-state
+  if (pt && pt.state !== 'delivered' && pt.state !== 'expired') occ.textContent += ' · task ' + pt.state;
+  occ.classList.toggle('dead', s !== 'lit' && s !== 'throne');
 }
 function openInspector(k){
   const el = document.getElementById('inspector'), seat = SEATS[k]; if (!el || !seat) return;
@@ -902,11 +1232,19 @@ function openInspector(k){
     `<div class="i-occ"></div>` +
     (c.duty ? `<div class="i-duty">${c.duty}</div>` : '') +
     (c.rules || []).map(r => `<div class="i-rule">${r}</div>`).join('') +
-    `<span class="i-at" data-k="${k}">@ ${k} ▸</span>`;
+    `<span class="i-at" data-k="${k}">@ ${k} ▸</span>` +
+    (seat.boss ? '' : `<div class="i-eject" id="i_eject" title="free the slot — zero stamps + vacancy notice to the room">EJECT</div>`);
   el.classList.add('open');
   refreshInspectorOcc(k);
   el.querySelector('#i_x').onclick = () => el.classList.remove('open');
   el.querySelector('.i-at').onclick = () => { address(k); el.classList.remove('open'); };
+  const ej = el.querySelector('#i_eject');
+  if (ej) ej.onclick = () => {
+    if (!confirm('EJECT ' + k + '? Stamps zeroed, chair reads dark, slot frees for a fresh host.')) return;
+    fetch('/eject', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({seat:k})})
+      .then(() => el.classList.remove('open'))
+      .catch(() => alert('eject failed — server unreachable'));
+  };
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') document.getElementById('inspector')?.classList.remove('open'); });
 /* ── reader overlay — bus-carried detail opens everywhere; paths fetch over HTTP ── */
@@ -924,7 +1262,7 @@ function openReader(f){
     body.innerHTML = '<p>Transport-blocked: this row carries no bus detail and <code>file://</code> cannot fetch. ' +
       'Serve the page over HTTP (or stage the file) to read it here.</p>'; return;
   }
-  fetch(f.path).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+  fetch((f.path || '').replace(/^docs\//, '')).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
     .then(t => { body.innerHTML = (f.kind === 'feed' || f.kind === 'induction') ? '<pre>' + escHtml(t) + '</pre>' : miniMd(t); })
     .catch(e => { body.innerHTML = '<p>Fetch failed: ' + escHtml(e.message) + '</p>'; });
 }
@@ -966,6 +1304,7 @@ function initDeck3D(THREE, OrbitControls){
   scene.background = new THREE.Color(0x0a0d13);
   scene.fog = new THREE.Fog(0x0a0d13, 7, 15);
   const camera = new THREE.PerspectiveCamera(44, W() / H(), .1, 50);
+  window.__THREE = THREE; window.__scene = scene; window.__camera = camera;   // DVM-2252 — expose for the char block
   camera.position.set(0, 3.1, 4.9);
   const controls = new OrbitControls(camera, renderer.domElement);
   Object.assign(controls, { enableDamping:true, dampingFactor:.12, enablePan:false,
@@ -976,6 +1315,11 @@ function initDeck3D(THREE, OrbitControls){
   const amb = new THREE.AmbientLight(0x2a3550, .9);
   const key = new THREE.PointLight(0xffd9a0, 26, 14); key.position.set(0, 4.2, .4);
   scene.add(amb, key);
+  /* render-on-dirty scheduler state — declared up top so mark() is safe from
+     any init code that runs before the scheduler section below (TDZ fix). */
+  let queued = false, interacting = false, settle = 0, breath = 0, stampT = -1, pulseT = -1, pulseK = null;
+  let lastSlam = 'INIT';
+  function mark(){ if (!queued){ queued = true; requestAnimationFrame(frame); } }
   const std = o => new THREE.MeshStandardMaterial(o);
   const floor = new THREE.Mesh(new THREE.CircleGeometry(4.5, 40), std({color:0x11151d, roughness:.95}));
   floor.rotation.x = -Math.PI/2; scene.add(floor);
@@ -984,6 +1328,195 @@ function initDeck3D(THREE, OrbitControls){
   const ped = new THREE.Mesh(new THREE.CylinderGeometry(.13, .2, .9, 20), std({color:0x241a12, roughness:.85}));
   ped.position.y = .45;
   scene.add(table, ped);
+
+  /* ── A/B room — B swaps the primitive set for voxel-pipeline assets ──
+     Loader consumes the same steelcity_item JSON the studio exports (dogfooding):
+     /voxel/<name> serves Assets/StreamingAssets/voxel_items/<name>.json.
+     KIT: file → placement. Building grain (.06u) for shell, fine grain for props —
+     the same scale split the pipeline uses. */
+  const ROOM = { style:'A', vox:null };
+  const KIT = [
+    { file:'commission_table', vs:.0093, pos:[0, 0, 0] },
+    { file:'commission_floor', vs:.03,   pos:[0, -.09, 0] },     // chibi grain — 4.5m plate covers the seat ring, tops y=0
+    { file:'commission_wall',  vs:.03,   pos:[0, 0, -2.295] },   // 4.5x1.8 wall backs the set — front face at z=-2.25
+    { file:'commission_filecabinet', vs:.0115, pos:[1.85, 0, -2.03], rotY:-.18 },  // 1920s 4-drawer, back-right corner, back flush (D=.44)
+  ];
+  function setRoomStyle(s){
+    ROOM.style = s;
+    const isB = s === 'B' && ROOM.vox;
+    table.visible = ped.visible = floor.visible = wall.visible = !isB;
+    if (ROOM.vox) ROOM.vox.visible = isB;
+    skeys.forEach(k => { const c = chairs[k]; if (!c) return;
+      c.base.visible = c.back.visible = !isB;
+      if (c.voxg) c.voxg.visible = isB;
+      if (!c.g.userData.apos) c.g.userData.apos = c.g.position.clone();
+      c.g.position.copy(c.g.userData.apos).multiplyScalar(isB ? .59 : 1);   // chibi ring — chairs scoot to the 1.34m table (r~1.15)
+      c.lamp.position.y  = isB ? .62 : 1.18;                              // orb rides the voxel chair's back, not the prim chair's
+      c.lpt.position.y   = isB ? .75 : 1.3;
+      c.plate.position.y = isB ? .95 : 1.52;
+      c.plate.scale.set(isB ? .68 : 1.05, isB ? .15 : .23, 1);
+      c.work.position.y  = isB ? 1.12 : 1.86;
+      c.ring.scale.setScalar(isB ? .6 : 1);
+      if (hitList){ const h = c.g.children.find(m => m.userData && m.userData.key);
+        if (h){ h.position.y = isB ? .35 : .75; h.scale.setScalar(isB ? .55 : 1); } } });
+    if (stamp.userData.prim) stamp.userData.prim.visible = !isB;
+    if (stamp.userData.vox) stamp.userData.vox.visible = isB;
+    swaps.forEach(sw => { sw.prim.visible = sw.keepPrim ? true : !isB; sw.vox.visible = isB; });
+    // card + stamp ride table-top height — prim ~1.02/1.7, voxel table tops .49
+    card.position.y = isB ? .51 : 1.02;
+    card.scale.setScalar(isB ? .55 : 1);
+    stamp.position.y = isB ? .62 : 1.7;
+    applyMounts();
+    cardStage = -2; moveCard();              // the card is stage-driven: force the re-seat so it follows its slot to the new wall (CHAIR's orphan survivor)
+    goGlow.position.copy(slotPos(4)); goGlow.position.z += .35;
+    supBulb.position.set(...(isB ? [1.95, 1.5, -2.2] : [2.98, 2.28, -3.38]));   // daemon bulb rides its room's wall
+    supGlow.position.copy(supBulb.position); supGlow.position.z += .12;
+    skeys.forEach(k => { const b = bubbles[k]; if (!b) return;              // speech bubbles re-seat too
+      b.sp.position.y = isB ? 1.25 : 1.98;
+      b.sp.scale.set(isB ? 1.0 : 1.55, isB ? .44 : .68, 1); });
+    const b = document.getElementById('d_roomab');
+    if (b) b.textContent = 'ROOM ' + (isB ? 'B' : 'A');
+    mark();
+  }
+  (function loadKit(){
+    const g = new THREE.Group(); g.visible = false; scene.add(g);
+    let pending = KIT.length;
+    KIT.forEach(k => fetch('/voxel/' + k.file).then(r => r.json()).then(m => {
+      if (!m.voxels) return;
+      const im = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1),
+        new THREE.MeshLambertMaterial(), m.voxels.length);
+      const mats = {}; (m.materials || []).forEach(mt => mats[mt.id] = new THREE.Color(mt.hex));
+      const cx = m.dims[0] / 2 - .5, cz = m.dims[2] / 2 - .5;
+      const M = new THREE.Matrix4(), dflt = new THREE.Color(0x888888);
+      m.voxels.forEach((v, i) => {
+        M.makeScale(k.vs, k.vs, k.vs).setPosition((v[0] - cx) * k.vs, (v[1] + .5) * k.vs, (v[2] - cz) * k.vs);
+        im.setMatrixAt(i, M);
+        im.setColorAt(i, mats[v[3]] || dflt);
+      });
+      im.instanceMatrix.needsUpdate = true;
+      if (im.instanceColor) im.instanceColor.needsUpdate = true;
+      const part = new THREE.Group(); part.add(im); part.position.set(k.pos[0], k.pos[1], k.pos[2]);
+      if (k.rotY) part.rotation.y = k.rotY;
+      g.add(part);
+    }).catch(() => {}).finally(() => { if (!--pending){ ROOM.vox = g; setRoomStyle(ROOM.style); } }));
+    /* chair kit — one voxel build per seat; metaphor sprites (lamp/plate/work)
+       stay primitive — they're state, not furniture. Back faces -z like the set. */
+    fetch('/voxel/chair').then(r => r.json()).then(m => {   // boss's authored chair — same dims/materials schema, drop-in for commission_chair (C29 step 1)
+      if (!m.voxels) return;
+      const mats = {}; (m.materials || []).forEach(mt => mats[mt.id] = new THREE.Color(mt.hex));
+      const cx = m.dims[0] / 2 - .5, cz = m.dims[2] / 2 - .5, vs = .010;
+      const dflt = new THREE.Color(0x888888);
+      skeys.forEach(k => {
+        const c = chairs[k]; if (!c) return;
+        const im = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1),
+          new THREE.MeshLambertMaterial(), m.voxels.length);
+        const M = new THREE.Matrix4();
+        m.voxels.forEach((v, i) => {
+          M.makeScale(vs, vs, vs).setPosition((v[0] - cx) * vs, (v[1] + .5) * vs, (v[2] - cz) * vs);
+          im.setMatrixAt(i, M);
+          im.setColorAt(i, mats[v[3]] || dflt);
+        });
+        im.instanceMatrix.needsUpdate = true;
+        if (im.instanceColor) im.instanceColor.needsUpdate = true;
+        const g = new THREE.Group(); g.add(im); g.rotation.y = Math.PI; g.visible = false;
+        c.g.add(g); c.voxg = g;
+      });
+      if (ROOM.vox && ROOM.style === 'B') setRoomStyle('B');
+      mark();
+    }).catch(() => {});
+    /* stamper — voxel mallet rides the same stamp group the slam animates */
+    fetch('/voxel/commission_stamper').then(r => r.json()).then(m => {
+      if (!m.voxels) return;
+      const mats = {}; (m.materials || []).forEach(mt => mats[mt.id] = new THREE.Color(mt.hex));
+      const cx = m.dims[0] / 2 - .5, cz = m.dims[2] / 2 - .5, vs = .0052;
+      const im = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1),
+        new THREE.MeshLambertMaterial(), m.voxels.length);
+      const M = new THREE.Matrix4(), dflt = new THREE.Color(0x888888);
+      m.voxels.forEach((v, i) => {
+        M.makeScale(vs, vs, vs).setPosition((v[0] - cx) * vs, (v[1] + .5) * vs - .06, (v[2] - cz) * vs);
+        im.setMatrixAt(i, M);
+        im.setColorAt(i, mats[v[3]] || dflt);
+      });
+      im.instanceMatrix.needsUpdate = true;
+      if (im.instanceColor) im.instanceColor.needsUpdate = true;
+      const vg = new THREE.Group(); vg.add(im); vg.visible = false;
+      stamp.add(vg); stamp.userData.vox = vg;
+      if (ROOM.vox && ROOM.style === 'B') setRoomStyle('B');
+      mark();
+    }).catch(() => {});
+  })();
+  /* voxSwap — wall-mounted furniture pair-swaps: prim mesh <-> voxel twin at
+     the same anchor; setRoomStyle toggles which side draws (DVM A/B). */
+  const swaps = [];
+  function voxSwap(prim, name, vs, off, keepPrim){
+    fetch('/voxel/' + name).then(r => r.json()).then(m => {
+      if (!m.voxels) return;
+      const mats = {}; (m.materials || []).forEach(mt => mats[mt.id] = new THREE.Color(mt.hex));
+      const cx = m.dims[0] / 2 - .5, cy = m.dims[1] / 2 - .5, cz = m.dims[2] / 2 - .5;
+      const im = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1),
+        new THREE.MeshLambertMaterial(), m.voxels.length);
+      const M = new THREE.Matrix4(), dflt = new THREE.Color(0x888888);
+      m.voxels.forEach((v, i) => {
+        M.makeScale(vs, vs, vs).setPosition((v[0] - cx) * vs, (v[1] - cy) * vs, (v[2] - cz) * vs);
+        im.setMatrixAt(i, M); im.setColorAt(i, mats[v[3]] || dflt);
+      });
+      im.instanceMatrix.needsUpdate = true;
+      if (im.instanceColor) im.instanceColor.needsUpdate = true;
+      const vg = new THREE.Group(); vg.add(im); vg.visible = false;
+      vg.position.copy(prim.position);
+      if (off) vg.position.add(new THREE.Vector3(off[0], off[1], off[2]));
+      scene.add(vg); swaps.push({prim: prim, vox: vg, keepPrim: !!keepPrim});
+      const mt = (typeof MOUNTS !== 'undefined') && MOUNTS.find(m => m.prim === prim);
+      if (mt){ mt.sw = vg; applyMounts(); }
+      if (ROOM.style === 'B') setRoomStyle('B');
+      mark();
+    }).catch(() => {});
+  }
+
+  /* ── lighting rig — studio's 💡 modal pattern: polar key + ambient, live-apply ──
+     Persistence: /room_lights.json (shared default) → localStorage → constants. */
+  const LDEF = { kaz:5, kel:85, kint:120, aint:1.4, style:'A' };
+  const LIGHTS = Object.assign({}, LDEF);
+  function polarPos(az, el, dist){
+    const a = az * Math.PI / 180, e = el * Math.PI / 180;
+    return new THREE.Vector3(Math.cos(e) * Math.cos(a) * dist, Math.sin(e) * dist, Math.cos(e) * Math.sin(a) * dist);
+  }
+  function applyLights(save){
+    key.position.copy(polarPos(LIGHTS.kaz, LIGHTS.kel, 4.2));
+    key.intensity = DS.adj ? LIGHTS.kint * .27 : LIGHTS.kint;   // adjourn dims proportionally
+    amb.intensity = DS.adj ? LIGHTS.aint * .31 : LIGHTS.aint;
+    if (save !== false) { try { localStorage.setItem('dvm_lights', JSON.stringify(LIGHTS)); } catch(e) {} }
+    mark();
+  }
+  function lpSync(){
+    ['kaz','kel','kint','aint'].forEach(k => {
+      const i = document.getElementById('lp_' + k), v = document.getElementById('lp_' + k + 'v');
+      if (i) i.value = LIGHTS[k];
+      if (v) v.textContent = k === 'aint' ? (+LIGHTS[k]).toFixed(2) : Math.round(LIGHTS[k]);
+    });
+  }
+  (function initRig(){
+    const saved = (() => { try { return JSON.parse(localStorage.getItem('dvm_lights') || 'null'); } catch(e) { return null; } })();
+    if (saved) Object.assign(LIGHTS, saved);
+    fetch('/room_lights.json').then(r => r.ok ? r.json() : null).then(j => {
+      if (j) Object.assign(LIGHTS, j);
+      applyLights(); lpSync(); if (LIGHTS.style) setRoomStyle(LIGHTS.style);
+    }).catch(() => { applyLights(); lpSync(); if (LIGHTS.style) setRoomStyle(LIGHTS.style); });
+    const lp = document.getElementById('lightpanel');
+    document.getElementById('d_lights').onclick = () => lp.classList.toggle('open');
+    document.getElementById('lp_x').onclick = () => lp.classList.remove('open');
+    ['kaz','kel','kint','aint'].forEach(k => {
+      const i = document.getElementById('lp_' + k);
+      if (i) i.addEventListener('input', () => { LIGHTS[k] = +i.value; lpSync(); applyLights(); });
+    });
+    document.getElementById('lp_save').onclick = () =>
+      fetch('/room/lights', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(LIGHTS) }).catch(() => {});
+    document.getElementById('lp_reset').onclick = () => { Object.assign(LIGHTS, LDEF); lpSync(); applyLights(); };
+    const ab = document.getElementById('d_roomab');
+    if (ab) ab.onclick = () => { LIGHTS.style = ROOM.style === 'A' ? 'B' : 'A'; setRoomStyle(LIGHTS.style); applyLights(); };
+    applyLights(); lpSync();
+  })();
   // proposal doc on the table
   const card = new THREE.Mesh(new THREE.PlaneGeometry(.7, .45), new THREE.MeshBasicMaterial({color:0xd8d2c4}));
   card.rotation.x = -1.25; card.position.set(.15, 1.02, 0); card.visible = false; scene.add(card);
@@ -993,30 +1526,87 @@ function initDeck3D(THREE, OrbitControls){
   const sHand = new THREE.Mesh(new THREE.CylinderGeometry(.05, .05, .22, 12), std({color:0x241a12}));
   sHand.position.y = .16; stamp.add(sHand);
   stamp.position.set(.15, 1.7, 0); stamp.visible = false; scene.add(stamp);
+  const stampPrim = new THREE.Group();
+  stamp.children.slice().forEach(ch => { stamp.remove(ch); stampPrim.add(ch); });
+  stamp.add(stampPrim); stamp.userData.prim = stampPrim;
   // back wall — pegboard + neon sign get a mount
   const wall = new THREE.Mesh(new THREE.PlaneGeometry(9, 3.6), std({color:0x0c0f16, roughness:1}));
   wall.position.set(0, 1.8, -3.55); scene.add(wall);
   // neon phase sign + wall-monitor ticker (boss/sys speech lands here, DVM-014)
-  const nCan = document.createElement('canvas'); nCan.width = 512; nCan.height = 150;
+  // DVM-U: the sign is also the BURN board — phase+ticker on top, token-usage chart below.
+  const nCan = document.createElement('canvas'); nCan.width = 512; nCan.height = 400;
   const nTex = new THREE.CanvasTexture(nCan);
-  const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.6, .76), new THREE.MeshBasicMaterial({map:nTex, transparent:true}));
-  sign.position.set(-1.3, 2.35, -3.4); scene.add(sign);
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 2.03), new THREE.MeshBasicMaterial({map:nTex, transparent:true}));
+  sign.position.set(-1.3, 2.14, -3.4); scene.add(sign);
+  function fmtTok(n){ return n >= 1e6 ? (n/1e6).toFixed(2) + 'M' : n >= 1e3 ? Math.round(n/1e3) + 'K' : '' + Math.round(n); }
   function drawSign(txt, color, tick){
-    const c = nCan.getContext('2d'); c.clearRect(0, 0, 512, 150);
+    const c = nCan.getContext('2d'); c.clearRect(0, 0, 512, 400);
     c.font = '800 50px Consolas,monospace'; c.textAlign = 'center'; c.textBaseline = 'middle';
     c.shadowColor = color; c.shadowBlur = 22; c.fillStyle = color;
     c.fillText(txt, 256, 52); c.shadowBlur = 7; c.fillText(txt, 256, 52);
-    if (tick){ c.shadowBlur = 0; c.font = '22px Consolas,monospace'; c.fillStyle = '#d2a679'; c.fillText(tick, 256, 122); }
+    if (tick){ c.shadowBlur = 0; c.font = '22px Consolas,monospace'; c.fillStyle = '#d2a679'; c.fillText(tick, 256, 102); }
+    /* ── BURN board — usage estimator from local session telemetry ── */
+    c.shadowBlur = 0; c.strokeStyle = '#3a4356'; c.lineWidth = 2;
+    c.beginPath(); c.moveTo(14, 126); c.lineTo(498, 126); c.stroke();
+    const u = DS.usage;
+    c.font = '700 19px Consolas,monospace'; c.textAlign = 'left'; c.fillStyle = '#8b949e';
+    c.fillText('BURN — est. input tokens', 18, 150);
+    if (!u || u.err){
+      c.fillStyle = '#555c66'; c.fillText(u && u.err ? 'usage: ' + String(u.err).slice(0, 44) : 'usage: offline', 18, 178);
+    } else {
+      const w1 = u.windows.h1, w5 = u.windows.h5, w24 = u.windows.h24;
+      c.font = '800 44px Consolas,monospace'; c.fillStyle = '#e6b05c';
+      c.fillText(fmtTok(w5.tokens), 18, 196);
+      c.font = '18px Consolas,monospace'; c.fillStyle = '#8b949e';
+      c.fillText('/5h · ' + w5.turns + ' turns', 200, 188);
+      c.fillText('1h ' + fmtTok(w1.tokens) + ' (' + w1.turns + ')   24h ' + fmtTok(w24.tokens) + ' (' + w24.turns + ')', 18, 220);
+      /* hourly bars, 24b — height ∝ share of max */
+      const bmax = Math.max(1, ...u.buckets);
+      c.fillStyle = '#39c5cf';
+      u.buckets.forEach((v, i) => {
+        const h = Math.max(2, Math.round(58 * v / bmax));
+        c.fillRect(18 + i * 20, 292 - h, 15, h);
+      });
+      /* ceiling — observed rate-limit hits pinned on the 24h axis */
+      const obs = (u.ceiling && u.ceiling.obs) || [];
+      const last = obs[obs.length - 1];
+      c.font = '17px Consolas,monospace'; c.textAlign = 'left';
+      if (last){
+        c.fillStyle = '#f0883e';
+        c.fillText('CEILING ≈ ' + fmtTok(last.h24) + '/24h · ' + fmtTok(last.h5) + '/5h (' + obs.length + ' hit' + (obs.length > 1 ? 's' : '') + ')', 18, 320);
+        const frac = Math.min(1, w24.tokens / Math.max(1, last.h24));
+        c.fillStyle = '#3a4356'; c.fillRect(18, 330, 476, 10);
+        c.fillStyle = frac >= 1 ? '#f85149' : frac > .7 ? '#f0883e' : '#3fb950';
+        c.fillRect(18, 330, Math.round(476 * frac), 10);
+      } else {
+        c.fillStyle = '#555c66';
+        c.fillText('CEILING — no limit hits logged (hit it → POST /usage/limit)', 18, 320);
+      }
+      c.fillStyle = '#555c66'; c.font = '15px Consolas,monospace';
+      c.fillText('input-tok estimate · output/cache untracked', 18, 356);
+      if (u.top && u.top.length){
+        const t = u.top[0];
+        c.fillStyle = '#8b949e';
+        c.fillText('top: ' + (t.title || t.id).slice(0, 30) + ' ' + fmtTok(t.tok24), 18, 380);
+      }
+    }
     nTex.needsUpdate = true;
   }
   let signKey = '';
   function updateSign(){
     const tick = DS.wallMsg ? (DS.wallMsg.kind === 'boss' ? 'BOSS: ' : '· ') +
       DS.wallMsg.text.replace(/<[^>]*>/g, '').slice(0, 62) : '';
-    const k2 = DS.phase + '|' + DS.adj + '|' + tick;
+    const k2 = DS.phase + '|' + DS.adj + '|' + tick + '|' + (DS.usageAt || 0);
     if (k2 === signKey) return; signKey = k2;
     drawSign((PHASE_NAMES[DS.phase] || '—').toUpperCase(), DS.adj ? '#8a5a2a' : '#39c5cf', tick);
   }
+  /* usage feed — polled slow (telemetry, not realtime); file:// or no-server → offline note */
+  function pollUsage(){
+    fetch('/usage').then(r => r.json()).then(u => { DS.usage = u; DS.usageAt = Date.now(); updateSign(); mark(); })
+      .catch(() => { if (!DS.usage){ DS.usage = null; DS.usageAt = Date.now(); updateSign(); } });
+  }
+  DS.usage = null; DS.usageAt = 0;
+  setInterval(pollUsage, 30000); pollUsage();
   /* ── the pegboard — the proposal's journey is physical (DVM-014 §4) ── */
   const pbCan = document.createElement('canvas'); pbCan.width = 1024; pbCan.height = 240;
   const pbTex = new THREE.CanvasTexture(pbCan);
@@ -1032,7 +1622,9 @@ function initDeck3D(THREE, OrbitControls){
     SLOT_NAMES.forEach((n, i) => c.fillRect((i + .5) * (1024 / 7) - 2, 55, 4, 95));
     pbTex.needsUpdate = true;
   })();
-  const slotPos = i => new THREE.Vector3(1.55 - 1.375 + (i + .5) * (2.75 / 7), 1.98, -3.36);
+  const slotPos = i => new THREE.Vector3(
+    pboard.position.x - 1.375 * pboard.scale.x + (i + .5) * (2.75 * pboard.scale.x / 7),
+    pboard.position.y, pboard.position.z + .04);   // rides the board wherever it mounts
   let cardStage = -2, cardAnim = null;
   const pins = [];
   const goGlow = new THREE.PointLight(0x3fb950, 0, 1.9); goGlow.position.copy(slotPos(4)); goGlow.position.z += .35;
@@ -1043,10 +1635,54 @@ function initDeck3D(THREE, OrbitControls){
   const tray = new THREE.Mesh(new THREE.BoxGeometry(.52, .04, .18), std({color:0x241a12, roughness:.85}));
   tray.position.set(3.0, 1.58, -3.42); scene.add(tray);
   const trayCards = []; let traySig = '';
+  /* room envelope fit — wall features mount per style: prim wall (A, face
+     z=-3.55) vs chibi wall (B, face z=-2.25). prim sits .02 proud of the
+     face; the voxel twin's center lands at face + depth/2. bs = prim scale
+     for B so canvases/boxes read chibi. */
+  const MOUNTS = [
+    { prim:sign,   ap:[-1.3, 2.14, -3.4],  bp:[-1.25, 1.05, -2.245], ao:[0,0,-.095],       bo:[0,0,-.045],  bs:.35 },
+    { prim:pboard, ap:[1.55, 1.98, -3.4],  bp:[1.05,  1.02, -2.245], ao:[0,0,-.111],       bo:[0,0,-.029],  bs:.65 },
+    { prim:shelf,  ap:[-1.9, 1.28, -3.42], bp:[-1.35, .48, -2.245],  ao:[0,-.085,-.019],   bo:[0,-.085,-.121], bs:.8 },
+    { prim:tray,   ap:[3.0, 1.58, -3.42],  bp:[1.55,  .42, -2.245],  ao:[0,0,-.067],       bo:[0,0,-.0735], bs:.85 },
+  ];
+  function applyMounts(){
+    const isB = ROOM.style === 'B';
+    MOUNTS.forEach(m => {
+      const p = isB ? m.bp : m.ap, o = isB ? m.bo : m.ao;
+      m.prim.position.set(p[0], p[1], p[2]);
+      m.prim.scale.setScalar(isB ? m.bs : 1);
+      if (m.sw) m.sw.position.set(p[0] + o[0], p[1] + o[1], p[2] + o[2]);
+    });
+    // Room-B defect ②: orphan children re-lay with their parents — pins ride the
+    // board (slotPos is already derived), shelf/tray cards ride their mounts.
+    pins.forEach(pin => { const i = pin.userData.i || 0, sl = slotPos(2);
+      pin.position.set(sl.x + (i % 4) * .09 - .135, sl.y + .24 - Math.floor(i / 4) * .09, sl.z + .03); });
+    shelfCards.forEach((m, i) => m.position.set(shelf.position.x - .55 + i * .28, shelf.position.y + .07, shelf.position.z + .03));
+    trayCards.forEach((m, i) => m.position.set(tray.position.x - .16 + i * .11, tray.position.y + .055, tray.position.z + .03));
+  }
+  voxSwap(sign,   'commission_monitor',  .0068, [0, 0, -.095], true);
+  voxSwap(pboard, 'commission_pegboard', .013, [0, 0, -.111], true);
+  voxSwap(shelf,  'commission_shelf',    .0164, [0, -.085, -.019]);
+  voxSwap(tray,   'commission_tray',     .0167, [0, 0, -.067]);
+  /* DVM-922: daemon-health wall bulb — reads presence_SUPERVISOR.js live.
+     Same honesty law as the seat burns: fresh stamp -> green beat, stale -> dark. */
+  const supBulb = new THREE.Mesh(new THREE.SphereGeometry(.07, 16, 12),
+    new THREE.MeshBasicMaterial({color:0x2a2f36}));
+  supBulb.position.set(2.98, 2.28, -3.38); scene.add(supBulb);
+  const supGlow = new THREE.PointLight(0x3fb950, 0, 1.1);
+  supGlow.position.copy(supBulb.position); supGlow.position.z += .12; scene.add(supGlow);
+  function syncSupBulb(){
+    const r = PRESENCE['SUPERVISOR'];
+    const on = !!(r && r.beat && (Date.now() - (r.armed_at || 0)) < (r.ttl_ms || 30000));
+    supBulb.material.color.setHex(on ? 0x3fb950 : 0x2a2f36);
+    supGlow.intensity = on ? .85 : 0;
+  }
+  setInterval(syncSupBulb, 1000);
   function addPin(k){
     const c = chairs[k]; if (!c) return;
     const pin = new THREE.Mesh(new THREE.SphereGeometry(.035, 10, 8), new THREE.MeshBasicMaterial({color:c.hex}));
     const i = pins.length, sl = slotPos(2);          // ballots pin up around the POLL slot
+    pin.userData.i = i;                              // grid index kept for re-lay on style toggle
     pin.position.set(sl.x + (i % 4) * .09 - .135, sl.y + .24 - Math.floor(i / 4) * .09, sl.z + .03);
     pins.push(pin); scene.add(pin);
   }
@@ -1090,12 +1726,14 @@ function initDeck3D(THREE, OrbitControls){
       const can = document.createElement('canvas'); can.width = 340; can.height = 150;
       const tex = new THREE.CanvasTexture(can);
       const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:tex, transparent:true, opacity:0}));
-      sp.scale.set(1.55, .68, 1); sp.position.set(0, 1.98, 0);
+      const bR = ROOM.style === 'B' && ROOM.vox;
+      sp.scale.set(bR ? 1.0 : 1.55, bR ? .44 : .68, 1); sp.position.set(0, bR ? 1.25 : 1.98, 0);
       ch.g.add(sp);
       b = bubbles[k] = { can, tex, sp, op:0, t0:0, until:0 };
     }
     const c = b.can.getContext('2d'); c.clearRect(0, 0, 340, 150);
-    const kindc = { objection:'#f0883e', veto:'#d29922', support:'#3fb950', verdict:'#d29922' }[lm.kind] || '#39c5cf';
+    const kindc = { objection:'#f0883e', veto:'#d29922', support:'#3fb950', verdict:'#d29922',
+                    ack:'#39c5cf', ok:'#3fb950' }[lm.kind] || '#39c5cf';   // handshake kinds color the bubble (DVM-015)
     c.fillStyle = 'rgba(13,17,23,.93)'; c.strokeStyle = SEAT_CSS[k]; c.lineWidth = 3;
     c.beginPath(); c.roundRect(6, 4, 328, 116, 14); c.fill(); c.stroke();
     c.fillStyle = kindc; c.fillRect(6, 4, 6, 116);
@@ -1133,40 +1771,66 @@ function initDeck3D(THREE, OrbitControls){
     pctx.fillStyle = SEAT_CSS[k]; pctx.fillRect(58, 40, 140, 4);
     const plate = new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(pc), transparent:true, opacity:.92}));
     plate.scale.set(1.05, .23, 1); plate.position.set(0, 1.52, 0);
+    /* WORKING/COMPOSING label (DVM-016) — white text drawn once; the material color
+       tints it, so the blink is a white↔seat-color flip, not a redraw. */
+    const wc = document.createElement('canvas'); wc.width = 256; wc.height = 48;
+    const wctx = wc.getContext('2d'); wctx.font = '800 30px Consolas,monospace'; wctx.textAlign = 'center';
+    const work = new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(wc), transparent:true, opacity:.95}));
+    work.scale.set(.9, .17, 1); work.position.set(0, 1.86, 0); work.visible = false;
     const hit = new THREE.Mesh(new THREE.BoxGeometry(.8, 1.5, .8), new THREE.MeshBasicMaterial({visible:false}));
     hit.position.y = .75; hit.userData.key = k;
-    g.add(base, back, lamp, lpt, ring, plate, hit); scene.add(g);
-    chairs[k] = { g, lamp, lampM, lpt, ring, plate, base, back, hex };
+    g.add(base, back, lamp, lpt, ring, plate, work, hit); scene.add(g);
+    chairs[k] = { g, lamp, lampM, lpt, ring, plate, base, back, hex, work, wctx, wtex: work.material.map, wword: '' };
     hitList.push(hit);
   });
 
   /* render-on-dirty scheduler: frames exist only while something changed —
-     interaction, animation, or a bus/presence diff; idle deck ≈ zero GPU. */
-  let queued = false, interacting = false, settle = 0, breath = 0, stampT = -1, pulseT = -1, pulseK = null;
-  let lastSlam = 'INIT';
-  function mark(){ if (!queued){ queued = true; requestAnimationFrame(frame); } }
+     interaction, animation, or a bus/presence diff; idle deck ≈ zero GPU.
+     (state declared with the lights above — mark() may fire during init) */
+  function setWork(c, word){                          // DVM-016 §2: one blink grammar, two labels
+    if (word === c.wword) return; c.wword = word;
+    const x = c.wctx; x.clearRect(0, 0, 256, 48);
+    if (word){ x.fillStyle = '#fff'; x.fillText(word, 128, 32); c.wtex.needsUpdate = true; }
+    c.work.visible = !!word;
+  }
   function syncScene(){
     for (const k of skeys){
       const st = lampState(k), c = chairs[k], ghost = st === 'vacant';
       [c.base, c.back].forEach(m => { m.material.transparent = ghost; m.material.opacity = ghost ? .25 : 1; });
       c.plate.material.opacity = ghost ? .3 : .92;
       c.lamp.visible = !ghost;
-      c.lampM.color.set(st === 'ember' ? 0xb05900 : st === 'lit' ? c.hex : 0x333842);
-      const f = lampFrac(k);                       // the lamp is a fuse — burns down toward the deadline
-      c.lpt.intensity = st === 'lit' ? .3 + 1.3 * f : st === 'ember' ? .5 : 0;
-      const hasFloor = DS.turn === k;
-      c.ring.material.opacity = hasFloor ? .85 : 0;
-      c.plate.position.y = hasFloor ? 1.62 : 1.52;
+      c.lampM.color.set(st === 'ember' ? 0xb05900 : (st === 'lit' || st === 'throne') ? c.hex : 0x333842);
+      c.lpt.intensity = st === 'lit' ? 1.6 : st === 'throne' ? 1.0 : st === 'ember' ? .5 : 0;   // DVM-016 boss-amendment: lamps binary — the fuse dimming is struck; throne burns a steady reserved light
+      const tier = busyTier(k);                    // busy label — one blink grammar, two words (DVM-016 §2)
+      setWork(c, tier);
+      const hasFloor = DS.turn === k, silent = DS.silentK === k, ghostFloor = DS.ghostK === k;   // DVM-015 §6c red; C1 violet — renamed: `ghost` is the vacant-chair flag two lines up
+      c.ring.material.color.setHex(ghostFloor ? 0xbc8cff : (hasFloor && st === 'dead') ? 0xb05900 : silent ? 0xff3b30 : 0xd29922);  // DVM-017 §3: ember floor — the token rests on a dead seat
+      c.ring.material.opacity = hasFloor ? (silent || ghostFloor || st === 'dead' ? .55 : .85) : 0;
+      c.plate.position.y = hasFloor ? (ROOM.style === 'B' ? 1.05 : 1.62) : (ROOM.style === 'B' ? .95 : 1.52);   // floor-hold lift rides the room, not an A-origin constant
     }
-    amb.intensity = DS.adj ? .28 : .9;
-    key.intensity = DS.adj ? 7 : 26;
+    applyLights(false);          // single source: rig values + adjourn dimming live together
     moveCard();                                    // pegboard reads real state, slots named by propStage()
     const want = DS.vetoSeats || [];               // ballot pins derive from state — hydration and live share one path
     while (pins.length > want.length) scene.remove(pins.pop());
     while (pins.length < want.length) addPin(want[pins.length]);
+    // boss-ordered repurpose: a dark seat's bubble becomes its state flag —
+    // ear-dark (host alive, busy stamp fresh) vs host-dead? (both stale). Real
+    // speech always wins; relight clears the flag. Flags re-draw past expiry
+    // so the state persists; ordinary bubbles still fade on schedule.
+    if (!DS.stateFlag) DS.stateFlag = {};
+    skeys.forEach(k => {
+      const flagged = !!DS.stateFlag[k];
+      if (lampState(k) !== 'dead'){
+        if (flagged){ delete DS.stateFlag[k]; delete DS.lastMsg[k]; if (bubbles[k]) bubbles[k].until = 0; }
+        return;
+      }
+      if (DS.lastMsg[k] && !flagged) return;                        // real speech wins the bubble
+      DS.stateFlag[k] = true;
+      DS.lastMsg[k] = { text: busyMark(k) ? 'ear-dark — host alive, re-arm fixes' : 'host-dead? — presence + busy stale', kind: 'sys' };
+    });
     for (const k in DS.lastMsg){                   // bubbles likewise — draw only content the scene lacks
       const lm = DS.lastMsg[k], b = bubbles[k];
-      if (!b || b.key !== lm.text + '|' + lm.kind) drawBubble(k);
+      if (!b || b.key !== lm.text + '|' + lm.kind || (DS.stateFlag[k] && b.until < performance.now() / 1000)) drawBubble(k);
     }
     updateSign();
     rebuildShelf((LASTBOARD && LASTBOARD.closed) || []);
@@ -1188,7 +1852,7 @@ function initDeck3D(THREE, OrbitControls){
     if (pulseT >= 0){                              // veto/objection: brief speaker-chair pulse
       pulseT++;
       const d = Math.max(0, 1 - pulseT / 24), c = chairs[pulseK];
-      if (c){ c.lpt.intensity = (lampState(pulseK) === 'lit' ? .3 + 1.3 * lampFrac(pulseK) : 0) + 3 * d; c.lamp.scale.setScalar(1 + .5 * d); }
+      if (c){ c.lpt.intensity = (lampState(pulseK) === 'lit' ? 1.6 : 0) + 3 * d; c.lamp.scale.setScalar(1 + .5 * d); }
       if (pulseT >= 24){ pulseT = -1; if (c) c.lamp.scale.setScalar(1); }
     }
     if (cardAnim){                                 // the doc travels the pegboard — ease + a little lift
@@ -1214,8 +1878,28 @@ function initDeck3D(THREE, OrbitControls){
     breath += .3;
     for (const k of skeys){ const c = chairs[k];
       if (c.lamp.visible && lampState(k) === 'lit' && pulseK !== k) c.lamp.scale.setScalar(1 + .1 * Math.sin(breath)); }
+    if (DS.silentK && chairs[DS.silentK]){                           // the room names who's silent — red pulse, zero writers
+      const r = chairs[DS.silentK].ring;
+      r.material.color.setHex(0xff3b30);                             // color lives in the pulse too — dirty() alone can't rely on sync
+      r.material.opacity = .45 + .4 * Math.abs(Math.sin(breath * 1.5));
+    }
+    if (DS.ghostK && chairs[DS.ghostK]){                             // C1: the room names the phantom — violet pulse, faster
+      const r = chairs[DS.ghostK].ring;
+      r.material.color.setHex(0xbc8cff);
+      r.material.opacity = .45 + .4 * Math.abs(Math.sin(breath * 2.5));
+    }
+    const dfh = DS.turn;
+    if (dfh && chairs[dfh] && lampState(dfh) === 'dead'){            // §3: ember floor — slow held-by-nobody rhythm
+      const r = chairs[dfh].ring;
+      r.material.color.setHex(0xb05900);
+      r.material.opacity = .3 + .25 * Math.abs(Math.sin(breath * .8));
+    }
+    let anyWork = false;                                             // DVM-016: ~1Hz metronome — tint flips white↔seat color
+    const wb = Math.floor(performance.now() / 500) % 2;
+    for (const k of skeys){ const c = chairs[k];
+      if (c.work.visible){ anyWork = true; c.work.material.color.setHex(wb ? 0xffffff : c.hex); } }
     renderer.render(scene, camera);
-    if (interacting || settle > 0 || stampT >= 0 || pulseT >= 0 || cardAnim || bubAct) mark();   // alive only while moving
+    if (interacting || settle > 0 || stampT >= 0 || pulseT >= 0 || cardAnim || bubAct || DS.silentK || DS.ghostK || anyWork || (DS.turn && lampState(DS.turn) === 'dead')) mark();   // alive only while moving/burning/laboring/embering
   }
   controls.addEventListener('change', mark);
   controls.addEventListener('start', () => { interacting = true; mark(); });
@@ -1278,9 +1962,108 @@ poll(); pollPresence(); startPush();          // one immediate load each; push o
 Promise.all([import('three'), import('three/addons/controls/OrbitControls.js')])
   .then(([THREE, m]) => { try { initDeck3D(THREE, m.OrbitControls); } catch(e){ console.warn('deck3d init failed:', e); deckMode('2d'); } })
   .catch(() => deckMode('2d'));               // CDN unreachable / no network → strips stay, chip reads 2D
+if (new URLSearchParams(location.search).has('swap')) document.body.classList.add('swap');   // preview the swapped layout
 if (new URLSearchParams(location.search).has('demo')) runDemo();
 
 window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, LEGACY_SEAT };
+</script>
+<script>
+/* ── DVM-2252 — walkable Vinny: char loader + poser + WASD + bounds + cam ── */
+(async () => {
+  while (!window.__THREE) await new Promise(r => setTimeout(r, 100));   // wait for the module to expose the scene
+  const THREE = window.__THREE, scene = window.__scene, camera = window.__camera;
+  const WALK = 2.5, SPRINT = 2.2, TURN = 10;                    // Unity constants (DVM-2252)
+  const rig = await fetch('/char/Civilian1').then(r => r.json());
+  const params = rig.animParams || {};                           // dict-keyed pose recipes
+  const pivots = rig.pivots || {};                               // {i:{x,y,z}} normalized pivots
+  const bodyGroups = rig.bodyGroups || [];                       // 10 groups, each {name, voxels:[{x,y,z,m}]}
+  const dims = rig.dims || [96, 96, 96];
+  const VS = rig.voxelSize || .01;
+  const CH = new THREE.Group(); scene.add(CH);                   // the character root
+  const grpMesh = {};                                            // name -> InstancedMesh
+  const grpVox = {};                                             // name -> [{x,y,z,mat}]
+  const idToName = {}; bodyGroups.forEach(g => idToName[g.id] = g.name);
+  const matById = {}; (rig.materials || []).forEach(m => matById[m.id] = m);
+  (rig.voxels || []).forEach(v => {                              // [x,y,z,matId] → group via rig.groups
+    const gid = (rig.groups || {})[v[0] + ',' + v[1] + ',' + v[2]];
+    const gname = idToName[gid] || 'Body';
+    (grpVox[gname] = grpVox[gname] || []).push({x: v[0], y: v[1], z: v[2], mat: v[3]});
+  });
+  bodyGroups.forEach(g => {
+    const voxels = grpVox[g.name] || [];
+    const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(VS, VS, VS), new THREE.MeshLambertMaterial(), Math.max(1, voxels.length));
+    const mtx = new THREE.Matrix4(), col = new THREE.Color();
+    voxels.forEach((v, i) => {
+      mtx.setPosition((v.x - dims[0]/2) * VS, v.y * VS, (v.z - dims[2]/2) * VS);
+      inst.setMatrixAt(i, mtx);
+      const m = matById[v.mat] || {};
+      inst.setColorAt(i, col.setRGB(m.r != null ? m.r/255 : .53, m.g != null ? m.g/255 : .53, m.b != null ? m.b/255 : .53));
+    });
+    inst.instanceMatrix.needsUpdate = true;
+    if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+    grpMesh[g.name] = inst; CH.add(inst);
+  });
+  /* poser — map animParams block → per-group rotation about its pivot (FK) */
+  const groupOf = n => grpMesh[n];
+  function pose(state, phase) {                                  // state:'idle'|'walk'; phase=distance/stride
+    const p = state === 'walk' ? (params.walkDuckMid || params.walkDuckPose || {}) : {};
+    const swing = Math.sin(phase * Math.PI * 2);                 // gait phase → stride swing
+    const A = {                                                  // param → [group, axis, scale]
+      legStrideL: ['Left Leg', 'x', 1], legStrideR: ['Right Leg', 'x', -1],
+      kneeBendL: ['Left Shin', 'x', 1], kneeBendR: ['Right Shin', 'x', 1],
+      armSwingL: ['Left Arm', 'x', -1], armSwingR: ['Right Arm', 'x', 1],
+      elbowBendL: ['Left Forearm', 'x', 1], elbowBendR: ['Right Forearm', 'x', 1],
+      headPitch: ['Head', 'x', 1], headTilt: ['Head', 'z', 1],
+      bodyLean: ['Body', 'x', 1], bodyForward: ['Body', 'x', .3],
+    };
+    bodyGroups.forEach(g => { const m = grpMesh[g.name]; if (m) { m.rotation.set(0,0,0); } });
+    for (const k in p) {
+      const spec = A[k]; if (!spec) continue;
+      const m = groupOf(spec[0]); if (!m) continue;
+      const piv = pivots[String(bodyGroups.findIndex(g => g.name === spec[0]))] || {x:.5,y:.5,z:.5};
+      const deg = (state === 'walk' ? p[k] * swing : p[k]) * spec[2];   // walk=phase-swung, idle=static
+      m.rotation[spec[1]] = deg * Math.PI / 180;
+    }
+  }
+  /* WASD controller — camera-relative, state machine idle<->walk */
+  const keys = {}; window.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+  window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+  let chPos = new THREE.Vector3(0, 0, 1.2), chYaw = 0, chDist = 0, chState = 'idle';
+  const FLOOR = {x:[-2.2,2.2], z:[-1.5,2.8]};                    // room bounds (analytic clamp)
+  const BLOCKS = [[-.9,-.2,.1,.6],[-1.6,.5,-1.2,.9],[1.2,.4,1.6,.8]]; // furniture AABBs (table,chair rows)
+  function tickChar(dt) {
+    const f = (keys.w?1:0)-(keys.s?1:0), r = (keys.d?1:0)-(keys.a?1:0);
+    const sprint = keys.shift ? SPRINT : 1, spd = WALK * sprint;
+    if (f || r) {
+      const ca = Math.atan2(camera.position.x - chPos.x, camera.position.z - chPos.z);
+      const dx = Math.sin(ca)*f + Math.cos(ca)*r, dz = Math.cos(ca)*f - Math.sin(ca)*r;
+      const len = Math.hypot(dx,dz)||1, vx = dx/len*spd, vz = dz/len*spd;
+      const ty = Math.atan2(vx, vz);
+      let dy = ty - chYaw; while (dy > Math.PI) dy -= 2*Math.PI; while (dy < -Math.PI) dy += 2*Math.PI;
+      chYaw += Math.sign(dy) * Math.min(Math.abs(dy), TURN * dt);
+      chPos.x += vx*dt; chPos.z += vz*dt;
+      chDist += Math.hypot(vx,vz)*dt; chState = 'walk';
+    } else chState = 'idle';
+    chPos.x = Math.max(FLOOR.x[0], Math.min(FLOOR.x[1], chPos.x));
+    chPos.z = Math.max(FLOOR.z[0], Math.min(FLOOR.z[1], chPos.z));
+    for (const b of BLOCKS) {                                     // capsule→AABB pushback
+      if (chPos.x > b[0]-.15 && chPos.x < b[0]+b[2]+.15 && chPos.z > b[1]-.15 && chPos.z < b[1]+b[3]+.15) {
+        const cx = b[0]+b[2]/2, cz = b[1]+b[3]/2;
+        const px = chPos.x-cx, pz = chPos.z-cz;
+        if (Math.abs(px/b[2]) > Math.abs(pz/b[3])) chPos.x = cx + Math.sign(px)*(b[2]/2+.15);
+        else chPos.z = cz + Math.sign(pz)*(b[3]/2+.15);
+      }
+    }
+    CH.position.copy(chPos); CH.rotation.y = chYaw;
+    pose(chState, chDist / 1.2);                                 // gait keyed to distance (no skate)
+  }
+  const _frame = window.__frameHook = () => {};                  // hook into the scene's frame loop
+  const _orig = typeof frame === 'function' ? frame : null;
+  if (_orig) { const _f = _orig; window.__charTick = dt => tickChar(dt); }
+  setInterval(() => { if (DECK.mode === '3d') tickChar(1/60); }, 16);   // ~60fps char tick
+  pose('idle', 0);                                               // spawn posed
+  console.log('DVM-2252 — Vinny loaded:', Object.keys(grpMesh).length, 'bodyGroups');
+})();
 </script>
 </body>
 </html>

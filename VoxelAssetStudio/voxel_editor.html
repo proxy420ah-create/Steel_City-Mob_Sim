@@ -357,6 +357,9 @@ body.ui-hidden #ui-hidden-hint { display:block; }
   <div class="char-btn-row">
     <button class="char-btn" id="char-mirror-btn" title="Pose the editable model itself — sculpt/tag/pivot edits appear on the animated reference in real time">🔁 Mirror Editable</button>
   </div>
+  <div class="char-btn-row">
+    <button class="char-btn" id="char-sit-btn" title="Seat the reference character on the editable item's painted seat_* point — pose snaps to Sit, pelvis lands on the point, facing away from the backrest">🪑 Sit Character</button>
+  </div>
   <div class="char-info" id="char-info">No reference model loaded.</div>
 </div>
 
@@ -1660,6 +1663,13 @@ const ASSET_TYPE_PRESETS = {
   vehicle: { label: 'Vehicle', icon: '🚗', voxelSize: 0.01, defaultDims: [110, 115, 240], defaultModel: null },
 };
 let assetType = 'building'; // matches the startup W/H/D above
+// The editable model's real-world voxel size. Defaults to the asset-type preset,
+// but a loaded file's own `voxelSize` OVERRIDES it (self-describing assets — a
+// .01 prop must preview and re-export at .01, not the prop preset's .005).
+let editableVoxelSize = ASSET_TYPE_PRESETS[assetType].voxelSize;
+function adoptFileVoxelSize(data) {
+  if (typeof data.voxelSize === 'number' && data.voxelSize > 0) editableVoxelSize = data.voxelSize;
+}
 
 // Best-effort guess for files saved before assetType was tracked.
 // Character models are small (Hood 0 reference is 16x32x10); buildings/props
@@ -2401,6 +2411,8 @@ const ITEM_PART_GROUPS = [
   { id: 4, name: 'Cheek Weld',   key: 'cheek_weld',   color: '#ffaa00', desc: 'Cheek rest position on stock' },
   { id: 5, name: 'Sling Mount',  key: 'sling_mount',  color: '#ff00ff', desc: 'Sling attachment point' },
   { id: 6, name: 'Optics Mount', key: 'optics_mount', color: '#ffff00', desc: 'Sight/optic rail position' },
+  { id: 8, name: 'Seat 1',       key: 'seat_1',       color: '#44aaff', desc: 'Seat mount — sitting character pelvis aligns here (state 11). Paint a small blob at seat-surface center, just in front of the backrest' },
+  { id: 9, name: 'Seat 2',       key: 'seat_2',       color: '#44ddff', desc: 'Second seat mount — bench/double occupancy' },
 ];
 // Vehicle named points — centroid markers, same `attachmentPoints` export as
 // items/characters. Axle + hinge centroids are the pivots a future vehicle
@@ -3040,7 +3052,7 @@ function loadBaseTemplate() {
         for (const k of ['pivots', 'animParams', 'states', 'itemPartDefs']) {
           if (data[k] !== undefined) loadedAnimData[k] = data[k];
         }
-        W = data.dims[0]; H = data.dims[1]; D = data.dims[2];
+        W = data.dims[0]; H = data.dims[1]; D = data.dims[2]; adoptFileVoxelSize(data);
         voxelMap.clear();
         groupMap.clear();
         for (const [x, y, z, mid] of data.voxels) {
@@ -6128,7 +6140,7 @@ function applyDefaultModelData(data, sourceName) {
   for (const k of ['pivots', 'animParams', 'states', 'itemPartDefs']) {
     if (data[k] !== undefined) loadedAnimData[k] = data[k];
   }
-  W = data.dims[0]; H = data.dims[1]; D = data.dims[2];
+  W = data.dims[0]; H = data.dims[1]; D = data.dims[2]; adoptFileVoxelSize(data);
   originOffsetX = -W / 2;
   originOffsetZ = -D / 2;
   voxelMap.clear();
@@ -6260,6 +6272,7 @@ assetTypeSelect.addEventListener('change', () => {
   charPlaying = false;
   charArmed = false;
   mirrorEditable = false;
+  charSitOn = false;
   charOffsetX = 0; charOffsetZ = 0; charOffsetY = 0;
   charPath.length = 0; charPathDist = 0; pathDrawMode = false;
   updatePathMarkers();
@@ -6300,6 +6313,7 @@ assetTypeSelect.addEventListener('change', () => {
   updateClothingRegionCounts();
   // Update context-sensitive tabs for the new asset type
   updateTabsForAssetType();
+  editableVoxelSize = preset.voxelSize; // fresh volume: preset governs until a file overrides
   setStatus(`Asset type: ${preset.icon} ${preset.label} (${preset.voxelSize}m/voxel). Fresh ${W}×${H}×${D} volume ready.`);
 
   // Auto-load default model for this asset type (if configured)
@@ -6386,7 +6400,7 @@ function updateLayerInfo() {
   const dimsLabel = document.getElementById('model-dims-label');
   if (dimsLabel) {
     const preset = ASSET_TYPE_PRESETS[assetType];
-    dimsLabel.textContent = `Model: ${W}x${H}x${D}` + (preset ? ` (${preset.icon} ${preset.voxelSize}m/voxel)` : '');
+    dimsLabel.textContent = `Model: ${W}x${H}x${D}` + (preset ? ` (${preset.icon} ${editableVoxelSize}m/voxel)` : '');
   }
   const allY = yMin === 0 && yMax === H - 1;
   const allX = xMin === 0 && xMax === W - 1;
@@ -7842,7 +7856,7 @@ function getEditorData() {
     assetType,
     ...loadedAnimData,   // animParams / states preserved verbatim
     pivots: resolvedPivotsForExport(), // painted pivot_N centroids become the file's canonical pivots
-    voxelSize: ASSET_TYPE_PRESETS[assetType] ? ASSET_TYPE_PRESETS[assetType].voxelSize : undefined,
+    voxelSize: editableVoxelSize,
     materials: allMaterials,
     voxels: Array.from(voxelMap.entries()).map(([k, v]) => {
       const [x, y, z] = k.split(',').map(Number);
@@ -7940,7 +7954,7 @@ window.loadWIP = function(wipName) {
     for (const k of ['pivots', 'animParams', 'states', 'itemPartDefs']) {
       if (data[k] !== undefined) loadedAnimData[k] = data[k];
     }
-    W = data.dims[0]; H = data.dims[1]; D = data.dims[2];
+    W = data.dims[0]; H = data.dims[1]; D = data.dims[2]; adoptFileVoxelSize(data);
     assetType = ASSET_TYPE_PRESETS[data.assetType] ? data.assetType : inferAssetType(W, H, D);
     assetTypeSelect.value = assetType;
     voxelMap.clear();
@@ -8024,7 +8038,7 @@ window.loadProject = function(event) {
       for (const k of ['pivots', 'animParams', 'states', 'itemPartDefs']) {
         if (data[k] !== undefined) loadedAnimData[k] = data[k];
       }
-      W = data.dims[0]; H = data.dims[1]; D = data.dims[2];
+      W = data.dims[0]; H = data.dims[1]; D = data.dims[2]; adoptFileVoxelSize(data);
       assetType = ASSET_TYPE_PRESETS[data.assetType] ? data.assetType : inferAssetType(W, H, D);
       assetTypeSelect.value = assetType;
       // Clear current state
@@ -8109,7 +8123,7 @@ window.importStasset = function(event) {
       for (const k of ['pivots', 'animParams', 'states', 'itemPartDefs']) {
         if (data[k] !== undefined) loadedAnimData[k] = data[k];
       }
-      W = data.dims[0]; H = data.dims[1]; D = data.dims[2];
+      W = data.dims[0]; H = data.dims[1]; D = data.dims[2]; adoptFileVoxelSize(data);
       assetType = ASSET_TYPE_PRESETS[data.assetType] ? data.assetType : inferAssetType(W, H, D);
       assetTypeSelect.value = assetType;
       voxelMap.clear();
@@ -8272,7 +8286,7 @@ let charArmed = false;       // whether gun model is shown in hand
 // scale diverges from file scale; keep it = the character file's voxelSize.
 const CHAR_RUNTIME_VOXEL_SIZE = 0.01;
 function getCharScaleRatio() {
-  const itemVoxelSize = (ASSET_TYPE_PRESETS[assetType] && ASSET_TYPE_PRESETS[assetType].voxelSize) || 0.01;
+  const itemVoxelSize = editableVoxelSize || (ASSET_TYPE_PRESETS[assetType] && ASSET_TYPE_PRESETS[assetType].voxelSize) || 0.01;
   const refVoxelSize = assetType === 'character'
       ? ((charData && charData.voxelSize) || ASSET_TYPE_PRESETS.character.voxelSize)
       : CHAR_RUNTIME_VOXEL_SIZE;
@@ -8429,7 +8443,16 @@ function rebuildCharMesh() {
   let rootX = charOffsetX, rootY = charOffsetY, rootZ = charOffsetZ;
   const charQuat = new THREE.Quaternion();
   const pathPose = charPathFollowOn() ? sampleCharPath(charPathDist) : null;
-  if (pathPose) {
+  if (charSitOn) {
+    // Seat-anchor placement: pelvis contact → the editable item's painted
+    // seat_* point, yawed to face away from its backrest. Recomputed every
+    // rebuild so sculpting the chair / repainting the point refits live.
+    const seat = computeSeatPlacement(posed, cw, cd, s);
+    if (seat) {
+      rootX = seat.x; rootY = seat.y; rootZ = seat.z;
+      charQuat.setFromAxisAngle(UP_AXIS, seat.yaw);
+    }
+  } else if (pathPose) {
     rootX = pathPose.x; rootY = pathPose.y; rootZ = pathPose.z;
     charQuat.setFromAxisAngle(UP_AXIS, pathPose.yaw);
   }
@@ -8452,7 +8475,7 @@ function rebuildCharMesh() {
       }
     }
     charPos.set(v.x * s - (cw * s) / 2, v.y * s, v.z * s - (cd * s) / 2);
-    if (pathPose) charPos.applyQuaternion(charQuat);
+    if (pathPose || charSitOn) charPos.applyQuaternion(charQuat);
     charPos.x += rootX; charPos.y += rootY; charPos.z += rootZ;
     dummyMatrix.compose(charPos, charQuat, charScaleVec);
     charMesh.setMatrixAt(i, dummyMatrix);
@@ -8769,7 +8792,9 @@ function loadCharacterFile(file) {
       // A picked file takes over the reference — mirror mode disengages so
       // the next rebuild doesn't overwrite the loaded model with live state.
       mirrorEditable = false;
+      charSitOn = false;
       document.getElementById('char-mirror-btn').classList.remove('active');
+      document.getElementById('char-sit-btn').classList.remove('active');
       charData = parseCharacterData(data);
       charState = 9; // T-Pose on load
       document.getElementById('char-pose-state').value = charState;
@@ -8783,6 +8808,11 @@ function loadCharacterFile(file) {
       const s = getCharScaleRatio();
       info.textContent = `${charData.voxels.length} voxels, dims [${charData.dims.join(',')}], ${refVs}m/voxel (×${s.toFixed(2)} vs editable)`;
       setStatus(`Character loaded: ${file.name} — ${charData.voxels.length} voxels`);
+      if (charSitPending) {
+        charSitPending = false;
+        if (seatPointsFromParts().length) engageSit();
+        else setStatus('Sit pending was set but no seat_* point exists — paint Seat 1 first');
+      }
     } catch (err) {
       setStatus(`Character load failed: ${err.message}`);
       document.getElementById('char-info').textContent = `Error: ${err.message}`;
@@ -8811,6 +8841,118 @@ document.getElementById('char-file-input').addEventListener('change', (e) => {
   e.target.value = '';
 });
 
+// === SIT MODE (seat_* anchor contract) ===
+// The editable item stays editable; the reference character poses Sit (11)
+// with its pelvis contact on the item's painted seat_* attachment point.
+// Placement is derived per rebuild — moving the painted point or sculpting
+// the seat refits instantly. Designed for the furniture-fit workflow: load
+// a chair, paint Seat 1 at seat-surface center, press 🪑, sculpt to fit.
+let charSitOn = false;
+let charSitPending = false;  // fetch failed (file://) — engage on next char load
+
+// Painted seat points on the editable model, seat_1 first.
+function seatPointsFromParts() {
+  const pts = buildAttachmentPoints();
+  return Object.keys(pts)
+    .filter(k => k.startsWith('seat'))
+    .sort()
+    .map(k => ({ key: k, ...pts[k] }));
+}
+
+// Pelvis contact of the POSED reference (near its pivot_0 root) and the
+// editable item's backrest direction -> {x,y,z,yaw} root placement.
+function computeSeatPlacement(posed, cw, cd, s) {
+  const seatPts = seatPointsFromParts();
+  if (!seatPts.length || !charData || !charData.pivots || !charData.pivots[0]) return null;
+  const seat = seatPts[0];
+  const p0 = charData.pivots[0];
+  const px = p0.x * cw, pz = p0.z * cd;
+  // Contact = lowest posed voxels in the pelvis neighborhood (the butt).
+  let buttY = Infinity, cx = 0, cz = 0, n = 0;
+  for (const v of posed) {
+    if (Math.abs(v.x - px) < 14 && Math.abs(v.z - pz) < 14) {
+      cx += v.x; cz += v.z; n++;
+      if (v.y < buttY) buttY = v.y;
+    }
+  }
+  if (!n || !isFinite(buttY)) return null;
+  cx /= n; cz /= n;
+  // Backrest = editable voxels clearly taller than the seat, near the point.
+  // Facing = away from their mean direction, snapped straight along the axis.
+  let bx = 0, bz = 0, bn = 0;
+  for (const key of voxelMap.keys()) {
+    const [vx, vy, vz] = key.split(',').map(Number);
+    if (vy > seat.y + 8 && Math.abs(vx - seat.x) < 40 && Math.abs(vz - seat.z) < 40) {
+      bx += vx - seat.x; bz += vz - seat.z; bn++;
+    }
+  }
+  let yaw = 0;
+  if (bn) {
+    bx /= bn; bz /= bn;
+    if (Math.abs(bx) > Math.abs(bz)) yaw = bx > 0 ? -Math.PI / 2 : Math.PI / 2;
+    else yaw = bz > 0 ? Math.PI : 0;
+  }
+  const quat = new THREE.Quaternion().setFromAxisAngle(UP_AXIS, yaw);
+  const pelvis = new THREE.Vector3(cx * s - (cw * s) / 2, buttY * s, cz * s - (cd * s) / 2);
+  pelvis.applyQuaternion(quat);
+  return {
+    x: seat.x + 0.5 - pelvis.x,
+    y: seat.y + 1 - pelvis.y,   // pelvis underside on the seat voxel's top face
+    z: seat.z + 0.5 - pelvis.z,
+    yaw
+  };
+}
+
+function engageSit() {
+  charSitOn = true;
+  document.getElementById('char-sit-btn').classList.add('active');
+  charState = 11;
+  document.getElementById('char-pose-state').value = 11;
+  rebuildCharMesh();
+  document.getElementById('char-info').textContent =
+    `SIT — ${charData.voxels.length} voxels seated on ${seatPointsFromParts()[0].key} (live refit on edits)`;
+  setStatus('SIT mode — pelvis anchored to the seat_* point, sculpt the chair to fit');
+}
+
+document.getElementById('char-sit-btn').addEventListener('click', () => {
+  const btn = document.getElementById('char-sit-btn');
+  if (charSitOn) {
+    charSitOn = false;
+    btn.classList.remove('active');
+    charOffsetX = W / 2 + (charData.dims[0] * getCharScaleRatio()) / 2 + 4;
+    charOffsetZ = 0;
+    charOffsetY = surfaceYAt(charOffsetX, charOffsetZ);
+    rebuildCharMesh();
+    setStatus('Sit OFF — reference back to standing offset');
+    return;
+  }
+  if (voxelMap.size === 0) {
+    setStatus('Sit: editable model is empty');
+    return;
+  }
+  if (!seatPointsFromParts().length) {
+    setStatus('Sit: no seat_* point on the editable model — paint Seat 1 (Attach Pts tab) on the seat surface');
+    return;
+  }
+  if (mirrorEditable || !charData) {
+    // Sit needs the character as the reference, not the editable model —
+    // drop mirror and pull in the default character asset.
+    mirrorEditable = false;
+    document.getElementById('char-mirror-btn').classList.remove('active');
+    fetch(ASSET_TYPE_PRESETS.character.defaultModel)
+      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(data => { charData = parseCharacterData(data); engageSit(); })
+      .catch(() => {
+        // file:// blocks fetch — open the picker directly and auto-engage
+        charSitPending = true;
+        setStatus('Sit: pick the character JSON (Civilian1) — seating engages on load');
+        document.getElementById('char-file-input').click();
+      });
+  } else {
+    engageSit();
+  }
+});
+
 // Mirror mode: the reference preview poses the live editable model — every
 // sculpt/tag/pivot edit is re-parsed and re-posed (edits when paused update
 // via rebuildMesh; while playing the anim loop picks them up per frame).
@@ -8825,6 +8967,8 @@ document.getElementById('char-mirror-btn').addEventListener('click', () => {
       setStatus('Mirror: editable model is empty');
       return;
     }
+    charSitOn = false; // mirror replaces the reference with the editable model — seat mode can't hold a character anchor
+    document.getElementById('char-sit-btn').classList.remove('active');
     detachItem(); // hand-attach will re-bind against the mirrored model's points
     charData = parseCharacterData(getEditorData());
     charOffsetX = W / 2 + (charData.dims[0] * getCharScaleRatio()) / 2 + 4;
@@ -8981,7 +9125,7 @@ function animate() {
     charLastTime = now;
     charAnimTime += dt;
     if (charPathFollowOn() && charPath.length >= 2) {
-      const itemVs = (ASSET_TYPE_PRESETS[assetType] && ASSET_TYPE_PRESETS[assetType].voxelSize) || 0.01;
+      const itemVs = editableVoxelSize || (ASSET_TYPE_PRESETS[assetType] && ASSET_TYPE_PRESETS[assetType].voxelSize) || 0.01;
       charPathDist += dt * (CHAR_PATH_SPEED_MPS / itemVs);
     }
     rebuildCharMesh();

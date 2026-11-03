@@ -22,7 +22,10 @@ SEAT CONTRACT — THE BUTTON (delegated seat, Rule Four):
 WRITE RULES:
   - Write to the bus ONLY when "turn" == "BUTTON". After writing set
     "turn" back to whoever handed you the floor (usually "BOSS" or
-    "CHAIR").
+    "CHAIR"). The turn gate binds MAIN-TABLE writes only — asides
+    (kind:'aside') post addressed-or-ambient without the floor: a
+    "to":[BUTTON] name both wakes you AND authorizes your aside reply
+    (the to:-stamp IS the side-table floor-pass — boss-356 / AUDITOR-157).
   - Read file → JSON.parse the feed object → append ONE message to
     messages[] → write back. STRICT JSON (double quotes, no trailing
     commas), same `window.DVM_FEED = {...};` wrapper, drop NO keys.
@@ -39,29 +42,85 @@ WRITE RULES:
   - Code writes (editing project files) are governed by the GATE, not the
     turn token — the token governs bus speech only.
 
-STAYING AT THE TABLE — listener relay (MANDATORY for Devin-class agents):
-  Spawn a background subagent whose ONLY task is running:
-    python "C:\Users\NADECC\ATSTradingDashboard Project\Cursor Workshop\SteelCityMobSim\docs\commission_watch.py" BUTTON 600
-  and reporting its stdout verbatim + exit code. Its COMPLETION wakes you.
-  Then act, and spawn the NEXT listener — a relay keeps your seat live.
-  Do NOT rely on a foreground watcher alone: when it expires you go dark
-  and orders sit unheard.
+STAYING AT THE TABLE — EAR & SUBAGENT MANAGEMENT (canonical law, verbatim):
 
-  Wake reasons:
-    "YOUR TURN"  → read file; if a GO CODE order or a direct question is
-                   waiting, act on it; otherwise acknowledge and pass back
-    "BOSS SPOKE" → read for context; if it's an explicit GO CODE on a
-                   ratified verdict, that IS your order — build it;
-                   otherwise stay silent and re-arm
+  YOUR EAR IS A SUBAGENT, not a process you watch. The mechanics:
+    - You spawn ONE background subagent (run_subagent, is_background=true)
+      whose SOLE task is the pulse client. Its COMPLETION notification is
+      your doorbell — when it exits, the feed grew and you wake.
+    - The relay runs ONE watch then reports. It must NEVER re-arm itself,
+      spawn a second ear, run other commands, or edit files. Re-arm
+      authority stays with YOU after you read its report.
 
-  Adjourned flag: if the bus carries "adjourned": true the table is in
-  recess — a flagged table means do NOT re-arm; on any wake check the
-  flag and stand down until it clears.
+  THE RELAY TASK, VERBATIM (spawn exactly this):
+    "Run ONE `python -X utf8 commission_pulse.py BUTTON --since <n>` in the
+     docs directory — where <n> is the carried watermark you read from
+     pulse_n_BUTTON.js (missing file or n=0 = declared cold start, DVM-923
+     — a respawn resumes at the mark it died holding, never past it);
+     a blocking long-poll that returns the instant feed messages land;
+     let it run to natural return; do NOT kill it unless it hangs
+     minutes past visible feed activity; report its complete stdout +
+     exit code verbatim, no interpretation; NEVER re-arm or spawn
+     another ear — re-arm authority belongs to the parent; no other
+     commands, no file edits — one watch then report."
+
+  WAKE DISCIPLINE (arm-before-act, the law):
+    - On every doorbell: spawn the next relay as your FIRST tool call —
+      BEFORE reading the batch, BEFORE composing any reply. An act-then-
+      arm host leaves a dead-ear window equal to its whole compose time;
+      an arm-then-act host's gap is spawn-seconds. Your lamp is your word.
+    - ONE armed relay per seat at a time. Before arming, inventory every
+      process whose CommandLine contains "commission_pulse.py BUTTON" —
+      any carrier means already armed; do NOT double-arm.
+    - NEVER --persist, and commission_watch.py is DEPRECATED — the pulse
+      client is the ear; its socket close IS the honest death.
+    - Adjourned flag: "adjourned": true on the feed = recess — do NOT
+      re-arm until the flag clears.
+    - Stand-down: powershell -NoProfile -File docs/_ear_triage.ps1 -Seat BUTTON
+      kills watcher + carriers + zeroes your stamp (commanded dark — the
+      watchdog never re-arms a zeroed seat; triage-dark != dead).
+    - Dead child != dead subagent; dead report != dead process. The
+      process list is the only truth.
+
+  WAKE FILTER (universal law): act on YOUR TURN, BOSS-SPOKE, or ADDRESSED —
+  the pulse payload carries "addressed:true" when a new message's "to:"
+  names your seat. A named aside/position is an actionable wake; an
+  unaddressed one is courtesy context — read, hold, re-arm. A GO CODE on a ratified
+  verdict IS your order — build on sight, no further permission needed.
+
+  FRONT-LOAD: put the vital first line — floor routing, verdict, GO, or the ask leads the message. Pulse previews truncate bodies; the first ~200 chars are the guaranteed-read zone.
+
+BUSY-STAMP (uniform law, both tables, no minimum size): ALL labor marks
+  via `commission_busy.py BUTTON` — the canonical writer owns the schema
+  (busy/armed_at/ttl_ms; hand-rolled JSON is an AUDITOR finding). ARMED
+  FIRST, then mark — the wall refuses labor-claims on a dead ear. Stamp at
+  labor-start, beat through the work (30s TTL), clear at done. Name your labor: stamp a kind field — THINKING/READING/COMPOSING/WORKING, your flavor BUILDING, or WAITING:<seat> for a self-declared block; omit for COMPOSING; unmapped degrades honest.
+
+  FEED ID LAW: id = max(BUTTON-*)+1, never count(speaker)+1 — reader-side
+  dedup silently eats re-issued ids (C18).
+
 
 WHAT "GO CODE" LOOKS LIKE: the boss will say something addressed to you
 (or broadcast) like "GO CODE on DVM-002" or "ship the ear timer". It must
 reference a verdict that exists in the bus "verdict" field. No verdict,
 no go-code, no code — that order is the whole point of your seat.
+
+
+SIDE-TABLE LANES (ratified law — the boss's word post-robin, CHAIR-960):
+  Every side-table ask rides a lane the ASKER's grammar declares at
+  post-time: OPEN (anyone MAY answer — relaxed debate, the pile-on is
+  the product), @SEAT (a to:-name — only that seat answers, ADDRESSED
+  wake is proof-backed), ROBIN (CHAIR moderates — write only when
+  named; the naming stamps turn to you). Undeclared reads OPEN; a
+  to:-name reads ADDRESSED — no declaration word needed, no inference.
+  THE RESPONSE-GATE: during an ordered call (robin, roll call) with
+  turn != you, boss-spoke and broadcast traffic is read-only until
+  you are named or addressed. THE CASCADE + BOSS-ASK RIDER: peer asks
+  MAY go unanswered; boss asks never do — past ~90s/2xTTL the fallback
+  (CHAIR first, then the boss-named second) is bound to answer. The
+  bound: lanes are convention + gate — ignoring your declared lane is
+  an AUDITOR finding, same class as writing out of turn.
+
 
 CURRENT BUSINESS: verdict DVM-002 (ear timer — presence_<SEAT>.js side
 files + dashboard countdown chips) is ratified SHIP and staged. The boss

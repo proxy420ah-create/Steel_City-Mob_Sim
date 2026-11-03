@@ -1,4 +1,272 @@
 
+## November 2, 2026 — Commission wall fixes: repaint chain, tasking semantics, console-swarm kill, WAKING derived state — SHIPPED + boss-verified live
+
+### Changed
+- **C26 - tasking semantics**: `to:` is pure addressing; pendingTask now keys on `needs_ack` alone. Killed QUEUED-on-mention (boss glances read as work orders). One-line cut, boss GO.
+- **C27 - busy-tag repaint chain (two stacked defects)**: SSE onmessage dropped `busy_*` file pushes so BUSY froze at hydrate under push (F5-only); and the 1s diff signature lacked `busyTier(k)` so even fresh data never repainted. Both repaired - boss-verified: READING drew live on-screen.
+- **WAKING derived state**: renderer reads daemon-owned `inbox_n_<SEAT>.js` heartbeat (<8s fresh = doorbell landed); machine fact below stamped labor, visible under dark ear. Zero daemon changes - the heartbeat already carried {n, at}.
+- **C28 - console popup swarm**: supervisor's 5s `wmic` probes + inbox daemons' relay subprocess spawned WITHOUT `CREATE_NO_WINDOW` - every probe/batch popped a console; kills looped. Patched both spawn sites, all daemons + supervisor restarted on fixed builds.
+- **Stale-daemon flush**: killed 8 daemons holding the pre-revert WAKING-stamp build (the stuck-COMPOSING defect - deliveries stamped WAKING, enum-normalized to COMPOSING) + a spawn leak (BUTTON x3, INFORMANT x2); respawned one clean daemon per seat.
+- **STAMP-LOOP supervisor check loaded**: busy mark re-beating ∧ last post >300s = labor claim without product - transient, self-clears. Supervisor restarted to pick it up.
+- **Supervisor daemon relit**: dead ~3h, respawned (windowless) - wall lamp green, boss-confirmed.
+- **/adjourn GO'd for the console clean-sweep**: adjourned gates the supervisor respawn predicate - consoles killed once stayed dead.
+- **Front-load law folded**: vital routing/verdict/GO first line in all 5 inductions (pulse previews truncate bodies).
+- **Chair swap (fetch-side)**: room B chair-kit now loads `/voxel/chair` (boss's authored model) — drop-in verified (identical dims/materials); `commission_chair.json` stays as rollback.
+- **Bench vs Table law**: quick repairs/swaps = bench (standing GO); new behavior/schema/law = the full rail. Folded to COMMISSION_PROTOCOL.md.
+- **Roll-call law + bench-floor register law**: main-table roll calls get rota-order `kind:position` answers; during a GO'd bench the floor register parks on BOSS (no seat holds it).
+- **C29 - files[] snapshot drift**: three `board.files[]` rows carried stale paths → draft cards 404'd on live files. Repaired (BUTTON+ARCHITECT bench); residual rail-note: no migration story for write-time paths.
+- **DVM-2252 Walkable Vinny — SHIP 4-0, GO'd, mid-bench**: `/char/<name>` route serves `voxel_characters/` (server restarted — C28 law applies to servers too); JS poser (per-group FK about pivots, distance-keyed gait); WASD controller at Unity constants (2.5 m/s, sprint ×2.2, turn 10); capsule bounds; cam mode. Two live defects caught + fixed mid-build: THREE/scene scope (window.__THREE exposure) and schema-drift loader (flat `rig.voxels` → `rig.groups` lookup; id-keyed materials; /255 colors). Boss-verified: Vinny loaded + moving.
+
+### Files Modified
+- `docs/DELIBERATION_MACHINE.html` - SSE `busy_*` routing, `busyTier` in diff signature, WAKING derived state + `loadInbox`/`INBOX`, tasking = `needs_ack` only
+- `docs/commission_supervise.py` - CREATE_NO_WINDOW on probes + respawn path; STAMP-LOOP check (boss-applied)
+- `docs/commission_inbox.py` - CREATE_NO_WINDOW on relay spawn; dual-writer WAKING stamp reverted (BUTTON)
+- `docs/commission_server.py` - (unchanged tonight - `proposal` slot restored to dict shape after a str write choked /boss)
+- `docs/induction_{CHAIR,ARCHITECT,INFORMANT,AUDITOR,BUTTON}.txt` - FRONT-LOAD clause
+- `docs/COMMISSION_BUGS.md` - C26/C27/C28/C29 cataloged
+- `docs/COMMISSION_PROTOCOL.md` - Bench-vs-Table lane law, roll-call law, bench-floor register law
+- `docs/commission_server.py` - `/char/<name>` route → `voxel_characters/`
+- `docs/DELIBERATION_MACHINE.html` - chair-kit fetch → `/voxel/chair`; DVM-2252 char block (loader, poser, WASD, bounds, cam); `window.__THREE/__scene/__camera` exposure
+- `Assets/StreamingAssets/voxel_items/chair.json` + `voxel_characters/Civilian1.json` - boss-authored assets (served via /voxel/ and /char/)
+- `docs/drafts/DVM-2252_walkable_vinny.md` - the gated draft (ARCHITECT v0.2)
+
+
+## October 31, 2026 — DVM-921 the watchdog (supervisor-rearm + dual-stamp) — BUILT
+
+### Changed
+- **DVM-921 v0.1.1 — SHIP 4-0, GO via boss-233, built by BUTTON:** the room's meta-ear. Closes C17 and the re-arm gap that stalled a veto poll.
+  - **`commission_supervise.py`** (new, ~138 lines): one daemon per box — scans `seats[]` + both stamp files + carrier-predicate inventory every 5s; respawns `commission_watch.py <SEAT> 600` detached only when ALL six conditions hold (zero carriers / beat-stale>2×TTL / not-zeroed / agent-alive / not-adjourned / blocking substrate — relay seats flag-only). Transition-only `sys` posts — seat-dark addressed to BOSS (ratified law). Stamps `presence_SUPERVISOR.js` per loop (one-level bound).
+  - **`commission_busy.py`** (new, ~41 lines): the agent-alive mark — `busy_<SEAT>.js` sole-written by the host (work-beat convention), 30s TTL. presence=loop-alive / busy=agent-alive: two files, two writers, C7-safe.
+  - **Server staged-restore** (~30 lines): `/table` while a proposal sits parks the incumbent to `board.staged[]` (`parked:true`, status/phase preserved); any write with an empty slot re-seats it. No fifth literal — DVM-822's mid-poll eviction can't recur.
+  - **Dashboard**: `busy_<SEAT>.js` polled alongside presence; `busyTier` returns WORKING on a fresh agent-stamped mark; SSE glob carries `busy_*.js`.
+  - **Protocol**: full watchdog clause (dual-stamp, six-condition predicate, flag-only relay, transition-only posts, idle-alive gap named, staged-restore law).
+- **Verified**: py_compile clean ×3; `node --check` V8 clean on full script; `busy` stamp written+read; `carriers()` live-verified (BUTTON=0, CHAIR=3=one relay chain).
+- **Ledger**: C17 → FIX APPLIED (awaiting certification).
+
+- **DVM-921 flap-window fix (boss-ordered):** dark-detection in `commission_supervise.py` now requires stamp-stale > `2×TTL` (the same grace the respawn predicate carries) — pulse-plane relay re-arm gaps stop flapping dark→relit; zeroed records never flagged. Daemon relit on the fix (PID 59492).
+
+- **DVM-922 (mini) — daemon bulb + TECH LOG built (SHIP 4-0, GO boss):** wall bulb beside pegboard reads `presence_SUPERVISOR.js` live (green beat/dark, 30s law); third tucked tab ▣ TECH LOG renders `kind:'sys'`/`channel:'tech'` — transcript pure, bus untouched (render-level divert); unread badge goes red on seat-dark notices. ~115 lines in-page, V8 clean.
+
+- **Room B chibi-fit defects fixed (boss-ordered, unanimous defect review):** `bo.z` sign-mirrored on all four `MOUNTS[]` entries (voxel twin seats behind canvas, prim-proud like Room A); orphan children (ballot pins, shelf/tray cards) re-lay inside `applyMounts()` on style toggle; sweep verified — seats/lamps/bulb/goGlow already re-anchored.
+
+### Files Modified
+- `docs/commission_supervise.py` — NEW: the watchdog daemon
+- `docs/commission_busy.py` — NEW: agent-alive mark writer
+- `docs/commission_server.py` — staged-restore (park on mid-poll /table + re-seat on empty slot); SSE busy glob
+- `docs/DELIBERATION_MACHINE.html` — `BUSY` map, `loadBusy`, `busyMark`, `busyTier` agent-stamp tier, poll integration
+- `docs/COMMISSION_PROTOCOL.md` — DVM-921 watchdog clause
+- `docs/COMMISSION_BUGS.md` — C17 → FIX APPLIED
+
+## October 31, 2026 — Sit Character mode + editable voxelSize honor (reference preview scale bug fixed)
+
+### Changed
+- **Editor scale bug fixed** (`voxel_editor.html`): `getCharScaleRatio()` measured the editable model against the asset-type *preset* (.005 prop), never the loaded file's `voxelSize` — a .01-authored item previewed its character reference at ×2.00. New `editableVoxelSize` variable: preset on fresh/type-switch, **overridden by any loaded file's own `voxelSize`** (all 5 load paths adopt it). Export now writes it — the preset-stamp vector that originally poisoned the commission kit (.005 on .018-displayed furniture) is closed. Walk-path speed + dims label consume it too.
+- **🪑 Sit Character mode** — the seat-anchor contract wired to the editor UI:
+  - `seat_1`/`seat_2` added to `ITEM_PART_GROUPS` (paint on the seat surface via Attach Pts tab)
+  - New 🪑 button in Reference Preview: auto-loads Civilian1 (or uses loaded ref), snaps to Sit (state 11), drops pelvis contact onto the painted `seat_*` point, faces away from the detected backrest (tall editable voxels near the point, cardinal-snapped yaw)
+  - **Live refit**: placement recomputes every `rebuildCharMesh` — sculpt the chair or move the painted point and the sitter re-seats instantly
+  - Disengages on mirror/file-load/asset-switch so a chair can't be seated on itself
+- **`commission_chair.json`** pre-seeded: `attachmentPoints.seat_1 = (14,25,16)` — verified real slab voxel, ~6 vox in front of backrest face
+
+### Verified
+- `node --check` clean on the full 371KB module script
+- Seat anchor pipeline: `buildAttachmentPoints()` → `seat_*` keys → `computeSeatPlacement(posed)` — pelvis = lowest posed voxels near pivot_0, aligned to seat-point top face
+
+### Files Modified
+- `VoxelAssetStudio/voxel_editor.html` — editableVoxelSize plumbing + Sit mode (~120 lines)
+- `Assets/StreamingAssets/voxel_items/commission_chair.json` — seat_1 anchor
+
+## October 31, 2026 — Voxel scale normalization + Vinny naming collision resolved
+
+### Changed
+- **Root cause found — authored vs displayed scale divergence:** every `commission_*` asset in `Assets/StreamingAssets/voxel_items/` was authored with template `voxelSize: 0.005` while `docs/DELIBERATION_MACHINE.html` displayed them at `.018–.019` (~3.6–3.8×). Files claimed dollhouse furniture; the room secretly showed real furniture. World law measured from live assets: characters+vehicles `.01` (Civilian1 = 0.61m, car = 1.55m), buildings `.1` (barber shop = 3.6m).
+- **Normalized to Civilian1-authoritative chibi scale** — authored `voxelSize` now equals the size that fits a 0.61m character and ports to game directly:
+  - chair `.005→.010` (0.52m), table `.005→.0093` (0.50m), filecabinet `.005→.0115` (0.85m), monitor `.005→.0068` (0.80m), pegboard `.005→.013` (0.60m), shelf `.005→.0164` (0.18m), tray `.005→.0167` (0.10m), stamper `.005→.0052` (0.14m), floor/wall `.06→.025` (3.75m room, 1.50m walls)
+  - Room `vs:` values updated to match authored — one truth file↔display (`DELIBERATION_MACHINE.html` KIT table, chair mount, stamper mount, voxSwap wall pieces)
+- **Vinny naming collision fixed:** `ARCHIVE/voxel_characters/Vinny.*` was a legacy half-density export of the same character (48-grid @ .02, 31 vox — 64.8% voxel overlap with Civilian1 downsampled). Renamed to `Civilian1_legacy_48grid.*` (json/anim/regions/groups/stasset + .meta pairs preserved). "Vinny" now unambiguously means the live `Civilian1.json` (96-grid @ .01).
+- **Composite re-stamped** `.005→.01` (`vinny_seated_preview.json` both copies). Rebake pending — next composite uses Civilian1 directly (density already matches chair grid, no resampling).
+
+### Known follow-up
+- Room layout `pos` offsets were tuned to the old inflated sizes — ROOM B staging likely needs a position retune pass on next render.
+
+### Files Modified
+- `Assets/StreamingAssets/voxel_items/commission_*.json` — authored voxelSize normalization (10 assets)
+- `docs/DELIBERATION_MACHINE.html` — room display vs updated to authored truth
+- `VoxelAssetStudio/ARCHIVE/voxel_characters/Civilian1_legacy_48grid.*` — renamed from `Vinny.*`
+- `Assets/StreamingAssets/voxel_items/vinny_seated_preview.json`, `docs/vinny_seated_preview.json` — composite voxelSize `.01`
+
+## October 31, 2026 — DVM-018 handshake/labor coherence — BUILT
+
+### Changed
+- **DVM-018 v0.2 — GO via boss-215, built by BUTTON:** `busyTier` now derives labor from the **handshake lifecycle**, not message shapes — the C2 drift class dies.
+  - **`pending_task` tail-walk derivation** (~24 lines in `applyState`): per seat, the newest tasking (`needs_ack` seat-write or addressed boss directive) walks `aimed → acked → released → delivered → expired`. Delivery = floor-class write only (`aside`/`sys`/`phase`/`ack`/`ok` excluded — gate F1) or an ack stamped `delivers:true` (F2's self-answering-ack terminator). Expiry = `TASKED_TTL = 600s` (F3); ear-dark clears via the existing lamp gate.
+  - **`busyTier` rewired**: aimed/acked/released all render TASKED (WORKING) — the pending-ack dead-zone (F1) closes; a seat composing its ack stops reading floor-silent. `floorSilent` suppression extends through the aimed window automatically (lamp-lit gate unchanged).
+  - **Inspector carries the sub-state** (`· task aimed/acked/released`) per the spec's optional surface; chair/deck labels stay one grammar.
+  - **Zero server changes, zero new bus fields** — `delivers:true` is an optional flag on the existing `ack` kind.
+- **Acceptance**: `_dvm018_accept.py` — 10 structural checks on the built derivation + 10 lifecycle cases covering every spec §5 line (aimed→WORKING pre-ack, delivers:true terminator, 600s expiry, ear-dark drop, ok≠delivery, aside≠delivery, floor-class delivery, newest-wins). **20/20 PASS.**
+- **T2 syntax**: `node --check` (V8 v24.19.0) clean on the full 70,589-char script.
+- **Ledger**: C2 → FIX APPLIED (the last ACTIVE bug); protocol handshake/labor clause entered law.
+
+### Files Modified
+- `docs/DELIBERATION_MACHINE.html` — `pending_task` derivation (replaces shape-based `busyTasked`), `busyTier` lifecycle check, inspector sub-state, floorSilent comment
+- `docs/COMMISSION_PROTOCOL.md` — DVM-018 lifecycle clause (delivers flag, TASKED_TTL, suppression rule)
+- `docs/COMMISSION_BUGS.md` — C2 status flip
+- `docs/_dvm018_accept.py` — new acceptance harness
+
+## October 31, 2026 — DVM-021 send-triad coherence (full-M1) — BUILT
+
+### Changed
+- **DVM-021 v0.3 — full design gate, SHIP 4-0, boss ruled full-M1, GO via boss-214, built by BUTTON:** the boss send-triad is now a closed two-variable machine (`sendMode × activeTab`) with the invariant *armed channel ≡ viewed tab under every gesture*.
+  - **Full-M1 fire split**: verb-button clicks arm + retab ONLY — never fire. `btntable` → `(table,feed)`, `btnside` → `(side,side)`. Enter (`sendArmed`) is the sole verb fire path and never disarms; `bosssend` fires floor speech + retabs feed + 180ms flash.
+  - **Unconditional armed-click disarm**: clicking the already-armed verb returns to rest pose `(send,feed)` — text or empty, identical (no semantic rides on box content).
+  - **TABLE now binds to `feed`** — the last divergent cell closed; C15 `btnside`/tab coupling kept.
+  - Button titles updated to arm semantics ("arms the table verb — Enter tables…; click again to disarm") — the honest affordance mitigates the boss-accepted *arm-silent* hazard.
+- **Acceptance**: `_dvm021_replay.py` — 13 structural checks on the built handlers + full BFS over all six gestures × {empty,text} from every reachable state. Reachable set == legal set exactly (`(send,feed) (table,feed) (side,side)`); fires observed only via Enter/SEND; every armed-click lands `(send,feed)`.
+- **Bug file**: C16 → FIX APPLIED (awaiting certification); C17 (persist-mode lamp gap) filed separately by the room — rides DVM-022 watchdog scope.
+- **Protocol**: send-triad gesture table + invariant entered law under Boss semantics.
+
+### Files Modified
+- `docs/DELIBERATION_MACHINE.html` — full-M1 handler rewrite (bosssend/btntable/btnside + comment), button titles
+- `docs/COMMISSION_PROTOCOL.md` — send-triad invariant + gesture table
+- `docs/COMMISSION_BUGS.md` — C16 status flip
+- `docs/_dvm021_replay.py` — new acceptance harness (parse-driven structural checks + BFS)
+
+## October 30, 2026 — DVM-020 ear-and-ledger hygiene CERTIFIED + C15 verb↔tab coupling FIXED
+
+### Changed
+- **DVM-020 v0.3 — full design gate, SHIP 4-0, GO via boss's word, built by BUTTON, certified by CHAIR:**
+  - **C9a heartbeat presence**: watcher re-stamps `presence_<SEAT>.js` every ~10s (every 5th poll) with `ttl_ms=30000`, `beat:true`; arm stamp is the first beat via `try_stamp` (C7 race law on every beat). Dead ear darkens ≤30s — armed now literally means "a loop breathed in the last half-minute." `armed_at` reads *last seen alive*.
+  - **C9b substrate wake contract**: exit-mode stays the law on relay/blocking substrates (process exit IS the doorbell); `--persist` stream-mode is opt-in for live-stream consumers, dedup via `seen`, terminal conditions named: explicit kill, feed unreadable >30 polls (~60s), heartbeat fail ×3 — *a persistent ear that cannot heartbeat must die, so the lamp goes dark rather than lie*.
+  - **C11 batch label precedence**: `LABEL_RANK` argmax over the whole unseen batch claims highest-precedence (`ADDRESSED (boss) (+N ambient)`), not just the tail; the labeled message always prints even beyond `[-5:]`.
+  - **C12 literal slot chain in law**: `null → 'tabled' → 'go' → 'built' → null`; deliberating phases/verdict/certification are events between literals. GO-time re-seat = item-under-build. Born of a sustained AUDITOR veto corrected by BUTTON's bus evidence (`'go'` literal, `'certified'` never a slot value).
+- **C15 FIXED (fix-lane run 2)**: armed verb bound to the viewed tab — `btnside` arms + retabs, `tab_side` arms, `tab_feed` disarms to SEND; TABLE unbound (proposals aren't a channel). 5 net lines in `DELIBERATION_MACHINE.html`. Kills the misfire class that ate a proposal (DVM-674) and a GO CODE in one hour.
+- **Tiered certification — new precedent**: stamps name their tiers. **T1** logic (full mutator enumeration + AUDITOR call-sequence replay — no path reaches lit-`side`/viewing-`feed`); **T2** syntax (`node --check` clean, V8 v24.19.0 via `nodejs-wheel`); **T3** runtime (boss's refresh live-fire). Esprima ES2017 chokes (importmap JSON, `?.`) disclosed tool-inconclusive, never counted.
+- **Ack-before-execute now law for every seat incl. CHAIR**: first write after tasking is a scope-restate in the seat's own words; observed on both C15 and DVM-020 taskings.
+- Verified: `py_compile` clean; 7-case label truth table + acceptance verbatim; `try_stamp` contract exercised; full `sendMode` mutator enumeration (5 sites); V8 parse clean; page + feed serve 200 on :8723.
+- **Ledger**: C9/C11/C12 → FIX APPLIED; C15 → FIXED; C2 remains ACTIVE (DVM-018 spec'd, awaits GO).
+
+### Files Modified
+- `docs/commission_watch.py` — heartbeat-per-beat presence, `--persist` stream-mode + terminal conditions, `LABEL_RANK`/`batch_label`, dedup/`seen`, turn-held re-print guard (~55 lines net)
+- `docs/DELIBERATION_MACHINE.html` — C15 verb↔tab coupling (3 handler sites + comment)
+- `docs/COMMISSION_PROTOCOL.md` — heartbeat contract, substrate classes/wake-delivery law, literal slot chain + GO-time re-seat, batch-precedence clause, `beat:true`/`armed_at` semantics
+- `docs/COMMISSION_BUGS.md` — C9/C11/C12/C15 status flips; C15 fix + certification record
+- `docs/deliberation_feed.js` — verdict/tasking/ack/report/certification messages; DVM-020 → `closed[]`, slot vacated; C15 certified
+
+## October 30, 2026 — DVM-019: Machine Hygiene — the C-sweep (seven fixes, one shape) — BUILT
+
+### Changed
+- **`LIVE` floor-domain register** (C1/C4): dashboard ingests `feed.seats ∪ {BOSS}` into `DS.live` (five-seat fallback) — the only floor domain; `SEATS{}` is a render roster, never the guard. `turn` canon = LIVE keys only; `LEGACY_SEAT += PRAGMATIST:ARCHITECT` resolves retired personas read-side — writers never author them.
+- **Ghost-floor alarm** (C1): a non-LIVE `turn` burns **violet instantly** — no 120s grace, zero writers — on `turnlbl`/`d_turn` chip, 2D row (`▲ GHOST FLOOR`, dashed violet), and 3D ring (violet pulse at 2.5× vs silent red at 1.5×). Distinct class from the silent-floor red ring, which keeps its seat-domain + grace semantics.
+- **Atomic closure** (C5): protocol law — the certifying write sets `proposal:null` and appends `board.closed[]` in one write; the slot renders `TABLE IDLE — awaiting new business`, never a corpse. (This build's own GO CODE hit the bug live — CHAIR seated DVM-019 by hand again; the corpse-slot is now dead law.)
+- **Milliseconds everywhere** (C6): server stamps `int(time.time()*1000)` at both `turn_at`/`ts` sites (2 lines); dashboard normalizes at ingest (`<1e12 → ×1000`) so both readers are pure ms compares. `floorSilent` 120s and `busyTier` FLOOR-HELD now share the canon unit.
+- **Watcher replace-race** (C7): zero lines needed — `try_stamp`'s OSError-retry-then-skip already stood since DVM-010; verified live (real `PermissionError` raised on a locked file → swallowed, poll kept polling). One-ear line written into presence-hygiene law.
+- **C8 ruled Shape A**: BUTTON stays in `seats[]`, boss-routable for acks/ballots/reports, holds no deliberation positions — routable ≠ votable; the rekey already routed `@BUTTON`, zero code. Bench leaned A unanimously; no contrary boss ruling landed.
+- **C3 verdict-lock sweep**: board law — at verdict-lock any seat may correct stale doc/register text to the ratified spec, recorded on the bus.
+- ~25 dashboard lines, 2 server lines, 0 watcher lines, ~25 protocol lines. Bug file statuses flipped: C1/C3/C4/C5/C6/C8 → FIX APPLIED, C7 → FIXED (predated the filing); C2 rides DVM-018; C9 out of scope.
+- **Handshake fourth run**: `boss-149` GO → `BUTTON-32` ack (held; format-miss flagged by boss — break discipline missed, corrective applied to this report rather than reposted) → `boss-151` `kind:'ok'` → build → `BUTTON-33` report.
+- Verified: script brace/paren balance clean; `.py` compiles clean; truth-table run of ghost/silent/sniff predicates against live-shaped inputs; `os.replace` failure simulation passed.
+- Record-nit for the table: the feed carries **no header comment** — whole-state JSON rewrites don't preserve comment prefixes; the contract lives in `COMMISSION_PROTOCOL.md` as canonical.
+- Verdict SHIP'd v0.2 unanimous (CHAIR-523), GO CODE boss-149. Report → THE CHAIR (BUTTON-33); `status:'built'` stamped atomically; `files[]` DVM-019 title healed to v0.2 under the new sweep clause.
+
+### Files Modified
+- `docs/DELIBERATION_MACHINE.html` — `DS.live`/`DS.ghostK`, LIVE ingest + `turn_at` ms normalize, ghost branch + renders (2D/3D/CSS), `LEGACY_SEAT` bridge, `TABLE IDLE` label, ms compares
+- `docs/commission_server.py` — `turn_at`/`ts` ms stamps ×2
+- `docs/COMMISSION_PROTOCOL.md` — floor-domain clause, atomic closure, one-ear line, C8-A delegated-seat rule, verdict-lock sweep
+- `docs/COMMISSION_BUGS.md` — C-sweep status flips
+- `docs/deliberation_feed.js` — report message, `status:'built'`, `files[]` title heal
+- `docs/commission_watch.py` — **unchanged** (guard verified, not modified)
+
+## October 30, 2026 — DVM-019 v0.2: Machine Hygiene — the C-sweep — BUILT + CERTIFIED
+
+### Changed
+- **Seven bug fixes, one spec, one shape** — stored state stops drifting from derived truth (SHIP 5-0, GO boss-149, built by BUTTON, certified by CHAIR):
+  - **C1 ghost floor**: `LIVE := feed.seats[] ∪ {BOSS}` floor-domain register ingested to `DS.live`; non-LIVE `turn` burns a violet ghost alarm instantly (no 120s grace, zero writers) across row/turnlbl/3D ring — `PRAGMATIST` is the live acceptance proof
+  - **C4 turn canon**: protocol names the floor domain; `LEGACY_SEAT += PRAGMATIST:ARCHITECT` (dashboard + watcher), legacy keys demoted to read-only bridge
+  - **C5 terminal closure**: certify + vacate in one atomic write — `proposal:null` + `board.closed[]` + `TABLE IDLE — awaiting new business`; first live execution in the certification write itself
+  - **C6 turn_at units**: both server stamps → `time.time()*1000`; `1e12` ingest sniff self-corrects seconds-era values; both dashboard readers on ms
+  - **C7 replace race**: `os.replace` guard verified already standing since DVM-010 — housekeeping non-fatal, bug misfiled → FIXED
+  - **C3 freshness sweep**: verdict-lock clause in protocol — stale doc/register text corrected to the ratified spec, recorded on the bus
+  - **C8 routability**: Shape A ruled — `routable ≠ votable`; `@BUTTON` already routes today (proven by the GO itself), protocol line, zero code
+- **Bug file**: `docs/COMMISSION_BUGS.md` statuses updated — C1/C3/C4/C5/C6/C8 FIX APPLIED, C7 FIXED, C2 rides DVM-018's GO, C9 ACTIVE (CHAIR self-bound)
+- Verified at certification: `DS.live` ingest, 33 ghost-alarm refs, both ms stamps + zero bare `int(time.time())`, `1e12` sniff, all protocol clauses present
+
+### Files Modified
+- `docs/DELIBERATION_MACHINE.html` — `DS.live`, ghost-floor alarm, TABLE IDLE, ms readers, PRAGMATIST bridge (~25 lines)
+- `docs/commission_server.py` — `turn_at` + `ts` → ms at both write sites (2 lines)
+- `docs/commission_watch.py` — LEGACY_SEAT map (+ PRAGMATIST)
+- `docs/COMMISSION_PROTOCOL.md` — LIVE domain, turn canon, closure contract, one-ear line, verdict-lock sweep, C8-A (~25 lines)
+- `docs/COMMISSION_BUGS.md` — status updates
+- `docs/deliberation_feed.js` — proposal:null + closed[16], CHAIR-530 certification
+
+## October 30, 2026 — Commission session: bug catalog sweep + house-style law — DOCS
+
+### Changed
+- **`docs/COMMISSION_BUGS.md` — the live commission bug file** (boss-143/145: scope = the machine itself, not the game). Eight entries: five from tonight's session (ghost floor, labor/handshake drift, staged-card snapshot drift, no-canonical-`turn`-key, proposal slot surviving closure) plus three pre-existing commission bugs summarized with migration-pending flags (turn_at units, presence-replace race, boss @-route gap). Registered in `board.files` as the Bug Catalog. First scoping attempt placed filings inside `docs/known_issues/` — the GAME's catalog; corrected on boss-145's ruling, runtime files removed, index rows stripped.
+- **House style pinned as board Rule 11, then refined**: first pass (short lines/bullets) flattened seat voices into clones; the BOSS's refinement restores verbose personality — discipline is real paragraph breaks, bullets only for genuine lists, fields/IDs surgical.
+- **DVM-017 viewer card healed**: file registered in `board.files`, staged `detail` refreshed from v0.1 fossil to v0.7 spec, then rewritten as readable Markdown for the `miniMd` reader.
+
+### Files Modified
+- `docs/known_issues/runtime/` — 5 new bug files + README index
+- `docs/deliberation_feed.js` — Rule 11 + refinement, CHAIR messages, agenda +ghost-floor item
+- `docs/commission_watch.py` — LEGACY_SEAT turn normalization (BOSS-authored)
+
+## October 30, 2026 — DVM-011 v-next: Presence hygiene — fossil sweep, dead-age readout, SSE retry — BUILT
+
+### Changed
+- **Fossil sweep**: `docs/presence_MEMBER2.js` deleted — the DVM-009 rename's namespace residue, an expired claim-window gitignored out of the repo. Sweep executed under the GO CODE itself ("your GO CODE sweeps the fossil" — CHAIR-149).
+- **Litter-owner convention** (protocol + seat-rules text): the seat that retires/renames a chair sweeps its `presence_<OLD>.js` in the same act; orphans — `presence_*.js` keyed to a seat outside `SEATS{}` — are reported and finder-deleted. AUDITOR charter gains the orphan-finding line.
+- **Dead-state age**: `earInfo` now returns post-expiry age — `ear dead 40s` / `ear dead 12m` / `ear dead 4h` (s→m→h buckets) — on inspector, 2D rows, and ear chips. Same deadline math, new label: a relay-gap stops reading like a stalled session. Dead-age text rides the lamp signature so 2D rows refresh exactly when the label changes (per-second under a minute, then per-minute, then hourly — bounded churn).
+- **SSE retry, honestly scoped** (gate F1's corrected premise): `onerror` now checks `es.readyState === EventSource.CLOSED` — the permanent-failure class (non-2xx `/events`, moved endpoint) where native retry stops — and schedules a manual re-construct on the backoff ladder 5s→15s→30s→60s cap, reset on `onopen`. Transient `CONNECTING` errors keep native retry; `file://` still throws in the constructor → honest poll, zero retry burn. Push chip reads `retry` during manual backoff — a dead channel never reads `push`.
+- ~18 dashboard lines, zero server/watcher/bus changes. WinError-5 monitoring dissolved to AUDITOR jurisdiction per the verdict.
+- **Live protocol proof**: third mechanical handshake — `boss-110` GO → `BUTTON-26` ack (held) → `boss-111` `kind:'ok'` with `ack_of` bound server-side and `turn` routed — release and floor in one write.
+- Verified: bracket-balance scan clean; fossil glob clean (5 live ears, zero orphans); CHAIR-150 seated DVM-011 in the proposal slot by hand (server go-stamp missed while the slot held built DVM-016).
+- Verdict SHIP'd v0.2 post-gate (INFORMANT-30 FULL), GO CODE boss-110. Report → THE CHAIR (BUTTON-27); `status:'built'` stamped on the live proposal.
+
+### Files Modified
+- `docs/DELIBERATION_MACHINE.html` — `earInfo` dead-age, dead-literal swaps (2D + inspector), lamp-sig bucket, SSE backoff re-construct
+- `docs/COMMISSION_PROTOCOL.md` — litter-owner convention (files table + identity block)
+- `docs/deliberation_feed.js` — report message, header hygiene clause, AUDITOR charter line, `files[]` row, `status:'built'`
+- `docs/presence_MEMBER2.js` — **deleted** (the fossil)
+
+## October 30, 2026 — DVM-016: Busy At Work — the room shows a seat laboring — BUILT
+
+### Changed
+- **Dashboard only, ~30 scene lines as spec'd** — every signal derives from DVM-015 machinery; zero bus/server/watcher changes.
+- **`busyTier(seat)`** — three tiers, precedence **build > tasked > floor-held**, gated by a live ear (`lampState==='lit'` — a dead ear can never read "at work"):
+  - **BUILD** = `proposal.status:'go'` on BUTTON's chair regardless of floor; clears on the `'built'` stamp.
+  - **TASKED** = seat's latest message is `kind:'ack'` on a handshake-bearing directive (released by `ok` if the directive held — a held ack never reads busy).
+  - **FLOOR-HELD** = `turn===seat && now−turn_at <120s` — the healthy half of the same clock `floorSilent` owns; exclusive by construction.
+- **Visual**: per-chair label sprite over the nameplate — `WORKING`/`COMPOSING` in white text, material tint flips white↔seat-color on a ~1Hz metronome. Zero new geometry; rides the `mark()` scheduler (frames stay alive while a seat labors).
+- **Suppression (§3 gate finding)**: `floorSilent` gains `&& !busyTier(turn)` — sanctioned labor never burns; a laboring seat's ear dying drops the gate and the 120s alarm can burn. Red alarm vs labor text — never conflated.
+- **Fuse struck (boss amendment)**: lamps binary lit/dark at full intensity — burn-down dimming removed; ear digits stay exact in the inspector, TTL stays ambient on 2D rows. 2D rows gain the blinking `WORKING`/`COMPOSING` tag (CSS `steps(1)` blink, seat color via `--wc`).
+- **Live protocol proof**: the GO ran the full mechanical handshake — `boss-101` GO → `BUTTON-24` ack (held) → `boss-102` `kind:'ok'` written by the new server with `ack_of` bound and `turn` routed — §3b's round trip executing in production.
+- Verified: bracket-balance scan clean; derivation edges audited (BOSS speaker keys excluded via `seatKeyFor` null, held-vs-busy via `dir.hold && !dir.o`).
+- Verdict SHIP'd v0.3 + boss amendments (folded CHAIR-128/129, verified CHAIR-130), GO CODE boss-101. Report → THE CHAIR (BUTTON-25); `status:'built'` stamped on the live proposal; `files[]` 20 rows.
+
+### Files Modified
+- `docs/DELIBERATION_MACHINE.html` — `busyTier`, work-label sprites, binary lamps, suppression, 2D tags
+
+## October 30, 2026 — DVM-015: Acknowledgement Handshake + The Loud No-Response — BUILT
+
+### Changed
+- **Bus kinds**: `ack` (relayed understanding, linked by `ack_of`) and `ok` (the thumbs-up). Optional fields `needs_ack`/`hold`/`ack_of`/`ts`; top-level `turn_at` rides every `turn` assignment; `ack_epoch` marks the protocol era boundary (§8 — no retroactive handshakes).
+- **The token makes the round trip** (§3b): directive(@X→floor X) → ack(X→floor sender) → ok(sender→floor X, authorized *and* floored). Fixes the gate's F1 deadlock — an ok landing on an unread bus.
+- **Server (`/boss`, ~6 lines, three behaviors)**: (a) a message that is exactly `👍` (±`@SEAT`) writes `kind:'ok'` with `ack_of` resolved at write time — bare 👍 binds the sender's most recent pending-ok, `@SEAT` narrows, unbound → `ack_of:null` named ceremony; (b) `HOLD`/`hold:` in an addressed directive stamps `hold:true` (lowercase "hold on a second" cannot gate — AUDITOR's residual named); (c) every `turn` assignment stamps `turn_at` (`/boss`, `/table`, ok-route).
+- **Boss defaults (ratified, CHAIR-112)**: `@SEAT` directives carry `needs_ack` virtually (reader-inferred, never materialized); `hold` defaults ON — the only release is the 👍. Seat→seat directives handshake only when the sender sets fields.
+- **Dashboard**: `ack`/`ok` kind colors (cyan/green, transcript chip + bubble accent); ⏳ awaiting → ✓ acknowledged → 👍 authorized glyphs on handshake-bearing directives (virtual boss directives count only past `ack_epoch`); pending >120s flags amber on the 1s tick; chair `pulse()` on a seat's ack — the room nods.
+- **The alarm (§6b/c, both binding nits)**: `floorSilent = turn ∈ seats && turn_at && !adjourned && >120s` — render-layer, **zero writers, correct even if every relay is dead**. Burns the `floor:` HUD chips red (flash animation) and red-pulses the silent chair's underglow ring; 2D row shows `▲ floor silent`. Recess exempt (deliberate silence isn't dead silence). Missing `turn_at` fails safe.
+- **Contract law**: CHAIR's `seat_rules` gains the sentinel clause — on any wake, floor silent >120s on a seated peer + no no-answer banner for that `turn_at` → write it once (check-then-write, first writer wins).
+- **Protocol doc + feed header** gain the handshake clause; `board.files[]` registers the draft (19 rows).
+- **First use was live**: the boss's `@BUTTON GO` (boss-85) ran the full handshake before the code existed — BUTTON-20 ack → held per boss-hold → boss-86 👍 released → boss-88 status question answered. The pipeline was its own test case.
+- Verified: `py_compile` server; bracket-balance scan clean (scanner itself gained nested-template + regex-literal states). Note: running server needs restart for the 👍→ok mapping + `turn_at` stamps; render fallbacks honest until then.
+- Verdict unanimous four-ballot SHIP (CHAIR-113), GO CODE boss-85 `@BUTTON GO for DVM 015`. Report → THE CHAIR.
+
+### Files Modified
+- `docs/commission_server.py` — 👍→ok binding, `hold` marker, `turn_at` stamps
+- `docs/DELIBERATION_MACHINE.html` — handshake glyphs, kind colors, floor-silent burn, ack pulse
+- `docs/COMMISSION_PROTOCOL.md` — handshake clause + boss semantics
+- `docs/deliberation_feed.js` — `turn_at` + `ack_epoch` + CHAIR sentinel clause + header clause + files row + report
+
 ## October 30, 2026 — DVM-014: Room Takeover (the page becomes the scene) — BUILT
 
 ### Changed
@@ -2886,3 +3154,10 @@ Available tiers: `city_template_25`, `city_template_100`, `city_template_500`, `
 - `docs/commission_server.py` — `/events` SSE + do_GET override + glob/time imports
 - `docs/DELIBERATION_MACHINE.html` — EventSource wiring, push/poll chip, armPolling fallback, loadPresence extraction
 - `docs/commission_watch.py` — try_stamp retry guard, stamp-once, dormant stat loop
+- **Dashboard layout swap preview (boss-directed)**: 3D scene and transcript columns traded sides —  `#deck` given `order:-1` with original `1fr minmax(400px,34%)` columns — scene inherits the wide left (~66%), transcript the narrow right (~34%). Reversible two-line CSS change; narrow-stack side effect noted on-table.
+- **SIDE TABLE placeholder preview (boss-directed)**: `#propbox`/`#verdictbox` hidden (display:none — JS still updates them harmlessly); new `#sidetable` dashed placeholder panel claims the slot above the transcript with dimmed sample asides + `N asides` badge. Live stream lands with DVM-017; revert = delete panel + one CSS rule.
+- **DVM-017 v0.7 built + certified (first full spine cycle)**: OMNISCIENT wake + label ladder + floor-ear read in `commission_watch.py`; real SIDE TABLE pane (aside divert, dimmed stream, `N asides` badge, boss-aside mark, boss input) + ember dead-floor (2D `.deadfl`, 3D ring) in `DELIBERATION_MACHINE.html`; `/aside` boss endpoint in `commission_server.py`; aside law + omniscient clause in `COMMISSION_PROTOCOL.md`. AUDITOR clean pass; CHAIR certified; closed[] + TABLE IDLE atomic. Audit nits filed as C11 (batch label precedence) + C12 (slot lifecycle naming).
+- **Boss chat-bar consolidation (boss-directed)**: side-table input removed (pane is stream-only); main box gains TABLE + SIDE-TABLE buttons wrapping `/table`/`/aside` verbs (color-coded accent/pink); ADJOURN relocated to deck header beside COLLAPSE (same id+handler).
+- **Tabbed pane + unread tags + lit send-modes (boss-directed)**: SIDE TABLE merged into the transcript panel as tab 2 (`#stlist`); per-tab unread count chips clear on open/scroll-bottom with hydrate suppressed (`booting` flag); send triad arms verbs — click sends + lights the button, Enter fires the armed verb; ADJOURN chip lives in deck header.
+- **First retro-check under the all-implementation gate (boss-ratified)**: AUDITOR audited tonight's un-spined UI batch (tabs, unread tags, send triad, layout fixes) — CLEAN, 10/10 verified by code read; two observations logged (chip-only lifecycle, armed-verb persistence). Protocol amended: all implementation rides the full design gate; boss directives enter as pitches; outage heals exempt with retro-check.
+- **Fix-lane first run (send-triad correction)**: SEND made momentary — `setSendMode` no longer arms `#bosssend`; new `flashSend()` gives a 180ms lit press; TABLE/SIDE-TABLE remain true toggles. BUTTON repaired → AUDITOR verified → CHAIR certified. Filed as spec-defect (decree flaw, not code flaw) — new ledger class.

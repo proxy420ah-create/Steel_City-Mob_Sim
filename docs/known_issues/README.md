@@ -64,5 +64,3 @@ Bug tracker per Development Guidelines Rule 13. Bugs are cataloged by category i
 | [Moving Vehicles As Cover / Bodies Embedded In Cars / Guard Reset Regression](runtime/MOVING_VEHICLES_COVER_EMBED_GUARD_REGRESSION.md) | runtime | 🟡 FIX APPLIED | 🔴 CRITICAL | 2026-10-28 |
 | [Deep-Recon Stops Stale At Dispatch](runtime/DEEP_RECON_STOPS_STALE_AT_DISPATCH.md) | runtime | 🟡 FIX APPLIED | 🟡 HIGH | 2026-10-28 |
 | [Reload Gesture Not an Animated State — Folded Forearm, Frozen Gun Arm](runtime/RELOAD_GESTURE_NOT_ANIMATED_STATE.md) | runtime | 🟡 FIX APPLIED | 🟡 HIGH | 2026-10-28 |
-| [Boss @-Route Cannot Reach Delegated Seat](runtime/BOSS_AT_ROUTE_DELEGATED_SEAT_GAP.md) | runtime | 🔴 ACTIVE | 🟢 MEDIUM | 2026-10-30 |
-| [Watcher Ear Killed by Presence-File Replace Race](runtime/WATCHER_PRESENCE_REPLACE_RACE.md) | runtime | 🔴 ACTIVE | 🟡 HIGH | 2026-10-30 |

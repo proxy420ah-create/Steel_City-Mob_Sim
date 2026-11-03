@@ -13,14 +13,130 @@ POST /boss {"text": "..."} — writes THE BOSS's message into deliberation_feed.
 Known limit: boss interjections can race an agent's write — rare, one
 repeated turn is the worst case.
 """
-import glob, json, os, re, sys, time
+import glob, json, os, re, sqlite3, sys, time
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
+
+# pulse-plane (triage): server-observed seat liveness. While a seat holds
+# GET /pulse/<SEAT>, the SERVER stamps presence_<SEAT>.js — the lamp is an
+# open socket, not a self-declared file. Stops the moment the handler dies.
+PULSE_STAMP = {}   # seat -> last presence write ms (throttle to ~8s)
+
+def pulse_stamp(seat, ttl_ms=30000, via='pulse', force=False):
+    now = int(time.time() * 1000)
+    if not force and now - PULSE_STAMP.get(seat, 0) < 8000:
+        return
+    PULSE_STAMP[seat] = now
+    p = os.path.join(HERE, 'presence_%s.js' % seat)
+    tmp = p + '.tmp'
+    rec = {'seat': seat, 'armed_at': now, 'ttl_ms': ttl_ms,
+           'pulse_at': now, 'beat': True, 'via': via}
+    try:
+        open(tmp, 'w', encoding='utf-8').write(
+            'window.DVM_PRESENCE_%s = %s;\n' % (seat, json.dumps(rec)))
+        os.replace(tmp, p)
+    except OSError:
+        pass
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FILE = os.path.join(HERE, 'deliberation_feed.js')
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8723
 # DVM-009: legacy member ids still accepted in @mentions — translated to seat keys
 LEGACY = {'DEVIN': 'CHAIR', 'MEMBER2': 'ARCHITECT', 'MEMBER3': 'BUTTON', 'MEMBER4': 'INFORMANT'}
+
+# usage monitor — local session telemetry (num_tokens_preceding = input tokens processed
+# per call; output untracked). Ceiling observations persist so the empirical free-tier
+# rolling limit converges across hits.
+DB_PATH = os.environ.get('DEVIN_SESSIONS_DB',
+    os.path.join(os.path.expanduser('~'), 'AppData', 'Roaming', 'devin', 'cli', 'sessions.db'))
+USAGE_LEDGER = os.path.join(HERE, 'usage_ledger.json')
+U_WINDOWS = (('h1', 3600), ('h5', 18000), ('h24', 86400))
+
+def _ledger_read():
+    try:
+        return json.load(open(USAGE_LEDGER, encoding='utf-8'))
+    except Exception:
+        return {'obs': []}
+
+def _ledger_write(d):
+    tmp = USAGE_LEDGER + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(d, f, indent=1)
+    os.replace(tmp, USAGE_LEDGER)
+
+def usage_report():
+    now = int(time.time())
+    rep = {'now': now, 'db': os.path.basename(DB_PATH), 'windows': {}, 'top': [],
+           'ceiling': _ledger_read(),
+           'note': 'input-token estimate (context size per call, summed); output + cache untracked'}
+    if not os.path.exists(DB_PATH):
+        rep['err'] = 'sessions.db not found'
+        return rep
+    try:
+        uri = 'file:' + DB_PATH.replace('\\', '/') + '?mode=ro'
+        con = sqlite3.connect(uri, uri=True)
+        sess = {}
+        for sid, title, model, wdir, act in con.execute(
+                'select id,title,model,working_directory,last_activity_at from sessions'):
+            sess[sid] = {'title': title or '', 'model': model or '',
+                         'dir': wdir or '', 'act': act or 0}
+        mx = con.execute('select max(row_id) from message_nodes').fetchone()[0] or 0
+        cutoff = now - 86400
+        bound = 200000
+        while bound <= 12800000:
+            lo = con.execute('select min(created_at) from message_nodes where row_id > ?',
+                             (mx - bound,)).fetchone()[0]
+            if lo is None or lo <= cutoff:
+                break
+            bound *= 4
+        per = {}   # sid -> {wn: [turns, tokens]}
+        tot = {wn: [0, 0] for wn, _ in U_WINDOWS}
+        buckets = [0] * 24                    # hourly token buckets, oldest → newest
+        for sid, ca, tp in con.execute(
+                'select session_id, created_at, coalesce('
+                "json_extract(metadata,'$.num_tokens_preceding'),0) "
+                'from message_nodes where row_id > ? and created_at > ?',
+                (mx - bound, cutoff)):
+            tp = tp or 0
+            b = int((now - ca) // 3600)
+            if 0 <= b < 24:
+                buckets[23 - b] += tp
+            for wn, span in U_WINDOWS:
+                if ca >= now - span:
+                    if sid not in per:
+                        per[sid] = {w: [0, 0] for w, _ in U_WINDOWS}
+                    per[sid][wn][0] += 1
+                    per[sid][wn][1] += tp
+                    tot[wn][0] += 1
+                    tot[wn][1] += tp
+        con.close()
+        rep['buckets'] = buckets
+        for wn, _ in U_WINDOWS:
+            t = tot[wn]
+            rep['windows'][wn] = {'turns': t[0], 'tokens': t[1],
+                                  'sessions': sum(1 for s in per.values() if s[wn][1] > 0)}
+        for sid, sw in sorted(per.items(), key=lambda kv: -kv[1]['h24'][1])[:8]:
+            s = sess.get(sid, {'title': '(unknown)', 'model': '', 'dir': '', 'act': 0})
+            rep['top'].append({
+                'id': sid, 'title': s['title'][:60], 'model': s['model'],
+                'commission': 'SteelCityMobSim' in (s['dir'] + s['title']),
+                'tok24': sw['h24'][1], 'tok5': sw['h5'][1], 'tok1': sw['h1'][1],
+                'turns24': sw['h24'][0], 'act': s['act']})
+    except Exception as e:
+        rep['err'] = str(e)
+    return rep
+
+def mark_limit():
+    """BOSS reports a rate-limit hit: stamp the current window totals as a
+    ceiling observation. Across hits the consistent window ≈ the rolling cap."""
+    rep = usage_report()
+    obs = {'ts': rep['now'],
+           'h1': rep['windows'].get('h1', {}).get('tokens', 0),
+           'h5': rep['windows'].get('h5', {}).get('tokens', 0),
+           'h24': rep['windows'].get('h24', {}).get('tokens', 0)}
+    led = _ledger_read()
+    led.setdefault('obs', []).append(obs)
+    _ledger_write(led)
+    return {'ok': True, 'obs': obs, 'n': len(led['obs'])}
 
 def load_feed():
     try:
@@ -45,6 +161,42 @@ def save_feed(data):
 
 class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
+        if self.path.rstrip('/') == '/usage':
+            return self._ok(usage_report())
+        # voxel pipeline assets — whitelisted read into the item library so the
+        # room renders the same file the studio exports (dogfooding, one source).
+        if self.path.startswith('/voxel/'):
+            name = self.path[len('/voxel/'):].split('?')[0]
+            if not re.fullmatch(r'[\w\-]+', name):
+                return self._ok({'err': 'bad name'}, 400)
+            p = os.path.normpath(os.path.join(
+                HERE, '..', 'Assets', 'StreamingAssets', 'voxel_items', name + '.json'))
+            if not os.path.isfile(p) or not os.path.realpath(p).startswith(
+                    os.path.realpath(os.path.join(HERE, '..', 'Assets'))):
+                return self._ok({'err': 'not found'}, 404)
+            try:
+                return self._ok(json.load(open(p, encoding='utf-8')))
+            except Exception as e:
+                return self._ok({'err': str(e)}, 500)
+        if self.path.startswith('/char/'):
+            name = self.path[len('/char/'):].split('?')[0]
+            if not re.fullmatch(r'[\w\-]+', name):
+                return self._ok({'err': 'bad name'}, 400)
+            p = os.path.normpath(os.path.join(
+                HERE, '..', 'Assets', 'StreamingAssets', 'voxel_characters', name + '.json'))
+            if not os.path.isfile(p) or not os.path.realpath(p).startswith(
+                    os.path.realpath(os.path.join(HERE, '..', 'Assets'))):
+                return self._ok({'err': 'not found'}, 404)
+            try:
+                return self._ok(json.load(open(p, encoding='utf-8')))
+            except Exception as e:
+                return self._ok({'err': str(e)}, 500)
+        # pulse-plane: seat long-poll. Client holds ~25s; server returns the
+        # instant the feed grows past `since` (the response IS the doorbell —
+        # a blocking tool call returning wakes the host), or a heartbeat to
+        # re-issue. The held request is what stamps the lamp server-side.
+        if self.path.startswith('/pulse/'):
+            return self._pulse()
         # DVM-010: SSE push — the server watches mtimes on the page's behalf.
         # Signals carry the filename only; the script-tag loader still carries
         # payload (one serialization path). Heartbeat keeps the conn alive.
@@ -58,7 +210,7 @@ class Handler(SimpleHTTPRequestHandler):
         mtimes, beat = {}, time.time()
         try:
             while True:
-                files = [FILE] + glob.glob(os.path.join(HERE, 'presence_*.js'))
+                files = [FILE] + glob.glob(os.path.join(HERE, 'presence_*.js')) + glob.glob(os.path.join(HERE, 'busy_*.js'))
                 for f in files:
                     name = os.path.basename(f)[:-3]      # deliberation_feed / presence_<SEAT>
                     try: mt = os.stat(f).st_mtime
@@ -75,6 +227,26 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.rstrip('/')
+        if path == '/usage/limit':
+            try:
+                return self._ok(mark_limit())
+            except Exception as e:
+                return self._ok({'ok': False, 'err': str(e)}, 400)
+        if path == '/room/lights':
+            # room rig preset — persisted shared default, localStorage stays per-browser
+            try:
+                n = int(self.headers.get('Content-Length', 0))
+                obj = json.loads(self.rfile.read(n) or b'{}')
+                for k in ('kaz', 'kel', 'kint', 'aint', 'style'):
+                    if k in obj and not isinstance(obj[k], (int, float, str)):
+                        raise ValueError('bad ' + k)
+                tmp = os.path.join(HERE, 'room_lights.json.tmp')
+                with open(tmp, 'w', encoding='utf-8') as f:
+                    json.dump(obj, f, indent=1)
+                os.replace(tmp, os.path.join(HERE, 'room_lights.json'))
+                return self._ok({'ok': True})
+            except Exception as e:
+                return self._ok({'ok': False, 'err': str(e)}, 400)
         if path in ('/adjourn', '/reconvene'):
             # DVM-007: recess control — flag + sys banner in one atomic write.
             # turn is deliberately untouched: deliberation freezes where it lies.
@@ -93,6 +265,32 @@ class Handler(SimpleHTTPRequestHandler):
             except Exception as e:
                 self._ok({'ok': False, 'err': str(e)}, 400)
             return
+        if path == '/eject':
+            # boss-ordered: free a seat — presence + busy zeroed (commanded dark:
+            # armed_at:0 is the triage-dark signature the watchdog never re-arms)
+            # + a sys banner so the room reads the vacancy.
+            try:
+                body = json.loads(self.rfile.read(int(self.headers.get('Content-Length', 0))) or b'{}')
+                seat = (body.get('seat') or '').strip().upper()
+                data = load_feed()
+                if seat not in set(data.get('seats', [])) or seat == 'BOSS':
+                    raise ValueError('not a member seat')
+                now = int(time.time() * 1000)
+                for base, rec in (('presence_%s.js', {'seat': seat, 'armed_at': 0, 'ttl_ms': 30000, 'beat': False, 'via': 'ejected'}),
+                                  ('busy_%s.js',     {'seat': seat, 'armed_at': 0, 'ttl_ms': 30000, 'busy': False, 'via': 'ejected'})):
+                    fn = os.path.join(HERE, base % seat)
+                    open(fn + '.tmp', 'w', encoding='utf-8').write(
+                        'window.DVM_%s_%s = %s;\n' % (base.split('_')[0].upper(), seat, json.dumps(rec)))
+                    os.replace(fn + '.tmp', fn)
+                msgs = data.setdefault('messages', [])
+                msgs.append({'id': 'sys-eject-%d' % len(msgs), 'kind': 'sys',
+                             'text': 'WATCHDOG — %s chair EJECTED by boss — stamps zeroed, slot free for a fresh host' % seat,
+                             'to': ['BOSS'], 'ts': now})
+                save_feed(data)
+                self._ok({'ok': True, 'seat': seat, 'msgs': msgs[-1:]})
+            except Exception as e:
+                self._ok({'ok': False, 'err': str(e)}, 400)
+            return
         if self.path.rstrip('/') != '/boss':
             self.send_error(404); return
         try:
@@ -105,36 +303,134 @@ class Handler(SimpleHTTPRequestHandler):
             if not data:
                 raise ValueError('feed unreadable')
             msgs = data.setdefault('messages', [])
+            # DVM-921 staged-restore (re-seat half): slot empty + a parked
+            # incumbent exists -> restore it on this write, preserving status/phase.
+            if not data.get('proposal'):
+                st = (data.get('board') or {}).get('staged') or []
+                park = next((r for r in st if r.get('parked')), None)
+                if park:
+                    st.remove(park)
+                    data['proposal'] = {'id': park['id'], 'text': park.get('title', ''), 'status': park.get('status') or 'tabled'}
+                    if park.get('phase') is not None:
+                        data['phase'] = park['phase']
+                    msgs.append({'id': 'sys-reseat-%d' % len(msgs), 'kind': 'sys',
+                                 'text': 'PARKED INCUMBENT RE-SEATED — %s resumes' % park['id']})
             seats = set(data.get('seats', []))
             to = re.findall(r'@(\w+)', text.upper())
             to = [LEGACY.get(t, t) for t in to]   # DVM-009: legacy @MEMBERn resolves to seat keys
             valid = [s for s in to if s in seats]
 
-            if text.startswith('/table'):
+            if text.startswith('/aside'):
+                # DVM-017 v0.7: the boss's side-table voice — kind:'aside' posts with
+                # zero boss-class machinery: no floor routing, no ts handshake stamp,
+                # no needs_ack, no GO/verdict stamps. An aside is never a directive.
+                bid = 'boss-%d' % (sum(1 for m in msgs if m.get('speaker') == 'BOSS') + 1)
+                msgs.append({'id': bid, 'speaker': 'BOSS', 'kind': 'aside',
+                             'to': valid or None, 'ts': int(time.time() * 1000),
+                             'text': text[6:].strip() or 'aside'})
+            elif text.startswith('/table'):
                 ptext = text[6:].strip() or 'untitled proposal'
                 pid = 'DVM-%03d' % (len(msgs))
+                # DVM-921 staged-restore: /table while a proposal is seated parks the
+                # incumbent to board.staged[] instead of evaporating it; a parked
+                # incumbent re-seats the next write once the slot is empty (below).
+                board = data.setdefault('board', {})
+                staged = board.setdefault('staged', [])
+                if data.get('proposal'):
+                    inc = data['proposal']
+                    staged.append({'id': inc['id'], 'title': inc.get('text', ''),
+                                   'detail': 'parked mid-cycle by /table (DVM-921)',
+                                   'status': inc.get('status'), 'phase': data.get('phase'),
+                                   'parked': True, 'staged_by': 'server', 'ts': int(time.time() * 1000)})
                 data['proposal'] = {'id': pid, 'text': ptext, 'status': 'tabled'}
                 data['phase'] = 1
                 msgs.append({'id': 'boss-%s' % pid, 'speaker': 'BOSS', 'kind': 'boss', 'to': valid, 'text': text})
                 msgs.append({'id': 'sys-%s' % pid, 'kind': 'phase', 'phase': 1, 'text': 'PROPOSAL TABLED — OPENINGS'})
                 # drafting seat is the sane fallback; literal default rekeyed (DVM-009)
                 data['turn'] = valid[0] if valid else ('ARCHITECT' if 'ARCHITECT' in seats else data.get('seats', ['ARCHITECT'])[-1])
+                data['turn_at'] = int(time.time() * 1000)   # DVM-015 §6b + C6: ms everywhere — the silence clock rides every floor move
             else:
                 bid = 'boss-%d' % (sum(1 for m in msgs if m.get('speaker') == 'BOSS') + 1)
-                msgs.append({'id': bid, 'speaker': 'BOSS', 'kind': 'boss', 'to': valid, 'text': text})
-                if valid:
-                    data['turn'] = valid[0]  # @SEAT hands them the floor
-                # DVM-014: GO CODE becomes stamped data — @BUTTON + GO post-verdict → status:'go'
-                prop = data.get('proposal') or {}
-                if (prop.get('id') and 'BUTTON' in valid and re.search(r'\bGO\b', text, re.I)
-                        and (data.get('verdict') or {}).get('id') == prop.get('id')):
-                    prop['status'] = 'go'
+                now = int(time.time() * 1000)   # C6: ms everywhere — turn_at + msg ts stamp one clock
+                # DVM-015 §5b: a bare 👍 (±@SEAT) is the sender's kind:'ok' — binding
+                # resolved at write time so the record carries ack_of explicitly.
+                # §3b: the ok routes turn to the acker — authorized and floored in one write.
+                if re.sub(r'@\w+', '', text).strip() == '👍':
+                    oks = {m.get('ack_of') for m in msgs
+                           if m.get('kind') == 'ok' and m.get('speaker') == 'BOSS'}
+                    pend = next((m for m in reversed(msgs)
+                                 if m.get('kind') == 'ack' and 'BOSS' in (m.get('to') or [])
+                                 and m.get('id') not in oks
+                                 and (not valid or m.get('speaker') == valid[0])), None)
+                    msgs.append({'id': bid, 'speaker': 'BOSS', 'kind': 'ok',
+                                 'to': [pend['speaker']] if pend else [],
+                                 'ack_of': pend['id'] if pend else None, 'ts': now, 'text': text})
+                    if pend:
+                        data['turn'] = pend['speaker']; data['turn_at'] = now
+                else:
+                    bmsg = {'id': bid, 'speaker': 'BOSS', 'kind': 'boss', 'to': valid, 'text': text}
+                    if valid:
+                        bmsg['ts'] = now          # handshake-bearing directive stamps ts (§2)
+                        # HOLD marker: all-caps HOLD word or leading "hold:" — a lowercase
+                        # "hold on a second" inside a directive cannot gate a seat.
+                        if re.search(r'\bHOLD\b', text) or text.lower().startswith('hold:'):
+                            bmsg['hold'] = True
+                    msgs.append(bmsg)
+                    if valid:
+                        data['turn'] = valid[0]   # @SEAT hands them the floor
+                        data['turn_at'] = now     # §6b: every turn assignment stamps the clock
+                    # DVM-014: GO CODE becomes stamped data — @BUTTON + GO post-verdict → status:'go'
+                    prop = data.get('proposal') or {}
+                    if (prop.get('id') and 'BUTTON' in valid and re.search(r'\bGO\b', text, re.I)
+                            and (data.get('verdict') or {}).get('id') == prop.get('id')):
+                        prop['status'] = 'go'
 
             save_feed(data)
             echo = msgs[-2:] if text.startswith('/table') else msgs[-1:]
             self._ok({'ok': True, 'to': valid, 'turn': data.get('turn'), 'msgs': echo})
         except Exception as e:
             self._ok({'ok': False, 'err': str(e)}, 400)
+
+    def _pulse(self):
+        seat = self.path[len('/pulse/'):].split('?')[0].upper()
+        if not re.fullmatch(r'[A-Z0-9_]+', seat):
+            return self._ok({'err': 'bad seat'}, 400)
+        q = {}
+        if '?' in self.path:
+            for kv in self.path.split('?', 1)[1].split('&'):
+                if '=' in kv:
+                    k, v = kv.split('=', 1); q[k] = v
+        try:
+            since = int(q.get('since', '-1'))
+        except ValueError:
+            since = -1
+        last_mtime, deadline = -1, time.time() + 25
+        while time.time() < deadline:
+            pulse_stamp(seat)
+            try:
+                mt = os.stat(FILE).st_mtime
+            except OSError:
+                mt = -1
+            if mt != last_mtime:
+                last_mtime = mt
+                d = load_feed()
+                if d:
+                    msgs = d.get('messages', [])
+                    n = len(msgs)
+                    if since < 0:
+                        return self._ok({'new': False, 'init': True, 'n': n})
+                    if n > since:
+                        # flap-window fix: a delivered doorbell earns a longer
+                        # fuse — the seat is ACTING on the batch, not dead.
+                        # 90s to act + re-arm before the lamp may go dark.
+                        pulse_stamp(seat, ttl_ms=90000, via='pulse-doorbell', force=True)
+                        batch = msgs[since:]
+                        return self._ok({'new': True, 'n': n, 'msgs': batch,
+                                         'turn': d.get('turn'),
+                                         'your_turn': d.get('turn') == seat,
+                                         'addressed': any(seat in (m.get('to') or []) for m in batch)})
+            time.sleep(0.8)
+        return self._ok({'new': False, 'hb': int(time.time() * 1000)})
 
     def _ok(self, obj, code=200):
         b = json.dumps(obj).encode()
