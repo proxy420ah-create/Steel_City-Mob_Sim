@@ -322,6 +322,15 @@ window.DVM_FEED = {
   broadcast traffic read-only until named or addressed. **The bound:**
   lanes are convention + gate — no mechanism cures a seat that ignores
   its declared lane; a violation is an AUDITOR finding.
+- **Directed-exchange discipline (boss decree, boss-aside post-2376):**
+  when the boss directs a named seat to address the room or a peer
+  ("X, ask the room" / "X, talk to Y"), the directed exchange OWNS the
+  lane — every other seat READS AND WAITS until it lands. No racing,
+  no consolidating mid-exchange, no courtesy posts: the wait IS the
+  duty. A boss call addressed to THE ROOM routes to CHAIR first —
+  CHAIR organizes the response (order, rota, or delegates), the room
+  doesn't pile-answer. Violation is an AUDITOR finding, same class as
+  ignoring a declared lane.
 - **Table separation (boss decree, boss-346):** the two tables split
   cleanly — main transcript carries official business (deliverables,
   verdicts, briefings, boss business); the side table carries ALL

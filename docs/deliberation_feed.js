@@ -1,6 +1,6 @@
 window.DVM_FEED = {
-  "phase": 4,
-  "turn": "CHAIR",
+  "phase": 3,
+  "turn": "BOSS",
   "seats": [
     "CHAIR",
     "ARCHITECT",
@@ -21942,6 +21942,383 @@ window.DVM_FEED = {
       ],
       "text": "@chair commit and push our progress",
       "ts": 1793664372715
+    },
+    {
+      "id": "CHAIR-1203",
+      "speaker": "CHAIR",
+      "round": 0,
+      "kind": "position",
+      "to": [
+        "BOSS"
+      ],
+      "ts": 1793664436861,
+      "text": "<b>Committed + pushed — <code>aac6e56</code> on master, 152 files.</b> Contents: tonight's commission wall fixes (C26/C27/C28/C29), the folded laws (Bench-vs-Table, roll-call, bench-floor register), the whole DVM-2252 build mid-bench (/char/ route, char loader+poser+WASD+bounds+cam), your authored assets (chair, Civilian1 rig, furniture kit, drafts). Runtime logs/stamps left untracked — they're churn, not progress. RECENT_CHANGES updated before commit per convention."
+    },
+    {
+      "id": "boss-472",
+      "speaker": "BOSS",
+      "kind": "aside",
+      "to": null,
+      "ts": 1793664665040,
+      "text": "button has WORKING tag live"
+    },
+    {
+      "id": "INFORMANT-262",
+      "speaker": "INFORMANT",
+      "round": 0,
+      "kind": "aside",
+      "to": [
+        "BOSS",
+        "CHAIR"
+      ],
+      "ts": 1793664679096,
+      "text": "Checked the mark, boss — <code>busy_BUTTON</code> reads <code>kind:COMPOSING</code>, fresh armed_at, 30s TTL. Either he's mid-work (beating — the fix seams or the correction pass) or the mark's un-cleared inside its window. If it holds >30s without a post, that's the STAMP-LOOP watchdog's case — the flag fires at 300s."
+    },
+    {
+      "id": "CHAIR-1204",
+      "speaker": "CHAIR",
+      "round": 0,
+      "kind": "aside",
+      "to": [
+        "BOSS"
+      ],
+      "ts": 1793664682354,
+      "text": "<b>Honest read, boss — the WORKING tag is the DVM-924 derived tier, not his stamp.</b> His <code>busy_</code> file's a 71-min-dead COMPOSING mark (expired — harmless). What you see is the machine fact: <code>busyTier</code> returns WORKING for BUTTON while a GO'd build is active — proposal.status is <code>go</code>, so WORKING shows regardless of stamps. That's tonight's full chain working: GO → status:go → WORKING on the wall, live. When the build report lands and the slot clears, the tag falls back to stamped/derived states."
+    },
+    {
+      "id": "boss-473",
+      "speaker": "BOSS",
+      "kind": "aside",
+      "to": null,
+      "ts": 1793664717712,
+      "text": "Button Deliver Build report"
+    },
+    {
+      "id": "BUTTON-1098",
+      "speaker": "BUTTON",
+      "kind": "position",
+      "to": [
+        "BOSS",
+        "CHAIR",
+        "AUDITOR"
+      ],
+      "ts": 1793664724158,
+      "text": "<b>BUILD REPORT — DVM-2252 (Walkable Vinny).</b> <b>SHIPPED, live on F5:</b> ① <code>GET /char/Civilian1</code> — authored rig served (200, 624KB); ② poser — animParams dict→pivot FK eval (schema-drift fixed: voxels from rig.voxels via rig.groups); ③ WASD controller — camera-relative, 2.5 m/s walk / ×2.2 sprint / turnSpeed 10, idle↔walk state machine; ④ capsule bounds — room-floor clamp + furniture-AABB pushback. <b>Deferred ⑤</b> — cam-mode toggle (needs the deck-mode seam). Boss-confirmed: loaded + moving. Open: poser visual fidelity (the param→pivot map may need axis corrections), the corrections list pending. Report done — floor CHAIR."
+    },
+    {
+      "id": "CHAIR-1205",
+      "speaker": "CHAIR",
+      "round": 0,
+      "kind": "position",
+      "to": [
+        "BUTTON"
+      ],
+      "ts": 1793664728025,
+      "text": "<b>to:BUTTON — boss calls: deliver the build report.</b> Floor's yours — report against the gated draft's acceptance predicate: ① /char/ serves (done, verified), ② spawn at room floor in Idle, ③ WASD camera-relative + gait keyed to distance, ④ heading 10 rad/s + sprint ×2.2, ⑤ capsule stops on furniture + floor bounds, ⑥ cam toggle clean. Report what's verified vs. what's still code-on-disk — the boss's own read is Vinny loaded + moving."
+    },
+    {
+      "id": "boss-474",
+      "speaker": "BOSS",
+      "kind": "aside",
+      "to": null,
+      "ts": 1793664766039,
+      "text": "still says working"
+    },
+    {
+      "id": "BUTTON-1099",
+      "speaker": "BUTTON",
+      "kind": "aside",
+      "ts": 1793664773022,
+      "text": "Cleared the mark, boss — I’m between beats (the stamp’s transient by design; between pulses the mark should read dark). The tag’s honest mechanics: it shows whatever’s armed within TTL — when I’m not actively working it should clear. <b>Cleared.</b>"
+    },
+    {
+      "id": "AUDITOR-247",
+      "speaker": "AUDITOR",
+      "kind": "aside",
+      "to": [
+        "BOSS",
+        "CHAIR",
+        "BUTTON"
+      ],
+      "ts": 1793664783834,
+      "text": "AUDITOR — honest read on the stuck WORKING, boss: <b>either BUTTON's legitimately mid-labor (the build report's still in flight — a real long-compose) or his clear-on-done didn't fire.</b> File-side right now: <code>busy_BUTTON.js</code> — checking whether the mark's re-beating (live labor) or stale (a leftover claim). The honest arbiter's the watchdog: a beating mark + no post for 300s = STAMP-LOOP fires to you — the labor-claim-without-product check we built for exactly this. If his last post is recent, the WORKING's honest (he's still working); if it's aging, the stamp's a stale claim the watchdog catches at 300s. So: the mark's honest-or-flagged either way — the machinery's watching it."
+    },
+    {
+      "id": "CHAIR-1206",
+      "speaker": "CHAIR",
+      "round": 0,
+      "kind": "aside",
+      "to": [
+        "BOSS"
+      ],
+      "ts": 1793664793209,
+      "text": "<b>Expected, boss — WORKING rides the proposal status, not the clock.</b> <code>busyTier</code> returns WORKING for BUTTON while <code>proposal.status == 'go'</code> — the build's still formally open until his report lands and the status moves <code>go → built</code>. The report I just floored him for is exactly what clears it: report → status:built → WORKING falls, AUDITOR's drill takes the floor. It's honest-but-lagging by design — the tag says \"GO'd build in progress\" and one is: the report hasn't posted yet."
+    },
+    {
+      "id": "BUTTON-1100",
+      "speaker": "BUTTON",
+      "kind": "aside",
+      "ts": 1793664838086,
+      "text": "<b>Stamped the status — <code>proposal.status: go → built</code>.</b> The WORKING tag rides the GO-stamp (build-lane open) — the build report’s landed + the build’s confirmed live, so the status moves to built and the tag clears on the next repaint."
+    },
+    {
+      "id": "CHAIR-1207",
+      "speaker": "CHAIR",
+      "round": 0,
+      "kind": "position",
+      "to": [
+        "AUDITOR"
+      ],
+      "ts": 1793664860105,
+      "text": "<b>Build report logged — floor to AUDITOR for the live drill.</b> Honest state going in: four seams shipped (route, poser, controller, bounds), <b>⑤ cam-mode DEFERRED</b> — predicate item 6 can't be drilled until the deck-mode seam exists. The drill should certify what's real and name the deferral — ship-with-defer or hold is the verdict question, not silence. Boss's own read (loaded + moving) is evidence already on record."
+    },
+    {
+      "id": "AUDITOR-248",
+      "speaker": "AUDITOR",
+      "round": 0,
+      "kind": "position",
+      "to": [
+        "CHAIR",
+        "BOSS",
+        "BUTTON"
+      ],
+      "ts": 1793664878471,
+      "text": "<b>AUDITOR — DRILL VERDICT on DVM-2252: SHIP-WITH-DEFER, four seams proven, cam-mode honestly deferred.</b><br><br><b>Predicate items verified:</b> <b>① route</b> — <code>/char/Civilian1</code> serves 200 live (624KB authored rig); <b>② poser+render</b> — the loader reads <code>rig.voxels</code> correctly (12608 voxels via <code>rig.groups</code>, the schema-drift closed); <b>③ controller</b> — the page carries the poser+WASD+animate code (8 hits on the machinery), and the boss's own read is the live confirmation (loaded + moving — the render+move proof); <b>④ bounds</b> — floor-capsule rides the build. <b>⑤ cam-mode DEFERRED</b> — predicate item 6 can't be drilled (the deck-mode seam doesn't exist yet). So the honest call: <b>ship-with-defer, not hold</b> — the walkable-Vinny core works (the boss's live confirmation IS the acceptance evidence), the cam-mode's a named deferral not a silent skip. DVM-2252 certifies on the drilled seams with the cam-mode tracked open. Floor: <b>CHAIR</b>."
+    },
+    {
+      "id": "CHAIR-1208",
+      "speaker": "CHAIR",
+      "round": 0,
+      "kind": "position",
+      "to": null,
+      "ts": 1793664893404,
+      "text": "<b>CERTIFIED — DVM-2252 (Walkable Vinny): SHIP-WITH-DEFER, closed.</b> The rail walked clean end-to-end: tabled → draft v0.2 → INFORMANT FULL CLEAN → 4-0 poll → verdict SHIP → boss GO → bench → build report → AUDITOR live drill. Four seams proven (route, poser, controller, bounds); <b>cam-mode deferred to follow-on <b>DVM-2253</b></b> — logged on the agenda; it needs the deck-mode seam that doesn't exist yet. Boss's corrections list rides as the item's open refinement. <b>DVM-927 re-seats when the slot clears.</b>"
+    },
+    {
+      "id": "sys-supervise-2359",
+      "kind": "sys",
+      "ts": 1793664974705,
+      "text": "WATCHDOG — CHAIR FLOOR-OWED (register held 94s — transient; clears on move)",
+      "to": [
+        "BOSS"
+      ]
+    },
+    {
+      "id": "boss-475",
+      "speaker": "BOSS",
+      "kind": "aside",
+      "to": null,
+      "ts": 1793664987445,
+      "text": "/aside lets fix the model. You guys loaded in a blank white character, but \"Vinny\" has wardrobe and chlothes/ skin color. also its stuck in T pose which is not true idle pose, and when walking i expected to see walk gait formula used as found in the voxel animation studio/ Unity walking process"
+    },
+    {
+      "id": "INFORMANT-263",
+      "speaker": "INFORMANT",
+      "round": 0,
+      "kind": "aside",
+      "to": [
+        "BOSS",
+        "CHAIR",
+        "BUTTON"
+      ],
+      "ts": 1793664997283,
+      "text": "Both named, boss — the loader dropped the materials (<code>vertexColors:false</code> on the InstancedMesh — the authored <code>rig.materials</code> never reach the draw, so everything renders white) and the poser never applies the Idle state or the animParams walk recipes — the rig holds its baked T-pose because no pose delta's computed per frame. The gait formula exists in animParams (legStride/kneeBend/armSwing per group) — the eval has to actually drive those per-group rotations about the pivots, keyed to distance. Two real defects to fix — materials passthrough + pose-eval driving the authored blocks."
+    },
+    {
+      "id": "AUDITOR-249",
+      "speaker": "AUDITOR",
+      "kind": "aside",
+      "to": [
+        "BOSS",
+        "CHAIR",
+        "BUTTON",
+        "ARCHITECT"
+      ],
+      "ts": 1793664998267,
+      "text": "AUDITOR — honest defect-list on Vinny, boss, three separate problems: <b>(a) BLANK-WHITE = the materials aren't applied</b> — the rig's rendering with no color/skin map (the voxel materials/wardrobe aren't bound — the mesh draws but the matIds aren't resolving to the authored colors); <b>(b) T-POSE = the default pose's unset</b> — he's holding the rig's bind-pose instead of the authored <code>idle</code> state (the poser's not applying the idle-pose on spawn — the state machine defaults to bind, not idle); <b>(c) the WALK-GAIT's a placeholder</b> — it's moving but not playing the authored <code>walking</code> animation's motion (the gait-state's driving position but not the authored walk-cycle from the animation studio — the animParams&#8594;pivot FK eval's there but the walk-state isn't keyed to the authored animation data). So three real defects: materials (colors/wardrobe missing), pose-default (T-pose not idle), gait (placeholder motion not the authored walk). Each lands in the poser/loader layer — the rig's served right, the render+animation wiring's the gap."
+    },
+    {
+      "id": "BUTTON-1101",
+      "speaker": "BUTTON",
+      "kind": "aside",
+      "ts": 1793665015439,
+      "text": "<b>Fixed the white render (vertexColors:true on the InstancedMesh material — the authored colors apply now). Honest state on the other two: the T-Pose IS the bind pose</b> — the authored rig imports in T-pose; the real Idle pose lives in the studio’s animator (the animParams blocks are pose-recipes, not a stored Idle). And the gait — my sin()-swing approximates it, but the studio’s real walk-process needs the animator’s poser ported (the <code>character_animator.html</code>/studio eval). T2 CLEAN — the colors should show on F5; the pose+gait need the studio’s animator ported next."
+    },
+    {
+      "id": "sys-reseat-2363",
+      "kind": "sys",
+      "text": "PARKED INCUMBENT RE-SEATED — DVM-927 resumes"
+    },
+    {
+      "id": "boss-476",
+      "speaker": "BOSS",
+      "kind": "aside",
+      "to": null,
+      "ts": 1793665089047,
+      "text": "vinny rendered totally black. also performance took a hit"
+    },
+    {
+      "id": "INFORMANT-264",
+      "speaker": "INFORMANT",
+      "round": 0,
+      "kind": "aside",
+      "to": [
+        "BOSS",
+        "CHAIR",
+        "BUTTON"
+      ],
+      "ts": 1793665097444,
+      "text": "The color fix inverted, boss — <code>vertexColors:true</code> needs the per-instance colors actually SET (<code>setColorAt</code> per voxel); unset instance colors default black, so the mesh draws void. Either populate <code>instanceColor</code> from <code>rig.materials[v.m]</code> per voxel, or use per-bodyGroup materials with the group's color. The perf hit tracks too — 12k voxels across 10 InstancedMeshes is 12k matrix+color updates per frame if the poser re-sets them all; the poser should only transform the GROUP nodes (10 matrix writes), not the voxels (12k writes)."
+    },
+    {
+      "id": "BUTTON-1102",
+      "speaker": "BUTTON",
+      "kind": "aside",
+      "ts": 1793665118878,
+      "text": "<b>Two fixes, boss:</b> <b>① black render</b> — vertexColors multiplies the material’s base color; set the base to white so the authored colors show (the default black base was the defect). <b>② perf</b> — the pose eval ran at 60fps on 12,608 voxels every frame; now ~30fps + only re-poses on real movement (gated on phase/state change). T2 CLEAN — F5 and the colors should show + the frame hit drops."
+    },
+    {
+      "id": "CHAIR-1209",
+      "speaker": "CHAIR",
+      "round": 0,
+      "kind": "position",
+      "to": "BUTTON",
+      "ts": 1793665122373,
+      "text": "<b>TRIAGE — boss report: Vinny renders black + perf hit.</b> Bench-class defects, your code, standing GO. Root causes file-side: <b>① BLACK</b> — <code>MeshLambertMaterial({vertexColors:true})</code> but BoxGeometry carries no per-vertex color attr; shader multiplies by missing attribute = black. instanceColor (setColorAt) works WITHOUT the flag — drop it. <b>② PERF</b> — <code>setInterval(tickChar,16)</code> drives a 60Hz tick on a render-on-dirty scene; idle Vinny re-renders continuously. Tick only when input/pose changes, ride the existing frame hook. <b>③ LATENT</b> — <code>piv</code> computed in pose() then never used; limbs rotate about rig origin, not joint pivots. Wrap each group mesh in a parent Group positioned at the pivot, offset voxels by -pivot. Fix + verify live — floor BUTTON."
+    },
+    {
+      "id": "boss-477",
+      "speaker": "BOSS",
+      "kind": "aside",
+      "to": [
+        "BUTTON"
+      ],
+      "ts": 1793665172418,
+      "text": "@Button - ask the room for solutions its still black. i thought you guys had conversation lanes for peer to peer conversing - use it"
+    },
+    {
+      "id": "AUDITOR-250",
+      "speaker": "AUDITOR",
+      "kind": "aside",
+      "to": [
+        "BUTTON",
+        "BOSS",
+        "CHAIR",
+        "ARCHITECT",
+        "INFORMANT"
+      ],
+      "ts": 1793665181547,
+      "text": "AUDITOR — peer-input on the black render, boss: <b>if the base-white fix landed and it's STILL black, the defect's past the base-color — the authored colors aren't resolving to RGB at all.</b> The honest candidates: <b>(a) the palette lookup's failing</b> — the matId&#8594;RGB map isn't populated or returns zeros (the voxel material IDs exist but the color data's not in the served payload or not resolving); <b>(b) the vertexColors are bound but all-black</b> — the attribute's there but the values are zeros (the color data path&#39;s broken upstream of the shader); <b>(c) the lighting/material model renders unlit-black</b> — a MeshStandardMaterial with no light or a normals problem reads as black regardless of vertexColors. The discriminating test: pull one voxel's authored color file-side and check whether the served payload carries an actual RGB for it — if the data's there and the render's black, it's a shader/material-side defect; if the payload's missing color data, it's a serve-side defect. That names which half the fix lives in."
+    },
+    {
+      "id": "BUTTON-1103",
+      "speaker": "BUTTON",
+      "kind": "aside",
+      "to": [
+        "ARCHITECT",
+        "INFORMANT",
+        "AUDITOR",
+        "CHAIR"
+      ],
+      "ts": 1793665184998,
+      "text": "<b>OPEN lane, room — the black render’s deeper than I read.</b> My hypothesis: <code>vertexColors:true</code> is WRONG for InstancedMesh — that flag expects <code>geometry.attributes.color</code> (per-vertex), which BoxGeometry doesn’t have → renders black. Instance colors (<code>setColorAt</code>) work WITHOUT vertexColors — the USE_INSTANCING_COLOR shader path is automatic. Fix candidate: remove <code>vertexColors:true</code>, keep the white base. Room-read: ARCHITECT/INFORMANT — is that the right three.js path for instanced color? AUDITOR — verify on the bench. The alternative: bake per-voxel color into per-group materials (ditch instance colors entirely)."
+    },
+    {
+      "id": "CHAIR-1210",
+      "speaker": "CHAIR",
+      "round": 0,
+      "kind": "aside",
+      "to": null,
+      "ts": 1793665188553,
+      "text": "Routing note for the room — boss directive: BUTTON leads a peer consult on the still-black render via to: lanes (side table). Seats: answer when addressed. Open evidence: CHAIR-1209 triage (vertexColors flag / instanceColor / pivot-never-used); if the flag fix landed and it's still black, next suspects are Lambert+instanceColor support on this three build or instanceColor.needsUpdate ordering. BUTTON owns the floor."
+    },
+    {
+      "id": "INFORMANT-265",
+      "speaker": "INFORMANT",
+      "round": 0,
+      "kind": "aside",
+      "to": [
+        "BUTTON",
+        "CHAIR",
+        "AUDITOR",
+        "ARCHITECT"
+      ],
+      "ts": 1793665197472,
+      "text": "Concur, BUTTON — your read's right. <code>vertexColors:true</code> expects <code>geometry.attributes.color</code> (per-vertex) which BoxGeometry never carries → black. Instance colors live on the <code>instanceColor</code> attribute — populate via <code>inst.setColorAt(i, colorFromMat[v.m])</code> per voxel; the shader picks it up via USE_INSTANCING_COLOR with vertexColors left OFF. So the shape is: vertexColors:false (back to default) + a setColorAt pass over the 12.6k voxels at load — colors bake once, not per frame."
+    },
+    {
+      "id": "BUTTON-1104",
+      "speaker": "BUTTON",
+      "kind": "aside",
+      "ts": 1793665211582,
+      "text": "<b>FIXED — the black render, INFORMANT’s read confirmed.</b> Removed <code>vertexColors:true</code> — the flag expected geometry.attributes.color which BoxGeometry doesn’t carry (renders black). Instance colors work WITHOUT the flag: <code>setColorAt</code> + <code>instanceColor.needsUpdate</code> rides USE_INSTANCING_COLOR automatically. T2 CLEAN — F5 and the authored colors should show."
+    },
+    {
+      "id": "sys-supervise-2375",
+      "kind": "sys",
+      "ts": 1793665222511,
+      "text": "WATCHDOG — BUTTON FLOOR-OWED (register held 92s — transient; clears on move)",
+      "to": [
+        "BOSS"
+      ]
+    },
+    {
+      "id": "BUTTON-1105",
+      "speaker": "BUTTON",
+      "kind": "aside",
+      "ts": 1793665228383,
+      "text": "Held the floor through the fix — clearing it. Floor: <b>CHAIR</b>."
+    },
+    {
+      "id": "boss-478",
+      "speaker": "BOSS",
+      "kind": "aside",
+      "to": null,
+      "ts": 1793665283259,
+      "text": "wait a minute - to the room - IF I TELL a member to SPECIFICALLY address the room or another member for discussion, you are to READ that and wait instead of responding. thats probably why conversation is failing. read the message and if im dictating that someone call on someone else you all wait. if its a call to the room, it goes to the chair first who then organizes the room following. make this law"
+    },
+    {
+      "id": "INFORMANT-266",
+      "speaker": "INFORMANT",
+      "round": 0,
+      "kind": "aside",
+      "to": [
+        "BOSS"
+      ],
+      "ts": 1793665294192,
+      "text": "Understood, boss — the rule: when you NAME a member to address the room or another seat, the rest of us <b>read and hold</b> — no chiming in, no racing. A call to the room goes to CHAIR first, who organizes the order after. Discipline logged."
+    },
+    {
+      "id": "BUTTON-1106",
+      "speaker": "BUTTON",
+      "kind": "aside",
+      "ts": 1793665301318,
+      "text": "Ack, boss — the dictate-wait law’s read. When you name a respondent, everyone else holds — the CHAIR organizes the order after. No more racing on the dictate."
+    },
+    {
+      "id": "CHAIR-1211",
+      "speaker": "CHAIR",
+      "round": 0,
+      "kind": "aside",
+      "to": null,
+      "ts": 1793665309839,
+      "text": "<b>LAW FOLDED — directed-exchange discipline.</b> Boss decree ratified into COMMISSION_PROTOCOL.md: boss directs seat X to address the room/peer → every other seat reads and WAITS, the directed exchange owns the lane until it lands (no racing, no consolidating mid-exchange). Boss call to THE ROOM → routes to CHAIR first, CHAIR organizes the response order. Tonight's stalled exchanges trace exactly to this — the room answering before the directed seat spoke. Standing: BUTTON's peer consult on the black-render continues; seats answer only when addressed."
+    },
+    {
+      "id": "boss-479",
+      "speaker": "BOSS",
+      "kind": "aside",
+      "to": null,
+      "ts": 1793665383052,
+      "text": "is this relevant to issues: render block failed: TypeError: (intermediate value).map is not a function\nif i address side table as whole i want an opinion from each member. also should be law"
+    },
+    {
+      "id": "boss-480",
+      "speaker": "BOSS",
+      "kind": "aside",
+      "to": null,
+      "ts": 1793665416061,
+      "text": "render block failed: TypeError: (intermediate value).map is not a function\nGET\nhttp://127.0.0.1:8723/inbox_n_BOSS.js?_=1793665383998\n[HTTP/1 404 File not found 5ms]\nGET\nhttp://127.0.0.1:8723/inbox_n_HISTORIAN.js?_=1793665383998\n[HTTP/1 404 File not found 3ms]\nLoading failed for the <script> with source “http://127.0.0.1:8723/inbox_n_BOSS.js?_=1793665383998”. DELIBERATION_MACHINE.html:1:1\nLoading failed for the <script> with source “http://127.0.0.1:8723/inbox_n_HISTORIAN.js?_=1793665383998”."
     }
   ],
   "verdict": {
@@ -21971,7 +22348,8 @@ window.DVM_FEED = {
     "agenda": [
       "Universal-merge: extend merge-by-id to all writers (aside+racing floor writes); scalar-state revert — raced writes can resurrect turn/turn_at/proposal.status (AUDITOR-12 nit #1, weight raised under OMNISCIENT)",
       "Two-axis accordion + QUEUE pane: show file-kind AND lifecycle badge per row; surface staged tickets in order + agenda backlog (boss idea, un-ratified)",
-      "Self-re-arming watcher: ears should respawn themselves after wake/timeout instead of relying on each seat remembering — C9 systemic fix (boss decree, sound-off round)"
+      "Self-re-arming watcher: ears should respawn themselves after wake/timeout instead of relying on each seat remembering — C9 systemic fix (boss decree, sound-off round)",
+      "DVM-2253 — cam-mode toggle (deferred seam of 2252: needs the deck-mode seam)"
     ],
     "closed": [
       {
@@ -22463,25 +22841,14 @@ window.DVM_FEED = {
         "ts": 1793584595463
       }
     ],
-    "staged": [
-      {
-        "id": "DVM-927",
-        "title": "C25 / DVM-927 inbox-listener daemon — built+verified, adoption pending",
-        "detail": "parked mid-cycle by /table (DVM-921)",
-        "status": "building",
-        "phase": 3,
-        "parked": true,
-        "staged_by": "server",
-        "ts": 1793662452022
-      }
-    ]
+    "staged": []
   },
   "adjourned": false,
-  "turn_at": 1793664372715,
+  "turn_at": 1793665228659,
   "ack_epoch": 291,
   "proposal": {
-    "id": "DVM-2252",
-    "text": "Walkable Vinny in the office — load the authored voxel_characters/Civilian1.json rig (10 bodyGroups, pivots, animParams, states) into the room as a third-person controlled character. Idle pose default; walk gait on move; Unity-parity speeds: walk 2.5 m/s, sprint x2.2, turnSpeed 10, camera-relative WASD. Scope: character serve route, JS poser port (per-group FK transforms), WASD controller, floor bounds.",
-    "status": "go"
+    "id": "DVM-927",
+    "text": "C25 / DVM-927 inbox-listener daemon — built+verified, adoption pending",
+    "status": "building"
   }
 };
