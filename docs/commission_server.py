@@ -227,6 +227,34 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._ok(json.load(open(p, encoding='utf-8')))
             except Exception as e:
                 return self._ok({'err': str(e)}, 500)
+        # studio pages + asset files — read-only whitelist so voxel_editor.html
+        # runs over http and its default-model fetches (../Assets/...) resolve.
+        # Root: the studio dir and Assets dir only; realpath must stay inside.
+        if self.path.startswith('/studio/'):
+            rel = self.path[len('/studio/'):].split('?')[0]
+            return self._serve(os.path.join(HERE, '..', 'VoxelAssetStudio', rel),
+                               {'.html', '.js', '.css', '.json', '.png', '.jpg', '.ico', '.md', '.txt', '.map'})
+        if self.path.startswith('/Assets/'):
+            rel = self.path[len('/Assets/'):].split('?')[0]
+            return self._serve(os.path.join(HERE, '..', 'Assets', rel),
+                               {'.json', '.png', '.jpg', '.js', '.css', '.bin'})
+        # asset index — every loadable model in voxel_items, so tools can offer
+        # a real dropdown instead of a hardcoded default. ?model=<name> in the
+        # studio resolves to /Assets/StreamingAssets/voxel_items/<name>.json.
+        if self.path.rstrip('/') == '/models':
+            d = os.path.join(HERE, '..', 'Assets', 'StreamingAssets', 'voxel_items')
+            out = []
+            for fn in sorted(os.listdir(d)):
+                if not fn.endswith('.json'):
+                    continue
+                try:
+                    j = json.load(open(os.path.join(d, fn), encoding='utf-8'))
+                    out.append({'name': fn[:-5], 'assetType': j.get('assetType'),
+                                'dims': j.get('dims'), 'voxels': len(j.get('voxels', [])),
+                                'studio': f'/studio/voxel_editor.html?model={fn[:-5]}'})
+                except Exception:
+                    out.append({'name': fn[:-5], 'err': 'unparseable'})
+            return self._ok({'models': out})
         # pulse-plane: seat long-poll. Client holds ~25s; server returns the
         # instant the feed grows past `since` (the response IS the doorbell —
         # a blocking tool call returning wakes the host), or a heartbeat to
@@ -509,6 +537,36 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header('Content-Length', str(len(b)))
         self.end_headers()
         self.wfile.write(b)
+
+    _MIME = {'.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
+             '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg',
+             '.ico': 'image/x-icon', '.md': 'text/markdown', '.txt': 'text/plain',
+             '.map': 'application/json', '.bin': 'application/octet-stream'}
+
+    def _serve(self, path, okext):
+        # scoped static file: extension whitelist + realpath must stay inside
+        # the intended root (rejects ../ escapes).
+        p = os.path.normpath(path)
+        base = os.path.realpath(os.path.join(HERE, '..',
+                'VoxelAssetStudio' if self.path.startswith('/studio/') else 'Assets'))
+        if (os.path.splitext(p)[1].lower() not in okext
+                or not os.path.isfile(p)
+                or not os.path.realpath(p).startswith(base)):
+            return self._ok({'err': 'not found'}, 404)
+        try:
+            self.send_response(200)
+            self.send_header('Content-Type', self._MIME.get(
+                os.path.splitext(p)[1].lower(), 'application/octet-stream'))
+            self.send_header('Content-Length', str(os.path.getsize(p)))
+            self.end_headers()
+            with open(p, 'rb') as f:
+                while True:
+                    chunk = f.read(1 << 16)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+        except Exception as e:
+            return self._ok({'err': str(e)}, 500)
 
     def log_message(self, *args):
         pass

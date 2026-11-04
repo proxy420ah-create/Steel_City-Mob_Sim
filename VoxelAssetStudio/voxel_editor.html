@@ -245,6 +245,7 @@ body.ui-hidden #ui-hidden-hint { display:block; }
   <span class="tool-label">Asset:</span>
   <select id="asset-type-select" title="Asset Type — sets the real-world voxel size stored in this model's JSON (see MOB_SIM_SCALE_STANDARD.md)" style="background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:4px;padding:3px 6px;font-size:11px;">
     <option value="building">🏢 Building (0.1m/voxel)</option>
+    <option value="room">🚪 Room (0.03m/voxel)</option>
     <option value="character">🧍 Character (0.01m/voxel)</option>
     <option value="prop">🔫 Item / Decor (0.005m/voxel)</option>
     <option value="vehicle">🚗 Vehicle (0.01m/voxel)</option>
@@ -370,6 +371,7 @@ body.ui-hidden #ui-hidden-hint { display:block; }
     <button class="rp-tab" data-rp-tab="bodyparts">Body Parts</button>
     <button class="rp-tab" data-rp-tab="wardrobe">Wardrobe</button>
     <button class="rp-tab" data-rp-tab="itemparts">Attach Pts</button>
+    <button class="rp-tab" data-rp-tab="room">🚪 Room</button>
   </div>
 
   <!-- Tab: Layers & View -->
@@ -599,6 +601,49 @@ body.ui-hidden #ui-hidden-hint { display:block; }
       <b>Characters:</b> right_hand, left_hand, right_shoulder, cheek.<br>
       Export → Unity reads <b>attachmentPoints</b> for weapon-to-hand alignment.
     </div>
+  </div>
+
+  <!-- Tab: Room — prefab stamps + item/decor placement -->
+  <div class="rp-panel" id="rp-room">
+    <h3 style="font-size:12px;color:#0ff;margin-bottom:8px;">🚪 Room Stamps</h3>
+    <div style="display:flex;gap:4px;margin-bottom:6px;">
+      <select id="stamp-model" style="flex:1;background:#222;color:#ccc;border:1px solid #444;border-radius:3px;font-size:10px;padding:3px;"></select>
+      <button class="export-btn" style="font-size:10px;padding:3px 6px;" id="stamp-refresh-btn" title="Refresh model list from /models">↻</button>
+    </div>
+    <div id="stamp-info" style="font-size:10px;color:#888;margin-bottom:4px;">—</div>
+    <div style="display:flex;align-items:center;gap:5px;margin-bottom:8px;">
+      <input type="checkbox" id="ghost-toggle" checked style="cursor:pointer;">
+      <label for="ghost-toggle" style="font-size:10px;color:#8ad;" title="Translucent silhouette of the selected prefab projected into the volume at the current offset/rotation — exactly what Stamp or Place will produce">👻 Ghost preview</label>
+    </div>
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
+      <label style="font-size:10px;color:#888;">RotY</label>
+      <select id="stamp-rot" style="background:#222;color:#ccc;border:1px solid #444;border-radius:3px;font-size:10px;padding:2px;">
+        <option value="0">0°</option><option value="90">90°</option>
+        <option value="180">180°</option><option value="270">270°</option>
+      </select>
+      <label style="font-size:10px;color:#888;" title="After stamping, advance the offset by the stamped footprint along this axis — repeat clicks tile the prefab">Tile</label>
+      <select id="stamp-tile" style="background:#222;color:#ccc;border:1px solid #444;border-radius:3px;font-size:10px;padding:2px;">
+        <option value="">off</option><option value="x">+X</option>
+        <option value="-x">−X</option><option value="z">+Z</option><option value="-z">−Z</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:4px;align-items:center;margin-bottom:8px;">
+      <label style="font-size:10px;color:#888;">X</label><input id="stamp-x" type="number" value="0" style="width:44px;background:#222;color:#ccc;border:1px solid #444;border-radius:3px;font-size:10px;padding:2px;">
+      <label style="font-size:10px;color:#888;">Y</label><input id="stamp-y" type="number" value="0" style="width:44px;background:#222;color:#ccc;border:1px solid #444;border-radius:3px;font-size:10px;padding:2px;">
+      <label style="font-size:10px;color:#888;">Z</label><input id="stamp-z" type="number" value="0" style="width:44px;background:#222;color:#ccc;border:1px solid #444;border-radius:3px;font-size:10px;padding:2px;">
+    </div>
+    <button class="export-btn primary" style="width:100%;font-size:11px;padding:7px;" id="stamp-btn">📐 Stamp (bake voxels)</button>
+    <button class="export-btn" style="width:100%;font-size:11px;padding:7px;margin-top:4px;background:#346;color:#fff;" id="place-btn">📦 Place instance (decor)</button>
+    <div id="placement-list" style="margin-top:6px;font-size:10px;"></div>
+    <p style="font-size:10px;color:#666;margin-top:8px;line-height:1.5;">
+      <b>Aim mode:</b> click 📐 or 📦 to arm — the ghost binds to the mouse
+      (decor lands on surfaces), <b>R</b> rotates, <b>left-click</b> commits,
+      <b>Esc</b> exits. Camera stays live: <b>middle-drag</b> orbits,
+      <b>right-drag</b> pans, wheel zooms. Numeric fields + Tile still work.<br>
+      <b>Stamp</b> bakes voxels (editable, undoable) — .03 architecture 1:1.
+      <b>Place</b> keeps decor at native scale in <code>placements[]</code>
+      (file, pos, rotY, vs) — same convention as the scene's KIT.
+    </p>
   </div>
 </div>
 <div id="status-bar">
@@ -1653,6 +1698,10 @@ let W = 64, H = 40, D = 64;
 // wrong size (0.1 previewed characters half their in-game relative size).
 const ASSET_TYPE_PRESETS = {
   building: { label: 'Building', icon: '🏢', voxelSize: 0.05, defaultDims: [64, 40, 64], defaultModel: null },
+  // ROOM STAMP — the commission office cell, one editable volume: 150x69x150 at
+  // .03m = 4.5m footprint, 1.8m wall band, coffered ceiling cap. Interiors are
+  // their own asset class — a character "entering" a building swaps scene to it.
+  room: { label: 'Room', icon: '🚪', voxelSize: 0.03, defaultDims: [300, 69, 300], defaultModel: null },
   character: { label: 'Character', icon: '🧍', voxelSize: 0.01, defaultDims: [96, 96, 96], defaultModel: '../Assets/StreamingAssets/voxel_characters/Civilian1.json' },
   prop: { label: 'Item / Decor', icon: '🔫', voxelSize: 0.005, defaultDims: [48, 26, 10], defaultModel: '../Assets/StreamingAssets/voxel_items/SW_Model_10.json' },
   // Vehicle at CHARACTER scale (0.01m): same voxel grain as the pedestrians standing
@@ -4283,6 +4332,7 @@ function rebuildMesh() {
     instancedMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(voxelMeshCap * 3), 3);
   }
   instancedMesh.count = count;
+  refreshPlacementMeshes(); // origin offsets / voxel size may have changed
 
   if (count === 0) {
     document.getElementById('visible-count').textContent = '0';
@@ -5966,6 +6016,12 @@ document.querySelectorAll('.rp-tab').forEach(tab => {
     const target = tab.dataset.rpTab;
     const panel = document.getElementById('rp-' + target);
     if (panel) panel.classList.add('active');
+    if (target === 'room' && !stampListLoaded) { stampListLoaded = true; loadStampModelList(); }
+    if (target === 'room') refreshGhost();
+    else {
+      if (ghostMesh) ghostMesh.visible = false;
+      if (stampAim) setStampAim(null);
+    }
     // View modes are mutually exclusive — switching tabs must clear the other
     // panels' modes or a stale flag (e.g. itemPartViewMode) keeps overriding
     // the color pass and leaves centroid markers drawn on the wrong tab.
@@ -6032,6 +6088,8 @@ function updateTabsForAssetType() {
   const bodypartsPanel = document.getElementById('rp-bodyparts');
   const wardrobePanel = document.getElementById('rp-wardrobe');
   const itempartsPanel = document.getElementById('rp-itemparts');
+  const roomTab = document.querySelector('.rp-tab[data-rp-tab="room"]');
+  if (roomTab) roomTab.style.display = assetType === 'room' ? '' : 'none';
 
   if (assetType === 'character' || assetType === 'vehicle') {
     bodypartsTab.style.display = '';
@@ -6176,6 +6234,7 @@ function applyDefaultModelData(data, sourceName) {
     }
   }
   importAttachmentPoints(data);
+  loadPlacements(data.placements);
   updateGroupCounts();
   updateClothingRegionCounts();
   populateGroupList();
@@ -6212,6 +6271,338 @@ function loadDefaultModel(url) {
       setStatus(`Could not auto-load default model (${err.message}). Use 📂 Load to open manually.`);
     });
 }
+
+// === ROOM STAMP PANEL — prefab composition ===
+// Stamps a served model's voxels into the working volume at an offset/rotY.
+// Materials merge by hex/name (unknowns appended to the palette) so a room
+// plus its decor bake into one editable, exportable volume. Stamps are plain
+// voxelMap writes — pushHistory makes them undoable.
+const stampCache = {};
+const stampMeta = {};
+let stampListLoaded = false;
+
+function paletteIdFor(m) {
+  if (!m) return selectedMaterial;
+  const hex = (m.hex || '').toLowerCase();
+  let hit = hex && allMaterials.find(a => (a.hex || '').toLowerCase() === hex);
+  if (!hit && m.name) hit = allMaterials.find(a => a.name === m.name);
+  if (!hit) {
+    let r = m.r, g = m.g, b = m.b, h = m.hex || '#888888';
+    if (r === undefined && h) { r = parseInt(h.slice(1, 3), 16); g = parseInt(h.slice(3, 5), 16); b = parseInt(h.slice(5, 7), 16); }
+    hit = { id: Math.max(0, ...allMaterials.map(a => a.id || 0)) + 1,
+            name: m.name || `Prefab ${m.id}`, r, g, b, hex: h, category: m.category };
+    allMaterials.push(hit);
+    _matColorCache = null;
+    ensureMatVisibility();
+    buildMaterialList();
+  }
+  return hit.id;
+}
+
+function loadStampModelList() {
+  const sel = document.getElementById('stamp-model');
+  if (!sel || window.location.protocol === 'file:') return;
+  fetch('/models').then(r => r.json()).then(d => {
+    sel.innerHTML = '';
+    const list = (d.models || []).slice().sort((a, b) =>
+      (b.assetType === 'room') - (a.assetType === 'room') || a.name.localeCompare(b.name));
+    for (const m of list) {
+      if (m.err) continue;
+      stampMeta[m.name] = m;
+      const o = document.createElement('option');
+      o.value = m.name;
+      o.textContent = `${m.name} — ${m.dims ? m.dims.join('×') : '?'} (${Math.round((m.voxels || 0) / 1000)}k)`;
+      sel.appendChild(o);
+    }
+    updateStampInfo();
+  }).catch(() => setStatus('Model list unavailable — is the server running?'));
+}
+
+function updateStampInfo() {
+  const el = document.getElementById('stamp-info');
+  const m = stampMeta[document.getElementById('stamp-model').value];
+  if (el) el.textContent = m ? `${m.assetType || 'asset'} · ${m.dims.join('×')} · ${m.voxels} voxels` : '—';
+}
+
+function stampSelectedPrefab() {
+  const name = document.getElementById('stamp-model').value;
+  if (!name) return;
+  const ready = stampCache[name] ? Promise.resolve(stampCache[name])
+    : fetch(`/Assets/StreamingAssets/voxel_items/${name}.json`)
+        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+        .then(d => stampCache[name] = d);
+  ready.then(data => {
+    demoteIfUnity(data);
+    const pw = data.dims[0], pd = data.dims[2];
+    const rot = +document.getElementById('stamp-rot').value;
+    const ox = +document.getElementById('stamp-x').value || 0,
+          oy = +document.getElementById('stamp-y').value || 0,
+          oz = +document.getElementById('stamp-z').value || 0;
+    const remap = {};
+    for (const m of (data.materials || [])) remap[m.id] = paletteIdFor(m);
+    let placed = 0, clipped = 0;
+    for (const [vx, vy, vz, mid] of data.voxels) {
+      let x = vx, z = vz;
+      if (rot === 90)  { x = pd - 1 - vz; z = vx; }
+      if (rot === 180) { x = pw - 1 - vx; z = pd - 1 - vz; }
+      if (rot === 270) { x = vz; z = pw - 1 - vx; }
+      const X = x + ox, Y = vy + oy, Z = z + oz;
+      if (X < 0 || X >= W || Y < 0 || Y >= H || Z < 0 || Z >= D) { clipped++; continue; }
+      voxelMap.set(`${X},${Y},${Z}`, remap[mid] ?? selectedMaterial);
+      placed++;
+    }
+    rebuildMesh();
+    pushHistory();
+    const tw = rot % 180 ? pd : pw, td = rot % 180 ? pw : pd;
+    const tile = document.getElementById('stamp-tile').value;
+    if (tile === 'x')  document.getElementById('stamp-x').value = ox + tw;
+    if (tile === '-x') document.getElementById('stamp-x').value = ox - tw;
+    if (tile === 'z')  document.getElementById('stamp-z').value = oz + td;
+    if (tile === '-z') document.getElementById('stamp-z').value = oz - td;
+    setStatus(`Stamped ${name}: ${placed} voxels` + (clipped ? ` (${clipped} clipped outside volume)` : ''));
+    refreshGhost(); // offset may have tile-advanced — silhouette follows
+  }).catch(e => setStatus(`Stamp failed: ${e.message}`));
+}
+
+document.getElementById('stamp-refresh-btn').addEventListener('click', loadStampModelList);
+document.getElementById('stamp-model').addEventListener('change', () => { updateStampInfo(); refreshGhost(); });
+
+// === PLACEMENTS — decor as native-scale instances (not baked) ===
+// placements[] = {file, pos:[x,y,z] room-voxel units, rotY, vs} — same
+// convention as the scene's KIT. Preview = unit boxes scaled by vs/editable
+// voxel size, so a .01 chair renders correctly inside a .03 room. Placements
+// never enter voxelMap; they export as placements[] and reload verbatim.
+const placements = [];
+let _placeRev = 0, _placeSig = '';
+const _placeCol = new THREE.Color();
+const _placeMat = new THREE.Matrix4();
+
+function buildPlacementMesh(pl) {
+  const data = stampCache[pl.file];
+  if (!data || !data.voxels) return null;
+  const s = (pl.vs || data.voxelSize || editableVoxelSize) / editableVoxelSize;
+  const pw = data.dims[0], pd = data.dims[2];
+  const im = new THREE.InstancedMesh(boxGeo, lambertMat, data.voxels.length);
+  const matById = {};
+  for (const m of (data.materials || [])) matById[m.id] = m;
+  data.voxels.forEach((v, i) => {
+    let x = v[0], z = v[2];
+    const rot = pl.rotY || 0;
+    if (rot === 90)  { x = pd - 1 - v[2]; z = v[0]; }
+    if (rot === 180) { x = pw - 1 - v[0]; z = pd - 1 - v[2]; }
+    if (rot === 270) { x = v[2]; z = pw - 1 - v[0]; }
+    _placeMat.makeScale(s, s, s);
+    _placeMat.setPosition(
+      pl.pos[0] + originOffsetX + x * s,
+      pl.pos[1] + v[1] * s,
+      pl.pos[2] + originOffsetZ + z * s);
+    im.setMatrixAt(i, _placeMat);
+    const m = matById[v[3]];
+    if (m && m.r !== undefined) _placeCol.setRGB(m.r / 255, m.g / 255, m.b / 255);
+    else if (m && m.hex) _placeCol.set(m.hex);
+    else _placeCol.setHex(0x888888);
+    im.setColorAt(i, _placeCol);
+  });
+  im.count = data.voxels.length;
+  return im;
+}
+
+function refreshPlacementMeshes() {
+  const sig = `${originOffsetX},${originOffsetZ},${editableVoxelSize},${_placeRev}`;
+  if (sig === _placeSig) return;
+  _placeSig = sig;
+  for (const pl of placements) {
+    if (pl.mesh) scene.remove(pl.mesh);
+    pl.mesh = buildPlacementMesh(pl);
+    if (pl.mesh) scene.add(pl.mesh);
+  }
+  refreshGhost(); // origin offsets changed — the silhouette re-glues too
+}
+
+function clearPlacements() {
+  for (const pl of placements) if (pl.mesh) scene.remove(pl.mesh);
+  placements.length = 0;
+  _placeRev++;
+  renderPlacementList();
+}
+
+function renderPlacementList() {
+  const el = document.getElementById('placement-list');
+  if (!el) return;
+  el.innerHTML = placements.map((pl, i) =>
+    `<div style="display:flex;justify-content:space-between;align-items:center;padding:2px 0;border-bottom:1px solid #2a2a3a;">
+      <span style="color:#aaa;">${pl.file} <span style="color:#667;">@ ${pl.pos.join(',')} r${pl.rotY || 0}°</span></span>
+      <button class="export-btn" style="font-size:9px;padding:1px 5px;" data-pli="${i}">✕</button>
+    </div>`).join('') || '<span style="color:#555;">no placements</span>';
+  el.querySelectorAll('button[data-pli]').forEach(b => b.addEventListener('click', () => {
+    const pl = placements.splice(+b.dataset.pli, 1)[0];
+    if (pl && pl.mesh) scene.remove(pl.mesh);
+    _placeRev++; _placeSig = '';
+    renderPlacementList();
+    setStatus(`Removed placement ${pl.file}`);
+  }));
+}
+
+function placeSelectedPrefab() {
+  const name = document.getElementById('stamp-model').value;
+  if (!name) return;
+  const ready = stampCache[name] ? Promise.resolve(stampCache[name])
+    : fetch(`/Assets/StreamingAssets/voxel_items/${name}.json`)
+        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+        .then(d => stampCache[name] = d);
+  ready.then(data => {
+    const pl = {
+      file: name,
+      pos: [+document.getElementById('stamp-x').value || 0,
+            +document.getElementById('stamp-y').value || 0,
+            +document.getElementById('stamp-z').value || 0],
+      rotY: +document.getElementById('stamp-rot').value,
+      vs: data.voxelSize || editableVoxelSize,
+    };
+    placements.push(pl);
+    _placeRev++; _placeSig = '';
+    refreshPlacementMeshes();
+    renderPlacementList();
+    setStatus(`Placed ${name} @ ${pl.pos.join(',')} (native ${pl.vs}m scale)`);
+  }).catch(e => setStatus(`Place failed: ${e.message}`));
+}
+
+// Async: load a file's placements[] — prefabs fetch once into stampCache.
+function loadPlacements(list) {
+  clearPlacements();
+  for (const p of (list || [])) {
+    const entry = { file: p.file, pos: p.pos, rotY: p.rotY || 0, vs: p.vs };
+    placements.push(entry);
+    if (!stampCache[entry.file]) {
+      fetch(`/Assets/StreamingAssets/voxel_items/${entry.file}.json`)
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d) { stampCache[entry.file] = d; _placeSig = ''; refreshPlacementMeshes(); } })
+        .catch(() => {});
+    }
+  }
+  _placeRev++;
+  refreshPlacementMeshes();
+  renderPlacementList();
+}
+
+// === GHOST PREVIEW — silhouette of the pending stamp/placement ===
+// A translucent InstancedMesh at the prefab's native scale, driven live by the
+// panel inputs: exactly what Stamp (same scale) or Place (any scale) produces.
+// Matrices are rewritten on input/rot/origin change; geometry allocates once.
+let ghostMesh = null, ghostCap = 0, ghostOn = true;
+const ghostMat = new THREE.MeshLambertMaterial({
+  color: 0x66ddff, transparent: true, opacity: 0.28, depthWrite: false });
+const _gMat = new THREE.Matrix4();
+
+function ghostVisible() {
+  const t = document.querySelector('.rp-tab[data-rp-tab="room"]');
+  return ghostOn && t && t.classList.contains('active') &&
+         window.location.protocol !== 'file:';
+}
+
+function refreshGhost() {
+  const name = document.getElementById('stamp-model').value;
+  if (!name || !ghostVisible()) {
+    if (ghostMesh) ghostMesh.visible = false;
+    return;
+  }
+  const ready = stampCache[name] ? Promise.resolve(stampCache[name])
+    : fetch(`/Assets/StreamingAssets/voxel_items/${name}.json`)
+        .then(r => r.ok ? r.json() : null)
+        .then(d => d ? stampCache[name] = d : null);
+  ready.then(data => {
+    if (!data) return;
+    const s = (data.voxelSize || editableVoxelSize) / editableVoxelSize;
+    const pw = data.dims[0], pd = data.dims[2];
+    const rot = +document.getElementById('stamp-rot').value;
+    const ox = +document.getElementById('stamp-x').value || 0,
+          oy = +document.getElementById('stamp-y').value || 0,
+          oz = +document.getElementById('stamp-z').value || 0;
+    const n = data.voxels.length;
+    if (!ghostMesh || ghostCap < n) {
+      if (ghostMesh) scene.remove(ghostMesh);
+      ghostCap = Math.max(n * 2, 4096);
+      ghostMesh = new THREE.InstancedMesh(boxGeo, ghostMat, ghostCap);
+      ghostMesh.renderOrder = 5;
+      scene.add(ghostMesh);
+    }
+    data.voxels.forEach((v, i) => {
+      let x = v[0], z = v[2];
+      if (rot === 90)  { x = pd - 1 - v[2]; z = v[0]; }
+      if (rot === 180) { x = pw - 1 - v[0]; z = pd - 1 - v[2]; }
+      if (rot === 270) { x = v[2]; z = pw - 1 - v[0]; }
+      _gMat.makeScale(s, s, s);
+      _gMat.setPosition(ox + originOffsetX + x * s, oy + v[1] * s, oz + originOffsetZ + z * s);
+      ghostMesh.setMatrixAt(i, _gMat);
+    });
+    ghostMesh.count = n;
+    ghostMesh.visible = true;
+    ghostMesh.instanceMatrix.needsUpdate = true;
+  });
+}
+
+document.getElementById('ghost-toggle').addEventListener('change', e => {
+  ghostOn = e.target.checked;
+  refreshGhost();
+});
+for (const id of ['stamp-x', 'stamp-y', 'stamp-z', 'stamp-rot']) {
+  document.getElementById(id).addEventListener('input', refreshGhost);
+}
+
+// === AIM MODE — mouse-driven stamp/place ===
+// 📐/📦 buttons arm a mode rather than committing immediately: while armed the
+// ghost binds to the voxel raycast (decor lands ON surfaces via hit normal),
+// R rotates (capture-phase — 'r' is the ruler hotkey otherwise), left click
+// commits, Esc exits. Camera stays live — OrbitControls binds MIDDLE=orbit /
+// RIGHT=pan / wheel=zoom, so only left-click needs intercepting; drags pause
+// the ghost so orbiting doesn't shift it.
+let stampAim = null; // 'stamp' | 'place'
+function setStampAim(mode) {
+  stampAim = (stampAim === mode) ? null : mode;
+  renderer.domElement.style.cursor = stampAim ? 'crosshair' : '';
+  document.getElementById('stamp-btn').style.outline = stampAim === 'stamp' ? '2px solid #6df' : '';
+  document.getElementById('place-btn').style.outline = stampAim === 'place' ? '2px solid #6df' : '';
+  setStatus(stampAim
+    ? `AIM (${stampAim}): mouse positions · R rotates · left-click commits · Esc exits · mid/right cam`
+    : 'Aim mode off');
+}
+
+document.addEventListener('mousemove', e => {
+  if (!stampAim || e.target !== renderer.domElement || e.buttons) return;
+  const hit = raycastVoxelMesh(e);
+  if (!hit) return;
+  document.getElementById('stamp-x').value = hit.mid !== undefined ? hit.placeX : hit.x;
+  document.getElementById('stamp-y').value = hit.mid !== undefined ? hit.placeY : 0;
+  document.getElementById('stamp-z').value = hit.mid !== undefined ? hit.placeZ : hit.z;
+  refreshGhost();
+}, true);
+
+document.addEventListener('mousedown', e => {
+  if (!stampAim || e.target !== renderer.domElement || e.button !== 0) return;
+  e.stopPropagation();
+  e.preventDefault();
+  (stampAim === 'stamp' ? stampSelectedPrefab : placeSelectedPrefab)();
+}, true);
+
+document.addEventListener('keydown', e => {
+  if (!stampAim) return;
+  if (e.key === 'Escape') {
+    e.stopPropagation(); e.preventDefault();
+    setStampAim(null);
+    setTool('camera'); // same landing spot as every other tool's Esc
+    return;
+  }
+  if (e.key.toLowerCase() === 'r' &&
+      !['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) {
+    e.stopPropagation(); e.preventDefault();
+    const sel = document.getElementById('stamp-rot');
+    sel.value = String((+sel.value + 90) % 360);
+    refreshGhost();
+  }
+}, true);
+
+document.getElementById('stamp-btn').addEventListener('click', () => setStampAim('stamp'));
+document.getElementById('place-btn').addEventListener('click', () => setStampAim('place'));
 
 // file:// fallback for default model loading.
 document.getElementById('default-model-file-input').addEventListener('change', (e) => {
@@ -7869,6 +8260,7 @@ function getEditorData() {
     itemParts: itemParts,
     itemPartDefs: activePartGroups(),
     attachmentPoints: buildAttachmentPoints(),
+    placements: placements.map(({ file, pos, rotY, vs }) => ({ file, pos, rotY, vs })),
     // Per-item grip rotation correction (degrees, item-local, about the grip
     // point). Written as file value + live dial-in so a verified nudge bakes
     // in permanently on export; on reload it seeds itemAttachRot and the
@@ -9147,6 +9539,24 @@ updateLayerInfo(); // sets initial "Model: WxHxD (voxel size)" label
 updateTabsForAssetType(); // hide/show tabs based on initial asset type
 rebuildMesh();
 animate();
+
+// ?model=<name|path> deep link — loads any served asset over http.
+// Bare name resolves to ../Assets/StreamingAssets/voxel_items/<name>.json;
+// &type=<preset> preselects the asset class without the type-change reset.
+{
+  const _q = new URLSearchParams(location.search);
+  const _mdl = _q.get('model'), _typ = _q.get('type');
+  if (_typ && ASSET_TYPE_PRESETS[_typ]) {
+    assetTypeSelect.value = _typ;
+    assetTypeSelect.dispatchEvent(new Event('change')); // full preset reset — dims, camera, tabs
+  }
+  if (_mdl) {
+    const _url = /^[\w\-]+$/.test(_mdl)
+      ? `../Assets/StreamingAssets/voxel_items/${_mdl}.json`
+      : _mdl;
+    loadDefaultModel(_url);
+  }
+}
 </script>
 </body>
 </html>

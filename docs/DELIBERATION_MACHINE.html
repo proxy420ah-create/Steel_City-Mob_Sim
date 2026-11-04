@@ -1441,18 +1441,29 @@ function initDeck3D(THREE, OrbitControls){
      KIT: file → placement. Building grain (.06u) for shell, fine grain for props —
      the same scale split the pipeline uses. The layout below is baked to B —
      chair ring, mounts, sprite heights are chibi constants, not a style toggle. */
+  /* ROOM STAMP — the standard office cell, declared BEFORE KIT so it can spread.
+     Bare cell only: plate + side walls + ceiling, all envelope parts (group view
+     keeps the anchored stage set; possess reveals the full built world).
+     Standard dims: 4.5m footprint, 1.8m walls, ceiling slab at y=1.71 (beams 1.71–1.80). */
+  const stampRoom = (x0, z0) => ([
+    { file:'commission_floor2', vs:.03, pos:[x0, -.09, z0], env: true },
+    { file:'commission_wall',  vs:.03, pos:[x0 - 2.295, 0, z0], rotY:  Math.PI / 2, env: true },
+    { file:'commission_wall',  vs:.03, pos:[x0 + 2.295, 0, z0], rotY: -Math.PI / 2, env: true },
+    { file:'commission_ceiling', vs:.03, pos:[x0, 1.71, z0], env: true },
+  ]);
   const KIT = [
     { file:'commission_table', vs:.007,  pos:[0, 0, 0], sXZ:1.4 },   // chibi: .38m tall (kept) x 1.4m dia — edge .70 meets the r1.15 chair ring
     { file:'commission_floor', vs:.03,   pos:[0, -.09, 0] },     // chibi grain — 4.5m plate covers the seat ring, tops y=0
-    { file:'commission_floor2', vs:.03,  pos:[0, -.09, 4.5] },   // module 2 — the bolt-on: plain plate (felt inlay re-grained), spans z 2.25..6.75
     { file:'commission_wall',  vs:.03,   pos:[0, 0, -2.295] },   // 4.5x1.8 wall backs the set — front face at z=-2.25
     { file:'commission_wall',  vs:.03,   pos:[-2.295, 0, 0], rotY: Math.PI / 2, env: true },    // left wall — envelope
     { file:'commission_wall',  vs:.03,   pos:[2.295, 0, 0],  rotY: -Math.PI / 2, env: true },   // right wall — envelope
-    { file:'commission_wall',  vs:.03,   pos:[-2.295, 0, 4.5], rotY: Math.PI / 2, env: true },   // module 2 left wall — envelope
-    { file:'commission_wall',  vs:.03,   pos:[2.295, 0, 4.5],  rotY: -Math.PI / 2, env: true },  // module 2 right wall — envelope
-    { file:'commission_wall',  vs:.03,   pos:[0, 0, 6.795],  rotY: Math.PI, env: true },      // far wall — the expansion's end cap; the space between stays open (no mid divider)
     { file:'commission_ceiling', vs:.03, pos:[0, 1.71, 0],   env: true },      // ceiling — coffered: walnut beams hang 9cm below the 1.8m wall line, plaster slab flush on it
-    { file:'commission_ceiling', vs:.03, pos:[0, 1.71, 4.5], env: true },      // module 2 ceiling — continuous coffers over the expansion
+    /* ── ROOM STAMP (standard cell, envelope-flagged): a room = one bare cell —
+       commission_floor2 plate + two 4.5x1.8 brick sides + coffered ceiling, all
+       inside the camera-mode envelope. New rooms = stampRoom(x0, z0); end caps
+       and furnishings are chosen per layout, never baked. ── */
+    ...stampRoom(0, 4.5),                                        // module 2 — the bolt-on, spans z 2.25..6.75
+    { file:'commission_wall',  vs:.03,   pos:[0, 0, 6.795],  rotY: Math.PI, env: true },      // far wall — the expansion's end cap; the space between stays open (no mid divider)
     { file:'commission_filecabinet', vs:.0115, pos:[1.85, 0, -2.03], rotY:-.18 },  // 1920s 4-drawer, back-right corner, back flush (D=.44)
   ];
   const envG = new THREE.Group(); envG.visible = false; envG.name = 'roomEnvelope'; window.__env = envG; scene.add(envG);   // DVM-U envelope — side walls + far cap + ceilings, shown ONLY in possess mode; group view stays the clean stage set (back wall + floor + set only)
