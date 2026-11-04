@@ -1,0 +1,32 @@
+{
+ "rooms": [
+  [
+   44,
+   193,
+   0,
+   149
+  ],
+  [
+   244,
+   393,
+   0,
+   149
+  ],
+  [
+   244,
+   393,
+   250,
+   399
+  ]
+ ],
+ "note": "rooms = [x0,x1,z0,z1] inclusive voxel rectangles; every other floor cell is hall. Edit freely.",
+ "keepHallFelt": false,
+ "keepFelt": [
+  [
+   285,
+   352,
+   41,
+   108
+  ]
+ ]
+}

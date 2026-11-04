@@ -13,7 +13,7 @@ POST /boss {"text": "..."} — writes THE BOSS's message into deliberation_feed.
 Known limit: boss interjections can race an agent's write — rare, one
 repeated turn is the worst case.
 """
-import glob, json, os, re, sqlite3, sys, time
+import glob, gzip, json, os, re, sqlite3, sys, threading, time
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 
 # pulse-plane (triage): server-observed seat liveness. While a seat holds
@@ -201,6 +201,10 @@ class Handler(SimpleHTTPRequestHandler):
             return self._ok(usage_report())
         # voxel pipeline assets — whitelisted read into the item library so the
         # room renders the same file the studio exports (dogfooding, one source).
+        # scene bake of an editable building asset (see bake_building.py): rebuilt when the
+        # source JSON is newer, served gzip'd (the occupancy/walk grids are mostly zeros).
+        if self.path.startswith('/bake/'):
+            return self._bake(self.path[len('/bake/'):].split('?')[0])
         if self.path.startswith('/voxel/'):
             name = self.path[len('/voxel/'):].split('?')[0]
             if not re.fullmatch(r'[\w\-]+', name):
@@ -529,6 +533,48 @@ class Handler(SimpleHTTPRequestHandler):
                                          'addressed': any(seat in (m.get('to') or []) for m in batch)})
             time.sleep(0.8)
         return self._ok({'new': False, 'hb': int(time.time() * 1000)})
+
+    _BAKE_LOCK = threading.Lock()
+    _BAKE_GZ = {}   # dst path -> (mtime, gzipped bytes)
+
+    def _bake(self, name):
+        if not re.fullmatch(r'[\w\-]+', name):
+            return self._ok({'err': 'bad name'}, 400)
+        items = os.path.normpath(os.path.join(HERE, '..', 'Assets', 'StreamingAssets', 'voxel_items'))
+        src, dst = os.path.join(items, name + '.json'), os.path.join(items, name + '.bake.json')
+        if not os.path.isfile(src) and not os.path.isfile(dst):   # a committed bake alone is enough (the 56MB source needn't ship)
+            return self._ok({'err': 'not found'}, 404)
+        try:
+            with self._BAKE_LOCK:
+                stamp_p = dst[:-len('.json')] + '.stamp'
+                try:
+                    stamp = json.load(open(stamp_p))
+                except Exception:
+                    stamp = None
+                # stale = no bake, or the source differs from what was baked (mtime OR size) -- NOT "newer than the bake":
+                # a copied/moved export keeps its old timestamp and would never trigger a rebake
+                if os.path.isfile(src) and (not os.path.isfile(dst) or not stamp
+                                            or stamp.get('mtime') != os.path.getmtime(src) or stamp.get('size') != os.path.getsize(src)):
+                    if HERE not in sys.path:
+                        sys.path.insert(0, HERE)
+                    import bake_building
+                    bake_building.bake(name, log=lambda m: sys.stderr.write(m + chr(10)))
+                mt = os.path.getmtime(dst)
+                hit = self._BAKE_GZ.get(dst)
+                if not hit or hit[0] != mt:
+                    with open(dst, 'rb') as f:
+                        hit = (mt, gzip.compress(f.read(), 6))
+                    self._BAKE_GZ[dst] = hit
+            body = hit[1]
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Encoding', 'gzip')
+            self.send_header('Content-Length', str(len(body)))
+            self.send_header('Cache-Control', 'no-cache')
+            self.end_headers()
+            self.wfile.write(body)
+        except Exception as e:
+            return self._ok({'err': 'bake failed: ' + str(e)}, 500)
 
     def _ok(self, obj, code=200):
         b = json.dumps(obj).encode()

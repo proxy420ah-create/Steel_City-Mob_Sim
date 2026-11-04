@@ -32,6 +32,17 @@ extraction) -> dispose/re-add meshes. Measured **~450 ms per nudge** (profile: b
 - Arming with an empty model list failed silently; the ghost only appeared after the first mouse move;
   Delete now removes a selected placement.
 
+## Follow-up (same day): preview was tool- and hover-gated
+Boss report: after placing a stamp the Move panel opened but arrows did nothing and no ghost showed.
+`updateHighlight` (which drew the paste preview) returns early when the active tool is **Camera**
+(where Esc leaves you) or when the pointer isn't over a voxel; headless tests had used the default
+Place tool, so they missed it. Fix: preview moved into `updatePastePreview()`, called directly by
+`moveSelection/pasteSelection/movePaste/rotatePaste` and dispatched first in `updateHighlight`; canvas
+`mouseleave` no longer clears it during a move; confirm/cancel clear it. Verified with Camera tool +
+pointer off-canvas (hl visible at stamp time, offset follows 4 keys).
+Note: the default Room canvas height (69) equals the module height, so PgUp past the top clips the
+ceiling's top layer (7,500 voxels in test) - raise H via Canvas... for headroom.
+
 ## Known limits
 - Two undo steps remove a moved stamp (stamp + move are separate history entries — native behavior).
 - Mirror Move preview still rebuilds per nudge; placements are not in undo history.

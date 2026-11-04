@@ -523,14 +523,14 @@ function ingest(msg){
   if (msg.speaker && whoIs(msg.speaker)){
     // boss-ordered (AUDITOR-verified): hydrate replays history — suppress the
     // lastMsg write AND transient speech effects so old chatter never draws a
-    // bubble; live arrivals still emit. Stateful effects (pins, vetoed) plant.
+    // bubble; live arrivals still emit. Stateful effects (veto tally, vetoed) plant.
     if (!booting){
       DS.lastMsg[seatKeyFor(msg.speaker)] = { text: msg.text || '', kind: msg.kind || 'position' };   // chair bubbles (DVM-014)
       DECK.speech(seatKeyFor(msg.speaker));
       if (msg.kind === 'veto' || msg.kind === 'objection' || msg.kind === 'ack') DECK.pulse(seatKeyFor(msg.speaker));
       if (msg.kind !== 'veto'){ seatState(msg.speaker, 'speaking'); setTimeout(() => seatState(msg.speaker,'clear',''), 2600); }
     }
-    if (msg.kind === 'veto') DECK.pin(seatKeyFor(msg.speaker));            // ballot pins on the pegboard
+    if (msg.kind === 'veto') DECK.pin(seatKeyFor(msg.speaker));            // veto tally (pegboard pins removed — voting UI to be redesigned)
     if (msg.kind === 'veto') seatState(msg.speaker, 'vetoed', 'VETO');
   }
 }
@@ -1467,10 +1467,111 @@ function initDeck3D(THREE, OrbitControls){
     { file:'commission_filecabinet', vs:.0115, pos:[1.85, 0, -2.03], rotY:-.18 },  // 1920s 4-drawer, back-right corner, back flush (D=.44)
   ];
   const envG = new THREE.Group(); envG.visible = false; envG.name = 'roomEnvelope'; window.__env = envG; scene.add(envG);   // DVM-U envelope — side walls + far cap + ceilings, shown ONLY in possess mode; group view stays the clean stage set (back wall + floor + set only)
+  /* ── BAKED BUILDING (office_complex) ──────────────────────────────────────────
+     The editable asset (Voxel Studio, 1M voxels) is compiled by docs/bake_building.py
+     into: greedy-merged exposed-face quads split STAGE / ENV, a walk-clearance grid, a
+     bit-packed occupancy volume, room centres, placements[]. The original office module
+     sits at a fixed anchor inside it (byte-identical to commission_office), so the stage
+     set, table, chairs and seat ring keep their coordinates. STAGE (original floor + back
+     wall) is the only part group view shows; ENV (everything else) is the possess-only
+     envelope. On any failure the old shell kit (floor/walls/ceilings/stamps) loads instead. */
+  const SHELL_FILES = new Set(['commission_floor', 'commission_floor2', 'commission_wall', 'commission_ceiling']);
+  const b64u8 = s => { const bin = atob(s), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
+  function quadMesh(rec, palette, vs, ax, az, yBase) {
+    const u8 = b64u8(rec.b64), n = rec.n;
+    const i16 = new Int16Array(u8.buffer), u16 = new Uint16Array(u8.buffer);
+    const pos = new Float32Array(n * 12), col = new Float32Array(n * 12), nor = new Float32Array(n * 12), idx = new Uint32Array(n * 6);
+    const pc = palette.map(h => new THREE.Color(h));
+    const AXIS = [0, 0, 1, 1, 2, 2], SIGN = [1, -1, 1, -1, 1, -1];
+    for (let q = 0; q < n; q++) {
+      const x = i16[q * 6], y = i16[q * 6 + 1], z = i16[q * 6 + 2], dm = u16[q * 6 + 3], d = dm & 255, c = pc[(dm >> 8) - 1] || pc[0];
+      const w = u16[q * 6 + 4], h = u16[q * 6 + 5], axis = AXIS[d], sg = SIGN[d];
+      let u0, v0, pl;
+      if (axis === 0) { pl = x + (sg > 0 ? 1 : 0); u0 = y; v0 = z; }
+      else if (axis === 1) { pl = y + (sg > 0 ? 1 : 0); u0 = x; v0 = z; }
+      else { pl = z + (sg > 0 ? 1 : 0); u0 = x; v0 = y; }
+      const uu = [u0, u0 + w, u0 + w, u0], vv = [v0, v0, v0 + h, v0 + h];
+      for (let k = 0; k < 4; k++) {
+        let ex, ey, ez;
+        if (axis === 0) { ex = pl; ey = uu[k]; ez = vv[k]; } else if (axis === 1) { ex = uu[k]; ey = pl; ez = vv[k]; } else { ex = uu[k]; ey = vv[k]; ez = pl; }
+        const o = (q * 4 + k) * 3;
+        pos[o] = (ex - ax) * vs; pos[o + 1] = ey * vs + yBase; pos[o + 2] = (ez - az) * vs;
+        col[o] = c.r; col[o + 1] = c.g; col[o + 2] = c.b;
+        nor[o + (axis === 0 ? 0 : axis === 1 ? 1 : 2)] = sg;
+      }
+      const b = q * 4, flip = (sg > 0) !== (axis !== 1), t = q * 6;
+      if (!flip) { idx[t] = b; idx[t + 1] = b + 1; idx[t + 2] = b + 2; idx[t + 3] = b; idx[t + 4] = b + 2; idx[t + 5] = b + 3; }
+      else { idx[t] = b; idx[t + 1] = b + 2; idx[t + 2] = b + 1; idx[t + 3] = b; idx[t + 4] = b + 3; idx[t + 5] = b + 2; }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    geo.setIndex(new THREE.BufferAttribute(idx, 1));
+    return new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }));
+  }
+  function loadBuilding(g) {
+    const q = new URLSearchParams(location.search);                 // dev switches: ?shell=old forces the old kit (A/B), ?bld=<name> loads another baked building
+    if (q.get('shell') === 'old') return Promise.resolve(false);
+    return fetch('/bake/' + (q.get('bld') || 'office_complex')).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }).then(b => {
+      const vs = b.voxelSize, ax = b.anchor.ax, az = b.anchor.az, yBase = b.yBase, [W, H, D] = b.dims;
+      g.add(quadMesh(b.stage, b.palette, vs, ax, az, yBase));
+      envG.add(quadMesh(b.env, b.palette, vs, ax, az, yBase));
+      const walk = b64u8(b.walk.b64), occ = b64u8(b.occ.b64);
+      const cell = (x, z) => [Math.floor(x / vs + ax), Math.floor(z / vs + az)];
+      const walkOK = (x, z) => { const [cx, cz] = cell(x, z); return cx >= 0 && cx < W && cz >= 0 && cz < D && walk[cx * D + cz] === 1; };
+      const solid = (cx, cy, cz) => { if (cx < 0 || cx >= W || cy < 0 || cy >= H || cz < 0 || cz >= D) return false; const i = (cx * H + cy) * D + cz; return (occ[i >> 3] >> (7 - (i & 7))) & 1; };
+      /* grid DDA (Amanatides-Woo) over the occupancy volume: world metres in, distance to the first solid voxel out */
+      function rayHit(ex, ey, ez, dx, dy, dz, maxT) {
+        const o = [ex / vs + ax, (ey - yBase) / vs, ez / vs + az], d = [dx, dy, dz], c = o.map(Math.floor);
+        if (solid(c[0], c[1], c[2])) return 0;
+        const st = d.map(v => v > 0 ? 1 : -1), tD = d.map(v => Math.abs(v) < 1e-9 ? Infinity : Math.abs(1 / v));
+        const tM = d.map((v, i) => Math.abs(v) < 1e-9 ? Infinity : ((v > 0 ? c[i] + 1 : c[i]) - o[i]) / v);
+        const lim = maxT / vs;
+        for (let n = 0; n < 4000; n++) {
+          const a = tM[0] < tM[1] ? (tM[0] < tM[2] ? 0 : 2) : (tM[1] < tM[2] ? 1 : 2);
+          if (tM[a] > lim) return Infinity;
+          const t = tM[a]; c[a] += st[a]; tM[a] += tD[a];
+          if (solid(c[0], c[1], c[2])) return t * vs;
+        }
+        return Infinity;
+      }
+      const slide = (ox, oz, nx, nz) => walkOK(nx, nz) ? [nx, nz] : walkOK(nx, oz) ? [nx, oz] : walkOK(ox, nz) ? [ox, nz] : [ox, oz];
+      /* per-room warm bulbs (the original room keeps key/key2). Scene-level lights are never added/removed
+         at runtime (a light-count change recompiles every material) - intensity just goes 0 outside possess. */
+      const lights = [];
+      (b.rooms || []).forEach(r => {
+        const wx = (r[0] + .5 - ax) * vs, wz = (r[1] + .5 - az) * vs;
+        if (Math.hypot(wx, wz) < 1.2) return;                       // the original room: already lit by key
+        const L = new THREE.PointLight(0xffd9a0, 0, 14); L.position.set(wx, 4.2, wz); scene.add(L); lights.push(L);
+      });
+      window.__bldg = { vs, ax, az, yBase, walkOK, slide, rayHit, rooms: b.rooms, lights, stats: b.stats,
+        setPossess(on) { lights.forEach(L => { L.intensity = on ? 26 : 0; }); } };
+      window.__bldg.setPossess(!!window.__possessOn);
+      /* placements[] — furnishings placed in the Room builder, native scale, envelope-only (they live outside the stage) */
+      (b.placements || []).forEach(p => fetch('/voxel/' + p.file).then(r => r.json()).then(m => {
+        if (!m.voxels) return;
+        const pvs = p.vs || m.voxelSize || vs, ratio = pvs / vs, pw = m.dims[0], pd = m.dims[2], rot = p.rotY || 0;
+        const im = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshLambertMaterial(), m.voxels.length);
+        const mats = {}; (m.materials || []).forEach(mt => mats[mt.id] = new THREE.Color(mt.hex));
+        const M = new THREE.Matrix4(), dflt = new THREE.Color(0x888888);
+        m.voxels.forEach((v, i) => {
+          let x = v[0], z = v[2];
+          if (rot === 90) { x = pd - 1 - v[2]; z = v[0]; } else if (rot === 180) { x = pw - 1 - v[0]; z = pd - 1 - v[2]; } else if (rot === 270) { x = v[2]; z = pw - 1 - v[0]; }
+          M.makeScale(pvs, pvs, pvs).setPosition((p.pos[0] + .5 + x * ratio - ax) * vs, (p.pos[1] + .5 + v[1] * ratio) * vs + yBase, (p.pos[2] + .5 + z * ratio - az) * vs);
+          im.setMatrixAt(i, M); im.setColorAt(i, mats[v[3]] || dflt);
+        });
+        im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true;
+        envG.add(im); DECK.dirty();
+      }).catch(() => {}));
+      console.log('DVM-U — baked building loaded:', b.stats.voxels, 'voxels →', b.stage.n + b.env.n, 'quads · walk cells', b.stats.walkCells, '· rooms', (b.rooms || []).length);
+      return true;
+    }).catch(err => { console.warn('DVM-U — building bake unavailable, using the shell kit:', err && err.message || err); return false; });
+  }
   (function loadKit(){
     const g = new THREE.Group(); g.visible = false; scene.add(g);
-    let pending = KIT.length;
-    KIT.forEach(k => fetch('/voxel/' + k.file).then(r => r.json()).then(m => {
+    const loadItems = kit => { let pending = kit.length;
+    kit.forEach(k => fetch('/voxel/' + k.file).then(r => r.json()).then(m => {
       if (!m.voxels) return;
       const im = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1),
         new THREE.MeshLambertMaterial(), m.voxels.length);
@@ -1490,6 +1591,8 @@ function initDeck3D(THREE, OrbitControls){
       if (k.sXZ){ part.scale.x = k.sXZ; part.scale.z = k.sXZ; }   // widen the footprint without touching height (table fill, DVM-U)
       (k.env ? envG : g).add(part);
     }).catch(() => {}).finally(() => { if (!--pending){ g.visible = true; mark(); } }));
+    };
+    loadBuilding(g).then(baked => loadItems(baked ? KIT.filter(k => !SHELL_FILES.has(k.file)) : KIT));
     /* chair kit — one voxel build per seat; metaphor sprites (lamp/plate/work)
        stay primitive — they're state, not furniture. Back faces -z like the set. */
     fetch('/voxel/chair').then(r => r.json()).then(m => {   // boss's authored chair — same dims/materials schema, drop-in for commission_chair (C29 step 1)
@@ -1728,7 +1831,6 @@ function initDeck3D(THREE, OrbitControls){
     pboard.position.x - 1.375 * pboard.scale.x + (i + .5) * (2.75 * pboard.scale.x / 7),
     pboard.position.y, pboard.position.z + .04);   // rides the board wherever it mounts
   let cardStage = -2, cardAnim = null;
-  const pins = [];
   const goGlow = new THREE.PointLight(0x3fb950, 0, 1.9); goGlow.position.copy(slotPos(4)); goGlow.position.z += .35;
   scene.add(goGlow);
   const shelf = new THREE.Group();                                   // anchor only — the voxel shelf carries the draw (DVM-2253)
@@ -1754,10 +1856,8 @@ function initDeck3D(THREE, OrbitControls){
       m.prim.scale.setScalar(m.bs);
       if (m.sw) m.sw.position.set(p[0] + o[0], p[1] + o[1], p[2] + o[2]);
     });
-    // Room-B defect ②: orphan children re-lay with their parents — pins ride the
-    // board (slotPos is already derived), shelf/tray cards ride their mounts.
-    pins.forEach(pin => { const i = pin.userData.i || 0, sl = slotPos(2);
-      pin.position.set(sl.x + (i % 4) * .09 - .135, sl.y + .24 - Math.floor(i / 4) * .09, sl.z + .03); });
+    // Room-B defect ②: orphan children re-lay with their parents —
+    // shelf/tray cards ride their mounts.
     shelfCards.forEach((m, i) => m.position.set(shelf.position.x - .55 + i * .28, shelf.position.y + .07, shelf.position.z + .03));
     trayCards.forEach((m, i) => m.position.set(tray.position.x - .16 + i * .11, tray.position.y + .055, tray.position.z + .03));
   }
@@ -1780,14 +1880,6 @@ function initDeck3D(THREE, OrbitControls){
     supGlow.intensity = on ? .85 : 0;
   }
   setInterval(syncSupBulb, 1000);
-  function addPin(k){
-    const c = chairs[k]; if (!c) return;
-    const pin = new THREE.Mesh(new THREE.SphereGeometry(.035, 10, 8), new THREE.MeshBasicMaterial({color:c.hex}));
-    const i = pins.length, sl = slotPos(2);          // ballots pin up around the POLL slot
-    pin.userData.i = i;                              // grid index kept for re-lay on style toggle
-    pin.position.set(sl.x + (i % 4) * .09 - .135, sl.y + .24 - Math.floor(i / 4) * .09, sl.z + .03);
-    pins.push(pin); scene.add(pin);
-  }
   function moveCard(){
     const st = propStage();
     if (st === cardStage) return;
@@ -1908,9 +2000,6 @@ function initDeck3D(THREE, OrbitControls){
     }
     applyLights(false);          // single source: rig values + adjourn dimming live together
     moveCard();                                    // pegboard reads real state, slots named by propStage()
-    const want = DS.vetoSeats || [];               // ballot pins derive from state — hydration and live share one path
-    while (pins.length > want.length) scene.remove(pins.pop());
-    while (pins.length < want.length) addPin(want[pins.length]);
     // boss-ordered repurpose: a dark seat's bubble becomes its state flag —
     // ear-dark (host alive, busy stamp fresh) vs host-dead? (both stale). Real
     // speech always wins; relight clears the flag. Flags re-draw past expiry
@@ -1973,6 +2062,7 @@ function initDeck3D(THREE, OrbitControls){
     }
     if (settle > 0) settle--;
     if (!window.__possessOn) controls.update();   // DVM-2253: the possession boom drives the camera — OrbitControls.update() would clamp it back into the guest range
+    if (window.__bldg) window.__bldg.setPossess(!!window.__possessOn);
     envG.visible = !!window.__possessOn;   // camera-mode rule, not angle math: possess = sealed office; guest/group view = peeled stage set (no edge cases)
     breath += .3;
     for (const k of skeys){ const c = chairs[k];
@@ -2041,7 +2131,7 @@ function initDeck3D(THREE, OrbitControls){
   DECK.note     = () => { syncScene(); mark(); };
   DECK.presence = () => { syncScene(); mark(); };
   DECK.pulse    = k => { if (chairs[k]){ pulseK = k; pulseT = 0; mark(); } };
-  DECK.pin      = k => { if (!chairs[k]) return; (DS.vetoSeats = DS.vetoSeats || []).push(k); addPin(k); mark(); };
+  DECK.pin      = k => { if (!chairs[k]) return; (DS.vetoSeats = DS.vetoSeats || []).push(k); mark(); };   // tally kept in state; pegboard pins removed (voting UI to be redesigned)
   DECK.speech   = k => { if (k === 'WALL'){ updateSign(); mark(); } else drawBubble(k); };
   DECK.dirty    = mark;
   setInterval(() => { if (DECK.mode === '3d') mark(); }, 500);             // 2 Hz idle tick — lamp breathing only
@@ -2214,9 +2304,12 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
   const orbit = window.__controls, glCanvas = () => document.querySelector('#deckview canvas');
   function boomHit(ex, ey, ez, dx, dy, dz) {                     // nearest obstacle along the boom: room box exit + furniture cylinders (SOLIDS are circles, capped at furniture height)
     let t = Infinity;
+    if (window.__bldg) t = window.__bldg.rayHit(ex, ey, ez, dx, dy, dz, SUGGEST + CAM_PAD + .5);   // baked building: first solid voxel (walls, ceiling, floor) along the boom
+    else {
     if (dx > 1e-6) t = Math.min(t, (ROOM.x - ex) / dx); else if (dx < -1e-6) t = Math.min(t, (-ROOM.x - ex) / dx);
     if (dz > 1e-6) t = Math.min(t, (ROOM.z1 - ez) / dz); else if (dz < -1e-6) t = Math.min(t, (ROOM.z0 - ez) / dz);
     if (dy > 1e-6) t = Math.min(t, (ROOM.y1 - ey) / dy); else if (dy < -1e-6) t = Math.min(t, (ROOM.y0 - ey) / dy);
+    }
     for (const q of SOLIDS) {
       const ox = ex - q[0], oz = ez - q[1], a = dx * dx + dz * dz, c = ox * ox + oz * oz - q[2] * q[2];
       if (a < 1e-9 || c <= 0) continue;
@@ -2237,7 +2330,7 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
   }
   function grab() {
     if (possessed || DECK.mode !== '3d' || !orbit) return;
-    possessed = true; window.__possessOn = true; window.__env.visible = true;   // sealed office the instant the mode flips — no frame lag
+    possessed = true; window.__possessOn = true; window.__env.visible = true; if (window.__bldg) window.__bldg.setPossess(true);   // sealed office the instant the mode flips — no frame lag
     guestPos = camera.position.clone(); guestTarget = orbit.target.clone();
     orbit.enabled = false; lookYaw = chYaw; lookPitch = PITCH0; boomCur = -1;
     const c = glCanvas(); if (c && c.requestPointerLock) { try { c.requestPointerLock(); } catch (e) {} }
@@ -2245,7 +2338,7 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
   }
   function release() {                                           // boss override: back to the guest-clamped view (Unity freezes the shot — this returns it)
     if (!possessed) return;
-    possessed = false; window.__possessOn = false; window.__env.visible = false;   // back to the peeled stage set
+    possessed = false; window.__possessOn = false; window.__env.visible = false; if (window.__bldg) window.__bldg.setPossess(false);   // back to the peeled stage set
     if (document.pointerLockElement) document.exitPointerLock();
     camera.position.copy(guestPos); orbit.target.copy(guestTarget); orbit.enabled = true; orbit.update();
     DECK.dirty();
@@ -2299,8 +2392,11 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
       chPos.x += vx * dt; chPos.z += vz * dt;
     }
     if (!seated) {
+      if (window.__bldg) { const sl = window.__bldg.slide(ox, oz, chPos.x, chPos.z); chPos.x = sl[0]; chPos.z = sl[1]; }   // baked building: walk-clearance grid, slides along walls
+      else {
       chPos.x = Math.max(FLOOR.x[0], Math.min(FLOOR.x[1], chPos.x));
       chPos.z = Math.max(FLOOR.z[0], Math.min(FLOOR.z[1], chPos.z));
+      }
       for (const s of SOLIDS) {                                   // capsule→circle pushout
         const px = chPos.x - s[0], pz = chPos.z - s[1], rr = s[2] + .15, d = Math.hypot(px, pz);
         if (d < rr && d > 1e-4) { chPos.x = s[0] + px / d * rr; chPos.z = s[1] + pz / d * rr; }

@@ -624,6 +624,10 @@ body.ui-hidden #ui-hidden-hint { display:block; }
       <button class="export-btn" style="flex:1;font-size:10px;padding:3px 6px;" id="room-vol-btn" title="Open the volume-size dialog to set the design canvas W/H/D">📐 Canvas…</button>
       <button class="export-btn" style="flex:1;font-size:10px;padding:3px 6px;" id="room-savevol-btn" title="Persist the current volume dims as the Room preset's default canvas — loads on every Room select (localStorage)">📌 Save dims</button>
     </div>
+    <div style="display:flex;gap:4px;margin-bottom:8px;">
+      <button class="export-btn" style="flex:1;font-size:10px;padding:3px 6px;" onclick="orbitToCursor()" title="Set the orbit pivot to the voxel/ground under the cursor (key T)">◎ Pivot→Cursor (T)</button>
+      <button class="export-btn" style="flex:1;font-size:10px;padding:3px 6px;" onclick="frameView('sel')" title="Frame the selection, or the whole model if nothing is selected (key 0)">⛶ Frame (0)</button>
+    </div>
     <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
       <label style="font-size:10px;color:#888;">RotY</label>
       <select id="stamp-rot" style="background:#222;color:#ccc;border:1px solid #444;border-radius:3px;font-size:10px;padding:2px;">
@@ -5474,7 +5478,64 @@ document.addEventListener('pointerdown', () => positionsMemo.clear(), true);
 document.addEventListener('keydown', () => positionsMemo.clear(), true);
 document.addEventListener('click', () => positionsMemo.clear(), true);
 
+// Move/paste preview. Independent of the active tool and of what's under the cursor:
+// updateHighlight bails for the Camera tool (where Esc leaves you) and when the pointer is
+// off-model, which made the preview vanish and arrow nudges look dead. `event` is optional
+// (tooltip placement only).
+function updatePastePreview(event) {
+  if (!pasteMode || clipboard.length === 0) return;
+  let infoText = '';
+  const bx = pasteOrigin.x + pasteOffset.x;
+  const by = pasteOrigin.y + pasteOffset.y;
+  const bz = pasteOrigin.z + pasteOffset.z;
+  let shown = 0;
+  if (_pasteUniform) {
+    // Pure translation: build the shell once per shape, then slide the mesh.
+    const c = _pasteShape;
+    if (!c || c.clip !== clipboard || c.rev !== _pasteRev || c.n !== clipboard.length ||
+        c.ox !== pasteOrigin.x || c.oy !== pasteOrigin.y || c.oz !== pasteOrigin.z) {
+      const pos = new Array(clipboard.length);
+      for (let i = 0; i < clipboard.length; i++) {
+        const v = clipboard[i];
+        pos[i] = [pasteOrigin.x + v.x, pasteOrigin.y + v.y, pasteOrigin.z + v.z];
+      }
+      _pasteShape = { clip: clipboard, rev: _pasteRev, n: clipboard.length, ox: pasteOrigin.x, oy: pasteOrigin.y, oz: pasteOrigin.z, positions: pos };
+    }
+    showHighlight(_pasteShape.positions, 0x00ffff); // identity-skips after the first build
+    if (hlMesh) hlMesh.position.set(pasteOffset.x, pasteOffset.y, pasteOffset.z);
+    if (hlEdgesMesh) hlEdgesMesh.position.set(pasteOffset.x, pasteOffset.y, pasteOffset.z);
+    for (let i = 0; i < clipboard.length; i++) { // in-bounds count, allocation-free
+      const v = clipboard[i];
+      const px = pasteOrigin.x + v.x + pasteOffset.x, py = pasteOrigin.y + v.y + pasteOffset.y, pz = pasteOrigin.z + v.z + pasteOffset.z;
+      if (px >= 0 && px < W && py >= 0 && py < H && pz >= 0 && pz < D) shown++;
+    }
+  } else {
+    const pastePositions = [];
+    for (const v of clipboard) {
+      const px = pasteOrigin.x + v.x + (v.ox || 0);
+      const py = pasteOrigin.y + v.y + (v.oy || 0);
+      const pz = pasteOrigin.z + v.z + (v.oz || 0);
+      if (px >= 0 && px < W && py >= 0 && py < H && pz >= 0 && pz < D) {
+        pastePositions.push([px, py, pz]);
+      }
+    }
+    showHighlight(pastePositions, 0x00ffff);
+    shown = pastePositions.length;
+  }
+  infoText = `Paste preview: ${shown} voxels at (${bx},${by},${bz}) — arrows=XZ | PgUp/Dn=Y | ,.;'op=rotate | Enter=confirm | Esc=cancel`;
+  // Update status coords
+  document.getElementById('status-coords').textContent = `paste @ x:${bx} y:${by} z:${bz}`;
+  if (infoText && event) {
+    const tt = document.getElementById('tooltip');
+    tt.style.display = 'block';
+    tt.style.left = (event.clientX + 12) + 'px';
+    tt.style.top = (event.clientY + 12) + 'px';
+    tt.textContent = infoText;
+  }
+}
+
 function updateHighlight(event) {
+  if (pasteMode && clipboard.length > 0) { updatePastePreview(event); return; }
   _lastHoverSnapshot = {
     clientX: event.clientX, clientY: event.clientY,
     shiftKey: !!event.shiftKey, ctrlKey: !!event.ctrlKey, altKey: !!event.altKey
@@ -5898,57 +5959,7 @@ function updateHighlight(event) {
     infoText = matInfoStr;
   }
 
-  // Paste mode preview — show ghost of clipboard voxels at current offset
-  if (pasteMode && clipboard.length > 0) {
-    const bx = pasteOrigin.x + pasteOffset.x;
-    const by = pasteOrigin.y + pasteOffset.y;
-    const bz = pasteOrigin.z + pasteOffset.z;
-    let shown = 0;
-    if (_pasteUniform) {
-      // Pure translation: build the shell once per shape, then slide the mesh.
-      const c = _pasteShape;
-      if (!c || c.clip !== clipboard || c.rev !== _pasteRev || c.n !== clipboard.length ||
-          c.ox !== pasteOrigin.x || c.oy !== pasteOrigin.y || c.oz !== pasteOrigin.z) {
-        const pos = new Array(clipboard.length);
-        for (let i = 0; i < clipboard.length; i++) {
-          const v = clipboard[i];
-          pos[i] = [pasteOrigin.x + v.x, pasteOrigin.y + v.y, pasteOrigin.z + v.z];
-        }
-        _pasteShape = { clip: clipboard, rev: _pasteRev, n: clipboard.length, ox: pasteOrigin.x, oy: pasteOrigin.y, oz: pasteOrigin.z, positions: pos };
-      }
-      showHighlight(_pasteShape.positions, 0x00ffff); // identity-skips after the first build
-      if (hlMesh) hlMesh.position.set(pasteOffset.x, pasteOffset.y, pasteOffset.z);
-      if (hlEdgesMesh) hlEdgesMesh.position.set(pasteOffset.x, pasteOffset.y, pasteOffset.z);
-      for (let i = 0; i < clipboard.length; i++) { // in-bounds count, allocation-free
-        const v = clipboard[i];
-        const px = pasteOrigin.x + v.x + pasteOffset.x, py = pasteOrigin.y + v.y + pasteOffset.y, pz = pasteOrigin.z + v.z + pasteOffset.z;
-        if (px >= 0 && px < W && py >= 0 && py < H && pz >= 0 && pz < D) shown++;
-      }
-    } else {
-      const pastePositions = [];
-      for (const v of clipboard) {
-        const px = pasteOrigin.x + v.x + (v.ox || 0);
-        const py = pasteOrigin.y + v.y + (v.oy || 0);
-        const pz = pasteOrigin.z + v.z + (v.oz || 0);
-        if (px >= 0 && px < W && py >= 0 && py < H && pz >= 0 && pz < D) {
-          pastePositions.push([px, py, pz]);
-        }
-      }
-      showHighlight(pastePositions, 0x00ffff);
-      shown = pastePositions.length;
-    }
-    infoText = `Paste preview: ${shown} voxels at (${bx},${by},${bz}) — arrows=XZ | PgUp/Dn=Y | ,.;'op=rotate | Enter=confirm | Esc=cancel`;
-    // Update status coords
-    document.getElementById('status-coords').textContent = `paste @ x:${bx} y:${by} z:${bz}`;
-    if (infoText) {
-      const tt = document.getElementById('tooltip');
-      tt.style.display = 'block';
-      tt.style.left = (event.clientX + 12) + 'px';
-      tt.style.top = (event.clientY + 12) + 'px';
-      tt.textContent = infoText;
-    }
-    return; // skip normal highlight when in paste mode
-  }
+  // (paste preview is handled at the top of this function via updatePastePreview)
 
   if (previewBounds) {
     // Giant box-drag preview — draw the bounds box directly (mirrored bounds
@@ -6762,7 +6773,7 @@ function setStampAim(mode) {
 }
 
 window.__room = { raycastVoxelMesh, raycastGrid, refreshGhost, stampSelectedPrefab, placeSelectedPrefab, setStampAim, voxelMap, camera, controls,
-  get ghost() { return ghostMesh; }, get sel() { return roomSel; }, get mmb() { return mmbDown; }, get selBox() { return selBox; },
+  get ghost() { return ghostMesh; }, get hl() { return hlMesh ? { visible: hlMesh.visible, parent: !!hlMesh.parent, pos: [hlMesh.position.x, hlMesh.position.y, hlMesh.position.z], edges: !!hlEdgesMesh } : null; }, get sel() { return roomSel; }, get mmb() { return mmbDown; }, get selBox() { return selBox; },
   get move() { return { paste: pasteMode, owned: stampMoveOwned, sel: selVoxels.length, off: { ...pasteOffset }, clip: clipboard.length }; } };
 
 let _aimLastRay = 0;
@@ -7673,7 +7684,7 @@ renderer.domElement.addEventListener('mouseup', (e) => {
 });
 
 renderer.domElement.addEventListener('mouseleave', () => {
-  clearHighlight();
+  if (!pasteMode) clearHighlight();
   document.getElementById('tooltip').style.display = 'none';
 });
 
@@ -7820,6 +7831,7 @@ window.moveSelection = function() {
   pasteOffset = { x: 0, y: 0, z: 0 };
   pasteMode = true; moveMode = true; _pasteUniform = true;
   document.getElementById('paste-controls').style.display = 'block';
+  updatePastePreview(lastMouseEvent);
   setStatus(`Move mode: ${clipboard.length} voxels — arrows to move, Enter to confirm, Esc to cancel`);
 };
 
@@ -7832,6 +7844,7 @@ window.pasteSelection = function() {
   pasteOffset = { x: 0, y: 0, z: 0 };
   for (const v of clipboard) { v.ox = 0; v.oy = 0; v.oz = 0; }
   document.getElementById('paste-controls').style.display = 'block';
+  updatePastePreview(lastMouseEvent);
   setStatus(`Paste mode: ${clipboard.length} voxels — use buttons/arrow keys to move, Enter to confirm, Esc to cancel`);
 };
 
@@ -7849,7 +7862,7 @@ window.movePaste = function(dx, dy, dz) {
     v.oy = (v.oy || 0) + (mirrorMove && mirrorY && wy > py ? -dy : dy);
     v.oz = (v.oz || 0) + (mirrorMove && mirrorZ && wz > pz ? -dz : dz);
   }
-  if (lastMouseEvent) updateHighlight(lastMouseEvent);
+  updatePastePreview(lastMouseEvent);
 };
 
 // Rotate the clipboard 90° about an axis, around the piece's own bbox center,
@@ -7886,7 +7899,7 @@ window.rotatePaste = function(axis, dir) {
   }
   for (const v of clipboard) { v.x -= minX; v.y -= minY; v.z -= minZ; }
   _pasteRev++; // shape changed -> rebuild the cached preview shell
-  if (lastMouseEvent) updateHighlight(lastMouseEvent);
+  updatePastePreview(lastMouseEvent);
   setStatus(`Rotated ${axis.toUpperCase()} ${dir > 0 ? '+' : '-'}90° — ${clipboard.length} voxels (arrows nudge, Enter confirms)`);
 };
 
@@ -7958,12 +7971,14 @@ window.confirmPaste = function() {
   setStatus(`${wasMove ? 'Moved' : 'Pasted'} ${placed} voxels to (${bx},${by},${bz})`);
   pasteMode = false; moveMode = false;
   document.getElementById('paste-controls').style.display = 'none';
+  clearHighlight(); // the preview mesh must not outlive the move
   if (wasMove) clearSelection();
 };
 
 window.cancelPaste = function() {
   pasteMode = false; moveMode = false;
   document.getElementById('paste-controls').style.display = 'none';
+  clearHighlight();
   setStatus('Paste cancelled');
 };
 
@@ -8011,6 +8026,9 @@ window.frameView = function(what) {
 
 // Orbit pivot → the voxel under the cursor (keeps camera; damping eases the swap)
 window.orbitToCursor = function() {
+  // The grid pick is cheap and always current — the hover highlight (which normally
+  // feeds lastHoverHit) is suppressed while Room aim mode / Move preview own the cursor.
+  if (lastMouseEvent) { const h = raycastGrid(lastMouseEvent); if (h) lastHoverHit = h; }
   if (!lastHoverHit) { setStatus('Hover a voxel first'); return; }
   controls.target.copy(cellToWorld(lastHoverHit.x, lastHoverHit.y, lastHoverHit.z));
   controls.update();

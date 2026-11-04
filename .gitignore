@@ -81,3 +81,10 @@ docs/nul
 # ── Commission daemon runtime noise ──
 docs/*.log
 docs/*.jsonl
+
+# ── office_complex working files (56MB+ source, local backups, machine stamps) ──
+# The committed artifacts are office_complex.bake.json + office_complex.skin.json;
+# re-export the source from Voxel Studio if it is ever lost.
+Assets/StreamingAssets/voxel_items/office_complex.json
+Assets/StreamingAssets/voxel_items/office_complex.prev.json
+Assets/StreamingAssets/voxel_items/*.bake.stamp
