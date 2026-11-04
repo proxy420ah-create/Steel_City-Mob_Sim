@@ -5,7 +5,7 @@ on disk and account-agnostic — a fresh session loses only chat memory, never s
 Paste this file's path as the first message of the new CHAIR session.
 
 ## Read first (in order)
-1. `.devin/rules/commission-relay.md` — loads automatically; the ear, lanes, write and spend law.
+1. `.devin/rules/commission-relay.md (repo root)` — loads automatically; the ear, lanes, write and spend law.
 2. `docs/COMMISSION_PROTOCOL.md` — durable law (rail phases, fresh-read-at-close, read-delta §588+).
 3. `docs/induction_CHAIR.txt` — the seat contract.
 4. The feed tail: last ~30 messages of `docs/deliberation_feed.js`, plus `proposal`, `phase`, `turn`.
