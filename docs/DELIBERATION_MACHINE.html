@@ -361,6 +361,7 @@
           <span class="rtab active" id="tab_feed">◈ LIVE TRANSCRIPT<span class="tab-unread" id="un_feed"></span></span>
           <span class="rtab" id="tab_side">◇ SIDE TABLE<span class="tab-unread" id="un_side"></span></span>
           <span class="rtab" id="tab_tech">▣ TECH LOG<span class="tab-unread" id="un_tech"></span></span>
+          <span class="rtab" id="tab_office">◆ OFFICE<span class="tab-unread" id="un_office"></span></span>
         </div>
         <div class="f-ctl">
           <button id="btndemo">▶ demo</button>
@@ -374,6 +375,7 @@
       </div>
       <div class="st-list" id="stlist" style="display:none"></div>
       <div id="tlist" style="display:none"></div>
+      <div id="dmlist" style="display:none;flex:1;min-height:0;overflow-y:auto;scrollbar-width:thin;padding-right:6px;"></div>
     </div>
   </div>
 
@@ -514,6 +516,7 @@ function ingest(msg){
   if (msg.id) seen.add(msg.id); else msg.id = 'auto_' + (msgSeq++);
   if (msg.kind === 'phase'){ setPhase(+msg.phase || 0); }
   if (msg.kind === 'verdict' && msg.vresult){ renderVerdict(msg.vresult, msg.text, msg.conds); }
+  if (msg.kind === 'dm'){ appendDm(msg); return; }            // OFFICE lane — CHAIR↔BOSS drafting channel, never enters transcript/side
   if (msg.kind === 'aside'){ appendAside(msg); return; }      // DVM-017 §4b: the side channel never enters the transcript
   if (msg.kind === 'sys' || msg.channel === 'tech'){ appendTech(msg); return; }   // DVM-922: machine speech routes to the TECH LOG — record stays on the bus, the view splits
   appendMsg(msg);
@@ -545,7 +548,7 @@ function appendMsg(msg){
   } else {
     const sname = msg.speaker === 'BOSS' ? 'THE BOSS' : (m ? m.name : (msg.speaker || 'SYSTEM'));
     const scolor = msg.speaker === 'BOSS' ? 'var(--tan)' : (m ? m.color : 'var(--text)');
-    const toChips = (msg.to || []).map(t => `<span class="at">@${LEGACY_SEAT[t] || t}</span>`).join(' ');
+    const toChips = (Array.isArray(msg.to) ? msg.to : msg.to ? [msg.to] : []).map(t => `<span class="at">@${LEGACY_SEAT[t] || t}</span>`).join(' ');
     const bodyHtml = msg.text.replace(/@([A-Za-z0-9_]+)/g, (m, t) =>
       MTAG.has(t) ? `<b class="mtag">${m}</b>` : `<span class="at">${m}</span>`);  // call-ons wear a bold tag (DVM-009)
     const hsB = msg.needs_ack || (kind === 'boss' && (msg.to || []).length);   // handshake-bearing directive (DVM-015)
@@ -577,6 +580,57 @@ function appendAside(msg){
   if (activeTab === 'side' && atB) list.scrollTop = list.scrollHeight;
   if (!booting && (activeTab !== 'side' || !atB)) unread.side++;
   syncUnread();
+}
+/* OFFICE lane — CHAIR↔BOSS drafting channel: same bus, own pane, seats never see it (pulse-filtered) */
+function appendDm(msg){
+  const list = document.getElementById('dmlist'); if (!list) return;
+  const boss = msg.speaker === 'BOSS', w = whoIs(msg.speaker) || {};
+  const d = document.createElement('div');
+  d.className = 'st-msg' + (boss ? ' boss' : '');
+  d.innerHTML = `<span class="st-who" style="color:${boss ? 'var(--tan)' : 'var(--cyan)'}">◆ ${boss ? 'THE BOSS' : (w.name || msg.speaker)}</span>${msg.text || ''}`;
+  const atB = list.scrollHeight - list.scrollTop - list.clientHeight < 60;
+  list.appendChild(d);
+  if (activeTab === 'office' && atB) list.scrollTop = list.scrollHeight;
+  if (!booting && (activeTab !== 'office' || !atB)) unread.office++;
+  syncUnread();
+  if (msg.speaker === 'BOSS'){
+    // the PREVIOUS pending dm was never heard (no session stamp within 30s) = relay dead
+    if (pendingDm && !heardAt && lastSessionEar && pendingDm > lastSessionEar + 30000) relayAlarm();
+    pendingDm = msg.ts || 0; heardAt = 0;
+  } else if (msg.speaker === 'CHAIR'){
+    pendingDm = 0; heardAt = 0;   // CHAIR replied — the pending dm is answered
+    const list = document.getElementById('dmlist');
+    if (list) list.querySelectorAll('.heard-unanswered, .relay-down').forEach(el => el.remove());
+  }
+}
+/* relay health — a dm is 'heard' once an ear stamp lands after it; a dm left
+   pending >30s past the last session stamp = delivered but never carried */
+function relayAlarm(){
+  const list = document.getElementById('dmlist'); if (!list) return;
+  if (list.querySelector('.relay-down')) return;
+  const d = document.createElement('div');
+  d.className = 'st-msg relay-down'; d.style.color = 'var(--red)';
+  d.innerHTML = '<span class="st-who" style="color:var(--red)">· relay</span>SESSION RELAY DOWN — dm delivered, no session ear returned';
+  list.appendChild(d);
+  if (activeTab === 'office') list.scrollTop = list.scrollHeight;
+}
+function relayHealed(ts){
+  lastSessionEar = Math.max(lastSessionEar, ts);
+  if (pendingDm && pendingDm <= ts) heardAt = ts;   // the ear heard the pending dm
+  const list = document.getElementById('dmlist');
+  if (list) list.querySelectorAll('.relay-down').forEach(el => el.remove());
+}
+/* HEARD, UNANSWERED — amber: the ear stamped it but CHAIR never replied (5min window) */
+function heardCheck(){
+  if (!pendingDm || !heardAt) return;
+  if (Date.now() - pendingDm < 300000) return;
+  const list = document.getElementById('dmlist'); if (!list) return;
+  if (list.querySelector('.heard-unanswered')) return;
+  const d = document.createElement('div');
+  d.className = 'st-msg heard-unanswered'; d.style.color = 'var(--yellow)';
+  d.innerHTML = '<span class="st-who" style="color:var(--yellow)">· relay</span>HEARD, UNANSWERED — the ear returned but CHAIR has not replied (5m+)';
+  list.appendChild(d);
+  if (activeTab === 'office') list.scrollTop = list.scrollHeight;
 }
 /* DVM-015: handshake state rides the directive — ⏳ awaiting → ✓ acknowledged → 👍 authorized.
    pending >120s flags amber (soft timeout: visible, judgment stays with the sender). */
@@ -616,31 +670,43 @@ function appendTech(msg){
   if (msg.kind === 'sys'){ DS.wallMsg = { text: msg.text || '', kind: 'sys' }; DECK.speech('WALL'); }   // wall monitor keeps its feed
 }
 /* ── tabbed pane (boss-directed): transcript + side table share one element; unread tags clear on read ── */
-let activeTab = 'feed', unread = {feed:0, side:0, tech:0}, booting = true;
+let activeTab = 'feed', unread = {feed:0, side:0, tech:0, office:0}, booting = true;
 function syncUnread(){
   document.getElementById('un_feed').textContent = unread.feed || '';
   document.getElementById('un_side').textContent = unread.side || '';
   const un = document.getElementById('un_tech');
   un.textContent = unread.tech || '';
   un.classList.toggle('dark', unreadDark > 0);
+  document.getElementById('un_office').textContent = unread.office || '';
 }
 function setTab(t){
   activeTab = t;
   document.getElementById('tab_feed').classList.toggle('active', t === 'feed');
   document.getElementById('tab_side').classList.toggle('active', t === 'side');
   document.getElementById('tab_tech').classList.toggle('active', t === 'tech');
+  document.getElementById('tab_office').classList.toggle('active', t === 'office');
   msglist.style.display = t === 'feed' ? '' : 'none';
   const st = document.getElementById('stlist');
   st.style.display = t === 'side' ? '' : 'none';
   const tl = document.getElementById('tlist');
   tl.style.display = t === 'tech' ? '' : 'none';
+  const dl = document.getElementById('dmlist');
+  dl.style.display = t === 'office' ? '' : 'none';
   if (t === 'side') st.scrollTop = st.scrollHeight;
+  if (t === 'office') dl.scrollTop = dl.scrollHeight;
   if (t === 'tech'){ tl.scrollTop = tl.scrollHeight; unreadDark = 0; }
   unread[t] = 0; syncUnread();
 }
 document.getElementById('tab_feed').onclick = () => { setTab('feed'); setSendMode('send'); };
 document.getElementById('tab_side').onclick = () => { setTab('side'); setSendMode('side'); };
 document.getElementById('tab_tech').onclick = () => setTab('tech');
+document.getElementById('tab_office').onclick = () => { setTab('office'); setSendMode('dm'); };
+document.getElementById('dmlist').addEventListener('scroll', () => {
+  const dl = document.getElementById('dmlist');
+  if (dl.scrollHeight - dl.scrollTop - dl.clientHeight < 60 && activeTab === 'office'){
+    unread.office = 0; syncUnread();
+  }
+});
 document.getElementById('stlist').addEventListener('scroll', () => {
   const st = document.getElementById('stlist');
   if (st.scrollHeight - st.scrollTop - st.clientHeight < 60 && activeTab === 'side'){
@@ -724,7 +790,7 @@ function applyState(s){
     const SIDE = { aside:1, sys:1, phase:1, ack:1, ok:1 }, TASKED_TTL = 600000;
     DS.pendingTask = {};
     for (let i = msgs.length - 1; i >= 0; i--){
-      const m = msgs[i], tos = (m.to || []).map(t => seatKeyFor(t) || t);
+      const m = msgs[i], tos = (Array.isArray(m.to) ? m.to : m.to ? [m.to] : []).map(t => seatKeyFor(t) || t);
       const tasked = m.needs_ack;
       if (!tasked) continue;
       for (const k of tos){
@@ -806,9 +872,10 @@ function startPush(){
     es.onmessage = ev => {
       try {
         const f = (JSON.parse(ev.data) || {}).file;
-        if (f === 'deliberation_feed'){ poll(); setTimeout(() => Object.keys(SEATS).forEach(loadInbox), 400); }   // every batch lands in every inbox — the feed event IS the doorbell; 400ms covers daemon write latency
+        if (f === 'deliberation_feed'){ poll(); setTimeout(() => Object.keys(SEATS).forEach(k => { if (!SEATS[k].retired && !SEATS[k].boss) loadInbox(k); }), 400); }   // every batch lands in every inbox — the feed event IS the doorbell; 400ms covers daemon write latency
         else if (typeof f === 'string' && f.indexOf('presence_') === 0) loadPresence(f.slice(9));
         else if (typeof f === 'string' && f.indexOf('busy_') === 0) loadBusy(f.slice(5));   // C27: server watches busy_* mtimes — without this branch BUSY froze at hydrate under push, so tags only ever drew on F5
+        else if (f === 'office_evt') loadOfficeEvt();   // OFFICE chips — event-driven, the file event IS the render trigger
       } catch(e){}
     };
   } catch(e) { armPolling(); }
@@ -859,9 +926,42 @@ function loadInbox(key){
   document.head.appendChild(t);
 }
 function busyMark(k){ const b = BUSY[k]; return !!(b && b.busy && (Date.now() - (b.armed_at || 0)) < (b.ttl_ms || 30000)); }
-function pollPresence(){ for (const key of Object.keys(SEATS)) if (!SEATS[key].retired && !SEATS[key].boss){ loadPresence(key); loadBusy(key); loadInbox(key); } loadPresence('SUPERVISOR'); }   // DVM-922: the watchdog's own lamp rides the same glob
+function pollPresence(){ for (const key of Object.keys(SEATS)) if (!SEATS[key].retired && !SEATS[key].boss){ loadPresence(key); loadBusy(key); loadInbox(key); } loadPresence('SUPERVISOR'); loadOfficeEvt(); }   // DVM-922: the watchdog's own lamp rides the same glob
+/* OFFICE event chips — the ear's own receipt stamps, sole-written by pulse clients (office_evt.js) */
+const OFFICE_EVT = []; let offEvtSeen = 0, lastSessionEar = 0, pendingDm = 0, heardAt = 0;
+function loadOfficeEvt(){
+  const t = document.createElement('script');
+  t.src = 'office_evt.js?_=' + Date.now();
+  t.onload = () => { (window.DVM_OFFICE_EVT || []).forEach(renderOffEvt); window.DVM_OFFICE_EVT = []; t.remove(); };
+  t.onerror = () => t.remove();
+  document.head.appendChild(t);
+}
+function renderOffEvt(ev){
+  if (!ev || ev.ts <= offEvtSeen) return;
+  offEvtSeen = ev.ts;
+  const list = document.getElementById('dmlist'); if (!list) return;
+  if (ev.ev === 'ear_return' && (!ev.src || ev.src === 'session')) relayHealed(ev.ts);
+  // dedupe by batch watermark n — parallel ears stamp the same delivery;
+  // bump the chip's ×N instead of a duplicate row (the double-ear stays visible)
+  const last = list.querySelector('.offevt:last-of-type');
+  if (ev.ev === 'ear_return' && last && +last.dataset.n === ev.n){
+    const c = (+last.dataset.c || 1) + 1;
+    last.dataset.c = c;
+    last.querySelector('.ev-txt').textContent = 'received ' + (ev.msgs || 1) + ' msg(s) → reporting to ' + ev.seat + ' ×' + c;
+    return;
+  }
+  const d = document.createElement('div');
+  d.className = 'st-msg offevt'; d.dataset.n = ev.n; d.style.opacity = '.55'; d.style.fontSize = '.68rem';
+  const hh = new Date(ev.ts).toLocaleTimeString();
+  d.innerHTML = `<span class="st-who" style="color:var(--cyan)">· ear</span><span class="ev-txt">${ev.ev === 'ear_return' ? 'received ' + (ev.msgs || 1) + ' msg(s) → reporting to ' + ev.seat : ev.ev}</span> <i style="opacity:.6">${hh}</i>`;
+  list.appendChild(d);
+  if (activeTab === 'office') list.scrollTop = list.scrollHeight;
+  if (!booting && activeTab !== 'office') unread.office++;
+  syncUnread();
+}
 /* 1s tick — countdown chips + dead-ear seat state (countdown deadline) */
 setInterval(() => {
+  heardCheck();   // OFFICE: HEARD, UNANSWERED rides the ear tick
   for (const key of Object.keys(SEATS)){
     if (!PRESENCE[key]) continue;
     const info = earInfo(key);
@@ -1042,9 +1142,22 @@ function sendBossCmd(prefix){
   bossin.value = prefix + ' ' + v;
   sendBoss();
 }
+async function sendDm(){
+  const text = bossin.value.trim(); if (!text) return;
+  try {
+    const r = await fetch('/dm', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({text})});
+    if (!r.ok) throw new Error('bad status');
+    const res = await r.json();
+    bossin.value = '';
+    (res.msgs || []).forEach(ingest);
+    setSendStat('→ office');
+  } catch(e) { setSendStat('no server reachable'); }
+  setTimeout(() => setSendStat(''), 5000);
+}
 function sendArmed(){
   if (sendMode === 'table') sendBossCmd('/table');
   else if (sendMode === 'side') sendBossCmd('/aside');
+  else if (sendMode === 'dm') sendDm();
   else sendBoss();
 }
 document.getElementById('bosssend').onclick = () => { sendBoss(); setSendMode('send'); setTab('feed'); flashSend(); };
@@ -1314,7 +1427,8 @@ function initDeck3D(THREE, OrbitControls){
 
   const amb = new THREE.AmbientLight(0x2a3550, .9);
   const key = new THREE.PointLight(0xffd9a0, 26, 14); key.position.set(0, 4.2, .4);
-  scene.add(amb, key);
+  const key2 = new THREE.PointLight(0xffd9a0, 26, 14); key2.position.set(0, 4.2, 4.9);   // module 2 key — same warm bulb over the bolt-on
+  scene.add(amb, key, key2);
   /* render-on-dirty scheduler state — declared up top so mark() is safe from
      any init code that runs before the scheduler section below (TDZ fix). */
   let queued = false, interacting = false, settle = 0, breath = 0, stampT = -1, pulseT = -1, pulseK = null;
@@ -1328,11 +1442,20 @@ function initDeck3D(THREE, OrbitControls){
      the same scale split the pipeline uses. The layout below is baked to B —
      chair ring, mounts, sprite heights are chibi constants, not a style toggle. */
   const KIT = [
-    { file:'commission_table', vs:.0093, pos:[0, 0, 0] },
+    { file:'commission_table', vs:.007,  pos:[0, 0, 0], sXZ:1.4 },   // chibi: .38m tall (kept) x 1.4m dia — edge .70 meets the r1.15 chair ring
     { file:'commission_floor', vs:.03,   pos:[0, -.09, 0] },     // chibi grain — 4.5m plate covers the seat ring, tops y=0
+    { file:'commission_floor2', vs:.03,  pos:[0, -.09, 4.5] },   // module 2 — the bolt-on: plain plate (felt inlay re-grained), spans z 2.25..6.75
     { file:'commission_wall',  vs:.03,   pos:[0, 0, -2.295] },   // 4.5x1.8 wall backs the set — front face at z=-2.25
+    { file:'commission_wall',  vs:.03,   pos:[-2.295, 0, 0], rotY: Math.PI / 2, env: true },    // left wall — envelope
+    { file:'commission_wall',  vs:.03,   pos:[2.295, 0, 0],  rotY: -Math.PI / 2, env: true },   // right wall — envelope
+    { file:'commission_wall',  vs:.03,   pos:[-2.295, 0, 4.5], rotY: Math.PI / 2, env: true },   // module 2 left wall — envelope
+    { file:'commission_wall',  vs:.03,   pos:[2.295, 0, 4.5],  rotY: -Math.PI / 2, env: true },  // module 2 right wall — envelope
+    { file:'commission_wall',  vs:.03,   pos:[0, 0, 6.795],  rotY: Math.PI, env: true },      // far wall — the expansion's end cap; the space between stays open (no mid divider)
+    { file:'commission_ceiling', vs:.03, pos:[0, 1.71, 0],   env: true },      // ceiling — coffered: walnut beams hang 9cm below the 1.8m wall line, plaster slab flush on it
+    { file:'commission_ceiling', vs:.03, pos:[0, 1.71, 4.5], env: true },      // module 2 ceiling — continuous coffers over the expansion
     { file:'commission_filecabinet', vs:.0115, pos:[1.85, 0, -2.03], rotY:-.18 },  // 1920s 4-drawer, back-right corner, back flush (D=.44)
   ];
+  const envG = new THREE.Group(); envG.visible = false; envG.name = 'roomEnvelope'; window.__env = envG; scene.add(envG);   // DVM-U envelope — side walls + far cap + ceilings, shown ONLY in possess mode; group view stays the clean stage set (back wall + floor + set only)
   (function loadKit(){
     const g = new THREE.Group(); g.visible = false; scene.add(g);
     let pending = KIT.length;
@@ -1352,7 +1475,9 @@ function initDeck3D(THREE, OrbitControls){
       if (im.instanceColor) im.instanceColor.needsUpdate = true;
       const part = new THREE.Group(); part.add(im); part.position.set(k.pos[0], k.pos[1], k.pos[2]);
       if (k.rotY) part.rotation.y = k.rotY;
-      g.add(part);
+      if (k.rotX) part.rotation.x = k.rotX;
+      if (k.sXZ){ part.scale.x = k.sXZ; part.scale.z = k.sXZ; }   // widen the footprint without touching height (table fill, DVM-U)
+      (k.env ? envG : g).add(part);
     }).catch(() => {}).finally(() => { if (!--pending){ g.visible = true; mark(); } }));
     /* chair kit — one voxel build per seat; metaphor sprites (lamp/plate/work)
        stay primitive — they're state, not furniture. Back faces -z like the set. */
@@ -1476,13 +1601,13 @@ function initDeck3D(THREE, OrbitControls){
   // back wall — the KIT's voxel wall carries the pegboard + neon sign mounts
   // neon phase sign + wall-monitor ticker (boss/sys speech lands here, DVM-014)
   // DVM-U: the sign is also the BURN board — phase+ticker on top, token-usage chart below.
-  const nCan = document.createElement('canvas'); nCan.width = 512; nCan.height = 400;
+  const nCan = document.createElement('canvas'); nCan.width = 512; nCan.height = 436;
   const nTex = new THREE.CanvasTexture(nCan);
-  const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 2.03), new THREE.MeshBasicMaterial({map:nTex, transparent:true}));
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 2.6 * 436 / 512), new THREE.MeshBasicMaterial({map:nTex, transparent:true}));
   sign.position.set(-1.25, 1.05, -2.245); sign.scale.setScalar(.35); scene.add(sign);   // ROOM B wall mount
   function fmtTok(n){ return n >= 1e6 ? (n/1e6).toFixed(2) + 'M' : n >= 1e3 ? Math.round(n/1e3) + 'K' : '' + Math.round(n); }
   function drawSign(txt, color, tick){
-    const c = nCan.getContext('2d'); c.clearRect(0, 0, 512, 400);
+    const c = nCan.getContext('2d'); c.clearRect(0, 0, 512, 436);
     c.font = '800 50px Consolas,monospace'; c.textAlign = 'center'; c.textBaseline = 'middle';
     c.shadowColor = color; c.shadowBlur = 22; c.fillStyle = color;
     c.fillText(txt, 256, 52); c.shadowBlur = 7; c.fillText(txt, 256, 52);
@@ -1506,11 +1631,21 @@ function initDeck3D(THREE, OrbitControls){
       const bmax = Math.max(1, ...u.buckets);
       c.fillStyle = '#39c5cf';
       u.buckets.forEach((v, i) => {
-        const h = Math.max(2, Math.round(58 * v / bmax));
+        const h = Math.max(2, Math.round(46 * v / bmax));
         c.fillRect(18 + i * 20, 292 - h, 15, h);
       });
-      /* ceiling — observed rate-limit hits pinned on the 24h axis */
+      /* limit markers — token-ceiling hits (red) + request-rate/other events (orange) pinned on the 24h axis */
       const obs = (u.ceiling && u.ceiling.obs) || [];
+      const evs = (u.ceiling && u.ceiling.events) || [];
+      const nowS = u.now || Math.floor(Date.now() / 1000);
+      const pin = (tsS, col) => {
+        const hAgo = Math.floor((nowS - tsS) / 3600);
+        if (hAgo < 0 || hAgo > 23) return;
+        const x = 18 + (23 - hAgo) * 20 + 7;
+        c.fillStyle = col; c.beginPath(); c.moveTo(x - 6, 232); c.lineTo(x + 6, 232); c.lineTo(x, 243); c.closePath(); c.fill();
+      };
+      obs.forEach(o => pin(o.ts, '#f85149'));
+      evs.forEach(e => pin(Math.floor(e.at / 1000), '#f0883e'));
       const last = obs[obs.length - 1];
       c.font = '17px Consolas,monospace'; c.textAlign = 'left';
       if (last){
@@ -1524,13 +1659,27 @@ function initDeck3D(THREE, OrbitControls){
         c.fillStyle = '#555c66';
         c.fillText('CEILING — no limit hits logged (hit it → POST /usage/limit)', 18, 320);
       }
-      c.fillStyle = '#555c66'; c.font = '15px Consolas,monospace';
-      c.fillText('input-tok estimate · output/cache untracked', 18, 356);
+      c.font = '16px Consolas,monospace';
+      const r = u.rpm;
+      if (r){
+        c.fillStyle = '#39c5cf';
+        c.fillText('CALLS/min now ' + r.now + ' · peak 1h ' + r.peak_h1 + ' · 24h ' + r.peak_h24, 18, 360);
+      }
+      const rl = evs.filter(e => e.kind === 'rate_limit').length, lastEv = evs[evs.length - 1];
+      c.fillStyle = (obs.length || evs.length) ? '#f0883e' : '#555c66';
+      c.fillText('LIMITS tok×' + obs.length + ' · rate×' + rl + (lastEv ? ' · last ' + new Date(lastEv.at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : ''), 18, 380);
+      if (u.models && u.models.length){
+        const mt = Math.max(1, u.models.reduce((a, m) => a + m.tok24, 0));
+        c.fillStyle = '#8b949e';
+        c.fillText('models: ' + u.models.slice(0, 3).map(m => (m.model || '?').slice(0, 14) + ' ' + Math.round(100 * m.tok24 / mt) + '%').join(' · '), 18, 400);
+      }
       if (u.top && u.top.length){
         const t = u.top[0];
         c.fillStyle = '#8b949e';
-        c.fillText('top: ' + (t.title || t.id).slice(0, 30) + ' ' + fmtTok(t.tok24), 18, 380);
+        c.fillText('top: ' + (t.title || t.id).slice(0, 30) + ' ' + fmtTok(t.tok24), 18, 418);
       }
+      c.fillStyle = '#555c66'; c.font = '13px Consolas,monospace';
+      c.fillText('input-tok estimate · calls = rows w/ context · output/cache untracked', 18, 433);
     }
     nTex.needsUpdate = true;
   }
@@ -1812,7 +1961,8 @@ function initDeck3D(THREE, OrbitControls){
       if (b.op > 0 && (nowS < b.t0 + .45 || nowS > b.until)) bubAct = true;
     }
     if (settle > 0) settle--;
-    controls.update();
+    if (!window.__possessOn) controls.update();   // DVM-2253: the possession boom drives the camera — OrbitControls.update() would clamp it back into the guest range
+    envG.visible = !!window.__possessOn;   // camera-mode rule, not angle math: possess = sealed office; guest/group view = peeled stage set (no edge cases)
     breath += .3;
     for (const k of skeys){ const c = chairs[k];
       if (c.lamp.visible && lampState(k) === 'lit' && pulseK !== k) c.lamp.scale.setScalar(1 + .1 * Math.sin(breath)); }
@@ -1966,8 +2116,10 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
     }
     /* out[3i..3i+2] ← posed voxel-index position of voxel i under (state, gaitTime) */
     function evalPose(state, gt, out) {
-      const g = state === 1 ? gait(gt) : null, k = g && g.pose;   // Idle: rest pose only · Walking: rest pose + gait + bob + shift
       const AS = P.armSwing, LS = P.legStride, EB = P.elbowBend, KB = P.kneeBend, RP = P.restPose, LT = P.legTwist;
+      const g = state === 1 ? gait(gt) : null;                   // Idle: rest pose only · Walking: rest pose + gait + bob + shift
+      const k = state === 11 ? { armSwingL: .2, armSwingR: .2, legStrideL: -1.45, legStrideR: -1.45, kneeBendL: 1.45, kneeBendR: 1.45,   // Sit (animator DEFAULT_PARAMS.sitting): thighs forward ~83°, shins fold down, torso upright, no bob. Stride sign is flipped vs the animator's +1.45 — fitted: all 12,608 voxels land inside the authored vinny_seated_preview composite
+                                  elbowBendL: EB.leftRest, elbowBendR: EB.rightRest, forearmTwistL: EB.twistL, forearmTwistR: EB.twistR } : g && g.pose;
       const armL = mm(rA(AS.axisL, AS.signL * (k ? k.armSwingL : 0)), rZ(RP.leftArmZ)), armR = mm(rA(AS.axisR, AS.signR * (k ? k.armSwingR : 0)), rZ(RP.rightArmZ));
       const legL = mm(rA(LS.axisL, LS.signL * (k ? k.legStrideL : 0)), rY(LT.leftRest)), legR = mm(rA(LS.axisR, LS.signR * (k ? k.legStrideR : 0)), rY(LT.rightRest));
       const twL = k ? k.forearmTwistL : EB.twistL, twR = k ? k.forearmTwistR : EB.twistR;
@@ -2035,32 +2187,118 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
   window.addEventListener('keyup', e => { keys[(e.key || '').toLowerCase()] = false; });
   window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });   // alt-tab with a key down must not leave Vinny walking
   const chPos = new THREE.Vector3(0, 0, 1.85); let chYaw = Math.PI;      // open floor front-center, facing the table (−z)
-  const FLOOR = { x: [-2.15, 2.15], z: [-2.15, 2.15] };          // ROOM B: 4.5m commission_floor plate (tops y=0) − .1 margin
-  const SOLIDS = [[0, 0, .82], [1.85, -2.03, .42]];              // capsule-vs-circle: commission_table ø1.34 + .15 capsule, file cabinet
+  const FLOOR = { x: [-2.15, 2.15], z: [-2.15, 6.65] };          // doubled office: two 4.5m plates span z -2.25..6.75 − .1 margin
+  const SOLIDS = [[0, 0, .85], [1.85, -2.03, .42]];              // capsule-vs-circle: commission_table ø1.40 + .15 capsule, file cabinet
   for (let i = 0; i < 7; i++){                                   // seat ring — same a = i/7·2π − π/2, r = 1.15 as the chair build
     const a = i / 7 * Math.PI * 2 - Math.PI / 2;
     SOLIDS.push([Math.sin(a) * 1.15, Math.cos(a) * 1.15, .3]);
   }
+  /* ── DVM-2253 — possession cam + seat binding. PossessController.cs distances are metres at a ~1.8m human; Vinny is a .62m chibi in a 4.5m room,
+     so every length scales by PS = bodyHeight/1.8 (a verbatim 4m boom would sit outside the walls). Angles, sensitivities, return speed stay verbatim. ── */
+  let maxY = 0; for (const v of rig.voxels) if (v[1] > maxY) maxY = v[1];
+  const VH = (maxY + 1) * VS, PS = VH / 1.8;
+  const EYE_H = VH * .85, SUGGEST = 4 * PS, CAM_PAD = .35 * PS, MIN_ORBIT = .9 * PS, BOOM_RETURN = 7, FURN_H = .9, ROOM = { x: 2.2, z0: -2.2, z1: 6.7, y0: .06, y1: 2.0 };
+  const YAW_SENS = .18 * Math.PI / 180, PITCH_SENS = .15 * Math.PI / 180, PITCH0 = 12 * Math.PI / 180, PITCH_MAX = 85 * Math.PI / 180;
+  let possessed = false, lookYaw = 0, lookPitch = PITCH0, boomCur = -1, guestPos = null, guestTarget = null, seatIdx = -1;
+  const orbit = window.__controls, glCanvas = () => document.querySelector('#deckview canvas');
+  function boomHit(ex, ey, ez, dx, dy, dz) {                     // nearest obstacle along the boom: room box exit + furniture cylinders (SOLIDS are circles, capped at furniture height)
+    let t = Infinity;
+    if (dx > 1e-6) t = Math.min(t, (ROOM.x - ex) / dx); else if (dx < -1e-6) t = Math.min(t, (-ROOM.x - ex) / dx);
+    if (dz > 1e-6) t = Math.min(t, (ROOM.z1 - ez) / dz); else if (dz < -1e-6) t = Math.min(t, (ROOM.z0 - ez) / dz);
+    if (dy > 1e-6) t = Math.min(t, (ROOM.y1 - ey) / dy); else if (dy < -1e-6) t = Math.min(t, (ROOM.y0 - ey) / dy);
+    for (const q of SOLIDS) {
+      const ox = ex - q[0], oz = ez - q[1], a = dx * dx + dz * dz, c = ox * ox + oz * oz - q[2] * q[2];
+      if (a < 1e-9 || c <= 0) continue;
+      const bb = ox * dx + oz * dz, disc = bb * bb - a * c; if (disc < 0) continue;
+      const th = (-bb - Math.sqrt(disc)) / a, hy = ey + dy * th;
+      if (th > 0 && th < t && hy >= 0 && hy <= FURN_H) t = th;
+    }
+    return t;
+  }
+  function driveCam(dt) {                                        // look is immediate (no smoothing); only the boom length eases
+    const hz = Math.cos(lookPitch), dx = -hz * Math.sin(lookYaw), dy = Math.sin(lookPitch), dz = -hz * Math.cos(lookYaw);
+    let want = SUGGEST; const hit = boomHit(chPos.x, EYE_H, chPos.z, dx, dy, dz);
+    if (hit < want + CAM_PAD) want = Math.max(MIN_ORBIT, hit - CAM_PAD);
+    boomCur = (boomCur < 0 || want < boomCur) ? want : boomCur + (want - boomCur) * Math.min(1, BOOM_RETURN * dt);
+    camera.position.set(chPos.x + dx * boomCur, EYE_H + dy * boomCur, chPos.z + dz * boomCur);
+    camera.lookAt(chPos.x, EYE_H, chPos.z);
+    return Math.abs(boomCur - want) > .002;
+  }
+  function grab() {
+    if (possessed || DECK.mode !== '3d' || !orbit) return;
+    possessed = true; window.__possessOn = true; window.__env.visible = true;   // sealed office the instant the mode flips — no frame lag
+    guestPos = camera.position.clone(); guestTarget = orbit.target.clone();
+    orbit.enabled = false; lookYaw = chYaw; lookPitch = PITCH0; boomCur = -1;
+    const c = glCanvas(); if (c && c.requestPointerLock) { try { c.requestPointerLock(); } catch (e) {} }
+    kick();
+  }
+  function release() {                                           // boss override: back to the guest-clamped view (Unity freezes the shot — this returns it)
+    if (!possessed) return;
+    possessed = false; window.__possessOn = false; window.__env.visible = false;   // back to the peeled stage set
+    if (document.pointerLockElement) document.exitPointerLock();
+    camera.position.copy(guestPos); orbit.target.copy(guestTarget); orbit.enabled = true; orbit.update();
+    DECK.dirty();
+  }
+  const RING = []; for (let i = 0; i < 7; i++) { const a = i / 7 * Math.PI * 2 - Math.PI / 2, sx = Math.sin(a), cz = Math.cos(a); RING.push({ x: sx * 1.15, z: cz * 1.15, ux: sx, uz: cz, yaw: Math.atan2(-sx, -cz) }); }
+  const SEAT_OFF = [.01, -.01, .04];                             // CH origin in the chair's frame — solved against the authored vinny_seated_preview composite (zero clipping)
+  const SEAT_REACH = .85, STAND_R = 1.75;
+  function sit() {
+    let bi = -1, bd = SEAT_REACH;
+    RING.forEach((c, i) => { const d = Math.hypot(chPos.x - c.x, chPos.z - c.z); if (d <= bd) { bd = d; bi = i; } });
+    if (bi < 0) return;
+    const c = RING[bi], cy = Math.cos(c.yaw), sy = Math.sin(c.yaw);
+    release();                                                   // seating always hands the camera back to the guest view
+    seatIdx = bi; chYaw = c.yaw;
+    chPos.set(c.x + SEAT_OFF[0] * cy + SEAT_OFF[2] * sy, 0, c.z - SEAT_OFF[0] * sy + SEAT_OFF[2] * cy);
+    kick();
+  }
+  function stand(resume) {                                       // push back from the table; any seat key stands him, possession resumes
+    if (seatIdx < 0) return;
+    const c = RING[seatIdx]; seatIdx = -1;
+    chPos.set(c.ux * STAND_R, 0, c.uz * STAND_R); chYaw = c.yaw;
+    if (resume) grab();
+    kick();
+  }
+  window.addEventListener('keydown', e => {
+    if (typing(e) || e.ctrlKey || e.metaKey || e.altKey || e.repeat || DECK.mode !== '3d') return;
+    const k = (e.key || '').toLowerCase();
+    if (k === 'g') { if (possessed) release(); else if (seatIdx >= 0) stand(true); else grab(); }
+    else if (k === 'e') { if (seatIdx >= 0) stand(true); else sit(); }
+    else if (k === 'escape') release();
+    else if (seatIdx >= 0 && /^[wasd]$/.test(k)) stand(true);
+  });
+  window.addEventListener('mousemove', e => {
+    if (!possessed || (document.pointerLockElement !== glCanvas() && !(e.buttons & 1))) return;   // locked look, or drag-look when the lock was refused
+    lookYaw -= e.movementX * YAW_SENS;                           // three is right-handed: turning right = decreasing yaw (Unity's += is its left-handed mirror)
+    lookPitch = Math.max(-PITCH_MAX, Math.min(PITCH_MAX, lookPitch + e.movementY * PITCH_SENS));
+    kick();
+  });
+  document.addEventListener('pointerlockchange', () => { if (possessed && document.pointerLockElement !== glCanvas()) release(); });   // Esc exits the lock → release
   function step(dt) {
-    const f = (keys.w ? 1 : 0) - (keys.s ? 1 : 0), r = (keys.d ? 1 : 0) - (keys.a ? 1 : 0), ox = chPos.x, oz = chPos.z;
+    const seated = seatIdx >= 0;
+    const f = seated ? 0 : (keys.w ? 1 : 0) - (keys.s ? 1 : 0), r = seated ? 0 : (keys.d ? 1 : 0) - (keys.a ? 1 : 0), ox = chPos.x, oz = chPos.z;
     if (f || r) {
-      const cx = chPos.x - camera.position.x, cz = chPos.z - camera.position.z, cl = Math.hypot(cx, cz) || 1, fx = cx / cl, fz = cz / cl;   // camera look direction on the floor (W = away from the lens)
+      let fx, fz;
+      if (possessed) { fx = Math.sin(lookYaw); fz = Math.cos(lookYaw); }
+      else { const cx = chPos.x - camera.position.x, cz = chPos.z - camera.position.z, cl = Math.hypot(cx, cz) || 1; fx = cx / cl; fz = cz / cl; }   // camera look direction on the floor (W = away from the lens)
       const dx = fx * f - fz * r, dz = fz * f + fx * r, len = Math.hypot(dx, dz) || 1, spd = WALK * (keys.shift ? SPRINT : 1);                 // right = forward × up = (−fz, fx)
       const vx = dx / len * spd, vz = dz / len * spd;
-      let dy = Math.atan2(vx, vz) - chYaw; while (dy > Math.PI) dy -= 2 * Math.PI; while (dy < -Math.PI) dy += 2 * Math.PI;
+      let dy = (possessed ? lookYaw : Math.atan2(vx, vz)) - chYaw; while (dy > Math.PI) dy -= 2 * Math.PI; while (dy < -Math.PI) dy += 2 * Math.PI;   // possessed: face the aim, turn-speed capped
       chYaw += Math.sign(dy) * Math.min(Math.abs(dy), TURN * dt);
       chPos.x += vx * dt; chPos.z += vz * dt;
     }
-    chPos.x = Math.max(FLOOR.x[0], Math.min(FLOOR.x[1], chPos.x));
-    chPos.z = Math.max(FLOOR.z[0], Math.min(FLOOR.z[1], chPos.z));
-    for (const s of SOLIDS) {                                     // capsule→circle pushout
-      const px = chPos.x - s[0], pz = chPos.z - s[1], rr = s[2] + .15, d = Math.hypot(px, pz);
-      if (d < rr && d > 1e-4) { chPos.x = s[0] + px / d * rr; chPos.z = s[1] + pz / d * rr; }
+    if (!seated) {
+      chPos.x = Math.max(FLOOR.x[0], Math.min(FLOOR.x[1], chPos.x));
+      chPos.z = Math.max(FLOOR.z[0], Math.min(FLOOR.z[1], chPos.z));
+      for (const s of SOLIDS) {                                   // capsule→circle pushout
+        const px = chPos.x - s[0], pz = chPos.z - s[1], rr = s[2] + .15, d = Math.hypot(px, pz);
+        if (d < rr && d > 1e-4) { chPos.x = s[0] + px / d * rr; chPos.z = s[1] + pz / d * rr; }
+      }
     }
-    CH.position.copy(chPos); CH.rotation.y = chYaw;
+    CH.position.set(chPos.x, seated ? SEAT_OFF[1] : 0, chPos.z); CH.rotation.y = chYaw;
     const hs = Math.hypot(chPos.x - ox, chPos.z - oz) / dt;       // MEASURED speed after collision — a blocked Vinny stops walking in place
     const was = state === 1 || transT >= 0;
-    if (hs > MOVE_EPS) { state = 1; walkSpeed = Math.min(2, Math.max(.5, hs * .5)); } else state = 0;
+    if (seated) state = 11; else if (hs > MOVE_EPS) { state = 1; walkSpeed = Math.min(2, Math.max(.5, hs * .5)); } else state = 0;
     if (state !== prevState) { transFrom = prevState; prevState = state; transT = 0; }
     gaitTime += dt * walkSpeed;
     if (transT >= 0) {
@@ -2068,8 +2306,9 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
       blend = t * t * (3 - 2 * t); dip = -Math.sin(Math.PI * t) * TRANS_DIP;
       if (t >= 1) { transT = -1; blend = 1; dip = 0; }
     }
-    if (was || state === 1 || transT >= 0) pose();                // the settled idle pose never re-evaluates
-    return keys.w || keys.a || keys.s || keys.d || state === 1 || transT >= 0;
+    if (was || state === 1 || transT >= 0) pose();                // the settled idle/seated pose never re-evaluates
+    const camBusy = possessed ? driveCam(dt) : false;
+    return (!seated && (keys.w || keys.a || keys.s || keys.d)) || state === 1 || transT >= 0 || camBusy;
   }
   /* the deck is render-on-dirty — the loop runs only while Vinny is live, and marks the scene dirty every frame it moves him */
   let raf = 0, last = 0;
@@ -2082,7 +2321,7 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
     DECK.dirty();
     if (busy) raf = requestAnimationFrame(loop);
   }
-  window.__vinny = { root: CH, mesh: inst, engine: E, anim: () => ({ state, walkSpeed, gaitTime, blend, yaw: chYaw, pos: chPos.toArray() }) };   // console/debug handle
+  window.__vinny = { root: CH, mesh: inst, engine: E, anim: () => ({ state, walkSpeed, gaitTime, blend, yaw: chYaw, pos: chPos.toArray() }), cam: { grab, release, sit, stand, info: () => ({ possessed, seatIdx, lookYaw, lookPitch, boomCur, EYE_H, SUGGEST, CAM_PAD, MIN_ORBIT }) } };   // console/debug handle
   pose(); DECK.dirty();                                          // spawn posed: Idle, arms down, dressed
   console.log('DVM-2252 — Vinny loaded:', N, 'voxels · Civilian_01 outfit · Idle/Walking pose engine');
 })();

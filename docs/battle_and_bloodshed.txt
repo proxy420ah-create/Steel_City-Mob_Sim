@@ -1,0 +1,26 @@
+"paint brush" spawning system
+Where i can select Vinny
+or Tan Suit
+And drop them into scene during setup phase
+( running week free cam , new HUD settings for mass combat )
+
+upgrade 9 city blocks into "battle field"
+introduce the alley way in the center
+
+after im done placing and adding units, add selection system RTS style
+so i can give orders to both groups.
+
+i plan on selecting all, giving them a point A to group up
+Then a Point B to walk
+
+initially we can have 4 units each side, set to collide in middle
+group patrol logic
+
+#########################################
+
+Wounds
+Limb Specific Feasible
+locational voxel "charring" identical to building demolition charring, except its bloodshed/ seepage.
+wounded characters leave "red char" on voxels they walk over indicating bleeding/ blood trail
+HUD Lt. Team members limb condition portraits have simple voxel/pixel dot indicating where projectile hit 
+As well as color coordinated damage levels indicating usage capability.

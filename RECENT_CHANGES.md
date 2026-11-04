@@ -1,3 +1,44 @@
+## November 3, 2026 — DVM-2253 possess cam + seat binding — bench build (BOSS-directed), headless-verified
+
+### Changed
+- **Possession cam**: `G` toggles a third-person boom pinned behind Vinny at eye = VH*0.85 (VH = real voxel bounds .62m); pointer lock on the deck canvas, drag-look fallback; OrbitControls disabled and `controls.update()` skipped while `__possessOn` (the frame loop would otherwise re-clamp the camera every frame). Mouse look is 1:1 with verbatim sensitivities (yaw .18 deg/px, pitch .15 deg/px, clamp +-85 deg); turning right = lookYaw -= dx*sens (three.js handedness). Boom collision: room box exit + ray-vs-capped-cylinder over SOLIDS (FURN_H .9), snap in / ease out at BOOM_RETURN 7. All Unity distances scaled by PS = VH/1.8 (SUGGEST 1.38m, CAM_PAD .12, MIN_ORBIT .31).
+- **Seat binding**: `E` seats at the nearest chair within .85m (ring of 7 at r1.15) at SEAT_OFF [.01,-.01,.04] in the chair group frame - fitted against the authored vinny_seated_preview composite (all 12,608 voxels, 0 clipping, 56 pad-contact cells). Sit pose = animator DEFAULT_PARAMS.sitting as state 11, legStride sign flipped in this port (-1.45 vs +1.45). Any seat key stands him at radius 1.75 facing the table and re-possesses; E/G release restores the SAVED guest camera + target exactly.
+- While possessed, WASD uses lookYaw as forward and chYaw slerps to the aim (turn-speed capped); while seated, movement/pushout skipped, pose transitions to 11 over .32s.
+
+### Verified (headless Edge, CDP, SwiftShader)
+- G snap behind (camera behind him along facing, orbit disabled), look d=-0.3142 rad for dx=+100px (exact), pitch clamp, boom pulls to MIN_ORBIT near walls, guest camera restored byte-exact on release, seatIdx 2 sit at (0.237,1.084), stand at radius 1.750, G-while-seated stands+possesses. Screenshot: seated pose reads correctly.
+- Numerical: Sit output fits the authored composite 12,608/12,608; zero chair overlap.
+- Caveat: headless RAF is throttled, so blend frames lag - real browsers render the .32s transitions live.
+
+### Files Modified
+- `docs/DELIBERATION_MACHINE.html` - Sit state in the embedded pose engine; possession/seat controller block (~130 lines); controls.update() gate
+- `docs/drafts/DVM-2253_possess_cam.md` - v0.2 as-built amendment
+### Also this session
+- **Office side walls** - the room's left/right faces now reuse the `commission_wall` brick item (two KIT entries, rotY +-90deg at x=+-2.295); front stays open for the guest camera. Verified headless: both interiors show brick; Vinny bounds (+-2.15) and the possess ROOM box (+-2.2) were already inside the new faces.
+- **Room envelope trick** - a real front wall (brick, rotY PI) + ceiling (authored commission_ceiling item: 3x3 coffer grid — walnut beams hang 9cm below the 1.8m wall line, plaster slab flush on it) now exist in a separate `roomEnvelope` group (window.__env). The envelope is CAMERA-MODE keyed (not angle math): __possessOn -> all walls+ceiling appear (sealed office); guest/group view -> back wall + floor + set only (peeled stage set). Set instantly in grab()/release() via window.__env; frame() line is a consistency net. Verified headless: guest cam hides envelope, possess shows it, release restores.
+- **Table scaled to chibi** - commission_table vs .0093 -> .007: was .50m tall (80% of .62m Vinny), now .38m tall (kept) x 1.4m dia via new sXZ XZ-scale knob on the KIT loader — edge .70 fills to the r1.15 chair ring. Chairs/seat binding unchanged (keyed to chair positions).
+- **Office doubled (module 2)** - the room extends +4.5m toward the open face: second floor plate (new commission_floor2 item — felt disc re-planked so the expansion is bare), both side walls duplicated, coffered ceiling duplicated into the envelope, second warm key light over the module. The mid front wall was REMOVED (open plan, one continuous space); the envelope end-wall moved to the far cap z=+6.795. All side walls + far cap + both ceilings now live in the envelope (7 parts). Vinny can now roam the expansion: FLOOR z -> [-2.15, 6.65], possess ROOM box z -> [-2.2, 6.7] (boomHit z-slab asymmetric); table SOLID r .82 -> .85 for the 1.4m top.
+
+
+## November 3, 2026 — OFFICE lane, relay observability, BURN board limits, spend-discipline fixes — bench, boss-verified live in part
+
+### Changed
+- **OFFICE lane (CHAIR<->BOSS drafting tab)**: new `kind:'dm'` feed messages via `POST /dm`; third tab in the dashboard; `/pulse` filters dms out of any seat batch that is not addressed (posting a dm never wakes a seat).
+- **Relay observability**: `commission_pulse.py` stamps `office_evt.js` (`ear_return`, `src`, `n`) on each one-shot return; server SSE now watches it; OFFICE pane renders deduped ear chips (xN on the same watermark), a red RELAY DOWN chip (dm unheard after 30s) and an amber HEARD, UNANSWERED chip (5m). Fixed: stamp path used an undefined `HERE` (silent NameError), false-alarm timing, chips only rendering on manual flush (loader was unreachable under SSE).
+- **BURN board**: limit markers on the 24h axis (red token-ceiling, orange events), CALLS/min now+peaks, limiter tally, model split. `/usage` adds `rpm`, `cbuckets`, `models`; new `POST /usage/event`; ledger `events[]` (2 rate_limit events stamped). Canvas 512x436.
+- **Self-echo filter**: `/pulse` drops a seat's own posts (`pulse_batch()`, unit-tested 4 cases) — an echo cost a full-context turn for nothing.
+- **Rules**: `.devin/rules/commission-relay.md` (always-on): ear re-arm + end-of-turn ritual, lanes, channel fidelity, write discipline, spend discipline. Read-delta contract folded into COMMISSION_PROTOCOL.md by ARCHITECT. Re-seat brief `docs/contexts/CHAIR_reseat.md` (files[] row CTX-CHAIR).
+
+### Findings
+- Request-rate limiter trips on bursts (peak 72 calls/min at 00:52 UTC; median 6, p90 41). CHAIR = 37% of tokens at ~100K input/call.
+
+### Files Modified
+- `docs/commission_server.py`, `docs/commission_pulse.py`, `docs/DELIBERATION_MACHINE.html`, `docs/usage_ledger.json`, `docs/COMMISSION_PROTOCOL.md`, `docs/contexts/CHAIR_reseat.md` (new), `.devin/rules/commission-relay.md` (new, workspace root)
+
+### Not yet verified live
+- BURN board render of the new rows/markers (page needs F5; script parses, endpoints respond).
+
+
 
 ## November 2, 2026 — DVM-2252 Vinny rebuilt to Unity parity + ROOM A retired (DVM-2253) — SHIPPED + boss-verified live ("walk and everything works exactly right")
 

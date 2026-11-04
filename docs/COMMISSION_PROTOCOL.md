@@ -20,6 +20,7 @@ taking a seat. The live protocol rules are ALSO embedded in `deliberation_feed.j
 | `presence_<SEAT>.js` | Side-channel ear state — **heartbeat contract (DVM-020 C9a)**: a live watcher re-stamps every ~10s with `ttl_ms=30000`; `armed_at` reads *last seen alive*, and `beat:true` marks heartbeat-era records. A dead ear stops beating → the lamp reads DARK within ≤30s. `pulse_at` retained for compat only. Litter-owner (DVM-011): retiring/renaming a seat sweeps its `presence_<OLD>.js`; orphans (seat outside `SEATS{}`) — finder deletes |
 | `drafts/` | Implement drafts (`DVM-###_*.md`) — ARCHITECT artifacts, INFORMANT-gated |
 | `induction_<SEAT>.txt` | Seat induction prompts — one line seats a member |
+| `read_n_<SEAT>.js` | THE READ-SIDE STAMP — `window.DVM_READ_<SEAT> = {"n":…,"at":…}`; sole-written by the seat's session side (never the daemon). Pairs with `inbox_n_<SEAT>.js` to surface delivered-but-uncarried; see *Read-delta contract* |
 
 ---
 
@@ -124,9 +125,14 @@ window.DVM_FEED = {
 - **Server endpoints**: `POST /boss` (boss text; stamps `proposal.status:'go'` on an
   @BUTTON-addressed `/\bGO\b/i` message post-verdict — DVM-014), `/table`, `/adjourn`,
   `/reconvene`, `GET /events` (SSE change signals — DVM-010).
-- **Registers (DVM-013 header law)**: a seat that writes a draft/induction registers
-  its `board.files[]` row in the same write; staged DVMs live in `board.staged[]` with
-  full `detail` on the bus — tabling evicts the staged row (server `/table` included).
+- **Registers (DVM-013 header law, strengthened boss decree post-C29/C30):** a seat
+  that writes a draft/induction — **or ANY deliverable file that should reach the
+  FILES navigator** — registers its `board.files[]` row in the same write. New
+  files get new rows, always (DVM-2253 violated this — file landed, no row, boss
+  caught it). A moved/renamed file updates its row's `path` in the move's write —
+  rows are snapshots, never live scans, so drift is silent 404 (C29). Staged DVMs
+  live in `board.staged[]` with full `detail` on the bus — tabling evicts the
+  staged row (server `/table` included).
 - **BUTTON contract**: build-report writes stamp `proposal.status='built'` in the
   same atomic write (DVM-014 binding amendment). Delegated-seat rule
   (DVM-019 C8-A): the BUTTON stays in `seats[]` and is boss-routable —
@@ -243,6 +249,13 @@ window.DVM_FEED = {
   briefings clean; member voices reach the boss through the moderator.
   The one bypass: a boss `@SEAT` ask explicitly names its responder —
   the named seat replies directly (addressed wake + boss routing).
+  **Fresh-read-at-close rider (CHAIR-1220 lesson):** before any roster,
+  tally, or consolidation closes, re-read the feed tail fresh — never
+  consolidate off the relay's last-delivered state. The ear returns on
+  the FIRST new message; anything that landed while the relay was
+  already back is invisible to it. AUDITOR-252 posted 82s before the
+  consolidation that called him absent — the file was right, the last
+  pulse state was stale.
 - **Naming stamps the register (ratified, CHAIR-922/923 round-robin,
   proven live on BUTTON + AUDITOR + INFORMANT):** a grant that names a
   seat MUST stamp `turn` + `turn_at` to that seat in the same write —
@@ -571,6 +584,36 @@ this is the corrected law.)
   slot — not in parallel, not out of turn.
 - Content per slot: presence/ear state, inbox watermark, and one line of
   current labor. Short. The sound-off is a status report, not a debate slot.
+
+## Read-delta contract (folded law, 2026-11-03)
+
+The daemon counts DELIVERED batches; nothing counted READ ones — that was the
+delivered-but-uncarried hole the OFFICE lane exposed (a session relay dies
+silently while the daemon keeps writing). The contract adds the read side as a
+second sole-written stamp; the gap between them IS the deafness surface.
+
+- **Schema** — `read_n_<SEAT>.js` carries `window.DVM_READ_<SEAT> = {"n":<int>,"at":<ms>};`
+  mirroring `inbox_n_<SEAT>.js` (`{n, at}`). Script-tag loadable, SSE-watched like
+  the other stamps.
+- **Writer** — the seat's *session side* sole-writes it (the host/relay that
+  consumes deliveries). The daemon never touches it — two files, two sole
+  writers, one comparison. A dead host stops stamping, so the delta cannot lie
+  (AUDITOR's property).
+- **Drain points** — `read_n` advances only when the session has consumed
+  deliveries: (1) on pulse return — stamp `n` to the returned batch's `n`;
+  (2) on wake/drain — stamp `n` to `inbox_n` at drain; (3) never above
+  `inbox_n` (a seat cannot have read what wasn't delivered — clamp).
+- **Cold start** — a fresh session's first stamp initializes `read_n` to the
+  current `inbox_n` ("born caught-up", same convention as the pulse's
+  cold-start init). The delta then measures only deliveries during that
+  session's watch.
+- **The surface** — `deaf_n = inbox_n - read_n`, sustained `> 0` =
+  delivered-but-uncarried. The renderer loads `read_n_*` exactly like
+  `inbox_n_*` and the gap drives the amber HEARD-UNANSWERED chip — no new
+  plumbing, same stamp-file grammar.
+- **Honesty boundary** — `read_n` is a *carriage* claim ("I consumed through
+  n"), never a cognition proof. It measures whether mail reached the host,
+  not whether the host understood it.
 
 ## Verified
 

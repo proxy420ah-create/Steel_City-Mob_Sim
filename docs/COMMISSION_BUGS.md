@@ -26,6 +26,7 @@
 | C18 | [Feed id collision eats seat speech via reader dedup](#c18) | 🟢 FIXED (CHAIR renumber + max(prefix)+1 issuance law) | 🟡 HIGH | 2026-10-31 |
 | C29 | [files[] row snapshot drift — draft card 404s on a live file](#c29) | 🟡 FIX APPLIED (bench: BUTTON+ARCHITECT path repair; residual rail-note open) | 🟢 MEDIUM | 2026-11-02 |
 | C30 | [msg.to shape drift — string `to:` crashes two readers](#c30) | 🔴 ACTIVE (cataloged during DVM-2252 verification) | 🟢 MEDIUM | 2026-11-02 |
+| C30 | [to: string crashes render + BOSS inbox 404](#c30) | 🟢 FIXED (bench, CHAIR-1212) | 🟢 MEDIUM | 2026-11-02 |
 
 ---
 
@@ -412,3 +413,25 @@ Normalize at read, not at each site: const tos = [].concat(m.to || []) - same id
 
 ## Law for any fresh session reading this
 - **Feed fields are schema-lax at the edges** - hand-stamped and legacy-path messages don't always honor the array contract. Readers that assume shape should normalize ([].concat(x||[])) instead of indexing directly.
+
+## C30 — to: String Crashes Render Block + BOSS inbox_n 404
+
+**Status**: FIXED (bench) - **Severity**: MEDIUM (one render block dies per repaint) - **Filed**: 2026-11-02 (boss-479/480 console capture)
+
+## Defect
+Two symptoms, two causes:
+1. `(intermediate value).map is not a function` — CHAIR-1209 wrote `to:'BUTTON'` as a bare string; both renderer sites (`msg.to` chips ~L548, pendingTask scan ~L727) map it as an array. String has no .map -> safe() caught it, but the block died every repaint.
+2. `GET /inbox_n_BOSS.js 404` — the feed-event doorbell (L809) called loadInbox on every SEATS key including BOSS (no daemon, no file) and retired HISTORIAN. pollPresence already filtered them; the doorbell loop didn't.
+
+## Fix
+- Feed row normalized: string `to` -> `[to]` (1 row repaired).
+- Both map sites hardened: `Array.isArray ? arr : to ? [to] : []` — a string `to` now renders correctly instead of killing the block.
+- Doorbell loop gated on `!retired && !boss` — same predicate as pollPresence. BOSS/HISTORIAN no longer 404.
+
+---
+
+## C31 — scope drift on shared scene objects (FIXED 2026-11-03)
+- **Symptom**: `grab()` threw ReferenceError on `envG.visible` — the possession cam broke silently (eval returned undefined; `__possessOn` had already flipped).
+- **Root cause**: `envG` is a const local to the KIT/envelope block; the Vinny cam block lives in a different scope inside the same file. Copying the frame() line's bare `envG` into grab()/release() assumed shared scope — two sibling scopes in one file, a repeat of the C30 "same file different shape" class.
+- **Fix**: grab()/release() use `window.__env` (the debug handle set at envG creation). Rule of thumb: cross-block scene objects travel by the `window.__*` handles; bare identifiers only inside their own block.
+- **Caught by**: the env-check driver returning `undefined` on grab — headless eval-as-test caught what a parse check can't.

@@ -91,6 +91,8 @@ def usage_report():
         per = {}   # sid -> {wn: [turns, tokens]}
         tot = {wn: [0, 0] for wn, _ in U_WINDOWS}
         buckets = [0] * 24                    # hourly token buckets, oldest → newest
+        cbuckets = [0] * 24                   # hourly CALL buckets (rows that carried context)
+        minutes, c60 = {}, 0                  # per-minute call counts → request-rate metrics
         for sid, ca, tp in con.execute(
                 'select session_id, created_at, coalesce('
                 "json_extract(metadata,'$.num_tokens_preceding'),0) "
@@ -100,6 +102,13 @@ def usage_report():
             b = int((now - ca) // 3600)
             if 0 <= b < 24:
                 buckets[23 - b] += tp
+                if tp > 0:
+                    cbuckets[23 - b] += 1
+            if tp > 0:
+                mk = int(ca // 60)
+                minutes[mk] = minutes.get(mk, 0) + 1
+                if ca >= now - 60:
+                    c60 += 1
             for wn, span in U_WINDOWS:
                 if ca >= now - span:
                     if sid not in per:
@@ -110,6 +119,16 @@ def usage_report():
                     tot[wn][1] += tp
         con.close()
         rep['buckets'] = buckets
+        rep['cbuckets'] = cbuckets
+        m1h = [v for k, v in minutes.items() if k >= (now - 3600) // 60]
+        rep['rpm'] = {'now': c60, 'peak_h1': max(m1h, default=0), 'peak_h24': max(minutes.values(), default=0),
+                      'calls_h1': sum(m1h), 'calls_h24': sum(minutes.values())}
+        models = {}
+        for sid, sw in per.items():
+            mname = (sess.get(sid, {}).get('model') or 'unknown')
+            e = models.setdefault(mname, {'tok24': 0, 'calls24': 0})
+            e['tok24'] += sw['h24'][1]; e['calls24'] += sw['h24'][0]
+        rep['models'] = sorted(({'model': k, **v} for k, v in models.items()), key=lambda x: -x['tok24'])[:4]
         for wn, _ in U_WINDOWS:
             t = tot[wn]
             rep['windows'][wn] = {'turns': t[0], 'tokens': t[1],
@@ -137,6 +156,23 @@ def mark_limit():
     led.setdefault('obs', []).append(obs)
     _ledger_write(led)
     return {'ok': True, 'obs': obs, 'n': len(led['obs'])}
+
+def mark_event(kind, note, model=''):
+    """BOSS reports a non-token limiter (request rate, model cap…): events[]
+    pin on the BURN chart's 24h axis beside the token-ceiling observations."""
+    led = _ledger_read()
+    ev = {'at': int(time.time() * 1000), 'kind': str(kind)[:24] or 'event',
+          'model': str(model)[:40], 'note': str(note)[:300]}
+    led.setdefault('events', []).append(ev)
+    _ledger_write(led)
+    return {'ok': True, 'event': ev, 'n': len(led['events'])}
+
+def pulse_batch(msgs, since, seat):
+    """What a seat's doorbell is worth waking for: drop other seats' OFFICE dms
+    and the seat's own posts (a self-echo buys a full-context turn for nothing)."""
+    return [m for m in msgs[since:]
+            if m.get('speaker') != seat
+            and (m.get('kind') != 'dm' or seat in (m.get('to') or []))]
 
 def load_feed():
     try:
@@ -210,7 +246,7 @@ class Handler(SimpleHTTPRequestHandler):
         mtimes, beat = {}, time.time()
         try:
             while True:
-                files = [FILE] + glob.glob(os.path.join(HERE, 'presence_*.js')) + glob.glob(os.path.join(HERE, 'busy_*.js'))
+                files = [FILE] + glob.glob(os.path.join(HERE, 'presence_*.js')) + glob.glob(os.path.join(HERE, 'busy_*.js')) + glob.glob(os.path.join(HERE, 'office_evt.js'))
                 for f in files:
                     name = os.path.basename(f)[:-3]      # deliberation_feed / presence_<SEAT>
                     try: mt = os.stat(f).st_mtime
@@ -230,6 +266,13 @@ class Handler(SimpleHTTPRequestHandler):
         if path == '/usage/limit':
             try:
                 return self._ok(mark_limit())
+            except Exception as e:
+                return self._ok({'ok': False, 'err': str(e)}, 400)
+        if path == '/usage/event':
+            try:
+                n = int(self.headers.get('Content-Length', 0))
+                obj = json.loads(self.rfile.read(n) or b'{}')
+                return self._ok(mark_event(obj.get('kind', 'event'), obj.get('note', ''), obj.get('model', '')))
             except Exception as e:
                 return self._ok({'ok': False, 'err': str(e)}, 400)
         if path == '/room/lights':
@@ -291,6 +334,28 @@ class Handler(SimpleHTTPRequestHandler):
             except Exception as e:
                 self._ok({'ok': False, 'err': str(e)}, 400)
             return
+        if self.path.rstrip('/') == '/dm':
+            # OFFICE lane — CHAIR↔BOSS drafting channel. kind:'dm' stays in the
+            # feed (organizational privacy, not crypto) but the /pulse filter
+            # keeps it out of unaddressed seat batches — no wakes, no spend.
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                body = json.loads(self.rfile.read(length) or b'{}')
+                text = (body.get('text') or '').strip()
+                if not text:
+                    return self._ok({'err': 'empty'}, 400)
+                data = load_feed()
+                if not data:
+                    return self._ok({'err': 'feed unreadable'}, 500)
+                msgs = data.setdefault('messages', [])
+                who = 'CHAIR' if body.get('who') == 'CHAIR' else 'BOSS'
+                msgs.append({'id': 'dm-%d' % len(msgs), 'speaker': who, 'kind': 'dm',
+                             'to': body.get('to') or (['CHAIR'] if who == 'BOSS' else ['BOSS']),
+                             'ts': int(time.time() * 1000), 'text': text})
+                save_feed(data)
+                return self._ok({'ok': True, 'n': len(msgs), 'msgs': [msgs[-1]]})
+            except Exception as e:
+                return self._ok({'err': str(e)}, 400)
         if self.path.rstrip('/') != '/boss':
             self.send_error(404); return
         try:
@@ -423,8 +488,13 @@ class Handler(SimpleHTTPRequestHandler):
                         # flap-window fix: a delivered doorbell earns a longer
                         # fuse — the seat is ACTING on the batch, not dead.
                         # 90s to act + re-arm before the lamp may go dark.
+                        batch = pulse_batch(msgs, since, seat)
+                        if not batch:
+                            # nothing worth waking for: another seat's dm (OFFICE
+                            # lane is invisible to the room) or only this seat's
+                            # own echo — keep holding.
+                            time.sleep(0.8); continue
                         pulse_stamp(seat, ttl_ms=90000, via='pulse-doorbell', force=True)
-                        batch = msgs[since:]
                         return self._ok({'new': True, 'n': n, 'msgs': batch,
                                          'turn': d.get('turn'),
                                          'your_turn': d.get('turn') == seat,

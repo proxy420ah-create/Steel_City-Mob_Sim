@@ -72,6 +72,21 @@ while True:
               flush=True)
         if not FOLLOW:
             stamp_n(d['n'])                     # the watermark the seat resumes at
+            # OFFICE event chip — the ear's receipt stamp, renderer shows the relay live
+            try:
+                import io as _io
+                ev = {'ev': 'ear_return', 'seat': SEAT, 'n': d['n'],
+                      'src': 'daemon' if FOLLOW else 'session',
+                      'msgs': len(d.get('msgs', [])), 'ts': int(time.time() * 1000)}
+                p = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'office_evt.js')
+                try:
+                    cur = json.loads(_io.open(p, encoding='utf-8').read().split('=', 1)[1].strip().rstrip(';'))
+                except Exception:
+                    cur = []
+                cur = (cur + [ev])[-50:]
+                _io.open(p, 'w', encoding='utf-8').write('window.DVM_OFFICE_EVT = ' + json.dumps(cur) + ';\n')
+            except Exception:
+                pass
             sys.exit(0)                         # the doorbell — exit wakes the host
         since = d['n']
     # {'new': False, 'hb': ts} → fall through and re-issue (the steady pulse)

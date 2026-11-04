@@ -5,6 +5,31 @@
    "h1": 146608496,
    "h5": 515832190,
    "h24": 1551024452
+  },
+  {
+   "ts": 1793726873,
+   "h1": 6823227,
+   "h5": 6823227,
+   "h24": 601492709
+  }
+ ],
+ "events": [
+  {
+   "at": 1793753665965,
+   "kind": "rate_limit",
+   "note": "request rate limit hit \u2014 reset at 00:53 UTC clock boundary (per-minute metering, NOT token ceiling); verbatim: Reached request rate limit... reset in 0 seconds"
+  },
+  {
+   "at": 1793753973390,
+   "kind": "rate_limit",
+   "model": "free",
+   "note": "free model rate limit - Upgrade to Max for higher limits; reset in 1 minute (00:57 UTC). Killed the CHAIR ear relay subagent."
+  },
+  {
+   "at": 1793758923577,
+   "kind": "rate_limit",
+   "model": "free",
+   "note": "free model rate limit on CHAIR ear relay \u2014 reset at 02:21 UTC (25-min window, longer than the earlier 1-min window). Ear down until reset; re-arm deferred per spend law"
   }
  ]
 }
