@@ -614,6 +614,15 @@ body.ui-hidden #ui-hidden-hint { display:block; }
     <div style="display:flex;align-items:center;gap:5px;margin-bottom:8px;">
       <input type="checkbox" id="ghost-toggle" checked style="cursor:pointer;">
       <label for="ghost-toggle" style="font-size:10px;color:#8ad;" title="Translucent silhouette of the selected prefab projected into the volume at the current offset/rotation — exactly what Stamp or Place will produce">👻 Ghost preview</label>
+      <span style="font-size:9px;color:#556;" title="Ghost contact colors">⬛cyan free · 🟨yellow touching · 🟥red clips</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:5px;margin-bottom:8px;">
+      <input type="checkbox" id="keep-inside" checked style="cursor:pointer;">
+      <label for="keep-inside" style="font-size:10px;color:#8ad;" title="While aiming, clamp the prefab so it stays fully inside the volume (snaps flush to the edges instead of clipping through them)">🧲 Keep inside volume</label>
+    </div>
+    <div style="display:flex;gap:4px;margin-bottom:8px;">
+      <button class="export-btn" style="flex:1;font-size:10px;padding:3px 6px;" id="room-vol-btn" title="Open the volume-size dialog to set the design canvas W/H/D">📐 Canvas…</button>
+      <button class="export-btn" style="flex:1;font-size:10px;padding:3px 6px;" id="room-savevol-btn" title="Persist the current volume dims as the Room preset's default canvas — loads on every Room select (localStorage)">📌 Save dims</button>
     </div>
     <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
       <label style="font-size:10px;color:#888;">RotY</label>
@@ -1701,7 +1710,7 @@ const ASSET_TYPE_PRESETS = {
   // ROOM STAMP — the commission office cell, one editable volume: 150x69x150 at
   // .03m = 4.5m footprint, 1.8m wall band, coffered ceiling cap. Interiors are
   // their own asset class — a character "entering" a building swaps scene to it.
-  room: { label: 'Room', icon: '🚪', voxelSize: 0.03, defaultDims: [300, 69, 300], defaultModel: null },
+  room: { label: 'Room', icon: '🚪', voxelSize: 0.03, defaultDims: JSON.parse(localStorage.getItem('roomDesignDims') || 'null') || [300, 69, 300], defaultModel: null },
   character: { label: 'Character', icon: '🧍', voxelSize: 0.01, defaultDims: [96, 96, 96], defaultModel: '../Assets/StreamingAssets/voxel_characters/Civilian1.json' },
   prop: { label: 'Item / Decor', icon: '🔫', voxelSize: 0.005, defaultDims: [48, 26, 10], defaultModel: '../Assets/StreamingAssets/voxel_items/SW_Model_10.json' },
   // Vehicle at CHARACTER scale (0.01m): same voxel grain as the pedestrians standing
@@ -3903,6 +3912,11 @@ let pasteMode = false; // when true, showing paste preview
 let pasteOrigin = { x: 0, y: 0, z: 0 }; // base position for paste
 let copyOrigin = { x: 0, y: 0, z: 0 }; // where the original selection was
 let moveMode = false; // when true, paste is a move (deletes originals on confirm)
+// Paste-preview cache: a pure translation reuses one shell mesh and just slides it
+// (rebuilding ~62k-voxel shells per key repeat cost ~450ms/move). _pasteRev bumps
+// whenever the clipboard SHAPE changes (rotation); _pasteUniform goes false when
+// Mirror Move gives cells different offsets (falls back to the per-cell rebuild).
+let _pasteRev = 0, _pasteShape = null, _pasteUniform = true;
 
 // Invisible plane for raycasting empty space (ground plane at y=0).
 // Sized/positioned to track the volume — must be rebuilt on any resize so clicks
@@ -5889,18 +5903,41 @@ function updateHighlight(event) {
     const bx = pasteOrigin.x + pasteOffset.x;
     const by = pasteOrigin.y + pasteOffset.y;
     const bz = pasteOrigin.z + pasteOffset.z;
-    const pastePositions = [];
-    for (const v of clipboard) {
-      const px = pasteOrigin.x + v.x + (v.ox || 0);
-      const py = pasteOrigin.y + v.y + (v.oy || 0);
-      const pz = pasteOrigin.z + v.z + (v.oz || 0);
-      if (px >= 0 && px < W && py >= 0 && py < H && pz >= 0 && pz < D) {
-        pastePositions.push([px, py, pz]);
+    let shown = 0;
+    if (_pasteUniform) {
+      // Pure translation: build the shell once per shape, then slide the mesh.
+      const c = _pasteShape;
+      if (!c || c.clip !== clipboard || c.rev !== _pasteRev || c.n !== clipboard.length ||
+          c.ox !== pasteOrigin.x || c.oy !== pasteOrigin.y || c.oz !== pasteOrigin.z) {
+        const pos = new Array(clipboard.length);
+        for (let i = 0; i < clipboard.length; i++) {
+          const v = clipboard[i];
+          pos[i] = [pasteOrigin.x + v.x, pasteOrigin.y + v.y, pasteOrigin.z + v.z];
+        }
+        _pasteShape = { clip: clipboard, rev: _pasteRev, n: clipboard.length, ox: pasteOrigin.x, oy: pasteOrigin.y, oz: pasteOrigin.z, positions: pos };
       }
+      showHighlight(_pasteShape.positions, 0x00ffff); // identity-skips after the first build
+      if (hlMesh) hlMesh.position.set(pasteOffset.x, pasteOffset.y, pasteOffset.z);
+      if (hlEdgesMesh) hlEdgesMesh.position.set(pasteOffset.x, pasteOffset.y, pasteOffset.z);
+      for (let i = 0; i < clipboard.length; i++) { // in-bounds count, allocation-free
+        const v = clipboard[i];
+        const px = pasteOrigin.x + v.x + pasteOffset.x, py = pasteOrigin.y + v.y + pasteOffset.y, pz = pasteOrigin.z + v.z + pasteOffset.z;
+        if (px >= 0 && px < W && py >= 0 && py < H && pz >= 0 && pz < D) shown++;
+      }
+    } else {
+      const pastePositions = [];
+      for (const v of clipboard) {
+        const px = pasteOrigin.x + v.x + (v.ox || 0);
+        const py = pasteOrigin.y + v.y + (v.oy || 0);
+        const pz = pasteOrigin.z + v.z + (v.oz || 0);
+        if (px >= 0 && px < W && py >= 0 && py < H && pz >= 0 && pz < D) {
+          pastePositions.push([px, py, pz]);
+        }
+      }
+      showHighlight(pastePositions, 0x00ffff);
+      shown = pastePositions.length;
     }
-    // Show paste preview in cyan
-    showHighlight(pastePositions, 0x00ffff);
-    infoText = `Paste preview: ${pastePositions.length} voxels at (${bx},${by},${bz}) — arrows=XZ | PgUp/Dn=Y | ,.;'op=rotate | Enter=confirm | Esc=cancel`;
+    infoText = `Paste preview: ${shown} voxels at (${bx},${by},${bz}) — arrows=XZ | PgUp/Dn=Y | ,.;'op=rotate | Enter=confirm | Esc=cancel`;
     // Update status coords
     document.getElementById('status-coords').textContent = `paste @ x:${bx} y:${by} z:${bz}`;
     if (infoText) {
@@ -5955,7 +5992,10 @@ function updateHighlight(event) {
 }
 
 // === UI WIRING ===
+var _roomOnToolChange = null;   // set by the Room builder (var: safe before its let-declarations run)
+var _roomOnTypeChange = null;
 function setTool(tool) {
+  if (_roomOnToolChange) _roomOnToolChange(tool);
   if (currentTool !== 'eyedropper' && currentTool !== tool) previousTool = currentTool;
   currentTool = tool;
   lineStart = null;
@@ -6021,6 +6061,8 @@ document.querySelectorAll('.rp-tab').forEach(tab => {
     else {
       if (ghostMesh) ghostMesh.visible = false;
       if (stampAim) setStampAim(null);
+      releaseRoomSel();
+      endStampOwnership();
     }
     // View modes are mutually exclusive — switching tabs must clear the other
     // panels' modes or a stale flag (e.g. itemPartViewMode) keeps overriding
@@ -6082,6 +6124,7 @@ document.getElementById('export-itemparts-btn').addEventListener('click', export
 
 // === TAB VISIBILITY BY ASSET TYPE ===
 function updateTabsForAssetType() {
+  if (assetType !== 'room' && _roomOnTypeChange) _roomOnTypeChange();
   const bodypartsTab = document.querySelector('.rp-tab[data-rp-tab="bodyparts"]');
   const wardrobeTab = document.querySelector('.rp-tab[data-rp-tab="wardrobe"]');
   const itempartsTab = document.querySelector('.rp-tab[data-rp-tab="itemparts"]');
@@ -6278,6 +6321,12 @@ function loadDefaultModel(url) {
 // plus its decor bake into one editable, exportable volume. Stamps are plain
 // voxelMap writes — pushHistory makes them undoable.
 const stampCache = {};
+// Architecture pieces (building/room class, or no voxelSize) are authored to snap 1:1 to
+// the room grid - the scene loads them at the room scale even though e.g. commission_wall
+// carries 0.025 in its metadata. Only props/characters keep their own native scale.
+function prefabVS(data) {
+  return (data.assetType === 'building' || data.assetType === 'room' || !data.voxelSize) ? editableVoxelSize : data.voxelSize;
+}
 const stampMeta = {};
 let stampListLoaded = false;
 
@@ -6324,23 +6373,24 @@ function updateStampInfo() {
   if (el) el.textContent = m ? `${m.assetType || 'asset'} · ${m.dims.join('×')} · ${m.voxels} voxels` : '—';
 }
 
-function stampSelectedPrefab() {
-  const name = document.getElementById('stamp-model').value;
-  if (!name) return;
+// Core stamp: bakes `name` at (ox,oy,oz) with rotY `rot`. Resolves {placed, clipped}
+// (or undefined if the prefab couldn't load). One history entry per call.
+function stampAt(name, rot, ox, oy, oz) {
   const ready = stampCache[name] ? Promise.resolve(stampCache[name])
     : fetch(`/Assets/StreamingAssets/voxel_items/${name}.json`)
         .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
         .then(d => stampCache[name] = d);
-  ready.then(data => {
+  return ready.then(data => {
+    const _t0 = performance.now();
+    if (Math.abs(prefabVS(data) - editableVoxelSize) / editableVoxelSize > 0.01) {
+      throw new Error(`${name} is ${prefabVS(data)}m/voxel but this volume is ${editableVoxelSize}m — baking would resize it; use Place (native scale) instead`);
+    }
     demoteIfUnity(data);
     const pw = data.dims[0], pd = data.dims[2];
-    const rot = +document.getElementById('stamp-rot').value;
-    const ox = +document.getElementById('stamp-x').value || 0,
-          oy = +document.getElementById('stamp-y').value || 0,
-          oz = +document.getElementById('stamp-z').value || 0;
     const remap = {};
     for (const m of (data.materials || [])) remap[m.id] = paletteIdFor(m);
     let placed = 0, clipped = 0;
+    const cells = [];
     for (const [vx, vy, vz, mid] of data.voxels) {
       let x = vx, z = vz;
       if (rot === 90)  { x = pd - 1 - vz; z = vx; }
@@ -6348,24 +6398,45 @@ function stampSelectedPrefab() {
       if (rot === 270) { x = vz; z = pw - 1 - vx; }
       const X = x + ox, Y = vy + oy, Z = z + oz;
       if (X < 0 || X >= W || Y < 0 || Y >= H || Z < 0 || Z >= D) { clipped++; continue; }
-      voxelMap.set(`${X},${Y},${Z}`, remap[mid] ?? selectedMaterial);
+      const nm = remap[mid] ?? selectedMaterial;
+      voxelMap.set(`${X},${Y},${Z}`, nm);
+      cells.push([X, Y, Z, nm]);
       placed++;
     }
+    const _t1 = performance.now();
     rebuildMesh();
+    const _t2 = performance.now();
     pushHistory();
+    const _t3 = performance.now();
+    window.__stampT = { write: +(_t1 - _t0).toFixed(0), rebuild: +(_t2 - _t1).toFixed(0), history: +(_t3 - _t2).toFixed(0) };
+    return { placed, clipped, cells };
+  });
+}
+
+function stampSelectedPrefab() {
+  const name = document.getElementById('stamp-model').value;
+  if (!name) return Promise.resolve();
+  const rot = +document.getElementById('stamp-rot').value;
+  const ox = +document.getElementById('stamp-x').value || 0,
+        oy = +document.getElementById('stamp-y').value || 0,
+        oz = +document.getElementById('stamp-z').value || 0;
+  return stampAt(name, rot, ox, oy, oz).then(r => {
+    const data = stampCache[name];
+    const pw = data.dims[0], pd = data.dims[2];
     const tw = rot % 180 ? pd : pw, td = rot % 180 ? pw : pd;
     const tile = document.getElementById('stamp-tile').value;
     if (tile === 'x')  document.getElementById('stamp-x').value = ox + tw;
     if (tile === '-x') document.getElementById('stamp-x').value = ox - tw;
     if (tile === 'z')  document.getElementById('stamp-z').value = oz + td;
     if (tile === '-z') document.getElementById('stamp-z').value = oz - td;
-    setStatus(`Stamped ${name}: ${placed} voxels` + (clipped ? ` (${clipped} clipped outside volume)` : ''));
-    refreshGhost(); // offset may have tile-advanced — silhouette follows
+    adoptStampSelection(name, r);
+    setStatus(`Stamped ${name}: ${r.placed} voxels` + (r.clipped ? ` (${r.clipped} clipped outside volume)` : '') +
+      ' — MOVE: arrows (camera-relative) · PgUp/PgDn height · , . rotate · Enter confirms · Esc cancels');
   }).catch(e => setStatus(`Stamp failed: ${e.message}`));
 }
 
 document.getElementById('stamp-refresh-btn').addEventListener('click', loadStampModelList);
-document.getElementById('stamp-model').addEventListener('change', () => { updateStampInfo(); refreshGhost(); });
+document.getElementById('stamp-model').addEventListener('change', e => { updateStampInfo(); refreshGhost(); e.currentTarget.blur(); });
 
 // === PLACEMENTS — decor as native-scale instances (not baked) ===
 // placements[] = {file, pos:[x,y,z] room-voxel units, rotY, vs} — same
@@ -6380,7 +6451,7 @@ const _placeMat = new THREE.Matrix4();
 function buildPlacementMesh(pl) {
   const data = stampCache[pl.file];
   if (!data || !data.voxels) return null;
-  const s = (pl.vs || data.voxelSize || editableVoxelSize) / editableVoxelSize;
+  const s = (pl.vs || prefabVS(data)) / editableVoxelSize;
   const pw = data.dims[0], pd = data.dims[2];
   const im = new THREE.InstancedMesh(boxGeo, lambertMat, data.voxels.length);
   const matById = {};
@@ -6417,9 +6488,11 @@ function refreshPlacementMeshes() {
     if (pl.mesh) scene.add(pl.mesh);
   }
   refreshGhost(); // origin offsets changed — the silhouette re-glues too
+  updateSelBox();
 }
 
 function clearPlacements() {
+  if (roomSel) releaseRoomSel();
   for (const pl of placements) if (pl.mesh) scene.remove(pl.mesh);
   placements.length = 0;
   _placeRev++;
@@ -6445,25 +6518,26 @@ function renderPlacementList() {
 
 function placeSelectedPrefab() {
   const name = document.getElementById('stamp-model').value;
-  if (!name) return;
+  if (!name) return Promise.resolve();
   const ready = stampCache[name] ? Promise.resolve(stampCache[name])
     : fetch(`/Assets/StreamingAssets/voxel_items/${name}.json`)
         .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
         .then(d => stampCache[name] = d);
-  ready.then(data => {
+  return ready.then(data => {
     const pl = {
       file: name,
       pos: [+document.getElementById('stamp-x').value || 0,
             +document.getElementById('stamp-y').value || 0,
             +document.getElementById('stamp-z').value || 0],
       rotY: +document.getElementById('stamp-rot').value,
-      vs: data.voxelSize || editableVoxelSize,
+      vs: prefabVS(data),
     };
     placements.push(pl);
     _placeRev++; _placeSig = '';
     refreshPlacementMeshes();
     renderPlacementList();
-    setStatus(`Placed ${name} @ ${pl.pos.join(',')} (native ${pl.vs}m scale)`);
+    selectRoom({ type: 'place', pl });
+    setStatus(`Placed ${name} @ ${pl.pos.join(',')} (native ${pl.vs}m scale) — selected: arrows nudge, Enter/Esc releases`);
   }).catch(e => setStatus(`Place failed: ${e.message}`));
 }
 
@@ -6491,8 +6565,12 @@ function loadPlacements(list) {
 // Matrices are rewritten on input/rot/origin change; geometry allocates once.
 let ghostMesh = null, ghostCap = 0, ghostOn = true;
 const ghostMat = new THREE.MeshLambertMaterial({
-  color: 0x66ddff, transparent: true, opacity: 0.28, depthWrite: false });
+  color: 0xffffff, transparent: true, opacity: 0.28, depthWrite: false });
 const _gMat = new THREE.Matrix4();
+const _gCol = new THREE.Color();
+const GHOST_FREE = new THREE.Color(0x44ddff);  // clear of edges + voxels
+const GHOST_EDGE = new THREE.Color(0xffd040);  // touching volume edge or placed voxel
+const GHOST_OOB  = new THREE.Color(0xff4040);  // outside the volume — would clip
 
 function ghostVisible() {
   const t = document.querySelector('.rp-tab[data-rp-tab="room"]');
@@ -6500,10 +6578,24 @@ function ghostVisible() {
          window.location.protocol !== 'file:';
 }
 
-function refreshGhost() {
+let _ghostSig = '';
+
+function refreshGhost(force) {
   const name = document.getElementById('stamp-model').value;
   if (!name || !ghostVisible()) {
     if (ghostMesh) ghostMesh.visible = false;
+    return;
+  }
+  // Change-gate: mousemove fires far more often than the aim cell actually
+  // changes — same signature = same silhouette = skip the N-voxel rewrite.
+  // voxelMap.size is in the sig so contact colors refresh after any edit.
+  const _rot = +document.getElementById('stamp-rot').value;
+  const _ox = +document.getElementById('stamp-x').value || 0,
+        _oy = +document.getElementById('stamp-y').value || 0,
+        _oz = +document.getElementById('stamp-z').value || 0;
+  const sig = `${name}|${_ox},${_oy},${_oz}|${_rot}|${originOffsetX},${originOffsetZ},${editableVoxelSize}|${W},${H},${D}|${voxelMap.size}`;
+  if (!force && sig === _ghostSig && ghostMesh && ghostMesh.count > 0) {
+    ghostMesh.visible = true;
     return;
   }
   const ready = stampCache[name] ? Promise.resolve(stampCache[name])
@@ -6512,33 +6604,129 @@ function refreshGhost() {
         .then(d => d ? stampCache[name] = d : null);
   ready.then(data => {
     if (!data) return;
-    const s = (data.voxelSize || editableVoxelSize) / editableVoxelSize;
+    _ghostSig = sig;
+    // Block-merged silhouette: voxels bucket into 4x4x4 cells and each cell
+    // draws ONE box = the AABB of its occupied voxels (thin walls/floors stay
+    // exact, solids collapse ~64x). Built once per model; per-aim cost is
+    // O(blocks), not O(voxels). The per-voxel version cost ~35ms/move on a
+    // 62k-voxel slice.
+    if (!data._blocks) {
+      const K = 4, m = new Map();
+      for (const v of data.voxels) {
+        const key = ((v[0] >> 2) * 4096 + (v[1] >> 2)) * 4096 + (v[2] >> 2);
+        const b = m.get(key);
+        if (!b) m.set(key, [v[0], v[0], v[1], v[1], v[2], v[2]]);
+        else {
+          if (v[0] < b[0]) b[0] = v[0]; if (v[0] > b[1]) b[1] = v[0];
+          if (v[1] < b[2]) b[2] = v[1]; if (v[1] > b[3]) b[3] = v[1];
+          if (v[2] < b[4]) b[4] = v[2]; if (v[2] > b[5]) b[5] = v[2];
+        }
+      }
+      data._blocks = Array.from(m.values());
+    }
+    const blocks = data._blocks;
+    const s = prefabVS(data) / editableVoxelSize;
     const pw = data.dims[0], pd = data.dims[2];
-    const rot = +document.getElementById('stamp-rot').value;
-    const ox = +document.getElementById('stamp-x').value || 0,
-          oy = +document.getElementById('stamp-y').value || 0,
-          oz = +document.getElementById('stamp-z').value || 0;
-    const n = data.voxels.length;
+    const rot = _rot, ox = _ox, oy = _oy, oz = _oz;
+    const n = blocks.length;
     if (!ghostMesh || ghostCap < n) {
       if (ghostMesh) scene.remove(ghostMesh);
-      ghostCap = Math.max(n * 2, 4096);
+      ghostCap = Math.max(n * 2, 1024);
       ghostMesh = new THREE.InstancedMesh(boxGeo, ghostMat, ghostCap);
+      ghostMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(ghostCap * 3), 3);
       ghostMesh.renderOrder = 5;
+      ghostMesh.frustumCulled = false;
       scene.add(ghostMesh);
     }
-    data.voxels.forEach((v, i) => {
-      let x = v[0], z = v[2];
-      if (rot === 90)  { x = pd - 1 - v[2]; z = v[0]; }
-      if (rot === 180) { x = pw - 1 - v[0]; z = pd - 1 - v[2]; }
-      if (rot === 270) { x = v[2]; z = pw - 1 - v[0]; }
-      _gMat.makeScale(s, s, s);
-      _gMat.setPosition(ox + originOffsetX + x * s, oy + v[1] * s, oz + originOffsetZ + z * s);
+    const hasVox = voxelMap.size !== 0;
+    for (let i = 0; i < n; i++) {
+      const b = blocks[i];
+      let x0 = b[0], x1 = b[1], z0 = b[4], z1 = b[5];
+      if (rot === 90)  { x0 = pd - 1 - b[5]; x1 = pd - 1 - b[4]; z0 = b[0]; z1 = b[1]; }
+      if (rot === 180) { x0 = pw - 1 - b[1]; x1 = pw - 1 - b[0]; z0 = pd - 1 - b[5]; z1 = pd - 1 - b[4]; }
+      if (rot === 270) { x0 = b[4]; x1 = b[5]; z0 = pw - 1 - b[1]; z1 = pw - 1 - b[0]; }
+      const y0 = b[2], y1 = b[3];
+      // room-cell extents (scaled prefabs: voxel centers sit at pos + idx*s)
+      const X0 = ox + x0 * s, X1 = ox + x1 * s, Y0 = oy + y0 * s, Y1 = oy + y1 * s, Z0 = oz + z0 * s, Z1 = oz + z1 * s;
+      _gMat.makeScale((X1 - X0) + s, (Y1 - Y0) + s, (Z1 - Z0) + s);
+      _gMat.setPosition((X0 + X1) / 2 + originOffsetX, (Y0 + Y1) / 2, (Z0 + Z1) / 2 + originOffsetZ);
       ghostMesh.setMatrixAt(i, _gMat);
-    });
+      // Contact class: red = block pokes outside the volume (would clip),
+      // yellow = flush with a volume face or a placed voxel, cyan = free.
+      const a0 = Math.round(X0), a1 = Math.round(X1), b0 = Math.round(Y0), b1 = Math.round(Y1), c0 = Math.round(Z0), c1 = Math.round(Z1);
+      const oob = a0 < 0 || a1 >= W || b0 < 0 || b1 >= H || c0 < 0 || c1 >= D;
+      let edge = false;
+      if (!oob) {
+        edge = a0 === 0 || a1 === W - 1 || b0 === 0 || b1 === H - 1 || c0 === 0 || c1 === D - 1;
+        if (!edge && hasVox) {
+          const mx = (a0 + a1) >> 1, my = (b0 + b1) >> 1, mz = (c0 + c1) >> 1;
+          edge = voxelMap.has(`${a0 - 1},${my},${mz}`) || voxelMap.has(`${a1 + 1},${my},${mz}`) ||
+                 voxelMap.has(`${mx},${b0 - 1},${mz}`) || voxelMap.has(`${mx},${b1 + 1},${mz}`) ||
+                 voxelMap.has(`${mx},${my},${c0 - 1}`) || voxelMap.has(`${mx},${my},${c1 + 1}`);
+        }
+      }
+      _gCol.copy(oob ? GHOST_OOB : edge ? GHOST_EDGE : GHOST_FREE);
+      ghostMesh.setColorAt(i, _gCol);
+    }
     ghostMesh.count = n;
     ghostMesh.visible = true;
     ghostMesh.instanceMatrix.needsUpdate = true;
+    if (ghostMesh.instanceColor) ghostMesh.instanceColor.needsUpdate = true;
   });
+}
+
+// Grid DDA pick — walks the voxelMap along the camera ray (Amanatides-Woo)
+// instead of intersectObjects over every instance. Cost is ~W+H+D steps no
+// matter how many voxels are baked in (the mesh raycast measured 22-69ms on a
+// 62k-voxel slice). Handles the mirrored Unity view; returns the same shape
+// as raycastVoxelMesh so the aim handler is agnostic.
+function raycastGrid(event) {
+  pointer.set((event.clientX / window.innerWidth) * 2 - 1, -(event.clientY / window.innerHeight) * 2 + 1);
+  raycaster.setFromCamera(pointer, camera);
+  const r = raycaster.ray;
+  const cx = volumeWorldCenter().x;
+  const o = [(unityMirror ? 2 * cx - r.origin.x : r.origin.x) - originOffsetX + 0.5, r.origin.y + 0.5, r.origin.z - originOffsetZ + 0.5];
+  const d = [unityMirror ? -r.direction.x : r.direction.x, r.direction.y, r.direction.z];
+  const size = [W, H, D];
+  let t0 = 0, t1 = Infinity, entAxis = -1, entSign = 0, miss = false;
+  for (let a = 0; a < 3; a++) {
+    if (Math.abs(d[a]) < 1e-12) { if (o[a] < 0 || o[a] >= size[a]) miss = true; continue; }
+    const ta = (0 - o[a]) / d[a], tb = (size[a] - o[a]) / d[a];
+    const near = Math.min(ta, tb), far = Math.max(ta, tb);
+    if (near > t0) { t0 = near; entAxis = a; entSign = d[a] > 0 ? -1 : 1; }
+    if (far < t1) t1 = far;
+  }
+  if (!miss && t0 <= t1 && voxelMap.size) {
+    const tt = t0 + 1e-6;
+    const c = [Math.floor(o[0] + d[0] * tt), Math.floor(o[1] + d[1] * tt), Math.floor(o[2] + d[2] * tt)];
+    for (let a = 0; a < 3; a++) c[a] = Math.min(size[a] - 1, Math.max(0, c[a]));
+    const step = [d[0] > 0 ? 1 : -1, d[1] > 0 ? 1 : -1, d[2] > 0 ? 1 : -1];
+    const tMax = [0, 0, 0], tDelta = [0, 0, 0];
+    for (let a = 0; a < 3; a++) {
+      if (Math.abs(d[a]) < 1e-12) { tMax[a] = Infinity; tDelta[a] = Infinity; continue; }
+      tDelta[a] = Math.abs(1 / d[a]);
+      tMax[a] = ((d[a] > 0 ? c[a] + 1 : c[a]) - o[a]) / d[a];
+    }
+    const nrm = [0, 0, 0];
+    if (entAxis >= 0) nrm[entAxis] = entSign; else nrm[1] = 1;
+    for (let i = 0, lim = W + H + D + 4; i < lim; i++) {
+      const mid = voxelMap.get(`${c[0]},${c[1]},${c[2]}`);
+      if (mid !== undefined) {
+        const normal = new THREE.Vector3(nrm[0], nrm[1], nrm[2]);
+        return { x: c[0], y: c[1], z: c[2], normal, placeX: c[0] + nrm[0], placeY: c[1] + nrm[1], placeZ: c[2] + nrm[2], mid };
+      }
+      const a = tMax[0] < tMax[1] ? (tMax[0] < tMax[2] ? 0 : 2) : (tMax[1] < tMax[2] ? 1 : 2);
+      c[a] += step[a]; tMax[a] += tDelta[a];
+      nrm[0] = nrm[1] = nrm[2] = 0; nrm[a] = -step[a];
+      if (c[a] < 0 || c[a] >= size[a]) break;
+    }
+  }
+  // no voxel hit — project onto the ground plane (world y=0)
+  if (d[1] < 0) {
+    const t = (0.5 - o[1]) / d[1];
+    if (t > 0) return { x: Math.floor(o[0] + d[0] * t), y: 0, z: Math.floor(o[2] + d[2] * t), normal: new THREE.Vector3(0, 1, 0), placeY: 0 };
+  }
+  return null;
 }
 
 document.getElementById('ghost-toggle').addEventListener('change', e => {
@@ -6558,40 +6746,310 @@ for (const id of ['stamp-x', 'stamp-y', 'stamp-z', 'stamp-rot']) {
 // the ghost so orbiting doesn't shift it.
 let stampAim = null; // 'stamp' | 'place'
 function setStampAim(mode) {
+  if (mode && stampAim !== mode && !document.getElementById('stamp-model').value) {
+    setStatus('Pick a model first (the Room list loads from /models — ↻ to retry)');
+    return;
+  }
   stampAim = (stampAim === mode) ? null : mode;
   renderer.domElement.style.cursor = stampAim ? 'crosshair' : '';
   document.getElementById('stamp-btn').style.outline = stampAim === 'stamp' ? '2px solid #6df' : '';
   document.getElementById('place-btn').style.outline = stampAim === 'place' ? '2px solid #6df' : '';
+  if (!stampAim && ghostMesh) { ghostMesh.visible = false; _ghostSig = ''; } // disarm clears the silhouette
+  if (stampAim && !pasteMode && lastMouseEvent) aimFromEvent(lastMouseEvent, true); // ghost appears at the cursor immediately
   setStatus(stampAim
     ? `AIM (${stampAim}): mouse positions · R rotates · left-click commits · Esc exits · mid/right cam`
     : 'Aim mode off');
 }
 
-document.addEventListener('mousemove', e => {
-  if (!stampAim || e.target !== renderer.domElement || e.buttons) return;
-  const hit = raycastVoxelMesh(e);
+window.__room = { raycastVoxelMesh, raycastGrid, refreshGhost, stampSelectedPrefab, placeSelectedPrefab, setStampAim, voxelMap, camera, controls,
+  get ghost() { return ghostMesh; }, get sel() { return roomSel; }, get mmb() { return mmbDown; }, get selBox() { return selBox; },
+  get move() { return { paste: pasteMode, owned: stampMoveOwned, sel: selVoxels.length, off: { ...pasteOffset }, clip: clipboard.length }; } };
+
+let _aimLastRay = 0;
+function aimFromEvent(e, force) {
+  const now = performance.now();
+  if (!force && now - _aimLastRay < 16) return;
+  _aimLastRay = now;
+  const hit = raycastGrid(e);
   if (!hit) return;
   document.getElementById('stamp-x').value = hit.mid !== undefined ? hit.placeX : hit.x;
   document.getElementById('stamp-y').value = hit.mid !== undefined ? hit.placeY : 0;
   document.getElementById('stamp-z').value = hit.mid !== undefined ? hit.placeZ : hit.z;
+  if (document.getElementById('keep-inside').checked) clampAimInside();
   refreshGhost();
+}
+
+// Snap the aim offset so the whole prefab sits inside the volume (flush to the
+// edge when the cursor is past it). Stamps are 1:1 cells; placements use their
+// scaled extents. A prefab larger than the volume pins to 0 (still clips).
+function clampAimInside() {
+  const data = stampCache[document.getElementById('stamp-model').value];
+  if (!data) return;
+  const rot = +document.getElementById('stamp-rot').value;
+  const sc = stampAim === 'place' ? prefabVS(data) / editableVoxelSize : 1;
+  const nx = rot % 180 ? data.dims[2] : data.dims[0], nz = rot % 180 ? data.dims[0] : data.dims[2], ny = data.dims[1];
+  const clamp = (id, n, size) => {
+    const el = document.getElementById(id);
+    const max = Math.max(0, Math.floor(size - 1 - (n - 1) * sc));
+    el.value = Math.min(max, Math.max(0, +el.value || 0));
+  };
+  clamp('stamp-x', nx, W); clamp('stamp-y', ny, H); clamp('stamp-z', nz, D);
+}
+
+document.addEventListener('mousemove', e => {
+  if (!stampAim || pasteMode || e.target !== renderer.domElement || e.buttons) return; // no aim ghost while a move is active
+  aimFromEvent(e);
 }, true);
 
 document.addEventListener('mousedown', e => {
   if (!stampAim || e.target !== renderer.domElement || e.button !== 0) return;
   e.stopPropagation();
   e.preventDefault();
+  aimFromEvent(e, true); // aim at the click point itself, never a stale hover
+  // A click while the previous stamp is still in Move mode finishes that move
+  // first: confirmed if you nudged/rotated it, otherwise just released.
+  if (pasteMode) {
+    if (pasteOffset.x || pasteOffset.y || pasteOffset.z || _clipSig() !== _moveEntrySig) confirmPaste();
+    else cancelPaste();
+    stampMoveOwned = false;
+  }
+  if (stampSelOwned) { clearSelection(); stampSelOwned = false; }
   (stampAim === 'stamp' ? stampSelectedPrefab : placeSelectedPrefab)();
 }, true);
 
+// === STAMP -> NATIVE SELECTION + MOVE ===
+// A committed stamp hands its cells to the editor's own Selection system:
+// selVoxels = the stamp (orange overlay, Selection panel with Move/Copy/Delete/
+// Retag/Fill/Swap), and Move mode (paste preview) starts immediately. Native
+// keys then apply: PgUp/PgDn height, , . yaw, ; ' pitch, o p roll, Enter
+// confirms, Esc cancels. Arrow keys are overridden below to be CAMERA-relative
+// (native arrows are fixed world axes). Placements are instances, not voxels,
+// so they keep their own outline + nudge (roomSel).
+let stampSelOwned = false;   // current selection came from a stamp
+let stampMoveOwned = false;  // current paste/move was started by a stamp
+let _moveEntrySig = 0;
+function _clipSig() {
+  let h = 0;
+  for (const v of clipboard) h = (h + ((v.x * 73856093) ^ (v.y * 19349663) ^ (v.z * 83492791))) | 0;
+  return h;
+}
+function adoptStampSelection(name, r) {
+  if (!r.cells.length) return;
+  selVoxels = r.cells;
+  selectionActive = true;
+  document.getElementById('sel-info').textContent = `Sel: ${selVoxels.length} voxels (stamp ${name})`;
+  showSelectionOverlay();
+  stampSelOwned = true;
+  moveSelection();
+  stampMoveOwned = true;
+  _moveEntrySig = _clipSig();
+  if (ghostMesh) { ghostMesh.visible = false; _ghostSig = ''; } // the move preview replaces the aim ghost
+}
+
+let roomSel = null;   // {type:'place', pl} — placed instance, outline + arrow nudge
+const selBox = new THREE.LineSegments(
+  new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)),
+  new THREE.LineBasicMaterial({ color: 0xffffff, depthTest: false, transparent: true }));
+selBox.renderOrder = 1000; selBox.frustumCulled = false; selBox.visible = false;
+scene.add(selBox);
+
+_roomOnToolChange = tool => { if (stampAim && tool !== 'camera') setStampAim(null); };
+_roomOnTypeChange = () => {
+  if (stampAim) setStampAim(null);          // aim mode must not outlive the Room type (it swallows canvas clicks)
+  releaseRoomSel();
+  stampSelOwned = false; stampMoveOwned = false;
+  if (ghostMesh) { ghostMesh.visible = false; _ghostSig = ''; }
+};
+// Leaving the Room tab ends any stamp-owned Move (otherwise it stays active invisibly)
+function endStampOwnership() {
+  if (pasteMode && stampMoveOwned) cancelPaste();
+  stampMoveOwned = false;
+  if (stampSelOwned && selVoxels.length > 0) clearSelection();
+  stampSelOwned = false;
+}
+
+function roomTabActive() {
+  const t = document.querySelector('.rp-tab[data-rp-tab="room"]');
+  return !!(t && t.classList.contains('active'));
+}
+
+function updateSelBox() {
+  if (!roomSel) { selBox.visible = false; return; }
+  const pl = roomSel.pl, data = stampCache[pl.file];
+  if (!data) { selBox.visible = false; return; }
+  const rot = pl.rotY || 0;
+  const sc = (pl.vs || prefabVS(data)) / editableVoxelSize;
+  const nx = rot % 180 ? data.dims[2] : data.dims[0], ny = data.dims[1], nz = rot % 180 ? data.dims[0] : data.dims[2];
+  selBox.position.set(pl.pos[0] + (nx - 1) * sc / 2 + originOffsetX, pl.pos[1] + (ny - 1) * sc / 2, pl.pos[2] + (nz - 1) * sc / 2 + originOffsetZ);
+  selBox.scale.set(nx * sc + 0.3, ny * sc + 0.3, nz * sc + 0.3);
+  const x0 = Math.round(pl.pos[0]), x1 = Math.round(pl.pos[0] + (nx - 1) * sc);
+  const y0 = Math.round(pl.pos[1]), y1 = Math.round(pl.pos[1] + (ny - 1) * sc);
+  const z0 = Math.round(pl.pos[2]), z1 = Math.round(pl.pos[2] + (nz - 1) * sc);
+  const oob = x0 < 0 || x1 >= W || y0 < 0 || y1 >= H || z0 < 0 || z1 >= D;
+  const flush = x0 === 0 || x1 === W - 1 || y0 === 0 || y1 === H - 1 || z0 === 0 || z1 === D - 1;
+  selBox.material.color.setHex(oob ? 0xff4040 : flush ? 0xffd040 : 0xffffff);
+  selBox.visible = true;
+}
+
+function selectRoom(sel) {
+  roomSel = sel;
+  updateSelBox();
+}
+
+function releaseRoomSel() {
+  roomSel = null;
+  selBox.visible = false;
+  return Promise.resolve();
+}
+
+// Screen-relative ground axes: right/forward snapped to world X/Z (scene space,
+// honouring the mirrored Unity view). Forward is forced onto the other axis
+// when both would snap to the same one (camera at ~45 degrees).
+function camGroundAxes() {
+  const d = new THREE.Vector3(); camera.getWorldDirection(d);
+  const r = new THREE.Vector3().crossVectors(d, new THREE.Vector3(0, 1, 0));
+  let fx = d.x, fz = d.z, rx = r.x, rz = r.z;
+  if (unityMirror) { fx = -fx; rx = -rx; }
+  const R = Math.abs(rx) >= Math.abs(rz) ? [Math.sign(rx) || 1, 0] : [0, Math.sign(rz) || 1];
+  let F = Math.abs(fx) >= Math.abs(fz) ? [Math.sign(fx) || 1, 0] : [0, Math.sign(fz) || 1];
+  if ((F[0] !== 0) === (R[0] !== 0)) F = R[0] !== 0 ? [0, Math.sign(fz) || 1] : [Math.sign(fx) || 1, 0];
+  return { R, F };
+}
+
 document.addEventListener('keydown', e => {
-  if (!stampAim) return;
-  if (e.key === 'Escape') {
+  if (!roomTabActive()) return;
+  if (!pasteMode) stampMoveOwned = false;
+  const moving = pasteMode && stampMoveOwned;
+  if (!roomSel && !moving) return;
+  const tg = e.target.tagName;
+  if (tg === 'INPUT' || tg === 'TEXTAREA' || tg === 'SELECT') return;
+  if (e.key === 'Enter') {
+    if (moving) return; // native Enter confirms the move
     e.stopPropagation(); e.preventDefault();
-    setStampAim(null);
+    releaseRoomSel().then(() => setStatus('Selection released'));
+    return;
+  }
+  const isArrow = e.key.startsWith('Arrow');
+  if (!isArrow) return; // PgUp/PgDn + rotations: native paste handler (moving) / below (placement)
+  if (e.shiftKey) return; // Shift+arrows = camera pan (existing binding)
+  e.stopPropagation(); e.preventDefault();
+  const k = e.ctrlKey ? 8 : 1;
+  const { R, F } = camGroundAxes();
+  let dx = 0, dz = 0;
+  if (e.key === 'ArrowRight') { dx = R[0] * k; dz = R[1] * k; }
+  if (e.key === 'ArrowLeft')  { dx = -R[0] * k; dz = -R[1] * k; }
+  if (e.key === 'ArrowUp')    { dx = F[0] * k; dz = F[1] * k; }
+  if (e.key === 'ArrowDown')  { dx = -F[0] * k; dz = -F[1] * k; }
+  if (moving) { movePaste(dx, 0, dz); return; }
+  nudgePlacement(dx, 0, dz);
+}, true);
+
+// PgUp/PgDn for a selected placement (a stamp in Move mode uses the native handler)
+document.addEventListener('keydown', e => {
+  if (!roomSel || !roomTabActive() || pasteMode) return;
+  const tg = e.target.tagName;
+  if (tg === 'INPUT' || tg === 'TEXTAREA' || tg === 'SELECT') return;
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    e.stopPropagation(); e.preventDefault();
+    const pl = roomSel.pl, i = placements.indexOf(pl);
+    if (i >= 0) placements.splice(i, 1);
+    if (pl.mesh) scene.remove(pl.mesh);
+    _placeRev++; _placeSig = '';
+    renderPlacementList();
+    releaseRoomSel();
+    setStatus(`Removed placement ${pl.file}`);
+    return;
+  }
+  if (e.key !== 'PageUp' && e.key !== 'PageDown') return;
+  e.stopPropagation(); e.preventDefault();
+  nudgePlacement(0, (e.key === 'PageUp' ? 1 : -1) * (e.ctrlKey ? 8 : 1), 0);
+}, true);
+
+function nudgePlacement(dx, dy, dz) {
+  const pl = roomSel && roomSel.pl;
+  if (!pl) return;
+  pl.pos[0] += dx; pl.pos[1] += dy; pl.pos[2] += dz;
+  if (pl.mesh) pl.mesh.position.set(pl.mesh.position.x + dx, pl.mesh.position.y + dy, pl.mesh.position.z + dz);
+  renderPlacementList();
+  updateSelBox();
+  setStatus(`Placement ${pl.file} → ${pl.pos.join(',')}`);
+}
+
+// === MMB FLY — WASD (+Q/E) only while the middle button is held ===
+// Hold MMB: mouse still orbits (Shift = pan, OrbitControls' own swap) and
+// WASD flies the camera + orbit pivot together along the view; Q down / E up,
+// Shift = fast. Interception exists ONLY while MMB is down, so tool hotkeys
+// (S select, E erase, ...) work normally the rest of the time.
+let mmbDown = false, flyRaf = 0, flyLast = 0, flyShift = false;
+const flyKeys = new Set();
+const FLY_MAP = { w: 'f', s: 'b', a: 'l', d: 'r', e: 'u', q: 'd' };
+const _flyDir = new THREE.Vector3(), _flyRight = new THREE.Vector3(), _flyMove = new THREE.Vector3();
+
+function flyTick(t) {
+  if (!mmbDown) { flyRaf = 0; return; }
+  const dt = Math.min(0.05, (t - flyLast) / 1000); flyLast = t;
+  if (flyKeys.size) {
+    camera.getWorldDirection(_flyDir);
+    _flyRight.crossVectors(_flyDir, camera.up).normalize();
+    _flyMove.set(0, 0, 0);
+    if (flyKeys.has('f')) _flyMove.add(_flyDir);
+    if (flyKeys.has('b')) _flyMove.sub(_flyDir);
+    if (flyKeys.has('r')) _flyMove.add(_flyRight);
+    if (flyKeys.has('l')) _flyMove.sub(_flyRight);
+    if (flyKeys.has('u')) _flyMove.y += 1;
+    if (flyKeys.has('d')) _flyMove.y -= 1;
+    if (_flyMove.lengthSq() > 0) {
+      _flyMove.normalize().multiplyScalar(Math.max(W, H, D) * 0.3 * dt * (flyShift ? 3 : 1));
+      camera.position.add(_flyMove);
+      controls.target.add(_flyMove);
+    }
+  }
+  flyRaf = requestAnimationFrame(flyTick);
+}
+function endFly() {
+  if (!mmbDown) return;
+  mmbDown = false; flyKeys.clear();
+  if (stampAim && !pasteMode && lastMouseEvent) aimFromEvent(lastMouseEvent, true); // camera moved under a still mouse
+}
+document.addEventListener('mousedown', e => {
+  if (e.button !== 1 || e.target !== renderer.domElement) return;
+  mmbDown = true; flyLast = performance.now();
+  if (!flyRaf) flyRaf = requestAnimationFrame(flyTick);
+}, true);
+window.addEventListener('mouseup', e => { if (e.button === 1) endFly(); }, true);
+window.addEventListener('blur', endFly);
+document.addEventListener('keydown', e => {
+  if (e.key === 'Shift') flyShift = true;
+  if (!mmbDown || e.ctrlKey || e.metaKey || e.altKey) return;
+  const k = FLY_MAP[e.key.toLowerCase()];
+  if (!k) return;
+  e.stopPropagation(); e.preventDefault();
+  flyKeys.add(k);
+}, true);
+document.addEventListener('keyup', e => {
+  if (e.key === 'Shift') flyShift = false;
+  const k = FLY_MAP[e.key.toLowerCase()];
+  if (k && flyKeys.has(k)) { flyKeys.delete(k); e.stopPropagation(); }
+}, true);
+
+document.addEventListener('keydown', e => {
+  if (!pasteMode) stampMoveOwned = false;
+  const ownsSel = stampSelOwned && selVoxels.length > 0;
+  if (e.key === 'Escape' && (stampAim || roomSel || ownsSel || stampMoveOwned)) {
+    e.stopPropagation(); e.preventDefault();
+    if (pasteMode && stampMoveOwned) { // first Esc cancels the move only; the stamp stays where it was placed
+      cancelPaste(); stampMoveOwned = false;
+      setStatus('Move cancelled — stamp stays where it was placed (Esc again exits)');
+      return;
+    }
+    if (stampAim) setStampAim(null);
+    if (ownsSel) clearSelection();
+    stampSelOwned = false;
+    releaseRoomSel();
     setTool('camera'); // same landing spot as every other tool's Esc
     return;
   }
+  if (!stampAim) return;
   if (e.key.toLowerCase() === 'r' &&
       !['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) {
     e.stopPropagation(); e.preventDefault();
@@ -6601,8 +7059,22 @@ document.addEventListener('keydown', e => {
   }
 }, true);
 
-document.getElementById('stamp-btn').addEventListener('click', () => setStampAim('stamp'));
-document.getElementById('place-btn').addEventListener('click', () => setStampAim('place'));
+document.getElementById('stamp-btn').addEventListener('click', e => { setStampAim('stamp'); e.currentTarget.blur(); });
+document.getElementById('place-btn').addEventListener('click', e => { setStampAim('place'); e.currentTarget.blur(); });
+
+// Canvas size + persisted room default dims
+document.getElementById('room-vol-btn').addEventListener('click', () => {
+  document.getElementById('vol-w').value = W;
+  document.getElementById('vol-h').value = H;
+  document.getElementById('vol-d').value = D;
+  document.getElementById('volume-modal').style.display = 'flex';
+});
+document.getElementById('room-savevol-btn').addEventListener('click', () => {
+  const dims = [W, H, D];
+  localStorage.setItem('roomDesignDims', JSON.stringify(dims));
+  ASSET_TYPE_PRESETS.room.defaultDims = dims;
+  setStatus(`Room canvas default saved: ${dims.join('×')} — loads on every Room select`);
+});
 
 // file:// fallback for default model loading.
 document.getElementById('default-model-file-input').addEventListener('change', (e) => {
@@ -6626,6 +7098,8 @@ document.getElementById('default-model-file-input').addEventListener('change', (
 const assetTypeSelect = document.getElementById('asset-type-select');
 assetTypeSelect.value = assetType;
 assetTypeSelect.addEventListener('change', () => {
+  releaseRoomSel();
+  stampSelOwned = false; stampMoveOwned = false;
   const newType = assetTypeSelect.value;
   const preset = ASSET_TYPE_PRESETS[newType];
 
@@ -7051,7 +7525,7 @@ renderer.domElement.addEventListener('mousemove', (e) => {
   // highlight instead of recomputing flood fills per move while orbiting.
   if (e.buttons) positionsMemo.clear();
   if (e.buttons & 6) return;
-  updateHighlight(e);
+  if (!stampAim) updateHighlight(e); // the ghost is the highlight while aiming
 });
 
 // Refresh the additive-select preview when Alt is pressed/released without
@@ -7344,7 +7818,7 @@ window.moveSelection = function() {
   });
   pasteOrigin = { x: minX, y: minY, z: minZ };
   pasteOffset = { x: 0, y: 0, z: 0 };
-  pasteMode = true; moveMode = true;
+  pasteMode = true; moveMode = true; _pasteUniform = true;
   document.getElementById('paste-controls').style.display = 'block';
   setStatus(`Move mode: ${clipboard.length} voxels — arrows to move, Enter to confirm, Esc to cancel`);
 };
@@ -7352,7 +7826,7 @@ window.moveSelection = function() {
 window.pasteSelection = function() {
   if (clipboard.length === 0) return;
   // Enter paste preview mode — don't place yet
-  pasteMode = true;
+  pasteMode = true; _pasteUniform = true;
   // Start at copy origin so ghost appears where the original was
   pasteOrigin = { x: copyOrigin.x, y: copyOrigin.y, z: copyOrigin.z };
   pasteOffset = { x: 0, y: 0, z: 0 };
@@ -7364,6 +7838,7 @@ window.pasteSelection = function() {
 window.movePaste = function(dx, dy, dz) {
   if (!pasteMode) return;
   pasteOffset.x += dx; pasteOffset.y += dy; pasteOffset.z += dz;
+  if (mirrorMove && (mirrorX || mirrorY || mirrorZ)) _pasteUniform = false; // cells diverge -> per-cell preview
   const px = mirrorPlaneX(), py = mirrorPlaneY(), pz = mirrorPlaneZ();
   for (const v of clipboard) {
     // Per-cell offset; cells past an active mirror plane get the reflected
@@ -7410,6 +7885,7 @@ window.rotatePaste = function(axis, dir) {
     minX = Math.min(minX, v.x); minY = Math.min(minY, v.y); minZ = Math.min(minZ, v.z);
   }
   for (const v of clipboard) { v.x -= minX; v.y -= minY; v.z -= minZ; }
+  _pasteRev++; // shape changed -> rebuild the cached preview shell
   if (lastMouseEvent) updateHighlight(lastMouseEvent);
   setStatus(`Rotated ${axis.toUpperCase()} ${dir > 0 ? '+' : '-'}90° — ${clipboard.length} voxels (arrows nudge, Enter confirms)`);
 };

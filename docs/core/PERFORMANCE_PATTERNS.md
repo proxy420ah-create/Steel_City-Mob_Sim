@@ -233,6 +233,126 @@ the variant is always on (see
 Editor the first `V` press compiles the debug variants on demand — expect a few
 seconds of blank proxy volumes; player builds precompile every variant.
 
+## 15. Grid DDA Pick Instead of Instance Raycast (2026-11-03)
+
+**Problem**: `raycaster.intersectObjects([instancedMesh])` tests **every instance** — cost
+is O(baked voxels), paid per call. The Room builder's aim mode picks on every mousemove;
+after stamping one 62k-voxel office slice the pick measured **15–69 ms/call** (and the
+editor's own highlight raycast was paying it a second time per move). Blank canvas: 0.2 ms —
+which is why it only appeared once content was baked in.
+
+**Fix**: `raycastGrid()` walks the `voxelMap` along the camera ray (Amanatides–Woo DDA):
+clip the ray to the volume AABB, step cell to cell, stop at the first occupied cell; the hit
+normal is the axis of the last step (entry face for the first cell); ground-plane fallback
+when nothing is hit. Mirrored Unity view is handled by un-mirroring the ray origin/direction
+X about `volumeWorldCenter().x`. Cost ≈ `W+H+D` steps regardless of model size: **~0.01 ms**.
+Returns the same `{x,y,z,normal,placeX/Y/Z,mid}` shape as `raycastVoxelMesh`, so callers
+don't care which one they got.
+
+**Verified**: identical hit + placement cell vs the mesh pick on 118/118 sampled pixels
+(Unity-mirrored) and 114/114 (unmirrored).
+
+**Caveat**: DDA reads the raw `voxelMap`, so it does **not** skip slice-clipped or
+hidden-material/group voxels the way the mesh pick does (`inClipBounds` / `isVoxelShown`).
+Fine for placement aim; add those two checks inside the loop before using it for edit tools.
+(The sweep found 1 grid-only hit — a cell the mesh pick skipped as hidden/clipped.)
+
+**Game reuse**: CPU-side picking — cursor→building cell, projectile broadphase, LOS probes —
+over the chunk/cell store with a DDA, not a physics raycast against per-voxel colliders or an
+instance-list scan. Same traversal the raymarcher already does on the GPU.
+
+## 16. Block-Merged Preview Geometry — O(blocks), Not O(voxels) (2026-11-03)
+
+**Problem**: The Room builder's ghost silhouette drew one instance per voxel — 38,860
+instances for a 62,340-voxel slice — with a matrix write, color write and (originally) six
+string-key `voxelMap` lookups per voxel **every time the aim cell changed**: **31–38 ms**.
+The first fix, culling interior voxels (all 6 neighbors filled), removed only 38% — walls
+here are 3 voxels thick, so nearly every voxel *is* surface.
+
+**Fix**: Bucket voxels into 4×4×4 blocks; each block draws **one box = the AABB of the
+voxels actually inside it**. Thin walls/floors stay exact (the AABB shrinks to the content),
+solids collapse ~64×. Built once per model and cached on it (`data._blocks`); rotation
+transforms the block AABBs, not the voxels. 38,860 → **1,888 boxes, 1.5 ms** per rewrite.
+Contact class (cyan free / yellow flush with a volume face or placed voxel / red pokes
+outside) is evaluated per block with ≤6 lookups, and skipped entirely on an empty canvas.
+
+**Rule**: a preview must be *representative*, not exact. Interior-culling is the wrong lever
+for thin-shell content — merge instead. Scaled prefabs: position = `pos + idx*s` (same as
+placements); the first ghost used unscaled offsets and would have spread a `.01` prop 3× wide.
+
+**Game reuse**: build-placement previews, blueprint ghosts, distant-LOD proxies for
+buildings, selection volumes — anything translucent drawn over a big opaque scene (overdraw
+makes per-voxel ghosts doubly expensive).
+
+## 17. Change-Gate Preview Work + One Cursor Owner (2026-11-03)
+
+**Problem**: `mousemove` fires at display rate (60–120 Hz); the aim *cell* changes a few
+times a second. Two systems (the editor's highlight and the ghost) each reacted to every
+move and each paid O(model).
+
+**Fix**:
+- **Signature gate** — `refreshGhost` builds a signature of every input that affects its
+  output (`model|pos|rot|origin|voxelSize|dims|voxelMap.size`) and returns early when
+  unchanged. Beats debouncing: zero lag, zero wasted work. Include a model-change counter
+  (`voxelMap.size`) so contact colors refresh after an edit.
+- **Single cursor owner** — while aim mode is armed the ghost *is* the highlight, so
+  `updateHighlight` is skipped. Don't stack two per-move systems.
+- **Disarm must clear the visual** — hide the mesh and reset the signature. Changing mode
+  without clearing the picture reads as "Esc did nothing" (it was filed as a bug).
+
+**Game reuse**: any hover/preview system (tooltips, placement cursors, range rings) —
+gate on a state signature, and make sure only one system owns the cursor at a time.
+
+## 18. Measure Headless Before Fixing (2026-11-03)
+
+**Problem**: Two fix rounds on the ghost (interior cull, raycast throttle) were guesses and
+barely moved it. One measured pass named the actual costs in minutes.
+
+**Recipe**:
+1. Expose the module-scoped functions under test on a debug handle
+   (`window.__room = { raycastGrid, raycastVoxelMesh, refreshGhost, stampSelectedPrefab, ... }`)
+   — the editor is a `type="module"`, so nothing is global otherwise.
+2. Drive Edge headless over CDP (`--headless=new --remote-debugging-port=... --use-angle=swiftshader`;
+   template: `docs/_shot2.js`), `Runtime.evaluate` with `awaitPromise`, and time N calls with
+   `performance.now()`.
+3. Measure at **each content state** — blank, 1 stamp, 2 stamps. Cost scaled with what was
+   *baked*, not what was previewed; the blank canvas looked perfect.
+4. For a replacement path, diff it against the old one for **correctness** on a pixel sweep,
+   in every view mode (here: mirrored and unmirrored).
+5. Instrument phases of one-shot actions (`window.__stampT` = write / rebuild / history) so
+   "slow commit" can be attributed. Stamp commit measured 240–480 ms: write ~80, `rebuildMesh`
+   140–340, history ~25 — a one-time cost, not per-move.
+
+6. **Use the CDP profiler when you don't know where the time goes**: `Profiler.enable` ->
+   `Profiler.start` -> run N repetitions of the action -> `Profiler.stop`, then sum
+   `timeDeltas` per `callFrame.functionName:line` from `profile.samples`. A self-time table
+   (top 12) named the move-preview rebuild, its GC churn, and the highlight re-add in one run.
+
+**Limits**: SwiftShader makes CPU-side timings trustworthy but says nothing about GPU frame
+rate — judge fill-rate/overdraw on real hardware.
+
+## 19. Translate, Don't Rebuild — Cached Shell + Mesh Offset (2026-11-03)
+
+**Problem**: The native Move-mode paste preview rebuilt the whole highlight shell on **every
+nudge**. For a 62,340-voxel stamp that was **~450 ms per PgUp/PgDn** — and held keys fire at
+repeat rate, so presses queued and the editor froze. Profile (one run, 12 moves):
+`buildShellMeshes` 43%, GC 34% (62k fresh `[x,y,z]` arrays per move), `showHighlight` 16%
+(geometry dispose + re-add). The `movePaste` offset math itself was ~10 ms.
+
+**Fix**: a pure translation doesn't change the shape. Build the shell **once per clipboard
+shape** at offset 0 (cache key: clipboard identity + `_pasteRev` + origin + length),
+`showHighlight` identity-skips it on every later call, and each nudge just does
+`hlMesh.position.set(pasteOffset)`. Rotation bumps `_pasteRev` (rebuild); ⇄ Mirror Move gives
+cells different offsets, so `_pasteUniform = false` falls back to the old per-cell path. The
+in-bounds count shown in the tooltip is an allocation-free loop. **448 ms → 2.6–4.9 ms (~100×).**
+
+**Rule**: when a preview is *dragged*, the geometry is constant and only the transform changes.
+Key the cache on what changes the **shape** (rotation, clipboard contents), never on position.
+
+**Game reuse**: placement ghosts, selection/blueprint previews, dragged LOD proxies — keep the
+mesh/ComputeBuffer, move the Transform; cache by shape signature. Pairs with #16 (merge) and #17
+(gate) for previews that are both big and dragged.
+
 ---
 
 ## Cross-Cutting Lessons
@@ -257,6 +377,27 @@ seconds of blank proxy volumes; player builds precompile every variant.
    frame. Cache tab text into one rich-string label at ~4 Hz and throttle scene
    scans. See `docs/known_issues/rendering/IMGUI_HUD_FRAME_TAX.md`.
 
+7. **Check this catalog before adding per-mousemove geometry** (2026-11-03) — the Room
+   builder ghost reintroduced the exact anti-pattern `known_issues/editor/HIGHLIGHT_INSTANCED_REBUILD_LAG.md`
+   documents ("rebuilt ~2xN instances every mousemove"). New interactive previews: surface
+   shell or block-merge (#16), signature-gate (#17), one cursor owner.
+8. **Test perf with content loaded, not on a blank canvas** (2026-11-03) — pick and ghost
+   cost were ~0 on an empty volume and 15–69 ms after one stamp. Whatever scales with baked
+   voxels (`intersectObjects`, full-instance scans) hides until the model is big (#15, #18).
+9. **Interior-culling only helps solids** (2026-11-03) — thin-shell content (walls, floors,
+   ceilings: 3–6 voxels thick) is already all surface. Merge into blocks instead (#16).
+
+10. **Every mode that swallows input needs a disarm on EVERY exit path** (2026-11-03) — aim
+    mode intercepts left-click on the canvas; it also had to disarm on tool change, asset-type
+    switch and Room-tab leave, or it silently ate clicks elsewhere (found in the audit sweep,
+    verified headless for each path).
+11. **File metadata is not scale truth** (2026-11-03) — `commission_wall`/`commission_floor`
+    carry `voxelSize` 0.025 but run at the room grid's 0.03 in the scene (the loader overrides).
+    Derive preview/placement scale from the asset class (`prefabVS`: building/room = grid scale,
+    props keep native), or ghosts draw 17% small and a strict mismatch guard rejects valid pieces.
+12. **A guard added in an audit must be re-run against real assets** — the scale-mismatch guard
+    rejected the wall prefab on first test; the headless regression pass caught it before it shipped.
+
 ## Deferred / Deliberately Not Done
 
 - **GPU flood fill** (ping-pong texture spread): result must return to CPU anyway
@@ -269,3 +410,13 @@ seconds of blank proxy volumes; player builds precompile every variant.
   `Data3DTexture` + fragment tint — the remaining GPU-able piece of the highlight path.
 - **`cavity` fill preview** still synchronous (chained exterior-air compute);
   `computeExteriorAir` still uses `Set<string>` — candidate for the #6 treatment itself.
+- **Grid pick honoring slice clip / hidden materials** (#15 caveat): add `inClipBounds` +
+  `isVoxelShown` inside `raycastGrid`'s loop before it backs any *edit* tool.
+- **Ghost via shell/greedy-mesh geometry** instead of boxes (#16): only if block boxes ever
+  read as too coarse; the AABB-per-block approach is exact for thin walls and good enough
+  elsewhere.
+- **Per-cell Mirror Move preview** still rebuilds the shell per nudge (`_pasteUniform = false`
+  path, #19) — rare; fix would be one cached shell per mirror half, each offset separately.
+- **Placement meshes** are one InstancedMesh per voxel (`buildPlacementMesh`): placing a huge
+  prefab (e.g. the 240k office) is O(voxels) once and again on any volume re-anchor. Block-merge
+  (#16) is the lever if that ever matters.

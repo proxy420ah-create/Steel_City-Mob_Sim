@@ -60,7 +60,7 @@
 
 **Performance Patterns:**
 - **`docs/core/PERFORMANCE_PATTERNS.md`** — Editor-proven optimization techniques mapped to game systems
-  - 14 patterns (#13 brick-occupancy skip is shelved; #14 keyword-gated debug views): tracked-write maps, partial GPU uploads, delta history, shader-side clip, procedural shader detail, epoch-marked scratch grids, chunked cooperative scans, O(1) region membership, generation counters, slot bookkeeping, view-state signatures, swap-pop + grow-only buffers
+  - 19 patterns (#13 brick-occupancy skip is shelved; #14 keyword-gated debug views; #15-#19 added 2026-11-03 from the Room builder: grid-DDA pick, block-merged preview geometry, change-gated previews, headless measuring + CDP profiler, translate-don't-rebuild): tracked-write maps, partial GPU uploads, delta history, shader-side clip, procedural shader detail, epoch-marked scratch grids, chunked cooperative scans, O(1) region membership, generation counters, slot bookkeeping, view-state signatures, swap-pop + grow-only buffers
   - Each pattern: the real stall it fixed + concrete Steel City reuse (voxel edits, lit-window flips, influence BFS, GPU picking, async guards)
   - Cross-cutting lessons + deliberately-rejected approaches (GPU flood fill, vertex culling)
 
