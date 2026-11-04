@@ -77,3 +77,7 @@ docs/presence_*.js.tmp
 docs/server*.log
 docs/server_log.txt
 docs/nul
+
+# ── Commission daemon runtime noise ──
+docs/*.log
+docs/*.jsonl

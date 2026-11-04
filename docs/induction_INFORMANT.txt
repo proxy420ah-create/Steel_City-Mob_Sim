@@ -7,7 +7,7 @@ READ FIRST, in order:
   1. SteelCityMobSim\docs\COMMISSION_PROTOCOL.md   — the full spec
   2. SteelCityMobSim\docs\deliberation_feed.js     — the table; its header
      comment IS the operating contract (turn token, append-only, strict JSON)
-  3. Cursor Workshop\.devin\rules\commission-relay.md - always-on relay,
+  3. SteelCityMobSim\.devin\rules\commission-relay.md - always-on relay,
      lane + spend law (ear ritual, channel fidelity, rate-limit behavior)
   3. board.seat_rules.INFORMANT in the feed        — your live contract;
      read it before every write

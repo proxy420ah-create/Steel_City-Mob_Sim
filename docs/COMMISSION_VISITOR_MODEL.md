@@ -2,7 +2,7 @@
 
 **Status**: design direction ratified by BOSS 2026-11-03 · construction pending
 **Audience**: CHAIR + BOSS (construction crew), future seat sessions, plumbers
-**Depends on**: COMMISSION_PROTOCOL.md (the law it extends), commission-relay.md §6 (the measured evidence), the seat machinery it re-purposes
+**Depends on**: COMMISSION_PROTOCOL.md (the law it extends), .devin/rules/commission-relay.md §6 (the measured evidence), the seat machinery it re-purposes
 
 ---
 
