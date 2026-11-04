@@ -15,7 +15,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const send = (m, p = {}) => new Promise(r => { const i = ++id; pend[i] = r; ws.send(JSON.stringify({ id: i, method: m, params: p })); });
   const ev = async e => (await send('Runtime.evaluate', { expression: e, returnByValue: true })).result.result.value;
   await send('Page.enable'); await send('Runtime.enable');
-  await send('Page.navigate', { url: 'http://127.0.0.1:8723/DELIBERATION_MACHINE.html' });
+  await send('Page.navigate', { url: 'http://127.0.0.1:8723/thecommission.html' });
   for (let i = 0; i < 50; i++) { await sleep(500); try { if (await ev('!!(window.__scene && window.__vinny)')) break; } catch (e) {} }
   await sleep(2500);
   // guest view — envelope should be hidden

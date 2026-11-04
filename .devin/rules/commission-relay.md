@@ -2,7 +2,7 @@
 trigger: always_on
 ---
 
-# Commission Relay Law — DELIBERATION_MACHINE.html + seat daemons
+# Commission Relay Law — thecommission.html + seat daemons
 
 Standing law for any agent acting as a commission seat (CHAIR, ARCHITECT, INFORMANT,
 AUDITOR, BUTTON) or building/tending the commission plumbing under

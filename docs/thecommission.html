@@ -1428,6 +1428,13 @@ function initDeck3D(THREE, OrbitControls){
   const amb = new THREE.AmbientLight(0x2a3550, .9);
   const key = new THREE.PointLight(0xffd9a0, 26, 14); key.position.set(0, 4.2, .4);
   const key2 = new THREE.PointLight(0xffd9a0, 26, 14); key2.position.set(0, 4.2, 4.9);   // module 2 key — same warm bulb over the bolt-on
+  /* pendant over the table — the business light: warm cone pooling on the felt +
+     a faint green spill so the enamel shade reads lit from inside. Always on —
+     the table is the set's center in both camera modes. */
+  const pendSpot = new THREE.SpotLight(0xffe2b0, 22, 6, .75, .6, 1);
+  pendSpot.position.set(0, 1.36, 0); pendSpot.target.position.set(0, .35, 0);
+  scene.add(pendSpot, pendSpot.target);
+  const pendGlow = new THREE.PointLight(0xcfffb0, 1.2, 1.3); pendGlow.position.set(0, 1.42, 0); scene.add(pendGlow);
   scene.add(amb, key, key2);
   /* render-on-dirty scheduler state — declared up top so mark() is safe from
      any init code that runs before the scheduler section below (TDZ fix). */
@@ -1453,6 +1460,7 @@ function initDeck3D(THREE, OrbitControls){
   ]);
   const KIT = [
     { file:'commission_table', vs:.007,  pos:[0, 0, 0], sXZ:1.4 },   // chibi: .38m tall (kept) x 1.4m dia — edge .70 meets the r1.15 chair ring
+    { file:'commission_pendant', vs:.012, pos:[0, 1.314, 0] },       // green-dome pendant: canopy kisses the coffer bay at 1.89, shade bottom 1.31
     { file:'commission_floor', vs:.03,   pos:[0, -.09, 0] },     // chibi grain — 4.5m plate covers the seat ring, tops y=0
     { file:'commission_wall',  vs:.03,   pos:[0, 0, -2.295] },   // 4.5x1.8 wall backs the set — front face at z=-2.25
     { file:'commission_wall',  vs:.03,   pos:[-2.295, 0, 0], rotY: Math.PI / 2, env: true },    // left wall — envelope
@@ -2430,6 +2438,7 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
   }
   window.__vinny = { root: CH, mesh: inst, engine: E, anim: () => ({ state, walkSpeed, gaitTime, blend, yaw: chYaw, pos: chPos.toArray() }), cam: { grab, release, sit, stand, info: () => ({ possessed, seatIdx, lookYaw, lookPitch, boomCur, EYE_H, SUGGEST, CAM_PAD, MIN_ORBIT }) } };   // console/debug handle
   pose(); DECK.dirty();                                          // spawn posed: Idle, arms down, dressed
+  sit();                                                         // boss spawns SEATED (nearest chair = #2 BOSS from the old spawn point) — he stood inside the table edge until first move
   console.log('DVM-2252 — Vinny loaded:', N, 'voxels · Civilian_01 outfit · Idle/Walking pose engine');
 })();
 </script>

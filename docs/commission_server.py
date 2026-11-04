@@ -619,5 +619,5 @@ class Handler(SimpleHTTPRequestHandler):
 
 if __name__ == '__main__':
     os.chdir(HERE)
-    print(f'Commission server -> http://127.0.0.1:{PORT}/DELIBERATION_MACHINE.html  (serving {HERE})', flush=True)
+    print(f'Commission server -> http://127.0.0.1:{PORT}/thecommission.html  (serving {HERE})', flush=True)
     ThreadingHTTPServer(('127.0.0.1', PORT), Handler).serve_forever()

@@ -14,7 +14,7 @@ serves a committed bake even when the source is absent. Contents:
 - walk-clearance grid (floor present, no wall within body height, 3.5-cell radius clear),
   bit-packed occupancy (boom/camera DDA), room centres (felt discs), `placements[]` passthrough.
 
-**Scene (`DELIBERATION_MACHINE.html`)**: `loadBuilding()` replaces the old shell kit (floor, floor2, walls,
+**Scene (`thecommission.html` (was DELIBERATION_MACHINE.html))**: `loadBuilding()` replaces the old shell kit (floor, floor2, walls,
 ceilings, stamps); furniture KIT items (table, cabinet, chairs) are unchanged. Group view = STAGE only;
 possess = STAGE + ENV + per-room bulbs (scene-level lights, intensity 0 outside possess - toggling light count
 would recompile materials). Vinny walks on the grid (slides along walls); the possess boom is a grid DDA over

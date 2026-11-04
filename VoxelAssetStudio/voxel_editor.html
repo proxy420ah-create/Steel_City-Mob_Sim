@@ -10041,8 +10041,11 @@ animate();
   const _q = new URLSearchParams(location.search);
   const _mdl = _q.get('model'), _typ = _q.get('type');
   if (_typ && ASSET_TYPE_PRESETS[_typ]) {
+    const _p = ASSET_TYPE_PRESETS[_typ], _dm = _p.defaultModel;
+    if (_mdl) _p.defaultModel = null;                  // a deep-linked model beats the preset's own (they'd race; the preset's fetch resolved last and clobbered it)
     assetTypeSelect.value = _typ;
     assetTypeSelect.dispatchEvent(new Event('change')); // full preset reset — dims, camera, tabs
+    _p.defaultModel = _dm;
   }
   if (_mdl) {
     const _url = /^[\w\-]+$/.test(_mdl)

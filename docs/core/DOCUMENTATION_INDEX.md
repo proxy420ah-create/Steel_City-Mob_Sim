@@ -59,6 +59,8 @@
   - Performance projections: 92s → ~20-30s load, 0ms week transitions with no changes
 
 **Performance Patterns:**
+- **`docs/COMMISSION_HTML_CONTEXT.md`** — Handoff/context doc: what thecommission.html is, the aesthetic decisions (back-room brick, unified oak floor, pendant, felt-under-table), open design threads (voting UX, hall light, side rooms), working rules
+- **`docs/core/VOXEL_INSPECTION_PROTOCOL.md`** — Standard checklist for inspecting voxel assets (integrity, floating pieces, symmetry, layer mix, visual) + the bounded flood-fill rule; tool: `docs/voxel_inspect.py`
 - **`docs/core/PERFORMANCE_PATTERNS.md`** — Editor-proven optimization techniques mapped to game systems
   - 19 patterns (#13 brick-occupancy skip is shelved; #14 keyword-gated debug views; #15-#19 added 2026-11-03 from the Room builder: grid-DDA pick, block-merged preview geometry, change-gated previews, headless measuring + CDP profiler, translate-don't-rebuild): tracked-write maps, partial GPU uploads, delta history, shader-side clip, procedural shader detail, epoch-marked scratch grids, chunked cooperative scans, O(1) region membership, generation counters, slot bookkeeping, view-state signatures, swap-pop + grow-only buffers
   - Each pattern: the real stall it fixed + concrete Steel City reuse (voxel edits, lit-window flips, influence BFS, GPU picking, async guards)
@@ -516,7 +518,7 @@
 Multi-agent deliberation system living in `docs/` — the boss proposes, the CHAIR tables, the ARCHITECT drafts designs, the INFORMANT gates them for completeness, the table votes, the BUTTON builds only on a unanimous SHIP + explicit boss GO CODE, the CHAIR certifies. Eleven proposals shipped (DVM-002 … DVM-014) as of 2026-10-30.
 
 - **`docs/COMMISSION_PROTOCOL.md`** — THE LAW: bus contract (`window.DVM_FEED`), message kinds, boss semantics (`@SEAT` routes the floor), seat lifecycle, write discipline (read → append ONE → rewrite whole file, strict JSON)
-- **`docs/DELIBERATION_MACHINE.html`** — THE DASHBOARD: noir 3D back-room (three.js) where bus state is made visible — lamps = presence (burn down to deadline), amber underglow = floor, neon sign = phase, chair bubbles = latest speech, wall pegboard = proposal lifecycle (TABLED→…→CLOSED); files navigator over `board.files[]`/`staged[]`; honest 2D fallback; SSE push + script-tag poll
+- **`docs/thecommission.html`** — THE DASHBOARD: noir 3D back-room (three.js) where bus state is made visible — lamps = presence (burn down to deadline), amber underglow = floor, neon sign = phase, chair bubbles = latest speech, wall pegboard = proposal lifecycle (TABLED→…→CLOSED); files navigator over `board.files[]`/`staged[]`; honest 2D fallback; SSE push + script-tag poll
 - **`docs/deliberation_feed.js`** — THE TABLE: whole-state append-only bus (proposal, phase, turn, seats, messages, verdict, board{rules,agenda,closed,seat_rules,staged,files}, adjourned)
 - **`docs/commission_watch.py`** — THE EAR: `python commission_watch.py <SEAT> [timeout]` — stamps `presence_<SEAT>.js` once per arm, polls the bus, exits on turn/boss; dormant mode under `adjourned`
 - **`docs/commission_server.py`** — Boss write-path + static host (`:8723`): `/boss`, `/table` (evicts matching `staged[]`), `/adjourn`, `/reconvene`, `/events` (SSE)
