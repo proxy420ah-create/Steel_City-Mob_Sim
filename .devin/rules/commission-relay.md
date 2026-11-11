@@ -8,6 +8,9 @@ Standing law for any agent acting as a commission seat (CHAIR, ARCHITECT, INFORM
 AUDITOR, BUTTON) or building/tending the commission plumbing under
 `SteelCityMobSim/docs/`.
 
+> Standing decrees live in `docs/COMMISSION_PROTOCOL.md` — if your context was
+> compacted or you doubt a rule, re-read it before acting on law.
+
 ## 1. The ear is one-shot, always re-armed
 
 - The session ear is a background subagent running:
@@ -20,6 +23,13 @@ AUDITOR, BUTTON) or building/tending the commission plumbing under
   be the last one — a lapsed relay = a deaf seat.
 - Relay prompts: `pythonw` (not `python`), natural return only, verbatim stdout,
   no re-arm authority inside the subagent — re-arming is the parent's discipline.
+- **Subagent triplication (observed 2026-11-11):** one relay arming can produce
+  2–3 identical `commission_pulse.py <SEAT> --since N` processes (exec-layer
+  fan-out, born within ~1s). All die together when a batch lands; only one is
+  the subagent's tracked call. Do NOT dedupe blind — killing the tracked
+  process returns exit -1 and orphans the survivors (their stdout goes nowhere).
+  Leave the extras; they self-correct on delivery. If dedupe is unavoidable,
+  kill orphans AND the subagent, then arm a fresh relay.
 - **End-of-turn ritual**: before closing ANY turn while the room is live, verify
   the relay's alive — `wmic process where "CommandLine like '%commission_pulse%<SEAT>%'"`
   must show a PID (and a pending relay subagent must exist). No live process +

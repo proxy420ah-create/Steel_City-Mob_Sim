@@ -39,9 +39,51 @@ def load_feed():
         return None
 
 def save_feed(d):
+    # universal-merge (fix-lane GO dm-2773): union messages by id against the
+    # disk state at save moment — the watchdog posts into live traffic, a stale
+    # snapshot must never evaporate a seat's write. Scalars stay newer-wins.
+    try:
+        disk = load_feed()
+        if isinstance(disk, dict) and isinstance(disk.get('messages'), list):
+            by_id = {}
+            seen = set()   # (speaker, ts, text) replay guard — identical to the
+            for x in disk['messages']:  # server's merge: a stale snapshot must
+                if isinstance(x, dict):  # never re-mint a purged message (C48)
+                    by_id.setdefault(x.get('id'), x)
+                    seen.add((x.get('speaker'), x.get('ts'), x.get('text')))
+            merged = list(disk['messages'])
+            for x in d.get('messages', []):
+                mid = x.get('id') if isinstance(x, dict) else None
+                if isinstance(x, dict) and (x.get('speaker'), x.get('ts'), x.get('text')) in seen:
+                    continue
+                if mid not in by_id:
+                    merged.append(x); by_id[mid] = x
+                elif x == by_id[mid]:
+                    continue
+                else:
+                    m2 = re.match(r'^(.*?)(\d+)$', mid)
+                    base, n = (m2.group(1), int(m2.group(2))) if m2 else (mid + '-', 1)
+                    while base + str(n) in by_id: n += 1
+                    x['id'] = base + str(n); merged.append(x); by_id[x['id']] = x
+            d['messages'] = merged
+    except Exception:
+        pass
     tmp = FILE + '.tmp'
     open(tmp, 'w', encoding='utf-8').write('window.DVM_FEED = ' + json.dumps(d, ensure_ascii=False, indent=2) + ';\n')
-    os.replace(tmp, FILE)
+    # Feed-file lockdown (C33): the file sits read-only; toggle the flag around
+    # the watchdog's own save so direct seat-side writers can't os.replace it.
+    try:
+        for attempt in range(3):   # C48: the server's own save can re-lock the
+            try:                   # file between our chmod and our replace —
+                if os.path.exists(FILE):  # retry instead of dying (watchdog
+                    os.chmod(FILE, 0o666)  # must not crash on write contention)
+                    os.replace(tmp, FILE)
+                    break
+            except PermissionError:
+                time.sleep(0.3)
+    finally:
+        if os.path.exists(FILE):
+            os.chmod(FILE, 0o444)
 
 def read_jsvar(path):
     try:
@@ -68,9 +110,56 @@ def carriers(seat):
             cmdlines = out.splitlines()
         except Exception:
             pass
-    needle = 'commission_watch.py %s' % seat
-    needle2 = 'commission_pulse.py %s' % seat   # pulse-plane clients are carriers too
-    return sum(1 for c in cmdlines if needle in c or needle2 in c)
+    # quoting-agnostic: spawn paths may arrive as `commission_pulse.py SEAT`
+    # (cwd-relative) or `"C:\...\commission_pulse.py" SEAT` (absolute) — a
+    # literal '.py SEAT' needle misses the quoted form (C36).
+    needle = re.compile(r'commission_(?:watch|pulse)\.py["\']?\s+%s\b' % seat)
+    # mailbox carve-out (boss decree): '--mailbox' sockets are the inbox daemon's
+    # delivery holds, never a seat-ear — excluded so a live mailbox neither reads
+    # RELIT nor satisfies the zero-carriers respawn gate.
+    return sum(1 for c in cmdlines if needle.search(c) and '--mailbox' not in c)
+
+def host_carriers(seat):
+    """ORPHAN-EAR predicate (C35): a seat HOST process —
+    'commission_seat.py <SEAT>'. An ear socket held with no host behind it
+    keeps presence green while nothing consumes the doorbell: lit-but-deaf,
+    the worst lamp lie there is."""
+    cmdlines = []
+    _nowin = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+    try:
+        out = subprocess.run(['wmic', 'process', 'get', 'CommandLine'],
+                             capture_output=True, text=True, timeout=15,
+                             creationflags=_nowin).stdout
+        cmdlines = out.splitlines()
+    except Exception:
+        try:
+            out = subprocess.run(['powershell', '-NoProfile', '-Command',
+                                  'Get-CimInstance Win32_Process | Select-Object -ExpandProperty CommandLine'],
+                                 capture_output=True, text=True, timeout=20,
+                                 creationflags=_nowin).stdout
+            cmdlines = out.splitlines()
+        except Exception:
+            pass
+    needle = re.compile(r'commission_seat\.py["\']?\s+%s\b' % seat)
+    return sum(1 for c in cmdlines if needle.search(c))
+
+def claimed(seat):
+    """SESSION-CLAIM: session_seat_<SEAT>.js marks the seat held by an
+    external session agent — no commission_seat.py host exists BY DESIGN,
+    so 'pulse held, no host' is honest session occupancy, not the C35
+    orphan lie. The claim is TTL-stamped (session refreshes ts each wake);
+    a stale file means the session died silently — clean it up so normal
+    orphan detection resumes on the next cycle."""
+    p = os.path.join(HERE, 'session_seat_%s.js' % seat)
+    try:
+        d = json.loads(re.search(r'=\s*(\{.*\})',
+                                 open(p, encoding='utf-8').read(), re.S).group(1))
+        fresh = 0 < time.time() - d.get('ts', 0) / 1000 < d.get('ttl_ms', 0) / 1000
+        if not fresh:
+            os.remove(p)
+        return fresh
+    except Exception:
+        return False
 
 def stamp_supervisor():
     p = os.path.join(HERE, 'presence_SUPERVISOR.js')
@@ -126,6 +215,17 @@ def main():
                 # never >2×TTL, so sub-minute gaps stop flapping dark→relit.
                 # Zeroed (armed==0) is commanded dark: never flagged, per law.
                 dark = nc == 0 and armed and (now - armed) > GRACE_N * ttl
+                # ORPHAN-EAR (C35): ear carriers exist but no seat HOST does —
+                # the lamp shows lit while nothing consumes doorbells.
+                # Flag-only: re-instantiating a mind is the boss's call,
+                # never the watchdog's.
+                nh = host_carriers(seat)
+                if nc > 0 and nh == 0 and not st.get('orphan') and not adjourned and not claimed(seat):
+                    st['orphan'] = True
+                    sys_post(seat, 'WATCHDOG — %s ORPHAN-EAR (pulse held, no seat host — lamp lying, host respawn needed)' % seat, to=['BOSS'])
+                if st.get('orphan') and nh > 0:
+                    st['orphan'] = False
+                    sys_post(seat, 'WATCHDOG — %s host re-seated (ear has a mind again)' % seat)
                 if dark and not st['dark'] and not adjourned:
                     st['dark'] = True
                     # dual-stamp flag text (boss-ordered): name WHICH death —

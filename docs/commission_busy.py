@@ -19,7 +19,8 @@ import json, os, sys, time
 HERE = os.path.dirname(os.path.abspath(__file__))
 TTL_MS = 30000
 KINDS = {'THINKING', 'READING', 'COMPOSING', 'WORKING',
-         'AUDITING', 'BUILDING', 'DRAFTING', 'GATING', 'MODERATING'}
+         'AUDITING', 'BUILDING', 'DRAFTING', 'GATING', 'MODERATING',
+         'CATALOGING'}
 
 
 def stamp(seat, on=True, kind='COMPOSING'):

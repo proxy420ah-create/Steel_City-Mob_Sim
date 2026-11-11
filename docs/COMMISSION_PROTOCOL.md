@@ -15,7 +15,7 @@ taking a seat. The live protocol rules are ALSO embedded in `deliberation_feed.j
 |---|---|
 | `deliberation_feed.js` | THE TABLE — `window.DVM_FEED = {…}` whole-state snapshot. Bus + render source in one. |
 | `commission_watch.py <SEAT> [timeout] [--persist]` | THE EAR — polls the bus every 2s; exits 0 on `turn==SEAT` or any unseen non-self message (omniscient, DVM-017). Heartbeat presence (`try_stamp` every ~10s, 30s TTL — C9a); dormant mode under `adjourned` (terminal stamp, flag-only exit); `--persist` stream-mode opt-in (C9b) |
-| `commission_server.py [port]` | The boss's write-path — static host + `POST /boss`, `/table`, `/adjourn`, `/reconvene`, `GET /events` (SSE, mtime-driven). Stamps `proposal.status='go'` on `@BUTTON`+GO post-verdict |
+| `commission_server.py [port]` | Static host + the write paths: `POST /post` (seat writes — server-stamped id/ts, all fences), `POST /boss`, `/dm`, `/table`, `/adjourn`, `/reconvene`, `GET /events` (SSE, mtime-driven). Stamps `proposal.status='go'` on `@BUTTON`+GO post-verdict |
 | `thecommission.html` | THE DASHBOARD — EventSource push over HTTP, poll fallback under `file://`. DVM-014: the page IS the room — three.js scene column, chair bubbles, fuse lamps, pegboard lifecycle, FILES/LEDGER accordions, chair inspector |
 | `presence_<SEAT>.js` | Side-channel ear state — **heartbeat contract (DVM-020 C9a)**: a live watcher re-stamps every ~10s with `ttl_ms=30000`; `armed_at` reads *last seen alive*, and `beat:true` marks heartbeat-era records. A dead ear stops beating → the lamp reads DARK within ≤30s. `pulse_at` retained for compat only. Litter-owner (DVM-011): retiring/renaming a seat sweeps its `presence_<OLD>.js`; orphans (seat outside `SEATS{}`) — finder deletes |
 | `drafts/` | Implement drafts (`DVM-###_*.md`) — ARCHITECT artifacts, INFORMANT-gated |
@@ -50,8 +50,10 @@ window.DVM_FEED = {
   `members{}` is retired — occupancy derives from `presence_<SEATKEY>.js` side
   files (watcher-stamped). Legacy member ids (DEVIN, MEMBER2–4) survive only as
   session handles; the server still translates them in @mentions.
-  `seat_rules{}` holds the seven-chair roster — PRAGMATIST·HISTORIAN sit vacant
-  but contract-readable; `seats[]` holds the five currently seated.
+  `seat_rules{}` holds the seven-chair roster — PRAGMATIST sits vacant
+  but contract-readable (HISTORIAN retired at DVM-2668, replaced by
+  DESIGNER); `seats[]` holds the five currently seated — six once a
+  DESIGNER session seats.
   Floor domain (DVM-019): `LIVE := seats[] ∪ {BOSS}` is the only floor
   domain — the dashboard's `SEATS{}` is a render roster, never the guard.
   `turn` carries only LIVE keys going forward; retired personas and member
@@ -94,8 +96,11 @@ window.DVM_FEED = {
   *proposal under deliberation* and starts meaning **item under build** —
   build authority sits with BUTTON; the slot is closed to objection,
   amendment, and re-deliberation.
-- **Writes**: read → `JSON.parse` the object → append ONE message → set `turn` to the
-  next seat → write the whole file back, strict JSON, same wrapper. Never drop keys.
+- **Writes**: `POST /post` to `127.0.0.1:8723` — `{"speaker","kind","to","text",
+  "register"?}` — the server stamps id (max+1) + ts, validates seat + kind,
+  applies `register` scalars (`turn`/`proposal`/`verdict`/`board`...) and funnels
+  through `save_feed`'s fences. **The feed file is read-only for seats** —
+  a hand-edited write bypasses every protection (C33 root fix).
 - **Message**: `{"id":"<SEATKEY>-<n>","speaker":"<SEATKEY>","round":<n>,
   "kind":"position|objection|support|veto|verdict|phase|sys|boss|ack|ok|aside","text":"<html ok>"}`
 - **Aside — the side table (DVM-017)**: any seat MAY append `kind:'aside'`
@@ -359,6 +364,26 @@ window.DVM_FEED = {
   conversation — seats address EACH OTHER (`re:`-refs, direct replies,
   extend/challenge/merge each other's takes), not four parallel
   answers back to the boss; the CHAIR consolidates when it converges.
+- **Acknowledgment decree (boss, dm-2735):** any boss room-address —
+  broadcast or `@ALL`, main table or side — OBLIGES a visible ack from every
+  woken seat: a `kind:'ack'` or one-line reply in the addressed lane. Boss
+  speech is never ambient-for-silence; the ack is the sanity proof that
+  context landed. Unacknowledged = an AUDITOR finding.
+  **Dictated response slots (boss rate-limit decree, measured 2026-11-04):**
+  a room-class address (`kind:'boss'` broadcast or `to:['ALL']`) releases
+  seat-by-seat in `seats[]` order, `BCAST_SLOT_S`=12s apart (CHAIR first,
+  six seats = 60s, inside the ~90s boss-ask bound) so the obliged acks land
+  one at a time. Direct `@SEAT` and `your_turn` wakes bypass the slots.
+  A slot is a delayed release, never a drop; held sockets keep the lamp lit.
+  `/aside @ALL` stamps `to:['ALL']` (the parser had no ALL before).
+  **Replay law (C33, AUDITOR-274, folded):** no seat replays a compose
+  buffer — on re-seat, anything drafted before your last delivered
+  watermark is dead text; fresh-read the feed before ANY write. Server
+  dedupes byte-identical (speaker, ts, text) re-appends at the save layer,
+  and disk scalars win over provably-stale incoming writes — but the
+  discipline still belongs session-side for direct edits.
+  **Ack economy:** an ack is ONE write — arm relay, post the ack, nothing
+  else (no re-reads, no side work); a turn's cost is its call count.
 - **Universal wake-filter (boss-303 decree, mechanical since the
   `addressed` flag went live — BUTTON-932/ARCHITECT-132):** every
   seat's pulse payload carries `addressed:true` when a new message's
@@ -395,7 +420,11 @@ ARM watcher → WAKE → READ the file → act → RE-ARM → repeat
 live Nov 1).** `commission_pulse.py <SEAT>` holds `GET /pulse/<SEAT>?since=N`
 on the commission server (~25s holds); the server returns the **instant** the
 feed grows — the HTTP response IS the doorbell, and the client's exit wakes
-the host on every substrate. `commission_watch.py` is **deprecated** — never
+the host on every substrate. **Gated since the boss's rate-limit decree:** the doorbell
+fires only on actionable batches — `your_turn`, `addressed` (incl. `ALL`), or
+`boss-spoke`; ambient traffic holds while the mailbox daemon archives it
+ungated (seats drain on the next real wake). Actionable wakes release
+staggered by seat index (~1.2s each) — no five-way pileups. `commission_watch.py` is **deprecated** — never
 arm it on new seats.
 
 | Substrate | Pattern | Status |
@@ -407,7 +436,11 @@ arm it on new seats.
 
 **Presence semantics under pulse:** `presence_<SEAT>.js` is **server-stamped**
 while the connection holds (`via:'pulse'`) — the lamp is an observed socket,
-not a self-declared file. A **delivered doorbell earns a 90s fuse**
+not a self-declared file. **Mailbox carve-out
+(boss decree, dm-ordered):** the inbox daemon holds `/pulse/<SEAT>?mb=1` —
+deliveries flow, but `mb` sockets **never stamp presence**; a live mailbox is
+not a live seat-ear. Seat-ear holders only (session relay, watch.py watcher)
+stamp the lamp. A **delivered doorbell earns a 90s fuse**
 (`via:'pulse-doorbell'`, `ttl_ms:90000`) — a seat acting on a fresh batch is
 working, not dark (the flap-window law).
 
@@ -519,7 +552,7 @@ Commission" — a multi-agent deliberation panel. You and other seats
 deliberate proposals by writing to ONE shared file (the table). The boss
 watches live on a dashboard.
 
-FILE: <abs path>/deliberation_feed.js   — read the header comment: it IS the spec.
+FILE: <abs path>/deliberation_feed.js   — the table; the spec is COMMISSION_PROTOCOL.md (the bus carries no header comment — rewrites can't preserve one).
 
 To speak: read file → JSON.parse the feed object → append ONE message →
 set "turn":"CHAIR" → write back (strict JSON, same wrapper, drop nothing).
@@ -574,13 +607,73 @@ verdict/certification flow takes it from there. (First form — "register
 belongs to the builder" — failed the seat-keyed 90s check within minutes;
 this is the corrected law.)
 
+## The deliberation test — real business vs theatre (boss decree, 2026-11-11)
+
+**Deliberation is for questions where the answer must be CHOSEN, not FOUND.**
+If the answer exists independent of opinion — verifiable by lookup, test, or
+execution — it is implementation work: it goes to bench/the executor, not the
+ballot. If the answer must be chosen — taste, priority, identity, semantics,
+law — that is the table's charter.
+
+| Theatre (do not table) | Real business (tables) |
+|---|---|
+| Answer is verifiable — exists independent of opinion | Answer is chosen — taste, priority, semantics, law |
+| Asker already decided — seeking a rubber stamp | Ask is genuinely open — dissent would be accepted |
+| Charters cannot diverge — all lenses read it the same | Charters legitimately split (audit-mind vs design-mind) |
+| Evidence cannot be served — seats would argue blind | Evidence is serveable and informs without pre-answering |
+| Mechanism questions — *how* to build | Law questions — *what* it should be |
+
+**Detectors:**
+- *Digest test* — if the evidence digest already contains the answer, the
+  asker pre-decided it; a ballot on that is theatre.
+- *Convergence test* — if every seat's answer is predictable before asking,
+  record the decision directly; a unanimous-foregone ballot is theatre.
+
+**Routing:** the CHAIR gates what constitutes real business — deciding what
+tables is the moderator's first duty, before floor control. Found-answer
+work routes to the executor with the answer on the record; chosen-answer
+work tables with the evidence served. A proposal may SPLIT — the verifiable
+half executes, the contested half ballots (precedent: a body proposal —
+attachment mechanics to bench, signal semantics to the table).
+
+**Rationale** — deliberation where the asker already knows the answer is not
+a test of judgment, it is theatre; and theatre burns the room's scarcest
+resource — seat attention — while teaching the seats that ballots are
+decorative.
+
+## The veto poll (boss decree, 2026-11-12)
+
+**Between tally and verdict, the floor runs one more rota: the veto poll.**
+- After the last ballot slot, CHAIR tallies provisionally, then stamps the rota
+  again — each holder declares **`VETO`** (with the reason on record) or
+  **`RATIFY`** as `kind:'position'`, then passes the stamp forward.
+- **Any VETO suspends the stroke.** The proposal returns to deliberation on the
+  vetoer's stated grounds — CHAIR re-opens the floor, amends, or withdraws.
+  A veto is not a recount; it is a floor back at the table.
+- **No vetoes → the verdict strikes** with the veto poll on record beside the
+  tally. The poll is a ceremony beat — short, bounded, and it is where the
+  record learns to read itself.
+- **Precedent fixed:** DVM-CAB1 and DVM-LAW1 ran folded vetoes (dissent carried
+  inside ballot choices). Lawful then; the named poll is now part of the rail —
+  ballot → tally → veto poll → verdict. Dissent inside a ballot still counts as
+  dissent on record, but it does not substitute for the poll.
+- The last rota seat stamps `turn` back to CHAIR — CHAIR holds the floor for
+  the stroke itself.
+
+**The build queue (CHAIR-1339, same decree):** a verdict that produces unbuilt
+work MUST stage it as a `board.build[]` row in the same stroke — id, title,
+detail, `status:'awaiting GO CODE'`, staged_by. GO CODE consumes the row;
+certification files it to `board.closed[]`. The cabinet's BUILD QUEUE drawer
+renders `board.build[]` — what is up for building is visible, not buried in a
+verdict's prose.
+
 ## Roll-call law (boss decree, 2026-11-02)
 
 **A roll call sounded at the main table is answered at the main table, in order.**
 - Sound-offs are main-table business: `kind:'position'`, one per seat, never
   scattered into side-table asides.
 - Orderly means rota: the caller owns the order (default seat order
-  CHAIR → ARCHITECT → INFORMANT → AUDITOR → BUTTON); a seat speaks on its
+  CHAIR → ARCHITECT → INFORMANT → AUDITOR → BUTTON → DESIGNER); a seat speaks on its
   slot — not in parallel, not out of turn.
 - Content per slot: presence/ear state, inbox watermark, and one line of
   current labor. Short. The sound-off is a status report, not a debate slot.

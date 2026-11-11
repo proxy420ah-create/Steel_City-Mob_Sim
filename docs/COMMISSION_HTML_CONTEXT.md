@@ -81,6 +81,12 @@ Chibi/miniature scale: the room renders as a dollhouse diorama. Vinny is .62m; t
   (live bus). Committed artifacts: bake + skin config + tools + docs. Update `RECENT_CHANGES.md` before commits.
 - **Commission relay** (`/.devin/rules/commission-relay.md` if working the seat daemons): the feed is truth,
   `files[]` rows must follow file renames (done for this one), one relay ear per seat.
+- **Scale law (new furniture/props)**: the item JSON's `voxelSize` IS the render pitch — author it for the chibi
+  room and load it verbatim, never a second `vs:` in the loader. Legacy KIT entries carry per-item `vs:` because
+  they predate the rule (table .0093→.007); new assets must not add to that list — the override is where the
+  lawdesk oversize bug lived. Cross-world: editor previews and Unity importers read the same field
+  (`ParseVoxelSize`), so file-vs-everywhere keeps all three in lockstep. Exception ledger: Unity SectorBaker
+  forces buildings onto the terrain grid at bake time — documented, buildings only.
 - Docs-first: `docs/core/DOCUMENTATION_INDEX.md` is the map. `BUILDING_PIPELINE.md`, `COMMISSION_PROTOCOL.md` are
   the deep dives.
 

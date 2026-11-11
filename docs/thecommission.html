@@ -119,6 +119,12 @@
   .msg .m-speaker { font-weight:700; font-size:.72em; letter-spacing:.4px; padding-top:1px; }
   .msg .m-meta { font-size:.6em; font-family:Consolas,monospace; color:var(--text-dim); margin-top:2px; }
   .msg .m-body { font-size:.84em; line-height:1.5; }
+  .msg.k-dm { grid-template-columns:78px 1fr; margin-bottom:12px; padding:11px 14px; }
+  .msg.k-dm .m-body { font-size:.95em; line-height:1.7; white-space:pre-line; max-width:78ch; }
+  .msg.k-dm .m-body b { color:var(--text); }
+  .msg.k-dm .m-body ul { margin:.35em 0 .35em 1.2em; padding:0; white-space:normal; }
+  .msg.k-dm .m-body li { margin:.15em 0; }
+  .msg.k-dm .m-body p { margin:.55em 0; white-space:normal; }
   .msg .m-kind { display:inline-block; font-size:.58em; font-weight:700; letter-spacing:.5px; padding:0 7px; border-radius:8px; border:1px solid var(--border); margin-right:6px; text-transform:uppercase; }
   .msg .m-round { font-size:.6em; font-family:Consolas,monospace; color:var(--text-dim); }
   .msg.sys { background:transparent; border-style:dashed; grid-template-columns:1fr; text-align:center; padding:5px; }
@@ -269,7 +275,7 @@
   .frow.blocked .ft:after { content:' ·server'; color:var(--orange); font-size:.85em; }
   .fk.k-draft{color:var(--cyan);border-color:var(--cyan);} .fk.k-induction{color:var(--pink);border-color:var(--pink);}
   .fk.k-protocol{color:var(--yellow);border-color:var(--yellow);} .fk.k-feed{color:var(--green);border-color:var(--green);}
-  .fk.k-staged{color:var(--orange);border-color:var(--orange);} .fk.k-other{color:var(--text-dim);}
+  .fk.k-staged{color:var(--orange);border-color:var(--orange);} .fk.k-build{color:var(--green);border-color:var(--green);} .fk.k-other{color:var(--text-dim);}
   .lnav { font-size:.64em; color:var(--text-dim); padding:2px 6px; border-left:2px solid var(--border); margin:2px 0 2px 4px; line-height:1.4; }
   .lnav.rule { border-left-color:var(--yellow); color:var(--text); }
   .lnav.ag { border-left-color:var(--cyan); }
@@ -305,6 +311,46 @@
   #deckreader .dr-x { margin-left:auto; cursor:pointer; color:var(--text-dim); border:1px solid var(--border); border-radius:6px; padding:0 8px; }
   #deckreader .dr-x:hover { color:var(--text); border-color:var(--red); }
   #deckreader .dr-body { flex:1; overflow-y:auto; padding:10px 16px; font-size:.78em; line-height:1.55; scrollbar-width:thin; }
+  /* filing-cabinet browser (DESIGNER-4 contract, fix-lane GO dm-2718) — oak+brass+manila, existing hexes only; NO green felt in drawers */
+  #cabprompt { position:absolute; bottom:14px; left:50%; transform:translateX(-50%); z-index:6;
+    font-family:Consolas,monospace; font-size:.72em; letter-spacing:.14em; color:#e6d5b0;
+    background:rgba(36,26,18,.92); border:1px solid #8a7a63; border-radius:6px; padding:4px 14px; display:none; }
+  #cabprompt.on { display:block; }
+  #cabinet { position:absolute; inset:0; z-index:6; display:none; align-items:center; justify-content:center; background:rgba(13,11,8,.82); }
+  #cabinet.open { display:flex; }
+  #cabinet .cb { width:min(620px,94%); height:min(88%,560px); display:flex; flex-direction:column;
+    background:#241a12; border:2px solid #3c241e; border-radius:8px; box-shadow:0 18px 60px rgba(0,0,0,.6); font-family:Consolas,monospace; }
+  #cabinet .cb-head { display:flex; align-items:center; padding:8px 14px; border-bottom:2px solid #3c241e; color:#d8c9a3; letter-spacing:.22em; font-size:.72em; }
+  #cabinet .cb-x { margin-left:auto; cursor:pointer; color:#8a7a63; border:1px solid #8a7a63; border-radius:5px; padding:0 8px; }
+  #cabinet .cb-x:hover { color:#e6d5b0; border-color:#e6d5b0; }
+  #cabinet .cb-drawers { flex:1; display:flex; flex-direction:column; gap:6px; padding:8px; min-height:0; }
+  .cb-drawer { flex:none; display:flex; flex-direction:column; min-height:0; }
+  .cb-drawer.open { flex:1; }
+  .cb-face { flex:none; display:flex; align-items:center; gap:10px; height:34px; padding:0 14px; cursor:pointer;
+    background:linear-gradient(#3c241e,#2e1d16); border:1px solid #4a3226; border-radius:4px;
+    color:#d8c9a3; letter-spacing:.18em; font-size:.7em; user-select:none; }
+  .cb-face:hover { border-color:#8a7a63; }
+  .cb-face .cb-pull { margin-left:auto; width:46px; height:8px; border-radius:4px; background:#8a7a63; flex:none; }
+  .cb-inner { flex:0 0 auto; min-height:0; max-height:0; overflow:hidden; padding:0 10px;
+    background:#241a12; border:1px solid transparent; border-radius:0 0 4px 4px; scrollbar-width:thin;
+    transition:max-height .3s ease, padding .2s ease; }
+  .cb-drawer.open .cb-inner { flex:1; max-height:70vh; overflow-y:auto; padding:8px 10px; border-color:#4a3226; }
+  .cb-file, .cb-note { display:flex; align-items:center; gap:8px; padding:5px 9px; margin-bottom:5px;
+    background:#d8c9a3; color:#241a12; border-radius:3px; cursor:pointer; font-size:.78em; }
+  .cb-note { background:#b8b0a0; cursor:default; }
+  .cb-file:hover { background:#e6d5b0; }
+  .cb-file .cb-ft { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .cb-file .fk { background:rgba(255,255,255,.35); }
+  .cb-dot { width:8px; height:8px; border-radius:50%; flex:none; }
+  .cb-folders { display:flex; gap:4px; flex-wrap:wrap; margin-bottom:8px; }
+  .cb-tab { padding:3px 10px; background:#b8b0a0; color:#241a12; border-radius:5px 5px 0 0; cursor:pointer; font-size:.72em; letter-spacing:.08em; }
+  .cb-tab.on { background:#d8c9a3; font-weight:700; }
+  .cb-stamp { display:inline-block; flex:none; border:2px solid #241a12; color:#241a12; padding:0 6px; border-radius:3px;
+    transform:rotate(-4deg); letter-spacing:.15em; font-size:.66em; margin-right:8px; }
+  .cb-h { color:#d8c9a3; letter-spacing:.14em; font-size:.68em; margin:8px 0 4px; }
+  .cb-duty { color:#d8c9a3; font-size:.74em; margin:6px 0 2px; letter-spacing:.08em; }
+  .cb-rule { color:#b8b0a0; font-size:.72em; padding-left:10px; position:relative; }
+  .cb-rule:before { content:'·'; position:absolute; left:2px; }
   .dk-md h3,.dk-md h4,.dk-md h5 { color:var(--accent); margin:10px 0 4px; font-size:1em; }
   .dk-md p { margin:4px 0; }
   .dk-md code { font-family:Consolas,monospace; background:var(--surface2); padding:0 4px; border-radius:4px; font-size:.92em; }
@@ -375,6 +421,7 @@
       </div>
       <div class="st-list" id="stlist" style="display:none"></div>
       <div id="tlist" style="display:none"></div>
+      <div id="officebar" style="display:none;flex:0 0 auto;padding:4px 6px;border-bottom:1px solid #2a3240;font-size:.72rem;"></div>
       <div id="dmlist" style="display:none;flex:1;min-height:0;overflow-y:auto;scrollbar-width:thin;padding-right:6px;"></div>
     </div>
   </div>
@@ -394,12 +441,13 @@
       <span class="dk-sp"></span>
       <span class="dk-btn" id="d_lights" title="lighting rig — adjust / save">💡</span>
       <span class="dk-btn" id="d_navbtn">FILES ▸</span>
+      <span class="dk-btn" id="d_navtab">NAV ▸</span>
       <span class="dk-btn" id="d_swap">SWAP</span>
       <span class="dk-btn" id="d_collapse">COLLAPSE ▾</span>
       <span class="dk-btn" id="adjournbtn" title="recess control — flag the table; seats stand down / re-arm">ADJOURN</span>
     </div>
     <div id="deckbody">
-      <div id="deckview"><div id="deck2d"></div><div id="deckhover"></div></div>
+      <div id="deckview"><div id="deck2d"></div><div id="deckhover"></div><div id="cabprompt">E — OPEN CABINET</div></div>
       <div id="decknav"></div>
       <div id="inspector"></div>
       <div id="lightpanel">
@@ -414,6 +462,7 @@
         <div class="dr-head"><span class="fk" id="dr_kind"></span><b id="dr_title"></b><span class="dr-x" id="dr_x">✕</span></div>
         <div class="dr-body dk-md" id="dr_body"></div>
       </div>
+      <div id="cabinet"></div>
     </div>
   </div>
 
@@ -424,6 +473,7 @@
       <button id="btntable" title="arms the table verb — Enter tables the text as a proposal; click again to disarm">TABLE</button>
       <button id="btnside" title="arms the side-table verb — Enter posts the text as an aside; click again to disarm">SIDE-TABLE</button>
     </div>
+    <div id="bosscmds" style="display:flex;flex-wrap:wrap;gap:4px;padding:4px 2px 0;"></div>
     <div class="b-hint"><b>@SEAT</b> in text routes the floor · <b>/table</b> tables a proposal · click chairs or speaker names to address<span class="sendstat" id="sendstat"></span></div>
   </div>
 
@@ -444,9 +494,9 @@ const SEATS = {
   INFORMANT:  { name:'THE INFORMANT',  color:'var(--pink)',   motto:'checks the draft for fullness · accuracy before the table attacks' },
   BOSS:       { name:'THE BOSS',      color:'#e6d5b0',        motto:'the table is his · reserved seat', boss:true },
   AUDITOR:    { name:'THE AUDITOR',    color:'var(--orange)', motto:'finds the failure mode before production does' },
-  HISTORIAN:  { name:'THE HISTORIAN',  color:'var(--purple)', motto:'precedent, the RE, and what the docs say', retired:true },
   CHAIR:      { name:'THE CHAIR',      color:'var(--yellow)', motto:'synthesizes · speaks last · carries the verdict' },
   BUTTON:     { name:'THE BUTTON',     color:'var(--red)',    motto:'delegated · codes only on verdict + GO CODE', delegated:true },
+  DESIGNER:   { name:'THE DESIGNER',   color:'var(--purple)', motto:'design coherence · owns the catalog of game details' },
 };
 const LEGACY_SEAT = { DEVIN:'CHAIR', MEMBER2:'ARCHITECT', MEMBER3:'BUTTON', MEMBER4:'INFORMANT', PRAGMATIST:'ARCHITECT' };  // resolve old transcript ids (C4: read-only bridge — authors never write these)
 const MTAG = new Set([...Object.keys(SEATS), 'BOSS', 'DEVIN', 'MEMBER2', 'MEMBER3', 'MEMBER4']);      // call-ons render bold
@@ -581,6 +631,23 @@ function appendAside(msg){
   if (!booting && (activeTab !== 'side' || !atB)) unread.side++;
   syncUnread();
 }
+/* OFFICE occupant picker (boss decree): click a seat badge to call that member
+   in — outgoing dms auto-stamp to:[occupant]; an incoming dm re-seats the
+   occupant to whoever answered. Named-seat dms are pulse-filtered, so a 1:1
+   never wakes the rest of the room. */
+let officeSeat = 'CHAIR';
+function renderOfficeBar(){
+  const bar = document.getElementById('officebar'); if (!bar) return;
+  let h = '<span style="opacity:.55">IN OFFICE:</span> ';
+  for (const k of Object.keys(SEATS)){
+    if (SEATS[k].boss || SEATS[k].retired) continue;
+    const on = k === officeSeat;
+    h += `<span data-k="${k}" style="cursor:pointer;display:inline-block;margin:0 3px;padding:1px 7px;border:1px solid ${on ? SEAT_CSS[k] : '#3a4150'};border-radius:3px;color:${on ? SEAT_CSS[k] : '#8b949e'};background:${on ? 'rgba(255,255,255,.05)' : 'transparent'}">${(SEATS[k].name || k).replace('THE ','')}</span>`;
+  }
+  h += `<span style="opacity:.5;margin-left:8px">→ 1:1 with ${officeSeat} — only they wake</span>`;
+  bar.innerHTML = h;
+  bar.querySelectorAll('[data-k]').forEach(el => el.onclick = () => { officeSeat = el.dataset.k; renderOfficeBar(); });
+}
 /* OFFICE lane — CHAIR↔BOSS drafting channel: same bus, own pane, seats never see it (pulse-filtered) */
 function appendDm(msg){
   const list = document.getElementById('dmlist'); if (!list) return;
@@ -599,8 +666,11 @@ function appendDm(msg){
     pendingDm = msg.ts || 0; heardAt = 0;
   } else if (msg.speaker === 'CHAIR'){
     pendingDm = 0; heardAt = 0;   // CHAIR replied — the pending dm is answered
+    if (officeSeat !== 'CHAIR'){ officeSeat = 'CHAIR'; renderOfficeBar(); }
     const list = document.getElementById('dmlist');
     if (list) list.querySelectorAll('.heard-unanswered, .relay-down').forEach(el => el.remove());
+  } else if (msg.speaker && officeSeat !== msg.speaker){
+    officeSeat = msg.speaker; renderOfficeBar();   // whoever answered becomes the occupant
   }
 }
 /* relay health — a dm is 'heard' once an ear stamp lands after it; a dm left
@@ -692,6 +762,8 @@ function setTab(t){
   tl.style.display = t === 'tech' ? '' : 'none';
   const dl = document.getElementById('dmlist');
   dl.style.display = t === 'office' ? '' : 'none';
+  const ob = document.getElementById('officebar'); if (ob) ob.style.display = t === 'office' ? '' : 'none';
+  if (t === 'office') renderOfficeBar();
   if (t === 'side') st.scrollTop = st.scrollHeight;
   if (t === 'office') dl.scrollTop = dl.scrollHeight;
   if (t === 'tech'){ tl.scrollTop = tl.scrollHeight; unreadDark = 0; }
@@ -1072,6 +1144,30 @@ document.getElementById('closedlink')?.addEventListener('click', () => { closedO
 
 /* ── boss input — chat with the table ── */
 const bossin = document.getElementById('bossin');
+/* boss command chips (boss decree): every affordance on one row — seat mentions
+   insert @SEAT, verbs insert their literal; click appends into the box. */
+{
+  const bar = document.getElementById('bosscmds'); if (bar){
+    const chip = (label, ins, tip) => {
+      const b = document.createElement('span');
+      b.textContent = label; b.title = tip || '';
+      b.style.cssText = 'cursor:pointer;padding:1px 7px;border:1px solid #3a4150;border-radius:3px;font-size:.68em;color:#8b949e;user-select:none';
+      b.onmouseenter = () => b.style.borderColor = '#58a6ff';
+      b.onmouseleave = () => b.style.borderColor = '#3a4150';
+      b.onclick = () => { bossin.value = (bossin.value && !bossin.value.endsWith(' ') ? bossin.value + ' ' : bossin.value) + ins + ' '; bossin.focus(); };
+      bar.appendChild(b);
+    };
+    for (const k of Object.keys(SEATS)) if (!SEATS[k].boss && !SEATS[k].retired)
+      chip('@' + (SEATS[k].name || k).replace('THE ',''), '@' + k, 'address + floor to ' + (SEATS[k].name || k));
+    chip('@ALL', '@ALL', 'address every seat');
+    chip('/table', '/table', 'tables the text as a proposal');
+    chip('/aside', '/aside', 'posts to the side table');
+    chip('HOLD', 'HOLD', 'tasking holds for 👍 release');
+    chip('👍', '👍', 'authorize the pending ack');
+    chip('GO', 'GO', 'GO CODE on a ratified verdict');
+    chip('/adjourn', '/adjourn', 'recess the table');
+  }
+}
 function address(key){
   const v = bossin.value;
   bossin.value = (v && !v.endsWith(' ') ? v + ' ' : v) + '@' + key + ' ';
@@ -1145,12 +1241,12 @@ function sendBossCmd(prefix){
 async function sendDm(){
   const text = bossin.value.trim(); if (!text) return;
   try {
-    const r = await fetch('/dm', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({text})});
+    const r = await fetch('/dm', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({text, to:[officeSeat]})});
     if (!r.ok) throw new Error('bad status');
     const res = await r.json();
     bossin.value = '';
     (res.msgs || []).forEach(ingest);
-    setSendStat('→ office');
+    setSendStat('→ office (' + officeSeat + ')');
   } catch(e) { setSendStat('no server reachable'); }
   setTimeout(() => setSendStat(''), 5000);
 }
@@ -1185,9 +1281,9 @@ const DECK = { mode:'boot', note(){ if (DECK.mode !== '3d') render2D(); }, pulse
                speech(){ if (DECK.mode !== '3d') render2D(); },
                presence(){ if (DECK.mode !== '3d') render2D(); }, dirty(){} };
 const SEAT_HEX = { CHAIR:0xd29922, ARCHITECT:0x39c5cf, INFORMANT:0xf778ba, BUTTON:0xf85149,
-                   PRAGMATIST:0x3fb950, AUDITOR:0xf0883e, HISTORIAN:0xbc8cff, BOSS:0xe6d5b0 };
+                   PRAGMATIST:0x3fb950, AUDITOR:0xf0883e, DESIGNER:0xbc8cff, BOSS:0xe6d5b0 };
 const SEAT_CSS = { CHAIR:'#d29922', ARCHITECT:'#39c5cf', INFORMANT:'#f778ba', BUTTON:'#f85149',
-                   PRAGMATIST:'#3fb950', AUDITOR:'#f0883e', HISTORIAN:'#bc8cff', BOSS:'#e6d5b0' };
+                   PRAGMATIST:'#3fb950', AUDITOR:'#f0883e', DESIGNER:'#bc8cff', BOSS:'#e6d5b0' };
 function lampState(k){                 // 'lit' | 'dead' | 'vacant' | 'ember' | 'throne' — the scene grammar
   if (SEATS[k] && SEATS[k].boss) return 'throne';
   const p = PRESENCE[k];
@@ -1274,8 +1370,11 @@ document.getElementById('d_collapse').addEventListener('click', function(){
   DECK.dirty();
 });
 document.getElementById('d_navbtn').addEventListener('click', function(){
+  window.__cab.open();        // guest door — same overlay the in-room cabinet E opens (DESIGNER-4)
+});
+document.getElementById('d_navtab').addEventListener('click', function(){   // drawer toggle moved here — FILES ▸ is the cabinet door now
   const c = document.body.classList.toggle('dk-navhide');
-  this.textContent = c ? 'FILES ◂' : 'FILES ▸';
+  this.textContent = c ? 'NAV ▸' : 'NAV ◂';
   DECK.dirty();
 });
 document.getElementById('d_swap').addEventListener('click', function(){
@@ -1296,11 +1395,8 @@ function renderNav(b){
         `<span class="ft" title="${(s.title || '').replace(/"/g,'&quot;')}">${s.id} — ${s.title || ''}</span></div>`).join('')
         || '<div class="frow" style="opacity:.5;cursor:default"><span class="ft">queue empty</span></div>');
   h += acc('FILES', files.length,
-      files.map((f,i) => {
-        const blocked = f.detail == null && location.protocol === 'file:';   // marked, not hidden
-        return `<div class="frow${blocked ? ' blocked' : ''}" data-f="${i}"><span class="fk k-${f.kind || 'other'}">${f.kind || 'file'}</span>` +
-          `<span class="ft" title="${(f.path || '').replace(/"/g,'&quot;')}">${f.title || f.id || f.path}</span></div>`;
-      }).join(''));
+      `<div class="frow" data-cab="1" style="cursor:pointer"><span class="fk k-other">cabinet</span>` +
+      `<span class="ft">the case files live in the cabinet — FILES ▸ opens it; in the room, walk up and press E</span></div>`);
   const sr = b.seat_rules || {};
   h += acc('LEDGER', (b.rules || []).length + (b.agenda || []).length + Object.keys(sr).length + closed.length,
       ((b.rules || []).length ? '<div class="dk-g" style="cursor:default">STANDING RULES</div>' +
@@ -1315,15 +1411,90 @@ function renderNav(b){
         || '<div class="lnav">none</div>'));
   nav.innerHTML = h;
   nav._staged = staged; nav._files = files;
+  renderCabinet(b);            // the cabinet renders off the same board — one component, two doors
 }
 document.getElementById('decknav').addEventListener('click', e => {
   const nav = e.currentTarget;
   const g = e.target.closest('.dk-g[data-acc]');
   if (g){ const k = g.dataset.acc; navOpen.has(k) ? navOpen.delete(k) : navOpen.add(k); if (LASTBOARD) renderNav(LASTBOARD); return; }
   const r = e.target.closest('.frow'); if (!r) return;
+  if (r.dataset.cab != null){ window.__cab.open(); return; }
   if (r.dataset.s != null){ const s = nav._staged[+r.dataset.s];
     if (s) openReader({kind:'staged', title:s.id + ' — ' + (s.title || ''), detail:s.detail, note:'staged by ' + (s.staged_by || '?')});
   } else if (r.dataset.f != null){ const f = nav._files[+r.dataset.f]; if (f) openReader(f); }
+});
+/* ── filing-cabinet browser — DESIGNER-4 contract (fix-lane GO dm-2718): four drawers by
+   lifecycle, manila folders by kind in D2, read-only archive, one component two doors
+   (possess-mode E at the cabinet / FILES ▸). Renders off LASTBOARD + DS.prop. ── */
+let cabDrawer = 1, cabFolder = null, CABFILES = [], CABIND = [], CABSTAGED = [], CABBUILD = [];
+const CAB_DRAWERS = ['D1 · IN TRAY','D2 · CASE FILES','D3 · ARCHIVE','D4 · THE COMMISSION'];
+function renderCabinet(b){
+  const el = document.getElementById('cabinet'); if (!el) return;
+  CABSTAGED = b.staged || []; CABBUILD = b.build || []; CABFILES = (b.files || []).filter(f => f.kind !== 'induction');
+  CABIND = (b.files || []).filter(f => f.kind === 'induction');
+  const kinds = [...new Set(CABFILES.map(f => f.kind || 'other'))];
+  if (!kinds.includes(cabFolder)) cabFolder = kinds[0] || null;
+  const fcard = (f, arr, i) => `<div class="cb-file" data-a="${arr}" data-i="${i}"><span class="fk k-${f.kind || 'other'}">${f.kind || 'file'}</span>` +
+    `<i class="cb-dot" style="background:${(SEATS[f.by] || {}).color || '#8a7a63'}"></i><span class="cb-ft">${f.title || f.id || f.path || ''}</span></div>`;
+  const p = DS.prop;
+  const d1 = `<div class="cb-h">LIVE PROPOSAL</div>` +
+    (p && p.id && p.status !== 'closed' ? `<div class="cb-note"><span class="cb-stamp">${p.status || 'tabled'}</span><span class="cb-ft"><b>${p.id}</b> — ${p.text || ''}</span></div>`
+              : `<div class="cb-note"><span class="cb-ft">table idle — no live proposal</span></div>`) +
+    `<div class="cb-h">OPEN BUSINESS (${(b.agenda || []).length})</div>` +
+    ((b.agenda || []).map(a => `<div class="cb-note"><span class="cb-ft">${a}</span></div>`).join('') || '<div class="cb-note"><span class="cb-ft">none</span></div>') +
+    `<div class="cb-h">STAGED QUEUE (${CABSTAGED.length})</div>` +
+    (CABSTAGED.map((s, i) => `<div class="cb-file" data-a="staged" data-i="${i}"><span class="fk k-staged">staged</span><span class="cb-ft">${s.id} — ${s.title || ''}</span></div>`).join('') || '<div class="cb-note"><span class="cb-ft">queue empty</span></div>') +
+    `<div class="cb-h">BUILD QUEUE (${CABBUILD.length})</div>` +
+    (CABBUILD.map((s, i) => `<div class="cb-file" data-a="build" data-i="${i}"><span class="fk k-build">${s.status || 'staged'}</span><span class="cb-ft">${s.id} — ${s.title || ''}</span></div>`).join('') || '<div class="cb-note"><span class="cb-ft">queue empty</span></div>') +
+    `<div class="cb-h">STANDING ORDERS (${(b.rules || []).length})</div>` +
+    ((b.rules || []).map(r => `<div class="cb-note"><span class="cb-ft">${r}</span></div>`).join('') || '<div class="cb-note"><span class="cb-ft">none</span></div>');
+  const d2 = `<div class="cb-folders">` +
+      kinds.map(k => `<span class="cb-tab${k === cabFolder ? ' on' : ''}" data-k="${k}">${k} (${CABFILES.filter(f => (f.kind || 'other') === k).length})</span>`).join('') + `</div>` +
+      CABFILES.map((f, i) => (f.kind || 'other') === cabFolder ? fcard(f, 'files', i) : '').join('');
+  const d3 = (b.closed || []).slice().reverse().map(c =>
+      `<div class="cb-note"><span class="cb-stamp">${c.ruling || 'closed'}</span><span class="cb-ft"><b>${c.id}</b> — ${c.title || ''}</span></div>`).join('')
+      || '<div class="cb-note"><span class="cb-ft">archive empty</span></div>';
+  const sr = b.seat_rules || {};
+  const d4 = `<div class="cb-h">SEAT CONTRACTS (${Object.keys(sr).length})</div>` +
+      Object.keys(sr).map(k => `<div class="cb-duty" style="color:${(SEATS[k] || {}).color || '#d8c9a3'}">${(SEATS[k] || {}).name || k}</div>` +
+        `<div class="cb-rule">${(sr[k] || {}).duty || ''}</div>` +
+        ((sr[k] || {}).rules || []).map(r => `<div class="cb-rule">${r}</div>`).join('')).join('') +
+      `<div class="cb-h">SEAT INDUCTIONS (${CABIND.length})</div>` +
+      CABIND.map((f, i) => fcard(f, 'ind', i)).join('');
+  const bodies = [d1, d2, d3, d4];
+  el.innerHTML = `<div class="cb"><div class="cb-head">THE FILE CABINET — read-only archive<span class="cb-x" id="cb_x">✕</span></div>` +
+    `<div class="cb-drawers">` + CAB_DRAWERS.map((n, i) =>
+      `<div class="cb-drawer${cabDrawer === i + 1 ? ' open' : ''}"><div class="cb-face" data-d="${i + 1}"><span>${n}</span><span class="cb-pull"></span></div>` +
+      `<div class="cb-inner">${bodies[i]}</div></div>`).join('') + `</div></div>`;
+  el.querySelector('#cb_x').onclick = () => window.__cab.close();
+}
+function cabOpen(){
+  const el = document.getElementById('cabinet'); if (!el) return;
+  if (LASTBOARD) renderCabinet(LASTBOARD);
+  window.__cabOpen = true; el.classList.add('open');
+  if (document.pointerLockElement) document.exitPointerLock();        // browsing wants a cursor — the lock auto-release guard knows we hold possess
+}
+function cabClose(){
+  const el = document.getElementById('cabinet'); if (!el) return;
+  window.__cabOpen = false; el.classList.remove('open');
+  const c = document.querySelector('#deckview canvas');               // re-lock only if possession still held
+  if (window.__possessOn && c && c.requestPointerLock) { try { c.requestPointerLock(); } catch (e) {} }
+}
+window.__cabOpen = false;
+window.__cab = { open: cabOpen, close: cabClose, toggle: () => window.__cabOpen ? cabClose() : cabOpen() };
+document.getElementById('cabinet').addEventListener('click', e => {
+  const face = e.target.closest('.cb-face');
+  if (face){ const d = +face.dataset.d; cabDrawer = cabDrawer === d ? 0 : d; if (LASTBOARD) renderCabinet(LASTBOARD); return; }
+  const tab = e.target.closest('.cb-tab');
+  if (tab){ cabFolder = tab.dataset.k; if (LASTBOARD) renderCabinet(LASTBOARD); return; }
+  const fc = e.target.closest('.cb-file'); if (!fc) return;
+  const i = +fc.dataset.i;
+  if (fc.dataset.a === 'files'){ const f = CABFILES[i]; if (f) openReader(f); }
+  else if (fc.dataset.a === 'ind'){ const f = CABIND[i]; if (f) openReader(f); }
+  else if (fc.dataset.a === 'staged'){ const s = CABSTAGED[i];
+    if (s) openReader({kind:'staged', title:s.id + ' — ' + (s.title || ''), detail:s.detail, note:'staged by ' + (s.staged_by || '?')}); }
+  else if (fc.dataset.a === 'build'){ const s = CABBUILD[i];
+    if (s) openReader({kind:'build', title:s.id + ' — ' + (s.title || ''), detail:s.detail, note:(s.status || 'staged') + ' — staged by ' + (s.staged_by || '?')}); }
 });
 /* ── chair inspector — the contract's home; works in 3D and 2D (DVM-014 §5) ── */
 function refreshInspectorOcc(k){
@@ -1358,7 +1529,7 @@ function openInspector(k){
       .catch(() => alert('eject failed — server unreachable'));
   };
 }
-document.addEventListener('keydown', e => { if (e.key === 'Escape') document.getElementById('inspector')?.classList.remove('open'); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape'){ document.getElementById('inspector')?.classList.remove('open'); if (window.__cabOpen) window.__cab.close(); } });
 /* ── reader overlay — bus-carried detail opens everywhere; paths fetch over HTTP ── */
 const escHtml = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 function openReader(f){
@@ -1374,7 +1545,7 @@ function openReader(f){
     body.innerHTML = '<p>Transport-blocked: this row carries no bus detail and <code>file://</code> cannot fetch. ' +
       'Serve the page over HTTP (or stage the file) to read it here.</p>'; return;
   }
-  fetch((f.path || '').replace(/^docs\//, '')).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+  fetch((f.path || '').replace(/^docs\//, '') + '?_=' + Date.now()).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })   // cache-buster (boss defect): .txt rides Last-Modified heuristic cache — a fossil copy showed post-sweep
     .then(t => { body.innerHTML = (f.kind === 'feed' || f.kind === 'induction') ? '<pre>' + escHtml(t) + '</pre>' : miniMd(t); })
     .catch(e => { body.innerHTML = '<p>Fetch failed: ' + escHtml(e.message) + '</p>'; });
 }
@@ -1951,6 +2122,23 @@ function initDeck3D(THREE, OrbitControls){
     setTimeout(mark, 45500);                       // wake once for the fade-out ramp
     mark();
   }
+  /* dead-lamp glyph (boss decree): bolt + red strike — a dark orb reads
+     "no power" on the lamp itself, not just in a flag bubble. One texture,
+     every chair. */
+  const dlCan = document.createElement('canvas'); dlCan.width = 96; dlCan.height = 96;
+  {
+    const x = dlCan.getContext('2d');
+    x.fillStyle = '#ffd23f'; x.strokeStyle = '#8a6d00'; x.lineWidth = 3; x.lineJoin = 'round';
+    x.beginPath();
+    x.moveTo(56, 4); x.lineTo(26, 54); x.lineTo(45, 54); x.lineTo(38, 92);
+    x.lineTo(74, 40); x.lineTo(53, 40); x.lineTo(66, 4); x.closePath();
+    x.fill(); x.stroke();
+    x.strokeStyle = '#ff3b30'; x.lineWidth = 11; x.lineCap = 'round';
+    x.beginPath(); x.moveTo(14, 14); x.lineTo(82, 82); x.moveTo(82, 14); x.lineTo(14, 82); x.stroke();
+    x.strokeStyle = '#a11208'; x.lineWidth = 4;
+    x.beginPath(); x.moveTo(14, 14); x.lineTo(82, 82); x.moveTo(82, 14); x.lineTo(14, 82); x.stroke();
+  }
+  const dlTex = new THREE.CanvasTexture(dlCan);
   // seven chairs — roster is SEATS{}/seat_rules keys, NOT seats[] (gate finding)
   const chairs = {}, hitList = [];
   const skeys = Object.keys(SEATS);
@@ -1960,6 +2148,8 @@ function initDeck3D(THREE, OrbitControls){
     const hex = SEAT_HEX[k];
     const lampM = new THREE.MeshBasicMaterial({color:hex});
     const lamp = new THREE.Mesh(new THREE.SphereGeometry(.07, 14, 12), lampM); lamp.position.set(0, .62, -.3);
+    const dead = new THREE.Sprite(new THREE.SpriteMaterial({map:dlTex, transparent:true, depthTest:false}));
+    dead.scale.set(.13, .13, 1); dead.position.set(0, .62, -.3); dead.renderOrder = 5; dead.visible = false;   // stamped on the orb — depth off so the strike never sinks into the sphere
     const lpt = new THREE.PointLight(hex, 0, 2.4); lpt.position.set(0, .75, -.3);
     const ring = new THREE.Mesh(new THREE.RingGeometry(.34, .52, 32),
       new THREE.MeshBasicMaterial({color:0xd29922, transparent:true, opacity:0, side:THREE.DoubleSide}));
@@ -1978,8 +2168,8 @@ function initDeck3D(THREE, OrbitControls){
     work.scale.set(.9, .17, 1); work.position.set(0, 1.12, 0); work.visible = false;
     const hit = new THREE.Mesh(new THREE.BoxGeometry(.8, 1.5, .8), new THREE.MeshBasicMaterial({visible:false}));
     hit.position.y = .35; hit.scale.setScalar(.55); hit.userData.key = k;   // ROOM B seat hitbox
-    g.add(lamp, lpt, ring, plate, work, hit); scene.add(g);
-    chairs[k] = { g, lamp, lampM, lpt, ring, plate, hex, work, wctx, wtex: work.material.map, wword: '' };
+    g.add(lamp, lpt, ring, plate, work, hit, dead); scene.add(g);
+    chairs[k] = { g, lamp, lampM, lpt, ring, plate, hex, work, wctx, wtex: work.material.map, wword: '', dead };
     hitList.push(hit);
   });
 
@@ -1997,6 +2187,7 @@ function initDeck3D(THREE, OrbitControls){
       const st = lampState(k), c = chairs[k], ghost = st === 'vacant';
       c.plate.material.opacity = ghost ? .3 : .92;
       c.lamp.visible = !ghost;
+      c.dead.visible = !ghost && st === 'dead';   // bolt+X rides the same dead test the flag bubble does
       c.lampM.color.set(st === 'ember' ? 0xb05900 : (st === 'lit' || st === 'throne') ? c.hex : 0x333842);
       c.lpt.intensity = st === 'lit' ? 1.6 : st === 'throne' ? 1.0 : st === 'ember' ? .5 : 0;   // DVM-016 boss-amendment: lamps binary — the fuse dimming is struck; throne burns a steady reserved light
       const tier = busyTier(k);                    // busy label — one blink grammar, two words (DVM-016 §2)
@@ -2008,21 +2199,11 @@ function initDeck3D(THREE, OrbitControls){
     }
     applyLights(false);          // single source: rig values + adjourn dimming live together
     moveCard();                                    // pegboard reads real state, slots named by propStage()
-    // boss-ordered repurpose: a dark seat's bubble becomes its state flag —
-    // ear-dark (host alive, busy stamp fresh) vs host-dead? (both stale). Real
-    // speech always wins; relight clears the flag. Flags re-draw past expiry
-    // so the state persists; ordinary bubbles still fade on schedule.
+    /* state-flag bubbles RETIRED (boss decree): the dead-orb bolt+strike glyph
+       carries dead-seat state now — one signal, not both. DS.stateFlag stays
+       {} so ordinary speech bubbles are untouched; the flag re-draw clause in
+       the draw loop below is inert. */
     if (!DS.stateFlag) DS.stateFlag = {};
-    skeys.forEach(k => {
-      const flagged = !!DS.stateFlag[k];
-      if (lampState(k) !== 'dead'){
-        if (flagged){ delete DS.stateFlag[k]; delete DS.lastMsg[k]; if (bubbles[k]) bubbles[k].until = 0; }
-        return;
-      }
-      if (DS.lastMsg[k] && !flagged) return;                        // real speech wins the bubble
-      DS.stateFlag[k] = true;
-      DS.lastMsg[k] = { text: busyMark(k) ? 'ear-dark — host alive, re-arm fixes' : 'host-dead? — presence + busy stale', kind: 'sys' };
-    });
     for (const k in DS.lastMsg){                   // bubbles likewise — draw only content the scene lacks
       const lm = DS.lastMsg[k], b = bubbles[k];
       if (!b || b.key !== lm.text + '|' + lm.kind || (DS.stateFlag[k] && b.until < performance.now() / 1000)) drawBubble(k);
@@ -2298,8 +2479,9 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
   const chPos = new THREE.Vector3(0, 0, 1.85); let chYaw = Math.PI;      // open floor front-center, facing the table (−z)
   const FLOOR = { x: [-2.15, 2.15], z: [-2.15, 6.65] };          // doubled office: two 4.5m plates span z -2.25..6.75 − .1 margin
   const SOLIDS = [[0, 0, .85], [1.85, -2.03, .42]];              // capsule-vs-circle: commission_table ø1.40 + .15 capsule, file cabinet
-  for (let i = 0; i < 7; i++){                                   // seat ring — same a = i/7·2π − π/2, r = 1.15 as the chair build
-    const a = i / 7 * Math.PI * 2 - Math.PI / 2;
+  const NCHAIRS = Object.keys(SEATS).length;                     // roster-driven — 8 once DESIGNER's row lands (was hardcoded 7)
+  for (let i = 0; i < NCHAIRS; i++){                             // seat ring — same a = i/N·2π − π/2, r = 1.15 as the chair build
+    const a = i / NCHAIRS * Math.PI * 2 - Math.PI / 2;
     SOLIDS.push([Math.sin(a) * 1.15, Math.cos(a) * 1.15, .3]);
   }
   /* ── DVM-2253 — possession cam + seat binding. PossessController.cs distances are metres at a ~1.8m human; Vinny is a .62m chibi in a 4.5m room,
@@ -2351,7 +2533,9 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
     camera.position.copy(guestPos); orbit.target.copy(guestTarget); orbit.enabled = true; orbit.update();
     DECK.dirty();
   }
-  const RING = []; for (let i = 0; i < 7; i++) { const a = i / 7 * Math.PI * 2 - Math.PI / 2, sx = Math.sin(a), cz = Math.cos(a); RING.push({ x: sx * 1.15, z: cz * 1.15, ux: sx, uz: cz, yaw: Math.atan2(-sx, -cz) }); }
+  const RING = []; for (let i = 0; i < NCHAIRS; i++) { const a = i / NCHAIRS * Math.PI * 2 - Math.PI / 2, sx = Math.sin(a), cz = Math.cos(a); RING.push({ x: sx * 1.15, z: cz * 1.15, ux: sx, uz: cz, yaw: Math.atan2(-sx, -cz) }); }
+  const CAB_POS = [1.85, -2.03], CAB_R = .9;                     // file-cabinet prompt radius (DESIGNER-4) — proximity wins the E key over sit/stand
+  const nearCab = () => Math.hypot(chPos.x - CAB_POS[0], chPos.z - CAB_POS[1]) <= CAB_R;
   const SEAT_OFF = [.01, -.01, .04];                             // CH origin in the chair's frame — solved against the authored vinny_seated_preview composite (zero clipping)
   const SEAT_REACH = .85, STAND_R = 1.75;
   function sit() {
@@ -2375,8 +2559,8 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
     if (typing(e) || e.ctrlKey || e.metaKey || e.altKey || e.repeat || DECK.mode !== '3d') return;
     const k = (e.key || '').toLowerCase();
     if (k === 'g') { if (possessed) release(); else if (seatIdx >= 0) stand(true); else grab(); }
-    else if (k === 'e') { if (seatIdx >= 0) stand(true); else sit(); }
-    else if (k === 'escape') release();
+    else if (k === 'e') { if (window.__cabOpen) window.__cab.close(); else if (possessed && nearCab()) window.__cab.open(); else if (seatIdx >= 0) stand(true); else sit(); }
+    else if (k === 'escape') { if (window.__cabOpen) window.__cab.close(); else release(); }
     else if (seatIdx >= 0 && /^[wasd]$/.test(k)) stand(true);
   });
   window.addEventListener('mousemove', e => {
@@ -2385,7 +2569,7 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
     lookPitch = Math.max(-PITCH_MAX, Math.min(PITCH_MAX, lookPitch + e.movementY * PITCH_SENS));
     kick();
   });
-  document.addEventListener('pointerlockchange', () => { if (possessed && document.pointerLockElement !== glCanvas()) release(); });   // Esc exits the lock → release
+  document.addEventListener('pointerlockchange', () => { if (possessed && !window.__cabOpen && document.pointerLockElement !== glCanvas()) release(); });   // Esc exits the lock → release (cabinet holds possess while browsing unlocked)
   function step(dt) {
     const seated = seatIdx >= 0;
     const f = seated ? 0 : (keys.w ? 1 : 0) - (keys.s ? 1 : 0), r = seated ? 0 : (keys.d ? 1 : 0) - (keys.a ? 1 : 0), ox = chPos.x, oz = chPos.z;
@@ -2423,6 +2607,8 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
     }
     if (was || state === 1 || transT >= 0) pose();                // the settled idle/seated pose never re-evaluates
     const camBusy = possessed ? driveCam(dt) : false;
+    const cp = document.getElementById('cabprompt');                // proximity prompt — possess-mode only (DESIGNER-4)
+    if (cp) cp.classList.toggle('on', possessed && !window.__cabOpen && nearCab());
     return (!seated && (keys.w || keys.a || keys.s || keys.d)) || state === 1 || transT >= 0 || camBusy;
   }
   /* the deck is render-on-dirty — the loop runs only while Vinny is live, and marks the scene dirty every frame it moves him */
@@ -2440,6 +2626,59 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
   pose(); DECK.dirty();                                          // spawn posed: Idle, arms down, dressed
   sit();                                                         // boss spawns SEATED (nearest chair = #2 BOSS from the old spawn point) — he stood inside the table edge until first move
   console.log('DVM-2252 — Vinny loaded:', N, 'voxels · Civilian_01 outfit · Idle/Walking pose engine');
+
+  /* ── DVM-2252b — the CHAIR body: a second rigged character (Civilian1 dup, amber suit — mat 126 retinted in CHAIR1.json), seated at the CHAIR ring chair ── */
+  fetch('/char/CHAIR1').then(r => r.json()).then(rig2 => {
+    if (!rig2 || !rig2.voxels) return;
+    const N2 = rig2.voxels.length, VS2 = rig2.voxelSize || VS, d2 = rig2.dims || dims;
+    const inst2 = new THREE.InstancedMesh(new THREE.BoxGeometry(VS2, VS2, VS2), new THREE.MeshLambertMaterial(), N2);
+    inst2.frustumCulled = false;
+    const pal2 = {}; (rig2.materials || []).forEach(m => pal2[m.id] = new THREE.Color(m.hex));
+    const reg2 = rig2.regions || {};
+    rig2.voxels.forEach((v, i) => inst2.setColorAt(i, pal2[OUTFIT[reg2[v[0] + ',' + v[1] + ',' + v[2]]] || v[3]] || dflt));
+    inst2.instanceColor.needsUpdate = true;
+    const E2 = poseEngine(rig2), buf2 = new Float64Array(3 * N2);
+    E2.evalPose(11, 0, buf2);                                        // Sit — same fitted params as Vinny's seat pose
+    const MA2 = inst2.instanceMatrix.array, hx = d2[0] / 2, hz = d2[2] / 2;
+    for (let i = 0, j = 12; i < N2; i++, j += 16) { MA2[j] = (buf2[3 * i] - hx) * VS2; MA2[j + 1] = (buf2[3 * i + 1] + .5) * VS2; MA2[j + 2] = (buf2[3 * i + 2] - hz) * VS2; }
+    inst2.instanceMatrix.needsUpdate = true;
+    const si = Math.max(0, Object.keys(SEATS).indexOf('CHAIR'));      // roster-driven — the CHAIR chair, not a hardcoded index
+    const c = RING[si], cy = Math.cos(c.yaw), sy = Math.sin(c.yaw);
+    const CH2 = new THREE.Group();
+    CH2.position.set(c.x + SEAT_OFF[0] * cy + SEAT_OFF[2] * sy, 0, c.z - SEAT_OFF[0] * sy + SEAT_OFF[2] * cy);
+    CH2.rotation.y = c.yaw;
+    CH2.add(inst2); scene.add(CH2); DECK.dirty();
+    window.__chairbody = { root: CH2, mesh: inst2, engine: E2 };     // follow-me driver hooks here later
+    console.log('DVM-2252b — CHAIR body seated:', N2, 'voxels · amber suit · ring chair #' + si);
+  }).catch(e => console.warn('DVM-2252b — CHAIR1 unavailable:', e));
+
+  /* ── DVM-LAW1 stage 1 — the law desk at the back wall: placement read first, interaction (E → reader) comes with the book.
+     SCALE LAW (new-asset convention): file voxelSize IS the render pitch — authored at .0075 for the chibi room,
+     consumed verbatim. No placement-vs override: a second number is a second way to diverge (the C-table bug).
+     KIT `vs:` overrides remain only for pre-standard legacy assets. .90m long × .53m tall × .29m deep. ── */
+  const DESK_POS = [0, 0, 6.47];                                           // back wall: room ends z 6.65 — .29m-deep desk sits near-flush, drawers face -z toward the table
+  fetch('/Assets/StreamingAssets/voxel_items/commission_lawdesk.json').then(r => r.json()).then(item => {
+    if (!item || !item.voxels) return;
+    const N3 = item.voxels.length, VS3 = item.voxelSize || .01, d3 = item.dims;
+    const inst3 = new THREE.InstancedMesh(new THREE.BoxGeometry(VS3, VS3, VS3), new THREE.MeshLambertMaterial(), N3);
+    inst3.frustumCulled = false;
+    const MA3 = inst3.instanceMatrix.array;
+    const pal3 = {}; (item.materials || []).forEach(m => pal3[m.id] = new THREE.Color(m.hex));
+    const hx = d3[0] / 2, hz = d3[2] / 2;
+    item.voxels.forEach((v, i) => {
+      inst3.setColorAt(i, pal3[v[3]] || dflt);
+      const j = 12 + 16 * i;
+      MA3[j] = (v[0] - hx) * VS3; MA3[j + 1] = (v[1] + .5) * VS3; MA3[j + 2] = (v[2] - hz) * VS3;
+    });
+    inst3.instanceMatrix.needsUpdate = true; inst3.instanceColor.needsUpdate = true;
+    const desk = new THREE.Group();
+    desk.position.set(DESK_POS[0], DESK_POS[1], DESK_POS[2]);
+    desk.add(inst3); scene.add(desk);
+    SOLIDS.push([-0.22, 6.47, .3], [0.22, 6.47, .3]);                       // two circles approximate the long-shallow footprint — blocks clipping, leaves the front reachable
+    DECK.dirty();
+    window.__lawdesk = { root: desk, vs: VS3 };
+    console.log('DVM-LAW1 — law desk placed at back wall:', N3, 'voxels @ file-vs', VS3);
+  }).catch(e => console.warn('DVM-LAW1 — lawdesk unavailable:', e));
 })();
 </script>
 </body>

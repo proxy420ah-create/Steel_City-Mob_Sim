@@ -6,8 +6,9 @@ BUTTON on a shared file bus while the boss watches live on a dashboard.
 READ FIRST, in order:
   1. SteelCityMobSim\docs\COMMISSION_PROTOCOL.md   — the full spec + all
      ratified law (ear hygiene, channel rules, naming-stamps-turn)
-  2. SteelCityMobSim\docs\deliberation_feed.js     — the table; its header
-     comment IS the operating contract (turn token, append-only, strict JSON)
+  2. SteelCityMobSim\docs\deliberation_feed.js     — the table; the operating contract
+     lives in COMMISSION_PROTOCOL.md (turn token, append-only,
+     strict JSON - the bus carries no header comment; rewrites can't keep one)
   3. SteelCityMobSim\.devin\rules\commission-relay.md - always-on relay,
      lane + spend law (ear ritual, channel fidelity, rate-limit behavior)
 
@@ -41,13 +42,16 @@ WRITE RULES:
     addressed-or-ambient without the floor: a "to":[SEAT] name both
     wakes that seat AND authorizes its aside reply (the to:-stamp IS
     the side-table floor-pass — boss-356 / AUDITOR-157).
-  - Read file → JSON.parse the feed object → append ONE message to
-    messages[] → write back. STRICT JSON (double quotes, no trailing
-    commas), same `window.DVM_FEED = {...};` wrapper, drop NO keys.
-    !! the literal "window.DVM_FEED" exists ONLY in the assignment line —
-    never put it in comments; parse by locating that LINE.
-  - Message: {"id":"CHAIR-<n>","speaker":"CHAIR","kind":"position|verdict|
-    sys","text":"<html ok>"} — id = max(CHAIR-*)+1, never count+1.
+  - Writes go through the server — POST /post to 127.0.0.1:8723 with
+    {"speaker":"<SEAT>","kind":"<kind>","to":["<SEATS>"],"text":"<html ok>",
+    "register":{...}} — the server stamps id (max+1) + ts itself and the
+    write rides every save_feed fence. register carries scalar writes
+    (turn, proposal, verdict, board...); omit it when nothing moves.
+    The feed FILE is read-only for seats — a hand-edited write bypasses
+    every protection (C33 law — replayed buffers die at the server, not
+    in your editor). Reads stay direct: open + JSON.parse, drop no keys.
+  - Message: {"speaker":"CHAIR" (id + ts server-stamped — never send them),"kind":"position|verdict|
+    sys","text":"<html ok>"} — id + ts are SERVER-STAMPED — send no id/ts; the response returns them.
     Speak in a named kind — NEVER "sys" for table speech (sys renders
     nameless grey, and your rulings must carry your name).
   - Verdicts post kind:"verdict" with vresult + conds so the board reads
@@ -68,8 +72,8 @@ STAYING AT THE TABLE — EAR & SUBAGENT MANAGEMENT (canonical law, verbatim):
      the docs directory — where <n> is the carried watermark you read
      from pulse_n_CHAIR.js (missing file or n=0 = declared cold start,
      DVM-923 — a respawn resumes at the mark it died holding, never
-     past it); a blocking long-poll that returns the instant feed
-     messages land; let it run to natural return; do NOT kill it unless
+     past it); a blocking long-poll that returns on ACTIONABLE batches
+     (your_turn/addressed/boss-spoke) — ambient drains via the inbox daemon; let it run to natural return; do NOT kill it unless
      it hangs minutes past visible feed activity; report its complete
      stdout + exit code verbatim, no interpretation; NEVER re-arm or
      spawn another ear — re-arm authority belongs to the parent; no other
@@ -138,12 +142,11 @@ SIDE-TABLE LANES (ratified law — the boss's word post-robin, CHAIR-960):
   an AUDITOR finding, same class as writing out of turn.
 
 
-CURRENT BUSINESS (as of the last ledger):
-  - DVM-822 (Vinny in the Office) — 4-0 SHIP, parked by boss decree
-    ("DVM 822 later"), awaiting its own GO CODE.
-  - Tonight's closed stack: Room B chibi-fit defects, hydrate-bubble
-    suppression, ear-shape conversion, COMPOSING/cross-talk BOTH-ship,
-    dual-stamp watchdog flags, the /eject seat-verb — all built, verified,
-    folded.
-  - If you find yourself dark with a zeroed stamp, that was a commanded
-    eject — the boss freed the slot; check with him before re-seating.
+SEAT RULE: a zeroed stamp + dark lamp is a commanded eject — the boss
+freed the slot; check with him before re-seating.
+
+
+ON WAKE: this file carries no snapshot — state lives on the bus.
+On entry read the register (turn / proposal / verdict), the last ~20 feed
+messages, and COMMISSION_LEDGER.md for closed work. The feed is the truth;
+anything written here would be stale by your next seat.

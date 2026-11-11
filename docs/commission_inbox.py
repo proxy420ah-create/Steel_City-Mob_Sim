@@ -47,7 +47,7 @@ def heartbeat(seat, n):
 
 def hold(seat):
     """One socket-hold → returns the delivered batch text, or raises."""
-    return subprocess.run([sys.executable, '-X', 'utf8', PULSE, seat],
+    return subprocess.run([sys.executable, '-X', 'utf8', PULSE, seat, '--mailbox'],
                           cwd=HERE, capture_output=True, text=True,
                           encoding='utf-8', errors='replace', timeout=7200,
                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))   # daemon is windowless — without this each relay spawn pops a console

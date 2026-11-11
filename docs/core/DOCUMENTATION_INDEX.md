@@ -525,6 +525,8 @@ Multi-agent deliberation system living in `docs/` — the boss proposes, the CHA
 - **`docs/drafts/`** — Implement-draft archive, one file per DVM (the INFORMANT's gate works these)
 - **`docs/induction_<SEAT>.txt`** — Per-seat induction briefs (ARCHITECT, INFORMANT, BUTTON, AUDITOR)
 - **`docs/presence_<SEAT>.js`** — Ephemeral watcher stamps (gitignored — runtime state, not source)
+- **`docs/LOCAL_SEAT_OPS.md`** — LOCAL-SEAT OPERATOR REFERENCE: six chairs on one LM Studio `qwen3.5-9b` via `commission_seat.py` hosts — seat_panel cockpit + seats_up/down bats, cold-start/refresh/kill workflows, the state ladder (working vs vacant), job-bound ears + brain-death exit + ORPHAN-EAR flag (C35/C36/C40), per-seat file map
+- **`docs/commission_seat.py`** — LOCAL HOST: ear → bounded prompt (induction + seat_state + diary hot window + tail) → model → daemon-law fences (lane override, floor stamp, memory stub, NEED fetch, refusal resilience) → `/post` or `/dm`
 
 **Keywords**: commission, deliberation, agents, DVM, bus, dashboard, three.js, seats
 

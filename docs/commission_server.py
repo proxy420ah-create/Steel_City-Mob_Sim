@@ -10,8 +10,11 @@ POST /boss {"text": "..."} — writes THE BOSS's message into deliberation_feed.
     (their watcher wakes — that IS the delivery)
   - "/table <text>" instead tables a proposal, advances to phase 1 (openings),
     and hands the floor to the addressed seat or the last seat in `seats`
-Known limit: boss interjections can race an agent's write — rare, one
-repeated turn is the worst case.
+Writes: every endpoint funnels through save_feed, which merges under a
+lock — messages union by id against disk (snapshot-base dedup + numeric-tail
+bump on colliding fresh ids); scalars take the newer write's value. Direct
+file edits bypass this layer (carve-out): seat-side writers must still
+re-read + fold-by-id before writing.
 """
 import glob, gzip, json, os, re, sqlite3, sys, threading, time
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
@@ -19,7 +22,12 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 # pulse-plane (triage): server-observed seat liveness. While a seat holds
 # GET /pulse/<SEAT>, the SERVER stamps presence_<SEAT>.js — the lamp is an
 # open socket, not a self-declared file. Stops the moment the handler dies.
+# Carve-out (boss decree, dm): ?mb=1 mailbox sockets (inbox daemon) hold
+# deliveries but never stamp — a live mailbox is not a live seat-ear.
 PULSE_STAMP = {}   # seat -> last presence write ms (throttle to ~8s)
+BCAST_SEEN = {}     # (seat, last room-class msg id) -> first time this seat's hold saw it
+ROUND_STATUSES = {'ballot', 'round'}   # C52: proposal statuses that lock broadcast wakes to the floor-holder
+BCAST_SLOT_S = 12    # seconds between seat releases on a room-wide address (6 seats = 60s, inside the ~90s boss-ask bound)
 
 def pulse_stamp(seat, ttl_ms=30000, via='pulse', force=False):
     now = int(time.time() * 1000)
@@ -182,18 +190,100 @@ def load_feed():
     except Exception:
         return None
 
+SAVE_LOCK = threading.Lock()   # universal-merge (fix-lane GO dm-2773): ThreadingHTTPServer can race load→merge→replace — the lock serializes it
+
+def _merge_msgs(disk_msgs, in_msgs):
+    """Union by id, never replace: disk order + incoming delta appended.
+    An incoming id already on disk is skipped when content-identical (the
+    writer's snapshot base); when content DIFFERS it's a fresh message whose
+    count-derived id collided — bump its numeric tail until free (C18 class:
+    re-issued ids are silently deduped by readers)."""
+    by_id = {}
+    seen = set()   # replay guard (ARCHITECT-240/241/242/243 loop): a write whose
+                 # (speaker, ts, text) exactly matches a disk message is a re-minted
+                 # stale payload — fresh writes always carry a fresh ts. Dropped.
+    for x in disk_msgs:
+        if isinstance(x, dict):
+            by_id.setdefault(x.get('id'), x)
+            seen.add((x.get('speaker'), x.get('ts'), x.get('text')))
+    merged = list(disk_msgs)
+    for x in in_msgs:
+        if not isinstance(x, dict):
+            merged.append(x); continue
+        if (x.get('speaker'), x.get('ts'), x.get('text')) in seen:
+            continue
+        mid = x.get('id')
+        if mid not in by_id:
+            merged.append(x); by_id[mid] = x; continue
+        if x == by_id[mid]:
+            continue                                   # snapshot base — verbatim copy already on disk
+        m = re.match(r'^(.*?)(\d+)$', mid)
+        base, n = (m.group(1), int(m.group(2))) if m else (mid + '-', 1)
+        while base + str(n) in by_id: n += 1
+        x['id'] = base + str(n)
+        merged.append(x); by_id[x['id']] = x
+    return merged
+
 def save_feed(data):
-    try:
-        raw = open(FILE, encoding='utf-8').read()
-        idx = raw.find('\nwindow.DVM_FEED')
-        header = raw[:idx + 1] if idx >= 0 else ''
-    except OSError:
-        header = ''
-    body = 'window.DVM_FEED = ' + json.dumps(data, indent=2, ensure_ascii=False) + ';\n'
-    tmp = FILE + '.tmp'
-    with open(tmp, 'w', encoding='utf-8') as f:
-        f.write(header + body)
-    os.replace(tmp, FILE)  # atomic — dashboard never sees a half-written file
+    # Merge lives HERE so every endpoint gets it: messages union by id against
+    # the disk state at save moment; scalars (turn/turn_at/proposal/status/
+    # phase/verdict/adjourned/board) take the newer write's value — a stale
+    # snapshot can never evaporate a concurrent append or resurrect nothing.
+    # Carve-out: direct file edits bypass this layer — seat-side writers must
+    # still re-read + fold-by-id before writing (protocol §Writes).
+    with SAVE_LOCK:
+        try:
+            raw = open(FILE, encoding='utf-8').read()
+            idx = raw.find('\nwindow.DVM_FEED')
+            header = raw[:idx + 1] if idx >= 0 else ''
+            m = re.search(r'^window\.DVM_FEED\s*=\s*(\{.*\})\s*;?\s*$', raw.strip(), re.S | re.M)
+            disk = json.loads(m.group(1)) if m else None
+        except Exception:
+            header, disk = '', None
+        if isinstance(disk, dict) and isinstance(disk.get('messages'), list):
+            _inc = data.get('messages') or []
+            _dnew = max((m.get('ts') or 0) for m in disk['messages'] if isinstance(m, dict)) or 0
+            if _dnew:
+                # Stale-payload quarantine (ARCHITECT-246 fence, C33): an incoming
+                # message stamped >60s older than disk's newest can only be a
+                # replayed buffer — legit writes stamp ts at write time. Filtered
+                # BEFORE the union so re-mints die at the save layer regardless
+                # of id or content drift.
+                data['messages'] = [m for m in _inc
+                    if not isinstance(m, dict) or not m.get('ts') or m['ts'] > _dnew - 60000]
+            data['messages'] = _merge_msgs(disk['messages'], data['messages'])
+            # Stale-snapshot guard (ARCHITECT-240/241 scar): if disk's newest
+            # message is NEWER than the incoming write's newest, the incoming
+            # is a stale in-memory copy — its scalars lose, disk's register wins.
+            def _newest(mm):
+                return max((m.get('ts') or 0) for m in mm if isinstance(m, dict)) if mm else 0
+            _sc = ('turn','turn_at','proposal','status','phase','verdict','adjourned','board')
+            if _newest(disk['messages']) > _newest(data.get('messages') or []):
+                for k in _sc:
+                    if k in disk: data[k] = disk[k]
+                    elif k in data: data.pop(k, None)
+        body = 'window.DVM_FEED = ' + json.dumps(data, indent=2, ensure_ascii=False) + ';\n'
+        tmp = FILE + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            f.write(header + body)
+        # Feed-file lockdown (C33 root fence): deliberation_feed.js sits
+        # read-only on disk — MoveFileEx can't replace a read-only target, so
+        # direct seat-side os.replace writers die here. The server toggles the
+        # flag around its own atomic save, inside SAVE_LOCK. Same-user caveat:
+        # a writer that chmods first defeats this — it fences accidents and
+        # dumb replay loops, not malice.
+        try:
+            for attempt in range(3):   # C51: the supervisor's own save re-locks
+                try:                   # the file between our chmod and replace —
+                    if os.path.exists(FILE):  # retry instead of 400ing the write
+                        os.chmod(FILE, 0o666)
+                        os.replace(tmp, FILE)  # atomic — never a half-written file
+                        break
+                except PermissionError:
+                    time.sleep(0.3)
+        finally:
+            if os.path.exists(FILE):
+                os.chmod(FILE, 0o444)
 
 class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
@@ -381,11 +471,87 @@ class Handler(SimpleHTTPRequestHandler):
                     return self._ok({'err': 'feed unreadable'}, 500)
                 msgs = data.setdefault('messages', [])
                 who = 'CHAIR' if body.get('who') == 'CHAIR' else 'BOSS'
-                msgs.append({'id': 'dm-%d' % len(msgs), 'speaker': who, 'kind': 'dm',
+                mx = 0   # C49: mint from max suffix, not len — a deletion must
+                for m in msgs:  # never free an id for reuse (reader dedup ghosts)
+                    mm = re.match(r'^dm-(\d+)$', str(m.get('id', '')))
+                    if mm: mx = max(mx, int(mm.group(1)))
+                msgs.append({'id': 'dm-%d' % (mx + 1), 'speaker': who, 'kind': 'dm',
                              'to': body.get('to') or (['CHAIR'] if who == 'BOSS' else ['BOSS']),
                              'ts': int(time.time() * 1000), 'text': text})
                 save_feed(data)
                 return self._ok({'ok': True, 'n': len(msgs), 'msgs': [msgs[-1]]})
+            except Exception as e:
+                return self._ok({'err': str(e)}, 400)
+        if self.path.rstrip('/') == '/post':
+            # C33 root fix (fix-lane GO): the seat write-path. Server stamps
+            # id + ts (a stale ts can never be written again), validates seat
+            # key + kind grammar, applies optional register scalars with the
+            # same newer-wins semantics, and funnels through save_feed — every
+            # fence (union-by-id, stale-scalar guard, freshness quarantine)
+            # now covers seat writes, not just boss writes.
+            try:
+                body = json.loads(self.rfile.read(int(self.headers.get('Content-Length', 0))) or b'{}')
+                speaker = (body.get('speaker') or '').strip().upper()
+                kind = (body.get('kind') or '').strip().lower()
+                text = body.get('text')
+                to = body.get('to')
+                register = body.get('register')
+                data = load_feed()
+                if not data:
+                    return self._ok({'err': 'feed unreadable'}, 500)
+                seats = set(data.get('seats', []))
+                if speaker not in seats or speaker == 'BOSS':
+                    return self._ok({'err': 'bad speaker — not a seated key'}, 400)
+                if kind not in {'position','objection','support','veto','verdict','phase','ack','ok','aside'}:
+                    return self._ok({'err': 'bad kind — sys/boss/dm are not seat kinds'}, 400)
+                if not isinstance(text, str) or not text.strip():
+                    return self._ok({'err': 'empty text'}, 400)
+                if to is not None and not isinstance(to, list):
+                    return self._ok({'err': 'to must be an array'}, 400)
+                # C50 — the floor gate: main-table kinds were induction honor-law;
+                # the drill (DVM-CAB1) showed seats posting positions out of turn.
+                # Enforcement: register moves and verdict/phase ACTS need an
+                # entitled post; unentitled SPEECH (position/votes) downgrades to
+                # the floor-free aside lane instead of being dropped or accepted.
+                floor_kinds = {'position','objection','support','veto','verdict','phase'}
+                entitled = speaker == 'CHAIR' or data.get('turn') in (None, '', speaker)
+                downgraded = False
+                if register is not None and (kind not in floor_kinds or not entitled):
+                    return self._ok({'err': 'register moves need an entitled floor post'}, 400)
+                if kind in floor_kinds and not entitled:
+                    if kind in {'verdict', 'phase'}:
+                        return self._ok({'err': "not your floor — turn is %s; verdicts/phase are acts, not speech" % data.get('turn')}, 403)
+                    kind = 'aside'; downgraded = True
+                msgs = data.setdefault('messages', [])
+                if any(m.get('speaker') == speaker and m.get('text') == text for m in msgs):
+                    return self._ok({'err': 'duplicate — identical text from this speaker already on the feed (replay fence)'}, 409)
+                mx = 0
+                for m in msgs:
+                    mm = re.match(r'^%s-(\d+)$' % re.escape(speaker), str(m.get('id', '')))
+                    if mm: mx = max(mx, int(mm.group(1)))
+                now = int(time.time() * 1000)
+                msg = {'id': '%s-%d' % (speaker, mx + 1), 'speaker': speaker, 'kind': kind,
+                       'ts': now, 'text': text}
+                if to is not None: msg['to'] = to
+                for f in ('round', 'ack_of', 'needs_ack', 're', 'hold'):
+                    if f in body: msg[f] = body[f]
+                msgs.append(msg)
+                if downgraded:
+                    msg['downgraded_from'] = 'unentitled-%s' % body.get('kind')
+                if register is not None:
+                    if not isinstance(register, dict):
+                        return self._ok({'err': 'register must be an object'}, 400)
+                    for k in register:
+                        if k not in {'turn', 'turn_at', 'phase', 'adjourned', 'proposal', 'verdict', 'board'}:
+                            return self._ok({'err': 'bad register key: %s' % k}, 400)
+                    if 'turn' in register:
+                        if register['turn'] not in seats | {'BOSS'}:
+                            return self._ok({'err': 'turn outside LIVE'}, 400)
+                        data['turn_at'] = now          # the server owns the floor clock
+                    for k, v in register.items():
+                        data[k] = v
+                save_feed(data)
+                return self._ok({'ok': True, 'msg': msg, 'n': len(msgs)})
             except Exception as e:
                 return self._ok({'err': str(e)}, 400)
         if self.path.rstrip('/') != '/boss':
@@ -415,6 +581,10 @@ class Handler(SimpleHTTPRequestHandler):
             seats = set(data.get('seats', []))
             to = re.findall(r'@(\w+)', text.upper())
             to = [LEGACY.get(t, t) for t in to]   # DVM-009: legacy @MEMBERn resolves to seat keys
+            # @everyone/@everybody/@table all spell 'ALL' — the side-table
+            # fan-out: to:['ALL'] delivers to every seat's batch and counts
+            # addressed, so the whole table wakes on one tag
+            to = ['ALL' if t in ('EVERYONE', 'EVERYBODY', 'TABLE') else t for t in to]
             valid = [s for s in to if s in seats]
 
             if text.startswith('/aside'):
@@ -423,7 +593,7 @@ class Handler(SimpleHTTPRequestHandler):
                 # no needs_ack, no GO/verdict stamps. An aside is never a directive.
                 bid = 'boss-%d' % (sum(1 for m in msgs if m.get('speaker') == 'BOSS') + 1)
                 msgs.append({'id': bid, 'speaker': 'BOSS', 'kind': 'aside',
-                             'to': valid or None, 'ts': int(time.time() * 1000),
+                             'to': ['ALL'] if 'ALL' in to else (valid or None), 'ts': int(time.time() * 1000),
                              'text': text[6:].strip() or 'aside'})
             elif text.startswith('/table'):
                 ptext = text[6:].strip() or 'untitled proposal'
@@ -502,8 +672,10 @@ class Handler(SimpleHTTPRequestHandler):
         except ValueError:
             since = -1
         last_mtime, deadline = -1, time.time() + 25
+        mb = q.get('mb') == '1'        # mailbox daemon: holds deliveries, never a seat-ear stamp
         while time.time() < deadline:
-            pulse_stamp(seat)
+            if not mb:
+                pulse_stamp(seat)
             try:
                 mt = os.stat(FILE).st_mtime
             except OSError:
@@ -517,20 +689,52 @@ class Handler(SimpleHTTPRequestHandler):
                     if since < 0:
                         return self._ok({'new': False, 'init': True, 'n': n})
                     if n > since:
-                        # flap-window fix: a delivered doorbell earns a longer
-                        # fuse — the seat is ACTING on the batch, not dead.
-                        # 90s to act + re-arm before the lamp may go dark.
                         batch = pulse_batch(msgs, since, seat)
                         if not batch:
                             # nothing worth waking for: another seat's dm (OFFICE
                             # lane is invisible to the room) or only this seat's
                             # own echo — keep holding.
                             time.sleep(0.8); continue
-                        pulse_stamp(seat, ttl_ms=90000, via='pulse-doorbell', force=True)
+                        if not mb:
+                            # GATED DOORBELL (boss decree, bench): session ears
+                            # return ONLY on actionable batches — your_turn,
+                            # addressed (incl. ALL), or boss-spoke. Ambient
+                            # traffic keeps holding; the mailbox daemon archives
+                            # it ungated and the seat drains it on the next real
+                            # wake. Rate-limit fix: most 5-way wake pileups die here.
+                            _to = lambda m: (m.get('to') or [])
+                            # C52 ROUND LOCK: while a round is live (proposal status in
+                            # ROUND_STATUSES) a seat-posted ALL broadcast is read-only for
+                            # everyone but the floor-holder — the turn stamp is the only
+                            # wake. kind:'boss' still rings the whole room.
+                            round_live = ((d.get('proposal') or {}).get('status') in ROUND_STATUSES)
+                            direct = (d.get('turn') == seat
+                                or any(seat in _to(m) for m in batch))        # named / floor-holder: instant
+                            bcast = [m for m in batch
+                                     if m.get('kind') == 'boss' or ('ALL' in _to(m) and not round_live)]   # room-class: slotted
+                            if not (direct or bcast):
+                                time.sleep(0.8); continue
+                            if not direct:
+                                # DICTATED RESPONSE SLOTS (boss rate-limit decree): a room-wide
+                                # address releases seat-by-seat, BCAST_SLOT_S apart in seat order,
+                                # so the acks it obliges arrive one at a time instead of a
+                                # six-session burst. Held sockets keep stamping presence; a slot
+                                # is a delayed release, never a drop. Direct @SEAT / your_turn
+                                # wakes above bypass the slots entirely.
+                                order = d.get('seats') or []
+                                idx = order.index(seat) if seat in order else len(order)
+                                key = (seat, bcast[-1].get('id'))
+                                first = BCAST_SEEN.setdefault(key, time.time())
+                                if len(BCAST_SEEN) > 400:
+                                    BCAST_SEEN.clear()
+                                if time.time() < first + idx * BCAST_SLOT_S:
+                                    last_mtime = -1          # force re-read next tick — the slot clock, not the feed, releases this hold
+                                    time.sleep(0.8); continue
+                            pulse_stamp(seat, ttl_ms=90000, via='pulse-doorbell', force=True)
                         return self._ok({'new': True, 'n': n, 'msgs': batch,
                                          'turn': d.get('turn'),
                                          'your_turn': d.get('turn') == seat,
-                                         'addressed': any(seat in (m.get('to') or []) for m in batch)})
+                                         'addressed': any(seat in (m.get('to') or []) or ('ALL' in (m.get('to') or []) and not round_live) for m in batch)})
             time.sleep(0.8)
         return self._ok({'new': False, 'hb': int(time.time() * 1000)})
 

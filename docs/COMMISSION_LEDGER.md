@@ -72,6 +72,23 @@ Every verdict: unanimous SHIP across a three- or four-ballot veto poll.
 - **DVM-011** — presence & cleanup bundle, `board.staged[]` first resident.
 - **DVM-001** — predates the ledger; proto-proposal.
 
+## The local-seat arc — Nov 4–10, 2026
+
+Boss-directed substrate swap, no DVM: the six chairs moved from session-held
+Devin seats to `commission_seat.py` hosts driving one LM Studio `qwen3.5-9b`
+(serial GPU, OpenAI `/v1`, json_schema). The bus, lanes, register, and stamps
+are unchanged — only the mind behind each chair moved.
+
+Shipped: six local inductions; per-seat `seat_state` + `seat_diary` (bounded
+hot window over an append-only archive); `NEED:` retrieval plane; daemon law —
+floor fence, lane override, memory stub, refusal resilience, follow-up wakes;
+Job-Object ear binding + supervisor ORPHAN-EAR flag. Six wake-defect classes
+cataloged: `COMMISSION_BUGS.md` C34–C39.
+
+Verified on the live table: full six-seat bucket-brigade roll call
+(`CHAIR-1308` Roll Call Closed), OFFICE lane fidelity, NEED loop with honest
+denial, BUTTON's SHIP+GO CODE gate held under fire.
+
 ## Doctrines earned
 
 - **Gate before build.** Every ARCHITECT draft routes through the INFORMANT:
@@ -90,6 +107,17 @@ Every verdict: unanimous SHIP across a three- or four-ballot veto poll.
 - **Deadline presence, not heartbeat presence.** `armed_at + ttl_ms` is the
   only liveness signal; the pulse was dead data and its per-tick rewrite was
   the `WinError-5` farm (11 specimens fed DVM-010's birth).
+- **Mechanics over model judgment.** A capped local model recites the law in
+  prose while violating it in structured fields (C34). Lane, floor, and memory
+  moved out of the model's hands into the daemon's — the model proposes text,
+  the machine rules on shape.
+- **Memory is files, not context.** Stateless-per-wake seats stay individuals
+  because induction (nature) + `seat_state` (now) + `seat_diary` (autobiography)
+  + feed (shared truth) live on disk. The context budget buys judgment, not
+  recall.
+- **Lamp honesty needs process truth.** Presence attests a held socket; only a
+  Job-Object-bound child plus a host-carrier predicate keeps "lit" equal to
+  "listening" (C35/C36).
 
 ## House bugs (tracked in `docs/known_issues/`)
 

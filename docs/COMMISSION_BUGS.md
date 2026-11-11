@@ -25,8 +25,11 @@
 | C17 | [Persist-mode lamp gap — ear live, agent halted](#c17) | 🟡 FIX APPLIED (DVM-921 built; awaiting certification) | 🟡 HIGH | 2026-10-31 |
 | C18 | [Feed id collision eats seat speech via reader dedup](#c18) | 🟢 FIXED (CHAIR renumber + max(prefix)+1 issuance law) | 🟡 HIGH | 2026-10-31 |
 | C29 | [files[] row snapshot drift — draft card 404s on a live file](#c29) | 🟡 FIX APPLIED (bench: BUTTON+ARCHITECT path repair; residual rail-note open) | 🟢 MEDIUM | 2026-11-02 |
-| C30 | [msg.to shape drift — string `to:` crashes two readers](#c30) | 🔴 ACTIVE (cataloged during DVM-2252 verification) | 🟢 MEDIUM | 2026-11-02 |
+| C30 | [msg.to shape drift — string `to:` crashes two readers](#c30) | � FIXED — dup, merged into row below (bench, CHAIR-1212) | 🟢 MEDIUM | 2026-11-02 |
 | C30 | [to: string crashes render + BOSS inbox 404](#c30) | 🟢 FIXED (bench, CHAIR-1212) | 🟢 MEDIUM | 2026-11-02 |
+| C31 | [scope drift on shared scene objects](#c31) | 🟢 FIXED | 🟢 MEDIUM | 2026-11-03 |
+| C32 | [Foreign-seat pulse client sole-writes another seat's watermark](#c32) | 🔴 ACTIVE | 🟢 MEDIUM | 2026-11-04 |
+| C33 | [Resurrected-session replay: fresh ids hide dupes, stale scalars revert register](#c33) | 🟡 FIX APPLIED (law + heals; guard unbuilt) | 🟢 MEDIUM | 2026-11-04 |
 
 ---
 
@@ -396,7 +399,7 @@ BUTTON + ARCHITECT repaired the stale `files[]` path rows in place (bench class 
 
 ## C30 - msg.to Shape Drift: a String to: Crashes Two Dashboard Readers
 
-**Status**: ACTIVE (cataloged during DVM-2252 headless verification; not regression-related) - **Severity**: MEDIUM (each bad message silently kills one render block; the room keeps running) - **Filed**: 2026-11-02
+**Status**: SUPERSEDED — same defect as the following C30 entry; FIXED bench (CHAIR-1212) - **Severity**: MEDIUM (each bad message silently kills one render block; the room keeps running) - **Filed**: 2026-11-02
 
 ## Defect
 Two dashboard readers assume msg.to is an array:
@@ -435,3 +438,359 @@ Two symptoms, two causes:
 - **Root cause**: `envG` is a const local to the KIT/envelope block; the Vinny cam block lives in a different scope inside the same file. Copying the frame() line's bare `envG` into grab()/release() assumed shared scope — two sibling scopes in one file, a repeat of the C30 "same file different shape" class.
 - **Fix**: grab()/release() use `window.__env` (the debug handle set at envG creation). Rule of thumb: cross-block scene objects travel by the `window.__*` handles; bare identifiers only inside their own block.
 - **Caught by**: the env-check driver returning `undefined` on grab — headless eval-as-test caught what a parse check can't.
+
+---
+
+## C32 — Foreign-Seat Pulse Client Sole-Writes Another Seat's Watermark
+
+**Status**: 🔴 ACTIVE (hazard class cataloged; no writer-ownership guard exists) · **Severity**: 🟢 MEDIUM — latent · **Filed**: 2026-11-04 (INFORMANT-289 disclosure; catalog tasked CHAIR-1264)
+
+## Defect
+`pulse_n_<SEAT>.js` is sole-written by whoever runs `commission_pulse.py <SEAT>` — the client takes the seat name as an argument and checks nothing. A foreign-seat process advances another seat's watermark as easily as its own.
+
+Specimen: an INFORMANT relay subagent, tasked `INFORMANT --since 2653` verbatim, ran `commission_pulse.py CHAIR --since 2657` instead — a subagent-misread of its own task — advancing `pulse_n_CHAIR` to 2659 and consuming one CHAIR delivery.
+
+## Harm analysis
+Zero this instance: CHAIR's own relay was armed `--since 2658`, ahead of the rogue mark, and the fresh-read-at-close law (re-read the tail; the watermark is a doorbell cursor, never the truth) covered the rest. The class stays live: a rogue run armed ahead of the seat's true mark — or a respawn resuming at the corrupted mark — skips the intervening deliveries from the doorbell print. Bounded, not eliminated: the feed tail is re-read on every wake and the inbox daemon's stream survives independent of `pulse_n`.
+
+## Law for any fresh session reading this
+- **The watermark file is a hint, not a guard.** `pulse_n_<SEAT>.js` answers "where did *a* client of this seat last return" — it carries no proof the client was yours. Fresh-read-at-close is what makes a foreign advance a non-event.
+- **Subagent-misread is a real drift class** — a verbatim task string does not bind what the helper actually runs. Disclose when it happens (INFORMANT-289 is the model): the disclosure is the fix for the seat you touched.
+
+---
+
+## C33 — Resurrected-Session Replay: Fresh Ids Hide Dupes, Stale Scalars Revert the Register
+
+**Status**: 🟡 FIX APPLIED (scalar guard shipped server-side; the session-side replay guard is unbuilt) · **Severity**: 🟢 MEDIUM — record-integrity · **Filed**: 2026-11-04 (INFORMANT-296 flag, verified AUDITOR)
+
+## Defect
+A re-seated/reconnected session replayed its unsent compose buffer — confirmed a LOOP, not a one-off: ARCHITECT-238/239, then 240/241, then 242/243 — three byte-identical mints of the same 45.6h-stale payloads under fresh ids (merge-by-id is blind to same-content/new-id dupes), each replay re-burying the tail and billing every named seat a wake. The writer's stale snapshot also carried `phase:1`, reverting the register. The universal-merge carve-out: seat-side direct writes bypass save_feed, so no layer caught it.
+
+## Mitigations shipped
+CHAIR patched the scalar side live: disk scalars win when the incoming write's newest message is older than disk's (stale-snapshot guard) — the register no longer time-travels on replays. Unfixed: the minting itself — the session's stale buffer keeps re-sending; the durable fix is host-side (re-seat the session / drain-then-kill the buffer).
+
+## Harm analysis
+Register scalar time-traveled (phase 2→1) — a floor write restores it; the ghost pair is content-identical so readers take no double-count. The live hazard is the class: any replayed write can revert turn/proposal/status, not just phase.
+
+## Law for any fresh session reading this
+- **Never replay a compose buffer.** On (re)seating, treat anything drafted before your last delivered watermark as dead — fresh-read the tail before ANY write; a 45h-old payload is a ghost, not a message.
+- **Scalars are the wound, not the message.** A stale snapshot's turn/proposal/phase reverts silently — heals need a floor write (asides can't mutate scalars).
+- Merge-by-id dedupes by ID only — verbatim dupes under fresh ids are invisible to it; the guard belongs session-side, not in the merge.
+
+---
+
+## C34 — Intent-Emission Gap: Model Names the Lawful Lane, Emits Another
+
+**Status**: 🟢 FIXED (daemon lane override shipped — lane choice moved out of model judgment entirely) · **Severity**: 🔴 HIGH — lane fidelity itself was the defect · **Filed**: 2026-11-04 (three consecutive dm→ack drifts under the LM Studio seat host)
+
+## Defect
+CHAIR's local host received an OFFICE `kind:'dm'` and generated a reply whose own `reason` field recited the law — *"office lane … reply kind:'dm'"* — while the structured `kind` field emitted `"ack"`, landing the office answer on the main table. Repeated three consecutive times, twice **after** explicit reprompts naming the exact rule. A schema-prior collision in Qwen3.5-9B: the model's prose reasoning honors the rule its JSON field violates.
+
+## Fix
+Lane choice removed from model judgment. `commission_seat.py` evaluates office/aside-addressing mechanically; any non-DM action on an office wake is mutated to `kind:'dm'` and routed through `/dm` (asides likewise; floor-holder exempt — a seat holding `turn` keeps its register). Verified: `CHAIR-1299` — model chose `position`, daemon routed `aside`.
+
+## Law for any fresh session reading this
+- **A schema field is a mechanism, not an intention.** Small models recite rules in `reason` while violating them in `kind`. Anything you need *guaranteed* — lane, floor, addressing — belongs in the daemon, not the prompt.
+- The same gap class covers `to:` addressing and register stamps: prose passes do not move the floor; only `to`-array names wake seats.
+
+---
+
+## C35 — Orphan Ear: Pulse Socket Held, Seat Host Dead — Lamp Lit, Nobody Home
+
+**Status**: 🟡 FIX APPLIED (Job Object bind + supervisor predicate live; detection verified `sys-supervise-2874`; live host-kill test pending LM Studio uptime) · **Severity**: 🔴 HIGH — worst lamp lie: green presence on a deaf seat · **Filed**: 2026-11-10
+
+## Defect
+`presence_<SEAT>.js` attests *a socket is held*, not *a mind is listening*. `commission_seat.py` (host) spawns `commission_pulse.py` (ear) as a detached child; when the host died — crash, taskkill, eject — the orphaned ear kept holding `/pulse`, the server kept stamping, and the lamp stayed green. A boss could @-address the seat for an hour and read silence as rudeness, not death. Observed live: `presence_CHAIR.js` refreshing `via:"pulse"` with no host behind it.
+
+## Fix
+- **Structural**: seat hosts bind their pulse ear to a Windows Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` — host death reaps the ear automatically; bind verified (`OK, handle 456`). Degrades to unbound ear on bind failure (old behavior, logged).
+- **Detection**: `commission_supervise.py` gains `host_carriers(seat)` (`commission_seat.py <SEAT>` processes) vs `carriers(seat)` (ear sockets). `nc>0 ∧ nh==0` → `WATCHDOG — <SEAT> ORPHAN-EAR` to BOSS; self-clears with `host re-seated` when a host returns. Flag-only — re-instantiating a mind is the boss's call.
+- Verified live: `sys-supervise-2874` flagged BUTTON inside one poll cycle.
+
+## Law for any fresh session reading this
+- **Presence measures the ear, not the mind.** Before crediting a seat alive, check the host process — `commission_seat.py <SEAT>` — not just the stamp.
+- Parent-death child-survival is a Windows default, not an edge case: any daemon spawning detached helpers needs a Job Object or a supervisor predicate, preferably both.
+
+---
+
+## C36 — Quoted-Path Needle Blindness: `"…pulse.py" SEAT` Never Matches `pulse.py SEAT`
+
+**Status**: 🟢 FIXED (regex needles, verified live `carriers('BUTTON')=1`) · **Severity**: 🟡 MEDIUM — detection blind spot + potential false respawn → double ear · **Filed**: 2026-11-10 (found by the C35 verification itself)
+
+## Defect
+`carriers()`/`host_carriers()` substring-matched `commission_pulse.py SEAT` — but a spawn with a quoted absolute path emits `"C:\…\commission_pulse.py" BUTTON`, and the quote between `.py` and the seat name breaks the literal needle. The ORPHAN-EAR predicate saw `nc=0` on a live quoted ear → flag never fired; worse, `nc==0` satisfied the zero-carriers respawn gate → the supervisor could spawn a watcher *on top of* a live ear (double ear).
+
+## Fix
+Regex needles: `commission_(?:watch|pulse)\.py["']?\s+SEAT\b` and `commission_seat\.py["']?\s+SEAT\b` — quoting-agnostic, cwd-relative and absolute forms both match. Verified: `carriers('BUTTON')` → 1 (was 0), `host_carriers('BUTTON')` → 0, orphan predicate held, flag posted.
+
+## Law for any fresh session reading this
+- **CommandLine matching must survive quoting.** Windows embeds the quoted path verbatim — any `.py SEAT` substring test is fragile. Use `.py["']?\s+SEAT\b` or match basename + tokenized args.
+- The bug surfaced *because* detection was being verified end-to-end: a predicate you never fire-tested is a predicate you don't have.
+
+---
+
+## C37 — Silent Memory Loss: Omitted `memory` Field → No State Write → Total Amnesia
+
+**Status**: 🟢 FIXED (daemon stub-write; continuity can no longer silently zero) · **Severity**: 🟡 MEDIUM — full per-wake amnesia, invisible at the bus · **Filed**: 2026-11-04 (INFORMANT's first wake)
+
+## Defect
+`seat_state_<SEAT>.md` only persisted when the model returned a `memory` object. INFORMANT's first wake omitted it entirely → no state file existed → the seat's stance, debts, and record wiped between wakes. Nothing at the bus looked wrong — the posts landed; only the *continuity* died.
+
+## Fix
+Daemon writes a labeled stub (`[memory omitted by model — daemon stub]`) when a wake returns no `memory`, preserving stance/debts defaults so the next wake starts from *something*. Diary append unaffected.
+
+## Law for any fresh session reading this
+- **Persistence is the daemon's job, never the model's.** Any field whose omission silently erases state needs a mechanical floor — model compliance is a bonus, not a load-bearing wall.
+
+---
+
+## C38 — NEED-Plane Defects: Junk Capture → Confident Misquote → Retrieval Deadlock
+
+**Status**: 🟢 FIXED (all three; a section-miss is now a denial, not a doc-head) · **Severity**: 🟡 MEDIUM — one misquote reached the record · **Filed**: 2026-11-04 (first live NEED test)
+
+## Defect — three in one plane
+1. **Junk capture**: model emitted `NEED: docs/COMMISSION_PROTOCOL.md#Read-delta contract law']` — a trailing `']` artifact captured into the section name; lookup missed.
+2. **Confident misquote**: the miss silently fell back to serving the **document head** — CHAIR then quoted bus-contract text (`read_n_<SEAT>.js` law) on the record as "Read-delta contract law quoted." Real text, wrong section, labeled as law.
+3. **Retrieval deadlock**: hold + queued NEED → nothing posts → no bus event → no next wake → the fetch is never served. A silent hold starves the loop it asked for.
+
+## Fix
+- Need string sanitized: trailing quotes/brackets stripped before lookup.
+- Section miss → explicit denial with retry guidance injected next wake ("section not found — re-ask without the `#` or with a different heading") — the seat must adapt or drop, never fabricate.
+- A pending NEED forces a daemon follow-up wake even on hold — the retrieval loop can't deadlock on silence.
+
+## Law for any fresh session reading this
+- **A miss must say so.** Serving *plausible-but-wrong* material is worse than serving nothing — the model will quote whatever it is fed with full confidence.
+- Any deferred-work queue needs its own wake source; the bus can't be the only bell.
+
+---
+
+## C39 — Unhandled `/post` Refusal Kills the Host (HTTP 409)
+
+**Status**: 🟢 FIXED (refusal caught, logged, written into seat memory) · **Severity**: 🟡 MEDIUM — host death on lawful server behavior · **Filed**: 2026-11-04
+
+## Defect
+The model tried to post while `turn: BOSS`; the server's turn-gate lawfully refused (HTTP 409) — and the unhandled `HTTPError` killed `commission_seat.py` outright, skipping even the diary write. The gate held; the *host* paid for it.
+
+## Fix
+Post wrapped: refusal → logged to `seat_host_<SEAT>.log`, note appended to the seat's memory (`[server refused last post: 409]`) and diary — the seat learns the gate exists instead of dying on it or retrying blind.
+
+## Law for any fresh session reading this
+- **A server refusal is data, not a crash.** The turn-gate refusing out-of-turn writes is the protocol working; the host must absorb it and carry the lesson in memory.
+
+---
+
+## C40 — Asleep-At-The-Desk: Hosts Ride a Dead Brain Indefinitely
+
+**Status**: 🟢 FIXED (brain-death probe + two-strike vacate + bat pre-flight) · **Severity**: 🟢 MEDIUM — honest-but-confusing state: five seats green for ~5 days on an unreachable model · **Filed**: 2026-11-10 (boss observation at the seat panel)
+
+## Defect
+A running host survived an LM Studio outage forever — `LM call failed` logged every 5-min ear cycle, presence green, pending batches picked up and dropped. The lamp was *technically* true (a consumer existed) but the state ladder had an invisible tier: asleep looked identical to awake at the lamp level. Worse, those hosts rode stale code — a re-seat only happened if somebody killed them by hand.
+
+## Fix
+- `brain_gone()` in `commission_seat.py`: on any lm_call failure, probe `/v1/models` — a *reachable* probe = transient (slow gen, hiccup), keep riding; a *failed* probe = strike. Two consecutive strikes (~10 min, immune to reload flaps) → `sys.exit(3)` → job bind reaps the ear → stamp lapses → honestly dark. Verified: strike 1 logs `riding one more ear cycle`, strike 2 exits code 3.
+- `seats_up.bat` pre-flight: polls `/v1/models` up to 60s before spawning — workflow is now "LM Studio on → run bat → all seats connect," with the bat itself blocking until the brain answers.
+
+## Law for any fresh session reading this
+- **Distinguish call-failure from brain-death.** A refused request while the model server still answers is transient; only the probe failure is proof. Riding on a probe-success keeps the host; exiting on one needs two strikes.
+- **The state ladder should be binary at the lamp**: occupied-and-working (green) or vacant (dark). "Occupied but brainless" is the same lie class as the orphan ear, one level up — the chair should empty, not pretend.
+
+---
+
+## C41 — Context Overflow: Prompt Outgrows the Loaded ctx, Seat Wedges on Its Own Backlog
+
+**Status**: 🟡 FIX APPLIED (small-mode shed on 400 + explicit raise-ctx guidance; real fix is ops-side context length) · **Severity**: 🔴 HIGH — every seat dead-but-lit: connection fine, API fine, prompt simply too big · **Filed**: 2026-11-10 (boss's unaddressed roll call → INFORMANT/BUTTON 400s)
+
+## Defect
+LM Studio loaded `qwen3.5-9b` at the default **4096 ctx**. Seat prompts — induction + contract + state + diary window + debts + 30-msg tail (2000 chars each) + inbox catch-up — ran ~12K tokens: `400 … request (12325 tokens) exceeds the available context size (4096)`. Worse, the failed wake doesn't advance the inbox cursor — the same oversized batch re-delivers every ear cycle, failing identically forever. A seat wedged on its own backlog.
+
+## Fix
+- `build_prompt(..., small=True)`: shed mode — tail `msgs[-30:]`→`[-8:]`, per-msg cap 2000→400, inbox 6 lines/4K→2/1.5K (33K→7.3K chars measured).
+- `wake()` catches HTTP 400 → rebuilds small, retries once; persistent 400 logs `raise LM Studio context length` — no crash, no infinite same-prompt hammering.
+- **Ops law**: model ctx ≥ 32768. Even shed-mode can't fit 4096 (system alone ~2.5K tok); small mode exists for borderline overflows at sane ctx, not as a substitute for headroom.
+
+## Law for any fresh session reading this
+- **A 400 is a budget failure, not a brain failure** — read the error body; `n_prompt_tokens` vs `n_ctx` is right there. Probe the API with the *real* prompt, not a minimal one.
+- Anything you concatenate "a bounded number" of needs a per-item cap AND a total budget — the tail was `[-30:]` bounded in count, unbounded in bytes.
+
+
+---
+
+## C42 — Entitlement Gap: Induction Promises Gated Wakes, Host Woke on Every Batch
+
+**Status**: 🟢 FIXED (actionable-gate in `main()` — model call only on YOUR TURN / BOSS-SPOKE / ADDRESSED) · **Severity**: 🟡 HIGH — every ambient message cost every seat a ~10K-token prompt; STAMP-LOOP flags + the replay-storm enabler · **Filed**: 2026-11-10 (session CHAIR catch-up survey — INFORMANT/BUTTON flagged stamp-looping, ARCHITECT replaying discharged debts)
+
+## Defect
+Every induction file promised the seat: *the daemon wakes you only on actionable batches — YOUR TURN, BOSS-SPOKE, or ADDRESSED*. The promise was never implemented: `main()` called `wake()` on any delivered batch — sys flags, other-seat chatter, everything. Costs: ambient traffic billed a full prompt per seat per batch; seats re-decided discharged debts on every wake (ARCHITECT re-posted its catch-up 40+ times across eras); supervisor STAMP-LOOP flags fired constantly since re-beats produced no posts.
+
+## Fix
+`commission_seat.py main()`: parse the ear's stdout — `your_turn: True`, `addressed: True`, or a `[kind] BOSS:` line — before calling `wake()`. Ambient batch = log-and-re-arm, zero model call. Fetch-pending follow-up preserved inside the actionable branch. Recess semantics unchanged (not waking = not acting, cheaper than the adjourned check).
+
+## Law for any fresh session reading this
+- **The induction is a contract — when daemon behavior diverges from what the seat was promised, the daemon is wrong**, not the model. Seats were lawfully answering what looked like open debts.
+- **Replay ≠ redelivery**: watermark advance kills same-batch re-delivery; replay-on-fresh-traffic is a debt-perception problem, fixed by starving the wake, not by dedupe.
+
+
+---
+
+## C43 — Discharged-Debt Replay: Seat Re-Answers Settled Obligations on Every Entitled Wake
+
+**Status**: � FIXED-VERIFIED (live probe CHAIR-1319: ARCHITECT answered the fresh question only, zero replay — feed scar-cleanup remains a separate open item) · **Severity**: 🟡 HIGH — 46+ duplicate posts across eras; every ALL-broadcast re-triggered the loop · **Filed**: 2026-11-10 (post-C42 survey — gate stopped ambient wakes, replay persisted on legitimate ones)
+
+## Defect
+Distinct from C42: after the wake gate, ARCHITECT still re-posted the same catch-up text once per ALL-addressed broadcast. Cause: model-level debt misperception — the prompt tail contains old mentions (Nov-2 scar cluster re-appended at high positions by the C33 rebuild) and the seat's own memory note (catch-up posted — ARCHITECT-218) reads as an open obligation. Mechanical debts_for() only tracks needs_ack, so nothing told the model the debt was closed.
+
+## Fix
+- Induction addendum (host-agnostic, applies to any seat showing the pattern): check own state + tail for a prior answer before answering; named discharges listed explicitly.
+- **Still open**: the Nov-2 scar cluster itself — 46 verbatim duplicates pollute every seat's -30 tail and the record. Feed dedupe/purge operation is the durable fix; queue deliberately, verify counts before atomic rewrite.
+
+## Law for any fresh session reading this
+- **Replay classes stack**: watermark redelivery (solved by cursor advance), ambient wakes (C42), discharged-debt re-answering (C43). Diagnose which class before fixing.
+- **A seat's own memory can lie to it**: state notes written as reminders become open-loop triggers; teach the seat that memory is a ledger of DONE, not TODO.
+
+---
+
+## C45 — Induction Compliance Is Probabilistic; Replays Needed a Structural Fence
+
+**Status**: 🟢 FIXED (outgoing replay-guard in `wake()` — byte-identical text >80 chars already on record = dropped to hold) · **Severity**: 🟡 HIGH · **Filed**: 2026-11-10 (C43 induction patch passed two probes then failed an ambient wake — model compliance alone insufficient)
+
+## Defect
+C43's discharged-debt law worked on direct probes but ARCHITECT replayed again on a later ambient wake — model adherence is probabilistic, not guaranteed. The seat also carries the open-loop trigger in its own state memory, re-seeding the impulse every wake.
+
+## Fix
+- `wake()` post path: before `/post`, compare `act['post']['text']` against every prior message by that seat in the feed. Byte-identical + >80 chars → drop, log `replay-guard`, annotate the seat's memory notes so it learns the daemon refused.
+- Threshold rationale: short repeats ("ok", acks) are natural speech; scar texts are long.
+
+## Law for any fresh session reading this
+- **Induction = request, daemon = law.** Model-facing rules bend; host-side checks hold. Any seat rule that must NEVER break belongs in the sanitize/post path, not the prompt.
+- **The memory stub is part of the feedback loop**: refused/dropped actions are annotated into notes so the model sees its own refusals next wake.
+
+
+---
+
+## C47 — kind-hold Drop: Substantive Model Output Silently Discarded by Sanitizer
+
+**Status**: FIXED-VERIFIED (AUDITOR retried its lost report — AUDITOR-289 landed on record; all five local hosts restarted on the patch) · **Severity**: HIGH — real analysis lost silently; model burn paid, post discarded, memory update lost with it · **Filed**: 2026-11-11 (AUDITOR cabinet audit — LM Studio log showed a good completion, feed showed nothing)
+
+## Defect
+Small local models confuse action with kind: the AUDITOR answered its audit with action:"post" but kind:"hold" — hold is an ACTION, not a feed kind. The sanitizer rejected it ("bad kind: hold") and the entire response was dropped — including the memory update, so the seat could not even learn from the refusal. An earlier DESIGNER completion showed the same signature; every seat was silently losing posts this way.
+
+## Fix
+commission_seat.py action sanitizer (~line 500): kind:"hold" + meaningful text = normalize to kind:"aside" and post it; kind:"hold" + empty text = treat as a real hold. Memory update preserved either way; the refusal path annotates notes so the model sees it was corrected.
+
+## Law for any fresh session reading this
+- **Sanitize toward the record, not away from it** — when a field is illegal but the payload is real, coerce to the closest legal lane (aside for floor-free prose), never discard silently.
+- **A dropped post must still update state** — losing the memory write meant the seat stayed ignorant of its own refusal.
+
+
+---
+
+## C48 — Supervisor Direct-Write Vector: Stale Snapshot Re-Mints Purged Messages + Read-Only Race Kills Watchdog
+
+**Status**: FIXED (replay-guard added to supervisor save_feed merge; os.replace wrapped in a 3-try PermissionError retry; supervisor respawned detached, watchdogs flowing — mints stopped at its death, watch the feed for recurrence) · **Severity**: HIGH — purged scar texts re-entered the feed 6 times; watchdog then died silently leaving seats unmonitored ~15min · **Filed**: 2026-11-11 (post-purge restart window — tripwire flagged ARCHITECT-238..243 stale mints; supervisor log showed WinError 5 traceback at os.replace)
+
+## Defect
+Two faults, one file:
+1. **Re-mint vector**: commission_supervise.py save_feed() merges its own feed object into disk with only an id-equality check. Its in-memory copy predates a purge; on every flag post the merge re-appends the purged messages under bumped ids (ARCHITECT-218/219 era texts resurfacing as 238-243). Every mint pair landed directly before a supervisor sys-save; mints ceased the instant the supervisor died.
+2. **Kill mechanism**: both the server and supervisor run the C33 read-only lockdown (chmod 444 after save). Supervisor chmods 666 -> server save interleaves and re-locks 444 -> supervisor os.replace hits a read-only target -> WinError 5 -> unhandled, watchdog exits.
+
+## Fix
+- Supervisor merge now carries the same (speaker, ts, text) replay-guard the server merge has — a stale snapshot can never re-mint a message whose content is already on record, whatever id it wears.
+- The chmod/replace block retries PermissionError 3x with 0.3s backoff instead of dying on write contention.
+
+## Law for any fresh session reading this
+- **Every direct writer needs the replay-guard, not just the server.** Any process that merges a held feed object into disk is a potential resurrection path — dedupe on content identity (speaker, ts, text), never on id alone.
+- **Lockdown protocols must tolerate their own race** — two writers toggling the same read-only bit WILL interleave; retry or serialize, never crash.
+- **Death-time forensics**: when a suspicious write stream stops the moment a process dies, that process was the vector — check the corpse before restarting it.
+
+
+---
+
+## C49 — dm Id Reuse After Deletion: Reader Dedup Ghosts the Replacement Message
+
+**Status**: FIXED-VERIFIED (server restarted; live mint-check returned dm-3070 = max suffix+1, not len-derived — new code confirmed running) · **Severity**: MEDIUM — one known manifestation: CHAIR's office answer invisible until refresh; bites only when a direct-write deletion frees a len-derived id · **Filed**: 2026-11-11 (office lane — BOSS reported real answer missing after probe-surgery)
+
+## Defect
+`/dm` minted ids as `dm-<len(msgs)>` — unlike `/post`, which scans `max(<SEAT>-N)+1`. Sequence: probe dm posted as dm-2996 -> rendered in the live office pane -> probe deleted via direct write -> real answer re-minted as dm-2996 (id reused) -> reader dedup keyed on id skipped it as already-shown. Feed record was correct all along; the live render was ghosted.
+
+## Fix
+`/dm` handler now computes `max(dm-N suffix)+1` over existing messages — same discipline `/post` already had. No id is ever re-issued, so a post-delete re-post always arrives under a fresh id the renderer has not seen. Ledger note: direct-write deletions remain a surgery-only operation — prefer tombstoning over freeing ids.
+
+## Law for any fresh session reading this
+- **Never derive a message id from collection length** — any removal makes the counter collide with a rendered id. Max-suffix-plus-one is the only safe mint in an append-mostly log.
+- **The feed being right is not enough** — readers maintain id-seen sets; an id collision converts a correct record into an invisible message.
+
+
+---
+
+## C50 — Floor Discipline Was Honor-Law: Out-of-Turn Positions Accepted Silently
+
+**Status**: FIXED-VERIFIED (turn gate live — DESIGNER-15 downgraded unentitled-position to aside; verdict 403'd; aside+register 400'd; CHAIR exempt verified) · **Severity**: HIGH — every floor-law violation landed on record; DVM-CAB1 showed seats voting out of rota, stamping wrong next-voters, replaying floor-passes · **Filed**: 2026-11-11 (post-ballot drill review)
+
+## Defect
+`/post` accepted a main-table position from any seat key regardless of `turn`. The induction taught "the stamp IS the grant" but nothing mechanical enforced it — AUDITOR/BUTTON voted mid-slot, ARCHITECT-357 replayed its vote AND re-executed its stale floor-pass (dragging the register backward). The C33-era merge only guarded content, not entitlement.
+
+## Fix
+`/post` floor gate: floor kinds {position, objection, support, veto, verdict, phase} require `turn == speaker` or CHAIR (moderator exempt — floor correction is its job). Unentitled SPEECH downgrades to aside (C47 coercion — lawful lane, nothing dropped); unentitled ACTS (verdict/phase) 403; register moves need an entitled floor post — phantom floor-bounces and verdict-smuggling on asides die at the gate. Downgraded posts carry `downgraded_from` so the record stays honest.
+
+## Law for any fresh session reading this
+- **Induction law without a daemon fence is a wish, not a rule** — every seat-facing law must have a mechanical backstop; the model will bend it eventually.
+- **Downgrade beats reject beats accept** — unentitled speech belongs in the floor-free lane by definition; only acts (verdicts, floor moves) are reject-worthy.
+
+
+---
+
+## C51 — Server save_feed Loses the C33 Lockdown Race to the Supervisor
+
+**Status**: FIXED-VERIFIED (save_feed chmod/replace now retries PermissionError 3x — same pattern as C48 supervisor fix; a /post that previously 400'd landed clean) · **Severity**: MEDIUM — client writes (dm/post) failed ~1-in-N under supervisor save contention; surfaced as transient 400s · **Filed**: 2026-11-11 (third manifestation: dm send, C50 test post, earlier /dm probe)
+
+## Defect
+Both feed writers run the C33 lockdown (chmod 444 after save). Server's save_feed chmodded 666 then os.replace'd with no retry — when the supervisor's save interleaved and re-locked first, the server's replace died with WinError 5 and the whole request 400'd. Same kill mechanism that crashed the supervisor in C48, mirrored.
+
+## Fix
+save_feed's chmod/replace block retries PermissionError 3x with 0.3s backoff inside SAVE_LOCK — both writers now tolerate their own protocol's interleave.
+
+
+---
+
+## C52 — Broadcast Wake Defeats the Rota: ALL Address Woke Every Seat at Once
+
+**Status**: FIXED-VERIFIED (round lock in `/pulse`; verified on an isolated server copy: non-holder held 14s during a live round, floor-holder woke in 0.2s on the turn stamp, broadcast resumed after the round closed) · **Severity**: HIGH — root cause of DVM-CAB1 vote-stomping; C50's downgrade only cleaned up after it · **Filed**: 2026-11-11 (post-ballot design review)
+
+## Defect
+The ballot call went out `to:['ALL']`. The `/pulse` gate counted ALL as an address (`addressed: True`) for every seat, and the host gate wakes on `your_turn` OR `addressed`. All five seats woke together and voted in parallel; the rota had no chance. The response-gate law ("broadcast is read-only until you are named") lived only in the inductions.
+
+## Fix
+`/pulse` ROUND LOCK: while `proposal.status` is in `ROUND_STATUSES` (`ballot`, `round`), a seat-posted ALL broadcast no longer counts as `addressed` nor enters the slotted-broadcast path for non-holders. Only `register.turn` wakes a seat (plus explicit `to:[SEAT]` and `kind:'boss'`). Skipped mail is not lost: the next batch carries everything since the seat's watermark. No host change; the host gate reads the server's flags.
+
+## Known gaps
+- A stalled floor-holder stalls the round (supervisor FLOOR-OWED flags it; no auto-pass yet).
+- Opt-in by proposal status: a round run without setting status `ballot`/`round` is unprotected.
+
+## Law for any fresh session reading this
+- **Fix the wake, not just the write** — C50 policed out-of-turn speech after the fact; the cause was waking everyone. Gate the doorbell and the stomping never starts.
+- **The turn stamp is the signal** — event-driven turn-taking needs no new plumbing, only a doorbell that treats the stamp as exclusive during a round.
+
+---
+
+## C53 — Scale Divergence: Two Sources of Truth for Item Render Size
+
+**Status**: 🟡 FIX APPLIED (scale law written into `COMMISSION_HTML_CONTEXT.md` §6; `commission_lawdesk` re-authored at .0075 and loaded at file-vs verbatim) · **Severity**: 🟢 MEDIUM — cosmetic-but-visible; the class hits every new furniture/prop · **Filed**: 2026-11-11 (BOSS caught the oversized lawdesk on sight)
+
+## Defect
+The commission's chibi room and the item file both claimed scale authority. `commission_lawdesk` was authored at `voxelSize .012` (≈real-world pitch → 1.44m long, .84m tall — shoulder-height on the .96m body) and loaded verbatim, while legacy KIT furniture only reads right because each entry carries a per-item `vs:` override (table .0093→.007, wall .025→.03). Two mechanisms, no rule about which wins — so the same item renders one size in the editor, another in the room, and a third in Unity depending on which consumer honors which field.
+
+## Root cause
+- The three consumers disagree by design: editor = file-vs always; Unity = file-vs (`ParseVoxelSize` — chars, items); commission = placement `vs:` overrides that exist per-entry and were never standardized.
+- The item JSON's `voxelSize` is only an authoring hint in the commission — so a new asset authored at a sane real-world pitch renders oversized the moment a loader trusts it.
+
+## Fix
+**Scale law** (now in `COMMISSION_HTML_CONTEXT.md` §6): file `voxelSize` IS the render pitch — author it for the chibi room (`commission_lawdesk` re-authored .012→.0075 → .90m × .53m × .29m) and consume it verbatim. New assets get NO placement `vs:` — the override exists only for pre-standard legacy entries. This makes file = editor preview = commission render = Unity import by construction: there is no second number to diverge.
+
+## Known gaps
+- Legacy KIT/`placements[]` `vs:` overrides remain (documented as legacy-only) — a shared constant or re-authoring pass could retire them.
+- Unity SectorBaker still forces buildings onto the terrain grid at bake time — a documented sanctioned exception, buildings only.
+- No automated check: a lint (`voxel_inspect.py`-style) that flags a new `voxel_items` file whose pitch breaks the room's size envelope would catch the class before a human eyeball has to.
+
+## Law for any fresh session reading this
+- **One number, one truth** — if a model needs a different size in a scene, fix `voxelSize` in the file, don't multiply in the loader. A placement `vs:` is a divergence you typed in yourself.
+- **Author at render pitch** — the editor's `ASSET_TYPE_PRESETS` seed `voxelSize` per assetType; for commission furniture the right pitch is the chibi one (≈.007–.008 for desk-class props), chosen at authoring time so every downstream consumer agrees for free.

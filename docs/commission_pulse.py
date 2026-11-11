@@ -29,6 +29,7 @@ for i, a in enumerate(sys.argv[2:]):
         except ValueError:
             pass
 FOLLOW = '--follow' in sys.argv
+MAILBOX = '--mailbox' in sys.argv   # daemon-held socket: deliveries yes, seat-presence no
 # DVM-923: a carried --since resumes at the watermark the last relay died
 # holding; absent/zero = cold-start (-1 → the init batch covers the tail).
 since = SINCE_ARG if SINCE_ARG is not None and SINCE_ARG >= 0 else -1
@@ -36,6 +37,8 @@ cold_start = since < 0
 dead_since = time.time()
 
 def stamp_n(n):
+    if MAILBOX:
+        return                          # mailbox is a second consumer, never the session's watermark
     # DVM-923 watermark-as-file — sole-writer per seat, every exit path.
     p = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                      'pulse_n_%s.js' % SEAT)
@@ -44,7 +47,7 @@ def stamp_n(n):
     os.replace(p + '.tmp', p)
 
 def req():
-    u = '%s/pulse/%s?since=%d' % (BASE, SEAT, since)
+    u = '%s/pulse/%s?since=%d%s' % (BASE, SEAT, since, '&mb=1' if MAILBOX else '')
     with urllib.request.urlopen(u, timeout=35) as r:
         return json.loads(r.read())
 
