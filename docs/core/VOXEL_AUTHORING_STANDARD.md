@@ -64,6 +64,33 @@ historical, flagged in the drift audit below.
    shells are the classic procedural-authoring bug (see `voxel_inspect.py`,
    `VOXEL_INSPECTION_PROTOCOL.md`).
 
+## Static Deformation — the Fold/Bend tool (voxel skinning for props)
+
+`voxel_editor.html` has a general-purpose fold tool (🌀 toolbar button →
+floating panel, same slot as the Selection/Ruler panels). It ports the
+character skin-blend dose law — `w = smoothstep(|d − pivot| / R)` — to any
+voxels, and **bakes the result into the file**. Baked deformation is authored
+geometry: it renders identically in the studio, thecommission, and Unity with
+no runtime skeleton — the same file-is-world contract as everything else.
+
+- **Live preview** — sliders bend the render (float positions) without writing
+  voxels; **Fold** commits as a normal undoable edit (tags travel with cells,
+  moved cells win landing collisions).
+- **🎯 pivot** — click a voxel to place the fold line; a magenta crease line +
+  diamond marks it. The dose is zero at the line and ripples to full at `R`.
+- **Modes** — `trough` (mirrored dip, open-book pages) · `−/+ side` · `curl`
+  (one-direction roll — paper, scrolls) · `rise` (lift peaking at the line —
+  `θ` reads as voxels of lift) · `mounds` (two hinges at `pivot ± gap` — the
+  real hardcover profile: two page-block shoulders + flat spine).
+- **Scope** — all / selection / selected material / + or − side of the line.
+- **skip checklist** — auto-populates the model's materials; ticked materials
+  are always rigid regardless of scope (cover boards, ribbons, frames).
+- **Iterative** — folds stack: bake a `mounds` lift, then a small `trough` for
+  page tilt. Whole-piece lift = Select All (Selection panel) → Move → PgUp.
+
+Book recipe: axis `Z`, pivot on the crease, `mounds`, `gap ~6`, `R 8–14`,
+`θ 3–5`, cover/ribbon ticked. `gap > R` leaves a true flat spine.
+
 ## Known Gap — Unity ignores `voxelSize` in JSON
 
 `CharacterJsonLoader` does not read the `voxelSize` field; `VoxelCharacter.cs`

@@ -1702,6 +1702,7 @@ function initDeck3D(THREE, OrbitControls){
     ...stampRoom(0, 4.5),                                        // module 2 — the bolt-on, spans z 2.25..6.75
     { file:'commission_wall',  vs:.03,   pos:[0, 0, 6.795],  rotY: Math.PI, env: true },      // far wall — the expansion's end cap; the space between stays open (no mid divider)
     { file:'commission_filecabinet', vs:.0115, pos:[1.85, 0, -2.03], rotY:-.18 },  // 1920s 4-drawer, back-right corner, back flush (D=.44)
+    { file:'commission_bookoflaws', vs:.005, pos:[-.045, .30, 9.40] },  // the Book of Laws — open tome centred squarely on the law desk's slab (desk centre −.045/9.40, top face .30; ribbon tail toward the reader)
   ];
   const envG = new THREE.Group(); envG.visible = false; envG.name = 'roomEnvelope'; window.__env = envG; scene.add(envG);   // DVM-U envelope — side walls + far cap + ceilings, shown ONLY in possess mode; group view stays the clean stage set (back wall + floor + set only)
   for (const [px, pz] of [[-6.015, -.09], [-5.92, 3.68], [-3.07, 3.68]]) {   // possess-space pendant rigs — office centre + the two hall bays; same cone+spill recipe as the spine row, parented to envG so they only burn where the envelope exists

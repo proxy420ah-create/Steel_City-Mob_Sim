@@ -292,6 +292,7 @@ document.getElementById('editor-nav').addEventListener('click', e => {
   <button class="tool-btn" onclick="deleteSelection()" title="Delete Selection (Del)">🗑</button>
   <div class="tool-sep"></div>
   <button class="tool-btn" id="mirror-btn" title="Mirror Settings">🪞</button>
+  <button class="tool-btn" id="fold-btn" title="Fold / Bend — baked voxel-skinning dose about an axis (books, paper, settled props)">🌀</button>
   <button class="tool-btn" id="replace-btn" title="Replace Material">🔄</button>
   <button class="tool-btn" id="console-btn" title="Script Console">⚙</button>
   <button class="tool-btn" id="volume-btn" title="Volume Size / Expand / ROM">📦</button>
@@ -749,6 +750,7 @@ document.getElementById('editor-nav').addEventListener('click', e => {
     <button class="console-btn" onclick="deleteSelection()">Delete</button>
   </div>
   <div class="adv-row">
+    <button class="console-btn" onclick="selectAllVoxels()" title="Select every voxel in the model — then Move to reposition the whole piece">Select All</button>
     <button class="console-btn" onclick="clearSelection()">Clear Sel</button>
   </div>
   <div class="adv-row" style="gap:4px;">
@@ -798,6 +800,55 @@ document.getElementById('editor-nav').addEventListener('click', e => {
     </div>
     <div style="font-size:9px;color:#888;margin-top:4px;">Arrows=ground plane (fwd/back too) | PgUp/PgDn=height | ,.=yaw ;'=pitch op=roll | Enter=confirm | Esc=cancel | ⇄ = mirrored deltas</div>
   </div>
+
+<!-- Fold panel — standalone fixed panel (ruler-panel pattern), toggled by the
+     🌀 toolbar button. A sculpt op, not a character feature: it bakes a
+     smoothstep-dose rotation into the voxel map so props (books, paper,
+     settled goods) keep the result as geometry everywhere. -->
+<div id="fold-panel" style="display:none;position:fixed;top:56px;left:488px;width:252px;background:rgba(0,0,0,0.8);border-radius:8px;padding:12px;z-index:88;">
+  <div style="font-size:10px;color:#0ff;margin-bottom:6px;">🌀 Fold / Bend</div>
+  <div style="font-size:9px;color:#888;margin-bottom:6px;line-height:1.4;">
+    Bakes a smoothstep dose about an axis — the same law as character skin
+    blend, applied to any voxels. Trough = open-book pages, curl = rolled paper.
+  </div>
+  <div class="adv-row" style="gap:5px;align-items:center;font-size:9px;color:#888;margin-bottom:5px;">
+    <input type="checkbox" id="fold-live" checked onchange="foldParamsChanged()" title="Live preview — bend the render without baking; Fold commits">
+    <label for="fold-live" title="Live preview — bend the render without baking; Fold commits">live</label>
+    <button class="console-btn" onclick="foldArmPick()" title="Click a voxel to place the fold line — the effect ripples outward from it">🎯 pivot</button>
+    <span>axis</span>
+    <select id="fold-axis" onchange="foldParamsChanged()" style="background:#222;color:#eee;border:1px solid #444;border-radius:3px;font-size:10px;">
+      <option value="z">Z</option><option value="x">X</option><option value="y">Y</option>
+    </select>
+  </div>
+  <div class="adv-row" style="gap:5px;align-items:center;font-size:9px;color:#888;margin-bottom:5px;">
+    <span title="Fold-line position on the two perpendicular axes — axis Z → the crease's x,y">pivot</span>
+    <input id="fold-pu" type="number" step="0.5" value="0" oninput="foldParamsChanged()" title="Perpendicular-1 coordinate (axis Z → x of the fold line)" style="width:46px;background:#222;color:#eee;border:1px solid #444;border-radius:3px;font-size:10px;">
+    <input id="fold-pv" type="number" step="0.5" value="0" oninput="foldParamsChanged()" title="Perpendicular-2 coordinate (axis Z → y of the fold line)" style="width:46px;background:#222;color:#eee;border:1px solid #444;border-radius:3px;font-size:10px;">
+    <span title="Rotation modes: full-dose fold angle in degrees · rise mode: voxels of peak lift at the line">θ</span>
+    <input id="fold-deg" type="number" step="1" value="6" oninput="foldParamsChanged()" style="width:42px;background:#222;color:#eee;border:1px solid #444;border-radius:3px;font-size:10px;">
+  </div>
+  <div class="adv-row" style="gap:5px;align-items:center;font-size:9px;color:#888;margin-bottom:5px;">
+    <span title="Dose radius in voxels — the fold ripples outward across it">R</span>
+    <input id="fold-r" type="range" min="1" max="40" step="0.5" value="12" oninput="foldParamsChanged()" style="flex:1;min-width:40px;">
+    <span id="fold-r-val" style="width:20px;text-align:right;">12</span>
+  </div>
+  <div class="adv-row" style="gap:5px;align-items:center;font-size:9px;color:#888;">
+    <select id="fold-mode" onchange="foldParamsChanged()" title="trough = both sides dip opposite ways (open book); −/+ = one side only; curl = everything rolls one way (newspaper); rise = lift peaks at the line and decays across R (hardcover gutter mound — θ reads as voxels)" style="flex:1;background:#222;color:#eee;border:1px solid #444;border-radius:3px;font-size:10px;">
+      <option value="mirror">trough (book)</option><option value="minus">− side only</option><option value="plus">+ side only</option><option value="curl">curl (all)</option><option value="rise">rise (mound)</option><option value="mounds">mounds (2 hinges)</option>
+    </select>
+    <select id="fold-scope" onchange="foldParamsChanged()" title="Which cells bend — +/− side = only cells past the line on the bend axis (axis Z: + side = above the line, e.g. pages but not the cover boards). Ticked materials below are always frozen regardless of scope." style="flex:1;background:#222;color:#eee;border:1px solid #444;border-radius:3px;font-size:10px;">
+      <option value="all">all voxels</option><option value="selection">selection</option><option value="material">sel. material</option><option value="plus">+ side</option><option value="minus">− side</option>
+    </select>
+    <button class="console-btn run" onclick="applyFold()" title="Bake the fold into the voxels (undoable)">Fold</button>
+  </div>
+  <div class="adv-row" style="gap:5px;align-items:center;font-size:9px;color:#888;margin-top:5px;">
+    <span title="Hinge half-spacing — mounds mode places the two hinges at pivot ± gap; gap &gt; R leaves a flat spine between them">gap</span>
+    <input id="fold-gap" type="number" step="0.5" min="0" value="4" oninput="foldParamsChanged()" style="width:38px;background:#222;color:#eee;border:1px solid #444;border-radius:3px;font-size:10px;">
+    <span title="Ticked materials never move — the rigid-parts list (cover boards, ribbons, frames)">skip:</span>
+    <div id="fold-mats-list" style="flex:1;max-height:64px;overflow-y:auto;display:flex;flex-direction:column;gap:2px;"></div>
+  </div>
+  <div style="font-size:9px;color:#888;margin-top:5px;">Sliders bend the render live; Fold bakes (undoable). rise/mounds: θ = voxels of lift. Moved cells win collisions; tags travel.</div>
+</div>
 
 <!-- Ruler plants panel — standalone fixed panel, shows while the ruler
      tool is selected (independent of #adv-panel, which is mirror-toggled) -->
@@ -2158,6 +2209,202 @@ function setAnimPoseState(v) {
   setStatus(v === '' ? 'Anim parity off — rest pose' : `Anim parity: state ${animPoseState} (same pose pipeline + skin blend as the animator)`);
 }
 window.setAnimPoseState = setAnimPoseState;
+
+// === FOLD / BEND TOOL — baked voxel skinning for props ===
+// The dose law made a sculpt op: cells within R of the fold line take a
+// smoothstep fraction of the fold angle. Trough mirrors the sign across the
+// fold (open-book pages); curl rolls everything one way (newspaper roll).
+// Live preview rides the same display-transform hook as the pose preview
+// (writeInstanceAt) — nothing bakes until applyFold.
+const FOLD_PLANES = { x: ['y', 'z'], y: ['x', 'z'], z: ['x', 'y'] };
+const FOLD_IDX = { x: 0, y: 1, z: 2 };
+// foldP mirrors the panel inputs so per-voxel work never touches the DOM.
+const foldP = { live: false, axis: 'z', pu: 0, pv: 0, R: 12, TH: 0, deg: 0, gap: 4,
+                mode: 'mirror', scope: 'all', selSet: null, mats: new Set() };
+let foldGizmo = null, foldPicking = false;
+
+// Material checklist — one row per material actually present in the model,
+// rebuilt when the used-material set changes (cheap sig, no churn per tick).
+const foldCheckedMats = new Set();
+let _foldMatsSig = '';
+function refreshFoldMatsList() {
+  const used = [...new Set(voxelMap.values())].sort((a, b) => a - b);
+  const sig = used.join(',');
+  if (sig === _foldMatsSig) return;
+  _foldMatsSig = sig;
+  const box = document.getElementById('fold-mats-list');
+  if (!box) return;
+  box.innerHTML = '';
+  for (const mid of used) {
+    const m = allMaterials.find(mm => mm.id === mid);
+    const lab = document.createElement('label');
+    lab.style.cssText = 'display:flex;align-items:center;gap:4px;font-size:9px;color:#ccc;cursor:pointer;';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = foldCheckedMats.has(mid);
+    cb.onchange = () => { cb.checked ? foldCheckedMats.add(mid) : foldCheckedMats.delete(mid); foldParamsChanged(); };
+    const chip = document.createElement('span');
+    chip.style.cssText = `width:8px;height:8px;border-radius:2px;background:${m ? (m.hex || '#888') : '#888'};display:inline-block;`;
+    const txt = document.createElement('span');
+    txt.textContent = `${mid} ${m ? (m.name || '') : ''}`;
+    lab.append(cb, chip, txt);
+    box.appendChild(lab);
+  }
+}
+
+function readFoldParams() {
+  foldP.axis = document.getElementById('fold-axis').value;
+  foldP.pu = parseFloat(document.getElementById('fold-pu').value) || 0;
+  foldP.pv = parseFloat(document.getElementById('fold-pv').value) || 0;
+  foldP.R = Math.max(parseFloat(document.getElementById('fold-r').value) || 1, 0.1);
+  foldP.deg = parseFloat(document.getElementById('fold-deg').value) || 0;
+  foldP.TH = foldP.deg * Math.PI / 180;
+  foldP.gap = Math.abs(parseFloat(document.getElementById('fold-gap').value) || 0);
+  foldP.mats = foldCheckedMats;
+  foldP.mode = document.getElementById('fold-mode').value;
+  foldP.scope = document.getElementById('fold-scope').value;
+  foldP.live = document.getElementById('fold-live').checked &&
+               document.getElementById('fold-panel').style.display !== 'none';
+}
+
+// Single-cell fold transform shared by the live preview and the bake.
+// Returns [x,y,z] floats or null when the cell is outside dose/scope.
+function foldCellPos(x, y, z, mid, key) {
+  const p = foldP;
+  const [u, v] = FOLD_PLANES[p.axis], ui = FOLD_IDX[u], vi = FOLD_IDX[v];
+  const pt = [x, y, z], cu = pt[ui] - p.pu, cv = pt[vi] - p.pv, d = Math.abs(cu);
+  if (p.mats.has(mid)) return null;                             // ticked mats are rigid — always
+  if (p.scope === 'material' && mid !== selectedMaterial) return null;
+  if (p.scope === 'selection' && !(p.selSet && p.selSet.has(key))) return null;
+  if (p.scope === 'plus' && cv <= 0) return null;     // only cells past the line
+  if (p.scope === 'minus' && cv >= 0) return null;    //   on the bend axis
+  const s3 = t => t * t * (3 - 2 * t);
+  // Rise: a lift field, not a rotation — displacement peaks AT the fold line
+  // and decays to zero across R. The open-hardcover mound: flat fore-edges,
+  // gutter hump, boards untouched. deg is voxels of peak lift here.
+  if (p.mode === 'rise') {
+    const w = 1 - s3(Math.min(d / p.R, 1));
+    if (w <= 0) return null;
+    pt[vi] += p.deg * w;
+    return pt;
+  }
+  // Mounds: two rise-hinges at pivot ± gap — each page block peaks at its own
+  // shoulder and the spine between them stays flat. The real hardcover profile:
+  // two doors + a flat gutter. R < gap keeps a true flat between mounds;
+  // R > gap blends them into a soft saddle.
+  if (p.mode === 'mounds') {
+    const wl = 1 - s3(Math.min(Math.abs(cu + p.gap) / p.R, 1));
+    const wr = 1 - s3(Math.min(Math.abs(cu - p.gap) / p.R, 1));
+    const w = Math.max(wl, wr);
+    if (w <= 0) return null;
+    pt[vi] += p.deg * w;
+    return pt;
+  }
+  const w = s3(Math.min(d / p.R, 1));
+  if (w <= 0) return null;
+  let ang = 0;
+  if (p.mode === 'mirror') ang = -Math.sign(cu) * p.TH * w;
+  else if (p.mode === 'minus') ang = cu < 0 ? p.TH * w : 0;
+  else if (p.mode === 'plus') ang = cu > 0 ? -p.TH * w : 0;
+  else ang = p.TH * w;                                    // curl — one sign for all
+  if (!ang) return null;
+  const dv = cv, ca = Math.cos(ang), sa = Math.sin(ang);
+  pt[ui] = p.pu + cu * ca - dv * sa;
+  pt[vi] = p.pv + cu * sa + dv * ca;
+  return pt;
+}
+
+// Magenta crease line + pivot diamond through the model — the fold's origin.
+function updateFoldGizmo() {
+  if (foldGizmo) {
+    foldGizmo.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+    scene.remove(foldGizmo); foldGizmo = null;
+  }
+  if (!foldP.live) return;
+  const [u, v] = FOLD_PLANES[foldP.axis], ui = FOLD_IDX[u], vi = FOLD_IDX[v], ai = FOLD_IDX[foldP.axis];
+  const pt = (a, b, c) => { const r = [0, 0, 0]; r[ui] = a; r[vi] = b; r[ai] = c; return r; };
+  const ext = Math.max(W, H, D);
+  // Mounds mode draws two crease lines — one per hinge at pivot ± gap.
+  const hinges = foldP.mode === 'mounds' ? [foldP.pu - foldP.gap, foldP.pu + foldP.gap] : [foldP.pu];
+  const g = new THREE.Group();
+  for (const h of hinges) {
+    const a = pt(h, foldP.pv, -ext), b = pt(h, foldP.pv, ext);
+    g.add(new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(a[0] + originOffsetX, a[1], a[2] + originOffsetZ),
+        new THREE.Vector3(b[0] + originOffsetX, b[1], b[2] + originOffsetZ)]),
+      new THREE.LineBasicMaterial({ color: 0xff44ff, depthTest: false, transparent: true, opacity: 0.9 })));
+    const mid = pt(h, foldP.pv, [W, H, D][ai] / 2);
+    const dot = new THREE.Mesh(new THREE.OctahedronGeometry(1.4),
+      new THREE.MeshBasicMaterial({ color: 0xff44ff, depthTest: false, transparent: true, opacity: 0.95 }));
+    dot.position.set(mid[0] + originOffsetX, mid[1], mid[2] + originOffsetZ);
+    g.add(dot);
+  }
+  g.renderOrder = 999;
+  foldGizmo = g;
+  scene.add(g);
+}
+
+function foldParamsChanged() {
+  readFoldParams();
+  refreshFoldMatsList();
+  updateFoldGizmo();
+  rebuildMesh();
+}
+window.foldParamsChanged = foldParamsChanged;
+
+// Arm/disarm click-to-place pivot — the fold line's origin.
+function foldArmPick() {
+  foldPicking = !foldPicking;
+  setStatus(foldPicking ? 'Fold pivot pick — click a voxel to place the fold line' : 'Fold pick cancelled');
+}
+window.foldArmPick = foldArmPick;
+
+function applyFold() {
+  readFoldParams();
+  if (!foldP.deg) { setStatus('Fold amount is 0'); return; }
+  const cells = [];
+  if (foldP.scope === 'selection') {
+    if (!selVoxels.length) { setStatus('No selection — select cells first (S tool)'); return; }
+    foldP.selSet = new Set(selVoxels.map(v => `${v[0]},${v[1]},${v[2]}`));
+    for (const p of selVoxels) cells.push([p[0], p[1], p[2]]);
+  } else {
+    for (const [key, mid] of voxelMap) {
+      if (foldP.scope === 'material' && mid !== selectedMaterial) continue;
+      const [x, y, z] = key.split(',').map(Number);
+      cells.push([x, y, z]);
+    }
+  }
+  const moved = new Map(), movingKeys = new Set();      // "nx,ny,nz" -> {from, mid}
+  for (const [x, y, z] of cells) {
+    const key = `${x},${y},${z}`;
+    const t = foldCellPos(x, y, z, voxelMap.get(key), key);
+    if (!t) continue;
+    const np = t.map(Math.round);
+    if (np[0] === x && np[1] === y && np[2] === z) continue;
+    movingKeys.add(key);
+    moved.set(`${np[0]},${np[1]},${np[2]}`, { from: key, mid: voxelMap.get(key) });
+  }
+  if (!moved.size) { setStatus('Fold moved nothing — widen R or the angle'); return; }
+  // move voxels + their tag entries; moved cells win any landing collisions
+  const tagMaps = [groupMap, itemPartMap, clothingRegionMap];
+  const tagMoves = tagMaps.map(() => new Map());
+  for (const key of movingKeys) {
+    voxelMap.delete(key);
+    tagMaps.forEach((tm, i) => { if (tm.has(key)) { tagMoves[i].set(key, tm.get(key)); tm.delete(key); } });
+  }
+  for (const [nk, mv] of moved) {
+    voxelMap.set(nk, mv.mid);
+    tagMaps.forEach((tm, i) => { const t = tagMoves[i].get(mv.from); if (t !== undefined) tm.set(nk, t); else tm.delete(nk); });
+  }
+  pushHistory();
+  // Bake leaves live preview off so the result shows as geometry — re-check
+  // live for the next iterative fold.
+  document.getElementById('fold-live').checked = false;
+  foldParamsChanged();
+  setStatus(`Fold baked — ${moved.size} voxels moved (undoable)`);
+}
+window.applyFold = applyFold;
 
 function setTestArmPose(mode) {
   testArmPose = mode;
@@ -3919,6 +4166,20 @@ function mergeIntoSelection(voxels) {
   selVoxels = [...merged.values()];
   return added;
 }
+// Select every voxel in the model — whole-piece selection for Move/lift
+// workflows (e.g. raising a folded prop that dipped below the grid floor).
+function selectAllVoxels() {
+  if (!voxelMap.size) { setStatus('Nothing to select'); return; }
+  selVoxels = [...voxelMap].map(([key, mid]) => {
+    const [x, y, z] = key.split(',').map(Number);
+    return [x, y, z, mid];
+  });
+  selectionActive = true;
+  document.getElementById('sel-info').textContent = `Sel: ${selVoxels.length} voxels (all)`;
+  showSelectionOverlay();
+  setStatus(`Selected all ${selVoxels.length} voxels — Move to reposition`);
+}
+window.selectAllVoxels = selectAllVoxels;
 let clipboard = []; // [(95, 67, 95, 123), ...]
 let pasteOffset = { x: 0, y: 0, z: 0 };
 let pasteMode = false; // when true, showing paste preview
@@ -4213,6 +4474,9 @@ function viewSig() {
   return [W, H, D, testArmPose, animPoseState, blendEnabled, blendRadius, blendTorsoCap,
           groupViewMode, clothingRegionViewMode, itemPartViewMode,
           originOffsetX, originOffsetZ, allMaterials.length,
+          foldP.live, foldP.axis, foldP.pu, foldP.pv, foldP.R, foldP.TH, foldP.gap, foldP.mode,
+          foldP.scope, foldP.scope === 'selection' ? selVoxels.length : 0,
+          [...foldP.mats].sort((a, b) => a - b).join(','),
           JSON.stringify(loadedAnimData.pivots || {})].join('|');
 }
 
@@ -4242,6 +4506,10 @@ function writeInstanceAt(i, x, y, z, mid, key) {
   let px = x, py = y, pz = z;
   if (testArmPose !== 'none') {
     const t = testPoseTransform(x, y, z, key);
+    if (t) { px = t[0]; py = t[1]; pz = t[2]; }
+  }
+  if (foldP.live) {
+    const t = foldCellPos(px, py, pz, mid, key);
     if (t) { px = t[0]; py = t[1]; pz = t[2]; }
   }
   dummyMatrix.makeTranslation(px + originOffsetX, py, pz + originOffsetZ);
@@ -4315,6 +4583,9 @@ function rebuildMesh() {
   _memberFloor = _markEpoch; // member marks from pre-edit fills are stale
   _fillGen++;                // in-flight async fills discard their results
   positionsMemo.clear();
+  // Selection-scope fold preview — rebuild the lookup set once per build.
+  if (foldP.live && foldP.scope === 'selection')
+    foldP.selSet = new Set(selVoxels.map(v => `${v[0]},${v[1]},${v[2]}`));
   // Fast path: only tracked map writes happened since the last build —
   // update just those instance slots (O(edit) instead of O(model)).
   if (applyIncrementalEdits()) {
@@ -4530,7 +4801,7 @@ function mirrorPositionsPreview(positions) {
 function raycastVoxel(event) {
   // Arm-pose test displaces rendered voxels away from grid cells — the grid
   // march below can't see that, so fall back to instance raycasting there.
-  if (testArmPose !== 'none') return raycastVoxelMesh(event);
+  if (testArmPose !== 'none' || foldP.live) return raycastVoxelMesh(event);
 
   pointer.set(
     (event.clientX / window.innerWidth) * 2 - 1,
@@ -7449,6 +7720,21 @@ renderer.domElement.addEventListener('mousedown', (e) => {
       isDragging = true;
       return;
     }
+    // Fold pivot pick: click drops the fold line on the two perpendicular
+    // axes — swallowed so voxel tools never fire while picking.
+    if (foldPicking) {
+      const hit = raycastVoxel(e);
+      if (hit && hit.mid !== undefined) {
+        const [u, v] = FOLD_PLANES[foldP.axis], hc = { x: hit.x, y: hit.y, z: hit.z };
+        document.getElementById('fold-pu').value = hc[u];
+        document.getElementById('fold-pv').value = hc[v];
+        foldPicking = false;
+        foldParamsChanged();
+        setStatus(`Fold line set → ${u}=${hc[u]}, ${v}=${hc[v]}`);
+      } else setStatus('Fold pick: click a voxel — or 🎯 again to cancel');
+      isDragging = true;
+      return;
+    }
     // Paint tool: start drag-paint immediately (unless selection is active — that uses click-to-apply)
     if (currentTool === 'paint' && !selectionActive) {
       const hit = raycastVoxel(e);
@@ -8344,6 +8630,14 @@ window.runConsole = function() {
 document.getElementById('mirror-btn').addEventListener('click', () => {
   const panel = document.getElementById('adv-panel');
   panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+});
+document.getElementById('fold-btn').addEventListener('click', () => {
+  const panel = document.getElementById('fold-panel');
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+  foldParamsChanged(); // preview + gizmo track panel visibility
+});
+document.getElementById('fold-r').addEventListener('input', e => {
+  document.getElementById('fold-r-val').textContent = e.target.value;
 });
 document.getElementById('mirror-x').addEventListener('click', () => {
   mirrorX = !mirrorX;
