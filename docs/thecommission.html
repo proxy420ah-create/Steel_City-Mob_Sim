@@ -1685,6 +1685,11 @@ function initDeck3D(THREE, OrbitControls){
     { file:'commission_pendant', vs:.012, pos:[-.015, 1.314, -.105] },       // green-dome pendant: hangs dead over the table/rug center
     { file:'commission_pendant', vs:.012, pos:[0, 1.314, 3.68] },    // pendant row — corridor mouth, on the hall-center beam
     { file:'commission_pendant', vs:.012, pos:[-.045, 1.314, 7.425] },  // pendant row — north hall, dead-centre in its coffer bay (x −.765/+.675 → −.045, z 6.70/8.15 → 7.425, both bake half-cells)
+    { file:'commission_pendant', vs:.012, pos:[-6.015, 1.314, -.09], env: true },   // office pendant — dead-centre of the west-wing square room (walk-grid body x −8.07..−3.96, z −2.16..1.98 → half-cell centre); env-flagged like its room
+    { file:'commission_pendant', vs:.012, pos:[-5.92, 1.314, 3.68], env: true },   // hall pendant — dead-centre of its coffer bay (beams −6.49/−5.35 → −5.92), hanging on the centre beam over the office door axis
+    { file:'commission_pendant', vs:.012, pos:[-3.07, 1.314, 3.68], env: true },   // hall pendant — next lit bay east, one dark square between lights (bay −3.67/−2.47 → −3.07); the existing x=0 pendant sits in bay +0.05 and completes the rhythm
+    { file:'commission_floorlamp', vs:.005, pos:[-9.05, 0, 2.6],  env: true },   // west-cap floor lamp — south corner; vs mirrors the file's declared grain (.005 item/decor standard → .84m); footprint clear on the walk grid
+    { file:'commission_floorlamp', vs:.005, pos:[-9.05, 0, 4.8],  env: true },   // west-cap floor lamp — north corner, mirror of the south one
     { file:'commission_floor', vs:.03,   pos:[0, -.09, 0] },     // chibi grain — 4.5m plate covers the seat ring, tops y=0
     { file:'commission_wall',  vs:.03,   pos:[0, 0, -2.295] },   // 4.5x1.8 wall backs the set — front face at z=-2.25
     { file:'commission_wall',  vs:.03,   pos:[-2.295, 0, 0], rotY: Math.PI / 2, env: true },    // left wall — envelope
@@ -1699,6 +1704,13 @@ function initDeck3D(THREE, OrbitControls){
     { file:'commission_filecabinet', vs:.0115, pos:[1.85, 0, -2.03], rotY:-.18 },  // 1920s 4-drawer, back-right corner, back flush (D=.44)
   ];
   const envG = new THREE.Group(); envG.visible = false; envG.name = 'roomEnvelope'; window.__env = envG; scene.add(envG);   // DVM-U envelope — side walls + far cap + ceilings, shown ONLY in possess mode; group view stays the clean stage set (back wall + floor + set only)
+  for (const [px, pz] of [[-6.015, -.09], [-5.92, 3.68], [-3.07, 3.68]]) {   // possess-space pendant rigs — office centre + the two hall bays; same cone+spill recipe as the spine row, parented to envG so they only burn where the envelope exists
+    const pendSpot = new THREE.SpotLight(0xffe2b0, 22, 6, .75, .6, 1);
+    pendSpot.position.set(px, 1.36, pz); pendSpot.target.position.set(px, .35, pz);
+    envG.add(pendSpot, pendSpot.target);
+    const pendGlow = new THREE.PointLight(0xcfffb0, 1.2, 1.3); pendGlow.position.set(px, 1.42, pz); envG.add(pendGlow); }
+  for (const [px, pz] of [[-9.05, 2.6], [-9.05, 4.8]]) {           // west-cap floor lamps — warm pool at the chibi-scale shade mouth (~y.74); possess-only like their fixtures
+    const lampGlow = new THREE.PointLight(0xffd9a0, 2.4, 2.0); lampGlow.position.set(px, .55, pz); envG.add(lampGlow); }
   /* ── BAKED BUILDING (office_complex) ──────────────────────────────────────────
      The editable asset (Voxel Studio, 1M voxels) is compiled by docs/bake_building.py
      into: greedy-merged exposed-face quads split STAGE / ENV, a walk-clearance grid, a
@@ -2667,7 +2679,7 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
   window.__aim = { on: () => aimOn, mark: placeMark, clear: () => { while (marks.length) scene.remove(marks.pop()); DECK.dirty(); } };
   const chPos = new THREE.Vector3(.374, 0, 1.601); let chYaw = Math.PI;  // BOSS's stand-point (ring i=2, r=STAND_R, on the rug centre) — inside SEAT_REACH so boot sit() seats him at his own chair; open floor, facing the table (−z)
   const FLOOR = { x: [-2.15, 2.15], z: [-2.15, 6.65] };          // doubled office: two 4.5m plates span z -2.25..6.75 − .1 margin
-  const SOLIDS = [[-.015, -.105, .85], [1.85, -2.03, .42]];      // capsule-vs-circle: commission_table ø1.40 + .15 capsule (on room center), file cabinet
+  const SOLIDS = [[-.015, -.105, .85], [1.85, -2.03, .42], [-9.05, 2.6, .16], [-9.05, 4.8, .16]];      // capsule-vs-circle: commission_table ø1.40 + .15 capsule (on room center), file cabinet, west-cap floor lamps
   const NCHAIRS = Object.keys(SEATS).length;                     // roster-driven — 8 once DESIGNER's row lands (was hardcoded 7)
   for (let i = 0; i < NCHAIRS; i++){                             // seat ring — same a = i/N·2π − π/2, r = 1.15 as the chair build
     const a = i / NCHAIRS * Math.PI * 2 - Math.PI / 2;

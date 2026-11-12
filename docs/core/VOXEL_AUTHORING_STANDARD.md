@@ -1,0 +1,98 @@
+# Voxel Authoring Standard — The File Is the World
+
+**Status**: 🔒 LAW — applies to every item, prop, decor, fixture, and furniture asset
+**Established**: 2026-11-08, after the `commission_floorlamp` scale round
+**Scope**: VoxelAssetStudio authoring → `voxel_items/` JSON → HTML loaders → Unity
+
+---
+
+## The Law
+
+**`voxelSize` × `dims` in the JSON file IS the real world.** A correctly authored
+asset needs no scaling and no translation anywhere it is placed.
+
+- Placement records **position and rotation only** (`pos`, `rotY`, `env`).
+- Placement `vs` **mirrors the file's declared `voxelSize`** — it is a loader
+  hint, never a sizing knob.
+- **`sXZ` and similar stretch fields are banned as patches.** If a footprint is
+  wrong, re-author the dims in the file — do not widen at placement.
+- If an asset reads too big or too small in scene, **the file is wrong**.
+  Fix `voxelSize` (re-grain) or `dims`/`voxels` (re-shape) — then verify again.
+
+Why: assets start in the editor and must be **uniform everywhere** — studio
+preview, thecommission.html, Unity — fit for use and editing by any consumer
+without a transform tax. A scale patched at one consumer is a lie the next
+consumer re-learns the hard way (the 1.58m lamp towering over the cast was
+authored correctly for a real room and wrongly for *this* world).
+
+## Reference Anchors — author against the cast
+
+| Anchor | File | Dims × voxelSize | Height | Use for |
+|--------|------|------------------|--------|---------|
+| Person (Unity) | `voxel_characters/Civilian1.json` | 96³ @ .01 | **0.96 m** | Items for the Unity cast |
+| Person (Commission chibi) | Vinny / seat cast | 62 vox @ .01 | **0.62 m** | Items for thecommission set |
+
+Items stand next to people. A floor lamp ≈ person height; a desk lamp ≈
+half person. **Check the reference preview in `voxel_editor.html` against
+Civilian1 (or the seat cast) before calling an asset done** — the
+floating-diffuser and giant-lamp bugs were both caught by eyeballing the
+render, not by numbers.
+
+## Grain Standards
+
+| Class | voxelSize | Notes |
+|-------|-----------|-------|
+| Building / shell | 0.1 m | coarser, merged faces |
+| World / terrain | 0.05 m | |
+| Character | 0.01 m | 96³ standard cast |
+| **Item / decor / prop** | **0.005 m** | 2× density vs characters — the detail grain |
+
+(`CHARACTER_SPAWNING_SYSTEM.md` first declared these; this doc is the
+enforcement point.) Commission-era shell pieces currently run .025–.03 —
+historical, flagged in the drift audit below.
+
+## Authoring Workflow
+
+1. **Pick the grain** for the class (props → .005).
+2. **Author dims/voxels against the reference anchor** — the studio's
+   Reference Preview panel renders Civilian1 at true relative scale.
+3. **Declare `voxelSize` in the file** — it is part of the asset, like the
+   geometry. Never leave it to be guessed downstream.
+4. **Place with `vs` = file `voxelSize` only.** If the temptation to set a
+   different `vs` or `sXZ` arises, stop — the file is wrong, go fix it.
+5. **Verify connectedness** (flood-fill, 0 orphans) — floating voxels inside
+   shells are the classic procedural-authoring bug (see `voxel_inspect.py`,
+   `VOXEL_INSPECTION_PROTOCOL.md`).
+
+## Known Gap — Unity ignores `voxelSize` in JSON
+
+`CharacterJsonLoader` does not read the `voxelSize` field; `VoxelCharacter.cs`
+uses its Inspector field (default `0.01f`). Today the file declaration is
+authoritative for the **editor preview and the HTML pipeline**; Unity-side
+scale is prefab/Inspector state. True end-to-end uniformity requires either
+Unity reading the field, or authoring at the consumer's default — tracked as
+an open item (see `docs/known_issues/editor/REFERENCE_PREVIEW_SCALE.md`,
+"Remaining Gaps").
+
+## Drift Audit — `thecommission.html` KIT, 2026-11-08
+
+| Asset | file `voxelSize` | placed `vs` | `sXZ` | Status |
+|-------|------------------|-------------|-------|--------|
+| `commission_floorlamp` | .005 | .005 | — | ✅ conformant (re-authored at .005 grain, v3) |
+| `commission_pendant` | .012 | .012 | — | ✅ match (grain ≠ .005 std — legacy) |
+| `commission_filecabinet` | .0115 | .0115 | — | ✅ match (grain ≠ .005 std — legacy) |
+| `commission_table` | .0093 | .007 | **1.4** | ❌ double patch — placement shrinks Y, widens XZ to fake the file's intent; re-author at true size |
+| `commission_wall` / `floor` / `floor2` / `ceiling` | .025 / none | .03 | — | ⚠ shell grain drift — envelope prims, low priority |
+| `chair` (seat cast) | .01 | .010 | — | ✅ match |
+
+Open items:
+- Re-author `commission_table` at its intended in-world size (1.4 m Ø × .38 m)
+  so `sXZ` and the `.007` override can be deleted.
+- Decide whether legacy grains (.0115/.012 props) get re-grained to .005 or
+  the standard admits "any declared grain, honestly declared."
+- Shell prims (.025→.03) — cosmetic drift; fix on next shell rebuild.
+
+---
+
+*Companion: `VOXEL_INSPECTION_PROTOCOL.md` (integrity checklist),*
+*`docs/known_issues/editor/REFERENCE_PREVIEW_SCALE.md` (preview scale + Unity gap).*
