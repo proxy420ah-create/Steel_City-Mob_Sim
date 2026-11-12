@@ -30,6 +30,7 @@
 | C31 | [scope drift on shared scene objects](#c31) | 🟢 FIXED | 🟢 MEDIUM | 2026-11-03 |
 | C32 | [Foreign-seat pulse client sole-writes another seat's watermark](#c32) | 🔴 ACTIVE | 🟢 MEDIUM | 2026-11-04 |
 | C33 | [Resurrected-session replay: fresh ids hide dupes, stale scalars revert register](#c33) | 🟡 FIX APPLIED (law + heals; guard unbuilt) | 🟢 MEDIUM | 2026-11-04 |
+| C54 | [tvz helper trapped in script-1 IIFE — law-desk loader ReferenceError](#c54) | 🟢 FIXED | 🟢 MEDIUM | 2026-11-11 |
 
 ---
 
@@ -794,3 +795,19 @@ The commission's chibi room and the item file both claimed scale authority. `com
 ## Law for any fresh session reading this
 - **One number, one truth** — if a model needs a different size in a scene, fix `voxelSize` in the file, don't multiply in the loader. A placement `vs:` is a divergence you typed in yourself.
 - **Author at render pitch** — the editor's `ASSET_TYPE_PRESETS` seed `voxelSize` per assetType; for commission furniture the right pitch is the chibi one (≈.007–.008 for desk-class props), chosen at authoring time so every downstream consumer agrees for free.
+
+## C54 — tvz Helper Trapped in Script-1 IIFE: Law-Desk Loader ReferenceError
+
+**Status**: 🟢 FIXED (helper promoted to `window.tvz`) · **Severity**: 🟢 MEDIUM — one loader degraded, console-clean otherwise · **Filed**: 2026-11-11 (BOSS caught `DVM-LAW1 — lawdesk unavailable: ReferenceError: tvz is not defined` on live console)
+
+## Defect
+The `truthView` honor helper `tvz(m,v)` was defined as `const` inside thecommission's first `<script>` block's async IIFE. Five of six prop render paths (KIT `flipZ`, building `placements`, chairs, stamper, `voxSwap`) live in the same IIFE and resolved it — but the law-desk loader sits in the SECOND `<script>` block (lines 2781–3534), a different scope chain entirely. Result: `ReferenceError: tvz is not defined`, desk fetch caught and dropped.
+
+## Root cause
+Scope assumption — the file reads as one script but is two `<script>` elements. A `const` inside script 1's IIFE is function-scoped and invisible to script 2. Parse checks pass; only the live load path catches it.
+
+## Fix
+`window.tvz` — the file's existing cross-scope convention (`__bldg`, `__placed`, `__lawdesk`). All call sites unchanged; resolution goes through the global.
+
+## Lesson
+Any future helper consumed by BOTH script blocks goes on `window` (or a shared namespace) by default — scope-boundary is invisible in a single-file edit.

@@ -104,8 +104,19 @@ Chibi/miniature scale: the room renders as a dollhouse diorama. Vinny is .62m; t
   with unsaved edits → prompt: **S** POSTs `/place` (server patches KIT pos/rotY atomically, `pos0`
   disambiguates same-file entries), **C** copies all lines, Esc leaves unsaved. HUD: `#placehud` top-center.
 - **Item-carried lights**: KIT entries may carry `lights:[{type:'spot'|'point', c,i,d,pos,tgt?,ang?,pen?,dec?}]`
-  — parented to the part so place mode moves light with fixture. Live on env pendants + west-cap floorlamps;
-  the spine-row pendants still ride room key light (no carried rig yet).
+  — parented to the part so place mode moves light with fixture. `pos`/`tgt` are part-local metres, derived
+  from the glow material's voxel centroid (`(v − dims/2 + .5) × vs`), not eyeballed. Live on env pendants,
+  west-cap floorlamps + the law-desk lamps; the spine-row pendants still ride room key light.
+- **Desk lamps**: `commission_desklamp` (authored `docs/_make_desklamp.py`) — B&H/emeralite banker's profile:
+  cast-iron octagonal foot, baluster column, neck knuckle + under-shade strap mount (rear underside through
+  the mouth edge — never over the crown), level green half-capsule shade, milk interior, chain at the end.
+  Two at `x=-.045±.45, y=.30, z=9.40`, `rotY:π/2` (cantilever −z), flanking the Book of Laws — **individual
+  copies of one authored file, no placement flags**. The file declares **`truthView:'unity'`** (its authored
+  truth = the left-handed Unity render — the chain sits where it was sculpted in UNITY VIEW); this
+  right-handed scene honors the declaration via `tvz(m,v)` — mirror z in file space, then placement
+  rotations — on EVERY raw prop render path (KIT `flipZ`, building `placements`, chairs, stamper,
+  `voxSwap`, law desk). `mirZ` on a KIT entry XORs on top for true mirrored-variant fixtures — never a
+  convention fix. Convention law in `docs/core/VOXEL_AUTHORING_STANDARD.md` §truthView.
 - Docs-first: `docs/core/DOCUMENTATION_INDEX.md` is the map. `BUILDING_PIPELINE.md`, `COMMISSION_PROTOCOL.md` are
   the deep dives.
 

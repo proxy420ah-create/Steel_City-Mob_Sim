@@ -2883,6 +2883,13 @@ function demoteIfUnity(data) {
   }, 0);
   return true;
 }
+// truthView:'unity' files declare their authored truth = the left-handed (Unity)
+// render — load them under the mirrored view so the canvas shows intent. The
+// per-type pref is never written; this is a per-file override.
+function applyFileConventions(data) {
+  demoteIfUnity(data);
+  if (data && data.truthView === 'unity' && !unityMirror) setUnityMirror(true, false);
+}
 // === /HANDEDNESS ===
 
 function updateItemPartCounts() {
@@ -3368,7 +3375,7 @@ function loadBaseTemplate() {
       try {
         const data = JSON.parse(ev.target.result);
         if (!data.dims || !data.voxels) throw new Error('Invalid file');
-        demoteIfUnity(data);
+        applyFileConventions(data);
         loadedModelName = file.name.replace(/\.(character\.)?json$/i, '');
         updateFilePill();
         loadedAnimData = {};
@@ -6531,7 +6538,7 @@ document.getElementById('bounds-btn').addEventListener('click', () => {
 // Applies a loaded default model JSON to the editor scene.
 function applyDefaultModelData(data, sourceName) {
   if (!data.dims || !data.voxels) throw new Error('Invalid model file');
-  demoteIfUnity(data);
+  applyFileConventions(data);
   loadedModelName = sourceName.replace(/.*\//, '').replace(/\.(character\.)?json$/i, '') || data.name || null;
   updateFilePill();
   clearAllRulers(); // planted measurements belong to the outgoing model
@@ -6591,6 +6598,10 @@ function applyDefaultModelData(data, sourceName) {
 // Fetches a JSON model file and loads it into the editor.
 // On file:// protocol, fetch fails due to CORS — fall back to a file picker
 // triggered by the asset-type dropdown (a user gesture).
+// Load generation — only the most recently requested auto-load may apply. A
+// preset defaultModel fetch fired at boot must not clobber a ?model= deep link
+// that resolves earlier (the two always race).
+let _autoLoadGen = 0;
 function loadDefaultModel(url) {
   if (window.location.protocol === 'file:') {
     const input = document.getElementById('default-model-file-input');
@@ -6600,13 +6611,14 @@ function loadDefaultModel(url) {
     return;
   }
 
+  const _g = ++_autoLoadGen;
   fetch(url)
     .then(r => {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return r.json();
     })
     .then(data => {
-      applyDefaultModelData(data, url);
+      if (_g === _autoLoadGen) applyDefaultModelData(data, url);
     })
     .catch(err => {
       setStatus(`Could not auto-load default model (${err.message}). Use 📂 Load to open manually.`);
@@ -6683,7 +6695,7 @@ function stampAt(name, rot, ox, oy, oz) {
     if (Math.abs(prefabVS(data) - editableVoxelSize) / editableVoxelSize > 0.01) {
       throw new Error(`${name} is ${prefabVS(data)}m/voxel but this volume is ${editableVoxelSize}m — baking would resize it; use Place (native scale) instead`);
     }
-    demoteIfUnity(data);
+    applyFileConventions(data);
     const pw = data.dims[0], pd = data.dims[2];
     const remap = {};
     for (const m of (data.materials || [])) remap[m.id] = paletteIdFor(m);
@@ -9049,6 +9061,10 @@ function getEditorData() {
     name: loadedModelName || 'unnamed',
     dims: [W, H, D],
     assetType,
+    // truthView — 'unity' declares the authored truth = the left-handed (Unity)
+    // render, recorded when the UNITY VIEW mirror is on at export. Right-handed
+    // consumers (thecommission) mirror z to honor it; absent = editor truth.
+    truthView: unityMirror ? 'unity' : undefined,
     ...loadedAnimData,   // animParams / states preserved verbatim
     pivots: resolvedPivotsForExport(), // painted pivot_N centroids become the file's canonical pivots
     voxelSize: editableVoxelSize,
@@ -9227,7 +9243,7 @@ window.loadProject = function(event) {
     try {
       const data = JSON.parse(e.target.result);
       if (!data.dims || !data.voxels) throw new Error('Invalid project file');
-      demoteIfUnity(data);
+      applyFileConventions(data);
       loadedModelName = file.name.replace(/\.(character\.)?json$/i, '');
       updateFilePill();
       loadedAnimData = {};
@@ -9312,7 +9328,7 @@ window.importStasset = function(event) {
     try {
       const data = JSON.parse(e.target.result);
       if (!data.dims || !data.voxels) throw new Error('Invalid stasset JSON');
-      demoteIfUnity(data);
+      applyFileConventions(data);
       loadedModelName = file.name.replace(/\.(character\.)?json$/i, '');
       updateFilePill();
       loadedAnimData = {};
@@ -10346,7 +10362,8 @@ animate();
 
 // ?model=<name|path> deep link — loads any served asset over http.
 // Bare name resolves to ../Assets/StreamingAssets/voxel_items/<name>.json;
-// &type=<preset> preselects the asset class without the type-change reset.
+// the file's own assetType picks the department, so a bare link always lands
+// in the right preset. &type=<preset> remains as an explicit override.
 {
   const _q = new URLSearchParams(location.search);
   const _mdl = _q.get('model'), _typ = _q.get('type');
@@ -10361,7 +10378,27 @@ animate();
     const _url = /^[\w\-]+$/.test(_mdl)
       ? `../Assets/StreamingAssets/voxel_items/${_mdl}.json`
       : _mdl;
-    loadDefaultModel(_url);
+    const _g = ++_autoLoadGen;
+    fetch(_url)
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then(data => {
+        if (_g !== _autoLoadGen) return;
+        const _t = data.assetType;
+        if (_t && ASSET_TYPE_PRESETS[_t] && _t !== assetType) {
+          const _p = ASSET_TYPE_PRESETS[_t], _dm = _p.defaultModel;
+          _p.defaultModel = null;                      // the department switch resets the volume — our data applies after it
+          assetTypeSelect.value = _t;
+          assetTypeSelect.dispatchEvent(new Event('change'));
+          _p.defaultModel = _dm;
+        }
+        applyDefaultModelData(data, _url);
+      })
+      .catch(err => {
+        setStatus(`Could not auto-load default model (${err.message}). Use 📂 Load to open manually.`);
+      });
   }
 }
 </script>

@@ -1796,6 +1796,12 @@ function initDeck3D(THREE, OrbitControls){
     { file:'commission_wall',  vs:.03, pos:[x0 + 2.295, 0, z0], rotY: -Math.PI / 2, env: true },
     { file:'commission_ceiling', vs:.03, pos:[x0, 1.71, z0], env: true },
   ]);
+  /* tvz — truthView honoring for EVERY raw prop-file render path in this right-handed
+     scene. Files stamped truthView:'unity' declare their authored truth = the
+     left-handed (Unity) render, so this consumer mirrors their z first; placement
+     rotations (rot/rotY) then apply to the mirrored coords — same order as KIT flipZ.
+     window.* because the law-desk loader lives in the second <script> block. */
+  window.tvz = (m, v) => m.truthView === 'unity' ? m.dims[2] - 1 - v[2] : v[2];
   const KIT = [
     { file:'commission_table', vs:.007,  pos:[-.015, 0, -.105], sXZ:1.4 },   // chibi: .38m tall x 1.4m dia — anchored on the rug's felt midpoint (−.015,−.105, bake half-cell), NOT origin
     { file:'commission_pendant', vs:.012, pos:[-.015, 1.314, -.105] },       // green-dome pendant: hangs dead over the table/rug center
@@ -1819,6 +1825,8 @@ function initDeck3D(THREE, OrbitControls){
     { file:'commission_wall',  vs:.03,   pos:[0, 0, 6.795],  rotY: Math.PI, env: true },      // far wall — the expansion's end cap; the space between stays open (no mid divider)
     { file:'commission_filecabinet', vs:.0115, pos:[1.85, 0, -2.03], rotY:-.18 },  // 1920s 4-drawer, back-right corner, back flush (D=.44)
     { file:'commission_bookoflaws', vs:.005, pos:[-.045, .30, 9.36] },  // the Book of Laws — open tome presented toward the reader on the law desk's slab (desk front face z≈9.168; book front edge ~.05 reveal; ribbon tail toward Vinny)
+    { file:'commission_desklamp', vs:.005, pos:[-.495, .30, 9.40], rotY:Math.PI/2, env:true, lights:[{type:'spot', c:0xffe2b0, i:6, d:1.3, pos:[.043,.15,-.003], tgt:[.043,0,-.003], ang:.8, pen:.7, dec:1},{type:'point', c:0xcfffb0, i:.5, d:.45, pos:[.043,.15,-.003]}] },  // west B&H desk lamp — file declares truthView:'unity' so the loader mirrors it; light spec stays file-coords (loader flips z itself)
+    { file:'commission_desklamp', vs:.005, pos:[.405, .30, 9.40], rotY:Math.PI/2, env:true, lights:[{type:'spot', c:0xffe2b0, i:6, d:1.3, pos:[.043,.15,-.003], tgt:[.043,0,-.003], ang:.8, pen:.7, dec:1},{type:'point', c:0xcfffb0, i:.5, d:.45, pos:[.043,.15,-.003]}] },  // east B&H desk lamp — identical individual, same authored file
   ];
   const envG = new THREE.Group(); envG.visible = false; envG.name = 'roomEnvelope'; window.__env = envG; scene.add(envG);   // DVM-U envelope — side walls + far cap + ceilings, shown ONLY in possess mode; group view stays the clean stage set (back wall + floor + set only)
   /* item-carried rigs replaced the fixed envG loops — the pendant spots/glows and floor-lamp pools now
@@ -1912,8 +1920,8 @@ function initDeck3D(THREE, OrbitControls){
         const mats = {}; (m.materials || []).forEach(mt => mats[mt.id] = new THREE.Color(mt.hex));
         const M = new THREE.Matrix4(), dflt = new THREE.Color(0x888888);
         m.voxels.forEach((v, i) => {
-          let x = v[0], z = v[2];
-          if (rot === 90) { x = pd - 1 - v[2]; z = v[0]; } else if (rot === 180) { x = pw - 1 - v[0]; z = pd - 1 - v[2]; } else if (rot === 270) { x = v[2]; z = pw - 1 - v[0]; }
+          let x = v[0], z = tvz(m, v);                                    // truthView mirror in file space, then placement rot
+          if (rot === 90) { x = pd - 1 - z; z = v[0]; } else if (rot === 180) { x = pw - 1 - x; z = pd - 1 - z; } else if (rot === 270) { x = z; z = pw - 1 - v[0]; }
           M.makeScale(pvs, pvs, pvs).setPosition((p.pos[0] + .5 + x * ratio - ax) * vs, (p.pos[1] + .5 + v[1] * ratio) * vs + yBase, (p.pos[2] + .5 + z * ratio - az) * vs);
           im.setMatrixAt(i, M); im.setColorAt(i, mats[v[3]] || dflt);
         });
@@ -1933,9 +1941,14 @@ function initDeck3D(THREE, OrbitControls){
         new THREE.MeshLambertMaterial(), m.voxels.length);
       const mats = {}; (m.materials || []).forEach(mt => mats[mt.id] = new THREE.Color(mt.hex));
       const cx = m.dims[0] / 2 - .5, cz = m.dims[2] / 2 - .5;
+      // flipZ: the z-mirror this consumer applies. truthView:'unity' files declare their
+      // authored truth = the left-handed (Unity) render, so right-handed rendering mirrors
+      // them; mirZ stacks on top for true mirrored-variant placements (XOR — both = net flip).
+      const flipZ = !!k.mirZ !== (m.truthView === 'unity');
       const M = new THREE.Matrix4(), dflt = new THREE.Color(0x888888);
       m.voxels.forEach((v, i) => {
-        M.makeScale(k.vs, k.vs, k.vs).setPosition((v[0] - cx) * k.vs, (v[1] + .5) * k.vs, (v[2] - cz) * k.vs);
+        const vz = flipZ ? m.dims[2] - 1 - v[2] : v[2];
+        M.makeScale(k.vs, k.vs, k.vs).setPosition((v[0] - cx) * k.vs, (v[1] + .5) * k.vs, (vz - cz) * k.vs);
         im.setMatrixAt(i, M);
         im.setColorAt(i, mats[v[3]] || dflt);
       });
@@ -1949,8 +1962,8 @@ function initDeck3D(THREE, OrbitControls){
       if (k.sXZ){ part.scale.x = k.sXZ; part.scale.z = k.sXZ; }   // widen the footprint without touching height (table fill, DVM-U)
       (k.lights || []).forEach(L => {                             // item-carried lights — parented to the part so place mode moves the light WITH the fixture
         const lt = L.type === 'spot' ? new THREE.SpotLight(L.c, L.i, L.d, L.ang, L.pen, L.dec) : new THREE.PointLight(L.c, L.i, L.d);
-        lt.position.set(L.pos[0], L.pos[1], L.pos[2]); part.add(lt);
-        if (L.tgt) { lt.target.position.set(L.tgt[0], L.tgt[1], L.tgt[2]); part.add(lt.target); }
+        lt.position.set(L.pos[0], L.pos[1], flipZ ? -L.pos[2] : L.pos[2]); part.add(lt);
+        if (L.tgt) { lt.target.position.set(L.tgt[0], L.tgt[1], flipZ ? -L.tgt[2] : L.tgt[2]); part.add(lt.target); }
       });
       (k.env ? envG : g).add(part);
     }).catch(() => {}).finally(() => { if (!--pending){ g.visible = true; mark(); } }));
@@ -2201,7 +2214,7 @@ function initDeck3D(THREE, OrbitControls){
           new THREE.MeshLambertMaterial(), m.voxels.length);
         const M = new THREE.Matrix4();
         m.voxels.forEach((v, i) => {
-          M.makeScale(vs, vs, vs).setPosition((v[0] - cx) * vs, (v[1] + .5) * vs, (v[2] - cz) * vs);
+          M.makeScale(vs, vs, vs).setPosition((v[0] - cx) * vs, (v[1] + .5) * vs, (tvz(m, v) - cz) * vs);
           im.setMatrixAt(i, M);
           im.setColorAt(i, mats[v[3]] || dflt);
         });
@@ -2222,7 +2235,7 @@ function initDeck3D(THREE, OrbitControls){
         new THREE.MeshLambertMaterial(), m.voxels.length);
       const M = new THREE.Matrix4(), dflt = new THREE.Color(0x888888);
       m.voxels.forEach((v, i) => {
-        M.makeScale(vs, vs, vs).setPosition((v[0] - cx) * vs, (v[1] + .5) * vs - .06, (v[2] - cz) * vs);
+        M.makeScale(vs, vs, vs).setPosition((v[0] - cx) * vs, (v[1] + .5) * vs - .06, (tvz(m, v) - cz) * vs);
         im.setMatrixAt(i, M);
         im.setColorAt(i, mats[v[3]] || dflt);
       });
@@ -2244,7 +2257,7 @@ function initDeck3D(THREE, OrbitControls){
         new THREE.MeshLambertMaterial(), m.voxels.length);
       const M = new THREE.Matrix4(), dflt = new THREE.Color(0x888888);
       m.voxels.forEach((v, i) => {
-        M.makeScale(vs, vs, vs).setPosition((v[0] - cx) * vs, (v[1] - cy) * vs, (v[2] - cz) * vs);
+        M.makeScale(vs, vs, vs).setPosition((v[0] - cx) * vs, (v[1] - cy) * vs, (tvz(m, v) - cz) * vs);
         im.setMatrixAt(i, M); im.setColorAt(i, mats[v[3]] || dflt);
       });
       im.instanceMatrix.needsUpdate = true;
@@ -3507,7 +3520,7 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
     item.voxels.forEach((v, i) => {
       inst3.setColorAt(i, pal3[v[3]] || dflt);
       const j = 12 + 16 * i;
-      MA3[j] = (v[0] - hx) * VS3; MA3[j + 1] = (v[1] + .5) * VS3; MA3[j + 2] = (v[2] - hz) * VS3;
+      MA3[j] = (v[0] - hx) * VS3; MA3[j + 1] = (v[1] + .5) * VS3; MA3[j + 2] = (tvz(item, v) - hz) * VS3;
     });
     inst3.instanceMatrix.needsUpdate = true; inst3.instanceColor.needsUpdate = true;
     const desk = new THREE.Group();
