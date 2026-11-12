@@ -422,6 +422,61 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._ok({'ok': True, 'bytes': len(raw), 'path': fname})
             except Exception as e:
                 return self._ok({'ok': False, 'err': str(e)}, 400)
+        if path == '/place':
+            # place-mode save (thecommission.html): rewrites KIT entries' pos/rotY in the served
+            # file itself. body: [{file, pos0:[x,y,z], pos:[x,y,z], rotY}] — pos0 is the entry's
+            # position at first edit, so duplicate files (pendants) match by nearest original pos.
+            try:
+                n = int(self.headers.get('Content-Length', 0))
+                items = json.loads(self.rfile.read(n) or b'[]')
+                if not isinstance(items, list):
+                    raise ValueError('body must be a list')
+                fn = os.path.join(HERE, 'thecommission.html')
+                src = open(fn, encoding='utf-8').read()
+                fmt = lambda v: repr(round(float(v), 4))
+                def linepos(seg):
+                    pm = re.search(r'pos:\[([^\]]*)\]', seg)
+                    return [float(x) for x in pm.group(1).split(',')]
+                okd, failed = [], []
+                for it in items:
+                    f_, pos, pos0, rot = it.get('file', ''), it.get('pos'), it.get('pos0'), it.get('rotY')
+                    if not f_ or not isinstance(pos, list) or len(pos) != 3:
+                        failed.append({'file': f_, 'err': 'bad item'}); continue
+                    # whole-line match — entries may nest braces now (lights:[{...}]); the FIRST pos: on
+                    # the line is always the entry's own (lights pos comes later in the field order)
+                    cands = [m for m in re.finditer(r"^[^\n]*file:'" + re.escape(f_) + r"'[^\n]*pos:\[[^\]]*\][^\n]*$", src, re.M)]
+                    pick = None
+                    if pos0 and len(pos0) == 3:
+                        best = 1e9
+                        for m in cands:
+                            try:
+                                d = sum((a - b) ** 2 for a, b in zip(linepos(m.group(0)), pos0))
+                            except Exception:
+                                continue
+                            if d < best: best, pick = d, m
+                        if best > .01: pick = None
+                    elif len(cands) == 1:
+                        pick = cands[0]
+                    if not pick:
+                        failed.append({'file': f_, 'err': 'no unique match (%d)' % len(cands)}); continue
+                    seg = pick.group(0)
+                    seg2 = re.sub(r'pos:\[[^\]]*\]', 'pos:[' + ', '.join(fmt(v) for v in pos) + ']', seg, count=1)
+                    if isinstance(rot, (int, float)):
+                        if 'rotY:' in seg2:
+                            seg2 = re.sub(r'rotY:[-\d.e]+', 'rotY:' + fmt(rot), seg2, count=1)
+                        elif rot:
+                            pm = re.search(r'pos:\[[^\]]*\]', seg2)
+                            seg2 = seg2[:pm.end()] + ', rotY:' + fmt(rot) + seg2[pm.end():]
+                    src = src[:pick.start()] + seg2 + src[pick.end():]
+                    okd.append(f_)
+                if okd:
+                    tmp = fn + '.tmp'
+                    with open(tmp, 'w', encoding='utf-8') as f:
+                        f.write(src)
+                    os.replace(tmp, fn)
+                return self._ok({'ok': not failed, 'saved': okd, 'failed': failed})
+            except Exception as e:
+                return self._ok({'ok': False, 'err': str(e)}, 400)
         if path == '/room/lights':
             # room rig preset — persisted shared default, localStorage stays per-browser
             try:

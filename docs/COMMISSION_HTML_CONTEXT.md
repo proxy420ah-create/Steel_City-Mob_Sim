@@ -44,9 +44,15 @@ Chibi/miniature scale: the room renders as a dollhouse diorama. Vinny is .62m; t
 - **Pendant**: `commission_pendant` (authored `docs/_make_pendant.py`): green-enamel dome, brass stem/collar/canopy,
   milk-glass lining, centered bulb — hung over the table (canopy at the 1.89m coffer bay). SpotLight pools warm
   light on the felt + faint green spill in the shade. **Always on — it lights the table in both camera modes.**
-- **Vinny**: spawns **seated** at chair #2 (BOSS). G = possess, E = sit/stand, WASD stands+walks, Esc releases.
+- **Vinny**: spawns **seated** at chair #2 (BOSS). G = possess, E = sit/stand/open (nearest prop wins the prompt),
+  WASD stands+walks, Esc releases.
 - **Set dressing**: voxel monitor (live stats), pegboard (TABLED→POLL→VERDICT→GO→BUILT→CLOSED with a moving card),
-  shelf + tray cards, seat lamps/rings (floor-hold = amber underglow), chair speech bubbles, file cabinet.
+  shelf + tray cards, seat lamps/rings (floor-hold = amber underglow), chair speech bubbles, file cabinet,
+  law desk + Book of Laws.
+- **Interactables (E-proximity, possess mode)**: file cabinet (case files/archive/inductions — `__cab`, FILES ▸)
+  and the Book of Laws on the law desk (standing orders + seat contracts + law-kind citations — `__laws`, LAWS ▸).
+  The standing law moved OFF the cabinet into the tome (DVM-LAW1 stage 2); both overlays share the
+  oak+brass+manila theme and the same browse contract (unlock cursor, possess held, Esc/E closes).
   **Ballot pin dots were REMOVED** (clutter) — vote tally still accumulates in `DS.vetoSeats`.
 
 ## 4. Design sensibilities observed (respect these)
@@ -87,6 +93,19 @@ Chibi/miniature scale: the room renders as a dollhouse diorama. Vinny is .62m; t
   lawdesk oversize bug lived. Cross-world: editor previews and Unity importers read the same field
   (`ParseVoxelSize`), so file-vs-everywhere keeps all three in lockstep. Exception ledger: Unity SectorBaker
   forces buildings onto the terrain grid at bake time — documented, buildings only.
+- **Place mode** (X key): free-cam KIT placement — `__placeOn` folds into the frame loop's envelope/lights
+  rule (sealed office while active), orbit clamps lift, pointer lock drops, cam spawns in the office at
+  waist level, `mark()` ticks every frame for a live feed. **WASD+QE fly** (Shift sprint; capture-killed so
+  fly keys never reach walk/sit). **Left-drag = FPS look** (`enableRotate=false`; the target swings around
+  the planted camera so wheel-zoom and the selection lock still work); right-drag pans. Click (<6px)
+  raycasts a `__placed` part → magenta box + orbit-target lock that tracks nudges. Arrows/PgUp/PgDn nudge (.005, Shift ×10), Enter drop-to-surface, ,/. rotY, Y copy
+  line, Ctrl+Z/Y undo-redo (burst-coalesced stack, 80 deep), **Enter** accept/deselect, **B** drop-to-surface.
+  First edit spawns a mint wireframe ghost at `pos0` (returns to origin → ghost + dirty both drop). Exit
+  with unsaved edits → prompt: **S** POSTs `/place` (server patches KIT pos/rotY atomically, `pos0`
+  disambiguates same-file entries), **C** copies all lines, Esc leaves unsaved. HUD: `#placehud` top-center.
+- **Item-carried lights**: KIT entries may carry `lights:[{type:'spot'|'point', c,i,d,pos,tgt?,ang?,pen?,dec?}]`
+  — parented to the part so place mode moves light with fixture. Live on env pendants + west-cap floorlamps;
+  the spine-row pendants still ride room key light (no carried rig yet).
 - Docs-first: `docs/core/DOCUMENTATION_INDEX.md` is the map. `BUILDING_PIPELINE.md`, `COMMISSION_PROTOCOL.md` are
   the deep dives.
 

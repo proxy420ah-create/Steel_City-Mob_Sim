@@ -318,6 +318,13 @@
             padding:8px 12px; font:11px/1.7 Consolas,monospace; color:#cbb; }
   #keyref b { color:#d29922; font-weight:700; }
   #keyref .kr-t { color:#ff5566; font-weight:700; letter-spacing:.15em; margin-bottom:2px; }
+  #placehud { position:absolute; left:50%; top:10px; transform:translateX(-50%); z-index:9; pointer-events:none; display:none;
+              font:12px/1.5 Consolas,monospace; text-align:center; text-shadow:0 1px 2px #000;
+              background:rgba(8,12,18,.74); border:1px solid #7a4dff55; border-radius:6px; padding:6px 16px; }
+  #placehud[data-on="1"] { display:block; }
+  #placehud .ph-t { color:#ff80ff; font-weight:700; letter-spacing:.15em; font-size:11px; }
+  #placehud .ph-k { color:#9fb2d8; font-size:11px; margin:3px 0 4px; }
+  #placestat { color:#ff80ff; }
   /* CHAIR POV frame — overlays the GL scissor inset (same right/bottom/width/aspect math as __eyes.pip) */
   #pov { position:absolute; right:12px; bottom:12px; width:30%; aspect-ratio:16/9; display:none;
          border:2px solid #d29922; border-radius:4px; z-index:8; pointer-events:none;
@@ -381,6 +388,44 @@
   .cb-duty { color:#d8c9a3; font-size:.74em; margin:6px 0 2px; letter-spacing:.08em; }
   .cb-rule { color:#b8b0a0; font-size:.72em; padding-left:10px; position:relative; }
   .cb-rule:before { content:'·'; position:absolute; left:2px; }
+  /* Book of Laws (DVM-LAW1 stage 2) — same oak+brass+manila family as the cabinet, organized the
+     same way: chapters as accordion drawers (reuses the global .cb-drawer/.cb-face/.cb-inner set). */
+  #lawbook { position:absolute; inset:0; z-index:6; display:none; align-items:center; justify-content:center; background:rgba(13,11,8,.82); }
+  #lawbook.open { display:flex; }
+  #lawbook .lb { width:min(640px,94%); height:min(88%,560px); display:flex; flex-direction:column;
+    background:#241a12; border:2px solid #3c241e; border-radius:8px; box-shadow:0 18px 60px rgba(0,0,0,.6); font-family:Consolas,monospace; }
+  #lawbook .lb-head { display:flex; align-items:center; padding:8px 14px; border-bottom:2px solid #3c241e; color:#d8c9a3; letter-spacing:.22em; font-size:.72em; }
+  #lawbook .lb-x { margin-left:auto; cursor:pointer; color:#8a7a63; border:1px solid #8a7a63; border-radius:5px; padding:0 8px; }
+  #lawbook .lb-x:hover { color:#e6d5b0; border-color:#e6d5b0; }
+  #lawbook .lb-page { flex:1; display:flex; flex-direction:column; min-height:0; margin:10px 14px 12px;
+    background:#d8c9a3; color:#241a12; border-radius:3px; box-shadow:inset 0 0 40px rgba(60,36,30,.25);
+    padding:14px 20px 8px; animation:lbflip .2s ease; }
+  @keyframes lbflip { from { opacity:.15; transform:translateX(14px) } to { opacity:1; transform:none } }
+  #lawbook .lb-ch { text-align:center; letter-spacing:.22em; font-size:.72em; font-weight:700; color:#3c241e;
+    border-bottom:2px double #8a7a63; padding-bottom:7px; margin-bottom:9px; }
+  #lawbook .lb-body { flex:1; min-height:0; overflow-y:auto; scrollbar-width:thin; font-size:.82em; line-height:1.55; }
+  .lb-tochead { text-align:center; letter-spacing:.3em; font-weight:700; color:#3c241e; margin:6px 0 12px; }
+  .lb-toc { display:flex; align-items:baseline; gap:8px; padding:5px 4px; cursor:pointer; font-size:.92em; }
+  .lb-toc:hover { color:#3c241e; font-weight:700; }
+  .lb-toc span:first-child { flex:1; border-bottom:1px dotted #8a7a63; }
+  .lb-pg { color:#5a4632; }
+  .lb-art { margin-bottom:7px; }
+  .lb-duty { font-style:italic; color:#5a4632; margin-bottom:4px; }
+  .lb-rule { padding-left:12px; position:relative; margin-bottom:2px; }
+  .lb-rule:before { content:'·'; position:absolute; left:3px; }
+  .lb-file { text-decoration:underline; cursor:pointer; margin-bottom:4px; }
+  .lb-file:hover { color:#3c241e; font-weight:700; }
+  .lb-doc h3,.lb-doc h4 { color:#3c241e; letter-spacing:.08em; margin:8px 0 3px; font-size:1em; }
+  .lb-doc p { margin:4px 0; } .lb-doc ul { margin:4px 0 4px 18px; }
+  .lb-doc code { background:rgba(60,36,30,.12); padding:0 4px; border-radius:3px; }
+  .lb-doc pre { background:rgba(60,36,30,.1); border-radius:4px; padding:6px 8px; overflow-x:auto; font-size:.9em; }
+  .lb-doc blockquote { border-left:3px solid #8a7a63; margin:5px 0; padding:2px 9px; color:#5a4632; }
+  .lb-turnrow { flex:none; display:flex; align-items:center; padding-top:7px; border-top:1px solid #8a7a63; margin-top:8px; font-size:.74em; }
+  .lb-leaf { margin:0 auto; letter-spacing:.18em; color:#5a4632; }
+  .lb-turn { cursor:pointer; color:#3c241e; font-weight:700; letter-spacing:.08em; }
+  .lb-turn:hover { text-decoration:underline; }
+  .lb-turn.off { opacity:.3; cursor:default; text-decoration:none; }
+  .k-law { border-color:var(--yellow); color:var(--yellow); }
   .dk-md h3,.dk-md h4,.dk-md h5 { color:var(--accent); margin:10px 0 4px; font-size:1em; }
   .dk-md p { margin:4px 0; }
   .dk-md code { font-family:Consolas,monospace; background:var(--surface2); padding:0 4px; border-radius:4px; font-size:.92em; }
@@ -471,6 +516,7 @@
       <span class="dk-sp"></span>
       <span class="dk-btn" id="d_lights" title="lighting rig — adjust / save">💡</span>
       <span class="dk-btn" id="d_navbtn">FILES ▸</span>
+      <span class="dk-btn" id="d_lawbtn">LAWS ▸</span>
       <span class="dk-btn" id="d_navtab">NAV ▸</span>
       <span class="dk-btn" id="d_swap">SWAP</span>
       <span class="dk-btn" id="d_collapse">COLLAPSE ▾</span>
@@ -492,7 +538,7 @@
         <div class="dr-head"><span class="fk" id="dr_kind"></span><b id="dr_title"></b><span class="dr-x" id="dr_x">✕</span></div>
         <div class="dr-body dk-md" id="dr_body"></div>
       </div>
-      <div id="cabinet"></div>
+      <div id="cabinet"></div><div id="lawbook"></div>
     </div>
   </div>
 
@@ -1402,6 +1448,9 @@ document.getElementById('d_collapse').addEventListener('click', function(){
 document.getElementById('d_navbtn').addEventListener('click', function(){
   window.__cab.open();        // guest door — same overlay the in-room cabinet E opens (DESIGNER-4)
 });
+document.getElementById('d_lawbtn').addEventListener('click', function(){
+  window.__laws.open();       // guest door — same tome the in-room book E opens (DVM-LAW1)
+});
 document.getElementById('d_navtab').addEventListener('click', function(){   // drawer toggle moved here — FILES ▸ is the cabinet door now
   const c = document.body.classList.toggle('dk-navhide');
   this.textContent = c ? 'NAV ▸' : 'NAV ◂';
@@ -1426,7 +1475,7 @@ function renderNav(b){
         || '<div class="frow" style="opacity:.5;cursor:default"><span class="ft">queue empty</span></div>');
   h += acc('FILES', files.length,
       `<div class="frow" data-cab="1" style="cursor:pointer"><span class="fk k-other">cabinet</span>` +
-      `<span class="ft">the case files live in the cabinet — FILES ▸ opens it; in the room, walk up and press E</span></div>`);
+      `<span class="ft">the case files live in the cabinet — FILES ▸; the standing law rests in the Book of Laws on the law desk — LAWS ▸ or walk up and press E</span></div>`);
   const sr = b.seat_rules || {};
   h += acc('LEDGER', (b.rules || []).length + (b.agenda || []).length + Object.keys(sr).length + closed.length,
       ((b.rules || []).length ? '<div class="dk-g" style="cursor:default">STANDING RULES</div>' +
@@ -1442,6 +1491,7 @@ function renderNav(b){
   nav.innerHTML = h;
   nav._staged = staged; nav._files = files;
   renderCabinet(b);            // the cabinet renders off the same board — one component, two doors
+  renderLaws(b);               // and the Book of Laws renders off the same pass
 }
 document.getElementById('decknav').addEventListener('click', e => {
   const nav = e.currentTarget;
@@ -1457,10 +1507,11 @@ document.getElementById('decknav').addEventListener('click', e => {
    lifecycle, manila folders by kind in D2, read-only archive, one component two doors
    (possess-mode E at the cabinet / FILES ▸). Renders off LASTBOARD + DS.prop. ── */
 let cabDrawer = 1, cabFolder = null, CABFILES = [], CABIND = [], CABSTAGED = [], CABBUILD = [];
-const CAB_DRAWERS = ['D1 · IN TRAY','D2 · CASE FILES','D3 · ARCHIVE','D4 · THE COMMISSION'];
+const CAB_DRAWERS = ['D1 · IN TRAY','D2 · CASE FILES','D3 · ARCHIVE','D4 · INDUCTIONS'];
 function renderCabinet(b){
   const el = document.getElementById('cabinet'); if (!el) return;
-  CABSTAGED = b.staged || []; CABBUILD = b.build || []; CABFILES = (b.files || []).filter(f => f.kind !== 'induction');
+  CABSTAGED = b.staged || []; CABBUILD = b.build || [];
+  CABFILES = (b.files || []).filter(f => f.kind !== 'induction' && f.kind !== 'law');   // induction → D4; the standing law moved to the Book of Laws (DVM-LAW1 stage 2)
   CABIND = (b.files || []).filter(f => f.kind === 'induction');
   const kinds = [...new Set(CABFILES.map(f => f.kind || 'other'))];
   if (!kinds.includes(cabFolder)) cabFolder = kinds[0] || null;
@@ -1475,21 +1526,14 @@ function renderCabinet(b){
     `<div class="cb-h">STAGED QUEUE (${CABSTAGED.length})</div>` +
     (CABSTAGED.map((s, i) => `<div class="cb-file" data-a="staged" data-i="${i}"><span class="fk k-staged">staged</span><span class="cb-ft">${s.id} — ${s.title || ''}</span></div>`).join('') || '<div class="cb-note"><span class="cb-ft">queue empty</span></div>') +
     `<div class="cb-h">BUILD QUEUE (${CABBUILD.length})</div>` +
-    (CABBUILD.map((s, i) => `<div class="cb-file" data-a="build" data-i="${i}"><span class="fk k-build">${s.status || 'staged'}</span><span class="cb-ft">${s.id} — ${s.title || ''}</span></div>`).join('') || '<div class="cb-note"><span class="cb-ft">queue empty</span></div>') +
-    `<div class="cb-h">STANDING ORDERS (${(b.rules || []).length})</div>` +
-    ((b.rules || []).map(r => `<div class="cb-note"><span class="cb-ft">${r}</span></div>`).join('') || '<div class="cb-note"><span class="cb-ft">none</span></div>');
+    (CABBUILD.map((s, i) => `<div class="cb-file" data-a="build" data-i="${i}"><span class="fk k-build">${s.status || 'staged'}</span><span class="cb-ft">${s.id} — ${s.title || ''}</span></div>`).join('') || '<div class="cb-note"><span class="cb-ft">queue empty</span></div>');
   const d2 = `<div class="cb-folders">` +
       kinds.map(k => `<span class="cb-tab${k === cabFolder ? ' on' : ''}" data-k="${k}">${k} (${CABFILES.filter(f => (f.kind || 'other') === k).length})</span>`).join('') + `</div>` +
       CABFILES.map((f, i) => (f.kind || 'other') === cabFolder ? fcard(f, 'files', i) : '').join('');
   const d3 = (b.closed || []).slice().reverse().map(c =>
       `<div class="cb-note"><span class="cb-stamp">${c.ruling || 'closed'}</span><span class="cb-ft"><b>${c.id}</b> — ${c.title || ''}</span></div>`).join('')
       || '<div class="cb-note"><span class="cb-ft">archive empty</span></div>';
-  const sr = b.seat_rules || {};
-  const d4 = `<div class="cb-h">SEAT CONTRACTS (${Object.keys(sr).length})</div>` +
-      Object.keys(sr).map(k => `<div class="cb-duty" style="color:${(SEATS[k] || {}).color || '#d8c9a3'}">${(SEATS[k] || {}).name || k}</div>` +
-        `<div class="cb-rule">${(sr[k] || {}).duty || ''}</div>` +
-        ((sr[k] || {}).rules || []).map(r => `<div class="cb-rule">${r}</div>`).join('')).join('') +
-      `<div class="cb-h">SEAT INDUCTIONS (${CABIND.length})</div>` +
+  const d4 = `<div class="cb-h">SEAT INDUCTIONS (${CABIND.length})</div>` +
       CABIND.map((f, i) => fcard(f, 'ind', i)).join('');
   const bodies = [d1, d2, d3, d4];
   el.innerHTML = `<div class="cb"><div class="cb-head">THE FILE CABINET — read-only archive<span class="cb-x" id="cb_x">✕</span></div>` +
@@ -1507,8 +1551,8 @@ function cabOpen(){
 function cabClose(){
   const el = document.getElementById('cabinet'); if (!el) return;
   window.__cabOpen = false; el.classList.remove('open');
-  const c = document.querySelector('#deckview canvas');               // re-lock only if possession still held
-  if (window.__possessOn && c && c.requestPointerLock) { try { c.requestPointerLock(); } catch (e) {} }
+  const c = document.querySelector('#deckview canvas');               // re-lock only if possession still held — DELAYED: a same-press Esc would consume the re-lock as a lock-exit and release() on the pointerlockchange
+  if (window.__possessOn && c && c.requestPointerLock) setTimeout(() => { try { const p = c.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) {} }, 120);
 }
 window.__cabOpen = false;
 window.__cab = { open: cabOpen, close: cabClose, toggle: () => window.__cabOpen ? cabClose() : cabOpen() };
@@ -1525,6 +1569,78 @@ document.getElementById('cabinet').addEventListener('click', e => {
     if (s) openReader({kind:'staged', title:s.id + ' — ' + (s.title || ''), detail:s.detail, note:'staged by ' + (s.staged_by || '?')}); }
   else if (fc.dataset.a === 'build'){ const s = CABBUILD[i];
     if (s) openReader({kind:'build', title:s.id + ' — ' + (s.title || ''), detail:s.detail, note:(s.status || 'staged') + ' — staged by ' + (s.staged_by || '?')}); }
+});
+/* ── Book of Laws — DVM-LAW1 stage 2: the standing law moved off the cabinet onto the tome on
+   the law desk. Left page STANDING ORDERS, right page SEAT CONTRACTS, law-kind files cited ON
+   THE RECORD. One component, two doors (possess-mode E at the desk / LAWS ▸). ── */
+let LAWFILES = [], LAWPAGES = [], lawPage = 0, lawHist = [], lawDoc = null;   // lawHist = visit stack (◂ returns where you CAME from); lawDoc = bound reading leaf
+const lbRoman = n => { let s = ''; [[10,'x'],[9,'ix'],[5,'v'],[4,'iv'],[1,'i']].forEach(([v, r]) => { while (n >= v) { s += r; n -= v; } }); return s || 'i'; };
+function renderLaws(b){
+  const el = document.getElementById('lawbook'); if (!el) return;
+  LAWFILES = (b.files || []).filter(f => f.kind === 'law');
+  const sr = b.seat_rules || {}, seats = Object.keys(sr);
+  LAWPAGES = [{ h:'INDEX' },   // TOC body filled below once page numbers are known
+    { h:'PART I · THE STANDING ORDERS',
+      body: (b.rules || []).map(r => `<div class="lb-art">${r}</div>`).join('') || '<div class="lb-art">no orders on the books</div>' }];
+  seats.forEach(k => LAWPAGES.push({ h:'PART II · SEAT CONTRACT — ' + ((SEATS[k] || {}).name || k),
+      body: `<div class="lb-duty">${(sr[k] || {}).duty || ''}</div>` +
+        ((sr[k] || {}).rules || []).map(r => `<div class="lb-rule">${r}</div>`).join('') }));
+  LAWPAGES.push({ h:'PART III · ON THE RECORD',
+      body: LAWFILES.map((f, i) => `<div class="lb-file" data-i="${i}">${f.label || f.title || f.id || f.path}</div>`).join('') || '<div class="lb-art">nothing filed yet</div>' });
+  LAWPAGES[0].body = `<div class="lb-tochead">CONTENTS</div>` +
+    `<div class="lb-toc" data-p="1"><span>PART I — THE STANDING ORDERS (${(b.rules || []).length} articles)</span><span class="lb-pg">${lbRoman(2)}</span></div>` +
+    seats.map((k, i) => `<div class="lb-toc" data-p="${2 + i}"><span>SEAT — ${(SEATS[k] || {}).name || k}</span><span class="lb-pg">${lbRoman(3 + i)}</span></div>`).join('') +
+    `<div class="lb-toc" data-p="${2 + seats.length}"><span>PART III — ON THE RECORD (${LAWFILES.length})</span><span class="lb-pg">${lbRoman(3 + seats.length)}</span></div>`;
+  if (lawDoc) LAWPAGES.push(lawDoc);                              // a bound-in reading leaf sits after the record
+  if (lawPage >= LAWPAGES.length) lawPage = 0;
+  const pg = LAWPAGES[lawPage], last = LAWPAGES.length - 1;
+  el.innerHTML = `<div class="lb"><div class="lb-head">THE BOOK OF LAWS — standing law · read-only<span class="lb-x" id="lb_x">✕</span></div>` +
+    `<div class="lb-page"><div class="lb-ch">${pg.h}</div><div class="lb-body">${pg.body}</div>` +
+    `<div class="lb-turnrow"><span class="lb-turn${(lawHist.length || lawPage > 0) ? '' : ' off'}" data-t="back">◂ back</span>` +
+    `<span class="lb-leaf">leaf ${lbRoman(lawPage + 1)} of ${lbRoman(LAWPAGES.length)}</span>` +
+    `<span class="lb-turn${lawPage < last ? '' : ' off'}" data-t="1">next ▸</span></div></div></div>`;
+  el.querySelector('#lb_x').onclick = () => window.__laws.close();
+}
+function lawsOpen(){
+  const el = document.getElementById('lawbook'); if (!el) return;
+  lawPage = 0; lawHist = []; lawDoc = null;                      // every opening lands on the CONTENTS leaf — bookmarks don't survive the close
+  if (LASTBOARD) renderLaws(LASTBOARD);
+  window.__lawsOpen = true; el.classList.add('open');
+  if (document.pointerLockElement) document.exitPointerLock();        // same browse contract as the cabinet — possess holds while the cursor is out
+}
+function lawsClose(){
+  const el = document.getElementById('lawbook'); if (!el) return;
+  window.__lawsOpen = false; el.classList.remove('open');
+  const c = document.querySelector('#deckview canvas');               // re-lock only if possession still held — DELAYED: a same-press Esc would consume the re-lock as a lock-exit and release() on the pointerlockchange
+  if (window.__possessOn && c && c.requestPointerLock) setTimeout(() => { try { const p = c.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) {} }, 120);
+}
+window.__lawsOpen = false;
+window.__laws = { open: lawsOpen, close: lawsClose, toggle: () => window.__lawsOpen ? lawsClose() : lawsOpen() };
+document.getElementById('lawbook').addEventListener('click', e => {
+  const t = e.target.closest('.lb-turn');
+  if (t && !t.classList.contains('off')) {
+    if (t.dataset.t === 'back') lawPage = lawHist.length ? lawHist.pop() : 0;      // history pop — where you CAME from
+    else { lawHist.push(lawPage); lawPage = Math.min(LAWPAGES.length - 1, lawPage + 1); }
+    if (LASTBOARD) renderLaws(LASTBOARD); return;
+  }
+  const c = e.target.closest('.lb-toc');
+  if (c) { lawHist.push(lawPage); lawPage = +c.dataset.p; if (LASTBOARD) renderLaws(LASTBOARD); return; }   // index jumps straight to the leaf
+  const f = e.target.closest('.lb-file'); if (!f) return;
+  lawOpenDoc(LAWFILES[+f.dataset.i]);                                 // citations bind INTO the tome — the external reader traps Esc over an open book
+});
+function lawOpenDoc(f){
+  if (!f) return;
+  lawDoc = { h:'PART III · ' + (f.id || 'DOCUMENT'), body:'<div class="lb-art">reading…</div>' };
+  if (LASTBOARD){ renderLaws(LASTBOARD); lawHist.push(lawPage); lawPage = LAWPAGES.length - 1; renderLaws(LASTBOARD); }   // push where you stood, turn to the bound leaf
+  fetch((f.path || '').replace(/^docs\//, '') + '?_=' + Date.now()).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+    .then(t => { if (lawDoc){ lawDoc.body = '<div class="lb-doc">' + miniMd(t) + '</div>'; if (window.__lawsOpen && LASTBOARD) renderLaws(LASTBOARD); } })
+    .catch(e => { if (lawDoc){ lawDoc.body = '<div class="lb-art">fetch failed — ' + escHtml(e.message) + '</div>'; if (window.__lawsOpen && LASTBOARD) renderLaws(LASTBOARD); } });
+}
+window.addEventListener('keydown', e => {                            // page-turn keys while the tome is open
+  if (!window.__lawsOpen) return;
+  const t = e.target; if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+  if (e.key === 'ArrowRight') { lawHist.push(lawPage); lawPage = Math.min(LAWPAGES.length - 1, lawPage + 1); if (LASTBOARD) renderLaws(LASTBOARD); }
+  else if (e.key === 'ArrowLeft') { lawPage = lawHist.length ? lawHist.pop() : 0; if (LASTBOARD) renderLaws(LASTBOARD); }
 });
 /* ── chair inspector — the contract's home; works in 3D and 2D (DVM-014 §5) ── */
 function refreshInspectorOcc(k){
@@ -1685,11 +1801,11 @@ function initDeck3D(THREE, OrbitControls){
     { file:'commission_pendant', vs:.012, pos:[-.015, 1.314, -.105] },       // green-dome pendant: hangs dead over the table/rug center
     { file:'commission_pendant', vs:.012, pos:[0, 1.314, 3.68] },    // pendant row — corridor mouth, on the hall-center beam
     { file:'commission_pendant', vs:.012, pos:[-.045, 1.314, 7.425] },  // pendant row — north hall, dead-centre in its coffer bay (x −.765/+.675 → −.045, z 6.70/8.15 → 7.425, both bake half-cells)
-    { file:'commission_pendant', vs:.012, pos:[-6.015, 1.314, -.09], env: true },   // office pendant — dead-centre of the west-wing square room (walk-grid body x −8.07..−3.96, z −2.16..1.98 → half-cell centre); env-flagged like its room
-    { file:'commission_pendant', vs:.012, pos:[-5.92, 1.314, 3.68], env: true },   // hall pendant — dead-centre of its coffer bay (beams −6.49/−5.35 → −5.92), hanging on the centre beam over the office door axis
-    { file:'commission_pendant', vs:.012, pos:[-3.07, 1.314, 3.68], env: true },   // hall pendant — next lit bay east, one dark square between lights (bay −3.67/−2.47 → −3.07); the existing x=0 pendant sits in bay +0.05 and completes the rhythm
-    { file:'commission_floorlamp', vs:.005, pos:[-9.05, 0, 2.6],  env: true },   // west-cap floor lamp — south corner; vs mirrors the file's declared grain (.005 item/decor standard → .84m); footprint clear on the walk grid
-    { file:'commission_floorlamp', vs:.005, pos:[-9.05, 0, 4.8],  env: true },   // west-cap floor lamp — north corner, mirror of the south one
+    { file:'commission_pendant', vs:.012, pos:[-6.015, 1.314, -.09], env: true, lights:[{type:'spot', c:0xffe2b0, i:22, d:6, pos:[0,.046,0], tgt:[0,-.96,0], ang:.75, pen:.6, dec:1},{type:'point', c:0xcfffb0, i:1.2, d:1.3, pos:[0,.106,0]}] },   // office pendant — dead-centre of the west-wing square room; light rig rides the fixture now
+    { file:'commission_pendant', vs:.012, pos:[-5.92, 1.314, 3.68], env: true, lights:[{type:'spot', c:0xffe2b0, i:22, d:6, pos:[0,.046,0], tgt:[0,-.96,0], ang:.75, pen:.6, dec:1},{type:'point', c:0xcfffb0, i:1.2, d:1.3, pos:[0,.106,0]}] },   // hall pendant — dead-centre of its coffer bay (beams −6.49/−5.35 → −5.92), hanging on the centre beam over the office door axis
+    { file:'commission_pendant', vs:.012, pos:[-3.07, 1.314, 3.68], env: true, lights:[{type:'spot', c:0xffe2b0, i:22, d:6, pos:[0,.046,0], tgt:[0,-.96,0], ang:.75, pen:.6, dec:1},{type:'point', c:0xcfffb0, i:1.2, d:1.3, pos:[0,.106,0]}] },   // hall pendant — next lit bay east, one dark square between lights (bay −3.67/−2.47 → −3.07); the existing x=0 pendant sits in bay +0.05 and completes the rhythm
+    { file:'commission_floorlamp', vs:.005, pos:[-9.125, 0.0, 2.515],  env: true, lights:[{type:'point', c:0xffd9a0, i:2.4, d:2.0, pos:[0,.55,0]}] },   // west-cap floor lamp — south corner; the warm pool rides the fixture (place-mode movable)
+    { file:'commission_floorlamp', vs:.005, pos:[-9.125, 0.0, 4.81],  env: true, lights:[{type:'point', c:0xffd9a0, i:2.4, d:2.0, pos:[0,.55,0]}] },   // west-cap floor lamp — north corner, mirror of the south one
     { file:'commission_floor', vs:.03,   pos:[0, -.09, 0] },     // chibi grain — 4.5m plate covers the seat ring, tops y=0
     { file:'commission_wall',  vs:.03,   pos:[0, 0, -2.295] },   // 4.5x1.8 wall backs the set — front face at z=-2.25
     { file:'commission_wall',  vs:.03,   pos:[-2.295, 0, 0], rotY: Math.PI / 2, env: true },    // left wall — envelope
@@ -1702,16 +1818,11 @@ function initDeck3D(THREE, OrbitControls){
     ...stampRoom(0, 4.5),                                        // module 2 — the bolt-on, spans z 2.25..6.75
     { file:'commission_wall',  vs:.03,   pos:[0, 0, 6.795],  rotY: Math.PI, env: true },      // far wall — the expansion's end cap; the space between stays open (no mid divider)
     { file:'commission_filecabinet', vs:.0115, pos:[1.85, 0, -2.03], rotY:-.18 },  // 1920s 4-drawer, back-right corner, back flush (D=.44)
-    { file:'commission_bookoflaws', vs:.005, pos:[-.045, .30, 9.40] },  // the Book of Laws — open tome centred squarely on the law desk's slab (desk centre −.045/9.40, top face .30; ribbon tail toward the reader)
+    { file:'commission_bookoflaws', vs:.005, pos:[-.045, .30, 9.36] },  // the Book of Laws — open tome presented toward the reader on the law desk's slab (desk front face z≈9.168; book front edge ~.05 reveal; ribbon tail toward Vinny)
   ];
   const envG = new THREE.Group(); envG.visible = false; envG.name = 'roomEnvelope'; window.__env = envG; scene.add(envG);   // DVM-U envelope — side walls + far cap + ceilings, shown ONLY in possess mode; group view stays the clean stage set (back wall + floor + set only)
-  for (const [px, pz] of [[-6.015, -.09], [-5.92, 3.68], [-3.07, 3.68]]) {   // possess-space pendant rigs — office centre + the two hall bays; same cone+spill recipe as the spine row, parented to envG so they only burn where the envelope exists
-    const pendSpot = new THREE.SpotLight(0xffe2b0, 22, 6, .75, .6, 1);
-    pendSpot.position.set(px, 1.36, pz); pendSpot.target.position.set(px, .35, pz);
-    envG.add(pendSpot, pendSpot.target);
-    const pendGlow = new THREE.PointLight(0xcfffb0, 1.2, 1.3); pendGlow.position.set(px, 1.42, pz); envG.add(pendGlow); }
-  for (const [px, pz] of [[-9.05, 2.6], [-9.05, 4.8]]) {           // west-cap floor lamps — warm pool at the chibi-scale shade mouth (~y.74); possess-only like their fixtures
-    const lampGlow = new THREE.PointLight(0xffd9a0, 2.4, 2.0); lampGlow.position.set(px, .55, pz); envG.add(lampGlow); }
+  /* item-carried rigs replaced the fixed envG loops — the pendant spots/glows and floor-lamp pools now
+     live in their KIT entries' lights: specs, parented to the part, so place mode moves light with fixture */
   /* ── BAKED BUILDING (office_complex) ──────────────────────────────────────────
      The editable asset (Voxel Studio, 1M voxels) is compiled by docs/bake_building.py
      into: greedy-merged exposed-face quads split STAGE / ENV, a walk-clearance grid, a
@@ -1831,13 +1942,252 @@ function initDeck3D(THREE, OrbitControls){
       im.instanceMatrix.needsUpdate = true;
       if (im.instanceColor) im.instanceColor.needsUpdate = true;
       const part = new THREE.Group(); part.add(im); part.position.set(k.pos[0], k.pos[1], k.pos[2]);
+      if (m.name && m.name !== k.file) console.warn('KIT name mismatch — file:' + k.file + ' vs json name:' + m.name);
+      part.userData.kit = k; (window.__placed = window.__placed || []).push(part);   // place-mode registry — every KIT part is pickable + carries its entry
       if (k.rotY) part.rotation.y = k.rotY;
       if (k.rotX) part.rotation.x = k.rotX;
       if (k.sXZ){ part.scale.x = k.sXZ; part.scale.z = k.sXZ; }   // widen the footprint without touching height (table fill, DVM-U)
+      (k.lights || []).forEach(L => {                             // item-carried lights — parented to the part so place mode moves the light WITH the fixture
+        const lt = L.type === 'spot' ? new THREE.SpotLight(L.c, L.i, L.d, L.ang, L.pen, L.dec) : new THREE.PointLight(L.c, L.i, L.d);
+        lt.position.set(L.pos[0], L.pos[1], L.pos[2]); part.add(lt);
+        if (L.tgt) { lt.target.position.set(L.tgt[0], L.tgt[1], L.tgt[2]); part.add(lt.target); }
+      });
       (k.env ? envG : g).add(part);
     }).catch(() => {}).finally(() => { if (!--pending){ g.visible = true; mark(); } }));
     };
-    loadBuilding(g).then(baked => loadItems(baked ? KIT.filter(k => !SHELL_FILES.has(k.file)) : KIT));
+    /* place mode — X toggles: click a KIT item → magenta box; arrows nudge x/z, PgUp/PgDn y (.005,
+       Shift ×10), Enter drops it onto the surface below, ,/. rotate ±15°, Y yanks the KIT line to the
+       clipboard + readout. Writes k.pos/k.rotY so the readout IS the pasteable value. */
+    let placeSel = null, placeBox = null, placeAsk = false;
+    const placeDirty = new Map(), placeUndo = [], placeRedo = [];         // dirty: part → {pos0,rotY0} originals (pos0 disambiguates same-file entries for /place)
+    const placeGhosts = new Map();                                        // part → wireframe clone parked at pos0 — the "where it started" marker
+    function placeGhost(part){
+      const im = part.children.find(c => c.isInstancedMesh); if (!im || placeGhosts.has(part)) return;
+      const gh = new THREE.InstancedMesh(im.geometry,
+        new THREE.MeshBasicMaterial({ color: 0x66ffcc, wireframe: true, transparent: true, opacity: .2 }), im.count);
+      gh.instanceMatrix.copy(im.instanceMatrix);
+      const wrap = new THREE.Group(); wrap.add(gh);
+      wrap.position.copy(part.position); wrap.rotation.copy(part.rotation); wrap.scale.copy(part.scale);
+      scene.add(wrap); placeGhosts.set(part, wrap);
+    }
+    function placeGhostDrop(part){ const gh = placeGhosts.get(part); if (gh) { scene.remove(gh); placeGhosts.delete(part); } }
+    function placeDirtyCheck(part){                                        // moved back to pos0 → it's not unsaved anymore — ghost and dirty both drop
+      const o = placeDirty.get(part); if (!o) return;
+      const p = part.position;
+      if (Math.hypot(p.x - o.pos0[0], p.y - o.pos0[1], p.z - o.pos0[2]) < .002 && Math.abs((part.userData.kit.rotY || 0) - o.rotY0) < .01) { placeDirty.delete(part); placeGhostDrop(part); }
+    }
+    const placeHud = document.createElement('div'); placeHud.id = 'placehud';
+    placeHud.innerHTML = '<div class="ph-t">PLACE MODE</div><div class="ph-k">' +
+      'WASD+QE fly · Shift sprint · drag look · wheel zoom · right-drag pan<br>' +
+      'click select · arrows / PgUp-PgDn nudge (.005, Shift ×10) · Enter accept · B drop · , / . rotate<br>' +
+      'Ctrl+Z undo · Ctrl+Y redo · Y copy line · Esc/X exit (save prompt)</div><div id="placestat"></div>';
+    const placeStat = placeHud.querySelector('#placestat');
+    (() => { const dv = document.getElementById('deckview'); (dv || document.body).appendChild(placeHud); })();
+    const placeCanvas = () => document.querySelector('#deckview canvas');
+    const placeTyping = e => { const t = e.target; return !!t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)); };
+    const placeOrbit = () => window.__controls;
+    const placeRay = new THREE.Raycaster(), placeNDC = new THREE.Vector2();
+    const placeParts = () => (window.__placed || []);
+    function placeShow(part){
+      if (placeBox) { scene.remove(placeBox); placeBox = null; }
+      placeSel = part;
+      if (part) {
+        placeBox = new THREE.BoxHelper(part, 0xff00ff); scene.add(placeBox);
+        placeOrbit().target.copy(part.position); placeOrbit().update();   // cam locks on the pick — drag circles it, wheel zooms to it
+      }
+      placeRead();
+    }
+    function placeRead(){
+      if (placeAsk) { placeStat.textContent = 'EXIT — ' + placeDirty.size + ' unsaved · S save to file · C copy lines · Esc/X leave'; return; }
+      if (!placeSel) { placeStat.textContent = placeMode() ? 'click an item to lock' + (placeDirty.size ? ' · ●' + placeDirty.size + ' unsaved' : '') : ''; return; }
+      const k = placeSel.userData.kit;
+      placeStat.textContent = k.file + '  pos:[' + placeSel.position.toArray().map(v => v.toFixed(3)) + ']'
+        + (k.rotY ? '  rotY:' + placeSel.rotation.y.toFixed(3) : '')
+        + (placeDirty.size ? '  ●' + placeDirty.size + ' unsaved' : '');
+    }
+    const placeMode = () => placeHud.dataset.on === '1';
+    const placeKeys = {}, _flyDir = new THREE.Vector3(), _flyRt = new THREE.Vector3(), _flyUp = new THREE.Vector3(), _flyMv = new THREE.Vector3();
+    let placeFlyOn = false, placeFlyT = 0;
+    function placeFlyTick(t){
+      if (!placeMode()) { placeFlyOn = false; for (const k in placeKeys) placeKeys[k] = false; return; }
+      const dt = Math.min(.05, (t - placeFlyT) / 1000 || 0); placeFlyT = t;
+      const oc = placeOrbit(), sp = (placeKeys.shift ? 2.6 : 1.0) * dt;
+      camera.getWorldDirection(_flyDir);
+      _flyRt.crossVectors(_flyDir, camera.up).normalize();
+      _flyMv.set(0, 0, 0);
+      if (placeKeys.w) _flyMv.add(_flyDir); if (placeKeys.s) _flyMv.sub(_flyDir);
+      if (placeKeys.d) _flyMv.add(_flyRt); if (placeKeys.a) _flyMv.sub(_flyRt);
+      _flyUp.crossVectors(_flyRt, _flyDir).normalize();   // camera-space up — Q/E hoists along the pitch plane, not world Y
+      if (placeKeys.e) _flyMv.add(_flyUp); if (placeKeys.q) _flyMv.sub(_flyUp);
+      if (_flyMv.lengthSq() > 0) { _flyMv.normalize().multiplyScalar(sp); camera.position.add(_flyMv); oc.target.add(_flyMv); oc.update(); }   // camera+target travel together — orbit lock survives the flight
+      mark();                                            // continuous render while placing — the free cam is a live PiP-grade feed, not a still
+      requestAnimationFrame(placeFlyTick);
+    }
+    /* snapshot before any mutation — coalesces held-key bursts; first touch records the entry's
+       original pos/rotY for the dirty set + /place's pos0 disambiguation */
+    function placeSnap(part){
+      if (!placeDirty.has(part)) { placeDirty.set(part, { pos0: part.position.toArray().map(v => +v.toFixed(3)), rotY0: part.userData.kit.rotY || 0 }); placeGhost(part); }
+      const top = placeUndo[placeUndo.length - 1], now = performance.now();
+      if (top && top.part === part && now - top.t < 600) { top.t = now; return; }
+      placeUndo.push({ part, pos: part.position.toArray(), rotY: part.rotation.y, t: now });
+      if (placeUndo.length > 80) placeUndo.shift();
+      placeRedo.length = 0;
+    }
+    function placeApply(part, pos, rotY){
+      part.position.fromArray(pos); part.rotation.y = rotY;
+      const k = part.userData.kit; k.pos[0] = pos[0]; k.pos[1] = pos[1]; k.pos[2] = pos[2]; k.rotY = rotY;
+      placeDirtyCheck(part);
+      placeOrbit().target.copy(part.position); placeOrbit().update();
+      if (part === placeSel && placeBox) placeBox.update();
+      placeShow(part); mark();
+    }
+    function placeUndoDo(){
+      const op = placeUndo.pop(); if (!op) { placeStat.textContent = 'nothing to undo'; return; }
+      placeRedo.push({ part: op.part, pos: op.part.position.toArray(), rotY: op.part.rotation.y });
+      placeApply(op.part, op.pos, op.rotY);
+    }
+    function placeRedoDo(){
+      const op = placeRedo.pop(); if (!op) { placeStat.textContent = 'nothing to redo'; return; }
+      placeUndo.push({ part: op.part, pos: op.part.position.toArray(), rotY: op.part.rotation.y, t: performance.now() });
+      placeApply(op.part, op.pos, op.rotY);
+    }
+    function placeLine(part){
+      const k = part.userData.kit, p = part.position;
+      return "{ file:'" + k.file + "', vs:" + k.vs + ", pos:[" + p.toArray().map(v => +v.toFixed(3)) + "]" + (k.rotY ? ', rotY:' + +part.rotation.y.toFixed(3) : '') + ' },';
+    }
+    function placeSave(){
+      const items = [...placeDirty.entries()].map(([part, o]) => ({ file: part.userData.kit.file, pos0: o.pos0,
+        pos: part.position.toArray().map(v => +v.toFixed(3)), rotY: part.userData.kit.rotY || 0 }));
+      placeStat.textContent = 'saving ' + items.length + ' item(s)…';
+      fetch('/place', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(items) })
+        .then(r => r.json()).then(res => {
+          if (res.failed && res.failed.length) { placeStat.textContent = 'SAVE PARTIAL — ' + res.failed.map(f => f.file + ':' + f.err).join(' ') + '  · S retry · C copy · Esc exit'; return; }
+          placeStat.textContent = 'SAVED ' + res.saved.length + ' → KIT';
+          placeDirty.clear(); placeClose();
+        }).catch(err => { placeStat.textContent = 'SAVE FAILED — ' + err + ' · S retry · C copy · Esc exit'; });
+    }
+    function placeCopyAll(){
+      const lines = [...placeDirty.keys()].map(placeLine);
+      if (navigator.clipboard) navigator.clipboard.writeText(lines.join('\n')).catch(() => {});
+      placeStat.textContent = 'COPIED ' + lines.length + ' line(s) · Esc/X exits';
+    }
+    let placeCamSave = null;
+    function placeToggle(on){
+      const oc = placeOrbit();
+      if (on) {
+        placeHud.dataset.on = '1';
+        window.__placeOn = true;
+        placeCamSave = { pos: camera.position.clone(), tgt: oc.target.clone(),
+          clamps: { minDistance: oc.minDistance, maxDistance: oc.maxDistance,
+                    minPolarAngle: oc.minPolarAngle, maxPolarAngle: oc.maxPolarAngle,
+                    minAzimuthAngle: oc.minAzimuthAngle, maxAzimuthAngle: oc.maxAzimuthAngle,
+                    enablePan: oc.enablePan, enableRotate: oc.enableRotate, enableDamping: oc.enableDamping } };
+        if (document.pointerLockElement) document.exitPointerLock();   // possessed → pointerlockchange fires release() → orbit comes back on its own
+        Object.assign(oc, { minDistance:.05, maxDistance:25, minPolarAngle:.03,
+          maxPolarAngle:Math.PI - .03, minAzimuthAngle:-Infinity, maxAzimuthAngle:Infinity, enablePan:true, enableRotate:false, enableDamping:false });   // drag = FPS look (target swings around the camera), not orbit; raw 1:1, no damping lag
+        oc.enabled = true;
+        camera.position.set(-6.0, .95, 1.4); oc.target.set(-6.0, .85, 0); oc.update();   // spawn inside the office at waist level, facing the room
+        if (window.__env) window.__env.visible = true;                    // place mode sees the sealed office, not the peeled stage
+        if (window.__bldg) window.__bldg.setPossess(true);
+        if (!placeFlyOn) { placeFlyOn = true; placeFlyT = performance.now(); requestAnimationFrame(placeFlyTick); }
+        placeRead();
+      } else if (placeDirty.size && !placeAsk) { placeAsk = true; placeRead(); }   // unsaved work → the exit prompt owns Esc/X now
+      else placeClose();
+    }
+    function placeClose(){
+      placeAsk = false; placeDirty.clear(); placeUndo.length = placeRedo.length = 0;
+      for (const gh of placeGhosts.values()) scene.remove(gh); placeGhosts.clear();
+      placeHud.dataset.on = ''; window.__placeOn = false;   // the HUD lives until here — the ask prompt must stay visible
+      const oc = placeOrbit();
+      placeShow(null);
+      if (placeCamSave) {
+        camera.position.copy(placeCamSave.pos); oc.target.copy(placeCamSave.tgt);
+        Object.assign(oc, placeCamSave.clamps); placeCamSave = null;
+      }
+      oc.enabled = true; oc.update();
+      if (window.__env) window.__env.visible = !!window.__possessOn;
+      if (window.__bldg) window.__bldg.setPossess(!!window.__possessOn);
+      mark();
+    }
+    let placeDown = null, placeDrag = null;
+    const _lookV = new THREE.Vector3(), _lookSph = new THREE.Spherical(), LOOK_SENS = .005;
+    window.addEventListener('mousedown', e => {
+      if (!placeMode() || e.button !== 0 || e.target !== placeCanvas()) return;
+      placeDown = placeDrag = [e.clientX, e.clientY];                // hold until mouseup — a drag was a look, not a pick
+    });
+    window.addEventListener('mousemove', e => {
+      if (!placeMode() || !placeDrag || e.target !== placeCanvas()) return;
+      const dx = e.clientX - placeDrag[0], dy = e.clientY - placeDrag[1]; placeDrag = [e.clientX, e.clientY];
+      const oc = placeOrbit();                                       // FPS look: swing the orbit target around the camera —
+      _lookV.copy(oc.target).sub(camera.position);                   // camera plants, the view follows the pointer
+      _lookSph.setFromVector3(_lookV);
+      _lookSph.theta -= dx * LOOK_SENS;
+      _lookSph.phi = Math.max(.03, Math.min(Math.PI - .03, _lookSph.phi + dy * LOOK_SENS));
+      _lookV.setFromSpherical(_lookSph);
+      oc.target.copy(camera.position).add(_lookV); oc.update(); mark();
+    });
+    window.addEventListener('mouseup', e => {
+      if (!placeMode() || e.button !== 0 || !placeDown) return;
+      placeDrag = null;
+      if (!placeMode() || e.button !== 0 || !placeDown) return;
+      const moved = Math.hypot(e.clientX - placeDown[0], e.clientY - placeDown[1]); placeDown = null;
+      if (moved >= 6 || e.target !== placeCanvas()) return;
+      const r = placeCanvas().getBoundingClientRect();
+      placeNDC.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+      placeRay.setFromCamera(placeNDC, camera);
+      const hits = placeRay.intersectObjects(placeParts(), true);
+      if (!hits.length) { placeShow(null); return; }
+      let o = hits[0].object; while (o && !o.userData.kit) o = o.parent;
+      placeShow(o);
+    });
+    window.addEventListener('keydown', e => {
+      const k = (e.key || '').toLowerCase();
+      if (k === 'x' && !placeTyping(e) && !e.ctrlKey && !e.metaKey && !e.altKey && DECK.mode === '3d') { placeToggle(!placeMode()); return; }
+      if (!placeMode() || placeTyping(e)) return;
+      if (placeAsk) {                                                // the exit prompt owns the keyboard — s is SAVE, not fly-back
+        if (k === 's') placeSave();
+        else if (k === 'c') placeCopyAll();
+        else if (k === 'escape') { placeDirty.clear(); placeClose(); }
+        return;
+      }
+      placeKeys[k] = true;
+      if (/^[wasdqe]$/.test(k) && !e.ctrlKey && !e.metaKey && !e.altKey) { e.stopPropagation(); return; }   // fly keys — capture kill so walk/sit never see them
+      if ((e.ctrlKey || e.metaKey) && k === 'z') { (e.shiftKey ? placeRedoDo : placeUndoDo)(); e.preventDefault(); return; }
+      if ((e.ctrlKey || e.metaKey) && k === 'y') { placeRedoDo(); e.preventDefault(); return; }
+      if (k === 'escape') { placeToggle(false); return; }                 // works with or without a selection — the exit prompt decides what happens next
+      if (!placeSel) return;
+      if (k === 'enter') { placeShow(null); return; }                    // stage-1 accept: release the lock, stay in free cam to inspect
+      const st = e.shiftKey ? .05 : .005, k2 = placeSel.userData.kit, p = placeSel.position;
+      if (['arrowleft', 'arrowright', 'arrowup', 'arrowdown', 'pageup', 'pagedown', ',', '.'].includes(k)) placeSnap(placeSel);
+      let used = true;
+      if (k === 'arrowleft') p.x -= st; else if (k === 'arrowright') p.x += st;
+      else if (k === 'arrowup') p.z -= st; else if (k === 'arrowdown') p.z += st;
+      else if (k === 'pageup') p.y += st; else if (k === 'pagedown') p.y -= st;
+      else if (k === ',') { placeSel.rotation.y -= Math.PI / 12; k2.rotY = placeSel.rotation.y; }
+      else if (k === '.') { placeSel.rotation.y += Math.PI / 12; k2.rotY = placeSel.rotation.y; }
+      else if (k === 'b') {
+        const rc = new THREE.Raycaster(new THREE.Vector3(p.x, p.y + 2, p.z), new THREE.Vector3(0, -1, 0));
+        const hits = rc.intersectObjects([g, envG].filter(o => o !== placeSel), true);   // kit + envelope surfaces only — characters and helpers can't catch the drop ray
+        if (hits.length) { placeSnap(placeSel); p.y = +hits[0].point.y.toFixed(3); }
+      }
+      else if (k === 'y') {
+        const line = placeLine(placeSel);
+        if (navigator.clipboard) navigator.clipboard.writeText(line).catch(() => {});
+        placeStat.textContent = 'YANKED → ' + line; used = true;
+        if (placeBox) placeBox.update(); mark(); return;
+      }
+      else used = false;
+      if (!used) return;
+      e.preventDefault();
+      k2.pos[0] = p.x; k2.pos[1] = p.y; k2.pos[2] = p.z;
+      placeDirtyCheck(placeSel);
+      placeOrbit().target.copy(p); placeOrbit().update();            // the locked cam tracks the item as it nudges
+      if (placeBox) placeBox.update(); placeRead(); mark();
+    }, true);   // capture — must run before script 2's bubble-registered walk/hotkey handlers
+    window.addEventListener('keyup', e => { placeKeys[(e.key || '').toLowerCase()] = false; });
+    window.addEventListener('blur', () => { for (const k in placeKeys) placeKeys[k] = false; });
+    loadBuilding(g).then(baked => loadItems(baked ? KIT.filter(k => !SHELL_FILES.has(k.file)) : KIT))
+      .catch(err => { console.warn('DVM — kit chain failed:', err); g.visible = true; mark(); });   // a stalled link must never strand the stage invisible
     /* chair kit — one voxel build per seat; metaphor sprites (lamp/plate/work)
        stay primitive — they're state, not furniture. Back faces -z like the set. */
     fetch('/voxel/chair').then(r => r.json()).then(m => {   // boss's authored chair — same dims/materials schema, drop-in for commission_chair (C29 step 1)
@@ -2320,8 +2670,8 @@ function initDeck3D(THREE, OrbitControls){
     }
     if (settle > 0) settle--;
     if (!window.__possessOn) controls.update();   // DVM-2253: the possession boom drives the camera — OrbitControls.update() would clamp it back into the guest range
-    if (window.__bldg) window.__bldg.setPossess(!!window.__possessOn);
-    envG.visible = !!window.__possessOn;   // camera-mode rule, not angle math: possess = sealed office; guest/group view = peeled stage set (no edge cases)
+    if (window.__bldg) window.__bldg.setPossess(!!window.__possessOn || !!window.__placeOn);
+    envG.visible = !!window.__possessOn || !!window.__placeOn;   // camera-mode rule: possess OR place = sealed office; guest/group view = peeled stage set (no edge cases)
     breath += .3;
     for (const k of skeys){ const c = chairs[k];
       if (c.lamp.visible && lampState(k) === 'lit' && pulseK !== k) c.lamp.scale.setScalar(1 + .1 * Math.sin(breath)); }
@@ -2624,7 +2974,8 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
   keyref.innerHTML = '<div class="kr-t">POSSESSED</div>' +
     '<b>WASD</b> move · <b>Shift</b> sprint · <b>mouse</b> look<br>' +
     '<b>F / RMB</b> aim &nbsp;·&nbsp; <b>LMB</b> tag &nbsp;·&nbsp; <b>R</b> release tag<br>' +
-    '<b>E</b> sit / cabinet &nbsp;·&nbsp; <b>G / Esc</b> release<br>' +
+    '<b>E</b> interact / sit &nbsp;·&nbsp; <b>G</b> release<br>' +
+    '<b>Esc</b> close &nbsp;·&nbsp; release only at chair &nbsp;·&nbsp; <b>Alt</b> hold = free mouse<br>' +
     '<b>P</b> CHAIR POV &nbsp;·&nbsp; <b>C</b> chair frame &nbsp;·&nbsp; <b>Shift+C</b> my frame<br>' +
     '<b>H</b> heel / send-to-seat &nbsp;·&nbsp; <b>T</b> chair→tag &nbsp;·&nbsp; <b>V</b> chair wait';
   (() => { const dv = document.getElementById('deckview'); if (dv) { if (getComputedStyle(dv).position === 'static') dv.style.position = 'relative'; dv.appendChild(xhair); dv.appendChild(keyref); } else { document.body.appendChild(xhair); document.body.appendChild(keyref); } })();
@@ -2738,8 +3089,27 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
     DECK.dirty();
   }
   const RING = []; for (let i = 0; i < NCHAIRS; i++) { const a = i / NCHAIRS * Math.PI * 2 - Math.PI / 2, sx = Math.sin(a), cz = Math.cos(a); RING.push({ x: sx * 1.15 - .015, z: cz * 1.15 - .105, ux: sx, uz: cz, yaw: Math.atan2(-sx, -cz) }); }   // ring on the rug's felt midpoint (−.015,−.105) — matches chair build + table + pendant
-  const CAB_POS = [1.85, -2.03], CAB_R = .9;                     // file-cabinet prompt radius (DESIGNER-4) — proximity wins the E key over sit/stand
-  const nearCab = () => Math.hypot(chPos.x - CAB_POS[0], chPos.z - CAB_POS[1]) <= CAB_R;
+  const INTERACT = [                                           // possess-mode E registry (DESIGNER-4 + DVM-LAW1): pos + approach radius + prompt + action
+    { pos:[1.85, -2.03], r:.9,   label:'E — OPEN CABINET',  open:() => window.__cab.open() },
+    { pos:[-.045, 9.36], r:.9,   label:'E — READ THE LAWS', open:() => window.__laws.open() },
+  ];
+  const AIM_R = 2.4, AIM_DOT = .55;                            // "aimed at" = inside a ~57° look cone and within arm+reach — walk up, or stand back and face it
+  function eInteract(){
+    let best = null, bd = 1e9;
+    for (const it of INTERACT){
+      const dx = it.pos[0] - chPos.x, dz = it.pos[1] - chPos.z, d = Math.hypot(dx, dz);
+      if (d <= it.r && d < bd){ bd = d; best = it; }           // approached — nearest wins
+    }
+    if (best) return best;
+    const fx = Math.sin(lookYaw), fz = Math.cos(lookYaw);      // his look direction on the floor
+    for (const it of INTERACT){
+      const dx = it.pos[0] - chPos.x, dz = it.pos[1] - chPos.z, d = Math.hypot(dx, dz) || 1;
+      if (d <= AIM_R && (dx * fx + dz * fz) / d >= AIM_DOT) return it;   // aimed — the cone catches what he's facing
+    }
+    return null;
+  }
+  const atMyChair = () => seatIdx >= 0 || Math.hypot(chPos.x - RING[2].x, chPos.z - RING[2].z) <= 1.15;   // "back at my chair" — seated, or standing in BOSS's own ring slot
+  let altHold = false;                                           // ALT-hold = temporary free cursor: possess held, look-lock dropped, mouse clicks reach the UI again
   const SEAT_OFF = [.01, -.01, .04];                             // CH origin in the chair's frame — solved against the authored vinny_seated_preview composite (zero clipping)
   const SEAT_REACH = .85, STAND_R = 1.75;
   function sit() {
@@ -2762,6 +3132,7 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
   window.addEventListener('keydown', e => {
     const k = (e.key || '').toLowerCase();
     if (shotView.style.display === 'block') { if (k === 'escape') shotView.style.display = 'none'; return; }   // capture preview is modal — checked BEFORE the typing/mode guards so Esc can never be filtered out
+    if (k === 'alt' && possessed && !e.repeat && !window.__cabOpen && !window.__lawsOpen) { altHold = true; e.preventDefault(); if (document.pointerLockElement) document.exitPointerLock(); return; }   // ALT-hold frees the cursor without releasing the possess — checked BEFORE the altKey-modifier guard
     if (typing(e) || e.ctrlKey || e.metaKey || e.altKey || e.repeat || DECK.mode !== '3d') return;
     if (k === 'g') { if (possessed) release(); else if (seatIdx >= 0) stand(true); else grab(); }
     else if (k === 'p') { if (window.__eyes) { if (window.__eyes.on()) window.__eyes.hide(); else window.__eyes.show(); } }   // PiP — CHAIR's eyes
@@ -2771,17 +3142,38 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
     else if (k === 't') { if (window.__chairbody) window.__chairbody.setOrder('goto'); }   // GO — walk to the live tag
     else if (k === 'v') { if (window.__chairbody) window.__chairbody.setOrder('wait'); }   // WAIT — halt the follow where he stands
     else if (k === 'h') { if (window.__chairbody) window.__chairbody.setOrder(window.__chairbody.order() === 'follow' ? 'post' : 'follow'); }   // HEEL — state toggle: seated/waiting/goto → follow me · already following → post home and sit
-    else if (k === 'e') { if (window.__cabOpen) window.__cab.close(); else if (possessed && nearCab()) window.__cab.open(); else if (seatIdx >= 0) stand(true); else sit(); }
-    else if (k === 'escape') { if (window.__cabOpen) window.__cab.close(); else release(); }
+    else if (k === 'e') { if (window.__cabOpen) window.__cab.close(); else if (window.__lawsOpen) window.__laws.close(); else if (possessed){ const it = eInteract(); if (it) it.open(); else if (seatIdx >= 0) stand(true); else sit(); } else { if (seatIdx >= 0) stand(true); else sit(); } }
+    else if (k === 'escape') { if (window.__cabOpen) window.__cab.close(); else if (window.__lawsOpen) window.__laws.close(); else if (atMyChair()) release(); }   // possess drops only back at his own chair — a stray Esc mid-room keeps the hold
     else if (seatIdx >= 0 && /^[wasd]$/.test(k)) stand(true);
   });
+  window.addEventListener('keyup', e => {
+    if ((e.key || '').toLowerCase() !== 'alt') return;
+    if (altHold){ altHold = false; const c = glCanvas();        // release the ALT-hold — the look-lock comes back
+      if (possessed && !window.__cabOpen && !window.__lawsOpen && document.pointerLockElement !== c) { try { const p = c.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (err) {} } }
+  });
+  window.addEventListener('blur', () => { altHold = false; });   // Alt+Tab strands the keyup — clear the flag, the click-to-relock path covers the return
   window.addEventListener('mousemove', e => {
     if (!possessed || (document.pointerLockElement !== glCanvas() && !(e.buttons & 1))) return;   // locked look, or drag-look when the lock was refused
     lookYaw -= e.movementX * YAW_SENS;                           // three is right-handed: turning right = decreasing yaw (Unity's += is its left-handed mirror)
     lookPitch = Math.max(-PITCH_MAX, Math.min(PITCH_MAX, lookPitch + e.movementY * PITCH_SENS));
     kick();
   });
-  document.addEventListener('pointerlockchange', () => { if (possessed && !window.__cabOpen && document.pointerLockElement !== glCanvas()) release(); });   // Esc exits the lock → release (cabinet holds possess while browsing unlocked)
+  let relockT = 0;
+  const relockSoon = () => { clearTimeout(relockT); relockT = setTimeout(() => {   // Chrome's post-Esc cooldown (~1.3s) rejects instant re-locks — wait it out, then re-engage
+    const c = glCanvas();
+    if (possessed && !window.__cabOpen && !window.__lawsOpen && document.pointerLockElement !== c) { try { const p = c.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) {} }
+  }, 1400); };
+  document.addEventListener('pointerlockchange', () => {
+    if (!(possessed && !window.__cabOpen && !window.__lawsOpen && document.pointerLockElement !== glCanvas())) return;
+    if (altHold) return;                                                           // intentional free-cursor window — no release, no auto re-lock; keyup restores it
+    if (atMyChair()) release();                                                    // lock-exit at his chair = the real release
+    else relockSoon();                                                             // mid-room Esc drops the lock only — the hold survives and the camera comes back on its own
+  });
+  glCanvas().addEventListener('mousedown', () => {                                  // a fresh click is a gesture — re-engages even inside the Esc cooldown
+    if (possessed && !altHold && !window.__cabOpen && !window.__lawsOpen && document.pointerLockElement !== glCanvas()) {
+      try { const p = glCanvas().requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) {}
+    }
+  });
   let chairStepFn = null;                                        // DVM-2256 — the CHAIR body's order driver registers here once /char/CHAIR1 lands
   function step(dt) {
     const seated = seatIdx >= 0;
@@ -2836,8 +3228,14 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
     if (was || state === 1 || transT >= 0 || aimOn) pose();       // the settled idle/seated pose never re-evaluates; aiming re-evals every frame (arm tracks live)
     const chairBusy = chairStepFn ? chairStepFn(dt) : false;      // the CHAIR body walks on the same frame — keeps the loop alive while it moves
     const camBusy = possessed ? driveCam(dt) : false;
-    const cp = document.getElementById('cabprompt');                // proximity prompt — possess-mode only (DESIGNER-4)
-    if (cp) cp.classList.toggle('on', possessed && !window.__cabOpen && nearCab());
+    const cp = document.getElementById('cabprompt');                // interact prompt — possess-mode only; approach or aim decides the target (DESIGNER-4 + DVM-LAW1)
+    if (cp){
+      const it = (possessed && !window.__cabOpen && !window.__lawsOpen) ? eInteract() : null;
+      const lbl = it ? it.label
+        : (possessed && document.pointerLockElement !== glCanvas() && !window.__cabOpen && !window.__lawsOpen
+            ? (altHold ? 'ALT — FREE MOUSE (release to re-look)' : 'CLICK — RE-ENGAGE LOOK') : null);
+      if (lbl){ if (cp.textContent !== lbl) cp.textContent = lbl; cp.classList.add('on'); } else cp.classList.remove('on');
+    }
     return (!seated && (keys.w || keys.a || keys.s || keys.d)) || state === 1 || transT >= 0 || camBusy || chairBusy || aimOn;
   }
   /* the deck is render-on-dirty — the loop runs only while Vinny is live, and marks the scene dirty every frame it moves him */

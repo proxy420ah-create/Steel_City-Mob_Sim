@@ -847,7 +847,7 @@ document.getElementById('editor-nav').addEventListener('click', e => {
     <span title="Ticked materials never move — the rigid-parts list (cover boards, ribbons, frames)">skip:</span>
     <div id="fold-mats-list" style="flex:1;max-height:64px;overflow-y:auto;display:flex;flex-direction:column;gap:2px;"></div>
   </div>
-  <div style="font-size:9px;color:#888;margin-top:5px;">Sliders bend the render live; Fold bakes (undoable). rise/mounds: θ = voxels of lift. Moved cells win collisions; tags travel.</div>
+  <div style="font-size:9px;color:#888;margin-top:5px;">Live preview is quantized — what you see is what bakes. rise/mounds: θ = voxels of lift. Moved cells win collisions; tags travel.</div>
 </div>
 
 <!-- Ruler plants panel — standalone fixed panel, shows while the ruler
@@ -2386,6 +2386,11 @@ function applyFold() {
     moved.set(`${np[0]},${np[1]},${np[2]}`, { from: key, mid: voxelMap.get(key) });
   }
   if (!moved.size) { setStatus('Fold moved nothing — widen R or the angle'); return; }
+  // Collision accounting: movers sharing a destination collapse (lost), and
+  // movers landing on unmoved cells eat them (overwritten).
+  const lost = movingKeys.size - moved.size;
+  let eaten = 0;
+  for (const nk of moved.keys()) if (voxelMap.has(nk) && !movingKeys.has(nk)) eaten++;
   // move voxels + their tag entries; moved cells win any landing collisions
   const tagMaps = [groupMap, itemPartMap, clothingRegionMap];
   const tagMoves = tagMaps.map(() => new Map());
@@ -2402,7 +2407,7 @@ function applyFold() {
   // live for the next iterative fold.
   document.getElementById('fold-live').checked = false;
   foldParamsChanged();
-  setStatus(`Fold baked — ${moved.size} voxels moved (undoable)`);
+  setStatus(`Fold baked — ${moved.size} moved${lost ? `, ${lost} merged` : ''}${eaten ? `, ${eaten} overwrote` : ''} → ${voxelMap.size} voxels (undoable)`);
 }
 window.applyFold = applyFold;
 
@@ -4510,7 +4515,9 @@ function writeInstanceAt(i, x, y, z, mid, key) {
   }
   if (foldP.live) {
     const t = foldCellPos(px, py, pz, mid, key);
-    if (t) { px = t[0]; py = t[1]; pz = t[2]; }
+    // Quantized like the bake — the preview IS the voxel result, not a
+    // smooth render illusion that snaps on commit.
+    if (t) { px = Math.round(t[0]); py = Math.round(t[1]); pz = Math.round(t[2]); }
   }
   dummyMatrix.makeTranslation(px + originOffsetX, py, pz + originOffsetZ);
   instancedMesh.setMatrixAt(i, dummyMatrix);
