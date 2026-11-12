@@ -302,6 +302,36 @@
     font-family:Consolas,monospace; font-size:.8em; font-weight:700; letter-spacing:1px;
     color:var(--red); border:1px solid var(--red); border-radius:4px; }
   #inspector .i-eject:hover { background:var(--red); color:#0d1117; }
+  #inspector .i-orders { margin-top:7px; }
+  #inspector .i-order { display:inline-block; margin:0 5px 3px 0; padding:1px 10px; cursor:pointer;
+    font-family:Consolas,monospace; font-size:.8em; color:var(--text-dim);
+    border:1px solid var(--border); border-radius:7px; }
+  #inspector .i-order:hover { border-color:var(--green); color:var(--green); }
+  #inspector .i-order.on { color:var(--green); border-color:var(--green); }
+  /* aim reticle — center of the possess view while the aim key is held (DVM-2257) */
+  #xhair { position:absolute; left:50%; top:50%; transform:translate(-50%,-52%); display:none;
+           color:#ff5566; font:700 22px Consolas,monospace; z-index:8; text-shadow:0 0 4px #000, 0 0 8px #000;
+           pointer-events:none; user-select:none; }
+  /* possess-mode key reference — the legend rides bottom-left while Vinny is driven */
+  #keyref { position:absolute; left:12px; bottom:12px; display:none; z-index:8; pointer-events:none;
+            background:rgba(14,10,8,.82); border:1px solid var(--border); border-radius:6px;
+            padding:8px 12px; font:11px/1.7 Consolas,monospace; color:#cbb; }
+  #keyref b { color:#d29922; font-weight:700; }
+  #keyref .kr-t { color:#ff5566; font-weight:700; letter-spacing:.15em; margin-bottom:2px; }
+  /* CHAIR POV frame — overlays the GL scissor inset (same right/bottom/width/aspect math as __eyes.pip) */
+  #pov { position:absolute; right:12px; bottom:12px; width:30%; aspect-ratio:16/9; display:none;
+         border:2px solid #d29922; border-radius:4px; z-index:8; pointer-events:none;
+         box-shadow:0 0 12px #000 inset, 0 0 8px #000; }
+  #pov span { position:absolute; top:-18px; right:0; font:700 10px Consolas,monospace; color:#d29922;
+              letter-spacing:.12em; text-shadow:0 0 4px #000; }
+  /* capture verify — the amber CAPTURED buttons (one per eye) + the full-scene PNG overlay */
+  .shotbtn { position:absolute; right:12px; z-index:9; padding:5px 11px; cursor:pointer;
+    font:700 10px Consolas,monospace; letter-spacing:.12em; color:#d29922;
+    background:rgba(8,10,14,.82); border:1px solid #d29922; border-radius:4px; }
+  .shotbtn:hover { background:#d29922; color:#0a0c10; }
+  #shotview { position:absolute; inset:0; z-index:40; display:none; background:rgba(4,6,8,.97); cursor:zoom-out; }
+  #shotview img { position:absolute; inset:0; margin:auto; max-width:96%; max-height:90%; object-fit:contain; border:1px solid #d29922; }
+  #shotview span { position:absolute; left:14px; bottom:12px; font:700 10px Consolas,monospace; color:#d29922; letter-spacing:.18em; }
   /* reader overlay — in-deck surface, slides over the column not the page */
   #deckreader { position:absolute; top:0; left:0; right:0; bottom:0; z-index:7;
     background:var(--surface); border-left:3px solid var(--accent);
@@ -1516,11 +1546,27 @@ function openInspector(k){
     (c.duty ? `<div class="i-duty">${c.duty}</div>` : '') +
     (c.rules || []).map(r => `<div class="i-rule">${r}</div>`).join('') +
     `<span class="i-at" data-k="${k}">@ ${k} ▸</span>` +
+    (k === 'CHAIR' && window.__chairbody ? `<div class="i-orders">` +
+      `<span class="i-order" id="i_follow" title="mechanical order — the body trails Vinny">FOLLOW ▸</span>` +
+      `<span class="i-order" id="i_goto" title="mechanical order — walk to the live tag (needs a mark down)">GO ▸</span>` +
+      `<span class="i-order" id="i_wait" title="mechanical order — halt where he stands">WAIT ▸</span>` +
+      `<span class="i-order" id="i_post" title="mechanical order — return to the CHAIR chair and sit">POST ▸</span></div>` : '') +
     (seat.boss ? '' : `<div class="i-eject" id="i_eject" title="free the slot — zero stamps + vacancy notice to the room">EJECT</div>`);
   el.classList.add('open');
   refreshInspectorOcc(k);
   el.querySelector('#i_x').onclick = () => el.classList.remove('open');
   el.querySelector('.i-at').onclick = () => { address(k); el.classList.remove('open'); };
+  const fl = el.querySelector('#i_follow'), po = el.querySelector('#i_post'), go = el.querySelector('#i_goto'), wt = el.querySelector('#i_wait');
+  if (fl && po) {                                                          // CHAIR body orders — pure mechanics, no agent call
+    const mark = () => { const o = window.__chairbody.order();
+      fl.classList.toggle('on', o === 'follow'); po.classList.toggle('on', o === 'post');
+      go.classList.toggle('on', o === 'goto'); wt.classList.toggle('on', o === 'wait'); };
+    fl.onclick = () => { window.__chairbody.setOrder('follow'); mark(); };
+    go.onclick = () => { window.__chairbody.setOrder('goto'); mark(); };
+    wt.onclick = () => { window.__chairbody.setOrder('wait'); mark(); };
+    po.onclick = () => { window.__chairbody.setOrder('post'); mark(); };
+    mark();
+  }
   const ej = el.querySelector('#i_eject');
   if (ej) ej.onclick = () => {
     if (!confirm('EJECT ' + k + '? Stamps zeroed, chair reads dark, slot frees for a fresh host.')) return;
@@ -1580,6 +1626,7 @@ function initDeck3D(THREE, OrbitControls){
   const W = () => Math.max(1, host.clientWidth), H = () => Math.max(1, host.clientHeight);
   renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
   renderer.setSize(W(), H());
+  window.__renderer = renderer;                                        // DVM-2261 — the eyes' pass needs the live renderer
   renderer.domElement.style.cssText = 'position:absolute;inset:0;';
   host.appendChild(renderer.domElement);
 
@@ -1599,13 +1646,17 @@ function initDeck3D(THREE, OrbitControls){
   const amb = new THREE.AmbientLight(0x2a3550, .9);
   const key = new THREE.PointLight(0xffd9a0, 26, 14); key.position.set(0, 4.2, .4);
   const key2 = new THREE.PointLight(0xffd9a0, 26, 14); key2.position.set(0, 4.2, 4.9);   // module 2 key — same warm bulb over the bolt-on
-  /* pendant over the table — the business light: warm cone pooling on the felt +
-     a faint green spill so the enamel shade reads lit from inside. Always on —
-     the table is the set's center in both camera modes. */
-  const pendSpot = new THREE.SpotLight(0xffe2b0, 22, 6, .75, .6, 1);
-  pendSpot.position.set(0, 1.36, 0); pendSpot.target.position.set(0, .35, 0);
-  scene.add(pendSpot, pendSpot.target);
-  const pendGlow = new THREE.PointLight(0xcfffb0, 1.2, 1.3); pendGlow.position.set(0, 1.42, 0); scene.add(pendGlow);
+  /* pendant run — the business light, a row of three down the spine, each centred on the
+     space it serves: the table lamp on the rug midpoint (−.015,−.105), the corridor lamp on
+     the hall-centre beam (z 3.68), the north lamp dead-centre in its coffer bay (−.045, 7.425).
+     Each rig = warm cone + green spill so the enamel reads lit from inside.
+     Always on — the table is the set's center in both camera modes. */
+  for (const [px, pz] of [[-.015, -.105], [0, 3.68], [-.045, 7.425]]) {
+    const pendSpot = new THREE.SpotLight(0xffe2b0, 22, 6, .75, .6, 1);
+    pendSpot.position.set(px, 1.36, pz); pendSpot.target.position.set(px, .35, pz);
+    scene.add(pendSpot, pendSpot.target);
+    const pendGlow = new THREE.PointLight(0xcfffb0, 1.2, 1.3); pendGlow.position.set(px, 1.42, pz); scene.add(pendGlow);
+  }
   scene.add(amb, key, key2);
   /* render-on-dirty scheduler state — declared up top so mark() is safe from
      any init code that runs before the scheduler section below (TDZ fix). */
@@ -1630,8 +1681,10 @@ function initDeck3D(THREE, OrbitControls){
     { file:'commission_ceiling', vs:.03, pos:[x0, 1.71, z0], env: true },
   ]);
   const KIT = [
-    { file:'commission_table', vs:.007,  pos:[0, 0, 0], sXZ:1.4 },   // chibi: .38m tall (kept) x 1.4m dia — edge .70 meets the r1.15 chair ring
-    { file:'commission_pendant', vs:.012, pos:[0, 1.314, 0] },       // green-dome pendant: canopy kisses the coffer bay at 1.89, shade bottom 1.31
+    { file:'commission_table', vs:.007,  pos:[-.015, 0, -.105], sXZ:1.4 },   // chibi: .38m tall x 1.4m dia — anchored on the rug's felt midpoint (−.015,−.105, bake half-cell), NOT origin
+    { file:'commission_pendant', vs:.012, pos:[-.015, 1.314, -.105] },       // green-dome pendant: hangs dead over the table/rug center
+    { file:'commission_pendant', vs:.012, pos:[0, 1.314, 3.68] },    // pendant row — corridor mouth, on the hall-center beam
+    { file:'commission_pendant', vs:.012, pos:[-.045, 1.314, 7.425] },  // pendant row — north hall, dead-centre in its coffer bay (x −.765/+.675 → −.045, z 6.70/8.15 → 7.425, both bake half-cells)
     { file:'commission_floor', vs:.03,   pos:[0, -.09, 0] },     // chibi grain — 4.5m plate covers the seat ring, tops y=0
     { file:'commission_wall',  vs:.03,   pos:[0, 0, -2.295] },   // 4.5x1.8 wall backs the set — front face at z=-2.25
     { file:'commission_wall',  vs:.03,   pos:[-2.295, 0, 0], rotY: Math.PI / 2, env: true },    // left wall — envelope
@@ -1792,6 +1845,7 @@ function initDeck3D(THREE, OrbitControls){
         im.instanceMatrix.needsUpdate = true;
         if (im.instanceColor) im.instanceColor.needsUpdate = true;
         const g = new THREE.Group(); g.add(im); g.rotation.y = Math.PI;
+        g.position.set(-.005, 0, .005);                        // odd-dims model (29³): bbox center sits −.5vox x / +.5vox z off the anchor — half-cell correction so every chair's box is dead-centre on its ring slot
         c.g.add(g); c.voxg = g;
       });
       mark();
@@ -2140,11 +2194,13 @@ function initDeck3D(THREE, OrbitControls){
   }
   const dlTex = new THREE.CanvasTexture(dlCan);
   // seven chairs — roster is SEATS{}/seat_rules keys, NOT seats[] (gate finding)
-  const chairs = {}, hitList = [];
+  const chairs = {}, hitList = []; window.__hitList = hitList;   // body meshes (CHAIR body, future rigged seats) register for click→inspector too
   const skeys = Object.keys(SEATS);
+  const SHOW_SEATS = true;                                     // seat-ring visuals live on the re-centered ensemble (ring on the rug midpoint −.015,−.105)
   skeys.forEach((k, i) => {
     const a = (i / skeys.length) * Math.PI * 2 - Math.PI/2;
-    const g = new THREE.Group(); g.position.set(Math.sin(a) * 1.15, 0, Math.cos(a) * 1.15); g.lookAt(0, 0, 0);   // ROOM B chibi ring (1.95 × .59 ≈ r1.15)
+    const g = new THREE.Group(); g.position.set(Math.sin(a) * 1.15 - .015, 0, Math.cos(a) * 1.15 - .105); g.lookAt(-.015, 0, -.105);   // ROOM B chibi ring — centered on the rug's felt midpoint (−.015,−.105)
+    g.visible = SHOW_SEATS;
     const hex = SEAT_HEX[k];
     const lampM = new THREE.MeshBasicMaterial({color:hex});
     const lamp = new THREE.Mesh(new THREE.SphereGeometry(.07, 14, 12), lampM); lamp.position.set(0, .62, -.3);
@@ -2277,6 +2333,7 @@ function initDeck3D(THREE, OrbitControls){
     for (const k of skeys){ const c = chairs[k];
       if (c.work.visible){ anyWork = true; c.work.material.color.setHex(wb ? 0xffffff : c.hex); } }
     renderer.render(scene, camera);
+    if (window.__eyes && window.__eyes.on()) window.__eyes.pip();   // CHAIR-POV inset pass — scissored over the main frame
     if (interacting || settle > 0 || stampT >= 0 || pulseT >= 0 || cardAnim || bubAct || DS.silentK || DS.ghostK || anyWork || (DS.turn && lampState(DS.turn) === 'dead')) mark();   // alive only while moving/burning/laboring/embering
   }
   controls.addEventListener('change', mark);
@@ -2298,7 +2355,8 @@ function initDeck3D(THREE, OrbitControls){
   el.addEventListener('pointerdown', e => { downXY = [e.clientX, e.clientY]; });
   el.addEventListener('pointerup', e => {
     if (downXY && Math.hypot(e.clientX - downXY[0], e.clientY - downXY[1]) < 6){
-      if (hoverK) openInspector(hoverK);                                    // chair → inspector (contract + @SEAT)
+      if (window.__aim && window.__aim.on()) { /* aiming swallows clicks — tagging happens on mousedown, the inspector must not open mid-aim */ }
+      else if (hoverK) openInspector(hoverK);                               // chair → inspector (contract + @SEAT)
       else document.getElementById('inspector').classList.remove('open');   // click elsewhere dismisses
     }
     downXY = null;
@@ -2349,7 +2407,7 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
 /* ── DVM-2252 — walkable Vinny: Civilian1 rig · Civilian_01 wardrobe · animator pose port · Unity gait driver · WASD + bounds ── */
 (async () => {
   while (!window.__THREE) await new Promise(r => setTimeout(r, 100));   // wait for the module to expose the scene
-  const THREE = window.__THREE, scene = window.__scene, camera = window.__camera;
+  const THREE = window.__THREE, scene = window.__scene, camera = window.__camera, renderer = window.__renderer;
   const WALK = 2.5, SPRINT = 2.2, TURN = 10;                    // PossessController.cs: walkSpeed / sprintMult / turnSpeed
   const MOVE_EPS = .1, TRANS_DUR = .32, TRANS_DIP = .45;        // CharacterAnimation.cs: walkVelocityThreshold / transitionDuration / transitionDip
   const OUTFIT = { 3: 126, 4: 126, 6: 126, 7: 105 };            // Civilian_01 "Suit Blue" (CityMap3D.ApplyCivilianOutfits): Torso/Arms/Legs → 126 Black Fabric, Feet → 105 Cobblestone
@@ -2396,6 +2454,57 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
                            kneeBendL: k.kneeBendR, kneeBendR: k.kneeBendL, forearmTwistL: k.forearmTwistR, forearmTwistR: k.forearmTwistL });
     const KF = [WK.kf0, WK.kf1, WK.kf2 || (WK.autoMirror ? mirror(WK.kf0) : WK.kf0), WK.kf3 || (WK.autoMirror ? mirror(WK.kf1) : WK.kf1)];
     const cr = (a, b, c, d, t) => .5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t * t + (-a + 3 * b - 3 * c + d) * t * t * t);
+    /* ═══ IK AIM channel — character_animator.html's simulated ArmAimSolver, ported flat-matrix.
+       2-bone law-of-cosines: shoulder places the elbow in the hint plane, forearm cumulative lands the
+       hand axis on target. Solved rotations REPLACE the group's ownRot blended (Unity Slerp into
+       ikOverrides). gid 2/8 = the arm that reads RIGHT in the Unity view (this tool's 'L Arm'). ═══ */
+    const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2], sub3 = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]],
+          norm3 = v => { const l = Math.hypot(v[0], v[1], v[2]); return l > 1e-9 ? [v[0] / l, v[1] / l, v[2] / l] : [0, 0, 1]; },
+          len3 = v => Math.hypot(v[0], v[1], v[2]),
+          cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]],
+          mT = a => [a[0], a[3], a[6], a[1], a[4], a[7], a[2], a[5], a[8]];
+    function basisFromFwd(f, u) {
+      if (Math.abs(dot3(f, u)) > .95) u = Math.abs(f[1]) < .9 ? [0, 1, 0] : [1, 0, 0];
+      const r = norm3(cross3(u, f)), up = cross3(f, r);
+      return [r[0], up[0], f[0], r[1], up[1], f[1], r[2], up[2], f[2]];
+    }
+    function basisDelta(bF, sF, up) { const s = basisFromFwd(norm3(sF), up), b = basisFromFwd(norm3(bF), up); return mm(s, mT(b)); }
+    function perpOf(h, ax) { let p = sub3(h, [ax[0] * dot3(h, ax), ax[1] * dot3(h, ax), ax[2] * dot3(h, ax)]); if (dot3(p, p) < 1e-8) p = Math.abs(ax[0]) < .9 ? [ax[1], -ax[0], 0] : [0, ax[2], -ax[1]]; return norm3(p); }
+    function scaledRot(m, w) {                                                            // rotation-matrix slerp: m scaled toward identity by 1−w
+      if (w <= 1e-4) return [1, 0, 0, 0, 1, 0, 0, 0, 1]; if (w >= .9999) return m;
+      const cA = Math.max(-1, Math.min(1, (m[0] + m[4] + m[8] - 1) / 2)), a0 = Math.acos(cA), s = 2 * Math.sin(a0);
+      if (Math.abs(s) < 1e-5) return w < .5 ? [1, 0, 0, 0, 1, 0, 0, 0, 1] : m;
+      const ax = (m[7] - m[5]) / s, ay = (m[2] - m[6]) / s, az = (m[3] - m[1]) / s, ang = a0 * w, c = Math.cos(ang), sn = Math.sin(ang), ic = 1 - c;
+      return [c + ax * ax * ic, ax * ay * ic - az * sn, ax * az * ic + ay * sn,
+              ay * ax * ic + az * sn, c + ay * ay * ic, ay * az * ic - ax * sn,
+              az * ax * ic - ay * sn, az * ay * ic + ax * sn, c + az * az * ic];
+    }
+    let _hand = null;
+    function handPoint() {                                                                 // fist tip: farthest gid-8 voxel from the shoulder pivot, cached
+      if (!_hand) {
+        const sv = piv[2]; let hv = null, best = -1;
+        for (let i = 0; i < N; i++) if (vg[i] === 8) { const p = [vx[i] + .5, vy[i] + .5, vz[i] + .5], d = dot3(sub3(p, sv), sub3(p, sv)); if (d > best) { best = d; hv = p; } }
+        _hand = hv ? { hv, axis: norm3(sub3(hv, piv[8])) } : null;
+      }
+      return _hand;
+    }
+    function ikSolve(T, reach) {                                                           // T = target in model voxel-index coords
+      const sv = piv[2], ev = piv[8], hand = handPoint();
+      if (!sv || !ev || !hand) return null;
+      const st = sub3(T, sv), dist = len3(st), toT = dist > 1e-6 ? [st[0] / dist, st[1] / dist, st[2] / dist] : [0, 0, 1];
+      const bindArm = norm3(sub3(ev, sv)), L1 = len3(sub3(ev, sv)), L2 = len3(sub3(hand.hv, ev)), UP = [0, 1, 0];
+      let qArm;
+      if (L1 < 1e-4 || L2 < 1e-4) qArm = basisDelta(bindArm, toT, UP);
+      else {
+        const d = Math.min(Math.max(dist, Math.abs(L1 - L2) + .01), (L1 + L2) * reach);
+        const cosA = Math.min(1, Math.max(-1, (L1 * L1 + d * d - L2 * L2) / (2 * L1 * d))), angA = Math.acos(cosA);
+        const sideX = Math.sign(sv[0] / dims[0] - .5) || 1;                                 // elbow hints outward on the arm's own side
+        const bendRef = perpOf([sideX * .4, -1, .2], toT);
+        const ca = Math.cos(angA), sa = Math.sin(angA);
+        qArm = basisDelta(bindArm, norm3([toT[0] * ca + bendRef[0] * sa, toT[1] * ca + bendRef[1] * sa, toT[2] * ca + bendRef[2] * sa]), UP);
+      }
+      return { qArm, qFore: mm(mT(qArm), basisDelta(hand.axis, toT, UP)) };                 // forearm cumulative must land hand axis on target
+    }
     function gait(gt) {
       const dur = WK.cycleDuration, ph = (((gt % dur) + dur) % dur) / dur, s = Math.min(3, Math.floor(ph * 4)), t = ph * 4 - s;
       const A = KF[(s + 3) % 4], B = KF[s], C = KF[(s + 1) % 4], D = KF[(s + 2) % 4], pose = {};
@@ -2404,8 +2513,8 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
         bobY:   WK.bodyBob.enabled ? -Math.cos(ph * 4 * Math.PI) * WK.bodyBob.amplitude : 0,         // lowest at contact, highest at mid-stance
         shiftX: WK.weightShift.enabled ? Math.sin(ph * 2 * Math.PI) * WK.weightShift.amplitude : 0 };  // lateral weight shift over the stance leg
     }
-    /* out[3i..3i+2] ← posed voxel-index position of voxel i under (state, gaitTime) */
-    function evalPose(state, gt, out) {
+    /* out[3i..3i+2] ← posed voxel-index position of voxel i under (state, gaitTime, aim) — aim = {T:[ix,iy,iz] model coords, blend, head} or null */
+    function evalPose(state, gt, out, aim) {
       const AS = P.armSwing, LS = P.legStride, EB = P.elbowBend, KB = P.kneeBend, RP = P.restPose, LT = P.legTwist;
       const g = state === 1 ? gait(gt) : null;                   // Idle: rest pose only · Walking: rest pose + gait + bob + shift
       const k = state === 11 ? { armSwingL: .2, armSwingR: .2, legStrideL: -1.45, legStrideR: -1.45, kneeBendL: 1.45, kneeBendR: 1.45,   // Sit (animator DEFAULT_PARAMS.sitting): thighs forward ~83°, shins fold down, torso upright, no bob. Stride sign is flipped vs the animator's +1.45 — fitted: all 12,608 voxels land inside the authored vinny_seated_preview composite
@@ -2421,6 +2530,19 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
         { c: [[piv[4], legL]], o: jo[4] }, { c: [[piv[5], legR]], o: jo[5] },                           // 4/5 legs: hip stride
         { c: [[piv[6], shinL], [piv[4], legL]], o: jo[4] }, { c: [[piv[7], shinR], [piv[5], legR]], o: jo[5] },   // 6/7 shins: knee hinge FIRST, then the hip carries the bent limb
         { c: [[piv[8], foreL], [piv[2], armL]], o: jo[2] }, { c: [[piv[9], foreR], [piv[3], armR]], o: jo[3] }]; // 8/9 forearms: elbow hinge FIRST, then the shoulder
+      if (aim) {                                                           // IK AIM channel — solves REPLACE the arm chain's ownRot, blended (over ANY state)
+        const sol = ikSolve(aim.T, .96);
+        if (sol) {
+          const ikArm = mm(scaledRot(mm(sol.qArm, mT(armL)), aim.blend), armL);
+          const ikFore = mm(scaledRot(mm(sol.qFore, mT(foreL)), aim.blend), foreL);
+          C[2] = { c: [[piv[2], ikArm]], o: jo[2] };
+          C[8] = { c: [[piv[8], ikFore], [piv[2], ikArm]], o: jo[2] };
+          if (aim.head > 0) {                                              // eyes take the aim too — head bind-forward → target dir, blended
+            const d = sub3(aim.T, piv[1]), toT = len3(d) > 1e-6 ? norm3(d) : [0, 0, 1];
+            C[1] = { c: [[piv[1], scaledRot(basisDelta([0, 0, 1], toT, [0, 1, 0]), aim.head)]], o: jo[1] };
+          }
+        }
+      }
       const sx = g ? g.shiftX : 0, by = g ? g.bobY : 0;
       for (let i = 0; i < N; i++) {
         const ch = C[vg[i]]; let x = vx[i], y = vy[i], z = vz[i];
@@ -2464,25 +2586,92 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
      0.32s dual-eval transition (frozen outgoing state, smoothstep blend, −sin(πt) settle dip) */
   let state = 0, prevState = 0, transFrom = 0, transT = -1, blend = 1, dip = 0, walkSpeed = 1, gaitTime = 0;
   function pose() {
-    E.evalPose(state, gaitTime, bufB);
-    if (transT >= 0) { E.evalPose(transFrom, gaitTime, bufA); upload(bufA, bufB, blend, dip); } else upload(null, bufB, 1, 0);
+    const aim = (aimOn && aimModel) ? { T: aimModel, blend: 1, head: 1 } : null;   // aim channel layers over whatever state is playing
+    E.evalPose(state, gaitTime, bufB, aim);
+    if (transT >= 0) { E.evalPose(transFrom, gaitTime, bufA, aim); upload(bufA, bufB, blend, dip); } else upload(null, bufB, 1, 0);   // aim on BOTH sides — a transition must never dip the arm mid-aim
   }
 
   /* controller — camera-relative WASD, Shift sprints; typed text never moves Vinny */
   const keys = {}, typing = e => { const t = e.target; return !!t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)); };
   window.addEventListener('keydown', e => {
     if (typing(e) || e.ctrlKey || e.metaKey || e.altKey) return;
-    const k = (e.key || '').toLowerCase(); keys[k] = true; if (/^[wasd]$/.test(k)) kick();
+    const k = (e.key || '').toLowerCase(); keys[k] = true; if (/^[wasdf]$/.test(k)) kick();   // f = aim — the loop must wake for the reticle
   });
   window.addEventListener('keyup', e => { keys[(e.key || '').toLowerCase()] = false; });
   window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });   // alt-tab with a key down must not leave Vinny walking
-  const chPos = new THREE.Vector3(0, 0, 1.85); let chYaw = Math.PI;      // open floor front-center, facing the table (−z)
+  /* ── DVM-2257 — IK aim: hold F (or RMB) while possessed → crosshair + ArmAimSolver channel on the right arm;
+     LMB while aiming tags the surface under the reticle with a red mark. Same channel doctrine as
+     character_animator's simulated ArmAimSolver — a channel over the pose, not a state. ── */
+  let aimOn = false, rmbAim = false, aimModel = null;
+  const aimRay = new THREE.Raycaster(), _zv = new THREE.Vector2(0, 0),              // screen-center ray — the reticle IS camera-forward
+        aimWorld = new THREE.Vector3(), markGeo = new THREE.BoxGeometry(.05, .05, .05),
+        markMat = new THREE.MeshBasicMaterial({ color: 0xff3344 }), marks = [];
+  const xhair = document.createElement('div'); xhair.id = 'xhair'; xhair.textContent = '+';
+  const keyref = document.createElement('div'); keyref.id = 'keyref';
+  keyref.innerHTML = '<div class="kr-t">POSSESSED</div>' +
+    '<b>WASD</b> move · <b>Shift</b> sprint · <b>mouse</b> look<br>' +
+    '<b>F / RMB</b> aim &nbsp;·&nbsp; <b>LMB</b> tag &nbsp;·&nbsp; <b>R</b> release tag<br>' +
+    '<b>E</b> sit / cabinet &nbsp;·&nbsp; <b>G / Esc</b> release<br>' +
+    '<b>P</b> CHAIR POV &nbsp;·&nbsp; <b>C</b> chair frame &nbsp;·&nbsp; <b>Shift+C</b> my frame<br>' +
+    '<b>H</b> heel / send-to-seat &nbsp;·&nbsp; <b>T</b> chair→tag &nbsp;·&nbsp; <b>V</b> chair wait';
+  (() => { const dv = document.getElementById('deckview'); if (dv) { if (getComputedStyle(dv).position === 'static') dv.style.position = 'relative'; dv.appendChild(xhair); dv.appendChild(keyref); } else { document.body.appendChild(xhair); document.body.appendChild(keyref); } })();
+  /* capture verify — CAPTURED PNG button + full-scene overlay + synthesized shutter SFX.
+     The shutter borrows the audio-studio recipe: two band-passed noise bursts =
+     mirror slap + curtain click, no audio files, context lazied on the user gesture. */
+  let _ac;
+  function shutter() {
+    try {
+      _ac = _ac || new (window.AudioContext || window.webkitAudioContext)();
+      const t = _ac.currentTime;
+      [[0, 2300, .4, .018], [.05, 3600, .5, .016]].forEach(([dt, hz, g, dur]) => {
+        const n = Math.floor(_ac.sampleRate * dur), buf = _ac.createBuffer(1, n, _ac.sampleRate), ch = buf.getChannelData(0);
+        for (let i = 0; i < n; i++) ch[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 2.2);
+        const s = _ac.createBufferSource(); s.buffer = buf;
+        const bp = _ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = hz; bp.Q.value = 1.2;
+        const gn = _ac.createGain(); gn.gain.value = g;
+        s.connect(bp).connect(gn).connect(_ac.destination); s.start(t + dt);
+      });
+    } catch (e) {}
+  }
+  const shotView = document.createElement('div'); shotView.id = 'shotview';
+  shotView.innerHTML = '<img alt="POV capture"><span></span>';
+  const showShot = (u, label) => { const img = shotView.querySelector('img'), cap = shotView.querySelector('span'); img.onload = img.onerror = null; img.src = u; cap.textContent = label + ' — click or Esc to close'; shotView.style.display = 'block'; };   // handlers cleared first: re-setting src inside onload could refire it — that loop is the freeze
+  const shotBtnFor = (label, lastKey, file, topPx) => {                    // one button per eye — its own last frame, its own file
+    const b = document.createElement('button'); b.className = 'shotbtn'; b.textContent = '◈ ' + label; b.style.top = topPx + 'px';
+    b.onclick = () => {
+      const img = shotView.querySelector('img'), cap = shotView.querySelector('span');
+      if (window[lastKey]) { showShot(window[lastKey], label); return; }
+      img.onload = () => showShot(img.src, label);
+      img.onerror = () => { img.removeAttribute('src'); cap.textContent = label + ' — no capture saved yet'; shotView.style.display = 'block'; };
+      img.src = file + '?ts=' + Date.now();
+    };
+    return b;
+  };
+  const shotBtnC = shotBtnFor('CHAIR EYE', '__shot_last_chair', 'chair_eye.png', 12);
+  const shotBtnU = shotBtnFor('MY EYE', '__shot_last_user', 'vinny_eye.png', 40);
+  (() => { const dv = document.getElementById('deckview'); if (dv) { dv.appendChild(shotBtnC); dv.appendChild(shotBtnU); dv.appendChild(shotView); } else { document.body.appendChild(shotBtnC); document.body.appendChild(shotBtnU); document.body.appendChild(shotView); } })();
+  shotView.onpointerdown = shotView.onclick = () => { shotView.style.display = 'none'; };   // pointerdown too — click alone can be swallowed by canvas handlers
+  window.addEventListener('mousedown', e => {
+    if (e.button === 2 && possessed) { rmbAim = true; kick(); }
+    if (e.button === 0 && aimOn) placeMark();                                // tag on the press — the drag-threshold pointerup path was unreliable mid-hold
+  });
+  window.addEventListener('mouseup',   e => { if (e.button === 2) rmbAim = false; });
+  window.addEventListener('contextmenu', e => { if (possessed && (e.target === glCanvas() || rmbAim)) e.preventDefault(); });   // RMB is aim, not the browser menu
+  function placeMark() {
+    if (!aimOn) return;
+    while (marks.length) scene.remove(marks.pop());                          // one live mark — a new tag replaces the old
+    const m = new THREE.Mesh(markGeo, markMat); m.position.copy(aimWorld); scene.add(m); marks.push(m);
+    if (window.__chairbody && window.__chairbody.gaze) window.__chairbody.gaze(aimWorld);   // the tag is a gaze order — CHAIR's eyes center on it
+    DECK.dirty();
+  }
+  window.__aim = { on: () => aimOn, mark: placeMark, clear: () => { while (marks.length) scene.remove(marks.pop()); DECK.dirty(); } };
+  const chPos = new THREE.Vector3(.374, 0, 1.601); let chYaw = Math.PI;  // BOSS's stand-point (ring i=2, r=STAND_R, on the rug centre) — inside SEAT_REACH so boot sit() seats him at his own chair; open floor, facing the table (−z)
   const FLOOR = { x: [-2.15, 2.15], z: [-2.15, 6.65] };          // doubled office: two 4.5m plates span z -2.25..6.75 − .1 margin
-  const SOLIDS = [[0, 0, .85], [1.85, -2.03, .42]];              // capsule-vs-circle: commission_table ø1.40 + .15 capsule, file cabinet
+  const SOLIDS = [[-.015, -.105, .85], [1.85, -2.03, .42]];      // capsule-vs-circle: commission_table ø1.40 + .15 capsule (on room center), file cabinet
   const NCHAIRS = Object.keys(SEATS).length;                     // roster-driven — 8 once DESIGNER's row lands (was hardcoded 7)
   for (let i = 0; i < NCHAIRS; i++){                             // seat ring — same a = i/N·2π − π/2, r = 1.15 as the chair build
     const a = i / NCHAIRS * Math.PI * 2 - Math.PI / 2;
-    SOLIDS.push([Math.sin(a) * 1.15, Math.cos(a) * 1.15, .3]);
+    SOLIDS.push([Math.sin(a) * 1.15 - .015, Math.cos(a) * 1.15 - .105, .3]);
   }
   /* ── DVM-2253 — possession cam + seat binding. PossessController.cs distances are metres at a ~1.8m human; Vinny is a .62m chibi in a 4.5m room,
      so every length scales by PS = bodyHeight/1.8 (a verbatim 4m boom would sit outside the walls). Angles, sensitivities, return speed stay verbatim. ── */
@@ -2524,6 +2713,7 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
     guestPos = camera.position.clone(); guestTarget = orbit.target.clone();
     orbit.enabled = false; lookYaw = chYaw; lookPitch = PITCH0; boomCur = -1;
     const c = glCanvas(); if (c && c.requestPointerLock) { try { c.requestPointerLock(); } catch (e) {} }
+    if (keyref) keyref.style.display = 'block';
     kick();
   }
   function release() {                                           // boss override: back to the guest-clamped view (Unity freezes the shot — this returns it)
@@ -2531,9 +2721,10 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
     possessed = false; window.__possessOn = false; window.__env.visible = false; if (window.__bldg) window.__bldg.setPossess(false);   // back to the peeled stage set
     if (document.pointerLockElement) document.exitPointerLock();
     camera.position.copy(guestPos); orbit.target.copy(guestTarget); orbit.enabled = true; orbit.update();
+    if (keyref) keyref.style.display = 'none';
     DECK.dirty();
   }
-  const RING = []; for (let i = 0; i < NCHAIRS; i++) { const a = i / NCHAIRS * Math.PI * 2 - Math.PI / 2, sx = Math.sin(a), cz = Math.cos(a); RING.push({ x: sx * 1.15, z: cz * 1.15, ux: sx, uz: cz, yaw: Math.atan2(-sx, -cz) }); }
+  const RING = []; for (let i = 0; i < NCHAIRS; i++) { const a = i / NCHAIRS * Math.PI * 2 - Math.PI / 2, sx = Math.sin(a), cz = Math.cos(a); RING.push({ x: sx * 1.15 - .015, z: cz * 1.15 - .105, ux: sx, uz: cz, yaw: Math.atan2(-sx, -cz) }); }   // ring on the rug's felt midpoint (−.015,−.105) — matches chair build + table + pendant
   const CAB_POS = [1.85, -2.03], CAB_R = .9;                     // file-cabinet prompt radius (DESIGNER-4) — proximity wins the E key over sit/stand
   const nearCab = () => Math.hypot(chPos.x - CAB_POS[0], chPos.z - CAB_POS[1]) <= CAB_R;
   const SEAT_OFF = [.01, -.01, .04];                             // CH origin in the chair's frame — solved against the authored vinny_seated_preview composite (zero clipping)
@@ -2551,14 +2742,22 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
   function stand(resume) {                                       // push back from the table; any seat key stands him, possession resumes
     if (seatIdx < 0) return;
     const c = RING[seatIdx]; seatIdx = -1;
-    chPos.set(c.ux * STAND_R, 0, c.uz * STAND_R); chYaw = c.yaw;
+    chPos.set(c.ux * STAND_R - .015, 0, c.uz * STAND_R - .105); chYaw = c.yaw;
     if (resume) grab();
     kick();
   }
   window.addEventListener('keydown', e => {
-    if (typing(e) || e.ctrlKey || e.metaKey || e.altKey || e.repeat || DECK.mode !== '3d') return;
     const k = (e.key || '').toLowerCase();
+    if (shotView.style.display === 'block') { if (k === 'escape') shotView.style.display = 'none'; return; }   // capture preview is modal — checked BEFORE the typing/mode guards so Esc can never be filtered out
+    if (typing(e) || e.ctrlKey || e.metaKey || e.altKey || e.repeat || DECK.mode !== '3d') return;
     if (k === 'g') { if (possessed) release(); else if (seatIdx >= 0) stand(true); else grab(); }
+    else if (k === 'p') { if (window.__eyes) { if (window.__eyes.on()) window.__eyes.hide(); else window.__eyes.show(); } }   // PiP — CHAIR's eyes
+    else if (k === 'c' && e.shiftKey) { if (window.__eyes) window.__eyes.capMain(); }   // user's own frame → docs/vinny_eye.png
+    else if (k === 'c') { if (window.__eyes) window.__eyes.cap(); }               // shutter — POV frame → docs/chair_eye.png via /shot
+    else if (k === 'r') { if (window.__aim) window.__aim.clear(); if (window.__chairbody) window.__chairbody.ungaze(); }   // release — clear the tag and the gaze it ordered
+    else if (k === 't') { if (window.__chairbody) window.__chairbody.setOrder('goto'); }   // GO — walk to the live tag
+    else if (k === 'v') { if (window.__chairbody) window.__chairbody.setOrder('wait'); }   // WAIT — halt the follow where he stands
+    else if (k === 'h') { if (window.__chairbody) window.__chairbody.setOrder(window.__chairbody.order() === 'follow' ? 'post' : 'follow'); }   // HEEL — state toggle: seated/waiting/goto → follow me · already following → post home and sit
     else if (k === 'e') { if (window.__cabOpen) window.__cab.close(); else if (possessed && nearCab()) window.__cab.open(); else if (seatIdx >= 0) stand(true); else sit(); }
     else if (k === 'escape') { if (window.__cabOpen) window.__cab.close(); else release(); }
     else if (seatIdx >= 0 && /^[wasd]$/.test(k)) stand(true);
@@ -2570,6 +2769,7 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
     kick();
   });
   document.addEventListener('pointerlockchange', () => { if (possessed && !window.__cabOpen && document.pointerLockElement !== glCanvas()) release(); });   // Esc exits the lock → release (cabinet holds possess while browsing unlocked)
+  let chairStepFn = null;                                        // DVM-2256 — the CHAIR body's order driver registers here once /char/CHAIR1 lands
   function step(dt) {
     const seated = seatIdx >= 0;
     const f = seated ? 0 : (keys.w ? 1 : 0) - (keys.s ? 1 : 0), r = seated ? 0 : (keys.d ? 1 : 0) - (keys.a ? 1 : 0), ox = chPos.x, oz = chPos.z;
@@ -2595,6 +2795,21 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
       }
     }
     CH.position.set(chPos.x, seated ? SEAT_OFF[1] : 0, chPos.z); CH.rotation.y = chYaw;
+    /* aim — data-driven: F held or RMB held, only while possessed and on foot. The camera-center ray tags the
+       first non-self surface; the body squares on lookYaw like a third-person shooter; arm+head solve to it. */
+    aimOn = !!(keys.f || rmbAim) && possessed && seatIdx < 0;
+    if (aimOn) {
+      let dy2 = lookYaw - chYaw; while (dy2 > Math.PI) dy2 -= 2 * Math.PI; while (dy2 < -Math.PI) dy2 += 2 * Math.PI;
+      chYaw += dy2 * Math.min(1, dt * 8);
+      aimRay.setFromCamera(_zv, camera);
+      const list = scene.children.filter(o => o !== CH && o !== (window.__chairbody || {}).root && o !== camera && !marks.includes(o));
+      const hits = aimRay.intersectObjects(list, true);
+      if (hits.length) aimWorld.copy(hits[0].point); else aimWorld.copy(camera.position).addScaledVector(aimRay.ray.direction, 4);
+      const lx = aimWorld.x - chPos.x, ly = aimWorld.y - CH.position.y, lz = aimWorld.z - chPos.z;
+      const cy = Math.cos(chYaw), sy = Math.sin(chYaw);
+      aimModel = [(lx * cy - lz * sy) / VS + dims[0] / 2, ly / VS, (lx * sy + lz * cy) / VS + dims[2] / 2];   // world → model voxel-index space
+    } else aimModel = null;
+    if (xhair) xhair.style.display = aimOn ? 'block' : 'none';
     const hs = Math.hypot(chPos.x - ox, chPos.z - oz) / dt;       // MEASURED speed after collision — a blocked Vinny stops walking in place
     const was = state === 1 || transT >= 0;
     if (seated) state = 11; else if (hs > MOVE_EPS) { state = 1; walkSpeed = Math.min(2, Math.max(.5, hs * .5)); } else state = 0;
@@ -2605,11 +2820,12 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
       blend = t * t * (3 - 2 * t); dip = -Math.sin(Math.PI * t) * TRANS_DIP;
       if (t >= 1) { transT = -1; blend = 1; dip = 0; }
     }
-    if (was || state === 1 || transT >= 0) pose();                // the settled idle/seated pose never re-evaluates
+    if (was || state === 1 || transT >= 0 || aimOn) pose();       // the settled idle/seated pose never re-evaluates; aiming re-evals every frame (arm tracks live)
+    const chairBusy = chairStepFn ? chairStepFn(dt) : false;      // the CHAIR body walks on the same frame — keeps the loop alive while it moves
     const camBusy = possessed ? driveCam(dt) : false;
     const cp = document.getElementById('cabprompt');                // proximity prompt — possess-mode only (DESIGNER-4)
     if (cp) cp.classList.toggle('on', possessed && !window.__cabOpen && nearCab());
-    return (!seated && (keys.w || keys.a || keys.s || keys.d)) || state === 1 || transT >= 0 || camBusy;
+    return (!seated && (keys.w || keys.a || keys.s || keys.d)) || state === 1 || transT >= 0 || camBusy || chairBusy || aimOn;
   }
   /* the deck is render-on-dirty — the loop runs only while Vinny is live, and marks the scene dirty every frame it moves him */
   let raf = 0, last = 0;
@@ -2627,7 +2843,9 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
   sit();                                                         // boss spawns SEATED (nearest chair = #2 BOSS from the old spawn point) — he stood inside the table edge until first move
   console.log('DVM-2252 — Vinny loaded:', N, 'voxels · Civilian_01 outfit · Idle/Walking pose engine');
 
-  /* ── DVM-2252b — the CHAIR body: a second rigged character (Civilian1 dup, amber suit — mat 126 retinted in CHAIR1.json), seated at the CHAIR ring chair ── */
+  /* ── DVM-2252b/2256 — the CHAIR body: a second rigged character (Civilian1 dup, amber suit — mat 126 retinted in CHAIR1.json)
+     seated at the CHAIR ring chair. DVM-2256 gives it a mechanical order driver — the inspector's FOLLOW/POST chips are
+     pure scene mechanics (no agent call): FOLLOW trails Vinny at a polite distance, POST walks home and sits. ── */
   fetch('/char/CHAIR1').then(r => r.json()).then(rig2 => {
     if (!rig2 || !rig2.voxels) return;
     const N2 = rig2.voxels.length, VS2 = rig2.voxelSize || VS, d2 = rig2.dims || dims;
@@ -2637,26 +2855,236 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
     const reg2 = rig2.regions || {};
     rig2.voxels.forEach((v, i) => inst2.setColorAt(i, pal2[OUTFIT[reg2[v[0] + ',' + v[1] + ',' + v[2]]] || v[3]] || dflt));
     inst2.instanceColor.needsUpdate = true;
-    const E2 = poseEngine(rig2), buf2 = new Float64Array(3 * N2);
-    E2.evalPose(11, 0, buf2);                                        // Sit — same fitted params as Vinny's seat pose
-    const MA2 = inst2.instanceMatrix.array, hx = d2[0] / 2, hz = d2[2] / 2;
-    for (let i = 0, j = 12; i < N2; i++, j += 16) { MA2[j] = (buf2[3 * i] - hx) * VS2; MA2[j + 1] = (buf2[3 * i + 1] + .5) * VS2; MA2[j + 2] = (buf2[3 * i + 2] - hz) * VS2; }
-    inst2.instanceMatrix.needsUpdate = true;
+    const E2 = poseEngine(rig2), bufA2 = new Float64Array(3 * N2), bufB2 = new Float64Array(3 * N2);
+    const MA2 = inst2.instanceMatrix.array; for (let i = 0; i < N2; i++) MA2[16 * i] = MA2[16 * i + 5] = MA2[16 * i + 10] = MA2[16 * i + 15] = 1;
+    function upload2(A, B, blend, dip) {                             // same pipeline as Vinny's upload — voxel-index → CH2-local metres
+      const hx = d2[0] / 2, hz = d2[2] / 2;
+      for (let i = 0, j = 12; i < N2; i++, j += 16) {
+        let x = B[3 * i], y = B[3 * i + 1], z = B[3 * i + 2];
+        if (A) { x = A[3 * i] + (x - A[3 * i]) * blend; y = A[3 * i + 1] + (y - A[3 * i + 1]) * blend + dip; z = A[3 * i + 2] + (z - A[3 * i + 2]) * blend; }
+        MA2[j] = (x - hx) * VS2; MA2[j + 1] = (y + .5) * VS2; MA2[j + 2] = (z - hz) * VS2;
+      }
+      inst2.instanceMatrix.needsUpdate = true;
+    }
+    let state2 = 11, prevState2 = 11, transFrom2 = 11, transT2 = -1, blend2 = 1, dip2 = 0, walkSpeed2 = 1, gaitTime2 = 0;
+    function pose2() {                                               // Idle↔Walking↔Sit with the same 0.32s dual-eval transitions
+      const a2 = gazeModel ? { T: gazeModel, blend: 0, head: 1 } : null;   // gaze channel: head tracks, arm untouched (blend 0 = no arm change)
+      E2.evalPose(state2, gaitTime2, bufB2, a2);
+      if (transT2 >= 0) { E2.evalPose(transFrom2, gaitTime2, bufA2, a2); upload2(bufA2, bufB2, blend2, dip2); } else upload2(null, bufB2, 1, 0);
+    }
     const si = Math.max(0, Object.keys(SEATS).indexOf('CHAIR'));      // roster-driven — the CHAIR chair, not a hardcoded index
     const c = RING[si], cy = Math.cos(c.yaw), sy = Math.sin(c.yaw);
+    const seatX = c.x + SEAT_OFF[0] * cy + SEAT_OFF[2] * sy, seatZ = c.z - SEAT_OFF[0] * sy + SEAT_OFF[2] * cy;
     const CH2 = new THREE.Group();
-    CH2.position.set(c.x + SEAT_OFF[0] * cy + SEAT_OFF[2] * sy, 0, c.z - SEAT_OFF[0] * sy + SEAT_OFF[2] * cy);
-    CH2.rotation.y = c.yaw;
-    CH2.add(inst2); scene.add(CH2); DECK.dirty();
-    window.__chairbody = { root: CH2, mesh: inst2, engine: E2 };     // follow-me driver hooks here later
-    console.log('DVM-2252b — CHAIR body seated:', N2, 'voxels · amber suit · ring chair #' + si);
-  }).catch(e => console.warn('DVM-2252b — CHAIR1 unavailable:', e));
+    CH2.position.set(seatX, 0, seatZ); CH2.rotation.y = c.yaw;
+    CH2.add(inst2); scene.add(CH2);
+    inst2.userData.key = 'CHAIR'; (window.__hitList || []).push(inst2);   // click the body itself → the CHAIR inspector
+    const chairPos = new THREE.Vector3(seatX, 0, seatZ); let chairYaw = c.yaw, order = 'post', seated2 = true;
+    const FOLLOW_D = .48, SNAP_D = .6, RISE_T = .42;
+    let unseatT = -1, exitWps = null, wpAge = 0, postFar = false, orbitKey = null, orbitSgn = 1;
+    /* hybrid nav (the user's spec): scripted get-up-and-out-of-the-ring — one leg along his own radial to the
+       stand-point, ring exempt — then procedural pathing where the whole furniture zone is RING_BUF, a single
+       obstacle he must round and can never re-enter — except POST, whose two-leg approach is the way back in. */
+    const RING_BUF = [-.015, -.105, 1.55];
+    /* ── DVM-2261 — CHAIR eyes: the rig's region 10 IS the gaze anchor ("eye voxels — gaze centroid").
+       Posed eye-centroid out of the eval buffers → world eye point → POV camera. A tag is a gaze order:
+       head tracks it via the aim channel (blend 0 = arm untouched, head 1), and the POV cam centers it. ── */
+    const eyeIdx = []; rig2.voxels.forEach((v, i) => { if ((rig2.regions || {})[v[0] + ',' + v[1] + ',' + v[2]] === 10) eyeIdx.push(i); });
+    let gazeT = null, gazeModel = null, povOn = false, gazeEase = 0;            // gazeT: world Vector3 of the tag being watched
+    const povCam = new THREE.PerspectiveCamera(72, 16 / 9, .005, 20);
+    povCam.rotation.order = 'YXZ';
+    let povYaw = c.yaw + Math.PI, povPitch = 0;
+    const _eyeL = [0, 0, 0], _eyeW = new THREE.Vector3(), _fwd = new THREE.Vector3();
+    function eyeWorld() {                                        // posed eye centroid → CH2-local metres → world
+      let x = 0, y = 0, z = 0;
+      for (const i of eyeIdx) { x += bufB2[3 * i]; y += bufB2[3 * i + 1]; z += bufB2[3 * i + 2]; }
+      if (transT2 >= 0) {                                        // mid-transition: blend the centroid like upload2 does
+        let ax = 0, ay = 0, az = 0;
+        for (const i of eyeIdx) { ax += bufA2[3 * i]; ay += bufA2[3 * i + 1]; az += bufA2[3 * i + 2]; }
+        x = ax + (x - ax) * blend2; y = ay + (y - ay) * blend2; z = az + (z - az) * blend2;
+      }
+      const n = eyeIdx.length || 1, hx = d2[0] / 2, hz = d2[2] / 2;
+      _eyeL[0] = (x / n - hx) * VS2; _eyeL[1] = (y / n + .5) * VS2; _eyeL[2] = (z / n - hz) * VS2;
+      const cy = Math.cos(chairYaw), sy = Math.sin(chairYaw);
+      _eyeW.set(CH2.position.x + _eyeL[0] * cy + _eyeL[2] * sy, CH2.position.y + _eyeL[1], CH2.position.z - _eyeL[0] * sy + _eyeL[2] * cy);
+      return _eyeW;
+    }
+    const povEl = document.createElement('div'); povEl.id = 'pov'; povEl.innerHTML = '<span>CHAIR POV</span>';
+    (() => { const dv = document.getElementById('deckview'); if (dv) dv.appendChild(povEl); else document.body.appendChild(povEl); })();
+    function updatePov(dt) {
+      const e = eyeWorld();
+      /* gaze target → desired view yaw/pitch (−Z camera-forward convention); no target → body-forward horizon look */
+      let wy = chairYaw + Math.PI, wp = 0;
+      if (gazeT) {
+        const dx = gazeT.x - e.x, dy = gazeT.y - e.y, dz = gazeT.z - e.z, hz = Math.hypot(dx, dz) || 1e-4;
+        wy = Math.atan2(-dx, -dz); wp = Math.atan2(dy, hz);
+      }
+      let dyw = wy - povYaw; while (dyw > Math.PI) dyw -= 2 * Math.PI; while (dyw < -Math.PI) dyw += 2 * Math.PI;
+      const k = Math.min(1, 10 * dt);                            // ~0.2s ease — reads as a look, lands centered
+      povYaw += dyw * k; povPitch += (wp - povPitch) * k;
+      gazeEase = Math.abs(dyw) + Math.abs(wp - povPitch);        // nonzero while still turning
+      _fwd.set(-Math.sin(povYaw) * Math.cos(povPitch), Math.sin(povPitch), -Math.cos(povYaw) * Math.cos(povPitch));   // camera-forward
+      povCam.position.copy(e).addScaledVector(_fwd, .075);       // push out of the skull — the head is behind the near plane
+      povCam.rotation.set(povPitch, povYaw, 0);
+      return gazeEase > .01;
+    }
+    chairStepFn = function chairStep(dt) {
+      if (unseatT >= 0) { unseatT += dt; if (unseatT >= RISE_T) { unseatT = -1; exitWps = [[c.ux * STAND_R - .015, c.uz * STAND_R - .105]]; wpAge = 0; } }   // scripted out-leg: his own radial to the stand-point, ring exempt
+      const rising = unseatT >= 0, exiting = !!(exitWps && exitWps.length);
+      if (exiting) wpAge += dt;
+      const gotoOK = order === 'goto' && marks.length;
+      let tx = rising ? chairPos.x : exiting ? exitWps[0][0] : order === 'follow' ? chPos.x : gotoOK ? marks[0].position.x : order === 'post' ? (postFar ? c.ux * STAND_R - .015 : seatX) : chairPos.x;
+      let tz = rising ? chairPos.z : exiting ? exitWps[0][1] : order === 'follow' ? chPos.z : gotoOK ? marks[0].position.z : order === 'post' ? (postFar ? c.uz * STAND_R - .105 : seatZ) : chairPos.z;
+      let arrive = exiting ? .2 : order === 'post' ? (postFar ? .18 : SNAP_D) : order === 'follow' ? FOLLOW_D : .3;   // exit wps + the post stand-point accept a loose berth · seat snaps home · follow holds distance · goto plants on the mark
+      if (!rising && !exiting && (order === 'follow' || gotoOK)) {        // target inside the furniture ring (seated Vinny, a tag on the table): stand on its outward radial — never thread between chairs
+        const rx = tx + .015, rz = tz + .105, rd = Math.hypot(rx, rz);
+        if (rd < 1.45 && rd > 1e-4) { tx = -.015 + rx / rd * STAND_R; tz = -.105 + rz / rd * STAND_R; arrive = .18; }
+      }
+      const dx = tx - chairPos.x, dz = tz - chairPos.z, d = Math.hypot(dx, dz);
+      const moving = d > arrive, ox = chairPos.x, oz = chairPos.z;
+      const ownFree = Math.hypot(chairPos.x - c.x, chairPos.z - c.z) < .55;      // his own chair can't be an obstacle while he stands inside it — the unhandled equilibrium that froze the last orbit test; self-clears as he walks out
+      if (moving) {
+        let vx = dx / d * WALK, vz = dz / d * WALK;
+        let bs = null, bd = 0;                                       // nearest solid the beeline would enter — one owner per frame
+        for (let k = 0; k < SOLIDS.length; k++) {
+          const s = SOLIDS[k];
+          if (((order === 'post' || ownFree) && k === 2 + si) || (exiting && k >= 2 && k < 2 + NCHAIRS)) continue;   // homing: own chair is enterable — and while he stands inside it, on ANY order; the exit route exempts the whole ring
+          const px = chairPos.x - s[0], pz = chairPos.z - s[1], rr = s[2] + .3, dd = Math.hypot(px, pz);
+          if (dd < rr && dd > 1e-4 && (vx * px / dd + vz * pz / dd) < 0 && (!bs || dd - s[2] < bd)) { bs = s; bd = dd - s[2]; }
+        }
+        if (!exiting && !(order === 'post' && !postFar)) {               // RING_BUF — one obstacle in normal nav AND on POST's far leg (he rounds the perimeter to the stand-point); only the scripted radial legs cross it
+          const pxd = chairPos.x - RING_BUF[0], pzd = chairPos.z - RING_BUF[1], ddD = Math.hypot(pxd, pzd);
+          if (ddD < RING_BUF[2] + .3 && ddD > 1e-4 && (vx * pxd / ddD + vz * pzd / ddD) < 0 && (!bs || ddD - RING_BUF[2] < bd)) { bs = RING_BUF; bd = ddD - RING_BUF[2]; }
+        }
+        if (bs) {                                                    // orbit the owner — sense picked ONCE per owner (whichever tangent gains on the target),
+          const px = chairPos.x - bs[0], pz = chairPos.z - bs[1], dd = Math.hypot(px, pz) || 1;   // then COMMITTED until the block clears: a dead-ahead block dithered the pick
+          const txx = pz / dd, tzz = -px / dd;                        // every frame — he pressed against the circle and never rounded it
+          if (bs !== orbitKey) { orbitKey = bs; orbitSgn = (txx * dx + tzz * dz) < 0 ? -1 : 1; }
+          vx = txx * orbitSgn * WALK; vz = tzz * orbitSgn * WALK;
+        } else orbitKey = null;
+        let dyaw = Math.atan2(vx, vz) - chairYaw; while (dyaw > Math.PI) dyaw -= 2 * Math.PI; while (dyaw < -Math.PI) dyaw += 2 * Math.PI;
+        chairYaw += Math.sign(dyaw) * Math.min(Math.abs(dyaw), TURN * dt);
+        chairPos.x += vx * dt; chairPos.z += vz * dt;
+        seated2 = false;
+      } else if (order === 'post' && !seated2 && !postFar) {         // arrived at the chair — snap into the fitted seat pose
+        seated2 = true; chairPos.x = seatX; chairPos.z = seatZ;
+      }
+      if (postFar && !moving) postFar = false;                        // stand-point reached — now the straight radial leg in to his seat (crosses only his own chair, already exempt)
+      if (exiting && (!moving || wpAge > 2.5)) { exitWps.shift(); wpAge = 0; }   // waypoint reached → next leg; unreachable for 2.5s → skip rather than softlock
+      if (!seated2) {
+        if (window.__bldg) { const sl = window.__bldg.slide(ox, oz, chairPos.x, chairPos.z); chairPos.x = sl[0]; chairPos.z = sl[1]; }   // walk-grid: the WHOLE building, halls included — not the office-only FLOOR box
+        else {
+          chairPos.x = Math.max(FLOOR.x[0], Math.min(FLOOR.x[1], chairPos.x));
+          chairPos.z = Math.max(FLOOR.z[0], Math.min(FLOOR.z[1], chairPos.z));
+        }
+        for (let k = 0; k < SOLIDS.length; k++) {                    // capsule→circle pushout as backstop
+          const s = SOLIDS[k];
+          if ((ownFree && k === 2 + si) || (exiting && k >= 2 && k < 2 + NCHAIRS)) continue;   // no shove while he stands inside his own chair; the exit route exempts the whole ring
+          const px = chairPos.x - s[0], pz = chairPos.z - s[1], rr = s[2] + .15, dd = Math.hypot(px, pz);
+          if (dd < rr && dd > 1e-4) { chairPos.x = s[0] + px / dd * rr; chairPos.z = s[1] + pz / dd * rr; }
+        }
+        if (!exiting && !(order === 'post' && !postFar)) {               // buffer pushout — repels drift-inside on every order except the two scripted radial legs
+          const pxd = chairPos.x - RING_BUF[0], pzd = chairPos.z - RING_BUF[1], ddD = Math.hypot(pxd, pzd), rrD = RING_BUF[2] + .15;
+          if (ddD < rrD && ddD > 1e-4) { chairPos.x = RING_BUF[0] + pxd / ddD * rrD; chairPos.z = RING_BUF[1] + pzd / ddD * rrD; }
+        }
+      } else chairYaw = c.yaw;
+      CH2.position.set(chairPos.x, seated2 ? SEAT_OFF[1] : 0, chairPos.z); CH2.rotation.y = chairYaw;
+      const hs = Math.hypot(chairPos.x - ox, chairPos.z - oz) / dt;  // measured speed → gait, same contract as Vinny
+      const was2 = state2 === 1 || transT2 >= 0;
+      if (seated2) state2 = 11; else if (hs > MOVE_EPS) { state2 = 1; walkSpeed2 = Math.min(2, Math.max(.5, hs * .5)); } else state2 = 0;
+      if (state2 !== prevState2) { transFrom2 = prevState2; prevState2 = state2; transT2 = 0; }
+      gaitTime2 += dt * walkSpeed2;
+      if (transT2 >= 0) {
+        transT2 += dt; const t = Math.min(1, transT2 / TRANS_DUR);
+        blend2 = t * t * (3 - 2 * t); dip2 = -Math.sin(Math.PI * t) * TRANS_DIP;
+        if (t >= 1) { transT2 = -1; blend2 = 1; dip2 = 0; }
+      }
+      let gazeBusy = false;
+      if (gazeT) {                                                   // the tag in model space — head channel + view center share it
+        const lx = gazeT.x - CH2.position.x, ly = gazeT.y - CH2.position.y, lz = gazeT.z - CH2.position.z;
+        const cy = Math.cos(chairYaw), sy = Math.sin(chairYaw);
+        gazeModel = [(lx * cy - lz * sy) / VS2 + d2[0] / 2, ly / VS2, (lx * sy + lz * cy) / VS2 + d2[2] / 2];
+      } else gazeModel = null;
+      if (was2 || state2 === 1 || transT2 >= 0 || gazeModel) pose2();   // gaze re-evals each frame while held — the head tracks live
+      if (povOn) gazeBusy = updatePov(dt);                           // PiP live: ease the view, keep the loop hot while turning
+      return unseatT >= 0 || exiting || moving || state2 === 1 || transT2 >= 0 || gazeBusy || !!gazeModel;   // unseatT/exitWps keep the loop hot through the scripted rise+exit — otherwise render-on-dirty kills the rAF mid-route and he freezes standing
+    };
+    E2.evalPose(11, 0, bufB2); upload2(null, bufB2, 1, 0); DECK.dirty();
+    window.__chairbody = { root: CH2, mesh: inst2, engine: E2, order: () => order,
+      setOrder: o => {
+        order = { follow: 'follow', post: 'post', goto: 'goto', wait: 'wait' }[o] || 'post';
+        if (order === 'follow' || order === 'goto') { if (seated2) unseatT = 0; seated2 = false; }   // moving orders: rise first, then walk out
+        else { unseatT = -1; exitWps = null; }                         // post/wait cancels any exit mid-beat
+        postFar = order === 'post' && !seated2 && Math.hypot(chairPos.x + .015, chairPos.z + .105) > 1.6;   // POST from outside the ring → stand-point leg first, then radial in; already inside/seated → straight to the chair
+        orbitKey = null;                                                 // new order — the committed orbit sense re-picks clean
+        kick();
+      },
+      gaze: p => { gazeT = (gazeT || new THREE.Vector3()).copy(p); kick(); },     // tag → gaze order (mechanical, no agent)
+      ungaze: () => { gazeT = null; kick(); } };
+    window.__eyes = {
+      on: () => povOn,
+      show: () => { if (povOn) return; povOn = true; povEl.style.display = 'block'; kick(); DECK.dirty(); },
+      hide: () => { povOn = false; povEl.style.display = 'none'; DECK.dirty(); },
+      /* PiP — scissored second pass over the same frame. Color in the inset is fully overwritten by the POV render;
+         only depth needs clearing, scissor-bounded so the main view survives. */
+      pip: () => {
+        const cv = renderer.domElement, w = cv.width / (renderer.getPixelRatio() || 1), h = cv.height / (renderer.getPixelRatio() || 1);
+        const iw = Math.floor(w * .30), ih = Math.floor(iw * 9 / 16), ix = Math.floor(w - iw - 12), iy = 12;
+        povCam.aspect = iw / ih; povCam.updateProjectionMatrix();
+        /* the eyes always see the SEALED room — envelope + interior lights on for this pass only,
+           restored after; the main view keeps its own peeled/lit state either way */
+        const env = window.__env, envWas = env && env.visible, bldg = window.__bldg;
+        if (env) env.visible = true; if (bldg && bldg.setPossess) bldg.setPossess(true);
+        renderer.setScissorTest(true); renderer.setScissor(ix, iy, iw, ih); renderer.setViewport(ix, iy, iw, ih);
+        renderer.clearDepth();
+        const ac = renderer.autoClear; renderer.autoClear = false;
+        renderer.render(scene, povCam);
+        renderer.autoClear = ac; renderer.setScissorTest(false); renderer.setViewport(0, 0, w, h); renderer.setScissor(0, 0, w, h);
+        if (env) env.visible = envWas; if (bldg && bldg.setPossess) bldg.setPossess(!!window.__possessOn);
+      },
+      /* the eyes' own capture — full-res POV frame → PNG data URL. preserveDrawingBuffer is off,
+         so this must render then read in the same task. __eyes.shot() → data URL; .snap() downloads it. */
+      shot: () => {
+        const cv = renderer.domElement, pr = renderer.getPixelRatio() || 1;
+        povCam.aspect = cv.width / cv.height; povCam.updateProjectionMatrix();
+        const env = window.__env, envWas = env && env.visible, bldg = window.__bldg;   // captures take the sealed room too — a snapshot is what the eyes saw, not what the stage showed
+        if (env) env.visible = true; if (bldg && bldg.setPossess) bldg.setPossess(true);
+        const markWas = marks.map(m => m.visible); marks.forEach(m => m.visible = false);   // clean frame — the red tag is UI, not scenery
+        renderer.setViewport(0, 0, cv.width / pr, cv.height / pr); renderer.render(scene, povCam);
+        const url = cv.toDataURL('image/png');
+        marks.forEach((m, i) => m.visible = markWas[i]);
+        if (env) env.visible = envWas; if (bldg && bldg.setPossess) bldg.setPossess(!!window.__possessOn);
+        DECK.dirty();
+        return url;
+      },
+      snap: () => { const u = window.__eyes.shot(); if (!u) return; const a = document.createElement('a'); a.href = u; a.download = 'chair_pov.png'; a.click(); },
+      /* the pipeline cap — frame → server → docs/chair_eye.png. Page sole-writes; seats/tools read.
+         shutter() is the audible receipt; __shot_last keeps the frame for the CAPTURED PNG overlay. */
+      cap: () => { const u = window.__eyes.shot(); if (!u) return;
+        window.__shot_last = window.__shot_last_chair = u;
+        fetch('/shot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ png: u, name: 'chair_eye' }) })
+          .then(r => r.json()).then(j => { if (j.ok) shutter(); console.log('DVM-2261 — eye capture:', j.ok ? j.bytes + 'B → ' + j.path : 'FAILED ' + j.err); }); },
+      /* the user's own frame — the main camera exactly as displayed (peeled or sealed, tag and all —
+         it's a communication frame, clutter included). Shift+C → docs/vinny_eye.png. */
+      shotMain: () => {
+        const cv = renderer.domElement, pr = renderer.getPixelRatio() || 1;
+        renderer.setViewport(0, 0, cv.width / pr, cv.height / pr); renderer.render(scene, camera);
+        const url = cv.toDataURL('image/png'); DECK.dirty(); return url;
+      },
+      capMain: () => { const u = window.__eyes.shotMain(); if (!u) return;
+        window.__shot_last = window.__shot_last_user = u;
+        fetch('/shot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ png: u, name: 'vinny_eye' }) })
+          .then(r => r.json()).then(j => { if (j.ok) shutter(); console.log('DVM-2261 — user capture:', j.ok ? j.bytes + 'B → ' + j.path : 'FAILED ' + j.err); }); },
+      eye: () => eyeWorld().toArray(), gaze: () => gazeT && gazeT.toArray()
+    };
+    console.log('DVM-2256 — CHAIR body online:', N2, 'voxels · amber suit · orders FOLLOW/POST · body clickable');
+  }).catch(e => console.warn('DVM-2256 — CHAIR1 unavailable:', e));
 
   /* ── DVM-LAW1 stage 1 — the law desk at the back wall: placement read first, interaction (E → reader) comes with the book.
      SCALE LAW (new-asset convention): file voxelSize IS the render pitch — authored at .0075 for the chibi room,
      consumed verbatim. No placement-vs override: a second number is a second way to diverge (the C-table bug).
      KIT `vs:` overrides remain only for pre-standard legacy assets. .90m long × .53m tall × .29m deep. ── */
-  const DESK_POS = [0, 0, 6.47];                                           // back wall: room ends z 6.65 — .29m-deep desk sits near-flush, drawers face -z toward the table
+  const DESK_POS = [-.045, 0, 9.40];                                       // authored model now a long TABLE (drawers/pulls converted to plain frame, 200×70×62 → 1.50m × .53m × .465m real voxels) — back edge flush on the real cap wall face ≈ z 9.63, front face −z, centered on the bay axis
   fetch('/Assets/StreamingAssets/voxel_items/commission_lawdesk.json').then(r => r.json()).then(item => {
     if (!item || !item.voxels) return;
     const N3 = item.voxels.length, VS3 = item.voxelSize || .01, d3 = item.dims;
@@ -2674,7 +3102,7 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
     const desk = new THREE.Group();
     desk.position.set(DESK_POS[0], DESK_POS[1], DESK_POS[2]);
     desk.add(inst3); scene.add(desk);
-    SOLIDS.push([-0.22, 6.47, .3], [0.22, 6.47, .3]);                       // two circles approximate the long-shallow footprint — blocks clipping, leaves the front reachable
+    SOLIDS.push([-.495, 9.40, .3], [.405, 9.40, .3]);                        // two circles approximate the long-table footprint at the back wall — blocks clipping, leaves the front reachable
     DECK.dirty();
     window.__lawdesk = { root: desk, vs: VS3 };
     console.log('DVM-LAW1 — law desk placed at back wall:', N3, 'voxels @ file-vs', VS3);

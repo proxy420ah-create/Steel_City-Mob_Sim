@@ -1,1 +1,0 @@
-window.DVM_PULSEN_INFORMANT = {"n": 2572};

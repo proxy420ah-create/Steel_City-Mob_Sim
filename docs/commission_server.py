@@ -16,7 +16,7 @@ bump on colliding fresh ids); scalars take the newer write's value. Direct
 file edits bypass this layer (carve-out): seat-side writers must still
 re-read + fold-by-id before writing.
 """
-import glob, gzip, json, os, re, sqlite3, sys, threading, time
+import base64, glob, gzip, json, os, re, sqlite3, sys, threading, time
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 
 # pulse-plane (triage): server-observed seat liveness. While a seat holds
@@ -395,6 +395,31 @@ class Handler(SimpleHTTPRequestHandler):
                 n = int(self.headers.get('Content-Length', 0))
                 obj = json.loads(self.rfile.read(n) or b'{}')
                 return self._ok(mark_event(obj.get('kind', 'event'), obj.get('note', ''), obj.get('model', '')))
+            except Exception as e:
+                return self._ok({'ok': False, 'err': str(e)}, 400)
+        if path == '/shot':
+            # DVM-2261 — the eyes' capture: page POSTs a PNG data URL from a POV cam;
+            # lands at docs/<name>.png (page sole-writes, seats/tools read — latest frame wins).
+            # name is whitelisted: chair_eye = CHAIR POV (C), vinny_eye = the user's own view (Shift+C).
+            SHOT_NAMES = {'chair_eye': 'chair_eye.png', 'vinny_eye': 'vinny_eye.png'}
+            try:
+                n = int(self.headers.get('Content-Length', 0))
+                if n > 12 * 1024 * 1024:
+                    raise ValueError('shot too large')
+                obj = json.loads(self.rfile.read(n) or b'{}')
+                fname = SHOT_NAMES.get(obj.get('name', 'chair_eye'))
+                if not fname:
+                    raise ValueError('bad shot name')
+                data_url = obj.get('png', '')
+                b64 = data_url.split(',', 1)[-1]
+                raw = base64.b64decode(b64)
+                if not raw.startswith(b'\x89PNG'):
+                    raise ValueError('not a PNG')
+                tmp = os.path.join(HERE, fname + '.tmp')
+                with open(tmp, 'wb') as f:
+                    f.write(raw)
+                os.replace(tmp, os.path.join(HERE, fname))
+                return self._ok({'ok': True, 'bytes': len(raw), 'path': fname})
             except Exception as e:
                 return self._ok({'ok': False, 'err': str(e)}, 400)
         if path == '/room/lights':

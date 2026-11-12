@@ -1,1 +1,0 @@
-window.DVM_PULSEN_ARCHITECT = {"n": 2572};

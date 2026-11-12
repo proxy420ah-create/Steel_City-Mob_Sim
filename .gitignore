@@ -88,3 +88,24 @@ docs/*.jsonl
 Assets/StreamingAssets/voxel_items/office_complex.json
 Assets/StreamingAssets/voxel_items/office_complex.prev.json
 Assets/StreamingAssets/voxel_items/*.bake.stamp
+
+# live POV captures — the page sole-writes, latest frame wins (runtime artifact)
+docs/chair_eye.png
+docs/vinny_eye.png
+
+# ── Commission live-bus stamps — sole-writer daemon state, intentionally untracked ──
+docs/deliberation_feed.js
+docs/deliberation_feed.js.bak-*
+docs/busy_*.js
+docs/inbox_n_*.js
+docs/pulse_n_*.js
+docs/read_n_*.js
+docs/office_evt.js
+docs/session_seat_*.js
+docs/seat_drain_*.js
+docs/seat_diary_*.md
+docs/seat_state_*.md
+docs/seat_fetch_*.json
+docs/_cab1_board.json
+docs/_post_test.js
+Assets/StreamingAssets/voxel_items/commission_lawdesk.json.bak

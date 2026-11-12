@@ -11,9 +11,9 @@ body { background:#0a0a14; color:#eee; font-family:'Segoe UI',system-ui,sans-ser
 
 /* Editor nav */
 #editor-nav { position:fixed; top:8px; right:8px; z-index:9999; display:flex; gap:4px; }
-#editor-nav a { padding:4px 10px; border-radius:4px; font-size:11px; text-decoration:none; background:rgba(0,0,0,0.7); color:#888; border:1px solid #333; transition:all 0.15s; font-family:'Segoe UI',sans-serif; }
-#editor-nav a:hover { background:rgba(0,170,68,0.3); color:#fff; border-color:#0c6; }
-#editor-nav a.current { background:#0a4; color:#fff; border-color:#0c6; }
+#editor-nav a { padding:4px 10px; border-radius:4px; font-size:11px; text-decoration:none; background:rgba(20,26,44,0.85); color:#8a97c8; border:1px solid #3a4670; transition:all 0.15s; font-family:'Segoe UI',sans-serif; }
+#editor-nav a:hover { background:rgba(58,82,150,0.45); color:#fff; border-color:#7aa2ff; }
+#editor-nav a.current { background:#3d5a99; color:#fff; border-color:#7aa2ff; }
 
 /* Top toolbar */
 #toolbar {
@@ -207,6 +207,15 @@ body.ui-hidden #ui-hidden-hint { display:block; }
   <a href="character_animator.html">Animator</a>
   <a href="city_editor.html" class="current">City Editor</a>
 </div>
+<script>
+/* WIP guard — every nav click leaves or reloads the page (the current tab is a full reset).
+   Gate all of them behind a confirm so a stray click can't wipe unsaved work. */
+document.getElementById('editor-nav').addEventListener('click', e => {
+  const a = e.target.closest('a'); if (!a) return;
+  const what = a.classList.contains('current') ? 'Reset ' + a.textContent.trim() : 'Change to ' + a.textContent.trim();
+  if (!confirm(what + '?\nAny unsaved work will be lost.')) e.preventDefault();
+});
+</script>
 
 <div id="canvas-container"></div>
 
