@@ -364,6 +364,7 @@ const emitChar = spec => fetch('/char/' + spec.char).then(r => r.json()).then(ri
   f.setOrder = o => { f.order = { follow: 'follow', goto: 'goto', wait: 'wait' }[o] || 'follow'; };
   E.evalPose(0, 0, bufB); upload(null, bufB, 1, 0);
   followers.push(f);
+  if (!povF) povF = f;                                   // first body in the room owns the eyes — party or console, same claim
   return f;
 }).catch(e => { window.__lastPartyErr = String(e && e.stack || e); console.warn('CONSTRUCT — follower emit failed:', spec.char, e); });
 
@@ -417,8 +418,10 @@ const followStep = (f, dt) => {
 const povCam = new THREE.PerspectiveCamera(72, 16 / 9, .005, 20); povCam.rotation.order = 'YXZ';
 let povOn = false, povYaw = Math.PI, povPitch = 0, povF = null;
 const povEl = document.createElement('div');
-povEl.style.cssText = 'position:fixed;right:12px;bottom:12px;color:#b0a88f;font:10px ui-monospace,Consolas,monospace;letter-spacing:.2em;display:none;z-index:6;pointer-events:none';
+povEl.style.cssText = 'position:fixed;right:12px;bottom:12px;border:1px solid rgba(255,255,255,.35);box-shadow:0 0 0 1px rgba(0,0,0,.25);color:#b0a88f;font:10px ui-monospace,Consolas,monospace;letter-spacing:.2em;display:none;z-index:6;pointer-events:none;padding:4px 6px';
 povEl.textContent = 'FOLLOWER POV'; document.body.appendChild(povEl);
+const sizePovEl = () => { const w = innerWidth, iw = Math.floor(w * .30), ih = Math.floor(iw * 9 / 16); povEl.style.width = iw + 'px'; povEl.style.height = ih + 'px'; povEl.style.padding = '0'; povEl.style.lineHeight = '1'; povEl.style.boxSizing = 'border-box'; povEl.style.textAlign = 'left'; povEl.style.verticalAlign = 'bottom'; povEl.innerHTML = '<span style="position:absolute;left:0;bottom:0;padding:3px 6px;background:rgba(0,0,0,.35)">FOLLOWER POV</span>'; };
+sizePovEl(); addEventListener('resize', sizePovEl);
 const _eyeL = [0, 0, 0], _eyeW = new THREE.Vector3(), _pfwd = new THREE.Vector3();
 function eyeWorld(f) {
   let x = 0, y = 0, z = 0;
@@ -543,7 +546,7 @@ const openCons = () => { consOpen = true; renderCons(); consEl.style.display = '
 const closeCons = () => { consOpen = false; consEl.style.display = 'none'; };
 window.__console = { open: openCons, close: closeCons, on: () => consOpen, render: renderCons, spawn: r => toggleSpawn(r, { textContent: '' }) };
 
-const partyP = Promise.all(PARTY.map(emitChar)).then(fs => { povF = fs.find(Boolean) || null; });
+const partyP = Promise.all(PARTY.map(emitChar));
 const ready = Promise.all([doorP, carP, deskP, partyP]);
 MANIFEST.props.push({ kind: 'turntable', x: SPIN_POS.x, z: SPIN_POS.z, r: SPIN_R, asset: 'vehicle_490_touring' },
                     { kind: 'prop-table', x: 2.3, z: -4, asset: 'commission_lawdesk',
