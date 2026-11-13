@@ -289,6 +289,16 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         if self.path.rstrip('/') == '/usage':
             return self._ok(usage_report())
+        if self.path.rstrip('/').startswith('/peek'):
+            # live-state bridge: a page POSTs its live follower/aim state here; agents
+            # GET the last dump to see the session's real setup (no debug port needed).
+            p = os.path.join(HERE, '_live.json')
+            if not os.path.isfile(p):
+                return self._ok({'err': 'no live state'}, 404)
+            try:
+                return self._ok(json.load(open(p, encoding='utf-8')))
+            except Exception as e:
+                return self._ok({'err': str(e)}, 500)
         # voxel pipeline assets — whitelisted read into the item library so the
         # room renders the same file the studio exports (dogfooding, one source).
         # scene bake of an editable building asset (see bake_building.py): rebuilt when the
@@ -398,6 +408,21 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.rstrip('/')
+        if path == '/peek':
+            # counterpart of GET /peek — the page streams {pos, followers, gaze, aim...}
+            # at ~2Hz; latest dump wins, same atomic tmp+replace contract as /shot.
+            try:
+                n = int(self.headers.get('Content-Length', 0))
+                if n > 256 * 1024:
+                    raise ValueError('peek too large')
+                obj = json.loads(self.rfile.read(n) or b'{}')
+                tmp = os.path.join(HERE, '_live.json.tmp')
+                with open(tmp, 'w', encoding='utf-8') as f:
+                    json.dump(obj, f)
+                os.replace(tmp, os.path.join(HERE, '_live.json'))
+                return self._ok({'ok': True})
+            except Exception as e:
+                return self._ok({'ok': False, 'err': str(e)}, 400)
         if path.startswith('/save/voxel/'):
             # studio save-back: the editor POSTs its full project JSON; lands at
             # Assets/StreamingAssets/voxel_items/<name>.json (atomic tmp+replace).

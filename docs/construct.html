@@ -546,6 +546,25 @@ const openCons = () => { consOpen = true; renderCons(); consEl.style.display = '
 const closeCons = () => { consOpen = false; consEl.style.display = 'none'; };
 window.__console = { open: openCons, close: closeCons, on: () => consOpen, render: renderCons, spawn: r => toggleSpawn(r, { textContent: '' }) };
 
+/* ── live link — streams the session to the server so the agent sees YOUR real setup:
+   /peek gets pos/aim/marks/follower orders+gaze at ~2Hz; /shot probe_live_pov gets his
+   actual POV frame ~1Hz (shot()'s fullscreen render is restored in the same task — no flicker). */
+const liveEl = document.createElement('div');
+liveEl.style.cssText = 'position:fixed;left:12px;top:12px;color:#7fd4ff;font:10px ui-monospace,Consolas,monospace;letter-spacing:.25em;display:none;z-index:6;pointer-events:none';
+liveEl.textContent = '◉ LIVE'; document.body.appendChild(liveEl);
+const livePost = () => fetch('/peek', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ t: Date.now(), pos: pos.toArray(), yaw, aimOn, aim: aimWorld.toArray(), held: held && held.name,
+    marks: marks.map(m => m.position.toArray()), povOn,
+    followers: followers.map(f => ({ char: f.spec.char, order: f.order, pos: f.pos.toArray(), gaze: f.gazeT ? f.gazeT.toArray() : null })) }) }).catch(() => {});
+const liveShot = () => { const u = window.__eyes.shot(); renderer.render(scene, camera);
+  if (u) fetch('/shot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'probe_live_pov', png: u }) }).catch(() => {}); };
+const LIVE = { on: false, iv: 0, sv: 0 };
+window.__live = {
+  on: () => LIVE.on,
+  start: () => { if (LIVE.on) return; LIVE.on = true; livePost(); liveShot(); LIVE.iv = setInterval(livePost, 400); LIVE.sv = setInterval(liveShot, 900); liveEl.style.display = 'block'; },
+  stop: () => { LIVE.on = false; clearInterval(LIVE.iv); clearInterval(LIVE.sv); liveEl.style.display = 'none'; },
+};
+
 const partyP = Promise.all(PARTY.map(emitChar));
 const ready = Promise.all([doorP, carP, deskP, partyP]);
 MANIFEST.props.push({ kind: 'turntable', x: SPIN_POS.x, z: SPIN_POS.z, r: SPIN_R, asset: 'vehicle_490_touring' },
@@ -586,7 +605,8 @@ addEventListener('keydown', e => { keys[(e.key || '').toLowerCase()] = true;
   } else if (k === 'p' && window.__eyes) { povOn ? window.__eyes.hide() : window.__eyes.show(); }
   else if (k === 't') { followers.forEach(f => f.setOrder('goto')); }          // GO — walk to the live tag
   else if (k === 'r') { clearTags(); }                                         // release — clear the tag and the gaze it ordered
-  else if (k === 'h') { followers.forEach(f => f.setOrder(f.order === 'follow' ? 'wait' : 'follow')); } });   // HEEL ⇄ WAIT
+  else if (k === 'h') { followers.forEach(f => f.setOrder(f.order === 'follow' ? 'wait' : 'follow')); }   // HEEL ⇄ WAIT
+  else if (k === 'y') { LIVE.on ? window.__live.stop() : window.__live.start(); } });   // live link — stream session to the agent
 addEventListener('keyup', e => { keys[(e.key || '').toLowerCase()] = false; });
 
 /* ── pick-up / drop — free item manipulation on the measured-surface law.
