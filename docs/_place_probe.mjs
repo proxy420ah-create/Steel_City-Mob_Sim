@@ -63,60 +63,95 @@ check('grab selects desk', (await evl('__place.sel()')) === 'commission_lawdesk'
 const carry = await evl('(window.__place._c = (() => { const s = window.__construct.placed.find(p => p.name === "commission_lawdesk"); return (s._carry || []).map(c => c.q.name); })())');
 check('carry enlisted 3 passengers', carry && carry.length === 3, JSON.stringify(carry));
 
-// 3 — lock a camera aiming down at the NE corner (x≈2.6, z≈-5.3); placeStep drags the desk under the ray
+// 3 — select-only contract: grab → item does NOT move when the camera does (the bug the user hit)
 await evl('__cam(1.8, 1.9, -4.2, 2.6, 0, -5.3)');
 await sleep(600);
-const midDump = JSON.parse(await evl('__place.dump()'));
-const deskMid = midDump.find(p => p.name === 'commission_lawdesk');
-check('desk dragged under aim ray', deskMid && Math.abs(deskMid.x - 2.6) < .35 && Math.abs(deskMid.z + 5.3) < .35, JSON.stringify(deskMid));
-const lampMid = midDump.find(p => p.name === 'commission_desklamp');
-check('lamp rode along', lampMid && Math.abs(lampMid.x - deskMid.x) < .8 && Math.abs(lampMid.z - deskMid.z) < .9, JSON.stringify(lampMid));
+const still = JSON.parse(await evl('__place.dump()')).find(p => p.name === 'commission_lawdesk');
+check('selection does not move the item', still && still.x === 2.3 && still.z === -1.1, JSON.stringify(still));
+check('stat line shows the selection', await evl('[...document.querySelectorAll("div")].some(d => d.textContent.startsWith("SEL commission_lawdesk"))'));
 
-// 4 — drop → persisted
-await evl('__place.drop()');
-const over = JSON.parse(await evl('localStorage.getItem("dvm_place")') || '{}');
-check('dvm_place override written', over.commission_lawdesk && Math.abs(over.commission_lawdesk.z + 5.3) < .4, JSON.stringify(over.commission_lawdesk));
+// 3b — keyboard moves the selection directly (Commission parity): arrows / ⇧coarse / , rotate / carry
+await evl('window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }))');
+await sleep(250);
+const kn = JSON.parse(await evl('__place.dump()')).find(p => p.name === 'commission_lawdesk');
+check('arrow nudge .005 moves selection', kn && Math.abs(kn.x - 2.305) < .002 && kn.z === -1.1, JSON.stringify(kn));
+await evl('window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", shiftKey: true }))');
+await sleep(250);
+const kc = JSON.parse(await evl('__place.dump()')).find(p => p.name === 'commission_lawdesk');
+check('⇧arrow nudge .05 coarse', kc && Math.abs(kc.x - 2.355) < .005, JSON.stringify(kc));
+await evl('window.dispatchEvent(new KeyboardEvent("keydown", { key: "," }))');
+await sleep(250);
+const kr = JSON.parse(await evl('__place.dump()')).find(p => p.name === 'commission_lawdesk');
+check(', rotates +15°', kr && Math.abs(kr.rotY - (Math.PI / 2 + Math.PI / 12)) < .01, JSON.stringify(kr));
+const kl = JSON.parse(await evl('__place.dump()')).find(p => p.name === 'commission_desklamp');
+check('passengers ride keyboard moves', kl && (kl.x !== 2.3 || kl.z !== -1.6), JSON.stringify(kl));
+await evl('window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }))');
+await sleep(250);
+check('enter accepts + deselects', (await evl('__place.sel()')) === null && await evl('![...document.querySelectorAll("div")].some(d => d.textContent.startsWith("SEL "))'));
+const savedKb = JSON.parse(await evl('localStorage.getItem("dvm_place")') || '{}');
+check('keyboard edits persisted', savedKb.commission_lawdesk && Math.abs(savedKb.commission_lawdesk.x - 2.355) < .01, JSON.stringify(savedKb.commission_lawdesk));
 
-// 4b — grab-anchor: aim dead-down at the desk's SW corner leg, LMB-grab, then drag to a new spot.
-// The grabbed POINT must land on the aim, not the centre.
-await evl('__cam(2.8, 1.6, -6.0, 2.8, 0, -6.0)');       // desk corner: local (+.7,+.2) → world (2.8,−6.0) at rotY π/2
-await sleep(500);
-await evl('document.querySelector(' + JSON.stringify('canvas') + ').dispatchEvent(new MouseEvent("mousedown", {button:0, bubbles:true}))');
-await sleep(300);
-const grabState = JSON.parse(await evl('(() => { const s = window.__construct.placed.find(p => p._grab); return s ? JSON.stringify({n:s.name, lx:s._grab.lx, lz:s._grab.lz}) : "none"; })()'));
-check('LMB grab anchors at the hit point', grabState && grabState.n === 'commission_lawdesk' && Math.abs(grabState.lx - .7) < .12 && Math.abs(grabState.lz - .2) < .12, JSON.stringify(grabState));
-check('grid visible while dragging', await evl('__scene.children.some(c => c.type === "GridHelper" && c.visible)'));
-await evl('__cam(0, 1.6, -3.0, 0, 0, -3.0)');           // drag the grabbed corner to dead-centre south
-await sleep(500);
-const anchored = JSON.parse(await evl('__place.dump()')).find(p => p.name === 'commission_lawdesk');
-check('grabbed corner lands on the aim', anchored && Math.abs(anchored.x + .2) < .12 && Math.abs(anchored.z + 2.3) < .12,
-  JSON.stringify(anchored) + ' — corner lands (0,-3), centre offsets (−.2,−2.3)');
-check('x/z snapped to .1 grid', anchored && Math.abs(anchored.x * 10 % 1) < .001 && Math.abs(anchored.z * 10 % 1) < .001);
-await evl('__place.drop()');
-
-// 4c — keyboard nudge parity: arrows nudge world-frame, fine .005 / shift .05
+// 3c — Esc backs out: revert restores the grab-time pose and releases the selection
 await evl('__place.grab("commission_lawdesk")');
-await evl('window.dispatchEvent(new KeyboardEvent("keydown", {key:"ArrowRight"}))');
-await sleep(350);
-const nudged = JSON.parse(await evl('__place.dump()')).find(p => p.name === 'commission_lawdesk');
-check('API grab = centre anchor → item follows aim + .005 nudge', nudged && Math.abs(nudged.x - .005) < .01 && Math.abs(nudged.z + 3) < .01, JSON.stringify(nudged));
-await evl('__place.drop()');
+await evl('window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft" }))');
+await evl('window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft" }))');
+await sleep(250);
+await evl('window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }))');
+await sleep(250);
+const rv = JSON.parse(await evl('__place.dump()')).find(p => p.name === 'commission_lawdesk');
+check('esc reverts to the grab pose', rv && Math.abs(rv.x - 2.355) < .01 && (await evl('__place.sel()')) === null, JSON.stringify(rv));
 
-// 4d — undo: ^Z restores the pre-nudge position
-await evl('window.dispatchEvent(new KeyboardEvent("keydown", {key:"z", ctrlKey:true}))');
-await sleep(350);
-const undone = JSON.parse(await evl('__place.dump()')).find(p => p.name === 'commission_lawdesk');
-check('ctrl-Z restores the drop position', undone && Math.abs(undone.x + .2) < .02, JSON.stringify(undone));
+// 4 — ⇧+LMB drag: paste a spare desk onto open floor (no passengers to occlude the pick ray), drag it, undo, delete it
+await evl('__place.grab("commission_lawdesk")'); await evl('__place.copy()');
+await evl('__cam(-1.2, 1.6, -3.4, -1.2, 0, -4.6)');      // aim at bare platform
+await sleep(300);
+await evl('__place.paste()');
+await sleep(400);
+const spare = JSON.parse(await evl('__place.dump()')).find(p => p.src === 'extra');
+check('spare desk pasted on the platform', spare && spare.z < -3, JSON.stringify(spare));
+await evl('document.querySelector("canvas").dispatchEvent(new MouseEvent("mousedown", { button: 0, shiftKey: true, bubbles: true }))');
+await sleep(250);
+const dragSt = await evl('(() => { const s = window.__construct.placed.find(p => p._drag); return s ? s.source + ":" + s.name : "none"; })()');
+check('⇧+LMB engages drag on the hit item', dragSt === 'extra:commission_lawdesk', dragSt);
+await evl('__cam(-2.8, 1.7, -5.2, -2.8, 0, -6.4)');      // drag it further south-west
+await sleep(500);
+const dragged = JSON.parse(await evl('__place.dump()')).find(p => p.src === 'extra');
+check('shift-drag moves the item on the ray', dragged && dragged.x < -1.8 && dragged.z < -5, JSON.stringify(dragged));
+await evl('document.querySelector("canvas").dispatchEvent(new MouseEvent("mouseup", { button: 0, bubbles: true }))');
+await evl('__cam(-1.2, 1.6, -3.4, -1.2, 0, -4.6)');      // aim back — no further motion should occur
+await sleep(400);
+const parked = JSON.parse(await evl('__place.dump()')).find(p => p.src === 'extra');
+const parkedSel = await evl('__place.sel()');
+check('mouseup releases drag, keeps selection', parked && parked.x === dragged.x && parked.z === dragged.z && parkedSel === 'commission_lawdesk', JSON.stringify(parked) + ' sel:' + parkedSel);
+await evl('window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }))');
+await sleep(250);
+const exOver = JSON.parse(await evl('localStorage.getItem("dvm_extra")') || '[]');
+check('drag committed to dvm_extra', exOver.length === 1 && exOver[0].z < -5, JSON.stringify(exOver));
 
-// 5 — copy + paste → a second desk emits at the spot and auto-selects
+// 4d — ^Z undoes the drag → the spare returns to its paste spot; Delete then removes it cleanly
+await evl('window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true }))');
+await sleep(350);
+const undoneX = JSON.parse(await evl('__place.dump()')).find(p => p.src === 'extra');
+check('ctrl-Z restores the pre-drag pose', undoneX && Math.abs(undoneX.x + 1.2) < .4 && Math.abs(undoneX.z + 4.6) < .4, JSON.stringify(undoneX));
+const spareIdx = JSON.parse(await evl('__place.dump()')).findIndex(p => p.src === 'extra');
+await evl(`__place.grabIdx(${spareIdx})`);
+await evl('window.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete" }))');
+await sleep(300);
+const afterSpareDel = JSON.parse(await evl('__place.dump()'));
+check('spare deleted, one desk remains', afterSpareDel.filter(p => p.name === 'commission_lawdesk').length === 1, JSON.stringify(afterSpareDel.map(p => p.name + '@' + p.src)));
+
+// 5 — copy + paste → a second desk emits at the aim spot and selects (no drag, no move of the source)
 await evl('__place.grab("commission_lawdesk")'); await evl('__place.copy()'); await evl('__place.paste()');
 await sleep(1500);
 const after = JSON.parse(await evl('__place.dump()'));
 check('paste emitted a 2nd desk', after.filter(p => p.name === 'commission_lawdesk').length === 2, JSON.stringify(after.filter(p => p.name === 'commission_lawdesk')));
-check('paste auto-selected the copy', (await evl('__place.sel()')) === 'commission_lawdesk');
+check('paste auto-selected the copy, not dragging', (await evl('__place.sel()')) === 'commission_lawdesk' && !(await evl('window.__construct.placed.some(p => p._drag)')));
 const copy = after.find(p => p.src === 'extra');
-check('copy is an extra with solids', copy && !!copy.solids, copy && JSON.stringify(copy));
-await evl('__place.drop()');
+check('copy is an extra with solids', copy && copy.solids === 2, copy && JSON.stringify(copy));
+const srcDesk = after.find(p => p.src === 'manifest' && p.name === 'commission_lawdesk');
+check('source desk unmoved by the copy op', srcDesk && Math.abs(srcDesk.x - 2.355) < .05, JSON.stringify(srcDesk));
+await evl('window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }))');
+await sleep(250);
 const extra = JSON.parse(await evl('localStorage.getItem("dvm_extra")') || '[]');
 check('dvm_extra recorded the copy', extra.length === 1 && extra[0].name === 'commission_lawdesk', JSON.stringify(extra));
 
@@ -128,9 +163,9 @@ await connect(); await waitBoot(); await sleep(800);
 const boot = JSON.parse(await evl('__place.dump()'));
 const desks = boot.filter(p => p.name === 'commission_lawdesk');
 check('reload: 2 desks present', desks.length === 2, JSON.stringify(desks));
-check('reload: override spot held', desks.some(d => Math.abs(d.x) < .02 && Math.abs(d.z + 3) < .02), JSON.stringify(desks));
+check('reload: override spot held', desks.some(d => Math.abs(d.x - 2.355) < .05 && Math.abs(d.z + 1.1) < .05), JSON.stringify(desks));
 const lampRe = boot.find(p => p.name === 'commission_desklamp');
-check('reload: lamp near desk', lampRe && desks.some(d => Math.abs(lampRe.x - d.x) < .8 && Math.abs(lampRe.z - d.z) < .9), JSON.stringify(lampRe));
+check('reload: lamp near desk', lampRe && desks.some(d => Math.abs(lampRe.x - d.x) < 1.0 && Math.abs(lampRe.z - d.z) < 1.0), JSON.stringify(lampRe));
 
 // 7 — delete the extra copy → dvm_extra empties; tombstone keeps it gone
 await evl('__place.toggle(true)');

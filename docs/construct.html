@@ -748,35 +748,41 @@ const INTERACT = [
 ];
 let promptIt = null;
 addEventListener('mousedown', e => {
-  if (placeOn) { if (e.button === 0) { if (placeSel) placeDrop(); else { const pk = placePick(); if (pk) placeGrab(pk.p, pk); } } return; }
+  if (placeOn) { if (e.button === 0) {
+    const pk = placePick();
+    if (pk) { if (placeSel !== pk.p) placeGrab(pk.p, pk);              // fresh pick — commits whatever was held
+      else { const cy = Math.cos(pk.p.rotY), sy = Math.sin(pk.p.rotY); // re-grab the held item → move the anchor to THIS touch
+        pk.p._grab = { lx: (pk.x - pk.p.x) * cy - (pk.z - pk.p.z) * sy, lz: (pk.x - pk.p.x) * sy + (pk.z - pk.p.z) * cy }; }
+      if (e.shiftKey) placeSel._drag = true; }                       // ⇧+LMB held = the ray owns it until mouseup
+    else if (placeSel) placeDrop();                                  // click empty space = accept + deselect
+    return; } }
   if (e.button === 2) rmbAim = true; if (e.button === 0 && aimOn) tagAt(aimWorld); });
-addEventListener('mouseup',   e => { if (e.button === 2) rmbAim = false; });
+addEventListener('mouseup',   e => { if (e.button === 2) rmbAim = false; if (e.button === 0 && placeSel) placeSel._drag = false; });
 addEventListener('contextmenu', e => { if (e.target === renderer.domElement || rmbAim) e.preventDefault(); });
 addEventListener('keydown', e => { keys[(e.key || '').toLowerCase()] = true;
   const k = (e.key || '').toLowerCase();
   if (k === 'x' && !e.ctrlKey && !e.metaKey && !e.altKey) { placeToggle(!placeOn); return; }
   if (placeOn) {
     if ((e.ctrlKey || e.metaKey) && k === 'z') { placeUndoDo(); e.preventDefault(); return; }
-    if (k === 'escape') { placeToggle(false); return; }
-    const n = placeSel && (placeSel._nudge || { x: 0, y: 0, z: 0 }), st = e.shiftKey ? .05 : .005;   // the Commission's fine/coarse contract
-    if (k === 'arrowleft' && placeSel) { n.x -= st; }
-    else if (k === 'arrowright' && placeSel) { n.x += st; }
-    else if (k === 'arrowup' && placeSel) { n.z -= st; }
-    else if (k === 'arrowdown' && placeSel) { n.z += st; }
-    else if (k === 'pageup' && placeSel) { n.y += st; }
-    else if (k === 'pagedown' && placeSel) { n.y -= st; }
-    else if (k === 'b' && placeSel) { n.y = 0; }                                          // re-seat on the measured surface
-    else if (k === ',' && placeSel) { placeSel.rotY += Math.PI / 12; }
-    else if (k === '.' && placeSel) { placeSel.rotY -= Math.PI / 12; }
-    else if (k === '[' && placeSel) { placeSel.rotY += Math.PI / 12; }
-    else if (k === ']' && placeSel) { placeSel.rotY -= Math.PI / 12; }
-    else if (k === 'enter' && placeSel) { placeDrop(); }
+    if (k === 'escape') { if (placeSel) placeRevert(); else placeToggle(false); return; }   // selection → back out; nothing → leave
+    const p = placeSel, st = e.shiftKey ? .05 : .005;                                      // the Commission's fine/coarse contract
+    if (k === 'arrowleft' && p) { placeApply(p, p.x - st, p.z, p.rotY); }
+    else if (k === 'arrowright' && p) { placeApply(p, p.x + st, p.z, p.rotY); }
+    else if (k === 'arrowup' && p) { placeApply(p, p.x, p.z - st, p.rotY); }
+    else if (k === 'arrowdown' && p) { placeApply(p, p.x, p.z + st, p.rotY); }
+    else if (k === 'pageup' && p) { p.y0 += st; p.g.position.y = p.y0; }
+    else if (k === 'pagedown' && p) { p.y0 -= st; p.g.position.y = p.y0; }
+    else if (k === 'b' && p) { const skip = new Set([p, ...(p._carry || []).map(c => c.q), held]);
+      p.y0 = placeSurf(p.x, p.z, skip); p.g.position.y = p.y0; }                            // re-seat on the measured surface
+    else if ((k === ',' || k === '[') && p) { placeApply(p, p.x, p.z, p.rotY + Math.PI / 12); }
+    else if ((k === '.' || k === ']') && p) { placeApply(p, p.x, p.z, p.rotY - Math.PI / 12); }
+    else if (k === 'enter' && p) { placeDrop(); }                                           // stage-1 accept — deselect, stay in free cam
     else if (k === 'c') { window.__place.copy(); }
     else if (k === 'v') { placePaste(); }
     else if (k === 'delete' || k === 'backspace') { window.__place.del(); }
-    else if (k === 'y' && placeSel) { const line = placeSel.name + ' ' + placeSel.x.toFixed(3) + ' ' + placeSel.z.toFixed(3) + ' ' + placeSel.rotY.toFixed(3);
+    else if (k === 'y' && p) { const line = p.name + ' ' + p.x.toFixed(3) + ' ' + p.z.toFixed(3) + ' ' + p.rotY.toFixed(3);
       if (navigator.clipboard) navigator.clipboard.writeText(line).catch(() => {}); placeSay('YANKED → ' + line); }
-    else if (' eftr'.includes(k)) { }                                                     // swallowed while placing — no pickups/tags/aims
+    else if (' eftr'.includes(k)) { }                                                       // swallowed while placing — no pickups/tags/aims
     if ('arrowleft arrowright arrowup arrowdown pageup pagedown'.includes(k)) e.preventDefault();
     return;
   }
@@ -845,9 +851,12 @@ let placeOn = false, placeSel = null, placeClip = null;
 const flyPos = new THREE.Vector3(0, .6, -1), _fd = new THREE.Vector3();
 const placeEl = document.createElement('div');
 placeEl.style.cssText = 'position:fixed;left:50%;bottom:14px;transform:translateX(-50%);background:rgba(8,8,14,.92);border:1px solid #6a6a92;color:#e2dbc2;padding:5px 12px;font:10px ui-monospace,Consolas,monospace;letter-spacing:.1em;display:none;z-index:8;pointer-events:none';
-const PLACE_LEGEND = 'PLACE · WASD fly · QE/SPACE/CTRL up-dn · LMB grab/drop · ←→↑↓ PgUp/PgDn nudge ⇧coarse · , . rot · B re-seat · C copy · V paste · DEL · Y yank · ^Z undo · X exit';
+const PLACE_LEGEND = 'PLACE · WASD/QE fly · LMB select · ⇧LMB-drag move · ←→↑↓ PgUp/Dn nudge ⇧coarse · , . rot · B seat · Enter confirm · Esc back · C V · DEL · Y ^Z · X exit';
 placeEl.textContent = PLACE_LEGEND;
 document.body.appendChild(placeEl);
+const placeStat = document.createElement('div');
+placeStat.style.cssText = placeEl.style.cssText + ';bottom:34px;border-color:#4a4a62;color:#b8b0a0';
+document.body.appendChild(placeStat);
 let placeSayT = 0;
 const placeSay = msg => { placeEl.textContent = msg; clearTimeout(placeSayT);
   placeSayT = setTimeout(() => { placeEl.textContent = PLACE_LEGEND; }, 1600); };
@@ -874,31 +883,41 @@ const placeApply = (p, x, z, rotY) => {                                         
 };
 const placePick = () => {                                                        // ray through screen centre → {p, x,y,z hit point}
   _ray.setFromCamera(_ctr, camera);
-  const hits = _ray.intersectObjects(PLACED.filter(p => p !== placeSel && p !== held && p.g.parent === scene).map(p => p.g), true);
+  const hits = _ray.intersectObjects(PLACED.filter(p => p !== held && p.g.parent === scene).map(p => p.g), true); // the selection stays pickable — ⇧+LMB re-grabs it into drag
   for (const h of hits) { let o = h.object; while (o && !o.userData.pRec) o = o.parent;
     if (o) return { p: o.userData.pRec, x: h.point.x, y: h.point.y, z: h.point.z }; }
   return null;
 };
-const placeGrab = (p, hit) => {                                                  // select — anchor = where you touched it, not its centre
+const placeGrab = (p, hit) => {                                                  // select — the Commission's stage-1: highlighted, keyboard-owned
   if (placeSel && placeSel !== p) placeDrop();                                   // one selection at a time — a fresh grab commits the old
-  placeSel = p; p._carry = carryOf(p);
+  placeSel = p; p._carry = carryOf(p); p._drag = false;
   const cy = Math.cos(p.rotY), sy = Math.sin(p.rotY);
   const dx = hit ? hit.x - p.x : 0, dz = hit ? hit.z - p.z : 0;
   p._grab = { lx: dx * cy - dz * sy, lz: dx * sy + dz * cy };                      // local-frame grab offset — rotates with the item
-  p._nudge = { x: 0, y: 0, z: 0 };
   p._orig = { x: p.x, z: p.z, rotY: p.rotY, y0: p.y0 };
   origBox.box.setFromObject(p.g); origBox.visible = true;                          // the "was" marker, Commission-style
   placeGrid.visible = true;
   return true;
 };
+const placeRevert = () => {                                                      // Esc on a selection = back out — restore the pre-grab pose
+  if (!placeSel) return; const p = placeSel, o = p._orig;
+  if (o) { p.y0 = o.y0; placeApply(p, o.x, o.z, o.rotY);
+    (p._carry || []).forEach(c => { c.q.x = c.ox; c.q.z = c.oz; c.q.y0 = c.oy; c.q.g.position.set(c.ox, c.oy, c.oz); }); }
+  p._carry = null; p._orig = null; p._drag = false;
+  placeSel = null; selBox.visible = false; origBox.visible = false; placeGrid.visible = false;
+  placeStat.textContent = '';
+  refreshSolids(); placeSay('REVERTED'); };
 const placeUndoDo = () => {                                                      // ^Z — one op back, whole-layout truth preserved
   const op = placeUndo.pop(); if (!op) return;
   if (op.t === 'move' && PLACED.includes(op.p)) { const p = op.p;
-    p.y0 = op.prev.y0; placeApply(p, op.prev.x, op.prev.z, op.prev.rotY); }
+    p.y0 = op.prev.y0; placeApply(p, op.prev.x, op.prev.z, op.prev.rotY);
+    (op.prev.carry || []).forEach(c => { if (PLACED.includes(c.q)) { c.q.x = c.ox; c.q.z = c.oz; c.q.y0 = c.oy; c.q.g.position.set(c.ox, c.oy, c.oz); } }); }
   else if (op.t === 'add') { const i = PLACED.indexOf(op.p);
     if (i >= 0) { scene.remove(op.p.g); PLACED.splice(i, 1); } }
   else if (op.t === 'del') { emitAsset(op.spec.name, { kind: op.spec.kind, x: op.spec.x, z: op.spec.z,
-    rotY: op.spec.rotY, pickable: op.spec.pickable, solids: op.spec.solids, source: op.spec.source }); }
+    rotY: op.spec.rotY, pickable: op.spec.pickable, solids: op.spec.solids, source: op.spec.source });
+    if (op.spec.source !== 'extra') { const d = new Set(JSON.parse(localStorage.getItem('dvm_del') || '[]'));
+      d.delete(op.spec.name); localStorage.setItem('dvm_del', JSON.stringify([...d])); } }                  // un-delete lifts the tombstone
   PLACED.forEach(q => { if (q !== held) { const s = worldSurfaceAt(q.x, q.z, q);   // settle pass — undo leaves nothing floating
     if (s !== q.y0) { q.y0 = s; q.g.position.y = s; } } });
   refreshSolids(); placeSave(); placeSay('UNDO');
@@ -906,7 +925,16 @@ const placeUndoDo = () => {                                                     
 const carryOf = sel => PLACED.filter(q => q !== sel && q !== held && q.g.parent === scene &&   // passengers: items hosted on the selection ride along
   q.y0 > sel.y0 + .02 && q.x > sel.bbox[0] && q.x < sel.bbox[1] && q.z > sel.bbox[2] && q.z < sel.bbox[3])
   .map(q => { const cy = Math.cos(sel.rotY), sy = Math.sin(sel.rotY), dx = q.x - sel.x, dz = q.z - sel.z;
-    return { q, lx: dx * cy - dz * sy, lz: dx * sy + dz * cy, dy: q.y0 - sel.y0 }; });
+    return { q, lx: dx * cy - dz * sy, lz: dx * sy + dz * cy, dy: q.y0 - sel.y0, ox: q.x, oz: q.z, oy: q.y0 }; });
+const carrySync = p => {                                                          // passengers ride whenever the host moves — any source
+  const cy = Math.cos(p.rotY), sy = Math.sin(p.rotY);
+  const skip = new Set([p, ...(p._carry || []).map(c => c.q)]);
+  (p._carry || []).forEach(({ q, lx, lz, dy }) => {
+    q.x = p.x + lx * cy + lz * sy; q.z = p.z - lx * sy + lz * cy;
+    const top = surfaceAt(p, q.x, q.z);
+    q.y0 = top > 0 ? top : placeSurf(q.x, q.z, skip);                              // off the host's columns → whatever's beneath
+    q.g.position.set(q.x, q.y0, q.z); });
+};
 const placeSurf = (wx, wz, skipSet) => { let t = 0;
   PLACED.forEach(p => { if (!skipSet.has(p)) { const s = surfaceAt(p, wx, wz); if (s > t) t = s; } }); return t; };
 const placeSpot = () => {                                                        // where the aim ray lands — the measured-surface law
@@ -930,9 +958,11 @@ const placeDrop = () => {                                                       
       if (s !== q.y0) { q.y0 = s; q.g.position.y = s; } } });
   const o = moved._orig || moved;
   if (o.x !== moved.x || o.z !== moved.z || o.rotY !== moved.rotY || o.y0 !== moved.y0)
-    placeSnapOp({ t: 'move', p: moved, prev: { x: o.x, z: o.z, rotY: o.rotY, y0: o.y0 } });
-  moved._carry = null; moved._orig = null;
+    placeSnapOp({ t: 'move', p: moved, prev: { x: o.x, z: o.z, rotY: o.rotY, y0: o.y0,
+      carry: (moved._carry || []).map(c => ({ q: c.q, ox: c.ox, oz: c.oz, oy: c.oy })) } });   // passengers return with the host
+  moved._carry = null; moved._orig = null; moved._drag = false;
   placeSave(); placeSel = null; selBox.visible = false; origBox.visible = false; placeGrid.visible = false;
+  placeStat.textContent = '';
 };
 const placePaste = () => {
   if (!placeClip) return; const s = placeSpot(); if (!s) return;
@@ -940,15 +970,16 @@ const placePaste = () => {
     x: Math.round(s.x / PLACE_SNAP) * PLACE_SNAP, z: Math.round(s.z / PLACE_SNAP) * PLACE_SNAP,
     rotY: placeClip.rotY, pickable: placeClip.pickable, solids: placeClip.solids, source: 'extra' })
     .then(r => { if (r) { if (placeSel) placeDrop();                             // the paste takes the selection — commit whatever was held
-      placeSel = r; r._carry = []; r._grab = { lx: 0, lz: 0 }; r._nudge = { x: 0, y: 0, z: 0 };
+      placeSel = r; r._carry = []; r._drag = false; r._grab = { lx: 0, lz: 0 };
       r._orig = { x: r.x, z: r.z, rotY: r.rotY, y0: r.y0 };
       placeSnapOp({ t: 'add', p: r }); placeSave(); placeSay('PASTED ' + r.name); } });
 };
 const placeToggle = on => {
   placeOn = on;
-  if (on) { flyPos.set(pos.x, EYE, pos.z); placeEl.style.display = 'block';
+  if (on) { flyPos.set(pos.x, EYE, pos.z); placeEl.style.display = 'block'; placeStat.style.display = 'block';
     camera.layers.enable(1); }                                              // you're outside your body — your head renders too
-  else { placeEl.style.display = 'none'; if (placeSel) placeDrop(); selBox.visible = false;
+  else { placeEl.style.display = 'none'; placeStat.style.display = 'none';
+    if (placeSel) placeDrop(); selBox.visible = false;
     camera.layers.disable(1); }
 };
 const flyStep = dt => {                                                          // camera off the body — full-3D fly
@@ -964,22 +995,22 @@ const flyStep = dt => {                                                         
   flyPos.y = Math.max(.08, Math.min(2.4, flyPos.y));
 };
 const placeStep = () => {
-  if (placeSel) { const s = placeSpot();
-    if (s) { const cy = Math.cos(placeSel.rotY), sy = Math.sin(placeSel.rotY), g = placeSel._grab || { lx: 0, lz: 0 }, n = placeSel._nudge || { x: 0, y: 0, z: 0 };
-      const sx = Math.round(s.x / PLACE_SNAP) * PLACE_SNAP, sz = Math.round(s.z / PLACE_SNAP) * PLACE_SNAP;   // snapped aim → the grabbed point lands on grid lines
-      placeSel.y0 = s.y + n.y;
-      placeApply(placeSel, sx - g.lx * cy - g.lz * sy + n.x, sz + g.lx * sy - g.lz * cy + n.z, placeSel.rotY);
-      const skip = new Set([placeSel, ...(placeSel._carry || []).map(c => c.q)]);
-      (placeSel._carry || []).forEach(({ q, lx, lz, dy }) => {                    // hosted items ride the host's transform
-        q.x = placeSel.x + lx * cy + lz * sy; q.z = placeSel.z - lx * sy + lz * cy;
-        const top = surfaceAt(placeSel, q.x, q.z);
-        q.y0 = top > 0 ? top : placeSurf(q.x, q.z, skip);                          // off the host's columns → whatever's beneath
-        q.g.position.set(q.x, q.y0, q.z); }); } }
+  if (!placeSel) return;
+  const p = placeSel;
+  if (p._drag) {                                                                 // ⇧+LMB held — the ray owns it (anchor + grid snap)
+    const s = placeSpot();
+    if (s) { const cy = Math.cos(p.rotY), sy = Math.sin(p.rotY), g = p._grab || { lx: 0, lz: 0 };
+      const sx = Math.round(s.x / PLACE_SNAP) * PLACE_SNAP, sz = Math.round(s.z / PLACE_SNAP) * PLACE_SNAP;
+      p.y0 = s.y;
+      placeApply(p, sx - g.lx * cy - g.lz * sy, sz + g.lx * sy - g.lz * cy, p.rotY); } }
+  carrySync(p);                                                                  // passengers ride regardless of what moved the host
+  placeStat.textContent = 'SEL ' + p.name + '  x ' + p.x.toFixed(3) + '  z ' + p.z.toFixed(3) +
+    '  y ' + p.y0.toFixed(3) + '  rotY ' + p.rotY.toFixed(3) + '  · ' + (p._carry || []).length + ' passengers' + (p._drag ? '  · DRAGGING' : '');
 };
 window.__place = { on: () => placeOn, toggle: placeToggle, sel: () => placeSel && placeSel.name,
   grab: n => { const p = PLACED.find(p => p.name === n); return p ? placeGrab(p, null) : false; },
   grabIdx: i => { const p = PLACED[i]; return p ? placeGrab(p, null) : false; },
-  drop: placeDrop, spot: placeSpot, pick: () => { const p = placePick(); return p && p.name; },
+  drop: placeDrop, revert: placeRevert, spot: placeSpot, pick: () => { const p = placePick(); return p && p.p.name; },
   copy: () => { if (!placeSel) return false; placeClip = { name: placeSel.name, kind: placeSel.kind, rotY: placeSel.rotY, pickable: placeSel.pickable, solids: placeSel.solids };
     placeSay('COPIED ' + placeSel.name); return true; },
   paste: placePaste,
@@ -990,6 +1021,7 @@ window.__place = { on: () => placeOn, toggle: placeToggle, sel: () => placeSel &
       d.add(placeSel.name); localStorage.setItem('dvm_del', JSON.stringify([...d])); }         // tombstone — manifest items stay deleted
     scene.remove(placeSel.g); PLACED.splice(PLACED.indexOf(placeSel), 1);
     placeSel = null; selBox.visible = false; origBox.visible = false; placeGrid.visible = false;
+    placeStat.textContent = '';
     refreshSolids(); placeSave(); placeSay('REMOVED'); return true; },
   dump: () => JSON.stringify(PLACED.map(p => ({ name: p.name, x: +p.x.toFixed(3), z: +p.z.toFixed(3), rotY: +p.rotY.toFixed(3), src: p.source, solids: (p.solids || []).length }))),
   save: placeSave };
