@@ -357,8 +357,10 @@ const emitChar = spec => fetch('/char/' + spec.char).then(r => r.json()).then(ri
     inst.instanceMatrix.needsUpdate = true;
   }
   const eyeIdx = []; rig.voxels.forEach((v, i) => { if (reg[v[0] + ',' + v[1] + ',' + v[2]] === 10) eyeIdx.push(i); });   // region 10 = gaze anchor
-  const f = { spec, rig, E, inst, CH, bufA, bufB, eyeIdx, N, VS, d, upload,
-    pos: new THREE.Vector3(spec.x ?? .4, 0, spec.z ?? .45), yaw: Math.PI,       // steps out of the door-elevator behind you
+  const slot = followers.length;                                        // heel slot — lateral offset around the player so bodies form up, not stack
+  const heelOff = slot ? (slot % 2 ? 1 : -1) * Math.ceil(slot / 2) * .45 : 0;
+  const f = { spec, rig, E, inst, CH, bufA, bufB, eyeIdx, N, VS, d, upload, heelOff,
+    pos: new THREE.Vector3(spec.x ?? (.4 + slot * .16), 0, spec.z ?? .45), yaw: Math.PI,       // steps out of the door-elevator behind you
     order: spec.order || 'follow', state: 0, prevState: 0, transFrom: 0, transT: -1, blend: 1, dip: 0, walkSpeed: 1, gaitTime: 0,
     gazeT: null };
   f.setOrder = o => { f.order = { follow: 'follow', goto: 'goto', wait: 'wait' }[o] || 'follow'; };
@@ -374,7 +376,7 @@ const F_TURN = 10, F_WALK = 1.4, MOVE_EPS = .1, TRANS_DUR = .32, TRANS_DIP = .45
 const followStep = (f, dt) => {
   let moving = false;
   let tx = null, tz = 0, arrive = FOLLOW_D;                              // order → target: follow heels you, goto plants on the live mark
-  if (f.order === 'follow') { tx = pos.x; tz = pos.z; }
+  if (f.order === 'follow') { tx = pos.x + f.heelOff * Math.cos(yaw); tz = pos.z - f.heelOff * Math.sin(yaw); }   // heel slot fans out along your right axis
   else if (f.order === 'goto' && marks.length) { tx = marks[0].position.x; tz = marks[0].position.z; arrive = .3; }
   if (tx !== null) {
     const dx = tx - f.pos.x, dz = tz - f.pos.z, d = Math.hypot(dx, dz);
@@ -387,6 +389,8 @@ const followStep = (f, dt) => {
       f.pos.z = Math.max(WALKR.z0, Math.min(WALKR.z1, f.pos.z + vz * dt));
       for (const s of SOLIDS) { const px = f.pos.x - s[0], pz = f.pos.z - s[1], rr = s[2] + .18, dd = Math.hypot(px, pz);
         if (dd < rr && dd > 1e-4) { f.pos.x = s[0] + px / dd * rr; f.pos.z = s[1] + pz / dd * rr; } }
+      for (const g of followers) { if (g === f) continue; const px = f.pos.x - g.pos.x, pz = f.pos.z - g.pos.z, dd = Math.hypot(px, pz);   // bodies don't stack
+        if (dd < .3 && dd > 1e-4) { f.pos.x = g.pos.x + px / dd * .3; f.pos.z = g.pos.z + pz / dd * .3; } }
       moving = true;
     }
   }
@@ -525,7 +529,8 @@ const consEl = document.createElement('div');
 consEl.style.cssText = 'position:fixed;left:50%;top:46%;transform:translate(-50%,-50%);min-width:290px;background:rgba(12,12,18,.94);border:1px solid #34344a;padding:14px 16px;font:12px ui-monospace,Consolas,monospace;color:#cfc8b0;display:none;z-index:20';
 document.body.appendChild(consEl);
 let consOpen = false;
-const ROSTER = [{ char: 'CHAIR1', label: 'THE CHAIR', desc: 'civilian unit — commission seat' }];
+const ROSTER = [{ char: 'CHAIR1', label: 'THE CHAIR', desc: 'civilian unit — commission seat' },
+                { char: 'Civilian1', label: 'VINNY', desc: 'your body — civilian rig' }];
 function renderCons() {
   consEl.innerHTML = '<div style="letter-spacing:.25em;color:#8f87a0;margin-bottom:10px">DOOR CONSOLE — PERSONNEL</div>' +
     ROSTER.map((r, i) => {
