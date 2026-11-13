@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<!-- THE CONSTRUCT — Steel City: Mob Sim showroom. A program loaded over the Commission:
+     invisible floor in a white void, procedurally expandable via MANIFEST, one authored
+     door home. First-person inspection camera (the showroom inspects, it doesn't sit).
+     Reached via the Commission's portal; E on the door returns to thecommission.html. -->
+<html><head><meta charset="utf-8"><title>THE CONSTRUCT — Steel City: Mob Sim</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#f4f1e8;font-family:ui-monospace,Consolas,monospace}
+  canvas{display:block}
+  #veil{position:fixed;inset:0;background:#f4f1e8;color:#a39a83;display:flex;align-items:center;justify-content:center;
+        font-size:13px;letter-spacing:.32em;transition:opacity .4s;z-index:10;pointer-events:none}
+  #prompt{position:fixed;bottom:16%;left:50%;transform:translateX(-50%);background:rgba(20,16,10,.88);color:#e8dfc8;
+          padding:.45em 1em;font-size:12px;letter-spacing:.18em;display:none;z-index:5;border:1px solid #4a3f28}
+  #hud{position:fixed;top:12px;left:14px;color:#b0a88f;font-size:11px;letter-spacing:.16em;z-index:5;user-select:none}
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+               "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+</script>
+</head><body>
+<div id="veil">LOADING PROGRAM</div>
+<div id="prompt"></div>
+<div id="hud">THE CONSTRUCT · CLICK — ENGAGE · WASD MOVE · MOUSE LOOK</div>
+<script type="module">
+import * as THREE from 'three';
+
+const VOID = 0xf4f1e8;
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(VOID);
+scene.fog = new THREE.Fog(VOID, 3.5, 13);
+const camera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, .02, 60);
+window.__THREE = THREE; window.__scene = scene; window.__camera = camera; window.__renderer = renderer;
+
+/* lights registered at init, always on — this page's whole scene compiles under one light set */
+const hemi = new THREE.HemisphereLight(0xffffff, 0xd8d2c4, 1.2), key = new THREE.PointLight(0xfff6e8, 2.4, 6, 1.2);
+key.position.set(0, 1.5, 1.5); scene.add(hemi, key);
+
+/* ── MANIFEST — the procedural expansion seam. tiles = [i,j] grid cells (.6 pitch, i east, j north),
+   props = future display placements (mannequin, pedestal, prop table — append, don't redesign). */
+const TILE = .6, TILEN = 3, PHALF = TILEN * TILE / 2 - .12;
+const MANIFEST = { tiles: [], props: [] };
+for (let i = 0; i < TILEN; i++) for (let j = 0; j < TILEN; j++) MANIFEST.tiles.push([i - (TILEN - 1) / 2, j - (TILEN - 1) / 2]);
+
+const floorMat = new THREE.MeshBasicMaterial({ color: VOID });              // the Matrix floor — unlit, void-colored: stand on it, never see it
+MANIFEST.tiles.forEach(([i, j]) => {
+  const t = new THREE.Mesh(new THREE.BoxGeometry(TILE, .05, TILE), floorMat);
+  t.position.set(i * TILE, -.026, j * TILE); scene.add(t);
+});
+
+/* ── bounds — RGB-style glowing edges tracing the walkable perimeter. Rebuilt from MANIFEST.tiles
+   (bounding rect of the tile set — v1; edge-trace for non-rect footprints when expansion needs it).
+   Expansion path: append MANIFEST.tiles then call rebuildBounds(). */
+const boundsG = new THREE.Group(); scene.add(boundsG);
+const coreMat = new THREE.MeshBasicMaterial({ color: 0x35d5ff, transparent: true, opacity: .85, depthWrite: false, side: THREE.DoubleSide });
+/* hue ride: sine sweep through blue (.58) → purple → pink (.92) and back — never leaves the palette */
+const boundHue = t => { const h = .58 + .34 * (0.5 + 0.5 * Math.sin(t * .3)); coreMat.color.setHSL(h, .85, .6); };
+const BND_W = .008;                                                     // ring band width
+function rebuildBounds() {
+  boundsG.clear();
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  MANIFEST.tiles.forEach(([i, j]) => { x0 = Math.min(x0, i * TILE - TILE / 2); x1 = Math.max(x1, i * TILE + TILE / 2);
+                                       z0 = Math.min(z0, j * TILE - TILE / 2); z1 = Math.max(z1, j * TILE + TILE / 2); });
+  const o = BND_W / 2;
+  const ring = new THREE.Shape();                                       // one flat band, mitered corners — no overlap bulges
+  ring.moveTo(x0 - o, -(z0 - o)); ring.lineTo(x1 + o, -(z0 - o)); ring.lineTo(x1 + o, -(z1 + o)); ring.lineTo(x0 - o, -(z1 + o)); ring.closePath();
+  const hole = new THREE.Path();
+  hole.moveTo(x0 + o, -(z0 + o)); hole.lineTo(x1 - o, -(z0 + o)); hole.lineTo(x1 - o, -(z1 - o)); hole.lineTo(x0 + o, -(z1 - o)); hole.closePath();
+  ring.holes.push(hole);
+  const g = new THREE.ShapeGeometry(ring); g.rotateX(Math.PI / 2);      // shape-y → -z, hence the negated coords above
+  const m = new THREE.Mesh(g, coreMat); m.position.y = .004; boundsG.add(m);
+}
+rebuildBounds(); window.__rebuildBounds = rebuildBounds;
+
+/* shared emit path — same voxEmit contract as the Commission (glass split, site fillM) */
+window.__glassMat = new THREE.MeshLambertMaterial({ transparent: true, opacity: .55, depthWrite: false });
+window.voxEmit = (m, fillM) => {
+  const gids = new Set((m.materials || []).filter(mt => /glass/i.test(mt.name || '')).map(mt => mt.id));
+  if (m.door && gids.size) {   /* door-contract props: a pane is ONE transparent sheet (median-z cell per column) */
+    const cols = new Map(), rest = [];
+    m.voxels.forEach(v => { if (gids.has(v[3])) { const k = v[0] + ',' + v[1]; (cols.get(k) || cols.set(k, []).get(k)).push(v); } else rest.push(v); });
+    cols.forEach(a => { a.sort((p, q) => p[2] - q[2]); rest.push(a[a.length >> 1]); });
+    m = { ...m, voxels: rest };
+  }
+  const geo = new THREE.BoxGeometry(1, 1, 1);
+  const imO = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial(), m.voxels.length);
+  const imG = gids.size ? new THREE.InstancedMesh(geo, window.__glassMat, m.voxels.length) : null;
+  const mats = {}; (m.materials || []).forEach(mt => mats[mt.id] = new THREE.Color(mt.hex));
+  const M = new THREE.Matrix4(), dflt = new THREE.Color(0x888888);
+  let no = 0, ng = 0;
+  m.voxels.forEach(v => { fillM(M, v); const c = mats[v[3]] || dflt;
+    if (imG && gids.has(v[3])) { imG.setMatrixAt(ng, M); imG.setColorAt(ng, c); ng++; } else { imO.setMatrixAt(no, M); imO.setColorAt(no, c); no++; } });
+  imO.count = no; if (imG) imG.count = ng;                             // count = written — leftover capacity would draw unit boxes with black instance colors
+  const out = [imO]; if (imG && ng) out.push(imG);
+  return out;
+};
+
+const emitAt = (file, x, z) => fetch('/voxel/' + file).then(r => r.json()).then(m => {
+  if (!m.voxels) return;
+  const vs = m.voxelSize || .0075, dcx = m.dims[0] / 2 - .5, dcz = m.dims[2] / 2 - .5;
+  const g = new THREE.Group();
+  window.voxEmit(m, (M, v) => M.makeScale(vs, vs, vs).setPosition((v[0] - dcx) * vs, (v[1] + .5) * vs, (v[2] - dcz) * vs)).forEach(mm => g.add(mm));
+  g.position.set(x, 0, z); g.rotation.y = Math.PI;      // file fronts are z+ — face the platform (−z)
+  scene.add(g);
+}).catch(e => console.warn('CONSTRUCT — emit failed:', file, e));
+
+const DOOR_Z = .72;
+const ready = Promise.all([emitAt('commission_doorframe', 0, DOOR_Z), emitAt('commission_door', 0, DOOR_Z)]);
+const SOLIDS = [[-.33, DOOR_Z, .1], [0, DOOR_Z, .11], [.33, DOOR_Z, .1]];   // frame jambs + leaf face
+
+/* ── FPS walk — pointer lock look + WASD on the platform. Eye height .55 (chibi-scaled world:
+   the .855m door towers correctly; showroom inspects at authored scale, no third person needed). */
+const pos = new THREE.Vector3(0, 0, -.2); let yaw = Math.PI, pitch = 0;   // camera yaw 0 faces -z; +PI faces +z — spawn looking at the door
+const EYE = .56, WALK = 1.4, SPRINT = 2.2, keys = {};    // Vinny's authored Eyes region (region id 10) — voxel centroid y56 × .01 pitch
+const el = renderer.domElement;
+el.addEventListener('click', () => { if (document.pointerLockElement !== el) el.requestPointerLock(); });
+addEventListener('mousemove', e => { if (document.pointerLockElement !== el) return;
+  yaw -= e.movementX * .0022; pitch = Math.max(-1.45, Math.min(1.45, pitch - e.movementY * .0022)); });
+addEventListener('keydown', e => { keys[(e.key || '').toLowerCase()] = true;
+  if ((e.key || '').toLowerCase() === 'e' && nearDoor()) goHome(); });
+addEventListener('keyup', e => { keys[(e.key || '').toLowerCase()] = false; });
+
+const nearDoor = () => Math.hypot(pos.x, pos.z - (DOOR_Z - .25)) < 1.1;
+
+const veil = document.getElementById('veil'), promptEl = document.getElementById('prompt');
+const veilRun = (text, fn) => { veil.textContent = text; veil.style.opacity = 1;
+  setTimeout(() => { fn && fn(); }, 420); };
+const goHome = () => { if (window.__leaving) return; window.__leaving = true;
+  veilRun('RETURNING', () => { location.href = 'thecommission.html?from=construct'; }); };
+window.__home = goHome;
+
+/* platform-clamped walk + door solids — same contract as the office slide/pushout */
+const step = dt => {
+  const sp = keys['shift'] ? WALK * SPRINT : WALK;
+  const f = (keys['w'] ? 1 : 0) - (keys['s'] ? 1 : 0), r = (keys['d'] ? 1 : 0) - (keys['a'] ? 1 : 0);
+  if (f || r) {
+    const sy = Math.sin(yaw), cy = Math.cos(yaw), L = Math.hypot(f, r) || 1;
+    pos.x += (-sy * f + cy * r) / L * sp * dt; pos.z += (-cy * f - sy * r) / L * sp * dt;   // forward = (-sin,-cos)yaw, right = (cos,-sin)yaw — three.js yaw-0 faces -z
+    pos.x = Math.max(-PHALF, Math.min(PHALF, pos.x)); pos.z = Math.max(-PHALF, Math.min(PHALF, pos.z));
+    for (const s of SOLIDS) { const px = pos.x - s[0], pz = pos.z - s[1], rr = s[2] + .15, d = Math.hypot(px, pz);
+      if (d < rr && d > 1e-4) { pos.x = s[0] + px / d * rr; pos.z = s[1] + pz / d * rr; } }
+  }
+};
+
+let last = performance.now();
+const loop = now => {
+  const dt = Math.min(.1, (now - last) / 1000); last = now;
+  step(dt);
+  camera.position.set(pos.x, EYE, pos.z);
+  camera.rotation.set(0, 0, 0, 'YXZ'); camera.rotation.y = yaw; camera.rotation.x = pitch;
+  boundHue(now / 1000);
+  promptEl.style.display = nearDoor() && document.pointerLockElement === el ? 'block' : 'none';
+  if (nearDoor()) promptEl.textContent = 'E — EXIT THE CONSTRUCT';
+  renderer.render(scene, camera);
+  requestAnimationFrame(loop);
+};
+
+/* warm-up: compile every program + upload every buffer behind the veil — same law as the Commission */
+ready.then(() => {
+  try { renderer.compile(scene, camera); } catch (e) {}
+  renderer.render(scene, camera);
+  setTimeout(() => { veil.style.opacity = 0; }, 350);
+  window.__warmDone = true;
+});
+requestAnimationFrame(loop);
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+
+/* probe hooks — same contract as thecommission.html so _shot.mjs drives this page too */
+window.__cam = (px, py, pz, tx, ty, tz) => { camera.position.set(px, py, pz); camera.lookAt(tx, ty, tz); };
+window.__snap = (name, px, py, pz, tx, ty, tz) => {
+  if (px !== undefined) window.__cam(px, py, pz, tx, ty, tz);
+  renderer.render(scene, camera);
+  const u = renderer.domElement.toDataURL('image/png');
+  return fetch('/shot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'probe_' + name, png: u }) }).then(r => r.json()).then(j => !!j.ok);
+};
+window.__construct = { manifest: MANIFEST, pos };
+window.__envShot = () => {};                                   // probe contract — no sealed/env split on this page
+window.__uiClean = v => { document.getElementById('hud').style.display = v ? 'none' : ''; };
+</script>
+</body></html>

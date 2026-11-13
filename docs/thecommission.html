@@ -3147,7 +3147,8 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
     DECK.dirty();
   }
   window.__aim = { on: () => aimOn, mark: placeMark, clear: () => { while (marks.length) scene.remove(marks.pop()); DECK.dirty(); } };
-  const chPos = new THREE.Vector3(.374, 0, 1.601); let chYaw = Math.PI;  // BOSS's stand-point (ring i=2, r=STAND_R, on the rug centre) — inside SEAT_REACH so boot sit() seats him at his own chair; open floor, facing the table (−z)
+  const chPos = new THREE.Vector3(.374, 0, 1.601); let chYaw = Math.PI;
+  if (new URLSearchParams(location.search).get('from') === 'construct') chPos.set(-6, 0, 4.62);   // stepped out of the Construct — he's already at the portal when you take him  // BOSS's stand-point (ring i=2, r=STAND_R, on the rug centre) — inside SEAT_REACH so boot sit() seats him at his own chair; open floor, facing the table (−z)
   const FLOOR = { x: [-2.15, 2.15], z: [-2.15, 6.65] };          // doubled office: two 4.5m plates span z -2.25..6.75 − .1 margin
   const SOLIDS = [[-.015, -.105, .85], [1.85, -2.03, .42], [-9.05, 2.6, .16], [-9.05, 4.8, .16]];      // capsule-vs-circle: commission_table ø1.40 + .15 capsule (on room center), file cabinet, west-cap floor lamps
   window.__solids = SOLIDS;                                            // door blockers splice in/out of this live array on swing
@@ -3271,8 +3272,8 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
       target: [PX, 5.72],                                              // step-through landing (north side of the bay) — retarget when the next room lands
       tick(t) { pmat.uniforms.uT.value = t; pts.material.uniforms.uT.value = t; },
       enter() {
-        if (window.__construct) return window.__construct.enter();     // the portal loads the Construct now
-        const to = chPos.z > PZ ? [PX, 4.62] : this.target;            // fallback hop if the construct never built
+        console.log('DVM — portal E: crossing to construct');
+        return veilRun('LOADING PROGRAM', () => { location.href = 'construct.html'; });   // the Construct is its own page now
         chPos.set(to[0], 0, to[1]);
         flash.style.opacity = .95; setTimeout(() => flash.style.opacity = 0, 60);
         DECK.dirty();
@@ -3280,83 +3281,19 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
     };
     SOLIDS.push([PX - .18, PZ, .3], [PX + .18, PZ, .3]);               // the light bars the threshold — no walking through
   }
-  /* ── THE CONSTRUCT — elevator landing far east of the diorama (x+100): a 1.8m platform of white tiles
-     in a white void, a static return door, and nothing else. Same-page zone 'office'|'construct';
-     walking delegates via a __bldg.slide wrapper — position-keyed, so only coords out here clamp
-     to the platform and the office/chair AI fall through to the bake untouched. Visuals = fog/bg
-     swap + lights dimmed up/down — the construct's lights live in scene root from init so the live
-     light count NEVER changes (recompile law). MANIFEST is the procedural expansion seam (tiles
-     append in any direction); this whole block is the port skeleton for construct.html. */
-  const CX = 100, CZ = 0, TILE = .6, TILEN = 3, PHALF = TILEN * TILE / 2 - .12;   // 1.8×1.8m platform, .12 walk margin
-  const constructG = new THREE.Group(); constructG.visible = false; scene.add(constructG);
-  const MANIFEST = { tiles: [], props: [] };
-  for (let tx = 0; tx < TILEN; tx++) for (let tz = 0; tz < TILEN; tz++) MANIFEST.tiles.push([tx - (TILEN - 1) / 2, tz - (TILEN - 1) / 2]);
-  const conHemi = new THREE.HemisphereLight(0xffffff, 0xd8d2c4, 0), conKey = new THREE.PointLight(0xfff6e8, 0, 4, 1.2);
-  conKey.position.set(CX, 1.5, CZ + 1.5); scene.add(conHemi, conKey);
-  { const floorMat = new THREE.MeshBasicMaterial({ color: 0xf4f1e8 });   /* the Matrix floor — unlit, exact void
-        color: optically identical to the fog/bg from every angle. You stand on it; you never see it. */
-    MANIFEST.tiles.forEach(([tx, tz]) => {
-      const t = new THREE.Mesh(new THREE.BoxGeometry(TILE, .05, TILE), floorMat);   // flush — no seams to catch the eye
-      t.position.set(CX + tx * TILE, -.026, CZ + tz * TILE); constructG.add(t);
-    });
-    /* frame + leaf: BOTH authored on the same .0075 grid — the frame (94×114×14, opening 82×108v)
-       wraps the leaf (80×107×12) with whole-voxel clearances: .0075/side, .0075 head, 1v reveal each
-       face. Same pitch, same palette family → they seal like they were cut together. */
-    const emitAt = (file, z) => fetch('/voxel/' + file).then(r => r.json()).then(m => {
-      if (!m.voxels || !window.voxEmit) return;
-      const vs = m.voxelSize || .0075, dcx = m.dims[0] / 2 - .5, dcz = m.dims[2] / 2 - .5;
-      const dg = new THREE.Group();
-      window.voxEmit(m, (M, v) => M.makeScale(vs, vs, vs).setPosition((v[0] - dcx) * vs, (v[1] + .5) * vs, (v[2] - dcz) * vs))
-        .forEach(mm => dg.add(mm));
-      dg.position.set(CX, 0, z); dg.rotation.y = Math.PI;                           // file front is z+ — face the platform (−z)
-      constructG.add(dg); if (window.__warmUp) window.__warmUp();
-    }).catch(() => {});
-    emitAt('commission_doorframe', CZ + .72);
-    emitAt('commission_door', CZ + .72);
-  }
-  SOLIDS.push([CX - .33, CZ + .72, .1], [CX, CZ + .72, .11], [CX + .33, CZ + .72, .1]);   // frame jambs + leaf face — the fitted frame is walk-solid
+  /* ── THE CONSTRUCT — relocated to construct.html (the showroom is its own page now). The veil
+     survives for the outbound transition: E on the portal fades to white, then the browser
+     navigates — same theater, new destination. */
   const veil = document.createElement('div');
   veil.style.cssText = 'position:fixed;inset:0;background:#f4f1e8;color:#a39a83;display:flex;align-items:center;justify-content:center;font:12px/1 ui-monospace,Consolas,monospace;letter-spacing:.32em;opacity:0;pointer-events:none;transition:opacity .4s;z-index:70';
   document.body.appendChild(veil);
   const veilRun = (text, fn) => { veil.textContent = text; veil.style.opacity = 1;
-    setTimeout(() => { fn(); setTimeout(() => { veil.style.opacity = 0; }, 500); }, 500); };
-  let ZONE = 'office'; const CON_SAVE = {};
-  const conSwap = to => {
-    if (to === 'construct') { if (CON_SAVE.bg === undefined) { CON_SAVE.bg = scene.background; CON_SAVE.fog = scene.fog; }
-      scene.background = new THREE.Color(0xf4f1e8); scene.fog = new THREE.Fog(0xf4f1e8, 3.5, 13);
-      constructG.visible = true; conHemi.intensity = 1.2; conKey.intensity = 2.4;
-      chPos.set(CX, 0, CZ - .2); chYaw = 0; lookYaw = 0; lookPitch = PITCH0; boomCur = -1;
-    } else {
-      scene.background = CON_SAVE.bg; scene.fog = CON_SAVE.fog;
-      constructG.visible = false; conHemi.intensity = 0; conKey.intensity = 0;
-      chPos.set(-6, 0, 4.62); chYaw = Math.PI; lookYaw = Math.PI; lookPitch = PITCH0; boomCur = -1;
-    }
-    ZONE = to; kick();          /* restart the step loop — driveCam lives inside step(), so the camera
-                                     only catches the teleport when the loop ticks (dirty() alone renders
-                                     one frame with the STALE camera — the 'stays until W' bug) */
-  };
-  window.__construct = {
-    manifest: MANIFEST, zone: () => ZONE, swap: conSwap,
-    /* EDA: the E press IS the crossing — swap commits synchronously in the handler, the veil is
-       pure theater drawn over a world that already changed. No timer gates the state itself. */
-    enter() { if (ZONE !== 'office') return; console.log('DVM — portal E: crossing to construct'); veilRun('LOADING PROGRAM', () => {}); conSwap('construct'); },
-    exit()  { if (ZONE !== 'construct') return; console.log('DVM — door E: returning to office'); veilRun('RETURNING', () => {}); conSwap('office'); },
-  };
-  (function wrapSlide() {                                  /* position-keyed zone walk: only coords inside the construct
-      clamp to the platform — office walking + chair AI fall through to the bake untouched */
-    if (!window.__bldg) return setTimeout(wrapSlide, 250);
-    const base = window.__bldg.slide;
-    window.__bldg.slide = (ox, oz, nx, nz) => Math.abs(nx - CX) < 3 && Math.abs(nz - CZ) < 3
-      ? [Math.max(CX - PHALF, Math.min(CX + PHALF, nx)), Math.max(CZ - PHALF, Math.min(CZ + PHALF, nz))]
-      : base(ox, oz, nx, nz);
-  })();
-  if (window.__warmUp) window.__warmUp();
+    setTimeout(() => { fn && fn(); }, 500); };
   const INTERACT = [                                           // possess-mode E registry (DESIGNER-4 + DVM-LAW1): pos + approach radius + prompt + action
     { pos:[1.85, -2.03], r:.9,   label:'E — OPEN CABINET',  open:() => window.__cab.open() },
     { pos:[-.045, 9.36], r:.9,   label:'E — READ THE LAWS', open:() => window.__laws.open() },
     { pos:[-6.0, 2.1],   r:.9,   label:'E — OFFICE DOOR',   open:() => window.__door && window.__door.toggle() },   // leaf centered in the opening — its approach IS the doorway center
     { pos:[-6.0, 5.19],  r:1.6,  label:'E — ENTER THE CONSTRUCT', open:() => window.__portal && window.__portal.enter() },   // the portal — shimmer fills the doorless bay; blocks via __solids until you commit
-    { pos:[CX, CZ + .45], r:1.4, label:'E — EXIT THE CONSTRUCT', open:() => window.__construct && window.__construct.exit() },   // the construct's static door home
   ];
   const AIM_R = 2.4, AIM_DOT = .55;                            // "aimed at" = inside a ~57° look cone and within arm+reach — walk up, or stand back and face it
   let promptIt = null;                                            // last interactable the HUD showed — E honors it even if the aim cone flickered out since

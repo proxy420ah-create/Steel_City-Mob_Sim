@@ -104,6 +104,14 @@ interior clear ~1.77m. `office_complex.snap-pre-ceiling.json` is the pre-move sn
 - **Probe flashlight.** `node docs/_shot.mjs <name> --torch --cam=.. --look=..` lights the shot with the L-key torch aimed from the probe camera (`window.__snapTorch`). Use it for any interior/dark check.
 
 ## Portal doorway + renderer warm-up phase (2026-11-13)
+- **THE CONSTRUCT (own page, docs/construct.html).** The Matrix-style white-void showroom lives at
+  /construct.html — reached via the office portal (E - ENTER THE CONSTRUCT -> LOADING PROGRAM veil ->
+  location.href). Standalone: import-map three, white fog/bg (0xf4f1e8), invisible floor (unlit
+  MeshBasicMaterial at void color), MANIFEST {tiles,props} procedural-expansion seam, FPS walk
+  (pointer-lock + WASD, eye .55), platform-bound clamp + door solids, E - EXIT THE CONSTRUCT ->
+  thecommission.html?from=construct (Vinny respawns at the portal front). Own voxEmit copy incl.
+  imO.count=no contract; lights at init always-on; warm-up = compile+render behind the veil.
+  Probe: node _shot.mjs <name> --page=construct --cam=.. --look=.. (page ships __cam/__snap/__uiClean).
 - **The portal.** The doorless north-wall hall bay (slab z250-252, clear opening x108-129 y3-29, ~.66x.81m) holds
   a permanent light-door — opaque ShaderMaterial plane (white-hot base, counter-scrolling cyan/violet/magenta
   fbm clouds, alpha 1, no blending), 240 GPU-driven motes (`aSeed` attr + `uT` uniform in the vertex shader,

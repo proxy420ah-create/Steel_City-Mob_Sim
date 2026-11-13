@@ -14,7 +14,8 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CHROME = 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe';
-const URL0 = 'http://127.0.0.1:8723/thecommission.html';
+const PAGE = (process.argv.find(a => a.startsWith('--page=')) || '').split('=')[1] || 'thecommission';
+const URL0 = 'http://127.0.0.1:8723/' + PAGE + '.html';
 const arg = Object.fromEntries(process.argv.slice(2).filter(a => a.startsWith('--')).map(a => { const [k, v] = a.slice(2).split('='); return [k, v ?? true]; }));
 const positional = process.argv.slice(2).filter(a => !a.startsWith('--'));
 const NAME = positional[0] || 'shot';
@@ -35,7 +36,7 @@ async function pageWs() {
   for (let i = 0; i < 60; i++) {
     try {
       const list = JSON.parse(await get(`http://127.0.0.1:${PORT}/json/list`));
-      const t = list.find(t => t.type === 'page' && t.url.includes('thecommission'));
+      const t = list.find(t => t.type === 'page' && t.url.includes(PAGE));
       if (t) return t.webSocketDebuggerUrl;
     } catch {}
     await sleep(500);
