@@ -514,10 +514,10 @@ const aimStep = () => {
 /* ── door console — the spawn panel. A hue-rimmed dark reader floating on the invisible
    elevator wall beside the door; E opens the roster dialog — load units in place, no
    crossing required. The roster is a list so future units just append a row. */
-const CONS_POS = { x: -.45, y: .5, z: .66 };
+const CONS_POS = { x: -.58, y: .5, z: .66 };
 const consG = new THREE.Group(); consG.position.set(CONS_POS.x, CONS_POS.y, CONS_POS.z); consG.rotation.y = Math.PI; scene.add(consG);
 {
-  const back = new THREE.Mesh(new THREE.PlaneGeometry(.17, .13), coreMat); back.position.z = -.006; consG.add(back);   // hue-riding rim
+  const back = new THREE.Mesh(new THREE.PlaneGeometry(.17, .13), coreMat); back.position.z = -.008; consG.add(back);   // hue-riding rim — -.008 clears the face box's rear surface (coplanar = z-fight shimmer)
   const face = new THREE.Mesh(new THREE.BoxGeometry(.155, .115, .012), new THREE.MeshLambertMaterial({ color: 0x14161c })); consG.add(face);
   const pip = new THREE.Mesh(new THREE.BoxGeometry(.012, .012, .014), coreMat); pip.position.set(.055, .042, .002); consG.add(pip);          // status light
 }
