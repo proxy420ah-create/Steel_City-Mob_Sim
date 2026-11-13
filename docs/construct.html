@@ -182,7 +182,292 @@ const deskP = emitAsset('commission_lawdesk', { x: 2.3, z: -4, rotY: Math.PI / 2
     emitAsset('commission_bookoflaws', { x: 2.35, z: -3.9, rotY: .3,          on: { host: desk }, pickable: true }),
     emitAsset('commission_stamper',    { x: 2.25, z: -4.15,                   on: { host: desk }, pickable: true }),
   ]));
-const ready = Promise.all([doorP, carP, deskP]);
+/* ═══ PERSISTENT PARTY — followers cross pages. sessionStorage 'dvm_party' is the handoff:
+   the Commission writes who's heeling on portal-E; the Construct writes who's coming home
+   on door-E. Each follower is the real poseEngine rig — gait, transitions, gaze, eyes. ═══ */
+const PARTY = JSON.parse(new URLSearchParams(location.search).get('party') || sessionStorage.getItem('dvm_party') || '[]');   // ?party= deep-links a party spec (probes); sessionStorage is the live handoff
+const OUTFIT = { 3: 126, 4: 126, 6: 126, 7: 105 };   // Civilian_01 "Suit Blue" region→mat remap — same constant the Commission applies
+
+function poseEngine(rig) {
+  const DEF = {                                                // DEFAULT_PARAMS (animator ≡ C# defaults) — only the sections Idle/Walking read
+    restPose:    { leftArmZ: -Math.PI / 2, rightArmZ: Math.PI / 2 },
+    jointOffset: { 1: { x: 0, y: 0, z: 0 }, 2: { x: 0, y: 0, z: 0 }, 3: { x: 0, y: 0, z: 0 }, 4: { x: 0, y: 0, z: 0 }, 5: { x: 0, y: 0, z: 0 } },
+    armSwing:    { axisL: 0, axisR: 0, signL: 1, signR: 1 },
+    legStride:   { axisL: 0, axisR: 0, signL: 1, signR: 1 },
+    legTwist:    { leftRest: 0, rightRest: 0 },
+    elbowBend:   { leftRest: 0, rightRest: 0, axisL: 1, axisR: 1, signL: 1, signR: -1, twistL: 0, twistR: 0 },
+    kneeBend:    { leftRest: 0, rightRest: 0, axisL: 0, axisR: 0, signL: 1, signR: 1 },
+    walkKeyframes: { autoMirror: true, cycleDuration: 1.2, bodyBob: { enabled: true, amplitude: .6 }, weightShift: { enabled: true, amplitude: .4 },
+      kf0: { armSwingL: .3, armSwingR: -.3, legStrideL: -.4, legStrideR: .4, elbowBendL: .1, elbowBendR: .1, kneeBendL: 0, kneeBendR: 0, forearmTwistL: 0, forearmTwistR: 0 },
+      kf1: { armSwingL: 0, armSwingR: 0, legStrideL: .3, legStrideR: -.1, elbowBendL: .3, elbowBendR: .3, kneeBendL: .8, kneeBendR: .15, forearmTwistL: 0, forearmTwistR: 0 },
+      kf2: null, kf3: null },
+  };
+  const ap = rig.animParams || {}, P = {};
+  for (const k in DEF) P[k] = Object.assign({}, DEF[k], ap[k]);   // animator load rule: per-section shallow merge over the defaults
+  const dims = rig.dims || [96, 96, 96], piv = {}, jo = {};
+  for (const g in rig.pivots || {}) { const p = rig.pivots[g]; piv[g] = [p.x * dims[0], p.y * dims[1], p.z * dims[2]]; }   // normalized → voxel units
+  for (let g = 1; g <= 5; g++) { const o = P.jointOffset[g] || {}; jo[g] = [o.x || 0, o.y || 0, o.z || 0]; }
+  jo[6] = jo[4]; jo[7] = jo[5]; jo[8] = jo[2]; jo[9] = jo[3];   // shins/forearms inherit their parent's offset
+  const vox = rig.voxels, N = vox.length, grp = rig.groups || {};
+  const vx = new Float32Array(N), vy = new Float32Array(N), vz = new Float32Array(N), vg = new Uint8Array(N);
+  vox.forEach((v, i) => { vx[i] = v[0]; vy[i] = v[1]; vz[i] = v[2]; vg[i] = grp[v[0] + ',' + v[1] + ',' + v[2]] || 0; });
+  /* rotations — row-major 3×3, the animator/C#/HLSL convention (rY is Unity-handed: [[c,0,-s],[0,1,0],[s,0,c]]) */
+  const rX = a => { const c = Math.cos(a), s = Math.sin(a); return [1, 0, 0, 0, c, -s, 0, s, c]; };
+  const rY = a => { const c = Math.cos(a), s = Math.sin(a); return [c, 0, -s, 0, 1, 0, s, 0, c]; };
+  const rZ = a => { const c = Math.cos(a), s = Math.sin(a); return [c, -s, 0, s, c, 0, 0, 0, 1]; };
+  const rA = (ax, a) => ax === 1 ? rY(a) : ax === 2 ? rZ(a) : rX(a);
+  const mm = (a, b) => [a[0] * b[0] + a[1] * b[3] + a[2] * b[6], a[0] * b[1] + a[1] * b[4] + a[2] * b[7], a[0] * b[2] + a[1] * b[5] + a[2] * b[8],
+                        a[3] * b[0] + a[4] * b[3] + a[5] * b[6], a[3] * b[1] + a[4] * b[4] + a[5] * b[7], a[3] * b[2] + a[4] * b[5] + a[5] * b[8],
+                        a[6] * b[0] + a[7] * b[3] + a[8] * b[6], a[6] * b[1] + a[7] * b[4] + a[8] * b[7], a[6] * b[2] + a[7] * b[5] + a[8] * b[8]];
+  /* gait — 4 keyframes at phase 0/.25/.5/.75, kf2/kf3 = L↔R mirror of kf0/kf1, cyclic Catmull-Rom; phase from the integrated gaitTime */
+  const WK = P.walkKeyframes;
+  const mirror = k => ({ armSwingL: k.armSwingR, armSwingR: k.armSwingL, legStrideL: k.legStrideR, legStrideR: k.legStrideL, elbowBendL: k.elbowBendR, elbowBendR: k.elbowBendL,
+                         kneeBendL: k.kneeBendR, kneeBendR: k.kneeBendL, forearmTwistL: k.forearmTwistR, forearmTwistR: k.forearmTwistL });
+  const KF = [WK.kf0, WK.kf1, WK.kf2 || (WK.autoMirror ? mirror(WK.kf0) : WK.kf0), WK.kf3 || (WK.autoMirror ? mirror(WK.kf1) : WK.kf1)];
+  const cr = (a, b, c, d, t) => .5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t * t + (-a + 3 * b - 3 * c + d) * t * t * t);
+  /* ═══ IK AIM channel — character_animator.html's simulated ArmAimSolver, ported flat-matrix.
+     2-bone law-of-cosines: shoulder places the elbow in the hint plane, forearm cumulative lands the
+     hand axis on target. Solved rotations REPLACE the group's ownRot blended (Unity Slerp into
+     ikOverrides). gid 2/8 = the arm that reads RIGHT in the Unity view (this tool's 'L Arm'). ═══ */
+  const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2], sub3 = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]],
+        norm3 = v => { const l = Math.hypot(v[0], v[1], v[2]); return l > 1e-9 ? [v[0] / l, v[1] / l, v[2] / l] : [0, 0, 1]; },
+        len3 = v => Math.hypot(v[0], v[1], v[2]),
+        cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]],
+        mT = a => [a[0], a[3], a[6], a[1], a[4], a[7], a[2], a[5], a[8]];
+  function basisFromFwd(f, u) {
+    if (Math.abs(dot3(f, u)) > .95) u = Math.abs(f[1]) < .9 ? [0, 1, 0] : [1, 0, 0];
+    const r = norm3(cross3(u, f)), up = cross3(f, r);
+    return [r[0], up[0], f[0], r[1], up[1], f[1], r[2], up[2], f[2]];
+  }
+  function basisDelta(bF, sF, up) { const s = basisFromFwd(norm3(sF), up), b = basisFromFwd(norm3(bF), up); return mm(s, mT(b)); }
+  function perpOf(h, ax) { let p = sub3(h, [ax[0] * dot3(h, ax), ax[1] * dot3(h, ax), ax[2] * dot3(h, ax)]); if (dot3(p, p) < 1e-8) p = Math.abs(ax[0]) < .9 ? [ax[1], -ax[0], 0] : [0, ax[2], -ax[1]]; return norm3(p); }
+  function scaledRot(m, w) {                                                            // rotation-matrix slerp: m scaled toward identity by 1−w
+    if (w <= 1e-4) return [1, 0, 0, 0, 1, 0, 0, 0, 1]; if (w >= .9999) return m;
+    const cA = Math.max(-1, Math.min(1, (m[0] + m[4] + m[8] - 1) / 2)), a0 = Math.acos(cA), s = 2 * Math.sin(a0);
+    if (Math.abs(s) < 1e-5) return w < .5 ? [1, 0, 0, 0, 1, 0, 0, 0, 1] : m;
+    const ax = (m[7] - m[5]) / s, ay = (m[2] - m[6]) / s, az = (m[3] - m[1]) / s, ang = a0 * w, c = Math.cos(ang), sn = Math.sin(ang), ic = 1 - c;
+    return [c + ax * ax * ic, ax * ay * ic - az * sn, ax * az * ic + ay * sn,
+            ay * ax * ic + az * sn, c + ay * ay * ic, ay * az * ic - ax * sn,
+            az * ax * ic - ay * sn, az * ay * ic + ax * sn, c + az * az * ic];
+  }
+  let _hand = null;
+  function handPoint() {                                                                 // fist tip: farthest gid-8 voxel from the shoulder pivot, cached
+    if (!_hand) {
+      const sv = piv[2]; let hv = null, best = -1;
+      for (let i = 0; i < N; i++) if (vg[i] === 8) { const p = [vx[i] + .5, vy[i] + .5, vz[i] + .5], d = dot3(sub3(p, sv), sub3(p, sv)); if (d > best) { best = d; hv = p; } }
+      _hand = hv ? { hv, axis: norm3(sub3(hv, piv[8])) } : null;
+    }
+    return _hand;
+  }
+  function ikSolve(T, reach) {                                                           // T = target in model voxel-index coords
+    const sv = piv[2], ev = piv[8], hand = handPoint();
+    if (!sv || !ev || !hand) return null;
+    const st = sub3(T, sv), dist = len3(st), toT = dist > 1e-6 ? [st[0] / dist, st[1] / dist, st[2] / dist] : [0, 0, 1];
+    const bindArm = norm3(sub3(ev, sv)), L1 = len3(sub3(ev, sv)), L2 = len3(sub3(hand.hv, ev)), UP = [0, 1, 0];
+    let qArm;
+    if (L1 < 1e-4 || L2 < 1e-4) qArm = basisDelta(bindArm, toT, UP);
+    else {
+      const d = Math.min(Math.max(dist, Math.abs(L1 - L2) + .01), (L1 + L2) * reach);
+      const cosA = Math.min(1, Math.max(-1, (L1 * L1 + d * d - L2 * L2) / (2 * L1 * d))), angA = Math.acos(cosA);
+      const sideX = Math.sign(sv[0] / dims[0] - .5) || 1;                                 // elbow hints outward on the arm's own side
+      const bendRef = perpOf([sideX * .4, -1, .2], toT);
+      const ca = Math.cos(angA), sa = Math.sin(angA);
+      qArm = basisDelta(bindArm, norm3([toT[0] * ca + bendRef[0] * sa, toT[1] * ca + bendRef[1] * sa, toT[2] * ca + bendRef[2] * sa]), UP);
+    }
+    return { qArm, qFore: mm(mT(qArm), basisDelta(hand.axis, toT, UP)) };                 // forearm cumulative must land hand axis on target
+  }
+  function gait(gt) {
+    const dur = WK.cycleDuration, ph = (((gt % dur) + dur) % dur) / dur, s = Math.min(3, Math.floor(ph * 4)), t = ph * 4 - s;
+    const A = KF[(s + 3) % 4], B = KF[s], C = KF[(s + 1) % 4], D = KF[(s + 2) % 4], pose = {};
+    for (const k in B) pose[k] = cr(A[k] || 0, B[k] || 0, C[k] || 0, D[k] || 0, t);
+    return { pose,
+      bobY:   WK.bodyBob.enabled ? -Math.cos(ph * 4 * Math.PI) * WK.bodyBob.amplitude : 0,         // lowest at contact, highest at mid-stance
+      shiftX: WK.weightShift.enabled ? Math.sin(ph * 2 * Math.PI) * WK.weightShift.amplitude : 0 };  // lateral weight shift over the stance leg
+  }
+  /* out[3i..3i+2] ← posed voxel-index position of voxel i under (state, gaitTime, aim) — aim = {T:[ix,iy,iz] model coords, blend, head} or null */
+  function evalPose(state, gt, out, aim) {
+    const AS = P.armSwing, LS = P.legStride, EB = P.elbowBend, KB = P.kneeBend, RP = P.restPose, LT = P.legTwist;
+    const g = state === 1 ? gait(gt) : null;                   // Idle: rest pose only · Walking: rest pose + gait + bob + shift
+    const k = state === 11 ? { armSwingL: .2, armSwingR: .2, legStrideL: -1.45, legStrideR: -1.45, kneeBendL: 1.45, kneeBendR: 1.45,   // Sit (animator DEFAULT_PARAMS.sitting): thighs forward ~83°, shins fold down, torso upright, no bob. Stride sign is flipped vs the animator's +1.45 — fitted: all 12,608 voxels land inside the authored vinny_seated_preview composite
+                                elbowBendL: EB.leftRest, elbowBendR: EB.rightRest, forearmTwistL: EB.twistL, forearmTwistR: EB.twistR } : g && g.pose;
+    const armL = mm(rA(AS.axisL, AS.signL * (k ? k.armSwingL : 0)), rZ(RP.leftArmZ)), armR = mm(rA(AS.axisR, AS.signR * (k ? k.armSwingR : 0)), rZ(RP.rightArmZ));
+    const legL = mm(rA(LS.axisL, LS.signL * (k ? k.legStrideL : 0)), rY(LT.leftRest)), legR = mm(rA(LS.axisR, LS.signR * (k ? k.legStrideR : 0)), rY(LT.rightRest));
+    const twL = k ? k.forearmTwistL : EB.twistL, twR = k ? k.forearmTwistR : EB.twistR;
+    let foreL = rA(EB.axisL, EB.signL * (k ? k.elbowBendL : EB.leftRest)), foreR = rA(EB.axisR, EB.signR * (k ? k.elbowBendR : EB.rightRest));
+    if (twL) foreL = mm(foreL, rX(twL)); if (twR) foreR = mm(foreR, rX(twR));
+    const shinL = rA(KB.axisL, KB.signL * (k ? k.kneeBendL : KB.leftRest)), shinR = rA(KB.axisR, KB.signR * (k ? k.kneeBendR : KB.rightRest));
+    const C = [null, { c: [], o: jo[1] },                                                              // 0 Body: no transform · 1 Head: identity at rest
+      { c: [[piv[2], armL]], o: jo[2] }, { c: [[piv[3], armR]], o: jo[3] },                           // 2/3 arms: restPose Z drop (arms down), then swing
+      { c: [[piv[4], legL]], o: jo[4] }, { c: [[piv[5], legR]], o: jo[5] },                           // 4/5 legs: hip stride
+      { c: [[piv[6], shinL], [piv[4], legL]], o: jo[4] }, { c: [[piv[7], shinR], [piv[5], legR]], o: jo[5] },   // 6/7 shins: knee hinge FIRST, then the hip carries the bent limb
+      { c: [[piv[8], foreL], [piv[2], armL]], o: jo[2] }, { c: [[piv[9], foreR], [piv[3], armR]], o: jo[3] }]; // 8/9 forearms: elbow hinge FIRST, then the shoulder
+    if (aim) {                                                           // IK AIM channel — solves REPLACE the arm chain's ownRot, blended (over ANY state)
+      const sol = ikSolve(aim.T, .96);
+      if (sol) {
+        const ikArm = mm(scaledRot(mm(sol.qArm, mT(armL)), aim.blend), armL);
+        const ikFore = mm(scaledRot(mm(sol.qFore, mT(foreL)), aim.blend), foreL);
+        C[2] = { c: [[piv[2], ikArm]], o: jo[2] };
+        C[8] = { c: [[piv[8], ikFore], [piv[2], ikArm]], o: jo[2] };
+        if (aim.head > 0) {                                              // eyes take the aim too — head bind-forward → target dir, blended
+          const d = sub3(aim.T, piv[1]), toT = len3(d) > 1e-6 ? norm3(d) : [0, 0, 1];
+          C[1] = { c: [[piv[1], scaledRot(basisDelta([0, 0, 1], toT, [0, 1, 0]), aim.head)]], o: jo[1] };
+        }
+      }
+    }
+    const sx = g ? g.shiftX : 0, by = g ? g.bobY : 0;
+    for (let i = 0; i < N; i++) {
+      const ch = C[vg[i]]; let x = vx[i], y = vy[i], z = vz[i];
+      if (ch) {
+        for (let c = 0; c < ch.c.length; c++) {
+          const pv = ch.c[c][0], m = ch.c[c][1], dx = x - pv[0], dy = y - pv[1], dz = z - pv[2];
+          x = pv[0] + m[0] * dx + m[1] * dy + m[2] * dz; y = pv[1] + m[3] * dx + m[4] * dy + m[5] * dz; z = pv[2] + m[6] * dx + m[7] * dy + m[8] * dz;
+        }
+        x += ch.o[0]; y += ch.o[1]; z += ch.o[2];
+      }
+      out[3 * i] = x + sx; out[3 * i + 1] = y + by; out[3 * i + 2] = z;
+    }
+  }
+  return { N, evalPose };
+}
+/* ═══ /POSE ENGINE ═══ */
+
+
+
+const followers = [];
+const emitChar = spec => fetch('/char/' + spec.char).then(r => r.json()).then(rig => {
+  if (!rig || !rig.voxels) return null;
+  const E = poseEngine(rig), N = rig.voxels.length, VS = rig.voxelSize || .01, d = rig.dims || [96, 96, 96];
+  const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(VS, VS, VS), new THREE.MeshLambertMaterial(), N);
+  inst.frustumCulled = false;                          // matrices rewrite per pose — load-time bounds go stale
+  const pal = {}; (rig.materials || []).forEach(m => pal[m.id] = new THREE.Color(m.hex));
+  const reg = rig.regions || {}, dflt = new THREE.Color(0x888888);
+  rig.voxels.forEach((v, i) => inst.setColorAt(i, pal[OUTFIT[reg[v[0] + ',' + v[1] + ',' + v[2]]] || v[3]] || dflt));
+  inst.instanceColor.needsUpdate = true;
+  const CH = new THREE.Group(); CH.add(inst); scene.add(CH);
+  const bufA = new Float64Array(3 * N), bufB = new Float64Array(3 * N);
+  const MA = inst.instanceMatrix.array;
+  for (let i = 0; i < N; i++) MA[16 * i] = MA[16 * i + 5] = MA[16 * i + 10] = MA[16 * i + 15] = 1;
+  function upload(A, B, blend, dip) {                  // same pipeline as the Commission's — voxel-index → CH-local metres
+    const hx = d[0] / 2, hz = d[2] / 2;
+    for (let i = 0, j = 12; i < N; i++, j += 16) {
+      let x = B[3 * i], y = B[3 * i + 1], z = B[3 * i + 2];
+      if (A) { x = A[3 * i] + (x - A[3 * i]) * blend; y = A[3 * i + 1] + (y - A[3 * i + 1]) * blend + dip; z = A[3 * i + 2] + (z - A[3 * i + 2]) * blend; }
+      MA[j] = (x - hx) * VS; MA[j + 1] = (y + .5) * VS; MA[j + 2] = (z - hz) * VS;
+    }
+    inst.instanceMatrix.needsUpdate = true;
+  }
+  const eyeIdx = []; rig.voxels.forEach((v, i) => { if (reg[v[0] + ',' + v[1] + ',' + v[2]] === 10) eyeIdx.push(i); });   // region 10 = gaze anchor
+  const f = { spec, rig, E, inst, CH, bufA, bufB, eyeIdx, N, VS, d, upload,
+    pos: new THREE.Vector3(spec.x ?? .4, 0, spec.z ?? .45), yaw: Math.PI,       // steps out of the door-elevator behind you
+    order: spec.order || 'follow', state: 0, prevState: 0, transFrom: 0, transT: -1, blend: 1, dip: 0, walkSpeed: 1, gaitTime: 0 };
+  E.evalPose(0, 0, bufB); upload(null, bufB, 1, 0);
+  followers.push(f);
+  return f;
+}).catch(e => { window.__lastPartyErr = String(e && e.stack || e); console.warn('CONSTRUCT — follower emit failed:', spec.char, e); });
+
+/* follow-nav — the Construct's simpler world needs less than the Commission's ring choreography:
+   seek the player at polite distance, SOLIDS pushout, walk-rect clamp, measured-speed gait */
+const F_TURN = 10, F_WALK = 1.4, MOVE_EPS = .1, TRANS_DUR = .32, TRANS_DIP = .45, FOLLOW_D = .5;
+const followStep = (f, dt) => {
+  let moving = false;
+  if (f.order === 'follow') {
+    const dx = pos.x - f.pos.x, dz = pos.z - f.pos.z, d = Math.hypot(dx, dz);
+    if (d > FOLLOW_D) {
+      const vx = dx / d * F_WALK, vz = dz / d * F_WALK;
+      let dyaw = Math.atan2(vx, vz) - f.yaw;
+      while (dyaw > Math.PI) dyaw -= 2 * Math.PI; while (dyaw < -Math.PI) dyaw += 2 * Math.PI;
+      f.yaw += Math.sign(dyaw) * Math.min(Math.abs(dyaw), F_TURN * dt);
+      f.pos.x = Math.max(WALKR.x0, Math.min(WALKR.x1, f.pos.x + vx * dt));
+      f.pos.z = Math.max(WALKR.z0, Math.min(WALKR.z1, f.pos.z + vz * dt));
+      for (const s of SOLIDS) { const px = f.pos.x - s[0], pz = f.pos.z - s[1], rr = s[2] + .18, dd = Math.hypot(px, pz);
+        if (dd < rr && dd > 1e-4) { f.pos.x = s[0] + px / dd * rr; f.pos.z = s[1] + pz / dd * rr; } }
+      moving = true;
+    }
+  }
+  const ox = f.pos.x, oz = f.pos.z;
+  f.CH.position.set(f.pos.x, 0, f.pos.z); f.CH.rotation.y = f.yaw;
+  const hs = Math.hypot(f.pos.x - ox, f.pos.z - oz) / dt;
+  const was = f.state === 1 || f.transT >= 0;
+  if (hs > MOVE_EPS) { f.state = 1; f.walkSpeed = Math.min(2, Math.max(.5, hs * .5)); } else f.state = 0;
+  if (f.state !== f.prevState) { f.transFrom = f.prevState; f.prevState = f.state; f.transT = 0; }
+  f.gaitTime += dt * f.walkSpeed;
+  if (f.transT >= 0) { f.transT += dt; const t = Math.min(1, f.transT / TRANS_DUR);
+    f.blend = t * t * (3 - 2 * t); f.dip = -Math.sin(Math.PI * t) * TRANS_DIP;
+    if (t >= 1) { f.transT = -1; f.blend = 1; f.dip = 0; } }
+  let gaze = null;                                            // idle & close → his head tracks you (region-10 channel, arm untouched)
+  if (!moving && Math.hypot(pos.x - f.pos.x, pos.z - f.pos.z) < 2.2) {
+    const lx = pos.x - f.pos.x, lz = pos.z - f.pos.z, cy = Math.cos(f.yaw), sy = Math.sin(f.yaw);
+    gaze = { T: [(lx * cy - lz * sy) / f.VS + f.d[0] / 2, EYE / f.VS, (lx * sy + lz * cy) / f.VS + f.d[2] / 2], blend: 0, head: 1 };
+  }
+  if (was || f.state === 1 || f.transT >= 0 || gaze) {
+    f.E.evalPose(f.state, f.gaitTime, f.bufB, gaze);
+    if (f.transT >= 0) { f.E.evalPose(f.transFrom, f.gaitTime, f.bufA, gaze); f.upload(f.bufA, f.bufB, f.blend, f.dip); }
+    else f.upload(null, f.bufB, 1, 0);
+  }
+};
+
+/* ── follower's eyes — region-10 posed centroid → POV cam; P toggles the inset, __eyes.shot captures.
+   Gaze target is always the player's head — his POV watches you, like his head does. */
+const povCam = new THREE.PerspectiveCamera(72, 16 / 9, .005, 20); povCam.rotation.order = 'YXZ';
+let povOn = false, povYaw = Math.PI, povPitch = 0, povF = null;
+const povEl = document.createElement('div');
+povEl.style.cssText = 'position:fixed;right:12px;bottom:12px;color:#b0a88f;font:10px ui-monospace,Consolas,monospace;letter-spacing:.2em;display:none;z-index:6;pointer-events:none';
+povEl.textContent = 'FOLLOWER POV'; document.body.appendChild(povEl);
+const _eyeL = [0, 0, 0], _eyeW = new THREE.Vector3(), _pfwd = new THREE.Vector3();
+function eyeWorld(f) {
+  let x = 0, y = 0, z = 0;
+  for (const i of f.eyeIdx) { x += f.bufB[3 * i]; y += f.bufB[3 * i + 1]; z += f.bufB[3 * i + 2]; }
+  if (f.transT >= 0) { let ax = 0, ay = 0, az = 0;
+    for (const i of f.eyeIdx) { ax += f.bufA[3 * i]; ay += f.bufA[3 * i + 1]; az += f.bufA[3 * i + 2]; }
+    x = ax + (x - ax) * f.blend; y = ay + (y - ay) * f.blend; z = az + (z - az) * f.blend; }
+  const n = f.eyeIdx.length || 1, hx = f.d[0] / 2, hz = f.d[2] / 2;
+  _eyeL[0] = (x / n - hx) * f.VS; _eyeL[1] = (y / n + .5) * f.VS; _eyeL[2] = (z / n - hz) * f.VS;
+  const cy = Math.cos(f.yaw), sy = Math.sin(f.yaw);
+  _eyeW.set(f.pos.x + _eyeL[0] * cy + _eyeL[2] * sy, _eyeL[1], f.pos.z - _eyeL[0] * sy + _eyeL[2] * cy);
+  return _eyeW;
+}
+function updatePov(dt) {
+  if (!povF) return;
+  const e = eyeWorld(povF);
+  const gx = pos.x - e.x, gy = EYE - e.y, gz = pos.z - e.z, hz = Math.hypot(gx, gz) || 1e-4;
+  const wy = Math.atan2(-gx, -gz), wp = Math.atan2(gy, hz);
+  let dyw = wy - povYaw; while (dyw > Math.PI) dyw -= 2 * Math.PI; while (dyw < -Math.PI) dyw += 2 * Math.PI;
+  const k = Math.min(1, 10 * dt);
+  povYaw += dyw * k; povPitch += (wp - povPitch) * k;
+  _pfwd.set(-Math.sin(povYaw) * Math.cos(povPitch), Math.sin(povPitch), -Math.cos(povYaw) * Math.cos(povPitch));
+  povCam.position.copy(e).addScaledVector(_pfwd, .075);         // push out of the skull
+  povCam.rotation.set(povPitch, povYaw, 0);
+}
+window.__eyes = {
+  on: () => povOn,
+  show: () => { if (povF) { povOn = true; povEl.style.display = 'block'; } },
+  hide: () => { povOn = false; povEl.style.display = 'none'; },
+  pip: () => {                                                   // scissored second pass — same trick as the Commission's __eyes.pip
+    if (!povOn || !povF) return;
+    const cv = renderer.domElement, w = cv.width / (renderer.getPixelRatio() || 1), h = cv.height / (renderer.getPixelRatio() || 1);
+    const iw = Math.floor(w * .30), ih = Math.floor(iw * 9 / 16), ix = Math.floor(w - iw - 12), iy = 12;
+    povCam.aspect = iw / ih; povCam.updateProjectionMatrix();
+    renderer.setScissorTest(true); renderer.setScissor(ix, iy, iw, ih); renderer.setViewport(ix, iy, iw, ih);
+    renderer.clearDepth();
+    const ac = renderer.autoClear; renderer.autoClear = false;
+    renderer.render(scene, povCam);
+    renderer.autoClear = ac; renderer.setScissorTest(false); renderer.setViewport(0, 0, w, h); renderer.setScissor(0, 0, w, h);
+  },
+  shot: () => {                                                  // full-res POV frame → PNG data URL (same task render+read)
+    if (!povF) return null;
+    const cv = renderer.domElement, pr = renderer.getPixelRatio() || 1;
+    povCam.aspect = cv.width / cv.height; povCam.updateProjectionMatrix();
+    renderer.setViewport(0, 0, cv.width / pr, cv.height / pr);
+    renderer.render(scene, povCam);
+    return cv.toDataURL('image/png');
+  },
+  snap: name => { const u = window.__eyes.shot(); if (!u) return Promise.resolve(false);
+    return fetch('/shot', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'probe_' + (name || 'follower'), png: u }) }).then(r => r.json()).then(j => !!j.ok); },
+};
+
+const partyP = Promise.all(PARTY.map(emitChar)).then(fs => { povF = fs.find(Boolean) || null; });
+const ready = Promise.all([doorP, carP, deskP, partyP]);
 MANIFEST.props.push({ kind: 'turntable', x: SPIN_POS.x, z: SPIN_POS.z, r: SPIN_R, asset: 'vehicle_490_touring' },
                     { kind: 'prop-table', x: 2.3, z: -4, asset: 'commission_lawdesk',
                       items: ['commission_desklamp', 'commission_bookoflaws', 'commission_stamper'] });
@@ -207,11 +492,12 @@ const INTERACT = [
 ];
 let promptIt = null;
 addEventListener('keydown', e => { keys[(e.key || '').toLowerCase()] = true;
-  if ((e.key || '').toLowerCase() === 'e') {
+  const k = (e.key || '').toLowerCase();
+  if (k === 'e') {
     if (held) { const t = dropTarget(); if (t) placeIt(t); }
     else if (pickIt) takeIt(pickIt);
     else if (promptIt) promptIt.fn();
-  } });
+  } else if (k === 'p' && window.__eyes) { povOn ? window.__eyes.hide() : window.__eyes.show(); } });
 addEventListener('keyup', e => { keys[(e.key || '').toLowerCase()] = false; });
 
 /* ── pick-up / drop — free item manipulation on the measured-surface law.
@@ -250,6 +536,7 @@ const veil = document.getElementById('veil'), promptEl = document.getElementById
 const veilRun = (text, fn) => { veil.textContent = text; veil.style.opacity = 1;
   setTimeout(() => { fn && fn(); }, 420); };
 const goHome = () => { if (window.__leaving) return; window.__leaving = true;
+  sessionStorage.setItem('dvm_party', JSON.stringify(followers.filter(f => f.order === 'follow').map(f => ({ char: f.spec.char, order: 'follow' }))));
   veilRun('RETURNING', () => { location.href = 'thecommission.html?from=construct'; }); };
 window.__home = goHome;
 
@@ -273,6 +560,8 @@ const loop = now => {
   camera.position.set(pos.x, EYE, pos.z);
   camera.rotation.set(0, 0, 0, 'YXZ'); camera.rotation.y = yaw; camera.rotation.x = pitch;
   if (spinning) carG.rotation.y += SPIN_RATE * dt;
+  followers.forEach(f => followStep(f, dt));
+  if (povOn) updatePov(dt);
   boundHue(now / 1000);
   if (held) {
     camera.getWorldDirection(fwdV);
@@ -291,6 +580,7 @@ const loop = now => {
                      : pickIt ? 'E — TAKE ' + pickIt.name.replace('commission_', '').toUpperCase()
                      : promptIt ? promptIt.label() : '';
   renderer.render(scene, camera);
+  if (povOn) window.__eyes.pip();
   requestAnimationFrame(loop);
 };
 
@@ -313,6 +603,7 @@ window.__snap = (name, px, py, pz, tx, ty, tz) => {
   return fetch('/shot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'probe_' + name, png: u }) }).then(r => r.json()).then(j => !!j.ok);
 };
 window.__construct = { manifest: MANIFEST, pos, spin: () => spinning, held: () => held, placed: PLACED,
+  followers: () => followers.map(f => ({ char: f.spec.char, order: f.order, pos: f.pos.toArray() })),
   take: n => { const p = PLACED.find(p => p.name === n); if (p) takeIt(p); return !!p; },
   place: (x, z) => { if (!held) return false; const y = worldSurfaceAt(x, z, held); placeIt({ x, y, z }); return true; } };
 window.__envShot = () => {};                                   // probe contract — no sealed/env split on this page

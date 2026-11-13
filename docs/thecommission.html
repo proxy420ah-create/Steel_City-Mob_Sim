@@ -3273,6 +3273,10 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
       tick(t) { pmat.uniforms.uT.value = t; pts.material.uniforms.uT.value = t; },
       enter() {
         console.log('DVM — portal E: crossing to construct');
+        try {                                                                          // party handoff — whoever's heeling crosses with you
+          sessionStorage.setItem('dvm_party', JSON.stringify(
+            (window.__chairbody && window.__chairbody.order() === 'follow') ? [{ char: 'CHAIR1', order: 'follow' }] : []));
+        } catch (e) {}
         return veilRun('LOADING PROGRAM', () => { location.href = 'construct.html'; });   // the Construct is its own page now
         chPos.set(to[0], 0, to[1]);
         flash.style.opacity = .95; setTimeout(() => flash.style.opacity = 0, 60);
@@ -3626,6 +3630,7 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
     };
     E2.evalPose(11, 0, bufB2); upload2(null, bufB2, 1, 0); DECK.dirty();
     window.__chairbody = { root: CH2, mesh: inst2, engine: E2, order: () => order,
+      teleport: (x, z) => { chairPos.x = x; chairPos.z = z; seated2 = false; CH2.position.set(x, 0, z); DECK.dirty(); },
       setOrder: o => {
         order = { follow: 'follow', post: 'post', goto: 'goto', wait: 'wait' }[o] || 'post';
         if (order === 'follow' || order === 'goto') { if (seated2) unseatT = 0; seated2 = false; }   // moving orders: rise first, then walk out
@@ -3695,6 +3700,15 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
           .then(r => r.json()).then(j => { if (j.ok) shutter(); console.log('DVM-2261 — user capture:', j.ok ? j.bytes + 'B → ' + j.path : 'FAILED ' + j.err); }); },
       eye: () => eyeWorld().toArray(), gaze: () => gazeT && gazeT.toArray()
     };
+    try {                                                                               // party return — heeled through the Construct → steps out of the portal behind you
+      const party = JSON.parse(sessionStorage.getItem('dvm_party') || '[]');
+      if (new URLSearchParams(location.search).get('from') === 'construct' &&
+          party.some(p => p.char === 'CHAIR1' && p.order === 'follow')) {
+        window.__chairbody.teleport(-6.4, 4.5);
+        window.__chairbody.setOrder('follow');
+        console.log('DVM — CHAIR returned from the Construct on follow');
+      }
+    } catch (e) {}
     console.log('DVM-2256 — CHAIR body online:', N2, 'voxels · amber suit · orders FOLLOW/POST · body clickable');
   }).catch(e => console.warn('DVM-2256 — CHAIR1 unavailable:', e));
 
