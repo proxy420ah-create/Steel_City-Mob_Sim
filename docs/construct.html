@@ -550,7 +550,7 @@ window.__console = { open: openCons, close: closeCons, on: () => consOpen, rende
    /peek gets pos/aim/marks/follower orders+gaze at ~2Hz; /shot probe_live_pov gets his
    actual POV frame ~1Hz (shot()'s fullscreen render is restored in the same task — no flicker). */
 const liveEl = document.createElement('div');
-liveEl.style.cssText = 'position:fixed;left:12px;top:12px;color:#7fd4ff;font:10px ui-monospace,Consolas,monospace;letter-spacing:.25em;display:none;z-index:6;pointer-events:none';
+liveEl.style.cssText = 'position:fixed;right:12px;top:12px;color:#7fd4ff;font:10px ui-monospace,Consolas,monospace;letter-spacing:.25em;display:none;z-index:6;pointer-events:none';
 liveEl.textContent = '◉ LIVE'; document.body.appendChild(liveEl);
 const livePost = () => fetch('/peek', { method: 'POST', headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ t: Date.now(), pos: pos.toArray(), yaw, aimOn, aim: aimWorld.toArray(), held: held && held.name,
@@ -564,6 +564,33 @@ window.__live = {
   start: () => { if (LIVE.on) return; LIVE.on = true; livePost(); liveShot(); LIVE.iv = setInterval(livePost, 400); LIVE.sv = setInterval(liveShot, 900); liveEl.style.display = 'block'; },
   stop: () => { LIVE.on = false; clearInterval(LIVE.iv); clearInterval(LIVE.sv); liveEl.style.display = 'none'; },
 };
+
+/* ── follower control — clickable orders + hotkey legend, bottom-left. Re-renders only when
+   follower state actually changes (orders move via keys too), so button presses never get eaten. */
+const ctlEl = document.createElement('div');
+ctlEl.style.cssText = 'position:fixed;left:12px;bottom:12px;background:rgba(12,12,18,.88);border:1px solid #34344a;padding:10px 12px;font:11px ui-monospace,Consolas,monospace;color:#cfc8b0;z-index:8;pointer-events:auto;display:none';
+document.body.appendChild(ctlEl);
+let ctlOn = true, ctlSig = '';
+function renderCtl() {
+  const f = followers[0], o = f && f.order;
+  ctlEl.innerHTML =
+    '<div style="letter-spacing:.2em;color:#8f87a0;margin-bottom:6px">FOLLOWER</div>' +
+    (f ?
+      '<div style="display:flex;gap:6px;margin-bottom:8px">' +
+      ['follow', 'wait', 'goto'].map(ord =>
+        '<button data-o="' + ord + '" style="font:inherit;font-size:10px;padding:3px 8px;cursor:pointer;color:#e8e0c8;background:' + (o === ord ? '#3a4a2a' : '#1c1c26') + ';border:1px solid ' + (o === ord ? '#7a5' : '#3a3a4a') + '">' +
+        (ord === 'goto' ? 'GO ▸ TAG' : ord.toUpperCase()) + '</button>').join('') + '</div>'
+    : '<div style="color:#6f6a58;font-size:10px;margin-bottom:8px">none in room — door console spawns</div>') +
+    '<div style="color:#5b5648;font-size:10px;line-height:1.6">' +
+    'F/RMB aim · LMB tag · T go-tag · R clear<br>' +
+    'H heel · P pov · Y live · K panel</div>';
+  ctlEl.querySelectorAll('button[data-o]').forEach(b => b.onclick = () => { f && f.setOrder(b.dataset.o); ctlTick(); });
+}
+const ctlTick = () => {
+  const sig = followers.length + '|' + followers.map(f => f.order).join() + '|' + ctlOn;
+  if (sig !== ctlSig) { ctlSig = sig; renderCtl(); ctlEl.style.display = ctlOn ? 'block' : 'none'; }
+};
+setInterval(ctlTick, 400); ctlTick();
 
 const partyP = Promise.all(PARTY.map(emitChar));
 const ready = Promise.all([doorP, carP, deskP, partyP]);
@@ -606,7 +633,8 @@ addEventListener('keydown', e => { keys[(e.key || '').toLowerCase()] = true;
   else if (k === 't') { followers.forEach(f => f.setOrder('goto')); }          // GO — walk to the live tag
   else if (k === 'r') { clearTags(); }                                         // release — clear the tag and the gaze it ordered
   else if (k === 'h') { followers.forEach(f => f.setOrder(f.order === 'follow' ? 'wait' : 'follow')); }   // HEEL ⇄ WAIT
-  else if (k === 'y') { LIVE.on ? window.__live.stop() : window.__live.start(); } });   // live link — stream session to the agent
+  else if (k === 'y') { LIVE.on ? window.__live.stop() : window.__live.start(); }   // live link — stream session to the agent
+  else if (k === 'k') { ctlOn = !ctlOn; ctlTick(); } });                      // control panel toggle
 addEventListener('keyup', e => { keys[(e.key || '').toLowerCase()] = false; });
 
 /* ── pick-up / drop — free item manipulation on the measured-surface law.
