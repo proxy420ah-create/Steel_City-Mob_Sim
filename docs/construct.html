@@ -568,9 +568,10 @@ const specCv = document.createElement('canvas'); specCv.width = 640; specCv.heig
     ['BUILDING',  '.1',   '→ 0.1',   '#f0a44a'],
     ['CHARACTER', '.01',  '→ .01f',  '#7fd4ff'],
     ['ITEM/DECOR','.005', '→ file',  '#ff9d5c'],
+    ['FURN/PROP', '.0075','→ file',  '#e0c060'],
     ['ROOM',      '.03',  '→ —',     '#c9a0ff'],
   ];
-  specRows.forEach((r, i) => { const y = 148 + i * 58;
+  specRows.forEach((r, i) => { const y = 142 + i * 52;
     g.fillStyle = r[3]; g.fillRect(34, y - 24, 8, 32);
     g.fillStyle = '#e8d9b0'; g.font = 'bold 24px monospace'; g.fillText(r[0], 56, y);
     g.font = '24px monospace'; g.fillStyle = '#cfc8b0'; g.fillText(r[1], 310, y);
