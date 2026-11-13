@@ -552,6 +552,37 @@ const openCons = () => { consOpen = true; renderCons(); consEl.style.display = '
 const closeCons = () => { consOpen = false; consEl.style.display = 'none'; };
 window.__console = { open: openCons, close: closeCons, on: () => consOpen, render: renderCons, spawn: r => toggleSpawn(r, { textContent: '' }) };
 
+/* ── SPEC PLAQUE — the spec↔unity voxelSize table as a literal wall plate east of the door.
+   Self-lit face (MeshBasic — always readable, never lit-dependent); brass-rimmed dark plate
+   on the same floating-panel convention as the door console. */
+const specCv = document.createElement('canvas'); specCv.width = 640; specCv.height = 460;
+{ const g = specCv.getContext('2d');
+  g.fillStyle = '#14121a'; g.fillRect(0, 0, 640, 460);
+  g.strokeStyle = '#b08d4a'; g.lineWidth = 10; g.strokeRect(5, 5, 630, 450);
+  g.fillStyle = '#e8d9b0'; g.font = 'bold 32px monospace'; g.textAlign = 'left';
+  g.fillText('SPEC ↔ UNITY', 36, 60);
+  g.fillStyle = '#9a9480'; g.font = '18px monospace';
+  g.fillText('voxelSize · meters per cell', 36, 92);
+  const specRows = [
+    ['VEHICLE',   '.01',  '→ .01f',  '#5fd48a'],
+    ['BUILDING',  '.1',   '→ 0.1',   '#f0a44a'],
+    ['CHARACTER', '.01',  '→ .01f',  '#7fd4ff'],
+    ['ITEM/DECOR','.005', '→ file',  '#ff9d5c'],
+    ['ROOM',      '.03',  '→ —',     '#c9a0ff'],
+  ];
+  specRows.forEach((r, i) => { const y = 148 + i * 58;
+    g.fillStyle = r[3]; g.fillRect(34, y - 24, 8, 32);
+    g.fillStyle = '#e8d9b0'; g.font = 'bold 24px monospace'; g.fillText(r[0], 56, y);
+    g.font = '24px monospace'; g.fillStyle = '#cfc8b0'; g.fillText(r[1], 310, y);
+    g.fillStyle = r[3]; g.fillText(r[2], 430, y); });
+}
+const specTex = new THREE.CanvasTexture(specCv); specTex.colorSpace = THREE.SRGBColorSpace; specTex.anisotropy = 4;
+const specBack = new THREE.Mesh(new THREE.BoxGeometry(.6, .43, .012), new THREE.MeshLambertMaterial({ color: 0x141018 }));
+specBack.position.set(1.55, .6, .678); scene.add(specBack);
+const specPlaque = new THREE.Mesh(new THREE.PlaneGeometry(.56, .4), new THREE.MeshBasicMaterial({ map: specTex }));
+specPlaque.position.set(1.55, .6, .67); specPlaque.rotation.y = Math.PI;               // faces south into the room
+scene.add(specPlaque);
+
 /* ── live link — streams the session to the server so the agent sees YOUR real setup:
    /peek gets pos/aim/marks/follower orders+gaze at ~2Hz; /shot probe_live_pov gets his
    actual POV frame ~1Hz (shot()'s fullscreen render is restored in the same task — no flicker). */
