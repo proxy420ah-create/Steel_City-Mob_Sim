@@ -176,11 +176,11 @@ const carP = emitAsset('vehicle_490_touring', { kind: 'vehicle', parent: carG, x
 
 /* ── exhibit: the prop desk — east side, facing the rotator. Items seat on the host's measured
    column-tops via the on:{host} contract — desk emits first, cargo seats on its surface. */
-const deskP = emitAsset('commission_lawdesk', { x: 2.3, z: -4, rotY: Math.PI / 2 }).then(desk =>
+const deskP = emitAsset('commission_lawdesk', { x: 2.3, z: -1.1, rotY: Math.PI / 2 }).then(desk =>
   Promise.all([
-    emitAsset('commission_desklamp',   { x: 2.3, z: -4.5,  rotY: Math.PI / 2, on: { host: desk }, pickable: true }),
-    emitAsset('commission_bookoflaws', { x: 2.35, z: -3.9, rotY: .3,          on: { host: desk }, pickable: true }),
-    emitAsset('commission_stamper',    { x: 2.25, z: -4.15,                   on: { host: desk }, pickable: true }),
+    emitAsset('commission_desklamp',   { x: 2.3, z: -1.6,  rotY: Math.PI / 2, on: { host: desk }, pickable: true }),
+    emitAsset('commission_bookoflaws', { x: 2.35, z: -1.0, rotY: .3,          on: { host: desk }, pickable: true }),
+    emitAsset('commission_stamper',    { x: 2.25, z: -1.25,                   on: { host: desk }, pickable: true }),
   ]));
 /* ═══ PERSISTENT PARTY — followers cross pages. sessionStorage 'dvm_party' is the handoff:
    the Commission writes who's heeling on portal-E; the Construct writes who's coming home
@@ -556,12 +556,27 @@ window.__console = { open: openCons, close: closeCons, on: () => consOpen, rende
    /peek gets pos/aim/marks/follower orders+gaze at ~2Hz; /shot probe_live_pov gets his
    actual POV frame ~1Hz (shot()'s fullscreen render is restored in the same task — no flicker). */
 const liveEl = document.createElement('div');
-liveEl.style.cssText = 'position:fixed;right:12px;top:12px;color:#7fd4ff;font:10px ui-monospace,Consolas,monospace;letter-spacing:.25em;display:none;z-index:6;pointer-events:none';
+liveEl.style.cssText = 'position:fixed;right:12px;top:12px;color:#7fd4ff;background:rgba(8,8,14,.85);border:1px solid #3a3a4a;padding:3px 7px;font:10px ui-monospace,Consolas,monospace;letter-spacing:.25em;display:none;z-index:6;pointer-events:none';
 liveEl.textContent = '◉ LIVE'; document.body.appendChild(liveEl);
+const agentEl = document.createElement('div');
+agentEl.style.cssText = 'position:fixed;right:12px;top:32px;color:#ff9d5c;background:rgba(8,8,14,.85);border:1px solid #3a3a4a;padding:3px 7px;font:10px ui-monospace,Consolas,monospace;letter-spacing:.25em;display:none;z-index:6;pointer-events:none';
+agentEl.textContent = '◈ AGENT'; document.body.appendChild(agentEl);
+let cmdAck = 0;
 const livePost = () => fetch('/peek', { method: 'POST', headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ t: Date.now(), pos: pos.toArray(), yaw, aimOn, aim: aimWorld.toArray(), held: held && held.name,
-    marks: marks.map(m => m.position.toArray()), povOn,
-    followers: followers.map(f => ({ char: f.spec.char, order: f.order, pos: f.pos.toArray(), gaze: f.gazeT ? f.gazeT.toArray() : null })) }) }).catch(() => {});
+    marks: marks.map(m => m.position.toArray()), povOn, cmdAck,
+    followers: followers.map(f => ({ char: f.spec.char, order: f.order, pos: f.pos.toArray(), gaze: f.gazeT ? f.gazeT.toArray() : null, possessed: !!f.possessed })) }) })
+  .then(r => r.json()).then(r => {
+    if (r && r.cmd && r.cmd.seq > cmdAck) {                                    // agent command rode back on the stream
+      cmdAck = r.cmd.seq; const A = window.__construct.agent, c = r.cmd;
+      if (c.agent === 'gaze') A.gaze(...c.args);
+      else if (c.agent === 'go') A.go(...c.args);
+      else if (c.agent === 'heel') A.heel();
+      else if (c.agent === 'order') A.order(c.args[0]);
+      else A.order(c.agent);                                                   // bare order names: wait/goto/follow/post
+      const released = c.agent === 'heel' || c.agent === 'follow' || (c.agent === 'order' && c.args[0] === 'follow');
+      followers.forEach(f => f.possessed = !released);                         // agent holds the wheel until heel/follow — your hotkeys always reclaim
+    } }).catch(() => {});
 const liveShot = () => { const u = window.__eyes.shot(); renderer.render(scene, camera);
   if (u) fetch('/shot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'probe_live_pov', png: u }) }).catch(() => {}); };
 const LIVE = { on: false, iv: 0, sv: 0 };
@@ -574,27 +589,29 @@ window.__live = {
 /* ── follower control — clickable orders + hotkey legend, bottom-left. Re-renders only when
    follower state actually changes (orders move via keys too), so button presses never get eaten. */
 const ctlEl = document.createElement('div');
-ctlEl.style.cssText = 'position:fixed;left:12px;bottom:12px;background:rgba(12,12,18,.88);border:1px solid #34344a;padding:10px 12px;font:11px ui-monospace,Consolas,monospace;color:#cfc8b0;z-index:8;pointer-events:auto;display:none';
+ctlEl.style.cssText = 'position:fixed;left:12px;bottom:12px;background:rgba(8,8,14,.97);border:1px solid #6a6a92;box-shadow:0 2px 14px rgba(0,0,0,.45);padding:10px 12px;font:11px ui-monospace,Consolas,monospace;color:#e2dbc2;z-index:8;pointer-events:auto;display:none';
 document.body.appendChild(ctlEl);
 let ctlOn = true, ctlSig = '';
 function renderCtl() {
   const f = followers[0], o = f && f.order;
   ctlEl.innerHTML =
-    '<div style="letter-spacing:.2em;color:#8f87a0;margin-bottom:6px">FOLLOWER</div>' +
+    '<div style="letter-spacing:.2em;color:#b0a9cc;margin-bottom:6px">FOLLOWER</div>' +
     (f ?
       '<div style="display:flex;gap:6px;margin-bottom:8px">' +
       ['follow', 'wait', 'goto'].map(ord =>
         '<button data-o="' + ord + '" style="font:inherit;font-size:10px;padding:3px 8px;cursor:pointer;color:#e8e0c8;background:' + (o === ord ? '#3a4a2a' : '#1c1c26') + ';border:1px solid ' + (o === ord ? '#7a5' : '#3a3a4a') + '">' +
-        (ord === 'goto' ? 'GO ▸ TAG' : ord.toUpperCase()) + '</button>').join('') + '</div>'
-    : '<div style="color:#6f6a58;font-size:10px;margin-bottom:8px">none in room — door console spawns</div>') +
-    '<div style="color:#5b5648;font-size:10px;line-height:1.6">' +
+        (ord === 'goto' ? 'GO ▸ TAG' : ord.toUpperCase()) + '</button>').join('') + '</div>' +
+      (f.possessed ? '<div style="color:#ff9d5c;font-size:10px;margin-bottom:6px;letter-spacing:.15em">◈ agent has the wheel — your keys reclaim</div>' : '')
+    : '<div style="color:#9a9480;font-size:10px;margin-bottom:8px">none in room — door console spawns</div>') +
+    '<div style="color:#8a8474;font-size:10px;line-height:1.6">' +
     'F/RMB aim · LMB tag · T go-tag · R clear<br>' +
     'H heel · P pov · Y live · K panel</div>';
-  ctlEl.querySelectorAll('button[data-o]').forEach(b => b.onclick = () => { f && f.setOrder(b.dataset.o); ctlTick(); });
+  ctlEl.querySelectorAll('button[data-o]').forEach(b => b.onclick = () => { if (f) { f.possessed = false; f.setOrder(b.dataset.o); } ctlTick(); });
 }
 const ctlTick = () => {
-  const sig = followers.length + '|' + followers.map(f => f.order).join() + '|' + ctlOn;
+  const sig = followers.length + '|' + followers.map(f => f.order + (f.possessed ? '*' : '')).join() + '|' + ctlOn;
   if (sig !== ctlSig) { ctlSig = sig; renderCtl(); ctlEl.style.display = ctlOn ? 'block' : 'none'; }
+  agentEl.style.display = followers.some(f => f.possessed) ? 'block' : 'none';
 };
 setInterval(ctlTick, 400); ctlTick();
 
@@ -668,12 +685,12 @@ const selfP = emitSelf();
 const partyP = Promise.all(PARTY.map(emitChar));
 const ready = Promise.all([doorP, carP, deskP, partyP, selfP]);
 MANIFEST.props.push({ kind: 'turntable', x: SPIN_POS.x, z: SPIN_POS.z, r: SPIN_R, asset: 'vehicle_490_touring' },
-                    { kind: 'prop-table', x: 2.3, z: -4, asset: 'commission_lawdesk',
+                    { kind: 'prop-table', x: 2.3, z: -1.1, asset: 'commission_lawdesk',
                       items: ['commission_desklamp', 'commission_bookoflaws', 'commission_stamper'] });
 
 const SOLIDS = [[-.33, DOOR_Z, .1], [0, DOOR_Z, .11], [.33, DOOR_Z, .1],   // frame jambs + leaf face
                 [SPIN_POS.x, SPIN_POS.z, SPIN_R],                          // rotator pedestal
-                [2.3, -4.5, .35], [2.3, -3.5, .35]];                       // prop desk (long axis on z after rotY)
+                [2.3, -1.6, .35], [2.3, -0.6, .35]];                       // prop desk (long axis on z after rotY)
 
 /* ── FPS walk — pointer lock look + WASD on the platform. Eye height .55 (chibi-scaled world:
    the .855m door towers correctly; showroom inspects at authored scale, no third person needed). */
@@ -703,9 +720,9 @@ addEventListener('keydown', e => { keys[(e.key || '').toLowerCase()] = true;
     else if (pickIt) takeIt(pickIt);
     else if (promptIt) promptIt.fn();
   } else if (k === 'p' && window.__eyes) { povOn ? window.__eyes.hide() : window.__eyes.show(); }
-  else if (k === 't') { followers.forEach(f => f.setOrder('goto')); }          // GO — walk to the live tag
-  else if (k === 'r') { clearTags(); }                                         // release — clear the tag and the gaze it ordered
-  else if (k === 'h') { followers.forEach(f => f.setOrder(f.order === 'follow' ? 'wait' : 'follow')); }   // HEEL ⇄ WAIT
+  else if (k === 't') { followers.forEach(f => { f.possessed = false; f.setOrder('goto'); }); }          // GO — walk to the live tag (your hotkey always reclaims)
+  else if (k === 'r') { followers.forEach(f => f.possessed = false); clearTags(); }                      // release — clear the tag and the gaze it ordered
+  else if (k === 'h') { followers.forEach(f => { f.possessed = false; f.setOrder(f.order === 'follow' ? 'wait' : 'follow'); }); }   // HEEL ⇄ WAIT
   else if (k === 'y') { LIVE.on ? window.__live.stop() : window.__live.start(); }   // live link — stream session to the agent
   else if (k === 'k') { ctlOn = !ctlOn; ctlTick(); } });                      // control panel toggle
 addEventListener('keyup', e => { keys[(e.key || '').toLowerCase()] = false; });
@@ -820,7 +837,7 @@ window.__construct = { manifest: MANIFEST, pos, spin: () => spinning, held: () =
     bodyMask: selfBody.meshes[0].im.layers.mask, headMask: selfBody.meshes[1].im.layers.mask,
     bodyVox: selfBody.meshes[0].list.length, headVox: selfBody.meshes[1].list.length }),
   agent: {                                                                   // the agent's possession layer — same tags, same orders
-    gaze: (x, y, z) => { tagAt(new THREE.Vector3(x, y, z)); return aimWorld.toArray(); },
+    gaze: (x, y, z) => { followers.forEach(f => f.gazeT = new THREE.Vector3(x, y, z)); return [x, y, z]; },   // head-aim only — never moves the mark or his walk target
     go: (x, z) => { tagAt(new THREE.Vector3(x, 0, z)); followers.forEach(f => f.setOrder('goto')); },
     order: o => followers.forEach(f => f.setOrder(o)),
     heel: () => followers.forEach(f => f.setOrder('follow')),

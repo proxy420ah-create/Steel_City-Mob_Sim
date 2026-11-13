@@ -420,6 +420,41 @@ class Handler(SimpleHTTPRequestHandler):
                 with open(tmp, 'w', encoding='utf-8') as f:
                     json.dump(obj, f)
                 os.replace(tmp, os.path.join(HERE, '_live.json'))
+                out = {'ok': True}
+                try:
+                    cp = os.path.join(HERE, '_cmd.json')
+                    if os.path.isfile(cp):
+                        cmd = json.load(open(cp, encoding='utf-8'))
+                        if cmd.get('seq', 0) > obj.get('cmdAck', 0):
+                            out['cmd'] = cmd                                  # pending agent order rides the stream back
+                except Exception:
+                    pass
+                return self._ok(out)
+            except Exception as e:
+                return self._ok({'ok': False, 'err': str(e)}, 400)
+        if path == '/cmd':
+            # agent -> page command relay: POST {seq, agent, args}; the page's livePost
+            # picks it up on the next POST /peek response and acks via cmdAck.
+            try:
+                n = int(self.headers.get('Content-Length', 0))
+                if n > 16 * 1024:
+                    raise ValueError('cmd too large')
+                obj = json.loads(self.rfile.read(n) or b'{}')
+                agent, args = obj.get('agent'), obj.get('args', [])
+                ORDER_NAMES = ('wait', 'goto', 'follow', 'post')
+                if agent not in ('gaze', 'go', 'heel', 'order') + ORDER_NAMES:
+                    raise ValueError('bad agent')
+                if agent == 'order':
+                    if not args or args[0] not in ORDER_NAMES:
+                        raise ValueError('bad order')
+                elif agent in ORDER_NAMES:
+                    args = []
+                if not isinstance(args, list) or not all(isinstance(a, (int, float, str)) for a in args):
+                    raise ValueError('bad args')
+                tmp = os.path.join(HERE, '_cmd.json.tmp')
+                with open(tmp, 'w', encoding='utf-8') as f:
+                    json.dump({'seq': int(obj.get('seq', 0)), 'agent': agent, 'args': args}, f)
+                os.replace(tmp, os.path.join(HERE, '_cmd.json'))
                 return self._ok({'ok': True})
             except Exception as e:
                 return self._ok({'ok': False, 'err': str(e)}, 400)
