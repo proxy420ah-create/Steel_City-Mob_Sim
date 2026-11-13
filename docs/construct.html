@@ -777,7 +777,7 @@ addEventListener('keydown', e => { keys[(e.key || '').toLowerCase()] = true;
     else if ((k === ',' || k === '[') && p) { placeApply(p, p.x, p.z, p.rotY + Math.PI / 12); }
     else if ((k === '.' || k === ']') && p) { placeApply(p, p.x, p.z, p.rotY - Math.PI / 12); }
     else if (k === 'enter' && p) { placeDrop(); }                                           // stage-1 accept — deselect, stay in free cam
-    else if (k === 'c') { window.__place.copy(); }
+    else if (k === 'c') { if (!window.__place.copy()) placeSay('SELECT AN ITEM FIRST'); }
     else if (k === 'v') { placePaste(); }
     else if (k === 'delete' || k === 'backspace') { window.__place.del(); }
     else if (k === 'y' && p) { const line = p.name + ' ' + p.x.toFixed(3) + ' ' + p.z.toFixed(3) + ' ' + p.rotY.toFixed(3);
@@ -850,12 +850,12 @@ window.__home = goHome;
 let placeOn = false, placeSel = null, placeClip = null;
 const flyPos = new THREE.Vector3(0, .6, -1), _fd = new THREE.Vector3();
 const placeEl = document.createElement('div');
-placeEl.style.cssText = 'position:fixed;left:50%;bottom:14px;transform:translateX(-50%);background:rgba(8,8,14,.92);border:1px solid #6a6a92;color:#e2dbc2;padding:5px 12px;font:10px ui-monospace,Consolas,monospace;letter-spacing:.1em;display:none;z-index:8;pointer-events:none';
-const PLACE_LEGEND = 'PLACE · WASD/QE fly · LMB select · ⇧LMB-drag move · ←→↑↓ PgUp/Dn nudge ⇧coarse · , . rot · B seat · Enter confirm · Esc back · C V · DEL · Y ^Z · X exit';
+placeEl.style.cssText = 'position:fixed;left:50%;bottom:14px;transform:translateX(-50%);background:rgba(8,8,14,.92);border:1px solid #6a6a92;color:#e2dbc2;padding:5px 12px;font:10px ui-monospace,Consolas,monospace;letter-spacing:.1em;display:none;z-index:8;pointer-events:none;white-space:nowrap';
+const PLACE_LEGEND = 'PLACE — WASD/QE fly · LMB select · SHIFT+LMB drag · ARROWS move (SHIFT coarse) · , . rotate · PgUp/Dn height · B re-seat · ENTER confirm · ESC revert · C copy · V paste · DEL remove · ^Z undo · X exit';
 placeEl.textContent = PLACE_LEGEND;
 document.body.appendChild(placeEl);
 const placeStat = document.createElement('div');
-placeStat.style.cssText = placeEl.style.cssText + ';bottom:34px;border-color:#4a4a62;color:#b8b0a0';
+placeStat.style.cssText = placeEl.style.cssText + ';bottom:40px;border-color:#4a4a62;color:#b8b0a0';
 document.body.appendChild(placeStat);
 let placeSayT = 0;
 const placeSay = msg => { placeEl.textContent = msg; clearTimeout(placeSayT);
@@ -973,7 +973,8 @@ const placeDrop = () => {                                                       
   placeStat.textContent = '';
 };
 const placePaste = () => {
-  if (!placeClip) return; const s = placeSpot(); if (!s) return;
+  if (!placeClip) { placeSay('NOTHING COPIED — C FIRST'); return; }
+  const s = placeSpot(); if (!s) { placeSay('AIM AT A SURFACE'); return; }
   emitAsset(placeClip.name, { kind: placeClip.kind,
     x: Math.round(s.x / PLACE_SNAP) * PLACE_SNAP, z: Math.round(s.z / PLACE_SNAP) * PLACE_SNAP,
     rotY: placeClip.rotY, pickable: placeClip.pickable, solids: placeClip.solids, source: 'extra' })

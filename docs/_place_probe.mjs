@@ -55,7 +55,7 @@ await connect(); await waitBoot(); await sleep(800);
 // 1 — toggle on
 await evl('__place.toggle(true)');
 check('toggle on', await evl('__place.on()'));
-check('legend chip visible', await evl(`[...document.querySelectorAll('div')].some(d => d.textContent.startsWith('PLACE ·') && d.style.display === 'block')`));
+check('legend chip visible', await evl(`[...document.querySelectorAll('div')].some(d => d.textContent.startsWith('PLACE —') && d.style.display === 'block')`));
 
 // 2 — grab the desk (its hosted lamp/book/stamper should enlist as passengers)
 await evl('__place.grab("commission_lawdesk")');
