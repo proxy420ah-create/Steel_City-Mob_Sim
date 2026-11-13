@@ -899,27 +899,37 @@ const placeGrab = (p, hit) => {                                                 
   placeGrid.visible = true;
   return true;
 };
+const inB = (q, b) => q.x > b[0] && q.x < b[1] && q.z > b[2] && q.z < b[3];
+const settleOrphans = (moved, oldB, newB, oldTop) => {                           // re-seat ONLY items the move touched — a global
+  PLACED.forEach(q => {                                                         // sweep lets co-located siblings (door↔frame) leapfrog
+    if (q === moved || q === held || ((moved && moved._carry) || []).some(c => c.q === q)) return;
+    if (oldB && inB(q, oldB) || newB && inB(q, newB)) {
+      const s = worldSurfaceAt(q.x, q.z, q);
+      if (s < q.y0 && q.y0 <= oldTop + .02) { q.y0 = s; q.g.position.y = s; } } }); };                 // orphans drop; lifted floaters keep their height
 const placeRevert = () => {                                                      // Esc on a selection = back out — restore the pre-grab pose
   if (!placeSel) return; const p = placeSel, o = p._orig;
-  if (o) { p.y0 = o.y0; placeApply(p, o.x, o.z, o.rotY);
-    (p._carry || []).forEach(c => { c.q.x = c.ox; c.q.z = c.oz; c.q.y0 = c.oy; c.q.g.position.set(c.ox, c.oy, c.oz); }); }
+  if (o) { const eb = new THREE.Box3().setFromObject(p.g);                        // the edited pose's bounds — orphans sat inside it
+    const eB = [eb.min.x - .05, eb.max.x + .05, eb.min.z - .05, eb.max.z + .05];
+    p.y0 = o.y0; placeApply(p, o.x, o.z, o.rotY);
+    (p._carry || []).forEach(c => { c.q.x = c.ox; c.q.z = c.oz; c.q.y0 = c.oy; c.q.g.position.set(c.ox, c.oy, c.oz); });
+    settleOrphans(p, eB, p.bbox, o.y0 + (eb.max.y - p.y0)); }                    // p.bbox still holds the grab-time footprint
   p._carry = null; p._orig = null; p._drag = false;
   placeSel = null; selBox.visible = false; origBox.visible = false; placeGrid.visible = false;
   placeStat.textContent = '';
   refreshSolids(); placeSay('REVERTED'); };
 const placeUndoDo = () => {                                                      // ^Z — one op back, whole-layout truth preserved
   const op = placeUndo.pop(); if (!op) return;
-  if (op.t === 'move' && PLACED.includes(op.p)) { const p = op.p;
+  if (op.t === 'move' && PLACED.includes(op.p)) { const p = op.p, ob = p.bbox;    // stale bounds = the post-move footprint orphans sat in
     p.y0 = op.prev.y0; placeApply(p, op.prev.x, op.prev.z, op.prev.rotY);
-    (op.prev.carry || []).forEach(c => { if (PLACED.includes(c.q)) { c.q.x = c.ox; c.q.z = c.oz; c.q.y0 = c.oy; c.q.g.position.set(c.ox, c.oy, c.oz); } }); }
+    const bb = new THREE.Box3().setFromObject(p.g); p.bbox = [bb.min.x - .05, bb.max.x + .05, bb.min.z - .05, bb.max.z + .05];
+    (op.prev.carry || []).forEach(c => { if (PLACED.includes(c.q)) { c.q.x = c.ox; c.q.z = c.oz; c.q.y0 = c.oy; c.q.g.position.set(c.ox, c.oy, c.oz); } });
+    settleOrphans(p, ob, p.bbox, op.prev.y0 + (bb.max.y - p.y0)); }
   else if (op.t === 'add') { const i = PLACED.indexOf(op.p);
-    if (i >= 0) { scene.remove(op.p.g); PLACED.splice(i, 1); } }
+    if (i >= 0) { scene.remove(op.p.g); PLACED.splice(i, 1); settleOrphans(op.p, op.p.bbox, null, Infinity); } }   // host gone — drop what rode it
   else if (op.t === 'del') { emitAsset(op.spec.name, { kind: op.spec.kind, x: op.spec.x, z: op.spec.z,
     rotY: op.spec.rotY, pickable: op.spec.pickable, solids: op.spec.solids, source: op.spec.source });
     if (op.spec.source !== 'extra') { const d = new Set(JSON.parse(localStorage.getItem('dvm_del') || '[]'));
       d.delete(op.spec.name); localStorage.setItem('dvm_del', JSON.stringify([...d])); } }                  // un-delete lifts the tombstone
-  PLACED.forEach(q => { if (q !== held) { const s = worldSurfaceAt(q.x, q.z, q);   // settle pass — undo leaves nothing floating
-    if (s !== q.y0) { q.y0 = s; q.g.position.y = s; } } });
   refreshSolids(); placeSave(); placeSay('UNDO');
 };
 const carryOf = sel => PLACED.filter(q => q !== sel && q !== held && q.g.parent === scene &&   // passengers: items hosted on the selection ride along
@@ -950,12 +960,10 @@ const placeSpot = () => {                                                       
 const placeDrop = () => {                                                        // commit the drag — write the override
   if (!placeSel) return; const moved = placeSel;
   moved.y0 = moved.g.position.y;
+  const ob = moved.bbox;                                                         // pre-move footprint — the orphans lived here
   const b = new THREE.Box3().setFromObject(moved.g);
   moved.bbox = [b.min.x - .05, b.max.x + .05, b.min.z - .05, b.max.z + .05];
-  PLACED.forEach(q => {                                                          // settle — items orphaned by the move drop to their new surface
-    if (q !== moved && q !== held && !(moved._carry || []).some(c => c.q === q)) {
-      const s = worldSurfaceAt(q.x, q.z, q);
-      if (s !== q.y0) { q.y0 = s; q.g.position.y = s; } } });
+  settleOrphans(moved, ob, moved.bbox, (moved._orig ? moved._orig.y0 : moved.y0) + (b.max.y - moved.y0));
   const o = moved._orig || moved;
   if (o.x !== moved.x || o.z !== moved.z || o.rotY !== moved.rotY || o.y0 !== moved.y0)
     placeSnapOp({ t: 'move', p: moved, prev: { x: o.x, z: o.z, rotY: o.rotY, y0: o.y0,
@@ -1019,11 +1027,13 @@ window.__place = { on: () => placeOn, toggle: placeToggle, sel: () => placeSel &
       rotY: placeSel.rotY, pickable: placeSel.pickable, solids: placeSel.solids, source: placeSel.source } });
     if (placeSel.source !== 'extra') { const d = new Set(JSON.parse(localStorage.getItem('dvm_del') || '[]'));
       d.add(placeSel.name); localStorage.setItem('dvm_del', JSON.stringify([...d])); }         // tombstone — manifest items stay deleted
+    const dp = placeSel;
     scene.remove(placeSel.g); PLACED.splice(PLACED.indexOf(placeSel), 1);
+    settleOrphans(dp, dp.bbox, null, Infinity);                                  // host deleted — its passengers drop to what's beneath
     placeSel = null; selBox.visible = false; origBox.visible = false; placeGrid.visible = false;
     placeStat.textContent = '';
     refreshSolids(); placeSave(); placeSay('REMOVED'); return true; },
-  dump: () => JSON.stringify(PLACED.map(p => ({ name: p.name, x: +p.x.toFixed(3), z: +p.z.toFixed(3), rotY: +p.rotY.toFixed(3), src: p.source, solids: (p.solids || []).length }))),
+  dump: () => JSON.stringify(PLACED.map(p => ({ name: p.name, x: +p.x.toFixed(3), z: +p.z.toFixed(3), y: +p.y0.toFixed(3), rotY: +p.rotY.toFixed(3), src: p.source, solids: (p.solids || []).length }))),
   save: placeSave };
 
 /* platform-clamped walk + door solids — same contract as the office slide/pushout */

@@ -13,7 +13,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CHROME = 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe';
 const URL0 = 'http://127.0.0.1:8723/construct.html';
 const PORT = 9333 + Math.floor(Math.random() * 400);
-const prof = path.join(HERE, `_shotprof_${PORT}`);
+const prof = path.join(HERE, `_shotprof_${PORT}_${Date.now()}`);                 // unique per run — a reused profile leaks stale localStorage
 
 const get = u => new Promise((res, rej) => http.get(u, r => { let b = ''; r.on('data', d => b += d); r.on('end', () => res(b)); }).on('error', rej));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -100,6 +100,10 @@ await evl('window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }))
 await sleep(250);
 const rv = JSON.parse(await evl('__place.dump()')).find(p => p.name === 'commission_lawdesk');
 check('esc reverts to the grab pose', rv && Math.abs(rv.x - 2.355) < .01 && (await evl('__place.sel()')) === null, JSON.stringify(rv));
+
+// 3d — sibling regression: co-located door+frame must NOT leapfrog on commits (the floating-door bug)
+const doorY = JSON.parse(await evl('__place.dump()')).filter(p => p.name === 'commission_door' || p.name === 'commission_doorframe').map(p => p.y);
+check('door + frame stay grounded through commits', doorY.length === 2 && doorY.every(y => y === 0), JSON.stringify(doorY));
 
 // 4 — ⇧+LMB drag: paste a spare desk onto open floor (no passengers to occlude the pick ray), drag it, undo, delete it
 await evl('__place.grab("commission_lawdesk")'); await evl('__place.copy()');
