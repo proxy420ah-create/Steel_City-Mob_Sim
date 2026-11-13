@@ -20,7 +20,7 @@
 </head><body>
 <div id="veil">LOADING PROGRAM</div>
 <div id="prompt"></div>
-<div id="hud">THE CONSTRUCT · CLICK — ENGAGE · WASD MOVE · MOUSE LOOK</div>
+<div id="hud">THE CONSTRUCT · CLICK — ENGAGE · WASD MOVE · MOUSE LOOK · X PLACE</div>
 <script type="module">
 import * as THREE from 'three';
 
@@ -137,7 +137,8 @@ const emitAsset = (name, o = {}) => {
     const rec = { name, kind, g, tops, x, z, rotY, y0: seat, minB, vs,
                   bbox: [Math.min(...cs.map(c => c[0])) - .05, Math.max(...cs.map(c => c[0])) + .05,
                          Math.min(...cs.map(c => c[1])) - .05, Math.max(...cs.map(c => c[1])) + .05],
-                  pickable: !!o.pickable };
+                  pickable: !!o.pickable, solids: o.solids || null, source: o.source || 'manifest' };
+    g.userData.pRec = rec;
     PLACED.push(rec);
     return rec;
   }).catch(e => console.warn('CONSTRUCT — emit failed:', name, e));
@@ -176,7 +177,7 @@ const carP = emitAsset('vehicle_490_touring', { kind: 'vehicle', parent: carG, x
 
 /* ── exhibit: the prop desk — east side, facing the rotator. Items seat on the host's measured
    column-tops via the on:{host} contract — desk emits first, cargo seats on its surface. */
-const deskP = emitAsset('commission_lawdesk', { x: 2.3, z: -1.1, rotY: Math.PI / 2 }).then(desk =>
+const deskP = emitAsset('commission_lawdesk', { x: 2.3, z: -1.1, rotY: Math.PI / 2, solids: [[-.5, 0, .35], [.5, 0, .35]] }).then(desk =>
   Promise.all([
     emitAsset('commission_desklamp',   { x: 2.3, z: -1.6,  rotY: Math.PI / 2, on: { host: desk }, pickable: true }),
     emitAsset('commission_bookoflaws', { x: 2.35, z: -1.0, rotY: .3,          on: { host: desk }, pickable: true }),
@@ -720,9 +721,15 @@ MANIFEST.props.push({ kind: 'turntable', x: SPIN_POS.x, z: SPIN_POS.z, r: SPIN_R
                     { kind: 'prop-table', x: 2.3, z: -1.1, asset: 'commission_lawdesk',
                       items: ['commission_desklamp', 'commission_bookoflaws', 'commission_stamper'] });
 
-const SOLIDS = [[-.33, DOOR_Z, .1], [0, DOOR_Z, .11], [.33, DOOR_Z, .1],   // frame jambs + leaf face
-                [SPIN_POS.x, SPIN_POS.z, SPIN_R],                          // rotator pedestal
-                [2.3, -1.6, .35], [2.3, -0.6, .35]];                       // prop desk (long axis on z after rotY)
+const SOLID_BASE = [[-.33, DOOR_Z, .1], [0, DOOR_Z, .11], [.33, DOOR_Z, .1],   // frame jambs + leaf face
+                    [SPIN_POS.x, SPIN_POS.z, SPIN_R]];                          // rotator pedestal
+const SOLIDS = [];
+const refreshSolids = () => {                                                 // placed-derived solids (desk etc.) follow their item
+  SOLIDS.length = 0; SOLID_BASE.forEach(s => SOLIDS.push(s));
+  PLACED.forEach(p => (p.solids || []).forEach(([lx, lz, r]) => {
+    const cy = Math.cos(p.rotY), sy = Math.sin(p.rotY);
+    SOLIDS.push([p.x + lx * cy + lz * sy, p.z - lx * sy + lz * cy, r]); }));
+};
 
 /* ── FPS walk — pointer lock look + WASD on the platform. Eye height .55 (chibi-scaled world:
    the .855m door towers correctly; showroom inspects at authored scale, no third person needed). */
@@ -740,11 +747,23 @@ const INTERACT = [
   { x: SPIN_POS.x, z: SPIN_POS.z, r: 1.9, label: () => 'E — ' + (spinning ? 'PAUSE' : 'RESUME') + ' ROTATOR', fn: () => { spinning = !spinning; } },
 ];
 let promptIt = null;
-addEventListener('mousedown', e => { if (e.button === 2) rmbAim = true; if (e.button === 0 && aimOn) tagAt(aimWorld); });
+addEventListener('mousedown', e => {
+  if (placeOn) { if (e.button === 0) { if (placeSel) placeDrop(); else { placeSel = placePick(); if (placeSel) placeSel._carry = carryOf(placeSel); } } return; }
+  if (e.button === 2) rmbAim = true; if (e.button === 0 && aimOn) tagAt(aimWorld); });
 addEventListener('mouseup',   e => { if (e.button === 2) rmbAim = false; });
 addEventListener('contextmenu', e => { if (e.target === renderer.domElement || rmbAim) e.preventDefault(); });
 addEventListener('keydown', e => { keys[(e.key || '').toLowerCase()] = true;
   const k = (e.key || '').toLowerCase();
+  if (k === 'x' && !e.ctrlKey && !e.metaKey && !e.altKey) { placeToggle(!placeOn); return; }
+  if (placeOn) {
+    if (k === '[' && placeSel) { placeSel.rotY += Math.PI / 12; }
+    else if (k === ']' && placeSel) { placeSel.rotY -= Math.PI / 12; }
+    else if (k === 'c') { window.__place.copy(); }
+    else if (k === 'v') { placePaste(); }
+    else if (k === 'delete' || k === 'backspace') { window.__place.del(); }
+    else if (' eftr'.includes(k) || k === 'enter') { }      // swallowed while placing — no pickups/tags/aims
+    return;
+  }
   if (k === 'escape' && consOpen) { closeCons(); return; }
   if (k === 'e') {
     if (consOpen) { closeCons(); return; }
@@ -785,7 +804,8 @@ const nearestPick = () => {
 const takeIt = p => { held = p; };
 const placeIt = t => { const p = held; held = null;
   p.x = t.x; p.z = t.z; p.rotY = yaw; p.y0 = t.y;
-  p.g.position.set(t.x, t.y, t.z); p.g.rotation.y = yaw; };
+  p.g.position.set(t.x, t.y, t.z); p.g.rotation.y = yaw;
+  refreshSolids(); placeSave(); };
 const ghostShape = new THREE.Shape(); ghostShape.absarc(0, 0, .05, 0, Math.PI * 2);
 const ghole = new THREE.Path(); ghole.absarc(0, 0, .038, 0, Math.PI * 2); ghostShape.holes.push(ghole);
 const ghostGeo = new THREE.ShapeGeometry(ghostShape); ghostGeo.rotateX(Math.PI / 2);
@@ -798,6 +818,116 @@ const goHome = () => { if (window.__leaving) return; window.__leaving = true;
   sessionStorage.setItem('dvm_party', JSON.stringify(followers.filter(f => f.order === 'follow').map(f => ({ char: f.spec.char, order: 'follow' }))));
   veilRun('RETURNING', () => { location.href = 'thecommission.html?from=construct'; }); };
 window.__home = goHome;
+
+/* ── PLACE MODE — X toggles the furniture editor (the Commission's X-mode, Construct edition):
+   free-fly camera off your body (Vinny stays planted), LMB selects a placed asset which then
+   rides your aim ray and seats on measured surfaces; [ ] rotate 15°, C copies its spec,
+   V pastes a duplicate (auto-selected), DEL removes. Layout persists to localStorage —
+   manifest items by name (dvm_place), pasted copies as dvm_extra re-emitted at boot. */
+let placeOn = false, placeSel = null, placeClip = null;
+const flyPos = new THREE.Vector3(0, .6, -1), _fd = new THREE.Vector3();
+const placeEl = document.createElement('div');
+placeEl.style.cssText = 'position:fixed;left:50%;bottom:14px;transform:translateX(-50%);background:rgba(8,8,14,.92);border:1px solid #6a6a92;color:#e2dbc2;padding:5px 12px;font:10px ui-monospace,Consolas,monospace;letter-spacing:.1em;display:none;z-index:8;pointer-events:none';
+placeEl.textContent = 'PLACE · WASD fly · SPACE/CTRL up-dn · LMB select/drop · [ ] rot · C copy · V paste · DEL rem · X exit';
+document.body.appendChild(placeEl);
+const selBox = new THREE.Box3Helper(new THREE.Box3(), 0xffd070); selBox.visible = false; scene.add(selBox);
+const _ray = new THREE.Raycaster(), _ctr = new THREE.Vector2(0, 0);
+
+const placeSave = () => {                                                        // manifest items persist by name; pastes persist as extras
+  const over = {}, extra = [];
+  PLACED.forEach(p => { const o = { x: +p.x.toFixed(3), z: +p.z.toFixed(3), rotY: +p.rotY.toFixed(3) };
+    if (p.source === 'extra') extra.push({ name: p.name, kind: p.kind, pickable: p.pickable, solids: p.solids, ...o });
+    else over[p.name] = o; });
+  localStorage.setItem('dvm_place', JSON.stringify(over));
+  localStorage.setItem('dvm_extra', JSON.stringify(extra));
+};
+const placeApply = (p, x, z, rotY) => {                                          // tops stay local — surface math survives any move
+  p.x = x; p.z = z; if (rotY !== undefined) p.rotY = rotY;
+  p.g.position.set(x, p.y0, z); p.g.rotation.y = p.rotY;
+  refreshSolids();
+};
+const placePick = () => {                                                        // ray through screen centre → a placed rec (not the selected one)
+  _ray.setFromCamera(_ctr, camera);
+  const hits = _ray.intersectObjects(PLACED.filter(p => p !== placeSel && p !== held && p.g.parent === scene).map(p => p.g), true);
+  for (const h of hits) { let o = h.object; while (o && !o.userData.pRec) o = o.parent;
+    if (o) return o.userData.pRec; }
+  return null;
+};
+const carryOf = sel => PLACED.filter(q => q !== sel && q !== held && q.g.parent === scene &&   // passengers: items hosted on the selection ride along
+  q.y0 > sel.y0 + .02 && q.x > sel.bbox[0] && q.x < sel.bbox[1] && q.z > sel.bbox[2] && q.z < sel.bbox[3])
+  .map(q => { const cy = Math.cos(sel.rotY), sy = Math.sin(sel.rotY), dx = q.x - sel.x, dz = q.z - sel.z;
+    return { q, lx: dx * cy - dz * sy, lz: dx * sy + dz * cy, dy: q.y0 - sel.y0 }; });
+const placeSurf = (wx, wz, skipSet) => { let t = 0;
+  PLACED.forEach(p => { if (!skipSet.has(p)) { const s = surfaceAt(p, wx, wz); if (s > t) t = s; } }); return t; };
+const placeSpot = () => {                                                        // where the aim ray lands — the measured-surface law
+  _ray.setFromCamera(_ctr, camera);
+  const hits = _ray.intersectObjects(PLACED.filter(p => p !== placeSel && p !== held && p.g.parent === scene).map(p => p.g), true);
+  let wx, wz;
+  if (hits.length) { wx = hits[0].point.x; wz = hits[0].point.z; }
+  else { const d = _ray.ray.direction; if (d.y > -.01) return null;                // level/up — no floor crossing
+    const t = -_ray.ray.origin.y / d.y; wx = _ray.ray.origin.x + d.x * t; wz = _ray.ray.origin.z + d.z * t; }
+  const skip = new Set([placeSel, ...((placeSel && placeSel._carry) || []).map(c => c.q)]);
+  return { x: wx, y: placeSurf(wx, wz, skip), z: wz };
+};
+const placeDrop = () => {                                                        // commit the drag — write the override
+  if (!placeSel) return; const moved = placeSel;
+  moved.y0 = moved.g.position.y;
+  const b = new THREE.Box3().setFromObject(moved.g);
+  moved.bbox = [b.min.x - .05, b.max.x + .05, b.min.z - .05, b.max.z + .05];
+  PLACED.forEach(q => {                                                          // settle — items orphaned by the move drop to their new surface
+    if (q !== moved && q !== held && !(moved._carry || []).some(c => c.q === q)) {
+      const s = worldSurfaceAt(q.x, q.z, q);
+      if (s !== q.y0) { q.y0 = s; q.g.position.y = s; } } });
+  moved._carry = null;
+  placeSave(); placeSel = null; selBox.visible = false;
+};
+const placePaste = () => {
+  if (!placeClip) return; const s = placeSpot(); if (!s) return;
+  emitAsset(placeClip.name, { kind: placeClip.kind, x: s.x, z: s.z, rotY: placeClip.rotY,
+    pickable: placeClip.pickable, solids: placeClip.solids, source: 'extra' })
+    .then(r => { if (r) { placeSel = r; r._carry = []; placeSave(); } });
+};
+const placeToggle = on => {
+  placeOn = on;
+  if (on) { flyPos.set(pos.x, EYE, pos.z); placeEl.style.display = 'block'; }
+  else { placeEl.style.display = 'none'; if (placeSel) placeDrop(); selBox.visible = false; }
+};
+const flyStep = dt => {                                                          // camera off the body — full-3D fly
+  const sp = (keys['shift'] ? SPRINT : WALK) * 1.6;
+  const f = (keys['w'] ? 1 : 0) - (keys['s'] ? 1 : 0), r = (keys['d'] ? 1 : 0) - (keys['a'] ? 1 : 0),
+        u = (keys[' '] ? 1 : 0) - (keys['control'] ? 1 : 0);
+  camera.getWorldDirection(_fd);
+  const cy = Math.cos(yaw), sy = Math.sin(yaw);
+  flyPos.addScaledVector(_fd, f * sp * dt);
+  flyPos.x += cy * r * sp * dt; flyPos.z += -sy * r * sp * dt; flyPos.y += u * sp * dt;
+  flyPos.x = Math.max(-3.4, Math.min(3.4, flyPos.x));
+  flyPos.z = Math.max(-7.5, Math.min(1.8, flyPos.z));
+  flyPos.y = Math.max(.08, Math.min(2.4, flyPos.y));
+};
+const placeStep = () => {
+  if (placeSel) { const s = placeSpot();
+    if (s) { placeSel.y0 = s.y; placeApply(placeSel, s.x, s.z, placeSel.rotY);
+      const cy = Math.cos(placeSel.rotY), sy = Math.sin(placeSel.rotY);
+      const skip = new Set([placeSel, ...(placeSel._carry || []).map(c => c.q)]);
+      (placeSel._carry || []).forEach(({ q, lx, lz, dy }) => {                    // hosted items ride the host's transform
+        q.x = placeSel.x + lx * cy + lz * sy; q.z = placeSel.z - lx * sy + lz * cy;
+        const top = surfaceAt(placeSel, q.x, q.z);
+        q.y0 = top > 0 ? top : placeSurf(q.x, q.z, skip);                          // off the host's columns → whatever's beneath
+        q.g.position.set(q.x, q.y0, q.z); }); } }
+};
+window.__place = { on: () => placeOn, toggle: placeToggle, sel: () => placeSel && placeSel.name,
+  grab: n => { placeSel = PLACED.find(p => p.name === n) || null; if (placeSel) placeSel._carry = carryOf(placeSel); return !!placeSel; },
+  grabIdx: i => { placeSel = PLACED[i] || null; if (placeSel) placeSel._carry = carryOf(placeSel); return !!placeSel; },
+  drop: placeDrop, spot: placeSpot, pick: () => { const p = placePick(); return p && p.name; },
+  copy: () => { if (!placeSel) return false; placeClip = { name: placeSel.name, kind: placeSel.kind, rotY: placeSel.rotY, pickable: placeSel.pickable, solids: placeSel.solids }; return true; },
+  paste: placePaste,
+  del: () => { if (!placeSel) return false;
+    if (placeSel.source !== 'extra') { const d = new Set(JSON.parse(localStorage.getItem('dvm_del') || '[]'));
+      d.add(placeSel.name); localStorage.setItem('dvm_del', JSON.stringify([...d])); }         // tombstone — manifest items stay deleted
+    scene.remove(placeSel.g); PLACED.splice(PLACED.indexOf(placeSel), 1);
+    placeSel = null; selBox.visible = false; refreshSolids(); placeSave(); return true; },
+  dump: () => JSON.stringify(PLACED.map(p => ({ name: p.name, x: +p.x.toFixed(3), z: +p.z.toFixed(3), rotY: +p.rotY.toFixed(3), src: p.source, solids: (p.solids || []).length }))),
+  save: placeSave };
 
 /* platform-clamped walk + door solids — same contract as the office slide/pushout */
 const step = dt => {
@@ -815,9 +945,12 @@ const step = dt => {
 let last = performance.now();
 const loop = now => {
   const dt = Math.min(.1, (now - last) / 1000); last = now;
-  step(dt);
-  camera.position.set(pos.x, EYE, pos.z);
-  camera.rotation.set(0, 0, 0, 'YXZ'); camera.rotation.y = yaw; camera.rotation.x = pitch;
+  placeOn ? flyStep(dt) : step(dt);
+  placeStep();
+  if (placeSel) { selBox.box.setFromObject(placeSel.g); selBox.visible = true; }
+  if (camLock) { camera.position.copy(camLock.p); camera.lookAt(camLock.t); }
+  else { if (placeOn) camera.position.copy(flyPos); else camera.position.set(pos.x, EYE, pos.z);
+    camera.rotation.set(0, 0, 0, 'YXZ'); camera.rotation.y = yaw; camera.rotation.x = pitch; }
   if (spinning) carG.rotation.y += SPIN_RATE * dt;
   followers.forEach(f => followStep(f, dt));
   selfStep(dt);
@@ -833,8 +966,8 @@ const loop = now => {
     const t = dropTarget(); ghost.visible = !!t;
     if (t) ghost.position.set(t.x, t.y + .004, t.z);
   } else ghost.visible = false;
-  pickIt = held ? null : nearestPick();
-  promptIt = document.pointerLockElement === el ? (INTERACT.reduce((b, it) => {
+  pickIt = held || placeOn ? null : nearestPick();
+  promptIt = document.pointerLockElement === el && !placeOn ? (INTERACT.reduce((b, it) => {
     const d = Math.hypot(pos.x - it.x, pos.z - it.z); return d < it.r && (!b || d < b.d) ? { it, d } : b; }, null)?.it || null) : null;
   promptEl.style.display = (held || pickIt || promptIt) ? 'block' : 'none';
   promptEl.textContent = held ? 'E — PLACE ' + held.name.replace('commission_', '').toUpperCase()
@@ -862,7 +995,15 @@ window.__compass = cam => {
 };
 
 /* warm-up: compile every program + upload every buffer behind the veil — same law as the Commission */
-ready.then(() => {
+ready.then(async () => {
+  const extras = JSON.parse(localStorage.getItem('dvm_extra') || '[]');            // pasted kit copies live here
+  for (const e of extras) await emitAsset(e.name, { kind: e.kind, x: e.x, z: e.z, rotY: e.rotY, pickable: e.pickable, solids: e.solids, source: 'extra' });
+  const over = JSON.parse(localStorage.getItem('dvm_place') || '{}');              // your saved layout overrides manifest positions
+  PLACED.forEach(p => { const o = over[p.name]; if (o && p.source !== 'extra') placeApply(p, o.x, o.z, o.rotY); });
+  JSON.parse(localStorage.getItem('dvm_del') || '[]').forEach(n => {               // tombstones — manifest items you deleted stay deleted
+    const p = PLACED.find(q => q.name === n && q.source !== 'extra');
+    if (p) { scene.remove(p.g); PLACED.splice(PLACED.indexOf(p), 1); } });
+  refreshSolids();
   try { renderer.compile(scene, camera); } catch (e) {}
   renderer.render(scene, camera);
   setTimeout(() => { veil.style.opacity = 0; }, 350);
@@ -872,7 +1013,9 @@ requestAnimationFrame(loop);
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
 
 /* probe hooks — same contract as thecommission.html so _shot.mjs drives this page too */
-window.__cam = (px, py, pz, tx, ty, tz) => { camera.position.set(px, py, pz); camera.lookAt(tx, ty, tz); };
+let camLock = null;
+window.__cam = (px, py, pz, tx, ty, tz) => { if (px === null) { camLock = null; return; }   // __cam(null) releases
+  camLock = { p: new THREE.Vector3(px, py, pz), t: new THREE.Vector3(tx, ty, tz) }; };
 window.__snap = (name, px, py, pz, tx, ty, tz) => {
   if (px !== undefined) window.__cam(px, py, pz, tx, ty, tz);
   renderer.render(scene, camera);
@@ -892,6 +1035,7 @@ window.__construct = { manifest: MANIFEST, pos, spin: () => spinning, held: () =
     shot: () => window.__eyes.shot(),
     pos: () => followers.map(f => f.pos.toArray()),
   },
+  place: () => window.__place,
   take: n => { const p = PLACED.find(p => p.name === n); if (p) takeIt(p); return !!p; },
   place: (x, z) => { if (!held) return false; const y = worldSurfaceAt(x, z, held); placeIt({ x, y, z }); return true; } };
 window.__envShot = () => {};                                   // probe contract — no sealed/env split on this page
