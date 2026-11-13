@@ -56,3 +56,42 @@ Rooms are auto-detected (150x150 modules from their back walls) into `<name>.ski
     python docs/building_edit.py   office_complex undo                           # un-skin; then reskin with another --style
 Before: floor = one 12x5 tile repeated exactly, 2 plank tones, near-black seam grid ~30% of the surface; wall = 16x8 brick
 repeat, 2 tones, near-black mortar, 45 cm solid grey slab at the base.
+
+## Chibi wall re-grain + repaints (2026-11-12)
+
+`reskin_building.py` only sees raw WALL_MATS names — it **cannot re-run on an already-skinned file**.
+`docs/_reskin_walls.py` closes that gap: it repaints EXISTING skin-material wall cells with the live
+`wall_brick()` recipe, preserving plane identity. Floors, ceilings, felt, and every non-skin cell untouched;
+repaint never adds cells (writes back over the original cell set).
+
+    python docs/_reskin_walls.py office_complex [--dry]          # auto .prev.json backup
+    python docs/_reskin_walls.py C:/path/to/any_file.json        # any file path; backup beside it
+
+Current chibi wall recipe (the `wall_brick` defaults — new buildings get it too):
+- baseboard .18m (3 rows) → raised-panel wainscot to the rail at y20–21 (.51–.54m, chibi sternum);
+  recessed panels 9×5 cells (.27×.15m portrait), .24m stile rhythm; wainLo shadow on top/left inner
+  edges, wainHi light on bottom/right, highlight line under the rail lip
+- brick field above: **2+1 courses (.09m) × 5+1 bricks (.18m), a pure repeat** — by design any future
+  wall-height slice lands on a course boundary with no seam (the ceiling-drop cut depends on this)
+
+**Plane classification is per-CELL, by the face the cell presents.** The earlier column-level classifier
+(winner-take-all run-length vote per (x,z)) breaks wherever a perpendicular wall crosses behind a slab:
+the cross-run wins the vote, the face paints with a constant `u`, and the wall shows flat vertical seam
+bands. Current rule: wall neighbours on BOTH ±x sides → x-running wall → `u=x` (and symmetric for z);
+exposed faces decide outright; run lengths only arbitrate corners and buried interior. Seed keys are
+per-FACE coordinate so crossings keep coherent tone sets.
+
+**Repaint after ANY slab drag.** Moved cells keep their previous plane's pattern — a voxel-editor drag
+is the seam generator. After moving wall/ceiling geometry in the Studio, re-run `_reskin_walls.py` on the
+file before judging seams by eye. A `--dry` report of "0 cells changed" on a visibly seamed wall means
+the seam is a classification/geometry problem, not stale paint — that diagnostic is the tell.
+
+Ceiling lowering is in flight on the editor WIP (`voxel_complex01.json`): slab dragged to y62..67,
+interior clear ~1.77m. `office_complex.snap-pre-ceiling.json` is the pre-move snapshot beside the source.
+
+
+## Agent vision toolkit (2026-11-12)
+- `docs/_plan.py` renders bake occupancy as top-down plans and sections (`plan --z0/--z1 --ylo/--yhi --mark=wx,wz,label`; `section x|z N`). Uses the runtime layout `(x*H+y)*D+z`, MSB-first. See known_issues/rendering/BAKE_OCC_GRID_DECODE_LAYOUT.md before writing any other decoder.
+- `docs/_shot.mjs <name> --cam=x,y,z --look=x,y,z` drives headless Chrome (CDP, absolute `--user-data-dir`; Edge headless is dead here) and writes `docs/probe_<name>.png` through the server's `/shot` route (restart `commission_server.py` after edits). The page hooks are `__cam`, `__snap`, `__envShot`, `__uiClean`; `?probe=<name>&cam=..&look=..` also works.
+- Workflow: measure at exact cell resolution, place, then probe along the beam axis. The user's own view overrides any probe or scan.
+- Ceiling: beam underside wy 1.08 (y39), coffer face wy 1.17 (y42). Beams hang .09 below coffers.

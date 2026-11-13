@@ -162,30 +162,33 @@ def hall_terrazzo(W, D, seed=6):
 
 
 # ============================================================ WALLS  (array[v=0 floor .. H-1, u])
-def _wainscot(H, W, top=34, seed=11, stile=20):
-    """Raised-panel wainscot: baseboard, stiles/rails flush with the wall plane, recessed panels (colour only,
-    so mounted features keep the flat face), chair rail on top."""
+def _wainscot(H, W, top=16, seed=11, stile=8):
+    """Raised-panel wainscot, chibi-scaled: 3-row baseboard, framed recessed panels (colour only, so mounted
+    features keep the flat face) with shadow/light inner edges, chair rail on top. Panel field sized so the
+    geometry still reads at the .42m rail line."""
     out = np.empty((top, W), dtype=object)
     for v in range(top):
         for u in range(W):
-            if v < 6: c = 'base'
-            elif v >= top - 3: c = 'rail' if v > top - 3 else 'wainHi'
+            if v < 3: c = 'base'
+            elif v >= top - 3: c = 'wainHi' if v == top - 3 else 'rail'
             else:
                 su = u % stile
-                rail_v = v < 9 or v >= top - 6
-                stile_u = su < 3 or su >= stile - 1
+                rail_v = v < 4 or v > top - 7                               # bottom + top frame rails
+                stile_u = su < 2 or su >= stile - 1
                 if rail_v or stile_u: c = 'wain'
                 else:
                     c = 'wainPanel'
-                    if v == top - 7 or su == 3: c = 'wainLo'          # shadow along the top/left inner edge
-                    elif v == 9 or su == stile - 2: c = 'wainHi'      # light catching the bottom/right edge
+                    if v == top - 7 or su == 2: c = 'wainLo'                # shadow along the top/left inner edge
+                    elif v == 4 or su == stile - 2: c = 'wainHi'            # light catching the bottom/right edge
             out[v, u] = c
     return out
 
 
-def wall_brick(H, W, seed=21, wainscot=34):
-    """Common-bond face brick above oak wainscot: 7+1 / 3+1 rhythm, running-bond stagger, per-brick tone from 7
-    shades, soot darkening toward the ceiling, occasional clinker, light tuck-pointed mortar, water-stain streaks."""
+def wall_brick(H, W, seed=21, wainscot=19, course=3, run=6):
+    """Common-bond face brick above oak wainscot — CHIBI-GRAIN recipe: rail at ~.48m (char lower chest /
+    ~40% of a 1.2m chibi wall), 2+1 courses (.09m), 5+1 bricks (.18m), running-bond stagger, per-brick tone from 7
+    shades, soot darkening toward the ceiling, occasional clinker, light tuck-pointed mortar, water-stain
+    streaks. Fine repeating grain so a later wall-height reduction slices on a course boundary anywhere."""
     r = _rng(seed)
     out = np.empty((H, W), dtype=object)
     out[:wainscot] = _wainscot(H, W, wainscot, seed)
@@ -193,16 +196,16 @@ def wall_brick(H, W, seed=21, wainscot=34):
     streak = vnoise(1, W, 9, seed + 3)[0]
     cache = {}
     for v in range(wainscot, H):
-        course = (v - wainscot) // 4
+        c = (v - wainscot) // course
         for u in range(W):
-            off = 4 if course % 2 else 0
-            bu = (u + off) // 8
-            if (v - wainscot) % 4 == 3 or (u + off) % 8 == 7:
+            off = run // 2 if c % 2 else 0
+            bu = (u + off) // run
+            if (v - wainscot) % course == course - 1 or (u + off) % run == run - 1:
                 out[v, u] = 'mortar' if (v - wainscot + u) % 17 else 'mortarDk'
                 continue
-            key = (course, bu)
+            key = (c, bu)
             if key not in cache:
-                base = r.random() * 3.2 + (v - wainscot) / (H - wainscot) * 2.2 + streak[(bu * 8) % W] * 1.2   # soot + streaks darken
+                base = r.random() * 3.2 + (v - wainscot) / (H - wainscot) * 2.2 + streak[(bu * run) % W] * 1.2   # soot + streaks darken
                 if r.random() < .06: base += 2.0                                    # clinker
                 cache[key] = int(base)
             out[v, u] = shades[min(6, cache[key])]

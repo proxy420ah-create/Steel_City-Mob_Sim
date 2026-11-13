@@ -385,6 +385,31 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.rstrip('/')
+        if path.startswith('/save/voxel/'):
+            # studio save-back: the editor POSTs its full project JSON; lands at
+            # Assets/StreamingAssets/voxel_items/<name>.json (atomic tmp+replace).
+            # name whitelist matches the /voxel/ GET route so save/load are symmetric.
+            name = path[len('/save/voxel/'):]
+            try:
+                if not re.fullmatch(r'[\w\-]{1,64}', name or ''):
+                    raise ValueError('bad name')
+                n = int(self.headers.get('Content-Length', 0))
+                if n > 64 * 1024 * 1024:
+                    raise ValueError('too large')
+                obj = json.loads(self.rfile.read(n) or b'{}')
+                if not isinstance(obj, dict) or 'voxels' not in obj:
+                    raise ValueError('not a voxel project')
+                d = os.path.join(HERE, '..', 'Assets', 'StreamingAssets', 'voxel_items')
+                tgt = os.path.normpath(os.path.join(d, name + '.json'))
+                if not tgt.startswith(os.path.normpath(d) + os.sep):
+                    raise ValueError('bad path')
+                tmp = tgt + '.tmp'
+                with open(tmp, 'w', encoding='utf-8') as f:
+                    json.dump(obj, f)
+                os.replace(tmp, tgt)
+                return self._ok({'ok': True, 'saved': name + '.json', 'voxels': len(obj['voxels'])})
+            except Exception as e:
+                return self._ok({'ok': False, 'err': str(e)}, 400)
         if path == '/usage/limit':
             try:
                 return self._ok(mark_limit())
@@ -401,13 +426,15 @@ class Handler(SimpleHTTPRequestHandler):
             # DVM-2261 — the eyes' capture: page POSTs a PNG data URL from a POV cam;
             # lands at docs/<name>.png (page sole-writes, seats/tools read — latest frame wins).
             # name is whitelisted: chair_eye = CHAIR POV (C), vinny_eye = the user's own view (Shift+C).
+            # probe_<tag> = agent inspection frames (window.__snap) — alnum/underscore, 32 chars max.
             SHOT_NAMES = {'chair_eye': 'chair_eye.png', 'vinny_eye': 'vinny_eye.png'}
             try:
                 n = int(self.headers.get('Content-Length', 0))
                 if n > 12 * 1024 * 1024:
                     raise ValueError('shot too large')
                 obj = json.loads(self.rfile.read(n) or b'{}')
-                fname = SHOT_NAMES.get(obj.get('name', 'chair_eye'))
+                sname = obj.get('name', 'chair_eye')
+                fname = SHOT_NAMES.get(sname) or (sname + '.png' if re.fullmatch(r'probe_[a-z0-9_]{1,27}', sname or '') else None)
                 if not fname:
                     raise ValueError('bad shot name')
                 data_url = obj.get('png', '')

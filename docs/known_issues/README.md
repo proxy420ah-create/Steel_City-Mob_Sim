@@ -66,3 +66,6 @@ Bug tracker per Development Guidelines Rule 13. Bugs are cataloged by category i
 | [Moving Vehicles As Cover / Bodies Embedded In Cars / Guard Reset Regression](runtime/MOVING_VEHICLES_COVER_EMBED_GUARD_REGRESSION.md) | runtime | 🟡 FIX APPLIED | 🔴 CRITICAL | 2026-10-28 |
 | [Deep-Recon Stops Stale At Dispatch](runtime/DEEP_RECON_STOPS_STALE_AT_DISPATCH.md) | runtime | 🟡 FIX APPLIED | 🟡 HIGH | 2026-10-28 |
 | [Reload Gesture Not an Animated State — Folded Forearm, Frozen Gun Arm](runtime/RELOAD_GESTURE_NOT_ANIMATED_STATE.md) | runtime | 🟡 FIX APPLIED | 🟡 HIGH | 2026-10-28 |
+| [Paste Preview Teleports to Origin — BBox Fallback Stomp](editor/PASTE_PREVIEW_TELEPORTS_TO_ORIGIN.md) | editor | 🟢 FIXED | 🟡 HIGH | 2026-11-12 |
+| [KIT Z-Anchor Back-Edge Drift](rendering/KIT_Z_ANCHOR_BACK_EDGE_DRIFT.md) | rendering | 🟢 FIXED | 🔴 CRITICAL | 2026-11-12 |
+| [Bake Occupancy Grid Decoded With Wrong Layout](rendering/BAKE_OCC_GRID_DECODE_LAYOUT.md) | rendering | 🟢 FIXED | 🟡 HIGH | 2026-11-12 |

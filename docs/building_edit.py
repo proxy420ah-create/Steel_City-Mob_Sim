@@ -2,6 +2,7 @@
 
     python building_edit.py office_complex components
     python building_edit.py office_complex delete-box X0 X1 Y0 Y1 Z0 Z1        # inclusive voxel ranges
+    python building_edit.py office_complex fill-box X0 X1 Y0 Y1 Z0 Z1 --mat MATNAME  # add empty cells, painted MATNAME
     python building_edit.py office_complex reflect-x --module X0 X1 Z0 Z1       # mirror everything EXCEPT the module
     python building_edit.py office_complex undo
 
@@ -62,8 +63,9 @@ def components(d, min_cells=1):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('name'); ap.add_argument('cmd', choices=['components', 'delete-box', 'reflect-x', 'undo'])
+    ap.add_argument('name'); ap.add_argument('cmd', choices=['components', 'delete-box', 'fill-box', 'reflect-x', 'undo'])
     ap.add_argument('box', nargs='*', type=int)
+    ap.add_argument('--mat')
     ap.add_argument('--module', nargs=4, type=int, metavar=('X0', 'X1', 'Z0', 'Z1'))
     a = ap.parse_args()
 
@@ -90,6 +92,21 @@ def main():
         d['voxels'] = v[~k].tolist()
         save(a.name, d)
         print(f'deleted {int(k.sum()):,} voxels; {int((~k).sum()):,} remain'); return
+
+    if a.cmd == 'fill-box':
+        x0, x1, y0, y1, z0, z1 = a.box
+        names = {m['name']: m['id'] for m in d['materials']}
+        if a.mat not in names:
+            sys.exit(f"unknown material {a.mat!r} -- known: {sorted(names)}")
+        mid = names[a.mat]
+        W, H, D = d['dims']
+        occ = np.zeros((W, H, D), bool)
+        occ[v[:, 0], v[:, 1], v[:, 2]] = True
+        add = np.argwhere(~occ[x0:x1 + 1, y0:y1 + 1, z0:z1 + 1])
+        add += [x0, y0, z0]
+        d['voxels'] = np.vstack([v, np.hstack([add, np.full((len(add), 1), mid)])]).tolist() if len(add) else d['voxels']
+        save(a.name, d)
+        print(f'filled {len(add):,} voxels ({a.mat}={mid}) into x{x0}..{x1} y{y0}..{y1} z{z0}..{z1}'); return
 
     if a.cmd == 'reflect-x':
         mx0, mx1, mz0, mz1 = a.module

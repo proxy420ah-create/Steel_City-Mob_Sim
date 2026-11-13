@@ -44,13 +44,17 @@ Chibi/miniature scale: the room renders as a dollhouse diorama. Vinny is .62m; t
 - **Pendant**: `commission_pendant` (authored `docs/_make_pendant.py`): green-enamel dome, brass stem/collar/canopy,
   milk-glass lining, centered bulb — hung over the table (canopy at the 1.89m coffer bay). SpotLight pools warm
   light on the felt + faint green spill in the shade. **Always on — it lights the table in both camera modes.**
+  **2026-11-12: all 6 KIT entries PARKED** (commented at `thecommission.html` ~1833-38, positions + light specs
+  preserved inline) for the ceiling-lowering pass — the spine row's scene-level rigs (spot+glow loop ~1770)
+  still burn with no fixture, and the run needs a re-centering pass when it returns.
 - **Vinny**: spawns **seated** at chair #2 (BOSS). G = possess, E = sit/stand/open (nearest prop wins the prompt),
   WASD stands+walks, Esc releases.
 - **Set dressing**: voxel monitor (live stats), pegboard (TABLED→POLL→VERDICT→GO→BUILT→CLOSED with a moving card),
   shelf + tray cards, seat lamps/rings (floor-hold = amber underglow), chair speech bubbles, file cabinet,
-  law desk + Book of Laws.
-- **Interactables (E-proximity, possess mode)**: file cabinet (case files/archive/inductions — `__cab`, FILES ▸)
-  and the Book of Laws on the law desk (standing orders + seat contracts + law-kind citations — `__laws`, LAWS ▸).
+  law desk + Book of Laws, office door to the hall.
+- **Interactables (E-proximity, possess mode)**: file cabinet (case files/archive/inductions — `__cab`, FILES ▸),
+  the Book of Laws on the law desk (standing orders + seat contracts + law-kind citations — `__laws`, LAWS ▸),
+  and the office door (`__door` — swings on its file-declared hinge, gates the doorway while closed).
   The standing law moved OFF the cabinet into the tome (DVM-LAW1 stage 2); both overlays share the
   oak+brass+manila theme and the same browse contract (unlock cursor, possess held, Esc/E closes).
   **Ballot pin dots were REMOVED** (clutter) — vote tally still accumulates in `DS.vetoSeats`.
@@ -117,6 +121,29 @@ Chibi/miniature scale: the room renders as a dollhouse diorama. Vinny is .62m; t
   rotations — on EVERY raw prop render path (KIT `flipZ`, building `placements`, chairs, stamper,
   `voxSwap`, law desk). `mirZ` on a KIT entry XORs on top for true mirrored-variant fixtures — never a
   convention fix. Convention law in `docs/core/VOXEL_AUTHORING_STANDARD.md` §truthView.
+- **Glass**: `window.voxEmit(m, fillM)` sits beside `tvz` — all raw prop paths emit through it. It partitions
+  voxels whose material *name* contains `glass` into a second `InstancedMesh` (`transparent:true, opacity:.55,
+  depthWrite:false`, per-instance tint from the file's hex). Unity's raymarch glass ported as the Three.js
+  form; any `*glass*` material anywhere is see-through automatically.
+- **Office door**: `commission_door` (authored `docs/_make_door.py`) — the door unit (leaf + jamb frame +
+  glazed transom, 93 of 200 file-cells wide) nested **centrally** in the west-wing doorway, and the
+  ~.40m margins each side are now **real masonry**: `building_edit.py fill-box` laid 5,040 voxels into
+  `office_complex.json` (x94..107 + x130..143, y3..62, slab z147..149 — file coords; the doorway gap was
+  x94..143) painted by re-running `reskin_building.py`'s own wall formula (`building_skin` `wall_brick`,
+  seed off the slab's z-start 147, u = global x) with the file's *existing* skin ids — verified 0 mismatches
+  against adjacent wall cells before writing, so courses/wainscot continue with no seams (+66 header-course
+  cells at y62 over the reveal after the live pass — the unit sat .086 off the floor and left a 3cm slot at
+  the head; pos.y is now .003, floor top is world 0). The **barber-verified
+  leaf .60×.80** hinges west (char fills 120% — `VOXEL_AUTHORING_STANDARD.md` §Animated Assemblies); a glazed
+  transom rides to the head. **2026-11-12: transom glazing STRIPPED** (glass, mid rail, floating stile —
+  41,224 vox now) to clear sightlines for the by-eye ceiling move; transom bar + head frame remain, removed
+  `box()` calls kept as `STRIPPED:` comments in `_make_door.py` for the re-fit. The hinge lives in the file: `door:{pivot:[60,0,5], arc, front:'z+'}` +
+  `itemParts` tags leaf voxels; the KIT loader parents leaf meshes to a pivot group, `E — OFFICE DOOR`
+  (x −6.0, leaf center) eases the swing ~100° into the office, a `__solids` circle run over the leaf span
+  gates while closed; the masonry margins block via the real occ grid. Generator lessons: build part-tagged
+  voxels in their own map, shell passes need 26-neighbour tests (6-conn floats reliefs), pane glass embeds
+  into the sash, and wall infill belongs in the building — painted with the skin's own global-coord formula,
+  never freehand.
 - Docs-first: `docs/core/DOCUMENTATION_INDEX.md` is the map. `BUILDING_PIPELINE.md`, `COMMISSION_PROTOCOL.md` are
   the deep dives.
 
@@ -125,3 +152,16 @@ Chibi/miniature scale: the room renders as a dollhouse diorama. Vinny is .62m; t
 Committed: `f4989c7` (building pipeline + reskin). Uncommitted: rename to thecommission.html, pendant + seated
 spawn + deep-link fix, voxel_inspect tool + protocol doc. Server runs detached on :8723. Feed `files[]` rows are
 current. Everything above is verified in-scene, not claimed.
+
+**2026-11-12 — chibi reskin + ceiling-lowering in flight (uncommitted):**
+- Wall re-grain live on `office_complex`: wainscot rail `.93→.51m`, `2+1` brick courses (.09m) × `5+1` bricks
+  (.18m) repeating, recessed-panel wainscot geometry; repainted 349,626 wall cells, rebaked. See
+  `BUILDING_PIPELINE.md` §Chibi wall re-grain.
+- **Ceiling lowering**: slab dragged to y62..67 in the editor WIP (`~/Downloads/voxel_complex01.json`,
+  reskinned — 66,223 cells fixed by the per-cell repaint; `.prev.json` beside it). `office_complex.json`
+  itself is NOT yet sliced — `office_complex.snap-pre-ceiling.json` is the pre-move snapshot.
+- **Cleared for the move**: 6 pendants parked (KIT comments ~1833-38), door transom glazing stripped.
+  Pendants return AFTER the masonry drop lands — they need a re-centering pass (they'd drifted off-centre).
+- `voxel_editor.html`: paste-preview teleport fix for >150k-voxel selections (known_issues/editor/
+  PASTE_PREVIEW_TELEPORTS_TO_ORIGIN.md).
+- New tool `docs/_reskin_walls.py` — repaints skin cells with the live recipe; per-cell face classification.

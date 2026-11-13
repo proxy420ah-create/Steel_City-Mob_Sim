@@ -27,7 +27,7 @@ ITEMS = os.path.normpath(os.path.join(HERE, '..', 'Assets', 'StreamingAssets', '
 
 DEFAULT_ANCHOR = {'office_complex': (244, 0, 0)}   # where the ORIGINAL office module sits inside the file
 FLOOR_H = 3            # floor slab thickness (voxels)
-WALL_TOP = 63          # walls end / ceiling begins
+WALL_TOP = 45          # walls end / ceiling begins (beam y39-41 + coffer y42-44 = the wall's own cap)
 WALL_T = 3             # wall thickness
 BODY_TOP = 25          # walls matter up to this y for walking (Vinny ~21 voxels tall)
 WALK_R = 3.5           # body clearance in cells (~0.105 m, same margin the old FLOOR clamp used)

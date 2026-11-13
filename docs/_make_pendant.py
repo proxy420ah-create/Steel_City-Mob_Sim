@@ -8,7 +8,7 @@ R_SHADE, DOME_H = 18, 11           # dome: dia .43m, 11 tall
 COLLAR_R, COLLAR_H = 6, 3
 STEM_R = 1.2
 CANOPY_H = 4
-STEM_TOP = 47
+STEM_TOP = 25                       # was 47 — the 1.89m-ceiling stem. Lowered coffer (1.17) needs a short hang: 7-cell stem, fixture 26 tall = .312m
 H = 48; W = D = 40
 
 MATS = [

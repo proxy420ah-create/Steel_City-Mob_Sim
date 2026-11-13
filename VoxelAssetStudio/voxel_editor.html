@@ -687,6 +687,8 @@ document.getElementById('editor-nav').addEventListener('click', e => {
       <p style="font-size:11px;color:#aaa;margin-bottom:8px;">Save Project downloads a .json file. Save As WIP stores it in the browser list below <i>and</i> downloads a copy (list quota ~5-10MB — big models go to file only). Load opens any saved .json.</p>
       <div class="btn-row">
         <button class="export-btn primary" onclick="saveProject()">💾 Save Project (.json)</button>
+        <button class="export-btn" id="saveToServerBtn" onclick="saveToServer()" title="POST straight back to the commission server — overwrites voxel_items/<loaded name>.json, no download">⚡ Save to Server</button>
+        <button class="export-btn" onclick="saveAsToServer()" title="Save as a NEW file in voxel_items under a name you pick — variants, WIPs — then retargets ⚡ to it">⚡ Save As New…</button>
         <button class="export-btn" onclick="saveAsProject()">📝 Save As WIP…</button>
         <button class="export-btn" onclick="document.getElementById('load-file-input').click()">📂 Load Project</button>
         <input type="file" id="load-file-input" accept=".json" style="display:none" onchange="loadProject(event)">
@@ -3379,7 +3381,7 @@ function loadBaseTemplate() {
         loadedModelName = file.name.replace(/\.(character\.)?json$/i, '');
         updateFilePill();
         loadedAnimData = {};
-        for (const k of ['pivots', 'animParams', 'states', 'itemPartDefs']) {
+        for (const k of ['pivots', 'animParams', 'states', 'itemPartDefs', 'door']) {
           if (data[k] !== undefined) loadedAnimData[k] = data[k];
         }
         W = data.dims[0]; H = data.dims[1]; D = data.dims[2]; adoptFileVoxelSize(data);
@@ -3977,6 +3979,10 @@ function showHighlight(positions, color) {
   const m = buildShellMeshes(positions, color, HL_FILL_OPACITY);
   hlMesh = m.fill;
   hlEdgesMesh = m.lines;
+  // Remember the BUILT position as the mesh's base — the bbox fallback (>150k) bakes its
+  // center into mesh.position, so the move-preview offset must be applied on top of it,
+  // not stomp it (else the ghost teleports to the grid origin).
+  for (const mm of [hlMesh, hlEdgesMesh]) if (mm) mm.userData.bpos = mm.position.clone();
   if (hlMesh) scene.add(hlMesh);
   if (hlEdgesMesh) scene.add(hlEdgesMesh);
 }
@@ -4041,7 +4047,7 @@ function plantRuler(positions, statusText, short) {
     `font-size:10px;font-weight:bold;white-space:nowrap;pointer-events:auto;` +
     `background:rgba(0,0,0,0.75);border:1px solid ${hex};color:${hex};`;
   document.getElementById('ruler-labels').appendChild(label);
-  const plant = { slot, positions, statusText, short, mesh: m.fill, edges: m.lines, endCell, label };
+  const plant = { slot, positions, statusText, short, mesh: m.fill, edges: m.lines, endCell, label, hit: null, hitSig: '' };
   if (plant.mesh) scene.add(plant.mesh);
   if (plant.edges) scene.add(plant.edges);
   rulerPlants.push(plant);
@@ -4053,7 +4059,70 @@ function removeRulerPlant(plant) {
     const obj = plant[key];
     if (obj) { scene.remove(obj); obj.geometry.dispose(); obj.material.dispose(); }
   }
+  if (plant.hit) {
+    for (const key of ['fill', 'lines']) {
+      const obj = plant.hit[key];
+      if (obj) { scene.remove(obj); obj.geometry.dispose(); obj.material.dispose(); }
+    }
+  }
   if (plant.label) plant.label.remove();
+}
+// ── Ruler-contact overlay — while a move/paste ghost is live, the planted-
+//    ruler cells it overlaps light hot so landing exactly on a mark is
+//    visible. Per-plant {fill, lines} shell rebuilt only when the hit set
+//    changes; cleared by confirm/cancel and by plant removal. ──
+const RULER_HIT_COLOR = 0xff3344;
+let _clipKeySet = null, _clipKeyFor = null, _clipKeyRev = -1;
+function rulerHitUpdate() {
+  const on = pasteMode && clipboard.length > 0 && rulerPlants.length > 0;
+  for (const p of rulerPlants) {
+    let hits = null;
+    if (on) {
+      if (_pasteUniform) {
+        // dest = pasteOrigin + clip + pasteOffset — reverse-offset each ruler
+        // cell and membership-test the clipboard key set: O(#ruler cells)
+        // per nudge, independent of selection size.
+        if (_clipKeyFor !== clipboard || _clipKeyRev !== _pasteRev) {
+          _clipKeySet = new Set(clipboard.map(v => `${v.x},${v.y},${v.z}`));
+          _clipKeyFor = clipboard; _clipKeyRev = _pasteRev;
+        }
+        const ox = pasteOrigin.x + pasteOffset.x, oy = pasteOrigin.y + pasteOffset.y, oz = pasteOrigin.z + pasteOffset.z;
+        hits = p.positions.filter(r => _clipKeySet.has((r[0] - ox) + ',' + (r[1] - oy) + ',' + (r[2] - oz)));
+      } else {
+        // Mirrored move — per-cell offsets can't be reverse-tested, so build
+        // the destination set outright (only when ⇄ diverges the cells).
+        const dest = new Set();
+        for (const v of clipboard) dest.add((pasteOrigin.x + v.x + (v.ox || 0)) + ',' + (pasteOrigin.y + v.y + (v.oy || 0)) + ',' + (pasteOrigin.z + v.z + (v.oz || 0)));
+        hits = p.positions.filter(r => dest.has(r[0] + ',' + r[1] + ',' + r[2]));
+      }
+    }
+    const sig = hits && hits.length ? hits.map(h => h.join(',')).sort().join('|') : '';
+    if (p.hit && sig === p.hitSig) continue;
+    if (p.hit) {
+      for (const key of ['fill', 'lines']) {
+        const o = p.hit[key];
+        if (o) { scene.remove(o); o.geometry.dispose(); o.material.dispose(); }
+      }
+      p.hit = null;
+    }
+    p.hitSig = sig;
+    if (sig) {
+      const m = buildShellMeshes(hits, RULER_HIT_COLOR, 0.5);
+      p.hit = m;
+      if (m.fill) scene.add(m.fill);
+      if (m.lines) scene.add(m.lines);
+    }
+  }
+}
+function rulerHitClear() {
+  for (const p of rulerPlants) {
+    if (!p.hit) { p.hitSig = ''; continue; }
+    for (const key of ['fill', 'lines']) {
+      const o = p.hit[key];
+      if (o) { scene.remove(o); o.geometry.dispose(); o.material.dispose(); }
+    }
+    p.hit = null; p.hitSig = '';
+  }
 }
 // Per-frame screen projection for planted-ruler end labels (≤4 — trivial
 // cost). Label hides when its endpoint is behind the camera.
@@ -5796,8 +5865,8 @@ function updatePastePreview(event) {
       _pasteShape = { clip: clipboard, rev: _pasteRev, n: clipboard.length, ox: pasteOrigin.x, oy: pasteOrigin.y, oz: pasteOrigin.z, positions: pos };
     }
     showHighlight(_pasteShape.positions, 0x00ffff); // identity-skips after the first build
-    if (hlMesh) hlMesh.position.set(pasteOffset.x, pasteOffset.y, pasteOffset.z);
-    if (hlEdgesMesh) hlEdgesMesh.position.set(pasteOffset.x, pasteOffset.y, pasteOffset.z);
+    if (hlMesh) { const b = hlMesh.userData.bpos || (hlMesh.userData.bpos = hlMesh.position.clone()); hlMesh.position.set(b.x + pasteOffset.x, b.y + pasteOffset.y, b.z + pasteOffset.z); }
+    if (hlEdgesMesh) { const b = hlEdgesMesh.userData.bpos || (hlEdgesMesh.userData.bpos = hlEdgesMesh.position.clone()); hlEdgesMesh.position.set(b.x + pasteOffset.x, b.y + pasteOffset.y, b.z + pasteOffset.z); }
     for (let i = 0; i < clipboard.length; i++) { // in-bounds count, allocation-free
       const v = clipboard[i];
       const px = pasteOrigin.x + v.x + pasteOffset.x, py = pasteOrigin.y + v.y + pasteOffset.y, pz = pasteOrigin.z + v.z + pasteOffset.z;
@@ -5826,6 +5895,7 @@ function updatePastePreview(event) {
     tt.style.top = (event.clientY + 12) + 'px';
     tt.textContent = infoText;
   }
+  rulerHitUpdate(); // ruler cells under the ghost light hot — runs per nudge
 }
 
 function updateHighlight(event) {
@@ -6543,7 +6613,7 @@ function applyDefaultModelData(data, sourceName) {
   updateFilePill();
   clearAllRulers(); // planted measurements belong to the outgoing model
   loadedAnimData = {};
-  for (const k of ['pivots', 'animParams', 'states', 'itemPartDefs']) {
+  for (const k of ['pivots', 'animParams', 'states', 'itemPartDefs', 'door']) {
     if (data[k] !== undefined) loadedAnimData[k] = data[k];
   }
   W = data.dims[0]; H = data.dims[1]; D = data.dims[2]; adoptFileVoxelSize(data);
@@ -8282,17 +8352,37 @@ window.confirmPaste = function() {
   pushHistory();
   rebuildMesh();
   const wasMove = moveMode;
-  setStatus(`${wasMove ? 'Moved' : 'Pasted'} ${placed} voxels to (${bx},${by},${bz})`);
   pasteMode = false; moveMode = false;
   document.getElementById('paste-controls').style.display = 'none';
   clearHighlight(); // the preview mesh must not outlive the move
-  if (wasMove) clearSelection();
+  rulerHitClear();
+  if (wasMove) {
+    // The selection rides to the NEW coords instead of releasing — Enter ends
+    // the move, not the marq, so V (or any selection op) can chain right on.
+    selVoxels = [];
+    for (const v of clipboard) {
+      const px = pasteOrigin.x + v.x + (v.ox || 0), py = pasteOrigin.y + v.y + (v.oy || 0), pz = pasteOrigin.z + v.z + (v.oz || 0);
+      if (px >= 0 && px < W && py >= 0 && py < H && pz >= 0 && pz < D) selVoxels.push([px, py, pz, v.mid]);
+    }
+    if (selVoxels.length) {
+      selectionActive = true;
+      showSelectionOverlay();
+      document.getElementById('sel-info').textContent = `Sel: ${selVoxels.length} voxels — still selected`;
+      setStatus(`Moved ${placed} voxels to (${bx},${by},${bz}) — still selected (V moves again · Clear Sel releases)`);
+    } else {
+      clearSelection();
+      setStatus(`Moved ${placed} voxels to (${bx},${by},${bz})`);
+    }
+  } else {
+    setStatus(`Pasted ${placed} voxels to (${bx},${by},${bz})`);
+  }
 };
 
 window.cancelPaste = function() {
   pasteMode = false; moveMode = false;
   document.getElementById('paste-controls').style.display = 'none';
   clearHighlight();
+  rulerHitClear();
   setStatus('Paste cancelled');
 };
 
@@ -9095,6 +9185,49 @@ function getEditorData() {
 }
 
 // Save project — full editor state as downloadable JSON
+/* save-back: POSTs the same payload as Save Project to the commission server's
+   /save/voxel/<name> route, which overwrites voxel_items/<name>.json. Only live
+   when the editor itself was served over http (studio deep link). */
+async function _postModelToServer(name) {
+  const btn = document.getElementById('saveToServerBtn');
+  try {
+    if (btn) btn.disabled = true;
+    const data = getEditorData();
+    data.name = name;
+    const r = await fetch('/save/voxel/' + encodeURIComponent(name), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
+    });
+    const j = await r.json();
+    if (!r.ok || !j.ok) throw new Error(j.err || ('HTTP ' + r.status));
+    savedHistoryIndex = historyIndex;
+    setStatus(`Saved to server: ${name}.json (${j.voxels} voxels) — F5 the commission to see it`);
+    return true;
+  } catch (e) {
+    setStatus('Save to Server failed: ' + e.message);
+    return false;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+window.saveToServer = function() {
+  if (!/^https?:$/.test(location.protocol)) return setStatus('Save to Server needs http — open via 127.0.0.1:8723/studio/voxel_editor.html');
+  const name = loadedModelName;
+  if (!name) return setStatus('Nothing loaded to save — use Save Project or 📂 Load first');
+  if (!/^[\w-]{1,64}$/.test(name)) return saveAsToServer();   // file-opened models with odd names route through the naming prompt
+  _postModelToServer(name);
+};
+
+/* variant path: pick the voxel_items file name, write it, and retarget loadedModelName
+   so subsequent ⚡ saves go to the variant — WIP snapshots, door variants, etc. */
+window.saveAsToServer = async function() {
+  if (!/^https?:$/.test(location.protocol)) return setStatus('Save to Server needs http — open via 127.0.0.1:8723/studio/voxel_editor.html');
+  const name = (prompt('Save to server as:\nAssets/StreamingAssets/voxel_items/<name>.json', loadedModelName || '') || '').trim();
+  if (!name) return;
+  if (!/^[\w-]{1,64}$/.test(name)) return setStatus('Invalid name — letters, digits, _ and - only');
+  if (await _postModelToServer(name)) { loadedModelName = name; updateFilePill(); }
+};
+
 window.saveProject = function() {
   const data = getEditorData();
   data.format = 'voxel_editor_project';
@@ -9163,7 +9296,7 @@ window.loadWIP = function(wipName) {
     loadedModelName = data.name || wipName;
     updateFilePill();
     loadedAnimData = {};
-    for (const k of ['pivots', 'animParams', 'states', 'itemPartDefs']) {
+    for (const k of ['pivots', 'animParams', 'states', 'itemPartDefs', 'door']) {
       if (data[k] !== undefined) loadedAnimData[k] = data[k];
     }
     W = data.dims[0]; H = data.dims[1]; D = data.dims[2]; adoptFileVoxelSize(data);
@@ -9247,7 +9380,7 @@ window.loadProject = function(event) {
       loadedModelName = file.name.replace(/\.(character\.)?json$/i, '');
       updateFilePill();
       loadedAnimData = {};
-      for (const k of ['pivots', 'animParams', 'states', 'itemPartDefs']) {
+      for (const k of ['pivots', 'animParams', 'states', 'itemPartDefs', 'door']) {
         if (data[k] !== undefined) loadedAnimData[k] = data[k];
       }
       W = data.dims[0]; H = data.dims[1]; D = data.dims[2]; adoptFileVoxelSize(data);
@@ -9332,7 +9465,7 @@ window.importStasset = function(event) {
       loadedModelName = file.name.replace(/\.(character\.)?json$/i, '');
       updateFilePill();
       loadedAnimData = {};
-      for (const k of ['pivots', 'animParams', 'states', 'itemPartDefs']) {
+      for (const k of ['pivots', 'animParams', 'states', 'itemPartDefs', 'door']) {
         if (data[k] !== undefined) loadedAnimData[k] = data[k];
       }
       W = data.dims[0]; H = data.dims[1]; D = data.dims[2]; adoptFileVoxelSize(data);

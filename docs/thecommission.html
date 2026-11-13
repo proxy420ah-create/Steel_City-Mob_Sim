@@ -1752,6 +1752,18 @@ function initDeck3D(THREE, OrbitControls){
   const camera = new THREE.PerspectiveCamera(44, W() / H(), .1, 50);
   window.__THREE = THREE; window.__scene = scene; window.__camera = camera;   // DVM-2252 — expose for the char block
   camera.position.set(0, 3.1, 4.9);
+  /* L-key inspection torch — a camera-follow spot + faint fill for screenshot
+     illumination. Created ONCE at init: a runtime light-count change recompiles
+     every material, so these live at intensity 0 until toggled. __torch.aim(cam)
+     is called by the render loop for the main camera and inside povCam captures. */
+  const torch = new THREE.SpotLight(0xfff0d0, 0, 10, .45, .55, 1.2);
+  const torchFill = new THREE.PointLight(0xffe9c0, 0, 3, 1.4);
+  const torchTgt = new THREE.Object3D(); scene.add(torch, torchFill, torchTgt); torch.target = torchTgt;
+  const _tdir = new THREE.Vector3();
+  window.__torch = { on: false, spot: torch, fill: torchFill,
+    aim(cam) { cam.getWorldPosition(torch.position); cam.getWorldDirection(_tdir);
+      torchTgt.position.copy(torch.position).addScaledVector(_tdir, 2);
+      torchFill.position.copy(torch.position).addScaledVector(_tdir, .3); } };
   const controls = new OrbitControls(camera, renderer.domElement);
   window.__controls = controls;                                              // DVM-2252 — orbit handle for the char block/tests
   Object.assign(controls, { enableDamping:true, dampingFactor:.12, enablePan:false,
@@ -1767,12 +1779,9 @@ function initDeck3D(THREE, OrbitControls){
      the hall-centre beam (z 3.68), the north lamp dead-centre in its coffer bay (−.045, 7.425).
      Each rig = warm cone + green spill so the enamel reads lit from inside.
      Always on — the table is the set's center in both camera modes. */
-  for (const [px, pz] of [[-.015, -.105], [0, 3.68], [-.045, 7.425]]) {
-    const pendSpot = new THREE.SpotLight(0xffe2b0, 22, 6, .75, .6, 1);
-    pendSpot.position.set(px, 1.36, pz); pendSpot.target.position.set(px, .35, pz);
-    scene.add(pendSpot, pendSpot.target);
-    const pendGlow = new THREE.PointLight(0xcfffb0, 1.2, 1.3); pendGlow.position.set(px, 1.42, pz); scene.add(pendGlow);
-  }
+  /* pendant run — orphan rigs all retired: corridor-mouth [0,3.68] + north [-.045,7.425]
+     lit their zones until the fixtures returned; the hall + law-section pendants now
+     carry their own item-rigged lights (below), so no bare glow orbs remain. */
   scene.add(amb, key, key2);
   /* render-on-dirty scheduler state — declared up top so mark() is safe from
      any init code that runs before the scheduler section below (TDZ fix). */
@@ -1802,14 +1811,40 @@ function initDeck3D(THREE, OrbitControls){
      rotations (rot/rotY) then apply to the mirrored coords — same order as KIT flipZ.
      window.* because the law-desk loader lives in the second <script> block. */
   window.tvz = (m, v) => m.truthView === 'unity' ? m.dims[2] - 1 - v[2] : v[2];
+  /* __glassMat + voxEmit — glass honoring for every raw prop render path.
+     Materials named *glass* (Unity's convention — Window/Storefront/Auto) split
+     into a second InstancedMesh with a transparent Lambert: the HTML port of
+     Unity's raymarch glass — tint from the file's own hex via instance colors,
+     depthWrite off so interiors draw through. window.* — law desk lives in
+     script 2. fillM(M, v) supplies the site's own position+scale math. */
+  window.__glassMat = new THREE.MeshLambertMaterial({ transparent: true, opacity: .55, depthWrite: false });
+  window.voxEmit = (m, fillM) => {
+    const gids = new Set((m.materials || []).filter(mt => /glass/i.test(mt.name || '')).map(mt => mt.id));
+    const geo = new THREE.BoxGeometry(1, 1, 1);
+    const imO = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial(), m.voxels.length);
+    const imG = gids.size ? new THREE.InstancedMesh(geo, window.__glassMat, m.voxels.length) : null;
+    const mats = {}; (m.materials || []).forEach(mt => mats[mt.id] = new THREE.Color(mt.hex));
+    const M = new THREE.Matrix4(), dflt = new THREE.Color(0x888888);
+    let no = 0, ng = 0;
+    m.voxels.forEach(v => {
+      fillM(M, v);
+      const c = mats[v[3]] || dflt;
+      if (imG && gids.has(v[3])) { imG.setMatrixAt(ng, M); imG.setColorAt(ng, c); ng++; }
+      else { imO.setMatrixAt(no, M); imO.setColorAt(no, c); no++; }
+    });
+    imO.count = no; imO.instanceMatrix.needsUpdate = true;
+    if (imO.instanceColor) imO.instanceColor.needsUpdate = true;
+    if (imG) { imG.count = ng; imG.instanceMatrix.needsUpdate = true; if (imG.instanceColor) imG.instanceColor.needsUpdate = true; }
+    return imG ? [imO, imG] : [imO];
+  };
   const KIT = [
     { file:'commission_table', vs:.007,  pos:[-.015, 0, -.105], sXZ:1.4 },   // chibi: .38m tall x 1.4m dia — anchored on the rug's felt midpoint (−.015,−.105, bake half-cell), NOT origin
-    { file:'commission_pendant', vs:.012, pos:[-.015, 1.314, -.105] },       // green-dome pendant: hangs dead over the table/rug center
-    { file:'commission_pendant', vs:.012, pos:[0, 1.314, 3.68] },    // pendant row — corridor mouth, on the hall-center beam
-    { file:'commission_pendant', vs:.012, pos:[-.045, 1.314, 7.425] },  // pendant row — north hall, dead-centre in its coffer bay (x −.765/+.675 → −.045, z 6.70/8.15 → 7.425, both bake half-cells)
-    { file:'commission_pendant', vs:.012, pos:[-6.015, 1.314, -.09], env: true, lights:[{type:'spot', c:0xffe2b0, i:22, d:6, pos:[0,.046,0], tgt:[0,-.96,0], ang:.75, pen:.6, dec:1},{type:'point', c:0xcfffb0, i:1.2, d:1.3, pos:[0,.106,0]}] },   // office pendant — dead-centre of the west-wing square room; light rig rides the fixture now
-    { file:'commission_pendant', vs:.012, pos:[-5.92, 1.314, 3.68], env: true, lights:[{type:'spot', c:0xffe2b0, i:22, d:6, pos:[0,.046,0], tgt:[0,-.96,0], ang:.75, pen:.6, dec:1},{type:'point', c:0xcfffb0, i:1.2, d:1.3, pos:[0,.106,0]}] },   // hall pendant — dead-centre of its coffer bay (beams −6.49/−5.35 → −5.92), hanging on the centre beam over the office door axis
-    { file:'commission_pendant', vs:.012, pos:[-3.07, 1.314, 3.68], env: true, lights:[{type:'spot', c:0xffe2b0, i:22, d:6, pos:[0,.046,0], tgt:[0,-.96,0], ang:.75, pen:.6, dec:1},{type:'point', c:0xcfffb0, i:1.2, d:1.3, pos:[0,.106,0]}] },   // hall pendant — next lit bay east, one dark square between lights (bay −3.67/−2.47 → −3.07); the existing x=0 pendant sits in bay +0.05 and completes the rhythm
+    { file:'commission_pendant', vs:.012, pos:[.03, .858, -.09], lights:[{type:'spot', c:0xffe2b0, i:22, d:6, pos:[0,.046,0], tgt:[0,-.96,0], ang:.75, pen:.6, dec:1},{type:'point', c:0xcfffb0, i:1.2, d:1.3, pos:[0,.106,0]}] },   // green-dome pendant — centered on the ceiling recess (.03,-.09 ≈ rug midpoint); stem flush on the 1.17 coffer (bottom .858 + .312 short-stem fixture); light rig rides the fixture, no env gate — the table reads in both camera modes
+    { file:'commission_pendant_flush', vs:.012, pos:[-6.015, .888, 3.63], env: true, lights:[{type:'spot', c:0xffe2b0, i:22, d:6, pos:[0,.046,0], tgt:[0,-.96,0], ang:.75, pen:.6, dec:1},{type:'point', c:0xcfffb0, i:1.2, d:1.3, pos:[0,.106,0]}] },   // hall pendant — STEMLESS flush-mount variant: top plate bolts directly to the beam underside (wy 1.08); on the ONE long beam running the hall's length (wz3.48-3.78, mid 3.63), x locked to the office pendant axis; canopy flush on the 1.08 beam face (beams hang .09 below the 1.17 coffer face)
+    { file:'commission_pendant', vs:.012, pos:[-.045, .858, 8.62], env: true, lights:[{type:'spot', c:0xffe2b0, i:22, d:6, pos:[0,.046,0], tgt:[0,-.96,0], ang:.75, pen:.6, dec:1},{type:'point', c:0xcfffb0, i:1.2, d:1.3, pos:[0,.106,0]}] },   // law-section pendant — last coffer bay (z8.01-9.24 mid 8.62) on the law desk's axis, in front of the north wall (face wz9.36)
+    { file:'commission_pendant', vs:.012, pos:[-6.015, .858, -.09], env: true, lights:[{type:'spot', c:0xffe2b0, i:22, d:6, pos:[0,.046,0], tgt:[0,-.96,0], ang:.75, pen:.6, dec:1},{type:'point', c:0xcfffb0, i:1.2, d:1.3, pos:[0,.106,0]}] },   // office pendant — dead-centre of the west-wing square room (coffer bay x-6.43..-5.50 z-0.54..0.39); light rig rides the fixture now
+//     { file:'commission_pendant', vs:.012, pos:[-5.92, 1.314, 3.68], env: true, lights:[{type:'spot', c:0xffe2b0, i:22, d:6, pos:[0,.046,0], tgt:[0,-.96,0], ang:.75, pen:.6, dec:1},{type:'point', c:0xcfffb0, i:1.2, d:1.3, pos:[0,.106,0]}] },   // hall pendant — dead-centre of its coffer bay (beams −6.49/−5.35 → −5.92), hanging on the centre beam over the office door axis
+//     { file:'commission_pendant', vs:.012, pos:[-3.07, 1.314, 3.68], env: true, lights:[{type:'spot', c:0xffe2b0, i:22, d:6, pos:[0,.046,0], tgt:[0,-.96,0], ang:.75, pen:.6, dec:1},{type:'point', c:0xcfffb0, i:1.2, d:1.3, pos:[0,.106,0]}] },   // hall pendant — next lit bay east, one dark square between lights (bay −3.67/−2.47 → −3.07); the existing x=0 pendant sits in bay +0.05 and completes the rhythm
     { file:'commission_floorlamp', vs:.005, pos:[-9.125, 0.0, 2.515],  env: true, lights:[{type:'point', c:0xffd9a0, i:2.4, d:2.0, pos:[0,.55,0]}] },   // west-cap floor lamp — south corner; the warm pool rides the fixture (place-mode movable)
     { file:'commission_floorlamp', vs:.005, pos:[-9.125, 0.0, 4.81],  env: true, lights:[{type:'point', c:0xffd9a0, i:2.4, d:2.0, pos:[0,.55,0]}] },   // west-cap floor lamp — north corner, mirror of the south one
     { file:'commission_floor', vs:.03,   pos:[0, -.09, 0] },     // chibi grain — 4.5m plate covers the seat ring, tops y=0
@@ -1827,6 +1862,7 @@ function initDeck3D(THREE, OrbitControls){
     { file:'commission_bookoflaws', vs:.005, pos:[-.045, .30, 9.36] },  // the Book of Laws — open tome presented toward the reader on the law desk's slab (desk front face z≈9.168; book front edge ~.05 reveal; ribbon tail toward Vinny)
     { file:'commission_desklamp', vs:.005, pos:[-.495, .30, 9.40], rotY:Math.PI/2, env:true, lights:[{type:'spot', c:0xffe2b0, i:6, d:1.3, pos:[.043,.15,-.003], tgt:[.043,0,-.003], ang:.8, pen:.7, dec:1},{type:'point', c:0xcfffb0, i:.5, d:.45, pos:[.043,.15,-.003]}] },  // west B&H desk lamp — file declares truthView:'unity' so the loader mirrors it; light spec stays file-coords (loader flips z itself)
     { file:'commission_desklamp', vs:.005, pos:[.405, .30, 9.40], rotY:Math.PI/2, env:true, lights:[{type:'spot', c:0xffe2b0, i:6, d:1.3, pos:[.043,.15,-.003], tgt:[.043,0,-.003], ang:.8, pen:.7, dec:1},{type:'point', c:0xcfffb0, i:.5, d:.45, pos:[.043,.15,-.003]}] },  // east B&H desk lamp — identical individual, same authored file
+    { file:'commission_door', vs:.0075, pos:[-6.0, .003, 2.115], env:true },   // BOSS's office door — leaf-only stamp centred in the building's structural frame (bay x -6.33..-5.67, centre -6.00; wall slab z 2.07-2.16, centre 2.115 — leaf slab .075 fills the depth with .004 inset each face); floor top y=0, +.003 anti-z-fight hair; leaf hinged west, front toward the corridor, E swings it
   ];
   const envG = new THREE.Group(); envG.visible = false; envG.name = 'roomEnvelope'; window.__env = envG; scene.add(envG);   // DVM-U envelope — side walls + far cap + ceilings, shown ONLY in possess mode; group view stays the clean stage set (back wall + floor + set only)
   /* item-carried rigs replaced the fixed envG loops — the pendant spots/glows and floor-lamp pools now
@@ -1916,17 +1952,12 @@ function initDeck3D(THREE, OrbitControls){
       (b.placements || []).forEach(p => fetch('/voxel/' + p.file).then(r => r.json()).then(m => {
         if (!m.voxels) return;
         const pvs = p.vs || m.voxelSize || vs, ratio = pvs / vs, pw = m.dims[0], pd = m.dims[2], rot = p.rotY || 0;
-        const im = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshLambertMaterial(), m.voxels.length);
-        const mats = {}; (m.materials || []).forEach(mt => mats[mt.id] = new THREE.Color(mt.hex));
-        const M = new THREE.Matrix4(), dflt = new THREE.Color(0x888888);
-        m.voxels.forEach((v, i) => {
+        window.voxEmit(m, (M, v) => {
           let x = v[0], z = tvz(m, v);                                    // truthView mirror in file space, then placement rot
           if (rot === 90) { x = pd - 1 - z; z = v[0]; } else if (rot === 180) { x = pw - 1 - x; z = pd - 1 - z; } else if (rot === 270) { x = z; z = pw - 1 - v[0]; }
           M.makeScale(pvs, pvs, pvs).setPosition((p.pos[0] + .5 + x * ratio - ax) * vs, (p.pos[1] + .5 + v[1] * ratio) * vs + yBase, (p.pos[2] + .5 + z * ratio - az) * vs);
-          im.setMatrixAt(i, M); im.setColorAt(i, mats[v[3]] || dflt);
-        });
-        im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true;
-        envG.add(im); DECK.dirty();
+        }).forEach(mm => envG.add(mm));
+        DECK.dirty();
       }).catch(() => {}));
       console.log('DVM-U — baked building loaded:', b.stats.voxels, 'voxels →', b.stage.n + b.env.n, 'quads · walk cells', b.stats.walkCells, '· rooms', (b.rooms || []).length);
       return true;
@@ -1937,24 +1968,42 @@ function initDeck3D(THREE, OrbitControls){
     const loadItems = kit => { let pending = kit.length;
     kit.forEach(k => fetch('/voxel/' + k.file).then(r => r.json()).then(m => {
       if (!m.voxels) return;
-      const im = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1),
-        new THREE.MeshLambertMaterial(), m.voxels.length);
-      const mats = {}; (m.materials || []).forEach(mt => mats[mt.id] = new THREE.Color(mt.hex));
       const cx = m.dims[0] / 2 - .5, cz = m.dims[2] / 2 - .5;
       // flipZ: the z-mirror this consumer applies. truthView:'unity' files declare their
       // authored truth = the left-handed (Unity) render, so right-handed rendering mirrors
       // them; mirZ stacks on top for true mirrored-variant placements (XOR — both = net flip).
       const flipZ = !!k.mirZ !== (m.truthView === 'unity');
-      const M = new THREE.Matrix4(), dflt = new THREE.Color(0x888888);
-      m.voxels.forEach((v, i) => {
+      const fillM = (M, v) => {
         const vz = flipZ ? m.dims[2] - 1 - v[2] : v[2];
         M.makeScale(k.vs, k.vs, k.vs).setPosition((v[0] - cx) * k.vs, (v[1] + .5) * k.vs, (vz - cz) * k.vs);
-        im.setMatrixAt(i, M);
-        im.setColorAt(i, mats[v[3]] || dflt);
-      });
-      im.instanceMatrix.needsUpdate = true;
-      if (im.instanceColor) im.instanceColor.needsUpdate = true;
-      const part = new THREE.Group(); part.add(im); part.position.set(k.pos[0], k.pos[1], k.pos[2]);
+      };
+      const part = new THREE.Group();
+      const leafId = m.door && (((m.itemPartDefs || []).find(d => d.key === 'leaf') || {}).id ?? 1);
+      if (m.door && m.itemParts) {                                     // hinged assembly — 'leaf' voxels ride a pivot group
+        const lv = [], bv = [];                                        // at the file-declared hinge; frame voxels stay put
+        m.voxels.forEach(v => ((m.itemParts[v[0] + ',' + v[1] + ',' + v[2]] === leafId) ? lv : bv).push(v));
+        const pv = m.door.pivot || [0, 0, 0];
+        const pl = [(pv[0] - cx) * k.vs, (pv[1] + .5) * k.vs, ((flipZ ? m.dims[2] - 1 - pv[2] : pv[2]) - cz) * k.vs];
+        const leafG = new THREE.Group(); leafG.position.set(pl[0], pl[1], pl[2]); part.add(leafG);
+        window.voxEmit({ ...m, voxels: bv }, fillM).forEach(mm => part.add(mm));
+        window.voxEmit({ ...m, voxels: lv }, fillM).forEach(mm => { mm.position.set(-pl[0], -pl[1], -pl[2]); leafG.add(mm); });
+        // doorway gate — circle run derived from the leaf's own voxel span; splices
+        // in/out on toggle. The bare margins beside the frame stay open — their
+        // infill is the building's job, not this prop's (see _make_door.py)
+        const spanBlockers = (x0, x1) => { const out = [], n = Math.max(1, Math.round((x1 - x0) / .25));
+          for (let i = 0; i <= n; i++) out.push([x0 + (x1 - x0) * i / n, k.pos[2] - .05, .3]); return out; };
+        const xs = lv.map(v => v[0]), lx0 = Math.min(...xs), lx1 = Math.max(...xs);
+        const block = spanBlockers(k.pos[0] + (lx0 - cx) * k.vs, k.pos[0] + (lx1 + 1 - cx) * k.vs);
+        window.__door = { g: leafG, arc: m.door.arc || 1.75, open: false, anim: null, block,
+          toggle(){ this.open = !this.open; this.anim = { from: this.g.rotation.y, to: this.open ? this.arc : 0, t: 0 }; mark();
+            const S = window.__solids;
+            if (S) block.forEach(b => { const i = S.indexOf(b);
+              if (this.open) { if (i >= 0) S.splice(i, 1); } else if (i < 0) S.push(b); }); } };
+        if (window.__solids) block.forEach(b => window.__solids.push(b));   // closed leaf gates the doorway
+      } else {
+        window.voxEmit(m, fillM).forEach(mm => part.add(mm));
+      }
+      part.position.set(k.pos[0], k.pos[1], k.pos[2]);
       if (m.name && m.name !== k.file) console.warn('KIT name mismatch — file:' + k.file + ' vs json name:' + m.name);
       part.userData.kit = k; (window.__placed = window.__placed || []).push(part);   // place-mode registry — every KIT part is pickable + carries its entry
       if (k.rotY) part.rotation.y = k.rotY;
@@ -2210,17 +2259,11 @@ function initDeck3D(THREE, OrbitControls){
       const dflt = new THREE.Color(0x888888);
       skeys.forEach(k => {
         const c = chairs[k]; if (!c) return;
-        const im = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1),
-          new THREE.MeshLambertMaterial(), m.voxels.length);
-        const M = new THREE.Matrix4();
-        m.voxels.forEach((v, i) => {
-          M.makeScale(vs, vs, vs).setPosition((v[0] - cx) * vs, (v[1] + .5) * vs, (tvz(m, v) - cz) * vs);
-          im.setMatrixAt(i, M);
-          im.setColorAt(i, mats[v[3]] || dflt);
-        });
-        im.instanceMatrix.needsUpdate = true;
-        if (im.instanceColor) im.instanceColor.needsUpdate = true;
-        const g = new THREE.Group(); g.add(im); g.rotation.y = Math.PI;
+        const g = new THREE.Group();
+        window.voxEmit(m, (M, v) =>
+          M.makeScale(vs, vs, vs).setPosition((v[0] - cx) * vs, (v[1] + .5) * vs, (tvz(m, v) - cz) * vs)
+        ).forEach(mm => g.add(mm));
+        g.rotation.y = Math.PI;
         g.position.set(-.005, 0, .005);                        // odd-dims model (29³): bbox center sits −.5vox x / +.5vox z off the anchor — half-cell correction so every chair's box is dead-centre on its ring slot
         c.g.add(g); c.voxg = g;
       });
@@ -2231,17 +2274,10 @@ function initDeck3D(THREE, OrbitControls){
       if (!m.voxels) return;
       const mats = {}; (m.materials || []).forEach(mt => mats[mt.id] = new THREE.Color(mt.hex));
       const cx = m.dims[0] / 2 - .5, cz = m.dims[2] / 2 - .5, vs = .0052;
-      const im = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1),
-        new THREE.MeshLambertMaterial(), m.voxels.length);
-      const M = new THREE.Matrix4(), dflt = new THREE.Color(0x888888);
-      m.voxels.forEach((v, i) => {
-        M.makeScale(vs, vs, vs).setPosition((v[0] - cx) * vs, (v[1] + .5) * vs - .06, (tvz(m, v) - cz) * vs);
-        im.setMatrixAt(i, M);
-        im.setColorAt(i, mats[v[3]] || dflt);
-      });
-      im.instanceMatrix.needsUpdate = true;
-      if (im.instanceColor) im.instanceColor.needsUpdate = true;
-      const vg = new THREE.Group(); vg.add(im);
+      const vg = new THREE.Group();
+      window.voxEmit(m, (M, v) =>
+        M.makeScale(vs, vs, vs).setPosition((v[0] - cx) * vs, (v[1] + .5) * vs - .06, (tvz(m, v) - cz) * vs)
+      ).forEach(mm => vg.add(mm));
       stamp.add(vg); stamp.userData.vox = vg;
       mark();
     }).catch(() => {});
@@ -2253,16 +2289,10 @@ function initDeck3D(THREE, OrbitControls){
       if (!m.voxels) return;
       const mats = {}; (m.materials || []).forEach(mt => mats[mt.id] = new THREE.Color(mt.hex));
       const cx = m.dims[0] / 2 - .5, cy = m.dims[1] / 2 - .5, cz = m.dims[2] / 2 - .5;
-      const im = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1),
-        new THREE.MeshLambertMaterial(), m.voxels.length);
-      const M = new THREE.Matrix4(), dflt = new THREE.Color(0x888888);
-      m.voxels.forEach((v, i) => {
-        M.makeScale(vs, vs, vs).setPosition((v[0] - cx) * vs, (v[1] - cy) * vs, (tvz(m, v) - cz) * vs);
-        im.setMatrixAt(i, M); im.setColorAt(i, mats[v[3]] || dflt);
-      });
-      im.instanceMatrix.needsUpdate = true;
-      if (im.instanceColor) im.instanceColor.needsUpdate = true;
-      const vg = new THREE.Group(); vg.add(im);
+      const vg = new THREE.Group();
+      window.voxEmit(m, (M, v) =>
+        M.makeScale(vs, vs, vs).setPosition((v[0] - cx) * vs, (v[1] - cy) * vs, (tvz(m, v) - cz) * vs)
+      ).forEach(mm => vg.add(mm));
       vg.position.copy(prim.position);
       if (off) vg.position.add(new THREE.Vector3(off[0], off[1], off[2]));
       scene.add(vg);
@@ -2453,8 +2483,8 @@ function initDeck3D(THREE, OrbitControls){
      + depth/2. bs = prim scale so the live canvases read chibi. (DVM-2253: the
      A-side ap/ao anchors are retired — bp/bo is the only mount.) */
   const MOUNTS = [
-    { prim:sign,   bp:[-1.25, 1.05, -2.245], bo:[0,0,-.045],     bs:.35 },
-    { prim:pboard, bp:[1.05,  1.02, -2.245], bo:[0,0,-.029],     bs:.65 },
+    { prim:sign,   bp:[-1.25, .80, -2.245],  bo:[0,0,-.045],     bs:.25 },   // lowered-ceiling fit: .65x.55 board in the .51-1.08 display band
+    { prim:pboard, bp:[.55,   .80, -2.245],  bo:[0,0,-.029],     bs:.65 },   // slid left — right edge 1.445 clears the file cabinet (~1.63); keeps slot text size
     { prim:shelf,  bp:[-1.35, .48, -2.245],  bo:[0,-.085,-.121], bs:.8  },
     { prim:tray,   bp:[1.55,  .42, -2.245],  bo:[0,0,-.0735],    bs:.85 },
   ];
@@ -2466,9 +2496,10 @@ function initDeck3D(THREE, OrbitControls){
       if (m.sw) m.sw.position.set(p[0] + o[0], p[1] + o[1], p[2] + o[2]);
     });
     // Room-B defect ②: orphan children re-lay with their parents —
-    // shelf/tray cards ride their mounts.
+    // shelf/tray cards ride their mounts; the GO glow rides the pegboard's slot 4.
     shelfCards.forEach((m, i) => m.position.set(shelf.position.x - .55 + i * .28, shelf.position.y + .07, shelf.position.z + .03));
     trayCards.forEach((m, i) => m.position.set(tray.position.x - .16 + i * .11, tray.position.y + .055, tray.position.z + .03));
+    goGlow.position.copy(slotPos(4)); goGlow.position.z += .35;
   }
   applyMounts();                                       // seat the anchors on the B wall now (was: first style toggle)
   voxSwap(sign,   'commission_monitor',  .0068, [0, 0, -.095]);    // sign/pboard keep their live canvases —
@@ -2479,7 +2510,7 @@ function initDeck3D(THREE, OrbitControls){
      Same honesty law as the seat burns: fresh stamp -> green beat, stale -> dark. */
   const supBulb = new THREE.Mesh(new THREE.SphereGeometry(.07, 16, 12),
     new THREE.MeshBasicMaterial({color:0x2a2f36}));
-  supBulb.position.set(1.95, 1.5, -2.2); scene.add(supBulb);            // daemon bulb rides the voxel wall (ROOM B)
+  supBulb.position.set(-1.98, .80, -2.2); scene.add(supBulb);           // daemon bulb rides the voxel wall — open brick in the corner, left of the BURN graph (sign's left edge -1.575)
   const supGlow = new THREE.PointLight(0x3fb950, 0, 1.1);
   supGlow.position.copy(supBulb.position); supGlow.position.z += .12; scene.add(supGlow);
   function syncSupBulb(){
@@ -2529,7 +2560,7 @@ function initDeck3D(THREE, OrbitControls){
       const can = document.createElement('canvas'); can.width = 340; can.height = 150;
       const tex = new THREE.CanvasTexture(can);
       const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:tex, transparent:true, opacity:0}));
-      sp.scale.set(1.0, .44, 1); sp.position.set(0, 1.25, 0);            // ROOM B mount
+      sp.scale.set(1.0, .44, 1); sp.position.set(0, .92, 0);            // ROOM B mount — lowered-ceiling fit: floats over the .62 seat, clears the 1.17 coffer
       ch.g.add(sp);
       b = bubbles[k] = { can, tex, sp, op:0, t0:0, until:0 };
     }
@@ -2597,7 +2628,7 @@ function initDeck3D(THREE, OrbitControls){
     const wc = document.createElement('canvas'); wc.width = 256; wc.height = 48;
     const wctx = wc.getContext('2d'); wctx.font = '800 30px Consolas,monospace'; wctx.textAlign = 'center';
     const work = new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(wc), transparent:true, opacity:.95}));
-    work.scale.set(.9, .17, 1); work.position.set(0, 1.12, 0); work.visible = false;
+    work.scale.set(.9, .17, 1); work.position.set(0, 1.08, 0); work.visible = false;   // lowered-ceiling fit: top 1.165 clears the 1.17 coffer
     const hit = new THREE.Mesh(new THREE.BoxGeometry(.8, 1.5, .8), new THREE.MeshBasicMaterial({visible:false}));
     hit.position.y = .35; hit.scale.setScalar(.55); hit.userData.key = k;   // ROOM B seat hitbox
     g.add(lamp, lpt, ring, plate, work, hit, dead); scene.add(g);
@@ -2673,6 +2704,13 @@ function initDeck3D(THREE, OrbitControls){
       card.rotation.x *= (1 - e);
       if (t >= 1){ cardAnim = null; card.rotation.x = 0; }
     }
+    const doorAnim = window.__door && window.__door.anim;            // office door swing — same eased-step deck
+    if (doorAnim){
+      doorAnim.t += 1 / 30;
+      const t = Math.min(1, doorAnim.t), e = t * t * (3 - 2 * t);
+      window.__door.g.rotation.y = doorAnim.from + (doorAnim.to - doorAnim.from) * e;
+      if (t >= 1) window.__door.anim = null;
+    }
     let bubAct = false;                            // bubble ramps only while opacity is moving
     const nowS = performance.now() / 1000;
     for (const k in bubbles){
@@ -2682,7 +2720,7 @@ function initDeck3D(THREE, OrbitControls){
       if (b.op > 0 && (nowS < b.t0 + .45 || nowS > b.until)) bubAct = true;
     }
     if (settle > 0) settle--;
-    if (!window.__possessOn) controls.update();   // DVM-2253: the possession boom drives the camera — OrbitControls.update() would clamp it back into the guest range
+    if (!window.__possessOn && !window.__probeCam) controls.update();   // DVM-2253: the possession boom drives the camera — OrbitControls.update() would clamp it back into the guest range; __probeCam freezes orbit for agent teleports
     if (window.__bldg) window.__bldg.setPossess(!!window.__possessOn || !!window.__placeOn);
     envG.visible = !!window.__possessOn || !!window.__placeOn;   // camera-mode rule: possess OR place = sealed office; guest/group view = peeled stage set (no edge cases)
     breath += .3;
@@ -2708,9 +2746,10 @@ function initDeck3D(THREE, OrbitControls){
     const wb = Math.floor(performance.now() / 500) % 2;
     for (const k of skeys){ const c = chairs[k];
       if (c.work.visible){ anyWork = true; c.work.material.color.setHex(wb ? 0xffffff : c.hex); } }
+    if (window.__torch.on) window.__torch.aim(camera);
     renderer.render(scene, camera);
     if (window.__eyes && window.__eyes.on()) window.__eyes.pip();   // CHAIR-POV inset pass — scissored over the main frame
-    if (interacting || settle > 0 || stampT >= 0 || pulseT >= 0 || cardAnim || bubAct || DS.silentK || DS.ghostK || anyWork || (DS.turn && lampState(DS.turn) === 'dead')) mark();   // alive only while moving/burning/laboring/embering
+    if (interacting || settle > 0 || stampT >= 0 || pulseT >= 0 || cardAnim || doorAnim || bubAct || DS.silentK || DS.ghostK || anyWork || (DS.turn && lampState(DS.turn) === 'dead')) mark();   // alive only while moving/burning/laboring/embering
   }
   controls.addEventListener('change', mark);
   controls.addEventListener('start', () => { interacting = true; mark(); });
@@ -3045,6 +3084,7 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
   const chPos = new THREE.Vector3(.374, 0, 1.601); let chYaw = Math.PI;  // BOSS's stand-point (ring i=2, r=STAND_R, on the rug centre) — inside SEAT_REACH so boot sit() seats him at his own chair; open floor, facing the table (−z)
   const FLOOR = { x: [-2.15, 2.15], z: [-2.15, 6.65] };          // doubled office: two 4.5m plates span z -2.25..6.75 − .1 margin
   const SOLIDS = [[-.015, -.105, .85], [1.85, -2.03, .42], [-9.05, 2.6, .16], [-9.05, 4.8, .16]];      // capsule-vs-circle: commission_table ø1.40 + .15 capsule (on room center), file cabinet, west-cap floor lamps
+  window.__solids = SOLIDS;                                            // door blockers splice in/out of this live array on swing
   const NCHAIRS = Object.keys(SEATS).length;                     // roster-driven — 8 once DESIGNER's row lands (was hardcoded 7)
   for (let i = 0; i < NCHAIRS; i++){                             // seat ring — same a = i/N·2π − π/2, r = 1.15 as the chair build
     const a = i / NCHAIRS * Math.PI * 2 - Math.PI / 2;
@@ -3105,6 +3145,7 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
   const INTERACT = [                                           // possess-mode E registry (DESIGNER-4 + DVM-LAW1): pos + approach radius + prompt + action
     { pos:[1.85, -2.03], r:.9,   label:'E — OPEN CABINET',  open:() => window.__cab.open() },
     { pos:[-.045, 9.36], r:.9,   label:'E — READ THE LAWS', open:() => window.__laws.open() },
+    { pos:[-6.0, 2.1],   r:.9,   label:'E — OFFICE DOOR',   open:() => window.__door && window.__door.toggle() },   // leaf centered in the opening — its approach IS the doorway center
   ];
   const AIM_R = 2.4, AIM_DOT = .55;                            // "aimed at" = inside a ~57° look cone and within arm+reach — walk up, or stand back and face it
   function eInteract(){
@@ -3151,6 +3192,7 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
     else if (k === 'p') { if (window.__eyes) { if (window.__eyes.on()) window.__eyes.hide(); else window.__eyes.show(); } }   // PiP — CHAIR's eyes
     else if (k === 'c' && e.shiftKey) { if (window.__eyes) window.__eyes.capMain(); }   // user's own frame → docs/vinny_eye.png
     else if (k === 'c') { if (window.__eyes) window.__eyes.cap(); }               // shutter — POV frame → docs/chair_eye.png via /shot
+    else if (k === 'l') { const t = window.__torch; t.on = !t.on; t.spot.intensity = t.on ? 7 : 0; t.fill.intensity = t.on ? .9 : 0; DECK.dirty(); }   // inspection torch — screenshot illumination
     else if (k === 'r') { if (window.__aim) window.__aim.clear(); if (window.__chairbody) window.__chairbody.ungaze(); }   // release — clear the tag and the gaze it ordered
     else if (k === 't') { if (window.__chairbody) window.__chairbody.setOrder('goto'); }   // GO — walk to the live tag
     else if (k === 'v') { if (window.__chairbody) window.__chairbody.setOrder('wait'); }   // WAIT — halt the follow where he stands
@@ -3462,6 +3504,7 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
         renderer.setScissorTest(true); renderer.setScissor(ix, iy, iw, ih); renderer.setViewport(ix, iy, iw, ih);
         renderer.clearDepth();
         const ac = renderer.autoClear; renderer.autoClear = false;
+        if (window.__torch.on) window.__torch.aim(povCam);
         renderer.render(scene, povCam);
         renderer.autoClear = ac; renderer.setScissorTest(false); renderer.setViewport(0, 0, w, h); renderer.setScissor(0, 0, w, h);
         if (env) env.visible = envWas; if (bldg && bldg.setPossess) bldg.setPossess(!!window.__possessOn);
@@ -3474,7 +3517,9 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
         const env = window.__env, envWas = env && env.visible, bldg = window.__bldg;   // captures take the sealed room too — a snapshot is what the eyes saw, not what the stage showed
         if (env) env.visible = true; if (bldg && bldg.setPossess) bldg.setPossess(true);
         const markWas = marks.map(m => m.visible); marks.forEach(m => m.visible = false);   // clean frame — the red tag is UI, not scenery
-        renderer.setViewport(0, 0, cv.width / pr, cv.height / pr); renderer.render(scene, povCam);
+        renderer.setViewport(0, 0, cv.width / pr, cv.height / pr);
+        if (window.__torch.on) window.__torch.aim(povCam);
+        renderer.render(scene, povCam);
         const url = cv.toDataURL('image/png');
         marks.forEach((m, i) => m.visible = markWas[i]);
         if (env) env.visible = envWas; if (bldg && bldg.setPossess) bldg.setPossess(!!window.__possessOn);
@@ -3504,6 +3549,62 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
     console.log('DVM-2256 — CHAIR body online:', N2, 'voxels · amber suit · orders FOLLOW/POST · body clickable');
   }).catch(e => console.warn('DVM-2256 — CHAIR1 unavailable:', e));
 
+  /* ── agent inspection hooks — teleport the MAIN camera anywhere and capture the frame
+     to docs/probe_<name>.png via /shot. Drives headless-Edge probes (_shot.mjs): an agent
+     can look at the scene without steering Vinny. Self-contained (no __eyes dependency —
+     works even if the CHAIR body fails to load). __cam keeps OrbitControls coherent
+     (position + target + update — the placeFlyTick pattern); __uiClean hoists the GL
+     canvas over every overlay so probe frames contain only the render; __envShot
+     forces the sealed envelope without possessing. */
+  window.__cam = (px, py, pz, tx, ty, tz) => {
+    window.__probeCam = true;                                                  // orbit clamps guest cams to the stage shell — freeze it
+    camera.position.set(px, py, pz);
+    (window.__controls || controls).target.set(tx, ty, tz);
+    camera.lookAt(tx, ty, tz);                                                 // set orientation directly — update() would re-clamp
+  };
+  window.__camFree = () => { window.__probeCam = false; };                     // hand the orbit back
+  window.__envShot = v => { window.__placeOn = !!v; };     // per-frame rule picks it up — envelope + setPossess
+  let _uiStash = null;
+  window.__uiClean = v => {
+    const cv = document.querySelector('#deckview canvas') || document.querySelector('canvas');
+    if (!cv) return;
+    if (v) {
+      _uiStash = { parent: cv.parentNode, next: cv.nextSibling, css: cv.style.cssText,
+                   hid: [...document.body.children].filter(el => el !== cv && !['SCRIPT', 'STYLE', 'LINK'].includes(el.tagName)).map(el => [el, el.style.display]) };
+      for (const [el] of _uiStash.hid) el.style.display = 'none';
+      document.body.appendChild(cv);
+      Object.assign(cv.style, { position: 'fixed', inset: '0', width: '100vw', height: '100vh', zIndex: '9999', margin: '0' });
+    } else if (_uiStash) {
+      for (const [el, d] of _uiStash.hid) el.style.display = d;
+      cv.style.cssText = _uiStash.css;
+      _uiStash.parent.insertBefore(cv, _uiStash.next);
+      _uiStash = null;
+    }
+  };
+  window.__snap = (name, px, py, pz, tx, ty, tz, sealed) => {             // one call = teleport + sealed + render + POST
+    if (px !== undefined) window.__cam(px, py, pz, tx, ty, tz);
+    const env = window.__env, envWas = env && env.visible, bldg = window.__bldg;      // RAF may be throttled headless — force the sealed
+    if (sealed !== false) { if (env) env.visible = true; if (bldg && bldg.setPossess) bldg.setPossess(true); }   // envelope inline, same pattern as __eyes.shot
+    const cv = renderer.domElement, pr = renderer.getPixelRatio() || 1;
+    renderer.setViewport(0, 0, cv.width / pr, cv.height / pr); renderer.render(scene, camera);
+    const u = cv.toDataURL('image/png'); if (window.DECK && DECK.dirty) DECK.dirty();
+    if (sealed !== false) { if (env) env.visible = envWas; if (bldg && bldg.setPossess) bldg.setPossess(!!window.__possessOn); }
+    return fetch('/shot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ png: u, name: 'probe_' + name }) })
+      .then(r => r.json()).then(j => !!j.ok);
+  };
+  /* ?probe=<name>&cam=px,py,pz&look=tx,ty,tz&env=1&ui=0&settle=3500 — headless autoshot.
+     Any browser (headless Edge, a seat's tab) that opens this URL self-captures after the
+     settle delay and lands docs/probe_<name>.png via /shot. _shot.mjs wraps the launch. */
+  {
+    const _pq = new URLSearchParams(location.search);
+    if (_pq.get('probe')) {
+      const _c = (_pq.get('cam') || '0,3.1,4.9').split(',').map(Number), _l = (_pq.get('look') || '0,.8,0').split(',').map(Number);
+      if (_pq.get('env') !== '0') window.__envShot(1);
+      if (_pq.get('ui') !== '0') window.__uiClean(1);
+      setTimeout(() => window.__snap(_pq.get('probe'), ..._c, ..._l).then(ok => console.log('probe shot:', ok)), Number(_pq.get('settle') || 3500));
+    }
+  }
+
   /* ── DVM-LAW1 stage 1 — the law desk at the back wall: placement read first, interaction (E → reader) comes with the book.
      SCALE LAW (new-asset convention): file voxelSize IS the render pitch — authored at .0075 for the chibi room,
      consumed verbatim. No placement-vs override: a second number is a second way to diverge (the C-table bug).
@@ -3512,20 +3613,12 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
   fetch('/Assets/StreamingAssets/voxel_items/commission_lawdesk.json').then(r => r.json()).then(item => {
     if (!item || !item.voxels) return;
     const N3 = item.voxels.length, VS3 = item.voxelSize || .01, d3 = item.dims;
-    const inst3 = new THREE.InstancedMesh(new THREE.BoxGeometry(VS3, VS3, VS3), new THREE.MeshLambertMaterial(), N3);
-    inst3.frustumCulled = false;
-    const MA3 = inst3.instanceMatrix.array;
-    const pal3 = {}; (item.materials || []).forEach(m => pal3[m.id] = new THREE.Color(m.hex));
     const hx = d3[0] / 2, hz = d3[2] / 2;
-    item.voxels.forEach((v, i) => {
-      inst3.setColorAt(i, pal3[v[3]] || dflt);
-      const j = 12 + 16 * i;
-      MA3[j] = (v[0] - hx) * VS3; MA3[j + 1] = (v[1] + .5) * VS3; MA3[j + 2] = (tvz(item, v) - hz) * VS3;
-    });
-    inst3.instanceMatrix.needsUpdate = true; inst3.instanceColor.needsUpdate = true;
+    const meshes = window.voxEmit(item, (M, v) =>
+      M.makeScale(VS3, VS3, VS3).setPosition((v[0] - hx) * VS3, (v[1] + .5) * VS3, (tvz(item, v) - hz) * VS3));
     const desk = new THREE.Group();
     desk.position.set(DESK_POS[0], DESK_POS[1], DESK_POS[2]);
-    desk.add(inst3); scene.add(desk);
+    meshes.forEach(mm => { mm.frustumCulled = false; desk.add(mm); }); scene.add(desk);
     SOLIDS.push([-.495, 9.40, .3], [.405, 9.40, .3]);                        // two circles approximate the long-table footprint at the back wall — blocks clipping, leaves the front reachable
     DECK.dirty();
     window.__lawdesk = { root: desk, vs: VS3 };

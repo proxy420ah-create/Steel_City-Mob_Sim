@@ -132,6 +132,51 @@ The chain of custody:
   real home. Declaration + consumer honoring keeps both correct from one
   canonical file.
 
+## Animated Assemblies — the `door` contract (moving parts live in the file)
+
+A prop that articulates declares its own mechanics — the consumer never
+hard-codes a pivot. `commission_door` is the reference:
+
+- **`door: {hinge:'x-', pivot:[x,y,z], arc:rad, front:'z+'}`** — pivot is the
+  hinge-edge voxel, arc the swing in radians, front the public face. The
+  loader parents the moving part's meshes to a group at `pivot` and tweens
+  `rotation.y` between 0 and `arc`.
+- **`itemParts` + `itemPartDefs`** tag the moving subset — `key:'leaf'` is the
+  part that swings; everything untagged is the fixed frame. Paint part voxels
+  from a dedicated map in generators (never re-derive membership by coordinate
+  lists — a `(10,13)` tuple is {10,13}, not `range(10,13)`).
+- **City-wide leaf standard: `.60m × .80m` — the barber leaf, verified.** The
+  barber_shop WIP door reads correctly next to the reference character in the
+  studio (BOSS-verified): leaf .60×.80 composed kick ~.45 + glass upper ~.25 +
+  top rail ~.10 under a storefront transom. The .96m cast fills 120% of it —
+  chibi doors are deliberately smaller than people. Author city leaves to it;
+  grander openings take per-site surrounds, not a bigger leaf.
+- **Envelope scale ≠ contact scale** — architecture (walls, ceilings,
+  openings) may run real-scale; anything the character *touches* — door
+  leaves, knobs, chairs, desks, lamps — authors at the cast's chibi scale.
+  The office_complex doorway is 1.50×1.77 but the cast is .96m: the office
+  door nests the barber .60×.80 leaf + jamb frame + glazed transom
+  **centrally** in the opening. A prop must never fake the surrounding
+  wall — a faked brick/wainscot extension seamed badly against the real
+  wall's courses and was cut; closing a masonry gap is the *building
+  asset's* job, done: `building_edit.py fill-box` laid the margin voxels
+  into `office_complex.json`, then they were painted by re-running
+  `reskin_building.py`'s wall formula for that plane (`wall_brick`, seed
+  off the slab z-start, u = the global along-wall coord) with the file's
+  existing skin ids — the global-coord keying makes infill cell-for-cell
+  identical to the wall it continues (verify against adjacent cells before
+  writing; do NOT rerun full reskin — it appends duplicate skin materials).
+  Don't interpolate proportions from memory: measure the verified
+  reference asset and author to it.
+- **Pane glass embeds into the sash** — a glass pane must overlap its frame's
+  walls by ≥1 voxel on every edge; a pane ringed by visible cutout floats.
+- **Shell passes test the 26-neighbourhood** — 6-conn culls slab faces buried
+  under applied reliefs (moldings, panels, plates) and floats each relief off
+  as a sheet; 26-conn keeps the face under a relief's edge via diagonal air.
+- **Swing-blocking is the consumer's job** — thecommission derives a
+  `__solids` circle run from the leaf's own voxel x-span and splices it
+  in/out on toggle.
+
 ## Static Deformation — the Fold/Bend tool (voxel skinning for props)
 
 `voxel_editor.html` has a general-purpose fold tool (🌀 toolbar button →
@@ -158,6 +203,19 @@ no runtime skeleton — the same file-is-world contract as everything else.
 
 Book recipe: axis `Z`, pivot on the crease, `mounds`, `gap ~6`, `R 8–14`,
 `θ 3–5`, cover/ribbon ticked. `gap > R` leaves a true flat spine.
+
+## File Pitch Must Match the Consumer's Forced Pitch
+
+`CityMap3D` force-sets `voxelSize = 0.05f` for all building renders (the
+Inspector value is ignored). `SectorBaker` consumes that, not the file's
+field — so **a building JSON's declared `voxelSize` is free to lie**, and
+only the editor's file-is-world preview exposes it. `barber_shop.json`
+carried a stale `.1` from the pre-upscale era (the game halved building
+pitch to `.05`); the editor showed a 6.4m shop where the game renders
+3.2m, and the reference civilian read half-size. Fixed 2026-11-11:
+the file now declares `.05` — sweep rule: **building JSONs must declare
+`voxelSize: 0.05`** (the pitch `CityMap3D` forces), or the studio preview
+misleads.
 
 ## Known Gap — Unity ignores `voxelSize` in JSON
 

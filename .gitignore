@@ -109,3 +109,10 @@ docs/seat_fetch_*.json
 docs/_cab1_board.json
 docs/_post_test.js
 Assets/StreamingAssets/voxel_items/commission_lawdesk.json.bak
+
+# ── Agent vision-tool artifacts (regenerable) ──────────────────
+docs/_shotprof_*/
+docs/probe_*.png
+docs/_plan_*.png
+docs/_sec_*.png
+Assets/StreamingAssets/voxel_items/office_complex.snap-*.json
