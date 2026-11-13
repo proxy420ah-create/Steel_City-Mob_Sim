@@ -394,6 +394,8 @@ const followStep = (f, dt) => {
       moving = true;
     }
   }
+  const pxs = f.pos.x - pos.x, pzs = f.pos.z - pos.z, ds = Math.hypot(pxs, pzs);        // never inside the player either
+  if (ds < .28 && ds > 1e-4) { f.pos.x = pos.x + pxs / ds * .28; f.pos.z = pos.z + pzs / ds * .28; }
   const ox = f.pos.x, oz = f.pos.z;
   f.CH.position.set(f.pos.x, 0, f.pos.z); f.CH.rotation.y = f.yaw;
   const hs = Math.hypot(f.pos.x - ox, f.pos.z - oz) / dt;
@@ -506,7 +508,7 @@ const aimStep = () => {
   if (aimOn) {
     aimRay.setFromCamera(_zv, camera);
     const excl = [boundsG, ghost, aimDot, camera];
-    followers.forEach(f => excl.push(f.CH)); if (held) excl.push(held.g); marks.forEach(m => excl.push(m));
+    followers.forEach(f => excl.push(f.CH)); if (selfBody) excl.push(selfBody.CH); if (held) excl.push(held.g); marks.forEach(m => excl.push(m));
     const hits = aimRay.intersectObjects(scene.children.filter(o => !excl.includes(o)), true);
     camera.getWorldDirection(fwdV);
     if (hits.length) aimWorld.copy(hits[0].point); else aimWorld.copy(camera.position).addScaledVector(fwdV, 4);
@@ -529,8 +531,7 @@ const consEl = document.createElement('div');
 consEl.style.cssText = 'position:fixed;left:50%;top:46%;transform:translate(-50%,-50%);min-width:290px;background:rgba(12,12,18,.94);border:1px solid #34344a;padding:14px 16px;font:12px ui-monospace,Consolas,monospace;color:#cfc8b0;display:none;z-index:20';
 document.body.appendChild(consEl);
 let consOpen = false;
-const ROSTER = [{ char: 'CHAIR1', label: 'THE CHAIR', desc: 'civilian unit — commission seat' },
-                { char: 'Civilian1', label: 'VINNY', desc: 'your body — civilian rig' }];
+const ROSTER = [{ char: 'CHAIR1', label: 'THE CHAIR', desc: 'civilian unit — commission seat' }];
 function renderCons() {
   consEl.innerHTML = '<div style="letter-spacing:.25em;color:#8f87a0;margin-bottom:10px">DOOR CONSOLE — PERSONNEL</div>' +
     ROSTER.map((r, i) => {
@@ -597,8 +598,75 @@ const ctlTick = () => {
 };
 setInterval(ctlTick, 400); ctlTick();
 
+/* ── SELF BODY — the player IS Vinny: the full rig at your position, walk/idle driven by
+   your movement, aim channel raising the arm on your laser. Head voxels (Face/Head/Top/Eyes)
+   live on a second mesh in layer 1 — follower POVs see the whole body; your camera never
+   draws your own skull. */
+const HEAD_REGS = new Set([1, 8, 9, 10]);
+let selfBody = null;
+const emitSelf = () => fetch('/char/Civilian1').then(r => r.json()).then(rig => {
+  if (!rig || !rig.voxels) return null;
+  const E = poseEngine(rig), N = rig.voxels.length, VS = rig.voxelSize || .01, d = rig.dims || [96, 96, 96];
+  const pal = {}; (rig.materials || []).forEach(m => pal[m.id] = new THREE.Color(m.hex));
+  const reg = rig.regions || {}, dflt = new THREE.Color(0x888888);
+  const CH = new THREE.Group(); scene.add(CH);
+  const parts = [[], []];                                                     // [body, head]
+  rig.voxels.forEach((v, i) => parts[HEAD_REGS.has(reg[v[0] + ',' + v[1] + ',' + v[2]]) ? 1 : 0].push(i));
+  const meshes = parts.map((list, pi) => {
+    const im = new THREE.InstancedMesh(new THREE.BoxGeometry(VS, VS, VS), new THREE.MeshLambertMaterial(), list.length);
+    im.frustumCulled = false;
+    if (pi) im.layers.set(1);                                                 // head — povCam layer 1 sees it, your camera doesn't
+    list.forEach((i, j) => { const v = rig.voxels[i];
+      im.setColorAt(j, pal[OUTFIT[reg[v[0] + ',' + v[1] + ',' + v[2]]] || v[3]] || dflt); });
+    im.instanceColor.needsUpdate = true;
+    const MA = im.instanceMatrix.array;
+    for (let k = 0; k < list.length; k++) { const j = k * 16; MA[j] = MA[j + 5] = MA[j + 10] = MA[j + 15] = 1; }
+    CH.add(im);
+    return { im, list };
+  });
+  povCam.layers.enable(1);
+  const bufA = new Float64Array(3 * N), bufB = new Float64Array(3 * N);
+  function uploadMesh(m, A, B, blend, dip) {
+    const hx = d[0] / 2, hz = d[2] / 2, MA = m.im.instanceMatrix.array;
+    for (let k = 0; k < m.list.length; k++) { const i = m.list[k], j = k * 16 + 12;
+      let x = B[3 * i], y = B[3 * i + 1], z = B[3 * i + 2];
+      if (A) { x = A[3*i]+(x-A[3*i])*blend; y = A[3*i+1]+(y-A[3*i+1])*blend+dip; z = A[3*i+2]+(z-A[3*i+2])*blend; }
+      MA[j] = (x - hx) * VS; MA[j + 1] = (y + .5) * VS; MA[j + 2] = (z - hz) * VS; }
+    m.im.instanceMatrix.needsUpdate = true;
+  }
+  const s = { CH, E, meshes, bufA, bufB, uploadMesh, VS, d,
+    yaw: Math.PI, state: 0, prevState: 0, transFrom: 0, transT: -1, blend: 1, dip: 0, walkSpeed: 1, gaitTime: 0 };
+  E.evalPose(0, 0, bufB); meshes.forEach(m => uploadMesh(m, null, bufB, 1, 0));
+  selfBody = s; return s;
+}).catch(e => console.warn('CONSTRUCT — self body unavailable:', e));
+
+const selfStep = dt => {
+  if (!selfBody) return; const s = selfBody;
+  let dy = yaw - s.yaw; while (dy > Math.PI) dy -= 2 * Math.PI; while (dy < -Math.PI) dy += 2 * Math.PI;
+  s.yaw += dy * Math.min(1, dt * 8);                                          // body eases onto your look yaw — feet face where you face
+  const ox = s.CH.position.x, oz = s.CH.position.z;
+  s.CH.position.set(pos.x, 0, pos.z); s.CH.rotation.y = s.yaw;
+  const hs = Math.hypot(pos.x - ox, pos.z - oz) / dt;
+  const was = s.state === 1 || s.transT >= 0;
+  if (hs > MOVE_EPS) { s.state = 1; s.walkSpeed = Math.min(2, Math.max(.5, hs * .5)); } else s.state = 0;
+  if (s.state !== s.prevState) { s.transFrom = s.prevState; s.prevState = s.state; s.transT = 0; }
+  s.gaitTime += dt * s.walkSpeed;
+  if (s.transT >= 0) { s.transT += dt; const t = Math.min(1, s.transT / TRANS_DUR);
+    s.blend = t * t * (3 - 2 * t); s.dip = -Math.sin(Math.PI * t) * TRANS_DIP;
+    if (t >= 1) { s.transT = -1; s.blend = 1; s.dip = 0; } }
+  let aim = null;                                                             // your laser is HIS arm — same IK channel the Commission's Vinny uses
+  if (aimOn) { const lx = aimWorld.x - pos.x, ly = aimWorld.y, lz = aimWorld.z - pos.z, cy = Math.cos(s.yaw), sy = Math.sin(s.yaw);
+    aim = { T: [(lx * cy - lz * sy) / s.VS + s.d[0] / 2, ly / s.VS, (lx * sy + lz * cy) / s.VS + s.d[2] / 2], blend: 1, head: 1 }; }
+  if (was || s.state === 1 || s.transT >= 0 || aim) {
+    s.E.evalPose(s.state, s.gaitTime, s.bufB, aim);
+    if (s.transT >= 0) { s.E.evalPose(s.transFrom, s.gaitTime, s.bufA, aim); s.meshes.forEach(m => s.uploadMesh(m, s.bufA, s.bufB, s.blend, s.dip)); }
+    else s.meshes.forEach(m => s.uploadMesh(m, null, s.bufB, 1, 0));
+  }
+};
+
+const selfP = emitSelf();
 const partyP = Promise.all(PARTY.map(emitChar));
-const ready = Promise.all([doorP, carP, deskP, partyP]);
+const ready = Promise.all([doorP, carP, deskP, partyP, selfP]);
 MANIFEST.props.push({ kind: 'turntable', x: SPIN_POS.x, z: SPIN_POS.z, r: SPIN_R, asset: 'vehicle_490_touring' },
                     { kind: 'prop-table', x: 2.3, z: -4, asset: 'commission_lawdesk',
                       items: ['commission_desklamp', 'commission_bookoflaws', 'commission_stamper'] });
@@ -703,6 +771,7 @@ const loop = now => {
   camera.rotation.set(0, 0, 0, 'YXZ'); camera.rotation.y = yaw; camera.rotation.x = pitch;
   if (spinning) carG.rotation.y += SPIN_RATE * dt;
   followers.forEach(f => followStep(f, dt));
+  selfStep(dt);
   aimStep();
   if (povOn) updatePov(dt);
   boundHue(now / 1000);
@@ -747,6 +816,9 @@ window.__snap = (name, px, py, pz, tx, ty, tz) => {
 };
 window.__construct = { manifest: MANIFEST, pos, spin: () => spinning, held: () => held, placed: PLACED,
   followers: () => followers.map(f => ({ char: f.spec.char, order: f.order, pos: f.pos.toArray() })),
+  self: () => selfBody && ({ x: pos.x, z: pos.z, yaw: selfBody.yaw, state: selfBody.state,
+    bodyMask: selfBody.meshes[0].im.layers.mask, headMask: selfBody.meshes[1].im.layers.mask,
+    bodyVox: selfBody.meshes[0].list.length, headVox: selfBody.meshes[1].list.length }),
   agent: {                                                                   // the agent's possession layer — same tags, same orders
     gaze: (x, y, z) => { tagAt(new THREE.Vector3(x, y, z)); return aimWorld.toArray(); },
     go: (x, z) => { tagAt(new THREE.Vector3(x, 0, z)); followers.forEach(f => f.setOrder('goto')); },
