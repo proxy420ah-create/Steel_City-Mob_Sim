@@ -1764,6 +1764,19 @@ function initDeck3D(THREE, OrbitControls){
     aim(cam) { cam.getWorldPosition(torch.position); cam.getWorldDirection(_tdir);
       torchTgt.position.copy(torch.position).addScaledVector(_tdir, 2);
       torchFill.position.copy(torch.position).addScaledVector(_tdir, .3); } };
+  /* Compass HUD — project map convention: +x = EAST, -x = WEST (office wing is west), +z = NORTH, -z = SOUTH, +y = up.
+     Rose rotates so N points where north actually is in the view; readout = camera x,z + facing. */
+  const _cp = document.createElement('div');
+  _cp.style.cssText = 'position:fixed;top:44px;left:50%;transform:translateX(-50%);z-index:5;pointer-events:none;font:11px/1.2 ui-monospace,Consolas,monospace;color:#e8d9b0;text-align:center;text-shadow:0 1px 3px #000';
+  _cp.innerHTML = '<svg width="64" height="64" viewBox="-32 -32 64 64" style="display:block;margin:0 auto"><circle r="30" fill="rgba(10,8,6,.55)" stroke="#8a7a50"/><g id="cpRose"><path d="M0-26L5 0H-5Z" fill="#d94a3a"/><path d="M0 26L5 0H-5Z" fill="#6c6650"/><text y="-17" x="0" font-size="9" fill="#fff" text-anchor="middle" transform="translate(0,-4)">N</text><text x="21" y="3" font-size="9" fill="#e8d9b0" text-anchor="middle">E</text><text x="-21" y="3" font-size="9" fill="#e8d9b0" text-anchor="middle">W</text><text y="30" x="0" font-size="9" fill="#e8d9b0" text-anchor="middle" transform="translate(0,-3)">S</text></g></svg><div id="cpTxt"></div>';
+  document.body.appendChild(_cp);
+  const _cpRose = _cp.querySelector('#cpRose'), _cpTxt = _cp.querySelector('#cpTxt'), _cpDir = new THREE.Vector3();
+  window.__compass = cam => {
+    cam.getWorldDirection(_cpDir);
+    const brg = (Math.atan2(_cpDir.x, _cpDir.z) * 180 / Math.PI + 360) % 360;   // 0 = N(+z), 90 = E(+x)
+    _cpRose.setAttribute('transform', 'rotate(' + (-brg).toFixed(1) + ')');
+    _cpTxt.textContent = ['N','NE','E','SE','S','SW','W','NW'][Math.round(brg / 45) % 8] + ' ' + Math.round(brg) + '°  x ' + cam.position.x.toFixed(2) + '  z ' + cam.position.z.toFixed(2) + '  y ' + cam.position.y.toFixed(2);
+  };
   const controls = new OrbitControls(camera, renderer.domElement);
   window.__controls = controls;                                              // DVM-2252 — orbit handle for the char block/tests
   Object.assign(controls, { enableDamping:true, dampingFactor:.12, enablePan:false,
@@ -1840,9 +1853,11 @@ function initDeck3D(THREE, OrbitControls){
   const KIT = [
     { file:'commission_table', vs:.007,  pos:[-.015, 0, -.105], sXZ:1.4 },   // chibi: .38m tall x 1.4m dia — anchored on the rug's felt midpoint (−.015,−.105, bake half-cell), NOT origin
     { file:'commission_pendant', vs:.012, pos:[.03, .858, -.09], lights:[{type:'spot', c:0xffe2b0, i:22, d:6, pos:[0,.046,0], tgt:[0,-.96,0], ang:.75, pen:.6, dec:1},{type:'point', c:0xcfffb0, i:1.2, d:1.3, pos:[0,.106,0]}] },   // green-dome pendant — centered on the ceiling recess (.03,-.09 ≈ rug midpoint); stem flush on the 1.17 coffer (bottom .858 + .312 short-stem fixture); light rig rides the fixture, no env gate — the table reads in both camera modes
-    { file:'commission_pendant_flush', vs:.012, pos:[-6.015, .888, 3.63], env: true, lights:[{type:'spot', c:0xffe2b0, i:22, d:6, pos:[0,.046,0], tgt:[0,-.96,0], ang:.75, pen:.6, dec:1},{type:'point', c:0xcfffb0, i:1.2, d:1.3, pos:[0,.106,0]}] },   // hall pendant — STEMLESS flush-mount variant: top plate bolts directly to the beam underside (wy 1.08); on the ONE long beam running the hall's length (wz3.48-3.78, mid 3.63), x locked to the office pendant axis; canopy flush on the 1.08 beam face (beams hang .09 below the 1.17 coffer face)
-    { file:'commission_pendant', vs:.012, pos:[-.045, .858, 8.62], env: true, lights:[{type:'spot', c:0xffe2b0, i:22, d:6, pos:[0,.046,0], tgt:[0,-.96,0], ang:.75, pen:.6, dec:1},{type:'point', c:0xcfffb0, i:1.2, d:1.3, pos:[0,.106,0]}] },   // law-section pendant — last coffer bay (z8.01-9.24 mid 8.62) on the law desk's axis, in front of the north wall (face wz9.36)
-    { file:'commission_pendant', vs:.012, pos:[-6.015, .858, -.09], env: true, lights:[{type:'spot', c:0xffe2b0, i:22, d:6, pos:[0,.046,0], tgt:[0,-.96,0], ang:.75, pen:.6, dec:1},{type:'point', c:0xcfffb0, i:1.2, d:1.3, pos:[0,.106,0]}] },   // office pendant — dead-centre of the west-wing square room (coffer bay x-6.43..-5.50 z-0.54..0.39); light rig rides the fixture now
+    { file:'commission_pendant_flush', vs:.012, pos:[-6.0, .888, 3.48], env: true, lights:[{type:'spot', c:0xffe2b0, i:22, d:6, pos:[0,.046,0], tgt:[0,-.96,0], ang:.75, pen:.6, dec:1},{type:'point', c:0xcfffb0, i:1.2, d:1.3, pos:[0,.106,0]}] },   // hall pendant — STEMLESS flush-mount variant: top plate bolts directly to the beam underside (wy 1.08); on the ONE long beam running the hall's length (wz3.48-3.78, mid 3.63), x locked to the office pendant axis; canopy flush on the 1.08 beam face (beams hang .09 below the 1.17 coffer face)
+    { file:'commission_pendant_flush', vs:.012, pos:[-2.985, .888, 3.48], env: true, lights:[{type:'spot', c:0xffe2b0, i:22, d:6, pos:[0,.046,0], tgt:[0,-.96,0], ang:.75, pen:.6, dec:1},{type:'point', c:0xcfffb0, i:1.2, d:1.3, pos:[0,.106,0]}] },   // hall pendant #2 — exact midpoint between the office-axis light and the table-axis light on the spine beam
+    { file:'commission_pendant_flush', vs:.012, pos:[.03, .888, 3.48], env: true, lights:[{type:'spot', c:0xffe2b0, i:22, d:6, pos:[0,.046,0], tgt:[0,-.96,0], ang:.75, pen:.6, dec:1},{type:'point', c:0xcfffb0, i:1.2, d:1.3, pos:[0,.106,0]}] },   // hall pendant #3 — on the spine beam, x locked to the meeting-table pendant axis
+    { file:'commission_pendant', vs:.012, pos:[-.03, .858, 7.44], env: true, lights:[{type:'spot', c:0xffe2b0, i:22, d:6, pos:[0,.046,0], tgt:[0,-.96,0], ang:.75, pen:.6, dec:1},{type:'point', c:0xcfffb0, i:1.2, d:1.3, pos:[0,.106,0]}] },   // law pendant — short-stem fixture in the room's CENTRAL recess (coffer x-0.63..0.57 z6.84..8.04, mid -.03/7.44); canopy flush on the 1.17 recess face — dome bottoms .858, over the desk approach
+    { file:'commission_pendant', vs:.012, pos:[-6.0, .858, -.09], env: true, lights:[{type:'spot', c:0xffe2b0, i:22, d:6, pos:[0,.046,0], tgt:[0,-.96,0], ang:.75, pen:.6, dec:1},{type:'point', c:0xcfffb0, i:1.2, d:1.3, pos:[0,.106,0]}] },   // office pendant — dead-centre of the west-wing square room (coffer bay x-6.43..-5.50 z-0.54..0.39); light rig rides the fixture now
 //     { file:'commission_pendant', vs:.012, pos:[-5.92, 1.314, 3.68], env: true, lights:[{type:'spot', c:0xffe2b0, i:22, d:6, pos:[0,.046,0], tgt:[0,-.96,0], ang:.75, pen:.6, dec:1},{type:'point', c:0xcfffb0, i:1.2, d:1.3, pos:[0,.106,0]}] },   // hall pendant — dead-centre of its coffer bay (beams −6.49/−5.35 → −5.92), hanging on the centre beam over the office door axis
 //     { file:'commission_pendant', vs:.012, pos:[-3.07, 1.314, 3.68], env: true, lights:[{type:'spot', c:0xffe2b0, i:22, d:6, pos:[0,.046,0], tgt:[0,-.96,0], ang:.75, pen:.6, dec:1},{type:'point', c:0xcfffb0, i:1.2, d:1.3, pos:[0,.106,0]}] },   // hall pendant — next lit bay east, one dark square between lights (bay −3.67/−2.47 → −3.07); the existing x=0 pendant sits in bay +0.05 and completes the rhythm
     { file:'commission_floorlamp', vs:.005, pos:[-9.125, 0.0, 2.515],  env: true, lights:[{type:'point', c:0xffd9a0, i:2.4, d:2.0, pos:[0,.55,0]}] },   // west-cap floor lamp — south corner; the warm pool rides the fixture (place-mode movable)
@@ -2747,6 +2762,7 @@ function initDeck3D(THREE, OrbitControls){
     for (const k of skeys){ const c = chairs[k];
       if (c.work.visible){ anyWork = true; c.work.material.color.setHex(wb ? 0xffffff : c.hex); } }
     if (window.__torch.on) window.__torch.aim(camera);
+    window.__compass(camera);
     renderer.render(scene, camera);
     if (window.__eyes && window.__eyes.on()) window.__eyes.pip();   // CHAIR-POV inset pass — scissored over the main frame
     if (interacting || settle > 0 || stampT >= 0 || pulseT >= 0 || cardAnim || doorAnim || bubAct || DS.silentK || DS.ghostK || anyWork || (DS.turn && lampState(DS.turn) === 'dead')) mark();   // alive only while moving/burning/laboring/embering
