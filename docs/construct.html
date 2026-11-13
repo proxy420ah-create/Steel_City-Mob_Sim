@@ -119,33 +119,41 @@ const emitAsset = (name, o = {}) => {
     if (!m.voxels) return null;
     const vs = vsOverride || m.voxelSize || .0075;
     const dcx = m.dims[0] / 2 - .5, dcz = m.dims[2] / 2 - .5, flip = m.truthView === 'unity';
-    let minB = Infinity;
-    const tops = new Map(), cy = Math.cos(rotY), sy = Math.sin(rotY);
+    let minB = Infinity, lx0 = Infinity, lx1 = -Infinity, lz0 = Infinity, lz1 = -Infinity;
+    const tops = new Map(), cy = Math.cos(rotY), sy = Math.sin(rotY);          // tops keyed LOCAL — survives the item moving
     m.voxels.forEach(v => {
       const lx = (v[0] - dcx) * vs, lz = ((flip ? m.dims[2] - 1 - v[2] : v[2]) - dcz) * vs;
       if (v[1] * vs < minB) minB = v[1] * vs;
-      const kx = Math.round((x + lx * cy + lz * sy) * 200), kz = Math.round((z - lx * sy + lz * cy) * 200);   // 5mm columns, world-keyed
-      const t = (v[1] + 1) * vs;
-      if (t > (tops.get(kx + ',' + kz) ?? -1e9)) tops.set(kx + ',' + kz, t);
+      if (lx < lx0) lx0 = lx; if (lx > lx1) lx1 = lx; if (lz < lz0) lz0 = lz; if (lz > lz1) lz1 = lz;
+      const t = (v[1] + 1) * vs, k = Math.round(lx * 200) + ',' + Math.round(lz * 200);   // 5mm columns
+      if (t > (tops.get(k) ?? -1e9)) tops.set(k, t);
     });
     const seat = on ? surfaceAt(on.host, x, z) : (seatY ?? 0);
     const g = new THREE.Group();
     window.voxEmit(m, (M, v) => M.makeScale(vs, vs, vs).setPosition(
       (v[0] - dcx) * vs, (v[1] + .5) * vs - minB, ((flip ? m.dims[2] - 1 - v[2] : v[2]) - dcz) * vs)).forEach(mm => g.add(mm));
     g.position.set(x, seat, z); g.rotation.y = rotY; parent.add(g);
-    const rec = { name, kind, g, tops, x, z, y0: seat, minB, vs };
+    const cs = [[lx0, lz0], [lx0, lz1], [lx1, lz0], [lx1, lz1]].map(([lx, lz]) => [x + lx * cy + lz * sy, z - lx * sy + lz * cy]);   // world footprint
+    const rec = { name, kind, g, tops, x, z, rotY, y0: seat, minB, vs,
+                  bbox: [Math.min(...cs.map(c => c[0])) - .05, Math.max(...cs.map(c => c[0])) + .05,
+                         Math.min(...cs.map(c => c[1])) - .05, Math.max(...cs.map(c => c[1])) + .05],
+                  pickable: !!o.pickable };
     PLACED.push(rec);
     return rec;
   }).catch(e => console.warn('CONSTRUCT — emit failed:', name, e));
 };
-/* surfaceAt — the measured tabletop query: highest column-top of a host near (wx,wz), in world y */
+/* surfaceAt — the measured tabletop query: world point → host-local columns → highest top (world y).
+   Pick-up/drop skips the carried item (its map would otherwise claim its own column). */
 const surfaceAt = (host, wx, wz, r = .07) => {
-  if (!host) return 0;
+  if (!host || host === held) return 0;
+  const dx = wx - host.x, dz = wz - host.z, cy = Math.cos(host.rotY), sy = Math.sin(host.rotY);
+  const lx = dx * cy - dz * sy, lz = dx * sy + dz * cy;                        // world → local (inverse rotY)
+  const qx = Math.round(lx * 200), qz = Math.round(lz * 200), R = Math.max(1, Math.round(r * 200));
   let top = 0;
-  host.tops.forEach((t, key) => {
-    const c = key.indexOf(','), kx = +key.slice(0, c) / 200, kz = +key.slice(c + 1) / 200;
-    if (Math.hypot(kx - wx, kz - wz) < r && host.y0 + t > top) top = host.y0 + t;
-  });
+  for (let ix = qx - R; ix <= qx + R; ix++) for (let iz = qz - R; iz <= qz + R; iz++) {
+    const t = host.tops.get(ix + ',' + iz);
+    if (t !== undefined && host.y0 + t > top) top = host.y0 + t;
+  }
   return top;
 };
 
@@ -170,9 +178,9 @@ const carP = emitAsset('vehicle_490_touring', { kind: 'vehicle', parent: carG, x
    column-tops via the on:{host} contract — desk emits first, cargo seats on its surface. */
 const deskP = emitAsset('commission_lawdesk', { x: 2.3, z: -4, rotY: Math.PI / 2 }).then(desk =>
   Promise.all([
-    emitAsset('commission_desklamp',   { x: 2.3, z: -4.5,  rotY: Math.PI / 2, on: { host: desk } }),
-    emitAsset('commission_bookoflaws', { x: 2.35, z: -3.9, rotY: .3,          on: { host: desk } }),
-    emitAsset('commission_stamper',    { x: 2.25, z: -4.15,                   on: { host: desk } }),
+    emitAsset('commission_desklamp',   { x: 2.3, z: -4.5,  rotY: Math.PI / 2, on: { host: desk }, pickable: true }),
+    emitAsset('commission_bookoflaws', { x: 2.35, z: -3.9, rotY: .3,          on: { host: desk }, pickable: true }),
+    emitAsset('commission_stamper',    { x: 2.25, z: -4.15,                   on: { host: desk }, pickable: true }),
   ]));
 const ready = Promise.all([doorP, carP, deskP]);
 MANIFEST.props.push({ kind: 'turntable', x: SPIN_POS.x, z: SPIN_POS.z, r: SPIN_R, asset: 'vehicle_490_touring' },
@@ -199,8 +207,44 @@ const INTERACT = [
 ];
 let promptIt = null;
 addEventListener('keydown', e => { keys[(e.key || '').toLowerCase()] = true;
-  if ((e.key || '').toLowerCase() === 'e' && promptIt) promptIt.fn(); });
+  if ((e.key || '').toLowerCase() === 'e') {
+    if (held) { const t = dropTarget(); if (t) placeIt(t); }
+    else if (pickIt) takeIt(pickIt);
+    else if (promptIt) promptIt.fn();
+  } });
 addEventListener('keyup', e => { keys[(e.key || '').toLowerCase()] = false; });
+
+/* ── pick-up / drop — free item manipulation on the measured-surface law.
+   held rides the camera; the ghost ring marks where E seats it (ray steps forward until it
+   crosses a surface; worldSurfaceAt answers for every placed asset, floor = 0). */
+let held = null, pickIt = null;
+const fwdV = new THREE.Vector3(), tmpV = new THREE.Vector3();
+const worldSurfaceAt = (wx, wz, skip) => { let t = 0; PLACED.forEach(p => { if (p !== skip) { const s = surfaceAt(p, wx, wz); if (s > t) t = s; } }); return t; };
+const dropTarget = () => {
+  camera.getWorldDirection(fwdV);
+  for (let t = .08; t <= 2.4; t += .06) {
+    const px = camera.position.x + fwdV.x * t, py = camera.position.y + fwdV.y * t, pz = camera.position.z + fwdV.z * t;
+    const s = worldSurfaceAt(px, pz, held);
+    if (py <= s + .02) return { x: px, y: s, z: pz };
+  }
+  return null;
+};
+const nearestPick = () => {
+  camera.getWorldDirection(fwdV); let best = null, ba = .55;
+  PLACED.forEach(p => { if (!p.pickable || p === held) return;
+    tmpV.set(p.x - camera.position.x, p.y0 + p.minB + .04 - camera.position.y, p.z - camera.position.z);
+    const d = tmpV.length(); if (d > 1.5 || d < .01) return; tmpV.normalize();
+    const a = tmpV.dot(fwdV); if (a > ba) { ba = a; best = p; } });
+  return best;
+};
+const takeIt = p => { held = p; };
+const placeIt = t => { const p = held; held = null;
+  p.x = t.x; p.z = t.z; p.rotY = yaw; p.y0 = t.y;
+  p.g.position.set(t.x, t.y, t.z); p.g.rotation.y = yaw; };
+const ghostShape = new THREE.Shape(); ghostShape.absarc(0, 0, .05, 0, Math.PI * 2);
+const ghole = new THREE.Path(); ghole.absarc(0, 0, .038, 0, Math.PI * 2); ghostShape.holes.push(ghole);
+const ghostGeo = new THREE.ShapeGeometry(ghostShape); ghostGeo.rotateX(Math.PI / 2);
+const ghost = new THREE.Mesh(ghostGeo, coreMat); ghost.visible = false; scene.add(ghost);
 
 const veil = document.getElementById('veil'), promptEl = document.getElementById('prompt');
 const veilRun = (text, fn) => { veil.textContent = text; veil.style.opacity = 1;
@@ -230,10 +274,22 @@ const loop = now => {
   camera.rotation.set(0, 0, 0, 'YXZ'); camera.rotation.y = yaw; camera.rotation.x = pitch;
   if (spinning) carG.rotation.y += SPIN_RATE * dt;
   boundHue(now / 1000);
+  if (held) {
+    camera.getWorldDirection(fwdV);
+    held.g.position.set(camera.position.x + fwdV.x * .38 - fwdV.z * .1,
+                        camera.position.y + fwdV.y * .38 - .07,
+                        camera.position.z + fwdV.z * .38 + fwdV.x * .1);
+    held.g.rotation.y = yaw;
+    const t = dropTarget(); ghost.visible = !!t;
+    if (t) ghost.position.set(t.x, t.y + .004, t.z);
+  } else ghost.visible = false;
+  pickIt = held ? null : nearestPick();
   promptIt = document.pointerLockElement === el ? (INTERACT.reduce((b, it) => {
     const d = Math.hypot(pos.x - it.x, pos.z - it.z); return d < it.r && (!b || d < b.d) ? { it, d } : b; }, null)?.it || null) : null;
-  promptEl.style.display = promptIt ? 'block' : 'none';
-  if (promptIt) promptEl.textContent = promptIt.label();
+  promptEl.style.display = (held || pickIt || promptIt) ? 'block' : 'none';
+  promptEl.textContent = held ? 'E — PLACE ' + held.name.replace('commission_', '').toUpperCase()
+                     : pickIt ? 'E — TAKE ' + pickIt.name.replace('commission_', '').toUpperCase()
+                     : promptIt ? promptIt.label() : '';
   renderer.render(scene, camera);
   requestAnimationFrame(loop);
 };
@@ -256,7 +312,9 @@ window.__snap = (name, px, py, pz, tx, ty, tz) => {
   const u = renderer.domElement.toDataURL('image/png');
   return fetch('/shot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'probe_' + name, png: u }) }).then(r => r.json()).then(j => !!j.ok);
 };
-window.__construct = { manifest: MANIFEST, pos, spin: () => spinning };
+window.__construct = { manifest: MANIFEST, pos, spin: () => spinning, held: () => held, placed: PLACED,
+  take: n => { const p = PLACED.find(p => p.name === n); if (p) takeIt(p); return !!p; },
+  place: (x, z) => { if (!held) return false; const y = worldSurfaceAt(x, z, held); placeIt({ x, y, z }); return true; } };
 window.__envShot = () => {};                                   // probe contract — no sealed/env split on this page
 window.__uiClean = v => { document.getElementById('hud').style.display = v ? 'none' : ''; };
 </script>
