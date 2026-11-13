@@ -308,6 +308,19 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._ok(json.load(open(p, encoding='utf-8')))
             except Exception as e:
                 return self._ok({'err': str(e)}, 500)
+        if self.path.startswith('/veh/'):
+            name = self.path[len('/veh/'):].split('?')[0]
+            if not re.fullmatch(r'[\w\-]+', name):
+                return self._ok({'err': 'bad name'}, 400)
+            p = os.path.normpath(os.path.join(
+                HERE, '..', 'Assets', 'StreamingAssets', 'voxel_vehicles', name + '.json'))
+            if not os.path.isfile(p) or not os.path.realpath(p).startswith(
+                    os.path.realpath(os.path.join(HERE, '..', 'Assets'))):
+                return self._ok({'err': 'not found'}, 404)
+            try:
+                return self._ok(json.load(open(p, encoding='utf-8')))
+            except Exception as e:
+                return self._ok({'err': str(e)}, 500)
         if self.path.startswith('/char/'):
             name = self.path[len('/char/'):].split('?')[0]
             if not re.fullmatch(r'[\w\-]+', name):

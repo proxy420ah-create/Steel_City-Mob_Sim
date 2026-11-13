@@ -42,9 +42,10 @@ key.position.set(0, 1.5, 1.5); scene.add(hemi, key);
 
 /* ── MANIFEST — the procedural expansion seam. tiles = [i,j] grid cells (.6 pitch, i east, j north),
    props = future display placements (mannequin, pedestal, prop table — append, don't redesign). */
-const TILE = .6, TILEN = 3, PHALF = TILEN * TILE / 2 - .12;
+const TILE = 1.0;
 const MANIFEST = { tiles: [], props: [] };
-for (let i = 0; i < TILEN; i++) for (let j = 0; j < TILEN; j++) MANIFEST.tiles.push([i - (TILEN - 1) / 2, j - (TILEN - 1) / 2]);
+for (const i of [-2.5,-1.5,-.5,.5,1.5,2.5]) for (const j of [.5,-.5,-1.5,-2.5,-3.5,-4.5,-5.5]) MANIFEST.tiles.push([i, j]);   // room 6m x 7m — edges x±3 z[+1,-6], rotator dead-centre (0,-2.5), door inside the north edge
+const WALKR = { x0: 0, x1: 0, z0: 0, z1: 0 };                          // walkable rect — set by rebuildBounds from the tile footprint
 
 const floorMat = new THREE.MeshBasicMaterial({ color: VOID });              // the Matrix floor — unlit, void-colored: stand on it, never see it
 MANIFEST.tiles.forEach(([i, j]) => {
@@ -67,19 +68,26 @@ function rebuildBounds() {
                                        z0 = Math.min(z0, j * TILE - TILE / 2); z1 = Math.max(z1, j * TILE + TILE / 2); });
   const o = BND_W / 2;
   const ring = new THREE.Shape();                                       // one flat band, mitered corners — no overlap bulges
-  ring.moveTo(x0 - o, -(z0 - o)); ring.lineTo(x1 + o, -(z0 - o)); ring.lineTo(x1 + o, -(z1 + o)); ring.lineTo(x0 - o, -(z1 + o)); ring.closePath();
+  ring.moveTo(x0 - o, z0 - o); ring.lineTo(x1 + o, z0 - o); ring.lineTo(x1 + o, z1 + o); ring.lineTo(x0 - o, z1 + o); ring.closePath();
   const hole = new THREE.Path();
-  hole.moveTo(x0 + o, -(z0 + o)); hole.lineTo(x1 - o, -(z0 + o)); hole.lineTo(x1 - o, -(z1 - o)); hole.lineTo(x0 + o, -(z1 - o)); hole.closePath();
+  hole.moveTo(x0 + o, z0 + o); hole.lineTo(x1 - o, z0 + o); hole.lineTo(x1 - o, z1 - o); hole.lineTo(x0 + o, z1 - o); hole.closePath();
   ring.holes.push(hole);
-  const g = new THREE.ShapeGeometry(ring); g.rotateX(Math.PI / 2);      // shape-y → -z, hence the negated coords above
+  const g = new THREE.ShapeGeometry(ring); g.rotateX(Math.PI / 2);      // rotateX(+90°) maps shape-y → +z — coords go in un-negated
   const m = new THREE.Mesh(g, coreMat); m.position.y = .004; boundsG.add(m);
+  WALKR.x0 = x0 + .15; WALKR.x1 = x1 - .15; WALKR.z0 = z0 + .15; WALKR.z1 = z1 - .15;   // capsule-inset walk limits
 }
 rebuildBounds(); window.__rebuildBounds = rebuildBounds;
+
+/* global material library — mirrors the studio editor's allMaterials for files that ship
+   materials:[] (vehicle JSONs). Only the ids the showroom consumes are carried. */
+const MAT_LIB = [{ id: 10, hex: '#cccccc' }, { id: 107, hex: '#996b3f' }, { id: 123, hex: '#c69e33' }, { id: 126, hex: '#0f0f11' },
+                 { id: 140, hex: '#3a7d5c' }, { id: 141, hex: '#232826' }, { id: 142, hex: '#c0c8d0' }, { id: 143, hex: '#2d2d30' },
+                 { id: 144, hex: '#f5e6af' }, { id: 145, hex: '#b42823' }, { id: 146, hex: '#6b4a2f' }, { id: 147, hex: '#96aab9', glass: true }];
 
 /* shared emit path — same voxEmit contract as the Commission (glass split, site fillM) */
 window.__glassMat = new THREE.MeshLambertMaterial({ transparent: true, opacity: .55, depthWrite: false });
 window.voxEmit = (m, fillM) => {
-  const gids = new Set((m.materials || []).filter(mt => /glass/i.test(mt.name || '')).map(mt => mt.id));
+  const gids = new Set((m.materials || []).concat(MAT_LIB).filter(mt => mt.glass || /glass/i.test(mt.name || '')).map(mt => mt.id));
   if (m.door && gids.size) {   /* door-contract props: a pane is ONE transparent sheet (median-z cell per column) */
     const cols = new Map(), rest = [];
     m.voxels.forEach(v => { if (gids.has(v[3])) { const k = v[0] + ',' + v[1]; (cols.get(k) || cols.set(k, []).get(k)).push(v); } else rest.push(v); });
@@ -89,7 +97,8 @@ window.voxEmit = (m, fillM) => {
   const geo = new THREE.BoxGeometry(1, 1, 1);
   const imO = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial(), m.voxels.length);
   const imG = gids.size ? new THREE.InstancedMesh(geo, window.__glassMat, m.voxels.length) : null;
-  const mats = {}; (m.materials || []).forEach(mt => mats[mt.id] = new THREE.Color(mt.hex));
+  const mats = {}; MAT_LIB.forEach(mt => mats[mt.id] = new THREE.Color(mt.hex));
+  (m.materials || []).forEach(mt => mats[mt.id] = new THREE.Color(mt.hex));          // file palette wins when it ships one
   const M = new THREE.Matrix4(), dflt = new THREE.Color(0x888888);
   let no = 0, ng = 0;
   m.voxels.forEach(v => { fillM(M, v); const c = mats[v[3]] || dflt;
@@ -99,32 +108,99 @@ window.voxEmit = (m, fillM) => {
   return out;
 };
 
-const emitAt = (file, x, z) => fetch('/voxel/' + file).then(r => r.json()).then(m => {
-  if (!m.voxels) return;
-  const vs = m.voxelSize || .0075, dcx = m.dims[0] / 2 - .5, dcz = m.dims[2] / 2 - .5;
-  const g = new THREE.Group();
-  window.voxEmit(m, (M, v) => M.makeScale(vs, vs, vs).setPosition((v[0] - dcx) * vs, (v[1] + .5) * vs, (v[2] - dcz) * vs)).forEach(mm => g.add(mm));
-  g.position.set(x, 0, z); g.rotation.y = Math.PI;      // file fronts are z+ — face the platform (−z)
-  scene.add(g);
-}).catch(e => console.warn('CONSTRUCT — emit failed:', file, e));
+/* ── emitAsset — the canonical display contract. Per-file pitch/palette/truthView; every placed
+   asset registers a column-top surface map in PLACED so any item can seat ON anything —
+   measured, not authored (attachmentPoints stay semantic: axles, seats, grips). */
+const PLACED = [];
+const ROUTES = { item: '/voxel/', vehicle: '/veh/', char: '/char/' };
+const emitAsset = (name, o = {}) => {
+  const { kind = 'item', parent = scene, x = 0, z = 0, rotY = 0, on = null, seatY = null, vsOverride = null } = o;
+  return fetch(ROUTES[kind] + name).then(r => r.json()).then(m => {
+    if (!m.voxels) return null;
+    const vs = vsOverride || m.voxelSize || .0075;
+    const dcx = m.dims[0] / 2 - .5, dcz = m.dims[2] / 2 - .5, flip = m.truthView === 'unity';
+    let minB = Infinity;
+    const tops = new Map(), cy = Math.cos(rotY), sy = Math.sin(rotY);
+    m.voxels.forEach(v => {
+      const lx = (v[0] - dcx) * vs, lz = ((flip ? m.dims[2] - 1 - v[2] : v[2]) - dcz) * vs;
+      if (v[1] * vs < minB) minB = v[1] * vs;
+      const kx = Math.round((x + lx * cy + lz * sy) * 200), kz = Math.round((z - lx * sy + lz * cy) * 200);   // 5mm columns, world-keyed
+      const t = (v[1] + 1) * vs;
+      if (t > (tops.get(kx + ',' + kz) ?? -1e9)) tops.set(kx + ',' + kz, t);
+    });
+    const seat = on ? surfaceAt(on.host, x, z) : (seatY ?? 0);
+    const g = new THREE.Group();
+    window.voxEmit(m, (M, v) => M.makeScale(vs, vs, vs).setPosition(
+      (v[0] - dcx) * vs, (v[1] + .5) * vs - minB, ((flip ? m.dims[2] - 1 - v[2] : v[2]) - dcz) * vs)).forEach(mm => g.add(mm));
+    g.position.set(x, seat, z); g.rotation.y = rotY; parent.add(g);
+    const rec = { name, kind, g, tops, x, z, y0: seat, minB, vs };
+    PLACED.push(rec);
+    return rec;
+  }).catch(e => console.warn('CONSTRUCT — emit failed:', name, e));
+};
+/* surfaceAt — the measured tabletop query: highest column-top of a host near (wx,wz), in world y */
+const surfaceAt = (host, wx, wz, r = .07) => {
+  if (!host) return 0;
+  let top = 0;
+  host.tops.forEach((t, key) => {
+    const c = key.indexOf(','), kx = +key.slice(0, c) / 200, kz = +key.slice(c + 1) / 200;
+    if (Math.hypot(kx - wx, kz - wz) < r && host.y0 + t > top) top = host.y0 + t;
+  });
+  return top;
+};
 
 const DOOR_Z = .72;
-const ready = Promise.all([emitAt('commission_doorframe', 0, DOOR_Z), emitAt('commission_door', 0, DOOR_Z)]);
-const SOLIDS = [[-.33, DOOR_Z, .1], [0, DOOR_Z, .11], [.33, DOOR_Z, .1]];   // frame jambs + leaf face
+const doorP = Promise.all([emitAsset('commission_doorframe', { x: 0, z: DOOR_Z, rotY: Math.PI }),    // file fronts are z+ — π faces the platform (−z)
+                           emitAsset('commission_door', { x: 0, z: DOOR_Z, rotY: Math.PI })]);
+
+/* ── THE ROTATOR — dead-centre turntable. Invisible deck (same void-material law as the floor):
+   what you see is a glowing ring and the car floating over it. E pauses/resumes. */
+const SPIN_POS = { x: 0, z: -2.5 }, SPIN_R = 1.02;
+const spinG = new THREE.Group(); spinG.position.set(SPIN_POS.x, 0, SPIN_POS.z); scene.add(spinG);
+const deck = new THREE.Mesh(new THREE.CylinderGeometry(SPIN_R, SPIN_R, .05, 48), floorMat); deck.position.y = -.026; spinG.add(deck);
+const rimShape = new THREE.Shape(); rimShape.absarc(0, 0, SPIN_R + .004, 0, Math.PI * 2);
+const rimHole = new THREE.Path(); rimHole.absarc(0, 0, SPIN_R - .012, 0, Math.PI * 2); rimShape.holes.push(rimHole);
+const rimG = new THREE.ShapeGeometry(rimShape); rimG.rotateX(Math.PI / 2);
+const rim = new THREE.Mesh(rimG, coreMat); rim.position.y = .004; spinG.add(rim);      // rides the same hue sweep as the bounds
+const carG = new THREE.Group(); spinG.add(carG);
+let spinning = true, SPIN_RATE = .35;                                 // ~18s/rev turntable
+const carP = emitAsset('vehicle_490_touring', { kind: 'vehicle', parent: carG, x: 0, z: 0, seatY: .001 });
+
+/* ── exhibit: the prop desk — east side, facing the rotator. Items seat on the host's measured
+   column-tops via the on:{host} contract — desk emits first, cargo seats on its surface. */
+const deskP = emitAsset('commission_lawdesk', { x: 2.3, z: -4, rotY: Math.PI / 2 }).then(desk =>
+  Promise.all([
+    emitAsset('commission_desklamp',   { x: 2.3, z: -4.5,  rotY: Math.PI / 2, on: { host: desk } }),
+    emitAsset('commission_bookoflaws', { x: 2.35, z: -3.9, rotY: .3,          on: { host: desk } }),
+    emitAsset('commission_stamper',    { x: 2.25, z: -4.15,                   on: { host: desk } }),
+  ]));
+const ready = Promise.all([doorP, carP, deskP]);
+MANIFEST.props.push({ kind: 'turntable', x: SPIN_POS.x, z: SPIN_POS.z, r: SPIN_R, asset: 'vehicle_490_touring' },
+                    { kind: 'prop-table', x: 2.3, z: -4, asset: 'commission_lawdesk',
+                      items: ['commission_desklamp', 'commission_bookoflaws', 'commission_stamper'] });
+
+const SOLIDS = [[-.33, DOOR_Z, .1], [0, DOOR_Z, .11], [.33, DOOR_Z, .1],   // frame jambs + leaf face
+                [SPIN_POS.x, SPIN_POS.z, SPIN_R],                          // rotator pedestal
+                [2.3, -4.5, .35], [2.3, -3.5, .35]];                       // prop desk (long axis on z after rotY)
 
 /* ── FPS walk — pointer lock look + WASD on the platform. Eye height .55 (chibi-scaled world:
    the .855m door towers correctly; showroom inspects at authored scale, no third person needed). */
-const pos = new THREE.Vector3(0, 0, -.2); let yaw = Math.PI, pitch = 0;   // camera yaw 0 faces -z; +PI faces +z — spawn looking at the door
+const pos = new THREE.Vector3(0, 0, 0); let yaw = 0, pitch = 0;          // yaw 0 faces -z — stepped out of the door-elevator, rotator dead ahead
 const EYE = .56, WALK = 1.4, SPRINT = 2.2, keys = {};    // Vinny's authored Eyes region (region id 10) — voxel centroid y56 × .01 pitch
 const el = renderer.domElement;
 el.addEventListener('click', () => { if (document.pointerLockElement !== el) el.requestPointerLock(); });
 addEventListener('mousemove', e => { if (document.pointerLockElement !== el) return;
   yaw -= e.movementX * .0022; pitch = Math.max(-1.45, Math.min(1.45, pitch - e.movementY * .0022)); });
+/* INTERACT registry — same contract as the Commission: promptIt caches what the HUD shows,
+   E falls back to it (shown = pressable). New exhibits append, don't redesign. */
+const INTERACT = [
+  { x: 0, z: DOOR_Z - .25, r: 1.1, label: () => 'E — EXIT THE CONSTRUCT', fn: () => goHome() },
+  { x: SPIN_POS.x, z: SPIN_POS.z, r: 1.9, label: () => 'E — ' + (spinning ? 'PAUSE' : 'RESUME') + ' ROTATOR', fn: () => { spinning = !spinning; } },
+];
+let promptIt = null;
 addEventListener('keydown', e => { keys[(e.key || '').toLowerCase()] = true;
-  if ((e.key || '').toLowerCase() === 'e' && nearDoor()) goHome(); });
+  if ((e.key || '').toLowerCase() === 'e' && promptIt) promptIt.fn(); });
 addEventListener('keyup', e => { keys[(e.key || '').toLowerCase()] = false; });
-
-const nearDoor = () => Math.hypot(pos.x, pos.z - (DOOR_Z - .25)) < 1.1;
 
 const veil = document.getElementById('veil'), promptEl = document.getElementById('prompt');
 const veilRun = (text, fn) => { veil.textContent = text; veil.style.opacity = 1;
@@ -140,7 +216,7 @@ const step = dt => {
   if (f || r) {
     const sy = Math.sin(yaw), cy = Math.cos(yaw), L = Math.hypot(f, r) || 1;
     pos.x += (-sy * f + cy * r) / L * sp * dt; pos.z += (-cy * f - sy * r) / L * sp * dt;   // forward = (-sin,-cos)yaw, right = (cos,-sin)yaw — three.js yaw-0 faces -z
-    pos.x = Math.max(-PHALF, Math.min(PHALF, pos.x)); pos.z = Math.max(-PHALF, Math.min(PHALF, pos.z));
+    pos.x = Math.max(WALKR.x0, Math.min(WALKR.x1, pos.x)); pos.z = Math.max(WALKR.z0, Math.min(WALKR.z1, pos.z));
     for (const s of SOLIDS) { const px = pos.x - s[0], pz = pos.z - s[1], rr = s[2] + .15, d = Math.hypot(px, pz);
       if (d < rr && d > 1e-4) { pos.x = s[0] + px / d * rr; pos.z = s[1] + pz / d * rr; } }
   }
@@ -152,9 +228,12 @@ const loop = now => {
   step(dt);
   camera.position.set(pos.x, EYE, pos.z);
   camera.rotation.set(0, 0, 0, 'YXZ'); camera.rotation.y = yaw; camera.rotation.x = pitch;
+  if (spinning) carG.rotation.y += SPIN_RATE * dt;
   boundHue(now / 1000);
-  promptEl.style.display = nearDoor() && document.pointerLockElement === el ? 'block' : 'none';
-  if (nearDoor()) promptEl.textContent = 'E — EXIT THE CONSTRUCT';
+  promptIt = document.pointerLockElement === el ? (INTERACT.reduce((b, it) => {
+    const d = Math.hypot(pos.x - it.x, pos.z - it.z); return d < it.r && (!b || d < b.d) ? { it, d } : b; }, null)?.it || null) : null;
+  promptEl.style.display = promptIt ? 'block' : 'none';
+  if (promptIt) promptEl.textContent = promptIt.label();
   renderer.render(scene, camera);
   requestAnimationFrame(loop);
 };
@@ -177,7 +256,7 @@ window.__snap = (name, px, py, pz, tx, ty, tz) => {
   const u = renderer.domElement.toDataURL('image/png');
   return fetch('/shot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'probe_' + name, png: u }) }).then(r => r.json()).then(j => !!j.ok);
 };
-window.__construct = { manifest: MANIFEST, pos };
+window.__construct = { manifest: MANIFEST, pos, spin: () => spinning };
 window.__envShot = () => {};                                   // probe contract — no sealed/env split on this page
 window.__uiClean = v => { document.getElementById('hud').style.display = v ? 'none' : ''; };
 </script>
