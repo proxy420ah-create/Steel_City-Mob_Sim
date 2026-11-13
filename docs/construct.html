@@ -808,9 +808,25 @@ const loop = now => {
   promptEl.textContent = held ? 'E — PLACE ' + held.name.replace('commission_', '').toUpperCase()
                      : pickIt ? 'E — TAKE ' + pickIt.name.replace('commission_', '').toUpperCase()
                      : promptIt ? promptIt.label() : '';
+  window.__compass(camera);
   renderer.render(scene, camera);
   if (povOn) window.__eyes.pip();
   requestAnimationFrame(loop);
+};
+
+/* ── Compass HUD — same rose/readout as the Commission: +z = NORTH (the door end),
+   +x = EAST (the desk wall), readout = bearing + world x,z,y. Dark chip behind the
+   readout — the void is white. */
+const _cp = document.createElement('div');
+_cp.style.cssText = 'position:fixed;top:44px;left:50%;transform:translateX(-50%);z-index:5;pointer-events:none;font:11px/1.2 ui-monospace,Consolas,monospace;color:#e8d9b0;text-align:center';
+_cp.innerHTML = '<svg width="64" height="64" viewBox="-32 -32 64 64" style="display:block;margin:0 auto"><circle r="30" fill="rgba(10,8,6,.55)" stroke="#8a7a50"/><g id="cpRose"><path d="M0-26L5 0H-5Z" fill="#d94a3a"/><path d="M0 26L5 0H-5Z" fill="#6c6650"/><text y="-17" x="0" font-size="9" fill="#fff" text-anchor="middle" transform="translate(0,-4)">N</text><text x="21" y="3" font-size="9" fill="#e8d9b0" text-anchor="middle">E</text><text x="-21" y="3" font-size="9" fill="#e8d9b0" text-anchor="middle">W</text><text y="30" x="0" font-size="9" fill="#e8d9b0" text-anchor="middle" transform="translate(0,-3)">S</text></g></svg><div id="cpTxt" style="display:inline-block;background:rgba(8,8,14,.8);border:1px solid #3a3a4a;padding:2px 6px"></div>';
+document.body.appendChild(_cp);
+const _cpRose = _cp.querySelector('#cpRose'), _cpTxt = _cp.querySelector('#cpTxt'), _cpDir = new THREE.Vector3();
+window.__compass = cam => {
+  cam.getWorldDirection(_cpDir);
+  const brg = (Math.atan2(_cpDir.x, _cpDir.z) * 180 / Math.PI + 360) % 360;      // 0 = N(+z), 90 = E(+x)
+  _cpRose.setAttribute('transform', 'rotate(' + (-brg).toFixed(1) + ')');
+  _cpTxt.textContent = ['N','NE','E','SE','S','SW','W','NW'][Math.round(brg / 45) % 8] + ' ' + Math.round(brg) + '°  x ' + cam.position.x.toFixed(2) + '  z ' + cam.position.z.toFixed(2) + '  y ' + cam.position.y.toFixed(2);
 };
 
 /* warm-up: compile every program + upload every buffer behind the veil — same law as the Commission */
