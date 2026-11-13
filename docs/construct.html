@@ -889,8 +889,10 @@ const placePaste = () => {
 };
 const placeToggle = on => {
   placeOn = on;
-  if (on) { flyPos.set(pos.x, EYE, pos.z); placeEl.style.display = 'block'; }
-  else { placeEl.style.display = 'none'; if (placeSel) placeDrop(); selBox.visible = false; }
+  if (on) { flyPos.set(pos.x, EYE, pos.z); placeEl.style.display = 'block';
+    camera.layers.enable(1); }                                              // you're outside your body — your head renders too
+  else { placeEl.style.display = 'none'; if (placeSel) placeDrop(); selBox.visible = false;
+    camera.layers.disable(1); }
 };
 const flyStep = dt => {                                                          // camera off the body — full-3D fly
   const sp = (keys['shift'] ? SPRINT : WALK) * 1.6;
