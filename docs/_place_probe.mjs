@@ -77,6 +77,37 @@ await evl('__place.drop()');
 const over = JSON.parse(await evl('localStorage.getItem("dvm_place")') || '{}');
 check('dvm_place override written', over.commission_lawdesk && Math.abs(over.commission_lawdesk.z + 5.3) < .4, JSON.stringify(over.commission_lawdesk));
 
+// 4b — grab-anchor: aim dead-down at the desk's SW corner leg, LMB-grab, then drag to a new spot.
+// The grabbed POINT must land on the aim, not the centre.
+await evl('__cam(2.8, 1.6, -6.0, 2.8, 0, -6.0)');       // desk corner: local (+.7,+.2) → world (2.8,−6.0) at rotY π/2
+await sleep(500);
+await evl('document.querySelector(' + JSON.stringify('canvas') + ').dispatchEvent(new MouseEvent("mousedown", {button:0, bubbles:true}))');
+await sleep(300);
+const grabState = JSON.parse(await evl('(() => { const s = window.__construct.placed.find(p => p._grab); return s ? JSON.stringify({n:s.name, lx:s._grab.lx, lz:s._grab.lz}) : "none"; })()'));
+check('LMB grab anchors at the hit point', grabState && grabState.n === 'commission_lawdesk' && Math.abs(grabState.lx - .7) < .12 && Math.abs(grabState.lz - .2) < .12, JSON.stringify(grabState));
+check('grid visible while dragging', await evl('__scene.children.some(c => c.type === "GridHelper" && c.visible)'));
+await evl('__cam(0, 1.6, -3.0, 0, 0, -3.0)');           // drag the grabbed corner to dead-centre south
+await sleep(500);
+const anchored = JSON.parse(await evl('__place.dump()')).find(p => p.name === 'commission_lawdesk');
+check('grabbed corner lands on the aim', anchored && Math.abs(anchored.x + .2) < .12 && Math.abs(anchored.z + 2.3) < .12,
+  JSON.stringify(anchored) + ' — corner lands (0,-3), centre offsets (−.2,−2.3)');
+check('x/z snapped to .1 grid', anchored && Math.abs(anchored.x * 10 % 1) < .001 && Math.abs(anchored.z * 10 % 1) < .001);
+await evl('__place.drop()');
+
+// 4c — keyboard nudge parity: arrows nudge world-frame, fine .005 / shift .05
+await evl('__place.grab("commission_lawdesk")');
+await evl('window.dispatchEvent(new KeyboardEvent("keydown", {key:"ArrowRight"}))');
+await sleep(350);
+const nudged = JSON.parse(await evl('__place.dump()')).find(p => p.name === 'commission_lawdesk');
+check('API grab = centre anchor → item follows aim + .005 nudge', nudged && Math.abs(nudged.x - .005) < .01 && Math.abs(nudged.z + 3) < .01, JSON.stringify(nudged));
+await evl('__place.drop()');
+
+// 4d — undo: ^Z restores the pre-nudge position
+await evl('window.dispatchEvent(new KeyboardEvent("keydown", {key:"z", ctrlKey:true}))');
+await sleep(350);
+const undone = JSON.parse(await evl('__place.dump()')).find(p => p.name === 'commission_lawdesk');
+check('ctrl-Z restores the drop position', undone && Math.abs(undone.x + .2) < .02, JSON.stringify(undone));
+
 // 5 — copy + paste → a second desk emits at the spot and auto-selects
 await evl('__place.grab("commission_lawdesk")'); await evl('__place.copy()'); await evl('__place.paste()');
 await sleep(1500);
@@ -90,12 +121,14 @@ const extra = JSON.parse(await evl('localStorage.getItem("dvm_extra")') || '[]')
 check('dvm_extra recorded the copy', extra.length === 1 && extra[0].name === 'commission_lawdesk', JSON.stringify(extra));
 
 // 6 — reload → layout persists (override + extra both re-materialize)
+console.log('PRE-RELOAD dvm_place:', await evl('localStorage.getItem("dvm_place")'));
+console.log('PRE-RELOAD dump:', await evl('__place.dump()'));
 await evl('location.reload()'); await sleep(1500);
 await connect(); await waitBoot(); await sleep(800);
 const boot = JSON.parse(await evl('__place.dump()'));
 const desks = boot.filter(p => p.name === 'commission_lawdesk');
 check('reload: 2 desks present', desks.length === 2, JSON.stringify(desks));
-check('reload: override spot held', desks.some(d => Math.abs(d.x - 2.6) < .35 && Math.abs(d.z + 5.3) < .35));
+check('reload: override spot held', desks.some(d => Math.abs(d.x) < .02 && Math.abs(d.z + 3) < .02), JSON.stringify(desks));
 const lampRe = boot.find(p => p.name === 'commission_desklamp');
 check('reload: lamp near desk', lampRe && desks.some(d => Math.abs(lampRe.x - d.x) < .8 && Math.abs(lampRe.z - d.z) < .9), JSON.stringify(lampRe));
 
