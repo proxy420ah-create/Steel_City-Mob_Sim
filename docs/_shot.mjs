@@ -61,6 +61,7 @@ await sleep(SETTLE);
 if (arg.env !== '0') await evl('window.__envShot(1)');
 if (arg.ui !== '0') await evl('window.__uiClean(1)');
 if (arg.torch) await evl('window.__snapTorch=true');
+if (arg.pre) { await evl(arg.pre); }
 const ok = await evl(`window.__snap(${JSON.stringify(NAME)},${cam.join(',')},${look.join(',')})`);
 console.log(JSON.stringify({ ok, name: 'probe_' + NAME + '.png', cam, look }));
 if (arg.eval) console.log('EVAL:', JSON.stringify(await evl(arg.eval)));
