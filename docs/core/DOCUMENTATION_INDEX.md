@@ -67,6 +67,12 @@
   - Each pattern: the real stall it fixed + concrete Steel City reuse (voxel edits, lit-window flips, influence BFS, GPU picking, async guards)
   - Cross-cutting lessons + deliberately-rejected approaches (GPU flood fill, vertex culling)
 
+**Commission Building Pipeline (Voxel Studio -> `thecommission.html`):**
+- **`docs/BUILDING_PIPELINE.md`** — editable source -> `bake_building.py` -> runtime bake; period skins, chibi wall recipe, door-bay contract, agent vision toolkit (`_plan.py`, `_shot.mjs --torch`), hall ceiling beam grid (`_hall_ceiling_shift.py`), P.I. front glass (`_office_front_glass.py`), glass contract, compass/axis convention (+x East, +z North)
+- **`docs/known_issues/rendering/BAKE_OCC_GRID_DECODE_LAYOUT.md`** — occupancy grid is `(x*H+y)*D+z`, MSB-first; copy the runtime `solid()` decoder, never write a new one
+- **`docs/known_issues/rendering/BUILDING_GLASS_OPAQUE_AND_ALPHA_STACK.md`** — any `*glass*` material is transparent in both render paths; opaque faces never cull against glass; door pane = one sheet
+- **`docs/known_issues/rendering/KIT_Z_ANCHOR_BACK_EDGE_DRIFT.md`** — KIT z-anchor convention
+
 **City Layout Pipeline:**
 - **`docs/core/CITY_LAYOUT_PIPELINE.md`** — Design tool to Unity implementation pipeline
   - `city_editor.html` design tool (COMPLETE): 3-phase pipeline — Macro → Granular (zones+alleys) → Buildings

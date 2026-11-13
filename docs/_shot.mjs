@@ -1,7 +1,7 @@
 // _shot.mjs — headless-Chrome probe for thecommission.html. Teleports the camera via
 // window.__cam/__snap over CDP; the page renders + POSTs to /shot → docs/probe_<name>.png.
 //
-//   node _shot.mjs <name> --cam=px,py,pz --look=tx,ty,tz [--env] [--ui] [--settle=4500]
+//   node _shot.mjs <name> --cam=px,py,pz --look=tx,ty,tz [--env] [--ui] [--torch] [--settle=4500]
 //   node _shot.mjs hall --cam=-6,1.05,5.4 --look=-6,0.6,3.3
 //
 // Node >=22 (built-in WebSocket + fetch). Chrome headless via --remote-debugging-port;
@@ -60,6 +60,7 @@ await sleep(SETTLE);
 
 if (arg.env !== '0') await evl('window.__envShot(1)');
 if (arg.ui !== '0') await evl('window.__uiClean(1)');
+if (arg.torch) await evl('window.__snapTorch=true');
 const ok = await evl(`window.__snap(${JSON.stringify(NAME)},${cam.join(',')},${look.join(',')})`);
 console.log(JSON.stringify({ ok, name: 'probe_' + NAME + '.png', cam, look }));
 chrome.kill();

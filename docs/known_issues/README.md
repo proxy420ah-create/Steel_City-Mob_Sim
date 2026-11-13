@@ -69,3 +69,4 @@ Bug tracker per Development Guidelines Rule 13. Bugs are cataloged by category i
 | [Paste Preview Teleports to Origin — BBox Fallback Stomp](editor/PASTE_PREVIEW_TELEPORTS_TO_ORIGIN.md) | editor | 🟢 FIXED | 🟡 HIGH | 2026-11-12 |
 | [KIT Z-Anchor Back-Edge Drift](rendering/KIT_Z_ANCHOR_BACK_EDGE_DRIFT.md) | rendering | 🟢 FIXED | 🔴 CRITICAL | 2026-11-12 |
 | [Bake Occupancy Grid Decoded With Wrong Layout](rendering/BAKE_OCC_GRID_DECODE_LAYOUT.md) | rendering | 🟢 FIXED | 🟡 HIGH | 2026-11-12 |
+| [Building Glass Opaque / Hollow Jambs / Door Alpha Stack](rendering/BUILDING_GLASS_OPAQUE_AND_ALPHA_STACK.md) | rendering | 🟢 FIXED | 🟡 HIGH | 2026-11-13 |

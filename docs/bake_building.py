@@ -177,8 +177,14 @@ def bake(name, anchor=None, module=150, out=None, log=print):
     stage = np.where(sm, full, 0).astype(np.uint8)
     env = np.where(sm, 0, full).astype(np.uint8)
 
-    q_stage = mesh(stage, stage > 0)       # stage exposure vs stage alone (its edge faces stay closed in group view)
-    q_env = mesh(env, full > 0)            # env exposure vs everything
+    glass_idx = [k + 1 for k, i in enumerate(used_ids) if 'glass' in (mats.get(i, {}).get('name') or '').lower()]
+    isg = np.isin(full, glass_idx) if glass_idx else np.zeros(full.shape, bool)
+    opq = (full > 0) & ~isg                # OPAQUE occupancy: glass is see-through, so opaque faces beside a pane stay exposed (no hollow-looking jambs)
+    cat = lambda a, b: np.concatenate([a, b]) if len(b) else a
+    stage_o, stage_g = np.where(isg, 0, stage).astype(np.uint8), np.where(isg, stage, 0).astype(np.uint8)
+    env_o, env_g = np.where(isg, 0, env).astype(np.uint8), np.where(isg, env, 0).astype(np.uint8)
+    q_stage = cat(mesh(stage_o, (stage_o > 0)), mesh(stage_g, stage > 0))   # stage exposure vs stage alone (its edge faces stay closed in group view)
+    q_env = cat(mesh(env_o, opq), mesh(env_g, full > 0))                    # opaque vs opaque; glass vs everything (internal glass/solid seams culled)
     log(f'[bake] quads: stage {len(q_stage):,}  env {len(q_env):,}  ({time.time() - t0:.1f}s)')
 
     occ = full > 0
@@ -205,6 +211,7 @@ def bake(name, anchor=None, module=150, out=None, log=print):
         # so that face lands on -2.25 exactly. x stays centred (side walls: interior is 9cm narrower per side).
         'anchor': {'ax': ax0 + module / 2, 'az': az0 + module / 2 + WALL_T, 'module': module, 'offset': [ax0, ay0, az0]},
         'palette': palette,
+        'glass': [k + 1 for k, i in enumerate(used_ids) if 'glass' in (mats.get(i, {}).get('name') or '').lower()],
         'stage': {'n': int(len(q_stage)), 'b64': b64(q_stage)},
         'env': {'n': int(len(q_env)), 'b64': b64(q_env)},
         'walk': {'w': W, 'd': D, 'r': WALK_R, 'b64': b64(ok.astype(np.uint8))},

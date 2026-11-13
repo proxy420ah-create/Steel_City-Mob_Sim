@@ -1833,6 +1833,12 @@ function initDeck3D(THREE, OrbitControls){
   window.__glassMat = new THREE.MeshLambertMaterial({ transparent: true, opacity: .55, depthWrite: false });
   window.voxEmit = (m, fillM) => {
     const gids = new Set((m.materials || []).filter(mt => /glass/i.test(mt.name || '')).map(mt => mt.id));
+    if (m.door && gids.size) {   /* door-contract props: a pane is ONE transparent sheet (median-z cell per x,y column) — stacked transparent boxes multiply alpha (.55^N → near-opaque) and wouldn't match the building's single-surface glass */
+      const cols = new Map(), rest = [];
+      m.voxels.forEach(v => { if (gids.has(v[3])) { const k = v[0] + ',' + v[1]; (cols.get(k) || cols.set(k, []).get(k)).push(v); } else rest.push(v); });
+      cols.forEach(a => { a.sort((p, q) => p[2] - q[2]); rest.push(a[a.length >> 1]); });
+      m = { ...m, voxels: rest };
+    }
     const geo = new THREE.BoxGeometry(1, 1, 1);
     const imO = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial(), m.voxels.length);
     const imG = gids.size ? new THREE.InstancedMesh(geo, window.__glassMat, m.voxels.length) : null;
@@ -1892,46 +1898,61 @@ function initDeck3D(THREE, OrbitControls){
      envelope. On any failure the old shell kit (floor/walls/ceilings/stamps) loads instead. */
   const SHELL_FILES = new Set(['commission_floor', 'commission_floor2', 'commission_wall', 'commission_ceiling']);
   const b64u8 = s => { const bin = atob(s), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
-  function quadMesh(rec, palette, vs, ax, az, yBase) {
+  function quadMesh(rec, palette, vs, ax, az, yBase, glass) {
     const u8 = b64u8(rec.b64), n = rec.n;
     const i16 = new Int16Array(u8.buffer), u16 = new Uint16Array(u8.buffer);
-    const pos = new Float32Array(n * 12), col = new Float32Array(n * 12), nor = new Float32Array(n * 12), idx = new Uint32Array(n * 6);
     const pc = palette.map(h => new THREE.Color(h));
     const AXIS = [0, 0, 1, 1, 2, 2], SIGN = [1, -1, 1, -1, 1, -1];
-    for (let q = 0; q < n; q++) {
-      const x = i16[q * 6], y = i16[q * 6 + 1], z = i16[q * 6 + 2], dm = u16[q * 6 + 3], d = dm & 255, c = pc[(dm >> 8) - 1] || pc[0];
-      const w = u16[q * 6 + 4], h = u16[q * 6 + 5], axis = AXIS[d], sg = SIGN[d];
-      let u0, v0, pl;
-      if (axis === 0) { pl = x + (sg > 0 ? 1 : 0); u0 = y; v0 = z; }
-      else if (axis === 1) { pl = y + (sg > 0 ? 1 : 0); u0 = x; v0 = z; }
-      else { pl = z + (sg > 0 ? 1 : 0); u0 = x; v0 = y; }
-      const uu = [u0, u0 + w, u0 + w, u0], vv = [v0, v0, v0 + h, v0 + h];
-      for (let k = 0; k < 4; k++) {
-        let ex, ey, ez;
-        if (axis === 0) { ex = pl; ey = uu[k]; ez = vv[k]; } else if (axis === 1) { ex = uu[k]; ey = pl; ez = vv[k]; } else { ex = uu[k]; ey = vv[k]; ez = pl; }
-        const o = (q * 4 + k) * 3;
-        pos[o] = (ex - ax) * vs; pos[o + 1] = ey * vs + yBase; pos[o + 2] = (ez - az) * vs;
-        col[o] = c.r; col[o + 1] = c.g; col[o + 2] = c.b;
-        nor[o + (axis === 0 ? 0 : axis === 1 ? 1 : 2)] = sg;
+    let nG = 0;
+    if (glass) for (let q = 0; q < n; q++) if (glass.has(u16[q * 6 + 3] >> 8)) nG++;
+    const parts = [];
+    for (const [want, transparent] of [[false, false], [true, true]]) {
+      const m = want ? nG : n - nG;
+      if (!m) continue;
+      const pos = new Float32Array(m * 12), col = new Float32Array(m * 12), nor = new Float32Array(m * 12), idx = new Uint32Array(m * 6);
+      let qi = 0;
+      for (let q = 0; q < n; q++) {
+        const isG = glass && glass.has(u16[q * 6 + 3] >> 8);
+        if (!!isG !== want) continue;
+        const x = i16[q * 6], y = i16[q * 6 + 1], z = i16[q * 6 + 2], dm = u16[q * 6 + 3], d = dm & 255, c = pc[(dm >> 8) - 1] || pc[0];
+        const w = u16[q * 6 + 4], h = u16[q * 6 + 5], axis = AXIS[d], sg = SIGN[d];
+        let u0, v0, pl;
+        if (axis === 0) { pl = x + (sg > 0 ? 1 : 0); u0 = y; v0 = z; }
+        else if (axis === 1) { pl = y + (sg > 0 ? 1 : 0); u0 = x; v0 = z; }
+        else { pl = z + (sg > 0 ? 1 : 0); u0 = x; v0 = y; }
+        const uu = [u0, u0 + w, u0 + w, u0], vv = [v0, v0, v0 + h, v0 + h];
+        for (let k = 0; k < 4; k++) {
+          let ex, ey, ez;
+          if (axis === 0) { ex = pl; ey = uu[k]; ez = vv[k]; } else if (axis === 1) { ex = uu[k]; ey = pl; ez = vv[k]; } else { ex = uu[k]; ey = vv[k]; ez = pl; }
+          const o = (qi * 4 + k) * 3;
+          pos[o] = (ex - ax) * vs; pos[o + 1] = ey * vs + yBase; pos[o + 2] = (ez - az) * vs;
+          col[o] = c.r; col[o + 1] = c.g; col[o + 2] = c.b;
+          nor[o + (axis === 0 ? 0 : axis === 1 ? 1 : 2)] = sg;
+        }
+        const b = qi * 4, flip = (sg > 0) !== (axis !== 1), t = qi * 6;
+        if (!flip) { idx[t] = b; idx[t + 1] = b + 1; idx[t + 2] = b + 2; idx[t + 3] = b; idx[t + 4] = b + 2; idx[t + 5] = b + 3; }
+        else { idx[t] = b; idx[t + 1] = b + 2; idx[t + 2] = b + 1; idx[t + 3] = b; idx[t + 4] = b + 3; idx[t + 5] = b + 2; }
+        qi++;
       }
-      const b = q * 4, flip = (sg > 0) !== (axis !== 1), t = q * 6;
-      if (!flip) { idx[t] = b; idx[t + 1] = b + 1; idx[t + 2] = b + 2; idx[t + 3] = b; idx[t + 4] = b + 2; idx[t + 5] = b + 3; }
-      else { idx[t] = b; idx[t + 1] = b + 2; idx[t + 2] = b + 1; idx[t + 3] = b; idx[t + 4] = b + 3; idx[t + 5] = b + 2; }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+      geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      geo.setIndex(new THREE.BufferAttribute(idx, 1));
+      parts.push(new THREE.Mesh(geo, transparent
+        ? new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: .55, depthWrite: false })   /* building glass — same split contract as voxEmit's *Glass* */
+        : new THREE.MeshLambertMaterial({ vertexColors: true })));
     }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
-    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    geo.setIndex(new THREE.BufferAttribute(idx, 1));
-    return new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }));
+    return parts;
   }
-  function loadBuilding(g) {
+    function loadBuilding(g) {
     const q = new URLSearchParams(location.search);                 // dev switches: ?shell=old forces the old kit (A/B), ?bld=<name> loads another baked building
     if (q.get('shell') === 'old') return Promise.resolve(false);
     return fetch('/bake/' + (q.get('bld') || 'office_complex')).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }).then(b => {
       const vs = b.voxelSize, ax = b.anchor.ax, az = b.anchor.az, yBase = b.yBase, [W, H, D] = b.dims;
-      g.add(quadMesh(b.stage, b.palette, vs, ax, az, yBase));
-      envG.add(quadMesh(b.env, b.palette, vs, ax, az, yBase));
+      const glassSet = new Set(b.glass || []);
+      quadMesh(b.stage, b.palette, vs, ax, az, yBase, glassSet).forEach(m => g.add(m));
+      quadMesh(b.env, b.palette, vs, ax, az, yBase, glassSet).forEach(m => envG.add(m));
       const walk = b64u8(b.walk.b64), occ = b64u8(b.occ.b64);
       const cell = (x, z) => [Math.floor(x / vs + ax), Math.floor(z / vs + az)];
       const walkOK = (x, z) => { const [cx, cz] = cell(x, z); return cx >= 0 && cx < W && cz >= 0 && cz < D && walk[cx * D + cz] === 1; };
@@ -3602,8 +3623,12 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
     const env = window.__env, envWas = env && env.visible, bldg = window.__bldg;      // RAF may be throttled headless — force the sealed
     if (sealed !== false) { if (env) env.visible = true; if (bldg && bldg.setPossess) bldg.setPossess(true); }   // envelope inline, same pattern as __eyes.shot
     const cv = renderer.domElement, pr = renderer.getPixelRatio() || 1;
+    const T = window.__torch, torchWas = T.on;
+    if (window.__snapTorch && !T.on) { T.on = true; T.spot.intensity = 7; T.fill.intensity = .9; }   // probe flashlight — same rig as the L key
+    if (T.on) T.aim(camera);
     renderer.setViewport(0, 0, cv.width / pr, cv.height / pr); renderer.render(scene, camera);
     const u = cv.toDataURL('image/png'); if (window.DECK && DECK.dirty) DECK.dirty();
+    if (!torchWas && T.on) { T.on = false; T.spot.intensity = 0; T.fill.intensity = 0; }
     if (sealed !== false) { if (env) env.visible = envWas; if (bldg && bldg.setPossess) bldg.setPossess(!!window.__possessOn); }
     return fetch('/shot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ png: u, name: 'probe_' + name }) })
       .then(r => r.json()).then(j => !!j.ok);

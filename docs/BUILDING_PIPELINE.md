@@ -95,3 +95,11 @@ interior clear ~1.77m. `office_complex.snap-pre-ceiling.json` is the pre-move sn
 - `docs/_shot.mjs <name> --cam=x,y,z --look=x,y,z` drives headless Chrome (CDP, absolute `--user-data-dir`; Edge headless is dead here) and writes `docs/probe_<name>.png` through the server's `/shot` route (restart `commission_server.py` after edits). The page hooks are `__cam`, `__snap`, `__envShot`, `__uiClean`; `?probe=<name>&cam=..&look=..` also works.
 - Workflow: measure at exact cell resolution, place, then probe along the beam axis. The user's own view overrides any probe or scan.
 - Ceiling: beam underside wy 1.08 (y39), coffer face wy 1.17 (y42). Beams hang .09 below coffers.
+
+## Hall ceiling grid, P.I. front, glass, view aids (2026-11-13)
+- **Beam grid contract.** Office beams are 8v (.24m) on a 48v pitch in BOTH axes (z: 46, 94, 142, 190, 238; x: 44, 92, 140, 188, 236, 290, 338, 386); coffer bays 40v (1.20m). The hall continues this grid across the wall. Beam layer = y39-41 mat 157 (underside wy 1.08); coffer layer = y42-44 mat 156 (wy 1.17). Hall spine = z190-197 (world z 3.48). `docs/_hall_ceiling_shift.py` re-grids the hall (rewrites ONLY the beam layer; snapshot `office_complex.snap-pre-hallshift.json`, git-ignored). Re-run it after any hall ceiling drag. Hall pendants ride the spine at z 3.48, y .888 (flush) - x lines: -6.0 (door axis), -2.985, .03.
+- **Axes.** Project map convention: +x EAST (office wing is west, x<0), +z NORTH, +y up. The Commission has a top-centre compass HUD (rose + facing + camera x/z/y) - quote it when reporting positions. Cell->world: wx=(x-319)*.03, wz=(z-78)*.03 (anchor 244,0,0 bake).
+- **P.I. front (building, not KIT).** `docs/_office_front_glass.py`: sidelights x102-104 / x133-135 (y3-29) + transom x103-134 (y31-37), Storefront Glass (id 114) 1-cell pane at slab z148, air bored z147/z149. The door KIT stays leaf-only.
+- **Glass contract.** Any material whose name contains "glass" renders transparent (.55, depthWrite off) in both paths: KIT/props via `voxEmit`, building via the bake's `glass` index list + `quadMesh` split. See known_issues/rendering/BUILDING_GLASS_OPAQUE_AND_ALPHA_STACK.md.
+- **Probe flashlight.** `node docs/_shot.mjs <name> --torch --cam=.. --look=..` lights the shot with the L-key torch aimed from the probe camera (`window.__snapTorch`). Use it for any interior/dark check.
+
