@@ -70,6 +70,12 @@ if (arg.torch) await evl('window.__snapTorch=true');
 if (arg.pre) { await evl(arg.pre); }
 const ok = await evl(`window.__snap(${JSON.stringify(NAME)},${cam.join(',')},${look.join(',')})`);
 console.log(JSON.stringify({ ok, name: 'probe_' + NAME + '.png', cam, look }));
+if (arg.full) {                                                              // composited page shot — DOM overlays included (canvas-only __snap misses dialogs/HUD)
+  const shot = await cdp('Page.captureScreenshot', { format: 'png' });
+  const fp = path.join(HERE, 'probe_' + NAME + '_full.png');
+  fs.writeFileSync(fp, Buffer.from(shot.result.data, 'base64'));
+  console.log(JSON.stringify({ full: 'probe_' + NAME + '_full.png' }));
+}
 if (arg.eval) console.log('EVAL:', JSON.stringify(await evl(arg.eval)));
 if (chrome) { chrome.kill(); setTimeout(() => { try { fs.rmSync(prof, { recursive: true, force: true }); } catch {} }, 800); }
 process.exit(ok ? 0 : 1);

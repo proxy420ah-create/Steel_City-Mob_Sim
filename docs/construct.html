@@ -508,6 +508,41 @@ const aimStep = () => {
   xhair.style.display = aimOn ? 'block' : 'none';
 };
 
+/* ── door console — the spawn panel. A hue-rimmed dark reader floating on the invisible
+   elevator wall beside the door; E opens the roster dialog — load units in place, no
+   crossing required. The roster is a list so future units just append a row. */
+const CONS_POS = { x: -.45, y: .5, z: .66 };
+const consG = new THREE.Group(); consG.position.set(CONS_POS.x, CONS_POS.y, CONS_POS.z); consG.rotation.y = Math.PI; scene.add(consG);
+{
+  const back = new THREE.Mesh(new THREE.PlaneGeometry(.17, .13), coreMat); back.position.z = -.006; consG.add(back);   // hue-riding rim
+  const face = new THREE.Mesh(new THREE.BoxGeometry(.155, .115, .012), new THREE.MeshLambertMaterial({ color: 0x14161c })); consG.add(face);
+  const pip = new THREE.Mesh(new THREE.BoxGeometry(.012, .012, .014), coreMat); pip.position.set(.055, .042, .002); consG.add(pip);          // status light
+}
+const consEl = document.createElement('div');
+consEl.style.cssText = 'position:fixed;left:50%;top:46%;transform:translate(-50%,-50%);min-width:290px;background:rgba(12,12,18,.94);border:1px solid #34344a;padding:14px 16px;font:12px ui-monospace,Consolas,monospace;color:#cfc8b0;display:none;z-index:20';
+document.body.appendChild(consEl);
+let consOpen = false;
+const ROSTER = [{ char: 'CHAIR1', label: 'THE CHAIR', desc: 'civilian unit — commission seat' }];
+function renderCons() {
+  consEl.innerHTML = '<div style="letter-spacing:.25em;color:#8f87a0;margin-bottom:10px">DOOR CONSOLE — PERSONNEL</div>' +
+    ROSTER.map((r, i) => {
+      const on = followers.some(f => f.spec.char === r.char);
+      return '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-top:1px solid #26242f">' +
+        '<div style="flex:1"><div>' + r.label + '</div><div style="color:#6f6a58;font-size:10px">' + r.desc + '</div></div>' +
+        '<button data-i="' + i + '" style="font:inherit;background:' + (on ? '#4a1f28' : '#1f3a2a') + ';color:#e8e0c8;border:1px solid ' + (on ? '#a33' : '#3a5') + ';padding:4px 10px;cursor:pointer">' + (on ? 'DISMISS' : 'SPAWN') + '</button></div>';
+    }).join('') +
+    '<div style="margin-top:10px;color:#5b5648;font-size:10px">E / Esc — close &nbsp;·&nbsp; click canvas to re-engage look</div>';
+  consEl.querySelectorAll('button[data-i]').forEach(b => b.onclick = () => toggleSpawn(ROSTER[+b.dataset.i], b));
+}
+function toggleSpawn(r, btn) {
+  const f = followers.find(x => x.spec.char === r.char);
+  if (f) { scene.remove(f.CH); followers.splice(followers.indexOf(f), 1); if (povF === f) { window.__eyes.hide(); povF = followers[0] || null; } renderCons(); }
+  else { btn.textContent = 'LOADING…'; emitChar({ char: r.char, order: 'follow', x: .4, z: .45 }).then(() => renderCons()); }
+}
+const openCons = () => { consOpen = true; renderCons(); consEl.style.display = 'block'; if (document.exitPointerLock) document.exitPointerLock(); };
+const closeCons = () => { consOpen = false; consEl.style.display = 'none'; };
+window.__console = { open: openCons, close: closeCons, on: () => consOpen, render: renderCons, spawn: r => toggleSpawn(r, { textContent: '' }) };
+
 const partyP = Promise.all(PARTY.map(emitChar)).then(fs => { povF = fs.find(Boolean) || null; });
 const ready = Promise.all([doorP, carP, deskP, partyP]);
 MANIFEST.props.push({ kind: 'turntable', x: SPIN_POS.x, z: SPIN_POS.z, r: SPIN_R, asset: 'vehicle_490_touring' },
@@ -530,6 +565,7 @@ addEventListener('mousemove', e => { if (document.pointerLockElement !== el) ret
    E falls back to it (shown = pressable). New exhibits append, don't redesign. */
 const INTERACT = [
   { x: 0, z: DOOR_Z - .25, r: 1.1, label: () => 'E — EXIT THE CONSTRUCT', fn: () => goHome() },
+  { x: CONS_POS.x, z: CONS_POS.z - .08, r: .55, label: () => 'E — DOOR CONSOLE', fn: () => openCons() },
   { x: SPIN_POS.x, z: SPIN_POS.z, r: 1.9, label: () => 'E — ' + (spinning ? 'PAUSE' : 'RESUME') + ' ROTATOR', fn: () => { spinning = !spinning; } },
 ];
 let promptIt = null;
@@ -538,7 +574,9 @@ addEventListener('mouseup',   e => { if (e.button === 2) rmbAim = false; });
 addEventListener('contextmenu', e => { if (e.target === renderer.domElement || rmbAim) e.preventDefault(); });
 addEventListener('keydown', e => { keys[(e.key || '').toLowerCase()] = true;
   const k = (e.key || '').toLowerCase();
+  if (k === 'escape' && consOpen) { closeCons(); return; }
   if (k === 'e') {
+    if (consOpen) { closeCons(); return; }
     if (held) { const t = dropTarget(); if (t) placeIt(t); }
     else if (pickIt) takeIt(pickIt);
     else if (promptIt) promptIt.fn();
