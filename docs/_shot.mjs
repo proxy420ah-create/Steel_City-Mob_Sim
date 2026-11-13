@@ -28,14 +28,19 @@ const get = (u) => new Promise((res, rej) => http.get(u, r => { let b = ''; r.on
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 const prof = path.join(HERE, `_shotprof_${PORT}`);
-const chrome = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${PORT}`, `--user-data-dir=${prof}`,
-  '--no-first-run', '--disable-extensions', '--window-size=1400,900', URL0], { stdio: 'ignore' });
-process.on('exit', () => { try { chrome.kill(); } catch {} });
+const ATTACH = arg.attach ? Number(arg.attach) : null;            // --attach=<debug port> → drive the USER's live Chrome instead of spawning headless
+const DBG = ATTACH || PORT;
+let chrome = null;
+if (!ATTACH) {
+  chrome = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${PORT}`, `--user-data-dir=${prof}`,
+    '--no-first-run', '--disable-extensions', '--window-size=1400,900', URL0], { stdio: 'ignore' });
+  process.on('exit', () => { try { chrome.kill(); } catch {} });
+}
 
 async function pageWs() {
   for (let i = 0; i < 60; i++) {
     try {
-      const list = JSON.parse(await get(`http://127.0.0.1:${PORT}/json/list`));
+      const list = JSON.parse(await get(`http://127.0.0.1:${DBG}/json/list`));
       const t = list.find(t => t.type === 'page' && t.url.includes(PAGE));
       if (t) return t.webSocketDebuggerUrl;
     } catch {}
@@ -66,6 +71,5 @@ if (arg.pre) { await evl(arg.pre); }
 const ok = await evl(`window.__snap(${JSON.stringify(NAME)},${cam.join(',')},${look.join(',')})`);
 console.log(JSON.stringify({ ok, name: 'probe_' + NAME + '.png', cam, look }));
 if (arg.eval) console.log('EVAL:', JSON.stringify(await evl(arg.eval)));
-chrome.kill();
-setTimeout(() => { try { fs.rmSync(prof, { recursive: true, force: true }); } catch {} }, 800);
+if (chrome) { chrome.kill(); setTimeout(() => { try { fs.rmSync(prof, { recursive: true, force: true }); } catch {} }, 800); }
 process.exit(ok ? 0 : 1);

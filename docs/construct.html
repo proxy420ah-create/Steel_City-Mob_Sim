@@ -359,7 +359,9 @@ const emitChar = spec => fetch('/char/' + spec.char).then(r => r.json()).then(ri
   const eyeIdx = []; rig.voxels.forEach((v, i) => { if (reg[v[0] + ',' + v[1] + ',' + v[2]] === 10) eyeIdx.push(i); });   // region 10 = gaze anchor
   const f = { spec, rig, E, inst, CH, bufA, bufB, eyeIdx, N, VS, d, upload,
     pos: new THREE.Vector3(spec.x ?? .4, 0, spec.z ?? .45), yaw: Math.PI,       // steps out of the door-elevator behind you
-    order: spec.order || 'follow', state: 0, prevState: 0, transFrom: 0, transT: -1, blend: 1, dip: 0, walkSpeed: 1, gaitTime: 0 };
+    order: spec.order || 'follow', state: 0, prevState: 0, transFrom: 0, transT: -1, blend: 1, dip: 0, walkSpeed: 1, gaitTime: 0,
+    gazeT: null };
+  f.setOrder = o => { f.order = { follow: 'follow', goto: 'goto', wait: 'wait' }[o] || 'follow'; };
   E.evalPose(0, 0, bufB); upload(null, bufB, 1, 0);
   followers.push(f);
   return f;
@@ -370,9 +372,12 @@ const emitChar = spec => fetch('/char/' + spec.char).then(r => r.json()).then(ri
 const F_TURN = 10, F_WALK = 1.4, MOVE_EPS = .1, TRANS_DUR = .32, TRANS_DIP = .45, FOLLOW_D = .5;
 const followStep = (f, dt) => {
   let moving = false;
-  if (f.order === 'follow') {
-    const dx = pos.x - f.pos.x, dz = pos.z - f.pos.z, d = Math.hypot(dx, dz);
-    if (d > FOLLOW_D) {
+  let tx = null, tz = 0, arrive = FOLLOW_D;                              // order → target: follow heels you, goto plants on the live mark
+  if (f.order === 'follow') { tx = pos.x; tz = pos.z; }
+  else if (f.order === 'goto' && marks.length) { tx = marks[0].position.x; tz = marks[0].position.z; arrive = .3; }
+  if (tx !== null) {
+    const dx = tx - f.pos.x, dz = tz - f.pos.z, d = Math.hypot(dx, dz);
+    if (d > arrive) {
       const vx = dx / d * F_WALK, vz = dz / d * F_WALK;
       let dyaw = Math.atan2(vx, vz) - f.yaw;
       while (dyaw > Math.PI) dyaw -= 2 * Math.PI; while (dyaw < -Math.PI) dyaw += 2 * Math.PI;
@@ -394,10 +399,11 @@ const followStep = (f, dt) => {
   if (f.transT >= 0) { f.transT += dt; const t = Math.min(1, f.transT / TRANS_DUR);
     f.blend = t * t * (3 - 2 * t); f.dip = -Math.sin(Math.PI * t) * TRANS_DIP;
     if (t >= 1) { f.transT = -1; f.blend = 1; f.dip = 0; } }
-  let gaze = null;                                            // idle & close → his head tracks you (region-10 channel, arm untouched)
-  if (!moving && Math.hypot(pos.x - f.pos.x, pos.z - f.pos.z) < 2.2) {
-    const lx = pos.x - f.pos.x, lz = pos.z - f.pos.z, cy = Math.cos(f.yaw), sy = Math.sin(f.yaw);
-    gaze = { T: [(lx * cy - lz * sy) / f.VS + f.d[0] / 2, EYE / f.VS, (lx * sy + lz * cy) / f.VS + f.d[2] / 2], blend: 0, head: 1 };
+  let gaze = null;                                            // a live tag wins; else idle & close → his head tracks you (region-10 channel, arm untouched)
+  const gT = f.gazeT ? f.gazeT : (!moving && Math.hypot(pos.x - f.pos.x, pos.z - f.pos.z) < 2.2 ? _playerHead : null);
+  if (gT) {
+    const lx = gT.x - f.pos.x, lz = gT.z - f.pos.z, ly = gT.y, cy = Math.cos(f.yaw), sy = Math.sin(f.yaw);
+    gaze = { T: [(lx * cy - lz * sy) / f.VS + f.d[0] / 2, ly / f.VS, (lx * sy + lz * cy) / f.VS + f.d[2] / 2], blend: 0, head: 1 };
   }
   if (was || f.state === 1 || f.transT >= 0 || gaze) {
     f.E.evalPose(f.state, f.gaitTime, f.bufB, gaze);
@@ -429,7 +435,8 @@ function eyeWorld(f) {
 function updatePov(dt) {
   if (!povF) return;
   const e = eyeWorld(povF);
-  const gx = pos.x - e.x, gy = EYE - e.y, gz = pos.z - e.z, hz = Math.hypot(gx, gz) || 1e-4;
+  const g = povF.gazeT || _playerHead;                            // tagged → his POV rides the mark; else he watches you
+  const gx = g.x - e.x, gy = g.y - e.y, gz = g.z - e.z, hz = Math.hypot(gx, gz) || 1e-4;
   const wy = Math.atan2(-gx, -gz), wp = Math.atan2(gy, hz);
   let dyw = wy - povYaw; while (dyw > Math.PI) dyw -= 2 * Math.PI; while (dyw < -Math.PI) dyw += 2 * Math.PI;
   const k = Math.min(1, 10 * dt);
@@ -466,6 +473,41 @@ window.__eyes = {
       body: JSON.stringify({ name: 'probe_' + (name || 'follower'), png: u }) }).then(r => r.json()).then(j => !!j.ok); },
 };
 
+/* ── laser + tag — F-hold or RMB-hold paints the live dot (first-person has no body to point with,
+   so the dot IS the laser); LMB while aiming plants a persistent mark. The tag is shared truth:
+   followers gaze at it (head IK), T sends them to it (goto), the agent API writes the same
+   pipeline — so a tag is identical whether it came from your laser or my prompt. */
+const _playerHead = new THREE.Vector3();
+const aimRay = new THREE.Raycaster(), _zv = new THREE.Vector2(0, 0), aimWorld = new THREE.Vector3();
+let aimOn = false, rmbAim = false;
+const markGeo = new THREE.BoxGeometry(.05, .05, .05), markMat = new THREE.MeshBasicMaterial({ color: 0xff3344 }), marks = [];
+const aimDot = new THREE.Mesh(new THREE.BoxGeometry(.03, .03, .03), markMat); aimDot.visible = false; scene.add(aimDot);
+const xhair = document.createElement('div');
+xhair.style.cssText = 'position:fixed;left:50%;top:50%;width:5px;height:5px;margin:-2.5px 0 0 -2.5px;border-radius:50%;background:#ff3344;display:none;z-index:5;pointer-events:none';
+document.body.appendChild(xhair);
+const tagAt = p => {
+  while (marks.length) scene.remove(marks.pop());                            // one live mark — a new tag replaces the old
+  const m = new THREE.Mesh(markGeo, markMat); m.position.copy(p); scene.add(m); marks.push(m);
+  followers.forEach(f => { f.gazeT = (f.gazeT || new THREE.Vector3()).copy(p); });   // the tag is a gaze order — his eyes center on it
+};
+const clearTags = () => { while (marks.length) scene.remove(marks.pop()); followers.forEach(f => { f.gazeT = null; }); };
+window.__aim = { on: () => aimOn, mark: tagAt, clear: clearTags, world: () => aimWorld.toArray() };
+
+const aimStep = () => {
+  aimOn = !!(keys.f || rmbAim);
+  _playerHead.set(pos.x, EYE, pos.z);
+  if (aimOn) {
+    aimRay.setFromCamera(_zv, camera);
+    const excl = [boundsG, ghost, aimDot, camera];
+    followers.forEach(f => excl.push(f.CH)); if (held) excl.push(held.g); marks.forEach(m => excl.push(m));
+    const hits = aimRay.intersectObjects(scene.children.filter(o => !excl.includes(o)), true);
+    camera.getWorldDirection(fwdV);
+    if (hits.length) aimWorld.copy(hits[0].point); else aimWorld.copy(camera.position).addScaledVector(fwdV, 4);
+    aimDot.position.copy(aimWorld); aimDot.visible = true;
+  } else aimDot.visible = false;
+  xhair.style.display = aimOn ? 'block' : 'none';
+};
+
 const partyP = Promise.all(PARTY.map(emitChar)).then(fs => { povF = fs.find(Boolean) || null; });
 const ready = Promise.all([doorP, carP, deskP, partyP]);
 MANIFEST.props.push({ kind: 'turntable', x: SPIN_POS.x, z: SPIN_POS.z, r: SPIN_R, asset: 'vehicle_490_touring' },
@@ -491,13 +533,19 @@ const INTERACT = [
   { x: SPIN_POS.x, z: SPIN_POS.z, r: 1.9, label: () => 'E — ' + (spinning ? 'PAUSE' : 'RESUME') + ' ROTATOR', fn: () => { spinning = !spinning; } },
 ];
 let promptIt = null;
+addEventListener('mousedown', e => { if (e.button === 2) rmbAim = true; if (e.button === 0 && aimOn) tagAt(aimWorld); });
+addEventListener('mouseup',   e => { if (e.button === 2) rmbAim = false; });
+addEventListener('contextmenu', e => { if (e.target === renderer.domElement || rmbAim) e.preventDefault(); });
 addEventListener('keydown', e => { keys[(e.key || '').toLowerCase()] = true;
   const k = (e.key || '').toLowerCase();
   if (k === 'e') {
     if (held) { const t = dropTarget(); if (t) placeIt(t); }
     else if (pickIt) takeIt(pickIt);
     else if (promptIt) promptIt.fn();
-  } else if (k === 'p' && window.__eyes) { povOn ? window.__eyes.hide() : window.__eyes.show(); } });
+  } else if (k === 'p' && window.__eyes) { povOn ? window.__eyes.hide() : window.__eyes.show(); }
+  else if (k === 't') { followers.forEach(f => f.setOrder('goto')); }          // GO — walk to the live tag
+  else if (k === 'r') { clearTags(); }                                         // release — clear the tag and the gaze it ordered
+  else if (k === 'h') { followers.forEach(f => f.setOrder(f.order === 'follow' ? 'wait' : 'follow')); } });   // HEEL ⇄ WAIT
 addEventListener('keyup', e => { keys[(e.key || '').toLowerCase()] = false; });
 
 /* ── pick-up / drop — free item manipulation on the measured-surface law.
@@ -561,6 +609,7 @@ const loop = now => {
   camera.rotation.set(0, 0, 0, 'YXZ'); camera.rotation.y = yaw; camera.rotation.x = pitch;
   if (spinning) carG.rotation.y += SPIN_RATE * dt;
   followers.forEach(f => followStep(f, dt));
+  aimStep();
   if (povOn) updatePov(dt);
   boundHue(now / 1000);
   if (held) {
@@ -604,6 +653,14 @@ window.__snap = (name, px, py, pz, tx, ty, tz) => {
 };
 window.__construct = { manifest: MANIFEST, pos, spin: () => spinning, held: () => held, placed: PLACED,
   followers: () => followers.map(f => ({ char: f.spec.char, order: f.order, pos: f.pos.toArray() })),
+  agent: {                                                                   // the agent's possession layer — same tags, same orders
+    gaze: (x, y, z) => { tagAt(new THREE.Vector3(x, y, z)); return aimWorld.toArray(); },
+    go: (x, z) => { tagAt(new THREE.Vector3(x, 0, z)); followers.forEach(f => f.setOrder('goto')); },
+    order: o => followers.forEach(f => f.setOrder(o)),
+    heel: () => followers.forEach(f => f.setOrder('follow')),
+    shot: () => window.__eyes.shot(),
+    pos: () => followers.map(f => f.pos.toArray()),
+  },
   take: n => { const p = PLACED.find(p => p.name === n); if (p) takeIt(p); return !!p; },
   place: (x, z) => { if (!held) return false; const y = worldSurfaceAt(x, z, held); placeIt({ x, y, z }); return true; } };
 window.__envShot = () => {};                                   // probe contract — no sealed/env split on this page
