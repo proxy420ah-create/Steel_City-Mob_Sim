@@ -103,3 +103,29 @@ interior clear ~1.77m. `office_complex.snap-pre-ceiling.json` is the pre-move sn
 - **Glass contract.** Any material whose name contains "glass" renders transparent (.55, depthWrite off) in both paths: KIT/props via `voxEmit`, building via the bake's `glass` index list + `quadMesh` split. See known_issues/rendering/BUILDING_GLASS_OPAQUE_AND_ALPHA_STACK.md.
 - **Probe flashlight.** `node docs/_shot.mjs <name> --torch --cam=.. --look=..` lights the shot with the L-key torch aimed from the probe camera (`window.__snapTorch`). Use it for any interior/dark check.
 
+## Portal doorway + renderer warm-up phase (2026-11-13)
+- **The portal.** The doorless north-wall hall bay (slab z250-252, clear opening x108-129 y3-29, ~.66x.81m) holds
+  a permanent light-door — opaque ShaderMaterial plane (white-hot base, counter-scrolling cyan/violet/magenta
+  fbm clouds, alpha 1, no blending), 240 GPU-driven motes (`aSeed` attr + `uT` uniform in the vertex shader,
+  soft dots via `gl_PointCoord` — zero per-frame CPU), two PointLights for spill, `__solids` circles blocking
+  the span, `INTERACT` entry `E — STEP THROUGH` -> flash + hop to `__portal.target` (currently a placeholder
+  hop north of the wall / back; point it at the next scene when one exists). Lives in `portalG` inside envG;
+  animated only while the sealed view is live (idle-deck zero-GPU rule).
+- **WHY THE WARM-UP EXISTS.** Three.js is lazy: shader programs compile on a material's FIRST draw, vertex
+  buffers upload on a mesh's FIRST draw — and every lit material's program bakes in the live LIGHT COUNT.
+  envG starts hidden, and the portal's + pendants' lights live inside it, so the first reveal of the sealed
+  view both compiled fresh shaders AND changed the light count, recompiling everything — ~1000 ms of work in
+  one frame (the "first-look hitch"; `renderer.compile` alone was a no-op because it skips hidden subtrees).
+- **The warm-up phase** (`thecommission.html`, inserted before `loadItems`): a `WARMING THE ROOM…` cover over
+  `#deckview` from init; `window.__warmUp()` (350ms-debounced, re-entrant) fires when the KIT chain completes
+  and again from the portal block — ANY late system that adds lights/materials must call it. `warmRun`:
+  `renderer.compileAsync(scene,camera)` (KHR_parallel_shader_compile where available, sync fallback), then one
+  real `render()` with envG forced visible AND `frustumCulled` cleared on all objects (forces buffer uploads),
+  restore. Cover fades on completion; 15s timeout safety valve so a stall never strands a black deck.
+  `window.__warmDone`/`__warmMs` are probe-readable (`_shot.mjs --eval='window.__warmMs'`).
+- **Renderer flags.** `powerPreference:'high-performance'`; `?pr=<n>` URL override for pixel ratio (default
+  `min(dpr,2)` — `?pr=1.5` is the cheap-fill-rate knob on hi-DPI). Console logs `DVM — GPU:` + parallel-compile
+  support at init.
+- **Standing law (bug doc known_issues/rendering/FIRST_LOOK_SHADER_COMPILE_HITCH.md):** never add/remove lights
+  or flip a lights-carrying group at runtime — light-count change = every lit material recompiles. Register
+  lights at init, dim to intensity 0. First-look hitches here are lazy GPU work — check `__warmMs` first.

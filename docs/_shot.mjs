@@ -63,6 +63,7 @@ if (arg.ui !== '0') await evl('window.__uiClean(1)');
 if (arg.torch) await evl('window.__snapTorch=true');
 const ok = await evl(`window.__snap(${JSON.stringify(NAME)},${cam.join(',')},${look.join(',')})`);
 console.log(JSON.stringify({ ok, name: 'probe_' + NAME + '.png', cam, look }));
+if (arg.eval) console.log('EVAL:', JSON.stringify(await evl(arg.eval)));
 chrome.kill();
 setTimeout(() => { try { fs.rmSync(prof, { recursive: true, force: true }); } catch {} }, 800);
 process.exit(ok ? 0 : 1);

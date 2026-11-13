@@ -111,6 +111,12 @@ Chibi/miniature scale: the room renders as a dollhouse diorama. Vinny is .62m; t
   — parented to the part so place mode moves light with fixture. `pos`/`tgt` are part-local metres, derived
   from the glow material's voxel centroid (`(v − dims/2 + .5) × vs`), not eyeballed. Live on env pendants,
   west-cap floorlamps + the law-desk lamps; the spine-row pendants still ride room key light.
+- **Warm-up / light law**: the page runs a loading phase — `WARMING THE ROOM…` cover, then `window.__warmUp()`
+  (debounced, re-entrant) compiles the whole scene with envG forced visible + renders once with culling off, so
+  no first-look shader/buffer hitches. RULE: never add/remove lights or reveal a lights-carrying group after
+  init (light count is baked into every lit program — a change recompiles all of them); register at init, dim
+  to 0. Anything creating materials/lights late must call `window.__warmUp()`. Bug doc:
+  known_issues/rendering/FIRST_LOOK_SHADER_COMPILE_HITCH.md; full write-up in BUILDING_PIPELINE.md.
 - **Desk lamps**: `commission_desklamp` (authored `docs/_make_desklamp.py`) — B&H/emeralite banker's profile:
   cast-iron octagonal foot, baluster column, neck knuckle + under-shade strap mount (rear underside through
   the mouth edge — never over the crown), level green half-capsule shade, milk interior, chain at the end.
