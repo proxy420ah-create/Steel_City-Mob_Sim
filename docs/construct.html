@@ -108,12 +108,11 @@ function rebuildBounds() {
     });
   });
   BOUND_ARCH.forEach(a => {                                             // pure wire ∩ — the lifted floor wire on each room's face + a floor-plan seam
-    const w = BND_W * 1.6, mid = (a.z0 + a.z1) / 2, lo = a.d / 2 + BND_W / 2;
+    const w = BND_W * 1.6, mid = (a.z0 + a.z1) / 2;
     const put = (g, x, y, z) => { const me = new THREE.Mesh(g, coreMat); me.position.set(x, y, z); boundsG.add(me); };
     [a.z0, a.z1].forEach(z => {
       put(new THREE.BoxGeometry(w, a.h, w), a.x - a.d / 2, a.h / 2, z);           // outline posts — one per room face
       put(new THREE.BoxGeometry(w, a.h, w), a.x + a.d / 2, a.h / 2, z);
-      seam(a.x - lo, z, a.x + lo, z);                                            // one link per reveal end — caps the seam pair, never crosses the doorway
     });
     put(new THREE.BoxGeometry(w, w, Math.abs(a.z1 - a.z0)), a.x - a.d / 2, a.h, mid);   // lintel outlines on both faces
     put(new THREE.BoxGeometry(w, w, Math.abs(a.z1 - a.z0)), a.x + a.d / 2, a.h, mid);   // floor stays clean — seams stop at the reveal

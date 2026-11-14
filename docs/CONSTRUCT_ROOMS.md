@@ -42,9 +42,9 @@ non-arch ends so seams wrap corners).
 - **Outline posts ×4** — `BND_W×1.6` wire beams at `x±d/2` on each gap edge, so
   *each room's face gets its own glowing doorway outline*.
 - **Lintel outlines ×2** — wire beams spanning the gap at `y=h` on each face.
-- **Reveal-end links ×2** — one short seam per reveal end spanning the wall
-  depth `d`, capping the pair of face-seams where the wall terminates. The
-  doorway floor itself is **clean** — no wires cross the opening.
+- **Nothing at floor level** — the doorway floor is pure gap: wall seams
+  terminate at the reveal edges and no wires cross the opening. The ∩ floats
+  overhead; the gap below stays clean — maximum Construct.
 
 ## Walk law
 
@@ -81,6 +81,6 @@ non-arch ends so seams wrap corners).
 - `walkOK(-3,-3.1)` / `(-3,-2.9)` / `(-3,-2.1)` are `false` — capsule edge
   respects the jamb margins (blocks end where the jamb faces stand).
 - `walkOK(-3,-2.8)` / `(-3,-2.2)` are `true` — you can hug the jamb through.
-- `boundsG.children.length === 38` — 10 slabs + 20 seam bands +
-  8 portal meshes (4 posts, 2 lintels, 2 reveal-end links).
+- `boundsG.children.length === 36` — 10 slabs + 20 seam bands +
+  6 portal meshes (4 posts, 2 lintels).
 - Followers obey the same `walkOK` — they can be led/`goto`'d through the door.
