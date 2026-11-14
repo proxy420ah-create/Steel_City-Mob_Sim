@@ -301,16 +301,28 @@ const emitBldg = (t, m) => fetch('/Assets/StreamingAssets/voxel_buildings/' + m.
     const fx = x => mirX ? (W - 1 - x) - W / 2 + .5 : x - W / 2 + .5;      // the editor's UNITY VIEW is scale.x=-1, so a right-handed render mirrors x to match (opt out with flip:false)
     const at = (x, y, z) => (x < 0 || y < 0 || z < 0 || x >= W || y >= H || z >= D) ? 0 : vox[x + W * (y + H * z)];
     let ng = 0;
-    const ymax = new Uint16Array(W * D);                                 // per-column building top — the courtyard reads open
+    const colYs = new Array(W * D);                                      // per-column voxel ys — slice/rotation-aware tops need the list
     for (let y = 0; y < H; y++) for (let z = 0; z < D; z++) for (let x = 0; x < W; x++) {
       const id = at(x, y, z); if (!id) continue;
-      if (y + 1 > ymax[x + W * z]) ymax[x + W * z] = y + 1;
+      (colYs[x + W * z] = colYs[x + W * z] || []).push(y);
       if (!at(x-1,y,z) || !at(x+1,y,z) || !at(x,y-1,z) || !at(x,y+1,z) || !at(x,y,z-1) || !at(x,y,z+1)) ng++;
     }
     const miniG = new THREE.Group(); miniG.position.set(ox, top, oz); t.g.add(miniG);
     const geo = new THREE.BoxGeometry(1, 1, 1);
-    const imO = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial(), ng);
-    const imG = new THREE.InstancedMesh(geo, window.__glassMat, ng);
+    const clipMin = { value: new THREE.Vector3(-1e9, -1e9, -1e9) }, clipMax = { value: new THREE.Vector3(1e9, 1e9, 1e9) };
+    const mkClipMat = base => { const m = base.clone();                  // per-model clone → own slice uniforms
+      m.onBeforeCompile = sh => { sh.uniforms.uVoxClipMin = clipMin; sh.uniforms.uVoxClipMax = clipMax;
+        sh.vertexShader = sh.vertexShader
+          .replace('#include <common>', '#include <common>\nvarying vec3 vVoxOrigin;')
+          .replace('#include <begin_vertex>', '#include <begin_vertex>\nvVoxOrigin = vec3(instanceMatrix[3]);');
+        sh.fragmentShader = sh.fragmentShader
+          .replace('#include <common>', '#include <common>\nvarying vec3 vVoxOrigin;\nuniform vec3 uVoxClipMin;\nuniform vec3 uVoxClipMax;')
+          .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+            if (vVoxOrigin.x < uVoxClipMin.x || vVoxOrigin.y < uVoxClipMin.y || vVoxOrigin.z < uVoxClipMin.z ||
+                vVoxOrigin.x >= uVoxClipMax.x || vVoxOrigin.y >= uVoxClipMax.y || vVoxOrigin.z >= uVoxClipMax.z) discard;`); };
+      return m; };
+    const imO = new THREE.InstancedMesh(geo, mkClipMat(new THREE.MeshLambertMaterial()), ng);
+    const imG = new THREE.InstancedMesh(geo, mkClipMat(window.__glassMat), ng);
     const M = new THREE.Matrix4(), C = new THREE.Color(), dflt = new THREE.Color(.55, .55, .55);
     let no = 0, gi = 0;
     for (let y = 0; y < H; y++) for (let z = 0; z < D; z++) for (let x = 0; x < W; x++) {
@@ -322,23 +334,57 @@ const emitBldg = (t, m) => fetch('/Assets/StreamingAssets/voxel_buildings/' + m.
       else { imO.setMatrixAt(no, M); imO.setColorAt(no, C); no++; }
     }
     imO.count = no; imG.count = gi; if (gi) miniG.add(imG); miniG.add(imO);
-    const cols = [];
-    for (let z = 0; z < D; z++) for (let x = 0; x < W; x++) {              // the model joins the host's surface truth
-      const hgt = ymax[x + W * z]; if (!hgt) continue;
-      const lx = ox + fx(x) * vs, lz = oz + (z - D / 2 + .5) * vs;
-      const k = TOPK(Math.round(lx * 200), Math.round(lz * 200)), v = top + hgt * vs;
-      if (v > (t.rec.tops.get(k) ?? -1e9)) t.rec.tops.set(k, v);           // several model cells share a 5mm column — keep the true max
-      cols.push(k);
-    }
-    miniG.userData.mini = { name: m.name, dims: [W, H, D], vox: ng, scale: vs / BLDG_VS, fill: m.fill, cols };
+    const localCols = [];                                                // grid columns → local offsets + the ys list
+    for (let z = 0; z < D; z++) for (let x = 0; x < W; x++) {
+      const ys = colYs[x + W * z]; if (!ys) continue;
+      localCols.push({ x, z, dx: fx(x) * vs, dz: (z - D / 2 + .5) * vs, ys }); }
+    miniG.userData.mini = { name: m.name, dims: [W, H, D], vox: ng, scale: vs / BLDG_VS, fill: m.fill, vs,
+      localCols, written: new Set(), spin: 0, topTheta: 0, fx, axis: 'y',
+      slice: { x: [0, W - 1], y: [0, H - 1], z: [0, D - 1] }, clipMin, clipMax };
+    miniSyncSlice(miniG); miniSyncTops(t, miniG);                        // the model joins the host's surface truth
     return miniG;
   }).catch(e => console.warn('CONSTRUCT — bldg emit failed:', m.name, e));
+/* miniSyncSlice — the editor's xyz window, same contract: a per-axis index range shader-clips
+   instances whose origins fall outside. Clip bounds are MODEL-LOCAL (mirrored x handled via fx). */
+const miniSyncSlice = mdl => { const mn = mdl.userData.mini, s = mn.slice, vs = mn.vs, D = mn.dims[2];
+  const lx0 = Math.min(mn.fx(s.x[0]), mn.fx(s.x[1])), lx1 = Math.max(mn.fx(s.x[0]), mn.fx(s.x[1]));
+  mn.clipMin.value.set((lx0 - .5) * vs, s.y[0] * vs, (s.z[0] - D / 2) * vs);
+  mn.clipMax.value.set((lx1 + .5) * vs, (s.y[1] + 1) * vs, (s.z[1] + 1 - D / 2) * vs); };
+/* miniSyncTops — rewrite the model's host tops under the CURRENT rotation + slice: written keys
+   revert to felt, then surviving columns re-project (rotated offsets, top = tallest y in window). */
+const miniSyncTops = (t, mdl) => { const mn = mdl.userData.mini, s = mn.slice;
+  mn.written.forEach(k => t.rec.tops.set(k, t.spec.top)); mn.written.clear();
+  const th = mdl.rotation.y, c = Math.cos(th), sn = Math.sin(th), ox = mdl.position.x, oz = mdl.position.z;
+  for (const col of mn.localCols) {
+    if (col.x < s.x[0] || col.x > s.x[1] || col.z < s.z[0] || col.z > s.z[1]) continue;
+    let ym = -1; for (const y of col.ys) if (y >= s.y[0] && y <= s.y[1] && y > ym) ym = y;
+    if (ym < 0) continue;
+    const lx = ox + col.dx * c - col.dz * sn, lz = oz + col.dx * sn + col.dz * c;
+    const k = TOPK(Math.round(lx * 200), Math.round(lz * 200)), v = t.spec.top + (ym + 1) * mn.vs;
+    if (v > (t.rec.tops.get(k) ?? -1e9)) t.rec.tops.set(k, v);           // several model cells share a 5mm column — keep the true max
+    mn.written.add(k); } };
+/* miniSpinSet — the turntable: rate in rad/s, toggling the active rate stops it. Tops re-project
+   every >.02 rad during spin (the render loop owns the integration) and exactly on stop. */
+const miniSpinSet = rate => { const t = TABLES[0], mdl = t && t.g.children.find(c => c.userData.mini);
+  if (!mdl) return; const mn = mdl.userData.mini;
+  mn.spin = (mn.spin === rate) ? 0 : rate;
+  if (!mn.spin) { mn.topTheta = mdl.rotation.y; miniSyncTops(t, mdl); } };
+/* sliceStep — nudge the active slice bound by dim/16 steps (min 1), clamped against its twin. */
+const miniSliceStep = (bound, dir) => { const t = TABLES[0], mdl = t && t.g.children.find(c => c.userData.mini);
+  if (!mdl) return; const mn = mdl.userData.mini, ax = mn.axis || 'y', dim = mn.dims['xyz'.indexOf(ax)], s = mn.slice[ax],
+    st = Math.max(1, dim >> 4), i = bound === 'min' ? 0 : 1;
+  s[i] = Math.max(i ? s[0] : 0, Math.min(i ? dim - 1 : s[1], s[i] + dir * st));
+  miniSyncSlice(mdl); miniSyncTops(t, mdl); };
+const miniSliceReset = () => { const t = TABLES[0], mdl = t && t.g.children.find(c => c.userData.mini);
+  if (!mdl) return; const mn = mdl.userData.mini;
+  mn.slice = { x: [0, mn.dims[0] - 1], y: [0, mn.dims[1] - 1], z: [0, mn.dims[2] - 1] };
+  miniSyncSlice(mdl); miniSyncTops(t, mdl); };
 /* mountModel — the easel's swap verb: unmount the old mini (its tops columns revert to felt),
    mount the catalog spec. models[] always reads as "what's on the table now". */
 const mountModel = (t, mspec) => {
   t.g.children.filter(c => c.userData.mini).forEach(c => {
-    (c.userData.mini.cols || []).forEach(k => t.rec.tops.set(k, t.spec.top));
-    c.children.forEach(ch => ch.dispose && ch.dispose());
+    (c.userData.mini.written || []).forEach(k => t.rec.tops.set(k, t.spec.top));
+    c.children.forEach(ch => { ch.dispose && ch.dispose(); ch.material && ch.material.dispose && ch.material.dispose(); });
     t.g.remove(c); });
   t.spec.models = [mspec];
   return emitBldg(t, mspec);
@@ -407,9 +453,25 @@ window.__panel = { buttons: PNL_BTNS, press: i => PNL_BTNS[i] && PNL_BTNS[i].fn(
    future tools/menus are draw code, never new geometry. Two input modes over one region table:
    held → RMB tap frees the cursor (mousemove raycasts the face, LMB presses); placed →
    center-aim + E/click rides the same promptIt machinery as the kiosk/wall panel. */
+let padPage = 'model';                                                          // tabs sit above every page — the face organizes into pages
 const PAD_REGIONS = [
-  { id: 'prev', x: 30,  y: 140, w: 90, h: 96, label: '◀ MODEL', glyph: '◀', fn: () => padSwap(-1) },
-  { id: 'next', x: 392, y: 140, w: 90, h: 96, label: 'MODEL ▶', glyph: '▶', fn: () => padSwap(1) },
+  { id: 'tab:model', tab: 'model', x: 16,  y: 10, w: 150, h: 44, label: 'MODEL', glyph: 'MODEL', fs: 22, fn: () => padPageSet('model') },
+  { id: 'tab:rot',   tab: 'rot',   x: 181, y: 10, w: 150, h: 44, label: 'ROT',   glyph: 'ROT',   fs: 22, fn: () => padPageSet('rot') },
+  { id: 'tab:slice', tab: 'slice', x: 346, y: 10, w: 150, h: 44, label: 'SLICE', glyph: 'SLICE', fs: 22, fn: () => padPageSet('slice') },
+  { id: 'prev', page: 'model', x: 30,  y: 140, w: 90, h: 96, label: '◀ MODEL', glyph: '◀', fn: () => padSwap(-1) },
+  { id: 'next', page: 'model', x: 392, y: 140, w: 90, h: 96, label: 'MODEL ▶', glyph: '▶', fn: () => padSwap(1) },
+  { id: 'rll', page: 'rot', x: 16,  y: 140, w: 110, h: 96, label: 'SPIN ◀◀', glyph: '◀◀', fs: 34, rate: -.9,  fn: () => miniSpinSet(-.9) },
+  { id: 'rl',  page: 'rot', x: 140, y: 140, w: 110, h: 96, label: 'SPIN ◀',  glyph: '◀',  fs: 40, rate: -.25, fn: () => miniSpinSet(-.25) },
+  { id: 'rr',  page: 'rot', x: 264, y: 140, w: 110, h: 96, label: 'SPIN ▶',  glyph: '▶',  fs: 40, rate: .25,  fn: () => miniSpinSet(.25) },
+  { id: 'rrr', page: 'rot', x: 388, y: 140, w: 110, h: 96, label: 'SPIN ▶▶', glyph: '▶▶', fs: 34, rate: .9,   fn: () => miniSpinSet(.9) },
+  { id: 'ax:x', page: 'slice', x: 116, y: 76, w: 90, h: 50, label: 'SLICE X', glyph: 'X', fs: 26, axis: 'x', fn: () => padAxisSet('x') },
+  { id: 'ax:y', page: 'slice', x: 211, y: 76, w: 90, h: 50, label: 'SLICE Y', glyph: 'Y', fs: 26, axis: 'y', fn: () => padAxisSet('y') },
+  { id: 'ax:z', page: 'slice', x: 306, y: 76, w: 90, h: 50, label: 'SLICE Z', glyph: 'Z', fs: 26, axis: 'z', fn: () => padAxisSet('z') },
+  { id: 'min-', page: 'slice', x: 30,  y: 150, w: 70, h: 60, label: 'MIN −', glyph: '◀', fn: () => miniSliceStep('min', -1) },
+  { id: 'min+', page: 'slice', x: 412, y: 150, w: 70, h: 60, label: 'MIN +', glyph: '▶', fn: () => miniSliceStep('min', 1) },
+  { id: 'max-', page: 'slice', x: 30,  y: 225, w: 70, h: 60, label: 'MAX −', glyph: '◀', fn: () => miniSliceStep('max', -1) },
+  { id: 'max+', page: 'slice', x: 412, y: 225, w: 70, h: 60, label: 'MAX +', glyph: '▶', fn: () => miniSliceStep('max', 1) },
+  { id: 'sres', page: 'slice', x: 196, y: 292, w: 120, h: 38, label: 'SLICE RESET', glyph: 'RESET', fs: 20, fn: () => miniSliceReset() },
 ];
 const padSwap = dir => { const t = TABLES[0]; if (!t) return;
   const cat = t.spec.catalog || t.spec.models, cur = t.spec.models[0],
@@ -419,28 +481,48 @@ const padSwap = dir => { const t = TABLES[0]; if (!t) return;
 const padCv = document.createElement('canvas'); padCv.width = 512; padCv.height = 340;
 const padTex = new THREE.CanvasTexture(padCv); padTex.colorSpace = THREE.SRGBColorSpace;
 let padRec = null, padScr = null, padEdgeMat = null, padFocus = false, padHover = null, padPressId = null;
+const padPageSet = id => { padPage = id; padHover = null; padPressId = null; padDraw(); };
+const padAxisSet = ax => { const t = TABLES[0], mdl = t && t.g.children.find(c => c.userData.mini);
+  if (mdl) mdl.userData.mini.axis = ax; padDraw(); };
+const padMini = () => { const t = TABLES[0], mdl = t && t.g.children.find(c => c.userData.mini);
+  return mdl ? mdl.userData.mini : null; };
 const padDraw = () => { const g = padCv.getContext('2d'), t = TABLES[0],
     cat = t ? (t.spec.catalog || t.spec.models) : [], cur = t && t.spec.models[0],
-    idx = cur ? cat.findIndex(m => m.name === cur.name) : -1;
+    idx = cur ? cat.findIndex(m => m.name === cur.name) : -1, mn = padMini();
   g.fillStyle = '#101218'; g.fillRect(0, 0, 512, 340);
   g.strokeStyle = '#3a3a4a'; g.lineWidth = 6; g.strokeRect(3, 3, 506, 334);
-  g.fillStyle = '#8f87a0'; g.font = '20px monospace'; g.textAlign = 'center';
-  g.fillText('— DEBUG PAD —', 256, 44);
-  g.fillStyle = '#cfc8b0'; g.font = '16px monospace';
-  g.fillText('MODEL' + (idx >= 0 ? '   ' + (idx + 1) + '/' + cat.length : ''), 256, 96);
-  PAD_REGIONS.forEach(r => { const hov = padHover === r.id, pr = padPressId === r.id;
-    g.fillStyle = pr ? '#2a3d4a' : hov ? '#1d2733' : '#14161c'; g.fillRect(r.x, r.y, r.w, r.h);
-    g.strokeStyle = hov ? '#7fd4ff' : '#3a3a4a'; g.lineWidth = 4; g.strokeRect(r.x + 2, r.y + 2, r.w - 4, r.h - 4);
-    g.fillStyle = pr ? '#7fd4ff' : '#5b5648'; g.font = 'bold 40px monospace'; g.fillText(r.glyph, r.x + r.w / 2, r.y + r.h / 2 + 14); });
-  g.fillStyle = '#e8d9b0'; g.font = 'bold 24px monospace';
-  g.fillText(cur ? cur.name.replace(/_/g, ' ').toUpperCase() : '…', 256, 196);
-  g.fillStyle = '#5b5648'; g.font = '13px monospace'; g.fillText('RMB tap — cursor · E — place', 256, 308);
+  g.textAlign = 'center';
+  const btn = r => { const hov = padHover === r.id, pr = padPressId === r.id,
+      on = (r.tab && r.tab === padPage) || (r.axis && mn && mn.axis === r.axis) || (r.rate !== undefined && mn && mn.spin === r.rate);
+    g.fillStyle = pr ? '#2a3d4a' : on ? '#1e2e38' : hov ? '#1d2733' : '#14161c'; g.fillRect(r.x, r.y, r.w, r.h);
+    g.strokeStyle = on || hov ? '#7fd4ff' : '#3a3a4a'; g.lineWidth = 4; g.strokeRect(r.x + 2, r.y + 2, r.w - 4, r.h - 4);
+    g.fillStyle = pr || on ? '#7fd4ff' : '#5b5648'; g.font = 'bold ' + (r.fs || 40) + 'px monospace';
+    g.fillText(r.glyph, r.x + r.w / 2, r.y + r.h / 2 + (r.fs ? r.fs * .36 : 14)); };
+  PAD_REGIONS.filter(r => r.tab || r.page === padPage).forEach(btn);
+  if (padPage === 'model') {
+    g.fillStyle = '#cfc8b0'; g.font = '16px monospace';
+    g.fillText('MODEL' + (idx >= 0 ? '   ' + (idx + 1) + '/' + cat.length : ''), 256, 96);
+    g.fillStyle = '#e8d9b0'; g.font = 'bold 24px monospace';
+    g.fillText(cur ? cur.name.replace(/_/g, ' ').toUpperCase() : '…', 256, 196);
+    g.fillStyle = '#5b5648'; g.font = '13px monospace'; g.fillText('RMB tap — cursor · E — place', 256, 312);
+  } else if (padPage === 'rot') {
+    g.fillStyle = '#cfc8b0'; g.font = '16px monospace'; g.fillText('TURNTABLE', 256, 96);
+    const degs = mn ? Math.round(Math.abs(mn.spin) * 180 / Math.PI) : 0;
+    g.fillStyle = '#e8d9b0'; g.font = 'bold 22px monospace';
+    g.fillText(mn && mn.spin ? (mn.spin < 0 ? '◀ ' : '▶ ') + degs + '°/s' : 'STOPPED', 256, 270);
+    g.fillStyle = '#5b5648'; g.font = '13px monospace'; g.fillText('tap a speed again to stop', 256, 312);
+  } else if (padPage === 'slice') {
+    const ax = mn ? (mn.axis || 'y') : 'y', s = mn ? mn.slice[ax] : [0, 0], dim = mn ? mn.dims['xyz'.indexOf(ax)] : 0;
+    g.fillStyle = '#cfc8b0'; g.font = '16px monospace';
+    g.fillText('SLICE ' + ax.toUpperCase() + '   0–' + (dim - 1), 256, 146);
+    g.fillStyle = '#e8d9b0'; g.font = 'bold 20px monospace';
+    g.fillText('MIN   ' + s[0], 256, 186); g.fillText('MAX   ' + s[1], 256, 261); }
   padTex.needsUpdate = true; };
 const padPress = r => { padPressId = r.id; padDraw(); r.fn();
   setTimeout(() => { padPressId = null; padDraw(); }, 160); };
 const padUvRegion = uv => { if (!uv) return null;
   const px = uv.x * 512, py = (1 - uv.y) * 340;
-  return PAD_REGIONS.find(r => px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) || null; };
+  return PAD_REGIONS.find(r => (r.tab || r.page === padPage) && px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) || null; };
 const padSetHover = r => { const id = r ? r.id : null; if (id !== padHover) { padHover = id; padDraw(); } };
 const padHudEl = document.createElement('div');
 padHudEl.style.cssText = 'position:fixed;left:50%;bottom:14px;transform:translateX(-50%);background:rgba(8,8,14,.92);border:1px solid #6a6a92;color:#e2dbc2;padding:5px 12px;font:10px ui-monospace,Consolas,monospace;letter-spacing:.1em;display:none;z-index:8;pointer-events:none;white-space:nowrap';
@@ -480,6 +562,7 @@ const padProbe = () => { if (!padRec || padRec === held) { padSetHover(null); re
   return r ? { isBtn: true, panel: 'pad', label: () => 'E — ' + r.label, fn: () => padPress(r) } : null; };
 window.__pad = { rec: () => padRec, regions: PAD_REGIONS, scr: () => padScr, probe: padProbe,
   focus: on => { if (!!on !== padFocus) padFocusToggle(); }, isFocus: () => padFocus,
+  page: () => padPage, tab: id => padPageSet(id),
   hover: () => padHover, hit: uv => { const r = padUvRegion(uv); return r ? r.id : null; },
   wallTarget: () => padWallTarget(), stick: (x, y, z, n) => { takeIt(padRec); placeIt({ x, y, z, wall: true, n }); },
   drop: (x, y, z) => { takeIt(padRec); placeIt({ x, y, z }); },
@@ -1530,6 +1613,9 @@ const loop = now => {
   else { if (placeOn) camera.position.copy(flyPos); else camera.position.set(pos.x, EYE, pos.z);
     camera.rotation.set(0, 0, 0, 'YXZ'); camera.rotation.y = yaw; camera.rotation.x = pitch; }
   if (spinning) carG.rotation.y += SPIN_RATE * dt;
+  TABLES.forEach(t => t.g.children.forEach(c => { const mn = c.userData.mini;          // the easel turntable —
+    if (mn && mn.spin) { c.rotation.y += mn.spin * dt;                                  // tops re-project every ~1.2°
+      if (Math.abs(c.rotation.y - mn.topTheta) > .02) { mn.topTheta = c.rotation.y; miniSyncTops(t, c); } } }));
   followers.forEach(f => followStep(f, dt));
   selfStep(dt);
   aimStep();
@@ -1629,7 +1715,9 @@ window.__construct = { manifest: MANIFEST, pos, spin: () => spinning, held: () =
   walkOK, bounds: () => boundsG.children.length, surfaceAt,
   tables: () => TABLES.filter(t => PLACED.includes(t.rec)).map(t => ({ id: t.spec.id, x: t.rec.x, z: t.rec.z, top: t.spec.top, size: t.spec.size,
     scale: t.spec.scale, catalog: (t.spec.catalog || []).map(m => m.name),
-    models: t.g.children.filter(c => c.userData.mini).map(c => { const m = c.userData.mini; return { name: m.name, dims: m.dims, vox: m.vox, scale: m.scale, fill: m.fill }; }) })),
+    models: t.g.children.filter(c => c.userData.mini).map(c => { const m = c.userData.mini; return { name: m.name, dims: m.dims, vox: m.vox, scale: m.scale, fill: m.fill,
+      rotY: +c.rotation.y.toFixed(4), spin: m.spin, axis: m.axis,
+      slice: { x: m.slice.x.slice(), y: m.slice.y.slice(), z: m.slice.z.slice() } }; }) })),
   followers: () => followers.map(f => ({ char: f.spec.char, order: f.order, pos: f.pos.toArray() })),
   self: () => selfBody && ({ x: pos.x, z: pos.z, yaw: selfBody.yaw, state: selfBody.state,
     bodyMask: selfBody.meshes[0].im.layers.mask, headMask: selfBody.meshes[1].im.layers.mask,

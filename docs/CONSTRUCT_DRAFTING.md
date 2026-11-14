@@ -104,6 +104,31 @@ Probes are unconditional (`kb || pb || db`) so canvas hover state can't freeze;
 ghost wires gate per-panel (`btn.panel`). v1 regions drive `mountModel` (the
 same verb as the wall panel — `padSwap` redraws both surfaces).
 
+## Pad pages — tabs, the turntable, the slice window
+
+The face is paged: a tab strip (`MODEL | ROT | SLICE`) sits above every page —
+`padPage` state, `padUvRegion`/`padDraw` scope regions to `r.tab || r.page ===
+padPage`, so a page switch costs a `padDraw` and nothing else. New tools are a
+`page:` entry + draw branch.
+
+- **ROT — the easel turntable.** Four speeds-as-buttons (`◀◀ ◀ ▶ ▶▶`, ±.9/±.25
+  rad/s): `miniSpinSet` toggles — press a rate to spin, press the lit rate to
+  stop, press another to change. The render loop integrates `rotation.y` and
+  re-projects tops every ~.02 rad (centre columns hold through the spin); an
+  exact `miniSyncTops` runs on stop.
+- **SLICE — the editor's xyz window, same contract.** `mn.slice` holds per-axis
+  index ranges; `miniSyncSlice` writes `uVoxClipMin/Max` into the model's
+  cloned materials (the editor's own shader patch — instance origins vs a
+  local-space box, mirrored-x handled through `fx`). `miniSliceStep` nudges the
+  active bound in `dim/16` steps, clamped against its twin; `RESET` restores.
+  Slicing is truth, not just draw: `miniSyncTops` re-derives each column's top
+  as the tallest voxel inside the window (per-column `ys` lists captured at
+  emit) — cut the roof off and measured seating drops to the exposed slab.
+- `padMini()` reads the mounted model's `userData.mini` — buttons draw `on`
+  state (active tab / active axis / live spin rate) so the screen always shows
+  what's true. Slice + spin are session-scoped, per model instance — a fresh
+  mount resets both.
+
 ## The pad sticks to walls — the movable panel
 
 A held pad detects vertical faces: `dropTarget` raycasts the wall slabs

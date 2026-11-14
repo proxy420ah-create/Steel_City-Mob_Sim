@@ -350,8 +350,8 @@ check('bounds = 10 slabs + 20 seams + 6 portal wires', await evl('__construct.bo
 { const pr = JSON.parse(await evl('JSON.stringify((() => { const p = __pad.rec(); return p ? { isPad: p.isPad, pickable: p.pickable, x: p.x, z: p.z, y0: p.y0, source: p.source } : null; })())'));
   check('debug pad emitted pickable on the table margin', pr && pr.isPad === true && pr.pickable === true && Math.abs(pr.x - -5) < .01 && Math.abs(pr.z - -1.975) < .01 && Math.abs(pr.y0 - .26) < .01, JSON.stringify(pr));
   check('pad is a manifest rec — position persists by name', pr && pr.source === 'manifest');
-  check('uv hit-test maps regions', await evl('__pad.hit({x:.5,y:.85}) === null && __pad.hit({x:.15,y:.45}) === "prev" && __pad.hit({x:.85,y:.45}) === "next"'),
-        await evl('JSON.stringify([__pad.hit({x:.5,y:.85}), __pad.hit({x:.15,y:.45}), __pad.hit({x:.85,y:.45})])'));
+  check('uv hit-test maps regions', await evl('__pad.hit({x:.06,y:.85}) === "tab:model" && __pad.hit({x:.15,y:.45}) === "prev" && __pad.hit({x:.85,y:.45}) === "next"'),
+        await evl('JSON.stringify([__pad.hit({x:.06,y:.85}), __pad.hit({x:.15,y:.45}), __pad.hit({x:.85,y:.45})])'));
   const bp = JSON.parse(await evl('JSON.stringify((() => { const s = __pad.scr(), v = new s.position.constructor(.0531, -.0053, 0); s.localToWorld(v); return [v.x, v.y, v.z]; })())'));
   await evl('__pos.x = ' + bp[0] + '; __pos.z = ' + (bp[2] + .5));
   await evl('__cam(' + bp[0] + ', ' + (bp[1] + .35) + ', ' + (bp[2] + .5) + ', ' + bp[0] + ', ' + bp[1] + ', ' + bp[2] + ')');
@@ -387,6 +387,31 @@ check('pad re-hangs on reload — mount restored', await evl('!!(__pad.rec() && 
 check('re-hung pad keeps its wall seat — fixpoint skipped it', await evl('Math.abs(__pad.rec().y0 - .6) < .01'), await evl('__pad.rec() && __pad.rec().y0'));
 await evl('__pad.drop(-5, .26, -1.975)');
 check('drop back on the table clears the mount', await evl('__pad.rec().mount === null && Math.abs(__pad.rec().y0 - .26) < .01'), await evl('JSON.stringify({m:__pad.rec().mount, y0:__pad.rec().y0})'));
+
+// 12.97 — pad pages: tab switching, the turntable, the xyz slice window
+await evl('__pad.tab("rot")');
+check('tab switch → rot page', await evl('__pad.page() === "rot"'));
+check('rot page hit-test scopes to the page', await evl('__pad.hit({x:.62,y:.5}) === "rr" && __pad.hit({x:.5,y:.8}) === null'), await evl('JSON.stringify([__pad.hit({x:.62,y:.5}), __pad.hit({x:.5,y:.8})])'));
+await evl('__pad.press("rr")');
+check('spin engaged — slow right', await evl('__construct.tables()[0].models[0].spin === .25'));
+await sleep(1400);
+const rotA = await evl('__construct.tables()[0].models[0].rotY');
+check('model actually turns on the table', rotA > .15, 'rotY=' + rotA);
+check('tops stay populated mid-spin — core still reads .7475', Math.abs(await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:primary"), -5, -2.5, 0)') - .7475) < .008);
+await evl('__pad.press("rr")');
+check('same speed toggles off — turntable law', await evl('__construct.tables()[0].models[0].spin === 0'));
+await evl('__pad.tab("slice")');
+check('slice page — default axis y', await evl('__pad.page() === "slice" && __construct.tables()[0].models[0].axis === "y"'));
+await evl('__pad.press("max-"); __pad.press("max-"); __pad.press("max-")');
+check('max− lowered the y window', await evl('__construct.tables()[0].models[0].slice.y[1] === 98'), await evl('__construct.tables()[0].models[0].slice.y[1]'));
+const roofSliced = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:primary"), -5, -2.5, 0)');
+check('sliced top dropped below .7475 — measured truth tracks the cut', roofSliced < .7475 && roofSliced > .3, 'roof=' + roofSliced);
+await evl('__cam(-4.55, .62, -3.55, -5, .5, -2.5)'); await sleep(400);      // oblique on the dollhouse cut
+fs.writeFileSync(path.join(HERE, 'probe_slice.png'), Buffer.from((await cdp('Page.captureScreenshot', { format: 'png' })).result.data, 'base64'));
+await evl('__pad.press("sres")');
+const roofReset = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:primary"), -5, -2.5, 0)');
+check('reset restores the roof', Math.abs(roofReset - .7475) < .008, 'roof=' + roofReset);
+await evl('__pad.tab("model")');
 await evl('__cam(null); __pos.x = -5; __pos.z = -1.6');
 
 // 13 — fly-camera clamp + release back to body
