@@ -10,7 +10,11 @@ multiple drafting tables are list entries, not new code.
 { id: 'primary', x: -5, z: -2.5, size: 1.2, top: .26, scale: 1 / 64,
   models: [{ name: 'tenement_block_0', fill: .75 }],      // mounted exhibit — one model at a time
   catalog: [{ name: 'tenement_block_0', fill: .75 },      // the swappable universe — the pad cycles it
-            { name: 'barber_shop', fill: .75 }] }
+            { name: 'barber_shop', fill: .75 }] },
+{ id: 'block', x: -5.9, z: -1.3, size: 1.2, top: .26, scale: 1 / 64,   // the Block Table — whole city blocks
+  models: [{ name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' } }],
+  catalog: [{ name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' } },
+            { name: 'block_41_barber',  fill: .75, slots: { 2: 'barber_shop' } }] }
 ```
 
 - `emitTable(spec)` builds it in the Construct's own language: dark furniture slab
@@ -81,10 +85,28 @@ the pad proved the portable panel). Press → cycle the catalog →
 `localStorage['dvm_model:<id>']` persists the choice — an F5 remounts whatever
 was on the easel.
 
-Since each catalog entry carries its own `fill`, every building presents at
-its own best fit — the barber mounts at `.75` too (`.9m` footprint, ~1:7 vs
-the tenement's ~1:21 — "doesn't have to be relative to tenement" was literally
-already the contract).
+## Block composites — a whole city block on the table
+
+The **Block Table** (`id:'block'`, west of the primary, same size/pistons/lift)
+mounts **block specs** — catalog entries that carry `slots: {i: asset}` instead
+of a lone `name`. `emitBlock` builds them: the spec's nine lots are a 3×3 grid
+of 64-voxel tiles (`slot i → (i%3, i/3)` — the same `c = i % cols, r = i / cols`
+law `CityMap3D` uses), stamped into ONE 192×192 composite grid that mounts as an
+ordinary mini. Spin/slice/tops/lift/persistence need nothing new.
+
+- **Explicit slots** stamp their asset at `(i%3)*64, (i/3|0)*64`; a multi-slot
+  asset (the tenement's 192 span at slot 0) marks every lot it covers.
+- **Vacant lots take `empty_land`** — the game's own 64×8×64 vacant-lot tile
+  (cobble ground, rubble, perimeter fence posts), one per empty slot, so the
+  block reads exactly like `city_layout`'s `block_41` in Unity.
+- **Consistent miniature scale**: `fill:.75` on the composite means the whole
+  192-voxel block spans .9m — the tenement composite is pixel-identical to the
+  primary's tenement at the same scale, while `block_41` keeps the block's area
+  with the barber rendered at its true 64-voxel lot size in its authored slot
+  (slot 2 → the NE lot under Unity truth, mirrored to the rendered NW corner).
+- `stassetFetch` caches parsed volumes per name — a block's 9 slots share fetches;
+  `emitVox` is the shared instance/tops/mini emitter for both single mounts and
+  composites.
 
 ## The debug pad — a pickable touchscreen
 
@@ -113,6 +135,13 @@ input modes:
 Probes are unconditional (`kb || db`) so canvas hover state can't freeze;
 ghost wires gate per-panel (`btn.panel`). MODEL page drives `mountModel`.
 
+**The pad is a remote for its nearest table.** `padTable()` resolves the pad's
+position (held → your hand; placed → where it sits/hangs) to the closest table's
+rec — every MODEL/ROT/SLICE/LIFT verb drives THAT table. Each page title reads
+its target (`TURNTABLE — BLOCK`). Rest the pad on the block table's felt and it
+drives the block; carry it back to the primary and it drives the primary —
+the same pad is both tables' panel.
+
 ## Pad pages — the registry, tabs, and the ≡ menu
 
 The face is paged, and **a page is data**: `PAD_PAGES` is an ordered registry
@@ -124,7 +153,7 @@ padPage` — a page switch costs a `padDraw` and nothing else. New tools are a
 `PAD_PAGES` entry + optional `{page: id}` regions; the chrome never changes.
 
 - **LIFT — the piston page.** Two speeds each way (`▼▼ ▼ ▲ ▲▲` = ∓.08/∓.02)
-  drive `tableLift(TABLES[0], dy)`; `RESET` homes `lift` to 0. The readout
+  drive `tableLift(padTable(), dy)`; `RESET` homes `lift` to 0. The readout
   shows `TOP …m · LIFT +…` live — raise the table past eye level (.55) to look
   up at the exhibit. The pad itself rides the lift when it's standing on the
   table — the remote travels with the machine it drives.

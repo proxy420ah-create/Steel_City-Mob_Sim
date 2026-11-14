@@ -296,7 +296,7 @@ check('bounds = 10 slabs + 20 seams + 6 portal wires', await evl('__construct.bo
 
 // 12.75 — drafting room: Primary Table centred in the annex, square + low, surf host, stasset miniatures
 { const tabs = await evl('__construct.tables()');
-  check('primary table emitted', tabs.length === 1 && tabs[0].id === 'primary', JSON.stringify(tabs));
+  check('primary table emitted', tabs.length === 2 && tabs[0].id === 'primary', JSON.stringify(tabs));
   check('table dead-centre in the annex', tabs && tabs[0].x === -5 && tabs[0].z === -2.5);
   check('table square + low', tabs && tabs[0].size === 1.2 && tabs[0].top === .26);
   for (let i = 0; i < 40 && !(await evl('__construct.tables()[0].models.length === 1')); i++) await sleep(250);
@@ -451,6 +451,41 @@ await evl('__pad.press("lDD")');
 check('clamped at the floor', await evl('Math.abs(__construct.tables()[0].lift + .22) < 1e-3'));
 await evl('__pad.press("lres")');
 check('reset off the floor', await evl('__construct.tables()[0].lift === 0 && Math.abs(__pad.rec().y0 - .26) < .01'));
+
+// 12.99c — the BLOCK TABLE: a 3×3 city block, lots filled from city_layout slots
+const tabs2 = JSON.parse(await evl('JSON.stringify(__construct.tables())'));
+check('two tables — primary + block', tabs2.length === 2 && tabs2[1].id === 'block', JSON.stringify(tabs2.map(q => q.id)));
+check('block table emitted SW of primary', tabs2[1] && Math.abs(tabs2[1].x + 5.9) < .01 && Math.abs(tabs2[1].z + 1.3) < .01);
+const bm = tabs2[1].models[0];
+check('block mount = the tenement composite — full 192 grid', bm && bm.dims.join(',') === '192,120,192' && bm.vox === 426012, JSON.stringify(bm));
+const broof = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -5.9, -1.3, 0)');
+check('block table roof = .7475 — same consistent scale', Math.abs(broof - .7475) < .008, 'roof=' + broof);
+check('pad still remote for primary — it sits on primary', await evl('__pad.table() === "primary"'), await evl('__pad.table()'));
+await evl('__construct.take("debug_pad"); __construct.place(-5.9, -1.87)');           // set the pad on the block's north margin
+check('pad retargets — nearest table is the block', await evl('__pad.table() === "block"'), await evl('__pad.table()'));
+await evl('__pad.press("next")'); await sleep(600);                                   // block swap → block_41_barber
+const bb = JSON.parse(await evl('JSON.stringify(__construct.tables()[1].models[0])'));
+check('block_41 mounted — composite 192 grid, land tiles included', bb && bb.dims.join(',') === '192,36,192' && bb.vox > 20577, JSON.stringify({ d: bb && bb.dims, v: bb && bb.vox }));
+const btop = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.2, -1.6, 0)');
+check('barber on its authored lot (slot 2) — roof field top .377', Math.abs(btop - .3772) < .003, 'top=' + btop);
+const ltop = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.2, -1.0, 0)');
+check('vacant lot = empty land — fence-post top .279', Math.abs(ltop - .2787) < .004, 'land=' + ltop);
+const ftop = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.2, -1.72, 0)');
+check('barber street parapet row — y33+ at its lot edge', ftop > .4 && ftop < .44, 'front=' + ftop);
+check('block swap persisted', await evl('localStorage.getItem("dvm_model:block") === "block_41_barber"'));
+await evl('__pad.press("lRR")');
+check('block lifts — primary untouched', await evl('Math.abs(__construct.tables()[1].lift - .08) < 1e-3 && __construct.tables()[0].lift === 0'), await evl('JSON.stringify([__construct.tables()[0].lift, __construct.tables()[1].lift])'));
+check('pad rides the block column', await evl('Math.abs(__pad.rec().y0 - .34) < .01'), await evl('__pad.rec() && __pad.rec().y0'));
+await evl('__pad.press("lres")');
+check('block reset', await evl('__construct.tables()[1].lift === 0 && Math.abs(__pad.rec().y0 - .26) < .01'));
+await evl('__pad.press("prev")'); await sleep(600);                                   // back to the tenement composite
+const bback = JSON.parse(await evl('JSON.stringify(__construct.tables()[1].models[0])'));
+check('re-mount tenement — whole block again', bback && bback.vox === 426012, JSON.stringify(bback && bback.vox));
+const broof2 = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -5.9, -1.3, 0)');
+check('roof restored at .7475', Math.abs(broof2 - .7475) < .008, 'roof=' + broof2);
+await evl('__construct.take("debug_pad"); __construct.place(-5, -1.975)');            // pad home to primary's margin
+check('pad re-homes to primary', await evl('__pad.table() === "primary"'), await evl('__pad.table()'));
+
 
 // 12.99b — the apps menu: ≡ lists every page as a launch tile
 await evl('__pad.tab("apps")');

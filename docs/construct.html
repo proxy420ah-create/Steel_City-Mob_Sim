@@ -274,6 +274,10 @@ MANIFEST.tables = [                                                    // PRIMAR
     models: [{ name: 'tenement_block_0', fill: .75 }],                   // mounted exhibit — one model at a time, .75 of the tabletop
     catalog: [{ name: 'tenement_block_0', fill: .75 },                   // the swappable universe — the wall panel cycles it
               { name: 'barber_shop', fill: .75 }] },
+  { id: 'block', x: -5.9, z: -1.3, size: 1.2, top: .26, scale: 1 / 64,   // BLOCK TABLE — a full 3×3 city block (9 lots of 64 vox = 192 span)
+    models: [{ name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' } }],   // tenement fills every lot → identical to the easel's
+    catalog: [{ name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' } },
+              { name: 'block_41_barber', fill: .75, slots: { 2: 'barber_shop' } }] },       // block_41's authored lot — the rest = empty_land
 ];
 const TABLES = [];
 const SLEEVE_H = .12;                                                    // piston barrel — the fixed lower leg section
@@ -331,15 +335,45 @@ const tableLiftSet = (t, lift) => { const oldTop = tableTop(t);
   liftRiders(t, dy, oldTop);
   localStorage.setItem('dvm_lift:' + t.spec.id, String(t.lift)); };        // the height persists like the layout
 const tableLift = (t, dy) => tableLiftSet(t, t.lift + dy);
+/* stassetFetch — one parsed volume per name, cached (a block's 9 slots share fetches:
+   empty_land arrives once and stamps every vacant lot). */
+const _stCache = {};
+const stassetFetch = name => _stCache[name] || (_stCache[name] =
+  fetch('/Assets/StreamingAssets/voxel_buildings/' + name + '.stasset')
+    .then(r => r.arrayBuffer()).then(buf => {
+      const dv = new DataView(buf);
+      if (dv.getUint32(0, false) !== 0x53544153) throw new Error('not a stasset: ' + name);
+      const W = dv.getUint16(6, true), H = dv.getUint16(8, true), D = dv.getUint16(10, true);
+      return { W, H, D, vox: new Uint16Array(buf.slice(16, 16 + W * H * D * 2)) }; }));
 /* emitBldg — a .stasset volume as a tabletop maquette. Dense u16 grid (STAS: x-major), surface-only
    instancing, per-column max-height written back into the host's tops. All models on a table share
    the table's declared scale — buildings stay comparable, like a real architect's set. */
-const emitBldg = (t, m) => fetch('/Assets/StreamingAssets/voxel_buildings/' + m.name + '.stasset')
-  .then(r => r.arrayBuffer()).then(buf => {
-    const dv = new DataView(buf);
-    if (dv.getUint32(0, false) !== 0x53544153) return console.warn('CONSTRUCT — not a stasset:', m.name);
-    const W = dv.getUint16(6, true), H = dv.getUint16(8, true), D = dv.getUint16(10, true);
-    const vox = new Uint16Array(buf.slice(16, 16 + W * H * D * 2));
+const emitBldg = (t, m) => stassetFetch(m.name)
+  .then(f => emitVox(t, m, f.W, f.H, f.D, f.vox))
+  .catch(e => console.warn('CONSTRUCT — bldg emit failed:', m.name, e));
+/* emitBlock — a 3×3 city block as ONE miniature: slot assets merge into a single 192-voxel
+   composite grid (each explicit slot stamps its asset at its 64-voxel offset; a multi-slot
+   asset marks every lot it covers; the rest take empty_land — the game's own vacant-lot tile).
+   The composite is an ordinary mini: rotation/slice/tops/persistence need nothing new. */
+const emitBlock = (t, m) => { const S = 64, BW = 192, slots = m.slots || {};
+  const names = new Set(['empty_land']); Object.values(slots).forEach(n => names.add(n));
+  return Promise.all([...names].map(n => stassetFetch(n).then(f => [n, f]))).then(es => {
+    const files = Object.fromEntries(es);
+    const covered = new Set();                                          // which lots does explicit content already own?
+    Object.entries(slots).forEach(([s, n]) => { const f = files[n], sc = +s % 3, sr = (+s / 3) | 0;
+      for (let r = sr; r < sr + f.D / S; r++) for (let c = sc; c < sc + f.W / S; c++) covered.add(r * 3 + c); });
+    const H = Math.max(...[...names].map(n => files[n].H));
+    const vox = new Uint16Array(BW * H * BW);
+    const stamp = (f, sx, sz) => { for (let z = 0; z < f.D && sz + z < BW; z++)
+      for (let y = 0; y < f.H; y++) for (let x = 0; x < f.W && sx + x < BW; x++) {
+        const id = f.vox[x + f.W * (y + f.H * z)]; if (id) vox[(sx + x) + BW * (y + H * (sz + z))] = id; } };
+    for (let s = 0; s < 9; s++) { const n = slots[s]; if (n) stamp(files[n], (s % 3) * S, ((s / 3) | 0) * S); }
+    for (let s = 0; s < 9; s++) if (!covered.has(s) && !slots[s]) stamp(files['empty_land'], (s % 3) * S, ((s / 3) | 0) * S);
+    return emitVox(t, m, BW, H, BW, vox); })
+    .catch(e => console.warn('CONSTRUCT — block emit failed:', m.name, e)); };
+/* emitVox — one volume's instances + tops + mini rec. The shared body for single mounts and
+   block composites: `m` supplies name/fill/x/z/flip; the grid is already assembled. */
+const emitVox = (t, m, W, H, D, vox) => {
     const vs = m.fill ? (m.fill * t.spec.size) / Math.max(W, D) : BLDG_VS * t.spec.scale;   // fill: span = fill × table size
     const top = tableTop(t), ox = m.x || 0, oz = m.z || 0;
     const mirX = m.flip !== false;                                       // .stasset grids are authored under Unity truth —
@@ -388,7 +422,7 @@ const emitBldg = (t, m) => fetch('/Assets/StreamingAssets/voxel_buildings/' + m.
       slice: { x: [0, W - 1], y: [0, H - 1], z: [0, D - 1] }, clipMin, clipMax };
     miniSyncSlice(miniG); miniSyncTops(t, miniG);                        // the model joins the host's surface truth
     return miniG;
-  }).catch(e => console.warn('CONSTRUCT — bldg emit failed:', m.name, e));
+  };
 /* miniSyncSlice — the editor's xyz window, same contract: a per-axis index range shader-clips
    instances whose origins fall outside. Clip bounds are MODEL-LOCAL (mirrored x handled via fx). */
 const miniSyncSlice = mdl => { const mn = mdl.userData.mini, s = mn.slice, vs = mn.vs, D = mn.dims[2];
@@ -410,21 +444,21 @@ const miniSyncTops = (t, mdl) => { const mn = mdl.userData.mini, s = mn.slice;
     mn.written.add(k); } };
 /* miniSpinSet — the turntable: rate in rad/s, toggling the active rate stops it. Tops re-project
    every >.02 rad during spin (the render loop owns the integration) and exactly on stop. */
-const miniSpinSet = rate => { const t = TABLES[0], mdl = t && t.g.children.find(c => c.userData.mini);
+const miniSpinSet = rate => { const t = padTable(), mdl = t && t.g.children.find(c => c.userData.mini);
   if (!mdl) return; const mn = mdl.userData.mini;
   mn.spin = (mn.spin === rate) ? 0 : rate;
   if (!mn.spin) { mn.topTheta = mdl.rotation.y; miniSyncTops(t, mdl); } };
 /* miniRotReset — home the easel: stop any spin, face the model at rotY 0, exact tops re-sync. */
-const miniRotReset = () => { const t = TABLES[0], mdl = t && t.g.children.find(c => c.userData.mini);
+const miniRotReset = () => { const t = padTable(), mdl = t && t.g.children.find(c => c.userData.mini);
   if (!mdl) return; const mn = mdl.userData.mini;
   mn.spin = 0; mdl.rotation.y = 0; mn.topTheta = 0; miniSyncTops(t, mdl); };
 /* sliceStep — nudge the active slice bound by dim/16 steps (min 1), clamped against its twin. */
-const miniSliceStep = (bound, dir) => { const t = TABLES[0], mdl = t && t.g.children.find(c => c.userData.mini);
+const miniSliceStep = (bound, dir) => { const t = padTable(), mdl = t && t.g.children.find(c => c.userData.mini);
   if (!mdl) return; const mn = mdl.userData.mini, ax = mn.axis || 'y', dim = mn.dims['xyz'.indexOf(ax)], s = mn.slice[ax],
     st = Math.max(1, dim >> 4), i = bound === 'min' ? 0 : 1;
   s[i] = Math.max(i ? s[0] : 0, Math.min(i ? dim - 1 : s[1], s[i] + dir * st));
   miniSyncSlice(mdl); miniSyncTops(t, mdl); };
-const miniSliceReset = () => { const t = TABLES[0], mdl = t && t.g.children.find(c => c.userData.mini);
+const miniSliceReset = () => { const t = padTable(), mdl = t && t.g.children.find(c => c.userData.mini);
   if (!mdl) return; const mn = mdl.userData.mini;
   mn.slice = { x: [0, mn.dims[0] - 1], y: [0, mn.dims[1] - 1], z: [0, mn.dims[2] - 1] };
   miniSyncSlice(mdl); miniSyncTops(t, mdl); };
@@ -436,7 +470,7 @@ const mountModel = (t, mspec) => {
     c.children.forEach(ch => { ch.dispose && ch.dispose(); ch.material && ch.material.dispose && ch.material.dispose(); });
     t.g.remove(c); });
   t.spec.models = [mspec];
-  return emitBldg(t, mspec);
+  return (mspec.slots ? emitBlock : emitBldg)(t, mspec);
 };
 MANIFEST.tables.forEach(spec => { const t = emitTable(spec);
   const savedLift = +localStorage.getItem('dvm_lift:' + spec.id);           // the pistons remember their reach
@@ -453,25 +487,25 @@ MANIFEST.tables.forEach(spec => { const t = emitTable(spec);
    registry, and the trailing ≡ opens the APPS menu — a tile per page, so overflow never crowds
    the strip. New tools = a PAD_PAGES entry + optional page regions; the chrome never changes. */
 const PAD_PAGES = {
-  model: { tab: 'MODEL', draw: (g, { cat, cur, idx }) => {
+  model: { tab: 'MODEL', draw: (g, { t, cat, cur, idx }) => {
     g.fillStyle = '#cfc8b0'; g.font = '16px monospace';
-    g.fillText('MODEL' + (idx >= 0 ? '   ' + (idx + 1) + '/' + cat.length : ''), 256, 96);
+    g.fillText('MODEL — ' + (t ? t.spec.id.toUpperCase() : '—') + (idx >= 0 ? '   ' + (idx + 1) + '/' + cat.length : ''), 256, 96);
     g.fillStyle = '#e8d9b0'; g.font = 'bold 24px monospace';
     g.fillText(cur ? cur.name.replace(/_/g, ' ').toUpperCase() : '…', 256, 196);
     g.fillStyle = '#5b5648'; g.font = '13px monospace'; g.fillText('RMB tap — cursor · E — place', 256, 312); } },
-  rot: { tab: 'ROT', draw: (g, { mn }) => {
-    g.fillStyle = '#cfc8b0'; g.font = '16px monospace'; g.fillText('TURNTABLE', 256, 96);
+  rot: { tab: 'ROT', draw: (g, { t, mn }) => {
+    g.fillStyle = '#cfc8b0'; g.font = '16px monospace'; g.fillText('TURNTABLE — ' + (t ? t.spec.id.toUpperCase() : '—'), 256, 96);
     const degs = mn ? Math.round(Math.abs(mn.spin) * 180 / Math.PI) : 0;
     g.fillStyle = '#e8d9b0'; g.font = 'bold 22px monospace';
     g.fillText(mn && mn.spin ? (mn.spin < 0 ? '◀ ' : '▶ ') + degs + '°/s' : 'STOPPED', 256, 266); } },
-  slice: { tab: 'SLICE', draw: (g, { mn }) => {
+  slice: { tab: 'SLICE', draw: (g, { t, mn }) => {
     const ax = mn ? (mn.axis || 'y') : 'y', s = mn ? mn.slice[ax] : [0, 0], dim = mn ? mn.dims['xyz'.indexOf(ax)] : 0;
     g.fillStyle = '#cfc8b0'; g.font = '16px monospace';
-    g.fillText('SLICE ' + ax.toUpperCase() + '   0–' + (dim - 1), 256, 146);
+    g.fillText('SLICE — ' + (t ? t.spec.id.toUpperCase() : '—') + '   ' + ax.toUpperCase() + '   0–' + (dim - 1), 256, 146);
     g.fillStyle = '#e8d9b0'; g.font = 'bold 20px monospace';
     g.fillText('MIN   ' + s[0], 256, 186); g.fillText('MAX   ' + s[1], 256, 261); } },
   table: { tab: 'LIFT', draw: (g, { t }) => {
-    g.fillStyle = '#cfc8b0'; g.font = '16px monospace'; g.fillText('PISTON LIFT', 256, 96);
+    g.fillStyle = '#cfc8b0'; g.font = '16px monospace'; g.fillText('PISTON LIFT — ' + (t ? t.spec.id.toUpperCase() : '—'), 256, 96);
     g.fillStyle = '#e8d9b0'; g.font = 'bold 22px monospace';
     g.fillText('TOP  ' + (t ? tableTop(t).toFixed(2) : '—') + 'm   ·   LIFT +' + (t ? t.lift.toFixed(2) : '0.00'), 256, 266);
     g.fillStyle = '#5b5648'; g.font = '13px monospace'; g.fillText('eye .55 — raise past it to look up · drops to the floor', 256, 312); } },
@@ -488,11 +522,11 @@ const PAD_REGIONS = [
   { id: 'rr',  page: 'rot', x: 264, y: 140, w: 110, h: 96, label: 'SPIN ▶',  glyph: '▶',  fs: 40, rate: .25,  fn: () => miniSpinSet(.25) },
   { id: 'rrr', page: 'rot', x: 388, y: 140, w: 110, h: 96, label: 'SPIN ▶▶', glyph: '▶▶', fs: 34, rate: .9,   fn: () => miniSpinSet(.9) },
   { id: 'rres', page: 'rot', x: 196, y: 284, w: 120, h: 42, label: 'ROT RESET', glyph: 'RESET', fs: 20, fn: () => miniRotReset() },
-  { id: 'lDD', page: 'table', x: 16,  y: 140, w: 110, h: 96, label: 'LOWER ▼▼', glyph: '▼▼', fs: 34, fn: () => tableLift(TABLES[0], -.08) },
-  { id: 'lD',  page: 'table', x: 140, y: 140, w: 110, h: 96, label: 'LOWER ▼',  glyph: '▼',  fs: 40, fn: () => tableLift(TABLES[0], -.02) },
-  { id: 'lR',  page: 'table', x: 264, y: 140, w: 110, h: 96, label: 'RAISE ▲',  glyph: '▲',  fs: 40, fn: () => tableLift(TABLES[0], .02) },
-  { id: 'lRR', page: 'table', x: 388, y: 140, w: 110, h: 96, label: 'RAISE ▲▲', glyph: '▲▲', fs: 34, fn: () => tableLift(TABLES[0], .08) },
-  { id: 'lres', page: 'table', x: 196, y: 284, w: 120, h: 42, label: 'LIFT RESET', glyph: 'RESET', fs: 20, fn: () => tableLiftSet(TABLES[0], 0) },
+  { id: 'lDD', page: 'table', x: 16,  y: 140, w: 110, h: 96, label: 'LOWER ▼▼', glyph: '▼▼', fs: 34, fn: () => tableLift(padTable(), -.08) },
+  { id: 'lD',  page: 'table', x: 140, y: 140, w: 110, h: 96, label: 'LOWER ▼',  glyph: '▼',  fs: 40, fn: () => tableLift(padTable(), -.02) },
+  { id: 'lR',  page: 'table', x: 264, y: 140, w: 110, h: 96, label: 'RAISE ▲',  glyph: '▲',  fs: 40, fn: () => tableLift(padTable(), .02) },
+  { id: 'lRR', page: 'table', x: 388, y: 140, w: 110, h: 96, label: 'RAISE ▲▲', glyph: '▲▲', fs: 34, fn: () => tableLift(padTable(), .08) },
+  { id: 'lres', page: 'table', x: 196, y: 284, w: 120, h: 42, label: 'LIFT RESET', glyph: 'RESET', fs: 20, fn: () => tableLiftSet(padTable(), 0) },
   { id: 'ax:x', page: 'slice', x: 116, y: 76, w: 90, h: 50, label: 'SLICE X', glyph: 'X', fs: 26, axis: 'x', fn: () => padAxisSet('x') },
   { id: 'ax:y', page: 'slice', x: 211, y: 76, w: 90, h: 50, label: 'SLICE Y', glyph: 'Y', fs: 26, axis: 'y', fn: () => padAxisSet('y') },
   { id: 'ax:z', page: 'slice', x: 306, y: 76, w: 90, h: 50, label: 'SLICE Z', glyph: 'Z', fs: 26, axis: 'z', fn: () => padAxisSet('z') },
@@ -509,7 +543,7 @@ padTabIds.forEach((id, i) => { const w = 496 / padTabIds.length;                
 padTabIds.forEach((id, i) => {                                                 // the APPS menu — a launch tile per page
   PAD_REGIONS.push({ id: 'app:' + id, page: 'apps', x: 16 + (i % 3) * 166, y: 80 + ((i / 3) | 0) * 84, w: 150, h: 76,
     label: 'OPEN ' + PAD_PAGES[id].tab, glyph: PAD_PAGES[id].tab, fs: 22, fn: () => padPageSet(id) }); });
-const padSwap = dir => { const t = TABLES[0]; if (!t) return;
+const padSwap = dir => { const t = padTable(); if (!t) return;
   const cat = t.spec.catalog || t.spec.models, cur = t.spec.models[0],
     i = cat.findIndex(m => m.name === (cur && cur.name)), next = cat[(i + dir + cat.length) % cat.length];
   if (next) { localStorage.setItem('dvm_model:' + t.spec.id, next.name);
@@ -518,11 +552,17 @@ const padCv = document.createElement('canvas'); padCv.width = 512; padCv.height 
 const padTex = new THREE.CanvasTexture(padCv); padTex.colorSpace = THREE.SRGBColorSpace;
 let padRec = null, padScr = null, padEdgeMat = null, padFocus = false, padHover = null, padPressId = null;
 const padPageSet = id => { padPage = id; padHover = null; padPressId = null; padDraw(); };
-const padAxisSet = ax => { const t = TABLES[0], mdl = t && t.g.children.find(c => c.userData.mini);
+const padAxisSet = ax => { const t = padTable(), mdl = t && t.g.children.find(c => c.userData.mini);
   if (mdl) mdl.userData.mini.axis = ax; padDraw(); };
-const padMini = () => { const t = TABLES[0], mdl = t && t.g.children.find(c => c.userData.mini);
+/* padTable — the pad is a remote for its NEAREST table: its own position is the truth
+   (held → follows your hand; placed → bound to the table it rests/hangs beside). */
+const padTable = () => { const pp = padRec ? padRec.g.position : pos;
+  let best = TABLES[0], bd = Infinity;
+  TABLES.forEach(t => { const d = Math.hypot(t.rec.x - pp.x, t.rec.z - pp.z); if (d < bd) { bd = d; best = t; } });
+  return best; };
+const padMini = () => { const t = padTable(), mdl = t && t.g.children.find(c => c.userData.mini);
   return mdl ? mdl.userData.mini : null; };
-const padDraw = () => { const g = padCv.getContext('2d'), t = TABLES[0],
+const padDraw = () => { const g = padCv.getContext('2d'), t = padTable(),
     cat = t ? (t.spec.catalog || t.spec.models) : [], cur = t && t.spec.models[0],
     idx = cur ? cat.findIndex(m => m.name === cur.name) : -1, mn = padMini();
   g.fillStyle = '#101218'; g.fillRect(0, 0, 512, 340);
@@ -580,6 +620,7 @@ const padProbe = () => { if (!padRec || padRec === held) { padSetHover(null); re
   const r = padUvRegion(h[0].uv); padSetHover(r);
   return r ? { isBtn: true, panel: 'pad', label: () => 'E — ' + r.label, fn: () => padPress(r) } : null; };
 window.__pad = { rec: () => padRec, regions: PAD_REGIONS, scr: () => padScr, probe: padProbe,
+  table: () => padTable() && padTable().spec.id,
   focus: on => { if (!!on !== padFocus) padFocusToggle(); }, isFocus: () => padFocus,
   page: () => padPage, tab: id => padPageSet(id),
   hover: () => padHover, hit: uv => { const r = padUvRegion(uv); return r ? r.id : null; },
@@ -1498,7 +1539,7 @@ const placeUndoDo = () => {                                                     
   else if (op.t === 'add') { const i = PLACED.indexOf(op.p);
     if (i >= 0) { scene.remove(op.p.g); PLACED.splice(i, 1); settleOrphans(op.p, op.p.bbox, null, Infinity); } }   // host gone — drop what rode it
   else if (op.t === 'del') { (op.spec._spec
-      ? Promise.resolve(emitTable(op.spec._spec)).then(t => { op.spec._spec.models.forEach(m => emitBldg(t, m));
+      ? Promise.resolve(emitTable(op.spec._spec)).then(t => { op.spec._spec.models.forEach(m => (m.slots ? emitBlock : emitBldg)(t, m));
           placeApply(t.rec, op.spec.x, op.spec.z, op.spec.rotY); })
       : emitAsset(op.spec.name, { kind: op.spec.kind, x: op.spec.x, z: op.spec.z,
     rotY: op.spec.rotY, pickable: op.spec.pickable, solids: op.spec.solids, source: op.spec.source }));
