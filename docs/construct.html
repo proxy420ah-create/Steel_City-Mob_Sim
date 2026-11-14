@@ -187,6 +187,7 @@ const deskP = emitAsset('commission_lawdesk', { x: 2.3, z: -1.1, rotY: Math.PI /
    the Commission writes who's heeling on portal-E; the Construct writes who's coming home
    on door-E. Each follower is the real poseEngine rig — gait, transitions, gaze, eyes. ═══ */
 const PARTY = JSON.parse(new URLSearchParams(location.search).get('party') || sessionStorage.getItem('dvm_party') || '[]');   // ?party= deep-links a party spec (probes); sessionStorage is the live handoff
+sessionStorage.removeItem('dvm_party');                                                                                     // handoff is one-shot — dvm_fol is the standing record from here
 const OUTFIT = { 3: 126, 4: 126, 6: 126, 7: 105 };   // Civilian_01 "Suit Blue" region→mat remap — same constant the Commission applies
 
 function poseEngine(rig) {
@@ -366,7 +367,7 @@ const emitChar = spec => fetch('/char/' + spec.char).then(r => r.json()).then(ri
     gazeT: null };
   f.setOrder = o => { f.order = { follow: 'follow', goto: 'goto', wait: 'wait' }[o] || 'follow'; };
   E.evalPose(0, 0, bufB); upload(null, bufB, 1, 0);
-  followers.push(f);
+  followers.push(f); saveFol();
   if (!povF) povF = f;                                   // first body in the room owns the eyes — party or console, same claim
   return f;
 }).catch(e => { window.__lastPartyErr = String(e && e.stack || e); console.warn('CONSTRUCT — follower emit failed:', spec.char, e); });
@@ -546,7 +547,7 @@ function renderCons() {
 }
 function toggleSpawn(r, btn) {
   const f = followers.find(x => x.spec.char === r.char);
-  if (f) { scene.remove(f.CH); followers.splice(followers.indexOf(f), 1); if (povF === f) { window.__eyes.hide(); povF = followers[0] || null; } renderCons(); }
+  if (f) { scene.remove(f.CH); followers.splice(followers.indexOf(f), 1); if (povF === f) { window.__eyes.hide(); povF = followers[0] || null; } saveFol(); renderCons(); }
   else { btn.textContent = 'LOADING…'; emitChar({ char: r.char, order: 'follow', x: .4, z: .45 }).then(() => renderCons()); }
 }
 const openCons = () => { consOpen = true; renderCons(); consEl.style.display = 'block'; if (document.exitPointerLock) document.exitPointerLock(); };
@@ -729,7 +730,10 @@ const selfStep = dt => {
 };
 
 const selfP = emitSelf();
-const partyP = Promise.all(PARTY.map(emitChar));
+const saveFol = () => { try { localStorage.setItem('dvm_fol', JSON.stringify(followers.map(f =>     // the roster persists — plain F5 keeps
+  ({ char: f.spec.char, order: f.order === 'goto' ? 'wait' : f.order, x: +f.pos.x.toFixed(2), z: +f.pos.z.toFixed(2) })))); } catch {} };  // them in the room; a mid-transit goto lands as wait
+const partyP = PARTY.length ? Promise.all(PARTY.map(emitChar))                                    // the portal handoff wins when it exists
+  : Promise.all(JSON.parse(localStorage.getItem('dvm_fol') || '[]').map(emitChar));               // otherwise the saved roster restores itself
 const ready = Promise.all([doorP, carP, deskP, partyP, selfP]);
 MANIFEST.props.push({ kind: 'turntable', x: SPIN_POS.x, z: SPIN_POS.z, r: SPIN_R, asset: 'vehicle_490_touring' },
                     { kind: 'prop-table', x: 2.3, z: -1.1, asset: 'commission_lawdesk',
@@ -1130,6 +1134,7 @@ ready.then(async () => {
   renderer.render(scene, camera);
   setTimeout(() => { veil.style.opacity = 0; }, 350);
   if (localStorage.getItem('dvm_live') === '1') window.__live.start();              // live link survives a reload — agent keeps eyes
+  setInterval(saveFol, 2500);                                                     // roster heartbeat — order + last position stay fresh
   window.__warmDone = true;
 });
 requestAnimationFrame(loop);
