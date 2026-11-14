@@ -7,11 +7,11 @@ multiple drafting tables are list entries, not new code.
 ## The table
 
 ```js
-{ id: 'primary', x: -4.6, z: -2.5, size: 1.2, top: .26, scale: 1 / 64,  // front-of-centre on the door axis
+{ id: 'primary', x: -4.6, z: -2.5, size: 1.2, top: .26, scale: 1 / 64, mv: 1,  // front-of-centre on the door axis
   models: [{ name: 'tenement_block_0', fill: .75 }],      // mounted exhibit — one model at a time
   catalog: [{ name: 'tenement_block_0', fill: .75 },      // the swappable universe — the pad cycles it
             { name: 'barber_shop', fill: .75 }] },
-{ id: 'block', x: -6.4, z: -2.5, size: 1.2, top: .26, scale: 1 / 64,   // the Block Table — directly behind, .6m gap
+{ id: 'block', x: -6.4, z: -2.5, size: 1.2, top: .26, scale: 1 / 64, mv: 1,   // the Block Table — directly behind, .6m gap
   models: [{ name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' } }],
   catalog: [{ name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' } },
             { name: 'block_41_barber',  fill: .75, slots: { 2: 'barber_shop' } }] }
@@ -34,6 +34,9 @@ multiple drafting tables are list entries, not new code.
   notch (`-.22`) the slab underside reaches `y=0` — the table sits on the
   floor; once the slab drops below the collar tops each leg group sinks below
   the floor line too, so the pistons read as fully retracting into the void.
+- `spec.mv` is the manifest revision: `dvm_place` overrides apply only when the
+  save's `mv` matches the item's — bumping it (an authored reposition like the
+  r16 row layout) makes the manifest spot win over stale saves.
 - Collision is a `WALL_BLOCKS` entry generated from the footprint (+.15 capsule) —
   exact square edge-slide, identical feel to the walls. The block is stored on
   `rec._block` and re-synced in `placeApply` (collision follows the drag, same law

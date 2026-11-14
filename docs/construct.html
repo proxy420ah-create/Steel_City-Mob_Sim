@@ -202,7 +202,7 @@ const emitAsset = (name, o = {}) => {
     g.position.set(x, seat, z); g.rotation.y = rotY; parent.add(g);
     const rec = { name, kind, g, tops, lb: [lx0, lx1, lz0, lz1], x, z, rotY, y0: seat, minB, vs, surf,
                   bbox: footB([lx0, lx1, lz0, lz1], x, z, rotY),
-                  pickable: !!o.pickable, solids: o.solids || null, source: o.source || 'manifest' };
+                  pickable: !!o.pickable, solids: o.solids || null, source: o.source || 'manifest', mv: o.mv || 0 };
     g.userData.pRec = rec;
     PLACED.push(rec);
     return rec;
@@ -270,11 +270,11 @@ const BLDG_GLASS = new Set([112, 113, 114, 134, 147]);                  // glass
 const darkMat = new THREE.MeshLambertMaterial({ color: 0x14161c });      // the Construct's furniture stock (consoles/kiosk)
 const rodMat = new THREE.MeshLambertMaterial({ color: 0x2e3442 });       // machined piston rod — a half-tone off the barrel
 MANIFEST.tables = [                                                    // PRIMARY TABLE — front-of-centre (-4.6,-2.5), dead on the door axis
-  { id: 'primary', x: -4.6, z: -2.5, size: 1.2, top: .26, scale: 1 / 64,   // scale = shared-table law; a model may declare `fill` instead —
+  { id: 'primary', x: -4.6, z: -2.5, size: 1.2, top: .26, scale: 1 / 64, mv: 1,   // scale = shared-table law; a model may declare `fill` instead —
     models: [{ name: 'tenement_block_0', fill: .75 }],                   // mounted exhibit — one model at a time, .75 of the tabletop
     catalog: [{ name: 'tenement_block_0', fill: .75 },                   // the swappable universe — the wall panel cycles it
               { name: 'barber_shop', fill: .75 }] },
-  { id: 'block', x: -6.4, z: -2.5, size: 1.2, top: .26, scale: 1 / 64,   // BLOCK TABLE — directly behind the primary on the door axis, .6m gap (9 lots of 64 vox = 192 span)
+  { id: 'block', x: -6.4, z: -2.5, size: 1.2, top: .26, scale: 1 / 64, mv: 1,   // BLOCK TABLE — directly behind the primary on the door axis, .6m gap (9 lots of 64 vox = 192 span)
     models: [{ name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' } }],   // tenement fills every lot → identical to the easel's
     catalog: [{ name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' } },
               { name: 'block_41_barber', fill: .75, slots: { 2: 'barber_shop' } }] },       // block_41's authored lot — the rest = empty_land
@@ -308,7 +308,7 @@ const emitTable = spec => {
   for (let ix = c0; ix <= c1; ix++) for (let iz = c0; iz <= c1; iz++) tops.set(TOPK(ix, iz), h);
   const rec = { name: 'table:' + spec.id, kind: 'table', g, tops, lb: [-s / 2, s / 2, -s / 2, s / 2],
     x: spec.x, z: spec.z, rotY: 0, y0: 0, minB: 0, vs: 1, surf: true,
-    bbox: footB([-s / 2, s / 2, -s / 2, s / 2], spec.x, spec.z, 0), pickable: false, solids: null, source: 'manifest', _block: block, _spec: spec };
+    bbox: footB([-s / 2, s / 2, -s / 2, s / 2], spec.x, spec.z, 0), pickable: false, solids: null, source: 'manifest', mv: spec.mv || 0, _block: block, _spec: spec };
   g.userData.pRec = rec; PLACED.push(rec);
   const t = { spec, rec, g, lift: 0, parts: { slab, rims, rods, legs } }; TABLES.push(t); return t;
 };
@@ -1474,7 +1474,7 @@ const placeSnapOp = op => { placeUndo.push(op); if (placeUndo.length > 32) place
 
 const placeSave = () => {                                                        // manifest items persist by name; pastes persist as extras
   const over = {}, extra = [];
-  PLACED.forEach(p => { const o = { x: +p.x.toFixed(3), z: +p.z.toFixed(3), rotY: +p.rotY.toFixed(3) };
+  PLACED.forEach(p => { const o = { x: +p.x.toFixed(3), z: +p.z.toFixed(3), rotY: +p.rotY.toFixed(3), mv: p.mv || 0 };
     if (p.mount) o.mount = { x: +p.mount.x.toFixed(3), y: +p.mount.y.toFixed(3), z: +p.mount.z.toFixed(3), n: p.mount.n };
     if (p.source === 'extra') extra.push({ name: p.name, kind: p.kind, pickable: p.pickable, solids: p.solids, ...o });
     else over[p.name] = o; });
@@ -1740,8 +1740,9 @@ ready.then(async () => {
     const p = PLACED.find(q => q.name === n && q.source !== 'extra');
     if (p) { if (p._block) WALL_BLOCKS.splice(WALL_BLOCKS.indexOf(p._block), 1);
       scene.remove(p.g); PLACED.splice(PLACED.indexOf(p), 1); } });
-  const over = JSON.parse(localStorage.getItem('dvm_place') || '{}');              // your saved layout overrides manifest positions
-  PLACED.forEach(p => { const o = over[p.name]; if (!o || p.source === 'extra') return;
+  const over = JSON.parse(localStorage.getItem('dvm_place') || '{}');              // your saved layout overrides manifest positions —
+  PLACED.forEach(p => { const o = over[p.name];                                   // but only at the same manifest rev: an authored move
+    if (!o || p.source === 'extra' || (o.mv || 0) !== (p.mv || 0)) return;        // (bumped spec.mv) invalidates that item's stale entry
     if (o.mount) { p.mount = o.mount; p.x = o.x; p.z = o.z; p.y0 = o.mount.y; p.rotY = o.rotY;   // wall mounts restore as mounts
       p.g.position.set(o.mount.x, o.mount.y, o.mount.z); padMountQ(p.g, o.mount.n); p.bbox = footB(p.lb, p.x, p.z, p.rotY); }
     else placeApply(p, o.x, o.z, o.rotY); });

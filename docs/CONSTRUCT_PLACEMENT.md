@@ -79,8 +79,12 @@ declaration, not by tuning.
 
 1. **Tombstones** (`dvm_del`) — deleted manifest items removed first (a dead host
    must not seat anything).
-2. **Overrides** (`dvm_place`) — `placeApply` lands manifest items at saved x/z/rotY.
-   *Saves carry no `y` — height is re-derived, never trusted.*
+2. **Overrides** (`dvm_place`) — `placeApply` lands manifest items at saved x/z/rotY,
+   **but only at the same manifest rev**: a spec may carry `mv` (default 0); the
+   save stores the item's `mv` and the override applies only when `o.mv === p.mv`.
+   Bumping a spec's `mv` (an authored reposition) invalidates just that item's
+   stale save — unversioned items keep their saved spots. *Saves carry no `y` —
+   height is re-derived, never trusted.*
 3. **Extras** (`dvm_extra`) — emit with `seatY:'auto'` → conform onto the final layout.
 4. **Fixpoint re-seat** (≤4 passes, descending y0) — every item settles:
    `surfOnly: p.surf, cap: p.y0 + .01`. Hosts correct first; passengers see the
@@ -91,7 +95,7 @@ declaration, not by tuning.
 
 | Key | Contents |
 |-----|----------|
-| `dvm_place` | `{name: {x,z,rotY}}` — manifest overrides (no `y` — heights re-derive) |
+| `dvm_place` | `{name: {x,z,rotY,mv}}` — manifest overrides (no `y` — heights re-derive; `mv` gates stale revs) |
 | `dvm_extra` | `[{name,kind,pickable,solids,x,z,rotY}]` — pasted/agent-emitted items |
 | `dvm_del` | `[name]` — manifest tombstones |
 | `dvm_fol` | follower roster (CHAIR survives F5) |

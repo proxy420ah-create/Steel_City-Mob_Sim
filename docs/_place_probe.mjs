@@ -457,6 +457,16 @@ check('reset off the floor', await evl('__construct.tables()[0].lift === 0 && Ma
 const tabs2 = JSON.parse(await evl('JSON.stringify(__construct.tables())'));
 check('two tables — primary + block', tabs2.length === 2 && tabs2[1].id === 'block', JSON.stringify(tabs2.map(q => q.id)));
 check('block table emitted directly behind the primary', tabs2[1] && Math.abs(tabs2[1].x + 6.4) < .01 && Math.abs(tabs2[1].z + 2.5) < .01);
+// mv law: a stale dvm_place (pre-move coords, no rev) must NOT mask the authored spots
+await evl(`(() => { const p = JSON.parse(localStorage.getItem('dvm_place') || '{}');
+  p['table:primary'] = { x: -5, z: -2.5, rotY: 0 };                              // the stale save — no mv field
+  p['table:block'] = { x: -5.9, z: -1.3, rotY: 0 };
+  p['commission_stamper'] = { x: -1, z: -4.5, rotY: 0 };                          // unversioned item — its save still counts
+  localStorage.setItem('dvm_place', JSON.stringify(p)); })()`);
+await evl('location.reload()'); await sleep(1500); await connect(); await waitBoot(); await sleep(900);
+const mvT = JSON.parse(await evl('JSON.stringify(__construct.tables())'));
+check('stale save rejected — tables hold the manifest row', mvT[0].x === -4.6 && mvT[1].x === -6.4 && mvT[1].z === -2.5, JSON.stringify(mvT.map(q => [q.id, q.x, q.z])));
+check('unversioned items still honor their save', await evl('Math.abs(__construct.placed.find(p => p.name === "commission_stamper").x + 1) < .01'));
 const bm = tabs2[1].models[0];
 check('block mount = the tenement composite — full 192 grid', bm && bm.dims.join(',') === '192,120,192' && bm.vox === 426012, JSON.stringify(bm));
 const broof = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.4, -2.5, 0)');
