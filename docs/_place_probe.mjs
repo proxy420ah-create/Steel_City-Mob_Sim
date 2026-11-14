@@ -267,6 +267,11 @@ await evl('__pos.x = ' + bw[0] + '; __pos.z = ' + (bw[2] - .8));
 await evl('__cam(' + bw[0] + ', ' + (bw[1] + .35) + ', ' + (bw[2] - .8) + ', ' + bw[0] + ', ' + bw[1] + ', ' + bw[2] + ')');
 await sleep(400);
 check('aim at ▶ resolves the button', await evl('!!(__mann.probe() && __mann.probe().label().indexOf("SUIT") >= 0)'), await evl('__mann.probe() && __mann.probe().label()'));
+await evl('Object.defineProperty(document, "pointerLockElement", { get: () => document.querySelector("canvas"), configurable: true })');
+await sleep(250);                                                                                  // let the frame loop resolve promptIt → wire
+check('aim at ▶ shows the ghost wireframe', await evl('!!(__mann.wire() && __mann.wire().visible)'));
+await evl('delete document.pointerLockElement');                                                    // restore the prototype getter — real null again
+check('buttons carry the hue-riding glyph', await evl('__mann.buttons.every(b => b.m.children.length >= 1)'));
 await evl('__mann.press(1)');
 check('press cycles the outfit', await evl('__mann.outfit() === 1'));
 check('outfit persisted to dvm_outfit', await evl('localStorage.getItem("dvm_outfit") === "1"'));

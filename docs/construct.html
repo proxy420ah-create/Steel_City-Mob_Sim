@@ -59,7 +59,8 @@ MANIFEST.tiles.forEach(([i, j]) => {
 const boundsG = new THREE.Group(); scene.add(boundsG);
 const coreMat = new THREE.MeshBasicMaterial({ color: 0x35d5ff, transparent: true, opacity: .85, depthWrite: false, side: THREE.DoubleSide });
 /* hue ride: sine sweep through blue (.58) → purple → pink (.92) and back — never leaves the palette */
-const boundHue = t => { const h = .58 + .34 * (0.5 + 0.5 * Math.sin(t * .3)); coreMat.color.setHSL(h, .85, .6); };
+const boundHue = t => { const h = .58 + .34 * (0.5 + 0.5 * Math.sin(t * .3)); coreMat.color.setHSL(h, .85, .6);
+  if (kioWireMat) kioWireMat.color.copy(coreMat.color); };                 // the button ghost-frame rides the same sweep
 const BND_W = .008;                                                     // ring band width
 function rebuildBounds() {
   boundsG.clear();
@@ -617,6 +618,7 @@ const recolorChar = (f, map) => { const reg = f.rig.regions || {}, dflt = new TH
 const MANN_POS = { x: -2.5, z: .48 }, MANN_YAW = -.69;                 // char rig fwd = (-sin,-cos) — faces SE into the room
 const KIOSK_POS = { x: -2.15, z: .06 }, KIOSK_YAW = 2.45;              // small floor stand dead ahead of him; +z screen faces the approach
 const BUTTONS = [];                                                  // pressable face targets — aim + E/LMB
+let kioWire = null, kioWireMat = null;                               // wireframe ghost-frame — plate child, slips onto the aimed button
 let mannF = null;
 const kioG = new THREE.Group(); kioG.position.set(KIOSK_POS.x, 0, KIOSK_POS.z); kioG.rotation.y = KIOSK_YAW; scene.add(kioG);
 const mannCv = document.createElement('canvas'); mannCv.width = 512; mannCv.height = 340;
@@ -641,8 +643,15 @@ const mannDraw = press => { const g = mannCv.getContext('2d');
   const rim = new THREE.Mesh(new THREE.PlaneGeometry(.52, .36), coreMat); rim.position.z = -.003; plate.add(rim); // hue rim behind
   const scr = new THREE.Mesh(new THREE.PlaneGeometry(.46, .3), new THREE.MeshBasicMaterial({ map: mannTex }));
   plate.add(scr);
+  kioWireMat = new THREE.LineBasicMaterial({ color: 0x35d5ff, transparent: true, opacity: .95 });
+  kioWire = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(.15, .1, .045)), kioWireMat);
+  kioWire.visible = false; plate.add(kioWire);                        // wireframe ghost — only while a button is the aimed interact
+  const arrShape = new THREE.Shape();                                // the little ▶ glyph — mirrored for ◀
+  arrShape.moveTo(-.022, .026); arrShape.lineTo(.028, 0); arrShape.lineTo(-.022, -.026); arrShape.closePath();
+  const arrGeo = new THREE.ShapeGeometry(arrShape);
   const mkBtn = (x, dir) => { const b = new THREE.Mesh(new THREE.BoxGeometry(.11, .08, .02),
       new THREE.MeshLambertMaterial({ color: 0x232733 })); b.position.set(x, -.033, .012); plate.add(b);
+    const ar = new THREE.Mesh(arrGeo, coreMat); ar.scale.x = dir; ar.position.z = .011; b.add(ar);   // coreMat glyph — rides the trim's hue sweep
     const bd = { m: b, isBtn: true, label: () => 'E — ' + (dir < 0 ? '◀ SUIT' : 'SUIT ▶'),
       fn: () => { mannOutfit = (mannOutfit + dir + OUTFITS.length) % OUTFITS.length;
         localStorage.setItem('dvm_outfit', mannOutfit);
@@ -657,9 +666,11 @@ emitChar({ char: 'Civilian1', static: true, x: MANN_POS.x, z: MANN_POS.z, yaw: M
 const kioskProbe = () => { if (Math.hypot(pos.x - KIOSK_POS.x, pos.z - KIOSK_POS.z) > 1.8) return null;
   _ray.setFromCamera(_ctr, camera);
   const h = _ray.intersectObjects(BUTTONS.map(b => b.m), false);
+  if (h.length && kioWire) kioWire.position.copy(h[0].object.position);   // ghost slips onto the aimed button (same plate space)
   return h.length ? h[0].object.userData.btn : null; };
 window.__mann = { f: () => mannF, outfit: () => mannOutfit, buttons: BUTTONS, press: i => BUTTONS[i] && BUTTONS[i].fn(),
-  probe: kioskProbe, btnWorld: i => { const v = new THREE.Vector3(); BUTTONS[i].m.getWorldPosition(v); return [+v.x.toFixed(3), +v.y.toFixed(3), +v.z.toFixed(3)]; } };
+  probe: kioskProbe, wire: () => kioWire,
+  btnWorld: i => { const v = new THREE.Vector3(); BUTTONS[i].m.getWorldPosition(v); return [+v.x.toFixed(3), +v.y.toFixed(3), +v.z.toFixed(3)]; } };
 
 /* ── live link — streams the session to the server so the agent sees YOUR real setup:
    /peek gets pos/aim/marks/follower orders+gaze at ~2Hz; /shot probe_live_pov gets his
@@ -1202,6 +1213,7 @@ const loop = now => {
   pickIt = held || placeOn ? null : nearestPick();
   promptIt = document.pointerLockElement === el && !placeOn ? (kioskProbe() || INTERACT.reduce((b, it) => {
     const d = Math.hypot(pos.x - it.x, pos.z - it.z); return d < it.r && (!b || d < b.d) ? { it, d } : b; }, null)?.it || null) : null;
+  if (kioWire) kioWire.visible = !!(promptIt && promptIt.isBtn);       // ghost frame only while a button is the resolved interact
   promptEl.style.display = (held || pickIt || promptIt) ? 'block' : 'none';
   promptEl.textContent = held ? 'E — PLACE ' + held.name.replace('commission_', '').toUpperCase() + '  ·  , . yaw · [ ] pitch · ; \' roll · G tumble · 0 level'
                      : pickIt ? 'E — TAKE ' + pickIt.name.replace('commission_', '').toUpperCase()

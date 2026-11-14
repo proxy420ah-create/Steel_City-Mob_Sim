@@ -58,6 +58,13 @@ screen normal on the approach direction.
   `±.14`. `kioskProbe()` raycasts them while the player is within 1.8 m;
   the aimed button resolves the `INTERACT` prompt (`E — SUIT ◀/▶`), and a left
   click on an aimed button presses it directly.
+- Each button carries a triangle `ShapeGeometry` glyph in **`coreMat`** — the
+  same material as the rim/bounds, so the arrows ride the room's hue sweep
+  for free (mirrored via `scale.x = ±1`, `DoubleSide` covers the flip).
+- A single wireframe ghost (`EdgesGeometry` box, `kioWire`) slips onto the
+  aimed button inside `kioskProbe` and shows only while a button is the
+  resolved interactable (`promptIt.isBtn`) — its `LineBasicMaterial` copies
+  `coreMat.color` inside `boundHue` to ride the same sweep.
 - Pressing cycles `OUTFITS` modulo, recolors instantly, saves `dvm_outfit`,
   and flashes the pressed arrow.
 
