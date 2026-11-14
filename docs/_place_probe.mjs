@@ -413,6 +413,34 @@ await evl('__torch.set(false)');
 check('torch off — back to 0', await evl('__torch.on === false && __torch.spot.intensity === 0'));
 await evl('__cam(null); __pos.x = -5; __pos.z = -1.6');
 
+// 12.99 — piston lift: the table raises on telescoping legs, riders + tops follow
+await evl('__pad.tab("table")');
+check('tab switch → lift page', await evl('__pad.page() === "table"'));
+await evl('__pad.press("lRR")');                                                    // ▲▲ +.08
+check('lift engaged — +.08', await evl('Math.abs(__construct.tables()[0].lift - .08) < 1e-3'), await evl('__construct.tables()[0].lift'));
+const roofL = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:primary"), -5, -2.5, 0)');
+check('measured roof rode the lift — .8275', Math.abs(roofL - .8275) < .008, 'roof=' + roofL);
+check('the pad rode the column', await evl('Math.abs(__pad.rec().y0 - .34) < .01'), await evl('__pad.rec() && __pad.rec().y0'));
+await evl('__pad.press("lres")');
+check('lift reset — top back to .26, pad reseated', await evl('__construct.tables()[0].lift === 0 && Math.abs(__pad.rec().y0 - .26) < .01'));
+check('lift persisted as "0"', await evl('localStorage.getItem("dvm_lift:primary") === "0"'));
+await evl('__pad.press("lR"); __pad.press("lR"); __pad.press("lR")');                 // 3 × ▲ → +.06
+check('persistence — dvm_lift stored .06', await evl('Math.abs(+localStorage.getItem("dvm_lift:primary") - .06) < 1e-3'), await evl('localStorage.getItem("dvm_lift:primary")'));
+await evl('location.reload()'); await sleep(1500);
+await connect(); await waitBoot(); await sleep(800);
+check('lift survives F5 — top .32, pad still riding', await evl('Math.abs(__construct.tables()[0].lift - .06) < 1e-3 && Math.abs(__pad.rec().y0 - .32) < .01'), await evl('JSON.stringify({l:__construct.tables()[0].lift, y0:__pad.rec().y0})'));
+await evl('__pad.press("lres")');
+check('post-reload reset restores .26', await evl('__construct.tables()[0].lift === 0 && Math.abs(__pad.rec().y0 - .26) < .01'));
+
+// 12.99b — the apps menu: ≡ lists every page as a launch tile
+await evl('__pad.tab("apps")');
+check('apps page live', await evl('__pad.page() === "apps"'));
+check('menu tiles hit-map', await evl('__pad.hit({x:.5,y:.647}) === "app:rot"'), await evl('__pad.hit({x:.5,y:.647})'));
+await evl('__pad.press("app:rot")');
+check('menu tile opens its page', await evl('__pad.page() === "rot"'));
+check('tab strip still live on the page', await evl('__pad.hit({x:.08,y:.96}) === "tab:model"'), await evl('__pad.hit({x:.08,y:.96})'));
+await evl('__pad.tab("model")');
+
 // 13 — fly-camera clamp + release back to body
 await evl('__cam(null)');
 check('camLock released', true);

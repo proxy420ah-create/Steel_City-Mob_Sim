@@ -268,6 +268,7 @@ const BLDG_MAT = {                                                       // mob_
   144: [.96,.90,.69], 145: [.71,.16,.14], 146: [.42,.29,.18], 147: [.59,.67,.73] };
 const BLDG_GLASS = new Set([112, 113, 114, 134, 147]);                  // glass ids — the voxEmit transparency contract
 const darkMat = new THREE.MeshLambertMaterial({ color: 0x14161c });      // the Construct's furniture stock (consoles/kiosk)
+const rodMat = new THREE.MeshLambertMaterial({ color: 0x2e3442 });       // machined piston rod — a half-tone off the barrel
 MANIFEST.tables = [                                                    // PRIMARY TABLE — annex centre (-5,-2.5), dead on the rotator axis
   { id: 'primary', x: -5, z: -2.5, size: 1.2, top: .26, scale: 1 / 64,   // scale = shared-table law; a model may declare `fill` instead —
     models: [{ name: 'tenement_block_0', fill: .75 }],                   // mounted exhibit — one model at a time, .75 of the tabletop
@@ -275,17 +276,26 @@ MANIFEST.tables = [                                                    // PRIMAR
               { name: 'barber_shop', fill: .75 }] },
 ];
 const TABLES = [];
+const SLEEVE_H = .12;                                                    // piston barrel — the fixed lower leg section
 const emitTable = spec => {
   const g = new THREE.Group(); g.position.set(spec.x, 0, spec.z); scene.add(g);
   const s = spec.size, h = spec.top;
   const slab = new THREE.Mesh(new THREE.BoxGeometry(s, .04, s), darkMat); slab.position.y = h - .02; g.add(slab);
-  const leg = new THREE.BoxGeometry(.07, h - .04, .07);                  // drafting legs — open floor beneath, reads light
-  [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([a, b]) => { const l = new THREE.Mesh(leg, darkMat);
-    l.position.set(a * (s / 2 - .11), (h - .04) / 2, b * (s / 2 - .11)); g.add(l); });
+  const rods = [];                                                       // piston legs — barrel + collar + telescoping rod
+  [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([a, b]) => { const lg = new THREE.Group();
+    lg.position.set(a * (s / 2 - .11), 0, b * (s / 2 - .11)); g.add(lg);
+    const sleeve = new THREE.Mesh(new THREE.BoxGeometry(.09, SLEEVE_H, .09), darkMat);
+    sleeve.position.y = SLEEVE_H / 2; lg.add(sleeve);
+    const collar = new THREE.Mesh(new THREE.BoxGeometry(.105, .02, .105), darkMat);   // the gland the rod slides through
+    collar.position.y = SLEEVE_H; lg.add(collar);
+    const rod = new THREE.Mesh(new THREE.BoxGeometry(.05, 1, .05), rodMat);            // unit-height rod — scale.y is the reach
+    const len = h - .04 - SLEEVE_H; rod.scale.y = len; rod.position.y = SLEEVE_H + len / 2; lg.add(rod);
+    rods.push(rod); });
+  const rims = [];
   const w = BND_W * 1.6;                                                 // tabletop rim — the floor seam lifted to h, like the door ∩
   [[0, -1, s + w, w], [0, 1, s + w, w], [-1, 0, w, s + w], [1, 0, w, s + w]].forEach(([a, b, lx, lz]) => {
     const e = new THREE.Mesh(new THREE.BoxGeometry(lx, w, lz), coreMat);
-    e.position.set(a * s / 2, h, b * s / 2); g.add(e); });
+    e.position.set(a * s / 2, h, b * s / 2); g.add(e); rims.push(e); });
   const block = { x0: spec.x - s / 2 - .15, x1: spec.x + s / 2 + .15,      // capsule-expanded footprint — exact square edge-slide
                   z0: spec.z - s / 2 - .15, z1: spec.z + s / 2 + .15 };
   WALL_BLOCKS.push(block);
@@ -296,8 +306,28 @@ const emitTable = spec => {
     x: spec.x, z: spec.z, rotY: 0, y0: 0, minB: 0, vs: 1, surf: true,
     bbox: footB([-s / 2, s / 2, -s / 2, s / 2], spec.x, spec.z, 0), pickable: false, solids: null, source: 'manifest', _block: block, _spec: spec };
   g.userData.pRec = rec; PLACED.push(rec);
-  const t = { spec, rec, g }; TABLES.push(t); return t;
+  const t = { spec, rec, g, lift: 0, parts: { slab, rims, rods } }; TABLES.push(t); return t;
 };
+/* tableTop = authored top + live lift — every top-derivation reads it (mount, tops, sync). */
+const tableTop = t => t.spec.top + t.lift;
+/* liftRiders — the column rides with its pedestal: anything standing above the old top inside the
+   footprint shifts by the lift delta (stacked items keep their offsets — every level +same dy). */
+const liftRiders = (t, dy, oldTop) => PLACED.forEach(q => {
+  if (q === t.rec || q === held || q.mount) return;                      // a wall-mounted pad stays hung — not a rider
+  if (inB(q, t.rec.bbox) && q.y0 >= oldTop - .005) { q.y0 += dy; q.g.position.y = q.y0; } });
+/* tableLiftSet — the piston verb: geometry reposes, measured tops shift by delta, riders ride. */
+const tableLiftSet = (t, lift) => { const oldTop = tableTop(t);
+  t.lift = Math.max(0, Math.min(.4, lift));
+  const dy = tableTop(t) - oldTop; if (Math.abs(dy) < 1e-6) return;
+  const H = tableTop(t);
+  t.parts.slab.position.y = H - .02;
+  t.parts.rims.forEach(e => e.position.y = H);
+  t.parts.rods.forEach(rod => { const len = H - .04 - SLEEVE_H; rod.scale.y = len; rod.position.y = SLEEVE_H + len / 2; });
+  t.g.children.forEach(c => { if (c.userData.mini) c.position.y = H; });   // the exhibit rides its pedestal
+  t.rec.tops.forEach((v, k) => t.rec.tops.set(k, v + dy));                 // measured surface follows the lift
+  liftRiders(t, dy, oldTop);
+  localStorage.setItem('dvm_lift:' + t.spec.id, String(t.lift)); };        // the height persists like the layout
+const tableLift = (t, dy) => tableLiftSet(t, t.lift + dy);
 /* emitBldg — a .stasset volume as a tabletop maquette. Dense u16 grid (STAS: x-major), surface-only
    instancing, per-column max-height written back into the host's tops. All models on a table share
    the table's declared scale — buildings stay comparable, like a real architect's set. */
@@ -308,7 +338,7 @@ const emitBldg = (t, m) => fetch('/Assets/StreamingAssets/voxel_buildings/' + m.
     const W = dv.getUint16(6, true), H = dv.getUint16(8, true), D = dv.getUint16(10, true);
     const vox = new Uint16Array(buf.slice(16, 16 + W * H * D * 2));
     const vs = m.fill ? (m.fill * t.spec.size) / Math.max(W, D) : BLDG_VS * t.spec.scale;   // fill: span = fill × table size
-    const top = t.spec.top, ox = m.x || 0, oz = m.z || 0;
+    const top = tableTop(t), ox = m.x || 0, oz = m.z || 0;
     const mirX = m.flip !== false;                                       // .stasset grids are authored under Unity truth —
     const fx = x => mirX ? (W - 1 - x) - W / 2 + .5 : x - W / 2 + .5;      // the editor's UNITY VIEW is scale.x=-1, so a right-handed render mirrors x to match (opt out with flip:false)
     const at = (x, y, z) => (x < 0 || y < 0 || z < 0 || x >= W || y >= H || z >= D) ? 0 : vox[x + W * (y + H * z)];
@@ -365,14 +395,14 @@ const miniSyncSlice = mdl => { const mn = mdl.userData.mini, s = mn.slice, vs = 
 /* miniSyncTops — rewrite the model's host tops under the CURRENT rotation + slice: written keys
    revert to felt, then surviving columns re-project (rotated offsets, top = tallest y in window). */
 const miniSyncTops = (t, mdl) => { const mn = mdl.userData.mini, s = mn.slice;
-  mn.written.forEach(k => t.rec.tops.set(k, t.spec.top)); mn.written.clear();
+  mn.written.forEach(k => t.rec.tops.set(k, tableTop(t))); mn.written.clear();
   const th = mdl.rotation.y, c = Math.cos(th), sn = Math.sin(th), ox = mdl.position.x, oz = mdl.position.z;
   for (const col of mn.localCols) {
     if (col.x < s.x[0] || col.x > s.x[1] || col.z < s.z[0] || col.z > s.z[1]) continue;
     let ym = -1; for (const y of col.ys) if (y >= s.y[0] && y <= s.y[1] && y > ym) ym = y;
     if (ym < 0) continue;
     const lx = ox + col.dx * c - col.dz * sn, lz = oz + col.dx * sn + col.dz * c;
-    const k = TOPK(Math.round(lx * 200), Math.round(lz * 200)), v = t.spec.top + (ym + 1) * mn.vs;
+    const k = TOPK(Math.round(lx * 200), Math.round(lz * 200)), v = tableTop(t) + (ym + 1) * mn.vs;
     if (v > (t.rec.tops.get(k) ?? -1e9)) t.rec.tops.set(k, v);           // several model cells share a 5mm column — keep the true max
     mn.written.add(k); } };
 /* miniSpinSet — the turntable: rate in rad/s, toggling the active rate stops it. Tops re-project
@@ -399,13 +429,15 @@ const miniSliceReset = () => { const t = TABLES[0], mdl = t && t.g.children.find
    mount the catalog spec. models[] always reads as "what's on the table now". */
 const mountModel = (t, mspec) => {
   t.g.children.filter(c => c.userData.mini).forEach(c => {
-    (c.userData.mini.written || []).forEach(k => t.rec.tops.set(k, t.spec.top));
+    (c.userData.mini.written || []).forEach(k => t.rec.tops.set(k, tableTop(t)));
     c.children.forEach(ch => { ch.dispose && ch.dispose(); ch.material && ch.material.dispose && ch.material.dispose(); });
     t.g.remove(c); });
   t.spec.models = [mspec];
   return emitBldg(t, mspec);
 };
 MANIFEST.tables.forEach(spec => { const t = emitTable(spec);
+  const savedLift = +localStorage.getItem('dvm_lift:' + spec.id);           // the pistons remember their reach
+  if (savedLift) tableLiftSet(t, savedLift);
   const saved = localStorage.getItem('dvm_model:' + spec.id), cat = spec.catalog || spec.models;
   mountModel(t, cat.find(m => m.name === saved) || spec.models[0]); });
 
@@ -414,11 +446,38 @@ MANIFEST.tables.forEach(spec => { const t = emitTable(spec);
    future tools/menus are draw code, never new geometry. Two input modes over one region table:
    held → RMB tap frees the cursor (mousemove raycasts the face, LMB presses); placed →
    center-aim + E/click rides the same promptIt machinery as the kiosk/wall panel. */
-let padPage = 'model';                                                          // tabs sit above every page — the face organizes into pages
+/* Pad pages — a page is registry data {tab, draw}: the tab strip GENERATES itself from the
+   registry, and the trailing ≡ opens the APPS menu — a tile per page, so overflow never crowds
+   the strip. New tools = a PAD_PAGES entry + optional page regions; the chrome never changes. */
+const PAD_PAGES = {
+  model: { tab: 'MODEL', draw: (g, { cat, cur, idx }) => {
+    g.fillStyle = '#cfc8b0'; g.font = '16px monospace';
+    g.fillText('MODEL' + (idx >= 0 ? '   ' + (idx + 1) + '/' + cat.length : ''), 256, 96);
+    g.fillStyle = '#e8d9b0'; g.font = 'bold 24px monospace';
+    g.fillText(cur ? cur.name.replace(/_/g, ' ').toUpperCase() : '…', 256, 196);
+    g.fillStyle = '#5b5648'; g.font = '13px monospace'; g.fillText('RMB tap — cursor · E — place', 256, 312); } },
+  rot: { tab: 'ROT', draw: (g, { mn }) => {
+    g.fillStyle = '#cfc8b0'; g.font = '16px monospace'; g.fillText('TURNTABLE', 256, 96);
+    const degs = mn ? Math.round(Math.abs(mn.spin) * 180 / Math.PI) : 0;
+    g.fillStyle = '#e8d9b0'; g.font = 'bold 22px monospace';
+    g.fillText(mn && mn.spin ? (mn.spin < 0 ? '◀ ' : '▶ ') + degs + '°/s' : 'STOPPED', 256, 266); } },
+  slice: { tab: 'SLICE', draw: (g, { mn }) => {
+    const ax = mn ? (mn.axis || 'y') : 'y', s = mn ? mn.slice[ax] : [0, 0], dim = mn ? mn.dims['xyz'.indexOf(ax)] : 0;
+    g.fillStyle = '#cfc8b0'; g.font = '16px monospace';
+    g.fillText('SLICE ' + ax.toUpperCase() + '   0–' + (dim - 1), 256, 146);
+    g.fillStyle = '#e8d9b0'; g.font = 'bold 20px monospace';
+    g.fillText('MIN   ' + s[0], 256, 186); g.fillText('MAX   ' + s[1], 256, 261); } },
+  table: { tab: 'LIFT', draw: (g, { t }) => {
+    g.fillStyle = '#cfc8b0'; g.font = '16px monospace'; g.fillText('PISTON LIFT', 256, 96);
+    g.fillStyle = '#e8d9b0'; g.font = 'bold 22px monospace';
+    g.fillText('TOP  ' + (t ? tableTop(t).toFixed(2) : '—') + 'm   ·   LIFT +' + (t ? t.lift.toFixed(2) : '0.00'), 256, 266);
+    g.fillStyle = '#5b5648'; g.font = '13px monospace'; g.fillText('eye level .55 — raise past it to look up', 256, 312); } },
+  apps: { tab: '≡', draw: g => {
+    g.fillStyle = '#cfc8b0'; g.font = '16px monospace'; g.fillText('ALL TOOLS', 256, 96);
+    g.fillStyle = '#5b5648'; g.font = '13px monospace'; g.fillText('tap a tile — pages keep their state', 256, 312); } },
+};
+let padPage = 'model';
 const PAD_REGIONS = [
-  { id: 'tab:model', tab: 'model', x: 16,  y: 10, w: 150, h: 44, label: 'MODEL', glyph: 'MODEL', fs: 22, fn: () => padPageSet('model') },
-  { id: 'tab:rot',   tab: 'rot',   x: 181, y: 10, w: 150, h: 44, label: 'ROT',   glyph: 'ROT',   fs: 22, fn: () => padPageSet('rot') },
-  { id: 'tab:slice', tab: 'slice', x: 346, y: 10, w: 150, h: 44, label: 'SLICE', glyph: 'SLICE', fs: 22, fn: () => padPageSet('slice') },
   { id: 'prev', page: 'model', x: 30,  y: 140, w: 90, h: 96, label: '◀ MODEL', glyph: '◀', fn: () => padSwap(-1) },
   { id: 'next', page: 'model', x: 392, y: 140, w: 90, h: 96, label: 'MODEL ▶', glyph: '▶', fn: () => padSwap(1) },
   { id: 'rll', page: 'rot', x: 16,  y: 140, w: 110, h: 96, label: 'SPIN ◀◀', glyph: '◀◀', fs: 34, rate: -.9,  fn: () => miniSpinSet(-.9) },
@@ -426,6 +485,11 @@ const PAD_REGIONS = [
   { id: 'rr',  page: 'rot', x: 264, y: 140, w: 110, h: 96, label: 'SPIN ▶',  glyph: '▶',  fs: 40, rate: .25,  fn: () => miniSpinSet(.25) },
   { id: 'rrr', page: 'rot', x: 388, y: 140, w: 110, h: 96, label: 'SPIN ▶▶', glyph: '▶▶', fs: 34, rate: .9,   fn: () => miniSpinSet(.9) },
   { id: 'rres', page: 'rot', x: 196, y: 284, w: 120, h: 42, label: 'ROT RESET', glyph: 'RESET', fs: 20, fn: () => miniRotReset() },
+  { id: 'lDD', page: 'table', x: 16,  y: 140, w: 110, h: 96, label: 'LOWER ▼▼', glyph: '▼▼', fs: 34, fn: () => tableLift(TABLES[0], -.08) },
+  { id: 'lD',  page: 'table', x: 140, y: 140, w: 110, h: 96, label: 'LOWER ▼',  glyph: '▼',  fs: 40, fn: () => tableLift(TABLES[0], -.02) },
+  { id: 'lR',  page: 'table', x: 264, y: 140, w: 110, h: 96, label: 'RAISE ▲',  glyph: '▲',  fs: 40, fn: () => tableLift(TABLES[0], .02) },
+  { id: 'lRR', page: 'table', x: 388, y: 140, w: 110, h: 96, label: 'RAISE ▲▲', glyph: '▲▲', fs: 34, fn: () => tableLift(TABLES[0], .08) },
+  { id: 'lres', page: 'table', x: 196, y: 284, w: 120, h: 42, label: 'LIFT RESET', glyph: 'RESET', fs: 20, fn: () => tableLiftSet(TABLES[0], 0) },
   { id: 'ax:x', page: 'slice', x: 116, y: 76, w: 90, h: 50, label: 'SLICE X', glyph: 'X', fs: 26, axis: 'x', fn: () => padAxisSet('x') },
   { id: 'ax:y', page: 'slice', x: 211, y: 76, w: 90, h: 50, label: 'SLICE Y', glyph: 'Y', fs: 26, axis: 'y', fn: () => padAxisSet('y') },
   { id: 'ax:z', page: 'slice', x: 306, y: 76, w: 90, h: 50, label: 'SLICE Z', glyph: 'Z', fs: 26, axis: 'z', fn: () => padAxisSet('z') },
@@ -435,6 +499,13 @@ const PAD_REGIONS = [
   { id: 'max+', page: 'slice', x: 412, y: 225, w: 70, h: 60, label: 'MAX +', glyph: '▶', fn: () => miniSliceStep('max', 1) },
   { id: 'sres', page: 'slice', x: 196, y: 292, w: 120, h: 38, label: 'SLICE RESET', glyph: 'RESET', fs: 20, fn: () => miniSliceReset() },
 ];
+const padTabIds = Object.keys(PAD_PAGES).filter(id => PAD_PAGES[id].tab);
+padTabIds.forEach((id, i) => { const w = 496 / padTabIds.length;                // the strip builds itself — a new page gets its tab for free
+  PAD_REGIONS.push({ id: 'tab:' + id, tab: id, x: 8 + i * w, y: 10, w: w - 5, h: 44,
+    label: PAD_PAGES[id].tab, glyph: PAD_PAGES[id].tab, fs: 20, fn: () => padPageSet(id) }); });
+padTabIds.forEach((id, i) => {                                                 // the APPS menu — a launch tile per page
+  PAD_REGIONS.push({ id: 'app:' + id, page: 'apps', x: 16 + (i % 3) * 166, y: 80 + ((i / 3) | 0) * 84, w: 150, h: 76,
+    label: 'OPEN ' + PAD_PAGES[id].tab, glyph: PAD_PAGES[id].tab, fs: 22, fn: () => padPageSet(id) }); });
 const padSwap = dir => { const t = TABLES[0]; if (!t) return;
   const cat = t.spec.catalog || t.spec.models, cur = t.spec.models[0],
     i = cat.findIndex(m => m.name === (cur && cur.name)), next = cat[(i + dir + cat.length) % cat.length];
@@ -461,23 +532,7 @@ const padDraw = () => { const g = padCv.getContext('2d'), t = TABLES[0],
     g.fillStyle = pr || on ? '#7fd4ff' : '#5b5648'; g.font = 'bold ' + (r.fs || 40) + 'px monospace';
     g.fillText(r.glyph, r.x + r.w / 2, r.y + r.h / 2 + (r.fs ? r.fs * .36 : 14)); };
   PAD_REGIONS.filter(r => r.tab || r.page === padPage).forEach(btn);
-  if (padPage === 'model') {
-    g.fillStyle = '#cfc8b0'; g.font = '16px monospace';
-    g.fillText('MODEL' + (idx >= 0 ? '   ' + (idx + 1) + '/' + cat.length : ''), 256, 96);
-    g.fillStyle = '#e8d9b0'; g.font = 'bold 24px monospace';
-    g.fillText(cur ? cur.name.replace(/_/g, ' ').toUpperCase() : '…', 256, 196);
-    g.fillStyle = '#5b5648'; g.font = '13px monospace'; g.fillText('RMB tap — cursor · E — place', 256, 312);
-  } else if (padPage === 'rot') {
-    g.fillStyle = '#cfc8b0'; g.font = '16px monospace'; g.fillText('TURNTABLE', 256, 96);
-    const degs = mn ? Math.round(Math.abs(mn.spin) * 180 / Math.PI) : 0;
-    g.fillStyle = '#e8d9b0'; g.font = 'bold 22px monospace';
-    g.fillText(mn && mn.spin ? (mn.spin < 0 ? '◀ ' : '▶ ') + degs + '°/s' : 'STOPPED', 256, 266);
-  } else if (padPage === 'slice') {
-    const ax = mn ? (mn.axis || 'y') : 'y', s = mn ? mn.slice[ax] : [0, 0], dim = mn ? mn.dims['xyz'.indexOf(ax)] : 0;
-    g.fillStyle = '#cfc8b0'; g.font = '16px monospace';
-    g.fillText('SLICE ' + ax.toUpperCase() + '   0–' + (dim - 1), 256, 146);
-    g.fillStyle = '#e8d9b0'; g.font = 'bold 20px monospace';
-    g.fillText('MIN   ' + s[0], 256, 186); g.fillText('MAX   ' + s[1], 256, 261); }
+  const pg = PAD_PAGES[padPage]; if (pg && pg.draw) pg.draw(g, { t, cat, cur, idx, mn });
   padTex.needsUpdate = true; };
 const padPress = r => { padPressId = r.id; padDraw(); r.fn();
   setTimeout(() => { padPressId = null; padDraw(); }, 160); };
@@ -1680,7 +1735,8 @@ window.__snap = (name, px, py, pz, tx, ty, tz) => {
 };
 window.__construct = { manifest: MANIFEST, pos, spin: () => spinning, held: () => held, placed: PLACED, yaw: () => yaw,
   walkOK, bounds: () => boundsG.children.length, surfaceAt,
-  tables: () => TABLES.filter(t => PLACED.includes(t.rec)).map(t => ({ id: t.spec.id, x: t.rec.x, z: t.rec.z, top: t.spec.top, size: t.spec.size,
+  tables: () => TABLES.filter(t => PLACED.includes(t.rec)).map(t => ({ id: t.spec.id, x: t.rec.x, z: t.rec.z, top: tableTop(t), size: t.spec.size,
+    specTop: t.spec.top, lift: t.lift,
     scale: t.spec.scale, catalog: (t.spec.catalog || []).map(m => m.name),
     models: t.g.children.filter(c => c.userData.mini).map(c => { const m = c.userData.mini; return { name: m.name, dims: m.dims, vox: m.vox, scale: m.scale, fill: m.fill,
       rotY: +c.rotation.y.toFixed(4), spin: m.spin, axis: m.axis,

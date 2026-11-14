@@ -14,8 +14,19 @@ multiple drafting tables are list entries, not new code.
 ```
 
 - `emitTable(spec)` builds it in the Construct's own language: dark furniture slab
-  (`0x14161c`, same stock as consoles/kiosk) on four legs, plus the **floor-wire seam
+  (`0x14161c`, same stock as consoles/kiosk) on four **piston legs** — a fixed
+  barrel (`SLEEVE_H` tall) + collar gland + telescoping machined rod (`0x2e3442`,
+  unit-height so `scale.y` is the reach) — plus the **floor-wire seam
   lifted to the tabletop rim** — the same trick the doorway uses, `coreMat` hue-riding.
+- **The pistons lift.** `tableLiftSet(t, lift)` / `tableLift(t, dy)` raise the
+  whole assembly in `t.lift` (`[0, .4]`): slab, rim, rods re-pose, `mini` groups
+  ride their pedestal, and every `tops` entry shifts by the delta — the measured
+  surface follows the lift exactly. `liftRiders` then applies the same delta to
+  any rec standing above the old top inside the footprint (`inB` +
+  `y0 >= oldTop`), so stacked items ride the column while floor items beneath
+  the table and wall-mounted pads stay put. `tableTop(t) = spec.top + lift` is
+  the law everywhere a top is derived (mount, sync, seat). Persisted as
+  `dvm_lift:<tableId>`; restored at emit before `mountModel`.
 - Collision is a `WALL_BLOCKS` entry generated from the footprint (+.15 capsule) —
   exact square edge-slide, identical feel to the walls. The block is stored on
   `rec._block` and re-synced in `placeApply` (collision follows the drag, same law
@@ -99,13 +110,21 @@ input modes:
 Probes are unconditional (`kb || db`) so canvas hover state can't freeze;
 ghost wires gate per-panel (`btn.panel`). MODEL page drives `mountModel`.
 
-## Pad pages — tabs, the turntable, the slice window
+## Pad pages — the registry, tabs, and the ≡ menu
 
-The face is paged: a tab strip (`MODEL | ROT | SLICE`) sits above every page —
-`padPage` state, `padUvRegion`/`padDraw` scope regions to `r.tab || r.page ===
-padPage`, so a page switch costs a `padDraw` and nothing else. New tools are a
-`page:` entry + draw branch.
+The face is paged, and **a page is data**: `PAD_PAGES` is an ordered registry
+`{id: {tab, draw(g, ctx)}}`. The tab strip **generates itself** from the
+registry — `MODEL | ROT | SLICE | LIFT | ≡` — and the trailing `≡` opens the
+APPS menu, a launch tile per page so the strip never crowds as tools grow.
+`padPage` state + `padUvRegion`/`padDraw` scope regions to `r.tab || r.page ===
+padPage` — a page switch costs a `padDraw` and nothing else. New tools are a
+`PAD_PAGES` entry + optional `{page: id}` regions; the chrome never changes.
 
+- **LIFT — the piston page.** Two speeds each way (`▼▼ ▼ ▲ ▲▲` = ∓.08/∓.02)
+  drive `tableLift(TABLES[0], dy)`; `RESET` homes `lift` to 0. The readout
+  shows `TOP …m · LIFT +…` live — raise the table past eye level (.55) to look
+  up at the exhibit. The pad itself rides the lift when it's standing on the
+  table — the remote travels with the machine it drives.
 - **ROT — the easel turntable.** Four speeds-as-buttons (`◀◀ ◀ ▶ ▶▶`, ±.9/±.25
   rad/s): `miniSpinSet` toggles — press a rate to spin, press the lit rate to
   stop, press another to change. `RESET` (`miniRotReset`) homes it: spin 0,
