@@ -614,8 +614,8 @@ let mannOutfit = Math.max(0, Math.min(OUTFITS.length - 1, +localStorage.getItem(
 const recolorChar = (f, map) => { const reg = f.rig.regions || {}, dflt = new THREE.Color(0x888888);
   f.rig.voxels.forEach((v, i) => f.inst.setColorAt(i, f.pal[map[reg[v[0] + ',' + v[1] + ',' + v[2]]] || v[3]] || dflt));
   f.inst.instanceColor.needsUpdate = true; };
-const MANN_POS = { x: -2.5, z: .48 }, MANN_YAW = 2.45;                 // back to the NW wall, facing the rotator
-const KIOSK_POS = { x: -1.85, z: .6 }, KIOSK_YAW = Math.PI - .28;      // face south into the room, angled toward the approach
+const MANN_POS = { x: -2.5, z: .48 }, MANN_YAW = -.69;                 // char rig fwd = (-sin,-cos) — faces SE into the room
+const KIOSK_POS = { x: -2.15, z: .06 }, KIOSK_YAW = 2.45;              // small floor stand dead ahead of him; +z screen faces the approach
 const BUTTONS = [];                                                  // pressable face targets — aim + E/LMB
 let mannF = null;
 const kioG = new THREE.Group(); kioG.position.set(KIOSK_POS.x, 0, KIOSK_POS.z); kioG.rotation.y = KIOSK_YAW; scene.add(kioG);
@@ -633,11 +633,11 @@ const mannDraw = press => { const g = mannCv.getContext('2d');
   g.fillStyle = '#5b5648'; g.font = '15px monospace'; g.fillText('aim + E — or click the arrows', 256, 300);
   mannTex.needsUpdate = true; };
 {
-  const body = new THREE.Mesh(new THREE.BoxGeometry(.44, .45, .26), new THREE.MeshLambertMaterial({ color: 0x14161c }));
-  body.position.y = .225; kioG.add(body);                                         // pedestal column
-  const foot = new THREE.Mesh(new THREE.BoxGeometry(.52, .05, .34), new THREE.MeshLambertMaterial({ color: 0x0e1016 }));
-  foot.position.y = .025; kioG.add(foot);
-  const plate = new THREE.Group(); plate.position.set(0, .68, .06); plate.rotation.x = -.18; kioG.add(plate);  // slight lean-back — whole face clears the column top
+  const foot = new THREE.Mesh(new THREE.BoxGeometry(.4, .06, .32), new THREE.MeshLambertMaterial({ color: 0x0e1016 }));
+  foot.position.y = .03; kioG.add(foot);                                          // low slab base
+  const body = new THREE.Mesh(new THREE.BoxGeometry(.24, .16, .18), new THREE.MeshLambertMaterial({ color: 0x14161c }));
+  body.position.y = .14; kioG.add(body);                                          // stub neck — the stand is knee-height, never hides the mannequin
+  const plate = new THREE.Group(); plate.position.set(0, .26, .06); plate.rotation.x = -.88; kioG.add(plate);  // steep up-tilt — the face lies back toward the eye like a floor plaque
   const rim = new THREE.Mesh(new THREE.PlaneGeometry(.52, .36), coreMat); rim.position.z = -.003; plate.add(rim); // hue rim behind
   const scr = new THREE.Mesh(new THREE.PlaneGeometry(.46, .3), new THREE.MeshBasicMaterial({ map: mannTex }));
   plate.add(scr);

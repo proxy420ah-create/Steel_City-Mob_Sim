@@ -17,7 +17,10 @@ author outfit/accessory loadouts on a real body, in the room, without menus.
 - Because statics skip `followStep` (where follower groups are normally
   positioned), `emitChar` sets `CH.position`/`CH.rotation` at emit time for
   every character — harmless for followers, which re-set both every step.
-- Position: `MANN_POS = { x:-2.5, z:.48 }`, `MANN_YAW = 2.45` (faces the room).
+- Position: `MANN_POS = { x:-2.5, z:.48 }`, `MANN_YAW = -.69`.
+- **Facing convention**: the char rig's forward is `(-sin yaw, -cos yaw)` —
+  opposite the item `rotY` convention `(sin, cos)`. `-.69` faces SE into the
+  room; `2.45` (the item-style value) faced him into the NW wall.
 - Collision: a solid circle `[MANN_POS.x, MANN_POS.z, .22]` in `SOLID_BASE`.
 
 ## Outfits = region→material remaps
@@ -41,12 +44,14 @@ the mannequin re-emits already wearing it.
 
 ## The kiosk
 
-`KIOSK_POS = { x:-1.85, z:.6 }`, `KIOSK_YAW = Math.PI - .28` — the `+z`-facing
-screen must point **south into the room**; a small yaw faces the approach angle.
+`KIOSK_POS = { x:-2.15, z:.06 }` — dead ahead of the mannequin (`.55m` along
+his facing, just clearing the two solids) — `KIOSK_YAW = 2.45` puts the `+z`
+screen normal on the approach direction.
 
-- Pedestal column `.44×.45×.26` on a `.52×.05×.34` foot; screen plate at
-  `y=.68`, `rotation.x=-.18` — a slight lean-back that keeps the whole face
-  clear of the column top and readable at standing eye height.
+- Form: a **knee-height floor stand**, not a lectern — `.4×.06×.32` slab base,
+  `.24×.16×.18` stub neck, screen plate at `y=.26` with `rotation.x=-.88`
+  (~50° up-tilt — reads like a floor plaque; it must never hide the mannequin:
+  head/shoulders/torso all clear the top edge).
 - The face is a canvas `CanvasTexture` on a plane, framed by a `coreMat` rim
   (`DoubleSide` — it reads as a hue edge even from behind).
 - Two physical button meshes (`userData.btn`) sit on the face at plate-local
@@ -78,5 +83,7 @@ only the applied payload grows from "recolor regions" to "attach/detach prop".
 - `camLock` only applies inside the rAF loop; `__snap` must copy the camera and
   `lookAt` inline before `renderer.render` or headless shots read the stale
   camera.
-- The screen plate's lean is easy to overshoot: more than ~`-.2` rad tips the
-  normal skyward and the (culled) face disappears behind the rim.
+- The screen plate's lean is easy to overshoot *on a tall stand*: past ~`-.2`
+  the normal tips skyward and the (culled) face disappears behind the rim.
+  The shrunken stand leans all the way to `-.88` — that works only because the
+  player reads it from above like a plaque, not a wall screen.
