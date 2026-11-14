@@ -24,24 +24,27 @@ look. The one exception is the portal: a visible dark frame marking the opening.
 |-------|------|---------|
 | Floor | `MANIFEST.tiles` `[i,j]` grid cells @ `TILE=1.0` | invisible void-material tiles you stand on |
 | Wall | `BOUND_WALL` `[[ax,az,bx,bz]]` centerlines → void slab + 2 seam bands | invisible slabs; glow only at the floor seams |
-| Portal | `BOUND_ARCH` `[{x,z0,z1,h,d}]` | doorway ∩: dual face outlines + dark jamb/soffit/sill fill |
+| Portal | `BOUND_ARCH` `[{x,z0,z1,h,d}]` | doorway ∩: pure wire — dual face outlines + floor-plan seams |
 | Walk | `WALK_RECTS` (allowed) − `WALL_BLOCKS` (forbidden) | `walkOK(x,z)` = inside any rect AND not inside any block |
 
 `BOUND_WALL` covers both the **exterior outline** of the union (T-shape) and
 **interior stubs** on the shared edge `x=-3` — one invisible slab serves both
 rooms (two faces, one wall). Slab ends pad `+WALL_D/2` to close corner miters,
-except at arch-adjacent ends (`ARCH_ENDS`) where the jamb blocks cover the
-join. Per segment the emit is 3 meshes: slab + a seam band at each face
-(`±(WALL_D/2 + BND_W/2)` off the centerline, at `y=.004`).
+except at arch-adjacent ends (`ARCH_ENDS`) — the stub end faces stand at the
+gap edges unpadded. Per segment the emit is 3 meshes: slab + a seam band at
+each face (`±(WALL_D/2 + BND_W/2)` off the centerline, at `y=.004`, padded
+`+WALL_D` at both ends so seams wrap corners and turn into the doorway reveal).
 
-`BOUND_ARCH` is the doorway — a real portal with depth `d`, per spec
+`BOUND_ARCH` is the doorway — a **pure wire ∩**, no solid parts, per spec
 `{x, z0, z1, h, d}`:
 
 - **Outline posts ×4** — `BND_W×1.6` wire beams at `x±d/2` on each gap edge, so
   *each room's face gets its own glowing doorway outline*.
-- **Jamb reveals ×2 + soffit + threshold sill** — `jambMat` (opaque `0x14161c`
-  Lambert, kiosk/console dark stock) — *no transparency anywhere in the
-  opening*; the portal reads as a dark frame set in the light wall.
+- **Lintel outlines ×2** — wire beams spanning the gap at `y=h` on each face.
+- **Floor-plan seams ×4** — threshold seams along the passage edges plus
+  jamb-base seams spanning the reveal depth, so the doorway's entire floor plan
+  draws in glow (the wall seams also pad `.07` at *every* end, wrapping into
+  the reveal to meet them).
 
 ## Walk law
 
@@ -79,5 +82,5 @@ join. Per segment the emit is 3 meshes: slab + a seam band at each face
   respects the jamb margins (blocks end where the jamb faces stand).
 - `walkOK(-3,-2.8)` / `(-3,-2.2)` are `true` — you can hug the jamb through.
 - `boundsG.children.length === 40` — 10 slabs + 20 seam bands +
-  10 portal meshes (4 posts, 2 jambs, 2 lintels, soffit, sill).
+  10 portal meshes (4 posts, 2 lintels, 4 floor-plan seams).
 - Followers obey the same `walkOK` — they can be led/`goto`'d through the door.

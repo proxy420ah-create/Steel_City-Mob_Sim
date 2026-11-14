@@ -86,38 +86,40 @@ const BOUND_WALL = [                                                    // [ax, 
   [-3,-5, -3,-6],                                                       // main west edge below the annex reach
   [-3,-5, -3,-3], [-3,-2, -3,0],                                        // interior wall stubs — the west wall minus the door gap
 ];
-const jambMat = new THREE.MeshLambertMaterial({ color: 0x14161c });      // opaque dark reveal — trim stock (kiosk/console bodies); portals read as frames
-const BOUND_ARCH = [ { x: -3, z0: -3, z1: -2, h: 1.05, d: .14 } ];       // doorway: wire lifted into a ∩ — outline on EACH room's face (d = jamb depth), dark fill between
+const BOUND_ARCH = [ { x: -3, z0: -3, z1: -2, h: 1.05, d: .14 } ];       // doorway: the floor wire lifted into a ∩ — outline on EACH room's face
 const ARCH_ENDS = new Set(BOUND_ARCH.flatMap(a => [[a.x, a.z0], [a.x, a.z1]]).map(([x, z]) => x + ',' + z));
 function rebuildBounds() {
   boundsG.clear();
-  const w = BND_W * 1.6;
+  const seam = (ax, az, bx, bz) => {                                    // one floor-level glow band a→b
+    const g = new THREE.PlaneGeometry(Math.hypot(bx - ax, bz - az), BND_W); g.rotateX(-Math.PI / 2);
+    const m = new THREE.Mesh(g, coreMat);
+    m.rotation.y = -Math.atan2(bz - az, bx - ax); m.position.set((ax + bx) / 2, .004, (az + bz) / 2); boundsG.add(m);
+  };
   BOUND_WALL.forEach(([ax, az, bx, bz]) => {                            // each centerline → invisible slab + floor-seam glow bands
     const len = Math.hypot(bx - ax, bz - az), ux = (bx - ax) / len, uz = (bz - az) / len;
-    const pA = ARCH_ENDS.has(ax + ',' + az) ? 0 : WALL_D / 2, pB = ARCH_ENDS.has(bx + ',' + bz) ? 0 : WALL_D / 2;   // end-pads close corner miters; jamb blocks cover arch-adjacent ends
+    const pA = ARCH_ENDS.has(ax + ',' + az) ? 0 : WALL_D / 2, pB = ARCH_ENDS.has(bx + ',' + bz) ? 0 : WALL_D / 2;   // slab pads close corner miters; arch ends stay flush
     const mx = (ax + bx) / 2 + ux * (pB - pA) / 2, mz = (az + bz) / 2 + uz * (pB - pA) / 2;
     const slab = new THREE.Mesh(new THREE.BoxGeometry(len + pA + pB, WALL_H, WALL_D), wallMat);
     slab.rotation.y = -Math.atan2(bz - az, bx - ax); slab.position.set(mx, WALL_H / 2, mz); boundsG.add(slab);
-    [-1, 1].forEach(s => {                                              // floor seams — one glow band per wall face, flush at the base
-      const g = new THREE.PlaneGeometry(len + pA + pB, BND_W); g.rotateX(-Math.PI / 2);
-      const b = new THREE.Mesh(g, coreMat);
-      b.rotation.y = -Math.atan2(bz - az, bx - ax);
-      b.position.set(mx - uz * s * (WALL_D / 2 + BND_W / 2), .004, mz + ux * s * (WALL_D / 2 + BND_W / 2));
-      boundsG.add(b);
+    [-1, 1].forEach(s => {                                              // seams pad EVERY end (+WALL_D/2) — wrapping corners AND into the door reveal
+      seam((ax + bx) / 2 - ux * (len + WALL_D) / 2 - uz * s * (WALL_D / 2 + BND_W / 2),
+           (az + bz) / 2 - uz * (len + WALL_D) / 2 + ux * s * (WALL_D / 2 + BND_W / 2),
+           (ax + bx) / 2 + ux * (len + WALL_D) / 2 - uz * s * (WALL_D / 2 + BND_W / 2),
+           (az + bz) / 2 + uz * (len + WALL_D) / 2 + ux * s * (WALL_D / 2 + BND_W / 2));
     });
   });
-  BOUND_ARCH.forEach(a => {                                             // a real portal: wire outline on each room's face, opaque jamb between
-    const w = BND_W * 1.6, mid = (a.z0 + a.z1) / 2, jw = .05;
-    const put = (g, x, y, z, m) => { const me = new THREE.Mesh(g, m || coreMat); me.position.set(x, y, z); boundsG.add(me); };
+  BOUND_ARCH.forEach(a => {                                             // pure wire ∩ — the lifted floor wire on each room's face + a floor-plan seam
+    const w = BND_W * 1.6, mid = (a.z0 + a.z1) / 2, off = a.d / 2 + BND_W / 2;
+    const put = (g, x, y, z) => { const me = new THREE.Mesh(g, coreMat); me.position.set(x, y, z); boundsG.add(me); };
     [a.z0, a.z1].forEach(z => {
       put(new THREE.BoxGeometry(w, a.h, w), a.x - a.d / 2, a.h / 2, z);           // outline posts — one per room face
       put(new THREE.BoxGeometry(w, a.h, w), a.x + a.d / 2, a.h / 2, z);
-      put(new THREE.BoxGeometry(a.d - w, a.h, jw), a.x, a.h / 2, z, jambMat);     // solid jamb reveal — no see-through between the faces
     });
     put(new THREE.BoxGeometry(w, w, Math.abs(a.z1 - a.z0)), a.x - a.d / 2, a.h, mid);   // lintel outlines on both faces
     put(new THREE.BoxGeometry(w, w, Math.abs(a.z1 - a.z0)), a.x + a.d / 2, a.h, mid);
-    put(new THREE.BoxGeometry(a.d - w, .05, Math.abs(a.z1 - a.z0) + jw), a.x, a.h - .025, mid, jambMat);  // dark soffit flush under the cap line
-    put(new THREE.BoxGeometry(a.d - w, .014, Math.abs(a.z1 - a.z0) + jw), a.x, .007, mid, jambMat);     // threshold sill — the doorway's floor edge
+    seam(a.x - off, a.z0, a.x - off, a.z1); seam(a.x + off, a.z0, a.x + off, a.z1);   // threshold seams — the passage edges
+    seam(a.x - a.d / 2, a.z0 + off, a.x + a.d / 2, a.z0 + off);                     // jamb-base seams — the reveal ends
+    seam(a.x - a.d / 2, a.z1 - off, a.x + a.d / 2, a.z1 - off);
   });
 }
 rebuildBounds(); window.__rebuildBounds = rebuildBounds;
