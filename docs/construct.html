@@ -119,10 +119,12 @@ const footB = (lb, x, z, rotY) => {                                            /
   return [Math.min(...cs.map(c => c[0])) - .05, Math.max(...cs.map(c => c[0])) + .05,
           Math.min(...cs.map(c => c[1])) - .05, Math.max(...cs.map(c => c[1])) + .05];
 };
+const SURF_TYPES = new Set(['furniture', 'vehicle', 'room', 'building']);     // department tag → surface role
 const emitAsset = (name, o = {}) => {
   const { kind = 'item', parent = scene, x = 0, z = 0, rotY = 0, on = null, seatY = null, vsOverride = null } = o;
   return fetch(ROUTES[kind] + name).then(r => r.json()).then(m => {
     if (!m.voxels) return null;
+    const surf = o.surf ?? (SURF_TYPES.has(m.assetType) || !o.pickable);        // surf = floors on surfaces only; riders conform
     const vs = vsOverride || m.voxelSize || .0075;
     const dcx = m.dims[0] / 2 - .5, dcz = m.dims[2] / 2 - .5, flip = m.truthView === 'unity';
     let minB = Infinity, lx0 = Infinity, lx1 = -Infinity, lz0 = Infinity, lz1 = -Infinity;
@@ -134,12 +136,13 @@ const emitAsset = (name, o = {}) => {
       const t = (v[1] + 1) * vs, k = Math.round(lx * 200) + ',' + Math.round(lz * 200);   // 5mm columns
       if (t > (tops.get(k) ?? -1e9)) tops.set(k, t);
     });
-    const seat = on ? surfaceAt(on.host, x, z) : (seatY ?? 0);
+    const seat = on ? surfaceAt(on.host, x, z)
+      : (seatY === 'auto' ? worldSurfaceAt(x, z, null, { surfOnly: surf }) : (seatY ?? 0));   // 'auto' = conform within my role
     const g = new THREE.Group();
     window.voxEmit(m, (M, v) => M.makeScale(vs, vs, vs).setPosition(
       (v[0] - dcx) * vs, (v[1] + .5) * vs - minB, ((flip ? m.dims[2] - 1 - v[2] : v[2]) - dcz) * vs)).forEach(mm => g.add(mm));
     g.position.set(x, seat, z); g.rotation.y = rotY; parent.add(g);
-    const rec = { name, kind, g, tops, lb: [lx0, lx1, lz0, lz1], x, z, rotY, y0: seat, minB, vs,
+    const rec = { name, kind, g, tops, lb: [lx0, lx1, lz0, lz1], x, z, rotY, y0: seat, minB, vs, surf,
                   bbox: footB([lx0, lx1, lz0, lz1], x, z, rotY),
                   pickable: !!o.pickable, solids: o.solids || null, source: o.source || 'manifest' };
     g.userData.pRec = rec;
@@ -149,15 +152,17 @@ const emitAsset = (name, o = {}) => {
 };
 /* surfaceAt — the measured tabletop query: world point → host-local columns → highest top (world y).
    Pick-up/drop skips the carried item (its map would otherwise claim its own column). */
+const _svW = new THREE.Vector3(), _svQ = new THREE.Quaternion(), _svE = new THREE.Euler();
 const surfaceAt = (host, wx, wz, r = .07) => {
   if (!host || host === held) return 0;
-  const dx = wx - host.x, dz = wz - host.z, cy = Math.cos(host.rotY), sy = Math.sin(host.rotY);
+  host.g.getWorldPosition(_svW); host.g.getWorldQuaternion(_svQ); _svE.setFromQuaternion(_svQ, 'YXZ');  // WORLD transform — parented items (car in carG) don't ghost at their rec x/z
+  const dx = wx - _svW.x, dz = wz - _svW.z, cy = Math.cos(_svE.y), sy = Math.sin(_svE.y);
   const lx = dx * cy - dz * sy, lz = dx * sy + dz * cy;                        // world → local (inverse rotY)
   const qx = Math.round(lx * 200), qz = Math.round(lz * 200), R = Math.max(1, Math.round(r * 200));
   let top = 0;
   for (let ix = qx - R; ix <= qx + R; ix++) for (let iz = qz - R; iz <= qz + R; iz++) {
     const t = host.tops.get(ix + ',' + iz);
-    if (t !== undefined && host.y0 + t > top) top = host.y0 + t;
+    if (t !== undefined && _svW.y + t > top) top = _svW.y + t;
   }
   return top;
 };
@@ -604,6 +609,7 @@ const livePost = () => fetch('/peek', { method: 'POST', headers: { 'Content-Type
   body: JSON.stringify({ t: Date.now(), pos: pos.toArray(), yaw, aimOn, aim: aimWorld.toArray(), held: held && held.name,
     marks: marks.map(m => m.position.toArray()), povOn, cmdAck, placeOn: !!placeOn,
     placed: PLACED.map(p => [p.name, +p.x.toFixed(2), +p.z.toFixed(2), +p.y0.toFixed(2), p.source]),
+    ls: { place: localStorage.getItem('dvm_place'), extra: localStorage.getItem('dvm_extra'), del: localStorage.getItem('dvm_del') },   // saved layout for restore-path debugging
     followers: followers.map(f => ({ char: f.spec.char, order: f.order, pos: f.pos.toArray(), gaze: f.gazeT ? f.gazeT.toArray() : null, possessed: !!f.possessed })) }) })
   .then(r => r.json()).then(r => {
     if (r && r.cmd && r.cmd.seq > cmdAck) {                                    // agent command rode back on the stream
@@ -614,11 +620,11 @@ const livePost = () => fetch('/peek', { method: 'POST', headers: { 'Content-Type
       else if (c.agent === 'order') A.order(c.args[0]);
       else if (c.agent === 'emit') { const [n, x, z, ry] = c.args;               // agent-furnished asset — lands + persists like a paste
         emitAsset(n, { kind: 'item', x: +x || 0, z: +z || 0, rotY: +ry || 0, pickable: true, source: 'extra',
-          seatY: worldSurfaceAt(+x || 0, +z || 0, null) }).then(() => placeSave()); }
+          seatY: 'auto' }).then(() => placeSave()); }
       else if (c.agent === 'move') { const [n, x, z, ry] = c.args;               // relocate an existing item — the surface law seats it
         const p = PLACED.find(q => q.name === n && q.source === 'extra') || PLACED.find(q => q.name === n);
         if (p) { const ob = footB(p.lb, p.x, p.z, p.rotY); placeApply(p, +x || 0, +z || 0, ry === undefined ? p.rotY : +ry);
-          p.y0 = placeSurf(p.x, p.z, new Set([p])); p.g.position.y = p.y0;
+          p.y0 = placeSurf(p.x, p.z, new Set([p]), { surfOnly: p.surf }); p.g.position.y = p.y0;
           settleOrphans(p, ob, p.bbox, p.y0 + Math.max(...p.tops.values())); refreshSolids(); placeSave(); } }
       else if (c.agent === 'del') { const p = PLACED.find(q => q.name === c.args[0] && q.source === 'extra') || PLACED.find(q => q.name === c.args[0]);
         if (p) { if (p.source !== 'extra') { const d = new Set(JSON.parse(localStorage.getItem('dvm_del') || '[]'));
@@ -795,7 +801,7 @@ addEventListener('keydown', e => { keys[(e.key || '').toLowerCase()] = true;
     else if (k === 'pageup' && p) { p.y0 += st; p.g.position.y = p.y0; }
     else if (k === 'pagedown' && p) { p.y0 -= st; p.g.position.y = p.y0; }
     else if (k === 'b' && p) { const skip = new Set([p, ...(p._carry || []).map(c => c.q), held]);
-      p.y0 = placeSurf(p.x, p.z, skip); p.g.position.y = p.y0; }                            // re-seat on the measured surface
+      p.y0 = placeSurf(p.x, p.z, skip, { surfOnly: p.surf }); p.g.position.y = p.y0; }      // re-seat on the measured surface — furniture never lands on a rider
     else if ((k === ',' || k === '[') && p) { placeApply(p, p.x, p.z, p.rotY + Math.PI / 12); }
     else if ((k === '.' || k === ']') && p) { placeApply(p, p.x, p.z, p.rotY - Math.PI / 12); }
     else if (k === 'enter' && p) { placeDrop(); }                                           // stage-1 accept — deselect, stay in free cam
@@ -827,7 +833,7 @@ addEventListener('keyup', e => { keys[(e.key || '').toLowerCase()] = false; });
    crosses a surface; worldSurfaceAt answers for every placed asset, floor = 0). */
 let held = null, pickIt = null;
 const fwdV = new THREE.Vector3(), tmpV = new THREE.Vector3();
-const worldSurfaceAt = (wx, wz, skip) => { let t = 0; PLACED.forEach(p => { if (p !== skip) { const s = surfaceAt(p, wx, wz); if (s > t) t = s; } }); return t; };
+const worldSurfaceAt = (wx, wz, skip, opt) => placeSurf(wx, wz, new Set(skip ? [skip] : []), opt);
 const dropTarget = () => {
   camera.getWorldDirection(fwdV);
   for (let t = .08; t <= 2.4; t += .06) {
@@ -928,7 +934,7 @@ const settleOrphans = (moved, oldB, newB, oldTop) => {                          
   PLACED.forEach(q => {                                                         // sweep lets co-located siblings (door↔frame) leapfrog
     if (q === moved || q === held || ((moved && moved._carry) || []).some(c => c.q === q)) return;
     if (oldB && inB(q, oldB) || newB && inB(q, newB)) {
-      const s = worldSurfaceAt(q.x, q.z, q);
+      const s = worldSurfaceAt(q.x, q.z, q, { surfOnly: q.surf });
       if (s < q.y0 && q.y0 <= oldTop + .02) { q.y0 = s; q.g.position.y = s; } } }); };                 // orphans drop; lifted floaters keep their height
 const placeRevert = () => {                                                      // Esc on a selection = back out — restore the pre-grab pose
   if (!placeSel) return; const p = placeSel, o = p._orig;
@@ -969,8 +975,9 @@ const carrySync = p => {                                                        
     q.y0 = top > 0 ? top : placeSurf(q.x, q.z, skip);                              // off the host's columns → whatever's beneath
     q.g.position.set(q.x, q.y0, q.z); });
 };
-const placeSurf = (wx, wz, skipSet) => { let t = 0;
-  PLACED.forEach(p => { if (!skipSet.has(p)) { const s = surfaceAt(p, wx, wz); if (s > t) t = s; } }); return t; };
+const placeSurf = (wx, wz, skipSet, opt = {}) => { let t = 0, cap = opt.cap ?? Infinity;
+  PLACED.forEach(p => { if (skipSet.has(p) || (opt.surfOnly && !p.surf)) return;                    // furniture never floors on riders
+    const s = surfaceAt(p, wx, wz); if (s > t && s <= cap) t = s; }); return t; };                  // cap = settle-only: nothing climbs at re-seat
 const placeSpot = () => {                                                        // where the aim ray lands — the measured-surface law
   _ray.setFromCamera(_ctr, camera);
   const hits = _ray.intersectObjects(PLACED.filter(p => p !== placeSel && p !== held && p.g.parent === scene).map(p => p.g), true);
@@ -979,7 +986,7 @@ const placeSpot = () => {                                                       
   else { const d = _ray.ray.direction; if (d.y > -.01) return null;                // level/up — no floor crossing
     const t = -_ray.ray.origin.y / d.y; wx = _ray.ray.origin.x + d.x * t; wz = _ray.ray.origin.z + d.z * t; }
   const skip = new Set([placeSel, ...((placeSel && placeSel._carry) || []).map(c => c.q)]);
-  return { x: wx, y: placeSurf(wx, wz, skip), z: wz };
+  return { x: wx, y: placeSurf(wx, wz, skip, { surfOnly: placeSel && placeSel.surf }), z: wz };
 };
 const placeDrop = () => {                                                        // commit the drag — write the override
   if (!placeSel) return; const moved = placeSel;
@@ -1056,7 +1063,7 @@ window.__place = { on: () => placeOn, toggle: placeToggle, sel: () => placeSel &
     placeSel = null; selBox.visible = false; origBox.visible = false; placeGrid.visible = false;
     placeStat.textContent = '';
     refreshSolids(); placeSave(); placeSay('REMOVED'); return true; },
-  dump: () => JSON.stringify(PLACED.map(p => ({ name: p.name, x: +p.x.toFixed(3), z: +p.z.toFixed(3), y: +p.y0.toFixed(3), rotY: +p.rotY.toFixed(3), src: p.source, solids: (p.solids || []).length }))),
+  dump: () => JSON.stringify(PLACED.map(p => ({ name: p.name, x: +p.x.toFixed(3), z: +p.z.toFixed(3), y: +p.y0.toFixed(3), rotY: +p.rotY.toFixed(3), src: p.source, surf: p.surf, solids: (p.solids || []).length }))),
   save: placeSave };
 
 /* platform-clamped walk + door solids — same contract as the office slide/pushout */
@@ -1133,12 +1140,14 @@ ready.then(async () => {
   PLACED.forEach(p => { const o = over[p.name]; if (o && p.source !== 'extra') placeApply(p, o.x, o.z, o.rotY); });
   const extras = JSON.parse(localStorage.getItem('dvm_extra') || '[]');            // extras emit LAST — they seat on the final layout, not manifest spots
   for (const e of extras) await emitAsset(e.name, { kind: e.kind, x: e.x, z: e.z, rotY: e.rotY, pickable: e.pickable, solids: e.solids,
-    source: 'extra', seatY: worldSurfaceAt(e.x, e.z, null) });
-  PLACED.forEach(p => { const o = over[p.name]; if (!o || p.source === 'extra') return;   // overrides save no y0 — re-derive height on the final hosts
-    const skip = new Set([p]);
-    PLACED.forEach(q => { if (q !== p && q.y0 > p.y0 - .01 &&                             // at-or-above my level inside my footprint = passenger
-      q.x > p.bbox[0] && q.x < p.bbox[1] && q.z > p.bbox[2] && q.z < p.bbox[3]) skip.add(q); });  // or co-located sibling (door↔frame) — never hosts p
-    p.y0 = placeSurf(p.x, p.z, skip); p.g.position.y = p.y0; });
+    source: 'extra', seatY: 'auto' });
+  for (let pass = 0; pass < 4; pass++) {                                      // orphan-law re-seat to fixpoint: EVERY item re-derives height on the
+    let changed = false;                                                      // final layout — saves carry no y0. Declared roles: surf items floor
+    [...PLACED].sort((a, b) => b.y0 - a.y0).forEach(p => {                      // ONLY on other surf items (a rider can never host a desk);
+      const s = placeSurf(p.x, p.z, new Set([p]), { surfOnly: p.surf, cap: p.y0 + .01 });   // riders conform — but the cap makes re-seat settle-only,
+      if (Math.abs(s - p.y0) > 1e-4) { p.y0 = s; p.g.position.y = s; changed = true; } });  // so co-located siblings can't leapfrog. Highest first.
+    if (!changed) break;
+  }
   refreshSolids();
   try { renderer.compile(scene, camera); } catch (e) {}
   renderer.render(scene, camera);

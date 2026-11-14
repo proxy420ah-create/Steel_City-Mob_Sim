@@ -210,7 +210,22 @@ const boot4 = JSON.parse(await evl('__place.dump()'));
 const stamperRe = boot4.find(p => p.name === 'commission_stamper');
 check('reload: floor-placed item re-seats to 0', stamperRe && stamperRe.y < .05, JSON.stringify(stamperRe));
 
-// 10 — fly-camera clamp + release back to body
+// 10 — fixpoint re-seat: an extra emitting onto a FLOATING manifest passenger (stale
+//      emit-seat, host deleted) must drop to 0 — not climb it. This is BOSS's exact
+//      .34-elevated-desk: passenger over the extra's footprint, extra emits onto its
+//      top via the .07 scan radius, then the pass must unwind the whole stack.
+await evl(`localStorage.setItem('dvm_place', JSON.stringify({ commission_stamper: { x: -0.52, z: -4.02, rotY: 0 } }))`);
+await evl(`localStorage.setItem('dvm_extra', JSON.stringify([{ name: 'commission_lawdesk', kind: 'item', pickable: false, solids: [[-0.5,0,0.35],[0.5,0,0.35]], x: -0.55, z: -4.05, rotY: 0 }]))`);
+await evl('location.reload()'); await sleep(1500);
+await connect(); await waitBoot(); await sleep(800);
+const boot5 = JSON.parse(await evl('__place.dump()'));
+const host = boot5.find(p => p.name === 'commission_lawdesk' && p.src === 'extra');
+const rider = boot5.find(p => p.name === 'commission_stamper');
+check('fixpoint: extra does not climb a floating passenger', host && host.y < .05, JSON.stringify(host));
+check('fixpoint: passenger lands on the extra top', rider && rider.y > .2 && rider.y < .5, JSON.stringify(rider));
+check('roles: desk is surf, stamper is rider', host && host.surf === true && rider && rider.surf === false, `host.surf=${host && host.surf} rider.surf=${rider && rider.surf}`);
+
+// 11 — fly-camera clamp + release back to body
 await evl('__cam(null)');
 check('camLock released', true);
 const shot = await cdp('Page.captureScreenshot', { format: 'png' });
