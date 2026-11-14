@@ -254,8 +254,8 @@ const BLDG_MAT = {                                                       // mob_
 const BLDG_GLASS = new Set([112, 113, 114, 134, 147]);                  // glass ids — the voxEmit transparency contract
 const darkMat = new THREE.MeshLambertMaterial({ color: 0x14161c });      // the Construct's furniture stock (consoles/kiosk)
 MANIFEST.tables = [                                                    // PRIMARY TABLE — annex centre (-5,-2.5), dead on the rotator axis
-  { id: 'primary', x: -5, z: -2.5, size: 1.2, top: .30, scale: 1 / 64,   // 1:64 — a real architectural ratio; eye (.55) peers over
-    models: [{ name: 'tenement_block_0' }, { name: 'barber_shop', x: .38, z: -.38 }] },
+  { id: 'primary', x: -5, z: -2.5, size: 1.2, top: .26, scale: 1 / 64,   // 1:64 — a real architectural ratio; eye (.55) peers over
+    models: [{ name: 'tenement_block_0' }] },                            // one model at a time — the table is a single-model easel
 ];
 const TABLES = [];
 const emitTable = spec => {

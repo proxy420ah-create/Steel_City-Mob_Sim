@@ -7,8 +7,8 @@ multiple drafting tables are list entries, not new code.
 ## The table
 
 ```js
-{ id: 'primary', x: -5, z: -2.5, size: 1.2, top: .30, scale: 1 / 64,
-  models: [{ name: 'tenement_block_0' }, { name: 'barber_shop', x: .38, z: -.38 }] }
+{ id: 'primary', x: -5, z: -2.5, size: 1.2, top: .26, scale: 1 / 64,
+  models: [{ name: 'tenement_block_0' }] }     // one model at a time — a single-model easel
 ```
 
 - `emitTable(spec)` builds it in the Construct's own language: dark furniture slab
@@ -57,7 +57,8 @@ collision). Consequences, all measured — never authored:
 
 ## Current status / next
 
-- One table, two models (tenement + barber). `emitTable`/`emitBldg` are the
+- One table, one model (tenement, centered) — the table is a single-model easel
+  by design. `emitTable`/`emitBldg` are the
   whole contract — more tables = more `MANIFEST.tables` entries; more buildings =
   more `models[]` entries.
 - `tenement_glass.stasset` (solid-glass blast testbed) is loadable through the
