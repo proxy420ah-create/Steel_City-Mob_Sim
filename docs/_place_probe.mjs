@@ -404,6 +404,13 @@ await evl('__pad.press("sres")');
 const roofReset = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:primary"), -5, -2.5, 0)');
 check('reset restores the roof', Math.abs(roofReset - .7475) < .008, 'roof=' + roofReset);
 await evl('__pad.tab("model")');
+
+// 12.98 — L-key inspection torch (the Commission's rig, aimed per render)
+check('torch rig exists, parked at 0', await evl('!!(__torch && __torch.spot && __torch.on === false && __torch.spot.intensity === 0)'));
+await evl('__torch.set(true)');
+check('torch on — spot 7 + fill .9', await evl('__torch.on === true && __torch.spot.intensity === 7 && __torch.fill.intensity === .9'));
+await evl('__torch.set(false)');
+check('torch off — back to 0', await evl('__torch.on === false && __torch.spot.intensity === 0'));
 await evl('__cam(null); __pos.x = -5; __pos.z = -1.6');
 
 // 13 — fly-camera clamp + release back to body

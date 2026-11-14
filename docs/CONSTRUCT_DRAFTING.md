@@ -125,6 +125,16 @@ padPage`, so a page switch costs a `padDraw` and nothing else. New tools are a
   what's true. Slice + spin are session-scoped, per model instance — a fresh
   mount resets both.
 
+## The L-key inspection torch
+
+Same rig as the Commission's: `__torch` = a `SpotLight` (warm `0xfff0d0`, cone
+.45, penumbra .55, distance 10) + a faint `PointLight` fill, parked at
+intensity 0 until L toggles `set(on)` → spot 7 / fill .9. `aim(cam)` repoints
+it before every render — it rides the camera object, so the main view, the X
+fly-cam, and the follower POV (`__eyes.pip`/`shot`) all light where they look.
+`__snap` honors `__snapTorch` (`_shot.mjs --torch`): flips it on for the
+capture, restores after — screenshot illumination without a session flag.
+
 ## The pad sticks to walls — the movable panel
 
 A held pad detects vertical faces: `dropTarget` raycasts the wall slabs

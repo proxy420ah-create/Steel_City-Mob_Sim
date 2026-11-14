@@ -20,7 +20,7 @@
 </head><body>
 <div id="veil">LOADING PROGRAM</div>
 <div id="prompt"></div>
-<div id="hud">THE CONSTRUCT · CLICK — ENGAGE · WASD MOVE · MOUSE LOOK · X PLACE</div>
+<div id="hud">THE CONSTRUCT · CLICK — ENGAGE · WASD MOVE · MOUSE LOOK · X PLACE · L TORCH</div>
 <script type="module">
 import * as THREE from 'three';
 
@@ -39,6 +39,19 @@ window.__THREE = THREE; window.__scene = scene; window.__camera = camera; window
 /* lights registered at init, always on — this page's whole scene compiles under one light set */
 const hemi = new THREE.HemisphereLight(0xffffff, 0xd8d2c4, 1.2), key = new THREE.PointLight(0xfff6e8, 2.4, 6, 1.2);
 key.position.set(0, 1.5, 1.5); scene.add(hemi, key);
+
+/* L-key inspection torch — same rig as the Commission's: a camera-aimed spot + a faint
+   near-field fill, parked at intensity 0 until toggled. aim() repoints it before each
+   render — main cam, fly cam and the follower POV all feed it through the camera object. */
+const _tdir = new THREE.Vector3();
+const torch = new THREE.SpotLight(0xfff0d0, 0, 10, .45, .55, 1.2);
+const torchFill = new THREE.PointLight(0xffe9c0, 0, 3, 1.4);
+const torchTgt = new THREE.Object3D(); scene.add(torch, torchFill, torchTgt); torch.target = torchTgt;
+window.__torch = { on: false, spot: torch, fill: torchFill,
+  set(on) { this.on = !!on; this.spot.intensity = this.on ? 7 : 0; this.fill.intensity = this.on ? .9 : 0; },
+  aim(cam) { cam.getWorldPosition(torch.position); cam.getWorldDirection(_tdir);
+    torchTgt.position.copy(torch.position).addScaledVector(_tdir, 2);
+    torchFill.position.copy(torch.position).addScaledVector(_tdir, .3); } };
 
 /* ── MANIFEST — the procedural expansion seam. tiles = [i,j] grid cells (.6 pitch, i east, j north),
    props = future display placements (mannequin, pedestal, prop table — append, don't redesign). */
@@ -821,6 +834,7 @@ window.__eyes = {
     renderer.setScissorTest(true); renderer.setScissor(ix, iy, iw, ih); renderer.setViewport(ix, iy, iw, ih);
     renderer.clearDepth();
     const ac = renderer.autoClear; renderer.autoClear = false;
+    if (window.__torch && window.__torch.on) window.__torch.aim(povCam);
     renderer.render(scene, povCam);
     renderer.autoClear = ac; renderer.setScissorTest(false); renderer.setViewport(0, 0, w, h); renderer.setScissor(0, 0, w, h);
   },
@@ -829,6 +843,7 @@ window.__eyes = {
     const cv = renderer.domElement, pr = renderer.getPixelRatio() || 1;
     povCam.aspect = cv.width / cv.height; povCam.updateProjectionMatrix();
     renderer.setViewport(0, 0, cv.width / pr, cv.height / pr);
+    if (window.__torch && window.__torch.on) window.__torch.aim(povCam);
     renderer.render(scene, povCam);
     return cv.toDataURL('image/png');
   },
@@ -1261,6 +1276,7 @@ addEventListener('keydown', e => { keys[(e.key || '').toLowerCase()] = true;
   else if (k === 't') { followers.forEach(f => { f.possessed = false; f.setOrder('goto'); }); }          // GO — walk to the live tag (your hotkey always reclaims)
   else if (k === 'r') { followers.forEach(f => f.possessed = false); clearTags(); }                      // release — clear the tag and the gaze it ordered
   else if (k === 'h') { followers.forEach(f => { f.possessed = false; f.setOrder(f.order === 'follow' ? 'wait' : 'follow'); }); }   // HEEL ⇄ WAIT
+  else if (k === 'l') window.__torch.set(!window.__torch.on);                     // inspection torch — light where you look
   else if (k === 'y') { LIVE.on ? window.__live.stop() : window.__live.start(); }   // live link — stream session to the agent
   else if (k === 'k') { ctlOn = !ctlOn; ctlTick(); } });                      // control panel toggle
 addEventListener('keyup', e => { keys[(e.key || '').toLowerCase()] = false; });
@@ -1593,6 +1609,7 @@ const loop = now => {
                      : pickIt ? 'E — TAKE ' + pickIt.name.replace('commission_', '').toUpperCase()
                      : promptIt ? promptIt.label() : '';
   window.__compass(camera);
+  if (window.__torch.on) window.__torch.aim(camera);
   renderer.render(scene, camera);
   if (povOn) window.__eyes.pip();
   requestAnimationFrame(loop);
@@ -1654,7 +1671,10 @@ window.__cam = (px, py, pz, tx, ty, tz) => { if (px === null) { camLock = null; 
 window.__snap = (name, px, py, pz, tx, ty, tz) => {
   if (px !== undefined) { window.__cam(px, py, pz, tx, ty, tz);
     camera.position.copy(camLock.p); camera.lookAt(camLock.t); }        // apply now — the rAF loop may not tick before the capture
+  const T = window.__torch, tw = T && T.on;                               // --torch shots light the set like the L key
+  if (window.__snapTorch && T) { T.set(true); T.aim(camera); }
   renderer.render(scene, camera);
+  if (T && T.on !== tw) T.set(tw);
   const u = renderer.domElement.toDataURL('image/png');
   return fetch('/shot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'probe_' + name, png: u }) }).then(r => r.json()).then(j => !!j.ok);
 };
