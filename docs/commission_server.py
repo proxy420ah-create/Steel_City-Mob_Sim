@@ -442,14 +442,14 @@ class Handler(SimpleHTTPRequestHandler):
                 obj = json.loads(self.rfile.read(n) or b'{}')
                 agent, args = obj.get('agent'), obj.get('args', [])
                 ORDER_NAMES = ('wait', 'goto', 'follow', 'post')
-                if agent not in ('gaze', 'go', 'heel', 'order', 'emit') + ORDER_NAMES:
+                if agent not in ('gaze', 'go', 'heel', 'order', 'emit', 'move', 'del') + ORDER_NAMES:
                     raise ValueError('bad agent')
                 if agent == 'order':
                     if not args or args[0] not in ORDER_NAMES:
                         raise ValueError('bad order')
-                elif agent == 'emit':
+                elif agent in ('emit', 'move', 'del'):
                     if not args or not isinstance(args[0], str) or not re.fullmatch(r'[\w\-]+', args[0]):
-                        raise ValueError('bad emit name')          # same whitelist shape as /voxel/ GET
+                        raise ValueError('bad item name')          # same whitelist shape as /voxel/ GET
                 elif agent in ORDER_NAMES:
                     args = []
                 if not isinstance(args, list) or not all(isinstance(a, (int, float, str)) for a in args):

@@ -609,9 +609,20 @@ const livePost = () => fetch('/peek', { method: 'POST', headers: { 'Content-Type
       else if (c.agent === 'order') A.order(c.args[0]);
       else if (c.agent === 'emit') { const [n, x, z, ry] = c.args;               // agent-furnished asset — lands + persists like a paste
         emitAsset(n, { kind: 'item', x: +x || 0, z: +z || 0, rotY: +ry || 0, pickable: true, source: 'extra' }).then(() => placeSave()); }
+      else if (c.agent === 'move') { const [n, x, z, ry] = c.args;               // relocate an existing item — the surface law seats it
+        const p = PLACED.find(q => q.name === n && q.source === 'extra') || PLACED.find(q => q.name === n);
+        if (p) { const ob = p.bbox; placeApply(p, +x || 0, +z || 0, ry === undefined ? p.rotY : +ry);
+          p.y0 = placeSurf(p.x, p.z, new Set([p])); p.g.position.y = p.y0;
+          const b = new THREE.Box3().setFromObject(p.g); p.bbox = [b.min.x - .05, b.max.x + .05, b.min.z - .05, b.max.z + .05];
+          settleOrphans(p, ob, p.bbox, p.y0 + (b.max.y - p.y0)); refreshSolids(); placeSave(); } }
+      else if (c.agent === 'del') { const p = PLACED.find(q => q.name === c.args[0] && q.source === 'extra') || PLACED.find(q => q.name === c.args[0]);
+        if (p) { if (p.source !== 'extra') { const d = new Set(JSON.parse(localStorage.getItem('dvm_del') || '[]'));
+            d.add(p.name); localStorage.setItem('dvm_del', JSON.stringify([...d])); }
+          scene.remove(p.g); PLACED.splice(PLACED.indexOf(p), 1);
+          settleOrphans(p, p.bbox, null, Infinity); refreshSolids(); placeSave(); } }
       else A.order(c.agent);                                                   // bare order names: wait/goto/follow/post
       const released = c.agent === 'heel' || c.agent === 'follow' || (c.agent === 'order' && c.args[0] === 'follow');
-      if (c.agent !== 'emit') followers.forEach(f => f.possessed = !released);   // movement verbs hold the wheel; emit isn't one
+      if (!['emit', 'move', 'del'].includes(c.agent)) followers.forEach(f => f.possessed = !released);   // movement verbs hold the wheel; furniture ops don't
     } }).catch(() => {});
 const liveShot = () => { const u = window.__eyes.shot(); renderer.render(scene, camera);
   if (u) fetch('/shot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'probe_live_pov', png: u }) }).catch(() => {}); };
