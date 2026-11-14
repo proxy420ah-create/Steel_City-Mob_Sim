@@ -1077,7 +1077,7 @@ const loop = now => {
   followers.forEach(f => followStep(f, dt));
   selfStep(dt);
   aimStep();
-  if (povOn) updatePov(dt);
+  if (povF) updatePov(dt);                                    // the agent's eyes track whether or not the PiP inset is up
   boundHue(now / 1000);
   if (held) {
     camera.getWorldDirection(fwdV);
