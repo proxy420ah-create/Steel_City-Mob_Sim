@@ -25,9 +25,19 @@ sync: floor tiles, wire segments, walk regions.
 (T-shape) and **interior wall stubs** on the shared edge `x=-3` — both draw the
 same flat band (`BND_W`), because in the void a wire *is* the wall either way.
 
-`BOUND_ARCH` is the "lifted wire": two `BND_W×1.6` posts at the gap edges plus a
-lintel spanning the gap at `h` — the doorway is literally the floor band raised
-into a ∩, same `coreMat`, same hue sweep.
+`BOUND_ARCH` is the "lifted wire" made into a **real portal** — each arch spec
+`{x, z0, z1, h, d}` emits 9 meshes:
+
+- **Outline posts ×4** — `BND_W×1.6` wire beams at `x±d/2` on each gap edge, so
+  *each room's face gets its own glowing doorway outline* (`d` = jamb depth).
+- **Solid jamb reveals ×2** — `jambMat` (opaque `0x14161c` Lambert, the
+  kiosk/console dark stock) slabs spanning the depth — *no transparency
+  between the two wall faces*.
+- **Lintel outlines ×2** — wire beams spanning the gap at `y=h` on each face.
+- **Soffit ×1** — dark slab under the lintel so looking up mid-door reads solid.
+
+Wall stubs either side stay single floor bands — the portal stands proud of the
+wall line like a set frame, which is exactly how a jamb reads.
 
 ## Walk law
 
@@ -60,6 +70,8 @@ into a ∩, same `coreMat`, same hue sweep.
 
 - `walkOK(-3,-2.5)` is `true` — the door seam passes.
 - `walkOK(-3,-4)` and `walkOK(-3,-1)` are `false` — the stubs hold.
-- `walkOK(-3,-3.1)` is `false` — capsule edge respects the jamb margin.
-- `boundsG.children.length === 13` — 10 floor bands + 3 arch beams.
+- `walkOK(-3,-3.1)` / `(-3,-2.9)` / `(-3,-2.1)` are `false` — capsule edge
+  respects the jamb margins (blocks end where the jamb faces stand).
+- `walkOK(-3,-2.8)` / `(-3,-2.2)` are `true` — you can hug the jamb through.
+- `boundsG.children.length === 19` — 10 floor bands + 9 portal meshes.
 - Followers obey the same `walkOK` — they can be led/`goto`'d through the door.

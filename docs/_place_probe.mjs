@@ -286,11 +286,13 @@ check('walkOK centre of main room', await evl('__construct.walkOK(0, -2.5) === t
 check('walkOK inside the west annex', await evl('__construct.walkOK(-5, -2.5) === true'));
 check('walkOK at the door seam x=-3 z=-2.5', await evl('__construct.walkOK(-3, -2.5) === true'));
 check('walkOK door north half z=-2.2', await evl('__construct.walkOK(-3, -2.5) === true && __construct.walkOK(-3, -2.3) === true'));
+check('walkOK hugging the jamb face', await evl('__construct.walkOK(-3, -2.8) === true && __construct.walkOK(-3, -2.2) === true'));
+check('capsule held off the jamb', await evl('__construct.walkOK(-3, -2.9) === false && __construct.walkOK(-3, -2.1) === false'));
 check('wall stub south of door blocked', await evl('__construct.walkOK(-3, -4) === false'));
 check('wall stub north of door blocked', await evl('__construct.walkOK(-3, -1) === false'));
 check('annex floor edge blocked beyond wall', await evl('__construct.walkOK(-7.2, -2.5) === false'));
 check('door jamb margin — capsule edge held', await evl('__construct.walkOK(-3, -3.1) === false'));
-check('bounds wire = 10 floor segs + 3 arch beams', await evl('__construct.bounds() === 13'), await evl('__construct.bounds()'));
+check('bounds wire = 10 floor segs + 9 portal meshes', await evl('__construct.bounds() === 19'), await evl('__construct.bounds()'));
 
 // 13 — fly-camera clamp + release back to body
 await evl('__cam(null)');
