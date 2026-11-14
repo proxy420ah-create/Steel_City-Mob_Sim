@@ -51,12 +51,12 @@ for (const i of [-3.5,-4.5,-5.5,-6.5]) for (const j of [-.5,-1.5,-2.5,-3.5,-4.5]
    gap in the west edge x=-3 at z[-3,-2] (dead on the rotator axis); the rest of that edge is
    impassable interior wall, enforced by WALL_BLOCKS (capsule-radius-expanded stubs). */
 const WALK_RECTS = [
-  { x0: -2.85, x1: 2.85, z0: -5.85, z1: .85 },                          // main room (tile edges inset .15)
-  { x0: -6.85, x1: -2.85, z0: -4.85, z1: -.15 },                        // west annex
+  { x0: -2.78, x1: 2.78, z0: -5.78, z1: .78 },                          // main room (wall faces at ±.07, capsule inset .15)
+  { x0: -6.78, x1: -2.78, z0: -4.78, z1: -.22 },                        // west annex — meets main at the x=-2.78 seam inside the door
 ];
-const WALL_BLOCKS = [                                                    // interior wall stubs on the shared edge x=-3
-  { x0: -3.15, x1: -2.85, z0: -5, z1: -2.825 },                         // south of the door (capsule edge kisses the jamb face at -2.975)
-  { x0: -3.15, x1: -2.85, z0: -2.175, z1: 0 },                          // north of the door (jamb face -2.025)
+const WALL_BLOCKS = [                                                    // interior wall stubs on the shared edge x=-3 (wall x[-3.07,-2.93] + capsule)
+  { x0: -3.22, x1: -2.78, z0: -5, z1: -2.825 },                         // south of the door (capsule edge kisses the jamb face at -2.975)
+  { x0: -3.22, x1: -2.78, z0: -2.175, z1: 0 },                          // north of the door (jamb face -2.025)
 ];
 const inR = (r, x, z) => x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1;
 const walkOK = (x, z) => WALK_RECTS.some(r => inR(r, x, z)) && !WALL_BLOCKS.some(b => inR(b, x, z));
@@ -76,23 +76,31 @@ const coreMat = new THREE.MeshBasicMaterial({ color: 0x35d5ff, transparent: true
 /* hue ride: sine sweep through blue (.58) → purple → pink (.92) and back — never leaves the palette */
 const boundHue = t => { const h = .58 + .34 * (0.5 + 0.5 * Math.sin(t * .3)); coreMat.color.setHSL(h, .85, .6);
   if (kioWireMat) kioWireMat.color.copy(coreMat.color); };                 // the button ghost-frame rides the same sweep
-const BND_W = .008;                                                     // ring band width
-const BOUND_FLOOR = [                                                   // [ax, az, bx, bz] floor-level impassable lines
+const BND_W = .008;                                                     // wire stock width
+const WALL_H = 1.05, WALL_D = .14;                                      // wall datum = the arch lintel — one unbroken cornice line around the footprint
+const wallMat = new THREE.MeshLambertMaterial({ color: 0xdcd8cc });     // light opaque — occludes without darkening the interior (void is 0xf4f1e8)
+const BOUND_WALL = [                                                    // [ax, az, bx, bz] wall centerlines — each becomes slab + cap wire
   [-3,-6, 3,-6], [3,-6, 3,1], [3,1, -3,1],                              // main room — S, E, N edges
   [-3,1, -3,0],                                                         // main west edge above the annex reach
   [-3,0, -7,0], [-7,0, -7,-5], [-7,-5, -3,-5],                          // annex — N, W, S edges
   [-3,-5, -3,-6],                                                       // main west edge below the annex reach
   [-3,-5, -3,-3], [-3,-2, -3,0],                                        // interior wall stubs — the west wall minus the door gap
 ];
-const jambMat = new THREE.MeshLambertMaterial({ color: 0x14161c });      // opaque dark reveal — the wall's thickness; same stock as the kiosk/console bodies
-const BOUND_ARCH = [ { x: -3, z0: -3, z1: -2, h: 1.05, d: .14 } ];       // doorway: the floor wire lifted into a ∩ — outline on EACH room's face (d = jamb depth), dark fill between
+const jambMat = new THREE.MeshLambertMaterial({ color: 0x14161c });      // opaque dark reveal — trim stock (kiosk/console bodies); portals read as frames
+const BOUND_ARCH = [ { x: -3, z0: -3, z1: -2, h: 1.05, d: .14 } ];       // doorway: wire lifted into a ∩ — outline on EACH room's face (d = jamb depth), dark fill between
+const ARCH_ENDS = new Set(BOUND_ARCH.flatMap(a => [[a.x, a.z0], [a.x, a.z1]]).map(([x, z]) => x + ',' + z));
 function rebuildBounds() {
   boundsG.clear();
-  BOUND_FLOOR.forEach(([ax, az, bx, bz]) => {                           // flat glow bands along each impassable line
-    const g = new THREE.PlaneGeometry(Math.hypot(bx - ax, bz - az) + BND_W, BND_W); g.rotateX(-Math.PI / 2);
-    const m = new THREE.Mesh(g, coreMat);
-    m.rotation.y = -Math.atan2(bz - az, bx - ax); m.position.set((ax + bx) / 2, .004, (az + bz) / 2);
-    boundsG.add(m);
+  const w = BND_W * 1.6;
+  BOUND_WALL.forEach(([ax, az, bx, bz]) => {                            // each centerline → opaque slab + glowing cap cornice
+    const len = Math.hypot(bx - ax, bz - az), ux = (bx - ax) / len, uz = (bz - az) / len;
+    const pA = ARCH_ENDS.has(ax + ',' + az) ? 0 : WALL_D / 2, pB = ARCH_ENDS.has(bx + ',' + bz) ? 0 : WALL_D / 2;   // end-pads close corner miters; jamb blocks cover arch-adjacent ends
+    const mx = (ax + bx) / 2 + ux * (pB - pA) / 2, mz = (az + bz) / 2 + uz * (pB - pA) / 2;
+    const ang = -Math.atan2(bz - az, bx - ax);
+    const slab = new THREE.Mesh(new THREE.BoxGeometry(len + pA + pB, WALL_H, WALL_D), wallMat);
+    slab.rotation.y = ang; slab.position.set(mx, WALL_H / 2, mz); boundsG.add(slab);
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(len + pA + pB + w, w, w), coreMat);
+    cap.rotation.y = ang; cap.position.set(mx, WALL_H + w / 2, mz); boundsG.add(cap);
   });
   BOUND_ARCH.forEach(a => {                                             // a real portal: wire outline on each room's face, opaque jamb between
     const w = BND_W * 1.6, mid = (a.z0 + a.z1) / 2, jw = .05;
@@ -104,7 +112,8 @@ function rebuildBounds() {
     });
     put(new THREE.BoxGeometry(w, w, Math.abs(a.z1 - a.z0)), a.x - a.d / 2, a.h, mid);   // lintel outlines on both faces
     put(new THREE.BoxGeometry(w, w, Math.abs(a.z1 - a.z0)), a.x + a.d / 2, a.h, mid);
-    put(new THREE.BoxGeometry(a.d - w, .05, Math.abs(a.z1 - a.z0) + jw), a.x, a.h, mid, jambMat);  // dark soffit spanning the gap
+    put(new THREE.BoxGeometry(a.d - w, .05, Math.abs(a.z1 - a.z0) + jw), a.x, a.h - .025, mid, jambMat);  // dark soffit flush under the cap line
+    put(new THREE.BoxGeometry(a.d - w, .014, Math.abs(a.z1 - a.z0) + jw), a.x, .007, mid, jambMat);     // threshold sill — the doorway's floor edge
   });
 }
 rebuildBounds(); window.__rebuildBounds = rebuildBounds;
