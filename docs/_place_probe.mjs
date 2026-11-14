@@ -292,7 +292,7 @@ check('wall stub south of door blocked', await evl('__construct.walkOK(-3, -4) =
 check('wall stub north of door blocked', await evl('__construct.walkOK(-3, -1) === false'));
 check('annex floor edge blocked beyond wall', await evl('__construct.walkOK(-7.2, -2.5) === false'));
 check('door jamb margin — capsule edge held', await evl('__construct.walkOK(-3, -3.1) === false'));
-check('bounds = 20 wall meshes + 10 portal meshes', await evl('__construct.bounds() === 30'), await evl('__construct.bounds()'));
+check('bounds = 10 slabs + 20 floor seams + 10 portal', await evl('__construct.bounds() === 40'), await evl('__construct.bounds()'));
 
 // 13 — fly-camera clamp + release back to body
 await evl('__cam(null)');

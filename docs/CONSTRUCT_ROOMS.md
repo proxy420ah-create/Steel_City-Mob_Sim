@@ -1,14 +1,14 @@
 # Construct — Rooms, Bounds Wire & Walk Law
 
-The Construct is a white void with real (if minimal) walls: every impassable
-line is a **light opaque slab** `WALL_D=.14` thick × `WALL_H=1.05` tall, capped
-by a `coreMat` cornice wire at the top edge — the same hue-riding stock as
-everything else. `WALL_H` equals the arch lintel height, so the cap runs as one
-unbroken glowing outline around the whole T-footprint, door included. Walls are
-`wallMat` `0xdcd8cc` — a step darker than the void (`0xf4f1e8`) so faces read
-as surface and shade by angle, but light enough that interiors stay bright
-(occlusion needs opacity, not darkness). Rooms expand by declaring three things
-in sync: floor tiles, wall segments, walk regions.
+The Construct is a white void whose boundaries are physically real but
+**visually invisible**: every impassable line is an opaque slab `WALL_D=.14`
+thick × `WALL_H=1.05` tall rendered in `floorMat` (`MeshBasicMaterial(VOID)`) —
+the floor's own law: *present, occluding, colliding, never seen*. Looking at a
+wall you see void; the annex is hidden until the doorway reveals it. The only
+wall-wire is the **floor seam**: a `coreMat` band at floor level flush against
+each wall face (one per face — every room gets its own seam; the exterior gets
+the footprint outline). No cornice, no vertical wires — the original Construct
+look. The one exception is the portal: a visible dark frame marking the opening.
 
 ## Layout (current)
 
@@ -23,14 +23,16 @@ in sync: floor tiles, wall segments, walk regions.
 | Layer | Data | Purpose |
 |-------|------|---------|
 | Floor | `MANIFEST.tiles` `[i,j]` grid cells @ `TILE=1.0` | invisible void-material tiles you stand on |
-| Wall | `BOUND_WALL` `[[ax,az,bx,bz]]` centerlines → slab + cap | opaque light slabs with glowing cornice tops |
+| Wall | `BOUND_WALL` `[[ax,az,bx,bz]]` centerlines → void slab + 2 seam bands | invisible slabs; glow only at the floor seams |
 | Portal | `BOUND_ARCH` `[{x,z0,z1,h,d}]` | doorway ∩: dual face outlines + dark jamb/soffit/sill fill |
 | Walk | `WALK_RECTS` (allowed) − `WALL_BLOCKS` (forbidden) | `walkOK(x,z)` = inside any rect AND not inside any block |
 
 `BOUND_WALL` covers both the **exterior outline** of the union (T-shape) and
-**interior stubs** on the shared edge `x=-3` — one slab serves both rooms (two
-faces, one wall). Slab ends pad `+WALL_D/2` to close corner miters, except at
-arch-adjacent ends (`ARCH_ENDS`) where the jamb blocks cover the join.
+**interior stubs** on the shared edge `x=-3` — one invisible slab serves both
+rooms (two faces, one wall). Slab ends pad `+WALL_D/2` to close corner miters,
+except at arch-adjacent ends (`ARCH_ENDS`) where the jamb blocks cover the
+join. Per segment the emit is 3 meshes: slab + a seam band at each face
+(`±(WALL_D/2 + BND_W/2)` off the centerline, at `y=.004`).
 
 `BOUND_ARCH` is the doorway — a real portal with depth `d`, per spec
 `{x, z0, z1, h, d}`:
@@ -76,6 +78,6 @@ arch-adjacent ends (`ARCH_ENDS`) where the jamb blocks cover the join.
 - `walkOK(-3,-3.1)` / `(-3,-2.9)` / `(-3,-2.1)` are `false` — capsule edge
   respects the jamb margins (blocks end where the jamb faces stand).
 - `walkOK(-3,-2.8)` / `(-3,-2.2)` are `true` — you can hug the jamb through.
-- `boundsG.children.length === 30` — 20 wall meshes (10 slabs + 10 caps) +
+- `boundsG.children.length === 40` — 10 slabs + 20 seam bands +
   10 portal meshes (4 posts, 2 jambs, 2 lintels, soffit, sill).
 - Followers obey the same `walkOK` — they can be led/`goto`'d through the door.

@@ -78,7 +78,7 @@ const boundHue = t => { const h = .58 + .34 * (0.5 + 0.5 * Math.sin(t * .3)); co
   if (kioWireMat) kioWireMat.color.copy(coreMat.color); };                 // the button ghost-frame rides the same sweep
 const BND_W = .008;                                                     // wire stock width
 const WALL_H = 1.05, WALL_D = .14;                                      // wall datum = the arch lintel — one unbroken cornice line around the footprint
-const wallMat = new THREE.MeshLambertMaterial({ color: 0xdcd8cc });     // light opaque — occludes without darkening the interior (void is 0xf4f1e8)
+const wallMat = floorMat;                                               // walls obey the floor's own law — void-colored, opaque, NEVER seen
 const BOUND_WALL = [                                                    // [ax, az, bx, bz] wall centerlines — each becomes slab + cap wire
   [-3,-6, 3,-6], [3,-6, 3,1], [3,1, -3,1],                              // main room — S, E, N edges
   [-3,1, -3,0],                                                         // main west edge above the annex reach
@@ -92,15 +92,19 @@ const ARCH_ENDS = new Set(BOUND_ARCH.flatMap(a => [[a.x, a.z0], [a.x, a.z1]]).ma
 function rebuildBounds() {
   boundsG.clear();
   const w = BND_W * 1.6;
-  BOUND_WALL.forEach(([ax, az, bx, bz]) => {                            // each centerline → opaque slab + glowing cap cornice
+  BOUND_WALL.forEach(([ax, az, bx, bz]) => {                            // each centerline → invisible slab + floor-seam glow bands
     const len = Math.hypot(bx - ax, bz - az), ux = (bx - ax) / len, uz = (bz - az) / len;
     const pA = ARCH_ENDS.has(ax + ',' + az) ? 0 : WALL_D / 2, pB = ARCH_ENDS.has(bx + ',' + bz) ? 0 : WALL_D / 2;   // end-pads close corner miters; jamb blocks cover arch-adjacent ends
     const mx = (ax + bx) / 2 + ux * (pB - pA) / 2, mz = (az + bz) / 2 + uz * (pB - pA) / 2;
-    const ang = -Math.atan2(bz - az, bx - ax);
     const slab = new THREE.Mesh(new THREE.BoxGeometry(len + pA + pB, WALL_H, WALL_D), wallMat);
-    slab.rotation.y = ang; slab.position.set(mx, WALL_H / 2, mz); boundsG.add(slab);
-    const cap = new THREE.Mesh(new THREE.BoxGeometry(len + pA + pB + w, w, w), coreMat);
-    cap.rotation.y = ang; cap.position.set(mx, WALL_H + w / 2, mz); boundsG.add(cap);
+    slab.rotation.y = -Math.atan2(bz - az, bx - ax); slab.position.set(mx, WALL_H / 2, mz); boundsG.add(slab);
+    [-1, 1].forEach(s => {                                              // floor seams — one glow band per wall face, flush at the base
+      const g = new THREE.PlaneGeometry(len + pA + pB, BND_W); g.rotateX(-Math.PI / 2);
+      const b = new THREE.Mesh(g, coreMat);
+      b.rotation.y = -Math.atan2(bz - az, bx - ax);
+      b.position.set(mx - uz * s * (WALL_D / 2 + BND_W / 2), .004, mz + ux * s * (WALL_D / 2 + BND_W / 2));
+      boundsG.add(b);
+    });
   });
   BOUND_ARCH.forEach(a => {                                             // a real portal: wire outline on each room's face, opaque jamb between
     const w = BND_W * 1.6, mid = (a.z0 + a.z1) / 2, jw = .05;
