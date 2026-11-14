@@ -281,6 +281,17 @@ check('outfit survives reload', await evl('__mann.outfit() === 1'));
 check('mannequin re-emitted wearing it', await evl('!!__mann.f()'), await evl('JSON.stringify(__mann.f() && __mann.f().spec)'));
 await evl('__cam(null); __pos.x = 0; __pos.z = 0');
 
+// 12.5 — west annex: doorway seam passable, wall stubs blocked, wire lifted into an arch
+check('walkOK centre of main room', await evl('__construct.walkOK(0, -2.5) === true'));
+check('walkOK inside the west annex', await evl('__construct.walkOK(-5, -2.5) === true'));
+check('walkOK at the door seam x=-3 z=-2.5', await evl('__construct.walkOK(-3, -2.5) === true'));
+check('walkOK door north half z=-2.2', await evl('__construct.walkOK(-3, -2.5) === true && __construct.walkOK(-3, -2.3) === true'));
+check('wall stub south of door blocked', await evl('__construct.walkOK(-3, -4) === false'));
+check('wall stub north of door blocked', await evl('__construct.walkOK(-3, -1) === false'));
+check('annex floor edge blocked beyond wall', await evl('__construct.walkOK(-7.2, -2.5) === false'));
+check('door jamb margin — capsule edge held', await evl('__construct.walkOK(-3, -3.1) === false'));
+check('bounds wire = 10 floor segs + 3 arch beams', await evl('__construct.bounds() === 13'), await evl('__construct.bounds()'));
+
 // 13 — fly-camera clamp + release back to body
 await evl('__cam(null)');
 check('camLock released', true);

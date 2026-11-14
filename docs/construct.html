@@ -45,7 +45,21 @@ key.position.set(0, 1.5, 1.5); scene.add(hemi, key);
 const TILE = 1.0;
 const MANIFEST = { tiles: [], props: [] };
 for (const i of [-2.5,-1.5,-.5,.5,1.5,2.5]) for (const j of [.5,-.5,-1.5,-2.5,-3.5,-4.5,-5.5]) MANIFEST.tiles.push([i, j]);   // room 6m x 7m — edges x±3 z[+1,-6], rotator dead-centre (0,-2.5), door inside the north edge
-const WALKR = { x0: 0, x1: 0, z0: 0, z1: 0 };                          // walkable rect — set by rebuildBounds from the tile footprint
+for (const i of [-3.5,-4.5,-5.5,-6.5]) for (const j of [-.5,-1.5,-2.5,-3.5,-4.5]) MANIFEST.tiles.push([i, j]);              // WEST ANNEX — board room 4m x 5m, edges x[-7,-3] z[-5,0]
+
+/* ── walk law — the union of allowed rects minus forbidden wall stubs. The doorway is a 1m
+   gap in the west edge x=-3 at z[-3,-2] (dead on the rotator axis); the rest of that edge is
+   impassable interior wall, enforced by WALL_BLOCKS (capsule-radius-expanded stubs). */
+const WALK_RECTS = [
+  { x0: -2.85, x1: 2.85, z0: -5.85, z1: .85 },                          // main room (tile edges inset .15)
+  { x0: -6.85, x1: -2.85, z0: -4.85, z1: -.15 },                        // west annex
+];
+const WALL_BLOCKS = [                                                    // interior wall stubs on the shared edge x=-3
+  { x0: -3.15, x1: -2.85, z0: -5, z1: -2.85 },                          // south of the door
+  { x0: -3.15, x1: -2.85, z0: -2.15, z1: 0 },                           // north of the door
+];
+const inR = (r, x, z) => x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1;
+const walkOK = (x, z) => WALK_RECTS.some(r => inR(r, x, z)) && !WALL_BLOCKS.some(b => inR(b, x, z));
 
 const floorMat = new THREE.MeshBasicMaterial({ color: VOID });              // the Matrix floor — unlit, void-colored: stand on it, never see it
 MANIFEST.tiles.forEach(([i, j]) => {
@@ -53,29 +67,38 @@ MANIFEST.tiles.forEach(([i, j]) => {
   t.position.set(i * TILE, -.026, j * TILE); scene.add(t);
 });
 
-/* ── bounds — RGB-style glowing edges tracing the walkable perimeter. Rebuilt from MANIFEST.tiles
-   (bounding rect of the tile set — v1; edge-trace for non-rect footprints when expansion needs it).
-   Expansion path: append MANIFEST.tiles then call rebuildBounds(). */
+/* ── bounds — RGB-style glowing edges tracing the walkable perimeter. Now an explicit spec:
+   BOUND_FLOOR lists floor-level band segments (the T-union outline + interior wall stubs), and
+   BOUND_ARCH lists lifted "doorway" ∩s — the same wire raised into beams where a gap passes.
+   Expansion path: append MANIFEST.tiles (floor) + BOUND_FLOOR/BOUND_ARCH (wire) then rebuildBounds(). */
 const boundsG = new THREE.Group(); scene.add(boundsG);
 const coreMat = new THREE.MeshBasicMaterial({ color: 0x35d5ff, transparent: true, opacity: .85, depthWrite: false, side: THREE.DoubleSide });
 /* hue ride: sine sweep through blue (.58) → purple → pink (.92) and back — never leaves the palette */
 const boundHue = t => { const h = .58 + .34 * (0.5 + 0.5 * Math.sin(t * .3)); coreMat.color.setHSL(h, .85, .6);
   if (kioWireMat) kioWireMat.color.copy(coreMat.color); };                 // the button ghost-frame rides the same sweep
 const BND_W = .008;                                                     // ring band width
+const BOUND_FLOOR = [                                                   // [ax, az, bx, bz] floor-level impassable lines
+  [-3,-6, 3,-6], [3,-6, 3,1], [3,1, -3,1],                              // main room — S, E, N edges
+  [-3,1, -3,0],                                                         // main west edge above the annex reach
+  [-3,0, -7,0], [-7,0, -7,-5], [-7,-5, -3,-5],                          // annex — N, W, S edges
+  [-3,-5, -3,-6],                                                       // main west edge below the annex reach
+  [-3,-5, -3,-3], [-3,-2, -3,0],                                        // interior wall stubs — the west wall minus the door gap
+];
+const BOUND_ARCH = [ { x: -3, z0: -3, z1: -2, h: 1.0 } ];                 // doorway: the floor wire lifted into a ∩ at the gap
 function rebuildBounds() {
   boundsG.clear();
-  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
-  MANIFEST.tiles.forEach(([i, j]) => { x0 = Math.min(x0, i * TILE - TILE / 2); x1 = Math.max(x1, i * TILE + TILE / 2);
-                                       z0 = Math.min(z0, j * TILE - TILE / 2); z1 = Math.max(z1, j * TILE + TILE / 2); });
-  const o = BND_W / 2;
-  const ring = new THREE.Shape();                                       // one flat band, mitered corners — no overlap bulges
-  ring.moveTo(x0 - o, z0 - o); ring.lineTo(x1 + o, z0 - o); ring.lineTo(x1 + o, z1 + o); ring.lineTo(x0 - o, z1 + o); ring.closePath();
-  const hole = new THREE.Path();
-  hole.moveTo(x0 + o, z0 + o); hole.lineTo(x1 - o, z0 + o); hole.lineTo(x1 - o, z1 - o); hole.lineTo(x0 + o, z1 - o); hole.closePath();
-  ring.holes.push(hole);
-  const g = new THREE.ShapeGeometry(ring); g.rotateX(Math.PI / 2);      // rotateX(+90°) maps shape-y → +z — coords go in un-negated
-  const m = new THREE.Mesh(g, coreMat); m.position.y = .004; boundsG.add(m);
-  WALKR.x0 = x0 + .15; WALKR.x1 = x1 - .15; WALKR.z0 = z0 + .15; WALKR.z1 = z1 - .15;   // capsule-inset walk limits
+  BOUND_FLOOR.forEach(([ax, az, bx, bz]) => {                           // flat glow bands along each impassable line
+    const g = new THREE.PlaneGeometry(Math.hypot(bx - ax, bz - az) + BND_W, BND_W); g.rotateX(-Math.PI / 2);
+    const m = new THREE.Mesh(g, coreMat);
+    m.rotation.y = -Math.atan2(bz - az, bx - ax); m.position.set((ax + bx) / 2, .004, (az + bz) / 2);
+    boundsG.add(m);
+  });
+  BOUND_ARCH.forEach(a => {                                             // beams, same hue-riding wire stock, raised vertical
+    const w = BND_W * 1.6, beam = (g, x, y, z) => { const m = new THREE.Mesh(g, coreMat); m.position.set(x, y, z); boundsG.add(m); };
+    beam(new THREE.BoxGeometry(w, a.h, w), a.x, a.h / 2, a.z0);         // two jambs at the gap edges
+    beam(new THREE.BoxGeometry(w, a.h, w), a.x, a.h / 2, a.z1);
+    beam(new THREE.BoxGeometry(w, w, Math.abs(a.z1 - a.z0) + w), a.x, a.h, (a.z0 + a.z1) / 2);   // lintel spanning the gap
+  });
 }
 rebuildBounds(); window.__rebuildBounds = rebuildBounds;
 
@@ -401,8 +424,9 @@ const followStep = (f, dt) => {
       let dyaw = Math.atan2(vx, vz) - f.yaw;
       while (dyaw > Math.PI) dyaw -= 2 * Math.PI; while (dyaw < -Math.PI) dyaw += 2 * Math.PI;
       f.yaw += Math.sign(dyaw) * Math.min(Math.abs(dyaw), F_TURN * dt);
-      f.pos.x = Math.max(WALKR.x0, Math.min(WALKR.x1, f.pos.x + vx * dt));
-      f.pos.z = Math.max(WALKR.z0, Math.min(WALKR.z1, f.pos.z + vz * dt));
+      const fnx = f.pos.x + vx * dt, fnz = f.pos.z + vz * dt;               // axis-slide against walls (union rects − stubs)
+      if (walkOK(fnx, fnz)) { f.pos.x = fnx; f.pos.z = fnz; }
+      else if (walkOK(fnx, f.pos.z)) f.pos.x = fnx; else if (walkOK(f.pos.x, fnz)) f.pos.z = fnz;
       for (const s of SOLIDS) { const px = f.pos.x - s[0], pz = f.pos.z - s[1], rr = s[2] + .18, dd = Math.hypot(px, pz);
         if (dd < rr && dd > 1e-4) { f.pos.x = s[0] + px / dd * rr; f.pos.z = s[1] + pz / dd * rr; } }
       for (const g of followers) { if (g === f) continue; const px = f.pos.x - g.pos.x, pz = f.pos.z - g.pos.z, dd = Math.hypot(px, pz);   // bodies don't stack
@@ -1133,7 +1157,7 @@ const flyStep = dt => {                                                         
   const cy = Math.cos(yaw), sy = Math.sin(yaw);
   flyPos.addScaledVector(_fd, f * sp * dt);
   flyPos.x += cy * r * sp * dt; flyPos.z += -sy * r * sp * dt; flyPos.y += u * sp * dt;
-  flyPos.x = Math.max(-3.4, Math.min(3.4, flyPos.x));
+  flyPos.x = Math.max(-7.5, Math.min(3.4, flyPos.x));
   flyPos.z = Math.max(-7.5, Math.min(1.8, flyPos.z));
   flyPos.y = Math.max(.08, Math.min(2.4, flyPos.y));
 };
@@ -1177,8 +1201,11 @@ const step = dt => {
   const f = (keys['w'] ? 1 : 0) - (keys['s'] ? 1 : 0), r = (keys['d'] ? 1 : 0) - (keys['a'] ? 1 : 0);
   if (f || r) {
     const sy = Math.sin(yaw), cy = Math.cos(yaw), L = Math.hypot(f, r) || 1;
+    const px = pos.x, pz = pos.z;
     pos.x += (-sy * f + cy * r) / L * sp * dt; pos.z += (-cy * f - sy * r) / L * sp * dt;   // forward = (-sin,-cos)yaw, right = (cos,-sin)yaw — three.js yaw-0 faces -z
-    pos.x = Math.max(WALKR.x0, Math.min(WALKR.x1, pos.x)); pos.z = Math.max(WALKR.z0, Math.min(WALKR.z1, pos.z));
+    if (!walkOK(pos.x, pos.z)) {                                            // slide along walls — try each axis alone
+      if (walkOK(pos.x, pz)) pos.z = pz; else if (walkOK(px, pos.z)) pos.x = px; else { pos.x = px; pos.z = pz; }
+    }
     for (const s of SOLIDS) { const px = pos.x - s[0], pz = pos.z - s[1], rr = s[2] + .15, d = Math.hypot(px, pz);
       if (d < rr && d > 1e-4) { pos.x = s[0] + px / d * rr; pos.z = s[1] + pz / d * rr; } }
   }
@@ -1279,6 +1306,7 @@ window.__snap = (name, px, py, pz, tx, ty, tz) => {
   return fetch('/shot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'probe_' + name, png: u }) }).then(r => r.json()).then(j => !!j.ok);
 };
 window.__construct = { manifest: MANIFEST, pos, spin: () => spinning, held: () => held, placed: PLACED, yaw: () => yaw,
+  walkOK, bounds: () => boundsG.children.length,
   followers: () => followers.map(f => ({ char: f.spec.char, order: f.order, pos: f.pos.toArray() })),
   self: () => selfBody && ({ x: pos.x, z: pos.z, yaw: selfBody.yaw, state: selfBody.state,
     bodyMask: selfBody.meshes[0].im.layers.mask, headMask: selfBody.meshes[1].im.layers.mask,
