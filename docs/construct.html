@@ -254,8 +254,8 @@ const BLDG_MAT = {                                                       // mob_
 const BLDG_GLASS = new Set([112, 113, 114, 134, 147]);                  // glass ids — the voxEmit transparency contract
 const darkMat = new THREE.MeshLambertMaterial({ color: 0x14161c });      // the Construct's furniture stock (consoles/kiosk)
 MANIFEST.tables = [                                                    // PRIMARY TABLE — annex centre (-5,-2.5), dead on the rotator axis
-  { id: 'primary', x: -5, z: -2.5, size: 1.2, top: .26, scale: 1 / 64,   // 1:64 — a real architectural ratio; eye (.55) peers over
-    models: [{ name: 'tenement_block_0' }] },                            // one model at a time — the table is a single-model easel
+  { id: 'primary', x: -5, z: -2.5, size: 1.2, top: .26, scale: 1 / 64,   // scale = shared-table law; a model may declare `fill` instead —
+    models: [{ name: 'tenement_block_0', fill: .75 }] },                 // one model at a time — .75 of the tabletop, uniform margin
 ];
 const TABLES = [];
 const emitTable = spec => {
@@ -290,7 +290,8 @@ const emitBldg = (t, m) => fetch('/Assets/StreamingAssets/voxel_buildings/' + m.
     if (dv.getUint32(0, false) !== 0x53544153) return console.warn('CONSTRUCT — not a stasset:', m.name);
     const W = dv.getUint16(6, true), H = dv.getUint16(8, true), D = dv.getUint16(10, true);
     const vox = new Uint16Array(buf.slice(16, 16 + W * H * D * 2));
-    const vs = BLDG_VS * t.spec.scale, top = t.spec.top, ox = m.x || 0, oz = m.z || 0;
+    const vs = m.fill ? (m.fill * t.spec.size) / Math.max(W, D) : BLDG_VS * t.spec.scale;   // fill: span = fill × table size
+    const top = t.spec.top, ox = m.x || 0, oz = m.z || 0;
     const at = (x, y, z) => (x < 0 || y < 0 || z < 0 || x >= W || y >= H || z >= D) ? 0 : vox[x + W * (y + H * z)];
     let ng = 0;
     const ymax = new Uint16Array(W * D);                                 // per-column building top — the courtyard reads open
@@ -320,7 +321,7 @@ const emitBldg = (t, m) => fetch('/Assets/StreamingAssets/voxel_buildings/' + m.
       const k = TOPK(Math.round(lx * 200), Math.round(lz * 200)), v = top + hgt * vs;
       if (v > (t.rec.tops.get(k) ?? -1e9)) t.rec.tops.set(k, v);           // several model cells share a 5mm column — keep the true max
     }
-    miniG.userData.mini = { name: m.name, dims: [W, H, D], vox: ng, scale: t.spec.scale };
+    miniG.userData.mini = { name: m.name, dims: [W, H, D], vox: ng, scale: vs / BLDG_VS, fill: m.fill };
     return miniG;
   }).catch(e => console.warn('CONSTRUCT — bldg emit failed:', m.name, e));
 MANIFEST.tables.forEach(spec => { const t = emitTable(spec); spec.models.forEach(m => emitBldg(t, m)); });

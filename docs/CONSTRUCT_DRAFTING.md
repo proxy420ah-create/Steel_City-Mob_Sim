@@ -8,7 +8,7 @@ multiple drafting tables are list entries, not new code.
 
 ```js
 { id: 'primary', x: -5, z: -2.5, size: 1.2, top: .26, scale: 1 / 64,
-  models: [{ name: 'tenement_block_0' }] }     // one model at a time — a single-model easel
+  models: [{ name: 'tenement_block_0', fill: .75 }] }     // one model at a time — a single-model easel
 ```
 
 - `emitTable(spec)` builds it in the Construct's own language: dark furniture slab
@@ -34,9 +34,12 @@ game file is the single source, edits to the building show up on reload).
 - **Surface-only instancing**: a voxel emits only when ≥1 of its 6 faces borders
   air — tenement 426,012 of 783,098 cells; barber 20,577 of 21,879.
 - **Scale law**: `BLDG_VS = .1` is the in-game building voxel (VoxelChunkManager:
-  buildings=0.1). Model voxel = `BLDG_VS × table.scale`. **All models on one table
-  share the table's `scale`** — buildings stay comparable, like a real architect's
-  set (1:64 → tenement .30m footprint, barber .10m — the block vs the slot reads true).
+  buildings=0.1). Default model voxel = `BLDG_VS × table.scale` — **all models on one
+  table share the table's `scale`**, buildings stay comparable. A model may instead
+  declare **`fill`**: `vs = fill × table.size / max(W,D)` — the model's long edge spans
+  exactly `fill` of the tabletop with a uniform margin (tenement `fill:.75` → .9m on
+  the 1.2m table, .15m margin all sides, ~1:21). For a single-model easel `fill` is the
+  honest contract — every model presents at its best size regardless of native dims.
 - **Palette**: `BLDG_MAT` mirrors `VoxelAssetStudio/mob_materials.py` (MUST match
   StAssetReader.cs); glass ids `BLDG_GLASS` {112,113,114,134,147} split into the
   `__glassMat` mesh — the same transparency contract as `voxEmit`.

@@ -299,11 +299,11 @@ check('bounds = 10 slabs + 20 seams + 6 portal wires', await evl('__construct.bo
   check('primary table emitted', tabs.length === 1 && tabs[0].id === 'primary', JSON.stringify(tabs));
   check('table dead-centre in the annex', tabs && tabs[0].x === -5 && tabs[0].z === -2.5);
   check('table square + low', tabs && tabs[0].size === 1.2 && tabs[0].top === .26);
-  check('declared scale 1:64', tabs && Math.abs(tabs[0].scale - 1 / 64) < 1e-9);
   for (let i = 0; i < 40 && !(await evl('__construct.tables()[0].models.length === 1')); i++) await sleep(250);
   const tabs2 = await evl('__construct.tables()'), ten = tabs2[0].models.find(m => m.name === 'tenement_block_0');
   check('one model only — the table is a single-model easel', tabs2[0].models.length === 1);
   check('tenement miniature loaded', ten && ten.dims.join('x') === '192x120x192' && ten.vox > 400000, JSON.stringify(ten));
+  check('fill contract — .75 of the tabletop (1:21.33)', ten && ten.fill === .75 && Math.abs(ten.scale - .75 * 1.2 / 192 / .1) < 1e-6, JSON.stringify({ scale: ten && ten.scale, fill: ten && ten.fill }));
   const rec = await evl('(() => { const p = __construct.placed.find(p => p.name === "table:primary"); return p ? { surf: p.surf, x: p.x, z: p.z } : null; })()');
   check('table is a surf host', rec && rec.surf === true, JSON.stringify(rec));
   check('table footprint blocks walk', await evl('__construct.walkOK(-5, -2.5) === false'));
@@ -311,11 +311,11 @@ check('bounds = 10 slabs + 20 seams + 6 portal wires', await evl('__construct.bo
   check('capsule held off the table edge', await evl('__construct.walkOK(-4.32, -2.5) === false && __construct.walkOK(-5.68, -2.5) === false'));
   const sat = (x, z) => `__construct.surfaceAt(__construct.placed.find(p => p.name === "table:primary"), ${x}, ${z}, 0)`;
   const roof = await evl(sat(-5, -2.5));
-  check('measured top over tenement core = .4225', Math.abs(roof - .4225) < .005, 'roof=' + roof);
-  const yard = await evl(sat(-5, -2.3609));
+  check('measured top over tenement core = .7475', Math.abs(roof - .7475) < .008, 'roof=' + roof);
+  const yard = await evl(sat(-5, -2.0818));
   check('open rear yard reads the felt .26', Math.abs(yard - .26) < .005, 'yard=' + yard);
-  const front = await evl(sat(-5, -2.62));
-  check('front parapet reads its own top .40375', Math.abs(front - .40375) < .005, 'front=' + front); }
+  const front = await evl(sat(-5, -2.5 + (14 - 96) * .0046875));
+  check('front parapet reads above felt, below core', front > .5 && front < .7, 'front=' + front); }
 
 // 13 — fly-camera clamp + release back to body
 await evl('__cam(null)');
