@@ -294,6 +294,8 @@ const emitBldg = (t, m) => fetch('/Assets/StreamingAssets/voxel_buildings/' + m.
     const vox = new Uint16Array(buf.slice(16, 16 + W * H * D * 2));
     const vs = m.fill ? (m.fill * t.spec.size) / Math.max(W, D) : BLDG_VS * t.spec.scale;   // fill: span = fill × table size
     const top = t.spec.top, ox = m.x || 0, oz = m.z || 0;
+    const mirX = m.flip !== false;                                       // .stasset grids are authored under Unity truth —
+    const fx = x => mirX ? (W - 1 - x) - W / 2 + .5 : x - W / 2 + .5;      // the editor's UNITY VIEW is scale.x=-1, so a right-handed render mirrors x to match (opt out with flip:false)
     const at = (x, y, z) => (x < 0 || y < 0 || z < 0 || x >= W || y >= H || z >= D) ? 0 : vox[x + W * (y + H * z)];
     let ng = 0;
     const ymax = new Uint16Array(W * D);                                 // per-column building top — the courtyard reads open
@@ -311,7 +313,7 @@ const emitBldg = (t, m) => fetch('/Assets/StreamingAssets/voxel_buildings/' + m.
     for (let y = 0; y < H; y++) for (let z = 0; z < D; z++) for (let x = 0; x < W; x++) {
       const id = at(x, y, z); if (!id) continue;
       if (at(x-1,y,z) && at(x+1,y,z) && at(x,y-1,z) && at(x,y+1,z) && at(x,y,z-1) && at(x,y,z+1)) continue;
-      M.makeScale(vs, vs, vs).setPosition((x - W / 2 + .5) * vs, (y + .5) * vs, (z - D / 2 + .5) * vs);
+      M.makeScale(vs, vs, vs).setPosition(fx(x) * vs, (y + .5) * vs, (z - D / 2 + .5) * vs);
       const col = BLDG_MAT[id]; C.setRGB(col ? col[0] : .55, col ? col[1] : .55, col ? col[2] : .55);
       if (BLDG_GLASS.has(id)) { imG.setMatrixAt(gi, M); imG.setColorAt(gi, C); gi++; }
       else { imO.setMatrixAt(no, M); imO.setColorAt(no, C); no++; }
@@ -320,7 +322,7 @@ const emitBldg = (t, m) => fetch('/Assets/StreamingAssets/voxel_buildings/' + m.
     const cols = [];
     for (let z = 0; z < D; z++) for (let x = 0; x < W; x++) {              // the model joins the host's surface truth
       const hgt = ymax[x + W * z]; if (!hgt) continue;
-      const lx = ox + (x - W / 2 + .5) * vs, lz = oz + (z - D / 2 + .5) * vs;
+      const lx = ox + fx(x) * vs, lz = oz + (z - D / 2 + .5) * vs;
       const k = TOPK(Math.round(lx * 200), Math.round(lz * 200)), v = top + hgt * vs;
       if (v > (t.rec.tops.get(k) ?? -1e9)) t.rec.tops.set(k, v);           // several model cells share a 5mm column — keep the true max
       cols.push(k);

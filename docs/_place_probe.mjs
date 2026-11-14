@@ -337,7 +337,7 @@ check('bounds = 10 slabs + 20 seams + 6 portal wires', await evl('__construct.bo
   const bar = (await evl('__construct.tables()'))[0].models[0];
   check('swap still single-model — easel law', bar && (await evl('__construct.tables()'))[0].models.length === 1);
   check('barber mounted at its own fill', bar && bar.name === 'barber_shop' && bar.fill === .75 && bar.dims.join('x') === '64x36x64', JSON.stringify(bar));
-  await evl('__cam(-5, .62, -1.5, -5, .45, -2.6)'); await sleep(500);               // mid-swap visual — barber on the easel
+  await evl('__cam(-4.9, .6, -3.75, -5, .42, -2.4)'); await sleep(500);            // mid-swap visual — barber sign face on the easel
   fs.writeFileSync(path.join(HERE, 'probe_barber_on_table.png'), Buffer.from((await cdp('Page.captureScreenshot', { format: 'png' })).result.data, 'base64'));
   check('swap persisted', await evl('localStorage.getItem("dvm_model:primary") === "barber_shop"'));
   await evl('__panel.press(0)');                                                 // ◀ — back to tenement

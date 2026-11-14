@@ -42,6 +42,12 @@ game file is the single source, edits to the building show up on reload).
   exactly `fill` of the tabletop with a uniform margin (tenement `fill:.75` → .9m on
   the 1.2m table, .15m margin all sides, ~1:21). For a single-model easel `fill` is the
   honest contract — every model presents at its best size regardless of native dims.
+- **Unity truth — X-mirror**: `.stasset` grids are authored under the left-handed
+  Unity render (`VoxelBuildingMeshifier` maps grid→world unmirrored; the editor's
+  UNITY VIEW is `scene.scale.x=-1`). A right-handed render must mirror **x** to
+  match what the game shows — `emitBldg` maps `x → W-1-x` in both the instance
+  layout and the tops write (same face stays toward the viewer, text un-reverses;
+  a z-mirror would spin the facade around). Opt out per model with `flip:false`.
 - **Palette**: `BLDG_MAT` mirrors `VoxelAssetStudio/mob_materials.py` (MUST match
   StAssetReader.cs); glass ids `BLDG_GLASS` {112,113,114,134,147} split into the
   `__glassMat` mesh — the same transparency contract as `voxEmit`.
