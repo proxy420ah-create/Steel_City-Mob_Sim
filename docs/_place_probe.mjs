@@ -317,22 +317,12 @@ check('bounds = 10 slabs + 20 seams + 6 portal wires', await evl('__construct.bo
   const front = await evl(sat(-5, -2.5 + (14 - 96) * .0046875));
   check('front parapet reads above felt, below core', front > .5 && front < .7, 'front=' + front); }
 
-// 12.9 — model panel: annex south wall, ◀▶ cycle swaps the easel's exhibit
-{ check('model panel emitted on the annex south wall', await evl('!!(__panel && __panel.pos && __panel.pos.z < -4.7 && __panel.pos.x < -3)'));
-  check('two pressable buttons', await evl('__panel.buttons.length === 2'));
-  const tabc = await evl('__construct.tables()');
+// 12.9 — the catalog swap rides the pad's MODEL page (the wall panel prototype is retired)
+{ const tabc = await evl('__construct.tables()');
   check('catalog = tenement + barber', JSON.stringify((tabc[0].catalog || []).sort()) === '["barber_shop","tenement_block_0"]', JSON.stringify(tabc[0].catalog));
-  const pb = JSON.parse(await evl('JSON.stringify(__panel.btnWorld(1))'));       // stand north of the panel — its face fronts +z
-  await evl('__pos.x = ' + pb[0] + '; __pos.z = ' + (pb[2] + .8));
-  await evl('__cam(' + pb[0] + ', ' + (pb[1] + .35) + ', ' + (pb[2] + .8) + ', ' + pb[0] + ', ' + pb[1] + ', ' + pb[2] + ')');
-  await sleep(400);
-  check('aim at ▶ resolves the button', await evl('!!(__panel.probe() && __panel.probe().label().indexOf("MODEL") >= 0)'), await evl('__panel.probe() && __panel.probe().label()'));
-  await evl('Object.defineProperty(document, "pointerLockElement", { get: () => document.querySelector("canvas"), configurable: true })');
-  await sleep(250);
-  check('aim at ▶ shows the ghost wireframe', await evl('!!(__panel.wire() && __panel.wire().visible)'));
-  await evl('delete document.pointerLockElement');
+  check('no wall panel — the pad owns the surface now', await evl('typeof __panel === "undefined"'));
   await evl('localStorage.removeItem("dvm_model:primary")');
-  await evl('__panel.press(1)');                                                 // ▶ — tenement → barber
+  await evl('__pad.press("next")');                                               // ▶ — tenement → barber
   for (let i = 0; i < 40 && !(await evl('__construct.tables()[0].models[0] && __construct.tables()[0].models[0].name === "barber_shop"')); i++) await sleep(250);
   const bar = (await evl('__construct.tables()'))[0].models[0];
   check('swap still single-model — easel law', bar && (await evl('__construct.tables()'))[0].models.length === 1);
@@ -340,7 +330,7 @@ check('bounds = 10 slabs + 20 seams + 6 portal wires', await evl('__construct.bo
   await evl('__cam(-4.9, .6, -3.75, -5, .42, -2.4)'); await sleep(500);            // mid-swap visual — barber sign face on the easel
   fs.writeFileSync(path.join(HERE, 'probe_barber_on_table.png'), Buffer.from((await cdp('Page.captureScreenshot', { format: 'png' })).result.data, 'base64'));
   check('swap persisted', await evl('localStorage.getItem("dvm_model:primary") === "barber_shop"'));
-  await evl('__panel.press(0)');                                                 // ◀ — back to tenement
+  await evl('__pad.press("prev")');                                               // ◀ — back to tenement
   for (let i = 0; i < 40 && !(await evl('__construct.tables()[0].models[0] && __construct.tables()[0].models[0].name === "tenement_block_0"')); i++) await sleep(250);
   const roof2 = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:primary"), -5, -2.5, 0)');
   check('unmount restored the measured tops — core reads .7475 again', Math.abs(roof2 - .7475) < .008, 'roof2=' + roof2);
@@ -400,6 +390,8 @@ check('model actually turns on the table', rotA > .15, 'rotY=' + rotA);
 check('tops stay populated mid-spin — core still reads .7475', Math.abs(await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:primary"), -5, -2.5, 0)') - .7475) < .008);
 await evl('__pad.press("rr")');
 check('same speed toggles off — turntable law', await evl('__construct.tables()[0].models[0].spin === 0'));
+await evl('__pad.press("rres")');
+check('rot reset homes the easel to 0', await evl('__construct.tables()[0].models[0].rotY === 0 && __construct.tables()[0].models[0].spin === 0'));
 await evl('__pad.tab("slice")');
 check('slice page — default axis y', await evl('__pad.page() === "slice" && __construct.tables()[0].models[0].axis === "y"'));
 await evl('__pad.press("max-"); __pad.press("max-"); __pad.press("max-")');

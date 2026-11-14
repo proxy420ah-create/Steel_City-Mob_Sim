@@ -9,7 +9,7 @@ multiple drafting tables are list entries, not new code.
 ```js
 { id: 'primary', x: -5, z: -2.5, size: 1.2, top: .26, scale: 1 / 64,
   models: [{ name: 'tenement_block_0', fill: .75 }],      // mounted exhibit — one model at a time
-  catalog: [{ name: 'tenement_block_0', fill: .75 },      // the swappable universe — the panel cycles it
+  catalog: [{ name: 'tenement_block_0', fill: .75 },      // the swappable universe — the pad cycles it
             { name: 'barber_shop', fill: .75 }] }
 ```
 
@@ -54,26 +54,22 @@ game file is the single source, edits to the building show up on reload).
 - **Placement**: model group parents to the table group at `(m.x, top, m.z)`
   table-local — axis-aligned; models ride any table drag automatically.
 
-## The model panel + mountModel
+## mountModel — the easel's swap verb
 
-`mountModel(table, spec)` is the easel's swap verb: unmount the current mini
-(unparent, dispose instances, **its tops columns revert to felt** via the
-recorded `mini.cols`), set `models=[spec]`, emit the new one. `models[]`
-therefore always reads as *what's on the table now*.
+`mountModel(table, spec)`: unmount the current mini (unparent, dispose
+instances + their cloned materials, **its tops columns revert to felt** via
+the recorded `mini.written`), set `models=[spec]`, emit the new one.
+`models[]` therefore always reads as *what's on the table now*.
 
-`catalog` on the spec is the swappable universe. The **model panel** floats on
-the annex south wall at `(-4.3, .5, -4.82)` — same pressable-face law as the
-mannequin kiosk: `coreMat` rim + dark canvas screen (`— PRIMARY TABLE — /
-MODEL i/n / name`) + two physical `◀▶` buttons carrying `coreMat` glyphs, plus
-its own ghost `EdgesGeometry` wireframe (`pnlWire`). `panelProbe()` raycasts the
-buttons within 1.8 m and rides the same `promptIt` resolution as `kioskProbe`
-(ghost gating is per-panel: `btn.panel === 'models'`). Press → cycle the
-catalog → `mountModel` → `localStorage['dvm_model:<id>']` persists the choice —
-an F5 remounts whatever was on the easel.
+`catalog` on the spec is the swappable universe; the **debug pad's MODEL
+page** is its control surface (the original fixed wall panel was retired once
+the pad proved the portable panel). Press → cycle the catalog →
+`localStorage['dvm_model:<id>']` persists the choice — an F5 remounts whatever
+was on the easel.
 
-Since each catalog entry carries its own `fill`, every building presents at its
-own best fit — the barber mounts at `.75` too (`.9m` footprint, ~1:7 vs the
-tenement's ~1:21 — "doesn't have to be relative to tenement" was literally
+Since each catalog entry carries its own `fill`, every building presents at
+its own best fit — the barber mounts at `.75` too (`.9m` footprint, ~1:7 vs
+the tenement's ~1:21 — "doesn't have to be relative to tenement" was literally
 already the contract).
 
 ## The debug pad — a pickable touchscreen
@@ -95,14 +91,13 @@ input modes:
   LMB presses). RMB tap again (or Esc, or entering place mode) re-locks the
   look. WASD still moves you; E still places the pad. The click-to-lock canvas
   handler is gated `!padFocus` so presses don't re-engage.
-- **Placed → center-aim press** (`padProbe`, same law as `kioskProbe`/`panelProbe`):
+- **Placed → center-aim press** (`padProbe`, same law as `kioskProbe`):
   raycasts the screen within 1.8 m → `uv` → region → `{isBtn, panel:'pad'}` rides
   the `promptIt` chain, so aim + E (or LMB) presses it like any other face.
   Skipped while the pad is held — you can't aim at your own hand.
 
-Probes are unconditional (`kb || pb || db`) so canvas hover state can't freeze;
-ghost wires gate per-panel (`btn.panel`). v1 regions drive `mountModel` (the
-same verb as the wall panel — `padSwap` redraws both surfaces).
+Probes are unconditional (`kb || db`) so canvas hover state can't freeze;
+ghost wires gate per-panel (`btn.panel`). MODEL page drives `mountModel`.
 
 ## Pad pages — tabs, the turntable, the slice window
 
@@ -113,9 +108,10 @@ padPage`, so a page switch costs a `padDraw` and nothing else. New tools are a
 
 - **ROT — the easel turntable.** Four speeds-as-buttons (`◀◀ ◀ ▶ ▶▶`, ±.9/±.25
   rad/s): `miniSpinSet` toggles — press a rate to spin, press the lit rate to
-  stop, press another to change. The render loop integrates `rotation.y` and
+  stop, press another to change. `RESET` (`miniRotReset`) homes it: spin 0,
+  `rotation.y` 0, exact tops. The render loop integrates `rotation.y` and
   re-projects tops every ~.02 rad (centre columns hold through the spin); an
-  exact `miniSyncTops` runs on stop.
+  exact `miniSyncTops` runs on stop/reset.
 - **SLICE — the editor's xyz window, same contract.** `mn.slice` holds per-axis
   index ranges; `miniSyncSlice` writes `uVoxClipMin/Max` into the model's
   cloned materials (the editor's own shader patch — instance origins vs a

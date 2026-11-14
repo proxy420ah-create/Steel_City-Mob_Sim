@@ -76,7 +76,6 @@ const coreMat = new THREE.MeshBasicMaterial({ color: 0x35d5ff, transparent: true
 /* hue ride: sine sweep through blue (.58) → purple → pink (.92) and back — never leaves the palette */
 const boundHue = t => { const h = .58 + .34 * (0.5 + 0.5 * Math.sin(t * .3)); coreMat.color.setHSL(h, .85, .6);
   if (kioWireMat) kioWireMat.color.copy(coreMat.color);                    // the button ghost-frames ride the same sweep
-  if (pnlWireMat) pnlWireMat.color.copy(coreMat.color);
   if (padEdgeMat) padEdgeMat.color.copy(coreMat.color); };                 // the debug pad's edge trim too
 const BND_W = .008;                                                     // wire stock width
 const WALL_H = 1.05, WALL_D = .14;                                      // wall datum = the arch lintel — one unbroken cornice line around the footprint
@@ -369,6 +368,10 @@ const miniSpinSet = rate => { const t = TABLES[0], mdl = t && t.g.children.find(
   if (!mdl) return; const mn = mdl.userData.mini;
   mn.spin = (mn.spin === rate) ? 0 : rate;
   if (!mn.spin) { mn.topTheta = mdl.rotation.y; miniSyncTops(t, mdl); } };
+/* miniRotReset — home the easel: stop any spin, face the model at rotY 0, exact tops re-sync. */
+const miniRotReset = () => { const t = TABLES[0], mdl = t && t.g.children.find(c => c.userData.mini);
+  if (!mdl) return; const mn = mdl.userData.mini;
+  mn.spin = 0; mdl.rotation.y = 0; mn.topTheta = 0; miniSyncTops(t, mdl); };
 /* sliceStep — nudge the active slice bound by dim/16 steps (min 1), clamped against its twin. */
 const miniSliceStep = (bound, dir) => { const t = TABLES[0], mdl = t && t.g.children.find(c => c.userData.mini);
   if (!mdl) return; const mn = mdl.userData.mini, ax = mn.axis || 'y', dim = mn.dims['xyz'.indexOf(ax)], s = mn.slice[ax],
@@ -393,61 +396,6 @@ MANIFEST.tables.forEach(spec => { const t = emitTable(spec);
   const saved = localStorage.getItem('dvm_model:' + spec.id), cat = spec.catalog || spec.models;
   mountModel(t, cat.find(m => m.name === saved) || spec.models[0]); });
 
-/* ── MODEL PANEL — the annex's wall reader for the Primary Table. Same pressable-face law as
-   the mannequin kiosk: dark plate + hue rim + canvas screen + ◀▶ glyph buttons + ghost wire.
-   Aim + E (or click) cycles the table's catalog — each model mounts at its own `fill` fit.
-   Sits on the annex south wall so the model stays in frame while you swap. */
-const PNL_POS = { x: -4.3, y: .5, z: -4.82 };
-const pnlG = new THREE.Group(); pnlG.position.set(PNL_POS.x, PNL_POS.y, PNL_POS.z); scene.add(pnlG);  // faces +z (north) — default orientation
-const PNL_BTNS = [];
-let pnlWire = null, pnlWireMat = null;
-const pnlCv = document.createElement('canvas'); pnlCv.width = 512; pnlCv.height = 300;
-const pnlTex = new THREE.CanvasTexture(pnlCv); pnlTex.colorSpace = THREE.SRGBColorSpace;
-const pnlDraw = press => { const t = TABLES[0], cat = t ? (t.spec.catalog || t.spec.models) : [],
-    cur = t && t.spec.models[0], idx = cur ? cat.findIndex(m => m.name === cur.name) : -1, g = pnlCv.getContext('2d');
-  g.fillStyle = '#101218'; g.fillRect(0, 0, 512, 300);
-  g.strokeStyle = '#3a3a4a'; g.lineWidth = 6; g.strokeRect(3, 3, 506, 294);
-  g.fillStyle = '#8f87a0'; g.font = '20px monospace'; g.textAlign = 'center';
-  g.fillText('— ' + (t ? t.spec.id.toUpperCase() : 'PRIMARY') + ' TABLE —', 256, 46);
-  g.fillStyle = '#cfc8b0'; g.font = '17px monospace'; g.fillText('MODEL' + (idx >= 0 ? '   ' + (idx + 1) + '/' + cat.length : ''), 256, 104);
-  g.font = 'bold 26px monospace';
-  g.fillStyle = press === -1 ? '#7fd4ff' : '#5b5648'; g.fillText('◀', 88, 190);
-  g.fillStyle = '#e8d9b0'; g.fillText(cur ? cur.name.replace(/_/g, ' ').toUpperCase() : '…', 256, 190);
-  g.fillStyle = press === 1 ? '#7fd4ff' : '#5b5648'; g.fillText('▶', 424, 190);
-  g.fillStyle = '#5b5648'; g.font = '14px monospace'; g.fillText('aim + E — or click the arrows', 256, 268);
-  pnlTex.needsUpdate = true; };
-{
-  const rim = new THREE.Mesh(new THREE.PlaneGeometry(.38, .26), coreMat); rim.position.z = -.003; pnlG.add(rim);   // hue-riding border
-  const scr = new THREE.Mesh(new THREE.PlaneGeometry(.34, .2), new THREE.MeshBasicMaterial({ map: pnlTex }));
-  pnlG.add(scr);
-  pnlWireMat = new THREE.LineBasicMaterial({ color: 0x35d5ff, transparent: true, opacity: .95 });
-  pnlWire = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(.15, .1, .045)), pnlWireMat);
-  pnlWire.visible = false; pnlG.add(pnlWire);                          // ghost frame — only while a button is the live interact
-  const arrShape = new THREE.Shape();
-  arrShape.moveTo(-.022, .026); arrShape.lineTo(.028, 0); arrShape.lineTo(-.022, -.026); arrShape.closePath();
-  const arrGeo = new THREE.ShapeGeometry(arrShape);
-  const mkBtn = (x, dir) => { const b = new THREE.Mesh(new THREE.BoxGeometry(.11, .08, .02),
-      new THREE.MeshLambertMaterial({ color: 0x232733 })); b.position.set(x, -.155, .012); pnlG.add(b);
-    const ar = new THREE.Mesh(arrGeo, coreMat); ar.scale.x = dir; ar.position.z = .011; b.add(ar);
-    const bd = { m: b, isBtn: true, panel: 'models', label: () => 'E — ' + (dir < 0 ? '◀ MODEL' : 'MODEL ▶'),
-      fn: () => { const t = TABLES[0]; if (!t) return;
-        const cat = t.spec.catalog || t.spec.models, cur = t.spec.models[0],
-          i = cat.findIndex(m => m.name === (cur && cur.name)), next = cat[(i + dir + cat.length) % cat.length];
-        if (next) { localStorage.setItem('dvm_model:' + t.spec.id, next.name); mountModel(t, next); }
-        pnlDraw(dir); setTimeout(() => pnlDraw(0), 160); } };
-    b.userData.btn = bd; PNL_BTNS.push(bd); };
-  mkBtn(-.1, -1); mkBtn(.1, 1);
-  pnlDraw(0);
-}
-const panelProbe = () => { if (Math.hypot(pos.x - PNL_POS.x, pos.z - PNL_POS.z) > 1.8) return null;
-  _ray.setFromCamera(_ctr, camera);
-  const h = _ray.intersectObjects(PNL_BTNS.map(b => b.m), false);
-  if (h.length && pnlWire) pnlWire.position.copy(h[0].object.position);
-  return h.length ? h[0].object.userData.btn : null; };
-window.__panel = { buttons: PNL_BTNS, press: i => PNL_BTNS[i] && PNL_BTNS[i].fn(), probe: panelProbe,
-  draw: pnlDraw, wire: () => pnlWire, pos: PNL_POS,
-  btnWorld: i => { const v = new THREE.Vector3(); PNL_BTNS[i].m.getWorldPosition(v); return [+v.x.toFixed(3), +v.y.toFixed(3), +v.z.toFixed(3)]; } };
-
 /* ── DEBUG PAD — a pickable touchscreen slab: black body + coreMat edge trim + a canvas screen.
    Regions are data ({rect,label,fn}) hit-tested through raycast uv — the face is software, so
    future tools/menus are draw code, never new geometry. Two input modes over one region table:
@@ -464,6 +412,7 @@ const PAD_REGIONS = [
   { id: 'rl',  page: 'rot', x: 140, y: 140, w: 110, h: 96, label: 'SPIN ◀',  glyph: '◀',  fs: 40, rate: -.25, fn: () => miniSpinSet(-.25) },
   { id: 'rr',  page: 'rot', x: 264, y: 140, w: 110, h: 96, label: 'SPIN ▶',  glyph: '▶',  fs: 40, rate: .25,  fn: () => miniSpinSet(.25) },
   { id: 'rrr', page: 'rot', x: 388, y: 140, w: 110, h: 96, label: 'SPIN ▶▶', glyph: '▶▶', fs: 34, rate: .9,   fn: () => miniSpinSet(.9) },
+  { id: 'rres', page: 'rot', x: 196, y: 284, w: 120, h: 42, label: 'ROT RESET', glyph: 'RESET', fs: 20, fn: () => miniRotReset() },
   { id: 'ax:x', page: 'slice', x: 116, y: 76, w: 90, h: 50, label: 'SLICE X', glyph: 'X', fs: 26, axis: 'x', fn: () => padAxisSet('x') },
   { id: 'ax:y', page: 'slice', x: 211, y: 76, w: 90, h: 50, label: 'SLICE Y', glyph: 'Y', fs: 26, axis: 'y', fn: () => padAxisSet('y') },
   { id: 'ax:z', page: 'slice', x: 306, y: 76, w: 90, h: 50, label: 'SLICE Z', glyph: 'Z', fs: 26, axis: 'z', fn: () => padAxisSet('z') },
@@ -477,7 +426,7 @@ const padSwap = dir => { const t = TABLES[0]; if (!t) return;
   const cat = t.spec.catalog || t.spec.models, cur = t.spec.models[0],
     i = cat.findIndex(m => m.name === (cur && cur.name)), next = cat[(i + dir + cat.length) % cat.length];
   if (next) { localStorage.setItem('dvm_model:' + t.spec.id, next.name);
-    mountModel(t, next).then(() => { padDraw(); pnlDraw(0); }); pnlDraw(0); } };   // both surfaces stay in sync
+    mountModel(t, next).then(() => padDraw()); } };
 const padCv = document.createElement('canvas'); padCv.width = 512; padCv.height = 340;
 const padTex = new THREE.CanvasTexture(padCv); padTex.colorSpace = THREE.SRGBColorSpace;
 let padRec = null, padScr = null, padEdgeMat = null, padFocus = false, padHover = null, padPressId = null;
@@ -509,8 +458,7 @@ const padDraw = () => { const g = padCv.getContext('2d'), t = TABLES[0],
     g.fillStyle = '#cfc8b0'; g.font = '16px monospace'; g.fillText('TURNTABLE', 256, 96);
     const degs = mn ? Math.round(Math.abs(mn.spin) * 180 / Math.PI) : 0;
     g.fillStyle = '#e8d9b0'; g.font = 'bold 22px monospace';
-    g.fillText(mn && mn.spin ? (mn.spin < 0 ? '◀ ' : '▶ ') + degs + '°/s' : 'STOPPED', 256, 270);
-    g.fillStyle = '#5b5648'; g.font = '13px monospace'; g.fillText('tap a speed again to stop', 256, 312);
+    g.fillText(mn && mn.spin ? (mn.spin < 0 ? '◀ ' : '▶ ') + degs + '°/s' : 'STOPPED', 256, 266);
   } else if (padPage === 'slice') {
     const ax = mn ? (mn.axis || 'y') : 'y', s = mn ? mn.slice[ax] : [0, 0], dim = mn ? mn.dims['xyz'.indexOf(ax)] : 0;
     g.fillStyle = '#cfc8b0'; g.font = '16px monospace';
@@ -1635,11 +1583,10 @@ const loop = now => {
       else ghost.quaternion.identity(); }
   } else ghost.visible = false;
   pickIt = held || placeOn ? null : nearestPick();
-  const kb = kioskProbe(), pb = panelProbe(), db = padProbe();               // unconditional — hover state must not freeze
-  promptIt = document.pointerLockElement === el && !placeOn ? (kb || pb || db || INTERACT.reduce((b, it) => {
+  const kb = kioskProbe(), db = padProbe();                                  // unconditional — hover state must not freeze
+  promptIt = document.pointerLockElement === el && !placeOn ? (kb || db || INTERACT.reduce((b, it) => {
     const d = Math.hypot(pos.x - it.x, pos.z - it.z); return d < it.r && (!b || d < b.d) ? { it, d } : b; }, null)?.it || null) : null;
   if (kioWire) kioWire.visible = !!(promptIt && promptIt.isBtn && !promptIt.panel);             // ghost only on its own panel's button
-  if (pnlWire) pnlWire.visible = !!(promptIt && promptIt.isBtn && promptIt.panel === 'models');
   promptEl.style.display = (held || pickIt || promptIt) ? 'block' : 'none';
   promptEl.textContent = held ? (held.isPad ? 'E — PLACE DEBUG PAD  ·  RMB tap — cursor  ·  , . yaw · [ ] pitch · ; \' roll · G tumble · 0 level'
                               : 'E — PLACE ' + held.name.replace('commission_', '').toUpperCase() + '  ·  , . yaw · [ ] pitch · ; \' roll · G tumble · 0 level')
