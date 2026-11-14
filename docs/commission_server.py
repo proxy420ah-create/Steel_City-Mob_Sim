@@ -354,7 +354,7 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path.startswith('/Assets/'):
             rel = self.path[len('/Assets/'):].split('?')[0]
             return self._serve(os.path.join(HERE, '..', 'Assets', rel),
-                               {'.json', '.png', '.jpg', '.js', '.css', '.bin'})
+                               {'.json', '.png', '.jpg', '.js', '.css', '.bin', '.stasset'})
         # asset index — every loadable model in voxel_items, so tools can offer
         # a real dropdown instead of a hardcoded default. ?model=<name> in the
         # studio resolves to /Assets/StreamingAssets/voxel_items/<name>.json.
@@ -974,7 +974,8 @@ class Handler(SimpleHTTPRequestHandler):
     _MIME = {'.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
              '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg',
              '.ico': 'image/x-icon', '.md': 'text/markdown', '.txt': 'text/plain',
-             '.map': 'application/json', '.bin': 'application/octet-stream'}
+             '.map': 'application/json', '.bin': 'application/octet-stream',
+             '.stasset': 'application/octet-stream'}
 
     def _serve(self, path, okext):
         # scoped static file: extension whitelist + realpath must stay inside

@@ -235,6 +235,95 @@ const deskP = emitAsset('commission_lawdesk', { x: 2.3, z: -1.1, rotY: Math.PI /
     emitAsset('commission_bookoflaws', { x: 2.35, z: -1.0, rotY: .3,          on: { host: desk }, pickable: true }),
     emitAsset('commission_stamper',    { x: 2.25, z: -1.25,                   on: { host: desk }, pickable: true }),
   ]));
+
+/* ═══ DRAFTING ROOM — the west annex's exhibit layer. MANIFEST.tables is the expansion seam:
+   each entry builds one square low table (dark furniture stock + the floor-wire seam lifted to
+   the tabletop rim — the same trick the doorway uses) plus its miniature buildings. The table is
+   a surf-role PLACED rec, so the measured-surface law hosts items on it natively; each miniature
+   writes its own per-column top into the host's tops map (a model's roof and open courtyard read
+   as different heights — measured, never authored). ═══ */
+const BLDG_VS = .1;                                                     // the in-game building voxel (VoxelChunkManager: buildings=0.1)
+const BLDG_MAT = {                                                       // mob_materials.py — MUST match StAssetReader.cs
+  100: [.58,.26,.20], 101: [.48,.42,.34], 102: [.58,.58,.54], 103: [.82,.80,.74], 104: [.18,.18,.20], 105: [.42,.38,.34],
+  106: [.30,.18,.10], 107: [.60,.42,.25], 108: [.42,.36,.26], 109: [.28,.24,.22], 110: [.42,.40,.36], 111: [.90,.88,.82],
+  112: [.45,.55,.65], 113: [.45,.55,.65], 114: [.55,.65,.70], 115: [.95,.15,.15], 116: [.15,.30,.95], 117: [.15,.85,.25],
+  118: [.28,.24,.20], 119: [.55,.32,.20], 120: [.45,.12,.10], 121: [.15,.28,.18], 122: [.22,.12,.08], 123: [.78,.62,.20],
+  124: [1,.85,.50],   125: [.82,.68,.55], 126: [.06,.06,.07], 127: [.88,.86,.82], 128: [.12,.08,.06], 129: [.12,.20,.45],
+  134: [.82,.88,.92], 137: [.10,.25,.45], 140: [.23,.49,.36], 141: [.14,.16,.15], 142: [.75,.78,.82], 143: [.18,.18,.19],
+  144: [.96,.90,.69], 145: [.71,.16,.14], 146: [.42,.29,.18], 147: [.59,.67,.73] };
+const BLDG_GLASS = new Set([112, 113, 114, 134, 147]);                  // glass ids — the voxEmit transparency contract
+const darkMat = new THREE.MeshLambertMaterial({ color: 0x14161c });      // the Construct's furniture stock (consoles/kiosk)
+MANIFEST.tables = [                                                    // PRIMARY TABLE — annex centre (-5,-2.5), dead on the rotator axis
+  { id: 'primary', x: -5, z: -2.5, size: 1.2, top: .30, scale: 1 / 64,   // 1:64 — a real architectural ratio; eye (.55) peers over
+    models: [{ name: 'tenement_block_0' }, { name: 'barber_shop', x: .38, z: -.38 }] },
+];
+const TABLES = [];
+const emitTable = spec => {
+  const g = new THREE.Group(); g.position.set(spec.x, 0, spec.z); scene.add(g);
+  const s = spec.size, h = spec.top;
+  const slab = new THREE.Mesh(new THREE.BoxGeometry(s, .04, s), darkMat); slab.position.y = h - .02; g.add(slab);
+  const leg = new THREE.BoxGeometry(.07, h - .04, .07);                  // drafting legs — open floor beneath, reads light
+  [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([a, b]) => { const l = new THREE.Mesh(leg, darkMat);
+    l.position.set(a * (s / 2 - .11), (h - .04) / 2, b * (s / 2 - .11)); g.add(l); });
+  const w = BND_W * 1.6;                                                 // tabletop rim — the floor seam lifted to h, like the door ∩
+  [[0, -1, s + w, w], [0, 1, s + w, w], [-1, 0, w, s + w], [1, 0, w, s + w]].forEach(([a, b, lx, lz]) => {
+    const e = new THREE.Mesh(new THREE.BoxGeometry(lx, w, lz), coreMat);
+    e.position.set(a * s / 2, h, b * s / 2); g.add(e); });
+  const block = { x0: spec.x - s / 2 - .15, x1: spec.x + s / 2 + .15,      // capsule-expanded footprint — exact square edge-slide
+                  z0: spec.z - s / 2 - .15, z1: spec.z + s / 2 + .15 };
+  WALL_BLOCKS.push(block);
+  const tops = new Map();                                                // flat measured top at h over the whole footprint (5mm columns)
+  const c0 = Math.round(-s / 2 * 200), c1 = Math.round(s / 2 * 200);
+  for (let ix = c0; ix <= c1; ix++) for (let iz = c0; iz <= c1; iz++) tops.set(TOPK(ix, iz), h);
+  const rec = { name: 'table:' + spec.id, kind: 'table', g, tops, lb: [-s / 2, s / 2, -s / 2, s / 2],
+    x: spec.x, z: spec.z, rotY: 0, y0: 0, minB: 0, vs: 1, surf: true,
+    bbox: footB([-s / 2, s / 2, -s / 2, s / 2], spec.x, spec.z, 0), pickable: false, solids: null, source: 'manifest', _block: block, _spec: spec };
+  g.userData.pRec = rec; PLACED.push(rec);
+  const t = { spec, rec, g }; TABLES.push(t); return t;
+};
+/* emitBldg — a .stasset volume as a tabletop maquette. Dense u16 grid (STAS: x-major), surface-only
+   instancing, per-column max-height written back into the host's tops. All models on a table share
+   the table's declared scale — buildings stay comparable, like a real architect's set. */
+const emitBldg = (t, m) => fetch('/Assets/StreamingAssets/voxel_buildings/' + m.name + '.stasset')
+  .then(r => r.arrayBuffer()).then(buf => {
+    const dv = new DataView(buf);
+    if (dv.getUint32(0, false) !== 0x53544153) return console.warn('CONSTRUCT — not a stasset:', m.name);
+    const W = dv.getUint16(6, true), H = dv.getUint16(8, true), D = dv.getUint16(10, true);
+    const vox = new Uint16Array(buf.slice(16, 16 + W * H * D * 2));
+    const vs = BLDG_VS * t.spec.scale, top = t.spec.top, ox = m.x || 0, oz = m.z || 0;
+    const at = (x, y, z) => (x < 0 || y < 0 || z < 0 || x >= W || y >= H || z >= D) ? 0 : vox[x + W * (y + H * z)];
+    let ng = 0;
+    const ymax = new Uint16Array(W * D);                                 // per-column building top — the courtyard reads open
+    for (let y = 0; y < H; y++) for (let z = 0; z < D; z++) for (let x = 0; x < W; x++) {
+      const id = at(x, y, z); if (!id) continue;
+      if (y + 1 > ymax[x + W * z]) ymax[x + W * z] = y + 1;
+      if (!at(x-1,y,z) || !at(x+1,y,z) || !at(x,y-1,z) || !at(x,y+1,z) || !at(x,y,z-1) || !at(x,y,z+1)) ng++;
+    }
+    const miniG = new THREE.Group(); miniG.position.set(ox, top, oz); t.g.add(miniG);
+    const geo = new THREE.BoxGeometry(1, 1, 1);
+    const imO = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial(), ng);
+    const imG = new THREE.InstancedMesh(geo, window.__glassMat, ng);
+    const M = new THREE.Matrix4(), C = new THREE.Color(), dflt = new THREE.Color(.55, .55, .55);
+    let no = 0, gi = 0;
+    for (let y = 0; y < H; y++) for (let z = 0; z < D; z++) for (let x = 0; x < W; x++) {
+      const id = at(x, y, z); if (!id) continue;
+      if (at(x-1,y,z) && at(x+1,y,z) && at(x,y-1,z) && at(x,y+1,z) && at(x,y,z-1) && at(x,y,z+1)) continue;
+      M.makeScale(vs, vs, vs).setPosition((x - W / 2 + .5) * vs, (y + .5) * vs, (z - D / 2 + .5) * vs);
+      const col = BLDG_MAT[id]; C.setRGB(col ? col[0] : .55, col ? col[1] : .55, col ? col[2] : .55);
+      if (BLDG_GLASS.has(id)) { imG.setMatrixAt(gi, M); imG.setColorAt(gi, C); gi++; }
+      else { imO.setMatrixAt(no, M); imO.setColorAt(no, C); no++; }
+    }
+    imO.count = no; imG.count = gi; if (gi) miniG.add(imG); miniG.add(imO);
+    for (let z = 0; z < D; z++) for (let x = 0; x < W; x++) {              // the model joins the host's surface truth
+      const hgt = ymax[x + W * z]; if (!hgt) continue;
+      const lx = ox + (x - W / 2 + .5) * vs, lz = oz + (z - D / 2 + .5) * vs;
+      const k = TOPK(Math.round(lx * 200), Math.round(lz * 200)), v = top + hgt * vs;
+      if (v > (t.rec.tops.get(k) ?? -1e9)) t.rec.tops.set(k, v);           // several model cells share a 5mm column — keep the true max
+    }
+    miniG.userData.mini = { name: m.name, dims: [W, H, D], vox: ng, scale: t.spec.scale };
+    return miniG;
+  }).catch(e => console.warn('CONSTRUCT — bldg emit failed:', m.name, e));
+MANIFEST.tables.forEach(spec => { const t = emitTable(spec); spec.models.forEach(m => emitBldg(t, m)); });
 /* ═══ PERSISTENT PARTY — followers cross pages. sessionStorage 'dvm_party' is the handoff:
    the Commission writes who's heeling on portal-E; the Construct writes who's coming home
    on door-E. Each follower is the real poseEngine rig — gait, transitions, gaze, eyes. ═══ */
@@ -1054,6 +1143,8 @@ const placeApply = (p, x, z, rotY) => {                                         
   p.x = x; p.z = z; if (rotY !== undefined) p.rotY = rotY;
   p.g.position.set(x, p.y0, z); p.g.rotation.y = p.rotY;
   p.bbox = footB(p.lb, x, z, p.rotY);                                            // footprint tracks the item — carry/settle/re-seat see it live
+  if (p._block) { const s2 = (p.lb[1] - p.lb[0]) / 2;                            // a table's walk-block follows its drag, same as solids
+    p._block.x0 = x - s2 - .15; p._block.x1 = x + s2 + .15; p._block.z0 = z - s2 - .15; p._block.z1 = z + s2 + .15; }
   refreshSolids();
 };
 const placePick = () => {                                                        // ray through screen centre → {p, x,y,z hit point}
@@ -1101,8 +1192,11 @@ const placeUndoDo = () => {                                                     
     settleOrphans(p, ob, p.bbox, op.prev.y0 + (bb.max.y - p.y0)); }
   else if (op.t === 'add') { const i = PLACED.indexOf(op.p);
     if (i >= 0) { scene.remove(op.p.g); PLACED.splice(i, 1); settleOrphans(op.p, op.p.bbox, null, Infinity); } }   // host gone — drop what rode it
-  else if (op.t === 'del') { emitAsset(op.spec.name, { kind: op.spec.kind, x: op.spec.x, z: op.spec.z,
-    rotY: op.spec.rotY, pickable: op.spec.pickable, solids: op.spec.solids, source: op.spec.source });
+  else if (op.t === 'del') { (op.spec._spec
+      ? Promise.resolve(emitTable(op.spec._spec)).then(t => { op.spec._spec.models.forEach(m => emitBldg(t, m));
+          placeApply(t.rec, op.spec.x, op.spec.z, op.spec.rotY); })
+      : emitAsset(op.spec.name, { kind: op.spec.kind, x: op.spec.x, z: op.spec.z,
+    rotY: op.spec.rotY, pickable: op.spec.pickable, solids: op.spec.solids, source: op.spec.source }));
     if (op.spec.source !== 'extra') { const d = new Set(JSON.parse(localStorage.getItem('dvm_del') || '[]'));
       d.delete(op.spec.name); localStorage.setItem('dvm_del', JSON.stringify([...d])); } }                  // un-delete lifts the tombstone
   refreshSolids(); placeSave(); placeSay('UNDO');
@@ -1201,10 +1295,11 @@ window.__place = { on: () => placeOn, toggle: placeToggle, sel: () => placeSel &
   paste: placePaste,
   del: () => { if (!placeSel) return false;
     placeSnapOp({ t: 'del', spec: { name: placeSel.name, kind: placeSel.kind, x: placeSel.x, z: placeSel.z,
-      rotY: placeSel.rotY, pickable: placeSel.pickable, solids: placeSel.solids, source: placeSel.source } });
+      rotY: placeSel.rotY, pickable: placeSel.pickable, solids: placeSel.solids, source: placeSel.source, _spec: placeSel._spec } });
     if (placeSel.source !== 'extra') { const d = new Set(JSON.parse(localStorage.getItem('dvm_del') || '[]'));
       d.add(placeSel.name); localStorage.setItem('dvm_del', JSON.stringify([...d])); }         // tombstone — manifest items stay deleted
     const dp = placeSel;
+    if (dp._block) WALL_BLOCKS.splice(WALL_BLOCKS.indexOf(dp._block), 1);                    // walk-block dies with its table
     scene.remove(placeSel.g); PLACED.splice(PLACED.indexOf(placeSel), 1);
     settleOrphans(dp, dp.bbox, null, Infinity);                                  // host deleted — its passengers drop to what's beneath
     placeSel = null; selBox.visible = false; origBox.visible = false; placeGrid.visible = false;
@@ -1288,7 +1383,8 @@ window.__compass = cam => {
 ready.then(async () => {
   JSON.parse(localStorage.getItem('dvm_del') || '[]').forEach(n => {               // tombstones first — a deleted host must not seat anything
     const p = PLACED.find(q => q.name === n && q.source !== 'extra');
-    if (p) { scene.remove(p.g); PLACED.splice(PLACED.indexOf(p), 1); } });
+    if (p) { if (p._block) WALL_BLOCKS.splice(WALL_BLOCKS.indexOf(p._block), 1);
+      scene.remove(p.g); PLACED.splice(PLACED.indexOf(p), 1); } });
   const over = JSON.parse(localStorage.getItem('dvm_place') || '{}');              // your saved layout overrides manifest positions
   PLACED.forEach(p => { const o = over[p.name]; if (o && p.source !== 'extra') placeApply(p, o.x, o.z, o.rotY); });
   const extras = JSON.parse(localStorage.getItem('dvm_extra') || '[]');            // extras emit LAST — they seat on the final layout, not manifest spots
@@ -1324,7 +1420,9 @@ window.__snap = (name, px, py, pz, tx, ty, tz) => {
   return fetch('/shot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'probe_' + name, png: u }) }).then(r => r.json()).then(j => !!j.ok);
 };
 window.__construct = { manifest: MANIFEST, pos, spin: () => spinning, held: () => held, placed: PLACED, yaw: () => yaw,
-  walkOK, bounds: () => boundsG.children.length,
+  walkOK, bounds: () => boundsG.children.length, surfaceAt,
+  tables: () => TABLES.filter(t => PLACED.includes(t.rec)).map(t => ({ id: t.spec.id, x: t.rec.x, z: t.rec.z, top: t.spec.top, size: t.spec.size,
+    scale: t.spec.scale, models: t.g.children.filter(c => c.userData.mini).map(c => c.userData.mini) })),
   followers: () => followers.map(f => ({ char: f.spec.char, order: f.order, pos: f.pos.toArray() })),
   self: () => selfBody && ({ x: pos.x, z: pos.z, yaw: selfBody.yaw, state: selfBody.state,
     bodyMask: selfBody.meshes[0].im.layers.mask, headMask: selfBody.meshes[1].im.layers.mask,

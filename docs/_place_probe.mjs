@@ -283,7 +283,7 @@ await evl('__cam(null); __pos.x = 0; __pos.z = 0');
 
 // 12.5 — west annex: doorway seam passable, wall stubs blocked, wire lifted into an arch
 check('walkOK centre of main room', await evl('__construct.walkOK(0, -2.5) === true'));
-check('walkOK inside the west annex', await evl('__construct.walkOK(-5, -2.5) === true'));
+check('walkOK inside the west annex', await evl('__construct.walkOK(-6.3, -2.5) === true'));
 check('walkOK at the door seam x=-3 z=-2.5', await evl('__construct.walkOK(-3, -2.5) === true'));
 check('walkOK door north half z=-2.2', await evl('__construct.walkOK(-3, -2.5) === true && __construct.walkOK(-3, -2.3) === true'));
 check('walkOK hugging the jamb face', await evl('__construct.walkOK(-3, -2.8) === true && __construct.walkOK(-3, -2.2) === true'));
@@ -293,6 +293,31 @@ check('wall stub north of door blocked', await evl('__construct.walkOK(-3, -1) =
 check('annex floor edge blocked beyond wall', await evl('__construct.walkOK(-7.2, -2.5) === false'));
 check('door jamb margin — capsule edge held', await evl('__construct.walkOK(-3, -3.1) === false'));
 check('bounds = 10 slabs + 20 seams + 6 portal wires', await evl('__construct.bounds() === 36'), await evl('__construct.bounds()'));
+
+// 12.75 — drafting room: Primary Table centred in the annex, square + low, surf host, stasset miniatures
+{ const tabs = await evl('__construct.tables()');
+  check('primary table emitted', tabs.length === 1 && tabs[0].id === 'primary', JSON.stringify(tabs));
+  check('table dead-centre in the annex', tabs && tabs[0].x === -5 && tabs[0].z === -2.5);
+  check('table square + low', tabs && tabs[0].size === 1.2 && tabs[0].top === .3);
+  check('declared scale 1:64', tabs && Math.abs(tabs[0].scale - 1 / 64) < 1e-9);
+  for (let i = 0; i < 40 && !(await evl('__construct.tables()[0].models.length === 2')); i++) await sleep(250);
+  const tabs2 = await evl('__construct.tables()'), ten = tabs2[0].models.find(m => m.name === 'tenement_block_0'), bar = tabs2[0].models.find(m => m.name === 'barber_shop');
+  check('tenement miniature loaded', ten && ten.dims.join('x') === '192x120x192' && ten.vox > 400000, JSON.stringify(ten));
+  check('barber miniature loaded', bar && bar.dims.join('x') === '64x36x64' && bar.vox > 19000, JSON.stringify(bar));
+  const rec = await evl('(() => { const p = __construct.placed.find(p => p.name === "table:primary"); return p ? { surf: p.surf, x: p.x, z: p.z } : null; })()');
+  check('table is a surf host', rec && rec.surf === true, JSON.stringify(rec));
+  check('table footprint blocks walk', await evl('__construct.walkOK(-5, -2.5) === false'));
+  check('walk ring around the table', await evl('__construct.walkOK(-6.3, -2.5) === true && __construct.walkOK(-4.0, -2.5) === true && __construct.walkOK(-5, -1.1) === true && __construct.walkOK(-5, -3.9) === true'));
+  check('capsule held off the table edge', await evl('__construct.walkOK(-4.32, -2.5) === false && __construct.walkOK(-5.68, -2.5) === false'));
+  const sat = (x, z) => `__construct.surfaceAt(__construct.placed.find(p => p.name === "table:primary"), ${x}, ${z}, 0)`;
+  const roof = await evl(sat(-5, -2.5));
+  check('measured top over tenement core = .4625', Math.abs(roof - .4625) < .005, 'roof=' + roof);
+  const yard = await evl(sat(-5, -2.3609));
+  check('open rear yard reads the felt .30', Math.abs(yard - .3) < .005, 'yard=' + yard);
+  const front = await evl(sat(-5, -2.62));
+  check('front parapet reads its own top .44375', Math.abs(front - .44375) < .005, 'front=' + front);
+  const barT = await evl(sat(-4.62, -2.88));
+  check('barber raises its own tops', barT > .31 && barT < .45, 'barber=' + barT); }
 
 // 13 — fly-camera clamp + release back to body
 await evl('__cam(null)');
