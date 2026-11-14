@@ -255,7 +255,9 @@ const BLDG_GLASS = new Set([112, 113, 114, 134, 147]);                  // glass
 const darkMat = new THREE.MeshLambertMaterial({ color: 0x14161c });      // the Construct's furniture stock (consoles/kiosk)
 MANIFEST.tables = [                                                    // PRIMARY TABLE — annex centre (-5,-2.5), dead on the rotator axis
   { id: 'primary', x: -5, z: -2.5, size: 1.2, top: .26, scale: 1 / 64,   // scale = shared-table law; a model may declare `fill` instead —
-    models: [{ name: 'tenement_block_0', fill: .75 }] },                 // one model at a time — .75 of the tabletop, uniform margin
+    models: [{ name: 'tenement_block_0', fill: .75 }],                   // mounted exhibit — one model at a time, .75 of the tabletop
+    catalog: [{ name: 'tenement_block_0', fill: .75 },                   // the swappable universe — the wall panel cycles it
+              { name: 'barber_shop', fill: .75 }] },
 ];
 const TABLES = [];
 const emitTable = spec => {
@@ -315,16 +317,85 @@ const emitBldg = (t, m) => fetch('/Assets/StreamingAssets/voxel_buildings/' + m.
       else { imO.setMatrixAt(no, M); imO.setColorAt(no, C); no++; }
     }
     imO.count = no; imG.count = gi; if (gi) miniG.add(imG); miniG.add(imO);
+    const cols = [];
     for (let z = 0; z < D; z++) for (let x = 0; x < W; x++) {              // the model joins the host's surface truth
       const hgt = ymax[x + W * z]; if (!hgt) continue;
       const lx = ox + (x - W / 2 + .5) * vs, lz = oz + (z - D / 2 + .5) * vs;
       const k = TOPK(Math.round(lx * 200), Math.round(lz * 200)), v = top + hgt * vs;
       if (v > (t.rec.tops.get(k) ?? -1e9)) t.rec.tops.set(k, v);           // several model cells share a 5mm column — keep the true max
+      cols.push(k);
     }
-    miniG.userData.mini = { name: m.name, dims: [W, H, D], vox: ng, scale: vs / BLDG_VS, fill: m.fill };
+    miniG.userData.mini = { name: m.name, dims: [W, H, D], vox: ng, scale: vs / BLDG_VS, fill: m.fill, cols };
     return miniG;
   }).catch(e => console.warn('CONSTRUCT — bldg emit failed:', m.name, e));
-MANIFEST.tables.forEach(spec => { const t = emitTable(spec); spec.models.forEach(m => emitBldg(t, m)); });
+/* mountModel — the easel's swap verb: unmount the old mini (its tops columns revert to felt),
+   mount the catalog spec. models[] always reads as "what's on the table now". */
+const mountModel = (t, mspec) => {
+  t.g.children.filter(c => c.userData.mini).forEach(c => {
+    (c.userData.mini.cols || []).forEach(k => t.rec.tops.set(k, t.spec.top));
+    c.children.forEach(ch => ch.dispose && ch.dispose());
+    t.g.remove(c); });
+  t.spec.models = [mspec];
+  return emitBldg(t, mspec);
+};
+MANIFEST.tables.forEach(spec => { const t = emitTable(spec);
+  const saved = localStorage.getItem('dvm_model:' + spec.id), cat = spec.catalog || spec.models;
+  mountModel(t, cat.find(m => m.name === saved) || spec.models[0]); });
+
+/* ── MODEL PANEL — the annex's wall reader for the Primary Table. Same pressable-face law as
+   the mannequin kiosk: dark plate + hue rim + canvas screen + ◀▶ glyph buttons + ghost wire.
+   Aim + E (or click) cycles the table's catalog — each model mounts at its own `fill` fit.
+   Sits on the annex south wall so the model stays in frame while you swap. */
+const PNL_POS = { x: -4.3, y: .5, z: -4.82 };
+const pnlG = new THREE.Group(); pnlG.position.set(PNL_POS.x, PNL_POS.y, PNL_POS.z); scene.add(pnlG);  // faces +z (north) — default orientation
+const PNL_BTNS = [];
+let pnlWire = null;
+const pnlCv = document.createElement('canvas'); pnlCv.width = 512; pnlCv.height = 300;
+const pnlTex = new THREE.CanvasTexture(pnlCv); pnlTex.colorSpace = THREE.SRGBColorSpace;
+const pnlDraw = press => { const t = TABLES[0], cat = t ? (t.spec.catalog || t.spec.models) : [],
+    cur = t && t.spec.models[0], idx = cur ? cat.findIndex(m => m.name === cur.name) : -1, g = pnlCv.getContext('2d');
+  g.fillStyle = '#101218'; g.fillRect(0, 0, 512, 300);
+  g.strokeStyle = '#3a3a4a'; g.lineWidth = 6; g.strokeRect(3, 3, 506, 294);
+  g.fillStyle = '#8f87a0'; g.font = '20px monospace'; g.textAlign = 'center';
+  g.fillText('— ' + (t ? t.spec.id.toUpperCase() : 'PRIMARY') + ' TABLE —', 256, 46);
+  g.fillStyle = '#cfc8b0'; g.font = '17px monospace'; g.fillText('MODEL' + (idx >= 0 ? '   ' + (idx + 1) + '/' + cat.length : ''), 256, 104);
+  g.font = 'bold 26px monospace';
+  g.fillStyle = press === -1 ? '#7fd4ff' : '#5b5648'; g.fillText('◀', 88, 190);
+  g.fillStyle = '#e8d9b0'; g.fillText(cur ? cur.name.replace(/_/g, ' ').toUpperCase() : '…', 256, 190);
+  g.fillStyle = press === 1 ? '#7fd4ff' : '#5b5648'; g.fillText('▶', 424, 190);
+  g.fillStyle = '#5b5648'; g.font = '14px monospace'; g.fillText('aim + E — or click the arrows', 256, 268);
+  pnlTex.needsUpdate = true; };
+{
+  const rim = new THREE.Mesh(new THREE.PlaneGeometry(.38, .26), coreMat); rim.position.z = -.003; pnlG.add(rim);   // hue-riding border
+  const scr = new THREE.Mesh(new THREE.PlaneGeometry(.34, .2), new THREE.MeshBasicMaterial({ map: pnlTex }));
+  pnlG.add(scr);
+  pnlWire = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(.15, .1, .045)),
+    new THREE.LineBasicMaterial({ color: 0x35d5ff, transparent: true, opacity: .95 }));
+  pnlWire.visible = false; pnlG.add(pnlWire);                          // ghost frame — only while a button is the live interact
+  const arrShape = new THREE.Shape();
+  arrShape.moveTo(-.022, .026); arrShape.lineTo(.028, 0); arrShape.lineTo(-.022, -.026); arrShape.closePath();
+  const arrGeo = new THREE.ShapeGeometry(arrShape);
+  const mkBtn = (x, dir) => { const b = new THREE.Mesh(new THREE.BoxGeometry(.11, .08, .02),
+      new THREE.MeshLambertMaterial({ color: 0x232733 })); b.position.set(x, -.155, .012); pnlG.add(b);
+    const ar = new THREE.Mesh(arrGeo, coreMat); ar.scale.x = dir; ar.position.z = .011; b.add(ar);
+    const bd = { m: b, isBtn: true, panel: 'models', label: () => 'E — ' + (dir < 0 ? '◀ MODEL' : 'MODEL ▶'),
+      fn: () => { const t = TABLES[0]; if (!t) return;
+        const cat = t.spec.catalog || t.spec.models, cur = t.spec.models[0],
+          i = cat.findIndex(m => m.name === (cur && cur.name)), next = cat[(i + dir + cat.length) % cat.length];
+        if (next) { localStorage.setItem('dvm_model:' + t.spec.id, next.name); mountModel(t, next); }
+        pnlDraw(dir); setTimeout(() => pnlDraw(0), 160); } };
+    b.userData.btn = bd; PNL_BTNS.push(bd); };
+  mkBtn(-.1, -1); mkBtn(.1, 1);
+  pnlDraw(0);
+}
+const panelProbe = () => { if (Math.hypot(pos.x - PNL_POS.x, pos.z - PNL_POS.z) > 1.8) return null;
+  _ray.setFromCamera(_ctr, camera);
+  const h = _ray.intersectObjects(PNL_BTNS.map(b => b.m), false);
+  if (h.length && pnlWire) pnlWire.position.copy(h[0].object.position);
+  return h.length ? h[0].object.userData.btn : null; };
+window.__panel = { buttons: PNL_BTNS, press: i => PNL_BTNS[i] && PNL_BTNS[i].fn(), probe: panelProbe,
+  draw: pnlDraw, wire: () => pnlWire, pos: PNL_POS,
+  btnWorld: i => { const v = new THREE.Vector3(); PNL_BTNS[i].m.getWorldPosition(v); return [+v.x.toFixed(3), +v.y.toFixed(3), +v.z.toFixed(3)]; } };
 /* ═══ PERSISTENT PARTY — followers cross pages. sessionStorage 'dvm_party' is the handoff:
    the Commission writes who's heeling on portal-E; the Construct writes who's coming home
    on door-E. Each follower is the real poseEngine rig — gait, transitions, gaze, eyes. ═══ */
@@ -1352,9 +1423,10 @@ const loop = now => {
     if (t) ghost.position.set(t.x, t.y + .004, t.z);
   } else ghost.visible = false;
   pickIt = held || placeOn ? null : nearestPick();
-  promptIt = document.pointerLockElement === el && !placeOn ? (kioskProbe() || INTERACT.reduce((b, it) => {
+  promptIt = document.pointerLockElement === el && !placeOn ? (kioskProbe() || panelProbe() || INTERACT.reduce((b, it) => {
     const d = Math.hypot(pos.x - it.x, pos.z - it.z); return d < it.r && (!b || d < b.d) ? { it, d } : b; }, null)?.it || null) : null;
-  if (kioWire) kioWire.visible = !!(promptIt && promptIt.isBtn);       // ghost frame only while a button is the resolved interact
+  if (kioWire) kioWire.visible = !!(promptIt && promptIt.isBtn && promptIt.panel !== 'models');   // ghost only on its own panel's button
+  if (pnlWire) pnlWire.visible = !!(promptIt && promptIt.isBtn && promptIt.panel === 'models');
   promptEl.style.display = (held || pickIt || promptIt) ? 'block' : 'none';
   promptEl.textContent = held ? 'E — PLACE ' + held.name.replace('commission_', '').toUpperCase() + '  ·  , . yaw · [ ] pitch · ; \' roll · G tumble · 0 level'
                      : pickIt ? 'E — TAKE ' + pickIt.name.replace('commission_', '').toUpperCase()
@@ -1423,7 +1495,8 @@ window.__snap = (name, px, py, pz, tx, ty, tz) => {
 window.__construct = { manifest: MANIFEST, pos, spin: () => spinning, held: () => held, placed: PLACED, yaw: () => yaw,
   walkOK, bounds: () => boundsG.children.length, surfaceAt,
   tables: () => TABLES.filter(t => PLACED.includes(t.rec)).map(t => ({ id: t.spec.id, x: t.rec.x, z: t.rec.z, top: t.spec.top, size: t.spec.size,
-    scale: t.spec.scale, models: t.g.children.filter(c => c.userData.mini).map(c => c.userData.mini) })),
+    scale: t.spec.scale, catalog: (t.spec.catalog || []).map(m => m.name),
+    models: t.g.children.filter(c => c.userData.mini).map(c => { const m = c.userData.mini; return { name: m.name, dims: m.dims, vox: m.vox, scale: m.scale, fill: m.fill }; }) })),
   followers: () => followers.map(f => ({ char: f.spec.char, order: f.order, pos: f.pos.toArray() })),
   self: () => selfBody && ({ x: pos.x, z: pos.z, yaw: selfBody.yaw, state: selfBody.state,
     bodyMask: selfBody.meshes[0].im.layers.mask, headMask: selfBody.meshes[1].im.layers.mask,

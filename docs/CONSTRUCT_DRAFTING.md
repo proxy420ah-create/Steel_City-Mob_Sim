@@ -8,7 +8,9 @@ multiple drafting tables are list entries, not new code.
 
 ```js
 { id: 'primary', x: -5, z: -2.5, size: 1.2, top: .26, scale: 1 / 64,
-  models: [{ name: 'tenement_block_0', fill: .75 }] }     // one model at a time — a single-model easel
+  models: [{ name: 'tenement_block_0', fill: .75 }],      // mounted exhibit — one model at a time
+  catalog: [{ name: 'tenement_block_0', fill: .75 },      // the swappable universe — the panel cycles it
+            { name: 'barber_shop', fill: .75 }] }
 ```
 
 - `emitTable(spec)` builds it in the Construct's own language: dark furniture slab
@@ -46,6 +48,28 @@ game file is the single source, edits to the building show up on reload).
 - **Placement**: model group parents to the table group at `(m.x, top, m.z)`
   table-local — axis-aligned; models ride any table drag automatically.
 
+## The model panel + mountModel
+
+`mountModel(table, spec)` is the easel's swap verb: unmount the current mini
+(unparent, dispose instances, **its tops columns revert to felt** via the
+recorded `mini.cols`), set `models=[spec]`, emit the new one. `models[]`
+therefore always reads as *what's on the table now*.
+
+`catalog` on the spec is the swappable universe. The **model panel** floats on
+the annex south wall at `(-4.3, .5, -4.82)` — same pressable-face law as the
+mannequin kiosk: `coreMat` rim + dark canvas screen (`— PRIMARY TABLE — /
+MODEL i/n / name`) + two physical `◀▶` buttons carrying `coreMat` glyphs, plus
+its own ghost `EdgesGeometry` wireframe (`pnlWire`). `panelProbe()` raycasts the
+buttons within 1.8 m and rides the same `promptIt` resolution as `kioskProbe`
+(ghost gating is per-panel: `btn.panel === 'models'`). Press → cycle the
+catalog → `mountModel` → `localStorage['dvm_model:<id>']` persists the choice —
+an F5 remounts whatever was on the easel.
+
+Since each catalog entry carries its own `fill`, every building presents at its
+own best fit — the barber mounts at `.75` too (`.9m` footprint, ~1:7 vs the
+tenement's ~1:21 — "doesn't have to be relative to tenement" was literally
+already the contract).
+
 ## Models join the surface truth
 
 During the grid scan `emitBldg` tracks each (x,z) column's `ymax`, then writes
@@ -60,13 +84,11 @@ collision). Consequences, all measured — never authored:
 
 ## Current status / next
 
-- One table, one model (tenement, centered) — the table is a single-model easel
-  by design. `emitTable`/`emitBldg` are the
-  whole contract — more tables = more `MANIFEST.tables` entries; more buildings =
-  more `models[]` entries.
+- One table, swappable exhibit — `emitTable`/`emitBldg`/`mountModel` + the wall
+  panel are the whole contract — more tables = more `MANIFEST.tables` entries
+  (each can declare its own `catalog`); more buildings = more catalog entries.
 - `tenement_glass.stasset` (solid-glass blast testbed) is loadable through the
-  same path but not placed.
-- Not yet: model rotation in spec (tops write is axis-aligned), per-model scale
-  override, model selection UI, the barber's `itemParts`/attachment-point display
-  (door leaves, barber pole), any actual authoring/editing tool — the table is
-  the surface those tools will sit on.
+  same path — just append a catalog entry.
+- Not yet: model rotation in spec (tops write is axis-aligned), the barber's
+  `itemParts`/attachment-point display (door leaves, barber pole), any actual
+  authoring/editing tool — the table is the surface those tools will sit on.
