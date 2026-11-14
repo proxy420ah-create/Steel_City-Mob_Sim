@@ -225,6 +225,35 @@ check('fixpoint: extra does not climb a floating passenger', host && host.y < .0
 check('fixpoint: passenger lands on the extra top', rider && rider.y > .2 && rider.y < .5, JSON.stringify(rider));
 check('roles: desk is surf, stamper is rider', host && host.surf === true && rider && rider.surf === false, `host.surf=${host && host.surf} rider.surf=${rider && rider.surf}`);
 
+// 11 — held item: dropTarget's ray-march must not run every host's column scan per step
+//      (bbox reject), axis snaps are 15° counters that reset the free tumble, 0 = exactly level
+await evl('__construct.take("commission_stamper")');
+check('stamper held', await evl('!!__construct.held()'));
+await evl('window.__scanN = 0; __construct.dropTarget()');
+const scans = await evl('window.__scanN');
+check('drop march scans only hosts under the ray', scans <= 150, 'scans=' + scans);   // hosts under the march scan legitimately (~2 desks × ~15 steps each); pre-reject was ~39 × ~9 ≈ 350
+await evl('window.dispatchEvent(new KeyboardEvent("keydown", { key: "," }))');
+check('axis snap: yaw +1 step', await evl('__construct.heldSnap().y === 1'));
+await evl('window.dispatchEvent(new KeyboardEvent("keydown", { key: "]" }))');
+check('axis snap: pitch -1 step', await evl('__construct.heldSnap().x === -1'));
+await sleep(200);                                                                                // the quaternion composes in the rAF loop — read after a frame
+const qSnap = await evl('JSON.stringify(__construct.heldQ())');
+await evl('__construct.tumble(120, 60)'); await sleep(200);
+const qFree = await evl('JSON.stringify(__construct.heldQ())');
+check('free tumble rotates off the snapped pose', qSnap !== qFree);
+await evl('window.dispatchEvent(new KeyboardEvent("keydown", { key: "[" }))'); await sleep(200);
+check('axis rotation resets the free tumble', (await evl('JSON.stringify(__construct.heldQ())')) !== qFree && await evl('__construct.heldSnap().x === 0'));
+await evl('window.dispatchEvent(new KeyboardEvent("keydown", { key: "0" }))'); await sleep(200);
+const qLevel = JSON.parse(await evl('JSON.stringify(__construct.heldQ())'));
+check('0 = exactly level (pitch/roll zeroed)', Math.abs(qLevel[0]) < 1e-6 && Math.abs(qLevel[2]) < 1e-6, JSON.stringify(qLevel));
+await evl('window.dispatchEvent(new KeyboardEvent("keydown", { key: "," }))');        // yaw +15° for the place check
+const yawPre = await evl('__construct.yaw()');
+await evl('__construct.place(-1.0, -4.5)');
+const stRy = await evl('__construct.placed.find(p => p.name === "commission_stamper").rotY');
+const stRx = await evl('__construct.placed.find(p => p.name === "commission_stamper").g.rotation.x');
+const expRy = ((yawPre + Math.PI / 12) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+check('place persists facing+snap yaw, seats level', Math.abs(stRy - expRy) < .01 && Math.abs(stRx) < 1e-6, `rotY=${stRy} exp=${expRy} rx=${stRx}`);
+
 // 12 — mannequin station: static Vinny + pressable outfit kiosk (NW corner)
 await evl('localStorage.removeItem("dvm_outfit"); localStorage.removeItem("dvm_fol")');
 await evl('location.reload()'); await sleep(1500);

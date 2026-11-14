@@ -99,7 +99,30 @@ declaration, not by tuning.
 
 `placeSave()` writes all three after every completed move/drop/paste/delete/undo.
 
-## 6. Invariants — testable law
+## 6. Held items — carry + orientation
+
+`takeIt(p)` lifts a `pickable` rec; the group rides `.38m` ahead of the camera
+each frame. `dropTarget()` marches the aim ray (`.08 → 2.4`, `.06` steps) until
+`py ≤ surface+.02` — that march runs `placeSurf` per step, so:
+
+- **Perf law**: `placeSurf` rejects by `p.bbox` before any column scan
+  (`.12` pad covers the `.07` disc + `.05` footprint pad). Parented recs
+  (`g.parent !== scene`, e.g. the car in `carG`) are exempt — their bbox is
+  parent-local. `tops` keys are **numeric** (`TOPK(ix,iz)`) — string keys in a
+  per-frame hot loop are GC churn. The pre-reject march ran ~39 steps × every
+  host's ~841-cell scan with string concats — that was the carry-walk hitch.
+- **Orientation law**: `held.g.quaternion = qYaw(facing) × qSnap × qFree`.
+  - Axis snaps: 15° counters per axis — `, .` yaw · `[ ]` pitch · `; '` roll.
+    A snap press clears `heldFree` — **axis rotation resets free rotation**, so
+    level is always reachable.
+  - `0` = LEVEL: all counters + tumble to identity → exactly authored-upright.
+  - `G` + mouse = free trackball tumble (world X/Y); camera look is suspended
+    while `G` is held.
+  - `placeIt` persists `rotY = yaw + snapYaw` (normalized); pitch/roll drop —
+    **placed items always seat level** because `tops`/`bbox` are authored-
+    upright maps. Tilted persistence is a future contract, not a flag day.
+
+## 7. Invariants — testable law
 
 1. Door and doorframe are `y0 === 0` forever.
 2. A `surf` item is never supported by a `surf:false` item.
@@ -107,9 +130,13 @@ declaration, not by tuning.
 4. A rider on a desk at `y0 = desktop` stays; a rider with no support drops to `0`.
 5. Deleting a host drops its passengers (orphan settle, `oldTop`-capped).
 6. `p.bbox` always equals `footB(p.lb, p.x, p.z, p.rotY)` — `placeApply` maintains it.
+7. A held item's `0`-key pose has exactly zero pitch/roll (identity × facing yaw).
+8. `dropTarget()` never column-scans a host whose footprint doesn't contain the
+   sample point (parented recs exempt — their map is queried in world space).
 
 Regression harness: `docs/_place_probe.mjs` (stages the exact cascade — floating
-manifest passenger over an extra host's footprint — plus role assertions).
+manifest passenger over an extra host's footprint — plus role assertions, the
+drop-march scan budget, and the held-rotation snap/tumble/level contract).
 
 ---
 

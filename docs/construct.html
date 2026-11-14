@@ -119,6 +119,7 @@ const footB = (lb, x, z, rotY) => {                                            /
   return [Math.min(...cs.map(c => c[0])) - .05, Math.max(...cs.map(c => c[0])) + .05,
           Math.min(...cs.map(c => c[1])) - .05, Math.max(...cs.map(c => c[1])) + .05];
 };
+const TOPK = (ix, iz) => (ix + 2048) * 4096 + (iz + 2048);                     // numeric tops key — string keys in the carry-frame hot loop were GC churn
 const SURF_TYPES = new Set(['furniture', 'vehicle', 'room', 'building']);     // department tag → surface role
 const emitAsset = (name, o = {}) => {
   const { kind = 'item', parent = scene, x = 0, z = 0, rotY = 0, on = null, seatY = null, vsOverride = null } = o;
@@ -133,7 +134,7 @@ const emitAsset = (name, o = {}) => {
       const lx = (v[0] - dcx) * vs, lz = ((flip ? m.dims[2] - 1 - v[2] : v[2]) - dcz) * vs;
       if (v[1] * vs < minB) minB = v[1] * vs;
       if (lx < lx0) lx0 = lx; if (lx > lx1) lx1 = lx; if (lz < lz0) lz0 = lz; if (lz > lz1) lz1 = lz;
-      const t = (v[1] + 1) * vs, k = Math.round(lx * 200) + ',' + Math.round(lz * 200);   // 5mm columns
+      const t = (v[1] + 1) * vs, k = TOPK(Math.round(lx * 200), Math.round(lz * 200));    // 5mm columns
       if (t > (tops.get(k) ?? -1e9)) tops.set(k, t);
     });
     const seat = on ? surfaceAt(on.host, x, z)
@@ -161,7 +162,7 @@ const surfaceAt = (host, wx, wz, r = .07) => {
   const qx = Math.round(lx * 200), qz = Math.round(lz * 200), R = Math.max(1, Math.round(r * 200));
   let top = 0;
   for (let ix = qx - R; ix <= qx + R; ix++) for (let iz = qz - R; iz <= qz + R; iz++) {
-    const t = host.tops.get(ix + ',' + iz);
+    const t = host.tops.get(TOPK(ix, iz));
     if (t !== undefined && _svW.y + t > top) top = _svW.y + t;
   }
   return top;
@@ -832,6 +833,7 @@ const EYE = .56, WALK = 1.4, SPRINT = 2.2, keys = {};    // Vinny's authored Eye
 const el = renderer.domElement;
 el.addEventListener('click', () => { if (document.pointerLockElement !== el) el.requestPointerLock(); });
 addEventListener('mousemove', e => { if (document.pointerLockElement !== el) return;
+  if (held && keys['g']) { heldTumble(e.movementX, e.movementY); return; }      // G+mouse tumbles the item, not the camera
   yaw -= e.movementX * .0022; pitch = Math.max(-1.45, Math.min(1.45, pitch - e.movementY * .0022)); });
 /* INTERACT registry — same contract as the Commission: promptIt caches what the HUD shows,
    E falls back to it (shown = pressable). New exhibits append, don't redesign. */
@@ -889,7 +891,14 @@ addEventListener('keydown', e => { keys[(e.key || '').toLowerCase()] = true;
     if (held) { const t = dropTarget(); if (t) placeIt(t); }
     else if (pickIt) takeIt(pickIt);
     else if (promptIt) promptIt.fn();
-  } else if (k === 'p' && window.__eyes) { povOn ? window.__eyes.hide() : window.__eyes.show(); }
+  } else if (held && (k === ',' || k === 'n')) { heldSnapStep('y', 1); }
+  else if (held && (k === '.' || k === 'm')) { heldSnapStep('y', -1); }
+  else if (held && k === '[') { heldSnapStep('x', 1); }
+  else if (held && k === ']') { heldSnapStep('x', -1); }
+  else if (held && k === ';') { heldSnapStep('z', 1); }
+  else if (held && k === '\'') { heldSnapStep('z', -1); }
+  else if (held && k === '0') { heldSnap.x = heldSnap.y = heldSnap.z = 0; heldFree.identity(); }   // LEVEL — exactly authored-upright
+  else if (k === 'p' && window.__eyes) { povOn ? window.__eyes.hide() : window.__eyes.show(); }
   else if (k === 't') { followers.forEach(f => { f.possessed = false; f.setOrder('goto'); }); }          // GO — walk to the live tag (your hotkey always reclaims)
   else if (k === 'r') { followers.forEach(f => f.possessed = false); clearTags(); }                      // release — clear the tag and the gaze it ordered
   else if (k === 'h') { followers.forEach(f => { f.possessed = false; f.setOrder(f.order === 'follow' ? 'wait' : 'follow'); }); }   // HEEL ⇄ WAIT
@@ -902,6 +911,19 @@ addEventListener('keyup', e => { keys[(e.key || '').toLowerCase()] = false; });
    crosses a surface; worldSurfaceAt answers for every placed asset, floor = 0). */
 let held = null, pickIt = null;
 const fwdV = new THREE.Vector3(), tmpV = new THREE.Vector3();
+/* held-item orientation = facing-yaw × axis-snaps × free-tumble. Axis snaps are 15° counters about
+   the item's axes — pressing one CLEARS the free tumble, so level is always one key away (0 resets all).
+   Free tumble (hold G + mouse) is a trackball about world X/Y. Placed items persist yaw only and
+   always seat level — the measured-surface contract (tops/bbox) is authored-upright. */
+const ROT_STEP = Math.PI / 12;
+const heldSnap = { x: 0, y: 0, z: 0 };
+const heldFree = new THREE.Quaternion(), _qYaw = new THREE.Quaternion(), _qSnap = new THREE.Quaternion(),
+      _eSnap = new THREE.Euler(), _qt = new THREE.Quaternion();
+const AX_X = new THREE.Vector3(1, 0, 0), AX_Y = new THREE.Vector3(0, 1, 0);
+const heldTumble = (dx, dy) => { heldFree                                          // G+mouse trackball — world-frame grab
+  .premultiply(_qt.setFromAxisAngle(AX_Y, -dx * .008))
+  .premultiply(_qt.setFromAxisAngle(AX_X, -dy * .008)); };
+const heldSnapStep = (ax, d) => { heldSnap[ax] += d; heldFree.identity(); };       // axis rotation resets free rotation — level stays reachable
 const worldSurfaceAt = (wx, wz, skip, opt) => placeSurf(wx, wz, new Set(skip ? [skip] : []), opt);
 const dropTarget = () => {
   camera.getWorldDirection(fwdV);
@@ -920,11 +942,12 @@ const nearestPick = () => {
     const a = tmpV.dot(fwdV); if (a > ba) { ba = a; best = p; } });
   return best;
 };
-const takeIt = p => { held = p; };
+const takeIt = p => { held = p; heldSnap.x = heldSnap.y = heldSnap.z = 0; heldFree.identity(); };
 const placeIt = t => { const p = held; held = null;
   placeSnapOp({ t: 'move', p, prev: { x: p.x, z: p.z, rotY: p.rotY, y0: p.y0 } });
-  p.x = t.x; p.z = t.z; p.rotY = yaw; p.y0 = t.y;
-  p.g.position.set(t.x, t.y, t.z); p.g.rotation.y = yaw;
+  p.x = t.x; p.z = t.z; p.y0 = t.y;
+  p.rotY = ((yaw + heldSnap.y * ROT_STEP) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);   // yaw persists — pitch/roll drop, placement seats level
+  p.g.position.set(t.x, t.y, t.z); p.g.rotation.set(0, p.rotY, 0);
   refreshSolids(); placeSave(); };
 const ghostShape = new THREE.Shape(); ghostShape.absarc(0, 0, .05, 0, Math.PI * 2);
 const ghole = new THREE.Path(); ghole.absarc(0, 0, .038, 0, Math.PI * 2); ghostShape.holes.push(ghole);
@@ -1046,6 +1069,8 @@ const carrySync = p => {                                                        
 };
 const placeSurf = (wx, wz, skipSet, opt = {}) => { let t = 0, cap = opt.cap ?? Infinity;
   PLACED.forEach(p => { if (skipSet.has(p) || (opt.surfOnly && !p.surf)) return;                    // furniture never floors on riders
+    if (p.g.parent === scene && (wx + .12 < p.bbox[0] || wx - .12 > p.bbox[1] || wz + .12 < p.bbox[2] || wz - .12 > p.bbox[3])) return;   // bbox reject — the drop-march ran every host's column scan every ray-step (the carry hitch)
+    window.__scanN = (window.__scanN || 0) + 1;
     const s = surfaceAt(p, wx, wz); if (s > t && s <= cap) t = s; }); return t; };                  // cap = settle-only: nothing climbs at re-seat
 const placeSpot = () => {                                                        // where the aim ray lands — the measured-surface law
   _ray.setFromCamera(_ctr, camera);
@@ -1168,7 +1193,9 @@ const loop = now => {
     held.g.position.set(camera.position.x + fwdV.x * .38 - fwdV.z * .1,
                         camera.position.y + fwdV.y * .38 - .07,
                         camera.position.z + fwdV.z * .38 + fwdV.x * .1);
-    held.g.rotation.y = yaw;
+    _qYaw.setFromAxisAngle(AX_Y, yaw);
+    _qSnap.setFromEuler(_eSnap.set(heldSnap.x * ROT_STEP, heldSnap.y * ROT_STEP, heldSnap.z * ROT_STEP, 'YXZ'));
+    held.g.quaternion.copy(_qYaw).multiply(_qSnap).multiply(heldFree);                  // facing × axis-snaps × free tumble
     const t = dropTarget(); ghost.visible = !!t;
     if (t) ghost.position.set(t.x, t.y + .004, t.z);
   } else ghost.visible = false;
@@ -1176,7 +1203,7 @@ const loop = now => {
   promptIt = document.pointerLockElement === el && !placeOn ? (kioskProbe() || INTERACT.reduce((b, it) => {
     const d = Math.hypot(pos.x - it.x, pos.z - it.z); return d < it.r && (!b || d < b.d) ? { it, d } : b; }, null)?.it || null) : null;
   promptEl.style.display = (held || pickIt || promptIt) ? 'block' : 'none';
-  promptEl.textContent = held ? 'E — PLACE ' + held.name.replace('commission_', '').toUpperCase()
+  promptEl.textContent = held ? 'E — PLACE ' + held.name.replace('commission_', '').toUpperCase() + '  ·  , . yaw · [ ] pitch · ; \' roll · G tumble · 0 level'
                      : pickIt ? 'E — TAKE ' + pickIt.name.replace('commission_', '').toUpperCase()
                      : promptIt ? promptIt.label() : '';
   window.__compass(camera);
@@ -1239,7 +1266,7 @@ window.__snap = (name, px, py, pz, tx, ty, tz) => {
   const u = renderer.domElement.toDataURL('image/png');
   return fetch('/shot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'probe_' + name, png: u }) }).then(r => r.json()).then(j => !!j.ok);
 };
-window.__construct = { manifest: MANIFEST, pos, spin: () => spinning, held: () => held, placed: PLACED,
+window.__construct = { manifest: MANIFEST, pos, spin: () => spinning, held: () => held, placed: PLACED, yaw: () => yaw,
   followers: () => followers.map(f => ({ char: f.spec.char, order: f.order, pos: f.pos.toArray() })),
   self: () => selfBody && ({ x: pos.x, z: pos.z, yaw: selfBody.yaw, state: selfBody.state,
     bodyMask: selfBody.meshes[0].im.layers.mask, headMask: selfBody.meshes[1].im.layers.mask,
@@ -1254,7 +1281,9 @@ window.__construct = { manifest: MANIFEST, pos, spin: () => spinning, held: () =
   },
   place: () => window.__place,
   take: n => { const p = PLACED.find(p => p.name === n); if (p) takeIt(p); return !!p; },
-  place: (x, z) => { if (!held) return false; const y = worldSurfaceAt(x, z, held); placeIt({ x, y, z }); return true; } };
+  place: (x, z) => { if (!held) return false; const y = worldSurfaceAt(x, z, held); placeIt({ x, y, z }); return true; },
+  tumble: (dx, dy) => heldTumble(dx, dy), heldSnap: () => ({ ...heldSnap }),
+  heldQ: () => held ? held.g.quaternion.toArray() : null, dropTarget };
 window.__envShot = () => {};                                   // probe contract — no sealed/env split on this page
 window.__uiClean = v => { document.getElementById('hud').style.display = v ? 'none' : ''; };
 </script>
