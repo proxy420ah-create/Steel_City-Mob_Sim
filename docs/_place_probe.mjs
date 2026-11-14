@@ -185,7 +185,32 @@ await connect(); await waitBoot(); await sleep(800);
 const boot2 = JSON.parse(await evl('__place.dump()'));
 check('reload: extra stays deleted', boot2.filter(p => p.name === 'commission_lawdesk').length === 1, JSON.stringify(boot2.filter(p => p.name === 'commission_lawdesk')));
 
-// 8 — fly-camera clamp + release back to body
+// 8 — restore ordering: an extra saved on a moved manifest host must seat ON it.
+//     (BOSS's gun-on-floor bug: extras emitted before overrides applied → the host
+//     wasn't there yet → seat measured floor. Restore is now tombstones → overrides →
+//     extras → re-seat.)
+await evl(`localStorage.setItem('dvm_place', JSON.stringify({ commission_lawdesk: { x: 2.6, z: 0.03, rotY: 0 } }))`);
+await evl(`localStorage.setItem('dvm_extra', JSON.stringify([{ name: 'SW_Model_10', kind: 'item', pickable: true, solids: null, x: 2.55, z: -0.05, rotY: 0 }]))`);
+await evl('location.reload()'); await sleep(1500);
+await connect(); await waitBoot(); await sleep(800);
+const boot3 = JSON.parse(await evl('__place.dump()'));
+const gun = boot3.find(p => p.name === 'SW_Model_10');
+check('reload: extra seats on moved host — not floor', gun && gun.y > .15, JSON.stringify(gun));
+const deskAt = boot3.find(p => p.name === 'commission_lawdesk' && Math.abs(p.x - 2.6) < .05);
+check('reload: desk override applied first', !!deskAt, JSON.stringify(boot3.filter(p => p.name === 'commission_lawdesk')));
+
+// 9 — a manifest item hand-placed to the floor re-seats to 0 (overrides save no y0 —
+//     the restore must re-derive height or it floats at its manifest seat)
+await evl('__construct.take("commission_stamper")');
+await evl('__construct.place(-1.0, -4.5)');                                       // open floor, away from all hosts
+await sleep(300);
+await evl('location.reload()'); await sleep(1500);
+await connect(); await waitBoot(); await sleep(800);
+const boot4 = JSON.parse(await evl('__place.dump()'));
+const stamperRe = boot4.find(p => p.name === 'commission_stamper');
+check('reload: floor-placed item re-seats to 0', stamperRe && stamperRe.y < .05, JSON.stringify(stamperRe));
+
+// 10 — fly-camera clamp + release back to body
 await evl('__cam(null)');
 check('camLock released', true);
 const shot = await cdp('Page.captureScreenshot', { format: 'png' });

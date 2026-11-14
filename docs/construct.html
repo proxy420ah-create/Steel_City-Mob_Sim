@@ -113,6 +113,12 @@ window.voxEmit = (m, fillM) => {
    measured, not authored (attachmentPoints stay semantic: axles, seats, grips). */
 const PLACED = [];
 const ROUTES = { item: '/voxel/', vehicle: '/veh/', char: '/char/' };
+const footB = (lb, x, z, rotY) => {                                            // world footprint from local bounds — ALWAYS live, never stale
+  const cy = Math.cos(rotY), sy = Math.sin(rotY);
+  const cs = [[lb[0], lb[2]], [lb[0], lb[3]], [lb[1], lb[2]], [lb[1], lb[3]]].map(([lx, lz]) => [x + lx * cy + lz * sy, z - lx * sy + lz * cy]);
+  return [Math.min(...cs.map(c => c[0])) - .05, Math.max(...cs.map(c => c[0])) + .05,
+          Math.min(...cs.map(c => c[1])) - .05, Math.max(...cs.map(c => c[1])) + .05];
+};
 const emitAsset = (name, o = {}) => {
   const { kind = 'item', parent = scene, x = 0, z = 0, rotY = 0, on = null, seatY = null, vsOverride = null } = o;
   return fetch(ROUTES[kind] + name).then(r => r.json()).then(m => {
@@ -120,7 +126,7 @@ const emitAsset = (name, o = {}) => {
     const vs = vsOverride || m.voxelSize || .0075;
     const dcx = m.dims[0] / 2 - .5, dcz = m.dims[2] / 2 - .5, flip = m.truthView === 'unity';
     let minB = Infinity, lx0 = Infinity, lx1 = -Infinity, lz0 = Infinity, lz1 = -Infinity;
-    const tops = new Map(), cy = Math.cos(rotY), sy = Math.sin(rotY);          // tops keyed LOCAL — survives the item moving
+    const tops = new Map();                                                  // tops keyed LOCAL — survives the item moving
     m.voxels.forEach(v => {
       const lx = (v[0] - dcx) * vs, lz = ((flip ? m.dims[2] - 1 - v[2] : v[2]) - dcz) * vs;
       if (v[1] * vs < minB) minB = v[1] * vs;
@@ -133,10 +139,8 @@ const emitAsset = (name, o = {}) => {
     window.voxEmit(m, (M, v) => M.makeScale(vs, vs, vs).setPosition(
       (v[0] - dcx) * vs, (v[1] + .5) * vs - minB, ((flip ? m.dims[2] - 1 - v[2] : v[2]) - dcz) * vs)).forEach(mm => g.add(mm));
     g.position.set(x, seat, z); g.rotation.y = rotY; parent.add(g);
-    const cs = [[lx0, lz0], [lx0, lz1], [lx1, lz0], [lx1, lz1]].map(([lx, lz]) => [x + lx * cy + lz * sy, z - lx * sy + lz * cy]);   // world footprint
-    const rec = { name, kind, g, tops, x, z, rotY, y0: seat, minB, vs,
-                  bbox: [Math.min(...cs.map(c => c[0])) - .05, Math.max(...cs.map(c => c[0])) + .05,
-                         Math.min(...cs.map(c => c[1])) - .05, Math.max(...cs.map(c => c[1])) + .05],
+    const rec = { name, kind, g, tops, lb: [lx0, lx1, lz0, lz1], x, z, rotY, y0: seat, minB, vs,
+                  bbox: footB([lx0, lx1, lz0, lz1], x, z, rotY),
                   pickable: !!o.pickable, solids: o.solids || null, source: o.source || 'manifest' };
     g.userData.pRec = rec;
     PLACED.push(rec);
@@ -609,13 +613,13 @@ const livePost = () => fetch('/peek', { method: 'POST', headers: { 'Content-Type
       else if (c.agent === 'heel') A.heel();
       else if (c.agent === 'order') A.order(c.args[0]);
       else if (c.agent === 'emit') { const [n, x, z, ry] = c.args;               // agent-furnished asset — lands + persists like a paste
-        emitAsset(n, { kind: 'item', x: +x || 0, z: +z || 0, rotY: +ry || 0, pickable: true, source: 'extra' }).then(() => placeSave()); }
+        emitAsset(n, { kind: 'item', x: +x || 0, z: +z || 0, rotY: +ry || 0, pickable: true, source: 'extra',
+          seatY: worldSurfaceAt(+x || 0, +z || 0, null) }).then(() => placeSave()); }
       else if (c.agent === 'move') { const [n, x, z, ry] = c.args;               // relocate an existing item — the surface law seats it
         const p = PLACED.find(q => q.name === n && q.source === 'extra') || PLACED.find(q => q.name === n);
-        if (p) { const ob = p.bbox; placeApply(p, +x || 0, +z || 0, ry === undefined ? p.rotY : +ry);
+        if (p) { const ob = footB(p.lb, p.x, p.z, p.rotY); placeApply(p, +x || 0, +z || 0, ry === undefined ? p.rotY : +ry);
           p.y0 = placeSurf(p.x, p.z, new Set([p])); p.g.position.y = p.y0;
-          const b = new THREE.Box3().setFromObject(p.g); p.bbox = [b.min.x - .05, b.max.x + .05, b.min.z - .05, b.max.z + .05];
-          settleOrphans(p, ob, p.bbox, p.y0 + (b.max.y - p.y0)); refreshSolids(); placeSave(); } }
+          settleOrphans(p, ob, p.bbox, p.y0 + Math.max(...p.tops.values())); refreshSolids(); placeSave(); } }
       else if (c.agent === 'del') { const p = PLACED.find(q => q.name === c.args[0] && q.source === 'extra') || PLACED.find(q => q.name === c.args[0]);
         if (p) { if (p.source !== 'extra') { const d = new Set(JSON.parse(localStorage.getItem('dvm_del') || '[]'));
             d.add(p.name); localStorage.setItem('dvm_del', JSON.stringify([...d])); }
@@ -898,6 +902,7 @@ const placeSave = () => {                                                       
 const placeApply = (p, x, z, rotY) => {                                          // tops stay local — surface math survives any move
   p.x = x; p.z = z; if (rotY !== undefined) p.rotY = rotY;
   p.g.position.set(x, p.y0, z); p.g.rotation.y = p.rotY;
+  p.bbox = footB(p.lb, x, z, p.rotY);                                            // footprint tracks the item — carry/settle/re-seat see it live
   refreshSolids();
 };
 const placePick = () => {                                                        // ray through screen centre → {p, x,y,z hit point}
@@ -979,10 +984,8 @@ const placeSpot = () => {                                                       
 const placeDrop = () => {                                                        // commit the drag — write the override
   if (!placeSel) return; const moved = placeSel;
   moved.y0 = moved.g.position.y;
-  const ob = moved.bbox;                                                         // pre-move footprint — the orphans lived here
-  const b = new THREE.Box3().setFromObject(moved.g);
-  moved.bbox = [b.min.x - .05, b.max.x + .05, b.min.z - .05, b.max.z + .05];
-  settleOrphans(moved, ob, moved.bbox, (moved._orig ? moved._orig.y0 : moved.y0) + (b.max.y - moved.y0));
+  const ob = moved._orig ? footB(moved.lb, moved._orig.x, moved._orig.z, moved._orig.rotY) : footB(moved.lb, moved.x, moved.z, moved.rotY);   // pre-move footprint — the orphans lived here
+  settleOrphans(moved, ob, moved.bbox, (moved._orig ? moved._orig.y0 : moved.y0) + Math.max(...moved.tops.values()));
   const o = moved._orig || moved;
   if (o.x !== moved.x || o.z !== moved.z || o.rotY !== moved.rotY || o.y0 !== moved.y0)
     placeSnapOp({ t: 'move', p: moved, prev: { x: o.x, z: o.z, rotY: o.rotY, y0: o.y0,
@@ -996,7 +999,7 @@ const placePaste = () => {
   const s = placeSpot(); if (!s) { placeSay('AIM AT A SURFACE'); return; }
   emitAsset(placeClip.name, { kind: placeClip.kind,
     x: Math.round(s.x / PLACE_SNAP) * PLACE_SNAP, z: Math.round(s.z / PLACE_SNAP) * PLACE_SNAP,
-    rotY: placeClip.rotY, pickable: placeClip.pickable, solids: placeClip.solids, source: 'extra' })
+    rotY: placeClip.rotY, pickable: placeClip.pickable, solids: placeClip.solids, source: 'extra', seatY: s.y })
     .then(r => { if (r) { if (placeSel) placeDrop();                             // the paste takes the selection — commit whatever was held
       placeSel = r; r._carry = []; r._drag = false; r._grab = { lx: 0, lz: 0 };
       r._orig = { x: r.x, z: r.z, rotY: r.rotY, y0: r.y0 };
@@ -1123,13 +1126,19 @@ window.__compass = cam => {
 
 /* warm-up: compile every program + upload every buffer behind the veil — same law as the Commission */
 ready.then(async () => {
-  const extras = JSON.parse(localStorage.getItem('dvm_extra') || '[]');            // pasted kit copies live here
-  for (const e of extras) await emitAsset(e.name, { kind: e.kind, x: e.x, z: e.z, rotY: e.rotY, pickable: e.pickable, solids: e.solids, source: 'extra' });
-  const over = JSON.parse(localStorage.getItem('dvm_place') || '{}');              // your saved layout overrides manifest positions
-  PLACED.forEach(p => { const o = over[p.name]; if (o && p.source !== 'extra') placeApply(p, o.x, o.z, o.rotY); });
-  JSON.parse(localStorage.getItem('dvm_del') || '[]').forEach(n => {               // tombstones — manifest items you deleted stay deleted
+  JSON.parse(localStorage.getItem('dvm_del') || '[]').forEach(n => {               // tombstones first — a deleted host must not seat anything
     const p = PLACED.find(q => q.name === n && q.source !== 'extra');
     if (p) { scene.remove(p.g); PLACED.splice(PLACED.indexOf(p), 1); } });
+  const over = JSON.parse(localStorage.getItem('dvm_place') || '{}');              // your saved layout overrides manifest positions
+  PLACED.forEach(p => { const o = over[p.name]; if (o && p.source !== 'extra') placeApply(p, o.x, o.z, o.rotY); });
+  const extras = JSON.parse(localStorage.getItem('dvm_extra') || '[]');            // extras emit LAST — they seat on the final layout, not manifest spots
+  for (const e of extras) await emitAsset(e.name, { kind: e.kind, x: e.x, z: e.z, rotY: e.rotY, pickable: e.pickable, solids: e.solids,
+    source: 'extra', seatY: worldSurfaceAt(e.x, e.z, null) });
+  PLACED.forEach(p => { const o = over[p.name]; if (!o || p.source === 'extra') return;   // overrides save no y0 — re-derive height on the final hosts
+    const skip = new Set([p]);
+    PLACED.forEach(q => { if (q !== p && q.y0 > p.y0 - .01 &&                             // at-or-above my level inside my footprint = passenger
+      q.x > p.bbox[0] && q.x < p.bbox[1] && q.z > p.bbox[2] && q.z < p.bbox[3]) skip.add(q); });  // or co-located sibling (door↔frame) — never hosts p
+    p.y0 = placeSurf(p.x, p.z, skip); p.g.position.y = p.y0; });
   refreshSolids();
   try { renderer.compile(scene, camera); } catch (e) {}
   renderer.render(scene, camera);
