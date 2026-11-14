@@ -7,11 +7,11 @@ multiple drafting tables are list entries, not new code.
 ## The table
 
 ```js
-{ id: 'primary', x: -5, z: -2.5, size: 1.2, top: .26, scale: 1 / 64,
+{ id: 'primary', x: -4.6, z: -2.5, size: 1.2, top: .26, scale: 1 / 64,  // front-of-centre on the door axis
   models: [{ name: 'tenement_block_0', fill: .75 }],      // mounted exhibit — one model at a time
   catalog: [{ name: 'tenement_block_0', fill: .75 },      // the swappable universe — the pad cycles it
             { name: 'barber_shop', fill: .75 }] },
-{ id: 'block', x: -5.9, z: -1.3, size: 1.2, top: .26, scale: 1 / 64,   // the Block Table — whole city blocks
+{ id: 'block', x: -6.4, z: -2.5, size: 1.2, top: .26, scale: 1 / 64,   // the Block Table — directly behind, .6m gap
   models: [{ name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' } }],
   catalog: [{ name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' } },
             { name: 'block_41_barber',  fill: .75, slots: { 2: 'barber_shop' } }] }
@@ -87,8 +87,10 @@ was on the easel.
 
 ## Block composites — a whole city block on the table
 
-The **Block Table** (`id:'block'`, west of the primary, same size/pistons/lift)
-mounts **block specs** — catalog entries that carry `slots: {i: asset}` instead
+The **Block Table** (`id:'block'`, directly behind the primary on the door
+axis — the two slabs stand in a row with a walkable .6 m gap between them, the
+primary pulled .4 m forward of the old dead-centre so the gap exists) mounts
+**block specs** — catalog entries that carry `slots: {i: asset}` instead
 of a lone `name`. `emitBlock` builds them: the spec's nine lots are a 3×3 grid
 of 64-voxel tiles (`slot i → (i%3, i/3)` — the same `c = i % cols, r = i / cols`
 law `CityMap3D` uses), stamped into ONE 192×192 composite grid that mounts as an
@@ -113,7 +115,7 @@ ordinary mini. Spin/slice/tops/lift/persistence need nothing new.
 `emitPad()` builds `debug_pad` as a procedural `PLACED` rec (no voxel asset — the
 law is rec-driven): a `.18×.012×.12` slab, `EdgesGeometry` trim in `padEdgeMat`
 (hue-rides via `boundHue`), and a `CanvasTexture` screen on the +y face. It
-spawns on the Primary Table's north felt margin (`-5, -1.975`, `source:
+spawns on the Primary Table's north felt margin (`-4.6, -1.975`, `source:
 'manifest'` → position persists through `dvm_place` like any manifest item),
 `pickable` — E-takes, E-places, and all held-item rotation keys work on it.
 

@@ -269,12 +269,12 @@ const BLDG_MAT = {                                                       // mob_
 const BLDG_GLASS = new Set([112, 113, 114, 134, 147]);                  // glass ids — the voxEmit transparency contract
 const darkMat = new THREE.MeshLambertMaterial({ color: 0x14161c });      // the Construct's furniture stock (consoles/kiosk)
 const rodMat = new THREE.MeshLambertMaterial({ color: 0x2e3442 });       // machined piston rod — a half-tone off the barrel
-MANIFEST.tables = [                                                    // PRIMARY TABLE — annex centre (-5,-2.5), dead on the rotator axis
-  { id: 'primary', x: -5, z: -2.5, size: 1.2, top: .26, scale: 1 / 64,   // scale = shared-table law; a model may declare `fill` instead —
+MANIFEST.tables = [                                                    // PRIMARY TABLE — front-of-centre (-4.6,-2.5), dead on the door axis
+  { id: 'primary', x: -4.6, z: -2.5, size: 1.2, top: .26, scale: 1 / 64,   // scale = shared-table law; a model may declare `fill` instead —
     models: [{ name: 'tenement_block_0', fill: .75 }],                   // mounted exhibit — one model at a time, .75 of the tabletop
     catalog: [{ name: 'tenement_block_0', fill: .75 },                   // the swappable universe — the wall panel cycles it
               { name: 'barber_shop', fill: .75 }] },
-  { id: 'block', x: -5.9, z: -1.3, size: 1.2, top: .26, scale: 1 / 64,   // BLOCK TABLE — a full 3×3 city block (9 lots of 64 vox = 192 span)
+  { id: 'block', x: -6.4, z: -2.5, size: 1.2, top: .26, scale: 1 / 64,   // BLOCK TABLE — directly behind the primary on the door axis, .6m gap (9 lots of 64 vox = 192 span)
     models: [{ name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' } }],   // tenement fills every lot → identical to the easel's
     catalog: [{ name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' } },
               { name: 'block_41_barber', fill: .75, slots: { 2: 'barber_shop' } }] },       // block_41's authored lot — the rest = empty_land
@@ -592,7 +592,7 @@ const padFocusToggle = () => { padFocus = !padFocus; padSetHover(null);
   else if (!padFocus && document.pointerLockElement !== el) el.requestPointerLock();
   padHudEl.style.display = padFocus ? 'block' : 'none'; };
 const emitPad = () => {
-  const PAD_W = .18, PAD_D = .12, PAD_H = .012, x = -5, z = -1.975, rotY = .3;   // the Primary Table's north felt margin
+  const PAD_W = .18, PAD_D = .12, PAD_H = .012, x = -4.6, z = -1.975, rotY = .3; // the Primary Table's north felt margin
   const g = new THREE.Group();
   const slab = new THREE.Mesh(new THREE.BoxGeometry(PAD_W, PAD_H, PAD_D), new THREE.MeshLambertMaterial({ color: 0x0c0e14 }));
   slab.position.y = PAD_H / 2; g.add(slab);
