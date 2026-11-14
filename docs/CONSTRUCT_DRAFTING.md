@@ -19,15 +19,17 @@ multiple drafting tables are list entries, not new code.
   unit-height so `scale.y` is the reach) — plus the **floor-wire seam
   lifted to the tabletop rim** — the same trick the doorway uses, `coreMat` hue-riding.
 - **The pistons lift.** `tableLiftSet(t, lift)` / `tableLift(t, dy)` raise the
-  whole assembly in `t.lift` (`[-.08, .4]` — the floor notch keeps the slab
-  clear of the collar tops, ~.16): slab, rim, rods re-pose, `mini` groups
+  whole assembly in `t.lift` (`[-.22, .4]`): slab, rim, rods re-pose, `mini` groups
   ride their pedestal, and every `tops` entry shifts by the delta — the measured
   surface follows the lift exactly. `liftRiders` then applies the same delta to
   any rec standing above the old top inside the footprint (`inB` +
   `y0 >= oldTop`), so stacked items ride the column while floor items beneath
   the table and wall-mounted pads stay put. `tableTop(t) = spec.top + lift` is
   the law everywhere a top is derived (mount, sync, seat). Persisted as
-  `dvm_lift:<tableId>`; restored at emit before `mountModel`.
+  `dvm_lift:<tableId>`; restored at emit before `mountModel`. At the bottom
+  notch (`-.22`) the slab underside reaches `y=0` — the table sits on the
+  floor; once the slab drops below the collar tops each leg group sinks below
+  the floor line too, so the pistons read as fully retracting into the void.
 - Collision is a `WALL_BLOCKS` entry generated from the footprint (+.15 capsule) —
   exact square edge-slide, identical feel to the walls. The block is stored on
   `rec._block` and re-synced in `placeApply` (collision follows the drag, same law

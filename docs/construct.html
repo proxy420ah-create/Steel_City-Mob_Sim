@@ -281,7 +281,7 @@ const emitTable = spec => {
   const g = new THREE.Group(); g.position.set(spec.x, 0, spec.z); scene.add(g);
   const s = spec.size, h = spec.top;
   const slab = new THREE.Mesh(new THREE.BoxGeometry(s, .04, s), darkMat); slab.position.y = h - .02; g.add(slab);
-  const rods = [];                                                       // piston legs — barrel + collar + telescoping rod
+  const rods = [], legs = [];                                            // piston legs — barrel + collar + telescoping rod
   [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([a, b]) => { const lg = new THREE.Group();
     lg.position.set(a * (s / 2 - .11), 0, b * (s / 2 - .11)); g.add(lg);
     const sleeve = new THREE.Mesh(new THREE.BoxGeometry(.09, SLEEVE_H, .09), darkMat);
@@ -290,7 +290,7 @@ const emitTable = spec => {
     collar.position.y = SLEEVE_H; lg.add(collar);
     const rod = new THREE.Mesh(new THREE.BoxGeometry(.05, 1, .05), rodMat);            // unit-height rod — scale.y is the reach
     const len = h - .04 - SLEEVE_H; rod.scale.y = len; rod.position.y = SLEEVE_H + len / 2; lg.add(rod);
-    rods.push(rod); });
+    rods.push(rod); legs.push(lg); });
   const rims = [];
   const w = BND_W * 1.6;                                                 // tabletop rim — the floor seam lifted to h, like the door ∩
   [[0, -1, s + w, w], [0, 1, s + w, w], [-1, 0, w, s + w], [1, 0, w, s + w]].forEach(([a, b, lx, lz]) => {
@@ -306,7 +306,7 @@ const emitTable = spec => {
     x: spec.x, z: spec.z, rotY: 0, y0: 0, minB: 0, vs: 1, surf: true,
     bbox: footB([-s / 2, s / 2, -s / 2, s / 2], spec.x, spec.z, 0), pickable: false, solids: null, source: 'manifest', _block: block, _spec: spec };
   g.userData.pRec = rec; PLACED.push(rec);
-  const t = { spec, rec, g, lift: 0, parts: { slab, rims, rods } }; TABLES.push(t); return t;
+  const t = { spec, rec, g, lift: 0, parts: { slab, rims, rods, legs } }; TABLES.push(t); return t;
 };
 /* tableTop = authored top + live lift — every top-derivation reads it (mount, tops, sync). */
 const tableTop = t => t.spec.top + t.lift;
@@ -317,12 +317,15 @@ const liftRiders = (t, dy, oldTop) => PLACED.forEach(q => {
   if (inB(q, t.rec.bbox) && q.y0 >= oldTop - .005) { q.y0 += dy; q.g.position.y = q.y0; } });
 /* tableLiftSet — the piston verb: geometry reposes, measured tops shift by delta, riders ride. */
 const tableLiftSet = (t, lift) => { const oldTop = tableTop(t);
-  t.lift = Math.max(-.08, Math.min(.4, lift));                            // floor notch: slab must clear the collars (H ≥ ~.16)
+  t.lift = Math.max(-.22, Math.min(.4, lift));                            // floor notch: slab bottom reaches y=0 at H=.04
   const dy = tableTop(t) - oldTop; if (Math.abs(dy) < 1e-6) return;
-  const H = tableTop(t);
+  const H = tableTop(t), gap = H - .04;                                    // gap = the slab's underside
   t.parts.slab.position.y = H - .02;
   t.parts.rims.forEach(e => e.position.y = H);
-  t.parts.rods.forEach(rod => { const len = H - .04 - SLEEVE_H; rod.scale.y = len; rod.position.y = SLEEVE_H + len / 2; });
+  t.parts.legs.forEach((lg, i) => { const rod = t.parts.rods[i];
+    lg.position.y = Math.min(0, gap - SLEEVE_H - .01);                     // past the collar tops the barrel sinks below the floor — full retraction
+    const top = lg.position.y + SLEEVE_H, len = Math.max(.004, gap - top);
+    rod.scale.y = len; rod.position.y = top + len / 2; });
   t.g.children.forEach(c => { if (c.userData.mini) c.position.y = H; });   // the exhibit rides its pedestal
   t.rec.tops.forEach((v, k) => t.rec.tops.set(k, v + dy));                 // measured surface follows the lift
   liftRiders(t, dy, oldTop);
@@ -471,7 +474,7 @@ const PAD_PAGES = {
     g.fillStyle = '#cfc8b0'; g.font = '16px monospace'; g.fillText('PISTON LIFT', 256, 96);
     g.fillStyle = '#e8d9b0'; g.font = 'bold 22px monospace';
     g.fillText('TOP  ' + (t ? tableTop(t).toFixed(2) : '—') + 'm   ·   LIFT +' + (t ? t.lift.toFixed(2) : '0.00'), 256, 266);
-    g.fillStyle = '#5b5648'; g.font = '13px monospace'; g.fillText('eye .55 — raise past it to look up · four notches below felt-zero', 256, 312); } },
+    g.fillStyle = '#5b5648'; g.font = '13px monospace'; g.fillText('eye .55 — raise past it to look up · drops to the floor', 256, 312); } },
   apps: { tab: '≡', draw: g => {
     g.fillStyle = '#cfc8b0'; g.font = '16px monospace'; g.fillText('ALL TOOLS', 256, 96);
     g.fillStyle = '#5b5648'; g.font = '13px monospace'; g.fillText('tap a tile — pages keep their state', 256, 312); } },
@@ -1736,7 +1739,7 @@ window.__snap = (name, px, py, pz, tx, ty, tz) => {
 window.__construct = { manifest: MANIFEST, pos, spin: () => spinning, held: () => held, placed: PLACED, yaw: () => yaw,
   walkOK, bounds: () => boundsG.children.length, surfaceAt,
   tables: () => TABLES.filter(t => PLACED.includes(t.rec)).map(t => ({ id: t.spec.id, x: t.rec.x, z: t.rec.z, top: tableTop(t), size: t.spec.size,
-    specTop: t.spec.top, lift: t.lift,
+    specTop: t.spec.top, lift: t.lift, slabY: +t.parts.slab.position.y.toFixed(4), legY: +t.parts.legs[0].position.y.toFixed(4),
     scale: t.spec.scale, catalog: (t.spec.catalog || []).map(m => m.name),
     models: t.g.children.filter(c => c.userData.mini).map(c => { const m = c.userData.mini; return { name: m.name, dims: m.dims, vox: m.vox, scale: m.scale, fill: m.fill,
       rotY: +c.rotation.y.toFixed(4), spin: m.spin, axis: m.axis,

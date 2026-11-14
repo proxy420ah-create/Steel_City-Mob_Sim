@@ -431,13 +431,15 @@ await connect(); await waitBoot(); await sleep(800);
 check('lift survives F5 — top .32, pad still riding', await evl('Math.abs(__construct.tables()[0].lift - .06) < 1e-3 && Math.abs(__pad.rec().y0 - .32) < .01'), await evl('JSON.stringify({l:__construct.tables()[0].lift, y0:__pad.rec().y0})'));
 await evl('__pad.press("lres")');
 check('post-reload reset restores .26', await evl('__construct.tables()[0].lift === 0 && Math.abs(__pad.rec().y0 - .26) < .01'));
-await evl('__pad.press("lDD")');                                                    // ▼▼ → the floor notch
-check('lower notch — lift −.08, top .18', await evl('Math.abs(__construct.tables()[0].lift + .08) < 1e-3 && Math.abs(__construct.tables()[0].top - .18) < 1e-3'), await evl('JSON.stringify({l:__construct.tables()[0].lift,t:__construct.tables()[0].top})'));
-check('pad rode down to .18', await evl('Math.abs(__pad.rec().y0 - .18) < .01'), await evl('__pad.rec() && __pad.rec().y0'));
+await evl('__pad.press("lDD"); __pad.press("lDD"); __pad.press("lDD")');              // ▼▼×3 → bottomed out
+check('floor notch — lift −.22, top .04', await evl('Math.abs(__construct.tables()[0].lift + .22) < 1e-3 && Math.abs(__construct.tables()[0].top - .04) < 1e-3'), await evl('JSON.stringify({l:__construct.tables()[0].lift,t:__construct.tables()[0].top})'));
+check('slab bottom sits on the floor — slabY .02', await evl('Math.abs(__construct.tables()[0].slabY - .02) < 1e-3'), await evl('__construct.tables()[0].slabY'));
+check('pistons retracted below the floor', await evl('__construct.tables()[0].legY < -0.05'), await evl('__construct.tables()[0].legY'));
+check('pad rode down to the felt at .04', await evl('Math.abs(__pad.rec().y0 - .04) < .01'), await evl('__pad.rec() && __pad.rec().y0'));
 await evl('__pad.press("lDD")');
-check('clamped at the floor notch', await evl('Math.abs(__construct.tables()[0].lift + .08) < 1e-3'));
+check('clamped at the floor', await evl('Math.abs(__construct.tables()[0].lift + .22) < 1e-3'));
 await evl('__pad.press("lres")');
-check('reset from the floor notch', await evl('__construct.tables()[0].lift === 0 && Math.abs(__pad.rec().y0 - .26) < .01'));
+check('reset off the floor', await evl('__construct.tables()[0].lift === 0 && Math.abs(__pad.rec().y0 - .26) < .01'));
 
 // 12.99b — the apps menu: ≡ lists every page as a launch tile
 await evl('__pad.tab("apps")');
