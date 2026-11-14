@@ -108,6 +108,8 @@ docs/seat_state_*.md
 docs/seat_fetch_*.json
 docs/_cab1_board.json
 docs/_post_test.js
+docs/_cmd.json
+docs/_live.json
 Assets/StreamingAssets/voxel_items/commission_lawdesk.json.bak
 
 # ── Agent vision-tool artifacts (regenerable) ──────────────────

@@ -351,8 +351,8 @@ const emitChar = spec => fetch('/char/' + spec.char).then(r => r.json()).then(ri
   const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(VS, VS, VS), new THREE.MeshLambertMaterial(), N);
   inst.frustumCulled = false;                          // matrices rewrite per pose — load-time bounds go stale
   const pal = {}; (rig.materials || []).forEach(m => pal[m.id] = new THREE.Color(m.hex));
-  const reg = rig.regions || {}, dflt = new THREE.Color(0x888888);
-  rig.voxels.forEach((v, i) => inst.setColorAt(i, pal[OUTFIT[reg[v[0] + ',' + v[1] + ',' + v[2]]] || v[3]] || dflt));
+  const reg = rig.regions || {}, dflt = new THREE.Color(0x888888), out = spec.outfit || OUTFIT;    // spec.outfit = mannequin's wardrobe
+  rig.voxels.forEach((v, i) => inst.setColorAt(i, pal[out[reg[v[0] + ',' + v[1] + ',' + v[2]]] || v[3]] || dflt));
   inst.instanceColor.needsUpdate = true;
   const CH = new THREE.Group(); CH.add(inst); scene.add(CH);
   const bufA = new Float64Array(3 * N), bufB = new Float64Array(3 * N);
@@ -370,14 +370,17 @@ const emitChar = spec => fetch('/char/' + spec.char).then(r => r.json()).then(ri
   const eyeIdx = []; rig.voxels.forEach((v, i) => { if (reg[v[0] + ',' + v[1] + ',' + v[2]] === 10) eyeIdx.push(i); });   // region 10 = gaze anchor
   const slot = followers.length;                                        // heel slot — lateral offset around the player so bodies form up, not stack
   const heelOff = slot ? (slot % 2 ? 1 : -1) * Math.ceil(slot / 2) * .45 : 0;
-  const f = { spec, rig, E, inst, CH, bufA, bufB, eyeIdx, N, VS, d, upload, heelOff,
-    pos: new THREE.Vector3(spec.x ?? (.4 + slot * .16), 0, spec.z ?? .45), yaw: Math.PI,       // steps out of the door-elevator behind you
+  const f = { spec, rig, E, inst, pal, CH, bufA, bufB, eyeIdx, N, VS, d, upload, heelOff,
+    pos: new THREE.Vector3(spec.x ?? (.4 + slot * .16), 0, spec.z ?? .45), yaw: spec.yaw ?? Math.PI,   // steps out of the door-elevator behind you
     order: spec.order || 'follow', state: 0, prevState: 0, transFrom: 0, transT: -1, blend: 1, dip: 0, walkSpeed: 1, gaitTime: 0,
     gazeT: null };
   f.setOrder = o => { f.order = { follow: 'follow', goto: 'goto', wait: 'wait' }[o] || 'follow'; };
   E.evalPose(0, 0, bufB); upload(null, bufB, 1, 0);
-  followers.push(f); saveFol();
-  if (!povF) povF = f;                                   // first body in the room owns the eyes — party or console, same claim
+  CH.position.set(f.pos.x, 0, f.pos.z); CH.rotation.y = f.yaw;         // statics never run followStep — plant at emit
+  if (!spec.static) {                                                // mannequin — never a follower: no roster, no heel, no PiP claim
+    followers.push(f); saveFol();
+    if (!povF) povF = f;                                             // first body in the room owns the eyes — party or console, same claim
+  }
   return f;
 }).catch(e => { window.__lastPartyErr = String(e && e.stack || e); console.warn('CONSTRUCT — follower emit failed:', spec.char, e); });
 
@@ -595,6 +598,68 @@ const specPlaque = new THREE.Mesh(new THREE.PlaneGeometry(.56, .4), new THREE.Me
 specPlaque.position.set(1.55, .6, .67); specPlaque.rotation.y = Math.PI;               // faces south into the room
 scene.add(specPlaque);
 
+/* ── MANNEQUIN — the NW-corner dressing stand: a second Vinny posed STATIC (never a
+   follower — no roster, no heel, no PiP claim) + a floor pedestal kiosk whose screen
+   face carries big pressable buttons. Aim + E (or LMB on the face) presses — outfits
+   are region→material remaps, same law as the Commission's ApplyCivilianOutfits. */
+const OUTFITS = [
+  { name: 'SUIT BLUE',  map: { 3: 126, 4: 126, 6: 126, 7: 105 } },   // the canonical Civilian_01 remap
+  { name: 'SUIT GREY',  map: { 3: 102, 4: 102, 6: 110, 7: 118 } },
+  { name: 'SUIT BROWN', map: { 3: 122, 4: 122, 6: 122, 7: 118 } },
+  { name: 'SUIT WHITE', map: { 3: 127, 4: 127, 6: 127, 7: 118 } },
+  { name: 'WORK RED',   map: { 3: 120, 4: 120, 6: 109, 7: 118 } },
+];
+let mannOutfit = Math.max(0, Math.min(OUTFITS.length - 1, +localStorage.getItem('dvm_outfit') || 0));
+const recolorChar = (f, map) => { const reg = f.rig.regions || {}, dflt = new THREE.Color(0x888888);
+  f.rig.voxels.forEach((v, i) => f.inst.setColorAt(i, f.pal[map[reg[v[0] + ',' + v[1] + ',' + v[2]]] || v[3]] || dflt));
+  f.inst.instanceColor.needsUpdate = true; };
+const MANN_POS = { x: -2.5, z: .48 }, MANN_YAW = 2.45;                 // back to the NW wall, facing the rotator
+const KIOSK_POS = { x: -1.85, z: .6 }, KIOSK_YAW = Math.PI - .28;      // face south into the room, angled toward the approach
+const BUTTONS = [];                                                  // pressable face targets — aim + E/LMB
+let mannF = null;
+const kioG = new THREE.Group(); kioG.position.set(KIOSK_POS.x, 0, KIOSK_POS.z); kioG.rotation.y = KIOSK_YAW; scene.add(kioG);
+const mannCv = document.createElement('canvas'); mannCv.width = 512; mannCv.height = 340;
+const mannTex = new THREE.CanvasTexture(mannCv); mannTex.colorSpace = THREE.SRGBColorSpace;
+const mannDraw = press => { const g = mannCv.getContext('2d');
+  g.fillStyle = '#101218'; g.fillRect(0, 0, 512, 340);
+  g.strokeStyle = '#3a3a4a'; g.lineWidth = 6; g.strokeRect(3, 3, 506, 334);
+  g.fillStyle = '#8f87a0'; g.font = '22px monospace'; g.textAlign = 'center'; g.fillText('— MANNEQUIN —', 256, 48);
+  g.fillStyle = '#cfc8b0'; g.font = '18px monospace'; g.fillText('OUTFIT', 256, 110);
+  g.font = 'bold 30px monospace';
+  g.fillStyle = press === -1 ? '#7fd4ff' : '#5b5648'; g.fillText('◀', 88, 212);
+  g.fillStyle = '#e8d9b0'; g.fillText(OUTFITS[mannOutfit].name, 256, 212);
+  g.fillStyle = press === 1 ? '#7fd4ff' : '#5b5648'; g.fillText('▶', 424, 212);
+  g.fillStyle = '#5b5648'; g.font = '15px monospace'; g.fillText('aim + E — or click the arrows', 256, 300);
+  mannTex.needsUpdate = true; };
+{
+  const body = new THREE.Mesh(new THREE.BoxGeometry(.44, .45, .26), new THREE.MeshLambertMaterial({ color: 0x14161c }));
+  body.position.y = .225; kioG.add(body);                                         // pedestal column
+  const foot = new THREE.Mesh(new THREE.BoxGeometry(.52, .05, .34), new THREE.MeshLambertMaterial({ color: 0x0e1016 }));
+  foot.position.y = .025; kioG.add(foot);
+  const plate = new THREE.Group(); plate.position.set(0, .68, .06); plate.rotation.x = -.18; kioG.add(plate);  // slight lean-back — whole face clears the column top
+  const rim = new THREE.Mesh(new THREE.PlaneGeometry(.52, .36), coreMat); rim.position.z = -.003; plate.add(rim); // hue rim behind
+  const scr = new THREE.Mesh(new THREE.PlaneGeometry(.46, .3), new THREE.MeshBasicMaterial({ map: mannTex }));
+  plate.add(scr);
+  const mkBtn = (x, dir) => { const b = new THREE.Mesh(new THREE.BoxGeometry(.11, .08, .02),
+      new THREE.MeshLambertMaterial({ color: 0x232733 })); b.position.set(x, -.033, .012); plate.add(b);
+    const bd = { m: b, isBtn: true, label: () => 'E — ' + (dir < 0 ? '◀ SUIT' : 'SUIT ▶'),
+      fn: () => { mannOutfit = (mannOutfit + dir + OUTFITS.length) % OUTFITS.length;
+        localStorage.setItem('dvm_outfit', mannOutfit);
+        if (mannF) recolorChar(mannF, OUTFITS[mannOutfit].map);
+        mannDraw(dir); setTimeout(() => mannDraw(0), 160); } };
+    b.userData.btn = bd; BUTTONS.push(bd); };
+  mkBtn(-.14, -1); mkBtn(.14, 1);                                                 // ◀ ▶ flank the outfit name on the face
+  mannDraw(0);
+}
+emitChar({ char: 'Civilian1', static: true, x: MANN_POS.x, z: MANN_POS.z, yaw: MANN_YAW, outfit: OUTFITS[mannOutfit].map })
+  .then(f => { mannF = f; });
+const kioskProbe = () => { if (Math.hypot(pos.x - KIOSK_POS.x, pos.z - KIOSK_POS.z) > 1.8) return null;
+  _ray.setFromCamera(_ctr, camera);
+  const h = _ray.intersectObjects(BUTTONS.map(b => b.m), false);
+  return h.length ? h[0].object.userData.btn : null; };
+window.__mann = { f: () => mannF, outfit: () => mannOutfit, buttons: BUTTONS, press: i => BUTTONS[i] && BUTTONS[i].fn(),
+  probe: kioskProbe, btnWorld: i => { const v = new THREE.Vector3(); BUTTONS[i].m.getWorldPosition(v); return [+v.x.toFixed(3), +v.y.toFixed(3), +v.z.toFixed(3)]; } };
+
 /* ── live link — streams the session to the server so the agent sees YOUR real setup:
    /peek gets pos/aim/marks/follower orders+gaze at ~2Hz; /shot probe_live_pov gets his
    actual POV frame ~1Hz (shot()'s fullscreen render is restored in the same task — no flicker). */
@@ -750,7 +815,8 @@ MANIFEST.props.push({ kind: 'turntable', x: SPIN_POS.x, z: SPIN_POS.z, r: SPIN_R
                       items: ['commission_desklamp', 'commission_bookoflaws', 'commission_stamper'] });
 
 const SOLID_BASE = [[-.33, DOOR_Z, .1], [0, DOOR_Z, .11], [.33, DOOR_Z, .1],   // frame jambs + leaf face
-                    [SPIN_POS.x, SPIN_POS.z, SPIN_R]];                          // rotator pedestal
+                    [SPIN_POS.x, SPIN_POS.z, SPIN_R],                           // rotator pedestal
+                    [MANN_POS.x, MANN_POS.z, .22], [KIOSK_POS.x, KIOSK_POS.z, .28]];   // mannequin + kiosk
 const SOLIDS = [];
 const refreshSolids = () => {                                                 // placed-derived solids (desk etc.) follow their item
   SOLIDS.length = 0; SOLID_BASE.forEach(s => SOLIDS.push(s));
@@ -775,6 +841,7 @@ const INTERACT = [
   { x: SPIN_POS.x, z: SPIN_POS.z, r: 1.9, label: () => 'E — ' + (spinning ? 'PAUSE' : 'RESUME') + ' ROTATOR', fn: () => { spinning = !spinning; } },
 ];
 let promptIt = null;
+window.__pos = pos; window.__prompt = () => promptIt ? promptIt.label() : '';   // probe hooks — pos/promptIt read live
 addEventListener('mousedown', e => {
   if (placeOn) { if (e.button === 0) {
     const pk = placePick();
@@ -784,7 +851,9 @@ addEventListener('mousedown', e => {
       if (e.shiftKey) placeSel._drag = true; }                       // ⇧+LMB held = the ray owns it until mouseup
     else if (placeSel) placeDrop();                                  // click empty space = accept + deselect
     return; } }
-  if (e.button === 2) rmbAim = true; if (e.button === 0 && aimOn) tagAt(aimWorld); });
+  if (e.button === 2) rmbAim = true;
+  if (e.button === 0) { if (promptIt && promptIt.isBtn) promptIt.fn(); else if (aimOn) tagAt(aimWorld); }   // face buttons press by click
+});
 addEventListener('mouseup',   e => { if (e.button === 2) rmbAim = false; if (e.button === 0 && placeSel) placeSel._drag = false; });
 addEventListener('contextmenu', e => { if (e.target === renderer.domElement || rmbAim) e.preventDefault(); });
 addEventListener('keydown', e => { keys[(e.key || '').toLowerCase()] = true;
@@ -1104,7 +1173,7 @@ const loop = now => {
     if (t) ghost.position.set(t.x, t.y + .004, t.z);
   } else ghost.visible = false;
   pickIt = held || placeOn ? null : nearestPick();
-  promptIt = document.pointerLockElement === el && !placeOn ? (INTERACT.reduce((b, it) => {
+  promptIt = document.pointerLockElement === el && !placeOn ? (kioskProbe() || INTERACT.reduce((b, it) => {
     const d = Math.hypot(pos.x - it.x, pos.z - it.z); return d < it.r && (!b || d < b.d) ? { it, d } : b; }, null)?.it || null) : null;
   promptEl.style.display = (held || pickIt || promptIt) ? 'block' : 'none';
   promptEl.textContent = held ? 'E — PLACE ' + held.name.replace('commission_', '').toUpperCase()
@@ -1164,7 +1233,8 @@ let camLock = null;
 window.__cam = (px, py, pz, tx, ty, tz) => { if (px === null) { camLock = null; return; }   // __cam(null) releases
   camLock = { p: new THREE.Vector3(px, py, pz), t: new THREE.Vector3(tx, ty, tz) }; };
 window.__snap = (name, px, py, pz, tx, ty, tz) => {
-  if (px !== undefined) window.__cam(px, py, pz, tx, ty, tz);
+  if (px !== undefined) { window.__cam(px, py, pz, tx, ty, tz);
+    camera.position.copy(camLock.p); camera.lookAt(camLock.t); }        // apply now — the rAF loop may not tick before the capture
   renderer.render(scene, camera);
   const u = renderer.domElement.toDataURL('image/png');
   return fetch('/shot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'probe_' + name, png: u }) }).then(r => r.json()).then(j => !!j.ok);

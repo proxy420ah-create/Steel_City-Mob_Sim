@@ -225,7 +225,29 @@ check('fixpoint: extra does not climb a floating passenger', host && host.y < .0
 check('fixpoint: passenger lands on the extra top', rider && rider.y > .2 && rider.y < .5, JSON.stringify(rider));
 check('roles: desk is surf, stamper is rider', host && host.surf === true && rider && rider.surf === false, `host.surf=${host && host.surf} rider.surf=${rider && rider.surf}`);
 
-// 11 — fly-camera clamp + release back to body
+// 12 — mannequin station: static Vinny + pressable outfit kiosk (NW corner)
+await evl('localStorage.removeItem("dvm_outfit"); localStorage.removeItem("dvm_fol")');
+await evl('location.reload()'); await sleep(1500);
+await connect(); await waitBoot(); await sleep(1500);
+check('mannequin emitted static — never a follower', await evl('!!(__mann.f() && __mann.f().spec.static)'), await evl('JSON.stringify(__mann.f() && __mann.f().spec)'));
+check('mannequin wrote no roster entry', await evl('(localStorage.getItem("dvm_fol") || "[]").indexOf("Civilian") < 0'), await evl('localStorage.getItem("dvm_fol")'));
+check('two pressable buttons on the face', await evl('__mann.buttons.length === 2'));
+// aim-path: stand player south of the kiosk, lock the camera onto the ▶ button → probe resolves it
+const bw = JSON.parse(await evl('JSON.stringify(__mann.btnWorld(1))'));
+await evl('__pos.x = ' + bw[0] + '; __pos.z = ' + (bw[2] - .8));
+await evl('__cam(' + bw[0] + ', ' + (bw[1] + .35) + ', ' + (bw[2] - .8) + ', ' + bw[0] + ', ' + bw[1] + ', ' + bw[2] + ')');
+await sleep(400);
+check('aim at ▶ resolves the button', await evl('!!(__mann.probe() && __mann.probe().label().indexOf("SUIT") >= 0)'), await evl('__mann.probe() && __mann.probe().label()'));
+await evl('__mann.press(1)');
+check('press cycles the outfit', await evl('__mann.outfit() === 1'));
+check('outfit persisted to dvm_outfit', await evl('localStorage.getItem("dvm_outfit") === "1"'));
+await evl('location.reload()'); await sleep(1500);
+await connect(); await waitBoot(); await sleep(1500);
+check('outfit survives reload', await evl('__mann.outfit() === 1'));
+check('mannequin re-emitted wearing it', await evl('!!__mann.f()'), await evl('JSON.stringify(__mann.f() && __mann.f().spec)'));
+await evl('__cam(null); __pos.x = 0; __pos.z = 0');
+
+// 13 — fly-camera clamp + release back to body
 await evl('__cam(null)');
 check('camLock released', true);
 const shot = await cdp('Page.captureScreenshot', { format: 'png' });
