@@ -29,11 +29,11 @@ const evl = async expr => {
   if (r.result && r.result.exceptionDetails) console.error('PAGE ERR:', JSON.stringify(r.result.exceptionDetails).slice(0, 500));
   return r.result && r.result.result ? r.result.result.value : undefined;
 };
-async function connect() {
+async function connect(frag = 'construct') {
   for (let i = 0; i < 60; i++) {
     try {
       const list = JSON.parse(await get(`http://127.0.0.1:${PORT}/json/list`));
-      const t = list.find(t => t.type === 'page' && t.url.includes('construct'));
+      const t = list.find(t => t.type === 'page' && t.url.includes(frag));
       if (t) {
         ws = new WebSocket(t.webSocketDebuggerUrl);
         await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
@@ -99,6 +99,33 @@ await sleep(400);
 check('dismiss clears roster', (await evl('localStorage.getItem("dvm_fol")')) === '[]');
 await reload();
 check('reload after dismiss: stays gone', (await evl('window.__construct.followers().length')) === 0);
+
+// 7 — goHome while heeling: he departs the roster (BOSS's report — seat him in the
+//     Commission, portal back, and the stale roster must not resurrect him)
+await evl('window.__console.spawn({ char: "CHAIR1" })');
+for (let i = 0; i < 40; i++) { if (await evl('window.__construct.followers().length') === 1) break; await sleep(250); }
+await evl('window.__home()');                                                   // heel = follow order → he walks out with you
+await sleep(2500);                                                              // veil (420ms) + commission boot
+await connect('thecommission');
+check('depart: party handoff carries him', ((await evl('sessionStorage.getItem("dvm_party")')) || '').includes('CHAIR1'));
+check('depart: roster releases him', (await evl('localStorage.getItem("dvm_fol")')) === '[]',
+  await evl('localStorage.getItem("dvm_fol")'));
+
+// 8 — back in the Construct: a unit parked on WAIT stays in the roster through goHome.
+//     A real return rides the portal E — which REWRITES dvm_party from his commission-side
+//     order (seated → empty). Simulate that write; a bare location.href would leave the
+//     stale depart-handoff behind and resurrect him through the party path.
+await evl('sessionStorage.setItem("dvm_party", "[]"); location.href = "construct.html"'); await sleep(1500);
+await connect(); await waitBoot(); await sleep(800);
+check('return: empty room (roster was released)', (await evl('window.__construct.followers().length')) === 0);
+await evl('window.__console.spawn({ char: "CHAIR1" })');
+for (let i = 0; i < 40; i++) { if (await evl('window.__construct.followers().length') === 1) break; await sleep(250); }
+await evl('window.__construct.agent.order("wait")'); await sleep(300);
+await evl('window.__home()');                                                   // parked unit does NOT heel → stays in the room
+await sleep(2500);
+await connect('thecommission');
+const parked = await evl('localStorage.getItem("dvm_fol")');
+check('goHome: parked wait-unit stays in roster', parked && JSON.parse(parked).length === 1 && JSON.parse(parked)[0].order === 'wait', parked);
 
 const fails = R.filter(r => !r.ok);
 console.log(`\n${R.length - fails.length}/${R.length} checks passed` + (fails.length ? ` — FAILED: ${fails.map(f => f.name).join(' | ')}` : ''));

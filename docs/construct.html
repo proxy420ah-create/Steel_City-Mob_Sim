@@ -730,7 +730,7 @@ const selfStep = dt => {
 };
 
 const selfP = emitSelf();
-const saveFol = () => { try { localStorage.setItem('dvm_fol', JSON.stringify(followers.map(f =>     // the roster persists — plain F5 keeps
+const saveFol = (list = followers) => { try { localStorage.setItem('dvm_fol', JSON.stringify(list.map(f =>   // the roster persists — plain F5 keeps
   ({ char: f.spec.char, order: f.order === 'goto' ? 'wait' : f.order, x: +f.pos.x.toFixed(2), z: +f.pos.z.toFixed(2) })))); } catch {} };  // them in the room; a mid-transit goto lands as wait
 const partyP = PARTY.length ? Promise.all(PARTY.map(emitChar))                                    // the portal handoff wins when it exists
   : Promise.all(JSON.parse(localStorage.getItem('dvm_fol') || '[]').map(emitChar));               // otherwise the saved roster restores itself
@@ -857,6 +857,7 @@ const veilRun = (text, fn) => { veil.textContent = text; veil.style.opacity = 1;
   setTimeout(() => { fn && fn(); }, 420); };
 const goHome = () => { if (window.__leaving) return; window.__leaving = true;
   sessionStorage.setItem('dvm_party', JSON.stringify(followers.filter(f => f.order === 'follow').map(f => ({ char: f.spec.char, order: 'follow' }))));
+  saveFol(followers.filter(f => f.order !== 'follow'));                                // departing units leave the roster — they walked out with you
   veilRun('RETURNING', () => { location.href = 'thecommission.html?from=construct'; }); };
 window.__home = goHome;
 
@@ -1134,7 +1135,7 @@ ready.then(async () => {
   renderer.render(scene, camera);
   setTimeout(() => { veil.style.opacity = 0; }, 350);
   if (localStorage.getItem('dvm_live') === '1') window.__live.start();              // live link survives a reload — agent keeps eyes
-  setInterval(saveFol, 2500);                                                     // roster heartbeat — order + last position stay fresh
+  setInterval(() => { if (!window.__leaving) saveFol(); }, 2500);                 // roster heartbeat — order + last position stay fresh; skip during the goHome veil (it just wrote the post-departure roster)
   window.__warmDone = true;
 });
 requestAnimationFrame(loop);
