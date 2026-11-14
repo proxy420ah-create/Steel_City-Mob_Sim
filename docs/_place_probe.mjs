@@ -370,6 +370,25 @@ check('bounds = 10 slabs + 20 seams + 6 portal wires', await evl('__construct.bo
   await evl('__pad.focus(false)'); check('pad focus releases — mouse look', await evl('__pad.isFocus() === false'));
   await evl('__cam(null); __pos.x = -5; __pos.z = -1.6'); }
 
+// 12.96 — pad wall-mount: sticks to the invisible wall slabs, persists through dvm_place
+await evl('__cam(-5, .55, -4.2, -5, .55, -4.93)'); await sleep(400);        // face the annex south wall
+const wt = JSON.parse(await evl('JSON.stringify(__pad.wallTarget())'));
+check('pad detects a vertical face — wall target with outward normal', wt && wt.wall === true && Math.abs(wt.n[2] - 1) < .01, JSON.stringify(wt));
+await evl('__pad.stick(-5, .6, -4.928, [0,0,1])');
+check('pad mounted — mount state on the rec', await evl('!!(__pad.rec().mount && __pad.rec().mount.n[2] === 1)'));
+check('mount persisted through dvm_place', await evl('!!((JSON.parse(localStorage.getItem("dvm_place") || "{}").debug_pad || {}).mount)'));
+const bp2 = JSON.parse(await evl('JSON.stringify((() => { const s = __pad.scr(), v = new s.position.constructor(.0531, -.0053, 0); s.localToWorld(v); return [v.x, v.y, v.z]; })())'));
+await evl('__cam(' + bp2[0] + ', ' + bp2[1] + ', ' + (bp2[2] + .5) + ', ' + bp2[0] + ', ' + bp2[1] + ', ' + bp2[2] + ')');
+await sleep(400);
+check('wall-mounted pad still aim-presses', await evl('!!(__pad.probe() && __pad.probe().label().indexOf("MODEL") >= 0)'), await evl('__pad.probe() && __pad.probe().label()'));
+await evl('location.reload()'); await sleep(1500);
+await connect(); await waitBoot(); await sleep(1500);
+check('pad re-hangs on reload — mount restored', await evl('!!(__pad.rec() && __pad.rec().mount && __pad.rec().mount.n[2] === 1)'));
+check('re-hung pad keeps its wall seat — fixpoint skipped it', await evl('Math.abs(__pad.rec().y0 - .6) < .01'), await evl('__pad.rec() && __pad.rec().y0'));
+await evl('__pad.drop(-5, .26, -1.975)');
+check('drop back on the table clears the mount', await evl('__pad.rec().mount === null && Math.abs(__pad.rec().y0 - .26) < .01'), await evl('JSON.stringify({m:__pad.rec().mount, y0:__pad.rec().y0})'));
+await evl('__cam(null); __pos.x = -5; __pos.z = -1.6');
+
 // 13 — fly-camera clamp + release back to body
 await evl('__cam(null)');
 check('camLock released', true);

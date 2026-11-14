@@ -102,7 +102,8 @@ function rebuildBounds() {
     const pA = ARCH_ENDS.has(ax + ',' + az) ? 0 : WALL_D / 2, pB = ARCH_ENDS.has(bx + ',' + bz) ? 0 : WALL_D / 2;   // slab pads close corner miters; arch ends stay flush
     const mx = (ax + bx) / 2 + ux * (pB - pA) / 2, mz = (az + bz) / 2 + uz * (pB - pA) / 2;
     const slab = new THREE.Mesh(new THREE.BoxGeometry(len + pA + pB, WALL_H, WALL_D), wallMat);
-    slab.rotation.y = -Math.atan2(bz - az, bx - ax); slab.position.set(mx, WALL_H / 2, mz); boundsG.add(slab);
+    slab.rotation.y = -Math.atan2(bz - az, bx - ax); slab.position.set(mx, WALL_H / 2, mz);
+    slab.userData.wallSlab = true; boundsG.add(slab);                      // the debug pad's stickable faces
     const so = WALL_D / 2 + BND_W / 2;                                  // seams follow the slab ends — wrap corners, STOP at the reveal (clean door floor)
     [-1, 1].forEach(s => {
       seam(ax - ux * pA - uz * s * so, az - uz * pA + ux * s * so,
@@ -480,7 +481,26 @@ const padProbe = () => { if (!padRec || padRec === held) { padSetHover(null); re
 window.__pad = { rec: () => padRec, regions: PAD_REGIONS, scr: () => padScr, probe: padProbe,
   focus: on => { if (!!on !== padFocus) padFocusToggle(); }, isFocus: () => padFocus,
   hover: () => padHover, hit: uv => { const r = padUvRegion(uv); return r ? r.id : null; },
+  wallTarget: () => padWallTarget(), stick: (x, y, z, n) => { takeIt(padRec); placeIt({ x, y, z, wall: true, n }); },
+  drop: (x, y, z) => { takeIt(padRec); placeIt({ x, y, z }); },
   press: id => { const r = PAD_REGIONS.find(q => q.id === id); if (r) padPress(r); }, draw: padDraw };
+/* pad wall-mount — the pad's local frame: +y = screen normal, +z = its bottom edge. Sticking
+   maps +y → the face normal and +z → world down, so the screen reads upright off the wall.
+   The target is a raycast against the invisible wall slabs — hit.point + a hair off the face. */
+const _pmb = new THREE.Matrix4(), _pmn = new THREE.Vector3(), _pmx = new THREE.Vector3(), _pmz = new THREE.Vector3(0, -1, 0);
+const padMountQ = (g, nArr) => { _pmn.set(nArr[0], nArr[1], nArr[2]).normalize();
+  _pmx.crossVectors(_pmn, _pmz).normalize();                             // pad +x = normal × down
+  _pmb.makeBasis(_pmx, _pmn, _pmz); g.quaternion.setFromRotationMatrix(_pmb); };
+const padWallTarget = () => {
+  _ray.setFromCamera(_ctr, camera);
+  const h = _ray.intersectObjects(boundsG.children.filter(c => c.userData.wallSlab), false);
+  if (!h.length || h[0].distance > 2.4) return null;
+  const n = h[0].face.normal.clone().transformDirection(h[0].object.matrixWorld);
+  if (n.dot(fwdV) > 0) n.negate();                                       // face the side we're standing on
+  n.y = 0; if (n.lengthSq() < .5) return null; n.normalize();            // vertical faces only
+  const p = h[0].point.clone().addScaledVector(n, .002);                 // slab back kisses the face
+  return { x: p.x, y: p.y, z: p.z, wall: true, n: [n.x, n.y, n.z] };
+};
 /* ═══ PERSISTENT PARTY — followers cross pages. sessionStorage 'dvm_party' is the handoff:
    the Commission writes who's heeling on portal-E; the Construct writes who's coming home
    on door-E. Each follower is the real poseEngine rig — gait, transitions, gaze, eyes. ═══ */
@@ -1176,9 +1196,10 @@ addEventListener('keydown', e => { keys[(e.key || '').toLowerCase()] = true;
     else if (k === 'arrowright' && p) { placeApply(p, p.x + st, p.z, p.rotY); }
     else if (k === 'arrowup' && p) { placeApply(p, p.x, p.z - st, p.rotY); }
     else if (k === 'arrowdown' && p) { placeApply(p, p.x, p.z + st, p.rotY); }
-    else if (k === 'pageup' && p) { p.y0 += st; p.g.position.y = p.y0; }
-    else if (k === 'pagedown' && p) { p.y0 -= st; p.g.position.y = p.y0; }
+    else if (k === 'pageup' && p) { p.y0 += st; p.g.position.y = p.y0; if (p.mount) p.mount.y = p.y0; }   // mounted: slides the panel up the wall
+    else if (k === 'pagedown' && p) { p.y0 -= st; p.g.position.y = p.y0; if (p.mount) p.mount.y = p.y0; }
     else if (k === 'b' && p) { const skip = new Set([p, ...(p._carry || []).map(c => c.q), held]);
+      p.mount = null; p.g.rotation.set(0, p.rotY, 0);                                    // a re-seat unsticks a wall mount first
       p.y0 = placeSurf(p.x, p.z, skip, { surfOnly: p.surf }); p.g.position.y = p.y0; }      // re-seat on the measured surface — furniture never lands on a rider
     else if ((k === ',' || k === '[') && p) { placeApply(p, p.x, p.z, p.rotY + Math.PI / 12); }
     else if ((k === '.' || k === ']') && p) { placeApply(p, p.x, p.z, p.rotY - Math.PI / 12); }
@@ -1234,6 +1255,7 @@ const heldSnapStep = (ax, d) => { heldSnap[ax] += d; heldFree.identity(); };    
 const worldSurfaceAt = (wx, wz, skip, opt) => placeSurf(wx, wz, new Set(skip ? [skip] : []), opt);
 const dropTarget = () => {
   camera.getWorldDirection(fwdV);
+  if (held && held.isPad) { const w = padWallTarget(); if (w) return w; }   // the pad sticks to wall faces
   for (let t = .08; t <= 2.4; t += .06) {
     const px = camera.position.x + fwdV.x * t, py = camera.position.y + fwdV.y * t, pz = camera.position.z + fwdV.z * t;
     const s = worldSurfaceAt(px, pz, held);
@@ -1249,12 +1271,16 @@ const nearestPick = () => {
     const a = tmpV.dot(fwdV); if (a > ba) { ba = a; best = p; } });
   return best;
 };
-const takeIt = p => { held = p; heldSnap.x = heldSnap.y = heldSnap.z = 0; heldFree.identity(); };
+const takeIt = p => { held = p; heldSnap.x = heldSnap.y = heldSnap.z = 0; heldFree.identity(); p.mount = null; };
 const placeIt = t => { const p = held; held = null;
-  placeSnapOp({ t: 'move', p, prev: { x: p.x, z: p.z, rotY: p.rotY, y0: p.y0 } });
+  placeSnapOp({ t: 'move', p, prev: { x: p.x, z: p.z, rotY: p.rotY, y0: p.y0, mount: p.mount } });
   p.x = t.x; p.z = t.z; p.y0 = t.y;
-  p.rotY = ((yaw + heldSnap.y * ROT_STEP) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);   // yaw persists — pitch/roll drop, placement seats level
-  p.g.position.set(t.x, t.y, t.z); p.g.rotation.set(0, p.rotY, 0);
+  if (t.wall) { p.mount = { x: t.x, y: t.y, z: t.z, n: t.n };               // stuck to a face — screen out, upright
+    p.g.position.set(t.x, t.y, t.z); padMountQ(p.g, t.n); }
+  else { p.mount = null;
+    p.rotY = ((yaw + heldSnap.y * ROT_STEP) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);   // yaw persists — pitch/roll drop, placement seats level
+    p.g.position.set(t.x, t.y, t.z); p.g.rotation.set(0, p.rotY, 0); }
+  p.bbox = footB(p.lb, p.x, p.z, p.rotY);
   refreshSolids(); placeSave(); };
 const ghostShape = new THREE.Shape(); ghostShape.absarc(0, 0, .05, 0, Math.PI * 2);
 const ghole = new THREE.Path(); ghole.absarc(0, 0, .038, 0, Math.PI * 2); ghostShape.holes.push(ghole);
@@ -1299,6 +1325,7 @@ const placeSnapOp = op => { placeUndo.push(op); if (placeUndo.length > 32) place
 const placeSave = () => {                                                        // manifest items persist by name; pastes persist as extras
   const over = {}, extra = [];
   PLACED.forEach(p => { const o = { x: +p.x.toFixed(3), z: +p.z.toFixed(3), rotY: +p.rotY.toFixed(3) };
+    if (p.mount) o.mount = { x: +p.mount.x.toFixed(3), y: +p.mount.y.toFixed(3), z: +p.mount.z.toFixed(3), n: p.mount.n };
     if (p.source === 'extra') extra.push({ name: p.name, kind: p.kind, pickable: p.pickable, solids: p.solids, ...o });
     else over[p.name] = o; });
   localStorage.setItem('dvm_place', JSON.stringify(over));
@@ -1306,7 +1333,8 @@ const placeSave = () => {                                                       
 };
 const placeApply = (p, x, z, rotY) => {                                          // tops stay local — surface math survives any move
   p.x = x; p.z = z; if (rotY !== undefined) p.rotY = rotY;
-  p.g.position.set(x, p.y0, z); p.g.rotation.y = p.rotY;
+  p.mount = null;                                                              // any move unsticks a wall mount
+  p.g.position.set(x, p.y0, z); p.g.rotation.set(0, p.rotY, 0);
   p.bbox = footB(p.lb, x, z, p.rotY);                                            // footprint tracks the item — carry/settle/re-seat see it live
   if (p._block) { const s2 = (p.lb[1] - p.lb[0]) / 2;                            // a table's walk-block follows its drag, same as solids
     p._block.x0 = x - s2 - .15; p._block.x1 = x + s2 + .15; p._block.z0 = z - s2 - .15; p._block.z1 = z + s2 + .15; }
@@ -1351,7 +1379,10 @@ const placeRevert = () => {                                                     
 const placeUndoDo = () => {                                                      // ^Z — one op back, whole-layout truth preserved
   const op = placeUndo.pop(); if (!op) return;
   if (op.t === 'move' && PLACED.includes(op.p)) { const p = op.p, ob = p.bbox;    // stale bounds = the post-move footprint orphans sat in
-    p.y0 = op.prev.y0; placeApply(p, op.prev.x, op.prev.z, op.prev.rotY);
+    p.y0 = op.prev.y0;
+    if (op.prev.mount) { p.mount = op.prev.mount; p.x = op.prev.x; p.z = op.prev.z; p.rotY = op.prev.rotY;   // undo back to a wall mount stays on the wall
+      p.g.position.set(op.prev.mount.x, op.prev.mount.y, op.prev.mount.z); padMountQ(p.g, op.prev.mount.n); p.bbox = footB(p.lb, p.x, p.z, p.rotY); refreshSolids(); }
+    else placeApply(p, op.prev.x, op.prev.z, op.prev.rotY);
     const bb = new THREE.Box3().setFromObject(p.g); p.bbox = [bb.min.x - .05, bb.max.x + .05, bb.min.z - .05, bb.max.z + .05];
     (op.prev.carry || []).forEach(c => { if (PLACED.includes(c.q)) { c.q.x = c.ox; c.q.z = c.oz; c.q.y0 = c.oy; c.q.g.position.set(c.ox, c.oy, c.oz); } });
     settleOrphans(p, ob, p.bbox, op.prev.y0 + (bb.max.y - p.y0)); }
@@ -1513,7 +1544,9 @@ const loop = now => {
     _qSnap.setFromEuler(_eSnap.set(heldSnap.x * ROT_STEP, heldSnap.y * ROT_STEP, heldSnap.z * ROT_STEP, 'YXZ'));
     held.g.quaternion.copy(_qYaw).multiply(_qSnap).multiply(heldFree);                  // facing × axis-snaps × free tumble
     const t = dropTarget(); ghost.visible = !!t;
-    if (t) ghost.position.set(t.x, t.y + .004, t.z);
+    if (t) { ghost.position.set(t.x, t.y + .004, t.z);
+      if (t.wall) ghost.quaternion.setFromUnitVectors(AX_Y, tmpV.set(t.n[0], t.n[1], t.n[2]));   // ring sticks to the face
+      else ghost.quaternion.identity(); }
   } else ghost.visible = false;
   pickIt = held || placeOn ? null : nearestPick();
   const kb = kioskProbe(), pb = panelProbe(), db = padProbe();               // unconditional — hover state must not freeze
@@ -1555,13 +1588,17 @@ ready.then(async () => {
     if (p) { if (p._block) WALL_BLOCKS.splice(WALL_BLOCKS.indexOf(p._block), 1);
       scene.remove(p.g); PLACED.splice(PLACED.indexOf(p), 1); } });
   const over = JSON.parse(localStorage.getItem('dvm_place') || '{}');              // your saved layout overrides manifest positions
-  PLACED.forEach(p => { const o = over[p.name]; if (o && p.source !== 'extra') placeApply(p, o.x, o.z, o.rotY); });
+  PLACED.forEach(p => { const o = over[p.name]; if (!o || p.source === 'extra') return;
+    if (o.mount) { p.mount = o.mount; p.x = o.x; p.z = o.z; p.y0 = o.mount.y; p.rotY = o.rotY;   // wall mounts restore as mounts
+      p.g.position.set(o.mount.x, o.mount.y, o.mount.z); padMountQ(p.g, o.mount.n); p.bbox = footB(p.lb, p.x, p.z, p.rotY); }
+    else placeApply(p, o.x, o.z, o.rotY); });
   const extras = JSON.parse(localStorage.getItem('dvm_extra') || '[]');            // extras emit LAST — they seat on the final layout, not manifest spots
   for (const e of extras) await emitAsset(e.name, { kind: e.kind, x: e.x, z: e.z, rotY: e.rotY, pickable: e.pickable, solids: e.solids,
     source: 'extra', seatY: 'auto' });
   for (let pass = 0; pass < 4; pass++) {                                      // orphan-law re-seat to fixpoint: EVERY item re-derives height on the
     let changed = false;                                                      // final layout — saves carry no y0. Declared roles: surf items floor
     [...PLACED].sort((a, b) => b.y0 - a.y0).forEach(p => {                      // ONLY on other surf items (a rider can never host a desk);
+      if (p.mount) return;                                                     // wall mounts keep their seat — nothing re-seats a stuck pad
       const s = placeSurf(p.x, p.z, new Set([p]), { surfOnly: p.surf, cap: p.y0 + .01 });   // riders conform — but the cap makes re-seat settle-only,
       if (Math.abs(s - p.y0) > 1e-4) { p.y0 = s; p.g.position.y = s; changed = true; } });  // so co-located siblings can't leapfrog. Highest first.
     if (!changed) break;

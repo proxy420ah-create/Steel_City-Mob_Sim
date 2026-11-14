@@ -104,6 +104,28 @@ Probes are unconditional (`kb || pb || db`) so canvas hover state can't freeze;
 ghost wires gate per-panel (`btn.panel`). v1 regions drive `mountModel` (the
 same verb as the wall panel — `padSwap` redraws both surfaces).
 
+## The pad sticks to walls — the movable panel
+
+A held pad detects vertical faces: `dropTarget` raycasts the wall slabs
+(`boundsG` children flagged `userData.wallSlab` by `rebuildBounds`) through
+`padWallTarget` — a hit within 2.4 m returns `{wall:true, n:[outward normal]}`
+(the hit face's world normal is flipped toward the camera side, `y` forced to
+0 — vertical faces only). The ghost ring sticks to the face
+(`quaternion.setFromUnitVectors(+Y, n)`) so you see the mount before E.
+
+`placeIt` gains a mount branch: `t.wall` → `p.mount = {x,y,z,n}` and
+`padMountQ` sets a full basis quaternion — the pad's local `+y` (its screen
+normal) maps to the wall's outward normal, `+z` maps to world down, so the
+screen reads upright off the face. `p.y0` = mount height; `x/z` = the wall
+point. Unstick paths: `takeIt` (pickup), `placeApply` (drag/arrows/rotate —
+any move), `B` re-seat (drops to the floor surface at the wall's foot,
+rotation reset). PgUp/PgDn keep `mount.y` synced — sliding the panel up/down
+the wall is an emergent feature, not a bug. Boot override restores `mount`
+(`padMountQ`, skipped by the re-seat fixpoint — nothing pulls a stuck pad
+down), `placeSave` writes `mount` into `dvm_place`, and undo restores
+`prev.mount` (stick→stick→undo returns to the first wall). A mounted pad
+still aim-presses — it's literally a wall panel you carry in and hang.
+
 ## Models join the surface truth
 
 During the grid scan `emitBldg` tracks each (x,z) column's `ymax`, then writes
