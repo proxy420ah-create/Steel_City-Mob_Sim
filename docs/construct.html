@@ -75,7 +75,9 @@ const boundsG = new THREE.Group(); scene.add(boundsG);
 const coreMat = new THREE.MeshBasicMaterial({ color: 0x35d5ff, transparent: true, opacity: .85, depthWrite: false, side: THREE.DoubleSide });
 /* hue ride: sine sweep through blue (.58) → purple → pink (.92) and back — never leaves the palette */
 const boundHue = t => { const h = .58 + .34 * (0.5 + 0.5 * Math.sin(t * .3)); coreMat.color.setHSL(h, .85, .6);
-  if (kioWireMat) kioWireMat.color.copy(coreMat.color); };                 // the button ghost-frame rides the same sweep
+  if (kioWireMat) kioWireMat.color.copy(coreMat.color);                    // the button ghost-frames ride the same sweep
+  if (pnlWireMat) pnlWireMat.color.copy(coreMat.color);
+  if (padEdgeMat) padEdgeMat.color.copy(coreMat.color); };                 // the debug pad's edge trim too
 const BND_W = .008;                                                     // wire stock width
 const WALL_H = 1.05, WALL_D = .14;                                      // wall datum = the arch lintel — one unbroken cornice line around the footprint
 const wallMat = floorMat;                                               // walls obey the floor's own law — void-colored, opaque, NEVER seen
@@ -351,7 +353,7 @@ MANIFEST.tables.forEach(spec => { const t = emitTable(spec);
 const PNL_POS = { x: -4.3, y: .5, z: -4.82 };
 const pnlG = new THREE.Group(); pnlG.position.set(PNL_POS.x, PNL_POS.y, PNL_POS.z); scene.add(pnlG);  // faces +z (north) — default orientation
 const PNL_BTNS = [];
-let pnlWire = null;
+let pnlWire = null, pnlWireMat = null;
 const pnlCv = document.createElement('canvas'); pnlCv.width = 512; pnlCv.height = 300;
 const pnlTex = new THREE.CanvasTexture(pnlCv); pnlTex.colorSpace = THREE.SRGBColorSpace;
 const pnlDraw = press => { const t = TABLES[0], cat = t ? (t.spec.catalog || t.spec.models) : [],
@@ -371,8 +373,8 @@ const pnlDraw = press => { const t = TABLES[0], cat = t ? (t.spec.catalog || t.s
   const rim = new THREE.Mesh(new THREE.PlaneGeometry(.38, .26), coreMat); rim.position.z = -.003; pnlG.add(rim);   // hue-riding border
   const scr = new THREE.Mesh(new THREE.PlaneGeometry(.34, .2), new THREE.MeshBasicMaterial({ map: pnlTex }));
   pnlG.add(scr);
-  pnlWire = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(.15, .1, .045)),
-    new THREE.LineBasicMaterial({ color: 0x35d5ff, transparent: true, opacity: .95 }));
+  pnlWireMat = new THREE.LineBasicMaterial({ color: 0x35d5ff, transparent: true, opacity: .95 });
+  pnlWire = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(.15, .1, .045)), pnlWireMat);
   pnlWire.visible = false; pnlG.add(pnlWire);                          // ghost frame — only while a button is the live interact
   const arrShape = new THREE.Shape();
   arrShape.moveTo(-.022, .026); arrShape.lineTo(.028, 0); arrShape.lineTo(-.022, -.026); arrShape.closePath();
@@ -398,6 +400,87 @@ const panelProbe = () => { if (Math.hypot(pos.x - PNL_POS.x, pos.z - PNL_POS.z) 
 window.__panel = { buttons: PNL_BTNS, press: i => PNL_BTNS[i] && PNL_BTNS[i].fn(), probe: panelProbe,
   draw: pnlDraw, wire: () => pnlWire, pos: PNL_POS,
   btnWorld: i => { const v = new THREE.Vector3(); PNL_BTNS[i].m.getWorldPosition(v); return [+v.x.toFixed(3), +v.y.toFixed(3), +v.z.toFixed(3)]; } };
+
+/* ── DEBUG PAD — a pickable touchscreen slab: black body + coreMat edge trim + a canvas screen.
+   Regions are data ({rect,label,fn}) hit-tested through raycast uv — the face is software, so
+   future tools/menus are draw code, never new geometry. Two input modes over one region table:
+   held → RMB tap frees the cursor (mousemove raycasts the face, LMB presses); placed →
+   center-aim + E/click rides the same promptIt machinery as the kiosk/wall panel. */
+const PAD_REGIONS = [
+  { id: 'prev', x: 30,  y: 140, w: 90, h: 96, label: '◀ MODEL', glyph: '◀', fn: () => padSwap(-1) },
+  { id: 'next', x: 392, y: 140, w: 90, h: 96, label: 'MODEL ▶', glyph: '▶', fn: () => padSwap(1) },
+];
+const padSwap = dir => { const t = TABLES[0]; if (!t) return;
+  const cat = t.spec.catalog || t.spec.models, cur = t.spec.models[0],
+    i = cat.findIndex(m => m.name === (cur && cur.name)), next = cat[(i + dir + cat.length) % cat.length];
+  if (next) { localStorage.setItem('dvm_model:' + t.spec.id, next.name);
+    mountModel(t, next).then(() => { padDraw(); pnlDraw(0); }); pnlDraw(0); } };   // both surfaces stay in sync
+const padCv = document.createElement('canvas'); padCv.width = 512; padCv.height = 340;
+const padTex = new THREE.CanvasTexture(padCv); padTex.colorSpace = THREE.SRGBColorSpace;
+let padRec = null, padScr = null, padEdgeMat = null, padFocus = false, padHover = null, padPressId = null;
+const padDraw = () => { const g = padCv.getContext('2d'), t = TABLES[0],
+    cat = t ? (t.spec.catalog || t.spec.models) : [], cur = t && t.spec.models[0],
+    idx = cur ? cat.findIndex(m => m.name === cur.name) : -1;
+  g.fillStyle = '#101218'; g.fillRect(0, 0, 512, 340);
+  g.strokeStyle = '#3a3a4a'; g.lineWidth = 6; g.strokeRect(3, 3, 506, 334);
+  g.fillStyle = '#8f87a0'; g.font = '20px monospace'; g.textAlign = 'center';
+  g.fillText('— DEBUG PAD —', 256, 44);
+  g.fillStyle = '#cfc8b0'; g.font = '16px monospace';
+  g.fillText('MODEL' + (idx >= 0 ? '   ' + (idx + 1) + '/' + cat.length : ''), 256, 96);
+  PAD_REGIONS.forEach(r => { const hov = padHover === r.id, pr = padPressId === r.id;
+    g.fillStyle = pr ? '#2a3d4a' : hov ? '#1d2733' : '#14161c'; g.fillRect(r.x, r.y, r.w, r.h);
+    g.strokeStyle = hov ? '#7fd4ff' : '#3a3a4a'; g.lineWidth = 4; g.strokeRect(r.x + 2, r.y + 2, r.w - 4, r.h - 4);
+    g.fillStyle = pr ? '#7fd4ff' : '#5b5648'; g.font = 'bold 40px monospace'; g.fillText(r.glyph, r.x + r.w / 2, r.y + r.h / 2 + 14); });
+  g.fillStyle = '#e8d9b0'; g.font = 'bold 24px monospace';
+  g.fillText(cur ? cur.name.replace(/_/g, ' ').toUpperCase() : '…', 256, 196);
+  g.fillStyle = '#5b5648'; g.font = '13px monospace'; g.fillText('RMB tap — cursor · E — place', 256, 308);
+  padTex.needsUpdate = true; };
+const padPress = r => { padPressId = r.id; padDraw(); r.fn();
+  setTimeout(() => { padPressId = null; padDraw(); }, 160); };
+const padUvRegion = uv => { if (!uv) return null;
+  const px = uv.x * 512, py = (1 - uv.y) * 340;
+  return PAD_REGIONS.find(r => px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) || null; };
+const padSetHover = r => { const id = r ? r.id : null; if (id !== padHover) { padHover = id; padDraw(); } };
+const padHudEl = document.createElement('div');
+padHudEl.style.cssText = 'position:fixed;left:50%;bottom:14px;transform:translateX(-50%);background:rgba(8,8,14,.92);border:1px solid #6a6a92;color:#e2dbc2;padding:5px 12px;font:10px ui-monospace,Consolas,monospace;letter-spacing:.1em;display:none;z-index:8;pointer-events:none;white-space:nowrap';
+padHudEl.textContent = 'PAD — LMB press · RMB tap — mouse look';
+document.body.appendChild(padHudEl);
+const padFocusToggle = () => { padFocus = !padFocus; padSetHover(null);
+  if (padFocus && document.exitPointerLock) document.exitPointerLock();
+  else if (!padFocus && document.pointerLockElement !== el) el.requestPointerLock();
+  padHudEl.style.display = padFocus ? 'block' : 'none'; };
+const emitPad = () => {
+  const PAD_W = .18, PAD_D = .12, PAD_H = .012, x = -5, z = -1.975, rotY = .3;   // the Primary Table's north felt margin
+  const g = new THREE.Group();
+  const slab = new THREE.Mesh(new THREE.BoxGeometry(PAD_W, PAD_H, PAD_D), new THREE.MeshLambertMaterial({ color: 0x0c0e14 }));
+  slab.position.y = PAD_H / 2; g.add(slab);
+  padEdgeMat = new THREE.LineBasicMaterial({ color: 0x35d5ff, transparent: true, opacity: .9 });
+  const edge = new THREE.LineSegments(new THREE.EdgesGeometry(slab.geometry), padEdgeMat); edge.position.y = PAD_H / 2; g.add(edge);
+  padScr = new THREE.Mesh(new THREE.PlaneGeometry(.15, .1), new THREE.MeshBasicMaterial({ map: padTex }));
+  padScr.rotation.x = -Math.PI / 2; padScr.position.y = PAD_H + .001; padScr.userData.padScreen = true; g.add(padScr);
+  const tops = new Map();                                                       // flat slab — every 5mm column at pad height
+  for (let ix = -18; ix <= 18; ix++) for (let iz = -12; iz <= 12; iz++) tops.set(TOPK(ix, iz), PAD_H);
+  const host = TABLES[0] && TABLES[0].rec, lb = [-PAD_W / 2, PAD_W / 2, -PAD_D / 2, PAD_D / 2];
+  const y0 = host ? surfaceAt(host, x, z, 0) : 0;
+  padRec = { name: 'debug_pad', kind: 'item', g, tops, lb, x, z, rotY, y0, minB: 0, vs: .005,
+    bbox: footB(lb, x, z, rotY), pickable: true, solids: null, source: 'manifest', isPad: true };
+  g.userData.pRec = padRec; g.position.set(x, y0, z); g.rotation.y = rotY; scene.add(g); PLACED.push(padRec);
+  padDraw(); return padRec;
+};
+const padCursorHit = () => { if (!padScr) return null;
+  _ray.setFromCamera(mouseNDC, camera);
+  const h = _ray.intersectObject(padScr, false);
+  return h.length ? padUvRegion(h[0].uv) : null; };
+const padProbe = () => { if (!padRec || padRec === held) { padSetHover(null); return null; }   // can't aim at your own hand
+  _ray.setFromCamera(_ctr, camera);
+  const h = _ray.intersectObject(padScr, false);
+  if (!h.length || h[0].distance > 1.8) { padSetHover(null); return null; }
+  const r = padUvRegion(h[0].uv); padSetHover(r);
+  return r ? { isBtn: true, panel: 'pad', label: () => 'E — ' + r.label, fn: () => padPress(r) } : null; };
+window.__pad = { rec: () => padRec, regions: PAD_REGIONS, scr: () => padScr, probe: padProbe,
+  focus: on => { if (!!on !== padFocus) padFocusToggle(); }, isFocus: () => padFocus,
+  hover: () => padHover, hit: uv => { const r = padUvRegion(uv); return r ? r.id : null; },
+  press: id => { const r = PAD_REGIONS.find(q => q.id === id); if (r) padPress(r); }, draw: padDraw };
 /* ═══ PERSISTENT PARTY — followers cross pages. sessionStorage 'dvm_party' is the handoff:
    the Commission writes who's heeling on portal-E; the Construct writes who's coming home
    on door-E. Each follower is the real poseEngine rig — gait, transitions, gaze, eyes. ═══ */
@@ -709,7 +792,7 @@ window.__eyes = {
    pipeline — so a tag is identical whether it came from your laser or my prompt. */
 const _playerHead = new THREE.Vector3();
 const aimRay = new THREE.Raycaster(), _zv = new THREE.Vector2(0, 0), aimWorld = new THREE.Vector3();
-let aimOn = false, rmbAim = false;
+let aimOn = false, rmbAim = false, rmbT0 = 0;
 const markGeo = new THREE.BoxGeometry(.05, .05, .05), markMat = new THREE.MeshBasicMaterial({ color: 0xff3344 }), marks = [];
 const aimDot = new THREE.Mesh(new THREE.BoxGeometry(.03, .03, .03), markMat); aimDot.visible = false; scene.add(aimDot);
 const xhair = document.createElement('div');
@@ -1047,8 +1130,11 @@ const refreshSolids = () => {                                                 //
 const pos = new THREE.Vector3(0, 0, 0); let yaw = 0, pitch = 0;          // yaw 0 faces -z — stepped out of the door-elevator, rotator dead ahead
 const EYE = .56, WALK = 1.4, SPRINT = 2.2, keys = {};    // Vinny's authored Eyes region (region id 10) — voxel centroid y56 × .01 pitch
 const el = renderer.domElement;
-el.addEventListener('click', () => { if (document.pointerLockElement !== el) el.requestPointerLock(); });
-addEventListener('mousemove', e => { if (document.pointerLockElement !== el) return;
+el.addEventListener('click', () => { if (!padFocus && document.pointerLockElement !== el) el.requestPointerLock(); });
+addEventListener('mousemove', e => {
+  if (padFocus) { mouseNDC.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+    padSetHover(padCursorHit()); return; }                                    // pad mode — cursor hovers the screen, never looks
+  if (document.pointerLockElement !== el) return;
   if (held && keys['g']) { heldTumble(e.movementX, e.movementY); return; }      // G+mouse tumbles the item, not the camera
   yaw -= e.movementX * .0022; pitch = Math.max(-1.45, Math.min(1.45, pitch - e.movementY * .0022)); });
 /* INTERACT registry — same contract as the Commission: promptIt caches what the HUD shows,
@@ -1061,6 +1147,7 @@ const INTERACT = [
 let promptIt = null;
 window.__pos = pos; window.__prompt = () => promptIt ? promptIt.label() : '';   // probe hooks — pos/promptIt read live
 addEventListener('mousedown', e => {
+  if (padFocus) { if (e.button === 0) { const r = padCursorHit(); if (r) padPress(r); } return; }   // cursor press — not a tag/lock
   if (placeOn) { if (e.button === 0) {
     const pk = placePick();
     if (pk) { if (placeSel !== pk.p) placeGrab(pk.p, pk);              // fresh pick — commits whatever was held
@@ -1069,14 +1156,18 @@ addEventListener('mousedown', e => {
       if (e.shiftKey) placeSel._drag = true; }                       // ⇧+LMB held = the ray owns it until mouseup
     else if (placeSel) placeDrop();                                  // click empty space = accept + deselect
     return; } }
-  if (e.button === 2) rmbAim = true;
+  if (e.button === 2) { rmbAim = true; rmbT0 = performance.now(); }
   if (e.button === 0) { if (promptIt && promptIt.isBtn) promptIt.fn(); else if (aimOn) tagAt(aimWorld); }   // face buttons press by click
 });
-addEventListener('mouseup',   e => { if (e.button === 2) rmbAim = false; if (e.button === 0 && placeSel) placeSel._drag = false; });
+addEventListener('mouseup',   e => {
+  if (e.button === 2) { rmbAim = false;
+    if (((held && held.isPad) || padFocus) && performance.now() - rmbT0 < 280) padFocusToggle(); }   // RMB tap ↔ pad cursor
+  if (e.button === 0 && placeSel) placeSel._drag = false; });
 addEventListener('contextmenu', e => { if (e.target === renderer.domElement || rmbAim) e.preventDefault(); });
 addEventListener('keydown', e => { keys[(e.key || '').toLowerCase()] = true;
   const k = (e.key || '').toLowerCase();
-  if (k === 'x' && !e.ctrlKey && !e.metaKey && !e.altKey) { placeToggle(!placeOn); return; }
+  if (k === 'escape' && padFocus) { padFocusToggle(); return; }               // Esc gives the look back too
+  if (k === 'x' && !e.ctrlKey && !e.metaKey && !e.altKey) { if (padFocus) padFocusToggle(); placeToggle(!placeOn); return; }
   if (placeOn) {
     if ((e.ctrlKey || e.metaKey) && k === 'z') { placeUndoDo(); e.preventDefault(); return; }
     if (k === 'escape') { if (placeSel) placeRevert(); else placeToggle(false); return; }   // selection → back out; nothing → leave
@@ -1201,7 +1292,7 @@ const selBox = new THREE.Box3Helper(new THREE.Box3(), 0xffd070); selBox.visible 
 const origBox = new THREE.Box3Helper(new THREE.Box3(), 0x8090c0); origBox.visible = false; scene.add(origBox);
 const placeGrid = new THREE.GridHelper(9.4, 94, 0x8a7a64, 0xbdb4a4); placeGrid.position.set(0, .002, -2.85);
 placeGrid.visible = false; scene.add(placeGrid);                                       // .1 cells over the platform — snaps drag to measured increments
-const _ray = new THREE.Raycaster(), _ctr = new THREE.Vector2(0, 0);
+const _ray = new THREE.Raycaster(), _ctr = new THREE.Vector2(0, 0), mouseNDC = new THREE.Vector2();
 const PLACE_SNAP = .1, placeUndo = [];
 const placeSnapOp = op => { placeUndo.push(op); if (placeUndo.length > 32) placeUndo.shift(); };
 
@@ -1425,12 +1516,14 @@ const loop = now => {
     if (t) ghost.position.set(t.x, t.y + .004, t.z);
   } else ghost.visible = false;
   pickIt = held || placeOn ? null : nearestPick();
-  promptIt = document.pointerLockElement === el && !placeOn ? (kioskProbe() || panelProbe() || INTERACT.reduce((b, it) => {
+  const kb = kioskProbe(), pb = panelProbe(), db = padProbe();               // unconditional — hover state must not freeze
+  promptIt = document.pointerLockElement === el && !placeOn ? (kb || pb || db || INTERACT.reduce((b, it) => {
     const d = Math.hypot(pos.x - it.x, pos.z - it.z); return d < it.r && (!b || d < b.d) ? { it, d } : b; }, null)?.it || null) : null;
-  if (kioWire) kioWire.visible = !!(promptIt && promptIt.isBtn && promptIt.panel !== 'models');   // ghost only on its own panel's button
+  if (kioWire) kioWire.visible = !!(promptIt && promptIt.isBtn && !promptIt.panel);             // ghost only on its own panel's button
   if (pnlWire) pnlWire.visible = !!(promptIt && promptIt.isBtn && promptIt.panel === 'models');
   promptEl.style.display = (held || pickIt || promptIt) ? 'block' : 'none';
-  promptEl.textContent = held ? 'E — PLACE ' + held.name.replace('commission_', '').toUpperCase() + '  ·  , . yaw · [ ] pitch · ; \' roll · G tumble · 0 level'
+  promptEl.textContent = held ? (held.isPad ? 'E — PLACE DEBUG PAD  ·  RMB tap — cursor  ·  , . yaw · [ ] pitch · ; \' roll · G tumble · 0 level'
+                              : 'E — PLACE ' + held.name.replace('commission_', '').toUpperCase() + '  ·  , . yaw · [ ] pitch · ; \' roll · G tumble · 0 level')
                      : pickIt ? 'E — TAKE ' + pickIt.name.replace('commission_', '').toUpperCase()
                      : promptIt ? promptIt.label() : '';
   window.__compass(camera);
@@ -1456,6 +1549,7 @@ window.__compass = cam => {
 
 /* warm-up: compile every program + upload every buffer behind the veil — same law as the Commission */
 ready.then(async () => {
+  emitPad();                                                                  // the pad joins PLACED before overrides/tombstones — full citizen
   JSON.parse(localStorage.getItem('dvm_del') || '[]').forEach(n => {               // tombstones first — a deleted host must not seat anything
     const p = PLACED.find(q => q.name === n && q.source !== 'extra');
     if (p) { if (p._block) WALL_BLOCKS.splice(WALL_BLOCKS.indexOf(p._block), 1);

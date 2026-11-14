@@ -76,6 +76,34 @@ own best fit — the barber mounts at `.75` too (`.9m` footprint, ~1:7 vs the
 tenement's ~1:21 — "doesn't have to be relative to tenement" was literally
 already the contract).
 
+## The debug pad — a pickable touchscreen
+
+`emitPad()` builds `debug_pad` as a procedural `PLACED` rec (no voxel asset — the
+law is rec-driven): a `.18×.012×.12` slab, `EdgesGeometry` trim in `padEdgeMat`
+(hue-rides via `boundHue`), and a `CanvasTexture` screen on the +y face. It
+spawns on the Primary Table's north felt margin (`-5, -1.975`, `source:
+'manifest'` → position persists through `dvm_place` like any manifest item),
+`pickable` — E-takes, E-places, and all held-item rotation keys work on it.
+
+**Regions are data.** `PAD_REGIONS` are `{rect(px), label, glyph, fn}` entries
+hit-tested through raycast `uv` on the screen plane — the face is software, so
+future tools are draw code, never new geometry. One region table feeds two
+input modes:
+
+- **Held → RMB tap frees the cursor** (`padFocus`: `exitPointerLock`,
+  `mousemove` raycasts through `mouseNDC` → `padCursorHit` → hover highlight,
+  LMB presses). RMB tap again (or Esc, or entering place mode) re-locks the
+  look. WASD still moves you; E still places the pad. The click-to-lock canvas
+  handler is gated `!padFocus` so presses don't re-engage.
+- **Placed → center-aim press** (`padProbe`, same law as `kioskProbe`/`panelProbe`):
+  raycasts the screen within 1.8 m → `uv` → region → `{isBtn, panel:'pad'}` rides
+  the `promptIt` chain, so aim + E (or LMB) presses it like any other face.
+  Skipped while the pad is held — you can't aim at your own hand.
+
+Probes are unconditional (`kb || pb || db`) so canvas hover state can't freeze;
+ghost wires gate per-panel (`btn.panel`). v1 regions drive `mountModel` (the
+same verb as the wall panel — `padSwap` redraws both surfaces).
+
 ## Models join the surface truth
 
 During the grid scan `emitBldg` tracks each (x,z) column's `ymax`, then writes

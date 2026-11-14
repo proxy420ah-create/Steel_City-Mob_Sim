@@ -346,6 +346,30 @@ check('bounds = 10 slabs + 20 seams + 6 portal wires', await evl('__construct.bo
   check('unmount restored the measured tops — core reads .7475 again', Math.abs(roof2 - .7475) < .008, 'roof2=' + roof2);
   await evl('localStorage.removeItem("dvm_model:primary")'); }
 
+// 12.95 — debug pad: pickable touchscreen slab on the table margin; aim-press + region hit-test
+{ const pr = JSON.parse(await evl('JSON.stringify((() => { const p = __pad.rec(); return p ? { isPad: p.isPad, pickable: p.pickable, x: p.x, z: p.z, y0: p.y0, source: p.source } : null; })())'));
+  check('debug pad emitted pickable on the table margin', pr && pr.isPad === true && pr.pickable === true && Math.abs(pr.x - -5) < .01 && Math.abs(pr.z - -1.975) < .01 && Math.abs(pr.y0 - .26) < .01, JSON.stringify(pr));
+  check('pad is a manifest rec — position persists by name', pr && pr.source === 'manifest');
+  check('uv hit-test maps regions', await evl('__pad.hit({x:.5,y:.85}) === null && __pad.hit({x:.15,y:.45}) === "prev" && __pad.hit({x:.85,y:.45}) === "next"'),
+        await evl('JSON.stringify([__pad.hit({x:.5,y:.85}), __pad.hit({x:.15,y:.45}), __pad.hit({x:.85,y:.45})])'));
+  const bp = JSON.parse(await evl('JSON.stringify((() => { const s = __pad.scr(), v = new s.position.constructor(.0531, -.0053, 0); s.localToWorld(v); return [v.x, v.y, v.z]; })())'));
+  await evl('__pos.x = ' + bp[0] + '; __pos.z = ' + (bp[2] + .5));
+  await evl('__cam(' + bp[0] + ', ' + (bp[1] + .35) + ', ' + (bp[2] + .5) + ', ' + bp[0] + ', ' + bp[1] + ', ' + bp[2] + ')');
+  await sleep(400);
+  check('aim at ▶ region resolves the pad button', await evl('!!(__pad.probe() && __pad.probe().label().indexOf("MODEL") >= 0)'), await evl('__pad.probe() && __pad.probe().label()'));
+  check('aim sets the canvas hover state', await evl('__pad.hover() === "next"'), await evl('__pad.hover()'));
+  await evl('__cam(0, .56, 0, 0, 0, -1)'); await sleep(400);                    // let a frame apply the new aim first
+  check('aim off clears the hover', await evl('__pad.probe() === null && __pad.hover() === null'), await evl('JSON.stringify([__pad.probe(), __pad.hover()])'));
+  await evl('__pad.press("next")');
+  for (let i = 0; i < 40 && !(await evl('__construct.tables()[0].models[0] && __construct.tables()[0].models[0].name === "barber_shop"')); i++) await sleep(250);
+  check('pad press swaps the easel to barber', true);
+  await evl('__pad.press("prev")');
+  for (let i = 0; i < 40 && !(await evl('__construct.tables()[0].models[0] && __construct.tables()[0].models[0].name === "tenement_block_0"')); i++) await sleep(250);
+  check('pad press back to tenement', true);
+  await evl('__pad.focus(true)'); check('pad focus engages — cursor mode', await evl('__pad.isFocus() === true'));
+  await evl('__pad.focus(false)'); check('pad focus releases — mouse look', await evl('__pad.isFocus() === false'));
+  await evl('__cam(null); __pos.x = -5; __pos.z = -1.6'); }
+
 // 13 — fly-camera clamp + release back to body
 await evl('__cam(null)');
 check('camLock released', true);
