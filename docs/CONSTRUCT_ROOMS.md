@@ -31,9 +31,10 @@ look. The one exception is the portal: a visible dark frame marking the opening.
 **interior stubs** on the shared edge `x=-3` — one invisible slab serves both
 rooms (two faces, one wall). Slab ends pad `+WALL_D/2` to close corner miters,
 except at arch-adjacent ends (`ARCH_ENDS`) — the stub end faces stand at the
-gap edges unpadded. Per segment the emit is 3 meshes: slab + a seam band at
-each face (`±(WALL_D/2 + BND_W/2)` off the centerline, at `y=.004`, padded
-`+WALL_D` at both ends so seams wrap corners and turn into the doorway reveal).
+gap edges unpadded, slabs and seams alike, so the doorway floor stays clean.
+Per segment the emit is 3 meshes: slab + a seam band at each face
+(`±(WALL_D/2 + BND_W/2)` off the centerline, at `y=.004`, padded `+WALL_D` at
+non-arch ends so seams wrap corners).
 
 `BOUND_ARCH` is the doorway — a **pure wire ∩**, no solid parts, per spec
 `{x, z0, z1, h, d}`:
@@ -41,10 +42,9 @@ each face (`±(WALL_D/2 + BND_W/2)` off the centerline, at `y=.004`, padded
 - **Outline posts ×4** — `BND_W×1.6` wire beams at `x±d/2` on each gap edge, so
   *each room's face gets its own glowing doorway outline*.
 - **Lintel outlines ×2** — wire beams spanning the gap at `y=h` on each face.
-- **Floor-plan seams ×4** — threshold seams along the passage edges plus
-  jamb-base seams spanning the reveal depth, so the doorway's entire floor plan
-  draws in glow (the wall seams also pad `.07` at *every* end, wrapping into
-  the reveal to meet them).
+- **Reveal-end links ×2** — one short seam per reveal end spanning the wall
+  depth `d`, capping the pair of face-seams where the wall terminates. The
+  doorway floor itself is **clean** — no wires cross the opening.
 
 ## Walk law
 
@@ -81,6 +81,6 @@ each face (`±(WALL_D/2 + BND_W/2)` off the centerline, at `y=.004`, padded
 - `walkOK(-3,-3.1)` / `(-3,-2.9)` / `(-3,-2.1)` are `false` — capsule edge
   respects the jamb margins (blocks end where the jamb faces stand).
 - `walkOK(-3,-2.8)` / `(-3,-2.2)` are `true` — you can hug the jamb through.
-- `boundsG.children.length === 40` — 10 slabs + 20 seam bands +
-  10 portal meshes (4 posts, 2 lintels, 4 floor-plan seams).
+- `boundsG.children.length === 38` — 10 slabs + 20 seam bands +
+  8 portal meshes (4 posts, 2 lintels, 2 reveal-end links).
 - Followers obey the same `walkOK` — they can be led/`goto`'d through the door.
