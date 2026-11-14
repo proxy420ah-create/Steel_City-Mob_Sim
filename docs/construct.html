@@ -597,7 +597,8 @@ agentEl.textContent = '◈ AGENT'; document.body.appendChild(agentEl);
 let cmdAck = 0;
 const livePost = () => fetch('/peek', { method: 'POST', headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ t: Date.now(), pos: pos.toArray(), yaw, aimOn, aim: aimWorld.toArray(), held: held && held.name,
-    marks: marks.map(m => m.position.toArray()), povOn, cmdAck,
+    marks: marks.map(m => m.position.toArray()), povOn, cmdAck, placeOn: !!placeOn,
+    placed: PLACED.map(p => [p.name, +p.x.toFixed(2), +p.z.toFixed(2), +p.y0.toFixed(2), p.source]),
     followers: followers.map(f => ({ char: f.spec.char, order: f.order, pos: f.pos.toArray(), gaze: f.gazeT ? f.gazeT.toArray() : null, possessed: !!f.possessed })) }) })
   .then(r => r.json()).then(r => {
     if (r && r.cmd && r.cmd.seq > cmdAck) {                                    // agent command rode back on the stream
@@ -606,17 +607,19 @@ const livePost = () => fetch('/peek', { method: 'POST', headers: { 'Content-Type
       else if (c.agent === 'go') A.go(...c.args);
       else if (c.agent === 'heel') A.heel();
       else if (c.agent === 'order') A.order(c.args[0]);
+      else if (c.agent === 'emit') { const [n, x, z, ry] = c.args;               // agent-furnished asset — lands + persists like a paste
+        emitAsset(n, { kind: 'item', x: +x || 0, z: +z || 0, rotY: +ry || 0, pickable: true, source: 'extra' }).then(() => placeSave()); }
       else A.order(c.agent);                                                   // bare order names: wait/goto/follow/post
       const released = c.agent === 'heel' || c.agent === 'follow' || (c.agent === 'order' && c.args[0] === 'follow');
-      followers.forEach(f => f.possessed = !released);                         // agent holds the wheel until heel/follow — your hotkeys always reclaim
+      if (c.agent !== 'emit') followers.forEach(f => f.possessed = !released);   // movement verbs hold the wheel; emit isn't one
     } }).catch(() => {});
 const liveShot = () => { const u = window.__eyes.shot(); renderer.render(scene, camera);
   if (u) fetch('/shot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'probe_live_pov', png: u }) }).catch(() => {}); };
 const LIVE = { on: false, iv: 0, sv: 0 };
 window.__live = {
   on: () => LIVE.on,
-  start: () => { if (LIVE.on) return; LIVE.on = true; livePost(); liveShot(); LIVE.iv = setInterval(livePost, 400); LIVE.sv = setInterval(liveShot, 900); liveEl.style.display = 'block'; },
-  stop: () => { LIVE.on = false; clearInterval(LIVE.iv); clearInterval(LIVE.sv); liveEl.style.display = 'none'; },
+  start: () => { if (LIVE.on) return; LIVE.on = true; livePost(); liveShot(); LIVE.iv = setInterval(livePost, 400); LIVE.sv = setInterval(liveShot, 900); liveEl.style.display = 'block'; localStorage.setItem('dvm_live', '1'); },
+  stop: () => { LIVE.on = false; clearInterval(LIVE.iv); clearInterval(LIVE.sv); liveEl.style.display = 'none'; localStorage.setItem('dvm_live', '0'); },
 };
 
 /* ── follower control — clickable orders + hotkey legend, bottom-left. Re-renders only when
@@ -1115,6 +1118,7 @@ ready.then(async () => {
   try { renderer.compile(scene, camera); } catch (e) {}
   renderer.render(scene, camera);
   setTimeout(() => { veil.style.opacity = 0; }, 350);
+  if (localStorage.getItem('dvm_live') === '1') window.__live.start();              // live link survives a reload — agent keeps eyes
   window.__warmDone = true;
 });
 requestAnimationFrame(loop);
