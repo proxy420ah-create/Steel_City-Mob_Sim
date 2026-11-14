@@ -19,7 +19,8 @@ multiple drafting tables are list entries, not new code.
   unit-height so `scale.y` is the reach) — plus the **floor-wire seam
   lifted to the tabletop rim** — the same trick the doorway uses, `coreMat` hue-riding.
 - **The pistons lift.** `tableLiftSet(t, lift)` / `tableLift(t, dy)` raise the
-  whole assembly in `t.lift` (`[0, .4]`): slab, rim, rods re-pose, `mini` groups
+  whole assembly in `t.lift` (`[-.08, .4]` — the floor notch keeps the slab
+  clear of the collar tops, ~.16): slab, rim, rods re-pose, `mini` groups
   ride their pedestal, and every `tops` entry shifts by the delta — the measured
   surface follows the lift exactly. `liftRiders` then applies the same delta to
   any rec standing above the old top inside the footprint (`inB` +

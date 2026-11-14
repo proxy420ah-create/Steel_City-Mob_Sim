@@ -317,7 +317,7 @@ const liftRiders = (t, dy, oldTop) => PLACED.forEach(q => {
   if (inB(q, t.rec.bbox) && q.y0 >= oldTop - .005) { q.y0 += dy; q.g.position.y = q.y0; } });
 /* tableLiftSet — the piston verb: geometry reposes, measured tops shift by delta, riders ride. */
 const tableLiftSet = (t, lift) => { const oldTop = tableTop(t);
-  t.lift = Math.max(0, Math.min(.4, lift));
+  t.lift = Math.max(-.08, Math.min(.4, lift));                            // floor notch: slab must clear the collars (H ≥ ~.16)
   const dy = tableTop(t) - oldTop; if (Math.abs(dy) < 1e-6) return;
   const H = tableTop(t);
   t.parts.slab.position.y = H - .02;
@@ -471,7 +471,7 @@ const PAD_PAGES = {
     g.fillStyle = '#cfc8b0'; g.font = '16px monospace'; g.fillText('PISTON LIFT', 256, 96);
     g.fillStyle = '#e8d9b0'; g.font = 'bold 22px monospace';
     g.fillText('TOP  ' + (t ? tableTop(t).toFixed(2) : '—') + 'm   ·   LIFT +' + (t ? t.lift.toFixed(2) : '0.00'), 256, 266);
-    g.fillStyle = '#5b5648'; g.font = '13px monospace'; g.fillText('eye level .55 — raise past it to look up', 256, 312); } },
+    g.fillStyle = '#5b5648'; g.font = '13px monospace'; g.fillText('eye .55 — raise past it to look up · four notches below felt-zero', 256, 312); } },
   apps: { tab: '≡', draw: g => {
     g.fillStyle = '#cfc8b0'; g.font = '16px monospace'; g.fillText('ALL TOOLS', 256, 96);
     g.fillStyle = '#5b5648'; g.font = '13px monospace'; g.fillText('tap a tile — pages keep their state', 256, 312); } },
