@@ -378,6 +378,17 @@ check('re-hung pad keeps its wall seat — fixpoint skipped it', await evl('Math
 await evl('__pad.drop(-5, .26, -1.975)');
 check('drop back on the table clears the mount', await evl('__pad.rec().mount === null && Math.abs(__pad.rec().y0 - .26) < .01'), await evl('JSON.stringify({m:__pad.rec().mount, y0:__pad.rec().y0})'));
 
+// grip memory — the pose you last held returns on the next take
+await evl('__construct.take("debug_pad")');
+await evl('__construct.tumble(38, 0)'); await sleep(200);                            // pose it in hand — a frame writes the quat
+const gripQ = JSON.parse(await evl('JSON.stringify(__construct.heldQ())'));
+check('the pose registered in hand', JSON.stringify(gripQ) !== '[0,0,0,1]', JSON.stringify(gripQ));
+await evl('__construct.place(-5, -1.975)');                                          // set it down — the grip stashes onto the rec
+await evl('__construct.take("debug_pad")'); await sleep(200);
+check('held pose preserved across place → take', JSON.stringify(await evl('__construct.heldQ()')) === JSON.stringify(gripQ),
+  JSON.stringify({ before: gripQ, after: await evl('__construct.heldQ()') }));
+await evl('__construct.place(-5, -1.975)');                                          // back on the margin
+
 // 12.97 — pad pages: tab switching, the turntable, the xyz slice window
 await evl('__pad.tab("rot")');
 check('tab switch → rot page', await evl('__pad.page() === "rot"'));

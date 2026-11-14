@@ -121,6 +121,11 @@ each frame. `dropTarget()` marches the aim ray (`.08 → 2.4`, `.06` steps) unti
   - `placeIt` persists `rotY = yaw + snapYaw` (normalized); pitch/roll drop —
     **placed items always seat level** because `tops`/`bbox` are authored-
     upright maps. Tilted persistence is a future contract, not a flag day.
+  - **Grip memory**: `placeIt` stashes the held pose (`p._snap`, `p._free`) on
+    the rec and `takeIt` restores it — set a thing down, pick it back up, and
+    it returns in the pose you last held it (the yaw chain stays continuous:
+    placed `rotY` = facing + snapYaw = the restored in-hand yaw). Session-
+    scoped, per rec — every pickable item remembers its own grip.
 
 ## 7. Invariants — testable law
 

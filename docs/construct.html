@@ -1376,8 +1376,12 @@ const nearestPick = () => {
     const a = tmpV.dot(fwdV); if (a > ba) { ba = a; best = p; } });
   return best;
 };
-const takeIt = p => { held = p; heldSnap.x = heldSnap.y = heldSnap.z = 0; heldFree.identity(); p.mount = null; };
+const takeIt = p => { held = p;                                            // the grip remembers — the pose you last held returns
+  if (p._snap) { heldSnap.x = p._snap.x; heldSnap.y = p._snap.y; heldSnap.z = p._snap.z; heldFree.copy(p._free); }
+  else { heldSnap.x = heldSnap.y = heldSnap.z = 0; heldFree.identity(); }
+  p.mount = null; };
 const placeIt = t => { const p = held; held = null;
+  p._snap = { ...heldSnap }; p._free = heldFree.clone();                   // stash the grip on the rec — yaw already rides p.rotY
   placeSnapOp({ t: 'move', p, prev: { x: p.x, z: p.z, rotY: p.rotY, y0: p.y0, mount: p.mount } });
   p.x = t.x; p.z = t.z; p.y0 = t.y;
   if (t.wall) { p.mount = { x: t.x, y: t.y, z: t.z, n: t.n };               // stuck to a face — screen out, upright
