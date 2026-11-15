@@ -1,0 +1,1421 @@
+
+import * as THREE from 'three';
+
+const VOID = 0xf4f1e8;
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(VOID);
+scene.fog = new THREE.Fog(VOID, 3.5, 13);
+const camera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, .02, 60);
+window.__THREE = THREE; window.__scene = scene; window.__camera = camera; window.__renderer = renderer;
+
+/* lights registered at init, always on — this page's whole scene compiles under one light set */
+const hemi = new THREE.HemisphereLight(0xffffff, 0xd8d2c4, 1.2), key = new THREE.PointLight(0xfff6e8, 2.4, 6, 1.2);
+key.position.set(0, 1.5, 1.5); scene.add(hemi, key);
+
+/* ── MANIFEST — the procedural expansion seam. tiles = [i,j] grid cells (.6 pitch, i east, j north),
+   props = future display placements (mannequin, pedestal, prop table — append, don't redesign). */
+const TILE = 1.0;
+const MANIFEST = { tiles: [], props: [] };
+for (const i of [-2.5,-1.5,-.5,.5,1.5,2.5]) for (const j of [.5,-.5,-1.5,-2.5,-3.5,-4.5,-5.5]) MANIFEST.tiles.push([i, j]);   // room 6m x 7m — edges x±3 z[+1,-6], rotator dead-centre (0,-2.5), door inside the north edge
+for (const i of [-3.5,-4.5,-5.5,-6.5]) for (const j of [-.5,-1.5,-2.5,-3.5,-4.5]) MANIFEST.tiles.push([i, j]);              // WEST ANNEX — board room 4m x 5m, edges x[-7,-3] z[-5,0]
+
+/* ── walk law — the union of allowed rects minus forbidden wall stubs. The doorway is a 1m
+   gap in the west edge x=-3 at z[-3,-2] (dead on the rotator axis); the rest of that edge is
+   impassable interior wall, enforced by WALL_BLOCKS (capsule-radius-expanded stubs). */
+const WALK_RECTS = [
+  { x0: -2.78, x1: 2.78, z0: -5.78, z1: .78 },                          // main room (wall faces at ±.07, capsule inset .15)
+  { x0: -6.78, x1: -2.78, z0: -4.78, z1: -.22 },                        // west annex — meets main at the x=-2.78 seam inside the door
+];
+const WALL_BLOCKS = [                                                    // interior wall stubs on the shared edge x=-3 (wall x[-3.07,-2.93] + capsule)
+  { x0: -3.22, x1: -2.78, z0: -5, z1: -2.825 },                         // south of the door (capsule edge kisses the jamb face at -2.975)
+  { x0: -3.22, x1: -2.78, z0: -2.175, z1: 0 },                          // north of the door (jamb face -2.025)
+];
+const inR = (r, x, z) => x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1;
+const walkOK = (x, z) => WALK_RECTS.some(r => inR(r, x, z)) && !WALL_BLOCKS.some(b => inR(b, x, z));
+
+const floorMat = new THREE.MeshBasicMaterial({ color: VOID });              // the Matrix floor — unlit, void-colored: stand on it, never see it
+MANIFEST.tiles.forEach(([i, j]) => {
+  const t = new THREE.Mesh(new THREE.BoxGeometry(TILE, .05, TILE), floorMat);
+  t.position.set(i * TILE, -.026, j * TILE); scene.add(t);
+});
+
+/* ── bounds — RGB-style glowing edges tracing the walkable perimeter. Now an explicit spec:
+   BOUND_FLOOR lists floor-level band segments (the T-union outline + interior wall stubs), and
+   BOUND_ARCH lists lifted "doorway" ∩s — the same wire raised into beams where a gap passes.
+   Expansion path: append MANIFEST.tiles (floor) + BOUND_FLOOR/BOUND_ARCH (wire) then rebuildBounds(). */
+const boundsG = new THREE.Group(); scene.add(boundsG);
+const coreMat = new THREE.MeshBasicMaterial({ color: 0x35d5ff, transparent: true, opacity: .85, depthWrite: false, side: THREE.DoubleSide });
+/* hue ride: sine sweep through blue (.58) → purple → pink (.92) and back — never leaves the palette */
+const boundHue = t => { const h = .58 + .34 * (0.5 + 0.5 * Math.sin(t * .3)); coreMat.color.setHSL(h, .85, .6);
+  if (kioWireMat) kioWireMat.color.copy(coreMat.color); };                 // the button ghost-frame rides the same sweep
+const BND_W = .008;                                                     // wire stock width
+const WALL_H = 1.05, WALL_D = .14;                                      // wall datum = the arch lintel — one unbroken cornice line around the footprint
+const wallMat = floorMat;                                               // walls obey the floor's own law — void-colored, opaque, NEVER seen
+const BOUND_WALL = [                                                    // [ax, az, bx, bz] wall centerlines — each becomes slab + cap wire
+  [-3,-6, 3,-6], [3,-6, 3,1], [3,1, -3,1],                              // main room — S, E, N edges
+  [-3,1, -3,0],                                                         // main west edge above the annex reach
+  [-3,0, -7,0], [-7,0, -7,-5], [-7,-5, -3,-5],                          // annex — N, W, S edges
+  [-3,-5, -3,-6],                                                       // main west edge below the annex reach
+  [-3,-5, -3,-3], [-3,-2, -3,0],                                        // interior wall stubs — the west wall minus the door gap
+];
+const BOUND_ARCH = [ { x: -3, z0: -3, z1: -2, h: 1.05, d: .14 } ];       // doorway: the floor wire lifted into a ∩ — outline on EACH room's face
+const ARCH_ENDS = new Set(BOUND_ARCH.flatMap(a => [[a.x, a.z0], [a.x, a.z1]]).map(([x, z]) => x + ',' + z));
+function rebuildBounds() {
+  boundsG.clear();
+  const seam = (ax, az, bx, bz) => {                                    // one floor-level glow band a→b
+    const g = new THREE.PlaneGeometry(Math.hypot(bx - ax, bz - az), BND_W); g.rotateX(-Math.PI / 2);
+    const m = new THREE.Mesh(g, coreMat);
+    m.rotation.y = -Math.atan2(bz - az, bx - ax); m.position.set((ax + bx) / 2, .004, (az + bz) / 2); boundsG.add(m);
+  };
+  BOUND_WALL.forEach(([ax, az, bx, bz]) => {                            // each centerline → invisible slab + floor-seam glow bands
+    const len = Math.hypot(bx - ax, bz - az), ux = (bx - ax) / len, uz = (bz - az) / len;
+    const pA = ARCH_ENDS.has(ax + ',' + az) ? 0 : WALL_D / 2, pB = ARCH_ENDS.has(bx + ',' + bz) ? 0 : WALL_D / 2;   // slab pads close corner miters; arch ends stay flush
+    const mx = (ax + bx) / 2 + ux * (pB - pA) / 2, mz = (az + bz) / 2 + uz * (pB - pA) / 2;
+    const slab = new THREE.Mesh(new THREE.BoxGeometry(len + pA + pB, WALL_H, WALL_D), wallMat);
+    slab.rotation.y = -Math.atan2(bz - az, bx - ax); slab.position.set(mx, WALL_H / 2, mz); boundsG.add(slab);
+    const so = WALL_D / 2 + BND_W / 2;                                  // seams follow the slab ends — wrap corners, STOP at the reveal (clean door floor)
+    [-1, 1].forEach(s => {
+      seam(ax - ux * pA - uz * s * so, az - uz * pA + ux * s * so,
+           bx + ux * pB - uz * s * so, bz + uz * pB + ux * s * so);
+    });
+  });
+  BOUND_ARCH.forEach(a => {                                             // pure wire ∩ — the lifted floor wire on each room's face + a floor-plan seam
+    const w = BND_W * 1.6, mid = (a.z0 + a.z1) / 2;
+    const put = (g, x, y, z) => { const me = new THREE.Mesh(g, coreMat); me.position.set(x, y, z); boundsG.add(me); };
+    [a.z0, a.z1].forEach(z => {
+      put(new THREE.BoxGeometry(w, a.h, w), a.x - a.d / 2, a.h / 2, z);           // outline posts — one per room face
+      put(new THREE.BoxGeometry(w, a.h, w), a.x + a.d / 2, a.h / 2, z);
+    });
+    put(new THREE.BoxGeometry(w, w, Math.abs(a.z1 - a.z0)), a.x - a.d / 2, a.h, mid);   // lintel outlines on both faces
+    put(new THREE.BoxGeometry(w, w, Math.abs(a.z1 - a.z0)), a.x + a.d / 2, a.h, mid);   // floor stays clean — seams stop at the reveal
+  });
+}
+rebuildBounds(); window.__rebuildBounds = rebuildBounds;
+
+/* global material library — mirrors the studio editor's allMaterials for files that ship
+   materials:[] (vehicle JSONs). Only the ids the showroom consumes are carried. */
+const MAT_LIB = [{ id: 10, hex: '#cccccc' }, { id: 107, hex: '#996b3f' }, { id: 123, hex: '#c69e33' }, { id: 126, hex: '#0f0f11' },
+                 { id: 140, hex: '#3a7d5c' }, { id: 141, hex: '#232826' }, { id: 142, hex: '#c0c8d0' }, { id: 143, hex: '#2d2d30' },
+                 { id: 144, hex: '#f5e6af' }, { id: 145, hex: '#b42823' }, { id: 146, hex: '#6b4a2f' }, { id: 147, hex: '#96aab9', glass: true }];
+
+/* shared emit path — same voxEmit contract as the Commission (glass split, site fillM) */
+window.__glassMat = new THREE.MeshLambertMaterial({ transparent: true, opacity: .55, depthWrite: false });
+window.voxEmit = (m, fillM) => {
+  const gids = new Set((m.materials || []).concat(MAT_LIB).filter(mt => mt.glass || /glass/i.test(mt.name || '')).map(mt => mt.id));
+  if (m.door && gids.size) {   /* door-contract props: a pane is ONE transparent sheet (median-z cell per column) */
+    const cols = new Map(), rest = [];
+    m.voxels.forEach(v => { if (gids.has(v[3])) { const k = v[0] + ',' + v[1]; (cols.get(k) || cols.set(k, []).get(k)).push(v); } else rest.push(v); });
+    cols.forEach(a => { a.sort((p, q) => p[2] - q[2]); rest.push(a[a.length >> 1]); });
+    m = { ...m, voxels: rest };
+  }
+  const geo = new THREE.BoxGeometry(1, 1, 1);
+  const imO = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial(), m.voxels.length);
+  const imG = gids.size ? new THREE.InstancedMesh(geo, window.__glassMat, m.voxels.length) : null;
+  const mats = {}; MAT_LIB.forEach(mt => mats[mt.id] = new THREE.Color(mt.hex));
+  (m.materials || []).forEach(mt => mats[mt.id] = new THREE.Color(mt.hex));          // file palette wins when it ships one
+  const M = new THREE.Matrix4(), dflt = new THREE.Color(0x888888);
+  let no = 0, ng = 0;
+  m.voxels.forEach(v => { fillM(M, v); const c = mats[v[3]] || dflt;
+    if (imG && gids.has(v[3])) { imG.setMatrixAt(ng, M); imG.setColorAt(ng, c); ng++; } else { imO.setMatrixAt(no, M); imO.setColorAt(no, c); no++; } });
+  imO.count = no; if (imG) imG.count = ng;                             // count = written — leftover capacity would draw unit boxes with black instance colors
+  const out = [imO]; if (imG && ng) out.push(imG);
+  return out;
+};
+
+/* ── emitAsset — the canonical display contract. Per-file pitch/palette/truthView; every placed
+   asset registers a column-top surface map in PLACED so any item can seat ON anything —
+   measured, not authored (attachmentPoints stay semantic: axles, seats, grips). */
+const PLACED = [];
+const ROUTES = { item: '/voxel/', vehicle: '/veh/', char: '/char/' };
+const footB = (lb, x, z, rotY) => {                                            // world footprint from local bounds — ALWAYS live, never stale
+  const cy = Math.cos(rotY), sy = Math.sin(rotY);
+  const cs = [[lb[0], lb[2]], [lb[0], lb[3]], [lb[1], lb[2]], [lb[1], lb[3]]].map(([lx, lz]) => [x + lx * cy + lz * sy, z - lx * sy + lz * cy]);
+  return [Math.min(...cs.map(c => c[0])) - .05, Math.max(...cs.map(c => c[0])) + .05,
+          Math.min(...cs.map(c => c[1])) - .05, Math.max(...cs.map(c => c[1])) + .05];
+};
+const TOPK = (ix, iz) => (ix + 2048) * 4096 + (iz + 2048);                     // numeric tops key — string keys in the carry-frame hot loop were GC churn
+const SURF_TYPES = new Set(['furniture', 'vehicle', 'room', 'building']);     // department tag → surface role
+const emitAsset = (name, o = {}) => {
+  const { kind = 'item', parent = scene, x = 0, z = 0, rotY = 0, on = null, seatY = null, vsOverride = null } = o;
+  return fetch(ROUTES[kind] + name).then(r => r.json()).then(m => {
+    if (!m.voxels) return null;
+    const surf = o.surf ?? (SURF_TYPES.has(m.assetType) || !o.pickable);        // surf = floors on surfaces only; riders conform
+    const vs = vsOverride || m.voxelSize || .0075;
+    const dcx = m.dims[0] / 2 - .5, dcz = m.dims[2] / 2 - .5, flip = m.truthView === 'unity';
+    let minB = Infinity, lx0 = Infinity, lx1 = -Infinity, lz0 = Infinity, lz1 = -Infinity;
+    const tops = new Map();                                                  // tops keyed LOCAL — survives the item moving
+    m.voxels.forEach(v => {
+      const lx = (v[0] - dcx) * vs, lz = ((flip ? m.dims[2] - 1 - v[2] : v[2]) - dcz) * vs;
+      if (v[1] * vs < minB) minB = v[1] * vs;
+      if (lx < lx0) lx0 = lx; if (lx > lx1) lx1 = lx; if (lz < lz0) lz0 = lz; if (lz > lz1) lz1 = lz;
+      const t = (v[1] + 1) * vs, k = TOPK(Math.round(lx * 200), Math.round(lz * 200));    // 5mm columns
+      if (t > (tops.get(k) ?? -1e9)) tops.set(k, t);
+    });
+    const seat = on ? surfaceAt(on.host, x, z)
+      : (seatY === 'auto' ? worldSurfaceAt(x, z, null, { surfOnly: surf }) : (seatY ?? 0));   // 'auto' = conform within my role
+    const g = new THREE.Group();
+    window.voxEmit(m, (M, v) => M.makeScale(vs, vs, vs).setPosition(
+      (v[0] - dcx) * vs, (v[1] + .5) * vs - minB, ((flip ? m.dims[2] - 1 - v[2] : v[2]) - dcz) * vs)).forEach(mm => g.add(mm));
+    g.position.set(x, seat, z); g.rotation.y = rotY; parent.add(g);
+    const rec = { name, kind, g, tops, lb: [lx0, lx1, lz0, lz1], x, z, rotY, y0: seat, minB, vs, surf,
+                  bbox: footB([lx0, lx1, lz0, lz1], x, z, rotY),
+                  pickable: !!o.pickable, solids: o.solids || null, source: o.source || 'manifest' };
+    g.userData.pRec = rec;
+    PLACED.push(rec);
+    return rec;
+  }).catch(e => console.warn('CONSTRUCT — emit failed:', name, e));
+};
+/* surfaceAt — the measured tabletop query: world point → host-local columns → highest top (world y).
+   Pick-up/drop skips the carried item (its map would otherwise claim its own column). */
+const _svW = new THREE.Vector3(), _svQ = new THREE.Quaternion(), _svE = new THREE.Euler();
+const surfaceAt = (host, wx, wz, r = .07) => {
+  if (!host || host === held) return 0;
+  host.g.getWorldPosition(_svW); host.g.getWorldQuaternion(_svQ); _svE.setFromQuaternion(_svQ, 'YXZ');  // WORLD transform — parented items (car in carG) don't ghost at their rec x/z
+  const dx = wx - _svW.x, dz = wz - _svW.z, cy = Math.cos(_svE.y), sy = Math.sin(_svE.y);
+  const lx = dx * cy - dz * sy, lz = dx * sy + dz * cy;                        // world → local (inverse rotY)
+  const qx = Math.round(lx * 200), qz = Math.round(lz * 200), R = Math.max(1, Math.round(r * 200));
+  let top = 0;
+  for (let ix = qx - R; ix <= qx + R; ix++) for (let iz = qz - R; iz <= qz + R; iz++) {
+    const t = host.tops.get(TOPK(ix, iz));
+    if (t !== undefined && _svW.y + t > top) top = _svW.y + t;
+  }
+  return top;
+};
+
+const DOOR_Z = .72;
+const doorP = Promise.all([emitAsset('commission_doorframe', { x: 0, z: DOOR_Z, rotY: Math.PI }),    // file fronts are z+ — π faces the platform (−z)
+                           emitAsset('commission_door', { x: 0, z: DOOR_Z, rotY: Math.PI })]);
+
+/* ── THE ROTATOR — dead-centre turntable. Invisible deck (same void-material law as the floor):
+   what you see is a glowing ring and the car floating over it. E pauses/resumes. */
+const SPIN_POS = { x: 0, z: -2.5 }, SPIN_R = 1.02;
+const spinG = new THREE.Group(); spinG.position.set(SPIN_POS.x, 0, SPIN_POS.z); scene.add(spinG);
+const deck = new THREE.Mesh(new THREE.CylinderGeometry(SPIN_R, SPIN_R, .05, 48), floorMat); deck.position.y = -.026; spinG.add(deck);
+const rimShape = new THREE.Shape(); rimShape.absarc(0, 0, SPIN_R + .004, 0, Math.PI * 2);
+const rimHole = new THREE.Path(); rimHole.absarc(0, 0, SPIN_R - .012, 0, Math.PI * 2); rimShape.holes.push(rimHole);
+const rimG = new THREE.ShapeGeometry(rimShape); rimG.rotateX(Math.PI / 2);
+const rim = new THREE.Mesh(rimG, coreMat); rim.position.y = .004; spinG.add(rim);      // rides the same hue sweep as the bounds
+const carG = new THREE.Group(); spinG.add(carG);
+let spinning = true, SPIN_RATE = .35;                                 // ~18s/rev turntable
+const carP = emitAsset('vehicle_490_touring', { kind: 'vehicle', parent: carG, x: 0, z: 0, seatY: .001 });
+
+/* ── exhibit: the prop desk — east side, facing the rotator. Items seat on the host's measured
+   column-tops via the on:{host} contract — desk emits first, cargo seats on its surface. */
+const deskP = emitAsset('commission_lawdesk', { x: 2.3, z: -1.1, rotY: Math.PI / 2, solids: [[-.5, 0, .35], [.5, 0, .35]] }).then(desk =>
+  Promise.all([
+    emitAsset('commission_desklamp',   { x: 2.3, z: -1.6,  rotY: Math.PI / 2, on: { host: desk }, pickable: true }),
+    emitAsset('commission_bookoflaws', { x: 2.35, z: -1.0, rotY: .3,          on: { host: desk }, pickable: true }),
+    emitAsset('commission_stamper',    { x: 2.25, z: -1.25,                   on: { host: desk }, pickable: true }),
+  ]));
+
+/* ═══ DRAFTING ROOM — the west annex's exhibit layer. MANIFEST.tables is the expansion seam:
+   each entry builds one square low table (dark furniture stock + the floor-wire seam lifted to
+   the tabletop rim — the same trick the doorway uses) plus its miniature buildings. The table is
+   a surf-role PLACED rec, so the measured-surface law hosts items on it natively; each miniature
+   writes its own per-column top into the host's tops map (a model's roof and open courtyard read
+   as different heights — measured, never authored). ═══ */
+const BLDG_VS = .1;                                                     // the in-game building voxel (VoxelChunkManager: buildings=0.1)
+const BLDG_MAT = {                                                       // mob_materials.py — MUST match StAssetReader.cs
+  100: [.58,.26,.20], 101: [.48,.42,.34], 102: [.58,.58,.54], 103: [.82,.80,.74], 104: [.18,.18,.20], 105: [.42,.38,.34],
+  106: [.30,.18,.10], 107: [.60,.42,.25], 108: [.42,.36,.26], 109: [.28,.24,.22], 110: [.42,.40,.36], 111: [.90,.88,.82],
+  112: [.45,.55,.65], 113: [.45,.55,.65], 114: [.55,.65,.70], 115: [.95,.15,.15], 116: [.15,.30,.95], 117: [.15,.85,.25],
+  118: [.28,.24,.20], 119: [.55,.32,.20], 120: [.45,.12,.10], 121: [.15,.28,.18], 122: [.22,.12,.08], 123: [.78,.62,.20],
+  124: [1,.85,.50],   125: [.82,.68,.55], 126: [.06,.06,.07], 127: [.88,.86,.82], 128: [.12,.08,.06], 129: [.12,.20,.45],
+  134: [.82,.88,.92], 137: [.10,.25,.45], 140: [.23,.49,.36], 141: [.14,.16,.15], 142: [.75,.78,.82], 143: [.18,.18,.19],
+  144: [.96,.90,.69], 145: [.71,.16,.14], 146: [.42,.29,.18], 147: [.59,.67,.73] };
+const BLDG_GLASS = new Set([112, 113, 114, 134, 147]);                  // glass ids — the voxEmit transparency contract
+const darkMat = new THREE.MeshLambertMaterial({ color: 0x14161c });      // the Construct's furniture stock (consoles/kiosk)
+MANIFEST.tables = [                                                    // PRIMARY TABLE — annex centre (-5,-2.5), dead on the rotator axis
+  { id: 'primary', x: -5, z: -2.5, size: 1.2, top: .30, scale: 1 / 64,   // 1:64 — a real architectural ratio; eye (.55) peers over
+    models: [{ name: 'tenement_block_0' }, { name: 'barber_shop', x: .38, z: -.38 }] },
+];
+const TABLES = [];
+const emitTable = spec => {
+  const g = new THREE.Group(); g.position.set(spec.x, 0, spec.z); scene.add(g);
+  const s = spec.size, h = spec.top;
+  const slab = new THREE.Mesh(new THREE.BoxGeometry(s, .04, s), darkMat); slab.position.y = h - .02; g.add(slab);
+  const leg = new THREE.BoxGeometry(.07, h - .04, .07);                  // drafting legs — open floor beneath, reads light
+  [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([a, b]) => { const l = new THREE.Mesh(leg, darkMat);
+    l.position.set(a * (s / 2 - .11), (h - .04) / 2, b * (s / 2 - .11)); g.add(l); });
+  const w = BND_W * 1.6;                                                 // tabletop rim — the floor seam lifted to h, like the door ∩
+  [[0, -1, s + w, w], [0, 1, s + w, w], [-1, 0, w, s + w], [1, 0, w, s + w]].forEach(([a, b, lx, lz]) => {
+    const e = new THREE.Mesh(new THREE.BoxGeometry(lx, w, lz), coreMat);
+    e.position.set(a * s / 2, h, b * s / 2); g.add(e); });
+  const block = { x0: spec.x - s / 2 - .15, x1: spec.x + s / 2 + .15,      // capsule-expanded footprint — exact square edge-slide
+                  z0: spec.z - s / 2 - .15, z1: spec.z + s / 2 + .15 };
+  WALL_BLOCKS.push(block);
+  const tops = new Map();                                                // flat measured top at h over the whole footprint (5mm columns)
+  const c0 = Math.round(-s / 2 * 200), c1 = Math.round(s / 2 * 200);
+  for (let ix = c0; ix <= c1; ix++) for (let iz = c0; iz <= c1; iz++) tops.set(TOPK(ix, iz), h);
+  const rec = { name: 'table:' + spec.id, kind: 'table', g, tops, lb: [-s / 2, s / 2, -s / 2, s / 2],
+    x: spec.x, z: spec.z, rotY: 0, y0: 0, minB: 0, vs: 1, surf: true,
+    bbox: footB([-s / 2, s / 2, -s / 2, s / 2], spec.x, spec.z, 0), pickable: false, solids: null, source: 'manifest', _block: block, _spec: spec };
+  g.userData.pRec = rec; PLACED.push(rec);
+  const t = { spec, rec, g }; TABLES.push(t); return t;
+};
+/* emitBldg — a .stasset volume as a tabletop maquette. Dense u16 grid (STAS: x-major), surface-only
+   instancing, per-column max-height written back into the host's tops. All models on a table share
+   the table's declared scale — buildings stay comparable, like a real architect's set. */
+const emitBldg = (t, m) => fetch('/Assets/StreamingAssets/voxel_buildings/' + m.name + '.stasset')
+  .then(r => r.arrayBuffer()).then(buf => {
+    const dv = new DataView(buf);
+    if (dv.getUint32(0, false) !== 0x53544153) return console.warn('CONSTRUCT — not a stasset:', m.name);
+    const W = dv.getUint16(6, true), H = dv.getUint16(8, true), D = dv.getUint16(10, true);
+    const vox = new Uint16Array(buf.slice(16, 16 + W * H * D * 2));
+    const vs = BLDG_VS * t.spec.scale, top = t.spec.top, ox = m.x || 0, oz = m.z || 0;
+    const at = (x, y, z) => (x < 0 || y < 0 || z < 0 || x >= W || y >= H || z >= D) ? 0 : vox[x + W * (y + H * z)];
+    let ng = 0;
+    const ymax = new Uint16Array(W * D);                                 // per-column building top — the courtyard reads open
+    for (let y = 0; y < H; y++) for (let z = 0; z < D; z++) for (let x = 0; x < W; x++) {
+      const id = at(x, y, z); if (!id) continue;
+      if (y + 1 > ymax[x + W * z]) ymax[x + W * z] = y + 1;
+      if (!at(x-1,y,z) || !at(x+1,y,z) || !at(x,y-1,z) || !at(x,y+1,z) || !at(x,y,z-1) || !at(x,y,z+1)) ng++;
+    }
+    const miniG = new THREE.Group(); miniG.position.set(ox, top, oz); t.g.add(miniG);
+    const geo = new THREE.BoxGeometry(1, 1, 1);
+    const imO = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial(), ng);
+    const imG = new THREE.InstancedMesh(geo, window.__glassMat, ng);
+    const M = new THREE.Matrix4(), C = new THREE.Color(), dflt = new THREE.Color(.55, .55, .55);
+    let no = 0, gi = 0;
+    for (let y = 0; y < H; y++) for (let z = 0; z < D; z++) for (let x = 0; x < W; x++) {
+      const id = at(x, y, z); if (!id) continue;
+      if (at(x-1,y,z) && at(x+1,y,z) && at(x,y-1,z) && at(x,y+1,z) && at(x,y,z-1) && at(x,y,z+1)) continue;
+      M.makeScale(vs, vs, vs).setPosition((x - W / 2 + .5) * vs, (y + .5) * vs, (z - D / 2 + .5) * vs);
+      const col = BLDG_MAT[id]; C.setRGB(col ? col[0] : .55, col ? col[1] : .55, col ? col[2] : .55);
+      if (BLDG_GLASS.has(id)) { imG.setMatrixAt(gi, M); imG.setColorAt(gi, C); gi++; }
+      else { imO.setMatrixAt(no, M); imO.setColorAt(no, C); no++; }
+    }
+    imO.count = no; imG.count = gi; if (gi) miniG.add(imG); miniG.add(imO);
+    for (let z = 0; z < D; z++) for (let x = 0; x < W; x++) {              // the model joins the host's surface truth
+      const hgt = ymax[x + W * z]; if (!hgt) continue;
+      const lx = ox + (x - W / 2 + .5) * vs, lz = oz + (z - D / 2 + .5) * vs;
+      const k = TOPK(Math.round(lx * 200), Math.round(lz * 200)), v = top + hgt * vs;
+      if (v > (t.rec.tops.get(k) ?? -1e9)) t.rec.tops.set(k, v);           // several model cells share a 5mm column — keep the true max
+    }
+    miniG.userData.mini = { name: m.name, dims: [W, H, D], vox: ng, scale: t.spec.scale };
+    return miniG;
+  }).catch(e => console.warn('CONSTRUCT — bldg emit failed:', m.name, e));
+MANIFEST.tables.forEach(spec => { const t = emitTable(spec); spec.models.forEach(m => emitBldg(t, m)); });
+/* ═══ PERSISTENT PARTY — followers cross pages. sessionStorage 'dvm_party' is the handoff:
+   the Commission writes who's heeling on portal-E; the Construct writes who's coming home
+   on door-E. Each follower is the real poseEngine rig — gait, transitions, gaze, eyes. ═══ */
+const PARTY = JSON.parse(new URLSearchParams(location.search).get('party') || sessionStorage.getItem('dvm_party') || '[]');   // ?party= deep-links a party spec (probes); sessionStorage is the live handoff
+sessionStorage.removeItem('dvm_party');                                                                                     // handoff is one-shot — dvm_fol is the standing record from here
+const OUTFIT = { 3: 126, 4: 126, 6: 126, 7: 105 };   // Civilian_01 "Suit Blue" region→mat remap — same constant the Commission applies
+
+function poseEngine(rig) {
+  const DEF = {                                                // DEFAULT_PARAMS (animator ≡ C# defaults) — only the sections Idle/Walking read
+    restPose:    { leftArmZ: -Math.PI / 2, rightArmZ: Math.PI / 2 },
+    jointOffset: { 1: { x: 0, y: 0, z: 0 }, 2: { x: 0, y: 0, z: 0 }, 3: { x: 0, y: 0, z: 0 }, 4: { x: 0, y: 0, z: 0 }, 5: { x: 0, y: 0, z: 0 } },
+    armSwing:    { axisL: 0, axisR: 0, signL: 1, signR: 1 },
+    legStride:   { axisL: 0, axisR: 0, signL: 1, signR: 1 },
+    legTwist:    { leftRest: 0, rightRest: 0 },
+    elbowBend:   { leftRest: 0, rightRest: 0, axisL: 1, axisR: 1, signL: 1, signR: -1, twistL: 0, twistR: 0 },
+    kneeBend:    { leftRest: 0, rightRest: 0, axisL: 0, axisR: 0, signL: 1, signR: 1 },
+    walkKeyframes: { autoMirror: true, cycleDuration: 1.2, bodyBob: { enabled: true, amplitude: .6 }, weightShift: { enabled: true, amplitude: .4 },
+      kf0: { armSwingL: .3, armSwingR: -.3, legStrideL: -.4, legStrideR: .4, elbowBendL: .1, elbowBendR: .1, kneeBendL: 0, kneeBendR: 0, forearmTwistL: 0, forearmTwistR: 0 },
+      kf1: { armSwingL: 0, armSwingR: 0, legStrideL: .3, legStrideR: -.1, elbowBendL: .3, elbowBendR: .3, kneeBendL: .8, kneeBendR: .15, forearmTwistL: 0, forearmTwistR: 0 },
+      kf2: null, kf3: null },
+  };
+  const ap = rig.animParams || {}, P = {};
+  for (const k in DEF) P[k] = Object.assign({}, DEF[k], ap[k]);   // animator load rule: per-section shallow merge over the defaults
+  const dims = rig.dims || [96, 96, 96], piv = {}, jo = {};
+  for (const g in rig.pivots || {}) { const p = rig.pivots[g]; piv[g] = [p.x * dims[0], p.y * dims[1], p.z * dims[2]]; }   // normalized → voxel units
+  for (let g = 1; g <= 5; g++) { const o = P.jointOffset[g] || {}; jo[g] = [o.x || 0, o.y || 0, o.z || 0]; }
+  jo[6] = jo[4]; jo[7] = jo[5]; jo[8] = jo[2]; jo[9] = jo[3];   // shins/forearms inherit their parent's offset
+  const vox = rig.voxels, N = vox.length, grp = rig.groups || {};
+  const vx = new Float32Array(N), vy = new Float32Array(N), vz = new Float32Array(N), vg = new Uint8Array(N);
+  vox.forEach((v, i) => { vx[i] = v[0]; vy[i] = v[1]; vz[i] = v[2]; vg[i] = grp[v[0] + ',' + v[1] + ',' + v[2]] || 0; });
+  /* rotations — row-major 3×3, the animator/C#/HLSL convention (rY is Unity-handed: [[c,0,-s],[0,1,0],[s,0,c]]) */
+  const rX = a => { const c = Math.cos(a), s = Math.sin(a); return [1, 0, 0, 0, c, -s, 0, s, c]; };
+  const rY = a => { const c = Math.cos(a), s = Math.sin(a); return [c, 0, -s, 0, 1, 0, s, 0, c]; };
+  const rZ = a => { const c = Math.cos(a), s = Math.sin(a); return [c, -s, 0, s, c, 0, 0, 0, 1]; };
+  const rA = (ax, a) => ax === 1 ? rY(a) : ax === 2 ? rZ(a) : rX(a);
+  const mm = (a, b) => [a[0] * b[0] + a[1] * b[3] + a[2] * b[6], a[0] * b[1] + a[1] * b[4] + a[2] * b[7], a[0] * b[2] + a[1] * b[5] + a[2] * b[8],
+                        a[3] * b[0] + a[4] * b[3] + a[5] * b[6], a[3] * b[1] + a[4] * b[4] + a[5] * b[7], a[3] * b[2] + a[4] * b[5] + a[5] * b[8],
+                        a[6] * b[0] + a[7] * b[3] + a[8] * b[6], a[6] * b[1] + a[7] * b[4] + a[8] * b[7], a[6] * b[2] + a[7] * b[5] + a[8] * b[8]];
+  /* gait — 4 keyframes at phase 0/.25/.5/.75, kf2/kf3 = L↔R mirror of kf0/kf1, cyclic Catmull-Rom; phase from the integrated gaitTime */
+  const WK = P.walkKeyframes;
+  const mirror = k => ({ armSwingL: k.armSwingR, armSwingR: k.armSwingL, legStrideL: k.legStrideR, legStrideR: k.legStrideL, elbowBendL: k.elbowBendR, elbowBendR: k.elbowBendL,
+                         kneeBendL: k.kneeBendR, kneeBendR: k.kneeBendL, forearmTwistL: k.forearmTwistR, forearmTwistR: k.forearmTwistL });
+  const KF = [WK.kf0, WK.kf1, WK.kf2 || (WK.autoMirror ? mirror(WK.kf0) : WK.kf0), WK.kf3 || (WK.autoMirror ? mirror(WK.kf1) : WK.kf1)];
+  const cr = (a, b, c, d, t) => .5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t * t + (-a + 3 * b - 3 * c + d) * t * t * t);
+  /* ═══ IK AIM channel — character_animator.html's simulated ArmAimSolver, ported flat-matrix.
+     2-bone law-of-cosines: shoulder places the elbow in the hint plane, forearm cumulative lands the
+     hand axis on target. Solved rotations REPLACE the group's ownRot blended (Unity Slerp into
+     ikOverrides). gid 2/8 = the arm that reads RIGHT in the Unity view (this tool's 'L Arm'). ═══ */
+  const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2], sub3 = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]],
+        norm3 = v => { const l = Math.hypot(v[0], v[1], v[2]); return l > 1e-9 ? [v[0] / l, v[1] / l, v[2] / l] : [0, 0, 1]; },
+        len3 = v => Math.hypot(v[0], v[1], v[2]),
+        cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]],
+        mT = a => [a[0], a[3], a[6], a[1], a[4], a[7], a[2], a[5], a[8]];
+  function basisFromFwd(f, u) {
+    if (Math.abs(dot3(f, u)) > .95) u = Math.abs(f[1]) < .9 ? [0, 1, 0] : [1, 0, 0];
+    const r = norm3(cross3(u, f)), up = cross3(f, r);
+    return [r[0], up[0], f[0], r[1], up[1], f[1], r[2], up[2], f[2]];
+  }
+  function basisDelta(bF, sF, up) { const s = basisFromFwd(norm3(sF), up), b = basisFromFwd(norm3(bF), up); return mm(s, mT(b)); }
+  function perpOf(h, ax) { let p = sub3(h, [ax[0] * dot3(h, ax), ax[1] * dot3(h, ax), ax[2] * dot3(h, ax)]); if (dot3(p, p) < 1e-8) p = Math.abs(ax[0]) < .9 ? [ax[1], -ax[0], 0] : [0, ax[2], -ax[1]]; return norm3(p); }
+  function scaledRot(m, w) {                                                            // rotation-matrix slerp: m scaled toward identity by 1−w
+    if (w <= 1e-4) return [1, 0, 0, 0, 1, 0, 0, 0, 1]; if (w >= .9999) return m;
+    const cA = Math.max(-1, Math.min(1, (m[0] + m[4] + m[8] - 1) / 2)), a0 = Math.acos(cA), s = 2 * Math.sin(a0);
+    if (Math.abs(s) < 1e-5) return w < .5 ? [1, 0, 0, 0, 1, 0, 0, 0, 1] : m;
+    const ax = (m[7] - m[5]) / s, ay = (m[2] - m[6]) / s, az = (m[3] - m[1]) / s, ang = a0 * w, c = Math.cos(ang), sn = Math.sin(ang), ic = 1 - c;
+    return [c + ax * ax * ic, ax * ay * ic - az * sn, ax * az * ic + ay * sn,
+            ay * ax * ic + az * sn, c + ay * ay * ic, ay * az * ic - ax * sn,
+            az * ax * ic - ay * sn, az * ay * ic + ax * sn, c + az * az * ic];
+  }
+  let _hand = null;
+  function handPoint() {                                                                 // fist tip: farthest gid-8 voxel from the shoulder pivot, cached
+    if (!_hand) {
+      const sv = piv[2]; let hv = null, best = -1;
+      for (let i = 0; i < N; i++) if (vg[i] === 8) { const p = [vx[i] + .5, vy[i] + .5, vz[i] + .5], d = dot3(sub3(p, sv), sub3(p, sv)); if (d > best) { best = d; hv = p; } }
+      _hand = hv ? { hv, axis: norm3(sub3(hv, piv[8])) } : null;
+    }
+    return _hand;
+  }
+  function ikSolve(T, reach) {                                                           // T = target in model voxel-index coords
+    const sv = piv[2], ev = piv[8], hand = handPoint();
+    if (!sv || !ev || !hand) return null;
+    const st = sub3(T, sv), dist = len3(st), toT = dist > 1e-6 ? [st[0] / dist, st[1] / dist, st[2] / dist] : [0, 0, 1];
+    const bindArm = norm3(sub3(ev, sv)), L1 = len3(sub3(ev, sv)), L2 = len3(sub3(hand.hv, ev)), UP = [0, 1, 0];
+    let qArm;
+    if (L1 < 1e-4 || L2 < 1e-4) qArm = basisDelta(bindArm, toT, UP);
+    else {
+      const d = Math.min(Math.max(dist, Math.abs(L1 - L2) + .01), (L1 + L2) * reach);
+      const cosA = Math.min(1, Math.max(-1, (L1 * L1 + d * d - L2 * L2) / (2 * L1 * d))), angA = Math.acos(cosA);
+      const sideX = Math.sign(sv[0] / dims[0] - .5) || 1;                                 // elbow hints outward on the arm's own side
+      const bendRef = perpOf([sideX * .4, -1, .2], toT);
+      const ca = Math.cos(angA), sa = Math.sin(angA);
+      qArm = basisDelta(bindArm, norm3([toT[0] * ca + bendRef[0] * sa, toT[1] * ca + bendRef[1] * sa, toT[2] * ca + bendRef[2] * sa]), UP);
+    }
+    return { qArm, qFore: mm(mT(qArm), basisDelta(hand.axis, toT, UP)) };                 // forearm cumulative must land hand axis on target
+  }
+  function gait(gt) {
+    const dur = WK.cycleDuration, ph = (((gt % dur) + dur) % dur) / dur, s = Math.min(3, Math.floor(ph * 4)), t = ph * 4 - s;
+    const A = KF[(s + 3) % 4], B = KF[s], C = KF[(s + 1) % 4], D = KF[(s + 2) % 4], pose = {};
+    for (const k in B) pose[k] = cr(A[k] || 0, B[k] || 0, C[k] || 0, D[k] || 0, t);
+    return { pose,
+      bobY:   WK.bodyBob.enabled ? -Math.cos(ph * 4 * Math.PI) * WK.bodyBob.amplitude : 0,         // lowest at contact, highest at mid-stance
+      shiftX: WK.weightShift.enabled ? Math.sin(ph * 2 * Math.PI) * WK.weightShift.amplitude : 0 };  // lateral weight shift over the stance leg
+  }
+  /* out[3i..3i+2] ← posed voxel-index position of voxel i under (state, gaitTime, aim) — aim = {T:[ix,iy,iz] model coords, blend, head} or null */
+  function evalPose(state, gt, out, aim) {
+    const AS = P.armSwing, LS = P.legStride, EB = P.elbowBend, KB = P.kneeBend, RP = P.restPose, LT = P.legTwist;
+    const g = state === 1 ? gait(gt) : null;                   // Idle: rest pose only · Walking: rest pose + gait + bob + shift
+    const k = state === 11 ? { armSwingL: .2, armSwingR: .2, legStrideL: -1.45, legStrideR: -1.45, kneeBendL: 1.45, kneeBendR: 1.45,   // Sit (animator DEFAULT_PARAMS.sitting): thighs forward ~83°, shins fold down, torso upright, no bob. Stride sign is flipped vs the animator's +1.45 — fitted: all 12,608 voxels land inside the authored vinny_seated_preview composite
+                                elbowBendL: EB.leftRest, elbowBendR: EB.rightRest, forearmTwistL: EB.twistL, forearmTwistR: EB.twistR } : g && g.pose;
+    const armL = mm(rA(AS.axisL, AS.signL * (k ? k.armSwingL : 0)), rZ(RP.leftArmZ)), armR = mm(rA(AS.axisR, AS.signR * (k ? k.armSwingR : 0)), rZ(RP.rightArmZ));
+    const legL = mm(rA(LS.axisL, LS.signL * (k ? k.legStrideL : 0)), rY(LT.leftRest)), legR = mm(rA(LS.axisR, LS.signR * (k ? k.legStrideR : 0)), rY(LT.rightRest));
+    const twL = k ? k.forearmTwistL : EB.twistL, twR = k ? k.forearmTwistR : EB.twistR;
+    let foreL = rA(EB.axisL, EB.signL * (k ? k.elbowBendL : EB.leftRest)), foreR = rA(EB.axisR, EB.signR * (k ? k.elbowBendR : EB.rightRest));
+    if (twL) foreL = mm(foreL, rX(twL)); if (twR) foreR = mm(foreR, rX(twR));
+    const shinL = rA(KB.axisL, KB.signL * (k ? k.kneeBendL : KB.leftRest)), shinR = rA(KB.axisR, KB.signR * (k ? k.kneeBendR : KB.rightRest));
+    const C = [null, { c: [], o: jo[1] },                                                              // 0 Body: no transform · 1 Head: identity at rest
+      { c: [[piv[2], armL]], o: jo[2] }, { c: [[piv[3], armR]], o: jo[3] },                           // 2/3 arms: restPose Z drop (arms down), then swing
+      { c: [[piv[4], legL]], o: jo[4] }, { c: [[piv[5], legR]], o: jo[5] },                           // 4/5 legs: hip stride
+      { c: [[piv[6], shinL], [piv[4], legL]], o: jo[4] }, { c: [[piv[7], shinR], [piv[5], legR]], o: jo[5] },   // 6/7 shins: knee hinge FIRST, then the hip carries the bent limb
+      { c: [[piv[8], foreL], [piv[2], armL]], o: jo[2] }, { c: [[piv[9], foreR], [piv[3], armR]], o: jo[3] }]; // 8/9 forearms: elbow hinge FIRST, then the shoulder
+    if (aim) {                                                           // IK AIM channel — solves REPLACE the arm chain's ownRot, blended (over ANY state)
+      const sol = ikSolve(aim.T, .96);
+      if (sol) {
+        const ikArm = mm(scaledRot(mm(sol.qArm, mT(armL)), aim.blend), armL);
+        const ikFore = mm(scaledRot(mm(sol.qFore, mT(foreL)), aim.blend), foreL);
+        C[2] = { c: [[piv[2], ikArm]], o: jo[2] };
+        C[8] = { c: [[piv[8], ikFore], [piv[2], ikArm]], o: jo[2] };
+        if (aim.head > 0) {                                              // eyes take the aim too — head bind-forward → target dir, blended
+          const d = sub3(aim.T, piv[1]), toT = len3(d) > 1e-6 ? norm3(d) : [0, 0, 1];
+          C[1] = { c: [[piv[1], scaledRot(basisDelta([0, 0, 1], toT, [0, 1, 0]), aim.head)]], o: jo[1] };
+        }
+      }
+    }
+    const sx = g ? g.shiftX : 0, by = g ? g.bobY : 0;
+    for (let i = 0; i < N; i++) {
+      const ch = C[vg[i]]; let x = vx[i], y = vy[i], z = vz[i];
+      if (ch) {
+        for (let c = 0; c < ch.c.length; c++) {
+          const pv = ch.c[c][0], m = ch.c[c][1], dx = x - pv[0], dy = y - pv[1], dz = z - pv[2];
+          x = pv[0] + m[0] * dx + m[1] * dy + m[2] * dz; y = pv[1] + m[3] * dx + m[4] * dy + m[5] * dz; z = pv[2] + m[6] * dx + m[7] * dy + m[8] * dz;
+        }
+        x += ch.o[0]; y += ch.o[1]; z += ch.o[2];
+      }
+      out[3 * i] = x + sx; out[3 * i + 1] = y + by; out[3 * i + 2] = z;
+    }
+  }
+  return { N, evalPose };
+}
+/* ═══ /POSE ENGINE ═══ */
+
+
+
+const followers = [];
+const emitChar = spec => fetch('/char/' + spec.char).then(r => r.json()).then(rig => {
+  if (!rig || !rig.voxels) return null;
+  const E = poseEngine(rig), N = rig.voxels.length, VS = rig.voxelSize || .01, d = rig.dims || [96, 96, 96];
+  const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(VS, VS, VS), new THREE.MeshLambertMaterial(), N);
+  inst.frustumCulled = false;                          // matrices rewrite per pose — load-time bounds go stale
+  const pal = {}; (rig.materials || []).forEach(m => pal[m.id] = new THREE.Color(m.hex));
+  const reg = rig.regions || {}, dflt = new THREE.Color(0x888888), out = spec.outfit || OUTFIT;    // spec.outfit = mannequin's wardrobe
+  rig.voxels.forEach((v, i) => inst.setColorAt(i, pal[out[reg[v[0] + ',' + v[1] + ',' + v[2]]] || v[3]] || dflt));
+  inst.instanceColor.needsUpdate = true;
+  const CH = new THREE.Group(); CH.add(inst); scene.add(CH);
+  const bufA = new Float64Array(3 * N), bufB = new Float64Array(3 * N);
+  const MA = inst.instanceMatrix.array;
+  for (let i = 0; i < N; i++) MA[16 * i] = MA[16 * i + 5] = MA[16 * i + 10] = MA[16 * i + 15] = 1;
+  function upload(A, B, blend, dip) {                  // same pipeline as the Commission's — voxel-index → CH-local metres
+    const hx = d[0] / 2, hz = d[2] / 2;
+    for (let i = 0, j = 12; i < N; i++, j += 16) {
+      let x = B[3 * i], y = B[3 * i + 1], z = B[3 * i + 2];
+      if (A) { x = A[3 * i] + (x - A[3 * i]) * blend; y = A[3 * i + 1] + (y - A[3 * i + 1]) * blend + dip; z = A[3 * i + 2] + (z - A[3 * i + 2]) * blend; }
+      MA[j] = (x - hx) * VS; MA[j + 1] = (y + .5) * VS; MA[j + 2] = (z - hz) * VS;
+    }
+    inst.instanceMatrix.needsUpdate = true;
+  }
+  const eyeIdx = []; rig.voxels.forEach((v, i) => { if (reg[v[0] + ',' + v[1] + ',' + v[2]] === 10) eyeIdx.push(i); });   // region 10 = gaze anchor
+  const slot = followers.length;                                        // heel slot — lateral offset around the player so bodies form up, not stack
+  const heelOff = slot ? (slot % 2 ? 1 : -1) * Math.ceil(slot / 2) * .45 : 0;
+  const f = { spec, rig, E, inst, pal, CH, bufA, bufB, eyeIdx, N, VS, d, upload, heelOff,
+    pos: new THREE.Vector3(spec.x ?? (.4 + slot * .16), 0, spec.z ?? .45), yaw: spec.yaw ?? Math.PI,   // steps out of the door-elevator behind you
+    order: spec.order || 'follow', state: 0, prevState: 0, transFrom: 0, transT: -1, blend: 1, dip: 0, walkSpeed: 1, gaitTime: 0,
+    gazeT: null };
+  f.setOrder = o => { f.order = { follow: 'follow', goto: 'goto', wait: 'wait' }[o] || 'follow'; };
+  E.evalPose(0, 0, bufB); upload(null, bufB, 1, 0);
+  CH.position.set(f.pos.x, 0, f.pos.z); CH.rotation.y = f.yaw;         // statics never run followStep — plant at emit
+  if (!spec.static) {                                                // mannequin — never a follower: no roster, no heel, no PiP claim
+    followers.push(f); saveFol();
+    if (!povF) povF = f;                                             // first body in the room owns the eyes — party or console, same claim
+  }
+  return f;
+}).catch(e => { window.__lastPartyErr = String(e && e.stack || e); console.warn('CONSTRUCT — follower emit failed:', spec.char, e); });
+
+/* follow-nav — the Construct's simpler world needs less than the Commission's ring choreography:
+   seek the player at polite distance, SOLIDS pushout, walk-rect clamp, measured-speed gait */
+const F_TURN = 10, F_WALK = 1.4, MOVE_EPS = .1, TRANS_DUR = .32, TRANS_DIP = .45, FOLLOW_D = .5;
+const followStep = (f, dt) => {
+  let moving = false;
+  let tx = null, tz = 0, arrive = FOLLOW_D;                              // order → target: follow heels you, goto plants on the live mark
+  if (f.order === 'follow') { tx = pos.x + f.heelOff * Math.cos(yaw); tz = pos.z - f.heelOff * Math.sin(yaw); }   // heel slot fans out along your right axis
+  else if (f.order === 'goto' && marks.length) { tx = marks[0].position.x; tz = marks[0].position.z; arrive = .3; }
+  if (tx !== null) {
+    const dx = tx - f.pos.x, dz = tz - f.pos.z, d = Math.hypot(dx, dz);
+    if (d > arrive) {
+      const vx = dx / d * F_WALK, vz = dz / d * F_WALK;
+      let dyaw = Math.atan2(vx, vz) - f.yaw;
+      while (dyaw > Math.PI) dyaw -= 2 * Math.PI; while (dyaw < -Math.PI) dyaw += 2 * Math.PI;
+      f.yaw += Math.sign(dyaw) * Math.min(Math.abs(dyaw), F_TURN * dt);
+      const fnx = f.pos.x + vx * dt, fnz = f.pos.z + vz * dt;               // axis-slide against walls (union rects − stubs)
+      if (walkOK(fnx, fnz)) { f.pos.x = fnx; f.pos.z = fnz; }
+      else if (walkOK(fnx, f.pos.z)) f.pos.x = fnx; else if (walkOK(f.pos.x, fnz)) f.pos.z = fnz;
+      for (const s of SOLIDS) { const px = f.pos.x - s[0], pz = f.pos.z - s[1], rr = s[2] + .18, dd = Math.hypot(px, pz);
+        if (dd < rr && dd > 1e-4) { f.pos.x = s[0] + px / dd * rr; f.pos.z = s[1] + pz / dd * rr; } }
+      for (const g of followers) { if (g === f) continue; const px = f.pos.x - g.pos.x, pz = f.pos.z - g.pos.z, dd = Math.hypot(px, pz);   // bodies don't stack
+        if (dd < .3 && dd > 1e-4) { f.pos.x = g.pos.x + px / dd * .3; f.pos.z = g.pos.z + pz / dd * .3; } }
+      moving = true;
+    }
+  }
+  const pxs = f.pos.x - pos.x, pzs = f.pos.z - pos.z, ds = Math.hypot(pxs, pzs);        // never inside the player either
+  if (ds < .28 && ds > 1e-4) { f.pos.x = pos.x + pxs / ds * .28; f.pos.z = pos.z + pzs / ds * .28; }
+  const ox = f.pos.x, oz = f.pos.z;
+  f.CH.position.set(f.pos.x, 0, f.pos.z); f.CH.rotation.y = f.yaw;
+  const hs = Math.hypot(f.pos.x - ox, f.pos.z - oz) / dt;
+  const was = f.state === 1 || f.transT >= 0;
+  if (hs > MOVE_EPS) { f.state = 1; f.walkSpeed = Math.min(2, Math.max(.5, hs * .5)); } else f.state = 0;
+  if (f.state !== f.prevState) { f.transFrom = f.prevState; f.prevState = f.state; f.transT = 0; }
+  f.gaitTime += dt * f.walkSpeed;
+  if (f.transT >= 0) { f.transT += dt; const t = Math.min(1, f.transT / TRANS_DUR);
+    f.blend = t * t * (3 - 2 * t); f.dip = -Math.sin(Math.PI * t) * TRANS_DIP;
+    if (t >= 1) { f.transT = -1; f.blend = 1; f.dip = 0; } }
+  let gaze = null;                                            // a live tag wins; else idle & close → his head tracks you (region-10 channel, arm untouched)
+  const gT = f.gazeT ? f.gazeT : (!moving && Math.hypot(pos.x - f.pos.x, pos.z - f.pos.z) < 2.2 ? _playerHead : null);
+  if (gT) {
+    const lx = gT.x - f.pos.x, lz = gT.z - f.pos.z, ly = gT.y, cy = Math.cos(f.yaw), sy = Math.sin(f.yaw);
+    gaze = { T: [(lx * cy - lz * sy) / f.VS + f.d[0] / 2, ly / f.VS, (lx * sy + lz * cy) / f.VS + f.d[2] / 2], blend: 0, head: 1 };
+  }
+  if (was || f.state === 1 || f.transT >= 0 || gaze) {
+    f.E.evalPose(f.state, f.gaitTime, f.bufB, gaze);
+    if (f.transT >= 0) { f.E.evalPose(f.transFrom, f.gaitTime, f.bufA, gaze); f.upload(f.bufA, f.bufB, f.blend, f.dip); }
+    else f.upload(null, f.bufB, 1, 0);
+  }
+};
+
+/* ── follower's eyes — region-10 posed centroid → POV cam; P toggles the inset, __eyes.shot captures.
+   Gaze target is always the player's head — his POV watches you, like his head does. */
+const povCam = new THREE.PerspectiveCamera(72, 16 / 9, .005, 20); povCam.rotation.order = 'YXZ';
+let povOn = false, povYaw = Math.PI, povPitch = 0, povF = null;
+const povEl = document.createElement('div');
+povEl.style.cssText = 'position:fixed;right:12px;bottom:12px;border:1px solid rgba(255,255,255,.35);box-shadow:0 0 0 1px rgba(0,0,0,.25);color:#b0a88f;font:10px ui-monospace,Consolas,monospace;letter-spacing:.2em;display:none;z-index:6;pointer-events:none;padding:4px 6px';
+povEl.textContent = 'FOLLOWER POV'; document.body.appendChild(povEl);
+const sizePovEl = () => { const w = innerWidth, iw = Math.floor(w * .30), ih = Math.floor(iw * 9 / 16); povEl.style.width = iw + 'px'; povEl.style.height = ih + 'px'; povEl.style.padding = '0'; povEl.style.lineHeight = '1'; povEl.style.boxSizing = 'border-box'; povEl.style.textAlign = 'left'; povEl.style.verticalAlign = 'bottom'; povEl.innerHTML = '<span style="position:absolute;left:0;bottom:0;padding:3px 6px;background:rgba(0,0,0,.35)">FOLLOWER POV</span>'; };
+sizePovEl(); addEventListener('resize', sizePovEl);
+const _eyeL = [0, 0, 0], _eyeW = new THREE.Vector3(), _pfwd = new THREE.Vector3();
+function eyeWorld(f) {
+  let x = 0, y = 0, z = 0;
+  for (const i of f.eyeIdx) { x += f.bufB[3 * i]; y += f.bufB[3 * i + 1]; z += f.bufB[3 * i + 2]; }
+  if (f.transT >= 0) { let ax = 0, ay = 0, az = 0;
+    for (const i of f.eyeIdx) { ax += f.bufA[3 * i]; ay += f.bufA[3 * i + 1]; az += f.bufA[3 * i + 2]; }
+    x = ax + (x - ax) * f.blend; y = ay + (y - ay) * f.blend; z = az + (z - az) * f.blend; }
+  const n = f.eyeIdx.length || 1, hx = f.d[0] / 2, hz = f.d[2] / 2;
+  _eyeL[0] = (x / n - hx) * f.VS; _eyeL[1] = (y / n + .5) * f.VS; _eyeL[2] = (z / n - hz) * f.VS;
+  const cy = Math.cos(f.yaw), sy = Math.sin(f.yaw);
+  _eyeW.set(f.pos.x + _eyeL[0] * cy + _eyeL[2] * sy, _eyeL[1], f.pos.z - _eyeL[0] * sy + _eyeL[2] * cy);
+  return _eyeW;
+}
+function updatePov(dt) {
+  if (!povF) return;
+  const e = eyeWorld(povF);
+  const g = povF.gazeT || _playerHead;                            // tagged → his POV rides the mark; else he watches you
+  const gx = g.x - e.x, gy = g.y - e.y, gz = g.z - e.z, hz = Math.hypot(gx, gz) || 1e-4;
+  const wy = Math.atan2(-gx, -gz), wp = Math.atan2(gy, hz);
+  let dyw = wy - povYaw; while (dyw > Math.PI) dyw -= 2 * Math.PI; while (dyw < -Math.PI) dyw += 2 * Math.PI;
+  const k = Math.min(1, 10 * dt);
+  povYaw += dyw * k; povPitch += (wp - povPitch) * k;
+  _pfwd.set(-Math.sin(povYaw) * Math.cos(povPitch), Math.sin(povPitch), -Math.cos(povYaw) * Math.cos(povPitch));
+  povCam.position.copy(e).addScaledVector(_pfwd, .075);         // push out of the skull
+  povCam.rotation.set(povPitch, povYaw, 0);
+}
+window.__eyes = {
+  on: () => povOn,
+  show: () => { if (povF) { povOn = true; povEl.style.display = 'block'; } },
+  hide: () => { povOn = false; povEl.style.display = 'none'; },
+  pip: () => {                                                   // scissored second pass — same trick as the Commission's __eyes.pip
+    if (!povOn || !povF) return;
+    const cv = renderer.domElement, w = cv.width / (renderer.getPixelRatio() || 1), h = cv.height / (renderer.getPixelRatio() || 1);
+    const iw = Math.floor(w * .30), ih = Math.floor(iw * 9 / 16), ix = Math.floor(w - iw - 12), iy = 12;
+    povCam.aspect = iw / ih; povCam.updateProjectionMatrix();
+    renderer.setScissorTest(true); renderer.setScissor(ix, iy, iw, ih); renderer.setViewport(ix, iy, iw, ih);
+    renderer.clearDepth();
+    const ac = renderer.autoClear; renderer.autoClear = false;
+    renderer.render(scene, povCam);
+    renderer.autoClear = ac; renderer.setScissorTest(false); renderer.setViewport(0, 0, w, h); renderer.setScissor(0, 0, w, h);
+  },
+  shot: () => {                                                  // full-res POV frame → PNG data URL (same task render+read)
+    if (!povF) return null;
+    const cv = renderer.domElement, pr = renderer.getPixelRatio() || 1;
+    povCam.aspect = cv.width / cv.height; povCam.updateProjectionMatrix();
+    renderer.setViewport(0, 0, cv.width / pr, cv.height / pr);
+    renderer.render(scene, povCam);
+    return cv.toDataURL('image/png');
+  },
+  snap: name => { const u = window.__eyes.shot(); if (!u) return Promise.resolve(false);
+    return fetch('/shot', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'probe_' + (name || 'follower'), png: u }) }).then(r => r.json()).then(j => !!j.ok); },
+};
+
+/* ── laser + tag — F-hold or RMB-hold paints the live dot (first-person has no body to point with,
+   so the dot IS the laser); LMB while aiming plants a persistent mark. The tag is shared truth:
+   followers gaze at it (head IK), T sends them to it (goto), the agent API writes the same
+   pipeline — so a tag is identical whether it came from your laser or my prompt. */
+const _playerHead = new THREE.Vector3();
+const aimRay = new THREE.Raycaster(), _zv = new THREE.Vector2(0, 0), aimWorld = new THREE.Vector3();
+let aimOn = false, rmbAim = false;
+const markGeo = new THREE.BoxGeometry(.05, .05, .05), markMat = new THREE.MeshBasicMaterial({ color: 0xff3344 }), marks = [];
+const aimDot = new THREE.Mesh(new THREE.BoxGeometry(.03, .03, .03), markMat); aimDot.visible = false; scene.add(aimDot);
+const xhair = document.createElement('div');
+xhair.style.cssText = 'position:fixed;left:50%;top:50%;width:5px;height:5px;margin:-2.5px 0 0 -2.5px;border-radius:50%;background:#ff3344;display:none;z-index:5;pointer-events:none';
+document.body.appendChild(xhair);
+const tagAt = p => {
+  while (marks.length) scene.remove(marks.pop());                            // one live mark — a new tag replaces the old
+  const m = new THREE.Mesh(markGeo, markMat); m.position.copy(p); scene.add(m); marks.push(m);
+  followers.forEach(f => { f.gazeT = (f.gazeT || new THREE.Vector3()).copy(p); });   // the tag is a gaze order — his eyes center on it
+};
+const clearTags = () => { while (marks.length) scene.remove(marks.pop()); followers.forEach(f => { f.gazeT = null; }); };
+window.__aim = { on: () => aimOn, mark: tagAt, clear: clearTags, world: () => aimWorld.toArray() };
+
+const aimStep = () => {
+  aimOn = !!(keys.f || rmbAim);
+  _playerHead.set(pos.x, EYE, pos.z);
+  if (aimOn) {
+    aimRay.setFromCamera(_zv, camera);
+    const excl = [boundsG, ghost, aimDot, camera];
+    followers.forEach(f => excl.push(f.CH)); if (selfBody) excl.push(selfBody.CH); if (held) excl.push(held.g); marks.forEach(m => excl.push(m));
+    const hits = aimRay.intersectObjects(scene.children.filter(o => !excl.includes(o)), true);
+    camera.getWorldDirection(fwdV);
+    if (hits.length) aimWorld.copy(hits[0].point); else aimWorld.copy(camera.position).addScaledVector(fwdV, 4);
+    aimDot.position.copy(aimWorld); aimDot.visible = true;
+  } else aimDot.visible = false;
+  xhair.style.display = aimOn ? 'block' : 'none';
+};
+
+/* ── door console — the spawn panel. A hue-rimmed dark reader floating on the invisible
+   elevator wall beside the door; E opens the roster dialog — load units in place, no
+   crossing required. The roster is a list so future units just append a row. */
+const CONS_POS = { x: -.58, y: .5, z: .66 };
+const consG = new THREE.Group(); consG.position.set(CONS_POS.x, CONS_POS.y, CONS_POS.z); consG.rotation.y = Math.PI; scene.add(consG);
+{
+  const back = new THREE.Mesh(new THREE.PlaneGeometry(.17, .13), coreMat); back.position.z = -.008; consG.add(back);   // hue-riding rim — -.008 clears the face box's rear surface (coplanar = z-fight shimmer)
+  const face = new THREE.Mesh(new THREE.BoxGeometry(.155, .115, .012), new THREE.MeshLambertMaterial({ color: 0x14161c })); consG.add(face);
+  const pip = new THREE.Mesh(new THREE.BoxGeometry(.012, .012, .014), coreMat); pip.position.set(.055, .042, .002); consG.add(pip);          // status light
+}
+const consEl = document.createElement('div');
+consEl.style.cssText = 'position:fixed;left:50%;top:46%;transform:translate(-50%,-50%);min-width:290px;background:rgba(12,12,18,.94);border:1px solid #34344a;padding:14px 16px;font:12px ui-monospace,Consolas,monospace;color:#cfc8b0;display:none;z-index:20';
+document.body.appendChild(consEl);
+let consOpen = false;
+const ROSTER = [{ char: 'CHAIR1', label: 'THE CHAIR', desc: 'civilian unit — commission seat' }];
+function renderCons() {
+  consEl.innerHTML = '<div style="letter-spacing:.25em;color:#8f87a0;margin-bottom:10px">DOOR CONSOLE — PERSONNEL</div>' +
+    ROSTER.map((r, i) => {
+      const on = followers.some(f => f.spec.char === r.char);
+      return '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-top:1px solid #26242f">' +
+        '<div style="flex:1"><div>' + r.label + '</div><div style="color:#6f6a58;font-size:10px">' + r.desc + '</div></div>' +
+        '<button data-i="' + i + '" style="font:inherit;background:' + (on ? '#4a1f28' : '#1f3a2a') + ';color:#e8e0c8;border:1px solid ' + (on ? '#a33' : '#3a5') + ';padding:4px 10px;cursor:pointer">' + (on ? 'DISMISS' : 'SPAWN') + '</button></div>';
+    }).join('') +
+    '<div style="margin-top:10px;color:#5b5648;font-size:10px">E / Esc — close &nbsp;·&nbsp; click canvas to re-engage look</div>';
+  consEl.querySelectorAll('button[data-i]').forEach(b => b.onclick = () => toggleSpawn(ROSTER[+b.dataset.i], b));
+}
+function toggleSpawn(r, btn) {
+  const f = followers.find(x => x.spec.char === r.char);
+  if (f) { scene.remove(f.CH); followers.splice(followers.indexOf(f), 1); if (povF === f) { window.__eyes.hide(); povF = followers[0] || null; } saveFol(); renderCons(); }
+  else { btn.textContent = 'LOADING…'; emitChar({ char: r.char, order: 'follow', x: .4, z: .45 }).then(() => renderCons()); }
+}
+const openCons = () => { consOpen = true; renderCons(); consEl.style.display = 'block'; if (document.exitPointerLock) document.exitPointerLock(); };
+const closeCons = () => { consOpen = false; consEl.style.display = 'none'; };
+window.__console = { open: openCons, close: closeCons, on: () => consOpen, render: renderCons, spawn: r => toggleSpawn(r, { textContent: '' }) };
+
+/* ── SPEC PLAQUE — the spec↔unity voxelSize table as a literal wall plate east of the door.
+   Self-lit face (MeshBasic — always readable, never lit-dependent); brass-rimmed dark plate
+   on the same floating-panel convention as the door console. */
+const specCv = document.createElement('canvas'); specCv.width = 640; specCv.height = 460;
+{ const g = specCv.getContext('2d');
+  g.fillStyle = '#14121a'; g.fillRect(0, 0, 640, 460);
+  g.strokeStyle = '#b08d4a'; g.lineWidth = 10; g.strokeRect(5, 5, 630, 450);
+  g.fillStyle = '#e8d9b0'; g.font = 'bold 32px monospace'; g.textAlign = 'left';
+  g.fillText('SPEC ↔ UNITY', 36, 60);
+  g.fillStyle = '#9a9480'; g.font = '18px monospace';
+  g.fillText('voxelSize · meters per cell', 36, 92);
+  const specRows = [
+    ['VEHICLE',   '.01',  '→ .01f',  '#5fd48a'],
+    ['BUILDING',  '.1',   '→ 0.1',   '#f0a44a'],
+    ['CHARACTER', '.01',  '→ .01f',  '#7fd4ff'],
+    ['ITEM/DECOR','.005', '→ file',  '#ff9d5c'],
+    ['FURN/PROP', '.0075','→ file',  '#e0c060'],
+    ['ROOM',      '.03',  '→ —',     '#c9a0ff'],
+  ];
+  specRows.forEach((r, i) => { const y = 142 + i * 52;
+    g.fillStyle = r[3]; g.fillRect(34, y - 24, 8, 32);
+    g.fillStyle = '#e8d9b0'; g.font = 'bold 24px monospace'; g.fillText(r[0], 56, y);
+    g.font = '24px monospace'; g.fillStyle = '#cfc8b0'; g.fillText(r[1], 310, y);
+    g.fillStyle = r[3]; g.fillText(r[2], 430, y); });
+}
+const specTex = new THREE.CanvasTexture(specCv); specTex.colorSpace = THREE.SRGBColorSpace; specTex.anisotropy = 4;
+const specBack = new THREE.Mesh(new THREE.BoxGeometry(.6, .43, .012), new THREE.MeshLambertMaterial({ color: 0x141018 }));
+specBack.position.set(1.55, .6, .678); scene.add(specBack);
+const specPlaque = new THREE.Mesh(new THREE.PlaneGeometry(.56, .4), new THREE.MeshBasicMaterial({ map: specTex }));
+specPlaque.position.set(1.55, .6, .67); specPlaque.rotation.y = Math.PI;               // faces south into the room
+scene.add(specPlaque);
+
+/* ── MANNEQUIN — the NW-corner dressing stand: a second Vinny posed STATIC (never a
+   follower — no roster, no heel, no PiP claim) + a floor pedestal kiosk whose screen
+   face carries big pressable buttons. Aim + E (or LMB on the face) presses — outfits
+   are region→material remaps, same law as the Commission's ApplyCivilianOutfits. */
+const OUTFITS = [
+  { name: 'SUIT BLUE',  map: { 3: 126, 4: 126, 6: 126, 7: 105 } },   // the canonical Civilian_01 remap
+  { name: 'SUIT GREY',  map: { 3: 102, 4: 102, 6: 110, 7: 118 } },
+  { name: 'SUIT BROWN', map: { 3: 122, 4: 122, 6: 122, 7: 118 } },
+  { name: 'SUIT WHITE', map: { 3: 127, 4: 127, 6: 127, 7: 118 } },
+  { name: 'WORK RED',   map: { 3: 120, 4: 120, 6: 109, 7: 118 } },
+];
+let mannOutfit = Math.max(0, Math.min(OUTFITS.length - 1, +localStorage.getItem('dvm_outfit') || 0));
+const recolorChar = (f, map) => { const reg = f.rig.regions || {}, dflt = new THREE.Color(0x888888);
+  f.rig.voxels.forEach((v, i) => f.inst.setColorAt(i, f.pal[map[reg[v[0] + ',' + v[1] + ',' + v[2]]] || v[3]] || dflt));
+  f.inst.instanceColor.needsUpdate = true; };
+const MANN_POS = { x: -2.5, z: .48 }, MANN_YAW = -.69;                 // char rig fwd = (-sin,-cos) — faces SE into the room
+const KIOSK_POS = { x: -2.15, z: .06 }, KIOSK_YAW = 2.45;              // small floor stand dead ahead of him; +z screen faces the approach
+const BUTTONS = [];                                                  // pressable face targets — aim + E/LMB
+let kioWire = null, kioWireMat = null;                               // wireframe ghost-frame — plate child, slips onto the aimed button
+let mannF = null;
+const kioG = new THREE.Group(); kioG.position.set(KIOSK_POS.x, 0, KIOSK_POS.z); kioG.rotation.y = KIOSK_YAW; scene.add(kioG);
+const mannCv = document.createElement('canvas'); mannCv.width = 512; mannCv.height = 340;
+const mannTex = new THREE.CanvasTexture(mannCv); mannTex.colorSpace = THREE.SRGBColorSpace;
+const mannDraw = press => { const g = mannCv.getContext('2d');
+  g.fillStyle = '#101218'; g.fillRect(0, 0, 512, 340);
+  g.strokeStyle = '#3a3a4a'; g.lineWidth = 6; g.strokeRect(3, 3, 506, 334);
+  g.fillStyle = '#8f87a0'; g.font = '22px monospace'; g.textAlign = 'center'; g.fillText('— MANNEQUIN —', 256, 48);
+  g.fillStyle = '#cfc8b0'; g.font = '18px monospace'; g.fillText('OUTFIT', 256, 110);
+  g.font = 'bold 30px monospace';
+  g.fillStyle = press === -1 ? '#7fd4ff' : '#5b5648'; g.fillText('◀', 88, 212);
+  g.fillStyle = '#e8d9b0'; g.fillText(OUTFITS[mannOutfit].name, 256, 212);
+  g.fillStyle = press === 1 ? '#7fd4ff' : '#5b5648'; g.fillText('▶', 424, 212);
+  g.fillStyle = '#5b5648'; g.font = '15px monospace'; g.fillText('aim + E — or click the arrows', 256, 300);
+  mannTex.needsUpdate = true; };
+{
+  const foot = new THREE.Mesh(new THREE.BoxGeometry(.4, .06, .32), new THREE.MeshLambertMaterial({ color: 0x0e1016 }));
+  foot.position.y = .03; kioG.add(foot);                                          // low slab base
+  const body = new THREE.Mesh(new THREE.BoxGeometry(.24, .16, .18), new THREE.MeshLambertMaterial({ color: 0x14161c }));
+  body.position.y = .14; kioG.add(body);                                          // stub neck — the stand is knee-height, never hides the mannequin
+  const plate = new THREE.Group(); plate.position.set(0, .26, .06); plate.rotation.x = -.88; kioG.add(plate);  // steep up-tilt — the face lies back toward the eye like a floor plaque
+  const rim = new THREE.Mesh(new THREE.PlaneGeometry(.52, .36), coreMat); rim.position.z = -.003; plate.add(rim); // hue rim behind
+  const scr = new THREE.Mesh(new THREE.PlaneGeometry(.46, .3), new THREE.MeshBasicMaterial({ map: mannTex }));
+  plate.add(scr);
+  kioWireMat = new THREE.LineBasicMaterial({ color: 0x35d5ff, transparent: true, opacity: .95 });
+  kioWire = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(.15, .1, .045)), kioWireMat);
+  kioWire.visible = false; plate.add(kioWire);                        // wireframe ghost — only while a button is the aimed interact
+  const arrShape = new THREE.Shape();                                // the little ▶ glyph — mirrored for ◀
+  arrShape.moveTo(-.022, .026); arrShape.lineTo(.028, 0); arrShape.lineTo(-.022, -.026); arrShape.closePath();
+  const arrGeo = new THREE.ShapeGeometry(arrShape);
+  const mkBtn = (x, dir) => { const b = new THREE.Mesh(new THREE.BoxGeometry(.11, .08, .02),
+      new THREE.MeshLambertMaterial({ color: 0x232733 })); b.position.set(x, -.033, .012); plate.add(b);
+    const ar = new THREE.Mesh(arrGeo, coreMat); ar.scale.x = dir; ar.position.z = .011; b.add(ar);   // coreMat glyph — rides the trim's hue sweep
+    const bd = { m: b, isBtn: true, label: () => 'E — ' + (dir < 0 ? '◀ SUIT' : 'SUIT ▶'),
+      fn: () => { mannOutfit = (mannOutfit + dir + OUTFITS.length) % OUTFITS.length;
+        localStorage.setItem('dvm_outfit', mannOutfit);
+        if (mannF) recolorChar(mannF, OUTFITS[mannOutfit].map);
+        mannDraw(dir); setTimeout(() => mannDraw(0), 160); } };
+    b.userData.btn = bd; BUTTONS.push(bd); };
+  mkBtn(-.14, -1); mkBtn(.14, 1);                                                 // ◀ ▶ flank the outfit name on the face
+  mannDraw(0);
+}
+emitChar({ char: 'Civilian1', static: true, x: MANN_POS.x, z: MANN_POS.z, yaw: MANN_YAW, outfit: OUTFITS[mannOutfit].map })
+  .then(f => { mannF = f; });
+const kioskProbe = () => { if (Math.hypot(pos.x - KIOSK_POS.x, pos.z - KIOSK_POS.z) > 1.8) return null;
+  _ray.setFromCamera(_ctr, camera);
+  const h = _ray.intersectObjects(BUTTONS.map(b => b.m), false);
+  if (h.length && kioWire) kioWire.position.copy(h[0].object.position);   // ghost slips onto the aimed button (same plate space)
+  return h.length ? h[0].object.userData.btn : null; };
+window.__mann = { f: () => mannF, outfit: () => mannOutfit, buttons: BUTTONS, press: i => BUTTONS[i] && BUTTONS[i].fn(),
+  probe: kioskProbe, wire: () => kioWire,
+  btnWorld: i => { const v = new THREE.Vector3(); BUTTONS[i].m.getWorldPosition(v); return [+v.x.toFixed(3), +v.y.toFixed(3), +v.z.toFixed(3)]; } };
+
+/* ── live link — streams the session to the server so the agent sees YOUR real setup:
+   /peek gets pos/aim/marks/follower orders+gaze at ~2Hz; /shot probe_live_pov gets his
+   actual POV frame ~1Hz (shot()'s fullscreen render is restored in the same task — no flicker). */
+const liveEl = document.createElement('div');
+liveEl.style.cssText = 'position:fixed;right:12px;top:12px;color:#7fd4ff;background:rgba(8,8,14,.85);border:1px solid #3a3a4a;padding:3px 7px;font:10px ui-monospace,Consolas,monospace;letter-spacing:.25em;display:none;z-index:6;pointer-events:none';
+liveEl.textContent = '◉ LIVE'; document.body.appendChild(liveEl);
+const agentEl = document.createElement('div');
+agentEl.style.cssText = 'position:fixed;right:12px;top:32px;color:#ff9d5c;background:rgba(8,8,14,.85);border:1px solid #3a3a4a;padding:3px 7px;font:10px ui-monospace,Consolas,monospace;letter-spacing:.25em;display:none;z-index:6;pointer-events:none';
+agentEl.textContent = '◈ AGENT'; document.body.appendChild(agentEl);
+let cmdAck = 0;
+const livePost = () => fetch('/peek', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ t: Date.now(), pos: pos.toArray(), yaw, aimOn, aim: aimWorld.toArray(), held: held && held.name,
+    marks: marks.map(m => m.position.toArray()), povOn, cmdAck, placeOn: !!placeOn,
+    placed: PLACED.map(p => [p.name, +p.x.toFixed(2), +p.z.toFixed(2), +p.y0.toFixed(2), p.source]),
+    ls: { place: localStorage.getItem('dvm_place'), extra: localStorage.getItem('dvm_extra'), del: localStorage.getItem('dvm_del') },   // saved layout for restore-path debugging
+    followers: followers.map(f => ({ char: f.spec.char, order: f.order, pos: f.pos.toArray(), gaze: f.gazeT ? f.gazeT.toArray() : null, possessed: !!f.possessed })) }) })
+  .then(r => r.json()).then(r => {
+    if (r && r.cmd && r.cmd.seq > cmdAck) {                                    // agent command rode back on the stream
+      cmdAck = r.cmd.seq; const A = window.__construct.agent, c = r.cmd;
+      if (c.agent === 'gaze') A.gaze(...c.args);
+      else if (c.agent === 'go') A.go(...c.args);
+      else if (c.agent === 'heel') A.heel();
+      else if (c.agent === 'order') A.order(c.args[0]);
+      else if (c.agent === 'emit') { const [n, x, z, ry] = c.args;               // agent-furnished asset — lands + persists like a paste
+        emitAsset(n, { kind: 'item', x: +x || 0, z: +z || 0, rotY: +ry || 0, pickable: true, source: 'extra',
+          seatY: 'auto' }).then(() => placeSave()); }
+      else if (c.agent === 'move') { const [n, x, z, ry] = c.args;               // relocate an existing item — the surface law seats it
+        const p = PLACED.find(q => q.name === n && q.source === 'extra') || PLACED.find(q => q.name === n);
+        if (p) { const ob = footB(p.lb, p.x, p.z, p.rotY); placeApply(p, +x || 0, +z || 0, ry === undefined ? p.rotY : +ry);
+          p.y0 = placeSurf(p.x, p.z, new Set([p]), { surfOnly: p.surf }); p.g.position.y = p.y0;
+          settleOrphans(p, ob, p.bbox, p.y0 + Math.max(...p.tops.values())); refreshSolids(); placeSave(); } }
+      else if (c.agent === 'del') { const p = PLACED.find(q => q.name === c.args[0] && q.source === 'extra') || PLACED.find(q => q.name === c.args[0]);
+        if (p) { if (p.source !== 'extra') { const d = new Set(JSON.parse(localStorage.getItem('dvm_del') || '[]'));
+            d.add(p.name); localStorage.setItem('dvm_del', JSON.stringify([...d])); }
+          scene.remove(p.g); PLACED.splice(PLACED.indexOf(p), 1);
+          settleOrphans(p, p.bbox, null, Infinity); refreshSolids(); placeSave(); } }
+      else A.order(c.agent);                                                   // bare order names: wait/goto/follow/post
+      const released = c.agent === 'heel' || c.agent === 'follow' || (c.agent === 'order' && c.args[0] === 'follow');
+      if (!['emit', 'move', 'del'].includes(c.agent)) followers.forEach(f => f.possessed = !released);   // movement verbs hold the wheel; furniture ops don't
+    } }).catch(() => {});
+const liveShot = () => { const u = window.__eyes.shot(); renderer.render(scene, camera);
+  if (u) fetch('/shot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'probe_live_pov', png: u }) }).catch(() => {}); };
+const LIVE = { on: false, iv: 0, sv: 0 };
+window.__live = {
+  on: () => LIVE.on,
+  start: () => { if (LIVE.on) return; LIVE.on = true; livePost(); liveShot(); LIVE.iv = setInterval(livePost, 400); LIVE.sv = setInterval(liveShot, 900); liveEl.style.display = 'block'; localStorage.setItem('dvm_live', '1'); },
+  stop: () => { LIVE.on = false; clearInterval(LIVE.iv); clearInterval(LIVE.sv); liveEl.style.display = 'none'; localStorage.setItem('dvm_live', '0'); },
+};
+
+/* ── follower control — clickable orders + hotkey legend, bottom-left. Re-renders only when
+   follower state actually changes (orders move via keys too), so button presses never get eaten. */
+const ctlEl = document.createElement('div');
+ctlEl.style.cssText = 'position:fixed;left:12px;bottom:12px;background:rgba(8,8,14,.97);border:1px solid #6a6a92;box-shadow:0 2px 14px rgba(0,0,0,.45);padding:10px 12px;font:11px ui-monospace,Consolas,monospace;color:#e2dbc2;z-index:8;pointer-events:auto;display:none';
+document.body.appendChild(ctlEl);
+let ctlOn = true, ctlSig = '';
+function renderCtl() {
+  const f = followers[0], o = f && f.order;
+  ctlEl.innerHTML =
+    '<div style="letter-spacing:.2em;color:#b0a9cc;margin-bottom:6px">FOLLOWER</div>' +
+    (f ?
+      '<div style="display:flex;gap:6px;margin-bottom:8px">' +
+      ['follow', 'wait', 'goto'].map(ord =>
+        '<button data-o="' + ord + '" style="font:inherit;font-size:10px;padding:3px 8px;cursor:pointer;color:#e8e0c8;background:' + (o === ord ? '#3a4a2a' : '#1c1c26') + ';border:1px solid ' + (o === ord ? '#7a5' : '#3a3a4a') + '">' +
+        (ord === 'goto' ? 'GO ▸ TAG' : ord.toUpperCase()) + '</button>').join('') + '</div>' +
+      (f.possessed ? '<div style="color:#ff9d5c;font-size:10px;margin-bottom:6px;letter-spacing:.15em">◈ agent has the wheel — your keys reclaim</div>' : '')
+    : '<div style="color:#9a9480;font-size:10px;margin-bottom:8px">none in room — door console spawns</div>') +
+    '<div style="color:#8a8474;font-size:10px;line-height:1.6">' +
+    'F/RMB aim · LMB tag · T go-tag · R clear<br>' +
+    'H heel · P pov · Y live · K panel</div>';
+  ctlEl.querySelectorAll('button[data-o]').forEach(b => b.onclick = () => { if (f) { f.possessed = false; f.setOrder(b.dataset.o); } ctlTick(); });
+}
+const ctlTick = () => {
+  const sig = followers.length + '|' + followers.map(f => f.order + (f.possessed ? '*' : '')).join() + '|' + ctlOn;
+  if (sig !== ctlSig) { ctlSig = sig; renderCtl(); ctlEl.style.display = ctlOn ? 'block' : 'none'; }
+  agentEl.style.display = followers.some(f => f.possessed) ? 'block' : 'none';
+};
+setInterval(ctlTick, 400); ctlTick();
+
+/* ── SELF BODY — the player IS Vinny: the full rig at your position, walk/idle driven by
+   your movement, aim channel raising the arm on your laser. Head voxels (Face/Head/Top/Eyes)
+   live on a second mesh in layer 1 — follower POVs see the whole body; your camera never
+   draws your own skull. */
+const HEAD_REGS = new Set([1, 8, 9, 10]);
+let selfBody = null;
+const emitSelf = () => fetch('/char/Civilian1').then(r => r.json()).then(rig => {
+  if (!rig || !rig.voxels) return null;
+  const E = poseEngine(rig), N = rig.voxels.length, VS = rig.voxelSize || .01, d = rig.dims || [96, 96, 96];
+  const pal = {}; (rig.materials || []).forEach(m => pal[m.id] = new THREE.Color(m.hex));
+  const reg = rig.regions || {}, dflt = new THREE.Color(0x888888);
+  const CH = new THREE.Group(); scene.add(CH);
+  const parts = [[], []];                                                     // [body, head]
+  rig.voxels.forEach((v, i) => parts[HEAD_REGS.has(reg[v[0] + ',' + v[1] + ',' + v[2]]) ? 1 : 0].push(i));
+  const meshes = parts.map((list, pi) => {
+    const im = new THREE.InstancedMesh(new THREE.BoxGeometry(VS, VS, VS), new THREE.MeshLambertMaterial(), list.length);
+    im.frustumCulled = false;
+    if (pi) im.layers.set(1);                                                 // head — povCam layer 1 sees it, your camera doesn't
+    list.forEach((i, j) => { const v = rig.voxels[i];
+      im.setColorAt(j, pal[OUTFIT[reg[v[0] + ',' + v[1] + ',' + v[2]]] || v[3]] || dflt); });
+    im.instanceColor.needsUpdate = true;
+    const MA = im.instanceMatrix.array;
+    for (let k = 0; k < list.length; k++) { const j = k * 16; MA[j] = MA[j + 5] = MA[j + 10] = MA[j + 15] = 1; }
+    CH.add(im);
+    return { im, list };
+  });
+  povCam.layers.enable(1);
+  const bufA = new Float64Array(3 * N), bufB = new Float64Array(3 * N);
+  function uploadMesh(m, A, B, blend, dip) {
+    const hx = d[0] / 2, hz = d[2] / 2, MA = m.im.instanceMatrix.array;
+    for (let k = 0; k < m.list.length; k++) { const i = m.list[k], j = k * 16 + 12;
+      let x = B[3 * i], y = B[3 * i + 1], z = B[3 * i + 2];
+      if (A) { x = A[3*i]+(x-A[3*i])*blend; y = A[3*i+1]+(y-A[3*i+1])*blend+dip; z = A[3*i+2]+(z-A[3*i+2])*blend; }
+      MA[j] = (x - hx) * VS; MA[j + 1] = (y + .5) * VS; MA[j + 2] = (z - hz) * VS; }
+    m.im.instanceMatrix.needsUpdate = true;
+  }
+  const s = { CH, E, meshes, bufA, bufB, uploadMesh, VS, d,
+    yaw: Math.PI, state: 0, prevState: 0, transFrom: 0, transT: -1, blend: 1, dip: 0, walkSpeed: 1, gaitTime: 0 };
+  E.evalPose(0, 0, bufB); meshes.forEach(m => uploadMesh(m, null, bufB, 1, 0));
+  selfBody = s; return s;
+}).catch(e => console.warn('CONSTRUCT — self body unavailable:', e));
+
+const selfStep = dt => {
+  if (!selfBody) return; const s = selfBody;
+  let dy = yaw - s.yaw; while (dy > Math.PI) dy -= 2 * Math.PI; while (dy < -Math.PI) dy += 2 * Math.PI;
+  s.yaw += dy * Math.min(1, dt * 8);                                          // body eases onto your look yaw — feet face where you face
+  const ox = s.CH.position.x, oz = s.CH.position.z;
+  s.CH.position.set(pos.x, 0, pos.z); s.CH.rotation.y = s.yaw;
+  const hs = Math.hypot(pos.x - ox, pos.z - oz) / dt;
+  const was = s.state === 1 || s.transT >= 0;
+  if (hs > MOVE_EPS) { s.state = 1; s.walkSpeed = Math.min(2, Math.max(.5, hs * .5)); } else s.state = 0;
+  if (s.state !== s.prevState) { s.transFrom = s.prevState; s.prevState = s.state; s.transT = 0; }
+  s.gaitTime += dt * s.walkSpeed;
+  if (s.transT >= 0) { s.transT += dt; const t = Math.min(1, s.transT / TRANS_DUR);
+    s.blend = t * t * (3 - 2 * t); s.dip = -Math.sin(Math.PI * t) * TRANS_DIP;
+    if (t >= 1) { s.transT = -1; s.blend = 1; s.dip = 0; } }
+  let aim = null;                                                             // your laser is HIS arm — same IK channel the Commission's Vinny uses
+  if (aimOn) { const lx = aimWorld.x - pos.x, ly = aimWorld.y, lz = aimWorld.z - pos.z, cy = Math.cos(s.yaw), sy = Math.sin(s.yaw);
+    aim = { T: [(lx * cy - lz * sy) / s.VS + s.d[0] / 2, ly / s.VS, (lx * sy + lz * cy) / s.VS + s.d[2] / 2], blend: 1, head: 1 }; }
+  if (was || s.state === 1 || s.transT >= 0 || aim) {
+    s.E.evalPose(s.state, s.gaitTime, s.bufB, aim);
+    if (s.transT >= 0) { s.E.evalPose(s.transFrom, s.gaitTime, s.bufA, aim); s.meshes.forEach(m => s.uploadMesh(m, s.bufA, s.bufB, s.blend, s.dip)); }
+    else s.meshes.forEach(m => s.uploadMesh(m, null, s.bufB, 1, 0));
+  }
+};
+
+const selfP = emitSelf();
+const saveFol = (list = followers) => { try { localStorage.setItem('dvm_fol', JSON.stringify(list.map(f =>   // the roster persists — plain F5 keeps
+  ({ char: f.spec.char, order: f.order === 'goto' ? 'wait' : f.order, x: +f.pos.x.toFixed(2), z: +f.pos.z.toFixed(2) })))); } catch {} };  // them in the room; a mid-transit goto lands as wait
+const partyP = PARTY.length ? Promise.all(PARTY.map(emitChar))                                    // the portal handoff wins when it exists
+  : Promise.all(JSON.parse(localStorage.getItem('dvm_fol') || '[]').map(emitChar));               // otherwise the saved roster restores itself
+const ready = Promise.all([doorP, carP, deskP, partyP, selfP]);
+MANIFEST.props.push({ kind: 'turntable', x: SPIN_POS.x, z: SPIN_POS.z, r: SPIN_R, asset: 'vehicle_490_touring' },
+                    { kind: 'prop-table', x: 2.3, z: -1.1, asset: 'commission_lawdesk',
+                      items: ['commission_desklamp', 'commission_bookoflaws', 'commission_stamper'] });
+
+const SOLID_BASE = [[-.33, DOOR_Z, .1], [0, DOOR_Z, .11], [.33, DOOR_Z, .1],   // frame jambs + leaf face
+                    [SPIN_POS.x, SPIN_POS.z, SPIN_R],                           // rotator pedestal
+                    [MANN_POS.x, MANN_POS.z, .22], [KIOSK_POS.x, KIOSK_POS.z, .28]];   // mannequin + kiosk
+const SOLIDS = [];
+const refreshSolids = () => {                                                 // placed-derived solids (desk etc.) follow their item
+  SOLIDS.length = 0; SOLID_BASE.forEach(s => SOLIDS.push(s));
+  PLACED.forEach(p => (p.solids || []).forEach(([lx, lz, r]) => {
+    const cy = Math.cos(p.rotY), sy = Math.sin(p.rotY);
+    SOLIDS.push([p.x + lx * cy + lz * sy, p.z - lx * sy + lz * cy, r]); }));
+};
+
+/* ── FPS walk — pointer lock look + WASD on the platform. Eye height .55 (chibi-scaled world:
+   the .855m door towers correctly; showroom inspects at authored scale, no third person needed). */
+const pos = new THREE.Vector3(0, 0, 0); let yaw = 0, pitch = 0;          // yaw 0 faces -z — stepped out of the door-elevator, rotator dead ahead
+const EYE = .56, WALK = 1.4, SPRINT = 2.2, keys = {};    // Vinny's authored Eyes region (region id 10) — voxel centroid y56 × .01 pitch
+const el = renderer.domElement;
+el.addEventListener('click', () => { if (document.pointerLockElement !== el) el.requestPointerLock(); });
+addEventListener('mousemove', e => { if (document.pointerLockElement !== el) return;
+  if (held && keys['g']) { heldTumble(e.movementX, e.movementY); return; }      // G+mouse tumbles the item, not the camera
+  yaw -= e.movementX * .0022; pitch = Math.max(-1.45, Math.min(1.45, pitch - e.movementY * .0022)); });
+/* INTERACT registry — same contract as the Commission: promptIt caches what the HUD shows,
+   E falls back to it (shown = pressable). New exhibits append, don't redesign. */
+const INTERACT = [
+  { x: 0, z: DOOR_Z - .25, r: 1.1, label: () => 'E — EXIT THE CONSTRUCT', fn: () => goHome() },
+  { x: CONS_POS.x, z: CONS_POS.z - .08, r: .55, label: () => 'E — DOOR CONSOLE', fn: () => openCons() },
+  { x: SPIN_POS.x, z: SPIN_POS.z, r: 1.9, label: () => 'E — ' + (spinning ? 'PAUSE' : 'RESUME') + ' ROTATOR', fn: () => { spinning = !spinning; } },
+];
+let promptIt = null;
+window.__pos = pos; window.__prompt = () => promptIt ? promptIt.label() : '';   // probe hooks — pos/promptIt read live
+addEventListener('mousedown', e => {
+  if (placeOn) { if (e.button === 0) {
+    const pk = placePick();
+    if (pk) { if (placeSel !== pk.p) placeGrab(pk.p, pk);              // fresh pick — commits whatever was held
+      else { const cy = Math.cos(pk.p.rotY), sy = Math.sin(pk.p.rotY); // re-grab the held item → move the anchor to THIS touch
+        pk.p._grab = { lx: (pk.x - pk.p.x) * cy - (pk.z - pk.p.z) * sy, lz: (pk.x - pk.p.x) * sy + (pk.z - pk.p.z) * cy }; }
+      if (e.shiftKey) placeSel._drag = true; }                       // ⇧+LMB held = the ray owns it until mouseup
+    else if (placeSel) placeDrop();                                  // click empty space = accept + deselect
+    return; } }
+  if (e.button === 2) rmbAim = true;
+  if (e.button === 0) { if (promptIt && promptIt.isBtn) promptIt.fn(); else if (aimOn) tagAt(aimWorld); }   // face buttons press by click
+});
+addEventListener('mouseup',   e => { if (e.button === 2) rmbAim = false; if (e.button === 0 && placeSel) placeSel._drag = false; });
+addEventListener('contextmenu', e => { if (e.target === renderer.domElement || rmbAim) e.preventDefault(); });
+addEventListener('keydown', e => { keys[(e.key || '').toLowerCase()] = true;
+  const k = (e.key || '').toLowerCase();
+  if (k === 'x' && !e.ctrlKey && !e.metaKey && !e.altKey) { placeToggle(!placeOn); return; }
+  if (placeOn) {
+    if ((e.ctrlKey || e.metaKey) && k === 'z') { placeUndoDo(); e.preventDefault(); return; }
+    if (k === 'escape') { if (placeSel) placeRevert(); else placeToggle(false); return; }   // selection → back out; nothing → leave
+    const p = placeSel, st = e.shiftKey ? .05 : .005;                                      // the Commission's fine/coarse contract
+    if (k === 'arrowleft' && p) { placeApply(p, p.x - st, p.z, p.rotY); }
+    else if (k === 'arrowright' && p) { placeApply(p, p.x + st, p.z, p.rotY); }
+    else if (k === 'arrowup' && p) { placeApply(p, p.x, p.z - st, p.rotY); }
+    else if (k === 'arrowdown' && p) { placeApply(p, p.x, p.z + st, p.rotY); }
+    else if (k === 'pageup' && p) { p.y0 += st; p.g.position.y = p.y0; }
+    else if (k === 'pagedown' && p) { p.y0 -= st; p.g.position.y = p.y0; }
+    else if (k === 'b' && p) { const skip = new Set([p, ...(p._carry || []).map(c => c.q), held]);
+      p.y0 = placeSurf(p.x, p.z, skip, { surfOnly: p.surf }); p.g.position.y = p.y0; }      // re-seat on the measured surface — furniture never lands on a rider
+    else if ((k === ',' || k === '[') && p) { placeApply(p, p.x, p.z, p.rotY + Math.PI / 12); }
+    else if ((k === '.' || k === ']') && p) { placeApply(p, p.x, p.z, p.rotY - Math.PI / 12); }
+    else if (k === 'enter' && p) { placeDrop(); }                                           // stage-1 accept — deselect, stay in free cam
+    else if (k === 'c') { if (!window.__place.copy()) placeSay('SELECT AN ITEM FIRST'); }
+    else if (k === 'v') { placePaste(); }
+    else if (k === 'delete' || k === 'backspace') { window.__place.del(); }
+    else if (k === 'y' && p) { const line = p.name + ' ' + p.x.toFixed(3) + ' ' + p.z.toFixed(3) + ' ' + p.rotY.toFixed(3);
+      if (navigator.clipboard) navigator.clipboard.writeText(line).catch(() => {}); placeSay('YANKED → ' + line); }
+    else if (' eftr'.includes(k)) { }                                                       // swallowed while placing — no pickups/tags/aims
+    if ('arrowleft arrowright arrowup arrowdown pageup pagedown'.includes(k)) e.preventDefault();
+    return;
+  }
+  if (k === 'escape' && consOpen) { closeCons(); return; }
+  if (k === 'e') {
+    if (consOpen) { closeCons(); return; }
+    if (held) { const t = dropTarget(); if (t) placeIt(t); }
+    else if (pickIt) takeIt(pickIt);
+    else if (promptIt) promptIt.fn();
+  } else if (held && (k === ',' || k === 'n')) { heldSnapStep('y', 1); }
+  else if (held && (k === '.' || k === 'm')) { heldSnapStep('y', -1); }
+  else if (held && k === '[') { heldSnapStep('x', 1); }
+  else if (held && k === ']') { heldSnapStep('x', -1); }
+  else if (held && k === ';') { heldSnapStep('z', 1); }
+  else if (held && k === '\'') { heldSnapStep('z', -1); }
+  else if (held && k === '0') { heldSnap.x = heldSnap.y = heldSnap.z = 0; heldFree.identity(); }   // LEVEL — exactly authored-upright
+  else if (k === 'p' && window.__eyes) { povOn ? window.__eyes.hide() : window.__eyes.show(); }
+  else if (k === 't') { followers.forEach(f => { f.possessed = false; f.setOrder('goto'); }); }          // GO — walk to the live tag (your hotkey always reclaims)
+  else if (k === 'r') { followers.forEach(f => f.possessed = false); clearTags(); }                      // release — clear the tag and the gaze it ordered
+  else if (k === 'h') { followers.forEach(f => { f.possessed = false; f.setOrder(f.order === 'follow' ? 'wait' : 'follow'); }); }   // HEEL ⇄ WAIT
+  else if (k === 'y') { LIVE.on ? window.__live.stop() : window.__live.start(); }   // live link — stream session to the agent
+  else if (k === 'k') { ctlOn = !ctlOn; ctlTick(); } });                      // control panel toggle
+addEventListener('keyup', e => { keys[(e.key || '').toLowerCase()] = false; });
+
+/* ── pick-up / drop — free item manipulation on the measured-surface law.
+   held rides the camera; the ghost ring marks where E seats it (ray steps forward until it
+   crosses a surface; worldSurfaceAt answers for every placed asset, floor = 0). */
+let held = null, pickIt = null;
+const fwdV = new THREE.Vector3(), tmpV = new THREE.Vector3();
+/* held-item orientation = facing-yaw × axis-snaps × free-tumble. Axis snaps are 15° counters about
+   the item's axes — pressing one CLEARS the free tumble, so level is always one key away (0 resets all).
+   Free tumble (hold G + mouse) is a trackball about world X/Y. Placed items persist yaw only and
+   always seat level — the measured-surface contract (tops/bbox) is authored-upright. */
+const ROT_STEP = Math.PI / 12;
+const heldSnap = { x: 0, y: 0, z: 0 };
+const heldFree = new THREE.Quaternion(), _qYaw = new THREE.Quaternion(), _qSnap = new THREE.Quaternion(),
+      _eSnap = new THREE.Euler(), _qt = new THREE.Quaternion();
+const AX_X = new THREE.Vector3(1, 0, 0), AX_Y = new THREE.Vector3(0, 1, 0);
+const heldTumble = (dx, dy) => { heldFree                                          // G+mouse trackball — world-frame grab
+  .premultiply(_qt.setFromAxisAngle(AX_Y, -dx * .008))
+  .premultiply(_qt.setFromAxisAngle(AX_X, -dy * .008)); };
+const heldSnapStep = (ax, d) => { heldSnap[ax] += d; heldFree.identity(); };       // axis rotation resets free rotation — level stays reachable
+const worldSurfaceAt = (wx, wz, skip, opt) => placeSurf(wx, wz, new Set(skip ? [skip] : []), opt);
+const dropTarget = () => {
+  camera.getWorldDirection(fwdV);
+  for (let t = .08; t <= 2.4; t += .06) {
+    const px = camera.position.x + fwdV.x * t, py = camera.position.y + fwdV.y * t, pz = camera.position.z + fwdV.z * t;
+    const s = worldSurfaceAt(px, pz, held);
+    if (py <= s + .02) return { x: px, y: s, z: pz };
+  }
+  return null;
+};
+const nearestPick = () => {
+  camera.getWorldDirection(fwdV); let best = null, ba = .55;
+  PLACED.forEach(p => { if (!p.pickable || p === held) return;
+    tmpV.set(p.x - camera.position.x, p.y0 + p.minB + .04 - camera.position.y, p.z - camera.position.z);
+    const d = tmpV.length(); if (d > 1.5 || d < .01) return; tmpV.normalize();
+    const a = tmpV.dot(fwdV); if (a > ba) { ba = a; best = p; } });
+  return best;
+};
+const takeIt = p => { held = p; heldSnap.x = heldSnap.y = heldSnap.z = 0; heldFree.identity(); };
+const placeIt = t => { const p = held; held = null;
+  placeSnapOp({ t: 'move', p, prev: { x: p.x, z: p.z, rotY: p.rotY, y0: p.y0 } });
+  p.x = t.x; p.z = t.z; p.y0 = t.y;
+  p.rotY = ((yaw + heldSnap.y * ROT_STEP) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);   // yaw persists — pitch/roll drop, placement seats level
+  p.g.position.set(t.x, t.y, t.z); p.g.rotation.set(0, p.rotY, 0);
+  refreshSolids(); placeSave(); };
+const ghostShape = new THREE.Shape(); ghostShape.absarc(0, 0, .05, 0, Math.PI * 2);
+const ghole = new THREE.Path(); ghole.absarc(0, 0, .038, 0, Math.PI * 2); ghostShape.holes.push(ghole);
+const ghostGeo = new THREE.ShapeGeometry(ghostShape); ghostGeo.rotateX(Math.PI / 2);
+const ghost = new THREE.Mesh(ghostGeo, coreMat); ghost.visible = false; scene.add(ghost);
+
+const veil = document.getElementById('veil'), promptEl = document.getElementById('prompt');
+const veilRun = (text, fn) => { veil.textContent = text; veil.style.opacity = 1;
+  setTimeout(() => { fn && fn(); }, 420); };
+const goHome = () => { if (window.__leaving) return; window.__leaving = true;
+  sessionStorage.setItem('dvm_party', JSON.stringify(followers.filter(f => f.order === 'follow').map(f => ({ char: f.spec.char, order: 'follow' }))));
+  saveFol(followers.filter(f => f.order !== 'follow'));                                // departing units leave the roster — they walked out with you
+  veilRun('RETURNING', () => { location.href = 'thecommission.html?from=construct'; }); };
+window.__home = goHome;
+
+/* ── PLACE MODE — X toggles the furniture editor (the Commission's X-mode, Construct edition):
+   free-fly camera off your body (Vinny stays planted), LMB selects a placed asset which then
+   rides your aim ray and seats on measured surfaces; [ ] rotate 15°, C copies its spec,
+   V pastes a duplicate (auto-selected), DEL removes. Layout persists to localStorage —
+   manifest items by name (dvm_place), pasted copies as dvm_extra re-emitted at boot. */
+let placeOn = false, placeSel = null, placeClip = null;
+const flyPos = new THREE.Vector3(0, .6, -1), _fd = new THREE.Vector3();
+const placeEl = document.createElement('div');
+placeEl.style.cssText = 'position:fixed;left:50%;bottom:14px;transform:translateX(-50%);background:rgba(8,8,14,.92);border:1px solid #6a6a92;color:#e2dbc2;padding:5px 12px;font:10px ui-monospace,Consolas,monospace;letter-spacing:.1em;display:none;z-index:8;pointer-events:none;white-space:nowrap';
+const PLACE_LEGEND = 'PLACE — WASD/QE fly · LMB select · SHIFT+LMB drag · ARROWS move (SHIFT coarse) · , . rotate · PgUp/Dn height · B re-seat · ENTER confirm · ESC revert · C copy · V paste · DEL remove · ^Z undo · X exit';
+placeEl.textContent = PLACE_LEGEND;
+document.body.appendChild(placeEl);
+const placeStat = document.createElement('div');
+placeStat.style.cssText = placeEl.style.cssText + ';bottom:40px;border-color:#4a4a62;color:#b8b0a0';
+document.body.appendChild(placeStat);
+let placeSayT = 0;
+const placeSay = msg => { placeEl.textContent = msg; clearTimeout(placeSayT);
+  placeSayT = setTimeout(() => { placeEl.textContent = PLACE_LEGEND; }, 1600); };
+const selBox = new THREE.Box3Helper(new THREE.Box3(), 0xffd070); selBox.visible = false; scene.add(selBox);
+const origBox = new THREE.Box3Helper(new THREE.Box3(), 0x8090c0); origBox.visible = false; scene.add(origBox);
+const placeGrid = new THREE.GridHelper(9.4, 94, 0x8a7a64, 0xbdb4a4); placeGrid.position.set(0, .002, -2.85);
+placeGrid.visible = false; scene.add(placeGrid);                                       // .1 cells over the platform — snaps drag to measured increments
+const _ray = new THREE.Raycaster(), _ctr = new THREE.Vector2(0, 0);
+const PLACE_SNAP = .1, placeUndo = [];
+const placeSnapOp = op => { placeUndo.push(op); if (placeUndo.length > 32) placeUndo.shift(); };
+
+const placeSave = () => {                                                        // manifest items persist by name; pastes persist as extras
+  const over = {}, extra = [];
+  PLACED.forEach(p => { const o = { x: +p.x.toFixed(3), z: +p.z.toFixed(3), rotY: +p.rotY.toFixed(3) };
+    if (p.source === 'extra') extra.push({ name: p.name, kind: p.kind, pickable: p.pickable, solids: p.solids, ...o });
+    else over[p.name] = o; });
+  localStorage.setItem('dvm_place', JSON.stringify(over));
+  localStorage.setItem('dvm_extra', JSON.stringify(extra));
+};
+const placeApply = (p, x, z, rotY) => {                                          // tops stay local — surface math survives any move
+  p.x = x; p.z = z; if (rotY !== undefined) p.rotY = rotY;
+  p.g.position.set(x, p.y0, z); p.g.rotation.y = p.rotY;
+  p.bbox = footB(p.lb, x, z, p.rotY);                                            // footprint tracks the item — carry/settle/re-seat see it live
+  if (p._block) { const s2 = (p.lb[1] - p.lb[0]) / 2;                            // a table's walk-block follows its drag, same as solids
+    p._block.x0 = x - s2 - .15; p._block.x1 = x + s2 + .15; p._block.z0 = z - s2 - .15; p._block.z1 = z + s2 + .15; }
+  refreshSolids();
+};
+const placePick = () => {                                                        // ray through screen centre → {p, x,y,z hit point}
+  _ray.setFromCamera(_ctr, camera);
+  const hits = _ray.intersectObjects(PLACED.filter(p => p !== held && p.g.parent === scene).map(p => p.g), true); // the selection stays pickable — ⇧+LMB re-grabs it into drag
+  for (const h of hits) { let o = h.object; while (o && !o.userData.pRec) o = o.parent;
+    if (o) return { p: o.userData.pRec, x: h.point.x, y: h.point.y, z: h.point.z }; }
+  return null;
+};
+const placeGrab = (p, hit) => {                                                  // select — the Commission's stage-1: highlighted, keyboard-owned
+  if (placeSel && placeSel !== p) placeDrop();                                   // one selection at a time — a fresh grab commits the old
+  placeSel = p; p._carry = carryOf(p); p._drag = false;
+  const cy = Math.cos(p.rotY), sy = Math.sin(p.rotY);
+  const dx = hit ? hit.x - p.x : 0, dz = hit ? hit.z - p.z : 0;
+  p._grab = { lx: dx * cy - dz * sy, lz: dx * sy + dz * cy };                      // local-frame grab offset — rotates with the item
+  p._orig = { x: p.x, z: p.z, rotY: p.rotY, y0: p.y0 };
+  origBox.box.setFromObject(p.g); origBox.visible = true;                          // the "was" marker, Commission-style
+  placeGrid.visible = true;
+  return true;
+};
+const inB = (q, b) => q.x > b[0] && q.x < b[1] && q.z > b[2] && q.z < b[3];
+const settleOrphans = (moved, oldB, newB, oldTop) => {                           // re-seat ONLY items the move touched — a global
+  PLACED.forEach(q => {                                                         // sweep lets co-located siblings (door↔frame) leapfrog
+    if (q === moved || q === held || ((moved && moved._carry) || []).some(c => c.q === q)) return;
+    if (oldB && inB(q, oldB) || newB && inB(q, newB)) {
+      const s = worldSurfaceAt(q.x, q.z, q, { surfOnly: q.surf });
+      if (s < q.y0 && q.y0 <= oldTop + .02) { q.y0 = s; q.g.position.y = s; } } }); };                 // orphans drop; lifted floaters keep their height
+const placeRevert = () => {                                                      // Esc on a selection = back out — restore the pre-grab pose
+  if (!placeSel) return; const p = placeSel, o = p._orig;
+  if (o) { const eb = new THREE.Box3().setFromObject(p.g);                        // the edited pose's bounds — orphans sat inside it
+    const eB = [eb.min.x - .05, eb.max.x + .05, eb.min.z - .05, eb.max.z + .05];
+    p.y0 = o.y0; placeApply(p, o.x, o.z, o.rotY);
+    (p._carry || []).forEach(c => { c.q.x = c.ox; c.q.z = c.oz; c.q.y0 = c.oy; c.q.g.position.set(c.ox, c.oy, c.oz); });
+    settleOrphans(p, eB, p.bbox, o.y0 + (eb.max.y - p.y0)); }                    // p.bbox still holds the grab-time footprint
+  p._carry = null; p._orig = null; p._drag = false;
+  placeSel = null; selBox.visible = false; origBox.visible = false; placeGrid.visible = false;
+  placeStat.textContent = '';
+  refreshSolids(); placeSay('REVERTED'); };
+const placeUndoDo = () => {                                                      // ^Z — one op back, whole-layout truth preserved
+  const op = placeUndo.pop(); if (!op) return;
+  if (op.t === 'move' && PLACED.includes(op.p)) { const p = op.p, ob = p.bbox;    // stale bounds = the post-move footprint orphans sat in
+    p.y0 = op.prev.y0; placeApply(p, op.prev.x, op.prev.z, op.prev.rotY);
+    const bb = new THREE.Box3().setFromObject(p.g); p.bbox = [bb.min.x - .05, bb.max.x + .05, bb.min.z - .05, bb.max.z + .05];
+    (op.prev.carry || []).forEach(c => { if (PLACED.includes(c.q)) { c.q.x = c.ox; c.q.z = c.oz; c.q.y0 = c.oy; c.q.g.position.set(c.ox, c.oy, c.oz); } });
+    settleOrphans(p, ob, p.bbox, op.prev.y0 + (bb.max.y - p.y0)); }
+  else if (op.t === 'add') { const i = PLACED.indexOf(op.p);
+    if (i >= 0) { scene.remove(op.p.g); PLACED.splice(i, 1); settleOrphans(op.p, op.p.bbox, null, Infinity); } }   // host gone — drop what rode it
+  else if (op.t === 'del') { (op.spec._spec
+      ? Promise.resolve(emitTable(op.spec._spec)).then(t => { op.spec._spec.models.forEach(m => emitBldg(t, m));
+          placeApply(t.rec, op.spec.x, op.spec.z, op.spec.rotY); })
+      : emitAsset(op.spec.name, { kind: op.spec.kind, x: op.spec.x, z: op.spec.z,
+    rotY: op.spec.rotY, pickable: op.spec.pickable, solids: op.spec.solids, source: op.spec.source }));
+    if (op.spec.source !== 'extra') { const d = new Set(JSON.parse(localStorage.getItem('dvm_del') || '[]'));
+      d.delete(op.spec.name); localStorage.setItem('dvm_del', JSON.stringify([...d])); } }                  // un-delete lifts the tombstone
+  refreshSolids(); placeSave(); placeSay('UNDO');
+};
+const carryOf = sel => PLACED.filter(q => q !== sel && q !== held && q.g.parent === scene &&   // passengers: items hosted on the selection ride along
+  q.y0 > sel.y0 + .02 && q.x > sel.bbox[0] && q.x < sel.bbox[1] && q.z > sel.bbox[2] && q.z < sel.bbox[3])
+  .map(q => { const cy = Math.cos(sel.rotY), sy = Math.sin(sel.rotY), dx = q.x - sel.x, dz = q.z - sel.z;
+    return { q, lx: dx * cy - dz * sy, lz: dx * sy + dz * cy, dy: q.y0 - sel.y0, ox: q.x, oz: q.z, oy: q.y0 }; });
+const carrySync = p => {                                                          // passengers ride whenever the host moves — any source
+  const cy = Math.cos(p.rotY), sy = Math.sin(p.rotY);
+  const skip = new Set([p, ...(p._carry || []).map(c => c.q)]);
+  (p._carry || []).forEach(({ q, lx, lz, dy }) => {
+    q.x = p.x + lx * cy + lz * sy; q.z = p.z - lx * sy + lz * cy;
+    const top = surfaceAt(p, q.x, q.z);
+    q.y0 = top > 0 ? top : placeSurf(q.x, q.z, skip);                              // off the host's columns → whatever's beneath
+    q.g.position.set(q.x, q.y0, q.z); });
+};
+const placeSurf = (wx, wz, skipSet, opt = {}) => { let t = 0, cap = opt.cap ?? Infinity;
+  PLACED.forEach(p => { if (skipSet.has(p) || (opt.surfOnly && !p.surf)) return;                    // furniture never floors on riders
+    if (p.g.parent === scene && (wx + .12 < p.bbox[0] || wx - .12 > p.bbox[1] || wz + .12 < p.bbox[2] || wz - .12 > p.bbox[3])) return;   // bbox reject — the drop-march ran every host's column scan every ray-step (the carry hitch)
+    window.__scanN = (window.__scanN || 0) + 1;
+    const s = surfaceAt(p, wx, wz); if (s > t && s <= cap) t = s; }); return t; };                  // cap = settle-only: nothing climbs at re-seat
+const placeSpot = () => {                                                        // where the aim ray lands — the measured-surface law
+  _ray.setFromCamera(_ctr, camera);
+  const hits = _ray.intersectObjects(PLACED.filter(p => p !== placeSel && p !== held && p.g.parent === scene).map(p => p.g), true);
+  let wx, wz;
+  if (hits.length) { wx = hits[0].point.x; wz = hits[0].point.z; }
+  else { const d = _ray.ray.direction; if (d.y > -.01) return null;                // level/up — no floor crossing
+    const t = -_ray.ray.origin.y / d.y; wx = _ray.ray.origin.x + d.x * t; wz = _ray.ray.origin.z + d.z * t; }
+  const skip = new Set([placeSel, ...((placeSel && placeSel._carry) || []).map(c => c.q)]);
+  return { x: wx, y: placeSurf(wx, wz, skip, { surfOnly: placeSel && placeSel.surf }), z: wz };
+};
+const placeDrop = () => {                                                        // commit the drag — write the override
+  if (!placeSel) return; const moved = placeSel;
+  moved.y0 = moved.g.position.y;
+  const ob = moved._orig ? footB(moved.lb, moved._orig.x, moved._orig.z, moved._orig.rotY) : footB(moved.lb, moved.x, moved.z, moved.rotY);   // pre-move footprint — the orphans lived here
+  settleOrphans(moved, ob, moved.bbox, (moved._orig ? moved._orig.y0 : moved.y0) + Math.max(...moved.tops.values()));
+  const o = moved._orig || moved;
+  if (o.x !== moved.x || o.z !== moved.z || o.rotY !== moved.rotY || o.y0 !== moved.y0)
+    placeSnapOp({ t: 'move', p: moved, prev: { x: o.x, z: o.z, rotY: o.rotY, y0: o.y0,
+      carry: (moved._carry || []).map(c => ({ q: c.q, ox: c.ox, oz: c.oz, oy: c.oy })) } });   // passengers return with the host
+  moved._carry = null; moved._orig = null; moved._drag = false;
+  placeSave(); placeSel = null; selBox.visible = false; origBox.visible = false; placeGrid.visible = false;
+  placeStat.textContent = '';
+};
+const placePaste = () => {
+  if (!placeClip) { placeSay('NOTHING COPIED — C FIRST'); return; }
+  const s = placeSpot(); if (!s) { placeSay('AIM AT A SURFACE'); return; }
+  emitAsset(placeClip.name, { kind: placeClip.kind,
+    x: Math.round(s.x / PLACE_SNAP) * PLACE_SNAP, z: Math.round(s.z / PLACE_SNAP) * PLACE_SNAP,
+    rotY: placeClip.rotY, pickable: placeClip.pickable, solids: placeClip.solids, source: 'extra', seatY: s.y })
+    .then(r => { if (r) { if (placeSel) placeDrop();                             // the paste takes the selection — commit whatever was held
+      placeSel = r; r._carry = []; r._drag = false; r._grab = { lx: 0, lz: 0 };
+      r._orig = { x: r.x, z: r.z, rotY: r.rotY, y0: r.y0 };
+      placeSnapOp({ t: 'add', p: r }); placeSave(); placeSay('PASTED ' + r.name); } });
+};
+const placeToggle = on => {
+  placeOn = on;
+  if (on) { flyPos.set(pos.x, EYE, pos.z); placeEl.style.display = 'block'; placeStat.style.display = 'block';
+    camera.layers.enable(1); }                                              // you're outside your body — your head renders too
+  else { placeEl.style.display = 'none'; placeStat.style.display = 'none';
+    if (placeSel) placeDrop(); selBox.visible = false;
+    camera.layers.disable(1); }
+};
+const flyStep = dt => {                                                          // camera off the body — full-3D fly
+  const sp = (keys['shift'] ? SPRINT : WALK) * 1.6;
+  const f = (keys['w'] ? 1 : 0) - (keys['s'] ? 1 : 0), r = (keys['d'] ? 1 : 0) - (keys['a'] ? 1 : 0),
+        u = ((keys[' '] || keys['e']) ? 1 : 0) - ((keys['control'] || keys['q']) ? 1 : 0);
+  camera.getWorldDirection(_fd);
+  const cy = Math.cos(yaw), sy = Math.sin(yaw);
+  flyPos.addScaledVector(_fd, f * sp * dt);
+  flyPos.x += cy * r * sp * dt; flyPos.z += -sy * r * sp * dt; flyPos.y += u * sp * dt;
+  flyPos.x = Math.max(-7.5, Math.min(3.4, flyPos.x));
+  flyPos.z = Math.max(-7.5, Math.min(1.8, flyPos.z));
+  flyPos.y = Math.max(.08, Math.min(2.4, flyPos.y));
+};
+const placeStep = () => {
+  if (!placeSel) return;
+  const p = placeSel;
+  if (p._drag) {                                                                 // ⇧+LMB held — the ray owns it (anchor + grid snap)
+    const s = placeSpot();
+    if (s) { const cy = Math.cos(p.rotY), sy = Math.sin(p.rotY), g = p._grab || { lx: 0, lz: 0 };
+      const sx = Math.round(s.x / PLACE_SNAP) * PLACE_SNAP, sz = Math.round(s.z / PLACE_SNAP) * PLACE_SNAP;
+      p.y0 = s.y;
+      placeApply(p, sx - g.lx * cy - g.lz * sy, sz + g.lx * sy - g.lz * cy, p.rotY); } }
+  carrySync(p);                                                                  // passengers ride regardless of what moved the host
+  placeStat.textContent = 'SEL ' + p.name + '  x ' + p.x.toFixed(3) + '  z ' + p.z.toFixed(3) +
+    '  y ' + p.y0.toFixed(3) + '  rotY ' + p.rotY.toFixed(3) + '  · ' + (p._carry || []).length + ' passengers' + (p._drag ? '  · DRAGGING' : '');
+};
+window.__place = { on: () => placeOn, toggle: placeToggle, sel: () => placeSel && placeSel.name,
+  grab: n => { const p = PLACED.find(p => p.name === n); return p ? placeGrab(p, null) : false; },
+  grabIdx: i => { const p = PLACED[i]; return p ? placeGrab(p, null) : false; },
+  drop: placeDrop, revert: placeRevert, spot: placeSpot, pick: () => { const p = placePick(); return p && p.p.name; },
+  copy: () => { if (!placeSel) return false; placeClip = { name: placeSel.name, kind: placeSel.kind, rotY: placeSel.rotY, pickable: placeSel.pickable, solids: placeSel.solids };
+    placeSay('COPIED ' + placeSel.name); return true; },
+  paste: placePaste,
+  del: () => { if (!placeSel) return false;
+    placeSnapOp({ t: 'del', spec: { name: placeSel.name, kind: placeSel.kind, x: placeSel.x, z: placeSel.z,
+      rotY: placeSel.rotY, pickable: placeSel.pickable, solids: placeSel.solids, source: placeSel.source, _spec: placeSel._spec } });
+    if (placeSel.source !== 'extra') { const d = new Set(JSON.parse(localStorage.getItem('dvm_del') || '[]'));
+      d.add(placeSel.name); localStorage.setItem('dvm_del', JSON.stringify([...d])); }         // tombstone — manifest items stay deleted
+    const dp = placeSel;
+    if (dp._block) WALL_BLOCKS.splice(WALL_BLOCKS.indexOf(dp._block), 1);                    // walk-block dies with its table
+    scene.remove(placeSel.g); PLACED.splice(PLACED.indexOf(placeSel), 1);
+    settleOrphans(dp, dp.bbox, null, Infinity);                                  // host deleted — its passengers drop to what's beneath
+    placeSel = null; selBox.visible = false; origBox.visible = false; placeGrid.visible = false;
+    placeStat.textContent = '';
+    refreshSolids(); placeSave(); placeSay('REMOVED'); return true; },
+  dump: () => JSON.stringify(PLACED.map(p => ({ name: p.name, x: +p.x.toFixed(3), z: +p.z.toFixed(3), y: +p.y0.toFixed(3), rotY: +p.rotY.toFixed(3), src: p.source, surf: p.surf, solids: (p.solids || []).length }))),
+  save: placeSave };
+
+/* platform-clamped walk + door solids — same contract as the office slide/pushout */
+const step = dt => {
+  const sp = keys['shift'] ? WALK * SPRINT : WALK;
+  const f = (keys['w'] ? 1 : 0) - (keys['s'] ? 1 : 0), r = (keys['d'] ? 1 : 0) - (keys['a'] ? 1 : 0);
+  if (f || r) {
+    const sy = Math.sin(yaw), cy = Math.cos(yaw), L = Math.hypot(f, r) || 1;
+    const px = pos.x, pz = pos.z;
+    pos.x += (-sy * f + cy * r) / L * sp * dt; pos.z += (-cy * f - sy * r) / L * sp * dt;   // forward = (-sin,-cos)yaw, right = (cos,-sin)yaw — three.js yaw-0 faces -z
+    if (!walkOK(pos.x, pos.z)) {                                            // slide along walls — try each axis alone
+      if (walkOK(pos.x, pz)) pos.z = pz; else if (walkOK(px, pos.z)) pos.x = px; else { pos.x = px; pos.z = pz; }
+    }
+    for (const s of SOLIDS) { const px = pos.x - s[0], pz = pos.z - s[1], rr = s[2] + .15, d = Math.hypot(px, pz);
+      if (d < rr && d > 1e-4) { pos.x = s[0] + px / d * rr; pos.z = s[1] + pz / d * rr; } }
+  }
+};
+
+let last = performance.now();
+const loop = now => {
+  const dt = Math.min(.1, (now - last) / 1000); last = now;
+  placeOn ? flyStep(dt) : step(dt);
+  placeStep();
+  if (placeSel) { selBox.box.setFromObject(placeSel.g); selBox.visible = true; }
+  if (camLock) { camera.position.copy(camLock.p); camera.lookAt(camLock.t); }
+  else { if (placeOn) camera.position.copy(flyPos); else camera.position.set(pos.x, EYE, pos.z);
+    camera.rotation.set(0, 0, 0, 'YXZ'); camera.rotation.y = yaw; camera.rotation.x = pitch; }
+  if (spinning) carG.rotation.y += SPIN_RATE * dt;
+  followers.forEach(f => followStep(f, dt));
+  selfStep(dt);
+  aimStep();
+  if (povF) updatePov(dt);                                    // the agent's eyes track whether or not the PiP inset is up
+  boundHue(now / 1000);
+  if (held) {
+    camera.getWorldDirection(fwdV);
+    held.g.position.set(camera.position.x + fwdV.x * .38 - fwdV.z * .1,
+                        camera.position.y + fwdV.y * .38 - .07,
+                        camera.position.z + fwdV.z * .38 + fwdV.x * .1);
+    _qYaw.setFromAxisAngle(AX_Y, yaw);
+    _qSnap.setFromEuler(_eSnap.set(heldSnap.x * ROT_STEP, heldSnap.y * ROT_STEP, heldSnap.z * ROT_STEP, 'YXZ'));
+    held.g.quaternion.copy(_qYaw).multiply(_qSnap).multiply(heldFree);                  // facing × axis-snaps × free tumble
+    const t = dropTarget(); ghost.visible = !!t;
+    if (t) ghost.position.set(t.x, t.y + .004, t.z);
+  } else ghost.visible = false;
+  pickIt = held || placeOn ? null : nearestPick();
+  promptIt = document.pointerLockElement === el && !placeOn ? (kioskProbe() || INTERACT.reduce((b, it) => {
+    const d = Math.hypot(pos.x - it.x, pos.z - it.z); return d < it.r && (!b || d < b.d) ? { it, d } : b; }, null)?.it || null) : null;
+  if (kioWire) kioWire.visible = !!(promptIt && promptIt.isBtn);       // ghost frame only while a button is the resolved interact
+  promptEl.style.display = (held || pickIt || promptIt) ? 'block' : 'none';
+  promptEl.textContent = held ? 'E — PLACE ' + held.name.replace('commission_', '').toUpperCase() + '  ·  , . yaw · [ ] pitch · ; \' roll · G tumble · 0 level'
+                     : pickIt ? 'E — TAKE ' + pickIt.name.replace('commission_', '').toUpperCase()
+                     : promptIt ? promptIt.label() : '';
+  window.__compass(camera);
+  renderer.render(scene, camera);
+  if (povOn) window.__eyes.pip();
+  requestAnimationFrame(loop);
+};
+
+/* ── Compass HUD — same rose/readout as the Commission: +z = NORTH (the door end),
+   +x = EAST (the desk wall), readout = bearing + world x,z,y. Dark chip behind the
+   readout — the void is white. */
+const _cp = document.createElement('div');
+_cp.style.cssText = 'position:fixed;top:44px;left:50%;transform:translateX(-50%);z-index:5;pointer-events:none;font:11px/1.2 ui-monospace,Consolas,monospace;color:#e8d9b0;text-align:center';
+_cp.innerHTML = '<svg width="64" height="64" viewBox="-32 -32 64 64" style="display:block;margin:0 auto"><circle r="30" fill="rgba(10,8,6,.55)" stroke="#8a7a50"/><g id="cpRose"><path d="M0-26L5 0H-5Z" fill="#d94a3a"/><path d="M0 26L5 0H-5Z" fill="#6c6650"/><text y="-17" x="0" font-size="9" fill="#fff" text-anchor="middle" transform="translate(0,-4)">N</text><text x="21" y="3" font-size="9" fill="#e8d9b0" text-anchor="middle">E</text><text x="-21" y="3" font-size="9" fill="#e8d9b0" text-anchor="middle">W</text><text y="30" x="0" font-size="9" fill="#e8d9b0" text-anchor="middle" transform="translate(0,-3)">S</text></g></svg><div id="cpTxt" style="display:inline-block;background:rgba(8,8,14,.8);border:1px solid #3a3a4a;padding:2px 6px"></div>';
+document.body.appendChild(_cp);
+const _cpRose = _cp.querySelector('#cpRose'), _cpTxt = _cp.querySelector('#cpTxt'), _cpDir = new THREE.Vector3();
+window.__compass = cam => {
+  cam.getWorldDirection(_cpDir);
+  const brg = (Math.atan2(_cpDir.x, _cpDir.z) * 180 / Math.PI + 360) % 360;      // 0 = N(+z), 90 = E(+x)
+  _cpRose.setAttribute('transform', 'rotate(' + (-brg).toFixed(1) + ')');
+  _cpTxt.textContent = ['N','NE','E','SE','S','SW','W','NW'][Math.round(brg / 45) % 8] + ' ' + Math.round(brg) + '°  x ' + cam.position.x.toFixed(2) + '  z ' + cam.position.z.toFixed(2) + '  y ' + cam.position.y.toFixed(2);
+};
+
+/* warm-up: compile every program + upload every buffer behind the veil — same law as the Commission */
+ready.then(async () => {
+  JSON.parse(localStorage.getItem('dvm_del') || '[]').forEach(n => {               // tombstones first — a deleted host must not seat anything
+    const p = PLACED.find(q => q.name === n && q.source !== 'extra');
+    if (p) { if (p._block) WALL_BLOCKS.splice(WALL_BLOCKS.indexOf(p._block), 1);
+      scene.remove(p.g); PLACED.splice(PLACED.indexOf(p), 1); } });
+  const over = JSON.parse(localStorage.getItem('dvm_place') || '{}');              // your saved layout overrides manifest positions
+  PLACED.forEach(p => { const o = over[p.name]; if (o && p.source !== 'extra') placeApply(p, o.x, o.z, o.rotY); });
+  const extras = JSON.parse(localStorage.getItem('dvm_extra') || '[]');            // extras emit LAST — they seat on the final layout, not manifest spots
+  for (const e of extras) await emitAsset(e.name, { kind: e.kind, x: e.x, z: e.z, rotY: e.rotY, pickable: e.pickable, solids: e.solids,
+    source: 'extra', seatY: 'auto' });
+  for (let pass = 0; pass < 4; pass++) {                                      // orphan-law re-seat to fixpoint: EVERY item re-derives height on the
+    let changed = false;                                                      // final layout — saves carry no y0. Declared roles: surf items floor
+    [...PLACED].sort((a, b) => b.y0 - a.y0).forEach(p => {                      // ONLY on other surf items (a rider can never host a desk);
+      const s = placeSurf(p.x, p.z, new Set([p]), { surfOnly: p.surf, cap: p.y0 + .01 });   // riders conform — but the cap makes re-seat settle-only,
+      if (Math.abs(s - p.y0) > 1e-4) { p.y0 = s; p.g.position.y = s; changed = true; } });  // so co-located siblings can't leapfrog. Highest first.
+    if (!changed) break;
+  }
+  refreshSolids();
+  try { renderer.compile(scene, camera); } catch (e) {}
+  renderer.render(scene, camera);
+  setTimeout(() => { veil.style.opacity = 0; }, 350);
+  if (localStorage.getItem('dvm_live') === '1') window.__live.start();              // live link survives a reload — agent keeps eyes
+  setInterval(() => { if (!window.__leaving) saveFol(); }, 2500);                 // roster heartbeat — order + last position stay fresh; skip during the goHome veil (it just wrote the post-departure roster)
+  window.__warmDone = true;
+});
+requestAnimationFrame(loop);
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+
+/* probe hooks — same contract as thecommission.html so _shot.mjs drives this page too */
+let camLock = null;
+window.__cam = (px, py, pz, tx, ty, tz) => { if (px === null) { camLock = null; return; }   // __cam(null) releases
+  camLock = { p: new THREE.Vector3(px, py, pz), t: new THREE.Vector3(tx, ty, tz) }; };
+window.__snap = (name, px, py, pz, tx, ty, tz) => {
+  if (px !== undefined) { window.__cam(px, py, pz, tx, ty, tz);
+    camera.position.copy(camLock.p); camera.lookAt(camLock.t); }        // apply now — the rAF loop may not tick before the capture
+  renderer.render(scene, camera);
+  const u = renderer.domElement.toDataURL('image/png');
+  return fetch('/shot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'probe_' + name, png: u }) }).then(r => r.json()).then(j => !!j.ok);
+};
+window.__construct = { manifest: MANIFEST, pos, spin: () => spinning, held: () => held, placed: PLACED, yaw: () => yaw,
+  walkOK, bounds: () => boundsG.children.length, surfaceAt,
+  tables: () => TABLES.filter(t => PLACED.includes(t.rec)).map(t => ({ id: t.spec.id, x: t.rec.x, z: t.rec.z, top: t.spec.top, size: t.spec.size,
+    scale: t.spec.scale, models: t.g.children.filter(c => c.userData.mini).map(c => c.userData.mini) })),
+  followers: () => followers.map(f => ({ char: f.spec.char, order: f.order, pos: f.pos.toArray() })),
+  self: () => selfBody && ({ x: pos.x, z: pos.z, yaw: selfBody.yaw, state: selfBody.state,
+    bodyMask: selfBody.meshes[0].im.layers.mask, headMask: selfBody.meshes[1].im.layers.mask,
+    bodyVox: selfBody.meshes[0].list.length, headVox: selfBody.meshes[1].list.length }),
+  agent: {                                                                   // the agent's possession layer — same tags, same orders
+    gaze: (x, y, z) => { followers.forEach(f => f.gazeT = new THREE.Vector3(x, y, z)); return [x, y, z]; },   // head-aim only — never moves the mark or his walk target
+    go: (x, z) => { tagAt(new THREE.Vector3(x, 0, z)); followers.forEach(f => f.setOrder('goto')); },
+    order: o => followers.forEach(f => f.setOrder(o)),
+    heel: () => followers.forEach(f => f.setOrder('follow')),
+    shot: () => window.__eyes.shot(),
+    pos: () => followers.map(f => f.pos.toArray()),
+  },
+  place: () => window.__place,
+  take: n => { const p = PLACED.find(p => p.name === n); if (p) takeIt(p); return !!p; },
+  place: (x, z) => { if (!held) return false; const y = worldSurfaceAt(x, z, held); placeIt({ x, y, z }); return true; },
+  tumble: (dx, dy) => heldTumble(dx, dy), heldSnap: () => ({ ...heldSnap }),
+  heldQ: () => held ? held.g.quaternion.toArray() : null, dropTarget };
+window.__envShot = () => {};                                   // probe contract — no sealed/env split on this page
+window.__uiClean = v => { document.getElementById('hud').style.display = v ? 'none' : ''; };

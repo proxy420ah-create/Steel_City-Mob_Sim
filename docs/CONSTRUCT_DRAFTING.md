@@ -134,7 +134,12 @@ ordinary mini. Spin/slice/tops/lift/persistence need nothing new.
   `allInst` mode, so the aim dot/IK land ON the thing you're pointing at.
   The collector also skips `!visible` objects and `isLine`/`isPoints` helpers —
   a `GridHelper` answers every ray near its lines at distance ≈0 and once
-  pinned `aimWorld` to the floor.
+  pinned `aimWorld` to the floor. `boundsG` is **not** excluded: its invisible
+  wall slabs (`userData.wallSlab`) are real physical surfaces — they block the
+  capsule and host the pad — so the aim stops at them instead of sailing into
+  the void. The decorative children (floor seams, portal ∩ wires) carry
+  `userData.noAim` and stay invisible to the ray — the flag, not the group,
+  owns the exclusion so `rebuildBounds` re-marks them on every rebuild.
 
 ## The debug pad — a pickable touchscreen
 

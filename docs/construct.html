@@ -114,7 +114,7 @@ function rebuildBounds() {
   const seam = (ax, az, bx, bz) => {                                    // one floor-level glow band a→b
     const g = new THREE.PlaneGeometry(Math.hypot(bx - ax, bz - az), BND_W); g.rotateX(-Math.PI / 2);
     const m = new THREE.Mesh(g, coreMat);
-    m.rotation.y = -Math.atan2(bz - az, bx - ax); m.position.set((ax + bx) / 2, .004, (az + bz) / 2); boundsG.add(m);
+    m.rotation.y = -Math.atan2(bz - az, bx - ax); m.position.set((ax + bx) / 2, .004, (az + bz) / 2); m.userData.noAim = true; boundsG.add(m);
   };
   BOUND_WALL.forEach(([ax, az, bx, bz]) => {                            // each centerline → invisible slab + floor-seam glow bands
     const len = Math.hypot(bx - ax, bz - az), ux = (bx - ax) / len, uz = (bz - az) / len;
@@ -131,7 +131,7 @@ function rebuildBounds() {
   });
   BOUND_ARCH.forEach(a => {                                             // pure wire ∩ — the lifted floor wire on each room's face + a floor-plan seam
     const w = BND_W * 1.6, mid = (a.z0 + a.z1) / 2;
-    const put = (g, x, y, z) => { const me = new THREE.Mesh(g, coreMat); me.position.set(x, y, z); boundsG.add(me); };
+    const put = (g, x, y, z) => { const me = new THREE.Mesh(g, coreMat); me.position.set(x, y, z); me.userData.noAim = true; boundsG.add(me); };
     [a.z0, a.z1].forEach(z => {
       put(new THREE.BoxGeometry(w, a.h, w), a.x - a.d / 2, a.h / 2, z);           // outline posts — one per room face
       put(new THREE.BoxGeometry(w, a.h, w), a.x + a.d / 2, a.h / 2, z);
@@ -985,7 +985,7 @@ const aimRay = new THREE.Raycaster(), _zv = new THREE.Vector2(0, 0), aimWorld = 
    aim path — tags want surfaces); default skips only miniVox (click paths keep props selectable).
    Exclusions honored at EVERY level, not just the root list. */
 const _rcList = [];
-const rcCollect = (o, excl, allInst) => { if (!o.visible || o.isLine || o.isPoints || (allInst ? o.isInstancedMesh : o.userData.miniVox) || (o.userData.hitProxy && !allInst) || (excl && excl.includes(o))) return;
+const rcCollect = (o, excl, allInst) => { if (!o.visible || o.isLine || o.isPoints || o.userData.noAim || (allInst ? o.isInstancedMesh : o.userData.miniVox) || (o.userData.hitProxy && !allInst) || (excl && excl.includes(o))) return;
   _rcList.push(o); o.children.forEach(c => rcCollect(c, excl, allInst)); };
 const rayPruned = (rc, roots, excl, allInst) => { _rcList.length = 0;
   roots.forEach(o => { if (!excl || !excl.includes(o)) rcCollect(o, excl, allInst); });
@@ -1009,7 +1009,7 @@ const aimStep = () => {
   _playerHead.set(pos.x, EYE, pos.z);
   if (aimOn) {
     aimRay.setFromCamera(_zv, camera);
-    const excl = [boundsG, ghost, aimDot, camera];
+    const excl = [ghost, aimDot, camera];
     followers.forEach(f => excl.push(f.CH)); if (selfBody) excl.push(selfBody.CH); if (held) excl.push(held.g); marks.forEach(m => excl.push(m));
     const hits = rayPruned(aimRay, scene.children, excl, true);
     camera.getWorldDirection(fwdV);
