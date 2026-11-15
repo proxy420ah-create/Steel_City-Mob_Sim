@@ -516,7 +516,7 @@ check('reset restores the stock tune', await evl('__torch.cfg.c === 0 && __torch
 await evl('__torch.set(true); __cam(-6.5,.62,-4.6, -7.93,.62,-4.6)');                        // ~1.4m to the west wall — past the 1m knee
 for (let i = 0; i < 30 && !(await evl('Math.abs(__camera.position.x + 6.5) < .01')); i++) await sleep(100);
 await evl('__torch.aim(__camera)');
-check('auto-exposure — full power past 1m', await evl('__torch.dist(__camera) > 1 && Math.abs(__torch.spot.intensity - __torch.cfg.i) < .001'), await evl('JSON.stringify({d:+__torch.dist(__camera).toFixed(2), i:+__torch.spot.intensity.toFixed(2)})'));
+check('auto-exposure — full power past 1m (× incidence factor)', await evl('__torch.dist(__camera) > 1 && Math.abs(__torch.spot.intensity - __torch.cfg.i * __torch.inc) < .001'), await evl('JSON.stringify({d:+__torch.dist(__camera).toFixed(2), i:+__torch.spot.intensity.toFixed(2), inc:__torch.inc})'));   // head-on at the wall → inc .5
 check('footprint — past 1m the tuned cone runs as-is', await evl('Math.abs(__torch.spot.angle - .45) < .01'), await evl('__torch.spot.angle'));
 await evl('__cam(-7.5,.62,-4.6, -7.93,.62,-4.6)');                                           // ~.43m — inside the old washout range
 for (let i = 0; i < 30 && !(await evl('Math.abs(__camera.position.x + 7.5) < .01')); i++) await sleep(100);
@@ -540,6 +540,21 @@ for (const dx of [.9, .5, .25, .14, .05]) {
     return { d: +d.toFixed(3), E: t.spot.intensity / Math.pow(d, t.spot.decay) + t.fill.intensity / Math.pow(df, t.fill.decay) }; })())`)));
 }
 check('auto-exposure — irradiance never ramps up toward the wall; proximity fade eases it down past .4m', Es.every(e => e.E <= Es[0].E * 1.1) && Es[Es.length - 1].E < Es[0].E * .7 && Es.every((e, i) => !i || e.E <= Es[i - 1].E * 1.02), JSON.stringify(Es.map(e => [e.d, +e.E.toFixed(2)])));
+/* incidence normalization — the camera ANGLE must not change the brightness. A flat test plane in free
+   air, same distance (.4m), swept head-on → glancing: AUTO holds head-on to a ~60° view's level, so the
+   rendered center luminance is flat head-on→55° (RAW would swing ~15%+), and inc reads .5 head-on, 1 glancing. */
+await evl(`(() => { const m = new __THREE.Mesh(new __THREE.PlaneGeometry(6, 6), new __THREE.MeshStandardMaterial({ color: 0x7a5244, roughness: .9 }));
+  m.rotation.x = -Math.PI / 2; m.position.set(-1.5, 1.4, -3.5); m.name = '_incplane'; __scene.add(m); })()`);
+const lumAt = async el => { const a = el * Math.PI / 180;
+  await evl(`__cam(${-1.5 + .4 * Math.cos(a)},${1.4 + .4 * Math.sin(a)},-3.5, -1.5,1.4,-3.5)`); await sleep(400); await evl('__torch.aim(__camera)');
+  return { inc: await evl('__torch.inc'), L: await evl(`(() => { __renderer.render(__scene, __camera); const c = document.createElement('canvas'), s = __renderer.domElement;
+    c.width = s.width; c.height = s.height; const g = c.getContext('2d'); g.drawImage(s, 0, 0); const d = g.getImageData(s.width / 2 - 20, s.height / 2 - 20, 40, 40).data;
+    let L = 0; for (let i = 0; i < d.length; i += 4) L += .2126 * d[i] + .7152 * d[i+1] + .0722 * d[i+2]; return L / (d.length / 4); })()`) }; };
+const iHead = await lumAt(90), iMid = await lumAt(55), iGraze = await lumAt(12);
+check('incidence — head-on held to the angled level (inc .5 head-on, 1 glancing)', Math.abs(iHead.inc - .5) < .03 && iGraze.inc > .97, JSON.stringify([iHead.inc, iMid.inc, iGraze.inc]));
+check('incidence — brightness flat head-on vs 55° (camera angle no longer drives intensity)', Math.abs(iHead.L / iMid.L - 1) < .1, JSON.stringify([+iHead.L.toFixed(1), +iMid.L.toFixed(1), +iGraze.L.toFixed(1)]));
+await evl(`(() => { const m = __scene.getObjectByName('_incplane'); __scene.remove(m); })()`);
+await evl('__cam(null)');
 /* free-cam end-to-end — place mode drives camera from flyPos (position) + yaw/pitch
    (orientation) every frame, and aim(camera) reads that same object; camLock would WIN
    over both, so release it first, then drive the real fly/look axes to the same .43m

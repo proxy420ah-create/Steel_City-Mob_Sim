@@ -334,7 +334,13 @@ the wall, so inside .4 m both lamps ease down a further 60% by point-blank
 (`prox = .4 + .6·d/.4`); `torchDist` clamps at `camera.near` (.02), not .12 —
 the old .12 clamp froze compensation while the real distance kept shrinking
 (3-4× hotter at 4 cm). Rendered wall luminance 1 m→4 cm: AUTO 177→96, RAW
-177→254. **(2) footprint** — inside 1 m the fixed cone would squeeze the
+177→254. **Incidence normalization** — the renderer's diffuse term is ∝ cos(angle to the
+surface normal), so a head-on pitch got the full dose and a glancing one a smear
+of it: camera angle drove brightness. `torchDist` now also records the hit face's
+incidence cosine; AUTO scales both lamps by `min(1, .5/cos)` — head-on is held to
+what a ~60° view already reads, shallower angles untouched. Rendered on a flat
+test plane at .4 m: AUTO 103/103/103/99/84 (90°→12°) vs RAW 235/229/219/204/148.
+**(2) footprint** — inside 1 m the fixed cone would squeeze the
 same flux into a shrinking disc (the "concentration" hotspot), so AUTO widens
 the angle: `angle = atan(tan(beam₀)/d)` — but capped at `beam₀×1.6` (and .95
 rad absolute): *partial* normalization. A constant-radius pool reads wrong
