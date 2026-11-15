@@ -3259,6 +3259,7 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
           gl_FragColor = vec4(vec3(1., .95, .85), a);
         }`,
     }));
+    pts.frustumCulled = false;                                    // positions are GPU-computed from aSeed — the zero-filled position attribute would bound a sphere at the origin and cull the motes at portal-facing angles
     portalG.add(pts);
     const pl1 = new THREE.PointLight(0xfff2d8, 3.2, 2.4, 1.6); pl1.position.set(PX, .5, PZ + .3);
     const pl2 = new THREE.PointLight(0xffe9c0, 1.2, 1.6, 1.8); pl2.position.set(PX, .25, PZ - .4);
