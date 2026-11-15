@@ -433,6 +433,45 @@ call you're making**, then prune candidates before the call, not after it.
 
 ---
 
+## 21. First-Look Law — Compile Is Not Upload, and Bounds Are Lazy (2026-11-14)
+
+**Problem**: Construct boot felt smooth at spawn, but the first mouse-look toward
+the annex hitched hard — same class of stall the Commission's warm-up phase was
+built to kill, resurfacing at zone scale.
+
+**Root causes, two lazy loads hiding behind the first frustum test**:
+
+1. `renderer.compile(scene, cam)` warms *programs* globally, but geometry/texture
+   **buffers only upload on first render** — and a culled-out object never renders.
+   The spawn view doesn't include the annex, so ~80 MB of zone instance matrices
+   uploaded mid-look instead of under the LOADING PROGRAM veil.
+2. `InstancedMesh.boundingSphere` is `null` until the first frustum test — and the
+   lazy `computeBoundingSphere()` **iterates every instance matrix**. At 1.36 M
+   instances that alone is a guaranteed hitch the first frame the mesh is tested,
+   and forcing `frustumCulled=false` skips the bounds test so it doesn't even help.
+
+**Fix** (Construct warm-up + `emitVox`):
+
+```js
+// emitVox — O(1) bounds from the already-known occupied extents:
+imO.boundingSphere = new THREE.Sphere(centerOf(occupiedBounds), halfDiagonal + vs);
+
+// warm-up — compileAsync where supported, then the Commission's unculled render:
+if (renderer.compileAsync) await renderer.compileAsync(scene, camera);
+const _uncull = []; scene.traverse(o => { if (o.frustumCulled) { _uncull.push(o); o.frustumCulled = false; } });
+renderer.render(scene, camera);              // every buffer/VAO uploads behind the veil
+_uncull.forEach(o => { o.frustumCulled = true; });
+```
+
+**Game reuse**: Unity equivalent — `Shader.WarmupAllShaders`/`GraphicsSettings`
+preloads programs, but *mesh buffer* upload and `Renderer.bounds` (computed lazily
+per `InstancedMesh`-style draws / `Graphics.DrawMeshInstanced` batches) follow the
+same law: **warm bounds + buffers explicitly during a loading screen**, don't let a
+first-visible-frame do N-sized work. Any per-frame-visibility system (frustum cull,
+LOD select, occlusion query) inherits its laziest field — find it and precompute it.
+
+---
+
 ## Cross-Cutting Lessons
 
 1. **Profile the bookkeeping, not just the draw** — every stall here was CPU-side Map/string

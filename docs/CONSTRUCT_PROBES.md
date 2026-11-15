@@ -113,6 +113,14 @@ The CDP tools (`_place_probe.mjs`, `_shot.mjs`) use **Node 24's built-in `WebSoc
 no `ws` package is installed. Scratch scripts that `require('ws')` die at import; copy
 the native-socket pattern from the existing tools.
 
+## Suite duration — long ≠ stuck
+
+The full suite does ~6 page reloads, and each boot re-emits the ~7 s zone plus the
+warm-up's unculled render — all in software GL. A silent stretch mid-run is almost
+always a reload in flight or the zone emitting, not a hang: PASS lines resume when
+the boot lands. Budget several minutes; read the output file rather than polling,
+and treat "stopped waiting" as a reader timeout, not a probe result.
+
 ## Heavy scenes — SwiftShader black frames
 
 Once the studio table mounts the ~1.36 M-instance Battlefield zone, headless
