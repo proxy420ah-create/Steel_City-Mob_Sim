@@ -409,18 +409,25 @@ check('held pose preserved across place → take', JSON.stringify(await evl('__c
   JSON.stringify({ before: gripQ, after: await evl('__construct.heldQ()') }));
 await evl('__construct.place(-4.6, -1.975)');                                        // back on the margin
 
-// 12.96b — placed tilt persists: the grip's pitch/roll rides placement, dvm_place, and reload
+// 12.96b — placed items seat FLAT; the grip's lean persists through dvm_place + reload (incl. wall mounts)
 await evl('__construct.take("debug_pad")');
 await evl('window.dispatchEvent(new KeyboardEvent("keydown",{key:"["}))');            // [ — +1 x-snap ≈ 15° lean (snaps before tumble — snap resets heldFree)
 await evl('__construct.tumble(0, -60)'); await sleep(200);                           // + free X tumble ≈ 29° — a real lean, not a yaw
 await evl('__construct.place(-4.6, -1.975)'); await sleep(250);
-const plQ = JSON.parse(await evl('JSON.stringify(__pad.rec().g.quaternion.toArray().map(v=>+v.toFixed(4)))'));
-check('placement keeps the tilt — not flattened', Math.abs(plQ[0]) > .1 || Math.abs(plQ[2]) > .1, plQ.join(','));
-check('tilt saved to dvm_place', await evl('!!(JSON.parse(localStorage.getItem("dvm_place"))["debug_pad"]||{}).tilt'));
+const flQ = JSON.parse(await evl('JSON.stringify(__pad.rec().g.quaternion.toArray().map(v=>+v.toFixed(4)))'));
+check('placement seats flat — tilt is a grip state, not a pose', Math.abs(flQ[0]) < .01 && Math.abs(flQ[2]) < .01, flQ.join(','));
+check('the grip still saved — tilt field in dvm_place', await evl('!!(JSON.parse(localStorage.getItem("dvm_place"))["debug_pad"]||{}).tilt'));
 await evl('location.reload()'); await sleep(1500); await connect(); await waitBoot(); await sleep(900);
-const reQ = JSON.parse(await evl('JSON.stringify(__pad.rec().g.quaternion.toArray().map(v=>+v.toFixed(4)))'));
-check('tilt survives F5 — same quaternion', JSON.stringify(reQ) === JSON.stringify(plQ), reQ.join(',') + ' vs ' + plQ.join(','));
-await evl('__construct.take("debug_pad")'); await sleep(200);
+check('pad flat on the felt after reload', await evl('Math.abs(__pad.rec().g.quaternion.x) < .01 && Math.abs(__pad.rec().g.quaternion.z) < .01'));
+await evl('__construct.take("debug_pad")'); await sleep(250);
+const hg = JSON.parse(await evl('JSON.stringify(__construct.heldQ())'));
+check('the saved lean returns in hand after F5', Math.abs(hg[0]) > .1 || Math.abs(hg[2]) > .1, hg.join(','));
+await evl('__pad.stick(-4.6, .6, -5.928, [0,0,1])'); await sleep(200);               // wall-mount while holding the lean
+await evl('location.reload()'); await sleep(1500); await connect(); await waitBoot(); await sleep(900);
+check('pad re-hung on the wall — mount survived', await evl('!!(__pad.rec().mount && __pad.rec().mount.n[2] === 1)'));
+await evl('__construct.take("debug_pad")'); await sleep(250);                        // picked straight off the wall
+const wg = JSON.parse(await evl('JSON.stringify(__construct.heldQ())'));
+check('wall-mounted pad kept its saved grip', Math.abs(wg[0]) > .1 || Math.abs(wg[2]) > .1, wg.join(','));
 await evl('window.dispatchEvent(new KeyboardEvent("keydown",{key:"0"}))');            // 0 — LEVEL the grip
 await evl('__construct.place(-4.6, -1.975)'); await sleep(250);                       // home spot, flat
 check('pad re-leveled home', await evl('Math.abs(__pad.rec().g.quaternion.x) < .01 && Math.abs(__pad.rec().g.quaternion.z) < .01'));

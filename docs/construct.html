@@ -1405,7 +1405,7 @@ addEventListener('keydown', e => { keys[(e.key || '').toLowerCase()] = true;
     else if (k === 'pageup' && p) { p.y0 += st; p.g.position.y = p.y0; if (p.mount) p.mount.y = p.y0; }   // mounted: slides the panel up the wall
     else if (k === 'pagedown' && p) { p.y0 -= st; p.g.position.y = p.y0; if (p.mount) p.mount.y = p.y0; }
     else if (k === 'b' && p) { const skip = new Set([p, ...(p._carry || []).map(c => c.q), held]);
-      p.mount = null; poseApply(p);                                                      // a re-seat unsticks a wall mount — tilt rides along
+      p.mount = null; p.g.rotation.set(0, p.rotY, 0);                                    // a re-seat unsticks a wall mount first
       p.y0 = placeSurf(p.x, p.z, skip, { surfOnly: p.surf }); p.g.position.y = p.y0; }      // re-seat on the measured surface — furniture never lands on a rider
     else if ((k === ',' || k === '[') && p) { placeApply(p, p.x, p.z, p.rotY + Math.PI / 12); }
     else if ((k === '.' || k === ']') && p) { placeApply(p, p.x, p.z, p.rotY - Math.PI / 12); }
@@ -1458,15 +1458,10 @@ const heldTumble = (dx, dy) => { heldFree                                       
   .premultiply(_qt.setFromAxisAngle(AX_Y, -dx * .008))
   .premultiply(_qt.setFromAxisAngle(AX_X, -dy * .008)); };
 const heldSnapStep = (ax, d) => { heldSnap[ax] += d; heldFree.identity(); };       // axis rotation resets free rotation — level stays reachable
-const poseApply = p => { const s = p._snap, f = p._free;                           // placed orientation = yaw (incl. baked y-snap) × the grip's pitch/roll
-  if (s && f && (s.x || s.z || f.x || f.y || f.z)) {
-    _qSnap.setFromEuler(_eSnap.set(s.x * ROT_STEP, 0, s.z * ROT_STEP, 'YXZ'));
-    p.g.quaternion.copy(_qYaw.setFromAxisAngle(AX_Y, p.rotY)).multiply(_qSnap).multiply(f);
-  } else p.g.rotation.set(0, p.rotY, 0); };
 const tiltOf = p => p._snap && p._free && (p._snap.x || p._snap.y || p._snap.z || p._free.x || p._free.y || p._free.z)
   ? { s: [p._snap.x, p._snap.y, p._snap.z], f: p._free.toArray().map(v => +v.toFixed(5)) } : null;
-const tiltApply = (p, t) => { if (!t) return;                                      // restore the grip state, then re-pose (y-snap stays baked in rotY)
-  p._snap = { x: t.s[0], y: t.s[1], z: t.s[2] }; p._free = new THREE.Quaternion().fromArray(t.f); poseApply(p); };
+const gripRestore = (p, t) => { if (!t) return;                                    // the saved grip returns to HAND on takeIt — placed poses stay level/mounted
+  p._snap = { x: t.s[0], y: t.s[1], z: t.s[2] }; p._free = new THREE.Quaternion().fromArray(t.f); };
 const worldSurfaceAt = (wx, wz, skip, opt) => placeSurf(wx, wz, new Set(skip ? [skip] : []), opt);
 const dropTarget = () => {
   camera.getWorldDirection(fwdV);
@@ -1491,14 +1486,14 @@ const takeIt = p => { held = p;                                            // th
   else { heldSnap.x = heldSnap.y = heldSnap.z = 0; heldFree.identity(); }
   p.mount = null; };
 const placeIt = t => { const p = held; held = null;
-  placeSnapOp({ t: 'move', p, prev: { x: p.x, z: p.z, rotY: p.rotY, y0: p.y0, mount: p.mount, tilt: tiltOf(p) } });
-  p._snap = { ...heldSnap }; p._free = heldFree.clone();                   // stash the grip on the rec — it rides the placed pose now
+  p._snap = { ...heldSnap }; p._free = heldFree.clone();                   // stash the grip on the rec — yaw already rides p.rotY
+  placeSnapOp({ t: 'move', p, prev: { x: p.x, z: p.z, rotY: p.rotY, y0: p.y0, mount: p.mount } });
   p.x = t.x; p.z = t.z; p.y0 = t.y;
   if (t.wall) { p.mount = { x: t.x, y: t.y, z: t.z, n: t.n };               // stuck to a face — screen out, upright
     p.g.position.set(t.x, t.y, t.z); padMountQ(p.g, t.n); }
   else { p.mount = null;
-    p.rotY = ((yaw + heldSnap.y * ROT_STEP) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);   // yaw bakes facing+y-snap; tilt rides the placed pose
-    p.g.position.set(t.x, t.y, t.z); poseApply(p); }
+    p.rotY = ((yaw + heldSnap.y * ROT_STEP) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);   // yaw persists — pitch/roll drop, placement seats level
+    p.g.position.set(t.x, t.y, t.z); p.g.rotation.set(0, p.rotY, 0); }
   p.bbox = footB(p.lb, p.x, p.z, p.rotY);
   refreshSolids(); placeSave(); };
 const ghostShape = new THREE.Shape(); ghostShape.absarc(0, 0, .05, 0, Math.PI * 2);
@@ -1554,7 +1549,7 @@ const placeSave = () => {                                                       
 const placeApply = (p, x, z, rotY) => {                                          // tops stay local — surface math survives any move
   p.x = x; p.z = z; if (rotY !== undefined) p.rotY = rotY;
   p.mount = null;                                                              // any move unsticks a wall mount
-  p.g.position.set(x, p.y0, z); poseApply(p);
+  p.g.position.set(x, p.y0, z); p.g.rotation.set(0, p.rotY, 0);
   p.bbox = footB(p.lb, x, z, p.rotY);                                            // footprint tracks the item — carry/settle/re-seat see it live
   if (p._block) { const s2 = (p.lb[1] - p.lb[0]) / 2;                            // a table's walk-block follows its drag, same as solids
     p._block.x0 = x - s2 - .15; p._block.x1 = x + s2 + .15; p._block.z0 = z - s2 - .15; p._block.z1 = z + s2 + .15; }
@@ -1573,7 +1568,7 @@ const placeGrab = (p, hit) => {                                                 
   const cy = Math.cos(p.rotY), sy = Math.sin(p.rotY);
   const dx = hit ? hit.x - p.x : 0, dz = hit ? hit.z - p.z : 0;
   p._grab = { lx: dx * cy - dz * sy, lz: dx * sy + dz * cy };                      // local-frame grab offset — rotates with the item
-  p._orig = { x: p.x, z: p.z, rotY: p.rotY, y0: p.y0, tilt: tiltOf(p) };
+  p._orig = { x: p.x, z: p.z, rotY: p.rotY, y0: p.y0 };
   origBox.box.setFromObject(p.g); origBox.visible = true;                          // the "was" marker, Commission-style
   placeGrid.visible = true;
   return true;
@@ -1589,7 +1584,7 @@ const placeRevert = () => {                                                     
   if (!placeSel) return; const p = placeSel, o = p._orig;
   if (o) { const eb = new THREE.Box3().setFromObject(p.g);                        // the edited pose's bounds — orphans sat inside it
     const eB = [eb.min.x - .05, eb.max.x + .05, eb.min.z - .05, eb.max.z + .05];
-    p.y0 = o.y0; p._snap = null; p._free = null; tiltApply(p, o.tilt); placeApply(p, o.x, o.z, o.rotY);
+    p.y0 = o.y0; placeApply(p, o.x, o.z, o.rotY);
     (p._carry || []).forEach(c => { c.q.x = c.ox; c.q.z = c.oz; c.q.y0 = c.oy; c.q.g.position.set(c.ox, c.oy, c.oz); });
     settleOrphans(p, eB, p.bbox, o.y0 + (eb.max.y - p.y0)); }                    // p.bbox still holds the grab-time footprint
   p._carry = null; p._orig = null; p._drag = false;
@@ -1602,7 +1597,7 @@ const placeUndoDo = () => {                                                     
     p.y0 = op.prev.y0;
     if (op.prev.mount) { p.mount = op.prev.mount; p.x = op.prev.x; p.z = op.prev.z; p.rotY = op.prev.rotY;   // undo back to a wall mount stays on the wall
       p.g.position.set(op.prev.mount.x, op.prev.mount.y, op.prev.mount.z); padMountQ(p.g, op.prev.mount.n); p.bbox = footB(p.lb, p.x, p.z, p.rotY); refreshSolids(); }
-    else { p._snap = null; p._free = null; tiltApply(p, op.prev.tilt); placeApply(p, op.prev.x, op.prev.z, op.prev.rotY); }   // undo restores the grab-time tilt exactly — flat included
+    else placeApply(p, op.prev.x, op.prev.z, op.prev.rotY);
     const bb = new THREE.Box3().setFromObject(p.g); p.bbox = [bb.min.x - .05, bb.max.x + .05, bb.min.z - .05, bb.max.z + .05];
     (op.prev.carry || []).forEach(c => { if (PLACED.includes(c.q)) { c.q.x = c.ox; c.q.z = c.oz; c.q.y0 = c.oy; c.q.g.position.set(c.ox, c.oy, c.oz); } });
     settleOrphans(p, ob, p.bbox, op.prev.y0 + (bb.max.y - p.y0)); }
@@ -1612,8 +1607,7 @@ const placeUndoDo = () => {                                                     
       ? Promise.resolve(emitTable(op.spec._spec)).then(t => { op.spec._spec.models.forEach(m => (m.slots ? emitBlock : emitBldg)(t, m));
           placeApply(t.rec, op.spec.x, op.spec.z, op.spec.rotY); })
       : emitAsset(op.spec.name, { kind: op.spec.kind, x: op.spec.x, z: op.spec.z,
-    rotY: op.spec.rotY, pickable: op.spec.pickable, solids: op.spec.solids, source: op.spec.source })
-        .then(r => { if (r && op.spec.tilt) tiltApply(r, op.spec.tilt); return r; }));
+    rotY: op.spec.rotY, pickable: op.spec.pickable, solids: op.spec.solids, source: op.spec.source }));
     if (op.spec.source !== 'extra') { const d = new Set(JSON.parse(localStorage.getItem('dvm_del') || '[]'));
       d.delete(op.spec.name); localStorage.setItem('dvm_del', JSON.stringify([...d])); } }                  // un-delete lifts the tombstone
   refreshSolids(); placeSave(); placeSay('UNDO');
@@ -1653,7 +1647,7 @@ const placeDrop = () => {                                                       
   settleOrphans(moved, ob, moved.bbox, (moved._orig ? moved._orig.y0 : moved.y0) + Math.max(...moved.tops.values()));
   const o = moved._orig || moved;
   if (o.x !== moved.x || o.z !== moved.z || o.rotY !== moved.rotY || o.y0 !== moved.y0)
-    placeSnapOp({ t: 'move', p: moved, prev: { x: o.x, z: o.z, rotY: o.rotY, y0: o.y0, tilt: o === moved ? tiltOf(moved) : o.tilt,
+    placeSnapOp({ t: 'move', p: moved, prev: { x: o.x, z: o.z, rotY: o.rotY, y0: o.y0,
       carry: (moved._carry || []).map(c => ({ q: c.q, ox: c.ox, oz: c.oz, oy: c.oy })) } });   // passengers return with the host
   moved._carry = null; moved._orig = null; moved._drag = false;
   placeSave(); placeSel = null; selBox.visible = false; origBox.visible = false; placeGrid.visible = false;
@@ -1662,14 +1656,12 @@ const placeDrop = () => {                                                       
 const placePaste = () => {
   if (!placeClip) { placeSay('NOTHING COPIED — C FIRST'); return; }
   const s = placeSpot(); if (!s) { placeSay('AIM AT A SURFACE'); return; }
-  const cTilt = placeClip.tilt;
   emitAsset(placeClip.name, { kind: placeClip.kind,
     x: Math.round(s.x / PLACE_SNAP) * PLACE_SNAP, z: Math.round(s.z / PLACE_SNAP) * PLACE_SNAP,
     rotY: placeClip.rotY, pickable: placeClip.pickable, solids: placeClip.solids, source: 'extra', seatY: s.y })
     .then(r => { if (r) { if (placeSel) placeDrop();                             // the paste takes the selection — commit whatever was held
-      if (cTilt) tiltApply(r, cTilt);
       placeSel = r; r._carry = []; r._drag = false; r._grab = { lx: 0, lz: 0 };
-      r._orig = { x: r.x, z: r.z, rotY: r.rotY, y0: r.y0, tilt: cTilt };
+      r._orig = { x: r.x, z: r.z, rotY: r.rotY, y0: r.y0 };
       placeSnapOp({ t: 'add', p: r }); placeSave(); placeSay('PASTED ' + r.name); } });
 };
 const placeToggle = on => {
@@ -1709,12 +1701,12 @@ window.__place = { on: () => placeOn, toggle: placeToggle, sel: () => placeSel &
   grab: n => { const p = PLACED.find(p => p.name === n); return p ? placeGrab(p, null) : false; },
   grabIdx: i => { const p = PLACED[i]; return p ? placeGrab(p, null) : false; },
   drop: placeDrop, revert: placeRevert, spot: placeSpot, pick: () => { const p = placePick(); return p && p.p.name; },
-  copy: () => { if (!placeSel) return false; placeClip = { name: placeSel.name, kind: placeSel.kind, rotY: placeSel.rotY, pickable: placeSel.pickable, solids: placeSel.solids, tilt: tiltOf(placeSel) };
+  copy: () => { if (!placeSel) return false; placeClip = { name: placeSel.name, kind: placeSel.kind, rotY: placeSel.rotY, pickable: placeSel.pickable, solids: placeSel.solids };
     placeSay('COPIED ' + placeSel.name); return true; },
   paste: placePaste,
   del: () => { if (!placeSel) return false;
     placeSnapOp({ t: 'del', spec: { name: placeSel.name, kind: placeSel.kind, x: placeSel.x, z: placeSel.z,
-      rotY: placeSel.rotY, pickable: placeSel.pickable, solids: placeSel.solids, source: placeSel.source, _spec: placeSel._spec, tilt: tiltOf(placeSel) } });
+      rotY: placeSel.rotY, pickable: placeSel.pickable, solids: placeSel.solids, source: placeSel.source, _spec: placeSel._spec } });
     if (placeSel.source !== 'extra') { const d = new Set(JSON.parse(localStorage.getItem('dvm_del') || '[]'));
       d.add(placeSel.name); localStorage.setItem('dvm_del', JSON.stringify([...d])); }         // tombstone — manifest items stay deleted
     const dp = placeSel;
@@ -1817,12 +1809,13 @@ ready.then(async () => {
   PLACED.forEach(p => { const o = over[p.name];                                   // but only at the same manifest rev: an authored move
     if (!o || p.source === 'extra' || (o.mv || 0) !== (p.mv || 0)) return;        // (bumped spec.mv) invalidates that item's stale entry
     if (o.mount) { p.mount = o.mount; p.x = o.x; p.z = o.z; p.y0 = o.mount.y; p.rotY = o.rotY;   // wall mounts restore as mounts
-      p.g.position.set(o.mount.x, o.mount.y, o.mount.z); padMountQ(p.g, o.mount.n); p.bbox = footB(p.lb, p.x, p.z, p.rotY); }
-    else { tiltApply(p, o.tilt); placeApply(p, o.x, o.z, o.rotY); } });
+      p.g.position.set(o.mount.x, o.mount.y, o.mount.z); padMountQ(p.g, o.mount.n); p.bbox = footB(p.lb, p.x, p.z, p.rotY);
+      gripRestore(p, o.tilt); }                                                              // and the grip comes back on pickup
+    else { gripRestore(p, o.tilt); placeApply(p, o.x, o.z, o.rotY); } });
   const extras = JSON.parse(localStorage.getItem('dvm_extra') || '[]');            // extras emit LAST — they seat on the final layout, not manifest spots
   for (const e of extras) { const r = await emitAsset(e.name, { kind: e.kind, x: e.x, z: e.z, rotY: e.rotY, pickable: e.pickable, solids: e.solids,
     source: 'extra', seatY: 'auto' });
-    if (r && e.tilt) tiltApply(r, e.tilt); }
+    if (r) gripRestore(r, e.tilt); }
   for (let pass = 0; pass < 4; pass++) {                                      // orphan-law re-seat to fixpoint: EVERY item re-derives height on the
     let changed = false;                                                      // final layout — saves carry no y0. Declared roles: surf items floor
     [...PLACED].sort((a, b) => b.y0 - a.y0).forEach(p => {                      // ONLY on other surf items (a rider can never host a desk);

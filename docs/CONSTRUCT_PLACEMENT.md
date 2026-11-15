@@ -95,8 +95,8 @@ declaration, not by tuning.
 
 | Key | Contents |
 |-----|----------|
-| `dvm_place` | `{name: {x,z,rotY,mv,tilt?,mount?}}` — manifest overrides (no `y` — heights re-derive; `mv` gates stale revs; `tilt` = grip `{s,f}` when leaning) |
-| `dvm_extra` | `[{name,kind,pickable,solids,x,z,rotY,tilt?}]` — pasted/agent-emitted items |
+| `dvm_place` | `{name: {x,z,rotY,mv,tilt?,mount?}}` — manifest overrides (no `y` — heights re-derive; `mv` gates stale revs; `tilt` = the item's saved GRIP `{s,f}`, restored to hand on pickup — placed poses stay level/mounted) |
+| `dvm_extra` | `[{name,kind,pickable,solids,x,z,rotY,tilt?}]` — pasted/agent-emitted items (`tilt` = saved grip) |
 | `dvm_del` | `[name]` — manifest tombstones |
 | `dvm_fol` | follower roster (CHAIR survives F5) |
 | `dvm_live` | `'1'` → live bridge auto-resumes after reload |
@@ -122,22 +122,18 @@ each frame. `dropTarget()` marches the aim ray (`.08 → 2.4`, `.06` steps) unti
   - `0` = LEVEL: all counters + tumble to identity → exactly authored-upright.
   - `G` + mouse = free trackball tumble (world X/Y); camera look is suspended
     while `G` is held.
-  - `placeIt` persists `rotY = yaw + snapYaw` (normalized) — and the held
-    `quaternion = qYaw(rotY) × eulerYXZ(snapX, 0, snapZ) × free` via `poseApply`.
-    Since `held = qYaw(yaw)·Ry(snapY)·Rx(snapX)·Rz(snapZ)·free`, the placed
-    pose is the identical world orientation — **tilt survives placement**.
-    `tops`/`bbox` stay authored-upright maps (surface math ignores lean).
-  - **Tilt persistence**: `p._snap`/`p._free` double as the placed-tilt state.
-    `placeSave` writes `o.tilt = {s:[x,y,z], f:[quat]}` when non-identity;
-    boot/manifest/`dvm_extra` restore, drag/`placeApply`/re-seat re-pose, undo
-    snapshots it in `prev`/`_orig`, copy/paste/del-re-emit carry it. Wall
-    mounts ignore tilt — `padMountQ` owns the upright contract. `0`-level a
-    held item then place → the next save drops the `tilt` field entirely.
-  - **Grip memory**: `placeIt` stashes the held pose (`p._snap`, `p._free`) on
-    the rec and `takeIt` restores it — set a thing down, pick it back up, and
-    it returns in the pose you last held it (the yaw chain stays continuous:
-    placed `rotY` = facing + snapYaw = the restored in-hand yaw). Session-
-    scoped, per rec — every pickable item remembers its own grip.
+  - `placeIt` persists `rotY = yaw + snapYaw` (normalized); pitch/roll drop —
+    **placed items always seat level** because `tops`/`bbox` are authored-
+    upright maps. The lean is a grip state, never a placed pose.
+  - **Grip memory + persistence**: `placeIt` stashes the held pose
+    (`p._snap`, `p._free`) on the rec and `takeIt` restores it — set a thing
+    down, pick it back up, and it returns in the pose you last held it (the
+    yaw chain stays continuous: placed `rotY` = facing + snapYaw = the
+    restored in-hand yaw). `placeSave` serializes the stash to
+    `o.tilt = {s:[x,y,z], f:[quat]}` when non-identity, and boot restores it
+    via `gripRestore` on **both** branches — flat items and `padMountQ` wall
+    mounts — so the held angle survives F5 even off the wall. `0`-level a
+    held item → the next save drops the `tilt` field entirely.
 
 ## 7. Invariants — testable law
 
