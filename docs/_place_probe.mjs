@@ -614,10 +614,11 @@ const cS = cars.find(c => c.z > -1.2), cW = cars.find(c => c.z <= -1.2);
 check('car 1 — south street, curb-hard, seated on the road (.2656)', cS && Math.abs(cS.x + 6.397) < .01 && Math.abs(cS.z + .972) < .01 && Math.abs(cS.y - .2656) < .002, JSON.stringify(cS));
 check('car 2 — west street, different heading, same law', cW && Math.abs(cW.x + 6.070) < .01 && Math.abs(cW.z + 1.360) < .01 && Math.abs(cW.y - .2656) < .002, JSON.stringify(cW));
 check('car roofs read as measured surfaces — items can seat on them', cS && cW && Math.abs(cS.roof - .3058) < .004 && Math.abs(cW.roof - .3058) < .004, JSON.stringify([cS && cS.roof, cW && cW.roof]));
-/* parked-car seat — the wheels must stand a hair PROUD of the road surface: exactly-flush
-   reads as "sunk" (the road silhouette clips the bottom wheel row at every oblique angle).
-   The seat is plate top + half a car-voxel. Sample the real surface under each car (rays
-   from just under the bbox, car excluded — first hit = the surface). */
+/* parked-car seat — the wheels must stand PROUD of the road surface: flush reads as "sunk"
+   and even half a car-voxel still merges at grazing angles (black tire into dark road top).
+   The seat is plate top + 1.5 car-voxels — enough air that the full tire ring draws against
+   the road face. Sample the real surface under each car (rays from just under the bbox,
+   car excluded — first hit = the surface). */
 const seat = JSON.parse(await evl(`JSON.stringify((() => { const T = window.__THREE, out = [], R = new T.Raycaster(), DN = new T.Vector3(0, -1, 0);
   __construct.placed.filter(p => p._parked).forEach(c => { const bb = new T.Box3().setFromObject(c.g); let top = 0, n = 0;
     for (let i = 0; i <= 6; i++) for (let j = 0; j <= 6; j++) {
@@ -626,8 +627,8 @@ const seat = JSON.parse(await evl(`JSON.stringify((() => { const T = window.__TH
       if (h) { top = Math.max(top, h.point.y); n++; } }
     out.push({ top: +top.toFixed(4), bot: +bb.min.y.toFixed(4), n }); });
   return out; })())`));
-check('parked cars sit proud of the road — half a car-voxel proud, not flush-sunk', seat.length === 2 &&
-  seat.every(s => s.n > 40 && s.top > .264 && s.top < .27 && s.bot - s.top > 1e-4 && s.bot - s.top < .001), JSON.stringify(seat));
+check('parked cars sit proud of the road — 1.5 car-voxels proud, not flush-sunk', seat.length === 2 &&
+  seat.every(s => s.n > 40 && s.top > .264 && s.top < .27 && s.bot - s.top > 5e-4 && s.bot - s.top < .0012), JSON.stringify(seat));
 /* curb cruise — __cars drives the parked cars: pull out of the slot, lap the measured lanes
    (blockTrf derives the circuit from the composite's own road band), repark to the exact
    slot pose. toggle(false) parks each car on its next pass of the merge — __cars.seek jumps

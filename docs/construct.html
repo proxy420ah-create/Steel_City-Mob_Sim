@@ -561,7 +561,7 @@ const mountParked = (t, miniG, parked) => { const mn = miniG.userData.mini, vs =
         hx = mn.mirX ? -E.hX : E.hX, hz = E.hZ,                                          // fx mirrors x — cell headings mirror with it
         rotY = Math.atan2(-hx, -hz);                                                     // authored front = −z → rotate onto the heading
       emitAsset(p.name || 'vehicle_490_touring', { kind: 'vehicle', parent: miniG,
-        x: mn.fx(cx) * vs, z: (cz - D2 / 2) * vs, rotY, seatY: 2 * vs + vvs * .5, vsOverride: vvs, pickable: false, source: 'parked' })   // +half a car-voxel: exactly-flush reads as sunk — the road silhouette eats the lowest wheel row
+        x: mn.fx(cx) * vs, z: (cz - D2 / 2) * vs, rotY, seatY: 2 * vs + vvs * 1.5, vsOverride: vvs, pickable: false, source: 'parked' })   // +1.5 car-voxels: at grazing angles the black tire ring merges into the road's dark top — flush and half-voxel both read sunk; a voxel-and-a-half of air lets the whole ring draw against the road face
         .then(rec => { if (!rec) return;
           if (!miniG.parent) { const i = PLACED.indexOf(rec); if (i >= 0) PLACED.splice(i, 1); rec.g.parent && rec.g.parent.remove(rec.g); return; }   // model swapped mid-fetch — no ghost cars
           rec._parked = true;

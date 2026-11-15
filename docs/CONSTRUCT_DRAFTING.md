@@ -161,10 +161,13 @@ miniature carries its streets, not just its buildings:
   voxelSize / BLDG_VS`), so any named vehicle parks by its own size. Cars face
   the legal heading (right side of travel, cell space — `fx` mirrors x so the
   overlay's rotY mirrors with it) and clamp inside the `KeepClear` 40v
-  no-park margin off the corner intersections. The seat is `2·vs + vvs/2` —
-  plate top plus **half a car-voxel**: exactly-flush reads as *sunk* because
-  the road silhouette clips the lowest wheel row at every oblique angle; a
-  sub-perceptual air gap keeps the tires visibly ON the road. Cars parent to
+  no-park margin off the corner intersections. The seat is `2·vs + 1.5·vvs` —
+  plate top plus **a car-voxel and a half**: flush reads as *sunk* (the road
+  silhouette clips the lowest wheel row), and even half a voxel still merges —
+  at grazing angles the black tire ring dissolves into the road's dark top
+  face. A voxel and a half of air lets the entire ring draw against the road
+  surface, which reads as planted (and the hairline under the tires doubles as
+  a contact shadow). Cars parent to
   `miniG` → they ride spin/lift/model-swap for free (unmount splices their
   `PLACED` recs, a mid-fetch swap abandons the pending mount); meshes are
   `miniVox`-tagged and the `hitProxy` rides the car's own group so the aim
