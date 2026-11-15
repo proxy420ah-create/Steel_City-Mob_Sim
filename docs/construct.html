@@ -24,6 +24,12 @@
 <script type="module">
 import * as THREE from 'three';
 
+/* SOFT highlight roll-off - a soft-knee custom tone map: identity up to K, then an exponential shoulder
+   that approaches 1 with slope 1 at the knee (continuous), so lit surfaces fade into white instead of
+   hard-clipping. Applied per channel in linear before sRGB; MeshBasic UI sits well under the knee. */
+THREE.ShaderChunk.tonemapping_pars_fragment = THREE.ShaderChunk.tonemapping_pars_fragment.replace(
+  'vec3 CustomToneMapping( vec3 color ) { return color; }',
+  'vec3 CustomToneMapping( vec3 color ) { const float K = .85; vec3 o = max( color - K, vec3( 0. ) ); return min( color, vec3( K ) ) + ( 1. - K ) * ( 1. - exp( -o / ( 1. - K ) ) ); }');
 const VOID = 0xf4f1e8;
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
@@ -46,10 +52,11 @@ key.position.set(0, 1.5, 1.5); scene.add(hemi, key);
 const _tdir = new THREE.Vector3();
 const TORCH_COLS = [0xfff0d0, 0xffffff, 0xdfe8ff, 0xffb09a, 0xb6ffc8];   // warm / day / cool / red / green
 const TORCH_BEAMS = [.28, .45, .65];                                     // tight / standard / wide cone
-const TORCH_DEF = { i: 5, f: .55, a: 1, c: 0, x: 1 };                    // softer stock tune — close-range inspection, not flood (x: 1=auto-exposure, 0=raw)
+const TORCH_DEF = { i: 5, f: .55, a: 1, c: 0, x: 1, n: .5, p: .4, s: 1 };   // n: head-on level (incidence), p: proximity-fade floor, s: soft highlight roll-off                    // softer stock tune — close-range inspection, not flood (x: 1=auto-exposure, 0=raw)
 const TC = Object.assign({}, TORCH_DEF,                                  // the tune survives F5 — dvm_torch
   JSON.parse(localStorage.getItem('dvm_torch') || '{}'));
-const torchApply = () => { if (!TORCH_COLS[TC.c]) TC.c = 0; if (!TORCH_BEAMS[TC.a]) TC.a = 1;   // stale-save clamp
+const torchApply = () => { renderer.toneMapping = TC.s ? THREE.CustomToneMapping : THREE.NoToneMapping;   // SOFT - a one-time recompile when it flips
+  if (!TORCH_COLS[TC.c]) TC.c = 0; if (!TORCH_BEAMS[TC.a]) TC.a = 1;   // stale-save clamp
   torch.color.setHex(TORCH_COLS[TC.c]); torchFill.color.setHex(TORCH_COLS[TC.c]);
   torch.angle = TORCH_BEAMS[TC.a];
   torch.intensity = window.__torch.on ? TC.i : 0; torchFill.intensity = window.__torch.on ? TC.f : 0;
@@ -59,9 +66,13 @@ const torchCfg = (k, v) => {
   else if (k === 'c') TC.c = v;                                        // swatch index — spot + fill tint together
   else if (k === 'i') TC.i = Math.max(0, Math.min(12, +(TC.i + v).toFixed(1)));
   else if (k === 'f') TC.f = Math.max(0, Math.min(3, +(TC.f + v).toFixed(2)));
+  else if (k === 'n') TC.n = Math.max(.2, Math.min(1, +(TC.n + v).toFixed(2)));        // head-on level: 1 = no incidence dimming
+  else if (k === 'p') TC.p = Math.max(.1, Math.min(1, +(TC.p + v).toFixed(2)));        // proximity floor: 1 = no fade
+  else if (k === 's') TC.s = TC.s ? 0 : 1;                                                // soft highlight roll-off on/off
   else if (k === 'x') TC.x = TC.x ? 0 : 1;                                 // auto-exposure ⇄ raw — free-cam close range pins the floor at 15%
   torchApply(); };
 const torchReset = () => { Object.assign(TC, TORCH_DEF); torchApply(); };
+renderer.toneMapping = TC.s ? THREE.CustomToneMapping : THREE.NoToneMapping;   // boot state - torchApply only runs on a control press
 const torch = new THREE.SpotLight(TORCH_COLS[TC.c], 0, 10, TORCH_BEAMS[TC.a], .55, 1.2);
 const torchFill = new THREE.PointLight(TORCH_COLS[TC.c], 0, 3, 1.4);
 const torchTgt = new THREE.Object3D(); scene.add(torch, torchFill, torchTgt); torch.target = torchTgt;
@@ -69,41 +80,80 @@ const _tray = new THREE.Raycaster();
 /* auto-exposure — the tune sets irradiance at 1 m; aim() raycasts the pruned scene once per
    frame and scales intensity ∝ d^decay so a model in your face reads at the same brightness
    as one across the room (point-blank floors at 15% so the cone never dies outright). */
-let _tcos = 1; const _tn = new THREE.Vector3(), TORCH_INC = .5;   // TORCH_INC: head-on is held to the brightness of a ~60° view
+/* miniRay - the REAL surface behind a miniature's bounding-box proxy. Marches the ray through the
+   model's voxel columns (DDA in grid cells) honoring the slice window, mirror (fx) and spin (matrixWorld),
+   and returns the first filled cell's world distance + face normal - or null when the ray crosses only
+   air inside the box (so the beam reads what is actually behind it). `plate` models carry a flat ground
+   slab (y<=1) that the column list omits. */
+const _mi = new THREE.Matrix4(), _mo = new THREE.Vector3(), _md = new THREE.Vector3(), _mnrm = new THREE.Vector3();
+const miniRay = (G, ray) => { const mn = G.userData.mini, [W, H, D] = mn.dims, vs = mn.vs, N = [W, H, D];
+  if (!mn.colMap) mn.colMap = new Map(mn.localCols.map(c => [c.x + W * c.z, c.ys]));
+  G.updateWorldMatrix(true, false); _mi.copy(G.matrixWorld).invert();
+  _mo.copy(ray.origin).applyMatrix4(_mi); _md.copy(ray.direction).transformDirection(_mi);
+  const o = [_mo.x / vs + W / 2, _mo.y / vs, _mo.z / vs + D / 2], dv = [_md.x, _md.y, _md.z];
+  let t0 = 0, t1 = Infinity, ax = -1;
+  for (let a = 0; a < 3; a++) { if (Math.abs(dv[a]) < 1e-9) { if (o[a] < 0 || o[a] > N[a]) return null; continue; }
+    let lo = -o[a] / dv[a], hi = (N[a] - o[a]) / dv[a]; if (lo > hi) [lo, hi] = [hi, lo];
+    if (lo > t0) { t0 = lo; ax = a; } if (hi < t1) t1 = hi; }
+  if (t0 > t1) return null;
+  const c = [0, 1, 2].map(a => Math.min(N[a] - 1, Math.max(0, Math.floor(o[a] + dv[a] * (t0 + 1e-4))))),
+    step = dv.map(v => v > 0 ? 1 : -1), tD = dv.map(v => Math.abs(v) < 1e-9 ? Infinity : Math.abs(1 / v)),
+    tM = [0, 1, 2].map(a => Math.abs(dv[a]) < 1e-9 ? Infinity : ((dv[a] > 0 ? c[a] + 1 : c[a]) - o[a]) / dv[a]);
+  const sx = mn.slice.x, sy = mn.slice.y, sz = mn.slice.z, pl = mn.plate;
+  const filled = () => { const x = mn.mirX ? W - 1 - c[0] : c[0], y = c[1], z = c[2];
+    if (x < sx[0] || x > sx[1] || y < sy[0] || y > sy[1] || z < sz[0] || z > sz[1]) return false;
+    if (pl && x >= pl.x0 && x <= pl.x1 && z >= pl.z0 && z <= pl.z1 && y <= pl.y) return true;
+    const ys = mn.colMap.get(x + W * z); return !!ys && ys.includes(y); };
+  let t = t0, last = ax;
+  for (let n = 0; n < 6000 && t <= t1; n++) {
+    if (filled()) { _mnrm.set(0, 0, 0); if (last >= 0) _mnrm.setComponent(last, -step[last]); else _mnrm.copy(_md).negate();
+      return { t: Math.max(0, t) * vs, n: _mnrm.transformDirection(G.matrixWorld) }; }
+    last = tM[0] < tM[1] ? (tM[0] < tM[2] ? 0 : 2) : (tM[1] < tM[2] ? 1 : 2);
+    t = tM[last]; tM[last] += tD[last]; c[last] += step[last];
+    if (c[last] < 0 || c[last] >= N[last]) return null; }
+  return null; };
+let _tcos = 1, _td = 2, _tvia = 'none'; const _tn = new THREE.Vector3(), _tsm = new WeakMap();
 const torchDist = cam => { _tray.setFromCamera(_zv, cam);
   const excl = [ghost, aimDot, ...marks]; followers.forEach(f => excl.push(f.CH)); if (selfBody) excl.push(selfBody.CH); if (held) excl.push(held.g);
   const h = rayPruned(_tray, scene.children, excl, true);
-  const f = h.length && h[0].face; _tcos = f ? Math.abs(_tn.copy(f.normal).transformDirection(h[0].object.matrixWorld).dot(_tray.ray.direction)) : TORCH_INC;   // incidence cosine at the hit — 1 = head-on, →0 = grazing
-  return h.length ? Math.max(.02, h[0].distance) : 2; };   // = camera.near — a clamp above it freezes compensation while the real distance keeps shrinking (the point-blank whiteout)
-window.__torch = { on: false, spot: torch, fill: torchFill, cfg: TC, tune: torchCfg, rst: torchReset,
+  let d = 2, via = 'none', cn = TC.n; const rej = new Set();                       // no hit -> neutral incidence, full-range distance
+  for (const x of h) { const ob = x.object, par = ob.parent;
+    if (ob.userData.hitProxy && par && par.userData.mini && !ob.userData.keep) {   // a miniature's box -> refine to its real voxel surface
+      if (rej.has(par)) continue;
+      if (x.distance < 3) { const r = miniRay(par, _tray.ray);
+        if (r) { d = r.t; cn = Math.abs(r.n.dot(_tray.ray.direction)); via = 'dda'; break; }
+        rej.add(par); continue; } }                                               // only air inside the box - keep looking behind it
+    d = x.distance; via = ob.userData.hitProxy ? 'box' : 'obj';
+    if (x.face) cn = Math.abs(_tn.copy(x.face.normal).transformDirection(ob.matrixWorld).dot(_tray.ray.direction)); break; }
+  _tcos = cn; _td = Math.max(.02, d); _tvia = via;                                // .02 = camera.near - a clamp above it freezes compensation while the real distance keeps shrinking
+  return _td; };
+window.__torch = { on: false, ease: true, spot: torch, fill: torchFill, cfg: TC, tune: torchCfg, rst: torchReset,
   setOn(on) { this.on = !!on; torchApply(); },
   set(on) { this.setOn(on); },
-  dist: torchDist,
-  aim(cam) { cam.getWorldPosition(torch.position); cam.getWorldDirection(_tdir);
-    /* constant on-axis irradiance — spot E = I/d^decay, so s = d^decay holds E flat; the old 15% floor
-       stopped compensating below ~.2m and the wall ramped back up to white. Floor is now only a
-       numeric guard (.01); torchDist clamps at camera.near (.02) so compensation tracks the real distance. */
-    /* proximity fade — flat irradiance still reads hot when your face is in the wall (albedo + exposure
-       sit near white), so inside .4m AUTO eases the whole rig down a further 60% by point-blank. */
-    /* incidence normalization — the renderer's diffuse term is ∝ cos(angle to the surface normal), so a
-       head-on pitch gets the full dose while a glancing one gets a smear of it (the "camera angle changes
-       the intensity" report). Divide the cosine out above TORCH_INC: head-on is held to what a ~60° view
-       already reads; shallower angles (cos<TORCH_INC) are untouched. */
-    const d = torchDist(cam), prox = TC.x ? (d < .4 ? .4 + .6 * d / .4 : 1) : 1,
-      inc = TC.x ? Math.min(1, TORCH_INC / Math.max(_tcos, .01)) : 1; this.inc = inc;
-    const s = TC.x ? Math.min(1, Math.max(.01, Math.pow(d, torch.decay))) * prox * inc : 1;   // RAW = the tune is absolute
+  dist: torchDist, hit: () => ({ d: _td, cos: _tcos, via: _tvia }),
+  aim(cam, snap) { cam.getWorldPosition(torch.position); cam.getWorldDirection(_tdir);
+    /* ease - d and the incidence cosine are measured on ONE center ray, so crossing a model edge (or a
+       facade step) would pop them every frame. Ease both toward the new measurement (tau ~90 ms; d in log
+       space so near/far approach feels even). Per camera (the follower POV keeps its own state); snaps on
+       first use, after a >400 ms gap, or when asked. `ease:false` = raw (probes). */
+    let d = torchDist(cam), cs = _tcos;
+    const now = performance.now(), st = _tsm.get(cam);
+    if (this.ease && !snap && st && now - st.t < 400) { const k = 1 - Math.exp(-(now - st.t) / 90); d = Math.exp(st.l + (Math.log(d) - st.l) * k); cs = st.c + (cs - st.c) * k; }
+    _tsm.set(cam, { t: now, l: Math.log(d), c: cs });
+    /* constant on-axis irradiance - spot E = I/d^decay, so s = d^decay holds E flat. Floors are only a
+       numeric guard (.01). proximity fade - flat irradiance still reads hot with your face in the wall, so
+       inside .4m AUTO eases the rig down to TC.p by point-blank. incidence normalization - the diffuse term
+       is ~cos(incidence), so head-on got the full dose and glancing a smear: divide the cosine out above
+       TC.n (head-on held to what a ~60 deg view reads at .5); shallower angles untouched. RAW = absolute. */
+    const prox = TC.x ? (d < .4 ? TC.p + (1 - TC.p) * d / .4 : 1) : 1,
+      inc = TC.x ? Math.min(1, TC.n / Math.max(cs, .01)) : 1; this.inc = inc;
+    const s = TC.x ? Math.min(1, Math.max(.01, Math.pow(d, torch.decay))) * prox * inc : 1;
     torch.intensity = this.on ? TC.i * s : 0;
-    /* footprint normalization — inside 1m the fixed cone squeezes the same flux into a shrinking
-       disc (the "concentration" hotspot); widen the angle so the pool holds its radius. But a
-       CONSTANT-radius pool reads wrong head-on: a 1m disc at .3m fills the screen as a blast.
-       Partial normalization instead — the cone may widen at most 60% (and never past .95 rad),
-       so the pool still shrinks on approach like a real flashlight, just never to a pinpoint.
-       Outside 1m the tuned cone runs as-is; RAW keeps it literal. */
+    /* footprint - inside 1m widen the cone so the pool never collapses to a pinpoint, but only PARTIALLY
+       (cap beam x1.6, .95 rad): a constant-radius pool head-on at .3m filled the screen as a blast. */
     torch.angle = TC.x && d < 1 ? Math.min(TORCH_BEAMS[TC.a] * 1.6, .95, Math.atan(Math.tan(TORCH_BEAMS[TC.a]) / Math.max(d, .15))) : TORCH_BEAMS[TC.a];
-    /* fill rides ahead of the lens, but never past the halfway point to the surface (AUTO): a fixed
-       .3m offset parked it against/behind the wall inside ~.6m, and its 1/dist^decay falloff then
-       ramped the wash up hard. The offset shrinks with range and the scale divides out the fill's
-       OWN distance, so fill irradiance stays flat too (same law as the spot, no 15% floor). */
+    /* fill rides ahead of the lens but never past the halfway point to the surface (AUTO), and divides out
+       its OWN distance so its irradiance stays flat too. */
     const fo = TC.x ? Math.min(.3, d * .5) : .3, df = Math.max(.01, d - fo);
     torchFill.intensity = this.on ? TC.f * (TC.x ? Math.min(1, Math.max(.01, Math.pow(df / .7, torchFill.decay)) * prox * inc) : 1) : 0;
     torchTgt.position.copy(torch.position).addScaledVector(_tdir, 2);
@@ -130,7 +180,7 @@ const WALL_BLOCKS = [                                                    // inte
 const inR = (r, x, z) => x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1;
 const walkOK = (x, z) => WALK_RECTS.some(r => inR(r, x, z)) && !WALL_BLOCKS.some(b => inR(b, x, z));
 
-const floorMat = new THREE.MeshBasicMaterial({ color: VOID });              // the Matrix floor — unlit, void-colored: stand on it, never see it
+const floorMat = new THREE.MeshBasicMaterial({ color: VOID, toneMapped: false });              // the Matrix floor — unlit, void-colored: stand on it, never see it
 MANIFEST.tiles.forEach(([i, j]) => {
   const t = new THREE.Mesh(new THREE.BoxGeometry(TILE, .05, TILE), floorMat);
   t.position.set(i * TILE, -.026, j * TILE); scene.add(t);
@@ -512,7 +562,8 @@ const mountParked = (t, miniG, parked) => { const mn = miniG.userData.mini, vs =
           rec.g.children.forEach(ch => { ch.userData.miniVox = true; });                  // pruned aim — 78k cells never ray-test
           const pw = (E.axis === 'x' ? veh.dims[2] : veh.dims[0]) * vvs,                   // proxy footprint swaps on quarter-turn
                 pd = (E.axis === 'x' ? veh.dims[0] : veh.dims[2]) * vvs, ph = veh.dims[1] * vvs;
-          miniG.add(hitProxy(pw + vvs, ph, pd + vvs, rec.g.position.x, 2 * vs + ph / 2, rec.g.position.z)); }); }); }); };
+          const cp = hitProxy(pw + vvs, ph, pd + vvs, rec.g.position.x, 2 * vs + ph / 2, rec.g.position.z); cp.userData.keep = true;   // keep: the car's box IS its surface - the torch must not voxel-march the (empty) composite grid here
+          miniG.add(cp); }); }); }); };
 /* emitBlock — a 3×3 city block as ONE miniature: the tile recipe + lot stamps merged into a
    single composite at 1:1, tops written back into the host. ROT/SLICE/persistence unchanged. */
 const emitBlock = (t, m) => { const W2 = BLK.TILE, slots = m.slots || {};
@@ -747,6 +798,13 @@ const PAD_PAGES = {
     TORCH_COLS.forEach((c, i) => { g.fillStyle = '#' + c.toString(16).padStart(6, '0');   // a chip of each swatch's true color
       g.fillRect(22 + i * 100, 258, 78, 7); });
     g.fillStyle = '#5b5648'; g.font = '13px monospace'; g.fillText('L — key toggle · the tune persists (dvm_torch)', 256, 312); } },
+  lamp2: { draw: g => {                                                           // hidden subpage (no tab) - reached from LAMP's TUNE
+    g.fillStyle = '#cfc8b0'; g.font = '16px monospace'; g.fillText('TORCH TUNING — AUTO exposure shaping', 256, 96);
+    g.fillStyle = '#e8d9b0'; g.font = 'bold 20px monospace';
+    g.fillText('HEAD-ON ' + Math.round(TC.n * 100) + '%   FADE FLOOR ' + Math.round(TC.p * 100) + '%', 256, 124);
+    g.fillStyle = '#5b5648'; g.font = '13px monospace';
+    g.fillText('HEAD-ON: level a straight-on view is held to (100% = no dimming)', 256, 292);
+    g.fillText('FADE: how dim point-blank gets · SOFT: highlights roll off, not clip', 256, 312); } },
   apps: { tab: '≡', draw: g => {
     g.fillStyle = '#cfc8b0'; g.font = '16px monospace'; g.fillText('ALL TOOLS', 256, 96);
     g.fillStyle = '#5b5648'; g.font = '13px monospace'; g.fillText('tap a tile — pages keep their state', 256, 312); } },
@@ -782,10 +840,18 @@ const PAD_REGIONS = [
   { id: 'c2', page: 'lamp', x: 216, y: 222, w: 90, h: 50, label: 'COOL', glyph: 'COOL', fs: 15, lit: () => TC.c === 2, fn: () => torchCfg('c', 2) },
   { id: 'c3', page: 'lamp', x: 316, y: 222, w: 90, h: 50, label: 'RED',  glyph: 'RED',  fs: 15, lit: () => TC.c === 3, fn: () => torchCfg('c', 3) },
   { id: 'c4', page: 'lamp', x: 416, y: 222, w: 90, h: 50, label: 'GRN',  glyph: 'GRN',  fs: 15, lit: () => TC.c === 4, fn: () => torchCfg('c', 4) },
-  { id: 'beam', page: 'lamp', x: 16,  y: 284, w: 120, h: 42, label: 'BEAM', glyph: '◀BEAM▶', fs: 18, fn: () => torchCfg('a') },
-  { id: 'tgl',  page: 'lamp', x: 146, y: 284, w: 150, h: 42, label: 'ON/OFF', glyph: '⏻ TORCH', fs: 18, lit: () => window.__torch.on, fn: () => window.__torch.setOn(!window.__torch.on) },
-  { id: 'xpo',  page: 'lamp', x: 306, y: 284, w: 90,  h: 42, label: 'EXPOSURE', glyph: 'EXP', fs: 18, lit: () => TC.x === 1, fn: () => torchCfg('x') },
-  { id: 'tres', page: 'lamp', x: 406, y: 284, w: 90,  h: 42, label: 'RESET', glyph: 'RESET', fs: 18, fn: () => torchReset() },
+  { id: 'beam', page: 'lamp', x: 16,  y: 284, w: 96,  h: 42, label: 'BEAM', glyph: '◀BEAM▶', fs: 18, fn: () => torchCfg('a') },
+  { id: 'tgl',  page: 'lamp', x: 120, y: 284, w: 112, h: 42, label: 'ON/OFF', glyph: '⏻ TORCH', fs: 16, lit: () => window.__torch.on, fn: () => window.__torch.setOn(!window.__torch.on) },
+  { id: 'xpo',  page: 'lamp', x: 240, y: 284, w: 72,  h: 42, label: 'EXPOSURE', glyph: 'EXP', fs: 18, lit: () => TC.x === 1, fn: () => torchCfg('x') },
+  { id: 'tune', page: 'lamp', x: 320, y: 284, w: 88,  h: 42, label: 'TUNE', glyph: 'TUNE▶', fs: 16, fn: () => padPageSet('lamp2') },
+  { id: 'tres', page: 'lamp', x: 416, y: 284, w: 80,  h: 42, label: 'RESET', glyph: 'RESET', fs: 16, fn: () => torchReset() },
+  { id: 'in-',  page: 'lamp2', x: 16,  y: 140, w: 110, h: 70, label: 'HEAD −', glyph: 'HD−', fs: 22, fn: () => torchCfg('n', -.1) },
+  { id: 'in+',  page: 'lamp2', x: 140, y: 140, w: 110, h: 70, label: 'HEAD +', glyph: 'HD+', fs: 22, fn: () => torchCfg('n', .1) },
+  { id: 'pf-',  page: 'lamp2', x: 264, y: 140, w: 110, h: 70, label: 'FADE −', glyph: 'FD−', fs: 22, fn: () => torchCfg('p', -.1) },
+  { id: 'pf+',  page: 'lamp2', x: 388, y: 140, w: 110, h: 70, label: 'FADE +', glyph: 'FD+', fs: 22, fn: () => torchCfg('p', .1) },
+  { id: 'sft',  page: 'lamp2', x: 16,  y: 222, w: 170, h: 50, label: 'SOFT', glyph: 'SOFT', fs: 20, lit: () => TC.s === 1, fn: () => torchCfg('s') },
+  { id: 'back', page: 'lamp2', x: 200, y: 222, w: 140, h: 50, label: 'LAMP', glyph: '◀ LAMP', fs: 18, fn: () => padPageSet('lamp') },
+  { id: 'tres2', page: 'lamp2', x: 354, y: 222, w: 142, h: 50, label: 'RESET', glyph: 'RESET', fs: 18, fn: () => torchReset() },
 ];
 const padTabIds = Object.keys(PAD_PAGES).filter(id => PAD_PAGES[id].tab);
 padTabIds.forEach((id, i) => { const w = 496 / padTabIds.length;                // the strip builds itself — a new page gets its tab for free

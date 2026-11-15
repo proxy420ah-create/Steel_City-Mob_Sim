@@ -340,6 +340,30 @@ of it: camera angle drove brightness. `torchDist` now also records the hit face'
 incidence cosine; AUTO scales both lamps by `min(1, .5/cos)` — head-on is held to
 what a ~60° view already reads, shallower angles untouched. Rendered on a flat
 test plane at .4 m: AUTO 103/103/103/99/84 (90°→12°) vs RAW 235/229/219/204/148.
+**Hit measurement — real surface, eased.** The one center ray (`torchDist`) feeds
+distance + incidence. Miniatures are only hit through their bounding-box proxies,
+so a proxy hit under 3 m is *refined*: `miniRay` marches the model's own voxel
+columns (DDA in grid cells; honors the slice window, `fx` mirror, spin via
+`matrixWorld`, and the `plate` ground slab) and returns the first filled cell's
+distance + face normal — `null` when the ray only crosses air inside the box, in
+which case the beam reads what is behind it (`via:'dda'`; plain meshes `'obj'`,
+far/unrefined boxes `'box'`, no hit `'none'` → 2 m, neutral incidence). Parked-car
+proxies carry `userData.keep` (their box IS their surface — the composite grid is
+empty there). `aim()` then **eases** d (log space) and the cosine toward each new
+measurement (τ ≈ 90 ms, per camera so the follower POV keeps its own state; snaps
+on first use / >400 ms gap / `aim(cam, true)`), so crossing a model edge or facade
+step no longer pops the brightness. `__torch.ease = false` = raw (the probe sets it
+at every boot and exercises ease explicitly). `__torch.hit()` reads `{d, cos, via}`.
+**LAMP ▸ TUNE** opens a hidden `lamp2` page (no tab — reached only from LAMP):
+HEAD± (`TC.n`, .2–1, the head-on level; 1 = no incidence dimming), FADE± (`TC.p`,
+.1–1, the point-blank floor of the proximity fade; 1 = none), SOFT (`TC.s`),
+RESET, ◀ LAMP. All persist in `dvm_torch`; RESET restores `n .5 / p .4 / s 1`.
+**SOFT** is a soft-knee custom tone map (`THREE.CustomToneMapping`, the
+`tonemapping_pars_fragment` chunk patched at boot): identity up to K = .85, then an
+exponential shoulder approaching 1 with slope 1 at the knee — below the knee the
+image is unchanged (probe: ambient luminance equal ±2), above it highlights roll
+off instead of hard-clipping (RAW head-on 235 → lower, never 255). Flipping SOFT
+recompiles materials once (a one-time hitch); `floorMat` is `toneMapped:false`.
 **(2) footprint** — inside 1 m the fixed cone would squeeze the
 same flux into a shrinking disc (the "concentration" hotspot), so AUTO widens
 the angle: `angle = atan(tan(beam₀)/d)` — but capped at `beam₀×1.6` (and .95
