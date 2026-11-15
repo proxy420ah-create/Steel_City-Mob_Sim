@@ -283,20 +283,20 @@ await evl('__cam(null); __pos.x = 0; __pos.z = 0');
 
 // 12.5 — west annex: doorway seam passable, wall stubs blocked, wire lifted into an arch
 check('walkOK centre of main room', await evl('__construct.walkOK(0, -2.5) === true'));
-check('walkOK inside the west annex', await evl('__construct.walkOK(-6.3, -4.0) === true'));
+check('walkOK inside the west annex', await evl('__construct.walkOK(-6.4, -2.5) === true && __construct.walkOK(-7.3, -2.5) === true'));
 check('walkOK at the door seam x=-3 z=-2.5', await evl('__construct.walkOK(-3, -2.5) === true'));
 check('walkOK door north half z=-2.2', await evl('__construct.walkOK(-3, -2.5) === true && __construct.walkOK(-3, -2.3) === true'));
 check('walkOK hugging the jamb face', await evl('__construct.walkOK(-3, -2.8) === true && __construct.walkOK(-3, -2.2) === true'));
 check('capsule held off the jamb', await evl('__construct.walkOK(-3, -2.9) === false && __construct.walkOK(-3, -2.1) === false'));
 check('wall stub south of door blocked', await evl('__construct.walkOK(-3, -4) === false'));
 check('wall stub north of door blocked', await evl('__construct.walkOK(-3, -1) === false'));
-check('annex floor edge blocked beyond wall', await evl('__construct.walkOK(-7.2, -2.5) === false'));
+check('annex floor edge blocked beyond wall', await evl('__construct.walkOK(-8.2, -2.5) === false'));
 check('door jamb margin — capsule edge held', await evl('__construct.walkOK(-3, -3.1) === false'));
-check('bounds = 10 slabs + 20 seams + 6 portal wires', await evl('__construct.bounds() === 36'), await evl('__construct.bounds()'));
+check('bounds = 8 slabs + 16 seams + 6 portal wires', await evl('__construct.bounds() === 30'), await evl('__construct.bounds()'));
 
 // 12.75 — drafting room: Primary Table centred in the annex, square + low, surf host, stasset miniatures
 { const tabs = await evl('__construct.tables()');
-  check('primary table emitted', tabs.length === 2 && tabs[0].id === 'primary', JSON.stringify(tabs));
+  check('primary table emitted', tabs.length === 3 && tabs[0].id === 'primary', JSON.stringify(tabs));
   check('table front-of-centre on the door axis', tabs && tabs[0].x === -4.6 && tabs[0].z === -2.5);
   check('table square + low', tabs && tabs[0].size === 1.2 && tabs[0].top === .26);
   for (let i = 0; i < 40 && !(await evl('__construct.tables()[0].models.length === 1')); i++) await sleep(250);
@@ -362,10 +362,10 @@ check('bounds = 10 slabs + 20 seams + 6 portal wires', await evl('__construct.bo
   await evl('__cam(null); __pos.x = -4.6; __pos.z = -1.6'); }
 
 // 12.96 — pad wall-mount: sticks to the invisible wall slabs, persists through dvm_place
-await evl('__cam(-4.6, .55, -4.2, -4.6, .55, -4.93)'); await sleep(400);      // face the annex south wall
+await evl('__cam(-4.6, .55, -5.2, -4.6, .55, -5.93)'); await sleep(400);      // face the annex south wall
 const wt = JSON.parse(await evl('JSON.stringify(__pad.wallTarget())'));
 check('pad detects a vertical face — wall target with outward normal', wt && wt.wall === true && Math.abs(wt.n[2] - 1) < .01, JSON.stringify(wt));
-await evl('__pad.stick(-4.6, .6, -4.928, [0,0,1])');
+await evl('__pad.stick(-4.6, .6, -5.928, [0,0,1])');
 check('pad mounted — mount state on the rec', await evl('!!(__pad.rec().mount && __pad.rec().mount.n[2] === 1)'));
 check('mount persisted through dvm_place', await evl('!!((JSON.parse(localStorage.getItem("dvm_place") || "{}").debug_pad || {}).mount)'));
 const bp2 = JSON.parse(await evl('JSON.stringify((() => { const s = __pad.scr(), v = new s.position.constructor(.0531, -.0053, 0); s.localToWorld(v); return [v.x, v.y, v.z]; })())'));
@@ -455,33 +455,37 @@ check('reset off the floor', await evl('__construct.tables()[0].lift === 0 && Ma
 
 // 12.99c — the BLOCK TABLE: a 3×3 city block, lots filled from city_layout slots
 const tabs2 = JSON.parse(await evl('JSON.stringify(__construct.tables())'));
-check('two tables — primary + block', tabs2.length === 2 && tabs2[1].id === 'block', JSON.stringify(tabs2.map(q => q.id)));
-check('block table emitted directly behind the primary', tabs2[1] && Math.abs(tabs2[1].x + 6.4) < .01 && Math.abs(tabs2[1].z + 2.5) < .01);
+check('three tables — primary + block + studio', tabs2.length === 3 && tabs2[1].id === 'block' && tabs2[2].id === 'studio', JSON.stringify(tabs2.map(q => q.id)));
+check('block table emitted rear-left of the primary', tabs2[1] && Math.abs(tabs2[1].x + 6.4) < .01 && Math.abs(tabs2[1].z + 1.3) < .01);
+check('studio table emitted rear-right of the primary', tabs2[2] && Math.abs(tabs2[2].x + 6.4) < .01 && Math.abs(tabs2[2].z + 3.7) < .01);
+check('studio union catalog — hosts singles + blocks', JSON.stringify([...(tabs2[2].catalog || [])].sort()) === '["barber_shop","block_26_tenement","block_41_barber","tenement_block_0"]', JSON.stringify(tabs2[2].catalog));
+check('the 1.2m slot between the rear tables is walkable', await evl('__construct.walkOK(-6.4, -2.5) === true && __construct.walkOK(-6.4, -2.4) === true'));
 // mv law: a stale dvm_place (pre-move coords, no rev) must NOT mask the authored spots
 await evl(`(() => { const p = JSON.parse(localStorage.getItem('dvm_place') || '{}');
   p['table:primary'] = { x: -5, z: -2.5, rotY: 0 };                              // the stale save — no mv field
   p['table:block'] = { x: -5.9, z: -1.3, rotY: 0 };
+  p['table:studio'] = { x: -5.9, z: -1.3, rotY: 0 };
   p['commission_stamper'] = { x: -1, z: -4.5, rotY: 0 };                          // unversioned item — its save still counts
   localStorage.setItem('dvm_place', JSON.stringify(p)); })()`);
 await evl('location.reload()'); await sleep(1500); await connect(); await waitBoot(); await sleep(900);
 const mvT = JSON.parse(await evl('JSON.stringify(__construct.tables())'));
-check('stale save rejected — tables hold the manifest row', mvT[0].x === -4.6 && mvT[1].x === -6.4 && mvT[1].z === -2.5, JSON.stringify(mvT.map(q => [q.id, q.x, q.z])));
+check('stale save rejected — tables hold the manifest row', mvT[0].x === -4.6 && mvT[1].x === -6.4 && mvT[1].z === -1.3 && mvT[2].x === -6.4 && mvT[2].z === -3.7, JSON.stringify(mvT.map(q => [q.id, q.x, q.z])));
 check('unversioned items still honor their save', await evl('Math.abs(__construct.placed.find(p => p.name === "commission_stamper").x + 1) < .01'));
 const bm = tabs2[1].models[0];
 check('block mount = the tenement composite — full 192 grid', bm && bm.dims.join(',') === '192,120,192' && bm.vox === 426012, JSON.stringify(bm));
-const broof = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.4, -2.5, 0)');
+const broof = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.4, -1.3, 0)');
 check('block table roof = .7475 — same consistent scale', Math.abs(broof - .7475) < .008, 'roof=' + broof);
 check('pad still remote for primary — it sits on primary', await evl('__pad.table() === "primary"'), await evl('__pad.table()'));
-await evl('__construct.take("debug_pad"); __construct.place(-6.4, -1.975)');          // set the pad on the block's north margin
+await evl('__construct.take("debug_pad"); __construct.place(-6.4, -0.775)');          // set the pad on the block's north margin
 check('pad retargets — nearest table is the block', await evl('__pad.table() === "block"'), await evl('__pad.table()'));
 await evl('__pad.press("next")'); await sleep(600);                                   // block swap → block_41_barber
 const bb = JSON.parse(await evl('JSON.stringify(__construct.tables()[1].models[0])'));
 check('block_41 mounted — composite 192 grid, land tiles included', bb && bb.dims.join(',') === '192,36,192' && bb.vox > 20577, JSON.stringify({ d: bb && bb.dims, v: bb && bb.vox }));
-const btop = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.7, -2.8, 0)');
+const btop = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.7, -1.6, 0)');
 check('barber on its authored lot (slot 2) — roof field top .377', Math.abs(btop - .3772) < .003, 'top=' + btop);
-const ltop = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.7, -2.2, 0)');
+const ltop = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.7, -1.0, 0)');
 check('vacant lot = empty land — fence-post top .279', Math.abs(ltop - .2787) < .004, 'land=' + ltop);
-const ftop = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.7, -2.92, 0)');
+const ftop = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.7, -1.72, 0)');
 check('barber street parapet row — y33+ at its lot edge', ftop > .4 && ftop < .44, 'front=' + ftop);
 check('block swap persisted', await evl('localStorage.getItem("dvm_model:block") === "block_41_barber"'));
 await evl('__pad.press("lRR")');
@@ -492,10 +496,20 @@ check('block reset', await evl('__construct.tables()[1].lift === 0 && Math.abs(_
 await evl('__pad.press("prev")'); await sleep(600);                                   // back to the tenement composite
 const bback = JSON.parse(await evl('JSON.stringify(__construct.tables()[1].models[0])'));
 check('re-mount tenement — whole block again', bback && bback.vox === 426012, JSON.stringify(bback && bback.vox));
-const broof2 = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.4, -2.5, 0)');
+const broof2 = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.4, -1.3, 0)');
 check('roof restored at .7475', Math.abs(broof2 - .7475) < .008, 'roof=' + broof2);
 await evl('__construct.take("debug_pad"); __construct.place(-4.6, -1.975)');          // pad home to primary's margin
 check('pad re-homes to primary', await evl('__pad.table() === "primary"'), await evl('__pad.table()'));
+
+// studio table — third easel, opens identical to the primary
+const sm = JSON.parse(await evl('JSON.stringify(__construct.tables()[2].models[0])'));
+check('studio mount = tenement — opens identical to the primary', sm && sm.name === 'tenement_block_0' && sm.dims.join(',') === '192,120,192', JSON.stringify(sm && sm.name));
+await evl('__construct.take("debug_pad"); __construct.place(-6.4, -4.375)');          // set the pad on the studio's south margin
+check('pad retargets — nearest table is the studio', await evl('__pad.table() === "studio"'), await evl('__pad.table()'));
+const sroof = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:studio"), -6.4, -3.7, 0)');
+check('studio roof = .7475 — same consistent scale', Math.abs(sroof - .7475) < .008, 'roof=' + sroof);
+await evl('__construct.take("debug_pad"); __construct.place(-4.6, -1.975)');          // pad back home
+check('pad re-homes to primary again', await evl('__pad.table() === "primary"'), await evl('__pad.table()'));
 
 
 // 12.99b — the apps menu: ≡ lists every page as a launch tile

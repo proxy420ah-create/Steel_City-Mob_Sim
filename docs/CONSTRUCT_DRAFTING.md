@@ -11,11 +11,21 @@ multiple drafting tables are list entries, not new code.
   models: [{ name: 'tenement_block_0', fill: .75 }],      // mounted exhibit — one model at a time
   catalog: [{ name: 'tenement_block_0', fill: .75 },      // the swappable universe — the pad cycles it
             { name: 'barber_shop', fill: .75 }] },
-{ id: 'block', x: -6.4, z: -2.5, size: 1.2, top: .26, scale: 1 / 64, mv: 1,   // the Block Table — directly behind, .6m gap
+{ id: 'block', x: -6.4, z: -1.3, size: 1.2, top: .26, scale: 1 / 64, mv: 2,   // the Block Table — rear-left, .6m gap
   models: [{ name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' } }],
   catalog: [{ name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' } },
-            { name: 'block_41_barber',  fill: .75, slots: { 2: 'barber_shop' } }] }
+            { name: 'block_41_barber',  fill: .75, slots: { 2: 'barber_shop' } }] },
+{ id: 'studio', x: -6.4, z: -3.7, size: 1.2, top: .26, scale: 1 / 64, mv: 1,  // rear-right — mirrors the block across the axis
+  models: [{ name: 'tenement_block_0', fill: .75 }],      // opens identical to the primary — role TBD
+  catalog: [singles + block specs] }                       // the union catalog — hosts either presentation
 ```
+
+The **annex grew to fit the fan**: x[-8,-3] × z[-6,1] — +1m west (the rear
+tables no longer clip the wall) and +1m each z side, symmetric so the door
+axis stays the room's centreline. At that reach the annex spans the main
+room's full z extent, so the two "west edge above/below the annex" wall
+segments are absorbed — the shared wall is now only the two door stubs.
+The rear pair sit flanking the axis with a 1.2 m slot between them.
 
 - `emitTable(spec)` builds it in the Construct's own language: dark furniture slab
   (`0x14161c`, same stock as consoles/kiosk) on four **piston legs** — a fixed
@@ -90,9 +100,9 @@ was on the easel.
 
 ## Block composites — a whole city block on the table
 
-The **Block Table** (`id:'block'`, directly behind the primary on the door
-axis — the two slabs stand in a row with a walkable .6 m gap between them, the
-primary pulled .4 m forward of the old dead-centre so the gap exists) mounts
+The **Block Table** (`id:'block'`, rear-left of the primary — the slabs stand
+in a fan: primary front-centre, block and studio flanking behind with a
+walkable .6 m gap between the rows) mounts
 **block specs** — catalog entries that carry `slots: {i: asset}` instead
 of a lone `name`. `emitBlock` builds them: the spec's nine lots are a 3×3 grid
 of 64-voxel tiles (`slot i → (i%3, i/3)` — the same `c = i % cols, r = i / cols`

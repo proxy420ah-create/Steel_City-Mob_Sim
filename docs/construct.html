@@ -58,18 +58,18 @@ window.__torch = { on: false, spot: torch, fill: torchFill,
 const TILE = 1.0;
 const MANIFEST = { tiles: [], props: [] };
 for (const i of [-2.5,-1.5,-.5,.5,1.5,2.5]) for (const j of [.5,-.5,-1.5,-2.5,-3.5,-4.5,-5.5]) MANIFEST.tiles.push([i, j]);   // room 6m x 7m — edges x±3 z[+1,-6], rotator dead-centre (0,-2.5), door inside the north edge
-for (const i of [-3.5,-4.5,-5.5,-6.5]) for (const j of [-.5,-1.5,-2.5,-3.5,-4.5]) MANIFEST.tiles.push([i, j]);              // WEST ANNEX — board room 4m x 5m, edges x[-7,-3] z[-5,0]
+for (const i of [-3.5,-4.5,-5.5,-6.5,-7.5]) for (const j of [.5,-.5,-1.5,-2.5,-3.5,-4.5,-5.5]) MANIFEST.tiles.push([i, j]);  // WEST ANNEX — drafting room 5m x 7m, edges x[-8,-3] z[-6,1] (spans the main room's full z reach)
 
 /* ── walk law — the union of allowed rects minus forbidden wall stubs. The doorway is a 1m
    gap in the west edge x=-3 at z[-3,-2] (dead on the rotator axis); the rest of that edge is
    impassable interior wall, enforced by WALL_BLOCKS (capsule-radius-expanded stubs). */
 const WALK_RECTS = [
   { x0: -2.78, x1: 2.78, z0: -5.78, z1: .78 },                          // main room (wall faces at ±.07, capsule inset .15)
-  { x0: -6.78, x1: -2.78, z0: -4.78, z1: -.22 },                        // west annex — meets main at the x=-2.78 seam inside the door
+  { x0: -7.78, x1: -2.78, z0: -5.78, z1: .78 },                         // west annex — meets main at the x=-2.78 seam inside the door
 ];
 const WALL_BLOCKS = [                                                    // interior wall stubs on the shared edge x=-3 (wall x[-3.07,-2.93] + capsule)
-  { x0: -3.22, x1: -2.78, z0: -5, z1: -2.825 },                         // south of the door (capsule edge kisses the jamb face at -2.975)
-  { x0: -3.22, x1: -2.78, z0: -2.175, z1: 0 },                          // north of the door (jamb face -2.025)
+  { x0: -3.22, x1: -2.78, z0: -6, z1: -2.825 },                         // south of the door (capsule edge kisses the jamb face at -2.975)
+  { x0: -3.22, x1: -2.78, z0: -2.175, z1: 1 },                          // north of the door (jamb face -2.025)
 ];
 const inR = (r, x, z) => x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1;
 const walkOK = (x, z) => WALK_RECTS.some(r => inR(r, x, z)) && !WALL_BLOCKS.some(b => inR(b, x, z));
@@ -95,10 +95,8 @@ const WALL_H = 1.05, WALL_D = .14;                                      // wall 
 const wallMat = floorMat;                                               // walls obey the floor's own law — void-colored, opaque, NEVER seen
 const BOUND_WALL = [                                                    // [ax, az, bx, bz] wall centerlines — each becomes slab + cap wire
   [-3,-6, 3,-6], [3,-6, 3,1], [3,1, -3,1],                              // main room — S, E, N edges
-  [-3,1, -3,0],                                                         // main west edge above the annex reach
-  [-3,0, -7,0], [-7,0, -7,-5], [-7,-5, -3,-5],                          // annex — N, W, S edges
-  [-3,-5, -3,-6],                                                       // main west edge below the annex reach
-  [-3,-5, -3,-3], [-3,-2, -3,0],                                        // interior wall stubs — the west wall minus the door gap
+  [-3,1, -8,1], [-8,1, -8,-6], [-8,-6, -3,-6],                          // annex — N, W, S edges (z-reach now spans the main room's — no west-edge segments survive outside it)
+  [-3,-6, -3,-3], [-3,-2, -3,1],                                        // interior wall stubs — the west wall minus the door gap
 ];
 const BOUND_ARCH = [ { x: -3, z0: -3, z1: -2, h: 1.05, d: .14 } ];       // doorway: the floor wire lifted into a ∩ — outline on EACH room's face
 const ARCH_ENDS = new Set(BOUND_ARCH.flatMap(a => [[a.x, a.z0], [a.x, a.z1]]).map(([x, z]) => x + ',' + z));
@@ -274,10 +272,16 @@ MANIFEST.tables = [                                                    // PRIMAR
     models: [{ name: 'tenement_block_0', fill: .75 }],                   // mounted exhibit — one model at a time, .75 of the tabletop
     catalog: [{ name: 'tenement_block_0', fill: .75 },                   // the swappable universe — the wall panel cycles it
               { name: 'barber_shop', fill: .75 }] },
-  { id: 'block', x: -6.4, z: -2.5, size: 1.2, top: .26, scale: 1 / 64, mv: 1,   // BLOCK TABLE — directly behind the primary on the door axis, .6m gap (9 lots of 64 vox = 192 span)
+  { id: 'block', x: -6.4, z: -1.3, size: 1.2, top: .26, scale: 1 / 64, mv: 2,   // BLOCK TABLE — rear-left of the primary, .6m gap (9 lots of 64 vox = 192 span)
     models: [{ name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' } }],   // tenement fills every lot → identical to the easel's
     catalog: [{ name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' } },
               { name: 'block_41_barber', fill: .75, slots: { 2: 'barber_shop' } }] },       // block_41's authored lot — the rest = empty_land
+  { id: 'studio', x: -6.4, z: -3.7, size: 1.2, top: .26, scale: 1 / 64, mv: 1,  // STUDIO TABLE — rear-right, mirrors the block across the door axis (design pending)
+    models: [{ name: 'tenement_block_0', fill: .75 }],                          // opens identical to the primary — role TBD
+    catalog: [{ name: 'tenement_block_0', fill: .75 },                          // the union catalog — hosts either presentation while its role is decided
+              { name: 'barber_shop', fill: .75 },
+              { name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' } },
+              { name: 'block_41_barber', fill: .75, slots: { 2: 'barber_shop' } }] },
 ];
 const TABLES = [];
 const SLEEVE_H = .12;                                                    // piston barrel — the fixed lower leg section
@@ -1615,7 +1619,7 @@ const flyStep = dt => {                                                         
   const cy = Math.cos(yaw), sy = Math.sin(yaw);
   flyPos.addScaledVector(_fd, f * sp * dt);
   flyPos.x += cy * r * sp * dt; flyPos.z += -sy * r * sp * dt; flyPos.y += u * sp * dt;
-  flyPos.x = Math.max(-7.5, Math.min(3.4, flyPos.x));
+  flyPos.x = Math.max(-8.5, Math.min(3.4, flyPos.x));
   flyPos.z = Math.max(-7.5, Math.min(1.8, flyPos.z));
   flyPos.y = Math.max(.08, Math.min(2.4, flyPos.y));
 };
