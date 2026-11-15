@@ -517,10 +517,23 @@ await evl('__torch.set(true); __cam(-6.5,.62,-4.6, -7.93,.62,-4.6)');           
 for (let i = 0; i < 30 && !(await evl('Math.abs(__camera.position.x + 6.5) < .01')); i++) await sleep(100);
 await evl('__torch.aim(__camera)');
 check('auto-exposure — full power past 1m', await evl('__torch.dist(__camera) > 1 && Math.abs(__torch.spot.intensity - __torch.cfg.i) < .001'), await evl('JSON.stringify({d:+__torch.dist(__camera).toFixed(2), i:+__torch.spot.intensity.toFixed(2)})'));
+check('footprint — past 1m the tuned cone runs as-is', await evl('Math.abs(__torch.spot.angle - .45) < .01'), await evl('__torch.spot.angle'));
 await evl('__cam(-7.5,.62,-4.6, -7.93,.62,-4.6)');                                           // ~.43m — inside the old washout range
 for (let i = 0; i < 30 && !(await evl('Math.abs(__camera.position.x + 7.5) < .01')); i++) await sleep(100);
 await evl('__torch.aim(__camera)');
 check('auto-exposure — dims at close range', await evl('__torch.dist(__camera) < .8 && __torch.spot.intensity < __torch.cfg.i * .8 && __torch.fill.intensity < __torch.cfg.f * .5'), await evl('JSON.stringify({d:+__torch.dist(__camera).toFixed(2), i:+__torch.spot.intensity.toFixed(2), f:+__torch.fill.intensity.toFixed(2)})'));
+/* footprint normalization — at d<1 AUTO widens the cone so the lit disc holds its 1m radius
+   instead of collapsing into a hotspot: angle = atan(tan(beam0)/d), capped 1.25. */
+check('footprint — close range widens the cone past the tuned beam', await evl('__torch.spot.angle > .65 && __torch.spot.angle <= 1.25'), await evl('__torch.spot.angle'));
+/* 12.98d — EXP: RAW bypasses the d^decay scale + the .15 floor — same camera, full tune.
+   This is the free-cam fix: at inspection range AUTO reads ~20% and the dial felt dead. */
+await evl('__torch.tune("x")');                                                          // AUTO → RAW
+await evl('__torch.aim(__camera)');
+check('RAW — close range emits the absolute tune, no floor', await evl('__torch.cfg.x === 0 && __torch.dist(__camera) < .8 && Math.abs(__torch.spot.intensity - __torch.cfg.i) < .001 && Math.abs(__torch.fill.intensity - __torch.cfg.f) < .001'), await evl('JSON.stringify({d:+__torch.dist(__camera).toFixed(2), i:+__torch.spot.intensity.toFixed(2), f:+__torch.fill.intensity.toFixed(2)})'));
+check('RAW — the cone stays literal too', await evl('Math.abs(__torch.spot.angle - .45) < .01'), await evl('__torch.spot.angle'));
+check('RAW persisted — dvm_torch carries x:0', await evl('JSON.parse(localStorage.getItem("dvm_torch")).x === 0'));
+await evl('__torch.tune("x")');                                                          // back to AUTO for the F5 + downstream asserts
+check('EXP is a toggle — AUTO restored', await evl('__torch.cfg.x === 1'));
 await evl('__torch.set(false)');
 await evl('__pad.tab("model")');
 await evl('__cam(null); __pos.x = -4.6; __pos.z = -1.6');
@@ -580,19 +593,23 @@ const mvT = JSON.parse(await evl('JSON.stringify(__construct.tables())'));
 check('stale save rejected — tables hold the manifest row', mvT[0].x === -4.6 && mvT[1].x === -6.4 && mvT[1].z === -1.3 && mvT[2].x === -6.4 && mvT[2].z === -3.7, JSON.stringify(mvT.map(q => [q.id, q.x, q.z])));
 check('unversioned items still honor their save', await evl('Math.abs(__construct.placed.find(p => p.name === "commission_stamper").x + 1) < .01'));
 const bm = tabs2[1].models[0];
-check('block mount = the tenement composite — 322 chunk grid (streets included)', bm && bm.dims.join(',') === '322,122,322' && bm.vox === 483426, JSON.stringify(bm));
+check('block mount = the tenement composite — 322 chunk grid (streets included)', bm && bm.dims.join(',') === '322,122,322' && bm.vox === 480012, JSON.stringify(bm));
 const broof = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.4, -1.3, 0)');
 check('block table roof = .5563 — same fill span, streets share the footprint', Math.abs(broof - .5563) < .008, 'roof=' + broof);
 const sroad = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.4, -1.7, 0)');
 check('street ring is a measured surface — road top .2656', Math.abs(sroad - .2656) < .004, 'road=' + sroad);
-/* parked cars — the TABLE's street scene, not the model's. The touring (vehicle_490_touring_5cm —
-   the game's car at 5cm bake) 's' edge along 160 → roof cell grid (159,279) → world ≈ (-6.394,-0.971);
-   'w' edge along 140 → roof cell grid (43,139) → world ≈ (-6.072,-1.361). Car roofs ≈ .3075
-   on the .2656 road — sample ROOF columns, the cabin reads lower. */
-const car1 = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.394, -0.971, 0)');
-check('parked car 1 — south street, curb-hard, reads as a surface', Math.abs(car1 - .3075) < .005, 'car=' + car1);
-const car2 = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.072, -1.361, 0)');
-check('parked car 2 — west street, different heading, same law (sampled on the roof, not the open cabin)', Math.abs(car2 - .3075) < .005, 'car=' + car2);
+/* parked cars — the TABLE's street scene as full-fidelity overlays: vehicle_490_touring at its
+   authored 1cm resolution, scaled to the composite (never downsampled). Mount is async after the
+   composite lands — poll for the _parked recs, then check positions + roofs. */
+for (let i = 0; i < 40; i++) { if ((await evl('__construct.placed.filter(p => p._parked).length')) === 2) break; await sleep(500); }
+const cars = JSON.parse(await evl(`JSON.stringify((() => { const V = new __THREE.Vector3();
+  return __construct.placed.filter(p => p._parked).map(c => { const w = c.g.getWorldPosition(V.set(0,0,0));
+    return { x: w.x, z: w.z, y: w.y, roof: __construct.surfaceAt(c, w.x, w.z, 0) }; }); })())`));
+check('two parked cars mounted — the table owns the street scene', cars.length === 2, JSON.stringify(cars));
+const cS = cars.find(c => c.z > -1.2), cW = cars.find(c => c.z <= -1.2);
+check('car 1 — south street, curb-hard, seated on the road (.2656)', cS && Math.abs(cS.x + 6.397) < .01 && Math.abs(cS.z + .972) < .01 && Math.abs(cS.y - .2656) < .002, JSON.stringify(cS));
+check('car 2 — west street, different heading, same law', cW && Math.abs(cW.x + 6.070) < .01 && Math.abs(cW.z + 1.360) < .01 && Math.abs(cW.y - .2656) < .002, JSON.stringify(cW));
+check('car roofs read as measured surfaces — items can seat on them', cS && cW && Math.abs(cS.roof - .3058) < .004 && Math.abs(cW.roof - .3058) < .004, JSON.stringify([cS && cS.roof, cW && cW.roof]));
 const gap = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.4, -1.695, 0)');
 check('the north road stays road — .2656', Math.abs(gap - .2656) < .004, 'gap=' + gap);
 check('pad still remote for primary — it sits on primary', await evl('__pad.table() === "primary"'), await evl('__pad.table()'));
@@ -600,7 +617,7 @@ await evl('__construct.take("debug_pad"); __construct.place(-6.4, -0.775)');    
 check('pad retargets — nearest table is the block', await evl('__pad.table() === "block"'), await evl('__pad.table()'));
 await evl('__pad.press("next")'); await sleep(3500);                                  // block swap → block_41_barber (322 composite builds ~2.5s)
 const bb = JSON.parse(await evl('JSON.stringify(__construct.tables()[1].models[0])'));
-check('block_41 mounted — 322 grid, land tiles + table\'s parked cars included', bb && bb.dims.join(',') === '322,38,322' && bb.vox === 123107, JSON.stringify({ d: bb && bb.dims, v: bb && bb.vox }));
+check('block_41 mounted — 322 grid, land tiles + table\'s parked cars included', bb && bb.dims.join(',') === '322,38,322' && bb.vox === 119693, JSON.stringify({ d: bb && bb.dims, v: bb && bb.vox }));
 const btop = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.58, -1.48, 0)');
 check('barber on its authored lot (slot 2) — roof field top .3355', Math.abs(btop - .3355) < .003, 'top=' + btop);
 const ltop = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.58, -1.12, 0)');
@@ -608,10 +625,13 @@ check('vacant lot = empty land — fence-post top .2768', Math.abs(ltop - .2768)
 const ftop = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.58, -1.55, 0)');
 check('barber street parapet row — at its lot edge', ftop > .355 && ftop < .372, 'front=' + ftop);
 /* the street scene is the table's — swapping barber↔tenement changes the LOTS, not the roads:
-   the same two cars must still read at the same spots on the swapped composite */
-const carS = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.394, -0.971, 0)');
-const carW = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.072, -1.361, 0)');
-check('street scene survives the swap — both cars still parked on block_41', Math.abs(carS - .3075) < .005 && Math.abs(carW - .3075) < .005, JSON.stringify([carS, carW]));
+   the same two cars re-mount (overlay recs die and respawn with the model) at the same spots */
+for (let i = 0; i < 40; i++) { if ((await evl('__construct.placed.filter(p => p._parked).length')) === 2) break; await sleep(500); }
+const cars2 = JSON.parse(await evl(`JSON.stringify((() => { const V = new __THREE.Vector3();
+  return __construct.placed.filter(p => p._parked).map(c => c.g.getWorldPosition(V.set(0,0,0)).toArray().slice(0, 3)); })())`));
+check('street scene survives the swap — both cars re-parked on block_41', cars2.length === 2 &&
+  cars2.some(w => Math.abs(w[0] + 6.397) < .01 && Math.abs(w[2] + .972) < .01) &&
+  cars2.some(w => Math.abs(w[0] + 6.070) < .01 && Math.abs(w[2] + 1.360) < .01), JSON.stringify(cars2));
 check('block swap persisted', await evl('localStorage.getItem("dvm_model:block") === "block_41_barber"'));
 await evl('__pad.press("lRR")');
 check('block lifts — primary untouched', await evl('Math.abs(__construct.tables()[1].lift - .08) < 1e-3 && __construct.tables()[0].lift === 0'), await evl('JSON.stringify([__construct.tables()[0].lift, __construct.tables()[1].lift])'));
@@ -620,7 +640,7 @@ await evl('__pad.press("lres")');
 check('block reset', await evl('__construct.tables()[1].lift === 0 && Math.abs(__pad.rec().y0 - .26) < .01'));
 await evl('__pad.press("prev")'); await sleep(3500);                                  // back to the tenement composite
 const bback = JSON.parse(await evl('JSON.stringify(__construct.tables()[1].models[0])'));
-check('re-mount tenement — whole block again', bback && bback.vox === 483426, JSON.stringify(bback && bback.vox));
+check('re-mount tenement — whole block again', bback && bback.vox === 480012, JSON.stringify(bback && bback.vox));
 const broof2 = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.4, -1.3, 0)');
 check('roof restored at .5563', Math.abs(broof2 - .5563) < .008, 'roof=' + broof2);
 await evl('__construct.take("debug_pad"); __construct.place(-4.6, -1.975)');          // pad home to primary's margin

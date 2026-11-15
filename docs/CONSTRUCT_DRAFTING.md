@@ -147,19 +147,24 @@ miniature carries its streets, not just its buildings:
   the lots (tenement ↔ barber) must not change the streets. So `parked` lives
   on the table spec (`t.spec.parked`) and applies to *every* block composite
   mounted there; a model spec can still add its own `m.parked` on top (the
-  lists union). Each `{edge,along,name?}` drops `vehicle_490_touring_5cm` (the
-  game's touring car, baked 5:1 from the authored 1 cm stasset — 14×15×31)
-  onto the street at slab-top y+2 —
-  `ParkingMap.Build` in composite cells: `parkOffset = roadWidth/2 − carWidth/2`
+  lists union). Each `{edge,along,name?}` mounts `vehicle_490_touring` (the
+  game's touring car) as a **full-fidelity overlay** — `emitAsset` at
+  `vs × voxelSize/BLDG_VS`, so every authored 1 cm voxel renders, just drawn
+  at the composite's scale — never downsampled into the grid. Position law
+  (`ParkingMap.Build` in composite cells): `parkOffset = roadWidth/2 − carW/2`
   off the lane center + the curb-push extra lands the car center
   `50v − carW/2` off the block boundary, overhanging the curb ~5v exactly like
-  the game. Cars face the legal heading (right side of travel: s→−x, n→+x,
-  e→+z, w→−z — the `rotVoxY` quarter-turn helper, not a re-authored asset) and
-  clamp inside the `KeepClear` 40 v no-park margin off the corner
-  intersections. The block table carries two — south street `along` 160 and
-  west street `along` 140 — each a measured surface (car roof ≈ .3047, the
-  cabin is open-topped at dead center so roof height varies by column) inside
-  the .2656 road band.
+  the game; the real footprint comes from the vehicle manifest (`dims ×
+  voxelSize / BLDG_VS`), so any named vehicle parks by its own size. Cars face
+  the legal heading (right side of travel, cell space — `fx` mirrors x so the
+  overlay's rotY mirrors with it) and clamp inside the `KeepClear` 40v
+  no-park margin off the corner intersections. Cars parent to `miniG` → they
+  ride spin/lift/model-swap for free (unmount splices their `PLACED` recs, a
+  mid-fetch swap abandons the pending mount); meshes are `miniVox`-tagged and
+  get a heading-aware `hitProxy`. Each is a real PLACED host — `surfaceAt`
+  reads its own `tops`, so items seat on roofs/fenders (roof ≈ .3058 on the
+  .2656 road). The block table carries two — south street `along` 160, west
+  street `along` 140.
 - **Miniature voxels never raycast — but aim lands on their proxies.** Every
   mini `InstancedMesh` is flagged `userData.miniVox` — a mounted tenement is
   426K instances and three.js matrix-tests *each* one per ray, so the un-pruned
@@ -308,16 +313,25 @@ index → `TORCH_COLS` [warm/day/cool/red/green] — both lamps tint together. S
 is `PWR 5 / FILL .55 / MID / warm` — softened from 7/.9 because the old tune blew
 out close-range voxel detail. The pad's **LAMP** page drives it all: PWR/FILL
 steppers, 5 swatches with live color chips + `lit` active state (a generic
-region predicate), BEAM cycler, ⏻ toggle, RESET → `TORCH_DEF`.
+region predicate), BEAM cycler, EXP cycler, ⏻ toggle, RESET → `TORCH_DEF`.
 
-**Auto-exposure** — the tune is irradiance **at 1 m**, not a raw intensity. Each
-frame `aim()` casts one pruned center ray (`rayPruned`, proxies live, held/self/
-helpers excluded) and scales intensity ∝ `d^decay` — a model in your face reads
-at the same brightness as one across the room; `d ≥ 1 m` runs the full tune.
-Both lamps scale by their own offset distance (the fill rides .3 m ahead of the
-camera, so it dims hardest inside arm's reach — it was most of the washout).
-Floor 15% so the cone never dies outright at point-blank. One raycast/frame
-while lit — same cost class as the aim ray that already runs while aiming.
+**Auto-exposure vs RAW** — `TC.x` (persists, default 1 = AUTO). AUTO normalizes
+**two** axes per frame (`aim()`, one pruned center ray — `rayPruned`, proxies
+live, held/self/helpers excluded — same cost class as the aim ray): **(1)
+intensity** — the tune is irradiance *at 1 m*, scaled ∝ `d^decay`, floor 15% so
+the cone never dies outright; each lamp scales by its own offset distance (the
+fill rides .3 m ahead, dimming hardest inside arm's reach — it was most of the
+old washout). **(2) footprint** — inside 1 m the fixed cone would squeeze the
+same flux into a shrinking disc (the "concentration" hotspot), so AUTO widens
+the angle: `angle = atan(tan(beam₀)/d)`, capped 1.25 rad — the lit pool holds
+its 1 m radius. Outside 1 m the tuned cone runs as-is; the wall reads the same
+brightness AND the same lit area whether the camera is near or far — "linear
+regardless of range." **The trade-off:** at free-cam inspection range (d<.5 m)
+the intensity floor still crushes a big tune to ~20% — "the setting doesn't
+apply" was the floor, not a missing wire. RAW (`x:0`, EXP button on the LAMP
+page — lit = AUTO) skips BOTH scalings: intensity = `TC.i`, fill = `TC.f`,
+cone = tuned — literal control for dialing the tune; AUTO for reading the
+model as it'll actually look.
 
 ## The pad sticks to walls — the movable panel
 

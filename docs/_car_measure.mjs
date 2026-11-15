@@ -23,17 +23,15 @@ for (let i = 0; i < 60; i++) { try { const l = JSON.parse(await get(`http://127.
     await cdp('Runtime.enable'); break; } } catch {} await sleep(500); }
 for (let i = 0; i < 120; i++) { if (await evl('!!window.__place && !!window.__warmDone')) break; await sleep(500); }
 for (let i = 0; i < 80; i++) { const n = await evl('__construct.tables()[1].models.length'); if (n) break; await sleep(500); }
-const out = await evl(`JSON.stringify((() => { const tb = __construct.placed.find(p => p.name === 'table:block'); return {
-  car1: __construct.surfaceAt(tb, -6.394, -0.971, 0),
-  car2: __construct.surfaceAt(tb, -6.072, -1.361, 0),
-  vox: __construct.tables()[1].models[0].vox, model: __construct.tables()[1].models[0].name }; })())`);
-console.log('MEASURE', out);
+const readCars = `JSON.stringify((() => { const tb = __construct.placed.find(p => p.name === 'table:block'),
+    cars = __construct.placed.filter(p => p._parked), V = new __THREE.Vector3();
+  return { vox: __construct.tables()[1].models[0].vox, model: __construct.tables()[1].models[0].name,
+    cars: cars.map(c => { const w = c.g.getWorldPosition(V.set(0,0,0));
+      return { x: +w.x.toFixed(4), z: +w.z.toFixed(4), y: +w.y.toFixed(4),
+        roof: __construct.surfaceAt(c, w.x, w.z, 0) }; }) }; })())`;
+console.log('MEASURE', await evl(readCars));
 await evl('__construct.take("debug_pad"); __construct.place(-6.4,-0.775); __pad.tab("model")');
 await sleep(300);
-await evl('__pad.press("next")'); await sleep(4500);                                   // swap → block_41_barber
-const out2 = await evl(`JSON.stringify((() => { const tb = __construct.placed.find(p => p.name === 'table:block'); return {
-  car1b: __construct.surfaceAt(tb, -6.394, -0.971, 0),
-  car2b: __construct.surfaceAt(tb, -6.072, -1.361, 0),
-  vox: __construct.tables()[1].models[0].vox, model: __construct.tables()[1].models[0].name }; })())`);
-console.log('MEASURE2', out2);
+await evl('__pad.press("next")'); await sleep(6000);                                   // swap → block_41_barber + car re-mount
+console.log('MEASURE2', await evl(readCars));
 process.exit(0);

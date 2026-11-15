@@ -46,7 +46,7 @@ key.position.set(0, 1.5, 1.5); scene.add(hemi, key);
 const _tdir = new THREE.Vector3();
 const TORCH_COLS = [0xfff0d0, 0xffffff, 0xdfe8ff, 0xffb09a, 0xb6ffc8];   // warm / day / cool / red / green
 const TORCH_BEAMS = [.28, .45, .65];                                     // tight / standard / wide cone
-const TORCH_DEF = { i: 5, f: .55, a: 1, c: 0 };                          // softer stock tune — close-range inspection, not flood
+const TORCH_DEF = { i: 5, f: .55, a: 1, c: 0, x: 1 };                    // softer stock tune — close-range inspection, not flood (x: 1=auto-exposure, 0=raw)
 const TC = Object.assign({}, TORCH_DEF,                                  // the tune survives F5 — dvm_torch
   JSON.parse(localStorage.getItem('dvm_torch') || '{}'));
 const torchApply = () => { if (!TORCH_COLS[TC.c]) TC.c = 0; if (!TORCH_BEAMS[TC.a]) TC.a = 1;   // stale-save clamp
@@ -59,6 +59,7 @@ const torchCfg = (k, v) => {
   else if (k === 'c') TC.c = v;                                        // swatch index — spot + fill tint together
   else if (k === 'i') TC.i = Math.max(0, Math.min(12, +(TC.i + v).toFixed(1)));
   else if (k === 'f') TC.f = Math.max(0, Math.min(3, +(TC.f + v).toFixed(2)));
+  else if (k === 'x') TC.x = TC.x ? 0 : 1;                                 // auto-exposure ⇄ raw — free-cam close range pins the floor at 15%
   torchApply(); };
 const torchReset = () => { Object.assign(TC, TORCH_DEF); torchApply(); };
 const torch = new THREE.SpotLight(TORCH_COLS[TC.c], 0, 10, TORCH_BEAMS[TC.a], .55, 1.2);
@@ -77,9 +78,13 @@ window.__torch = { on: false, spot: torch, fill: torchFill, cfg: TC, tune: torch
   set(on) { this.setOn(on); },
   dist: torchDist,
   aim(cam) { cam.getWorldPosition(torch.position); cam.getWorldDirection(_tdir);
-    const d = torchDist(cam), s = Math.min(1, Math.max(.15, Math.pow(d, torch.decay)));
+    const d = torchDist(cam), s = TC.x ? Math.min(1, Math.max(.15, Math.pow(d, torch.decay))) : 1;   // RAW = the tune is absolute — free-cam close range was pinning s to the 15% floor
     torch.intensity = this.on ? TC.i * s : 0;
-    torchFill.intensity = this.on ? TC.f * Math.min(1, Math.max(.15, Math.pow(Math.max(.1, d - .3) / .7, torchFill.decay))) : 0;
+    /* footprint normalization — inside 1m the fixed cone squeezes the same flux into a shrinking
+       disc (the "concentration" hotspot); hold the disc radius constant instead: widen the angle
+       so the lit pool stays beam-sized. Outside 1m the tuned cone runs as-is; RAW keeps it literal. */
+    torch.angle = TC.x && d < 1 ? Math.min(1.25, Math.atan(Math.tan(TORCH_BEAMS[TC.a]) / Math.max(d, .15))) : TORCH_BEAMS[TC.a];
+    torchFill.intensity = this.on ? TC.f * (TC.x ? Math.min(1, Math.max(.15, Math.pow(Math.max(.1, d - .3) / .7, torchFill.decay))) : 1) : 0;
     torchTgt.position.copy(torch.position).addScaledVector(_tdir, 2);
     torchFill.position.copy(torch.position).addScaledVector(_tdir, .3); } };
 
@@ -450,50 +455,48 @@ const stampSlots = (vox, W2, H, files, slots, X0, Z0) => { const { S, BW, M } = 
   for (let s = 0; s < 9; s++) { const n = slots[s]; if (n) stamp(files[n], (s % 3) * S, ((s / 3) | 0) * S); }
   for (let s = 0; s < 9; s++) if (!covered.has(s) && !slots[s]) stamp(files['empty_land'], (s % 3) * S, ((s / 3) | 0) * S);
   return stamped; };
-/* rotVoxY — quarter-turn a stasset volume about +Y (q=1 maps authored −z → +x, q=2 → +z,
-   q=3 → −x). Vehicle parking needs street-aligned cars, not re-authored assets. */
-const rotVoxY = (f, q) => { q = ((q % 4) + 4) % 4; if (!q) return f;
-  const W2 = (q & 1) ? f.D : f.W, D2 = (q & 1) ? f.W : f.D, vox = new Uint16Array(W2 * f.H * D2);
-  for (let y = 0; y < f.H; y++) for (let z = 0; z < f.D; z++) for (let x = 0; x < f.W; x++) {
-    const id = f.vox[x + f.W * (y + f.H * z)]; if (!id) continue;
-    let x2, z2;
-    if (q === 1) { x2 = f.D - 1 - z; z2 = x; }
-    else if (q === 2) { x2 = f.W - 1 - x; z2 = f.D - 1 - z; }
-    else { x2 = z; z2 = f.W - 1 - x; }
-    vox[x2 + W2 * (y + f.H * z2)] = id; }
-  return { W: W2, H: f.H, D: D2, vox }; };
-/* stampParked — the game's curbside parking law in composite cells (ParkingMap.Build):
-   parkOffset = roadWidth/2 − carWidth/2 from the lane center, + the curb-push extra —
-   which lands the car's center 50v − carW/2 off the corridor's block boundary (the
-   corridor center sits ON the boundary between two tiles' half-roads). Cars sit on the
-   block-adjacent curb and face the legal heading (right side of travel): s→−x, n→+x,
-   e→+z, w→−z. KeepClear = 40v (2m) off the corner intersections → the legal stretch is
-   along ∈ [M+40+len/2, TILE−M−40−len/2]. Spec: {edge:'s'|'n'|'e'|'w', along, name?}. */
-const PARK_EXTRA = 5, PARK_CLEAR = 40;
-const stampParked = (vox, W2, H, files, parked, X0, Z0) => { const { M, TILE, ROAD } = BLK;
-  const EDGE = { s: { q: 3, axis: 'x', tr: z => TILE - 50 + z },                          // transverse center off the boundary
-                 n: { q: 1, axis: 'x', tr: z => 50 - z },
-                 e: { q: 2, axis: 'z', tr: z => TILE - 50 + z },
-                 w: { q: 0, axis: 'z', tr: z => 50 - z } };
-  const stamped = [];
+/* mountParked — the game's curbside parking law, rendered as full-fidelity overlay
+   miniatures rather than composite cells: the authored 1 cm asset mounts at the
+   composite's own display scale (vs × voxelSize/BLDG_VS — every authored voxel present,
+   just drawn smaller). Position law (ParkingMap.Build): parkOffset = roadWidth/2 − carW/2
+   off the lane center + curb-push → center 50v − carW/2 off the block boundary; heading
+   per edge is the legal right-side-of-travel direction (cell space — fx mirrors x); the
+   KeepClear 40v no-park margin clamps `along`. Parented to miniG → spin/lift/swap ride
+   free; the car is a real PLACED host, so items seat on it through surfaceAt. */
+const PARK_CLEAR = 40;
+const _vehC = {};
+const vehFetch = name => _vehC[name] || (_vehC[name] = fetch(ROUTES.vehicle + name).then(r => r.json()));
+const mountParked = (t, miniG, parked) => { const mn = miniG.userData.mini, vs = mn.vs,
+      D2 = mn.dims[2], { M, TILE } = BLK;
+  const EDGE = { s: { axis: 'x', tr: h => TILE - 50 + h, hX: -1, hZ: 0 },                  // cell-space headings (right of travel)
+                 n: { axis: 'x', tr: h => 50 - h,      hX: 1,  hZ: 0 },
+                 e: { axis: 'z', tr: h => TILE - 50 + h, hX: 0,  hZ: 1 },
+                 w: { axis: 'z', tr: h => 50 - h,      hX: 0,  hZ: -1 } };
   (parked || []).forEach(p => { const E = EDGE[p.edge]; if (!E) return;
-    const f = rotVoxY(files[p.name || 'vehicle_490_touring_5cm'], E.q);
-    const half = (E.axis === 'x' ? f.D : f.W) / 2, len = E.axis === 'x' ? f.W : f.D;      // transverse half-width / street length
-    const lo = M + PARK_CLEAR + len / 2, hi = TILE - M - PARK_CLEAR - len / 2;
-    const a = Math.max(lo, Math.min(hi, p.along == null ? (lo + hi) / 2 : p.along));      // center along the street
-    const c = E.tr(half);                                                                // transverse center — the parking law
-    const sx = Math.round((E.axis === 'x' ? a - f.W / 2 : c - f.W / 2)),                    // odd-dim assets can't center exactly —
-          sz = Math.round((E.axis === 'x' ? c - f.D / 2 : a - f.D / 2));                    // round the ORIGIN or float indices stamp nothing
-    stamped.push({ x: X0 + sx, z: Z0 + sz, w: f.W, d: f.D, h: f.H });
-    for (let z = 0; z < f.D; z++) for (let y = 0; y < f.H; y++) for (let x = 0; x < f.W; x++) {
-      const id = f.vox[x + f.W * (y + f.H * z)]; if (id) vox[(X0 + sx + x) + W2 * (y + 2 + H * (Z0 + sz + z))] = id; } });
-  return stamped; };
+    vehFetch(p.name || 'vehicle_490_touring').then(veh => {
+      const cvs = (veh.voxelSize || .01) / BLDG_VS,                                      // car cells per composite cell (1:5 for the touring)
+            carW = veh.dims[0] * cvs, carL = veh.dims[2] * cvs;                          // real footprint in composite cells
+      const lo = M + PARK_CLEAR + carL / 2, hi = TILE - M - PARK_CLEAR - carL / 2,
+        a = Math.max(lo, Math.min(hi, p.along == null ? (lo + hi) / 2 : p.along)),
+        c = E.tr(carW / 2),                                                              // transverse center — the parking law
+        cx = (E.axis === 'x' ? a : c) - .5, cz = (E.axis === 'x' ? c : a) - .5;            // cell-space center → cell coords
+      const vvs = vs * cvs,                                                              // authored voxel at the composite's scale
+        hx = mn.mirX ? -E.hX : E.hX, hz = E.hZ,                                          // fx mirrors x — cell headings mirror with it
+        rotY = Math.atan2(-hx, -hz);                                                     // authored front = −z → rotate onto the heading
+      emitAsset(p.name || 'vehicle_490_touring', { kind: 'vehicle', parent: miniG,
+        x: mn.fx(cx) * vs, z: (cz - D2 / 2) * vs, rotY, seatY: 2 * vs, vsOverride: vvs, pickable: false, source: 'parked' })
+        .then(rec => { if (!rec) return;
+          if (!miniG.parent) { const i = PLACED.indexOf(rec); if (i >= 0) PLACED.splice(i, 1); rec.g.parent && rec.g.parent.remove(rec.g); return; }   // model swapped mid-fetch — no ghost cars
+          rec._parked = true;
+          rec.g.children.forEach(ch => { ch.userData.miniVox = true; });                  // pruned aim — 78k cells never ray-test
+          const pw = (E.axis === 'x' ? veh.dims[2] : veh.dims[0]) * vvs,                   // proxy footprint swaps on quarter-turn
+                pd = (E.axis === 'x' ? veh.dims[0] : veh.dims[2]) * vvs, ph = veh.dims[1] * vvs;
+          miniG.add(hitProxy(pw + vvs, ph, pd + vvs, rec.g.position.x, 2 * vs + ph / 2, rec.g.position.z)); }); }); }); };
 /* emitBlock — a 3×3 city block as ONE miniature: the tile recipe + lot stamps merged into a
    single composite at 1:1, tops written back into the host. ROT/SLICE/persistence unchanged. */
 const emitBlock = (t, m) => { const W2 = BLK.TILE, slots = m.slots || {};
   const parked = (t.spec.parked || []).concat(m.parked || []);                 // the street scene is the TABLE's — every block composite carries it; a spec can still add
   const names = new Set(['empty_land']); Object.values(slots).forEach(n => names.add(n));
-  parked.forEach(p => names.add(p.name || 'vehicle_490_touring_5cm'));
   return Promise.all([...names].map(n => stassetFetch(n).then(f => [n, f]))).then(es => {
     const files = Object.fromEntries(es);
     const H = Math.max(2, Math.max(...[...names].map(n => files[n].H)) + 2);
@@ -501,8 +504,8 @@ const emitBlock = (t, m) => { const W2 = BLK.TILE, slots = m.slots || {};
     const set = (x, z, id) => { vox[x + W2 * (H * z)] = vox[x + W2 * (1 + H * z)] = id; };
     fillBlockGround(set, 0, 0, { n: 'road', e: 'road', s: 'road', w: 'road', ...(m.seams || {}) }, m.lanes | 0);
     stampSlots(vox, W2, H, files, slots, 0, 0);
-    stampParked(vox, W2, H, files, parked, 0, 0);                       // curbside fill — the game's parked-car law on the street ring
-    return emitVox(t, { ...m, plate: true }, W2, H, W2, vox); })   // composites have full-coverage ground — the flat tops path applies
+    return emitVox(t, { ...m, plate: true }, W2, H, W2, vox)            // composites have full-coverage ground — the flat tops path applies
+      .then(miniG => { if (miniG) mountParked(t, miniG, parked); return miniG; }); })   // cars overlay at authored fidelity — never downsampled
     .catch(e => console.warn('CONSTRUCT — block emit failed:', m.name, e)); };
 /* layoutFetch — the live city layout (blocks+seams) is the zone's sole source of truth, cached. */
 const _layoutC = {};
@@ -608,7 +611,7 @@ const emitVox = async (t, m, W, H, D, vox) => {
       localCols.push({ x, z, dx: fx(x) * vs, dz: (z - D / 2 + .5) * vs, ys }); }
     miniG.userData.mini = { name: m.name, dims: [W, H, D], vox: ng, scale: vs / BLDG_VS, fill: m.fill, vs,
       localCols, plate: m.plate ? { x0: px0, x1: px1, z0: pz0, z1: pz1, y: 1 } : null,
-      written: new Set(), spin: 0, topTheta: 0, fx, axis: 'y',
+      written: new Set(), spin: 0, topTheta: 0, fx, mirX, axis: 'y',
       slice: { x: [0, W - 1], y: [0, H - 1], z: [0, D - 1] }, clipMin, clipMax };
     miniSyncSlice(miniG); miniSyncTops(t, miniG);                        // the model joins the host's surface truth
     return miniG;
@@ -672,7 +675,9 @@ const miniSliceReset = () => { const t = padTable(), mdl = t && t.g.children.fin
 const mountModel = (t, mspec) => {
   t.g.children.filter(c => c.userData.mini).forEach(c => {
     (c.userData.mini.written || []).forEach(k => t.rec.tops.set(k, tableTop(t)));
-    c.children.forEach(ch => { ch.dispose && ch.dispose(); ch.material && ch.material.dispose && ch.material.dispose(); });
+    for (let i = PLACED.length - 1; i >= 0; i--) if (PLACED[i].g && PLACED[i].g.parent === c) PLACED.splice(i, 1);   // parked overlays die with their model — no ghost hosts
+    c.children.forEach(ch => { ch.traverse ? ch.traverse(o => { o.dispose && o.dispose(); o.material && o.material.dispose && o.material.dispose(); })
+      : (ch.dispose && ch.dispose(), ch.material && ch.material.dispose && ch.material.dispose()); });              // traverse — overlay recs carry their own meshes
     t.g.remove(c); });
   t.spec.models = [mspec];
   return (t._mountP = (mspec.zone ? emitZone : mspec.slots ? emitBlock : emitBldg)(t, mspec));   // tracked — boot awaits it before extras/fixpoint read tops
@@ -717,7 +722,7 @@ const PAD_PAGES = {
   lamp: { tab: 'LAMP', draw: g => { const T = window.__torch;
     g.fillStyle = '#cfc8b0'; g.font = '16px monospace'; g.fillText('INSPECTION TORCH — ' + (T.on ? 'ON' : 'OFF'), 256, 96);
     g.fillStyle = '#e8d9b0'; g.font = 'bold 20px monospace';
-    g.fillText('PWR ' + TC.i.toFixed(1) + '   FILL ' + TC.f.toFixed(1) + '   ' + ['TIGHT', 'MID', 'WIDE'][TC.a], 256, 124);
+    g.fillText('PWR ' + TC.i.toFixed(1) + '   FILL ' + TC.f.toFixed(1) + '   ' + ['TIGHT', 'MID', 'WIDE'][TC.a] + (TC.x ? ' AUTO' : ' RAW'), 256, 124);
     TORCH_COLS.forEach((c, i) => { g.fillStyle = '#' + c.toString(16).padStart(6, '0');   // a chip of each swatch's true color
       g.fillRect(22 + i * 100, 258, 78, 7); });
     g.fillStyle = '#5b5648'; g.font = '13px monospace'; g.fillText('L — key toggle · the tune persists (dvm_torch)', 256, 312); } },
@@ -756,9 +761,10 @@ const PAD_REGIONS = [
   { id: 'c2', page: 'lamp', x: 216, y: 222, w: 90, h: 50, label: 'COOL', glyph: 'COOL', fs: 15, lit: () => TC.c === 2, fn: () => torchCfg('c', 2) },
   { id: 'c3', page: 'lamp', x: 316, y: 222, w: 90, h: 50, label: 'RED',  glyph: 'RED',  fs: 15, lit: () => TC.c === 3, fn: () => torchCfg('c', 3) },
   { id: 'c4', page: 'lamp', x: 416, y: 222, w: 90, h: 50, label: 'GRN',  glyph: 'GRN',  fs: 15, lit: () => TC.c === 4, fn: () => torchCfg('c', 4) },
-  { id: 'beam', page: 'lamp', x: 16,  y: 284, w: 140, h: 42, label: 'BEAM', glyph: '◀BEAM▶', fs: 18, fn: () => torchCfg('a') },
-  { id: 'tgl',  page: 'lamp', x: 166, y: 284, w: 180, h: 42, label: 'ON/OFF', glyph: '⏻ TORCH', fs: 18, lit: () => window.__torch.on, fn: () => window.__torch.setOn(!window.__torch.on) },
-  { id: 'tres', page: 'lamp', x: 356, y: 284, w: 140, h: 42, label: 'RESET', glyph: 'RESET', fs: 18, fn: () => torchReset() },
+  { id: 'beam', page: 'lamp', x: 16,  y: 284, w: 120, h: 42, label: 'BEAM', glyph: '◀BEAM▶', fs: 18, fn: () => torchCfg('a') },
+  { id: 'tgl',  page: 'lamp', x: 146, y: 284, w: 150, h: 42, label: 'ON/OFF', glyph: '⏻ TORCH', fs: 18, lit: () => window.__torch.on, fn: () => window.__torch.setOn(!window.__torch.on) },
+  { id: 'xpo',  page: 'lamp', x: 306, y: 284, w: 90,  h: 42, label: 'EXPOSURE', glyph: 'EXP', fs: 18, lit: () => TC.x === 1, fn: () => torchCfg('x') },
+  { id: 'tres', page: 'lamp', x: 406, y: 284, w: 90,  h: 42, label: 'RESET', glyph: 'RESET', fs: 18, fn: () => torchReset() },
 ];
 const padTabIds = Object.keys(PAD_PAGES).filter(id => PAD_PAGES[id].tab);
 padTabIds.forEach((id, i) => { const w = 496 / padTabIds.length;                // the strip builds itself — a new page gets its tab for free
