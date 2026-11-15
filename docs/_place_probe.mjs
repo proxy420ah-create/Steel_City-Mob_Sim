@@ -585,27 +585,32 @@ const broof = await evl('__construct.surfaceAt(__construct.placed.find(p => p.na
 check('block table roof = .5563 — same fill span, streets share the footprint', Math.abs(broof - .5563) < .008, 'roof=' + broof);
 const sroad = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.4, -1.7, 0)');
 check('street ring is a measured surface — road top .2656', Math.abs(sroad - .2656) < .004, 'road=' + sroad);
-/* parked cars — the game's curbside law stamped into the south road band: grid (120/200, 282)
-   maps to world ≈ (-6.29/-6.51, -0.96); the car top (slab+17v ≈ .3075) reads as a measured
-   surface on the street, and the road either side stays .2656 */
-const car1 = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.287, -0.96, 0)');
-check('parked car 1 — curb-hard on the south street, reads as a surface', Math.abs(car1 - .3075) < .005, 'car=' + car1);
-const car2 = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.513, -0.96, 0)');
-check('parked car 2 — second slot, same law', Math.abs(car2 - .3075) < .005, 'car=' + car2);
-const gap = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.4, -0.96, 0)');
-check('the road between them stays road — .2656', Math.abs(gap - .2656) < .004, 'gap=' + gap);
+/* parked cars — the TABLE's street scene, not the model's: 's' edge along 160 → grid (160,282)
+   → world ≈ (-6.399,-0.963), facing along-street; 'w' edge along 140 → grid (40,140) → world
+   ≈ (-6.066,-1.360), different street different heading. Car tops ≈ .3047 on the .2656 road. */
+const car1 = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.399, -0.963, 0)');
+check('parked car 1 — south street, curb-hard, reads as a surface', Math.abs(car1 - .3075) < .005, 'car=' + car1);
+const car2 = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.060, -1.352, 0)');
+check('parked car 2 — west street, different heading, same law (sampled on the roof, not the open cabin)', Math.abs(car2 - .3075) < .005, 'car=' + car2);
+const gap = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.4, -1.695, 0)');
+check('the north road stays road — .2656', Math.abs(gap - .2656) < .004, 'gap=' + gap);
 check('pad still remote for primary — it sits on primary', await evl('__pad.table() === "primary"'), await evl('__pad.table()'));
 await evl('__construct.take("debug_pad"); __construct.place(-6.4, -0.775)');          // set the pad on the block's north margin
 check('pad retargets — nearest table is the block', await evl('__pad.table() === "block"'), await evl('__pad.table()'));
 await evl('__pad.press("next")'); await sleep(3500);                                  // block swap → block_41_barber (322 composite builds ~2.5s)
 const bb = JSON.parse(await evl('JSON.stringify(__construct.tables()[1].models[0])'));
-check('block_41 mounted — 322 grid, land tiles included', bb && bb.dims.join(',') === '322,38,322' && bb.vox === 119693, JSON.stringify({ d: bb && bb.dims, v: bb && bb.vox }));
+check('block_41 mounted — 322 grid, land tiles + table\'s parked cars included', bb && bb.dims.join(',') === '322,38,322' && bb.vox === 123313, JSON.stringify({ d: bb && bb.dims, v: bb && bb.vox }));
 const btop = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.58, -1.48, 0)');
 check('barber on its authored lot (slot 2) — roof field top .3355', Math.abs(btop - .3355) < .003, 'top=' + btop);
 const ltop = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.58, -1.12, 0)');
 check('vacant lot = empty land — fence-post top .2768', Math.abs(ltop - .2768) < .004, 'land=' + ltop);
 const ftop = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.58, -1.55, 0)');
 check('barber street parapet row — at its lot edge', ftop > .355 && ftop < .372, 'front=' + ftop);
+/* the street scene is the table's — swapping barber↔tenement changes the LOTS, not the roads:
+   the same two cars must still read at the same spots on the swapped composite */
+const carS = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.399, -0.963, 0)');
+const carW = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.060, -1.352, 0)');
+check('street scene survives the swap — both cars still parked on block_41', Math.abs(carS - .3047) < .005 && Math.abs(carW - .3047) < .005, JSON.stringify([carS, carW]));
 check('block swap persisted', await evl('localStorage.getItem("dvm_model:block") === "block_41_barber"'));
 await evl('__pad.press("lRR")');
 check('block lifts — primary untouched', await evl('Math.abs(__construct.tables()[1].lift - .08) < 1e-3 && __construct.tables()[0].lift === 0'), await evl('JSON.stringify([__construct.tables()[0].lift, __construct.tables()[1].lift])'));

@@ -316,10 +316,9 @@ MANIFEST.tables = [                                                    // PRIMAR
     catalog: [{ name: 'tenement_block_0', fill: .75 },                   // the swappable universe — the wall panel cycles it
               { name: 'barber_shop', fill: .75 }] },
   { id: 'block', x: -6.4, z: -1.3, size: 1.2, top: .26, scale: 1 / 64, mv: 2,   // BLOCK TABLE — rear-left of the primary, .6m gap (9 lots of 64 vox = 192 span)
-    models: [{ name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' },       // tenement fills every lot → identical to the easel's
-               parked: [{ edge: 's', along: 120 }, { edge: 's', along: 200 }] }],            // two curbside cars on the south street — the game's parking law
-    catalog: [{ name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' },
-                parked: [{ edge: 's', along: 120 }, { edge: 's', along: 200 }] },
+    parked: [{ edge: 's', along: 160 }, { edge: 'w', along: 140 }],             // the street scene is the TABLE's, not the model's —
+    models: [{ name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' } }],   // every block composite carries the same roads + parked cars
+    catalog: [{ name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' } },
               { name: 'block_41_barber', fill: .75, slots: { 2: 'barber_shop' } }] },       // block_41's authored lot — the rest = empty_land
   { id: 'studio', x: -6.4, z: -3.7, size: 1.2, top: .26, scale: 1 / 64, mv: 1,  // STUDIO TABLE — the ZONE tier: a 3×3 rectangle of live city_layout blocks, "The Battlefield" (r3-5 × c0-2)
     models: [{ name: 'battlefield', fill: .75, plate: true, noProxy: true,      // plate: full-coverage ground → flat-tops path; noProxy: emitZone lays per-stamp proxies instead
@@ -328,8 +327,7 @@ MANIFEST.tables = [                                                    // PRIMAR
                 zone: { src: 'city_layout.json', r0: 3, r1: 5, c0: 0, c1: 2 } },
               { name: 'tenement_block_0', fill: .75 },
               { name: 'barber_shop', fill: .75 },
-              { name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' },
-                parked: [{ edge: 's', along: 120 }, { edge: 's', along: 200 }] },
+              { name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' } },
               { name: 'block_41_barber', fill: .75, slots: { 2: 'barber_shop' } }] },
 ];
 const TABLES = [];
@@ -489,8 +487,9 @@ const stampParked = (vox, W2, H, files, parked, X0, Z0) => { const { M, TILE, RO
 /* emitBlock — a 3×3 city block as ONE miniature: the tile recipe + lot stamps merged into a
    single composite at 1:1, tops written back into the host. ROT/SLICE/persistence unchanged. */
 const emitBlock = (t, m) => { const W2 = BLK.TILE, slots = m.slots || {};
+  const parked = (t.spec.parked || []).concat(m.parked || []);                 // the street scene is the TABLE's — every block composite carries it; a spec can still add
   const names = new Set(['empty_land']); Object.values(slots).forEach(n => names.add(n));
-  (m.parked || []).forEach(p => names.add(p.name || 'vehicle_civilian_car_0'));
+  parked.forEach(p => names.add(p.name || 'vehicle_civilian_car_0'));
   return Promise.all([...names].map(n => stassetFetch(n).then(f => [n, f]))).then(es => {
     const files = Object.fromEntries(es);
     const H = Math.max(2, Math.max(...[...names].map(n => files[n].H)) + 2);
@@ -498,7 +497,7 @@ const emitBlock = (t, m) => { const W2 = BLK.TILE, slots = m.slots || {};
     const set = (x, z, id) => { vox[x + W2 * (H * z)] = vox[x + W2 * (1 + H * z)] = id; };
     fillBlockGround(set, 0, 0, { n: 'road', e: 'road', s: 'road', w: 'road', ...(m.seams || {}) }, m.lanes | 0);
     stampSlots(vox, W2, H, files, slots, 0, 0);
-    stampParked(vox, W2, H, files, m.parked, 0, 0);                       // curbside fill — the game's parked-car law on the street ring
+    stampParked(vox, W2, H, files, parked, 0, 0);                       // curbside fill — the game's parked-car law on the street ring
     return emitVox(t, { ...m, plate: true }, W2, H, W2, vox); })   // composites have full-coverage ground — the flat tops path applies
     .catch(e => console.warn('CONSTRUCT — block emit failed:', m.name, e)); };
 /* layoutFetch — the live city layout (blocks+seams) is the zone's sole source of truth, cached. */

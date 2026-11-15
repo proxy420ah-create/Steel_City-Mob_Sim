@@ -113,13 +113,19 @@ The CDP tools (`_place_probe.mjs`, `_shot.mjs`) use **Node 24's built-in `WebSoc
 no `ws` package is installed. Scratch scripts that `require('ws')` die at import; copy
 the native-socket pattern from the existing tools.
 
-## Suite duration — long ≠ stuck
+## Suite duration — long ≠ stuck, and how to run it
 
 The full suite does ~6 page reloads, and each boot re-emits the ~7 s zone plus the
 warm-up's unculled render — all in software GL. A silent stretch mid-run is almost
 always a reload in flight or the zone emitting, not a hang: PASS lines resume when
-the boot lands. Budget several minutes; read the output file rather than polling,
-and treat "stopped waiting" as a reader timeout, not a probe result.
+the boot lands. Budget several minutes; treat "stopped waiting" as a reader timeout,
+not a probe result.
+
+**Run it to a file + a background watcher** (the same ear pattern the commission
+uses for seat relays): `node _place_probe.mjs > _probe_out.txt 2>&1`, then spawn a
+background subagent that polls the file every ~20 s for the `ALL PASS`/`FAILURES:`
+sentinel and reports the tail + counts. Blocking shell reads cap out well under the
+suite's runtime — the file is the record, the wake is the doorbell.
 
 ## Heavy scenes — SwiftShader black frames
 
