@@ -122,6 +122,13 @@ ordinary mini. Spin/slice/tops/lift/persistence need nothing new.
 - `stassetFetch` caches parsed volumes per name — a block's 9 slots share fetches;
   `emitVox` is the shared instance/tops/mini emitter for both single mounts and
   composites.
+- **Miniature voxels never raycast.** Every mini `InstancedMesh` is flagged
+  `userData.miniVox` — a mounted tenement is 426K instances and three.js
+  matrix-tests *each* one per ray, so the un-pruned center-aim raycast turned
+  RMB-hold + walk into a slideshow (~1.64M instance tests/frame). `rayPruned`
+  collects ray targets with instanced subtrees skipped: `allInst` (the per-frame
+  `aimStep` — aim wants surfaces; props pick via `nearestPick`) or `miniVox`-only
+  (`placePick`/`placeSpot` clicks — ordinary instanced props stay selectable).
 
 ## The debug pad — a pickable touchscreen
 
