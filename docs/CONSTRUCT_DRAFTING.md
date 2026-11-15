@@ -235,13 +235,29 @@ padPage` — a page switch costs a `padDraw` and nothing else. New tools are a
 
 ## The L-key inspection torch
 
-Same rig as the Commission's: `__torch` = a `SpotLight` (warm `0xfff0d0`, cone
-.45, penumbra .55, distance 10) + a faint `PointLight` fill, parked at
-intensity 0 until L toggles `set(on)` → spot 7 / fill .9. `aim(cam)` repoints
-it before every render — it rides the camera object, so the main view, the X
-fly-cam, and the follower POV (`__eyes.pip`/`shot`) all light where they look.
-`__snap` honors `__snapTorch` (`_shot.mjs --torch`): flips it on for the
+Same rig as the Commission's: `__torch` = a `SpotLight` + a faint `PointLight`
+fill, parked at intensity 0 until L or the pad's `⏻` toggles it on. `aim(cam)`
+repoints it before every render — it rides the camera object, so the main view,
+the X fly-cam, and the follower POV (`__eyes.pip`/`shot`) all light where they
+look. `__snap` honors `__snapTorch` (`_shot.mjs --torch`): flips it on for the
 capture, restores after — screenshot illumination without a session flag.
+
+The tune lives in `TC` (`dvm_torch`, persists): `i` spot power 0–12, `f` fill
+halo 0–3, `a` beam index → `TORCH_BEAMS` [.28 tight / .45 / .65 wide], `c` swatch
+index → `TORCH_COLS` [warm/day/cool/red/green] — both lamps tint together. Stock
+is `PWR 5 / FILL .55 / MID / warm` — softened from 7/.9 because the old tune blew
+out close-range voxel detail. The pad's **LAMP** page drives it all: PWR/FILL
+steppers, 5 swatches with live color chips + `lit` active state (a generic
+region predicate), BEAM cycler, ⏻ toggle, RESET → `TORCH_DEF`.
+
+**Auto-exposure** — the tune is irradiance **at 1 m**, not a raw intensity. Each
+frame `aim()` casts one pruned center ray (`rayPruned`, proxies live, held/self/
+helpers excluded) and scales intensity ∝ `d^decay` — a model in your face reads
+at the same brightness as one across the room; `d ≥ 1 m` runs the full tune.
+Both lamps scale by their own offset distance (the fill rides .3 m ahead of the
+camera, so it dims hardest inside arm's reach — it was most of the washout).
+Floor 15% so the cone never dies outright at point-blank. One raycast/frame
+while lit — same cost class as the aim ray that already runs while aiming.
 
 ## The pad sticks to walls — the movable panel
 

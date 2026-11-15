@@ -44,12 +44,42 @@ key.position.set(0, 1.5, 1.5); scene.add(hemi, key);
    near-field fill, parked at intensity 0 until toggled. aim() repoints it before each
    render — main cam, fly cam and the follower POV all feed it through the camera object. */
 const _tdir = new THREE.Vector3();
-const torch = new THREE.SpotLight(0xfff0d0, 0, 10, .45, .55, 1.2);
-const torchFill = new THREE.PointLight(0xffe9c0, 0, 3, 1.4);
+const TORCH_COLS = [0xfff0d0, 0xffffff, 0xdfe8ff, 0xffb09a, 0xb6ffc8];   // warm / day / cool / red / green
+const TORCH_BEAMS = [.28, .45, .65];                                     // tight / standard / wide cone
+const TORCH_DEF = { i: 5, f: .55, a: 1, c: 0 };                          // softer stock tune — close-range inspection, not flood
+const TC = Object.assign({}, TORCH_DEF,                                  // the tune survives F5 — dvm_torch
+  JSON.parse(localStorage.getItem('dvm_torch') || '{}'));
+const torchApply = () => { if (!TORCH_COLS[TC.c]) TC.c = 0; if (!TORCH_BEAMS[TC.a]) TC.a = 1;   // stale-save clamp
+  torch.color.setHex(TORCH_COLS[TC.c]); torchFill.color.setHex(TORCH_COLS[TC.c]);
+  torch.angle = TORCH_BEAMS[TC.a];
+  torch.intensity = window.__torch.on ? TC.i : 0; torchFill.intensity = window.__torch.on ? TC.f : 0;
+  localStorage.setItem('dvm_torch', JSON.stringify(TC)); };
+const torchCfg = (k, v) => {
+  if (k === 'a') TC.a = (TC.a + 1) % TORCH_BEAMS.length;                 // beam cycles the cone table
+  else if (k === 'c') TC.c = v;                                        // swatch index — spot + fill tint together
+  else if (k === 'i') TC.i = Math.max(0, Math.min(12, +(TC.i + v).toFixed(1)));
+  else if (k === 'f') TC.f = Math.max(0, Math.min(3, +(TC.f + v).toFixed(2)));
+  torchApply(); };
+const torchReset = () => { Object.assign(TC, TORCH_DEF); torchApply(); };
+const torch = new THREE.SpotLight(TORCH_COLS[TC.c], 0, 10, TORCH_BEAMS[TC.a], .55, 1.2);
+const torchFill = new THREE.PointLight(TORCH_COLS[TC.c], 0, 3, 1.4);
 const torchTgt = new THREE.Object3D(); scene.add(torch, torchFill, torchTgt); torch.target = torchTgt;
-window.__torch = { on: false, spot: torch, fill: torchFill,
-  set(on) { this.on = !!on; this.spot.intensity = this.on ? 7 : 0; this.fill.intensity = this.on ? .9 : 0; },
+const _tray = new THREE.Raycaster();
+/* auto-exposure — the tune sets irradiance at 1 m; aim() raycasts the pruned scene once per
+   frame and scales intensity ∝ d^decay so a model in your face reads at the same brightness
+   as one across the room (point-blank floors at 15% so the cone never dies outright). */
+const torchDist = cam => { _tray.setFromCamera(_zv, cam);
+  const excl = [ghost, aimDot, ...marks]; followers.forEach(f => excl.push(f.CH)); if (selfBody) excl.push(selfBody.CH); if (held) excl.push(held.g);
+  const h = rayPruned(_tray, scene.children, excl, true);
+  return h.length ? Math.max(.12, h[0].distance) : 2; };
+window.__torch = { on: false, spot: torch, fill: torchFill, cfg: TC, tune: torchCfg, rst: torchReset,
+  setOn(on) { this.on = !!on; torchApply(); },
+  set(on) { this.setOn(on); },
+  dist: torchDist,
   aim(cam) { cam.getWorldPosition(torch.position); cam.getWorldDirection(_tdir);
+    const d = torchDist(cam), s = Math.min(1, Math.max(.15, Math.pow(d, torch.decay)));
+    torch.intensity = this.on ? TC.i * s : 0;
+    torchFill.intensity = this.on ? TC.f * Math.min(1, Math.max(.15, Math.pow(Math.max(.1, d - .3) / .7, torchFill.decay))) : 0;
     torchTgt.position.copy(torch.position).addScaledVector(_tdir, 2);
     torchFill.position.copy(torch.position).addScaledVector(_tdir, .3); } };
 
@@ -519,7 +549,7 @@ const mountModel = (t, mspec) => {
     c.children.forEach(ch => { ch.dispose && ch.dispose(); ch.material && ch.material.dispose && ch.material.dispose(); });
     t.g.remove(c); });
   t.spec.models = [mspec];
-  return (mspec.slots ? emitBlock : emitBldg)(t, mspec);
+  return (t._mountP = (mspec.slots ? emitBlock : emitBldg)(t, mspec));           // tracked — boot awaits it before extras/fixpoint read tops
 };
 MANIFEST.tables.forEach(spec => { const t = emitTable(spec);
   const savedLift = +localStorage.getItem('dvm_lift:' + spec.id);           // the pistons remember their reach
@@ -558,6 +588,13 @@ const PAD_PAGES = {
     g.fillStyle = '#e8d9b0'; g.font = 'bold 22px monospace';
     g.fillText('TOP  ' + (t ? tableTop(t).toFixed(2) : '—') + 'm   ·   LIFT +' + (t ? t.lift.toFixed(2) : '0.00'), 256, 266);
     g.fillStyle = '#5b5648'; g.font = '13px monospace'; g.fillText('eye .55 — raise past it to look up · drops to the floor', 256, 312); } },
+  lamp: { tab: 'LAMP', draw: g => { const T = window.__torch;
+    g.fillStyle = '#cfc8b0'; g.font = '16px monospace'; g.fillText('INSPECTION TORCH — ' + (T.on ? 'ON' : 'OFF'), 256, 96);
+    g.fillStyle = '#e8d9b0'; g.font = 'bold 20px monospace';
+    g.fillText('PWR ' + TC.i.toFixed(1) + '   FILL ' + TC.f.toFixed(1) + '   ' + ['TIGHT', 'MID', 'WIDE'][TC.a], 256, 124);
+    TORCH_COLS.forEach((c, i) => { g.fillStyle = '#' + c.toString(16).padStart(6, '0');   // a chip of each swatch's true color
+      g.fillRect(22 + i * 100, 258, 78, 7); });
+    g.fillStyle = '#5b5648'; g.font = '13px monospace'; g.fillText('L — key toggle · the tune persists (dvm_torch)', 256, 312); } },
   apps: { tab: '≡', draw: g => {
     g.fillStyle = '#cfc8b0'; g.font = '16px monospace'; g.fillText('ALL TOOLS', 256, 96);
     g.fillStyle = '#5b5648'; g.font = '13px monospace'; g.fillText('tap a tile — pages keep their state', 256, 312); } },
@@ -584,6 +621,18 @@ const PAD_REGIONS = [
   { id: 'max-', page: 'slice', x: 30,  y: 225, w: 70, h: 60, label: 'MAX −', glyph: '◀', fn: () => miniSliceStep('max', -1) },
   { id: 'max+', page: 'slice', x: 412, y: 225, w: 70, h: 60, label: 'MAX +', glyph: '▶', fn: () => miniSliceStep('max', 1) },
   { id: 'sres', page: 'slice', x: 196, y: 292, w: 120, h: 38, label: 'SLICE RESET', glyph: 'RESET', fs: 20, fn: () => miniSliceReset() },
+  { id: 'br-', page: 'lamp', x: 16,  y: 140, w: 110, h: 70, label: 'PWR −', glyph: 'PWR−', fs: 22, fn: () => torchCfg('i', -1) },
+  { id: 'br+', page: 'lamp', x: 140, y: 140, w: 110, h: 70, label: 'PWR +', glyph: 'PWR+', fs: 22, fn: () => torchCfg('i', 1) },
+  { id: 'fl-', page: 'lamp', x: 264, y: 140, w: 110, h: 70, label: 'FILL −', glyph: 'FIL−', fs: 22, fn: () => torchCfg('f', -.2) },
+  { id: 'fl+', page: 'lamp', x: 388, y: 140, w: 110, h: 70, label: 'FILL +', glyph: 'FIL+', fs: 22, fn: () => torchCfg('f', .2) },
+  { id: 'c0', page: 'lamp', x: 16,  y: 222, w: 90, h: 50, label: 'WARM', glyph: 'WARM', fs: 15, lit: () => TC.c === 0, fn: () => torchCfg('c', 0) },
+  { id: 'c1', page: 'lamp', x: 116, y: 222, w: 90, h: 50, label: 'DAY',  glyph: 'DAY',  fs: 15, lit: () => TC.c === 1, fn: () => torchCfg('c', 1) },
+  { id: 'c2', page: 'lamp', x: 216, y: 222, w: 90, h: 50, label: 'COOL', glyph: 'COOL', fs: 15, lit: () => TC.c === 2, fn: () => torchCfg('c', 2) },
+  { id: 'c3', page: 'lamp', x: 316, y: 222, w: 90, h: 50, label: 'RED',  glyph: 'RED',  fs: 15, lit: () => TC.c === 3, fn: () => torchCfg('c', 3) },
+  { id: 'c4', page: 'lamp', x: 416, y: 222, w: 90, h: 50, label: 'GRN',  glyph: 'GRN',  fs: 15, lit: () => TC.c === 4, fn: () => torchCfg('c', 4) },
+  { id: 'beam', page: 'lamp', x: 16,  y: 284, w: 140, h: 42, label: 'BEAM', glyph: '◀BEAM▶', fs: 18, fn: () => torchCfg('a') },
+  { id: 'tgl',  page: 'lamp', x: 166, y: 284, w: 180, h: 42, label: 'ON/OFF', glyph: '⏻ TORCH', fs: 18, lit: () => window.__torch.on, fn: () => window.__torch.setOn(!window.__torch.on) },
+  { id: 'tres', page: 'lamp', x: 356, y: 284, w: 140, h: 42, label: 'RESET', glyph: 'RESET', fs: 18, fn: () => torchReset() },
 ];
 const padTabIds = Object.keys(PAD_PAGES).filter(id => PAD_PAGES[id].tab);
 padTabIds.forEach((id, i) => { const w = 496 / padTabIds.length;                // the strip builds itself — a new page gets its tab for free
@@ -618,7 +667,7 @@ const padDraw = () => { const g = padCv.getContext('2d'), t = padTable(),
   g.strokeStyle = '#3a3a4a'; g.lineWidth = 6; g.strokeRect(3, 3, 506, 334);
   g.textAlign = 'center';
   const btn = r => { const hov = padHover === r.id, pr = padPressId === r.id,
-      on = (r.tab && r.tab === padPage) || (r.axis && mn && mn.axis === r.axis) || (r.rate !== undefined && mn && mn.spin === r.rate);
+      on = (r.tab && r.tab === padPage) || (r.axis && mn && mn.axis === r.axis) || (r.rate !== undefined && mn && mn.spin === r.rate) || (r.lit && r.lit());
     g.fillStyle = pr ? '#2a3d4a' : on ? '#1e2e38' : hov ? '#1d2733' : '#14161c'; g.fillRect(r.x, r.y, r.w, r.h);
     g.strokeStyle = on || hov ? '#7fd4ff' : '#3a3a4a'; g.lineWidth = 4; g.strokeRect(r.x + 2, r.y + 2, r.w - 4, r.h - 4);
     g.fillStyle = pr || on ? '#7fd4ff' : '#5b5648'; g.font = 'bold ' + (r.fs || 40) + 'px monospace';
@@ -1824,6 +1873,7 @@ ready.then(async () => {
       gripRestore(p, o.tilt); }                                                              // and the grip comes back on pickup
     else { gripRestore(p, o.tilt); if (o.y !== undefined) p.y0 = o.y; placeApply(p, o.x, o.z, o.rotY); } });
   TABLES.forEach(t => { if (t._savedLift) { tableLiftSet(t, t._savedLift); delete t._savedLift; } });   // lifts ride AFTER saved seats restore — riders bump from their own o.y; extras then seat on the lifted tops
+  await Promise.all(TABLES.map(t => t._mountP));                                   // mini mounts are async — tops must be live before extras/fixpoint read them, or a roof seat caps down to felt on a slow stasset load
   const extras = JSON.parse(localStorage.getItem('dvm_extra') || '[]');            // extras emit LAST — they seat on the final layout, not manifest spots
   for (const e of extras) { const r = await emitAsset(e.name, { kind: e.kind, x: e.x, z: e.z, rotY: e.rotY, pickable: e.pickable, solids: e.solids,
     source: 'extra', seatY: 'auto' });

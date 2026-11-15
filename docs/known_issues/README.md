@@ -73,3 +73,4 @@ Bug tracker per Development Guidelines Rule 13. Bugs are cataloged by category i
 | [Building Glass Opaque / Hollow Jambs / Door Alpha Stack](rendering/BUILDING_GLASS_OPAQUE_AND_ALPHA_STACK.md) | rendering | 🟢 FIXED | 🟡 HIGH | 2026-11-13 |
 | [First-Look Shader Compile Hitch — Portal/Sealed View](rendering/FIRST_LOOK_SHADER_COMPILE_HITCH.md) | rendering | 🟢 FIXED | 🟡 HIGH | 2026-11-13 |
 | [Pad Wall-Mount Hijack at Annex Tables + Saved Seat Floored on Reload](runtime/CONSTRUCT_PAD_WALL_HIJACK_SEAT_FLOOR.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-11-15 |
+| [Boot Fixpoint Races Async Mini Mounts](runtime/CONSTRUCT_MOUNT_PROMISE_TOPS_RACE.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-11-16 |

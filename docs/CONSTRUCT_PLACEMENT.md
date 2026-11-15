@@ -91,12 +91,16 @@ declaration, not by tuning.
    above the old top by `dy` — saved seats ride the lift like live ones. (The
    restore is deferred out of eval — `liftRiders` reaches late-bound helpers;
    a boot-time call keeps the deferral and pins the order.)
-4. **Extras** (`dvm_extra`) — emit with `seatY:'auto'` → conform onto the final
-   (already-lifted) layout.
-5. **Fixpoint re-seat** (≤4 passes, descending y0) — every item settles:
+4. **Mini mounts** — `mountModel` is async (stasset fetch+parse); boot awaits
+   `Promise.all(TABLES.map(t => t._mountP))` before extras/fixpoint read `tops`.
+   Un-awaited, a slow load lets a roof seat cap down to felt — the race that
+   floored saved `.7475` pads to `.26` (CONSTRUCT_MOUNT_PROMISE_TOPS_RACE).
+5. **Extras** (`dvm_extra`) — emit with `seatY:'auto'` → conform onto the final
+   (already-lifted, mounted) layout.
+6. **Fixpoint re-seat** (≤4 passes, descending y0) — every item settles:
    `surfOnly: p.surf, cap: p.y0 + .01`. Hosts correct first; passengers see the
    corrected tops. Converges when a pass moves nothing.
-6. `refreshSolids()`, warm-up compile, `__warmDone`.
+7. `refreshSolids()`, warm-up compile, `__warmDone`.
 
 ## 5. Persistence keys
 

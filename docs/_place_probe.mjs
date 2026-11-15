@@ -478,10 +478,46 @@ await evl('__pad.tab("model")');
 
 // 12.98 — L-key inspection torch (the Commission's rig, aimed per render)
 check('torch rig exists, parked at 0', await evl('!!(__torch && __torch.spot && __torch.on === false && __torch.spot.intensity === 0)'));
+await evl('__cam(-6.5,.62,-4.6, -7.93,.62,-4.6)');                                     // pin: clean lane to the west wall — d>1 → auto-exposure = full power
+for (let i = 0; i < 30 && !(await evl('Math.abs(__camera.position.x + 6.5) < .01')); i++) await sleep(100);   // camLock applies on the next rAF — headless ticks are sparse
 await evl('__torch.set(true)');
-check('torch on — spot 7 + fill .9', await evl('__torch.on === true && __torch.spot.intensity === 7 && __torch.fill.intensity === .9'));
+check('torch on — spot follows the tune (stock PWR 5 / FILL .55)', await evl('__torch.on === true && __torch.spot.intensity === 5 && __torch.fill.intensity === .55'), await evl('JSON.stringify({d:+__torch.dist(__camera).toFixed(2), i:+__torch.spot.intensity.toFixed(2)})'));
 await evl('__torch.set(false)');
 check('torch off — back to 0', await evl('__torch.on === false && __torch.spot.intensity === 0'));
+
+// 12.98b — pad lamp page: power/fill/color/beam controls + dvm_torch persistence
+await evl('__pad.tab("lamp")');
+check('lamp page live', await evl('__pad.page() === "lamp"'));
+await evl('__torch.set(true)');
+await evl('__pad.press("br-")');
+check('PWR − drops the spot intensity', await evl('Math.abs(__torch.cfg.i - 4) < .01 && Math.abs(__torch.spot.intensity - 4) < .01'), await evl('JSON.stringify({d:+__torch.dist(__camera).toFixed(2), i:+__torch.spot.intensity.toFixed(2)})'));
+await evl('__pad.press("br+"); __pad.press("br+")');
+check('PWR + restores', await evl('Math.abs(__torch.cfg.i - 6) < .01'), await evl('__torch.cfg.i'));
+await evl('__pad.press("fl-")');
+check('FILL − trims the halo', await evl('Math.abs(__torch.cfg.f - .35) < .01 && Math.abs(__torch.fill.intensity - .35) < .01'), await evl('__torch.cfg.f'));
+await evl('__pad.press("c2")');
+check('swatch tints spot + fill cool', await evl('__torch.spot.color.getHex() === 0xdfe8ff && __torch.fill.color.getHex() === 0xdfe8ff'));
+await evl('__pad.press("beam")');
+check('beam cycles the cone — wide', await evl('Math.abs(__torch.spot.angle - .65) < .01'), await evl('__torch.spot.angle'));
+await evl('__pad.press("tgl")');
+check('pad ⏻ toggles the torch off', await evl('__torch.on === false && __torch.spot.intensity === 0'));
+check('tune persisted — dvm_torch carries the swatch', await evl('JSON.parse(localStorage.getItem("dvm_torch")).c === 2'));
+await evl('location.reload()'); await sleep(1500); await connect(); await waitBoot(); await sleep(900);
+check('tune survives F5 — color + power restored', await evl('__torch.cfg.c === 2 && __torch.cfg.i === 6 && __torch.spot.color.getHex() === 0xdfe8ff'), await evl('JSON.stringify(__torch.cfg)'));
+await evl('__pad.press("tres")');
+check('reset restores the stock tune', await evl('__torch.cfg.c === 0 && __torch.cfg.i === 5 && __torch.cfg.f === .55'), await evl('JSON.stringify(__torch.cfg)'));
+
+// 12.98c — auto-exposure: aim() scales intensity ∝ d^decay → constant irradiance at the surface
+await evl('__torch.set(true); __cam(-6.5,.62,-4.6, -7.93,.62,-4.6)');                        // ~1.4m to the west wall — past the 1m knee
+for (let i = 0; i < 30 && !(await evl('Math.abs(__camera.position.x + 6.5) < .01')); i++) await sleep(100);
+await evl('__torch.aim(__camera)');
+check('auto-exposure — full power past 1m', await evl('__torch.dist(__camera) > 1 && Math.abs(__torch.spot.intensity - __torch.cfg.i) < .001'), await evl('JSON.stringify({d:+__torch.dist(__camera).toFixed(2), i:+__torch.spot.intensity.toFixed(2)})'));
+await evl('__cam(-7.5,.62,-4.6, -7.93,.62,-4.6)');                                           // ~.43m — inside the old washout range
+for (let i = 0; i < 30 && !(await evl('Math.abs(__camera.position.x + 7.5) < .01')); i++) await sleep(100);
+await evl('__torch.aim(__camera)');
+check('auto-exposure — dims at close range', await evl('__torch.dist(__camera) < .8 && __torch.spot.intensity < __torch.cfg.i * .8 && __torch.fill.intensity < __torch.cfg.f * .5'), await evl('JSON.stringify({d:+__torch.dist(__camera).toFixed(2), i:+__torch.spot.intensity.toFixed(2), f:+__torch.fill.intensity.toFixed(2)})'));
+await evl('__torch.set(false)');
+await evl('__pad.tab("model")');
 await evl('__cam(null); __pos.x = -4.6; __pos.z = -1.6');
 
 // 12.99 — piston lift: the table raises on telescoping legs, riders + tops follow
