@@ -163,8 +163,12 @@ miniature carries its streets, not just its buildings:
   mid-fetch swap abandons the pending mount); meshes are `miniVox`-tagged and
   get a heading-aware `hitProxy`. Each is a real PLACED host — `surfaceAt`
   reads its own `tops`, so items seat on roofs/fenders (roof ≈ .3058 on the
-  .2656 road). The block table carries two — south street `along` 160, west
-  street `along` 140.
+  .2656 road). **But `_parked` recs are scenery, never place citizens** —
+  their `x/z` are miniG-LOCAL: `placeSave`, override apply, tombstones and
+  the agent move/del name-resolution all skip them (a parked car's local
+  coords once wrote a name-shared `dvm_place` override that stamped onto
+  the spinner — `PARKED_REC_NAME_OVERRIDE_DISPLACEMENT.md`). The block
+  table carries two — south street `along` 160, west street `along` 140.
 - **Miniature voxels never raycast — but aim lands on their proxies.** Every
   mini `InstancedMesh` is flagged `userData.miniVox` — a mounted tenement is
   426K instances and three.js matrix-tests *each* one per ray, so the un-pruned

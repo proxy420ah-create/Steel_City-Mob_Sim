@@ -30,6 +30,22 @@ const readCars = `JSON.stringify((() => { const tb = __construct.placed.find(p =
       return { x: +w.x.toFixed(4), z: +w.z.toFixed(4), y: +w.y.toFixed(4),
         roof: __construct.surfaceAt(c, w.x, w.z, 0) }; }) }; })())`;
 console.log('MEASURE', await evl(readCars));
+// scene census — where are the ring + the cars + the rotator pieces, in world space
+console.log('CENSUS', await evl(`JSON.stringify((() => { const out = { rings: [], cars: [], spin: null };
+  __scene.traverse(o => { const w = o.getWorldPosition(new __THREE.Vector3());
+    if (o.geometry && o.geometry.type === 'ShapeGeometry') out.rings.push({ x: +w.x.toFixed(3), z: +w.z.toFixed(3), y: +w.y.toFixed(3) });
+    if (o.name === 'spinG' || (o.userData && o.userData.spinG)) out.spin = [w.x, w.y, w.z]; });
+  __construct.placed.filter(p => p.name === 'vehicle_490_touring').forEach(p => {
+    const w = p.g.getWorldPosition(new __THREE.Vector3());
+    out.cars.push({ parked: !!p._parked, local: p.g.position.toArray().map(v => +v.toFixed(3)), world: [w.x, w.y, w.z].map(v => +v.toFixed(3)), parent: p.g.parent.name || p.g.parent.type }); });
+  return out; })())`));
+// spinner car — local + world placement vs the rotator ring (spinG at (0,0,-2.5))
+console.log('SPINNER', await evl(`JSON.stringify((() => { const car = __construct.placed.find(p => p.name === 'vehicle_490_touring' && !p._parked);
+  if (!car) return 'no spinner rec';
+  const w = car.g.getWorldPosition(new __THREE.Vector3());
+  return { gLocal: car.g.position.toArray().map(v => +v.toFixed(4)), gWorld: [w.x, w.y, w.z].map(v => +v.toFixed(4)),
+    parentPos: car.g.parent.position.toArray(), recXZ: [car.x, car.z], lb: car.lb.map(v => +v.toFixed(4)),
+    children: car.g.children.map(ch => ({ t: ch.type, px: +ch.position.x.toFixed(4), pz: +ch.position.z.toFixed(4), vis: ch.visible })) }; })())`));
 await evl('__construct.take("debug_pad"); __construct.place(-6.4,-0.775); __pad.tab("model")');
 await sleep(300);
 await evl('__pad.press("next")'); await sleep(6000);                                   // swap → block_41_barber + car re-mount

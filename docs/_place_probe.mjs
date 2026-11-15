@@ -610,6 +610,12 @@ const cS = cars.find(c => c.z > -1.2), cW = cars.find(c => c.z <= -1.2);
 check('car 1 — south street, curb-hard, seated on the road (.2656)', cS && Math.abs(cS.x + 6.397) < .01 && Math.abs(cS.z + .972) < .01 && Math.abs(cS.y - .2656) < .002, JSON.stringify(cS));
 check('car 2 — west street, different heading, same law', cW && Math.abs(cW.x + 6.070) < .01 && Math.abs(cW.z + 1.360) < .01 && Math.abs(cW.y - .2656) < .002, JSON.stringify(cW));
 check('car roofs read as measured surfaces — items can seat on them', cS && cW && Math.abs(cS.roof - .3058) < .004 && Math.abs(cW.roof - .3058) < .004, JSON.stringify([cS && cS.roof, cW && cW.roof]));
+/* parked recs are scenery, not place citizens — their miniG-LOCAL coords must never land in
+   name-keyed dvm_place (the class that once displaced the spinner: parked local (.33,-.06)
+   stamped onto the shared asset name → boot moved the manifest car). */
+await evl('__place.save()');
+const tkey = JSON.parse(await evl('localStorage.getItem("dvm_place") || "{}"'))['vehicle_490_touring'];
+check('parked cars never write name-keyed overrides — the spinner keeps (0,0,mv:1)', !tkey || (tkey.x === 0 && tkey.z === 0 && tkey.mv === 1), JSON.stringify(tkey));
 const gap = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.4, -1.695, 0)');
 check('the north road stays road — .2656', Math.abs(gap - .2656) < .004, 'gap=' + gap);
 check('pad still remote for primary — it sits on primary', await evl('__pad.table() === "primary"'), await evl('__pad.table()'));
