@@ -63,7 +63,22 @@ The same applies anywhere per-frame code owns a value a probe might read.
   must sit on the slab's inner face — annex south wall face is `z≈-5.93` (centerline `-6`,
   slab depth .14), not `-4.93`.
 - `__torch` surface: `set/setOn` toggle, `aim(cam)` repoints+rescales, `dist(cam)` = the
-  auto-exposure ray, `cfg` = the tune, `tune(k,v)` = `torchCfg`, `rst()` = reset.
+  auto-exposure ray, `cfg` = the tune, `tune(k,v)` = `torchCfg`, `rst()` = reset,
+  `hit()` = the last center-ray measurement `{d, cos, via}` (`via` `'dda'` when a
+  miniature hit was refined to its real voxel surface), `inc` = the live incidence
+  factor, `ease` = the distance/incidence smoothing flag.
+- `__torch.ease` defaults `true` — a probe that retargets the camera then reads
+  `hit().d` or luminance sees an EASED intermediate for ~90ms (d eases in log space).
+  Pin raw with `__torch.ease=false`, or call `aim(cam,true)` — `snap` bypasses ease
+  for that call. A "jump to open air" test that asserts the eased midpoint must
+  leave `ease` on and read before the transition lands.
+- `__place.fly(x,y,z)` pins `flyPos`; `__place.look(yaw,pitch)` writes the yaw/pitch
+  vars the loop stamps into `camera.rotation` in place mode. **`camLock` wins over
+  both** — `__cam(...)` earlier in the suite keeps stomping the camera until
+  `__cam(null)` releases it. Free-cam checks fail silently otherwise.
+- `lamp2` is a hidden pad page (no tab-strip chip) — reach it via `__pad.tab('lamp2')`
+  or the `TUNE` button on `lamp`. Its HEAD±/FADE±/SOFT controls write `TC.n/p/s`
+  through the same `torchCfg` persistence as the main page.
 - Exclusion lists are law: `held`, `selfBody.CH`, followers' `CH`, `ghost`, `aimDot`, `marks`
   never participate in aim/torch rays — "can't aim at your own hand" (a held pad in your
   face would dim the LAMP page's own preview otherwise).
