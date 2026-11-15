@@ -203,7 +203,7 @@ Certified correct (door ratio ≥ 1.29× NPC height, proportions checked):
 
 - ✅ **`barber`** (`generate_barbershop`) — 8v door, 1.29× ratio
 - ✅ **`apartment_block`** (`generate_apartment_block`) — 8v door, 1.29× ratio, full-block scale intentional
-- ✅ **`vehicle_civilian_car_0`** (touring car) — proportioned correctly per user review; roofline ≈ 0.8m aligns with NPC seated/standing scale in the cabin
+- ✅ **`vehicle_490_touring`** (touring car) — the game's vehicle (70×75×155 @ 1 cm voxels, ~1.55 m long); the old 20×16×30 `vehicle_civilian_car_0` was an obsolete mislabeled-building prop and has been deleted
 
 Needs rework (door height fails the 1.29× ratio test, pending user/tool confirmation):
 

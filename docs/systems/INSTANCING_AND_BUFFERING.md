@@ -116,7 +116,7 @@ The `VoxelProxyRaymarch.shader` has two code paths controlled by preprocessor di
 
 ### Voxel Data Buffer
 
-Each unique `.stasset` file (e.g., `character_hoodlum_0.stasset`, `vehicle_civilian_car_0.stasset`) gets its own `ComputeBuffer`:
+Each unique `.stasset` file (e.g., `character_hoodlum_0.stasset`, `vehicle_490_touring.stasset`) gets its own `ComputeBuffer`:
 
 ```csharp
 // VoxelChunkManager.RegisterInstancedCharacter (line ~1043)

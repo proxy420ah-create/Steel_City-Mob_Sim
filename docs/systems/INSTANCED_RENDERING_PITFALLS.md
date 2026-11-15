@@ -120,7 +120,7 @@ The 10×10 city was under all of these, so the bug only appeared at scale.
 
 ### 7. Assets Without GroupIDs Render Only Instance 0
 
-**Symptom**: Two `VoxelVehicle`s (same `vehicle_civilian_car_0.stasset`) spawn at verified-correct positions — GameObjects exist, slots correct — but only the first ever draws.
+**Symptom**: Two `VoxelVehicle`s (same `vehicle_490_touring.stasset` — originally repro'd on the since-deleted `vehicle_civilian_car_0.stasset`) spawn at verified-correct positions — GameObjects exist, slots correct — but only the first ever draws.
 
 **Cause**: `VoxelProxyRaymarch`'s vertex stage picks the per-instance voxel buffer offset as `_GroupIDsEnabled == 0 ? instanceID * totalVoxels : 0`. It overloads `_GroupIDsEnabled == 0` to mean "the bound `_VoxelData` is the per-instance *posed* buffer" (compute-pose path). An asset with **no `.groups` file** also gets `_GroupIDsEnabled = 0` in `RenderInstancedGroup`, but the buffer bound there is the single shared rest buffer (`totalVoxels` voxels, one copy). Instance 0 reads offset 0 → renders. Instance 1 reads `1 × totalVoxels` → one past the buffer end → empty read → invisible.
 

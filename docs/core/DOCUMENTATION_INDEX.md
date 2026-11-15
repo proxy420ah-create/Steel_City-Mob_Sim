@@ -469,7 +469,7 @@
 
 **Road Lanes & Traffic:**
 - **`docs/systems/ROAD_LANES_AND_TRAFFIC.md`** — Lane/traffic design + F10 two-car test plan
-  - `roadWidth` = `4.5f` (`[SerializeField]`, uniform across all seams — per-seam widths pending) — two ~2.25 m lanes around the 1.0 m `vehicle_civilian_car_0`
+  - `roadWidth` = `4.5f` (`[SerializeField]`, uniform across all seams — per-seam widths pending) — two ~2.25 m lanes around the ~0.7 m-wide `vehicle_490_touring`
   - Cobble stripes sit at each corridor-half’s center (the quarter positions, ±`roadWidth`/4) — each tile paints its own half’s stripe so the pair across a seam reads as the dual-traffic divider; lane offset ±`roadWidth`/4
   - "Slot cars" Phase A: fixed lane offset, intersection reservation, car following; Phase B: turn arcs, Dijkstra routing, trolley actor
   - Main street = through-cell 4-lane spine with trolley track pair ±0.35 m + ±0.6 m rail buffer (cars may cross, never cruise/park)

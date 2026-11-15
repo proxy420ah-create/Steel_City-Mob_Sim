@@ -21,7 +21,7 @@ outside the proxy are never raymarched → clipped, and the remnant looked
 misaligned.
 
 Masked until now because every prior instanced asset had a near-square or
-cubic footprint (characters = 96³ cubes; `vehicle_civilian_car_0` = 30×20)
+cubic footprint (characters = 96³ cubes; `vehicle_490_touring` = 155×70 — its 20×16×30 predecessor `vehicle_civilian_car_0` has been deleted)
 whose yawed AABB barely differs from the unrotated one. Documented as
 "Pitfall #8" in VEHICLE_VOXEL_ASSETS.md before the 490 confirmed it.
 

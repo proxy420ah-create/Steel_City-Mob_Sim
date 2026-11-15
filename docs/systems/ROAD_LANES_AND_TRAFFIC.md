@@ -4,7 +4,7 @@
 **Date**: 2026-10-07
 **Depends on**: `RIVER_AND_BRIDGE_TILES.md` (terrain/seam vocabulary — this spec consumes it), `CITY_SCALE_ARCHITECTURE.md`
 **RE reference**: `docs/core/VEHICLE_RE_REFERENCE.md` — original Gangsters driving model (5-substate: accelerate/cruise/lane-change/decelerate/stop, static road flags, blocked-crossing handler) — mine this when Phase B outgrows the slot-car model
-**Motivation**: `vehicle_civilian_car_0` measured 20×16×30 voxels @ 0.05 = **1.0 m wide × 0.8 m tall × 1.5 m long** — plausible vs. Civilian1, but the stock 1.6 m road is single-lane. Two-way streets need ~3.0 m, and the graph/agent layers need lanes, directionality, and terrain conditioning before vehicles go live.
+**Motivation**: `vehicle_490_touring` measured 70×75×155 voxels @ 0.01 = **~0.7 m wide × 0.75 m tall × 1.55 m long** (its deleted predecessor `vehicle_civilian_car_0` measured 20×16×30 @ 0.05 ≈ 1.0×0.8×1.5 m) — plausible vs. Civilian1, but the stock 1.6 m road is single-lane. Two-way streets need ~3.0 m, and the graph/agent layers need lanes, directionality, and terrain conditioning before vehicles go live.
 
 ---
 

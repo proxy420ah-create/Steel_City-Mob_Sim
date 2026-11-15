@@ -35,7 +35,7 @@ metadata (Unity ignores the field) but misleading.
 - Corrected stale `"voxelSize": 0.1` headers → `0.05` in 8 WIP building JSONs
   (`empty_land`, `mainstreet_ew/ns`, `river_straight`, `road_tile_0`,
   `shooting_range`, `tenement_block_0`, `tenement_glass`).
-- `vehicle_civilian_car_0` left at 0.1 — legacy vehicle mislabeled `building`.
+- `vehicle_civilian_car_0` left at 0.1 — legacy vehicle mislabeled `building`. **Retired:** the stasset has been deleted; the game's vehicle is `vehicle_490_touring` (1 cm voxels, `voxel_vehicles/`).
 
 ## Related Files
 

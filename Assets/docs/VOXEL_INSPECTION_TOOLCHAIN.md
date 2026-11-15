@@ -424,7 +424,7 @@ Models verified with the unified inspector on Aug 8, 2026:
 
 | Model | Dims (W×H×D) | Summary | Notes |
 |---|---|---|---|
-| `vehicle_civilian_car_0` | 20×16×30 | 5 PASS, 2 WARN, 0 FAIL | Symmetry WARN = steering wheel (intentional). Wall WARN = door window openings (intentional) |
+| `vehicle_490_touring` | 70×75×155 | — | The game's vehicle (1 cm voxels); supersedes the retired `vehicle_civilian_car_0` (20×16×30, deleted) whose prior row read 5 PASS, 2 WARN, 0 FAIL — steering-wheel symmetry WARN and door-window wall WARN were intentional |
 
 ### Buildings — Certified Good
 

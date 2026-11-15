@@ -16,7 +16,7 @@
 - Per instance the system carries **position + yaw only** (`ic.worldOffset`, `ic.yaw` → `float4` in `_InstanceOffsets`). Yaw rotates about the volume center in volume-local space — there is no pitch/roll/scale channel.
 - Each frame `RenderInstancedGroup` packs offsets + `Matrix4x4` proxy transforms and issues one `DrawMeshInstanced(proxyCubeMesh, …, visibleCount)` per group. `VoxelRenderBridge` executes the CommandBuffer via `endCameraRendering`.
 
-Because `vehicle_civilian_car_0.stasset` has **no `.groups` file**, the group renders on the **static shared-buffer path** — every instance raymarches the same 20×16×30 rest buffer at its own offset/yaw. This is the cheapest possible instancing: one 9,600-voxel buffer serves the whole fleet, zero per-frame compute.
+Because `vehicle_490_touring.stasset` has **no `.groups` file**, the group renders on the **static shared-buffer path** — every instance raymarches the same 70×75×155 rest buffer at its own offset/yaw. One shared buffer serves the whole fleet, zero per-frame compute. (The doc originally cited `vehicle_civilian_car_0` 20×16×30 — that obsolete mislabeled-building prop has been deleted.)
 
 ## 2. The Three Buffer Modes (and the flag that used to conflate them)
 

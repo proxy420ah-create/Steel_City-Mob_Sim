@@ -147,8 +147,9 @@ miniature carries its streets, not just its buildings:
   the lots (tenement ↔ barber) must not change the streets. So `parked` lives
   on the table spec (`t.spec.parked`) and applies to *every* block composite
   mounted there; a model spec can still add its own `m.parked` on top (the
-  lists union). Each `{edge,along,name?}` drops `vehicle_civilian_car_0` (the
-  game's own 20×16×30 scenery fill) onto the street at slab-top y+2 —
+  lists union). Each `{edge,along,name?}` drops `vehicle_490_touring_5cm` (the
+  game's touring car, baked 5:1 from the authored 1 cm stasset — 14×15×31)
+  onto the street at slab-top y+2 —
   `ParkingMap.Build` in composite cells: `parkOffset = roadWidth/2 − carWidth/2`
   off the lane center + the curb-push extra lands the car center
   `50v − carW/2` off the block boundary, overhanging the curb ~5v exactly like

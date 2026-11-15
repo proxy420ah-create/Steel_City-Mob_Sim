@@ -300,6 +300,7 @@ const deskP = emitAsset('commission_lawdesk', { x: 2.3, z: -1.1, rotY: Math.PI /
    as different heights — measured, never authored). ═══ */
 const BLDG_VS = .05;                                                    // the in-game voxel — terrain AND buildings (VoxelChunkManager forces .05)
 const BLDG_MAT = {                                                       // mob_materials.py — MUST match StAssetReader.cs
+  10: [.80,.80,.80],                                                     // vehicle trim (MAT_LIB #cccccc) — stamped cars ride this palette too
   100: [.58,.26,.20], 101: [.48,.42,.34], 102: [.58,.58,.54], 103: [.82,.80,.74], 104: [.18,.18,.20], 105: [.42,.38,.34],
   106: [.30,.18,.10], 107: [.60,.42,.25], 108: [.42,.36,.26], 109: [.28,.24,.22], 110: [.42,.40,.36], 111: [.90,.88,.82],
   112: [.45,.55,.65], 113: [.45,.55,.65], 114: [.55,.65,.70], 115: [.95,.15,.15], 116: [.15,.30,.95], 117: [.15,.85,.25],
@@ -391,7 +392,9 @@ const tableLift = (t, dy) => tableLiftSet(t, t.lift + dy);
 const _stCache = {};
 const stassetFetch = name => _stCache[name] || (_stCache[name] =
   fetch('/Assets/StreamingAssets/voxel_buildings/' + name + '.stasset')
-    .then(r => r.arrayBuffer()).then(buf => {
+    .then(r => r.ok ? r.arrayBuffer() :                                            // vehicles live one folder over —
+      fetch('/Assets/StreamingAssets/voxel_vehicles/' + name + '.stasset')         // baked 5cm derivatives (touring et al)
+        .then(r2 => r2.arrayBuffer())).then(buf => {
       const dv = new DataView(buf);
       if (dv.getUint32(0, false) !== 0x53544153) throw new Error('not a stasset: ' + name);
       const W = dv.getUint16(6, true), H = dv.getUint16(8, true), D = dv.getUint16(10, true);
@@ -474,12 +477,13 @@ const stampParked = (vox, W2, H, files, parked, X0, Z0) => { const { M, TILE, RO
                  w: { q: 0, axis: 'z', tr: z => 50 - z } };
   const stamped = [];
   (parked || []).forEach(p => { const E = EDGE[p.edge]; if (!E) return;
-    const f = rotVoxY(files[p.name || 'vehicle_civilian_car_0'], E.q);
+    const f = rotVoxY(files[p.name || 'vehicle_490_touring_5cm'], E.q);
     const half = (E.axis === 'x' ? f.D : f.W) / 2, len = E.axis === 'x' ? f.W : f.D;      // transverse half-width / street length
     const lo = M + PARK_CLEAR + len / 2, hi = TILE - M - PARK_CLEAR - len / 2;
     const a = Math.max(lo, Math.min(hi, p.along == null ? (lo + hi) / 2 : p.along));      // center along the street
     const c = E.tr(half);                                                                // transverse center — the parking law
-    const sx = E.axis === 'x' ? a - f.W / 2 : c - f.W / 2, sz = E.axis === 'x' ? c - f.D / 2 : a - f.D / 2;
+    const sx = Math.round((E.axis === 'x' ? a - f.W / 2 : c - f.W / 2)),                    // odd-dim assets can't center exactly —
+          sz = Math.round((E.axis === 'x' ? c - f.D / 2 : a - f.D / 2));                    // round the ORIGIN or float indices stamp nothing
     stamped.push({ x: X0 + sx, z: Z0 + sz, w: f.W, d: f.D, h: f.H });
     for (let z = 0; z < f.D; z++) for (let y = 0; y < f.H; y++) for (let x = 0; x < f.W; x++) {
       const id = f.vox[x + f.W * (y + f.H * z)]; if (id) vox[(X0 + sx + x) + W2 * (y + 2 + H * (Z0 + sz + z))] = id; } });
@@ -489,7 +493,7 @@ const stampParked = (vox, W2, H, files, parked, X0, Z0) => { const { M, TILE, RO
 const emitBlock = (t, m) => { const W2 = BLK.TILE, slots = m.slots || {};
   const parked = (t.spec.parked || []).concat(m.parked || []);                 // the street scene is the TABLE's — every block composite carries it; a spec can still add
   const names = new Set(['empty_land']); Object.values(slots).forEach(n => names.add(n));
-  parked.forEach(p => names.add(p.name || 'vehicle_civilian_car_0'));
+  parked.forEach(p => names.add(p.name || 'vehicle_490_touring_5cm'));
   return Promise.all([...names].map(n => stassetFetch(n).then(f => [n, f]))).then(es => {
     const files = Object.fromEntries(es);
     const H = Math.max(2, Math.max(...[...names].map(n => files[n].H)) + 2);

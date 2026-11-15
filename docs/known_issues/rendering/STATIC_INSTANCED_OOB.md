@@ -6,7 +6,7 @@
 
 ## Symptoms
 
-- Spawning a second `VoxelVehicle` (same `vehicle_civilian_car_0.stasset`): GameObject exists, parked slot verified correct (`Car 1 slot: i_r2_c5→i_r3_c5 @ (-2.0, 0.0, 35.3)`), `Loaded` log fired — but only car 0 ever rendered.
+- Spawning a second `VoxelVehicle` (same `vehicle_490_touring.stasset` — the repro originally ran on the since-deleted `vehicle_civilian_car_0.stasset`): GameObject exists, parked slot verified correct (`Car 1 slot: i_r2_c5→i_r3_c5 @ (-2.0, 0.0, 35.3)`), `Loaded` log fired — but only car 0 ever rendered.
 - Same would hit any future instanced asset without a `.groups` file (props, decor).
 
 ## Root Cause
