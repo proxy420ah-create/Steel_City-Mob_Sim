@@ -68,6 +68,15 @@ The same applies anywhere per-frame code owns a value a probe might read.
   never participate in aim/torch rays — "can't aim at your own hand" (a held pad in your
   face would dim the LAMP page's own preview otherwise).
 - Scratch vars are named once: `_zv` is the shared zero `Vector2` (there is no `_zc`).
+- `placed` rows in `_live.json` are `[name, x, z, y0, source]` — **emit coords, not
+  world**: for `_parked`/parented recs that's the parent's local frame (a parked
+  car's `x,z` reads as composite-cell fractions, meaningless in world space).
+  Read world position with `p.g.getWorldPosition(v)` — the same frame `surfaceAt`
+  uses. This misread once "proved" a centered car displaced.
+- `__scanN` counts host column-scans per drop-march — it legitimately grows when
+  async mounts (`_parked` cars) register mid-run; parented recs reject by the
+  parent's frame, so their count should hold near zero unless the march is
+  actually over a miniature.
 
 ## Async boot — ordering, not timing
 

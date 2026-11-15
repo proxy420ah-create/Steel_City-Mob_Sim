@@ -79,8 +79,15 @@ declaration, not by tuning.
 
 1. **Tombstones** (`dvm_del`) — deleted manifest items removed first (a dead host
    must not seat anything).
-2. **Overrides** (`dvm_place`) — `placeApply` lands manifest items at saved x/z/rotY,
-   **but only at the same manifest rev**: a spec may carry `mv` (default 0); the
+2. **Overrides** (`dvm_place`) — `placeApply` lands manifest items at saved x/z/rotY.
+   Overrides are **name-keyed WORLD coordinates** — so any rec whose `x/z` are
+   parent-local (`_parked` scenery, anything emitted under `miniG`/a group) must
+   never participate: skipped at save AND at apply, or a parked car's cell coords
+   stamp onto every rec sharing the asset name (the spinner displacement —
+   `PARKED_REC_NAME_OVERRIDE_DISPLACEMENT.md`). Tombstones, `liftRiders`, and the
+   agent/`__place` by-name verbs (`move`/`del`/`grab`/`take`) skip `_parked` for
+   the same reason — parked scenery is placed by the table's street law, not by
+   hands. Apply happens **only at the same manifest rev**: a spec may carry `mv` (default 0); the
    save stores the item's `mv` and the override applies only when `o.mv === p.mv`.
    Bumping a spec's `mv` (an authored reposition) invalidates just that item's
    stale save — unversioned items keep their saved spots. Non-mount saves carry
