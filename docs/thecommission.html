@@ -3246,9 +3246,9 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
       vertexShader: `attribute vec3 aSeed; uniform float uT; varying float vY;
         void main(){
           float yy = fract(aSeed.x + uT * (.06 + aSeed.y * .07));
-          vec3 p = vec3(${PX.toFixed(4)} + (aSeed.y - .5) * .56 + sin(uT * 1.3 + aSeed.z * 40.) * .012,
-                        .03 + yy * .76,
-                        ${PZ.toFixed(4)} + sin(uT * .7 + aSeed.x * 17.) * .05);
+          vec3 p = vec3((aSeed.y - .5) * .56 + sin(uT * 1.3 + aSeed.z * 40.) * .012,   /* local — the object carries (PX,.405,PZ) so
+                        .03 + yy * .76 - .405,                                          transparent sort depth is the portal's, not the origin's */
+                        sin(uT * .7 + aSeed.x * 17.) * .05);
           vY = yy;
           vec4 mv = modelViewMatrix * vec4(p, 1.);
           gl_Position = projectionMatrix * mv;
@@ -3259,7 +3259,8 @@ window.DVM = { ingest, applyState, setProposal, renderVerdict, setPhase, SEATS, 
           gl_FragColor = vec4(vec3(1., .95, .85), a);
         }`,
     }));
-    pts.frustumCulled = false;                                    // positions are GPU-computed from aSeed — the zero-filled position attribute would bound a sphere at the origin and cull the motes at portal-facing angles
+    pts.position.set(PX, .405, PZ);                               // the object lives AT the portal — transparent sorting (and any future bounds) judge it where the motes actually are
+    pts.frustumCulled = false;                                    // positions are GPU-computed from aSeed — the zero-filled position attribute would bound a zero sphere and cull the motes at portal-facing angles
     portalG.add(pts);
     const pl1 = new THREE.PointLight(0xfff2d8, 3.2, 2.4, 1.6); pl1.position.set(PX, .5, PZ + .3);
     const pl2 = new THREE.PointLight(0xffe9c0, 1.2, 1.6, 1.8); pl2.position.set(PX, .25, PZ - .4);
