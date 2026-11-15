@@ -106,22 +106,42 @@ walkable .6 m gap between the rows) mounts
 **block specs** — catalog entries that carry `slots: {i: asset}` instead
 of a lone `name`. `emitBlock` builds them: the spec's nine lots are a 3×3 grid
 of 64-voxel tiles (`slot i → (i%3, i/3)` — the same `c = i % cols, r = i / cols`
-law `CityMap3D` uses), stamped into ONE 192×192 composite grid that mounts as an
+law `CityMap3D` uses), stamped into ONE composite grid that mounts as an
 ordinary mini. Spin/slice/tops/lift/persistence need nothing new.
 
-- **Explicit slots** stamp their asset at `(i%3)*64, (i/3|0)*64`; a multi-slot
-  asset (the tenement's 192 span at slot 0) marks every lot it covers.
+**The composite IS a game terrain chunk** — `emitBlock` ports
+`VoxelTerrainBuilder.GeneratePerBlockTerrain` 1:1 at voxel truth, so the
+miniature carries its streets, not just its buildings:
+
+- **322×322 grid** = 192 interior + a **65 v margin per side**: 45 v road-half
+  + 20 v sidewalk ring — each block owns half its surrounding roads (the
+  game's shared-half law; two adjacent chunks' cobble stripes read as the
+  dual lane lines at the road's quarter points).
+- **Road-half ring**: asphalt (104) with a 1 v cobblestone (105) stripe
+  centered in each half — horizontal bands painted first, vertical strips own
+  the corners, the builder's own order. `m.seams {n,e,s,w}` overrides an edge
+  to `'mainstreet'` (plain asphalt boulevard, no stripe).
+- **Ground tile**: sidewalk ring (102) + stone plot (101), flat material
+  bands at grade, **2 v thick**; `m.lanes` (bits N=1 E=2 S=4 W=8) cuts asphalt
+  curb mouths at the center-32 v of flagged edges and paints the interior
+  lane cross-section (sidewalk 16 | asphalt 32 | sidewalk 16) — the alley
+  catalog machinery, dormant until a lane spec exists.
+- **Anchor-top law**: lots stamp at y+2, on the terrain slab — exactly the
+  game's `terrainTopY` anchor.
+- **Explicit slots** stamp their asset at `(i%3)*64, (i/3|0)*64` inside the
+  interior; a multi-slot asset (the tenement's 192 span at slot 0) marks
+  every lot it covers.
 - **Vacant lots take `empty_land`** — the game's own 64×8×64 vacant-lot tile
   (cobble ground, rubble, perimeter fence posts), one per empty slot, so the
   block reads exactly like `city_layout`'s `block_41` in Unity.
-- **Consistent miniature scale**: `fill:.75` on the composite means the whole
-  192-voxel block spans .9m — the tenement composite is pixel-identical to the
-  primary's tenement at the same scale, while `block_41` keeps the block's area
-  with the barber rendered at its true 64-voxel lot size in its authored slot
-  (slot 2 → the NE lot under Unity truth, mirrored to the rendered NW corner).
-- `stassetFetch` caches parsed volumes per name — a block's 9 slots share fetches;
-  `emitVox` is the shared instance/tops/mini emitter for both single mounts and
-  composites.
+- **Consistent footprint law**: `fill:.75` keeps the .9 m tabletop span —
+  streets now share it, so block-table buildings render at 1:17.9 vs the
+  easel's 1:10.67 (the easel's `BLDG_VS` is the live .05 voxel — the old .1
+  claim was stale). The street ring is a measured surface: items seat on the
+  road/sidewalk at .2656 (felt +2 v).
+- `stassetFetch` caches parsed volumes per name — a block's 9 slots share
+  fetches; `emitVox` is the shared instance/tops/mini emitter for both single
+  mounts and composites.
 - **Miniature voxels never raycast — but aim lands on their proxies.** Every
   mini `InstancedMesh` is flagged `userData.miniVox` — a mounted tenement is
   426K instances and three.js matrix-tests *each* one per ray, so the un-pruned

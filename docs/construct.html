@@ -267,7 +267,7 @@ const deskP = emitAsset('commission_lawdesk', { x: 2.3, z: -1.1, rotY: Math.PI /
    a surf-role PLACED rec, so the measured-surface law hosts items on it natively; each miniature
    writes its own per-column top into the host's tops map (a model's roof and open courtyard read
    as different heights — measured, never authored). ═══ */
-const BLDG_VS = .1;                                                     // the in-game building voxel (VoxelChunkManager: buildings=0.1)
+const BLDG_VS = .05;                                                    // the in-game voxel — terrain AND buildings (VoxelChunkManager forces .05)
 const BLDG_MAT = {                                                       // mob_materials.py — MUST match StAssetReader.cs
   100: [.58,.26,.20], 101: [.48,.42,.34], 102: [.58,.58,.54], 103: [.82,.80,.74], 104: [.18,.18,.20], 105: [.42,.38,.34],
   106: [.30,.18,.10], 107: [.60,.42,.25], 108: [.42,.36,.26], 109: [.28,.24,.22], 110: [.42,.40,.36], 111: [.90,.88,.82],
@@ -367,25 +367,51 @@ const stassetFetch = name => _stCache[name] || (_stCache[name] =
 const emitBldg = (t, m) => stassetFetch(m.name)
   .then(f => emitVox(t, m, f.W, f.H, f.D, f.vox))
   .catch(e => console.warn('CONSTRUCT — bldg emit failed:', m.name, e));
-/* emitBlock — a 3×3 city block as ONE miniature: slot assets merge into a single 192-voxel
-   composite grid (each explicit slot stamps its asset at its 64-voxel offset; a multi-slot
-   asset marks every lot it covers; the rest take empty_land — the game's own vacant-lot tile).
-   The composite is an ordinary mini: rotation/slice/tops/persistence need nothing new. */
-const emitBlock = (t, m) => { const S = 64, BW = 192, slots = m.slots || {};
+/* emitBlock — a 3×3 city block as ONE miniature: slot assets merge into a single composite
+   grid (each explicit slot stamps its asset at its 64-voxel offset; a multi-slot asset marks
+   every lot it covers; the rest take empty_land — the game's own vacant-lot tile).
+   The composite is the game's own per-block terrain chunk at 1:1 — VoxelTerrainBuilder.
+   GeneratePerBlockTerrain's recipe: each block owns its ground tile (20v sidewalk ring +
+   stone plot) plus HALF the road on each side (45v asphalt, 1v cobble stripe centered in
+   the half — two adjacent chunks' halves read as the dual lane lines). Margin M = 65v
+   around the 192 interior → 322 composite; terrain slab 2v thick and the lots stand on it,
+   the anchor-top law. m.seams {n,e,s,w} overrides an edge to 'mainstreet' (plain asphalt
+   boulevard — no stripe); m.lanes (bits N=1 E=2 S=4 W=8) cuts curb mouths + the interior
+   lane cross-section for alley catalogs. ROT/SLICE/tops/persistence need nothing new. */
+const emitBlock = (t, m) => { const S = 64, BW = 192, SIDE = 20, ROAD = 45, M = SIDE + ROAD, W2 = BW + 2 * M, slots = m.slots || {};
   const names = new Set(['empty_land']); Object.values(slots).forEach(n => names.add(n));
   return Promise.all([...names].map(n => stassetFetch(n).then(f => [n, f]))).then(es => {
     const files = Object.fromEntries(es);
     const covered = new Set();                                          // which lots does explicit content already own?
     Object.entries(slots).forEach(([s, n]) => { const f = files[n], sc = +s % 3, sr = (+s / 3) | 0;
       for (let r = sr; r < sr + f.D / S; r++) for (let c = sc; c < sc + f.W / S; c++) covered.add(r * 3 + c); });
-    const H = Math.max(...[...names].map(n => files[n].H));
-    const vox = new Uint16Array(BW * H * BW);
+    const H = Math.max(2, Math.max(...[...names].map(n => files[n].H)) + 2);
+    const vox = new Uint16Array(W2 * H * W2), seams = { n: 'road', e: 'road', s: 'road', w: 'road', ...(m.seams || {}) };
+    const set = (x, z, id) => { vox[x + W2 * (H * z)] = vox[x + W2 * (1 + H * z)] = id; };
+    for (let z = 0; z < ROAD; z++) for (let x = 0; x < W2; x++) {          // FillCorridors — horizontal bands first…
+      set(x, z,         seams.n === 'road' && z === 22 ? 105 : 104);     // …cobble stripe centered in each half…
+      set(x, W2 - 1 - z, seams.s === 'road' && z === 22 ? 105 : 104); }
+    for (let x = 0; x < ROAD; x++) for (let z = 0; z < W2; z++) {          // …vertical strips own the corners
+      set(x,         z, seams.w === 'road' && x === 22 ? 105 : 104);
+      set(W2 - 1 - x, z, seams.e === 'road' && x === 22 ? 105 : 104); }
+    const lanes = m.lanes | 0, m0 = M + 80, m1 = M + 112, L0 = M + 64, L1 = M + 128;
+    for (let z = ROAD; z < W2 - ROAD; z++) for (let x = ROAD; x < W2 - ROAD; x++) {   // FillGroundTile
+      const eW = x < M, eE = x >= W2 - M, eS = z < M, eN = z >= W2 - M;
+      let id = 101;
+      if (eW || eE || eS || eN) {                                        // sidewalk ring — curb cuts at mouths
+        const mouth = (eW && (lanes & 8) && z >= m0 && z < m1) || (eE && (lanes & 2) && z >= m0 && z < m1) ||
+                      (eS && (lanes & 4) && x >= m0 && x < m1) || (eN && (lanes & 1) && x >= m0 && x < m1);
+        id = mouth ? 104 : 102;
+      } else if (lanes) {                                                // interior lane cross-section
+        if ((lanes & 10) && z >= L0 && z < L1) id = (z >= m0 && z < m1) ? 104 : 102;
+        else if ((lanes & 5) && x >= L0 && x < L1) id = (x >= m0 && x < m1) ? 104 : 102; }
+      set(x, z, id); }
     const stamp = (f, sx, sz) => { for (let z = 0; z < f.D && sz + z < BW; z++)
       for (let y = 0; y < f.H; y++) for (let x = 0; x < f.W && sx + x < BW; x++) {
-        const id = f.vox[x + f.W * (y + f.H * z)]; if (id) vox[(sx + x) + BW * (y + H * (sz + z))] = id; } };
+        const id = f.vox[x + f.W * (y + f.H * z)]; if (id) vox[(M + sx + x) + W2 * (y + 2 + H * (M + sz + z))] = id; } };
     for (let s = 0; s < 9; s++) { const n = slots[s]; if (n) stamp(files[n], (s % 3) * S, ((s / 3) | 0) * S); }
     for (let s = 0; s < 9; s++) if (!covered.has(s) && !slots[s]) stamp(files['empty_land'], (s % 3) * S, ((s / 3) | 0) * S);
-    return emitVox(t, m, BW, H, BW, vox); })
+    return emitVox(t, m, W2, H, W2, vox); })
     .catch(e => console.warn('CONSTRUCT — block emit failed:', m.name, e)); };
 /* emitVox — one volume's instances + tops + mini rec. The shared body for single mounts and
    block composites: `m` supplies name/fill/x/z/flip; the grid is already assembled. */
