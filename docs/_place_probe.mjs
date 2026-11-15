@@ -528,17 +528,18 @@ check('auto-exposure — dims at close range', await evl('__torch.dist(__camera)
    the .45 beam's need (atan(tan(.45)/.43)=.843) exceeds its .72 cap → lands exactly on it. */
 check('footprint — close range widens the cone, capped at beam×1.6', await evl('Math.abs(__torch.spot.angle - .72) < .01'), await evl('__torch.spot.angle'));
 /* constant irradiance — the whiteout fix. On-axis E = spot I/d^decay + fill I/df^decay must stay flat
-   from 1m down to point-blank (the old 15% floors + a fixed .3m fill offset ramped it ~2-4x near the
-   wall). Assert the law at four ranges, not a value: every E within 15% of the 0.9m reference. */
+   from 1m down to point-blank (old 15% floors, fixed fill offset and a d≥.12 clamp ramped it near the
+   wall); proximity fade then eases it down inside .4m. Assert the law: never above the .9m reference,
+   monotone non-increasing, and <70% of it at .05m. */
 const Es = [];
-for (const dx of [.9, .5, .25, .14]) {
+for (const dx of [.9, .5, .25, .14, .05]) {
   await evl(`__cam(${-7.93 + dx},.62,-4.6, -7.93,.62,-4.6)`);
   for (let i = 0; i < 30 && !(await evl(`Math.abs(__camera.position.x - ${-7.93 + dx}) < .01`)); i++) await sleep(100);
   await evl('__torch.aim(__camera)');
   Es.push(JSON.parse(await evl(`JSON.stringify((() => { const d = __torch.dist(__camera), t = __torch, fo = Math.min(.3, d * .5), df = Math.max(.05, d - fo);
     return { d: +d.toFixed(3), E: t.spot.intensity / Math.pow(d, t.spot.decay) + t.fill.intensity / Math.pow(df, t.fill.decay) }; })())`)));
 }
-check('auto-exposure — on-axis irradiance stays flat 0.9m → point-blank (no ramp to white)', Es.every(e => Math.abs(e.E / Es[0].E - 1) < .15), JSON.stringify(Es.map(e => [e.d, +e.E.toFixed(2)])));
+check('auto-exposure — irradiance never ramps up toward the wall; proximity fade eases it down past .4m', Es.every(e => e.E <= Es[0].E * 1.1) && Es[Es.length - 1].E < Es[0].E * .7 && Es.every((e, i) => !i || e.E <= Es[i - 1].E * 1.02), JSON.stringify(Es.map(e => [e.d, +e.E.toFixed(2)])));
 /* free-cam end-to-end — place mode drives camera from flyPos (position) + yaw/pitch
    (orientation) every frame, and aim(camera) reads that same object; camLock would WIN
    over both, so release it first, then drive the real fly/look axes to the same .43m

@@ -329,7 +329,12 @@ at .9/.5/.25/.14 m; rendered center luminance eases 177→131 instead of RAW's
 `min(.3, d/2)` ahead — a fixed .3 m offset parked it against/behind the wall
 inside ~.6 m and its 1/dist^1.4 falloff ramped the wash to white — and floors
 are only a numeric guard (.01); the old 15% floors stopped compensating below
-~.2 m (spot) and ~.45 m (fill) and were the close-range whiteout. **(2) footprint** — inside 1 m the fixed cone would squeeze the
+~.2 m (spot) and ~.45 m (fill) and were the close-range whiteout. **Proximity fade** — flat irradiance still reads near-white with your face in
+the wall, so inside .4 m both lamps ease down a further 60% by point-blank
+(`prox = .4 + .6·d/.4`); `torchDist` clamps at `camera.near` (.02), not .12 —
+the old .12 clamp froze compensation while the real distance kept shrinking
+(3-4× hotter at 4 cm). Rendered wall luminance 1 m→4 cm: AUTO 177→96, RAW
+177→254. **(2) footprint** — inside 1 m the fixed cone would squeeze the
 same flux into a shrinking disc (the "concentration" hotspot), so AUTO widens
 the angle: `angle = atan(tan(beam₀)/d)` — but capped at `beam₀×1.6` (and .95
 rad absolute): *partial* normalization. A constant-radius pool reads wrong

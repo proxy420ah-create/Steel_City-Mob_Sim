@@ -72,7 +72,7 @@ const _tray = new THREE.Raycaster();
 const torchDist = cam => { _tray.setFromCamera(_zv, cam);
   const excl = [ghost, aimDot, ...marks]; followers.forEach(f => excl.push(f.CH)); if (selfBody) excl.push(selfBody.CH); if (held) excl.push(held.g);
   const h = rayPruned(_tray, scene.children, excl, true);
-  return h.length ? Math.max(.12, h[0].distance) : 2; };
+  return h.length ? Math.max(.02, h[0].distance) : 2; };   // = camera.near — a clamp above it freezes compensation while the real distance keeps shrinking (the point-blank whiteout)
 window.__torch = { on: false, spot: torch, fill: torchFill, cfg: TC, tune: torchCfg, rst: torchReset,
   setOn(on) { this.on = !!on; torchApply(); },
   set(on) { this.setOn(on); },
@@ -80,8 +80,11 @@ window.__torch = { on: false, spot: torch, fill: torchFill, cfg: TC, tune: torch
   aim(cam) { cam.getWorldPosition(torch.position); cam.getWorldDirection(_tdir);
     /* constant on-axis irradiance — spot E = I/d^decay, so s = d^decay holds E flat; the old 15% floor
        stopped compensating below ~.2m and the wall ramped back up to white. Floor is now only a
-       numeric guard (.01) well under the minimum range (torchDist clamps d ≥ .12 → s ≥ .077). */
-    const d = torchDist(cam), s = TC.x ? Math.min(1, Math.max(.01, Math.pow(d, torch.decay))) : 1;   // RAW = the tune is absolute
+       numeric guard (.01); torchDist clamps at camera.near (.02) so compensation tracks the real distance. */
+    /* proximity fade — flat irradiance still reads hot when your face is in the wall (albedo + exposure
+       sit near white), so inside .4m AUTO eases the whole rig down a further 60% by point-blank. */
+    const d = torchDist(cam), prox = TC.x ? (d < .4 ? .4 + .6 * d / .4 : 1) : 1,
+      s = TC.x ? Math.min(1, Math.max(.01, Math.pow(d, torch.decay))) * prox : 1;   // RAW = the tune is absolute
     torch.intensity = this.on ? TC.i * s : 0;
     /* footprint normalization — inside 1m the fixed cone squeezes the same flux into a shrinking
        disc (the "concentration" hotspot); widen the angle so the pool holds its radius. But a
@@ -94,8 +97,8 @@ window.__torch = { on: false, spot: torch, fill: torchFill, cfg: TC, tune: torch
        .3m offset parked it against/behind the wall inside ~.6m, and its 1/dist^decay falloff then
        ramped the wash up hard. The offset shrinks with range and the scale divides out the fill's
        OWN distance, so fill irradiance stays flat too (same law as the spot, no 15% floor). */
-    const fo = TC.x ? Math.min(.3, d * .5) : .3, df = Math.max(.05, d - fo);
-    torchFill.intensity = this.on ? TC.f * (TC.x ? Math.min(1, Math.max(.01, Math.pow(df / .7, torchFill.decay))) : 1) : 0;
+    const fo = TC.x ? Math.min(.3, d * .5) : .3, df = Math.max(.01, d - fo);
+    torchFill.intensity = this.on ? TC.f * (TC.x ? Math.min(1, Math.max(.01, Math.pow(df / .7, torchFill.decay)) * prox) : 1) : 0;
     torchTgt.position.copy(torch.position).addScaledVector(_tdir, 2);
     torchFill.position.copy(torch.position).addScaledVector(_tdir, fo); } };
 
