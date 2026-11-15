@@ -522,9 +522,11 @@ await evl('__cam(-7.5,.62,-4.6, -7.93,.62,-4.6)');                              
 for (let i = 0; i < 30 && !(await evl('Math.abs(__camera.position.x + 7.5) < .01')); i++) await sleep(100);
 await evl('__torch.aim(__camera)');
 check('auto-exposure — dims at close range', await evl('__torch.dist(__camera) < .8 && __torch.spot.intensity < __torch.cfg.i * .8 && __torch.fill.intensity < __torch.cfg.f * .5'), await evl('JSON.stringify({d:+__torch.dist(__camera).toFixed(2), i:+__torch.spot.intensity.toFixed(2), f:+__torch.fill.intensity.toFixed(2)})'));
-/* footprint normalization — at d<1 AUTO widens the cone so the lit disc holds its 1m radius
-   instead of collapsing into a hotspot: angle = atan(tan(beam0)/d), capped 1.25. */
-check('footprint — close range widens the cone past the tuned beam', await evl('__torch.spot.angle > .65 && __torch.spot.angle <= 1.25'), await evl('__torch.spot.angle'));
+/* footprint normalization — at d<1 AUTO widens the cone so the pool never collapses to a
+   pinpoint, but PARTIAL: the cone caps at beam0×1.6 (and .95 rad abs) so the disc still shrinks
+   on approach — a constant-radius pool head-on at .3m filled the screen as a blast. At d=.43
+   the .45 beam's need (atan(tan(.45)/.43)=.843) exceeds its .72 cap → lands exactly on it. */
+check('footprint — close range widens the cone, capped at beam×1.6', await evl('Math.abs(__torch.spot.angle - .72) < .01'), await evl('__torch.spot.angle'));
 /* 12.98d — EXP: RAW bypasses the d^decay scale + the .15 floor — same camera, full tune.
    This is the free-cam fix: at inspection range AUTO reads ~20% and the dial felt dead. */
 await evl('__torch.tune("x")');                                                          // AUTO → RAW

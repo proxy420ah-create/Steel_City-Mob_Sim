@@ -327,10 +327,12 @@ the cone never dies outright; each lamp scales by its own offset distance (the
 fill rides .3 m ahead, dimming hardest inside arm's reach — it was most of the
 old washout). **(2) footprint** — inside 1 m the fixed cone would squeeze the
 same flux into a shrinking disc (the "concentration" hotspot), so AUTO widens
-the angle: `angle = atan(tan(beam₀)/d)`, capped 1.25 rad — the lit pool holds
-its 1 m radius. Outside 1 m the tuned cone runs as-is; the wall reads the same
-brightness AND the same lit area whether the camera is near or far — "linear
-regardless of range." **The trade-off:** at free-cam inspection range (d<.5 m)
+the angle: `angle = atan(tan(beam₀)/d)` — but capped at `beam₀×1.6` (and .95
+rad absolute): *partial* normalization. A constant-radius pool reads wrong
+head-on — a 1 m disc at .3 m fills the screen as a blast — so the pool still
+shrinks on approach like a real flashlight, just never to a pinpoint. Outside
+1 m the tuned cone runs as-is; the wall reads the same brightness whether the
+camera is near or far. **The trade-off:** at free-cam inspection range (d<.5 m)
 the intensity floor still crushes a big tune to ~20% — "the setting doesn't
 apply" was the floor, not a missing wire. RAW (`x:0`, EXP button on the LAMP
 page — lit = AUTO) skips BOTH scalings: intensity = `TC.i`, fill = `TC.f`,

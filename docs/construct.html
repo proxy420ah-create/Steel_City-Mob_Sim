@@ -81,9 +81,12 @@ window.__torch = { on: false, spot: torch, fill: torchFill, cfg: TC, tune: torch
     const d = torchDist(cam), s = TC.x ? Math.min(1, Math.max(.15, Math.pow(d, torch.decay))) : 1;   // RAW = the tune is absolute — free-cam close range was pinning s to the 15% floor
     torch.intensity = this.on ? TC.i * s : 0;
     /* footprint normalization — inside 1m the fixed cone squeezes the same flux into a shrinking
-       disc (the "concentration" hotspot); hold the disc radius constant instead: widen the angle
-       so the lit pool stays beam-sized. Outside 1m the tuned cone runs as-is; RAW keeps it literal. */
-    torch.angle = TC.x && d < 1 ? Math.min(1.25, Math.atan(Math.tan(TORCH_BEAMS[TC.a]) / Math.max(d, .15))) : TORCH_BEAMS[TC.a];
+       disc (the "concentration" hotspot); widen the angle so the pool holds its radius. But a
+       CONSTANT-radius pool reads wrong head-on: a 1m disc at .3m fills the screen as a blast.
+       Partial normalization instead — the cone may widen at most 60% (and never past .95 rad),
+       so the pool still shrinks on approach like a real flashlight, just never to a pinpoint.
+       Outside 1m the tuned cone runs as-is; RAW keeps it literal. */
+    torch.angle = TC.x && d < 1 ? Math.min(TORCH_BEAMS[TC.a] * 1.6, .95, Math.atan(Math.tan(TORCH_BEAMS[TC.a]) / Math.max(d, .15))) : TORCH_BEAMS[TC.a];
     torchFill.intensity = this.on ? TC.f * (TC.x ? Math.min(1, Math.max(.15, Math.pow(Math.max(.1, d - .3) / .7, torchFill.decay))) : 1) : 0;
     torchTgt.position.copy(torch.position).addScaledVector(_tdir, 2);
     torchFill.position.copy(torch.position).addScaledVector(_tdir, .3); } };
