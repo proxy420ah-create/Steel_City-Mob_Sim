@@ -71,6 +71,13 @@ The same applies anywhere per-frame code owns a value a probe might read.
   vars the loop stamps into `camera.rotation` in place mode. **`camLock` wins over
   both** — `__cam(...)` earlier in the suite keeps stomping the camera until
   `__cam(null)` releases it. Free-cam checks fail silently otherwise.
+- `__cars` drives the block table's curbside cruise: `toggle(ti, on)` on the TABLES
+  index (block = 1), `.state()` → per-car `{st, s, x, z, ry}` (`st` =
+  wait/leave/loop/park/slot), `.seek()` jumps a `loop` car to just before its merge
+  so repark fires within a tick — without it `toggle(false)` parks on the *next*
+  pass of the slot, up to a ~65 s lap. `.lanes()` reports the measured lane
+  centers. `x/z/ry` are miniG-LOCAL — compare reparked poses against a pre-drive
+  `g.position` capture, not world coords.
 - Exclusion lists are law: `held`, `selfBody.CH`, followers' `CH`, `ghost`, `aimDot`, `marks`
   never participate in aim/torch rays — "can't aim at your own hand" (a held pad in your
   face would dim the LAMP page's own preview otherwise).

@@ -444,6 +444,93 @@ const stampSlots = (vox, W2, H, files, slots, X0, Z0) => { const { S, BW, M } = 
   for (let s = 0; s < 9; s++) { const n = slots[s]; if (n) stamp(files[n], (s % 3) * S, ((s / 3) | 0) * S); }
   for (let s = 0; s < 9; s++) if (!covered.has(s) && !slots[s]) stamp(files['empty_land'], (s % 3) * S, ((s / 3) | 0) * S);
   return stamped; };
+/* roadProf — the street's own geometry, measured off the composite's column tops: the
+   sidewalk is the raised run hugging the property line inside each road band (the plate's
+   flat cells never list in localCols). Per edge {road, dir}: `road` = the cell the car's
+   curb edge sits on (just lane-side of the strip); `dir` = which way the lane runs. The
+   bare band law parked cars straddling the strip — wheels under the curb = sunken look. */
+const roadProf = mn => { if (mn._road) return mn._road;
+  const W = mn.dims[0], D = mn.dims[2], CURB = 4;
+  if (!mn._colTop) { const T = mn._colTop = new Int16Array(W * D).fill(-1);
+    mn.localCols.forEach(c => { T[c.x + W * c.z] = Math.max.apply(null, c.ys); }); }
+  const T = mn._colTop, R = {};
+  [['s', 0, D - 50, 1], ['e', 1, W - 50, 1], ['n', 0, 50, -1], ['w', 1, 50, -1]].forEach(q => {
+    const e = q[0], ax = q[1], line = q[2], dir = q[3], span = ax ? D : W,
+      probes = [.25, .375, .5, .625, .75].map(f => Math.round(span * f));
+    let first = -1, last = -1, flat = 0;
+    for (let t = line, i = 0; i < 50 && t >= 0 && t <= (ax ? W : D) - 1; t += dir, i++) {
+      const raised = probes.filter(u => (ax ? T[t + W * u] : T[u + W * t]) > CURB).length >= 3;
+      if (raised) { if (first < 0) first = t; last = t; flat = 0; }
+      else if (first >= 0 && ++flat > 4) break; }
+    if (first >= 0) R[e] = { road: dir > 0 ? last + 1 : last - 1, dir }; });
+  return mn._road = R; };
+/* blockTrf — a curbside cruise for the table's parked cars: pull out of the slot, lap the
+   right-of-travel lanes, pull back in. The circuit is the MEASURED street (roadProf's lane
+   centers + quarter arcs at the corners) — the game's road files carry no lane/direction
+   data, so the lanes are the part we derive here. Cars stay miniG-parented — spin/lift/swap
+   ride free; positions are cell coords converted through mn.fx exactly like the mount did. */
+const blockTrf = { on: false, mn: null, g: null, L: null, segs: [], len: 0, cars: [], V: .05,
+  build(mn) { const R = roadProf(mn), CARW = 14, GAP = 10, r = 10, D = mn.dims,
+      L = { s: R.s ? R.s.road + CARW + GAP : D[2] - 18, n: R.n ? R.n.road - CARW - GAP : 18,
+            e: R.e ? R.e.road + CARW + GAP : D[0] - 18, w: R.w ? R.w.road - CARW - GAP : 18 },
+      leg = (ax, f, a0, a1, hx, hz) => ({ ax, f, a0, a1, hx, hz, len: Math.abs(a1 - a0) }),
+      arc = (cx, cz, a0) => ({ cx, cz, r, a0, len: r * Math.PI / 2 }),
+      segs = [ leg('x', L.s, L.e - r, L.w + r, -1, 0), arc(L.w + r, L.s - r, 90),
+               leg('z', L.w, L.s - r, L.n + r, 0, -1), arc(L.w + r, L.n + r, 180),
+               leg('x', L.n, L.w + r, L.e - r, 1, 0),  arc(L.e - r, L.n + r, 270),
+               leg('z', L.e, L.n + r, L.s - r, 0, 1),  arc(L.e - r, L.s - r, 0) ];
+    let s = 0; segs.forEach(g => { g.s0 = s; s += g.len; });
+    this.L = L; this.segs = segs; this.len = s; this.mn = mn; },
+  at(s) { s = ((s % this.len) + this.len) % this.len;
+    const g = this.segs.find(q => s < q.s0 + q.len) || this.segs[this.segs.length - 1], t = s - g.s0;
+    if (g.ax) { const d = g.a1 > g.a0 ? 1 : -1, a = g.a0 + d * t;
+      return g.ax === 'x' ? { x: a, z: g.f, hx: g.hx, hz: g.hz } : { x: g.f, z: a, hx: g.hx, hz: g.hz }; }
+    const a = (g.a0 + t / g.r * 180 / Math.PI) * Math.PI / 180;
+    return { x: g.cx + g.r * Math.cos(a), z: g.cz + g.r * Math.sin(a), hx: -Math.sin(a), hz: Math.cos(a) }; },
+  merge(sc) { const L = this.L;
+    return sc.edge === 's' ? { x: sc.cx + sc.carL, z: L.s } : sc.edge === 'w' ? { x: L.w, z: sc.cz + sc.carL }
+         : sc.edge === 'n' ? { x: sc.cx - sc.carL, z: L.n } : { x: L.e, z: sc.cz - sc.carL }; },
+  sOf(p) { const g = this.segs.find(q => q.ax &&
+      (q.ax === 'x' ? Math.abs(p.z - q.f) < .5 && Math.min(q.a0, q.a1) <= p.x && p.x <= Math.max(q.a0, q.a1)
+                    : Math.abs(p.x - q.f) < .5 && Math.min(q.a0, q.a1) <= p.z && p.z <= Math.max(q.a0, q.a1)));
+    return g ? g.s0 + Math.abs((g.ax === 'x' ? p.x : p.z) - g.a0) : 0; },
+  toggle(t, on) { const g = t && t.g.children.find(c => c.userData.mini), mn = g && g.userData.mini;
+    this.on = on === undefined ? !this.on : !!on;
+    if (!mn) { this.on = false; return false; }
+    this.build(mn); this.g = g;
+    if (!this.on) return false;                                                // off = cruise out the lap, park on arrival — cars keep their state
+    this.cars = PLACED.filter(p => p._parked && p._slotC && p.g.parent === g).map((p, i) => {
+      const sc = p._slotC, P0 = this.merge(sc), sl = p._slot;
+      p.g.position.x = sl.x; p.g.position.z = sl.z; p.g.rotation.y = sl.rotY;   // re-arm restarts from the curb
+      return { rec: p, st: 'wait', delay: i * 1.6 + .3, s: 0, sP0: this.sOf(P0), prog: 0,
+        hook: { from: [P0.x, P0.z], to: [sc.cx, sc.cz], len: Math.hypot(P0.x - sc.cx, P0.z - sc.cz) || 1 } }; });
+    if (!this.cars.length) this.on = false;
+    return this.on; },
+  seek() { this.cars.forEach(c => { if (c.st === 'loop') c.s = c.sP0 - 2; }); },
+  snap(c) { const sl = c.rec._slot; c.rec.g.position.x = sl.x; c.rec.g.position.z = sl.z;
+    c.rec.g.rotation.y = sl.rotY; c.st = 'slot'; },
+  tick(dt) { if (!this.cars.length || !this.mn) return;
+    const mn = this.mn, vs = mn.vs, vc = this.V / vs, D2 = mn.dims[2], mir = mn.mirX ? -1 : 1,
+      put = (g, x, z, hx, hz) => { g.position.x = mn.fx(x) * vs; g.position.z = (z - D2 / 2) * vs;
+        g.rotation.y = Math.atan2(-hx * mir, -hz); };
+    this.cars.forEach(c => { const g = c.rec.g, sc = c.rec._slotC;
+      if (!g || g.parent !== this.g) { c.st = 'gone'; return; }
+      if (c.st === 'wait') { if (!this.on) { c.st = 'slot'; return; }
+        if ((c.delay -= dt) <= 0) c.st = 'leave'; return; }
+      if (c.st === 'leave' || c.st === 'park') { const fw = c.st === 'leave' ? this.on : true;
+        c.prog += (fw ? 1 : -1) * vc * dt / c.hook.len;
+        if (c.prog >= 1) { if (c.st === 'park') { this.snap(c); return; } c.s = c.sP0; c.st = 'loop'; return; }
+        if (c.prog <= 0) { this.snap(c); return; }
+        const a = c.st === 'leave' ? c.hook.to : c.hook.from, b = c.st === 'leave' ? c.hook.from : c.hook.to,
+          x = a[0] + (b[0] - a[0]) * c.prog, z = a[1] + (b[1] - a[1]) * c.prog;
+        put(g, x, z, sc.hx, sc.hz); return; }
+      if (c.st === 'loop') { let v = vc;
+        this.cars.forEach(o => { if (o !== c && o.st === 'loop') {
+          const d = ((o.s - c.s) % this.len + this.len) % this.len;
+          if (d > 0 && d < 30) v = Math.min(v, vc * Math.max(0, (d - 8) / 22)); } });
+        const prev = c.s, ns = prev + v * dt;
+        if (!this.on && prev < c.sP0 && ns >= c.sP0) { c.st = 'park'; c.prog = 0; return; }
+        c.s = ns % this.len; const q = this.at(c.s); put(g, q.x, q.z, q.hx, q.hz); } }); } };
 /* mountParked — the game's curbside parking law, rendered as full-fidelity overlay
    miniatures rather than composite cells: the authored 1 cm asset mounts at the
    composite's own display scale (vs × voxelSize/BLDG_VS — every authored voxel present,
@@ -467,20 +554,23 @@ const mountParked = (t, miniG, parked) => { const mn = miniG.userData.mini, vs =
             carW = veh.dims[0] * cvs, carL = veh.dims[2] * cvs;                          // real footprint in composite cells
       const lo = M + PARK_CLEAR + carL / 2, hi = TILE - M - PARK_CLEAR - carL / 2,
         a = Math.max(lo, Math.min(hi, p.along == null ? (lo + hi) / 2 : p.along)),
-        c = E.tr(carW / 2),                                                              // transverse center — the parking law
+        st = roadProf(mn)[p.edge],                                                          // the measured sidewalk strip at the property line
+        c = st ? (st.dir > 0 ? st.road + carW / 2 : st.road - carW / 2) : E.tr(carW / 2),     // hug the STRIP's lane edge — the bare band law straddled the curb
         cx = (E.axis === 'x' ? a : c) - .5, cz = (E.axis === 'x' ? c : a) - .5;            // cell-space center → cell coords
       const vvs = vs * cvs,                                                              // authored voxel at the composite's scale
         hx = mn.mirX ? -E.hX : E.hX, hz = E.hZ,                                          // fx mirrors x — cell headings mirror with it
         rotY = Math.atan2(-hx, -hz);                                                     // authored front = −z → rotate onto the heading
       emitAsset(p.name || 'vehicle_490_touring', { kind: 'vehicle', parent: miniG,
-        x: mn.fx(cx) * vs, z: (cz - D2 / 2) * vs, rotY, seatY: 2 * vs, vsOverride: vvs, pickable: false, source: 'parked' })
+        x: mn.fx(cx) * vs, z: (cz - D2 / 2) * vs, rotY, seatY: 2 * vs + vvs * .5, vsOverride: vvs, pickable: false, source: 'parked' })   // +half a car-voxel: exactly-flush reads as sunk — the road silhouette eats the lowest wheel row
         .then(rec => { if (!rec) return;
           if (!miniG.parent) { const i = PLACED.indexOf(rec); if (i >= 0) PLACED.splice(i, 1); rec.g.parent && rec.g.parent.remove(rec.g); return; }   // model swapped mid-fetch — no ghost cars
           rec._parked = true;
+          rec._slot = { x: rec.g.position.x, z: rec.g.position.z, rotY };                 // the exact curb pose — repark restores it verbatim
+          rec._slotC = { cx, cz, edge: p.edge, hx: E.hX, hz: E.hZ, carW, carL };          // cell-space slot + heading — the cruise circuit's frame
           rec.g.children.forEach(ch => { ch.userData.miniVox = true; });                  // pruned aim — 78k cells never ray-test
           const pw = (E.axis === 'x' ? veh.dims[2] : veh.dims[0]) * vvs,                   // proxy footprint swaps on quarter-turn
                 pd = (E.axis === 'x' ? veh.dims[0] : veh.dims[2]) * vvs, ph = veh.dims[1] * vvs;
-          miniG.add(hitProxy(pw + vvs, ph, pd + vvs, rec.g.position.x, 2 * vs + ph / 2, rec.g.position.z)); }); }); }); };
+          rec.g.add(hitProxy(pw + vvs, ph, pd + vvs, 0, ph / 2, 0)); }); }); }); };        // the proxy rides the car — it can drive now
 /* emitBlock — a 3×3 city block as ONE miniature: the tile recipe + lot stamps merged into a
    single composite at 1:1, tops written back into the host. ROT/SLICE/persistence unchanged. */
 const emitBlock = (t, m) => { const W2 = BLK.TILE, slots = m.slots || {};
@@ -723,6 +813,7 @@ let padPage = 'model';
 const PAD_REGIONS = [
   { id: 'prev', page: 'model', x: 30,  y: 140, w: 90, h: 96, label: '◀ MODEL', glyph: '◀', fn: () => padSwap(-1) },
   { id: 'next', page: 'model', x: 392, y: 140, w: 90, h: 96, label: 'MODEL ▶', glyph: '▶', fn: () => padSwap(1) },
+  { id: 'cars', page: 'model', x: 16,  y: 284, w: 96, h: 42, label: 'CARS', glyph: 'CARS', fs: 18, lit: () => blockTrf.on, fn: () => blockTrf.toggle(padTable()) },
   { id: 'rll', page: 'rot', x: 16,  y: 140, w: 110, h: 96, label: 'SPIN ◀◀', glyph: '◀◀', fs: 34, rate: -.9,  fn: () => miniSpinSet(-.9) },
   { id: 'rl',  page: 'rot', x: 140, y: 140, w: 110, h: 96, label: 'SPIN ◀',  glyph: '◀',  fs: 40, rate: -.25, fn: () => miniSpinSet(-.25) },
   { id: 'rr',  page: 'rot', x: 264, y: 140, w: 110, h: 96, label: 'SPIN ▶',  glyph: '▶',  fs: 40, rate: .25,  fn: () => miniSpinSet(.25) },
@@ -847,6 +938,10 @@ window.__pad = { rec: () => padRec, regions: PAD_REGIONS, scr: () => padScr, pro
   wallTarget: () => padWallTarget(), stick: (x, y, z, n) => { takeIt(padRec); placeIt({ x, y, z, wall: true, n }); },
   drop: (x, y, z) => { takeIt(padRec); placeIt({ x, y, z }); },
   press: id => { const r = PAD_REGIONS.find(q => q.id === id); if (r) padPress(r); }, draw: padDraw };
+window.__cars = { on: () => blockTrf.on, lanes: () => blockTrf.L, seek: () => blockTrf.seek(),
+  toggle: (ti, on) => blockTrf.toggle(TABLES[ti | 0], on),
+  state: () => blockTrf.cars.map(c => ({ st: c.st, s: +c.s.toFixed(3),
+    x: +c.rec.g.position.x.toFixed(4), z: +c.rec.g.position.z.toFixed(4), ry: +c.rec.g.rotation.y.toFixed(3) })) };
 /* pad wall-mount — the pad's local frame: +y = screen normal, +z = its bottom edge. Sticking
    maps +y → the face normal and +z → world down, so the screen reads upright off the wall.
    The target is a raycast against the invisible wall slabs — hit.point + a hair off the face. */
@@ -1934,6 +2029,7 @@ const loop = now => {
   TABLES.forEach(t => t.g.children.forEach(c => { const mn = c.userData.mini;          // the easel turntable —
     if (mn && mn.spin) { c.rotation.y += mn.spin * dt;                                  // tops re-project every ~1.2° (~8.6° for heavy columns — a zone spins smooth, syncs exact on stop)
       if (Math.abs(c.rotation.y - mn.topTheta) > (mn.localCols.length > 1e5 ? .15 : .02)) { mn.topTheta = c.rotation.y; miniSyncTops(t, c); } } }));
+  blockTrf.tick(dt);                                                                  // the block's curbside cruise — pull out, lap, repark
   followers.forEach(f => followStep(f, dt));
   selfStep(dt);
   aimStep();

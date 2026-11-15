@@ -153,15 +153,22 @@ miniature carries its streets, not just its buildings:
   at the composite's scale — never downsampled into the grid. Position law
   (`ParkingMap.Build` in composite cells): `parkOffset = roadWidth/2 − carW/2`
   off the lane center + the curb-push extra lands the car center
-  `50v − carW/2` off the block boundary, overhanging the curb ~5v exactly like
-  the game; the real footprint comes from the vehicle manifest (`dims ×
+  `50v − carW/2` off the block boundary — flush to the lot line in these
+  composites (the road recipe is flat to the property edge; `roadProf` scans
+  each edge's property-line strip out of `localCols` tops and would park
+  against a real curb's lane-side edge — an empty scan keeps the bare-band
+  law). The real footprint comes from the vehicle manifest (`dims ×
   voxelSize / BLDG_VS`), so any named vehicle parks by its own size. Cars face
   the legal heading (right side of travel, cell space — `fx` mirrors x so the
   overlay's rotY mirrors with it) and clamp inside the `KeepClear` 40v
-  no-park margin off the corner intersections. Cars parent to `miniG` → they
-  ride spin/lift/model-swap for free (unmount splices their `PLACED` recs, a
-  mid-fetch swap abandons the pending mount); meshes are `miniVox`-tagged and
-  get a heading-aware `hitProxy`. Each is a real PLACED host — `surfaceAt`
+  no-park margin off the corner intersections. The seat is `2·vs + vvs/2` —
+  plate top plus **half a car-voxel**: exactly-flush reads as *sunk* because
+  the road silhouette clips the lowest wheel row at every oblique angle; a
+  sub-perceptual air gap keeps the tires visibly ON the road. Cars parent to
+  `miniG` → they ride spin/lift/model-swap for free (unmount splices their
+  `PLACED` recs, a mid-fetch swap abandons the pending mount); meshes are
+  `miniVox`-tagged and the `hitProxy` rides the car's own group so the aim
+  surface drives with it. Each is a real PLACED host — `surfaceAt`
   reads its own `tops`, so items seat on roofs/fenders (roof ≈ .3058 on the
   .2656 road). **But `_parked` recs are scenery, never place citizens** —
   their `x/z` are miniG-LOCAL: `placeSave`, override apply, tombstones and
@@ -169,6 +176,20 @@ miniature carries its streets, not just its buildings:
   coords once wrote a name-shared `dvm_place` override that stamped onto
   the spinner — `PARKED_REC_NAME_OVERRIDE_DISPLACEMENT.md`). The block
   table carries two — south street `along` 160, west street `along` 140.
+- **`CARS` (MODEL page) — the curbside cruise.** `blockTrf` laps the table's
+  parked cars around the block: pull out of the slot, circulate the
+  right-of-travel lanes, pull back in and restore the exact `_slot` pose.
+  The circuit is the MEASURED street — `roadProf`'s per-edge lane centers
+  (`strip road-edge + carW + gap`, or band − 18 when no curb is stamped) plus
+  quarter-arc corners; the game's road files carry no lane or direction data,
+  so the lanes are the part we derive from the composite's own tops. Each car
+  keeps a `hook` (merge point ↔ slot) for the pull-out/pull-in; a gap clamp
+  holds .08 m spacing between cars on the loop. Cars stay miniG-parented —
+  spin/lift/swap ride free; a swapped model drops stale recs to `gone`.
+  Toggling off mid-lap doesn't freeze cars — they finish the lap and park on
+  arrival. Probe: `__cars.toggle(i,on)`, `.state()` (per-car `{st,s,x,z,ry}`),
+  `.seek()` (jump a loop car to just before its merge — repark on the next
+  tick), `.lanes()`.
 - **Miniature voxels never raycast — but aim lands on their proxies.** Every
   mini `InstancedMesh` is flagged `userData.miniVox` — a mounted tenement is
   426K instances and three.js matrix-tests *each* one per ray, so the un-pruned
@@ -295,6 +316,10 @@ padPage` — a page switch costs a `padDraw` and nothing else. New tools are a
   Slicing is truth, not just draw: `miniSyncTops` re-derives each column's top
   as the tallest voxel inside the window (per-column `ys` lists captured at
   emit) — cut the roof off and measured seating drops to the exposed slab.
+- **MODEL — the swap page.** `◀ MODEL ▶` cycles `catalog` (`padSwap` —
+  persists `dvm_model:<id>`); `CARS` toggles `blockTrf` for tables whose
+  mounted model carries a street scene (the block composites — parked recs
+  with `_slotC`); it lights off harmlessly on tables with no parked cars.
 - `padMini()` reads the mounted model's `userData.mini` — buttons draw `on`
   state (active tab / active axis / live spin rate) so the screen always shows
   what's true. Slice + spin are session-scoped, per model instance — a fresh

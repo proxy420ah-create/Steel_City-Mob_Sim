@@ -614,6 +614,41 @@ const cS = cars.find(c => c.z > -1.2), cW = cars.find(c => c.z <= -1.2);
 check('car 1 — south street, curb-hard, seated on the road (.2656)', cS && Math.abs(cS.x + 6.397) < .01 && Math.abs(cS.z + .972) < .01 && Math.abs(cS.y - .2656) < .002, JSON.stringify(cS));
 check('car 2 — west street, different heading, same law', cW && Math.abs(cW.x + 6.070) < .01 && Math.abs(cW.z + 1.360) < .01 && Math.abs(cW.y - .2656) < .002, JSON.stringify(cW));
 check('car roofs read as measured surfaces — items can seat on them', cS && cW && Math.abs(cS.roof - .3058) < .004 && Math.abs(cW.roof - .3058) < .004, JSON.stringify([cS && cS.roof, cW && cW.roof]));
+/* parked-car seat — the wheels must stand a hair PROUD of the road surface: exactly-flush
+   reads as "sunk" (the road silhouette clips the bottom wheel row at every oblique angle).
+   The seat is plate top + half a car-voxel. Sample the real surface under each car (rays
+   from just under the bbox, car excluded — first hit = the surface). */
+const seat = JSON.parse(await evl(`JSON.stringify((() => { const T = window.__THREE, out = [], R = new T.Raycaster(), DN = new T.Vector3(0, -1, 0);
+  __construct.placed.filter(p => p._parked).forEach(c => { const bb = new T.Box3().setFromObject(c.g); let top = 0, n = 0;
+    for (let i = 0; i <= 6; i++) for (let j = 0; j <= 6; j++) {
+      R.set(new T.Vector3(bb.min.x + (bb.max.x - bb.min.x) * i / 6, bb.min.y + .002, bb.min.z + (bb.max.z - bb.min.z) * j / 6), DN);
+      const h = R.intersectObject(c.g.parent, true).find(q => q.object !== c.g && !c.g.children.includes(q.object));
+      if (h) { top = Math.max(top, h.point.y); n++; } }
+    out.push({ top: +top.toFixed(4), bot: +bb.min.y.toFixed(4), n }); });
+  return out; })())`));
+check('parked cars sit proud of the road — half a car-voxel proud, not flush-sunk', seat.length === 2 &&
+  seat.every(s => s.n > 40 && s.top > .264 && s.top < .27 && s.bot - s.top > 1e-4 && s.bot - s.top < .001), JSON.stringify(seat));
+/* curb cruise — __cars drives the parked cars: pull out of the slot, lap the measured lanes
+   (blockTrf derives the circuit from the composite's own road band), repark to the exact
+   slot pose. toggle(false) parks each car on its next pass of the merge — __cars.seek jumps
+   it to just before the merge so the probe doesn't wait a full lap. */
+const slotPose = JSON.parse(await evl(`JSON.stringify(__construct.placed.filter(p => p._parked).map(p => ({ x: +p.g.position.x.toFixed(4), z: +p.g.position.z.toFixed(4), ry: +p.g.rotation.y.toFixed(3) })))`));
+await evl('__cars.toggle(1, true)');
+let cruise = null;
+for (let i = 0; i < 40; i++) { cruise = JSON.parse(await evl('JSON.stringify(__cars.state())'));
+  if (cruise.length >= 2 && cruise.every(c => c.st === 'loop')) break; await sleep(300); }
+check('CARS — both cars pull out and join the block loop', cruise && cruise.length === 2 && cruise.every(c => c.st === 'loop'), JSON.stringify(cruise));
+const sA = cruise && cruise.map(c => c.s);
+await sleep(1600);
+const cruiseB = JSON.parse(await evl('JSON.stringify(__cars.state())'));
+check('cars travel the loop at cruise speed', cruise && cruiseB && cruiseB.every((c, i) => c.s > sA[i] + .01), JSON.stringify({ a: sA, b: cruiseB && cruiseB.map(c => c.s) }));
+await evl('__cars.toggle(1, false); __cars.seek()');
+let docked = null;
+for (let i = 0; i < 80; i++) { docked = JSON.parse(await evl('JSON.stringify(__cars.state())'));
+  if (docked.every(c => c.st === 'slot')) break; await sleep(300); }
+check('cars repark into their exact slot pose', docked && docked.every(c => c.st === 'slot') &&
+  docked.every((c, i) => Math.abs(c.x - slotPose[i].x) < .001 && Math.abs(c.z - slotPose[i].z) < .001 && Math.abs(c.ry - slotPose[i].ry) < .01),
+  JSON.stringify(docked));
 /* parked recs are scenery, not place citizens — their miniG-LOCAL coords must never land in
    name-keyed dvm_place (the class that once displaced the spinner: parked local (.33,-.06)
    stamped onto the shared asset name → boot moved the manifest car). */
