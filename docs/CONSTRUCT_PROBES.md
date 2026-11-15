@@ -80,6 +80,21 @@ but page code between `location.reload()` and `waitBoot` resolving is still mid-
 failure surfaces downstream as a wrong-value assert, not an error. After reload, always
 `waitBoot` + settle before driving probe hooks.
 
+## Heavy scenes — SwiftShader black frames
+
+Once the studio table mounts the ~1.36 M-instance Battlefield zone, headless
+`_shot.mjs` interior captures can return `ok:true` with a **black PNG**, and
+`--eval` can time out to `undefined` — software GL spends seconds per frame,
+so the canvas presents nothing fresh and CDP evaluates stall. The exterior
+room shot still rendered (cheap frustum); interior angles went black at every
+pre-wait up to 45 s. This is a **tooling limit, not scene truth** — the probe
+suite's own eval channel (all numeric `__construct.tables()` assertions)
+passed cleanly in the same runs. For content verification under load, render
+the data instead of the scene: a top-down material map straight from
+`city_layout.json` + the stassets (`docs/zone_topdown.png`) shows the 9-block
+grid, roads, barbers, lane band, and the tenement footprint. On real GPU
+hardware the in-scene zone renders normally.
+
 ## The meta-rule
 
 **Debug the tooling contract before the scene.** When a shot/eval disagrees with the world,

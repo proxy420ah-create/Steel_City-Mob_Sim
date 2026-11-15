@@ -566,7 +566,7 @@ const tabs2 = JSON.parse(await evl('JSON.stringify(__construct.tables())'));
 check('three tables — primary + block + studio', tabs2.length === 3 && tabs2[1].id === 'block' && tabs2[2].id === 'studio', JSON.stringify(tabs2.map(q => q.id)));
 check('block table emitted rear-left of the primary', tabs2[1] && Math.abs(tabs2[1].x + 6.4) < .01 && Math.abs(tabs2[1].z + 1.3) < .01);
 check('studio table emitted rear-right of the primary', tabs2[2] && Math.abs(tabs2[2].x + 6.4) < .01 && Math.abs(tabs2[2].z + 3.7) < .01);
-check('studio union catalog — hosts singles + blocks', JSON.stringify([...(tabs2[2].catalog || [])].sort()) === '["barber_shop","block_26_tenement","block_41_barber","tenement_block_0"]', JSON.stringify(tabs2[2].catalog));
+check('studio union catalog — zone + singles + blocks', JSON.stringify([...(tabs2[2].catalog || [])].sort()) === '["barber_shop","battlefield","block_26_tenement","block_41_barber","tenement_block_0"]', JSON.stringify(tabs2[2].catalog));
 check('the 1.2m slot between the rear tables is walkable', await evl('__construct.walkOK(-6.4, -2.5) === true && __construct.walkOK(-6.4, -2.4) === true'));
 // mv law: a stale dvm_place (pre-move coords, no rev) must NOT mask the authored spots
 await evl(`(() => { const p = JSON.parse(localStorage.getItem('dvm_place') || '{}');
@@ -580,7 +580,7 @@ const mvT = JSON.parse(await evl('JSON.stringify(__construct.tables())'));
 check('stale save rejected — tables hold the manifest row', mvT[0].x === -4.6 && mvT[1].x === -6.4 && mvT[1].z === -1.3 && mvT[2].x === -6.4 && mvT[2].z === -3.7, JSON.stringify(mvT.map(q => [q.id, q.x, q.z])));
 check('unversioned items still honor their save', await evl('Math.abs(__construct.placed.find(p => p.name === "commission_stamper").x + 1) < .01'));
 const bm = tabs2[1].models[0];
-check('block mount = the tenement composite — 322 chunk grid (streets included)', bm && bm.dims.join(',') === '322,122,322' && bm.vox === 582412, JSON.stringify(bm));
+check('block mount = the tenement composite — 322 chunk grid (streets included)', bm && bm.dims.join(',') === '322,122,322' && bm.vox === 480012, JSON.stringify(bm));
 const broof = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.4, -1.3, 0)');
 check('block table roof = .5563 — same fill span, streets share the footprint', Math.abs(broof - .5563) < .008, 'roof=' + broof);
 const sroad = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.4, -1.7, 0)');
@@ -590,7 +590,7 @@ await evl('__construct.take("debug_pad"); __construct.place(-6.4, -0.775)');    
 check('pad retargets — nearest table is the block', await evl('__pad.table() === "block"'), await evl('__pad.table()'));
 await evl('__pad.press("next")'); await sleep(3500);                                  // block swap → block_41_barber (322 composite builds ~2.5s)
 const bb = JSON.parse(await evl('JSON.stringify(__construct.tables()[1].models[0])'));
-check('block_41 mounted — 322 grid, land tiles included', bb && bb.dims.join(',') === '322,38,322' && bb.vox > 200000, JSON.stringify({ d: bb && bb.dims, v: bb && bb.vox }));
+check('block_41 mounted — 322 grid, land tiles included', bb && bb.dims.join(',') === '322,38,322' && bb.vox === 119693, JSON.stringify({ d: bb && bb.dims, v: bb && bb.vox }));
 const btop = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.58, -1.48, 0)');
 check('barber on its authored lot (slot 2) — roof field top .3355', Math.abs(btop - .3355) < .003, 'top=' + btop);
 const ltop = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.58, -1.12, 0)');
@@ -605,19 +605,31 @@ await evl('__pad.press("lres")');
 check('block reset', await evl('__construct.tables()[1].lift === 0 && Math.abs(__pad.rec().y0 - .26) < .01'));
 await evl('__pad.press("prev")'); await sleep(3500);                                  // back to the tenement composite
 const bback = JSON.parse(await evl('JSON.stringify(__construct.tables()[1].models[0])'));
-check('re-mount tenement — whole block again', bback && bback.vox === 582412, JSON.stringify(bback && bback.vox));
+check('re-mount tenement — whole block again', bback && bback.vox === 480012, JSON.stringify(bback && bback.vox));
 const broof2 = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.4, -1.3, 0)');
 check('roof restored at .5563', Math.abs(broof2 - .5563) < .008, 'roof=' + broof2);
 await evl('__construct.take("debug_pad"); __construct.place(-4.6, -1.975)');          // pad home to primary's margin
 check('pad re-homes to primary', await evl('__pad.table() === "primary"'), await evl('__pad.table()'));
 
-// studio table — third easel, opens identical to the primary
+// studio table — the ZONE tier: the Battlefield (city_layout r3-5 × c0-2) as one 966-voxel miniature
+for (let i = 0; i < 80 && !(await evl('__construct.tables()[2].models[0] && __construct.tables()[2].models[0].name === "battlefield"')); i++) await sleep(250);   // zone emit is ~seconds of chunked scan
 const sm = JSON.parse(await evl('JSON.stringify(__construct.tables()[2].models[0])'));
-check('studio mount = tenement — opens identical to the primary', sm && sm.name === 'tenement_block_0' && sm.dims.join(',') === '192,120,192', JSON.stringify(sm && sm.name));
+check('studio mount = the battlefield zone — 966² composite', sm && sm.name === 'battlefield' && sm.dims.join(',') === '966,122,966', JSON.stringify(sm));
+check('zone scale — the whole field inside .75 fill', sm && Math.abs(sm.scale - .0186) < .002, 'scale=' + (sm && sm.scale));
+check('zone plate — ground is a flat tops plate, not 900k columns', sm && sm.plate === true && sm.cols < 500000, JSON.stringify({ cols: sm && sm.cols, plate: sm && sm.plate }));
+check('zone proxies — per-stamp boxes + the ground plate', sm && sm.prox > 50, 'prox=' + (sm && sm.prox));
 await evl('__construct.take("debug_pad"); __construct.place(-6.4, -4.375)');          // set the pad on the studio's south margin
 check('pad retargets — nearest table is the studio', await evl('__pad.table() === "studio"'), await evl('__pad.table()'));
-const sroof = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:studio"), -6.4, -3.7, 0)');
-check('studio roof = .7475 — same consistent scale', Math.abs(sroof - .7475) < .008, 'roof=' + sroof);
+const sroof = await evl('(() => { const rec = __construct.placed.find(p => p.name === "table:studio"); let mx = 0; for (let x = -6.20; x <= -6.00; x += .02) for (let z = -3.50; z <= -3.30; z += .02) mx = Math.max(mx, __construct.surfaceAt(rec, x, z, 0)); return mx; })()');
+check('block_51 tenement reads inside the zone — tall roof field in its footprint', sroof > .34 && sroof < .375, 'roof=' + sroof);
+const salley = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:studio"), -6.4, -3.7, 0)');
+check('block_42 lane row is ground, not a building — flat slab ≈ .262', Math.abs(salley - .2619) < .003, 'alley=' + salley);
+const slotE = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:studio"), -6.4, -3.76, 0)');
+check('adjacent lot reads its land top — the lane row is a cut, not a lot', slotE > .264 && slotE < .285, 'lot=' + slotE);
+const sbbar = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:studio"), -6.16, -3.76, 0)');
+check('block_41 barber on its authored lot', sbbar > .28 && sbbar < .32, 'barber=' + sbbar);
+const sstreet = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:studio"), -6.25, -3.7, 0)');
+check('internal seam is road — slab top ≈ .262', Math.abs(sstreet - .2619) < .003, 'street=' + sstreet);
 await evl('__construct.take("debug_pad"); __construct.place(-4.6, -1.975)');          // pad back home
 check('pad re-homes to primary again', await evl('__pad.table() === "primary"'), await evl('__pad.table()'));
 
@@ -635,9 +647,11 @@ await evl('__pad.drop(-6.4, .5563, -1.3)'); await sleep(300);                   
 check('roof seat taken', await evl('Math.abs(__pad.rec().y0 - .5563) < .01'), await evl('__pad.rec().y0'));
 await evl('location.reload()'); await sleep(1500); await connect(); await waitBoot(); await sleep(900);
 check('roof seat survives F5 — not re-seated to .26', await evl('Math.abs(__pad.rec().y0 - .5563) < .02'), await evl('__pad.rec() && __pad.rec().y0'));
-await evl('__pad.drop(-6.4, .7475, -3.7)'); await sleep(300);                        // studio roof — same law
+const zroofY = await evl('Math.max(...[-6.18,-6.10,-6.02].map(x => [-3.48,-3.40,-3.32].map(z => __construct.surfaceAt(__construct.placed.find(p => p.name === "table:studio"), x, z, 0))).flat())');
+await evl(`__pad.drop(-6.10, ${zroofY || .3737}, -3.40)`); await sleep(300);           // studio's zone roof — block_51's tenement top, same law
 await evl('location.reload()'); await sleep(1500); await connect(); await waitBoot(); await sleep(900);
-check('studio roof seat survives F5', await evl('Math.abs(__pad.rec().y0 - .7475) < .02'), await evl('__pad.rec() && __pad.rec().y0'));
+for (let i = 0; i < 80 && !(await evl('__construct.tables()[2].models[0] && __construct.tables()[2].models[0].name === "battlefield"')); i++) await sleep(250);   // F5 re-emits the zone (~7s headless) — the mount await must settle before the seat reads
+check('zone roof seat survives F5', await evl(`Math.abs(__pad.rec().y0 - ${zroofY || .3737}) < .02`), await evl('__pad.rec() && __pad.rec().y0'));
 await evl('__pad.drop(-4.6, .26, -1.975)'); await sleep(300);                        // home margin — baseline
 await evl('location.reload()'); await sleep(1500); await connect(); await waitBoot(); await sleep(900);
 check('home margin seat survives F5', await evl('Math.abs(__pad.rec().y0 - .26) < .01 && __pad.table() === "primary"'), await evl('JSON.stringify([__pad.rec().y0, __pad.table()])'));

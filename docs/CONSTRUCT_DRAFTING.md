@@ -15,7 +15,7 @@ multiple drafting tables are list entries, not new code.
   models: [{ name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' } }],
   catalog: [{ name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' } },
             { name: 'block_41_barber',  fill: .75, slots: { 2: 'barber_shop' } }] },
-{ id: 'studio', x: -6.4, z: -3.7, size: 1.2, top: .26, scale: 1 / 64, mv: 1,  // rear-right — mirrors the block across the axis
+{ id: 'studio', x: -6.4, z: -3.7, size: 1.2, top: .26, scale: 1 / 64, mv: 1,  // rear-right — the zone tier (Battlefield 3×3)
   models: [{ name: 'tenement_block_0', fill: .75 }],      // opens identical to the primary — role TBD
   catalog: [singles + block specs] }                       // the union catalog — hosts either presentation
 ```
@@ -160,6 +160,46 @@ miniature carries its streets, not just its buildings:
   the void. The decorative children (floor seams, portal ∩ wires) carry
   `userData.noAim` and stay invisible to the ray — the flag, not the group,
   owns the exclusion so `rebuildBounds` re-marks them on every rebuild.
+
+## Zone composites — the Battlefield on the studio table
+
+The third tier is the **zone**: a 3×3 *block* grid — the authored
+**Battlefield** region of `city_layout.json` (`r3–5 × c0–2`), mounted
+verbatim on the studio table. Catalog entries carry `zone:{r0,r1,c0,c1}`
+instead of `slots`/`name`; `mountModel` dispatches to `emitZone`.
+
+- **966×122×966 grid** = nine 322 v block tiles (the same
+  `fillBlockGround`/`stampSlots` recipe as `emitBlock`, shared verbatim —
+  one law for road halves, sidewalk rings, lot stamping, and lanes). Seams
+  read the layout's `hSeamRows`/`vSeamRows` cells per block edge, so each
+  tile's road stripes and corner ownership match the live map.
+- **Slots stamp the live layout's assets** — `stasset` fields are full
+  paths (`voxel_buildings/empty_land.stasset`); the loader takes the
+  basename. `block_41` barber@2, `block_42` barber@0 + lane, `block_51`
+  tenement, the rest `empty_land`.
+- **`alley_lane` is a semantic marker, not voxels** — the stasset is empty
+  (64×8×64, 0 cells). `emitZone` reads its slot positions per block row
+  and derives `lanes` bits (row 1 → E|W) so the lane renders as the
+  builder's curb-mouth + cross-section cut, matching `emitBlock`'s
+  `m.lanes` machinery.
+- **`plate` ground mode**: a zone/block whose ground is full-coverage
+  (every column has the 2 v slab) emits ONE box plate under the composite
+  instead of ~620 K slab voxels, and `miniSyncTops` fills top-truth from
+  the rotated-rectangle outline (TOPK nearest hits per felt cell) instead
+  of per-column bookkeeping — the zone still seats pads/props at felt+2 v.
+- **Interior-bottom cull**: `emitVox` drops y=0 voxels that are roofed and
+  walled (invisible under the plate/lots) — ~100 K instances per block
+  tile, ~1 M across the zone.
+- **Proxies stay coarse**: `noProxy` on the volume itself + one proxy per
+  stamped slot + ground → 74 aim surfaces, not 1.36 M instance tests.
+- **Async emit**: the 114 M-cell grid scan and the instance write pass
+  `await` a setTimeout yield every ~2 M cells so boot stays interactive
+  (~7 s mount headless); `t._mountP` keeps the fixpoint behind it.
+- **Spin throttles on huge models** — `miniSpinSet` drops the per-frame
+  top-sync once `dims` exceed the adaptive threshold; rotation still works
+  but tops refresh at a coarser cadence.
+- Measured result: `battlefield` — `1,356,393` visible surface voxels at
+  scale `0.01863` (≈1:54), `312,958` tracked columns, `74` proxies.
 
 ## The debug pad — a pickable touchscreen
 
