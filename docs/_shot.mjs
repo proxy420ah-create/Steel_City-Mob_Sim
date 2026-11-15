@@ -8,6 +8,8 @@
 // (post-shot diagnostics only — a scene change in --eval is INVISIBLE to the image).
 // Also: __cam only sets camLock — the rAF loop applies it, and headless ticks are sparse;
 // --settle exists to cover that gap. Full trap list: docs/CONSTRUCT_PROBES.md
+// NB: --cam/--look REQUIRE '=' — `--cam x,y,z` (space) leaves arg.cam a non-string →
+// TypeError: ...split is not a function.
 //
 // Node >=22 (built-in WebSocket + fetch). Chrome headless via --remote-debugging-port;
 // NB: --user-data-dir MUST be an absolute non-default path or the port silently disables.

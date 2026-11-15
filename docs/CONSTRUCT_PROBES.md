@@ -17,6 +17,9 @@ wait __snap → sleep(SETTLE) → --env/--ui/--torch/--pre → __snap (capture) 
 - `--torch` flips `__snapTorch` for the capture only — the page's own L/`⏻` state is untouched.
 - `--full` adds a composited DOM shot (dialogs/HUD) as `probe_<name>_full.png`; the default
   `__snap` captures the WebGL canvas only.
+- **Args are `--cam=`/`--look=` equals syntax, not positional.** `_shot.mjs` calls
+  `(arg.cam || "0,3.1,4.9").split(...)` — a bare or object-shaped camera value crashes
+  with `TypeError: ...split is not a function` before the page even opens.
 
 ## Camera law — `__cam` is asynchronous
 
@@ -79,6 +82,36 @@ but page code between `location.reload()` and `waitBoot` resolving is still mid-
 `__pad.drop` against a `padRec` that doesn't exist yet throws inside `takeIt` and the
 failure surfaces downstream as a wrong-value assert, not an error. After reload, always
 `waitBoot` + settle before driving probe hooks.
+
+**Poll budgets scale with mount size.** `models[]` is *empty* until `_mountP` resolves —
+the Battlefield zone needs ~7 s to emit (headless `setTimeout` yields throttle further),
+so a 20 s poll that sufficed for the block table died on `JSON.parse(undefined)` at the
+zone's first snapshot. Poll `models.length` (not a fixed sleep) and budget for the
+largest mounted model, not the typical one.
+
+## Surface assertions — field-scan + contrast, not single points
+
+Miniature peaks are authored, not centered: the tenement's 122 v peak lives on a thin
+perimeter parapet — a centered 3×3 sample read `.359`, not the spec max. Assert a
+**footprint-wide max scan** for "is the tall thing there." Conversely, some features are
+*flat by design*: the alley lane is ground-level — its identity is **contrast** (lane
+column `.2619` asphalt vs adjacent lot `.2656` plot), not a height. Single-point absolute
+asserts on authored content are fragile twice over — they miss off-center peaks and they
+invent heights that were never promised.
+
+## Flake discipline — rerun before believing a fail cluster
+
+Headless mouse-event timing produces transient clusters: one run failed five early
+drag/paste checks that passed identically on the next run with zero code changes. When a
+cluster (a) sits in code the session didn't touch and (b) passed on prior runs, rerun
+once before treating it as real. A *persistent* identical failure is a bug; a flaky
+cluster is the headless event pump, and chasing it as scene code wastes the session.
+
+## Probe tooling runs on Node's native WebSocket
+
+The CDP tools (`_place_probe.mjs`, `_shot.mjs`) use **Node 24's built-in `WebSocket`** —
+no `ws` package is installed. Scratch scripts that `require('ws')` die at import; copy
+the native-socket pattern from the existing tools.
 
 ## Heavy scenes — SwiftShader black frames
 
