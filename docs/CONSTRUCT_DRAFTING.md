@@ -142,6 +142,17 @@ miniature carries its streets, not just its buildings:
 - `stassetFetch` caches parsed volumes per name — a block's 9 slots share
   fetches; `emitVox` is the shared instance/tops/mini emitter for both single
   mounts and composites.
+- **`parked` — the game's curbside law, stamped into the road ring.** A spec's
+  `parked:[{edge,along,name?}]` drops `vehicle_civilian_car_0` (the game's own
+  20×16×30 scenery fill) onto the street at slab-top y+2 — `ParkingMap.Build`
+  in composite cells: `parkOffset = roadWidth/2 − carWidth/2` off the lane
+  center + the curb-push extra lands the car center `50v − carW/2` off the
+  block boundary, overhanging the curb ~5v exactly like the game. Cars face
+  the legal heading (right side of travel: s→−x, n→+x, e→+z, w→−z — the
+  `rotVoxY` quarter-turn helper, not a re-authored asset) and clamp inside the
+  `KeepClear` 40 v no-park margin off the corner intersections. `block_26_tenement`
+  carries two on the south street (`along` 120/200) — each reads as a measured
+  surface (top ≈ .3075, car roofs are E-placeable) inside the .2656 road band.
 - **Miniature voxels never raycast — but aim lands on their proxies.** Every
   mini `InstancedMesh` is flagged `userData.miniVox` — a mounted tenement is
   426K instances and three.js matrix-tests *each* one per ray, so the un-pruned

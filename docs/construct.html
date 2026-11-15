@@ -316,8 +316,10 @@ MANIFEST.tables = [                                                    // PRIMAR
     catalog: [{ name: 'tenement_block_0', fill: .75 },                   // the swappable universe — the wall panel cycles it
               { name: 'barber_shop', fill: .75 }] },
   { id: 'block', x: -6.4, z: -1.3, size: 1.2, top: .26, scale: 1 / 64, mv: 2,   // BLOCK TABLE — rear-left of the primary, .6m gap (9 lots of 64 vox = 192 span)
-    models: [{ name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' } }],   // tenement fills every lot → identical to the easel's
-    catalog: [{ name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' } },
+    models: [{ name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' },       // tenement fills every lot → identical to the easel's
+               parked: [{ edge: 's', along: 120 }, { edge: 's', along: 200 }] }],            // two curbside cars on the south street — the game's parking law
+    catalog: [{ name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' },
+                parked: [{ edge: 's', along: 120 }, { edge: 's', along: 200 }] },
               { name: 'block_41_barber', fill: .75, slots: { 2: 'barber_shop' } }] },       // block_41's authored lot — the rest = empty_land
   { id: 'studio', x: -6.4, z: -3.7, size: 1.2, top: .26, scale: 1 / 64, mv: 1,  // STUDIO TABLE — the ZONE tier: a 3×3 rectangle of live city_layout blocks, "The Battlefield" (r3-5 × c0-2)
     models: [{ name: 'battlefield', fill: .75, plate: true, noProxy: true,      // plate: full-coverage ground → flat-tops path; noProxy: emitZone lays per-stamp proxies instead
@@ -326,7 +328,8 @@ MANIFEST.tables = [                                                    // PRIMAR
                 zone: { src: 'city_layout.json', r0: 3, r1: 5, c0: 0, c1: 2 } },
               { name: 'tenement_block_0', fill: .75 },
               { name: 'barber_shop', fill: .75 },
-              { name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' } },
+              { name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' },
+                parked: [{ edge: 's', along: 120 }, { edge: 's', along: 200 }] },
               { name: 'block_41_barber', fill: .75, slots: { 2: 'barber_shop' } }] },
 ];
 const TABLES = [];
@@ -446,10 +449,48 @@ const stampSlots = (vox, W2, H, files, slots, X0, Z0) => { const { S, BW, M } = 
   for (let s = 0; s < 9; s++) { const n = slots[s]; if (n) stamp(files[n], (s % 3) * S, ((s / 3) | 0) * S); }
   for (let s = 0; s < 9; s++) if (!covered.has(s) && !slots[s]) stamp(files['empty_land'], (s % 3) * S, ((s / 3) | 0) * S);
   return stamped; };
+/* rotVoxY — quarter-turn a stasset volume about +Y (q=1 maps authored −z → +x, q=2 → +z,
+   q=3 → −x). Vehicle parking needs street-aligned cars, not re-authored assets. */
+const rotVoxY = (f, q) => { q = ((q % 4) + 4) % 4; if (!q) return f;
+  const W2 = (q & 1) ? f.D : f.W, D2 = (q & 1) ? f.W : f.D, vox = new Uint16Array(W2 * f.H * D2);
+  for (let y = 0; y < f.H; y++) for (let z = 0; z < f.D; z++) for (let x = 0; x < f.W; x++) {
+    const id = f.vox[x + f.W * (y + f.H * z)]; if (!id) continue;
+    let x2, z2;
+    if (q === 1) { x2 = f.D - 1 - z; z2 = x; }
+    else if (q === 2) { x2 = f.W - 1 - x; z2 = f.D - 1 - z; }
+    else { x2 = z; z2 = f.W - 1 - x; }
+    vox[x2 + W2 * (y + f.H * z2)] = id; }
+  return { W: W2, H: f.H, D: D2, vox }; };
+/* stampParked — the game's curbside parking law in composite cells (ParkingMap.Build):
+   parkOffset = roadWidth/2 − carWidth/2 from the lane center, + the curb-push extra —
+   which lands the car's center 50v − carW/2 off the corridor's block boundary (the
+   corridor center sits ON the boundary between two tiles' half-roads). Cars sit on the
+   block-adjacent curb and face the legal heading (right side of travel): s→−x, n→+x,
+   e→+z, w→−z. KeepClear = 40v (2m) off the corner intersections → the legal stretch is
+   along ∈ [M+40+len/2, TILE−M−40−len/2]. Spec: {edge:'s'|'n'|'e'|'w', along, name?}. */
+const PARK_EXTRA = 5, PARK_CLEAR = 40;
+const stampParked = (vox, W2, H, files, parked, X0, Z0) => { const { M, TILE, ROAD } = BLK;
+  const EDGE = { s: { q: 3, axis: 'x', tr: z => TILE - 50 + z },                          // transverse center off the boundary
+                 n: { q: 1, axis: 'x', tr: z => 50 - z },
+                 e: { q: 2, axis: 'z', tr: z => TILE - 50 + z },
+                 w: { q: 0, axis: 'z', tr: z => 50 - z } };
+  const stamped = [];
+  (parked || []).forEach(p => { const E = EDGE[p.edge]; if (!E) return;
+    const f = rotVoxY(files[p.name || 'vehicle_civilian_car_0'], E.q);
+    const half = (E.axis === 'x' ? f.D : f.W) / 2, len = E.axis === 'x' ? f.W : f.D;      // transverse half-width / street length
+    const lo = M + PARK_CLEAR + len / 2, hi = TILE - M - PARK_CLEAR - len / 2;
+    const a = Math.max(lo, Math.min(hi, p.along == null ? (lo + hi) / 2 : p.along));      // center along the street
+    const c = E.tr(half);                                                                // transverse center — the parking law
+    const sx = E.axis === 'x' ? a - f.W / 2 : c - f.W / 2, sz = E.axis === 'x' ? c - f.D / 2 : a - f.D / 2;
+    stamped.push({ x: X0 + sx, z: Z0 + sz, w: f.W, d: f.D, h: f.H });
+    for (let z = 0; z < f.D; z++) for (let y = 0; y < f.H; y++) for (let x = 0; x < f.W; x++) {
+      const id = f.vox[x + f.W * (y + f.H * z)]; if (id) vox[(X0 + sx + x) + W2 * (y + 2 + H * (Z0 + sz + z))] = id; } });
+  return stamped; };
 /* emitBlock — a 3×3 city block as ONE miniature: the tile recipe + lot stamps merged into a
    single composite at 1:1, tops written back into the host. ROT/SLICE/persistence unchanged. */
 const emitBlock = (t, m) => { const W2 = BLK.TILE, slots = m.slots || {};
   const names = new Set(['empty_land']); Object.values(slots).forEach(n => names.add(n));
+  (m.parked || []).forEach(p => names.add(p.name || 'vehicle_civilian_car_0'));
   return Promise.all([...names].map(n => stassetFetch(n).then(f => [n, f]))).then(es => {
     const files = Object.fromEntries(es);
     const H = Math.max(2, Math.max(...[...names].map(n => files[n].H)) + 2);
@@ -457,6 +498,7 @@ const emitBlock = (t, m) => { const W2 = BLK.TILE, slots = m.slots || {};
     const set = (x, z, id) => { vox[x + W2 * (H * z)] = vox[x + W2 * (1 + H * z)] = id; };
     fillBlockGround(set, 0, 0, { n: 'road', e: 'road', s: 'road', w: 'road', ...(m.seams || {}) }, m.lanes | 0);
     stampSlots(vox, W2, H, files, slots, 0, 0);
+    stampParked(vox, W2, H, files, m.parked, 0, 0);                       // curbside fill — the game's parked-car law on the street ring
     return emitVox(t, { ...m, plate: true }, W2, H, W2, vox); })   // composites have full-coverage ground — the flat tops path applies
     .catch(e => console.warn('CONSTRUCT — block emit failed:', m.name, e)); };
 /* layoutFetch — the live city layout (blocks+seams) is the zone's sole source of truth, cached. */

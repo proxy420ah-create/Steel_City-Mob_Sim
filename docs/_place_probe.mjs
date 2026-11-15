@@ -580,11 +580,20 @@ const mvT = JSON.parse(await evl('JSON.stringify(__construct.tables())'));
 check('stale save rejected — tables hold the manifest row', mvT[0].x === -4.6 && mvT[1].x === -6.4 && mvT[1].z === -1.3 && mvT[2].x === -6.4 && mvT[2].z === -3.7, JSON.stringify(mvT.map(q => [q.id, q.x, q.z])));
 check('unversioned items still honor their save', await evl('Math.abs(__construct.placed.find(p => p.name === "commission_stamper").x + 1) < .01'));
 const bm = tabs2[1].models[0];
-check('block mount = the tenement composite — 322 chunk grid (streets included)', bm && bm.dims.join(',') === '322,122,322' && bm.vox === 480012, JSON.stringify(bm));
+check('block mount = the tenement composite — 322 chunk grid (streets included)', bm && bm.dims.join(',') === '322,122,322' && bm.vox === 483632, JSON.stringify(bm));
 const broof = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.4, -1.3, 0)');
 check('block table roof = .5563 — same fill span, streets share the footprint', Math.abs(broof - .5563) < .008, 'roof=' + broof);
 const sroad = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.4, -1.7, 0)');
 check('street ring is a measured surface — road top .2656', Math.abs(sroad - .2656) < .004, 'road=' + sroad);
+/* parked cars — the game's curbside law stamped into the south road band: grid (120/200, 282)
+   maps to world ≈ (-6.29/-6.51, -0.96); the car top (slab+17v ≈ .3075) reads as a measured
+   surface on the street, and the road either side stays .2656 */
+const car1 = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.287, -0.96, 0)');
+check('parked car 1 — curb-hard on the south street, reads as a surface', Math.abs(car1 - .3075) < .005, 'car=' + car1);
+const car2 = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.513, -0.96, 0)');
+check('parked car 2 — second slot, same law', Math.abs(car2 - .3075) < .005, 'car=' + car2);
+const gap = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.4, -0.96, 0)');
+check('the road between them stays road — .2656', Math.abs(gap - .2656) < .004, 'gap=' + gap);
 check('pad still remote for primary — it sits on primary', await evl('__pad.table() === "primary"'), await evl('__pad.table()'));
 await evl('__construct.take("debug_pad"); __construct.place(-6.4, -0.775)');          // set the pad on the block's north margin
 check('pad retargets — nearest table is the block', await evl('__pad.table() === "block"'), await evl('__pad.table()'));
@@ -605,7 +614,7 @@ await evl('__pad.press("lres")');
 check('block reset', await evl('__construct.tables()[1].lift === 0 && Math.abs(__pad.rec().y0 - .26) < .01'));
 await evl('__pad.press("prev")'); await sleep(3500);                                  // back to the tenement composite
 const bback = JSON.parse(await evl('JSON.stringify(__construct.tables()[1].models[0])'));
-check('re-mount tenement — whole block again', bback && bback.vox === 480012, JSON.stringify(bback && bback.vox));
+check('re-mount tenement — whole block again', bback && bback.vox === 483632, JSON.stringify(bback && bback.vox));
 const broof2 = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.4, -1.3, 0)');
 check('roof restored at .5563', Math.abs(broof2 - .5563) < .008, 'roof=' + broof2);
 await evl('__construct.take("debug_pad"); __construct.place(-4.6, -1.975)');          // pad home to primary's margin
