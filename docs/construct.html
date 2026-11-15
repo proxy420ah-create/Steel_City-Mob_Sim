@@ -75,7 +75,7 @@ window.__torch = { on: false, spot: torch, fill: torchFill, cfg: TC, tune: torch
   set(on) { this.setOn(on); },
   aim(cam) { cam.getWorldPosition(torch.position); cam.getWorldDirection(_tdir);
     torchTgt.position.copy(torch.position).addScaledVector(_tdir, 2);
-    torchFill.position.copy(torch.position).addScaledVector(_tdir, .3); } };
+    torchFill.position.copy(torch.position); } };                                     // fill ON the eye — a .3m lead lit the far side of clipped walls before the camera arrived
 
 /* ── MANIFEST — the procedural expansion seam. tiles = [i,j] grid cells (.6 pitch, i east, j north),
    props = future display placements (mannequin, pedestal, prop table — append, don't redesign). */

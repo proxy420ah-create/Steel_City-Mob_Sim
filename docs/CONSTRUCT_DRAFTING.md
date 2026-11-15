@@ -303,7 +303,9 @@ padPage` — a page switch costs a `padDraw` and nothing else. New tools are a
 ## The L-key inspection torch
 
 Same rig as the Commission's: `__torch` = a `SpotLight` + a faint `PointLight`
-fill, parked at intensity 0 until L or the pad's `⏻` toggles it on. `aim(cam)`
+fill parked ON the camera eye — a .3 m lead let it light the far side of
+clipped walls before the camera arrived. Both sit at intensity 0 until L or
+the pad's `⏻` toggles them on. `aim(cam)`
 repoints it before every render — it rides the camera object, so the main view,
 the X fly-cam, and the follower POV (`__eyes.pip`/`shot`) all light where they
 look. L also fires **inside place mode** (the `placeOn` branch has its own `l`

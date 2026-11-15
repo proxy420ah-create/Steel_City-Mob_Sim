@@ -517,10 +517,10 @@ check('reset restores the stock tune', await evl('__torch.cfg.c === 0 && __torch
 await evl('__torch.set(true); __cam(-6.5,.62,-4.6, -7.93,.62,-4.6)');                        // pin a clean lane to the west wall
 for (let i = 0; i < 30 && !(await evl('Math.abs(__camera.position.x + 6.5) < .01')); i++) await sleep(100);
 await evl('__torch.aim(__camera)');
-check('aim — rig parks on the camera (spot at the eye, target 2m ahead, fill .3m)', await evl(`(() => {
+check('aim — rig parks on the camera (spot at the eye, target 2m ahead, fill at the eye)', await evl(`(() => {
   const T = __torch, C = __camera, d = new __THREE.Vector3(); C.getWorldDirection(d);
   return T.spot.position.distanceTo(C.position) < .001 && T.spot.target.position.distanceTo(C.position.clone().addScaledVector(d, 2)) < .001
-    && T.fill.position.distanceTo(C.position.clone().addScaledVector(d, .3)) < .001; })()`));
+    && T.fill.position.distanceTo(C.position) < .001; })()`));
 check('aim — intensity is the tune verbatim (no exposure layer)', await evl('Math.abs(__torch.spot.intensity - __torch.cfg.i) < .001 && Math.abs(__torch.fill.intensity - __torch.cfg.f) < .001'), await evl('__torch.spot.intensity'));
 await evl('__cam(-7.5,.62,-4.6, -7.93,.62,-4.6)');                                           // ~.43m — where the old layer widened the cone
 for (let i = 0; i < 30 && !(await evl('Math.abs(__camera.position.x + 7.5) < .01')); i++) await sleep(100);
