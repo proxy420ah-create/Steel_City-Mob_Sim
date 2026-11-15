@@ -409,6 +409,23 @@ check('held pose preserved across place → take', JSON.stringify(await evl('__c
   JSON.stringify({ before: gripQ, after: await evl('__construct.heldQ()') }));
 await evl('__construct.place(-4.6, -1.975)');                                        // back on the margin
 
+// 12.96b — placed tilt persists: the grip's pitch/roll rides placement, dvm_place, and reload
+await evl('__construct.take("debug_pad")');
+await evl('window.dispatchEvent(new KeyboardEvent("keydown",{key:"["}))');            // [ — +1 x-snap ≈ 15° lean (snaps before tumble — snap resets heldFree)
+await evl('__construct.tumble(0, -60)'); await sleep(200);                           // + free X tumble ≈ 29° — a real lean, not a yaw
+await evl('__construct.place(-4.6, -1.975)'); await sleep(250);
+const plQ = JSON.parse(await evl('JSON.stringify(__pad.rec().g.quaternion.toArray().map(v=>+v.toFixed(4)))'));
+check('placement keeps the tilt — not flattened', Math.abs(plQ[0]) > .1 || Math.abs(plQ[2]) > .1, plQ.join(','));
+check('tilt saved to dvm_place', await evl('!!(JSON.parse(localStorage.getItem("dvm_place"))["debug_pad"]||{}).tilt'));
+await evl('location.reload()'); await sleep(1500); await connect(); await waitBoot(); await sleep(900);
+const reQ = JSON.parse(await evl('JSON.stringify(__pad.rec().g.quaternion.toArray().map(v=>+v.toFixed(4)))'));
+check('tilt survives F5 — same quaternion', JSON.stringify(reQ) === JSON.stringify(plQ), reQ.join(',') + ' vs ' + plQ.join(','));
+await evl('__construct.take("debug_pad")'); await sleep(200);
+await evl('window.dispatchEvent(new KeyboardEvent("keydown",{key:"0"}))');            // 0 — LEVEL the grip
+await evl('__construct.place(-4.6, -1.975)'); await sleep(250);                       // home spot, flat
+check('pad re-leveled home', await evl('Math.abs(__pad.rec().g.quaternion.x) < .01 && Math.abs(__pad.rec().g.quaternion.z) < .01'));
+check('leveled save drops the tilt field', await evl('!(JSON.parse(localStorage.getItem("dvm_place"))["debug_pad"]||{}).tilt'));
+
 // 12.97 — pad pages: tab switching, the turntable, the xyz slice window
 await evl('__pad.tab("rot")');
 check('tab switch → rot page', await evl('__pad.page() === "rot"'));
