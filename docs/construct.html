@@ -523,7 +523,7 @@ const mountModel = (t, mspec) => {
 };
 MANIFEST.tables.forEach(spec => { const t = emitTable(spec);
   const savedLift = +localStorage.getItem('dvm_lift:' + spec.id);           // the pistons remember their reach
-  if (savedLift) queueMicrotask(() => tableLiftSet(t, savedLift));          // restore AFTER eval — liftRiders reaches late-bound helpers (inB/held); a synchronous call is a TDZ landmine
+  if (savedLift) t._savedLift = savedLift;                                  // applied in boot AFTER overrides — a rider's saved seat precedes its ride (eval-time calls are still TDZ landmines: liftRiders reaches late-bound helpers)
   const saved = localStorage.getItem('dvm_model:' + spec.id), cat = spec.catalog || spec.models;
   mountModel(t, cat.find(m => m.name === saved) || spec.models[0]); });
 
@@ -686,12 +686,15 @@ const padMountQ = (g, nArr) => { _pmn.set(nArr[0], nArr[1], nArr[2]).normalize()
   _pmb.makeBasis(_pmx, _pmn, _pmz); g.quaternion.setFromRotationMatrix(_pmb); };
 const padWallTarget = () => {
   _ray.setFromCamera(_ctr, camera);
-  const h = _ray.intersectObjects(boundsG.children.filter(c => c.userData.wallSlab), false);
-  if (!h.length || h[0].distance > 2.4) return null;
-  const n = h[0].face.normal.clone().transformDirection(h[0].object.matrixWorld);
+  const excl = [ghost, aimDot, camera];
+  followers.forEach(f => excl.push(f.CH)); if (selfBody) excl.push(selfBody.CH); if (held) excl.push(held.g); marks.forEach(m => excl.push(m));
+  const hits = rayPruned(_ray, scene.children, excl, true);
+  const h = hits[0];
+  if (!h || !h.object.userData.wallSlab || h.distance > 2.4) return null;   // the wall must OWN the ray — a nearer surface (felt/mini/floor) is the drop, not a mount
+  const n = h.face.normal.clone().transformDirection(h.object.matrixWorld);
   if (n.dot(fwdV) > 0) n.negate();                                       // face the side we're standing on
   n.y = 0; if (n.lengthSq() < .5) return null; n.normalize();            // vertical faces only
-  const p = h[0].point.clone().addScaledVector(n, .002);                 // slab back kisses the face
+  const p = h.point.clone().addScaledVector(n, .002);                    // slab back kisses the face
   return { x: p.x, y: p.y, z: p.z, wall: true, n: [n.x, n.y, n.z] };
 };
 /* ═══ PERSISTENT PARTY — followers cross pages. sessionStorage 'dvm_party' is the handoff:
@@ -1539,6 +1542,7 @@ const placeSnapOp = op => { placeUndo.push(op); if (placeUndo.length > 32) place
 const placeSave = () => {                                                        // manifest items persist by name; pastes persist as extras
   const over = {}, extra = [];
   PLACED.forEach(p => { const o = { x: +p.x.toFixed(3), z: +p.z.toFixed(3), rotY: +p.rotY.toFixed(3), mv: p.mv || 0 };
+    if (!p.mount) o.y = +p.y0.toFixed(3);                                       // the placed seat height — the restore cap honors it (mounts carry their own y)
     const tl = tiltOf(p); if (tl) o.tilt = tl;
     if (p.mount) o.mount = { x: +p.mount.x.toFixed(3), y: +p.mount.y.toFixed(3), z: +p.mount.z.toFixed(3), n: p.mount.n };
     if (p.source === 'extra') extra.push({ name: p.name, kind: p.kind, pickable: p.pickable, solids: p.solids, ...o });
@@ -1811,7 +1815,8 @@ ready.then(async () => {
     if (o.mount) { p.mount = o.mount; p.x = o.x; p.z = o.z; p.y0 = o.mount.y; p.rotY = o.rotY;   // wall mounts restore as mounts
       p.g.position.set(o.mount.x, o.mount.y, o.mount.z); padMountQ(p.g, o.mount.n); p.bbox = footB(p.lb, p.x, p.z, p.rotY);
       gripRestore(p, o.tilt); }                                                              // and the grip comes back on pickup
-    else { gripRestore(p, o.tilt); placeApply(p, o.x, o.z, o.rotY); } });
+    else { gripRestore(p, o.tilt); if (o.y !== undefined) p.y0 = o.y; placeApply(p, o.x, o.z, o.rotY); } });
+  TABLES.forEach(t => { if (t._savedLift) { tableLiftSet(t, t._savedLift); delete t._savedLift; } });   // lifts ride AFTER saved seats restore — riders bump from their own o.y; extras then seat on the lifted tops
   const extras = JSON.parse(localStorage.getItem('dvm_extra') || '[]');            // extras emit LAST — they seat on the final layout, not manifest spots
   for (const e of extras) { const r = await emitAsset(e.name, { kind: e.kind, x: e.x, z: e.z, rotY: e.rotY, pickable: e.pickable, solids: e.solids,
     source: 'extra', seatY: 'auto' });

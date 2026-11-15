@@ -83,20 +83,27 @@ declaration, not by tuning.
    **but only at the same manifest rev**: a spec may carry `mv` (default 0); the
    save stores the item's `mv` and the override applies only when `o.mv === p.mv`.
    Bumping a spec's `mv` (an authored reposition) invalidates just that item's
-   stale save — unversioned items keep their saved spots. *Saves carry no `y` —
-   height is re-derived, never trusted.*
-3. **Extras** (`dvm_extra`) — emit with `seatY:'auto'` → conform onto the final layout.
-4. **Fixpoint re-seat** (≤4 passes, descending y0) — every item settles:
+   stale save — unversioned items keep their saved spots. Non-mount saves carry
+   `y` — **the placed seat** — restored to `p.y0` before `placeApply` so the
+   re-seat cap honors where the item actually stood, not its emit height.
+3. **Lifts** (`dvm_lift:<id>`) — `tableLiftSet` restores each saved piston height
+   AFTER overrides and BEFORE extras: `liftRiders` bumps anything standing at or
+   above the old top by `dy` — saved seats ride the lift like live ones. (The
+   restore is deferred out of eval — `liftRiders` reaches late-bound helpers;
+   a boot-time call keeps the deferral and pins the order.)
+4. **Extras** (`dvm_extra`) — emit with `seatY:'auto'` → conform onto the final
+   (already-lifted) layout.
+5. **Fixpoint re-seat** (≤4 passes, descending y0) — every item settles:
    `surfOnly: p.surf, cap: p.y0 + .01`. Hosts correct first; passengers see the
    corrected tops. Converges when a pass moves nothing.
-5. `refreshSolids()`, warm-up compile, `__warmDone`.
+6. `refreshSolids()`, warm-up compile, `__warmDone`.
 
 ## 5. Persistence keys
 
 | Key | Contents |
 |-----|----------|
-| `dvm_place` | `{name: {x,z,rotY,mv,tilt?,mount?}}` — manifest overrides (no `y` — heights re-derive; `mv` gates stale revs; `tilt` = the item's saved GRIP `{s,f}`, restored to hand on pickup — placed poses stay level/mounted) |
-| `dvm_extra` | `[{name,kind,pickable,solids,x,z,rotY,tilt?}]` — pasted/agent-emitted items (`tilt` = saved grip) |
+| `dvm_place` | `{name: {x,z,rotY,mv,y?,tilt?,mount?}}` — manifest overrides (`y` = the placed seat for non-mounts — the re-seat cap honors it; `mv` gates stale revs; `tilt` = the item's saved GRIP `{s,f}`, restored to hand on pickup — placed poses stay level/mounted) |
+| `dvm_extra` | `[{name,kind,pickable,solids,x,z,rotY,y?,tilt?}]` — pasted/agent-emitted items (`tilt` = saved grip; `y` = saved seat, informational — extras still emit `seatY:'auto'`) |
 | `dvm_del` | `[name]` — manifest tombstones |
 | `dvm_fol` | follower roster (CHAIR survives F5) |
 | `dvm_live` | `'1'` → live bridge auto-resumes after reload |

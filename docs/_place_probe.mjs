@@ -564,6 +564,27 @@ check('studio roof = .7475 — same consistent scale', Math.abs(sroof - .7475) <
 await evl('__construct.take("debug_pad"); __construct.place(-4.6, -1.975)');          // pad back home
 check('pad re-homes to primary again', await evl('__pad.table() === "primary"'), await evl('__pad.table()'));
 
+// 12.99c — annex E-drop law: the wall must OWN the ray — a nearer surface (felt/mini) is the drop, not a mount
+await evl('__construct.take("debug_pad")');
+await evl('__cam(-5.6, 1.2, -.9, -6.4, .26, -.9)'); await sleep(350);                 // stand east of the block table, aim at its felt
+check('felt aim offers a drop — not a wall mount', await evl('!!__construct.dropTarget() && !__construct.dropTarget().wall'), await evl('JSON.stringify(__construct.dropTarget())'));
+check('wallTarget silent while the felt owns the ray', await evl('__pad.wallTarget() === null'));
+await evl('__cam(-6.4, .8, -2.5, -7.9, .8, -2.5)'); await sleep(350);               // aim square at the bare annex wall
+check('bare-wall aim still offers the mount', await evl('!!(__pad.wallTarget() && __pad.wallTarget().wall)'), await evl('JSON.stringify(__pad.wallTarget())'));
+await evl('__cam(null)'); await evl('__construct.place(-4.6, -1.975)'); await sleep(200);
+
+// 12.99d — placed seat persists through F5: a pad left on a composite roof must NOT sink to the felt
+await evl('__pad.drop(-6.4, .5563, -1.3)'); await sleep(300);                        // seat it on the block roof — seat .556, emit .26
+check('roof seat taken', await evl('Math.abs(__pad.rec().y0 - .5563) < .01'), await evl('__pad.rec().y0'));
+await evl('location.reload()'); await sleep(1500); await connect(); await waitBoot(); await sleep(900);
+check('roof seat survives F5 — not re-seated to .26', await evl('Math.abs(__pad.rec().y0 - .5563) < .02'), await evl('__pad.rec() && __pad.rec().y0'));
+await evl('__pad.drop(-6.4, .7475, -3.7)'); await sleep(300);                        // studio roof — same law
+await evl('location.reload()'); await sleep(1500); await connect(); await waitBoot(); await sleep(900);
+check('studio roof seat survives F5', await evl('Math.abs(__pad.rec().y0 - .7475) < .02'), await evl('__pad.rec() && __pad.rec().y0'));
+await evl('__pad.drop(-4.6, .26, -1.975)'); await sleep(300);                        // home margin — baseline
+await evl('location.reload()'); await sleep(1500); await connect(); await waitBoot(); await sleep(900);
+check('home margin seat survives F5', await evl('Math.abs(__pad.rec().y0 - .26) < .01 && __pad.table() === "primary"'), await evl('JSON.stringify([__pad.rec().y0, __pad.table()])'));
+
 
 // 12.99b — the apps menu: ≡ lists every page as a launch tile
 await evl('__pad.tab("apps")');

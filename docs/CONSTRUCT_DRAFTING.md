@@ -241,9 +241,12 @@ capture, restores after — screenshot illumination without a session flag.
 
 ## The pad sticks to walls — the movable panel
 
-A held pad detects vertical faces: `dropTarget` raycasts the wall slabs
-(`boundsG` children flagged `userData.wallSlab` by `rebuildBounds`) through
-`padWallTarget` — a hit within 2.4 m returns `{wall:true, n:[outward normal]}`
+A held pad detects vertical faces: `dropTarget` asks `padWallTarget`, which
+runs the same pruned aim-family raycast (`rayPruned`, proxies live) — **the
+wall must own the ray**: the FIRST surface hit must be a `wallSlab` within
+2.4 m. A nearer felt/mini/floor wins the drop instead — aiming at the annex
+tables can't hijack the pad onto the wall slab behind them. When the slab
+does own it, `{wall:true, n:[outward normal]}` returns
 (the hit face's world normal is flipped toward the camera side, `y` forced to
 0 — vertical faces only). The ghost ring sticks to the face
 (`quaternion.setFromUnitVectors(+Y, n)`) so you see the mount before E.
