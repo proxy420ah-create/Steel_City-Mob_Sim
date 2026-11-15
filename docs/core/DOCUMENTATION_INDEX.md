@@ -73,6 +73,14 @@
 - **`docs/known_issues/rendering/BUILDING_GLASS_OPAQUE_AND_ALPHA_STACK.md`** — any `*glass*` material is transparent in both render paths; opaque faces never cull against glass; door pane = one sheet
 - **`docs/known_issues/rendering/KIT_Z_ANCHOR_BACK_EDGE_DRIFT.md`** — KIT z-anchor convention
 
+**Construct Room (first-person authoring/inspection space, `docs/construct.html`):**
+- **`docs/CONSTRUCT_DRAFTING.md`** — room law: invisible wall slabs + wall-mounts, aim-ray contract (pruned raycast, hit proxies, noAim), pad pages/remote model, L-key torch rig (auto-exposure: tune = irradiance at 1m, distance-scaled), followers, door console, pad wall-target ownership
+- **`docs/CONSTRUCT_PLACEMENT.md`** — placement law: surf-host vs rider roles, `tops` measured surfaces, placeIt/placeSave/persistence keys (`dvm_place` overrides incl. `y`/`tilt`/`mount`, `dvm_extra`, `dvm_lift`, `dvm_del`), boot order (overrides → lifts → mount await → extras → fixpoint cap), grip-vs-pose orientation law
+- **`docs/CONSTRUCT_ROOMS.md`** — room bounds: BOUND_WALL slab spec, arch/door portal, annex span, walk rects
+- **`docs/CONSTRUCT_MANNEQUIN.md`** — static mannequin (never a follower), outfit pager, `dvm_outfit` persistence
+- **`docs/CONSTRUCT_PROBES.md`** — 🔒 headless probe/shot contract: `--eval` is post-capture (scene changes go in `--pre`), `__cam` is async (pin-then-poll `__camera.position`), sparse headless rAF, eval raycasts need fresh `matrixWorld`, assert laws not values, probe-hook API traps, async boot order — read before adding probe/shot sections
+- Probe suite: `docs/_place_probe.mjs` (ALL-PASS gate — placement/pad/lift/torch/follower regressions incl. page-error collector), `docs/_shot.mjs` (screenshots: `--cam/--look/--pre/--eval/--torch/--full`)
+
 **City Layout Pipeline:**
 - **`docs/core/CITY_LAYOUT_PIPELINE.md`** — Design tool to Unity implementation pipeline
   - `city_editor.html` design tool (COMPLETE): 3-phase pipeline — Macro → Granular (zones+alleys) → Buildings

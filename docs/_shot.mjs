@@ -4,6 +4,11 @@
 //   node _shot.mjs <name> --cam=px,py,pz --look=tx,ty,tz [--env] [--ui] [--torch] [--settle=4500]
 //   node _shot.mjs hall --cam=-6,1.05,5.4 --look=-6,0.6,3.3
 //
+// FLAG ORDER IS THE CONTRACT: --pre runs BEFORE the capture, --eval runs AFTER it
+// (post-shot diagnostics only — a scene change in --eval is INVISIBLE to the image).
+// Also: __cam only sets camLock — the rAF loop applies it, and headless ticks are sparse;
+// --settle exists to cover that gap. Full trap list: docs/CONSTRUCT_PROBES.md
+//
 // Node >=22 (built-in WebSocket + fetch). Chrome headless via --remote-debugging-port;
 // NB: --user-data-dir MUST be an absolute non-default path or the port silently disables.
 import { spawn } from 'node:child_process';

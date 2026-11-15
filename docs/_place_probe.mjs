@@ -3,6 +3,11 @@
 // → drop → copy → paste → drop → reload → verify persistence → del → reload → verify gone.
 //
 //   node _place_probe.mjs
+//
+// Contract traps this file had to learn — read docs/CONSTRUCT_PROBES.md before adding
+// sections: __cam is async (pin-then-poll __camera.position), headless rAF is sparse,
+// eval raycasts need fresh matrixWorld, assert laws not values when per-frame code
+// owns the field, __pad.page() reads / __pad.tab(id) writes.
 import { spawn } from 'node:child_process';
 import http from 'node:http';
 import path from 'node:path';
