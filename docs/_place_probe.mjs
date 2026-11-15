@@ -378,6 +378,22 @@ check('bounds = 8 slabs + 16 seams + 6 portal wires', await evl('__construct.bou
   check('pad press back to tenement', true);
   await evl('__pad.focus(true)'); check('pad focus engages — cursor mode', await evl('__pad.isFocus() === true'));
   await evl('__pad.focus(false)'); check('pad focus releases — mouse look', await evl('__pad.isFocus() === false'));
+  // cursor-mode exits — REAL event paths: LMB on-screen keeps focus, LMB off releases, RMB tap releases
+  await evl('__construct.take("debug_pad")'); await sleep(300);             // the screen rides in-hand → a projected hit is guaranteed
+  await evl('__pad.focus(true)');
+  await evl(`(() => { const v = __pad.scr().localToWorld(new __THREE.Vector3(0, .031, 0)); v.project(__camera);   // uv(.5,.81) = canvas py 65 — the dead band above every content row
+    const x = (v.x + 1) / 2 * innerWidth, y = (1 - v.y) / 2 * innerHeight;
+    for (const [t, o] of [['mousemove', { clientX: x, clientY: y }], ['mousedown', { button: 0 }], ['mouseup', { button: 0 }]])
+      document.dispatchEvent(new MouseEvent(t, Object.assign({ bubbles: true }, o))); })()`);
+  check('LMB on the screen keeps cursor mode', await evl('__pad.isFocus() === true'));
+  await evl(`(() => { for (const [t, o] of [['mousemove', { clientX: 20, clientY: 20 }], ['mousedown', { button: 0 }], ['mouseup', { button: 0 }]])
+    document.dispatchEvent(new MouseEvent(t, Object.assign({ bubbles: true }, o))); })()`);
+  check('LMB off the screen releases to mouse look', await evl('__pad.isFocus() === false'));
+  await evl('__pad.focus(true)');
+  await evl('document.dispatchEvent(new MouseEvent("mousedown", { button: 2, bubbles: true })); document.dispatchEvent(new MouseEvent("mouseup", { button: 2, bubbles: true }))');
+  check('RMB tap releases cursor mode to mouse look', await evl('__pad.isFocus() === false'));
+  await evl('__construct.place(-4.6, -1.975)');
+  check('pad re-homes after the cursor-mode checks', await evl('__pad.table() === "primary"'), await evl('__pad.table()'));
   await evl('__cam(null); __pos.x = -4.6; __pos.z = -1.6'); }
 
 // 12.96 — pad wall-mount: sticks to the invisible wall slabs, persists through dvm_place

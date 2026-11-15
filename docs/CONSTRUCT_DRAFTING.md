@@ -176,10 +176,14 @@ future tools are draw code, never new geometry. One region table feeds two
 input modes:
 
 - **Held → RMB tap frees the cursor** (`padFocus`: `exitPointerLock`,
-  `mousemove` raycasts through `mouseNDC` → `padCursorHit` → hover highlight,
-  LMB presses). RMB tap again (or Esc, or entering place mode) re-locks the
-  look. WASD still moves you; E still places the pad. The click-to-lock canvas
-  handler is gated `!padFocus` so presses don't re-engage.
+  `mousemove` raycasts through `mouseNDC` → `padScreenHit` → hover highlight,
+  LMB presses). Exits to mouse look: **RMB tap** (toggle — the tap window
+  stamps inside the focus branch, else a stale `rmbT0` can never fire),
+  **LMB off the screen** (`padScreenHit` miss → release; dead space on the
+  face keeps focus), or Esc/place mode. Gesture exits re-lock instantly;
+  Esc hits Chrome's pointer-lock cooldown. WASD still moves you; E still
+  places the pad. The click-to-lock canvas handler is gated `!padFocus`
+  so presses don't re-engage.
 - **Placed → center-aim press** (`padProbe`, same law as `kioskProbe`):
   raycasts the screen within 1.8 m → `uv` → region → `{isBtn, panel:'pad'}` rides
   the `promptIt` chain, so aim + E (or LMB) presses it like any other face.

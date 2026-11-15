@@ -659,10 +659,11 @@ const emitPad = () => {
   g.userData.pRec = padRec; g.position.set(x, y0, z); g.rotation.y = rotY; scene.add(g); PLACED.push(padRec);
   padDraw(); return padRec;
 };
-const padCursorHit = () => { if (!padScr) return null;
+const padScreenHit = () => { if (!padScr) return null;
   _ray.setFromCamera(mouseNDC, camera);
   const h = _ray.intersectObject(padScr, false);
-  return h.length ? padUvRegion(h[0].uv) : null; };
+  return h.length ? h[0] : null; };
+const padCursorHit = () => { const h = padScreenHit(); return h ? padUvRegion(h.uv) : null; };
 const padProbe = () => { if (!padRec || padRec === held) { padSetHover(null); return null; }   // can't aim at your own hand
   _ray.setFromCamera(_ctr, camera);
   const h = _ray.intersectObject(padScr, false);
@@ -1376,7 +1377,13 @@ const INTERACT = [
 let promptIt = null;
 window.__pos = pos; window.__prompt = () => promptIt ? promptIt.label() : '';   // probe hooks — pos/promptIt read live
 addEventListener('mousedown', e => {
-  if (padFocus) { if (e.button === 0) { const r = padCursorHit(); if (r) padPress(r); } return; }   // cursor press — not a tag/lock
+  if (padFocus) {
+    if (e.button === 2) rmbT0 = performance.now();                       // stamp the tap window HERE — the shared stamp below is skipped in cursor mode, so RMB-tap could never release focus
+    if (e.button === 0) {
+      const h = padScreenHit();
+      if (!h) { padFocusToggle(); return; }                              // LMB off the screen — click-off releases to mouse look (a real gesture, so grabLook re-locks instantly — no Esc cooldown)
+      const r = padUvRegion(h.uv); if (r) padPress(r); }
+    return; }
   if (placeOn) { if (e.button === 0) {
     const pk = placePick();
     if (pk) { if (placeSel !== pk.p) placeGrab(pk.p, pk);              // fresh pick — commits whatever was held
