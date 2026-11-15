@@ -58,7 +58,7 @@ async function connect() {
   }
   throw new Error('no page target');
 }
-const waitBoot = async () => { for (let i = 0; i < 120; i++) { if (await evl('!!window.__place && !!window.__warmDone')) { await evl('__torch.ease = false'); return; } await sleep(500); }
+const waitBoot = async () => { for (let i = 0; i < 120; i++) { if (await evl('!!window.__place && !!window.__warmDone')) return; await sleep(500); }
   throw new Error('__place never appeared'); };
 
 const R = [];
@@ -486,7 +486,7 @@ check('torch rig exists, parked at 0', await evl('!!(__torch && __torch.spot && 
 await evl('__cam(-6.5,.62,-4.6, -7.93,.62,-4.6)');                                     // pin: clean lane to the west wall — d>1 → auto-exposure = full power
 for (let i = 0; i < 30 && !(await evl('Math.abs(__camera.position.x + 6.5) < .01')); i++) await sleep(100);   // camLock applies on the next rAF — headless ticks are sparse
 await evl('__torch.set(true)');
-check('torch on — spot follows the tune (stock PWR 5 / FILL .55)', await evl('__torch.on === true && __torch.spot.intensity === 5 && __torch.fill.intensity === .55'), await evl('JSON.stringify({d:+__torch.dist(__camera).toFixed(2), i:+__torch.spot.intensity.toFixed(2)})'));
+check('torch on — spot follows the tune (stock PWR 5 / FILL .55)', await evl('__torch.on === true && __torch.spot.intensity === 5 && __torch.fill.intensity === .55'), await evl('__torch.spot.intensity'));
 await evl('__torch.set(false)');
 check('torch off — back to 0', await evl('__torch.on === false && __torch.spot.intensity === 0'));
 
@@ -495,7 +495,7 @@ await evl('__pad.tab("lamp")');
 check('lamp page live', await evl('__pad.page() === "lamp"'));
 await evl('__torch.set(true)');
 await evl('__pad.press("br-")');
-check('PWR − drops the spot intensity', await evl('Math.abs(__torch.cfg.i - 4) < .01 && Math.abs(__torch.spot.intensity - 4) < .01'), await evl('JSON.stringify({d:+__torch.dist(__camera).toFixed(2), i:+__torch.spot.intensity.toFixed(2)})'));
+check('PWR − drops the spot intensity', await evl('Math.abs(__torch.cfg.i - 4) < .01 && Math.abs(__torch.spot.intensity - 4) < .01'), await evl('__torch.spot.intensity'));
 await evl('__pad.press("br+"); __pad.press("br+")');
 check('PWR + restores', await evl('Math.abs(__torch.cfg.i - 6) < .01'), await evl('__torch.cfg.i'));
 await evl('__pad.press("fl-")');
@@ -512,121 +512,32 @@ check('tune survives F5 — color + power restored', await evl('__torch.cfg.c ==
 await evl('__pad.press("tres")');
 check('reset restores the stock tune', await evl('__torch.cfg.c === 0 && __torch.cfg.i === 5 && __torch.cfg.f === .55'), await evl('JSON.stringify(__torch.cfg)'));
 
-// 12.98c — auto-exposure: aim() scales intensity ∝ d^decay → constant irradiance at the surface
-await evl('__torch.set(true); __cam(-6.5,.62,-4.6, -7.93,.62,-4.6)');                        // ~1.4m to the west wall — past the 1m knee
+// 12.98c — dumb rig: aim() repoints ONLY; intensity/cone/color are the tune verbatim, at any
+//   range. (The exposure/incidence/ease/DDA/soft-knee layers were removed — see CONSTRUCT_DRAFTING.)
+await evl('__torch.set(true); __cam(-6.5,.62,-4.6, -7.93,.62,-4.6)');                        // pin a clean lane to the west wall
 for (let i = 0; i < 30 && !(await evl('Math.abs(__camera.position.x + 6.5) < .01')); i++) await sleep(100);
 await evl('__torch.aim(__camera)');
-check('auto-exposure — full power past 1m (× incidence factor)', await evl('__torch.dist(__camera) > 1 && Math.abs(__torch.spot.intensity - __torch.cfg.i * __torch.inc) < .001'), await evl('JSON.stringify({d:+__torch.dist(__camera).toFixed(2), i:+__torch.spot.intensity.toFixed(2), inc:__torch.inc})'));   // head-on at the wall → inc .5
-check('footprint — past 1m the tuned cone runs as-is', await evl('Math.abs(__torch.spot.angle - .45) < .01'), await evl('__torch.spot.angle'));
-await evl('__cam(-7.5,.62,-4.6, -7.93,.62,-4.6)');                                           // ~.43m — inside the old washout range
+check('aim — rig parks on the camera (spot at the eye, target 2m ahead, fill .3m)', await evl(`(() => {
+  const T = __torch, C = __camera, d = new __THREE.Vector3(); C.getWorldDirection(d);
+  return T.spot.position.distanceTo(C.position) < .001 && T.spot.target.position.distanceTo(C.position.clone().addScaledVector(d, 2)) < .001
+    && T.fill.position.distanceTo(C.position.clone().addScaledVector(d, .3)) < .001; })()`));
+check('aim — intensity is the tune verbatim (no exposure layer)', await evl('Math.abs(__torch.spot.intensity - __torch.cfg.i) < .001 && Math.abs(__torch.fill.intensity - __torch.cfg.f) < .001'), await evl('__torch.spot.intensity'));
+await evl('__cam(-7.5,.62,-4.6, -7.93,.62,-4.6)');                                           // ~.43m — where the old layer widened the cone
 for (let i = 0; i < 30 && !(await evl('Math.abs(__camera.position.x + 7.5) < .01')); i++) await sleep(100);
 await evl('__torch.aim(__camera)');
-check('auto-exposure — dims at close range', await evl('__torch.dist(__camera) < .8 && __torch.spot.intensity < __torch.cfg.i * .8 && __torch.fill.intensity < __torch.cfg.f * .5'), await evl('JSON.stringify({d:+__torch.dist(__camera).toFixed(2), i:+__torch.spot.intensity.toFixed(2), f:+__torch.fill.intensity.toFixed(2)})'));
-/* footprint normalization — at d<1 AUTO widens the cone so the pool never collapses to a
-   pinpoint, but PARTIAL: the cone caps at beam0×1.6 (and .95 rad abs) so the disc still shrinks
-   on approach — a constant-radius pool head-on at .3m filled the screen as a blast. At d=.43
-   the .45 beam's need (atan(tan(.45)/.43)=.843) exceeds its .72 cap → lands exactly on it. */
-check('footprint — close range widens the cone, capped at beam×1.6', await evl('Math.abs(__torch.spot.angle - .72) < .01'), await evl('__torch.spot.angle'));
-/* constant irradiance — the whiteout fix. On-axis E = spot I/d^decay + fill I/df^decay must stay flat
-   from 1m down to point-blank (old 15% floors, fixed fill offset and a d≥.12 clamp ramped it near the
-   wall); proximity fade then eases it down inside .4m. Assert the law: never above the .9m reference,
-   monotone non-increasing, and <70% of it at .05m. */
-const Es = [];
-for (const dx of [.9, .5, .25, .14, .05]) {
-  await evl(`__cam(${-7.93 + dx},.62,-4.6, -7.93,.62,-4.6)`);
-  for (let i = 0; i < 30 && !(await evl(`Math.abs(__camera.position.x - ${-7.93 + dx}) < .01`)); i++) await sleep(100);
-  await evl('__torch.aim(__camera)');
-  Es.push(JSON.parse(await evl(`JSON.stringify((() => { const d = __torch.dist(__camera), t = __torch, fo = Math.min(.3, d * .5), df = Math.max(.05, d - fo);
-    return { d: +d.toFixed(3), E: t.spot.intensity / Math.pow(d, t.spot.decay) + t.fill.intensity / Math.pow(df, t.fill.decay) }; })())`)));
-}
-check('auto-exposure — irradiance never ramps up toward the wall; proximity fade eases it down past .4m', Es.every(e => e.E <= Es[0].E * 1.1) && Es[Es.length - 1].E < Es[0].E * .7 && Es.every((e, i) => !i || e.E <= Es[i - 1].E * 1.02), JSON.stringify(Es.map(e => [e.d, +e.E.toFixed(2)])));
-/* incidence normalization — the camera ANGLE must not change the brightness. A flat test plane in free
-   air, same distance (.4m), swept head-on → glancing: AUTO holds head-on to a ~60° view's level, so the
-   rendered center luminance is flat head-on→55° (RAW would swing ~15%+), and inc reads .5 head-on, 1 glancing. */
-await evl(`(() => { const m = new __THREE.Mesh(new __THREE.PlaneGeometry(6, 6), new __THREE.MeshStandardMaterial({ color: 0x7a5244, roughness: .9 }));
-  m.rotation.x = -Math.PI / 2; m.position.set(-1.5, 1.4, -3.5); m.name = '_incplane'; __scene.add(m); })()`);
-const lumAt = async el => { const a = el * Math.PI / 180;
-  await evl(`__cam(${-1.5 + .4 * Math.cos(a)},${1.4 + .4 * Math.sin(a)},-3.5, -1.5,1.4,-3.5)`); await sleep(400); await evl('__torch.aim(__camera)');
-  return { inc: await evl('__torch.inc'), L: await evl(`(() => { __renderer.render(__scene, __camera); const c = document.createElement('canvas'), s = __renderer.domElement;
-    c.width = s.width; c.height = s.height; const g = c.getContext('2d'); g.drawImage(s, 0, 0); const d = g.getImageData(s.width / 2 - 20, s.height / 2 - 20, 40, 40).data;
-    let L = 0; for (let i = 0; i < d.length; i += 4) L += .2126 * d[i] + .7152 * d[i+1] + .0722 * d[i+2]; return L / (d.length / 4); })()`) }; };
-const iHead = await lumAt(90), iMid = await lumAt(55), iGraze = await lumAt(12);
-check('incidence — head-on held to the angled level (inc .5 head-on, 1 glancing)', Math.abs(iHead.inc - .5) < .03 && iGraze.inc > .97, JSON.stringify([iHead.inc, iMid.inc, iGraze.inc]));
-check('incidence — brightness flat head-on vs 55° (camera angle no longer drives intensity)', Math.abs(iHead.L / iMid.L - 1) < .1, JSON.stringify([+iHead.L.toFixed(1), +iMid.L.toFixed(1), +iGraze.L.toFixed(1)]));
-await evl(`(() => { const m = __scene.getObjectByName('_incplane'); __scene.remove(m); })()`);
+check('aim — close range changes nothing (literal cone + intensity)', await evl('Math.abs(__torch.spot.angle - .45) < .01 && Math.abs(__torch.spot.intensity - __torch.cfg.i) < .001'), await evl('JSON.stringify([__torch.spot.angle, __torch.spot.intensity])'));
 await evl('__cam(null)');
-/* ── torch pass 2: soft clip, ease, real-surface hit, LAMP2 tuning page ── */
-await evl('__torch.cfg.x = 1');
-await evl('__torch.cfg.s = 1; __torch.tune("x"); __torch.tune("x")');                          // re-run torchApply (renderer.toneMapping follows cfg.s)
-check('SOFT — custom tone map is live by default (knee .85 shoulder, MeshBasic floor exempt)', await evl('__renderer.toneMapping === __THREE.CustomToneMapping && __THREE.ShaderChunk.tonemapping_pars_fragment.includes("K = .85") && __scene.children.length > 0'), await evl('__renderer.toneMapping'));
-/* soft clip law on the flat plane: below the knee nothing changes (ambient-only luminance equal ±2),
-   above it the highlight rolls off (RAW head-on is lower with SOFT than without). */
-await evl(`(() => { const m = new __THREE.Mesh(new __THREE.PlaneGeometry(6, 6), new __THREE.MeshStandardMaterial({ color: 0x7a5244, roughness: .9 }));
-  m.rotation.x = -Math.PI / 2; m.position.set(-1.5, 1.4, -3.5); m.name = '_softplane'; __scene.add(m); })()`);
-const lum2 = async () => evl(`(() => { __renderer.render(__scene, __camera); const c = document.createElement('canvas'), s = __renderer.domElement;
-  c.width = s.width; c.height = s.height; const g = c.getContext('2d'); g.drawImage(s, 0, 0); const d = g.getImageData(s.width / 2 - 20, s.height / 2 - 20, 40, 40).data;
-  let L = 0; for (let i = 0; i < d.length; i += 4) L += .2126 * d[i] + .7152 * d[i+1] + .0722 * d[i+2]; return L / (d.length / 4); })()`);
-await evl('__cam(-1.5,1.8,-3.5, -1.5,1.4,-3.5)'); await sleep(500);
-await evl('__torch.set(false)');
-const ambOn = await lum2();
-await evl('__torch.cfg.i = 7; __torch.set(true); __torch.cfg.x = 0; __torch.aim(__camera, true)');   // PWR 7 RAW head-on sits past the .85 knee
-const rawOn = await lum2();
-await evl('__torch.tune("s"); __torch.set(false)'); await sleep(300);                              // SOFT off (one recompile)
-const ambOff = await lum2();
-await evl('__torch.set(true); __torch.cfg.x = 0; __torch.aim(__camera, true)');
-const rawOff = await lum2();
-await evl('__torch.cfg.i = 5');
-await evl('__torch.tune("s"); __torch.cfg.x = 1; __torch.set(false)'); await sleep(300);          // SOFT back on, AUTO back on
-check('SOFT — below the knee nothing changes (ambient luminance equal ±2)', Math.abs(ambOn - ambOff) < 2, JSON.stringify([+ambOn.toFixed(1), +ambOff.toFixed(1)]));
-check('SOFT — highlights roll off (RAW head-on lower with SOFT, still unclipped)', rawOn < rawOff - 2 && rawOn < 254.5, JSON.stringify([+rawOn.toFixed(1), +rawOff.toFixed(1)]));
-await evl(`(() => { const m = __scene.getObjectByName('_softplane'); __scene.remove(m); })()`);
-await evl('__cam(null)');
-/* ease — ONE center ray measures d + incidence, so edges would pop them every frame. With ease on, an
-   immediate re-aim after a jump from close (.43m) to open air moves only PART of the way (raw would snap
-   to full power); a snap=true aim lands exactly on the raw value. */
-await evl('__torch.ease = true; __torch.set(true)');
-const [iClose, iEase, iRaw] = JSON.parse(await evl(`(() => { const T = __torch, C = __camera; T.cfg.x = 1;       // one synchronous eval - a >400 ms wait would snap
-  C.position.set(-7.5,.62,-4.6); C.lookAt(-7.93,.62,-4.6); C.updateMatrixWorld(true); T.aim(C, true); const a = T.spot.intensity;
-  C.lookAt(2,.62,-4.6); C.updateMatrixWorld(true); T.aim(C); const b = T.spot.intensity;                       // open air, eased
-  T.aim(C, true); return JSON.stringify([a, b, T.spot.intensity]); })()`));
-check('ease — a jump to open air moves only part of the way (no pop)', iEase > iClose && iEase < iRaw - (iRaw - iClose) * .3, JSON.stringify([+iClose.toFixed(2), +iEase.toFixed(2), +iRaw.toFixed(2)]));
-await evl('__torch.ease = false; __cam(null)');
-/* real surface — a miniature's hit is refined from its bounding-box proxy to the voxel surface (DDA). */
-await evl('__cam(-4.9,.55,-2.0, -6.4,.5,-1.3)'); await sleep(500);
-await evl('__torch.aim(__camera, true)');
-const mh = await evl('JSON.stringify(__torch.hit())');
-check('real surface — a miniature hit resolves through the voxel march, not the box', JSON.parse(mh).via === 'dda' && JSON.parse(mh).d > .3 && JSON.parse(mh).d < 2.5, mh);
-await evl('__cam(null)');
-/* LAMP2 — the tuning subpage: reachable from LAMP, edits persist, RESET restores. */
-await evl('__pad.tab("lamp")'); await evl('__pad.press("tune")'); await sleep(250);
-check('LAMP — TUNE opens the hidden tuning page', (await evl('__pad.page()')) === 'lamp2', await evl('__pad.page()'));
-await evl('__pad.press("in+")'); await sleep(200); await evl('__pad.press("pf-")'); await sleep(200); await evl('__pad.press("pf-")'); await sleep(200);
-check('LAMP2 — HEAD+ / FADE− edit the tune', await evl('Math.abs(__torch.cfg.n - .6) < .01 && Math.abs(__torch.cfg.p - .2) < .01'), await evl('JSON.stringify({n: __torch.cfg.n, p: __torch.cfg.p})'));
-await evl('__pad.press("sft")'); await sleep(250);
-check('LAMP2 — SOFT toggles the tone map off and persists', await evl('__torch.cfg.s === 0 && __renderer.toneMapping === __THREE.NoToneMapping && JSON.parse(localStorage.getItem("dvm_torch")).s === 0 && JSON.parse(localStorage.getItem("dvm_torch")).n === .6'), await evl('localStorage.getItem("dvm_torch")'));
-await evl('__pad.press("tres2")'); await sleep(250);
-check('LAMP2 — RESET restores head-on .5 / fade .4 / SOFT on', await evl('__torch.cfg.n === .5 && __torch.cfg.p === .4 && __torch.cfg.s === 1 && __renderer.toneMapping === __THREE.CustomToneMapping'), await evl('JSON.stringify(__torch.cfg)'));
-await evl('__pad.press("back")'); await sleep(200);
-check('LAMP2 — ◀ LAMP returns', (await evl('__pad.page()')) === 'lamp', await evl('__pad.page()'));
-await evl('__torch.set(true); __torch.ease = false');   // stay ON - later free-cam/RAW checks need the loop to aim
-/* free-cam end-to-end — place mode drives camera from flyPos (position) + yaw/pitch
-   (orientation) every frame, and aim(camera) reads that same object; camLock would WIN
-   over both, so release it first, then drive the real fly/look axes to the same .43m
-   wall spot and let the loop's own aim() write the angle — expect the .72 cap. */
-await evl('__cam(null)');
+/* free-cam end-to-end — place mode drives camera from flyPos + yaw/pitch every frame and
+   aim(camera) reads that same object; camLock wins over both, so release it first. */
 await evl('__place.toggle(true); __place.fly(-7.5,.62,-4.6); __place.look(Math.PI/2, 0)');   // yaw π/2 faces −x (west wall)
 await sleep(150);                                                                            // a few frames — the loop's own aim(camera) fires
-check('free cam — fly/look-driven aim yields the footprint cap in place mode', await evl('Math.abs(__torch.spot.angle - .72) < .02'), await evl('__torch.spot.angle'));
+check('free cam — fly-driven aim: rig sits at the fly position with the literal tune', await evl(`(() => {
+  const T = __torch; return T.spot.position.distanceTo(new __THREE.Vector3(-7.5,.62,-4.6)) < .01
+    && Math.abs(T.spot.angle - .45) < .01 && Math.abs(T.spot.intensity - T.cfg.i) < .001; })()`), await evl('JSON.stringify(__torch.spot.position)'));
 await evl('__place.toggle(false)');
-/* 12.98d — EXP: RAW bypasses the d^decay scale + the .15 floor — same camera, full tune.
-   This is the free-cam fix: at inspection range AUTO reads ~20% and the dial felt dead. */
-await evl('__torch.tune("x")');                                                          // AUTO → RAW
-await evl('__torch.aim(__camera)');
-check('RAW — close range emits the absolute tune, no floor', await evl('__torch.cfg.x === 0 && __torch.dist(__camera) < .8 && Math.abs(__torch.spot.intensity - __torch.cfg.i) < .001 && Math.abs(__torch.fill.intensity - __torch.cfg.f) < .001'), await evl('JSON.stringify({d:+__torch.dist(__camera).toFixed(2), i:+__torch.spot.intensity.toFixed(2), f:+__torch.fill.intensity.toFixed(2)})'));
-check('RAW — the cone stays literal too', await evl('Math.abs(__torch.spot.angle - .45) < .01'), await evl('__torch.spot.angle'));
-check('RAW persisted — dvm_torch carries x:0', await evl('JSON.parse(localStorage.getItem("dvm_torch")).x === 0'));
-await evl('__torch.tune("x")');                                                          // back to AUTO for the F5 + downstream asserts
-check('EXP is a toggle — AUTO restored', await evl('__torch.cfg.x === 1'));
+check('tune shape — retired keys (x/n/p/s) never reach storage', await evl(`(() => { const t = JSON.parse(localStorage.getItem('dvm_torch') || '{}');
+  return !('x' in t) && !('n' in t) && !('p' in t) && !('s' in t); })()`), await evl('localStorage.getItem("dvm_torch")'));
+await evl('__torch.set(false)');
 await evl('__torch.set(false)');
 await evl('__pad.tab("model")');
 await evl('__cam(null); __pos.x = -4.6; __pos.z = -1.6');

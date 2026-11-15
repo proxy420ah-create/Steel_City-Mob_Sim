@@ -317,65 +317,24 @@ index → `TORCH_COLS` [warm/day/cool/red/green] — both lamps tint together. S
 is `PWR 5 / FILL .55 / MID / warm` — softened from 7/.9 because the old tune blew
 out close-range voxel detail. The pad's **LAMP** page drives it all: PWR/FILL
 steppers, 5 swatches with live color chips + `lit` active state (a generic
-region predicate), BEAM cycler, EXP cycler, ⏻ toggle, RESET → `TORCH_DEF`.
+region predicate), BEAM cycler, ⏻ toggle, RESET → `TORCH_DEF`.
 
-**Auto-exposure vs RAW** — `TC.x` (persists, default 1 = AUTO). AUTO normalizes
-**two** axes per frame (`aim()`, one pruned center ray — `rayPruned`, proxies
-live, held/self/helpers excluded — same cost class as the aim ray): **(1)
-intensity** — the tune is irradiance *at 1 m*, scaled ∝ `d^decay` so on-axis
-irradiance stays **flat** from 1 m to point-blank (probe-pinned: E within 15%
-at .9/.5/.25/.14 m; rendered center luminance eases 177→131 instead of RAW's
-177→254 white). Each lamp divides out its OWN distance: the fill rides
-`min(.3, d/2)` ahead — a fixed .3 m offset parked it against/behind the wall
-inside ~.6 m and its 1/dist^1.4 falloff ramped the wash to white — and floors
-are only a numeric guard (.01); the old 15% floors stopped compensating below
-~.2 m (spot) and ~.45 m (fill) and were the close-range whiteout. **Proximity fade** — flat irradiance still reads near-white with your face in
-the wall, so inside .4 m both lamps ease down a further 60% by point-blank
-(`prox = .4 + .6·d/.4`); `torchDist` clamps at `camera.near` (.02), not .12 —
-the old .12 clamp froze compensation while the real distance kept shrinking
-(3-4× hotter at 4 cm). Rendered wall luminance 1 m→4 cm: AUTO 177→96, RAW
-177→254. **Incidence normalization** — the renderer's diffuse term is ∝ cos(angle to the
-surface normal), so a head-on pitch got the full dose and a glancing one a smear
-of it: camera angle drove brightness. `torchDist` now also records the hit face's
-incidence cosine; AUTO scales both lamps by `min(1, .5/cos)` — head-on is held to
-what a ~60° view already reads, shallower angles untouched. Rendered on a flat
-test plane at .4 m: AUTO 103/103/103/99/84 (90°→12°) vs RAW 235/229/219/204/148.
-**Hit measurement — real surface, eased.** The one center ray (`torchDist`) feeds
-distance + incidence. Miniatures are only hit through their bounding-box proxies,
-so a proxy hit under 3 m is *refined*: `miniRay` marches the model's own voxel
-columns (DDA in grid cells; honors the slice window, `fx` mirror, spin via
-`matrixWorld`, and the `plate` ground slab) and returns the first filled cell's
-distance + face normal — `null` when the ray only crosses air inside the box, in
-which case the beam reads what is behind it (`via:'dda'`; plain meshes `'obj'`,
-far/unrefined boxes `'box'`, no hit `'none'` → 2 m, neutral incidence). Parked-car
-proxies carry `userData.keep` (their box IS their surface — the composite grid is
-empty there). `aim()` then **eases** d (log space) and the cosine toward each new
-measurement (τ ≈ 90 ms, per camera so the follower POV keeps its own state; snaps
-on first use / >400 ms gap / `aim(cam, true)`), so crossing a model edge or facade
-step no longer pops the brightness. `__torch.ease = false` = raw (the probe sets it
-at every boot and exercises ease explicitly). `__torch.hit()` reads `{d, cos, via}`.
-**LAMP ▸ TUNE** opens a hidden `lamp2` page (no tab — reached only from LAMP):
-HEAD± (`TC.n`, .2–1, the head-on level; 1 = no incidence dimming), FADE± (`TC.p`,
-.1–1, the point-blank floor of the proximity fade; 1 = none), SOFT (`TC.s`),
-RESET, ◀ LAMP. All persist in `dvm_torch`; RESET restores `n .5 / p .4 / s 1`.
-**SOFT** is a soft-knee custom tone map (`THREE.CustomToneMapping`, the
-`tonemapping_pars_fragment` chunk patched at boot): identity up to K = .85, then an
-exponential shoulder approaching 1 with slope 1 at the knee — below the knee the
-image is unchanged (probe: ambient luminance equal ±2), above it highlights roll
-off instead of hard-clipping (RAW head-on 235 → lower, never 255). Flipping SOFT
-recompiles materials once (a one-time hitch); `floorMat` is `toneMapped:false`.
-**(2) footprint** — inside 1 m the fixed cone would squeeze the
-same flux into a shrinking disc (the "concentration" hotspot), so AUTO widens
-the angle: `angle = atan(tan(beam₀)/d)` — but capped at `beam₀×1.6` (and .95
-rad absolute): *partial* normalization. A constant-radius pool reads wrong
-head-on — a 1 m disc at .3 m fills the screen as a blast — so the pool still
-shrinks on approach like a real flashlight, just never to a pinpoint. Outside
-1 m the tuned cone runs as-is; the wall reads the same brightness whether the
-camera is near or far. **Trade-off:** AUTO holds irradiance, so a big PWR tune
-reads dimmer in your face than the raw dial suggests — that is the point. RAW (`x:0`, EXP button on the LAMP
-page — lit = AUTO) skips BOTH scalings: intensity = `TC.i`, fill = `TC.f`,
-cone = tuned — literal control for dialing the tune; AUTO for reading the
-model as it'll actually look.
+**The rig is deliberately dumb.** `aim(cam)` only repoints it before each
+render — intensity, cone and color are the tune verbatim, at every range and
+angle. There is **no per-frame raycast and no adaptive layer**: what you dial
+is what the light does. Natural lamp physics still apply (decay 1.2 spot /
+1.4 fill), so up close it IS brighter — that's the honest baseline.
+
+The auto-exposure stack (distance scaling ∝ `d^decay`, incidence normalization,
+proximity fade, close-range cone widening, eased transitions, the `miniRay` DDA
+surface refinement, the `lamp2` tuning page, EXP AUTO/RAW, and the SOFT custom
+tone map) grew over several passes chasing close-range whiteout — and was
+removed in one strip: every layer re-measured the world on ONE center ray each
+frame, and the DDA refinement changed that measurement voxel-to-voxel, so
+moving the camera pulsed the spot's shape and brightness instead of holding a
+stable pool. Git history (`ba74444` and ancestors) has the full law — if any
+piece is ever re-added, add ONE layer at a time and judge it on the wall, not
+in the numbers.
 
 ## The pad sticks to walls — the movable panel
 
