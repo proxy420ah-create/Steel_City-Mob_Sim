@@ -353,6 +353,84 @@ Key the cache on what changes the **shape** (rotation, clipboard contents), neve
 mesh/ComputeBuffer, move the Transform; cache by shape signature. Pairs with #16 (merge) and #17
 (gate) for previews that are both big and dragged.
 
+## 20. Ray Budget = Candidates × Per-Candidate × Frequency — Prune the Candidate Set First (2026-11-12)
+
+**Problem**: `construct.html` degraded to a slideshow when holding RMB-aim while
+walking. `aimStep()` ran `aimRay.intersectObjects(scene.children…, true)` **every
+animation frame** while aim was held — and three.js `InstancedMesh.raycast`
+matrix-tests **every instance**, so three mounted tenement miniatures put
+**~1.64M instance tests/frame** on the ray (measured live: 1,278,036 mini voxels
++ ~364K prop/rig instances). The aim ray itself was the stall — the same
+anti-pattern as #15, but here the pick needs heterogeneous scene objects
+(props, walls, canvas screens), so "replace with DDA" wasn't the move.
+
+**Fix**: `rayPruned(rc, roots, excl, allInst)` — a shared candidate collector
+that skips instanced subtrees before the ray ever sees them, honoring
+exclusions at every depth (a mini nested inside an excluded group dies either
+way). Two prune modes by *query intent*: `allInst` for the per-frame aim path
+(aim wants surfaces — props are picked via `nearestPick` vector math anyway)
+and `miniVox`-flag-only for the click paths (`placePick`/`placeSpot` — ordinary
+instanced props like the desk/car stay selectable; `emitVox` marks its meshes
+`userData.miniVox`). Result: ~1.64M → ~0 instance tests per aim ray.
+
+**The general law**: ray cost = *(candidates) × (per-candidate cost) × (rays
+per second)*. Kill the biggest factor first, in order:
+
+1. **Candidates** — broadphase/category prune (what this pattern and every
+   broadphase does: grid walk, layer mask, flag filter).
+2. **Per-candidate** — replace per-instance/per-triangle tests with a grid
+   walk (DDA), a tight AABB, or an occupancy skip (#13).
+3. **Frequency** — consumer-gate, stagger, or integrate over time (a ray that
+   never fires costs nothing — the strongest lever of all).
+
+**Engine audit — where the game already stands** (checked 2026-11-12, all three
+axes covered, mostly deeper than the JS fix):
+
+- **Candidates ✅** `SolidVolumeSet.Raycast` walks a 32 m XZ uniform grid by
+  2D-DDA along the segment — only volumes overlapping crossed cells test
+  (seen-stamp dedup, ray-order early-out at first cell beyond the best hit).
+  ~0.43 µs/ray @ 800 buildings vs ~3.7 µs flat scan — measured in the
+  docstring and `COMBAT_PERFORMANCE_REVIEW.md`.
+- **Per-candidate ✅** Segment-AABB reject → slab test → `VoxelDda` cell walk
+  per volume (allocation-free, shared with terrain via `IVoxelSampler`).
+  GPU side: tight-bounds march + in-shader step floor shipped (raymarch doc
+  Phase 1), 4³-brick occupancy two-level DDA shipped (Phase 4 / #13 revival).
+- **Semantic prune ✅ — the `miniVox` idea already exists, richer**: rays take
+  `includeTerrain`/`includeVolumes`; cover queries take the
+  `SolidVolumeSet.ExcludeFromCover` predicate (a *moving* car leaves cover
+  eligibility but stays an obstacle — exactly "skip this class for this query
+  type, keep it for others").
+- **Frequency ✅** `CoverSensor` runs `ConsumersWantData()` gating +
+  move-distance rescan + `ScanInputsUnchanged` (the #11 signature idea);
+  `CoverField` ground probes ride a persistent shared support cache (warm
+  scans: ~0 rays — the raystorm that profiled at ~9 ms now ~1.7 ms).
+- **Picking ✅** `CityMap3D` voxel-pick already routes through
+  `collisionWorld.Raycast` (the DDA stack), not PhysX.
+
+**Remaining opportunity surface — watch items, not built work**:
+
+1. `VisionSensor.Evaluate` raycasts per in-cone target **every Update** —
+   cheap today (few targets, ~µs rays) and cheap-reject-ordered (range/cone
+   tests before the ray). If sensor-count × target-count ever grows (a city of
+   eyes), the frequency lever applies: `riseTime`/`decayTime` is already a
+   temporal integrator, so rays could run at a fixed Hz with dt-scaled
+   accumulation and identical detection semantics.
+2. `includeTerrain`/`includeVolumes` is binary — a future query-category mask
+   (e.g. debris/shard volumes opt out of *vision* rays, stay for *ballistic*
+   ones) is the same `miniVox` idea one level deeper. `ExcludeFromCover` shows
+   the predicate shape. Build only if a profiler shows the class paying.
+3. `CityMap3D` block-pick `Physics.Raycast` carries no layer mask — click-only,
+   harmless; note for hygiene if PhysX ever gets a per-frame ray.
+4. `RaycastCommand` batching is the Unity answer to burst ray loads — only
+   relevant if PhysX rays ever enter the hot path; the voxel stack is
+   allocation-free and needs nothing.
+
+**Cross-engine note**: in three.js the iteration cost is *hidden inside the
+library* (`intersectObjects` decides to walk every instance — the API name
+gives no hint). In this engine the DDA cost model is explicit (iterations =
+cells crossed). Whichever side you're on: **know what a ray costs inside the
+call you're making**, then prune candidates before the call, not after it.
+
 ---
 
 ## Cross-Cutting Lessons
