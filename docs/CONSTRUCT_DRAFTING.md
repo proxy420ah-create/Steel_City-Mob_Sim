@@ -279,7 +279,9 @@ Same rig as the Commission's: `__torch` = a `SpotLight` + a faint `PointLight`
 fill, parked at intensity 0 until L or the pad's `⏻` toggles it on. `aim(cam)`
 repoints it before every render — it rides the camera object, so the main view,
 the X fly-cam, and the follower POV (`__eyes.pip`/`shot`) all light where they
-look. `__snap` honors `__snapTorch` (`_shot.mjs --torch`): flips it on for the
+look. L also fires **inside place mode** (the `placeOn` branch has its own `l`
+arm — the `E/F/T/R` swallow stays, the torch is deliberately not in it) so the
+fly-cam keeps its inspection light while you edit. `__snap` honors `__snapTorch` (`_shot.mjs --torch`): flips it on for the
 capture, restores after — screenshot illumination without a session flag.
 
 The tune lives in `TC` (`dvm_torch`, persists): `i` spot power 0–12, `f` fill
