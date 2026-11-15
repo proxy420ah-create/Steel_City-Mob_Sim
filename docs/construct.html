@@ -98,6 +98,15 @@ const BOUND_WALL = [                                                    // [ax, 
   [-3,1, -8,1], [-8,1, -8,-6], [-8,-6, -3,-6],                          // annex — N, W, S edges (z-reach now spans the main room's — no west-edge segments survive outside it)
   [-3,-6, -3,-3], [-3,-2, -3,1],                                        // interior wall stubs — the west wall minus the door gap
 ];
+/* hitProxy — an invisible 12-tri box a ray can land on: stands in for instanced meshes that
+   rayPruned skips (minis, props, rigs) so the aim point still rests ON what you're pointing at
+   instead of passing through to the wall behind. colorWrite/depthWrite off = draws nothing;
+   material stays "visible" — Mesh.raycast ignores invisible materials. */
+const PROXY_MAT = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
+const hitProxy = (w, h, d, cx = 0, cy = 0, cz = 0) => {
+  const b = new THREE.Mesh(new THREE.BoxGeometry(Math.max(w, .001), Math.max(h, .001), Math.max(d, .001)), PROXY_MAT);
+  b.position.set(cx, cy, cz); b.userData.hitProxy = true; return b;
+};
 const BOUND_ARCH = [ { x: -3, z0: -3, z1: -2, h: 1.05, d: .14 } ];       // doorway: the floor wire lifted into a ∩ — outline on EACH room's face
 const ARCH_ENDS = new Set(BOUND_ARCH.flatMap(a => [[a.x, a.z0], [a.x, a.z1]]).map(([x, z]) => x + ',' + z));
 function rebuildBounds() {
@@ -183,11 +192,12 @@ const emitAsset = (name, o = {}) => {
     const surf = o.surf ?? (SURF_TYPES.has(m.assetType) || !o.pickable);        // surf = floors on surfaces only; riders conform
     const vs = vsOverride || m.voxelSize || .0075;
     const dcx = m.dims[0] / 2 - .5, dcz = m.dims[2] / 2 - .5, flip = m.truthView === 'unity';
-    let minB = Infinity, lx0 = Infinity, lx1 = -Infinity, lz0 = Infinity, lz1 = -Infinity;
+    let minB = Infinity, ly1 = 0, lx0 = Infinity, lx1 = -Infinity, lz0 = Infinity, lz1 = -Infinity;
     const tops = new Map();                                                  // tops keyed LOCAL — survives the item moving
     m.voxels.forEach(v => {
       const lx = (v[0] - dcx) * vs, lz = ((flip ? m.dims[2] - 1 - v[2] : v[2]) - dcz) * vs;
       if (v[1] * vs < minB) minB = v[1] * vs;
+      if ((v[1] + 1) * vs > ly1) ly1 = (v[1] + 1) * vs;
       if (lx < lx0) lx0 = lx; if (lx > lx1) lx1 = lx; if (lz < lz0) lz0 = lz; if (lz > lz1) lz1 = lz;
       const t = (v[1] + 1) * vs, k = TOPK(Math.round(lx * 200), Math.round(lz * 200));    // 5mm columns
       if (t > (tops.get(k) ?? -1e9)) tops.set(k, t);
@@ -197,6 +207,8 @@ const emitAsset = (name, o = {}) => {
     const g = new THREE.Group();
     window.voxEmit(m, (M, v) => M.makeScale(vs, vs, vs).setPosition(
       (v[0] - dcx) * vs, (v[1] + .5) * vs - minB, ((flip ? m.dims[2] - 1 - v[2] : v[2]) - dcz) * vs)).forEach(mm => g.add(mm));
+    g.add(hitProxy(lx1 - lx0 + vs, ly1 - minB, lz1 - lz0 + vs,            // aim can land ON the prop —
+      (lx0 + lx1) / 2, (ly1 - minB) / 2, (lz0 + lz1) / 2));               // instance tests stay skipped
     g.position.set(x, seat, z); g.rotation.y = rotY; parent.add(g);
     const rec = { name, kind, g, tops, lb: [lx0, lx1, lz0, lz1], x, z, rotY, y0: seat, minB, vs, surf,
                   bbox: footB([lx0, lx1, lz0, lz1], x, z, rotY),
@@ -383,10 +395,11 @@ const emitVox = (t, m, W, H, D, vox) => {
     const mirX = m.flip !== false;                                       // .stasset grids are authored under Unity truth —
     const fx = x => mirX ? (W - 1 - x) - W / 2 + .5 : x - W / 2 + .5;      // the editor's UNITY VIEW is scale.x=-1, so a right-handed render mirrors x to match (opt out with flip:false)
     const at = (x, y, z) => (x < 0 || y < 0 || z < 0 || x >= W || y >= H || z >= D) ? 0 : vox[x + W * (y + H * z)];
-    let ng = 0;
+    let ng = 0, gx0 = W, gx1 = -1, gz0 = D, gz1 = -1, gy1 = -1;
     const colYs = new Array(W * D);                                      // per-column voxel ys — slice/rotation-aware tops need the list
     for (let y = 0; y < H; y++) for (let z = 0; z < D; z++) for (let x = 0; x < W; x++) {
       const id = at(x, y, z); if (!id) continue;
+      if (x < gx0) gx0 = x; if (x > gx1) gx1 = x; if (z < gz0) gz0 = z; if (z > gz1) gz1 = z; if (y > gy1) gy1 = y;
       (colYs[x + W * z] = colYs[x + W * z] || []).push(y);
       if (!at(x-1,y,z) || !at(x+1,y,z) || !at(x,y-1,z) || !at(x,y+1,z) || !at(x,y,z-1) || !at(x,y,z+1)) ng++;
     }
@@ -418,6 +431,10 @@ const emitVox = (t, m, W, H, D, vox) => {
     }
     imO.count = no; imG.count = gi; imO.userData.miniVox = imG.userData.miniVox = true;   // flag the miniature's instanced walls — rayPruned skips them whole (426K matrix tests per ray)
     if (gi) miniG.add(imG); miniG.add(imO);
+    if (gy1 >= 0) {                                                       // aim proxy = occupied bounds — the dot rests ON the model
+      const px0 = (Math.min(fx(gx0), fx(gx1)) - .5) * vs, px1 = (Math.max(fx(gx0), fx(gx1)) + .5) * vs;
+      const pz0 = (gz0 - D / 2) * vs, pz1 = (gz1 + 1 - D / 2) * vs, py = (gy1 + 1) * vs;
+      miniG.add(hitProxy(px1 - px0, py, pz1 - pz0, (px0 + px1) / 2, py / 2, (pz0 + pz1) / 2)); }
     const localCols = [];                                                // grid columns → local offsets + the ys list
     for (let z = 0; z < D; z++) for (let x = 0; x < W; x++) {
       const ys = colYs[x + W * z]; if (!ys) continue;
@@ -812,6 +829,7 @@ const emitChar = spec => fetch('/char/' + spec.char).then(r => r.json()).then(ri
   rig.voxels.forEach((v, i) => inst.setColorAt(i, pal[out[reg[v[0] + ',' + v[1] + ',' + v[2]]] || v[3]] || dflt));
   inst.instanceColor.needsUpdate = true;
   const CH = new THREE.Group(); CH.add(inst); scene.add(CH);
+  CH.add(hitProxy(d[0] * VS, d[1] * VS, d[2] * VS, 0, d[1] * VS / 2, 0));   // the aim lands on the body, not the wall behind
   const bufA = new Float64Array(3 * N), bufB = new Float64Array(3 * N);
   const MA = inst.instanceMatrix.array;
   for (let i = 0; i < N; i++) MA[16 * i] = MA[16 * i + 5] = MA[16 * i + 10] = MA[16 * i + 15] = 1;
@@ -967,7 +985,7 @@ const aimRay = new THREE.Raycaster(), _zv = new THREE.Vector2(0, 0), aimWorld = 
    aim path — tags want surfaces); default skips only miniVox (click paths keep props selectable).
    Exclusions honored at EVERY level, not just the root list. */
 const _rcList = [];
-const rcCollect = (o, excl, allInst) => { if ((allInst ? o.isInstancedMesh : o.userData.miniVox) || (excl && excl.includes(o))) return;
+const rcCollect = (o, excl, allInst) => { if (!o.visible || o.isLine || o.isPoints || (allInst ? o.isInstancedMesh : o.userData.miniVox) || (o.userData.hitProxy && !allInst) || (excl && excl.includes(o))) return;
   _rcList.push(o); o.children.forEach(c => rcCollect(c, excl, allInst)); };
 const rayPruned = (rc, roots, excl, allInst) => { _rcList.length = 0;
   roots.forEach(o => { if (!excl || !excl.includes(o)) rcCollect(o, excl, allInst); });
