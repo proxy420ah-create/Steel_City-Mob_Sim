@@ -157,7 +157,7 @@ namespace SteelCity.Sim
             public VoxelInt3 dims;               // voxel dimensions
             public Vector3 worldOffset;          // cached world-space position
             public Quaternion rotation;            // cached world-space rotation
-            public float voxelSize;              // per-chunk voxel size (buildings=0.1, characters=0.01)
+            public float voxelSize;              // per-chunk voxel size (buildings=0.05, characters=0.01)
             public bool active;
             // Tight AABB of solid voxels (in voxel coords, inclusive)
             public int tightMinX, tightMinY, tightMinZ;
@@ -4040,7 +4040,7 @@ namespace SteelCity.Sim
                     ? chunk.hostObject.transform.rotation
                     : Quaternion.identity;
 
-                // Per-chunk voxel size (buildings=0.1, characters=0.01)
+                // Per-chunk voxel size (buildings=0.05, characters=0.01)
                 float chunkVoxelSize = chunk.voxelSize;
 
                 // Frustum cull: skip chunks behind camera or outside view

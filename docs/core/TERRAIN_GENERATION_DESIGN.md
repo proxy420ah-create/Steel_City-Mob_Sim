@@ -54,7 +54,7 @@ Steel City Mob Sim evolves the Gangsters formula visually while preserving its c
 
 **Decision**: Trolley tracks are embedded in **Main Street** seam types — wider roads that serve as city arteries.
 
-- Main Street seams are ~2.8x wider than standard roads (4.5m vs 1.6m)
+- Main Street seams are specified wider than standard roads — both currently render at the uniform `roadWidth` 4.5m (per-seam widths pending); main streets paint plain asphalt, no cobble stripe
 - Trolley tracks are drawn as dual metal rails on the main street surface
 - Main streets function as roads for navigation, with trolley stop waypoints at block centers
 - **Future mechanic**: Hoods can use trolley lines for faster city traversal
@@ -88,7 +88,7 @@ Steel City Mob Sim evolves the Gangsters formula visually while preserving its c
 
 **Decision**: Four seam types replace the single road type, based on 1920s urban planning research.
 
-- **Road** — standard asphalt, 1.6m wide, normal pathing
+- **Road** — standard asphalt, editor spec 1.6m wide (live uniform `roadWidth` 4.5m), normal pathing
 - **Alley** — cobblestone path between combined sidewalks, 1.8m wide, through-passage, concealed
 - **Main Street** — wide asphalt with dual trolley tracks, 4.5m wide, fastest transit
 - **Dead-End Alley** — dark red cobblestone, 1.8m wide, terminates at one side (no through-link), tactical chokepoint

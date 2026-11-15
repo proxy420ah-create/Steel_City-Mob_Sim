@@ -22,6 +22,7 @@ const chrome = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${PORT}
 process.on('exit', () => { try { chrome.kill(); } catch {} });
 
 let ws = null, mid = 0; const pend = new Map();
+const pageErrs = [];                                                                        // whole-run collector — uncaught exceptions + console.error + 'emit failed' warns; asserted empty at the end
 const cdp = (method, params = {}) => new Promise(res => { const id = ++mid; pend.set(id, res); ws.send(JSON.stringify({ id, method, params })); });
 const evl = async expr => {
   const r = await cdp('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true });
@@ -34,9 +35,17 @@ async function connect() {
       const list = JSON.parse(await get(`http://127.0.0.1:${PORT}/json/list`));
       const t = list.find(t => t.type === 'page' && t.url.includes('construct'));
       if (t) {
+        if (ws) { try { ws.close(); } catch {} }                                             // old session keeps receiving the same events → dupes
         ws = new WebSocket(t.webSocketDebuggerUrl);
         await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
-        ws.onmessage = e => { const m = JSON.parse(e.data); if (m.id && pend.has(m.id)) { pend.get(m.id)(m); pend.delete(m.id); } };
+        ws.onmessage = e => { const m = JSON.parse(e.data);
+          if (m.id && pend.has(m.id)) { pend.get(m.id)(m); pend.delete(m.id); return; }
+          if (m.method === 'Runtime.exceptionThrown') pageErrs.push('EXC ' + JSON.stringify(m.params.exceptionDetails).slice(0, 300));
+          else if (m.method === 'Runtime.consoleAPICalled') {
+            const txt = (m.params.args || []).map(a => a.value !== undefined ? a.value : (a.description || '')).join(' ').slice(0, 300);
+            if (m.params.type === 'error' || (m.params.type === 'warning' && /emit failed|Shader/i.test(txt))) pageErrs.push(m.params.type.toUpperCase() + ' ' + txt);
+          } };
+        await cdp('Runtime.enable');                                                       // required before exceptionThrown/consoleAPICalled fire
         return;
       }
     } catch {}
@@ -280,6 +289,16 @@ await connect(); await waitBoot(); await sleep(1500);
 check('outfit survives reload', await evl('__mann.outfit() === 1'));
 check('mannequin re-emitted wearing it', await evl('!!__mann.f()'), await evl('JSON.stringify(__mann.f() && __mann.f().spec)'));
 await evl('__cam(null); __pos.x = 0; __pos.z = 0');
+
+// 12.25 — aim ray surfaces: physical walls stop the dot; instanced minis hit via proxies (noAim helpers don't)
+await evl('window.dispatchEvent(new KeyboardEvent("keydown", { key: "f" }))');
+await evl('__cam(-4, .55, -4.6, -8, .55, -4.6)'); await sleep(350);                        // west along z=-4.6 — clear lane (minis own z -2.5/-3.7), annex wall face is x ≈ -7.93
+let aw = JSON.parse(await evl('JSON.stringify(__aim.world())'));
+check('aim stops at the west wall face', Math.abs(aw[0] + 7.93) < .15 && Math.abs(aw[2] + 4.6) < .05, 'aim=' + JSON.stringify(aw));
+await evl('__cam(-2.6, .55, -2.5, -4.6, .55, -2.5)'); await sleep(350);                    // east — tenement mini's proxy face
+aw = JSON.parse(await evl('JSON.stringify(__aim.world())'));
+check('aim lands on the miniature proxy face', Math.abs(aw[0] + 4.159) < .15 && Math.abs(aw[2] + 2.5) < .15, 'aim=' + JSON.stringify(aw));
+await evl('window.dispatchEvent(new KeyboardEvent("keyup", { key: "f" }))'); await evl('__cam(null)');
 
 // 12.5 — west annex: doorway seam passable, wall stubs blocked, wire lifted into an arch
 check('walkOK centre of main room', await evl('__construct.walkOK(0, -2.5) === true'));
@@ -536,6 +555,9 @@ await evl('__cam(null)');
 check('camLock released', true);
 const shot = await cdp('Page.captureScreenshot', { format: 'png' });
 fs.writeFileSync(path.join(HERE, 'probe_placemode.png'), Buffer.from(shot.result.data, 'base64'));
+
+// 14 — whole-run page hygiene: no uncaught exceptions, no console.error, no emit-failed warns across every section
+check('no page errors the whole run', pageErrs.length === 0, pageErrs.join(' | ').slice(0, 400));
 
 console.log('---'); console.log(R.every(r => r.ok) ? 'ALL PASS' : 'FAILURES: ' + JSON.stringify(R.filter(r => !r.ok)));
 chrome.kill(); setTimeout(() => { try { fs.rmSync(prof, { recursive: true, force: true }); } catch {} }, 800);

@@ -27,7 +27,7 @@ See `ZONING_DESIGN.md` → "City Generation Pipeline" for zoning algorithm detai
 
 The design tool is **complete and functional**. The Unity runtime integration is **pending**.
 
-> **Scale status (2026-10-05)**: Unity now renders a **32×32 (1,024-block)** city built as a direct scale-up of the 10×10 test rig via `Tools/generate_city_layout.py` — same `groundTileSize` 11.6 m / `spacing` 13.2 m as this editor's export, so the grid dimensions line up. This proved the render path handles production size but does **not** yet consume this editor's export (seam types, water/bridge blocks, zones). See [`../systems/CITY_SCALE_ARCHITECTURE.md`](../systems/CITY_SCALE_ARCHITECTURE.md) for the scale findings, the per-sector render limits any new terrain/seam work must respect, and [`../systems/RIVER_AND_BRIDGE_TILES.md`](../systems/RIVER_AND_BRIDGE_TILES.md) for the concrete M2 spec that implements pending tasks 1–2 below (block-scale water first, seam-scale river deferred).
+> **Scale status (2026-10-05)**: Unity now renders a **32×32 (1,024-block)** city built as a direct scale-up of the 10×10 test rig via `Tools/generate_city_layout.py` — same `groundTileSize` 11.6 m as this editor's export; `spacing` is **16.1 m** live (`roadWidth` 4.5 — the editor-declared 1.6/13.2 predates the width increase and matches again only once pending task 1 consumes per-seam widths). This proved the render path handles production size but does **not** yet consume this editor's export (seam types, water/bridge blocks, zones). See [`../systems/CITY_SCALE_ARCHITECTURE.md`](../systems/CITY_SCALE_ARCHITECTURE.md) for the scale findings, the per-sector render limits any new terrain/seam work must respect, and [`../systems/RIVER_AND_BRIDGE_TILES.md`](../systems/RIVER_AND_BRIDGE_TILES.md) for the concrete M2 spec that implements pending tasks 1–2 below (block-scale water first, seam-scale river deferred).
 
 ---
 
@@ -42,8 +42,8 @@ The design tool is **complete and functional**. The Unity runtime integration is
 - **Top-down CAD view** with pan, zoom, zoom-to-fit
 - **Real game proportions** sourced from `CityMap3D.cs` defaults
 - **32×32 grid** from embedded Gangsters macro map (replica1_data.js)
-- **5 seam types** paintable between blocks:
-  - **Road** — standard asphalt, 1.6m wide
+- **5 seam types** paintable between blocks (spec widths — Unity currently renders every seam at the uniform `roadWidth` 4.5m, task 1 below):
+  - **Road** — standard asphalt, editor spec 1.6m wide
   - **Alley** — cobblestone path between combined sidewalks, 1.8m wide, through-passage
   - **Main Street** — wide dark asphalt with dual trolley tracks, 4.5m wide
   - **Dead-End Alley** — dark red cobblestone path, 1.8m wide, terminates at one side (no through-link)
@@ -171,7 +171,7 @@ The same constants appear on both sides of the pipeline — the design tool expo
 - **Material ID**: `MAT_ALLEY (133)` for path, `MAT_SIDEWALK (102)` for surrounding sidewalk
 
 ### Main Street
-- **Width**: 4.5m (configurable, 2.0-8.0m range)
+- **Width**: 4.5m (editor spec — coincidentally the live uniform `roadWidth`; main streets currently render plain asphalt at this width, no cobble stripe)
 - **Visual**: Wide dark asphalt with two trolley track lines (metal-colored) offset from center
 - **Waypoints**: Trolley stop nodes (cyan) at each block center along seam, through-links
 - **Tactical**: Most exposed, fastest transit, trolley stops as special nodes
@@ -187,7 +187,7 @@ The same constants appear on both sides of the pipeline — the design tool expo
 - **Historical basis**: Common in 1920s cities for service access (garbage, loading bays)
 
 ### Bridge
-- **Width**: Same as road (1.6m configurable)
+- **Width**: Same as road (editor spec 1.6m; live uniform 4.5m)
 - **Visual**: Wooden brown surface with thin rail lines on each side
 - **Waypoints**: Through-links only — bridges are pure transit, no stop nodes
 - **Tactical**: Critical chokepoint — only crossing over water, controls access between land masses
@@ -209,7 +209,7 @@ The same constants appear on both sides of the pipeline — the design tool expo
 
 ### 1. CityLayout: Accept Variable Seam Types/Widths
 
-**Current state**: `CityMap3D.cs` uses a single `roadWidth` for all seams. The city layout JSON is loaded but seam types are not consumed.
+**Current state**: `CityMap3D.cs` uses a single `roadWidth` (4.5f → 16.1m spacing, 322² terrain chunks) for all seams. The city layout JSON is loaded but seam types are not consumed.
 
 **Required changes**:
 - Parse `seamTypes` array from exported JSON

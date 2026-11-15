@@ -16,7 +16,7 @@
 - `parameters`, `groundTileSize`, `spacing`, `railLine`
 - The **Gangsters replica** (`REPLICA1_DATA`, v4 tiles): 642 `block` / 220 `mainst` / **34 `river`** / **4 `bridge`** / 124 `oob` cells on a 32×32 grid.
 
-Two river widths exist in the model: **block-scale** (whole 11.6 m cells = water — the replica's river) and **seam-scale** (a 'river' seam = 1.6 m canal in the road corridor). This spec implements block-scale first; seam-scale river is deferred (it needs variable seam handling anyway).
+Two river widths exist in the model: **block-scale** (whole 11.6 m cells = water — the replica's river) and **seam-scale** (a 'river' seam = a canal in the road corridor (corridor currently renders at the uniform `roadWidth` 4.5m; editor spec widths pending)). This spec implements block-scale first; seam-scale river is deferred (it needs variable seam handling anyway).
 
 ## The "smart foundation" decision
 
@@ -32,7 +32,7 @@ Terrain is currently a 2-voxel pancake (~0.1 m thick) — the black void under t
 
 ## Tile ownership (verified in `VoxelTerrainBuilder`)
 
-Each terrain chunk covers **block interior (11.6 m) + half-road on all 4 sides** (13.2 m footprint, 264×264×2 @ 0.05). Consequences:
+Each terrain chunk covers **block interior (11.6 m) + half-road on all 4 sides** (16.1 m footprint, 322×322×2 @ 0.05). Consequences:
 
 - A **water–water seam**: each water tile carves its half of the corridor → the channel is continuous automatically.
 - A **water–land seam**: stays a road — this is the *riverside street* seen in the editor's map. The water tile must **not** carve that corridor half.
@@ -95,7 +95,7 @@ A `bridge` cell in the replica is a **block-scale tile** replacing a water cell 
 
 ### The invariants that make this exact
 
-River/bridge/oob tiles are **not special shapes** — they occupy the same 11.6 m block interior at the same 13.2 m spacing, grade stays at y=0, and walk surfaces land on the same edge lanes as every land block. Consequence: `WaypointGraph.GenerateFromLayout`'s fixed node positions remain geometrically valid on every terrain type — a river block's W/E promenade lane **is** the standard sidewalk lane position (0.5 m inside the tile edge, verified against the authored prototype: lane voxel ≈5 inside the walkable strip x∈[0,7]; ≈110 inside x∈[108,115]). Corner nodes (~0.5 m in from both edges) sit exactly at the promenade lane ends.
+River/bridge/oob tiles are **not special shapes** — they occupy the same 11.6 m block interior at the same 16.1 m spacing, grade stays at y=0, and walk surfaces land on the same edge lanes as every land block. Consequence: `WaypointGraph.GenerateFromLayout`'s fixed node positions remain geometrically valid on every terrain type — a river block's W/E promenade lane **is** the standard sidewalk lane position (0.5 m inside the tile edge, verified against the authored prototype: lane voxel ≈5 inside the walkable strip x∈[0,7]; ≈110 inside x∈[108,115]). Corner nodes (~0.5 m in from both edges) sit exactly at the promenade lane ends.
 
 So sidewalk waypoint logic stays consistent **by design, not by convention**: voxel data and nav data derive from the same `terrain` field at the same block anchor — there is no authored-path data to drift out of sync. Any seeded/procedural layout generator that stamps `terrain` gets correct navigation for free — orientation is encoded by the neighbor mask, not by per-tile hand-tuning.
 
@@ -137,7 +137,7 @@ Editor hand-drawn waypoints (voxel_editor 🚩 Path) are a *preview aid only* �
 
 `Tools/generate_river_tile.py` → `VoxelAssetStudio/JSON Models In Progress/river_straight.json`:
 
-- dims **116 × 64 × 116**, `voxelSize 0.1` → 11.6 m × 11.6 m block interior, 6.4 m total height
+- dims **116 × 64 × 116**, `voxelSize 0.1` → 11.6 m × 11.6 m block interior, 6.4 m total height (file-declared .1 is authoring intent — Unity forces .05 on building renders, so a shipped chunk form must be re-grained to 232v per side)
 - Grade slab at y 22–23 (2 voxels, matching terrain's 2-voxel surface); y 24–63 is **empty headroom** above grade — authoring room for quay-side decorations (fences, lamps, signage) painted on the sidewalk; tunable via `--headroom`
 - Channel x ∈ [10, 105]: stone bed at y 4–5, water fill y 6–19 (**1.4 m deep**), air gap to grade
 - Quay walls: x = 10 and x = 105, full height

@@ -636,9 +636,10 @@ const padHudEl = document.createElement('div');
 padHudEl.style.cssText = 'position:fixed;left:50%;bottom:14px;transform:translateX(-50%);background:rgba(8,8,14,.92);border:1px solid #6a6a92;color:#e2dbc2;padding:5px 12px;font:10px ui-monospace,Consolas,monospace;letter-spacing:.1em;display:none;z-index:8;pointer-events:none;white-space:nowrap';
 padHudEl.textContent = 'PAD — LMB press · RMB tap — mouse look';
 document.body.appendChild(padHudEl);
+const grabLook = () => { try { const r = el.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch {} };   // the API rejects without a user gesture — never an unhandled rejection
 const padFocusToggle = () => { padFocus = !padFocus; padSetHover(null);
   if (padFocus && document.exitPointerLock) document.exitPointerLock();
-  else if (!padFocus && document.pointerLockElement !== el) el.requestPointerLock();
+  else if (!padFocus && document.pointerLockElement !== el) grabLook();
   padHudEl.style.display = padFocus ? 'block' : 'none'; };
 const emitPad = () => {
   const PAD_W = .18, PAD_D = .12, PAD_H = .012, x = -4.6, z = -1.975, rotY = .3; // the Primary Table's north felt margin
@@ -1355,7 +1356,7 @@ const refreshSolids = () => {                                                 //
 const pos = new THREE.Vector3(0, 0, 0); let yaw = 0, pitch = 0;          // yaw 0 faces -z — stepped out of the door-elevator, rotator dead ahead
 const EYE = .56, WALK = 1.4, SPRINT = 2.2, keys = {};    // Vinny's authored Eyes region (region id 10) — voxel centroid y56 × .01 pitch
 const el = renderer.domElement;
-el.addEventListener('click', () => { if (!padFocus && document.pointerLockElement !== el) el.requestPointerLock(); });
+el.addEventListener('click', () => { if (!padFocus && document.pointerLockElement !== el) grabLook(); });
 addEventListener('mousemove', e => {
   if (padFocus) { mouseNDC.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
     padSetHover(padCursorHit()); return; }                                    // pad mode — cursor hovers the screen, never looks

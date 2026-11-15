@@ -38,13 +38,13 @@ Everything labeled *measured* comes from `buildmap_log.txt` / `Editor.log` of re
 |---|---|---|
 | Blocks | 100 | 1,024 |
 | Building slots | 876 | 9,192 (9,189 `empty_land`, 2 tenement, 1 shooting range) |
-| Block spacing | 13.2 m | 13.2 m |
-| City extent | ~132 m | ~422 m (editor reports 420 m) |
-| Terrain voxels | 13,939,200 | 143,210,888 |
+| Block spacing | 16.1 m | 16.1 m |
+| City extent | ~161 m | ~515 m |
+| Terrain voxels | 20,736,800 | 212,344,832 |
 | Building voxels (sector-baked) | — | 314,376,192 |
 | Unique `.stasset` files | 3 | 3 (voxel cache: 3 misses, 18,384 hits) |
 
-Block spacing = `groundTile (64*3*0.05 + 2*1.0 = 11.6 m) + road (1.6 m)` = 13.2 m. Terrain chunk = 264 x 2 x 264 voxels (139,392). Empty lot = 64 x 8 x 64 = 32,768 voxels.
+Block spacing = `groundTile (64*3*0.05 + 2*1.0 = 11.6 m) + road (4.5 m)` = 16.1 m. Terrain chunk = 322 x 2 x 322 voxels (207,368). Empty lot = 64 x 8 x 64 = 32,768 voxels.
 
 > **Correction on record**: an early estimate in conversation said the 32x32 was ~626 m and the 10x10 ~200 m. Those were wrong; 422 m / 132 m is right (and matches the editor's 420 m).
 
@@ -170,7 +170,7 @@ Nothing has crashed, but these have only run at 10x10 and have **no evidence eit
 
 > **Full spec**: [`RIVER_AND_BRIDGE_TILES.md`](RIVER_AND_BRIDGE_TILES.md) — supersedes/extends this section. Key decision captured there: **smart foundation** (carve depth only at the river channel; grade stays y=0) and block-scale water tiles with neighbor-mask edge recipes. Prototype `river_straight.json` authored via `Tools/generate_river_tile.py`.
 
-The editor already authors this: block `terrain: "land" | "water" | …`, seam types incl. `bridge`, exported as the v3 JSON documented in `CITY_LAYOUT_PIPELINE.md` (`blocks[{row,col,block_id,terrain}]`, `hSeams`, `vSeams`, `gridSize: 32`, `groundTileSize: 11.6`, `spacing: 13.2` — these already match the Unity numbers above). Pipeline tasks 1 and 2 are the prerequisite work:
+The editor already authors this: block `terrain: "land" | "water" | …`, seam types incl. `bridge`, exported as the v3 JSON documented in `CITY_LAYOUT_PIPELINE.md` (`blocks[{row,col,block_id,terrain}]`, `hSeams`, `vSeams`, `gridSize: 32`, `groundTileSize: 11.6`, `spacing: 13.2` — groundTile matches; the editor's 13.2 spacing predates the roadWidth increase and does NOT match the live 16.1 grid until task 1 lands). Pipeline tasks 1 and 2 are the prerequisite work:
 
 1. **Layout data**: `CityLayout`/`CityLayoutBlock` (in `CityMap3D.cs`) currently carry only `block_id/name/row/col/buildings`; add terrain + seam arrays. The editor's `block_id` is `r{row}c{col}`; Unity's is `block_{n}` — the generator needs an explicit mapping (row/col is the stable key).
 2. **Generator**: extend `Tools/generate_city_layout.py` with `--from-editor <export.json>`: water blocks get **zero building slots** and an empty template (non-buildable), land blocks keep the 9-slot convention.
@@ -179,7 +179,7 @@ The editor already authors this: block `terrain: "land" | "water" | …`, seam t
 
 **Scale implications to check while doing it** (design questions, not yet answered):
 
-- Terrain chunk size is `(groundTile + roadWidth)/voxelSize`. If seam widths vary (alley 1.8, main street 4.5, bridge 1.6) chunk dims may become **non-uniform**. The banding in `BuildVoxelTerrain` already handles non-uniform chunks (cumulative offsets, limit-driven), but block anchors / spacing elsewhere assume a uniform grid.
+- Terrain chunk size is `(groundTile + roadWidth)/voxelSize`. If seam widths vary (editor spec: alley 1.8, main street 4.5, bridge 1.6 — today all render at the uniform 4.5) chunk dims may become **non-uniform**. The banding in `BuildVoxelTerrain` already handles non-uniform chunks (cumulative offsets, limit-driven), but block anchors / spacing elsewhere assume a uniform grid.
 - Water/bridge/alley variants **increase unique-tile count**, which is the input to O4 (dedupe) — decide dedupe design *after* the seam set is real.
 - Water blocks have no buildings → fewer instances; this *helps* every sector limit.
 - Any new sector type must obey the four invariants above.

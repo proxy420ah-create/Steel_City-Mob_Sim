@@ -1618,7 +1618,7 @@ namespace SteelCity.Sim
             float px = bx;
             float pz = bz;
 
-            // Y: terrain is 2 voxels thick at voxelSize=0.1 → top surface at Y=0.2
+            // Y: terrain is 2 voxels thick at voxelSize=0.05 → top surface at Y=0.1
             float groundY = voxelSize * 2f; // 0.2
 
             // Characters hierarchy

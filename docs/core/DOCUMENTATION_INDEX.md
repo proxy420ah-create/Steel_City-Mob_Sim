@@ -83,7 +83,7 @@
   - Unity pending tasks: CityLayout variable seams, VoxelTerrainBuilder materials, VoxelWaypointScanner, dynamic cover
   - 1920s urban planning research basis (street hierarchy, trolley lines, alley systems)
   - Material IDs: MAT_ALLEY(133), MAT_TROLLEY_TRACK(135, proposed), MAT_COVER_CRATE(131), MAT_COVER_CAR(132)
-  - **Canonical block dimensions for voxel assets**: slot = 64×64v, block = 192×192v (3×3 slots + sidewalks = 11.6m tile), height free-form, full-block mega-buildings (tenement_block_0) carry own courtyard; asset/generator contract for the pending city-generation pipeline
+  - **Canonical block dimensions for voxel assets**: slot = 64×64v, block = 192×192v (3×3 slots + sidewalks = 11.6m tile; terrain chunk = 322×2×322 incl. half-roads), height free-form, full-block mega-buildings (tenement_block_0) carry own courtyard; asset/generator contract for the pending city-generation pipeline
 
 **Source Game Analysis:**
 - **`docs/core/SOURCE_GAME_ANALYSIS.md`** — Analysis of Gangsters: Organized Crime
@@ -267,7 +267,7 @@
   - Component stack: VoxelCharacter + CharacterAnimation + ClothingSystem + PedestrianLookAround
   - GPU instancing pipeline: sharedVoxelBuffer (one per model), posedVoxelBuffer (per visible instance)
   - Consolidated .character.json format (voxels + groups + regions + pivots + animParams in one file)
-  - Voxel scale standards: building 0.1m, character 0.01m, item/decor 0.005m
+  - Voxel scale standards: building 0.05m (Unity-forced), character 0.01m, item/decor 0.005m
   - How to set up character entities (editor, code, spawner)
   - Model upscaling tool for raymarch artifact fixes
 
@@ -461,8 +461,8 @@
 
 **Road Lanes & Traffic:**
 - **`docs/systems/ROAD_LANES_AND_TRAFFIC.md`** — Lane/traffic design + F10 two-car test plan
-  - `roadWidth` locked: `private const 3.0f` — two 1.4 m lanes around the 1.0 m `vehicle_civilian_car_0`
-  - Cobble center stripe (±0.05 m of corridor center) doubles as the dual-traffic divider; lane offset ±`roadWidth`/4
+  - `roadWidth` = `4.5f` (`[SerializeField]`, uniform across all seams — per-seam widths pending) — two ~2.25 m lanes around the 1.0 m `vehicle_civilian_car_0`
+  - Cobble stripes sit at each corridor-half’s center (the quarter positions, ±`roadWidth`/4) — each tile paints its own half’s stripe so the pair across a seam reads as the dual-traffic divider; lane offset ±`roadWidth`/4
   - "Slot cars" Phase A: fixed lane offset, intersection reservation, car following; Phase B: turn arcs, Dijkstra routing, trolley actor
   - Main street = through-cell 4-lane spine with trolley track pair ±0.35 m + ±0.6 m rail buffer (cars may cross, never cruise/park)
   - Open bug: `docs/known_issues/runtime/ROADGRAPH_IGNORES_TERRAIN.md` — RoadGraph links cross open water (step 1 of the plan)

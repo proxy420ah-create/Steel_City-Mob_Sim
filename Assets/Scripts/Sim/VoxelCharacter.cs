@@ -25,7 +25,7 @@ namespace SteelCity.Sim
         public string assetFileName = "Civilian1.json";
 
         [Header("Voxel Grid")]
-        [Tooltip("World units per voxel. Buildings use 0.1, characters use 0.01 (upscaled 96³ standard).")]
+        [Tooltip("World units per voxel. Buildings use 0.05, characters use 0.01 (upscaled 96³ standard).")]
         public float voxelSize = 0.01f;
 
         [Header("Rendering")]
