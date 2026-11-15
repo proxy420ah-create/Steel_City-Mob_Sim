@@ -443,6 +443,14 @@ await connect(); await waitBoot(); await sleep(800);
 check('lift survives F5 — top .32, pad still riding', await evl('Math.abs(__construct.tables()[0].lift - .06) < 1e-3 && Math.abs(__pad.rec().y0 - .32) < .01'), await evl('JSON.stringify({l:__construct.tables()[0].lift, y0:__pad.rec().y0})'));
 await evl('__pad.press("lres")');
 check('post-reload reset restores .26', await evl('__construct.tables()[0].lift === 0 && Math.abs(__pad.rec().y0 - .26) < .01'));
+// boot TDZ regression — a saved lift on a LATER table used to crash module eval mid-forEach
+await evl('localStorage.setItem("dvm_lift:block", "0.06")');
+await evl('location.reload()'); await sleep(1500);
+await connect(); await waitBoot(); await sleep(800);
+check('saved lift on a later table — module eval completes', await evl('__construct.tables().length === 3 && !!__construct.placed.find(p => p.name === "commission_desklamp")'), await evl('JSON.stringify({t:__construct.tables().length, lamp:!!__construct.placed.find(p => p.name === "commission_desklamp")})'));
+check('later-table lift restored at boot', await evl('Math.abs(__construct.tables()[1].lift - .06) < 1e-3'));
+await evl('__construct.take("debug_pad"); __construct.place(-6.4, -0.85); __pad.press("lres"); __construct.take("debug_pad"); __construct.place(-4.6, -1.975)');
+check('block lift re-homed after the regression', await evl('__construct.tables()[1].lift === 0'));
 await evl('__pad.press("lDD"); __pad.press("lDD"); __pad.press("lDD")');              // ▼▼×3 → bottomed out
 check('floor notch — lift −.22, top .04', await evl('Math.abs(__construct.tables()[0].lift + .22) < 1e-3 && Math.abs(__construct.tables()[0].top - .04) < 1e-3'), await evl('JSON.stringify({l:__construct.tables()[0].lift,t:__construct.tables()[0].top})'));
 check('slab bottom sits on the floor — slabY .02', await evl('Math.abs(__construct.tables()[0].slabY - .02) < 1e-3'), await evl('__construct.tables()[0].slabY'));

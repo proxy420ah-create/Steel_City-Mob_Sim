@@ -176,6 +176,7 @@ window.voxEmit = (m, fillM) => {
    asset registers a column-top surface map in PLACED so any item can seat ON anything —
    measured, not authored (attachmentPoints stay semantic: axles, seats, grips). */
 const PLACED = [];
+let held = null, pickIt = null;                                          // placement state — hoisted: liftRiders/surfaceAt can run at module eval (saved dvm_lift) before the input section initializes
 const ROUTES = { item: '/voxel/', vehicle: '/veh/', char: '/char/' };
 const footB = (lb, x, z, rotY) => {                                            // world footprint from local bounds — ALWAYS live, never stale
   const cy = Math.cos(rotY), sy = Math.sin(rotY);
@@ -522,7 +523,7 @@ const mountModel = (t, mspec) => {
 };
 MANIFEST.tables.forEach(spec => { const t = emitTable(spec);
   const savedLift = +localStorage.getItem('dvm_lift:' + spec.id);           // the pistons remember their reach
-  if (savedLift) tableLiftSet(t, savedLift);
+  if (savedLift) queueMicrotask(() => tableLiftSet(t, savedLift));          // restore AFTER eval — liftRiders reaches late-bound helpers (inB/held); a synchronous call is a TDZ landmine
   const saved = localStorage.getItem('dvm_model:' + spec.id), cat = spec.catalog || spec.models;
   mountModel(t, cat.find(m => m.name === saved) || spec.models[0]); });
 
@@ -1442,7 +1443,6 @@ addEventListener('keyup', e => { keys[(e.key || '').toLowerCase()] = false; });
 /* ── pick-up / drop — free item manipulation on the measured-surface law.
    held rides the camera; the ghost ring marks where E seats it (ray steps forward until it
    crosses a surface; worldSurfaceAt answers for every placed asset, floor = 0). */
-let held = null, pickIt = null;
 const fwdV = new THREE.Vector3(), tmpV = new THREE.Vector3();
 /* held-item orientation = facing-yaw × axis-snaps × free-tumble. Axis snaps are 15° counters about
    the item's axes — pressing one CLEARS the free tumble, so level is always one key away (0 resets all).
