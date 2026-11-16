@@ -15,9 +15,9 @@ let shadesOn = localStorage.getItem('dvm_shades') !== '0';               // defa
 const PEND_Y = 1.2, SPOT_I = 16, GLOW_I = .5;
 const hangPendant = (parent, drop = -.4, y = PEND_Y) => {
   const pg = new THREE.Group(); pg.position.set(0, y, 0); parent.add(pg);
-  const spot = new THREE.SpotLight(0xffe2b0, 0, 4, .85, .65, 1);
+  const spot = new THREE.SpotLight(0xffe2b0, lampsOn ? SPOT_I : 0, 4, .85, .65, 1);   // born in the CURRENT lamps state — a P-attach while dimmed pools immediately, not at the next switch flip
   spot.position.set(0, .27, 0); pg.add(spot); spot.target.position.set(0, drop, 0); pg.add(spot.target);
-  const glow = new THREE.PointLight(0xcfffb0, 0, .8, 1);                 // the dome's own glass-glow
+  const glow = new THREE.PointLight(0xcfffb0, lampsOn ? GLOW_I : 0, .8, 1);            // the dome's own glass-glow
   glow.position.set(0, .08, 0); pg.add(glow);
   const fixture = new THREE.Group(); fixture.visible = shadesOn; pg.add(fixture);   // the shade — hides alone; lights keep emitting (three.js skips invisible parents when collecting lights)
   const e = { pg, spot, glow, fixture }; LAMPS.push(e);

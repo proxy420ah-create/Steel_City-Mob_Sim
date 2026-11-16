@@ -73,6 +73,7 @@ const detached = JSON.parse(await evl('JSON.stringify((() => { const s = []; sce
 check('pend off — fixture + spot leave the scene and LAMPS', detached.n === 4 && !detached.pend && detached.want === 0 && detached.lamps === 4, JSON.stringify(detached));
 await evl('(() => { const d = __construct.placed.find(p => p.name === "commission_lawdesk"); __lamps.pendSet(d, true); return true; })()');
 check('pend on — pendant re-attaches to the rec', await evl('(() => { const d = __construct.placed.find(p => p.name === "commission_lawdesk"); return !!(d.pend && d.pendWant === 1) && __lamps.count() === 5; })()'));
+check('pend on — spot born lit (no switch-flip wait)', await evl('(() => { const d = __construct.placed.find(p => p.name === "commission_lawdesk"); return d.pend.spot.intensity === 16 && d.pend.glow.intensity === .5; })()'));
 check('pend state persisted — dvm_place lawdesk pend=1', await evl('(() => { placeSave(); const o = JSON.parse(localStorage.getItem("dvm_place")); return o.commission_lawdesk && o.commission_lawdesk.pend === 1; })()'));
 check('non-table rec defaults to no pendant', await evl('(() => { const s = __construct.placed.find(p => p.name === "commission_stamper"); return s && s.pendWant === 0 && !s.pend; })()'));
 const errs = JSON.parse(await evl('JSON.stringify((window.__errs || []).slice(0, 5))'));
