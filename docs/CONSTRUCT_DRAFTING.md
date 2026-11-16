@@ -456,10 +456,11 @@ in the numbers.
 `construct/17_lamps.js` gives the room its museum mode: **one wall switch
 dims the house and lights a pendant over every table.**
 
-**The pendants.** Each `TABLES` entry gets a scenery group at table-local
-`(0, .85, 0)` parented into `t.g` — the `commission_pendant` voxel fixture
-(the green-dome banker lamp, ~.30m tall, origin at dome bottom; canopy tops
-~1.15 under the `WALL_H=1.55` cornice) plus a light rig: a warm
+**The pendants.** Every exhibit host gets a scenery group at host-local
+`(0, 1.2, 0)` — `t.g` for the three tables, `spinG` for the rotator — carrying
+the `commission_pendant` voxel fixture (the green-dome banker lamp, ~.30m
+tall, origin at dome bottom; canopy tops ~1.5, kissing the `WALL_H=1.55`
+cornice line so fixtures read ceiling-mounted) plus a light rig: a warm
 `SpotLight 0xffe2b0` (i=16, dist 4, angle .85, penumbra .65) aimed straight
 down — the widened cone pools across each whole slab — and a small
 `PointLight 0xcfffb0` (i=.5) inside the dome for its own glass-glow.
@@ -470,9 +471,8 @@ deletion carry the fixture and its lights. Pendant fetch is async per
 table; lights exist immediately, the fixture mesh lands when
 `/voxel/commission_pendant` resolves. A fourth fixture hangs over the
 main-room **rotator** — parented to `spinG` (`carG` is what spins; the
-lamp must not ride it), ceiling-mounted at `y=1.2` so its canopy kisses
-the cornice line over the tall touring, aim dropped to deck level — the
-car turns inside a fixed museum pool like the tables' exhibits.
+lamp must not ride it), aim dropped to deck level so the touring turns
+inside a fixed museum pool like the tables' exhibits.
 
 **The switch.** A dark plate + proud rocker nub + tell-pip scenery group on
 the annex face of the interior wall at `(-3.04, .5, -1.6)`, just north of

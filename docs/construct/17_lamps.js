@@ -9,9 +9,9 @@ const LAMPS = [];                                                        // { sp
 let lampsOn = localStorage.getItem('dvm_lights') === '1';                // default OFF — bright construct; the switch dims on demand
 
 /* pendant — commission_pendant (green-dome banker fixture), ~.30m tall, origin = dome bottom.
-   Local y .85 inside the host group: dome clearance ~.6 over the exhibit, canopy tops out
-   ~1.15 — comfortably under the 1.55 cornice. The wider cone pools across the whole slab. */
-const PEND_Y = .85, SPOT_I = 16, GLOW_I = .5;
+   All fixtures ceiling-mount at local y 1.2: canopy ~1.5 kisses the 1.55 cornice, exhibits get
+   ~.7–1.2 of clearance. The wider cone pools across the whole slab/disc from the longer throw. */
+const PEND_Y = 1.2, SPOT_I = 16, GLOW_I = .5;
 const hangPendant = (parent, drop = -.4, y = PEND_Y) => {
   const pg = new THREE.Group(); pg.position.set(0, y, 0); parent.add(pg);
   const spot = new THREE.SpotLight(0xffe2b0, 0, 4, .85, .65, 1);
@@ -25,8 +25,8 @@ const hangPendant = (parent, drop = -.4, y = PEND_Y) => {
       (v[0] - dcx) * vs, (v[1] + .5) * vs, (v[2] - dcz) * vs)).forEach(mm => pg.add(mm));
   }).catch(e => console.warn('CONSTRUCT — pendant emit failed:', e));
 };
-TABLES.forEach(t => hangPendant(t.g));
-hangPendant(spinG, -1.2, 1.2);                                           // the rotator's museum spot — ceiling-mounted (canopy ~1.5 kisses the cornice); spinG stays put while the tall touring turns under it
+TABLES.forEach(t => hangPendant(t.g, -.94));                             // aim lands on the .26 tabletop
+hangPendant(spinG, -1.2);                                                // the rotator's museum spot — spinG stays put while the tall touring turns under it; aim lands on the deck
 
 /* the switch — a dark plate + proud rocker nub on the annex face of the interior wall, just
    north of the door jamb. 1.5cm standoff kills the coplanar-face washout; the dark plate reads
