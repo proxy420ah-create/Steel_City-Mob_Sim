@@ -44,6 +44,18 @@ one of these laws was ignored.
 - **One-assert re-verification** = a focused `_xxx_check.mjs` (CDP boot + the
   single eval + the law) — see `_repark_check.mjs`. Full suite re-runs are for
   pre-commit confidence, not assert iteration.
+- **One-off probes never hand-roll the CDP boilerplate.** `docs/_cdp.mjs`'s
+  `bootCdp()` owns spawn, target discovery, a websocket with **deadlines on
+  every await**, page-exception capture, the pass/fail tally, and Chrome +
+  profile cleanup — import `{ evl, sleep, check, finish }`. The stall it
+  kills: a bare `await new Promise(r => ws.onopen = r)` (no `onerror`, no
+  deadline) hangs forever when the socket errors — that is what stalled
+  `_dbg_held`. Un-timestamped profile dirs are the second trap — leftovers
+  from killed runs make Chrome boot silently fail.
+- **Diag strings are never truthy or'ed.** `return cond || JSON.stringify(d)`
+  returns a truthy string on failure → the check PASSES while red. Diags go
+  in `check()`'s third arg (eval a `window.__diag` you stashed), not in the
+  boolean.
 
 ## 4. Multi-coordinate patches → script files, never heredocs
 

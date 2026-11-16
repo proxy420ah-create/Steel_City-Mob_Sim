@@ -243,6 +243,14 @@ with a focused `_xxx_check.mjs` (CDP boot + one eval + the law, e.g.
 `_repark_check.mjs`) — full-suite re-runs are for pre-commit confidence, not for
 iterating on one assert.
 
+**New probes boot through `docs/_cdp.mjs`** — `bootCdp()` returns
+`{evl, cdp, sleep, check, finish}`: spawn + target discovery + a websocket with
+deadlines on every await + `Runtime.exceptionThrown` capture + the pass/fail
+tally + Chrome/profile cleanup. One-off scripts must NOT re-implement the
+boilerplate — a bare `ws.onopen` await without `onerror`/timeout hangs forever
+on a socket error, and un-timestamped `--user-data-dir`s silently collide with
+leftovers from killed runs.
+
 ## Heavy scenes — SwiftShader black frames
 
 Once the studio table mounts the ~1.36 M-instance Battlefield zone, headless
