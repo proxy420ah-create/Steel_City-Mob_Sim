@@ -470,8 +470,9 @@ deletion carry the fixture and its lights. Pendant fetch is async per
 table; lights exist immediately, the fixture mesh lands when
 `/voxel/commission_pendant` resolves. A fourth fixture hangs over the
 main-room **rotator** — parented to `spinG` (`carG` is what spins; the
-lamp must not ride it) with the aim dropped to deck level, so the touring
-turns inside a fixed museum pool like the tables' exhibits.
+lamp must not ride it), ceiling-mounted at `y=1.2` so its canopy kisses
+the cornice line over the tall touring, aim dropped to deck level — the
+car turns inside a fixed museum pool like the tables' exhibits.
 
 **The switch.** A dark plate + proud rocker nub + tell-pip scenery group on
 the annex face of the interior wall at `(-3.04, .5, -1.6)`, just north of

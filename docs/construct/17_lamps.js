@@ -12,8 +12,8 @@ let lampsOn = localStorage.getItem('dvm_lights') === '1';                // defa
    Local y .85 inside the host group: dome clearance ~.6 over the exhibit, canopy tops out
    ~1.15 — comfortably under the 1.55 cornice. The wider cone pools across the whole slab. */
 const PEND_Y = .85, SPOT_I = 16, GLOW_I = .5;
-const hangPendant = (parent, drop = -.4) => {
-  const pg = new THREE.Group(); pg.position.set(0, PEND_Y, 0); parent.add(pg);
+const hangPendant = (parent, drop = -.4, y = PEND_Y) => {
+  const pg = new THREE.Group(); pg.position.set(0, y, 0); parent.add(pg);
   const spot = new THREE.SpotLight(0xffe2b0, 0, 4, .85, .65, 1);
   spot.position.set(0, .27, 0); pg.add(spot); spot.target.position.set(0, drop, 0); pg.add(spot.target);
   const glow = new THREE.PointLight(0xcfffb0, 0, .8, 1);                 // the dome's own glass-glow
@@ -26,7 +26,7 @@ const hangPendant = (parent, drop = -.4) => {
   }).catch(e => console.warn('CONSTRUCT — pendant emit failed:', e));
 };
 TABLES.forEach(t => hangPendant(t.g));
-hangPendant(spinG, -.85);                                                // the rotator's museum spot — spinG stays put while carG turns under it
+hangPendant(spinG, -1.2, 1.2);                                           // the rotator's museum spot — ceiling-mounted (canopy ~1.5 kisses the cornice); spinG stays put while the tall touring turns under it
 
 /* the switch — a dark plate + proud rocker nub on the annex face of the interior wall, just
    north of the door jamb. 1.5cm standoff kills the coplanar-face washout; the dark plate reads
