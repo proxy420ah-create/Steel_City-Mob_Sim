@@ -47,7 +47,15 @@ check('y floor .05 holds', Math.abs(lo[1] - .05) < .01, JSON.stringify(lo));
 
 await evl('__place.toggle(false)');
 await sleep(200);
-check('F re-homes — cam back at body eye', await evl('Math.abs(camera.position.y - 0.56) < .02'));
+check('X re-homes — cam back at body eye', await evl('Math.abs(camera.position.y - 0.56) < .02'));
+
+/* the exit's aimDot gate — same math the promptIt reduce runs */
+const aimGate = y => `(() => { const it = INTERACT.find(i => i.label().includes('EXIT')); const d = Math.hypot(pos.x - it.x, pos.z - it.z); const dx = (it.x - pos.x) / d, dz = (it.z - pos.z) / d; yaw = ${y}; return (-Math.sin(yaw) * dx + -Math.cos(yaw) * dz); })()`;
+await evl('pos.set(0,0,0)');
+const dotAway = await evl(aimGate(0)), dotAt = await evl(aimGate('Math.PI'));
+check('facing away — exit offer gated out', dotAway < .7, 'dot=' + dotAway);
+check('facing door — exit offer clears', dotAt >= .7, 'dot=' + dotAt);
+await evl('yaw = 0');
 const errs = JSON.parse(await evl('JSON.stringify((window.__errs || []).slice(0, 5))'));
 check('no page errors', !(errs && errs.length), JSON.stringify(errs));
 console.log(fails.length ? 'FAILURES: ' + JSON.stringify(fails) : 'ALL PASS');

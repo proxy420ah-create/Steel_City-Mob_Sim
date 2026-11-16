@@ -479,6 +479,14 @@ the interior wall at `(-3.04, .5, -1.6)`, just north of the door jamb —
 you flip it walking in. The `.03`-thick plate stands 1.5cm off the wall
 face (a coplanar back face z-fought and washed out against the cream). TWO
 proud rockers side by side, each an `INTERACT` entry `{isBtn:true, r:.3}`
+
+**INTERACT aim gating.** Entries may carry `aimDot` — the promptIt reduce
+then requires the camera-forward dot toward the point to clear it before
+the entry can offer at all. The door exit uses `aimDot:.7` (~45° cone):
+the prompt is a cam-view offer — stand near the door facing it and
+`E — EXIT THE CONSTRUCT` appears; spawn in facing the rotator (−z, away
+from the +z door) and there's no prompt. Proximity alone still suffices
+for every other entry.
 ±.07 in z — nearest-wins disambiguates which rocker your approach owns;
 aim-**E** and LMB both fire: **north rocker = LIGHTS** (the dim law, cyan
 pip `0x7fd4ff`), **south rocker = SHADES** (amber pip `0xffcf6a`) —

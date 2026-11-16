@@ -54,7 +54,10 @@ const loop = now => {
   pickIt = held || placeOn ? null : nearestPick();
   const kb = kioskProbe(), db = padProbe();                                  // unconditional — hover state must not freeze
   promptIt = document.pointerLockElement === el && !placeOn ? (kb || db || INTERACT.reduce((b, it) => {
-    const d = Math.hypot(pos.x - it.x, pos.z - it.z); return d < it.r && (!b || d < b.d) ? { it, d } : b; }, null)?.it || null) : null;
+    const d = Math.hypot(pos.x - it.x, pos.z - it.z); if (!(d < it.r)) return b;
+    if (it.aimDot) { const dx = (it.x - pos.x) / d, dz = (it.z - pos.z) / d;            // aimDot entries are cam-view offers —
+      if (-Math.sin(yaw) * dx + -Math.cos(yaw) * dz < it.aimDot) return b; }           // must face the point within the cone
+    return (!b || d < b.d) ? { it, d } : b; }, null)?.it || null) : null;
   if (kioWire) kioWire.visible = !!(promptIt && promptIt.isBtn && !promptIt.panel);             // ghost only on its own panel's button
   promptEl.style.display = (held || pickIt || promptIt) ? 'block' : 'none';
   promptEl.textContent = held ? (held.isPad ? 'E — PLACE DEBUG PAD  ·  RMB tap — cursor  ·  , . yaw · [ ] pitch · ; \' roll · G tumble · 0 level'
