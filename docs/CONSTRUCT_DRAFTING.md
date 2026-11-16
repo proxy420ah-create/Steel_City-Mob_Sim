@@ -335,6 +335,9 @@ law is rec-driven): a `.18×.012×.12` slab, `EdgesGeometry` trim in `padEdgeMat
 spawns on the Primary Table's felt margin (`-4.1, -.575`, `source:
 'manifest'` → position persists through `dvm_place` like any manifest item),
 `pickable` — E-takes, E-places, and all held-item rotation keys work on it.
+The **wheel is the carry dolly**: scroll down pulls the held item toward you,
+up pushes it away — `heldD` clamps `.18–1.6` (default `.38`), `dvm_holdd`
+persists, and the prompt line lists it.
 
 **Regions are data.** `PAD_REGIONS` are `{rect(px), label, glyph, fn}` entries
 hit-tested through raycast `uv` on the screen plane — the face is software, so

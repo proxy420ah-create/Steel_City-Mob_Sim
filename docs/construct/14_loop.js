@@ -40,9 +40,9 @@ const loop = now => {
   boundHue(now / 1000);
   if (held) {
     camera.getWorldDirection(fwdV);
-    held.g.position.set(camera.position.x + fwdV.x * .38 - fwdV.z * .1,
-                        camera.position.y + fwdV.y * .38 - .07,
-                        camera.position.z + fwdV.z * .38 + fwdV.x * .1);
+    held.g.position.set(camera.position.x + fwdV.x * heldD - fwdV.z * .1,
+                        camera.position.y + fwdV.y * heldD - .07,
+                        camera.position.z + fwdV.z * heldD + fwdV.x * .1);
     _qYaw.setFromAxisAngle(AX_Y, yaw);
     _qSnap.setFromEuler(_eSnap.set(heldSnap.x * ROT_STEP, heldSnap.y * ROT_STEP, heldSnap.z * ROT_STEP, 'YXZ'));
     held.g.quaternion.copy(_qYaw).multiply(_qSnap).multiply(heldFree);                  // facing × axis-snaps × free tumble
@@ -61,8 +61,8 @@ const loop = now => {
   if (kioWire) kioWire.visible = !!(promptIt && promptIt.isBtn && !promptIt.panel && !promptIt.sw);   // ghost only on its own panel's button — not the switch's
   if (swWire) swWire.visible = !!(promptIt && promptIt.sw);                                    // the switch ghost rides the aimed rocker
   promptEl.style.display = (held || pickIt || promptIt) ? 'block' : 'none';
-  promptEl.textContent = held ? (held.isPad ? 'E — PLACE DEBUG PAD  ·  RMB tap — cursor  ·  , . yaw · [ ] pitch · ; \' roll · G tumble · 0 level'
-                              : 'E — PLACE ' + held.name.replace('commission_', '').toUpperCase() + '  ·  , . yaw · [ ] pitch · ; \' roll · G tumble · 0 level')
+  promptEl.textContent = held ? (held.isPad ? 'E — PLACE DEBUG PAD  ·  RMB tap — cursor  ·  wheel dolly  ·  , . yaw · [ ] pitch · ; \' roll · G tumble · 0 level'
+                              : 'E — PLACE ' + held.name.replace('commission_', '').toUpperCase() + '  ·  wheel dolly  ·  , . yaw · [ ] pitch · ; \' roll · G tumble · 0 level')
                      : pickIt ? 'E — TAKE ' + pickIt.name.replace('commission_', '').toUpperCase()
                      : promptIt ? promptIt.label() : '';
   window.__compass(camera);

@@ -47,6 +47,9 @@ addEventListener('mouseup',   e => {
     if (((held && held.isPad) || padFocus) && performance.now() - rmbT0 < 280) padFocusToggle(); }   // RMB tap ↔ pad cursor
   if (e.button === 0 && placeSel) placeSel._drag = false; });
 addEventListener('contextmenu', e => { if (e.target === renderer.domElement || rmbAim) e.preventDefault(); });
+addEventListener('wheel', e => { if (!held) return;                              // the carry dolly — scroll down pulls it toward you, up pushes it away
+  heldD = Math.max(.18, Math.min(1.6, heldD - Math.sign(e.deltaY) * .06));
+  localStorage.setItem('dvm_holdd', heldD.toFixed(3)); e.preventDefault(); }, { passive: false });
 addEventListener('keydown', e => { keys[(e.key || '').toLowerCase()] = true;
   const k = (e.key || '').toLowerCase();
   if (k === 'alt') e.preventDefault();                                    // keep Chrome's menu from stealing focus — Alt is our crawl modifier

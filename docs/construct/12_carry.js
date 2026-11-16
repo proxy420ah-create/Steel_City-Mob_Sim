@@ -13,6 +13,7 @@ const fwdV = new THREE.Vector3(), tmpV = new THREE.Vector3();
    always seat level — the measured-surface contract (tops/bbox) is authored-upright. */
 const ROT_STEP = Math.PI / 12;
 const heldSnap = { x: 0, y: 0, z: 0 };
+let heldD = +(localStorage.getItem('dvm_holdd') || .38);                         // the carry dolly — wheel zooms the held item toward/away; persists
 const heldFree = new THREE.Quaternion(), _qYaw = new THREE.Quaternion(), _qSnap = new THREE.Quaternion(),
       _eSnap = new THREE.Euler(), _qt = new THREE.Quaternion();
 const AX_X = new THREE.Vector3(1, 0, 0), AX_Y = new THREE.Vector3(0, 1, 0);

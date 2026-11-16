@@ -83,6 +83,21 @@ check('DECK still owns the shop lift', await evl(`(() => {
 check('padDraw renders every page without throwing', await evl(`(() => {
   try { Object.keys(PAD_PAGES).forEach(p => { __pad.tab(p); padDraw(); }); __pad.tab('bldg'); return true; }
   catch (e) { return e.message; } })()`));
+check('held dolly — wheel zooms the carry distance', await evl(`(() => {
+  __construct.take('debug_pad');
+  const d0 = heldD;
+  dispatchEvent(new WheelEvent('wheel', { deltaY: 120 }));           // scroll down → toward you
+  const near = heldD;
+  dispatchEvent(new WheelEvent('wheel', { deltaY: -120 }));          // scroll up → away
+  const far = heldD;
+  for (let i = 0; i < 40; i++) dispatchEvent(new WheelEvent('wheel', { deltaY: 120 }));
+  const lo = heldD;
+  for (let i = 0; i < 40; i++) dispatchEvent(new WheelEvent('wheel', { deltaY: -120 }));
+  const hi = heldD;
+  const pers = localStorage.getItem('dvm_holdd'), dist = held.g.position.distanceTo(camera.position);
+  localStorage.removeItem('dvm_holdd'); heldD = .38; __construct.place(-4.1, -.575);
+  return near === d0 - .06 && far === d0 && lo === .18 && hi === 1.6 && pers === '1.600' && dist > 1.5;
+})()`));
 
 console.log(`\n${pass} passed, ${fails.length} failed`); if (fails.length) { console.log('FAILED:', fails.join(' | ')); process.exit(1); }
 try { chrome.kill(); } catch {}
