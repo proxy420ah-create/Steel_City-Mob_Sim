@@ -12,7 +12,7 @@ document.body.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(VOID);
 scene.fog = new THREE.Fog(VOID, 3.5, 13);
-const camera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, .02, 60);
+const camera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, .02, 220);
 window.__THREE = THREE; window.__scene = scene; window.__camera = camera; window.__renderer = renderer;
 
 /* lights registered at init, always on — this page's whole scene compiles under one light set */

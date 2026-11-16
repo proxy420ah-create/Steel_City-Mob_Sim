@@ -177,9 +177,7 @@ const flyStep = dt => {                                                         
   const cy = Math.cos(yaw), sy = Math.sin(yaw);
   flyPos.addScaledVector(_fd, f * sp * dt);
   flyPos.x += cy * r * sp * dt; flyPos.z += -sy * r * sp * dt; flyPos.y += u * sp * dt;
-  flyPos.x = Math.max(-10.5, Math.min(3.4, flyPos.x));                          // annex west wall moved to -10 — the fly cam must reach the expanded footprint
-  flyPos.z = Math.max(-7.5, Math.min(1.8, flyPos.z));
-  flyPos.y = Math.max(.08, Math.min(2.4, flyPos.y));
+  flyPos.y = Math.max(.05, Math.min(60, flyPos.y));                            // unrestricted roam — F re-homes to the body; only the floor + a far ceiling stay
 };
 const placeStep = () => {
   if (!placeSel) return;

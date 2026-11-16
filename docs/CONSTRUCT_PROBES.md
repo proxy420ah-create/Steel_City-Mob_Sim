@@ -138,7 +138,10 @@ on empty floor and the suite fails with `roof=0` twenty lines deep. Rules:
   tune, `tune(k,v)` = `torchCfg`, `rst()` = reset. The `ease`/`hit`/`inc`/`dist`
   levers died with the auto-exposure stack — old probes calling them return
   undefined (or throw on `.dist()`/`.hit()`).
-- `__place.fly(x,y,z)` pins `flyPos`; `__place.look(yaw,pitch)` writes the yaw/pitch
+- `__place.fly(x,y,z)` pins `flyPos` — the cam roams **unclamped** in x/z
+  (y keeps `[.05, 60]`; `flyStep` applies it on the next frame, so pinned
+  out-of-range y snaps in one tick — `_fly_check.mjs` asserts the law);
+  `__place.look(yaw,pitch)` writes the yaw/pitch
   vars the loop stamps into `camera.rotation` in place mode. **`camLock` wins over
   both** — `__cam(...)` earlier in the suite keeps stomping the camera until
   `__cam(null)` releases it. Free-cam checks fail silently otherwise.
