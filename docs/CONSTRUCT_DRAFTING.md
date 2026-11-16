@@ -506,7 +506,11 @@ Lamps-off restores the full `VOID` flat.
 the arch lintel keeps 1.05 (doors stay door-height below the cornice). The
 same `seam` wire that traces the floor now also runs at `WALL_H` — a cornice
 outline on every wall, so the (invisible) slab height reads as the room's
-ceiling in the wireframe style.
+ceiling in the wireframe style. Raising `WALL_H` left a gap above the
+doorway (the `BOUND_WALL` z-span gap was open lintel→cornice — annex
+pendants showed through it); each `BOUND_ARCH` now also emits a header
+slab `a.h → WALL_H` over its span plus the two cornice seams across the
+top, so the wall line stays unbroken over the door.
 
 State persists in `dvm_lights` (default **off** — the construct boots in
 its full bright drafting-room state; the switch dims on demand). Probe hook `__lamps`

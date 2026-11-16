@@ -143,6 +143,10 @@ function rebuildBounds() {
     });
     put(new THREE.BoxGeometry(w, w, Math.abs(a.z1 - a.z0)), a.x - a.d / 2, a.h, mid);   // lintel outlines on both faces
     put(new THREE.BoxGeometry(w, w, Math.abs(a.z1 - a.z0)), a.x + a.d / 2, a.h, mid);   // floor stays clean — seams stop at the reveal
+    const head = new THREE.Mesh(new THREE.BoxGeometry(a.d, WALL_H - a.h, Math.abs(a.z1 - a.z0)), wallMat);   // header slab — fills lintel→cornice over the doorway; the raised room left this span open
+    head.position.set(a.x, a.h + (WALL_H - a.h) / 2, mid); head.userData.wallSlab = true; boundsG.add(head);
+    const soA = a.d / 2 + BND_W / 2;                                                    // cornice wires cross the doorway too — the ceiling line stays unbroken
+    [-1, 1].forEach(s => seam(a.x + s * soA, a.z0, a.x + s * soA, a.z1, WALL_H));
   });
 }
 rebuildBounds(); window.__rebuildBounds = rebuildBounds;

@@ -37,10 +37,14 @@ await sleep(400);
 console.log('sw  :', await evl('window.__snap("lamps_switch", -3.65, 0.55, -1.45, -3.04, 0.5, -1.6)'));
 // the rotator — pendant hangs from the cornice line over the turning car
 console.log('rot :', await evl('window.__snap("lamps_rot", 1.6, 0.5, -1.4, 0, 0.45, -2.5)'));
+// the doorway — header slab fills lintel->cornice; no pendant should peek over the door
+console.log('dway:', await evl('window.__snap("lamps_dway", -1.6, 0.7, -2.5, -3.4, 1.0, -2.5)'));
 // lamps off for contrast — the flat bright default
 await evl('__lamps.set(false)'); await sleep(600);
 console.log('off :', await evl('window.__snap("lamps_off", -3.2, 0.62, -2.5, -6.5, 0.35, -2.5)'));
 console.log('off2:', await evl('window.__snap("lamps_offsw", -3.65, 0.55, -1.45, -3.04, 0.5, -1.6)'));
+// same doorway angle in the bright default — the user's screenshot case: header slab must occlude the pendant
+console.log('doff:', await evl('window.__snap("lamps_dwayoff", -1.6, 0.7, -2.5, -3.4, 1.0, -2.5)'));
 await evl('__lamps.set(true)');
 chrome.kill(); setTimeout(() => { try { fs.rmSync(prof, { recursive: true, force: true }); } catch {} }, 800);
 process.exit(0);
