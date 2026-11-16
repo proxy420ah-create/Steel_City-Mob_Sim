@@ -299,6 +299,15 @@ instead of `slots`/`name`; `mountModel` dispatches to `emitZone`.
   one law for road halves, sidewalk rings, lot stamping, and lanes). Seams
   read the layout's `hSeamRows`/`vSeamRows` cells per block edge, so each
   tile's road stripes and corner ownership match the live map.
+- **Unity map frame**: blocks lay out `col→+x`, `row→−z` — CityMap3D's
+  `(col−c0)·spacing, −(row−r0)·spacing` anchor law. `emitZone` stamps
+  `Z0=(r1−row)·TILE` so the row-5 blocks sit at the composite's −z edge,
+  and `n`/`s` seam edges swap to follow (`n` = the seam shared with
+  row+1). The composite carries `flip:false` — Unity's map loads chunks
+  raw; the editor's fx mirror is a lone-asset-view law only.
+- **Buildings position by array index** — `SectorBaker` grids
+  `buildings[i]` (the JSON `slot` field is metadata), so `emitZone` keys
+  `slots[i]` the same way.
 - **Slots stamp the live layout's assets** — `stasset` fields are full
   paths (`voxel_buildings/empty_land.stasset`); the loader takes the
   basename. `block_41` barber@2, `block_42` barber@0 + lane, `block_51`

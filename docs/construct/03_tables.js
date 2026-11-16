@@ -37,8 +37,10 @@ MANIFEST.tables = [                                                    // PRIMAR
   { id: 'studio', x: -6.5, z: -2.5, size: 2.4, top: .26, scale: 1 / 64, mv: 2,  // STUDIO TABLE — the ZONE tier centerpiece: 2.4m, dead-center of the expanded annex; a 3×3 rectangle of live city_layout blocks, "The Battlefield" (r3-5 × c0-2)
     noSlice: true,                                                            // zones + block composites are street models — same whole-road law
     models: [{ name: 'battlefield', fill: .75, plate: true, noProxy: true,      // plate: full-coverage ground → flat-tops path; noProxy: emitZone lays per-stamp proxies instead
+               flip: false,                                                     // the Unity MAP renders chunks raw — the editor's fx mirror is a single-asset-view law, not a layout law
                zone: { src: 'city_layout.json', r0: 3, r1: 5, c0: 0, c1: 2 } }],
     catalog: [{ name: 'battlefield', fill: .75, plate: true, noProxy: true,
+                flip: false,
                 zone: { src: 'city_layout.json', r0: 3, r1: 5, c0: 0, c1: 2 } },
               { name: 'tenement_block_0', fill: .75 },
               { name: 'barber_shop', fill: .75 },
@@ -461,9 +463,9 @@ const emitZone = (t, m) => { const { M, TILE } = BLK, z = m.zone;
       const hAt = (r, c) => (r >= 0 && r < L.hSeamRows.length && c >= 0 && c < L.hSeamRows[r].cells.length) ? L.hSeamRows[r].cells[c] : 'road';
       const vAt = (r, c) => (r >= 0 && r < L.vSeamRows.length && c >= 0 && c < L.vSeamRows[r].cells.length) ? L.vSeamRows[r].cells[c] : 'road';
       const stamped = [];
-      blks.forEach(b => { const X0 = (b.col - z.c0) * TILE, Z0 = (b.row - z.r0) * TILE;
-        const seams = { n: hAt(b.row - 1, b.col), e: vAt(b.row, b.col), s: hAt(b.row, b.col), w: vAt(b.row, b.col - 1) },
-          slots = {}, types = new Set(); b.buildings.forEach(s => { slots[s.slot] = stName(s); types.add(s.type); });
+      blks.forEach(b => { const X0 = (b.col - z.c0) * TILE, Z0 = (z.r1 - b.row) * TILE;   // Unity city map: col→+x, row→−z (rows march NORTH) — z.r1 sits at the grid's low-z edge
+        const seams = { n: hAt(b.row, b.col), e: vAt(b.row, b.col), s: hAt(b.row - 1, b.col), w: vAt(b.row, b.col - 1) },
+          slots = {}, types = new Set(); b.buildings.forEach((s, i) => { slots[i] = stName(s); types.add(s.type); });   // Unity positions buildings by ARRAY INDEX (slot field is metadata)
         const lanes = (types.has('alley_lane') ? 10 : 0) | (types.has('alley_lane_ns') ? 5 : 0);   // a lane slot IS the cut — the stasset is an empty placeholder; the mouth+cross-section draw in the ground recipe
         fillBlockGround(set, X0, Z0, seams, lanes);
         stamped.push(...stampSlots(vox, W2, H, files, slots, X0, Z0)); });

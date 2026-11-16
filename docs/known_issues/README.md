@@ -82,3 +82,4 @@ Bug tracker per Development Guidelines Rule 13. Bugs are cataloged by category i
 | [Construct Park-Anywhere — Empty Lattice on Flat-Strip Models](runtime/CONSTRUCT_PARK_ANYWHERE_NO_LATTICE.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-11-16 |
 | [Construct Parked Cars Straddle the Curb on Tenement — Static Street Ring Fix](runtime/CONSTRUCT_TENEMENT_CURB_STRADDLE.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-11-16 |
 | [Construct Cars Drive/Park Left-Handed — the mirX Render Flips the Traffic Law's Chirality](runtime/CONSTRUCT_CARS_MIRRORED_TRAFFIC.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-02-14 |
+| [Construct Zone — Row Flip + X Mirror Mismatch vs Unity Map](runtime/CONSTRUCT_ZONE_MIRRORED.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-02-14 |
