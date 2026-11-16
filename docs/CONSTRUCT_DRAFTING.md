@@ -493,7 +493,8 @@ same `seam` wire that traces the floor now also runs at `WALL_H` — a cornice
 outline on every wall, so the (invisible) slab height reads as the room's
 ceiling in the wireframe style.
 
-State persists in `dvm_lights` (default **on**). Probe hook `__lamps`
+State persists in `dvm_lights` (default **off** — the construct boots in
+its full bright drafting-room state; the switch dims on demand). Probe hook `__lamps`
 (`on()`, `set(b)`). The L-key torch is untouched — it still layers its own
 aimed pool on top.
 

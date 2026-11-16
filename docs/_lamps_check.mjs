@@ -27,7 +27,10 @@ for (let i = 0; i < 60; i++) { try { const l = JSON.parse(await get(`http://127.
 for (let i = 0; i < 120; i++) { if (await evl('!!window.__place && !!window.__warmDone')) break; await sleep(500); }
 await sleep(1500);                                                       // pendant fetch lands async
 
-check('lamps rig live + default on', await evl('!!window.__lamps && __lamps.on() === true'));
+check('lamps rig live + default OFF (bright construct)', await evl('!!window.__lamps && __lamps.on() === false'));
+const boot = JSON.parse(await evl('JSON.stringify((() => { const s = [], h = []; scene.traverse(o => { if (o.isSpotLight && o.distance === 4) s.push(o.intensity); if (o.isHemisphereLight) h.push(o.intensity); }); return { s, h, bg: scene.background.getHex() }; })())'));
+check('boot bright — spots out, hemi 1.2, VOID cream', boot.s.every(i => i === 0) && boot.h[0] === 1.2 && boot.bg === 0xf4f1e8, JSON.stringify(boot));
+await evl('__lamps.set(true)');
 const lampState = JSON.parse(await evl(`JSON.stringify((() => {
   const out = []; scene.traverse(o => { if (o.isSpotLight && o.distance === 4) out.push({ i: +o.intensity.toFixed(2), parented: !!o.parent }); });
   return out; })())`));

@@ -6,7 +6,7 @@
    probe hook __lamps (on/set). */
 
 const LAMPS = [];                                                        // { t, spot, glow } per table
-let lampsOn = localStorage.getItem('dvm_lights') !== '0';                // default ON — the exhibit look is the feature
+let lampsOn = localStorage.getItem('dvm_lights') === '1';                // default OFF — bright construct; the switch dims on demand
 
 /* pendant — commission_pendant (green-dome banker fixture), ~.30m tall, origin = dome bottom.
    Local y .85 inside the table group: dome clearance ~.6 over the tabletop, canopy tops out
