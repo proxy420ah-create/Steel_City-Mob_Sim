@@ -39,7 +39,8 @@ const pendDetach = p => { if (!p.pend) return;
   p.g.remove(p.pend.pg); p.pend = null; p.pendWant = 0; };
 const pendSet = (p, on) => { if (on) pendAttach(p); else pendDetach(p); };
 PLACED.forEach(p => { if (p.pendWant) pendAttach(p); });                 // boot sweep — everything already emitted (tables etc.) dresses
-hangPendant(spinG, -1.2);                                                // the rotator's museum spot — spinG stays put while the tall touring turns under it; aim lands on the deck
+const rotPend = hangPendant(scene, -1.2);                                // the rotator's museum spot — a SCENE fixture: spinG lifts now, the lamp stays at the cornice and the car rises into its beam
+rotPend.pg.position.set(SPIN_POS.x, PEND_Y, SPIN_POS.z);                 // aim lands on the deck's home position
 
 /* the switch — a wide dark plate with TWO proud rockers on the annex face of the interior wall:
    LIGHTS (north nub) dims the room; SHADES (south nub) shows/hides the pendant fixtures alone —

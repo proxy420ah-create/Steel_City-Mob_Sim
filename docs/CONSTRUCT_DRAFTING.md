@@ -499,6 +499,17 @@ The two are independent:
 light on + shades off = dark room, warm pools on the exhibits, invisible
 sources. States persist separately (`dvm_lights`, `dvm_shades`).
 
+**The shop lift — the rotator raises.** `spinG` carries a lift axis:
+`spinLiftSet` raises deck, ring, and car together (clamped `0–.62` — the
+car's beltline comes above the .55 eye, roof stays under the dome). The
+column is the same piston stock as table legs — a flush floor base plus
+a telescoping rod that extends under the invisible disc. Its museum
+pendant is a **scene** fixture now (was `spinG`): the lamp stays at the
+cornice and the car rises into its beam. `dvm_spinlift` persists. All
+deck controls live on the pad's **DECK** page — spin ◀◀/◀/▶/▶▶, ⏻
+toggle, LOWER ▼▼/▼ + RAISE ▲/▲▲, `EYE` preset `.45`, `LIFT 0` reset;
+the old `E — PAUSE ROTATOR` proximity offer is gone.
+
 **INTERACT aim gating.** Entries may carry `aimDot` — the promptIt reduce
 then requires the camera-forward dot toward the point to clear it before
 the entry can offer at all. The door exit uses `aimDot:.7` (~45° cone):

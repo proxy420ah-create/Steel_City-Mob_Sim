@@ -35,7 +35,11 @@ const lampState = JSON.parse(await evl(`JSON.stringify((() => {
   const out = []; scene.traverse(o => { if (o.isSpotLight && o.distance === 4) out.push({ i: +o.intensity.toFixed(2), parented: !!o.parent }); });
   return out; })())`));
 check('five pendant spots live, all lit (3 tables + rotator + lawdesk)', lampState.length === 5 && lampState.every(l => l.i > 0), JSON.stringify(lampState));
-check('rotator lamp hangs on spinG, not the spinning carG', await evl('(() => { let a = false, b = false; spinG.traverse(o => { if (o.isSpotLight && o.distance === 4) a = true; }); carG.traverse(o => { if (o.isSpotLight) b = true; }); return a && !b; })()'))
+check('rotator lamp is a scene fixture — nothing under spinG (it lifts now)', await evl('(() => { let a = false, b = false; spinG.traverse(o => { if (o.isSpotLight) a = true; }); carG.traverse(o => { if (o.isSpotLight) b = true; }); return !a && !b; })()'))
+/* the shop lift — deck rises on its post, car + ring ride together, lamp stays at the cornice */
+check('lift raises deck + car, rod extends', await evl('(() => { const c0 = carG.children[0] && carG.children[0].getWorldPosition(new carG.position.constructor()).y; spinLiftSet(.4); const c1 = carG.children[0] && carG.children[0].getWorldPosition(new carG.position.constructor()).y; return spinG.position.y === .4 && Math.abs(c1 - c0 - .4) < .01 && liftRod.visible; })()'));
+check('lift clamps at max + persists dvm_spinlift', await evl('(() => { spinLiftSet(9); const ok = spinG.position.y === SPIN_LIFT_MAX && localStorage.getItem("dvm_spinlift") === String(SPIN_LIFT_MAX); spinLiftSet(0); return ok && spinG.position.y === 0 && !liftRod.visible; })()'));
+check('rotator INTERACT is gone — deck controls moved to the pad', await evl('!INTERACT.some(i => /ROTATOR/.test(i.label())) && PAD_REGIONS.filter(r => r.page === "deck").length >= 10'));
 const house = JSON.parse(await evl('JSON.stringify((() => { const h = []; scene.traverse(o => { if (o.isHemisphereLight || (o.isPointLight && o.distance === 6)) h.push(+o.intensity.toFixed(2)); }); return h; })())'));
 check('house dimmed — hemi .22 / key .5', house[0] === .22 && house[1] === .5, JSON.stringify(house));
 check('void dimmed — bg/fog/floor go dark', await evl('scene.background.getHex() === 0x13141c && scene.fog.color.getHex() === 0x13141c && floorMat.color.getHex() === 0x13141c'));

@@ -102,6 +102,24 @@ const tableLiftSet = (t, lift) => { const oldTop = tableTop(t);
   liftRiders(t, dy, oldTop);
   localStorage.setItem('dvm_lift:' + t.spec.id, String(t.lift)); };        // the height persists like the layout
 const tableLift = (t, dy) => tableLiftSet(t, t.lift + dy);
+/* ── spinLift — the rotator's shop-lift verb: deck, ring, and car rise together on a center
+   post (same piston stock as table legs — floor base + telescoping rod under the invisible
+   disc). The pendant does NOT ride: it's a scene fixture, the car rises INTO its beam.
+   dvm_spinlift persists. Deck controls (spin + lift) live on the pad's DECK page. */
+const SPIN_LIFT_MAX = .62;                                               // deck top ~.62 — car beltline above the .55 eye, roof still under the 1.2 dome
+const liftCol = new THREE.Group(); liftCol.position.set(SPIN_POS.x, 0, SPIN_POS.z); scene.add(liftCol);
+const liftBase = new THREE.Mesh(new THREE.CylinderGeometry(.17, .19, .05, 24), darkMat);
+liftBase.position.y = .025; liftCol.add(liftBase);                       // flush lift pad — the column retracts into it at 0
+const liftRod = new THREE.Mesh(new THREE.CylinderGeometry(.075, .075, 1, 16), rodMat);
+liftCol.add(liftRod);
+const spinLiftSet = y => { const ly = Math.max(0, Math.min(SPIN_LIFT_MAX, y));
+  spinG.position.y = ly;
+  const len = Math.max(.005, ly - .05);
+  liftRod.visible = ly > .05; liftRod.scale.y = len; liftRod.position.y = .05 + len / 2;
+  localStorage.setItem('dvm_spinlift', String(ly)); };
+const spinLiftStep = d => spinLiftSet(spinG.position.y + d);
+const spinCtl = v => { spinning = true; SPIN_RATE = v; };                // pad's deck spin: rate sign = direction
+spinLiftSet(+localStorage.getItem('dvm_spinlift') || 0);
 /* stassetFetch — one parsed volume per name, cached (a block's 9 slots share fetches:
    empty_land arrives once and stamps every vacant lot). */
 const _stCache = {};

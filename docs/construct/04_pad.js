@@ -38,6 +38,12 @@ const PAD_PAGES = {
     g.fillStyle = '#e8d9b0'; g.font = 'bold 22px monospace';
     g.fillText('TOP  ' + (t ? tableTop(t).toFixed(2) : '—') + 'm   ·   LIFT +' + (t ? t.lift.toFixed(2) : '0.00'), 256, 266);
     g.fillStyle = '#5b5648'; g.font = '13px monospace'; g.fillText('eye .55 — raise past it to look up · drops to the floor', 256, 312); } },
+  deck: { tab: 'DECK', draw: g => {
+    g.fillStyle = '#cfc8b0'; g.font = '16px monospace'; g.fillText('SHOP LIFT — ' + (spinning ? 'TURNING' : 'HELD'), 256, 96);
+    g.fillStyle = '#e8d9b0'; g.font = 'bold 22px monospace';
+    g.fillText('LIFT +' + spinG.position.y.toFixed(2) + 'm   ·   ' +
+      (spinning ? (SPIN_RATE < 0 ? '◀ ' : '▶ ') + Math.round(Math.abs(SPIN_RATE) * 180 / Math.PI) + '°/s' : 'HELD'), 256, 266);
+    g.fillStyle = '#5b5648'; g.font = '13px monospace'; g.fillText('raise it — work the car at eye level', 256, 312); } },
   lamp: { tab: 'LAMP', draw: g => { const T = window.__torch;
     g.fillStyle = '#cfc8b0'; g.font = '16px monospace'; g.fillText('INSPECTION TORCH — ' + (T.on ? 'ON' : 'OFF'), 256, 96);
     g.fillStyle = '#e8d9b0'; g.font = 'bold 20px monospace';
@@ -64,6 +70,17 @@ const PAD_REGIONS = [
   { id: 'lR',  page: 'table', x: 264, y: 140, w: 110, h: 96, label: 'RAISE ▲',  glyph: '▲',  fs: 40, fn: () => tableLift(padTable(), .02) },
   { id: 'lRR', page: 'table', x: 388, y: 140, w: 110, h: 96, label: 'RAISE ▲▲', glyph: '▲▲', fs: 34, fn: () => tableLift(padTable(), .08) },
   { id: 'lres', page: 'table', x: 196, y: 284, w: 120, h: 42, label: 'LIFT RESET', glyph: 'RESET', fs: 20, fn: () => tableLiftSet(padTable(), 0) },
+  { id: 'dsll', page: 'deck', x: 16,  y: 140, w: 110, h: 64, label: 'SPIN ◀◀', glyph: '◀◀', fs: 30, lit: () => spinning && SPIN_RATE === -.9,  fn: () => spinCtl(-.9) },
+  { id: 'dsl',  page: 'deck', x: 140, y: 140, w: 110, h: 64, label: 'SPIN ◀',  glyph: '◀',  fs: 34, lit: () => spinning && SPIN_RATE === -.25, fn: () => spinCtl(-.25) },
+  { id: 'dsr',  page: 'deck', x: 264, y: 140, w: 110, h: 64, label: 'SPIN ▶',  glyph: '▶',  fs: 34, lit: () => spinning && SPIN_RATE === .25,  fn: () => spinCtl(.25) },
+  { id: 'dsrr', page: 'deck', x: 388, y: 140, w: 110, h: 64, label: 'SPIN ▶▶', glyph: '▶▶', fs: 30, lit: () => spinning && SPIN_RATE === .9,   fn: () => spinCtl(.9) },
+  { id: 'dLD',  page: 'deck', x: 16,  y: 212, w: 110, h: 60, label: 'LOWER ▼▼', glyph: '▼▼', fs: 30, fn: () => spinLiftStep(-.08) },
+  { id: 'dLd',  page: 'deck', x: 140, y: 212, w: 110, h: 60, label: 'LOWER ▼',  glyph: '▼',  fs: 34, fn: () => spinLiftStep(-.02) },
+  { id: 'dLu',  page: 'deck', x: 264, y: 212, w: 110, h: 60, label: 'RAISE ▲',  glyph: '▲',  fs: 34, fn: () => spinLiftStep(.02) },
+  { id: 'dLU',  page: 'deck', x: 388, y: 212, w: 110, h: 60, label: 'RAISE ▲▲', glyph: '▲▲', fs: 30, fn: () => spinLiftStep(.08) },
+  { id: 'dstp', page: 'deck', x: 16,  y: 284, w: 150, h: 42, label: 'SPIN ON/OFF', glyph: '⏻ SPIN', fs: 18, lit: () => spinning, fn: () => { spinning = !spinning; } },
+  { id: 'dres', page: 'deck', x: 196, y: 284, w: 120, h: 42, label: 'LIFT 0', glyph: 'LIFT 0', fs: 18, fn: () => spinLiftSet(0) },
+  { id: 'deye', page: 'deck', x: 388, y: 284, w: 110, h: 42, label: 'EYE LVL', glyph: 'EYE', fs: 18, fn: () => spinLiftSet(.45) },
   { id: 'ax:x', page: 'slice', x: 116, y: 76, w: 90, h: 50, label: 'SLICE X', glyph: 'X', fs: 26, axis: 'x', fn: () => padAxisSet('x') },
   { id: 'ax:y', page: 'slice', x: 211, y: 76, w: 90, h: 50, label: 'SLICE Y', glyph: 'Y', fs: 26, axis: 'y', fn: () => padAxisSet('y') },
   { id: 'ax:z', page: 'slice', x: 306, y: 76, w: 90, h: 50, label: 'SLICE Z', glyph: 'Z', fs: 26, axis: 'z', fn: () => padAxisSet('z') },

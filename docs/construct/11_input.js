@@ -20,8 +20,7 @@ addEventListener('mousemove', e => {
 const INTERACT = [
   { x: 0, z: DOOR_Z - .25, r: 1.1, aimDot: .7, label: () => 'E — EXIT THE CONSTRUCT', fn: () => goHome() },   // aimDot — the prompt is a cam-view offer, not a proximity shout: it only appears while the camera actually faces the door
   { x: CONS_POS.x, z: CONS_POS.z - .08, r: .55, label: () => 'E — DOOR CONSOLE', fn: () => openCons() },
-  { x: SPIN_POS.x, z: SPIN_POS.z, r: 1.9, label: () => 'E — ' + (spinning ? 'PAUSE' : 'RESUME') + ' ROTATOR', fn: () => { spinning = !spinning; } },
-];
+];                                       // the rotator's controls live on the pad's DECK page — spin, lift, eye-preset
 let promptIt = null;
 window.__pos = pos; window.__prompt = () => promptIt ? promptIt.label() : '';   // probe hooks — pos/promptIt read live
 addEventListener('mousedown', e => {
