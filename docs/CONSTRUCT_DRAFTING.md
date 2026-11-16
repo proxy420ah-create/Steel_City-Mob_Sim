@@ -613,6 +613,36 @@ collision). Consequences, all measured — never authored:
   *through* the yard's air — the tabletop IS the yard's floor;
 - you can E-place an item on a building miniature's top surface today.
 
+## Live sync — the voxel editor's strokes trickle into every exhibit
+
+`voxel_editor.html` and `construct.html` share a `BroadcastChannel('scms-voxel')`.
+Both pages must sit on the same origin (the dev server on `:8723`).
+
+**The contract** (editor → construct):
+
+| `type` | sent when | payload |
+|---|---|---|
+| `vox-delta` | every `pushHistory()` — one brush stroke, plus `undo`/`redo` (the history pair's applied side) | `{name, seq, dims, ops:[[x,y,z,mid]]}` — `mid 0` deletes |
+| `vox-full` | model load/switch (`updateFilePill`), and any `vox-hello`/`need-full` request | `{name, dims, vox:ArrayBuffer}` — dense x-major `Uint16` |
+
+Construct-side (`03_tables.js` tail): the listener patches `_stCache[name]` —
+the fetch layer's own truth, so every emit re-reads live data — then remounts
+each mounted mini whose **`_deps`** set (tagged at emit: standalone = its own
+name, block/core = `empty_land` + slot files, zone = every stamped file in the
+window) contains `name`. `remountMini` re-runs `mountModel` on the live spec and
+carries `slice`/`spin`/`rotation.y` across, so exhibits redraw in place. Rebuilds
+debounce 160 ms per table; `mountModel`'s generation guard kills mid-flight
+emits superseded by the next stroke. A `dims` mismatch or an uncached name
+answers `need-full` — the editor replies `vox-full`, self-healing resizes and
+re-keys without extra editor hooks. Opening construct *after* edits started is
+covered by `vox-hello` at boot.
+
+Persistence stays explicit: sync updates the in-memory model only — the file
+still changes when the editor's own save path writes it. Vehicle stassets in
+`mountParked` are not yet in `_deps` (parked cars won't live-update), and a
+Construct-side edit → file path (provenance-mapped composite cells back to
+source stassets) is the untaken reverse lane.
+
 ## Current status / next
 
 - One table, swappable exhibit — `emitTable`/`emitBldg`/`mountModel` + the wall
@@ -621,5 +651,6 @@ collision). Consequences, all measured — never authored:
 - `tenement_glass.stasset` (solid-glass blast testbed) is loadable through the
   same path — just append a catalog entry.
 - Not yet: model rotation in spec (tops write is axis-aligned), the barber's
-  `itemParts`/attachment-point display (door leaves, barber pole), any actual
-  authoring/editing tool — the table is the surface those tools will sit on.
+  `itemParts`/attachment-point display (door leaves, barber pole), and the
+  reverse lane — Construct-side voxel edits writing back to the source
+  stasset (needs the composite→file provenance map).

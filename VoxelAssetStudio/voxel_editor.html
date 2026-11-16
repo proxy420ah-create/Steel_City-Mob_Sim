@@ -1879,6 +1879,26 @@ for (const v of initialVoxels) {
   voxelMap.set(`${v[0]},${v[1]},${v[2]}`, v[3]);
 }
 
+// === LIVE SYNC → construct.html — every committed stroke broadcasts over
+// BroadcastChannel('scms-voxel') so the drafting room's minis redraw in place.
+// vox-delta = one op batch (pushHistory/undo/redo — pair[dir] picks the applied
+// side of the history pair); vox-full = the whole dense grid (loads, resyncs).
+// The Construct answers 'need-full' on a dims gap and 'vox-hello' on boot —
+// both get vox-full. All reads of historyIndex/loadedModelName are lazy (call
+// time), so this block is safe anywhere below voxelMap. ===
+const voxChan = ('BroadcastChannel' in window) ? new BroadcastChannel('scms-voxel') : null;
+const voxPack = () => { const vox = new Uint16Array(W * H * D);
+  for (const [k, mid] of voxelMap) { const p = k.split(','); vox[+p[0] + W * (+p[1] + H * +p[2])] = mid; }
+  return vox.buffer; };
+const voxPostDelta = (delta, dir = 1) => { if (!voxChan || !loadedModelName) return;
+  const ops = []; for (const [k, pair] of delta) { const p = k.split(',');
+    ops.push([+p[0], +p[1], +p[2], pair[dir] === ABSENT ? 0 : pair[dir]]); }
+  if (ops.length) voxChan.postMessage({ type: 'vox-delta', name: loadedModelName, seq: historyIndex, dims: [W, H, D], ops }); };
+const voxPostFull = () => { if (voxChan && loadedModelName)
+  voxChan.postMessage({ type: 'vox-full', name: loadedModelName, dims: [W, H, D], vox: voxPack() }); };
+if (voxChan) voxChan.onmessage = e => { const m = e.data || {};
+  if (m.type === 'vox-hello' || (m.type === 'need-full' && m.name === loadedModelName)) voxPostFull(); };
+
 // === BODY PART GROUPS ===
 const BODY_GROUPS = [
   { id: 0, name: 'Body',           color: '#888888', desc: 'Torso / unassigned' },
@@ -2839,6 +2859,7 @@ let loadedModelName = null;
 function updateFilePill() {
   document.getElementById('file-badge').textContent =
     loadedModelName ? '📄 ' + loadedModelName : '— no file loaded —';
+  voxPostFull();                                   // model switched/loaded — the Construct re-baselines under the new name
 }
 // Animation metadata preserved from the loaded file (pivots / animParams /
 // states). The editor doesn't edit these, but exports must carry them or the
@@ -4463,12 +4484,14 @@ function pushHistory() {
   history.push(entry);
   if (history.length > MAX_HISTORY) history.shift();
   else historyIndex++;
+  voxPostDelta(entry.voxDelta);                    // live sync → construct minis redraw in place
   updateUndoRedo();
 }
 
 function undo() {
   if (historyIndex <= 0) return;
   applyVoxDelta(history[historyIndex].voxDelta, 0); // step back this entry's writes
+  voxPostDelta(history[historyIndex].voxDelta, 0);  // sync the restored values too
   historyIndex--;
   applyTagSnapshot(history[historyIndex]);          // tag state at the earlier entry
   rebuildMesh();
@@ -4482,6 +4505,7 @@ function redo() {
   if (historyIndex >= history.length - 1) return;
   historyIndex++;
   applyVoxDelta(history[historyIndex].voxDelta, 1); // replay this entry's writes
+  voxPostDelta(history[historyIndex].voxDelta, 1);  // sync the replayed values
   applyTagSnapshot(history[historyIndex]);
   rebuildMesh();
   updateGroupCounts();

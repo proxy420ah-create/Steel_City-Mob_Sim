@@ -47,6 +47,11 @@ they are contract traps, not code bugs, and they bite again the moment they're f
 - `_pad_shot.mjs` — visual capture: dumps the pad canvas per page
   (`probe_pad_<page>.png`) — layout/overlap/font review without squinting at
   the 3D slab.
+- `_voxsync_check.mjs` — the live-sync law: mounted minis carry `_deps`, a
+  simulated editor `vox-delta` patches `_stCache` and remounts every dependent
+  table (`tenement_block_0` rides all three — standalone, `block_26_tenement`
+  stamp, battlefield zone stamp), `rotation.y` survives the remount, and a
+  `dims` mismatch answers `need-full` rather than corrupting the cache.
 
 > **File layout:** the page body is `docs/construct/01_shell.js` … `17_lamps.js` —
 > classic `<script defer>` siblings sharing one page-wide scope, load order = old

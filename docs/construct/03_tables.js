@@ -139,6 +139,7 @@ const stassetFetch = name => _stCache[name] || (_stCache[name] =
    the table's declared scale — buildings stay comparable, like a real architect's set. */
 const emitBldg = (t, m) => stassetFetch(m.name)
   .then(f => emitVox(t, m, f.W, f.H, f.D, f.vox))
+  .then(g => { if (g) g.userData.mini._deps = new Set([m.name]); return g; })   // live-sync: the editor's strokes rebuild any mini listing this file
   .catch(e => console.warn('CONSTRUCT — bldg emit failed:', m.name, e));
 /* BLK — the game's per-block terrain contract: slot 64, block interior 192 (3×3 lots),
    margin M = 65v (20v sidewalk + 45v half-road) → tile 322. emitBlock builds one tile;
@@ -422,7 +423,8 @@ const emitCore = (t, m) => { const BW2 = BLK.BW, slots = m.slots || {};
     const H = Math.max(2, Math.max(...[...names].map(n => files[n].H)) + 2);             // +2: the slab pair — stamps sit at y+2 flush on the ring's pad
     const vox = new Uint16Array(BW2 * H * BW2);
     stampSlots(vox, BW2, H, files, slots, 0, 0, { S: BLK.S, BW: BW2, M: 0 });
-    return emitVox(t, { ...m, _vs: t._ringVs, plate: true }, BW2, H, BW2, vox); })
+    return emitVox(t, { ...m, _vs: t._ringVs, plate: true }, BW2, H, BW2, vox)
+      .then(g => { if (g) g.userData.mini._deps = names; return g; }); })       // live-sync deps = every stasset stamped into this core
     .catch(e => console.warn('CONSTRUCT — block core emit failed:', m.name, e)); };
 /* emitBlock — a 3×3 city block as ONE miniature: the tile recipe + lot stamps merged into a
    single composite at 1:1, tops written back into the host. ROT/SLICE/persistence unchanged.
@@ -439,6 +441,7 @@ const emitBlock = (t, m) => { const W2 = BLKF.TILE, slots = m.slots || {};
     fillBlockGround(set, 0, 0, { n: 'road', e: 'road', s: 'road', w: 'road', ...(m.seams || {}) }, m.lanes | 0, BLKF);
     stampSlots(vox, W2, H, files, slots, 0, 0, BLKF);
     return emitVox(t, { ...m, plate: true, _blkM: BLKF.M }, W2, H, W2, vox)   // composites have full-coverage ground — the flat tops path applies
+      .then(miniG => { if (miniG) miniG.userData.mini._deps = names; return miniG; })   // live-sync deps
       .then(miniG => miniG ? mountParked(t, miniG, parked).then(() => miniG) : miniG); })   // cars overlay + AWAITED — authored fidelity, never downsampled
     .catch(e => console.warn('CONSTRUCT — block emit failed:', m.name, e)); };
 /* layoutFetch — the live city layout (blocks+seams) is the zone's sole source of truth, cached. */
@@ -473,6 +476,7 @@ const emitZone = (t, m) => { const { M, TILE } = BLK, z = m.zone;
         stamped.push(...stampSlots(vox, W2, H, files, slots, X0, Z0, BLK, true, true)); });   // zFlip — slot rows order toward row+1 (Unity's index-row0 side), which under row↑→+z is the z-max edge; mir — stamp content x-mirrors in place (the Unity L/R flip) while lots stay raw
       return emitVox(t, m, W2, H, D2, vox).then(miniG => {
         if (miniG) { const mn = miniG.userData.mini, vs = mn.vs;
+          mn._deps = names;                                                  // live-sync deps = every stamped stasset
           miniG.add(hitProxy(W2 * vs, 2 * vs, D2 * vs, 0, vs, 0));               // ground plate — roads/lots aim at slab top
           stamped.forEach(s => { const cx = (Math.min(mn.fx(s.x), mn.fx(s.x + s.w - 1)) + Math.max(mn.fx(s.x), mn.fx(s.x + s.w - 1))) / 2;
             miniG.add(hitProxy(s.w * vs, (s.h + 2) * vs, s.d * vs, cx, (s.h + 2) * vs / 2, (s.z + s.d / 2 - D2 / 2) * vs)); }); }
@@ -641,3 +645,35 @@ MANIFEST.tables.forEach(spec => { const t = emitTable(spec);
     return mountParked(t, ringG, spec.parked || [])
       .then(() => mountModel(t, pick)); });                                     // mountModel rewrites t._mountP to the core emit — still the last promise standing
   else mountModel(t, pick); });
+/* ═══ LIVE SYNC — the voxel editor's strokes trickle in over BroadcastChannel('scms-voxel'):
+   every pushHistory() posts a vox-delta ({name,dims,ops:[[x,y,z,mid]]}); loads/dim-changes/undo-
+   recovery post vox-full ({name,dims,vox:ArrayBuffer}). Messages patch _stCache (the fetch
+   layer's own truth — every emit re-reads it), then remount each mini listing the file in
+   _deps — slice/spin/rotY carry over so the exhibit redraws in place. Rebuilds debounce per
+   table; mountModel's _mountGen kills mid-flight emits of superseded rebuilds. The editor can
+   demand a baseline with vox-hello/need-full (Construct asks for full on a dims mismatch). ═══ */
+const voxChan = ('BroadcastChannel' in window) ? new BroadcastChannel('scms-voxel') : null;
+const remountMini = t => { const mdl = t.g.children.find(c => c.userData.mini && !c.userData.mini.static);
+  const keep = mdl ? { slice: JSON.parse(JSON.stringify(mdl.userData.mini.slice)), spin: mdl.userData.mini.spin, rotY: mdl.rotation.y } : null;
+  return mountModel(t, t.spec.models[0]).then(g => {
+    if (g && keep) { const mn = g.userData.mini;
+      if (keep.slice.x[1] < mn.dims[0] && keep.slice.y[1] < mn.dims[1] && keep.slice.z[1] < mn.dims[2]) mn.slice = keep.slice;
+      mn.spin = keep.spin; g.rotation.y = keep.rotY;
+      miniSyncSlice(g); miniSyncTops(t, g); miniSettle(t); }
+    return g; }); };
+const _rebuildT = {};
+const rebuildDeps = name => TABLES.forEach(t => {                       // debounce per table — a paint session is many strokes
+  const mdl = t.g && t.g.children.find(c => c.userData.mini && !c.userData.mini.static);
+  if (mdl && mdl.userData.mini._deps && mdl.userData.mini._deps.has(name)) {
+    clearTimeout(_rebuildT[t.spec.id]); _rebuildT[t.spec.id] = setTimeout(() => remountMini(t), 160); } });
+if (voxChan) { voxChan.onmessage = e => { const m = e.data || {};
+  if (m.type === 'vox-full') _stCache[m.name] = Promise.resolve({ W: m.dims[0], H: m.dims[1], D: m.dims[2], vox: new Uint16Array(m.vox) });
+  else if (m.type === 'vox-delta') {
+    if (!_stCache[m.name]) return void voxChan.postMessage({ type: 'need-full', name: m.name });
+    _stCache[m.name] = _stCache[m.name].then(f => {
+      if (f.W !== m.dims[0] || f.H !== m.dims[1] || f.D !== m.dims[2]) { voxChan.postMessage({ type: 'need-full', name: m.name }); return f; }
+      m.ops.forEach(([x, y, z, id]) => { if (x >= 0 && x < f.W && y >= 0 && y < f.H && z >= 0 && z < f.D) f.vox[x + f.W * (y + f.H * z)] = id; });
+      return f; }); }
+  else return;
+  rebuildDeps(m.name); };
+  voxChan.postMessage({ type: 'vox-hello' }); }                          // open-after-edits handshake — a live editor answers with vox-full
