@@ -488,7 +488,16 @@ pool like the tables' exhibits.
 the interior wall at `(-3.04, .5, -1.6)`, just north of the door jamb —
 you flip it walking in. The `.03`-thick plate stands 1.5cm off the wall
 face (a coplanar back face z-fought and washed out against the cream). TWO
-proud rockers side by side, each an `INTERACT` entry `{isBtn:true, r:.3}`
+proud rockers side by side, each an **aimed button** (`userData.btn` on
+the mesh, `swProbe` raycasts it per-frame — the kiosk law). A `swWire`
+ghost slips onto the rocker your center-ray owns — the wire IS the
+disambiguation, so the old ±.07z proximity offers are gone: aim = target
+= press, `E`/LMB both fire via `promptIt.isBtn`. **North rocker =
+LIGHTS** (the dim law, cyan pip `0x7fd4ff`), **south rocker = SHADES**
+(amber pip `0xffcf6a`) — shows/hides the pendant fixture meshes *only*.
+The two are independent:
+light on + shades off = dark room, warm pools on the exhibits, invisible
+sources. States persist separately (`dvm_lights`, `dvm_shades`).
 
 **INTERACT aim gating.** Entries may carry `aimDot` — the promptIt reduce
 then requires the camera-forward dot toward the point to clear it before
@@ -497,12 +506,6 @@ the prompt is a cam-view offer — stand near the door facing it and
 `E — EXIT THE CONSTRUCT` appears; spawn in facing the rotator (−z, away
 from the +z door) and there's no prompt. Proximity alone still suffices
 for every other entry.
-±.07 in z — nearest-wins disambiguates which rocker your approach owns;
-aim-**E** and LMB both fire: **north rocker = LIGHTS** (the dim law, cyan
-pip `0x7fd4ff`), **south rocker = SHADES** (amber pip `0xffcf6a`) —
-shows/hides the pendant fixture meshes *only*. The two are independent:
-light on + shades off = dark room, warm pools on the exhibits, invisible
-sources. States persist separately (`dvm_lights`, `dvm_shades`).
 
 **The dim law — it dims the VOID, not just the lights.** The room's piercing
 wash was never the lamps: `scene.background`, `scene.fog`, and the shared

@@ -64,7 +64,15 @@ check('room still dimmed with shades hidden', await evl('scene.background.getHex
 check('shades persisted — dvm_shades=0', await evl('localStorage.getItem("dvm_shades") === "0"'));
 await evl('__lamps.setShades(true)');
 check('shades back on — fixtures visible', await evl('__lamps.shades() === true && __lamps.fixtureVisible().every(x => x === true)'));
-check('two rockers — second INTERACT on the plate', await evl('INTERACT.filter(i => Math.abs(i.x + 3.04) < .01 && i.r <= .3).length === 2'));
+check('two rockers — aimed buttons, not proximity entries', await evl('SW_BTNS.length === 2 && INTERACT.filter(i => Math.abs(i.x + 3.04) < .01 && i.r <= .3).length === 0'));
+/* the wire ghost owns the aimed rocker — kiosk law (proximity prompt is gone by design) */
+await evl('(() => { pos.set(-2.6, 0, -1.6); __cam(-3.6, .55, -1.67, -3.06, .51, -1.67); return true; })()');
+await sleep(200);
+check('aim north rocker — LIGHTS btn owns the ray + ghost seats on it', await evl('(() => { const b = swProbe(); return !!(b && /LIGHTS|EXHIBIT/.test(b.label()) && Math.abs(swWire.position.z + .07) < .001); })()'));
+await evl('__cam(-3.6, .55, -1.53, -3.06, .51, -1.53)');
+await sleep(200);
+check('aim south rocker — SHADES btn owns the ray', await evl('(() => { const b = swProbe(); return !!(b && /SHADES/.test(b.label()) && Math.abs(swWire.position.z - .07) < .001); })()'));
+await evl('__cam(null); pos.set(0, 0, 0)');
 
 /* the attached light is a property of the rec — pendSet removes/restores it, placeSave carries it */
 check('lawdesk carries a pendant by default', await evl('(() => { const d = __construct.placed.find(p => p.name === "commission_lawdesk"); return !!(d && d.pend); })()'));

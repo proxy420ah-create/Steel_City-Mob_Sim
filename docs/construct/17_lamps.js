@@ -80,12 +80,25 @@ const shadesApply = () => {                                              // fixt
   swShadePip.material.color.setHex(shadesOn ? 0xffcf6a : 0x3a3a4a);
   localStorage.setItem('dvm_shades', shadesOn ? '1' : '0');
 };
-INTERACT.push({ x: SW_POS.x, z: SW_POS.z - .07, r: .3, isBtn: true,      // north rocker — LIGHTS
+/* the rockers are AIMED buttons — kiosk law: userData.btn on each mesh, swProbe raycasts them
+   per-frame, the wire ghost slips onto whichever your center-ray owns. Aim = target = press:
+   proximity alone no longer offers a rocker (was nearest-wins at ±.07z — the wire IS the disambiguation). */
+const SW_BTNS = [];
+swNub.userData.btn = { m: swNub, isBtn: true, sw: true,
   label: () => 'E — ' + (lampsOn ? 'LIGHTS UP' : 'EXHIBIT LIGHTS'),
-  fn: () => { lampsOn = !lampsOn; lampsApply(); } });
-INTERACT.push({ x: SW_POS.x, z: SW_POS.z + .07, r: .3, isBtn: true,      // south rocker — SHADES (nearest-wins disambiguates)
+  fn: () => { lampsOn = !lampsOn; lampsApply(); } };
+swShade.userData.btn = { m: swShade, isBtn: true, sw: true,
   label: () => 'E — ' + (shadesOn ? 'HIDE SHADES' : 'SHOW SHADES'),
-  fn: () => { shadesOn = !shadesOn; shadesApply(); } });
+  fn: () => { shadesOn = !shadesOn; shadesApply(); } };
+SW_BTNS.push(swNub.userData.btn, swShade.userData.btn);
+const swWire = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(.08, .055, .05)),
+  new THREE.LineBasicMaterial({ color: 0x35d5ff, transparent: true, opacity: .95 }));
+swWire.visible = false; swG.add(swWire);                                 // target ghost — rides the aimed rocker, tilt and all
+const swProbe = () => { if (Math.hypot(pos.x - SW_POS.x, pos.z - SW_POS.z) > 1.6) return null;
+  _ray.setFromCamera(_ctr, camera);
+  const h = _ray.intersectObjects(SW_BTNS.map(b => b.m), false);
+  if (h.length) { swWire.position.copy(h[0].object.position); swWire.rotation.copy(h[0].object.rotation); }
+  return h.length ? h[0].object.userData.btn : null; };
 lampsApply(); shadesApply();
 
 window.__lamps = { on: () => lampsOn, set: b => { lampsOn = !!b; lampsApply(); },
