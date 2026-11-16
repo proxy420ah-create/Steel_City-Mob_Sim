@@ -2,7 +2,7 @@
 
 The Construct is a white void whose boundaries are physically real but
 **visually invisible**: every impassable line is an opaque slab `WALL_D=.14`
-thick × `WALL_H=1.05` tall rendered in `floorMat` (`MeshBasicMaterial(VOID)`) —
+thick × `WALL_H=1.55` tall rendered in `floorMat` (`MeshBasicMaterial(VOID)`) —
 the floor's own law: *present, occluding, colliding, never seen*. Looking at a
 wall you see void; the annex is hidden until the doorway reveals it. The only
 wall-wire is the **floor seam**: a `coreMat` band at floor level flush against

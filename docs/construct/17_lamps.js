@@ -9,11 +9,12 @@ const LAMPS = [];                                                        // { t,
 let lampsOn = localStorage.getItem('dvm_lights') !== '0';                // default ON — the exhibit look is the feature
 
 /* pendant — commission_pendant (green-dome banker fixture), ~.30m tall, origin = dome bottom.
-   Local y .62 inside the table group: canopy tops out ~.92 — just under the 1.05 wall line. */
-const PEND_Y = .62, SPOT_I = 14, GLOW_I = .5;
+   Local y .85 inside the table group: dome clearance ~.6 over the tabletop, canopy tops out
+   ~1.15 — comfortably under the 1.55 cornice. The wider cone pools across the whole slab. */
+const PEND_Y = .85, SPOT_I = 16, GLOW_I = .5;
 TABLES.forEach(t => {
   const pg = new THREE.Group(); pg.position.set(0, PEND_Y, 0); t.g.add(pg);
-  const spot = new THREE.SpotLight(0xffe2b0, 0, 3.5, .78, .6, 1);
+  const spot = new THREE.SpotLight(0xffe2b0, 0, 4, .85, .65, 1);
   spot.position.set(0, .27, 0); pg.add(spot); spot.target.position.set(0, -.4, 0); pg.add(spot.target);
   const glow = new THREE.PointLight(0xcfffb0, 0, .8, 1);                 // the dome's own glass-glow
   glow.position.set(0, .08, 0); pg.add(glow);
@@ -25,18 +26,17 @@ TABLES.forEach(t => {
   }).catch(e => console.warn('CONSTRUCT — pendant emit failed:', e));
 });
 
-/* the switch — a little plate + nub on the annex face of the interior wall, just north
-   of the door jamb. Scenery group, not a rec — it can't be carried or re-placed. */
-const SW_POS = { x: -3.06, y: .5, z: -1.6 };
+/* the switch — a dark plate + proud rocker nub on the annex face of the interior wall, just
+   north of the door jamb. 1.5cm standoff kills the coplanar-face washout; the dark plate reads
+   against the cream wall. Scenery group, not a rec — it can't be carried or re-placed. */
+const SW_POS = { x: -3.04, y: .5, z: -1.6 };
 const swG = new THREE.Group(); swG.position.set(SW_POS.x, SW_POS.y, SW_POS.z); scene.add(swG);
-const swPlate = new THREE.Mesh(new THREE.BoxGeometry(.02, .11, .07),
-  new THREE.MeshLambertMaterial({ color: 0xd8d2c4 })); swG.add(swPlate);
-const swRim = new THREE.Mesh(new THREE.BoxGeometry(.022, .015, .05),
-  new THREE.MeshLambertMaterial({ color: 0x3a3a4a })); swRim.position.y = -.02; swG.add(swRim);
-const swNub = new THREE.Mesh(new THREE.BoxGeometry(.028, .035, .018),
-  new THREE.MeshLambertMaterial({ color: 0xe8d9b0 })); swNub.position.y = .015; swG.add(swNub);
-const swPip = new THREE.Mesh(new THREE.BoxGeometry(.022, .012, .012),
-  new THREE.MeshBasicMaterial({ color: 0x7fd4ff })); swPip.position.y = .04; swG.add(swPip);   // lit tell
+const swPlate = new THREE.Mesh(new THREE.BoxGeometry(.03, .11, .07),
+  new THREE.MeshLambertMaterial({ color: 0x2e3240 })); swG.add(swPlate);
+const swNub = new THREE.Mesh(new THREE.BoxGeometry(.05, .034, .02),
+  new THREE.MeshLambertMaterial({ color: 0xe8d9b0 })); swNub.position.set(-.02, .012, 0); swG.add(swNub);
+const swPip = new THREE.Mesh(new THREE.BoxGeometry(.022, .012, .014),
+  new THREE.MeshBasicMaterial({ color: 0x7fd4ff })); swPip.position.set(-.02, .04, 0); swG.add(swPip); // lit tell
 
 /* the dim law — the "piercing white" is the unlit VOID itself (background + fog + the shared
    void-colored floor/wall material), not the lights. Dim the void to a dark museum depth, drop
@@ -49,7 +49,7 @@ const lampsApply = () => {
   hemi.intensity = lampsOn ? .22 : 1.2;
   key.intensity = lampsOn ? .5 : 2.4;
   LAMPS.forEach(l => { l.spot.intensity = lampsOn ? SPOT_I : 0; l.glow.intensity = lampsOn ? GLOW_I : 0; });
-  swNub.rotation.x = lampsOn ? -.55 : .55;                               // the nub flips — the state tell
+  swNub.rotation.x = lampsOn ? -.4 : .4;                                 // the nub flips — the state tell
   swPip.material.color.setHex(lampsOn ? 0x7fd4ff : 0x3a3a4a);
   localStorage.setItem('dvm_lights', lampsOn ? '1' : '0');
 };

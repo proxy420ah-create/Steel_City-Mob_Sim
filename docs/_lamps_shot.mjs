@@ -33,9 +33,12 @@ await sleep(400);
 // elevated wide over the annex — pendant cones + fixture domes read
 console.log('wide:', await evl('window.__snap("lamps_wide", -3.4, 1.5, -0.6, -6.0, 0.2, -3.2)'));
 await sleep(400);
+// the switch itself, from the annex side — plate, proud nub, tell pip
+console.log('sw  :', await evl('window.__snap("lamps_switch", -3.65, 0.55, -1.45, -3.04, 0.5, -1.6)'));
 // lamps off for contrast — the flat bright default
 await evl('__lamps.set(false)'); await sleep(600);
 console.log('off :', await evl('window.__snap("lamps_off", -3.2, 0.62, -2.5, -6.5, 0.35, -2.5)'));
+console.log('off2:', await evl('window.__snap("lamps_offsw", -3.65, 0.55, -1.45, -3.04, 0.5, -1.6)'));
 await evl('__lamps.set(true)');
 chrome.kill(); setTimeout(() => { try { fs.rmSync(prof, { recursive: true, force: true }); } catch {} }, 800);
 process.exit(0);

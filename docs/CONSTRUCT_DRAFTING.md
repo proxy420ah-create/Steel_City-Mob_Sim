@@ -457,22 +457,26 @@ in the numbers.
 dims the house and lights a pendant over every table.**
 
 **The pendants.** Each `TABLES` entry gets a scenery group at table-local
-`(0, .62, 0)` parented into `t.g` — the `commission_pendant` voxel fixture
-(the green-dome banker lamp, ~.30m tall, origin at dome bottom) plus a light
-rig: a warm `SpotLight 0xffe2b0` (i=14, dist 3.5, angle .78, penumbra .6)
-aimed straight down at the tabletop, and a small `PointLight 0xcfffb0` (i=.5)
-inside the dome for its own glass-glow. Scenery, not `PLACED` — no bbox, so
-nothing pollutes the drop scanner, and aim rays pass over the room. Because
-the group lives inside `t.g`, **the lamp follows its table everywhere** —
-⇧+LMB drags, lifts, even table deletion carry the fixture and its lights.
-Pendant fetch is async per table; lights exist immediately, the fixture
-mesh lands when `/voxel/commission_pendant` resolves.
+`(0, .85, 0)` parented into `t.g` — the `commission_pendant` voxel fixture
+(the green-dome banker lamp, ~.30m tall, origin at dome bottom; canopy tops
+~1.15 under the `WALL_H=1.55` cornice) plus a light rig: a warm
+`SpotLight 0xffe2b0` (i=16, dist 4, angle .85, penumbra .65) aimed straight
+down — the widened cone pools across each whole slab — and a small
+`PointLight 0xcfffb0` (i=.5) inside the dome for its own glass-glow.
+Scenery, not `PLACED` — no bbox, so nothing pollutes the drop scanner, and
+aim rays pass over the room. Because the group lives inside `t.g`, **the
+lamp follows its table everywhere** — ⇧+LMB drags, lifts, even table
+deletion carry the fixture and its lights. Pendant fetch is async per
+table; lights exist immediately, the fixture mesh lands when
+`/voxel/commission_pendant` resolves.
 
-**The switch.** A plate + nub + tell-pip scenery group on the annex face of
-the interior wall at `(-3.06, .5, -1.6)`, just north of the door jamb — you
-flip it walking in. Registered as an `INTERACT` entry `{isBtn:true, r:.8}`
-→ aim-**E** and LMB both fire it. The nub rotates ±.55 and the pip swaps
-`0x7fd4ff ↔ 0x3a3a4a` as the state tell; the prompt reads `E — LIGHTS UP` /
+**The switch.** A dark plate + proud rocker nub + tell-pip scenery group on
+the annex face of the interior wall at `(-3.04, .5, -1.6)`, just north of
+the door jamb — you flip it walking in. The `.03`-thick plate stands 1.5cm
+off the wall face (a coplanar back face z-fought and washed out against the
+cream); the nub protrudes ~15mm and rocks ±.4; the pip swaps
+`0x7fd4ff ↔ 0x3a3a4a`. Registered as an `INTERACT` entry `{isBtn:true, r:.8}`
+→ aim-**E** and LMB both fire it; the prompt reads `E — LIGHTS UP` /
 `E — EXHIBIT LIGHTS`.
 
 **The dim law — it dims the VOID, not just the lights.** The room's piercing
@@ -482,6 +486,12 @@ drives the whole environment: background/fog/floor-walls drop to
 `VOID_DIM 0x13141c` (distant surfaces now fade to dark), hemi `1.2 → .22`,
 key `2.4 → .5` — navigable dusk. The pendant pools carry the exhibits.
 Lamps-off restores the full `VOID` flat.
+
+**The taller room.** `WALL_H` went `1.05 → 1.55` when the pendants arrived —
+the arch lintel keeps 1.05 (doors stay door-height below the cornice). The
+same `seam` wire that traces the floor now also runs at `WALL_H` — a cornice
+outline on every wall, so the (invisible) slab height reads as the room's
+ceiling in the wireframe style.
 
 State persists in `dvm_lights` (default **on**). Probe hook `__lamps`
 (`on()`, `set(b)`). The L-key torch is untouched — it still layers its own

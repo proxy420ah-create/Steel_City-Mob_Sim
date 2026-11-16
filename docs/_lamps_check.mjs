@@ -29,7 +29,7 @@ await sleep(1500);                                                       // pend
 
 check('lamps rig live + default on', await evl('!!window.__lamps && __lamps.on() === true'));
 const lampState = JSON.parse(await evl(`JSON.stringify((() => {
-  const out = []; scene.traverse(o => { if (o.isSpotLight && o.distance === 3.5) out.push({ i: +o.intensity.toFixed(2), parented: !!o.parent }); });
+  const out = []; scene.traverse(o => { if (o.isSpotLight && o.distance === 4) out.push({ i: +o.intensity.toFixed(2), parented: !!o.parent }); });
   return out; })())`));
 check('three pendant spots live, all lit', lampState.length === 3 && lampState.every(l => l.i > 0), JSON.stringify(lampState));
 const house = JSON.parse(await evl('JSON.stringify((() => { const h = []; scene.traverse(o => { if (o.isHemisphereLight || (o.isPointLight && o.distance === 6)) h.push(+o.intensity.toFixed(2)); }); return h; })())'));
@@ -37,14 +37,14 @@ check('house dimmed — hemi .22 / key .5', house[0] === .22 && house[1] === .5,
 check('void dimmed — bg/fog/floor go dark', await evl('scene.background.getHex() === 0x13141c && scene.fog.color.getHex() === 0x13141c && floorMat.color.getHex() === 0x13141c'));
 
 /* pendants ride their table — drag the primary, its spot follows */
-const before = JSON.parse(await evl(`JSON.stringify((() => { const s = []; scene.traverse(o => { if (o.isSpotLight && o.distance === 3.5) { const v = new o.position.constructor(); o.getWorldPosition(v); s.push(+v.x.toFixed(2)); } }); return s.sort(); })())`));
+const before = JSON.parse(await evl(`JSON.stringify((() => { const s = []; scene.traverse(o => { if (o.isSpotLight && o.distance === 4) { const v = new o.position.constructor(); o.getWorldPosition(v); s.push(+v.x.toFixed(2)); } }); return s.sort(); })())`));
 await evl('(() => { const rec = __construct.placed.find(p => p.name === "table:primary"); placeApply(rec, -3.6, -1.1); return true; })()');
-const after = JSON.parse(await evl(`JSON.stringify((() => { const s = []; scene.traverse(o => { if (o.isSpotLight && o.distance === 3.5) { const v = new o.position.constructor(); o.getWorldPosition(v); s.push(+v.x.toFixed(2)); } }); return s.sort(); })())`));
+const after = JSON.parse(await evl(`JSON.stringify((() => { const s = []; scene.traverse(o => { if (o.isSpotLight && o.distance === 4) { const v = new o.position.constructor(); o.getWorldPosition(v); s.push(+v.x.toFixed(2)); } }); return s.sort(); })())`));
 await evl('(() => { const rec = __construct.placed.find(p => p.name === "table:primary"); placeApply(rec, -4.1, -1.1); return true; })()');
 check('pendant spot world-x followed the table drag', JSON.stringify(before) !== JSON.stringify(after), JSON.stringify({ before, after }));
 
 await evl('__lamps.set(false)');
-const dimmed = JSON.parse(await evl('JSON.stringify((() => { const s = [], h = []; scene.traverse(o => { if (o.isSpotLight && o.distance === 3.5) s.push(o.intensity); if (o.isHemisphereLight) h.push(o.intensity); }); return { s, h }; })())'));
+const dimmed = JSON.parse(await evl('JSON.stringify((() => { const s = [], h = []; scene.traverse(o => { if (o.isSpotLight && o.distance === 4) s.push(o.intensity); if (o.isHemisphereLight) h.push(o.intensity); }); return { s, h }; })())'));
 check('off — spots out, house restored', dimmed.s.every(i => i === 0) && dimmed.h[0] === 1.2, JSON.stringify(dimmed));
 check('off — void restored to VOID cream', await evl('scene.background.getHex() === 0xf4f1e8 && floorMat.color.getHex() === 0xf4f1e8'));
 check('state persisted — dvm_lights=0', await evl('localStorage.getItem("dvm_lights") === "0"'));

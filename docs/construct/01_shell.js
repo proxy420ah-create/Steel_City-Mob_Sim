@@ -94,7 +94,7 @@ const boundHue = t => { const h = .58 + .34 * (0.5 + 0.5 * Math.sin(t * .3)); co
   if (kioWireMat) kioWireMat.color.copy(coreMat.color);                    // the button ghost-frames ride the same sweep
   if (padEdgeMat) padEdgeMat.color.copy(coreMat.color); };                 // the debug pad's edge trim too
 const BND_W = .008;                                                     // wire stock width
-const WALL_H = 1.05, WALL_D = .14;                                      // wall datum = the arch lintel — one unbroken cornice line around the footprint
+const WALL_H = 1.55, WALL_D = .14;                                      // wall datum = the room's cornice — arch lintels stay door-height below it
 const wallMat = floorMat;                                               // walls obey the floor's own law — void-colored, opaque, NEVER seen
 const BOUND_WALL = [                                                    // [ax, az, bx, bz] wall centerlines — each becomes slab + cap wire
   [-3,-6, 3,-6], [3,-6, 3,1], [3,1, -3,1],                              // main room — S, E, N edges
@@ -114,10 +114,10 @@ const BOUND_ARCH = [ { x: -3, z0: -3, z1: -2, h: 1.05, d: .14 } ];       // door
 const ARCH_ENDS = new Set(BOUND_ARCH.flatMap(a => [[a.x, a.z0], [a.x, a.z1]]).map(([x, z]) => x + ',' + z));
 function rebuildBounds() {
   boundsG.clear();
-  const seam = (ax, az, bx, bz) => {                                    // one floor-level glow band a→b
+  const seam = (ax, az, bx, bz, y = .004) => {                          // one glow band a→b — floor seam, or cornice when lifted
     const g = new THREE.PlaneGeometry(Math.hypot(bx - ax, bz - az), BND_W); g.rotateX(-Math.PI / 2);
     const m = new THREE.Mesh(g, coreMat);
-    m.rotation.y = -Math.atan2(bz - az, bx - ax); m.position.set((ax + bx) / 2, .004, (az + bz) / 2); m.userData.noAim = true; boundsG.add(m);
+    m.rotation.y = -Math.atan2(bz - az, bx - ax); m.position.set((ax + bx) / 2, y, (az + bz) / 2); m.userData.noAim = true; boundsG.add(m);
   };
   BOUND_WALL.forEach(([ax, az, bx, bz]) => {                            // each centerline → invisible slab + floor-seam glow bands
     const len = Math.hypot(bx - ax, bz - az), ux = (bx - ax) / len, uz = (bz - az) / len;
@@ -130,6 +130,8 @@ function rebuildBounds() {
     [-1, 1].forEach(s => {
       seam(ax - ux * pA - uz * s * so, az - uz * pA + ux * s * so,
            bx + ux * pB - uz * s * so, bz + uz * pB + ux * s * so);
+      seam(ax - ux * pA - uz * s * so, az - uz * pA + ux * s * so,        // the cornice — the same wire lifted to wall top,
+           bx + ux * pB - uz * s * so, bz + uz * pB + ux * s * so, WALL_H); // makes the invisible slab's height read as the room's ceiling
     });
   });
   BOUND_ARCH.forEach(a => {                                             // pure wire ∩ — the lifted floor wire on each room's face + a floor-plan seam
