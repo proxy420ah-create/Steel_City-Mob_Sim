@@ -100,3 +100,6 @@ addEventListener('keydown', e => { keys[(e.key || '').toLowerCase()] = true;
   else if (k === 'y') { LIVE.on ? window.__live.stop() : window.__live.start(); }   // live link — stream session to the agent
   else if (k === 'k') { ctlOn = !ctlOn; ctlTick(); } });                      // control panel toggle
 addEventListener('keyup', e => { keys[(e.key || '').toLowerCase()] = false; });
+const keysClear = () => { for (const k in keys) keys[k] = false; };                 // stuck-modifier guard —
+addEventListener('blur', keysClear);                                               // a lost keyup (Ctrl+W, Alt+Tab)
+document.addEventListener('visibilitychange', () => { if (document.hidden) keysClear(); }); // cancels flyStep's u or locks walk speed

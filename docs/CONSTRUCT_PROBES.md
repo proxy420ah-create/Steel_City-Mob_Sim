@@ -139,7 +139,7 @@ on empty floor and the suite fails with `roof=0` twenty lines deep. Rules:
   levers died with the auto-exposure stack — old probes calling them return
   undefined (or throw on `.dist()`/`.hit()`).
 - `__place.fly(x,y,z)` pins `flyPos` — the cam roams **unclamped** in x/z
-  (y keeps `[.05, 60]`; `flyStep` applies it on the next frame, so pinned
+  (y keeps only a `.05` floor; `flyStep` applies it on the next frame, so pinned
   out-of-range y snaps in one tick — `_fly_check.mjs` asserts the law);
   `__place.look(yaw,pitch)` writes the yaw/pitch
   vars the loop stamps into `camera.rotation` in place mode. **`camLock` wins over

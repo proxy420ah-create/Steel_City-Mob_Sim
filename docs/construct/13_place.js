@@ -177,7 +177,7 @@ const flyStep = dt => {                                                         
   const cy = Math.cos(yaw), sy = Math.sin(yaw);
   flyPos.addScaledVector(_fd, f * sp * dt);
   flyPos.x += cy * r * sp * dt; flyPos.z += -sy * r * sp * dt; flyPos.y += u * sp * dt;
-  flyPos.y = Math.max(.05, Math.min(60, flyPos.y));                            // unrestricted roam — F re-homes to the body; only the floor + a far ceiling stay
+  flyPos.y = Math.max(.05, flyPos.y);                                         // unrestricted roam — X re-homes to the body; only the floor stays
 };
 const placeStep = () => {
   if (!placeSel) return;

@@ -38,9 +38,9 @@ const far = JSON.parse(await evl('JSON.stringify(__place.fly())'));
 check('far pin holds — x/z unclamped', Math.abs(far[0] - 25) < .01 && Math.abs(far[2] + 30) < .01 && Math.abs(far[1] - 8) < .01, JSON.stringify(far));
 check('far clip widened', await evl('camera.far === 220'));
 
-await evl('__place.fly(0, 90, 0)'); await sleep(300);
+await evl('__place.fly(0, 400, 0)'); await sleep(300);
 const hi = JSON.parse(await evl('JSON.stringify(__place.fly())'));
-check('y ceiling 60 holds', Math.abs(hi[1] - 60) < .01, JSON.stringify(hi));
+check('no y ceiling — 400 holds', Math.abs(hi[1] - 400) < .01, JSON.stringify(hi));
 await evl('__place.fly(0, -5, 0)'); await sleep(300);
 const lo = JSON.parse(await evl('JSON.stringify(__place.fly())'));
 check('y floor .05 holds', Math.abs(lo[1] - .05) < .01, JSON.stringify(lo));
