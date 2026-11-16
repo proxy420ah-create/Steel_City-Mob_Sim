@@ -51,6 +51,8 @@ composite:
 - `probe_zone_zmir_b42xl.png` close-up: `BARBER` sign reads correctly,
   awning/door/pole on the street-facing facade.
 - `_pad_check` 16/16, `_noslice_verify` ALL PASS.
+- **User-verified in person** (2026-02-14): "Verified it looks perfect
+  now" — fronts, signs, and lot positions match the in-game frame.
 
 ## Related Files
 - `docs/construct/03_tables.js` — `emitZone` + battlefield spec
