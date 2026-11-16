@@ -50,6 +50,7 @@ addEventListener('mouseup',   e => {
 addEventListener('contextmenu', e => { if (e.target === renderer.domElement || rmbAim) e.preventDefault(); });
 addEventListener('keydown', e => { keys[(e.key || '').toLowerCase()] = true;
   const k = (e.key || '').toLowerCase();
+  if (k === 'alt') e.preventDefault();                                    // keep Chrome's menu from stealing focus — Alt is our crawl modifier
   if (k === 'escape' && padFocus) { padFocusToggle(); return; }               // Esc gives the look back too
   if (k === 'x' && !e.ctrlKey && !e.metaKey && !e.altKey) { if (padFocus) padFocusToggle(); placeToggle(!placeOn); return; }
   if (placeOn) {

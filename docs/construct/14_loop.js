@@ -5,7 +5,7 @@
 
 /* platform-clamped walk + door solids — same contract as the office slide/pushout */
 const step = dt => {
-  const sp = keys['shift'] ? WALK * SPRINT : WALK;
+  const sp = keys['alt'] ? WALK * .35 : keys['shift'] ? WALK * SPRINT : WALK;   // Alt crawls for careful edges
   const f = (keys['w'] ? 1 : 0) - (keys['s'] ? 1 : 0), r = (keys['d'] ? 1 : 0) - (keys['a'] ? 1 : 0);
   if (f || r) {
     const sy = Math.sin(yaw), cy = Math.cos(yaw), L = Math.hypot(f, r) || 1;

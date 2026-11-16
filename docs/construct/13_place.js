@@ -12,7 +12,7 @@ let placeOn = false, placeSel = null, placeClip = null;
 const flyPos = new THREE.Vector3(0, .6, -1), _fd = new THREE.Vector3();
 const placeEl = document.createElement('div');
 placeEl.style.cssText = 'position:fixed;left:50%;bottom:14px;transform:translateX(-50%);background:rgba(8,8,14,.92);border:1px solid #6a6a92;color:#e2dbc2;padding:5px 12px;font:10px ui-monospace,Consolas,monospace;letter-spacing:.1em;display:none;z-index:8;pointer-events:none;white-space:nowrap';
-const PLACE_LEGEND = 'PLACE — WASD/QE fly · LMB select · SHIFT+LMB drag · ARROWS move (SHIFT coarse) · , . rotate · PgUp/Dn height · B re-seat · ENTER confirm · ESC revert · C copy · V paste · DEL remove · ^Z undo · X exit';
+const PLACE_LEGEND = 'PLACE — WASD/QE fly · ALT crawl · LMB select · SHIFT+LMB drag · ARROWS move (SHIFT coarse) · , . rotate · PgUp/Dn height · B re-seat · ENTER confirm · ESC revert · C copy · V paste · DEL remove · ^Z undo · X exit';
 placeEl.textContent = PLACE_LEGEND;
 document.body.appendChild(placeEl);
 const placeStat = document.createElement('div');
@@ -170,7 +170,7 @@ const placeToggle = on => {
     camera.layers.disable(1); }
 };
 const flyStep = dt => {                                                          // camera off the body — full-3D fly
-  const sp = (keys['shift'] ? SPRINT : WALK) * 1.6;
+  const sp = (keys['alt'] ? WALK * .35 : keys['shift'] ? SPRINT : WALK) * 1.6;  // Alt crawls the fly cam too — careful framing
   const f = (keys['w'] ? 1 : 0) - (keys['s'] ? 1 : 0), r = (keys['d'] ? 1 : 0) - (keys['a'] ? 1 : 0),
         u = ((keys[' '] || keys['e']) ? 1 : 0) - ((keys['control'] || keys['q']) ? 1 : 0);
   camera.getWorldDirection(_fd);
