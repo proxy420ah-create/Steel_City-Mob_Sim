@@ -89,6 +89,10 @@ Assets/StreamingAssets/voxel_items/office_complex.json
 Assets/StreamingAssets/voxel_items/office_complex.prev.json
 Assets/StreamingAssets/voxel_items/*.bake.stamp
 
+# generated editor twin — 84MB solid-glass fill; regenerate via
+# Tools/stasset_to_json.py voxel_buildings/tenement_glass.stasset
+Assets/StreamingAssets/voxel_items/tenement_glass.json
+
 # live POV captures — the page sole-writes, latest frame wins (runtime artifact)
 docs/chair_eye.png
 docs/vinny_eye.png
