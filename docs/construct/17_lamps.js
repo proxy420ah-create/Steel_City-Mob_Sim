@@ -20,14 +20,25 @@ const hangPendant = (parent, drop = -.4, y = PEND_Y) => {
   const glow = new THREE.PointLight(0xcfffb0, 0, .8, 1);                 // the dome's own glass-glow
   glow.position.set(0, .08, 0); pg.add(glow);
   const fixture = new THREE.Group(); fixture.visible = shadesOn; pg.add(fixture);   // the shade — hides alone; lights keep emitting (three.js skips invisible parents when collecting lights)
-  LAMPS.push({ spot, glow, fixture });
+  const e = { pg, spot, glow, fixture }; LAMPS.push(e);
   fetch('/voxel/commission_pendant').then(r => r.json()).then(m => {
     const vs = m.voxelSize || .012, dcx = m.dims[0] / 2 - .5, dcz = m.dims[2] / 2 - .5;
     window.voxEmit(m, (M, v) => M.makeScale(vs, vs, vs).setPosition(
       (v[0] - dcx) * vs, (v[1] + .5) * vs, (v[2] - dcz) * vs)).forEach(mm => fixture.add(mm));
   }).catch(e => console.warn('CONSTRUCT — pendant emit failed:', e));
+  return e;
 };
-TABLES.forEach(t => hangPendant(t.g, -.94));                             // aim lands on the .26 tabletop
+/* the attached-light lifecycle — a pendant is a property OF THE REC: it parents to p.g so
+   drags/lifts/deletes carry it, pendWant persists through dvm_place, and P in place mode
+   configures it while placing or moving (BO's law: tables come with one, optionally). */
+const pendAttach = p => { if (p.pend) return p.pend;
+  p.pend = hangPendant(p.g, (p.topY ?? .26) - PEND_Y);                     // aim lands on the rec's own top
+  p.pendWant = 1; return p.pend; };
+const pendDetach = p => { if (!p.pend) return;
+  const i = LAMPS.indexOf(p.pend); if (i >= 0) LAMPS.splice(i, 1);
+  p.g.remove(p.pend.pg); p.pend = null; p.pendWant = 0; };
+const pendSet = (p, on) => { if (on) pendAttach(p); else pendDetach(p); };
+PLACED.forEach(p => { if (p.pendWant) pendAttach(p); });                 // boot sweep — everything already emitted (tables etc.) dresses
 hangPendant(spinG, -1.2);                                                // the rotator's museum spot — spinG stays put while the tall touring turns under it; aim lands on the deck
 
 /* the switch — a wide dark plate with TWO proud rockers on the annex face of the interior wall:
@@ -79,4 +90,5 @@ lampsApply(); shadesApply();
 
 window.__lamps = { on: () => lampsOn, set: b => { lampsOn = !!b; lampsApply(); },
   shades: () => shadesOn, setShades: b => { shadesOn = !!b; shadesApply(); },
-  fixtureVisible: () => LAMPS.map(l => l.fixture.visible) };
+  fixtureVisible: () => LAMPS.map(l => l.fixture.visible),
+  pendSet, pendAttach, pendDetach, count: () => LAMPS.length };

@@ -43,10 +43,13 @@ const emitAsset = (name, o = {}) => {
       (lx0 + lx1) / 2, (ly1 - minB) / 2, (lz0 + lz1) / 2));               // instance tests stay skipped
     g.position.set(x, seat, z); g.rotation.y = rotY; parent.add(g);
     const rec = { name, kind, g, tops, lb: [lx0, lx1, lz0, lz1], x, z, rotY, y0: seat, minB, vs, surf,
+                  topY: ly1 - minB,                                        // mesh top above the group origin — pendant aim lands here
+                  pendWant: (o.pendant ?? (/desk(?!lamp)|table|counter|bench|dresser|console/.test(name) ? 1 : 0)) ? 1 : 0,   // optional attached light — table-like hosts default on (desklamp isn't a desk; lawdesk is), P in place mode toggles any rec
                   bbox: footB([lx0, lx1, lz0, lz1], x, z, rotY),
                   pickable: !!o.pickable, solids: o.solids || null, source: o.source || 'manifest', mv: o.mv || 0 };
     g.userData.pRec = rec;
     PLACED.push(rec);
+    if (rec.pendWant && typeof pendAttach === 'function') pendAttach(rec);  // 17_lamps owns the pendant lifecycle (async — defined by call time)
     return rec;
   }).catch(e => console.warn('CONSTRUCT — emit failed:', name, e));
 };

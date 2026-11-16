@@ -73,7 +73,8 @@ const emitTable = spec => {
   const c0 = Math.round(-s / 2 * 200), c1 = Math.round(s / 2 * 200);
   for (let ix = c0; ix <= c1; ix++) for (let iz = c0; iz <= c1; iz++) tops.set(TOPK(ix, iz), h);
   const rec = { name: 'table:' + spec.id, kind: 'table', g, tops, lb: [-s / 2, s / 2, -s / 2, s / 2],
-    x: spec.x, z: spec.z, rotY: 0, y0: 0, minB: 0, vs: 1, surf: true,
+    x: spec.x, z: spec.z, rotY: 0, y0: 0, minB: 0, vs: 1, surf: true, topY: h,
+    pendWant: spec.pendant !== false ? 1 : 0,                            // tables ship with the attached light — spec.pendant:false or P in place mode removes it
     bbox: footB([-s / 2, s / 2, -s / 2, s / 2], spec.x, spec.z, 0), pickable: false, solids: null, source: 'manifest', mv: spec.mv || 0, _block: block, _spec: spec };
   g.userData.pRec = rec; PLACED.push(rec);
   const t = { spec, rec, g, lift: 0, parts: { slab, rims, rods, legs } }; TABLES.push(t); return t;

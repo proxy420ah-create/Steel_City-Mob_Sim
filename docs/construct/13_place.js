@@ -12,7 +12,7 @@ let placeOn = false, placeSel = null, placeClip = null;
 const flyPos = new THREE.Vector3(0, .6, -1), _fd = new THREE.Vector3();
 const placeEl = document.createElement('div');
 placeEl.style.cssText = 'position:fixed;left:50%;bottom:14px;transform:translateX(-50%);background:rgba(8,8,14,.92);border:1px solid #6a6a92;color:#e2dbc2;padding:5px 12px;font:10px ui-monospace,Consolas,monospace;letter-spacing:.1em;display:none;z-index:8;pointer-events:none;white-space:nowrap';
-const PLACE_LEGEND = 'PLACE — WASD/QE fly · ALT crawl · LMB select · SHIFT+LMB drag · ARROWS move (SHIFT coarse) · , . rotate · PgUp/Dn height · B re-seat · ENTER confirm · ESC revert · C copy · V paste · DEL remove · ^Z undo · X exit';
+const PLACE_LEGEND = 'PLACE — WASD/QE fly · ALT crawl · LMB select · SHIFT+LMB drag · ARROWS move (SHIFT coarse) · , . rotate · PgUp/Dn height · B re-seat · P pendant · ENTER confirm · ESC revert · C copy · V paste · DEL remove · ^Z undo · X exit';
 placeEl.textContent = PLACE_LEGEND;
 document.body.appendChild(placeEl);
 const placeStat = document.createElement('div');
@@ -32,7 +32,7 @@ const placeSnapOp = op => { placeUndo.push(op); if (placeUndo.length > 32) place
 const placeSave = () => {                                                        // manifest items persist by name; pastes persist as extras
   const over = {}, extra = [];
   PLACED.forEach(p => { if (p._parked) return;                                    // parked cars are the TABLE's scenery — their x/z are miniG-LOCAL: writing them as name overrides stamps local coords onto the shared asset name (the spinner-car displacement class)
-    const o = { x: +p.x.toFixed(3), z: +p.z.toFixed(3), rotY: +p.rotY.toFixed(3), mv: p.mv || 0 };
+    const o = { x: +p.x.toFixed(3), z: +p.z.toFixed(3), rotY: +p.rotY.toFixed(3), mv: p.mv || 0, pend: p.pendWant | 0 };   // the attached light is a saved property of the rec
     if (!p.mount) o.y = +p.y0.toFixed(3);                                       // the placed seat height — the restore cap honors it (mounts carry their own y)
     const tl = tiltOf(p); if (tl) o.tilt = tl;
     if (p.mount) o.mount = { x: +p.mount.x.toFixed(3), y: +p.mount.y.toFixed(3), z: +p.mount.z.toFixed(3), n: p.mount.n };
@@ -100,9 +100,10 @@ const placeUndoDo = () => {                                                     
     if (i >= 0) { scene.remove(op.p.g); PLACED.splice(i, 1); settleOrphans(op.p, op.p.bbox, null, Infinity); } }   // host gone — drop what rode it
   else if (op.t === 'del') { (op.spec._spec
       ? Promise.resolve(emitTable(op.spec._spec)).then(t => { op.spec._spec.models.forEach(m => (m.zone ? emitZone : m.slots ? emitBlock : emitBldg)(t, m));
-          placeApply(t.rec, op.spec.x, op.spec.z, op.spec.rotY); })
+          placeApply(t.rec, op.spec.x, op.spec.z, op.spec.rotY);
+          if (t.rec.pendWant && typeof pendAttach === 'function') pendAttach(t.rec); })   // the restored table's attached light comes back with it
       : emitAsset(op.spec.name, { kind: op.spec.kind, x: op.spec.x, z: op.spec.z,
-    rotY: op.spec.rotY, pickable: op.spec.pickable, solids: op.spec.solids, source: op.spec.source }));
+    rotY: op.spec.rotY, pickable: op.spec.pickable, solids: op.spec.solids, source: op.spec.source, pendant: op.spec.pendant }));
     if (op.spec.source !== 'extra') { const d = new Set(JSON.parse(localStorage.getItem('dvm_del') || '[]'));
       d.delete(op.spec.name); localStorage.setItem('dvm_del', JSON.stringify([...d])); } }                  // un-delete lifts the tombstone
   refreshSolids(); placeSave(); placeSay('UNDO');
@@ -155,7 +156,8 @@ const placePaste = () => {
   const s = placeSpot(); if (!s) { placeSay('AIM AT A SURFACE'); return; }
   emitAsset(placeClip.name, { kind: placeClip.kind,
     x: Math.round(s.x / PLACE_SNAP) * PLACE_SNAP, z: Math.round(s.z / PLACE_SNAP) * PLACE_SNAP,
-    rotY: placeClip.rotY, pickable: placeClip.pickable, solids: placeClip.solids, source: 'extra', seatY: s.y })
+    rotY: placeClip.rotY, pickable: placeClip.pickable, solids: placeClip.solids, source: 'extra', seatY: s.y,
+    pendant: placeClip.pendant })
     .then(r => { if (r) { if (placeSel) placeDrop();                             // the paste takes the selection — commit whatever was held
       placeSel = r; r._carry = []; r._drag = false; r._grab = { lx: 0, lz: 0 };
       r._orig = { x: r.x, z: r.z, rotY: r.rotY, y0: r.y0 };
@@ -198,16 +200,18 @@ window.__place = { on: () => placeOn, toggle: placeToggle, sel: () => placeSel &
   grab: n => { const p = PLACED.find(p => p.name === n && !p._parked); return p ? placeGrab(p, null) : false; },
   grabIdx: i => { const p = PLACED[i]; return p ? placeGrab(p, null) : false; },
   drop: placeDrop, revert: placeRevert, spot: placeSpot, pick: () => { const p = placePick(); return p && p.p.name; },
-  copy: () => { if (!placeSel) return false; placeClip = { name: placeSel.name, kind: placeSel.kind, rotY: placeSel.rotY, pickable: placeSel.pickable, solids: placeSel.solids };
+  copy: () => { if (!placeSel) return false; placeClip = { name: placeSel.name, kind: placeSel.kind, rotY: placeSel.rotY, pickable: placeSel.pickable, solids: placeSel.solids, pendant: placeSel.pendWant };
     placeSay('COPIED ' + placeSel.name); return true; },
   paste: placePaste,
   del: () => { if (!placeSel) return false;
     placeSnapOp({ t: 'del', spec: { name: placeSel.name, kind: placeSel.kind, x: placeSel.x, z: placeSel.z,
-      rotY: placeSel.rotY, pickable: placeSel.pickable, solids: placeSel.solids, source: placeSel.source, _spec: placeSel._spec } });
+      rotY: placeSel.rotY, pickable: placeSel.pickable, solids: placeSel.solids, source: placeSel.source,
+      pendant: placeSel.pendWant, _spec: placeSel._spec && { ...placeSel._spec, pendant: !!placeSel.pendWant } } });
     if (placeSel.source !== 'extra') { const d = new Set(JSON.parse(localStorage.getItem('dvm_del') || '[]'));
       d.add(placeSel.name); localStorage.setItem('dvm_del', JSON.stringify([...d])); }         // tombstone — manifest items stay deleted
     const dp = placeSel;
     if (dp._block) WALL_BLOCKS.splice(WALL_BLOCKS.indexOf(dp._block), 1);                    // walk-block dies with its table
+    if (dp.pend && typeof pendDetach === 'function') pendDetach(dp);                       // the attached light dies with its host — no orphan fixtures or stale LAMPS entries
     scene.remove(placeSel.g); PLACED.splice(PLACED.indexOf(placeSel), 1);
     for (let i = PLACED.length - 1; i >= 0; i--) for (let n = PLACED[i].g; n && n !== scene; n = n.parent)
       if (n === dp.g) { PLACED.splice(i, 1); break; }                            // descendant recs (a mini's parked cars) die with their table — no ghost hosts on a detached group

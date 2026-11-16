@@ -72,6 +72,8 @@ addEventListener('keydown', e => { keys[(e.key || '').toLowerCase()] = true;
     else if (k === 'c') { if (!window.__place.copy()) placeSay('SELECT AN ITEM FIRST'); }
     else if (k === 'v') { placePaste(); }
     else if (k === 'delete' || k === 'backspace') { window.__place.del(); }
+    else if (k === 'p' && p) { if (typeof pendSet === 'function') { pendSet(p, !p.pendWant); placeSave();
+      placeSay(p.pendWant ? 'PENDANT ON — ' + p.name : 'PENDANT OFF — ' + p.name); } }   // the attached light — configured while placing or moving, persists with the rec
     else if (k === 'y' && p) { const line = p.name + ' ' + p.x.toFixed(3) + ' ' + p.z.toFixed(3) + ' ' + p.rotY.toFixed(3);
       if (navigator.clipboard) navigator.clipboard.writeText(line).catch(() => {}); placeSay('YANKED → ' + line); }
     else if (k === 'l') window.__torch.set(!window.__torch.on);                             // torch rides the fly cam too — light where you look while placing

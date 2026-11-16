@@ -34,7 +34,7 @@ await evl('__lamps.set(true)');
 const lampState = JSON.parse(await evl(`JSON.stringify((() => {
   const out = []; scene.traverse(o => { if (o.isSpotLight && o.distance === 4) out.push({ i: +o.intensity.toFixed(2), parented: !!o.parent }); });
   return out; })())`));
-check('four pendant spots live, all lit', lampState.length === 4 && lampState.every(l => l.i > 0), JSON.stringify(lampState));
+check('five pendant spots live, all lit (3 tables + rotator + lawdesk)', lampState.length === 5 && lampState.every(l => l.i > 0), JSON.stringify(lampState));
 check('rotator lamp hangs on spinG, not the spinning carG', await evl('(() => { let a = false, b = false; spinG.traverse(o => { if (o.isSpotLight && o.distance === 4) a = true; }); carG.traverse(o => { if (o.isSpotLight) b = true; }); return a && !b; })()'))
 const house = JSON.parse(await evl('JSON.stringify((() => { const h = []; scene.traverse(o => { if (o.isHemisphereLight || (o.isPointLight && o.distance === 6)) h.push(+o.intensity.toFixed(2)); }); return h; })())'));
 check('house dimmed — hemi .22 / key .5', house[0] === .22 && house[1] === .5, JSON.stringify(house));
@@ -59,12 +59,22 @@ check('back on — dvm_lights=1', await evl('localStorage.getItem("dvm_lights") 
 await evl('__lamps.setShades(false)');
 await sleep(300);
 const shadesOff = JSON.parse(await evl('JSON.stringify({ v: __lamps.fixtureVisible(), spots: (() => { const s = []; scene.traverse(o => { if (o.isSpotLight && o.distance === 4) s.push(o.intensity); }); return s; })() })'));
-check('shades OFF — all four fixtures hidden, spots still lit', shadesOff.v.length === 4 && shadesOff.v.every(x => x === false) && shadesOff.spots.every(i => i > 0), JSON.stringify(shadesOff));
+check('shades OFF — all five fixtures hidden, spots still lit', shadesOff.v.length === 5 && shadesOff.v.every(x => x === false) && shadesOff.spots.every(i => i > 0), JSON.stringify(shadesOff));
 check('room still dimmed with shades hidden', await evl('scene.background.getHex() === 0x13141c'));
 check('shades persisted — dvm_shades=0', await evl('localStorage.getItem("dvm_shades") === "0"'));
 await evl('__lamps.setShades(true)');
 check('shades back on — fixtures visible', await evl('__lamps.shades() === true && __lamps.fixtureVisible().every(x => x === true)'));
 check('two rockers — second INTERACT on the plate', await evl('INTERACT.filter(i => Math.abs(i.x + 3.04) < .01 && i.r <= .3).length === 2'));
+
+/* the attached light is a property of the rec — pendSet removes/restores it, placeSave carries it */
+check('lawdesk carries a pendant by default', await evl('(() => { const d = __construct.placed.find(p => p.name === "commission_lawdesk"); return !!(d && d.pend); })()'));
+await evl('(() => { const d = __construct.placed.find(p => p.name === "commission_lawdesk"); __lamps.pendSet(d, false); return true; })()');
+const detached = JSON.parse(await evl('JSON.stringify((() => { const s = []; scene.traverse(o => { if (o.isSpotLight && o.distance === 4) s.push(1); }); const d = __construct.placed.find(p => p.name === "commission_lawdesk"); return { n: s.length, pend: !!d.pend, want: d.pendWant, lamps: __lamps.count() }; })())'));
+check('pend off — fixture + spot leave the scene and LAMPS', detached.n === 4 && !detached.pend && detached.want === 0 && detached.lamps === 4, JSON.stringify(detached));
+await evl('(() => { const d = __construct.placed.find(p => p.name === "commission_lawdesk"); __lamps.pendSet(d, true); return true; })()');
+check('pend on — pendant re-attaches to the rec', await evl('(() => { const d = __construct.placed.find(p => p.name === "commission_lawdesk"); return !!(d.pend && d.pendWant === 1) && __lamps.count() === 5; })()'));
+check('pend state persisted — dvm_place lawdesk pend=1', await evl('(() => { placeSave(); const o = JSON.parse(localStorage.getItem("dvm_place")); return o.commission_lawdesk && o.commission_lawdesk.pend === 1; })()'));
+check('non-table rec defaults to no pendant', await evl('(() => { const s = __construct.placed.find(p => p.name === "commission_stamper"); return s && s.pendWant === 0 && !s.pend; })()'));
 const errs = JSON.parse(await evl('JSON.stringify((window.__errs || []).slice(0, 5))'));
 check('no page errors', !(errs && errs.length), JSON.stringify(errs));
 console.log(fails.length ? 'FAILURES: ' + JSON.stringify(fails) : 'ALL PASS');

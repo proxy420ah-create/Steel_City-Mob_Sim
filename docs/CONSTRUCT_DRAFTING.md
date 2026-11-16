@@ -456,23 +456,33 @@ in the numbers.
 `construct/17_lamps.js` gives the room its museum mode: **one wall switch
 dims the house and lights a pendant over every table.**
 
-**The pendants.** Every exhibit host gets a scenery group at host-local
-`(0, 1.2, 0)` — `t.g` for the three tables, `spinG` for the rotator — carrying
-the `commission_pendant` voxel fixture (the green-dome banker lamp, ~.30m
+**The pendants — an attached light, a property of the rec.** Every host
+gets a scenery group at host-local `(0, 1.2, 0)` carrying the
+`commission_pendant` voxel fixture (the green-dome banker lamp, ~.30m
 tall, origin at dome bottom; canopy tops ~1.5, kissing the `WALL_H=1.55`
 cornice line so fixtures read ceiling-mounted) plus a light rig: a warm
-`SpotLight 0xffe2b0` (i=16, dist 4, angle .85, penumbra .65) aimed straight
-down — the widened cone pools across each whole slab — and a small
-`PointLight 0xcfffb0` (i=.5) inside the dome for its own glass-glow.
-Scenery, not `PLACED` — no bbox, so nothing pollutes the drop scanner, and
-aim rays pass over the room. Because the group lives inside `t.g`, **the
-lamp follows its table everywhere** — ⇧+LMB drags, lifts, even table
-deletion carry the fixture and its lights. Pendant fetch is async per
-table; lights exist immediately, the fixture mesh lands when
-`/voxel/commission_pendant` resolves. A fourth fixture hangs over the
-main-room **rotator** — parented to `spinG` (`carG` is what spins; the
-lamp must not ride it), aim dropped to deck level so the touring turns
-inside a fixed museum pool like the tables' exhibits.
+`SpotLight 0xffe2b0` (i=16, dist 4, angle .85, penumbra .65) aimed at the
+host's own `topY` — the widened cone pools across each whole slab — and a
+small `PointLight 0xcfffb0` (i=.5) inside the dome for its own glass-glow.
+Scenery, not `PLACED` — no bbox, so nothing pollutes the drop scanner.
+
+**`pendWant` — the attached-light contract.** Recs carry `pendWant`
+(0/1): `emitTable` defaults it on (`spec.pendant !== false`); `emitAsset`
+takes `o.pendant`, else defaults on for table-like asset names
+(`/desk(?!lamp)|table|counter|bench|dresser|console/` — `lawdesk` qualifies,
+`desklamp` doesn't). `17_lamps.js` owns the lifecycle — `pendAttach` /
+`pendDetach` / `pendSet` — parenting the group to `p.g`, so **the lamp
+follows its host everywhere**: ⇧+LMB drags, lifts, deletes (delete and
+tombstone paths call `pendDetach`; the rec's `g` leaves the scene and so
+does the LAMPS entry). **P in place mode toggles the selected rec's
+pendant** — the light is configured while placing or moving, and persists
+through `dvm_place`/`dvm_extra` (`pend` field; copy/paste and del-undo
+inherit the want). Pendant fetch is async per host; lights exist
+immediately, the fixture mesh lands when `/voxel/commission_pendant`
+resolves. A scenery fixture also hangs over the main-room **rotator** —
+parented to `spinG` (`carG` is what spins; the lamp must not ride it),
+aim dropped to deck level so the touring turns inside a fixed museum
+pool like the tables' exhibits.
 
 **The switch — a double rocker.** A wide dark plate on the annex face of
 the interior wall at `(-3.04, .5, -1.6)`, just north of the door jamb —

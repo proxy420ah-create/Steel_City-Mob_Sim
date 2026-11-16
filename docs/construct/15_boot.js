@@ -9,6 +9,7 @@ ready.then(async () => {
   JSON.parse(localStorage.getItem('dvm_del') || '[]').forEach(n => {               // tombstones first — a deleted host must not seat anything
     const p = PLACED.find(q => q.name === n && q.source !== 'extra' && !q._parked);  // parked scenery isn't tombstone-able by name
     if (p) { if (p._block) WALL_BLOCKS.splice(WALL_BLOCKS.indexOf(p._block), 1);
+      if (p.pend && typeof pendDetach === 'function') pendDetach(p);                // the tombstoned host's light dies with it
       scene.remove(p.g); PLACED.splice(PLACED.indexOf(p), 1); } });
   const over = JSON.parse(localStorage.getItem('dvm_place') || '{}');              // your saved layout overrides manifest positions —
   PLACED.forEach(p => { const o = over[p.name];                                   // but only at the same manifest rev: an authored move
@@ -16,12 +17,13 @@ ready.then(async () => {
     if (o.mount) { p.mount = o.mount; p.x = o.x; p.z = o.z; p.y0 = o.mount.y; p.rotY = o.rotY;   // wall mounts restore as mounts
       p.g.position.set(o.mount.x, o.mount.y, o.mount.z); padMountQ(p.g, o.mount.n); p.bbox = footB(p.lb, p.x, p.z, p.rotY);
       gripRestore(p, o.tilt); }                                                              // and the grip comes back on pickup
-    else { gripRestore(p, o.tilt); if (o.y !== undefined) p.y0 = o.y; placeApply(p, o.x, o.z, o.rotY); } });
+    else { gripRestore(p, o.tilt); if (o.y !== undefined) p.y0 = o.y; placeApply(p, o.x, o.z, o.rotY); }
+    if (o.pend !== undefined && typeof pendSet === 'function') pendSet(p, !!o.pend); });   // the attached light restores as saved
   TABLES.forEach(t => { if (t._savedLift) { tableLiftSet(t, t._savedLift); delete t._savedLift; } });   // lifts ride AFTER saved seats restore — riders bump from their own o.y; extras then seat on the lifted tops
   await Promise.all(TABLES.map(t => t._mountP));                                   // mini mounts are async — tops must be live before extras/fixpoint read them, or a roof seat caps down to felt on a slow stasset load
   const extras = JSON.parse(localStorage.getItem('dvm_extra') || '[]');            // extras emit LAST — they seat on the final layout, not manifest spots
   for (const e of extras) { const r = await emitAsset(e.name, { kind: e.kind, x: e.x, z: e.z, rotY: e.rotY, pickable: e.pickable, solids: e.solids,
-    source: 'extra', seatY: 'auto' });
+    pendant: e.pend, source: 'extra', seatY: 'auto' });
     if (r) gripRestore(r, e.tilt); }
   for (let pass = 0; pass < 4; pass++) {                                      // orphan-law re-seat to fixpoint: EVERY item re-derives height on the
     let changed = false;                                                      // final layout — saves carry no y0. Declared roles: surf items floor
