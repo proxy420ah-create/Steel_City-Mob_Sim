@@ -24,8 +24,9 @@ for (let i = 0; i < 60; i++) { try { const l = JSON.parse(await get(`http://127.
 for (let i = 0; i < 120; i++) { if (await evl('!!window.__place && !!window.__warmDone')) break; await sleep(500); }
 for (let i = 0; i < 80; i++) { const n = await evl('__construct.tables()[1].models.length'); if (n) break; await sleep(500); }
 const readCars = `JSON.stringify((() => { const tb = __construct.placed.find(p => p.name === 'table:block'),
-    cars = __construct.placed.filter(p => p._parked), V = new __THREE.Vector3();
-  return { vox: __construct.tables()[1].models[0].vox, model: __construct.tables()[1].models[0].name,
+    cars = __construct.placed.filter(p => p._parked), V = new __THREE.Vector3(),
+    core = __construct.tables()[1].models.find(m => !m.static) || {};   // models[] includes the static street ring — the swappable core is the model
+  return { vox: core.vox, model: core.name,
     cars: cars.map(c => { const w = c.g.getWorldPosition(V.set(0,0,0));
       return { x: +w.x.toFixed(4), z: +w.z.toFixed(4), y: +w.y.toFixed(4),
         roof: __construct.surfaceAt(c, w.x, w.z, 0) }; }) }; })())`;
@@ -46,8 +47,8 @@ console.log('SPINNER', await evl(`JSON.stringify((() => { const car = __construc
   return { gLocal: car.g.position.toArray().map(v => +v.toFixed(4)), gWorld: [w.x, w.y, w.z].map(v => +v.toFixed(4)),
     parentPos: car.g.parent.position.toArray(), recXZ: [car.x, car.z], lb: car.lb.map(v => +v.toFixed(4)),
     children: car.g.children.map(ch => ({ t: ch.type, px: +ch.position.x.toFixed(4), pz: +ch.position.z.toFixed(4), vis: ch.visible })) }; })())`));
-await evl('__construct.take("debug_pad"); __construct.place(-6.4,-0.775); __pad.tab("model")');
+await evl('__construct.take("debug_pad"); __construct.place(-4.1,-3.375); __pad.tab("model")');
 await sleep(300);
-await evl('__pad.press("next")'); await sleep(6000);                                   // swap → block_41_barber + car re-mount
+await evl('__pad.press("next")'); await sleep(6000);                                   // swap → block_41_barber core; ring + cars untouched
 console.log('MEASURE2', await evl(readCars));
 process.exit(0);

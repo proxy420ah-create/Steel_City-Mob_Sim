@@ -15,18 +15,18 @@
 | `roadWidth` | Serialized on `CityMap3D` (1.6 m). `SetRoadWidth` → `RebuildCity()`. UI slider already live: Map Editor → ROAD & CAMERA → 0.1–6 m. Sidewalks/tiles untouched — `spacing = groundTile + roadWidth`, blocks spread evenly. |
 | `RoadGraph` | Uniform intersection lattice, one larger than the block grid. Nodes at road centerlines (block corners). **Bidirectional links, no lanes, no directionality, no road class.** |
 | `RoadGraph` terrain gap | `GenerateFromLayout` never reads `terrain` or seams → **links exist across the open river channel today**. A car can path over water. Must be fixed before lane work. |
-| `VehicleAgent` | Endless random walk: `RandomNeighbor` (no immediate U-turn), `PlanAheadCount=6`. Lerps **node→node on the centerline**; snap turns at intersections; constant speed; no collision detection or occupancy. |
+| `VehicleAgent` | Endless random walk: `RandomNeighbor` (no immediate U-turn), `PlanAheadCount=6`. Lerps **node→node on the centerline**; snap turns at intersections; constant speed — `driveSpeed = 3.0f` m/s serialized on `VehicleTestSpawner`; yaw = `Quaternion.LookRotation(dir)` with **no axis offset → the touring's authored front is +z**; no collision detection or occupancy. |
 | `VehicleTestSpawner` | Spawns N `VoxelVehicle` parked at the intersection nearest the HQ block; **F10** toggles driving; registers a `PathDebugType.Car` beam with `PathDebugRenderer`. F9 is reserved (StressTestDiagnostics). |
 | Main street terrain | `mainstreet` blocks = full 11.6 m asphalt interiors, trolley track pairs (cobble) at **±0.35 m of block centerline**, axis from `mainst` neighbor mask (NS/EW). |
 | Bridge terrain | `bridge` blocks = deck at grade across the channel, promenade edges. Drivable surface = the block interior, like mainstreet. |
 
-## Geometry foundation — road width ✅ LOCKED 3.0 m (2026-10-07)
+## Geometry foundation — road width ✅ 4.5 m serialized (verified vs source 2026-11-13)
 
-`CityMap3D.roadWidth` is now `private const float = 3.0f` — confirmed on-screen. Two 1.4 m lanes around the 1.0 m car; main street needs no help (whole 11.6 m interior drivable).
+`CityMap3D.roadWidth` is `[SerializeField][Min(0.5f)] private float roadWidth = 4.5f` — read it off the field, not this doc. Two ~2.25 m lanes around the ~0.7 m touring; main street needs no help (whole 11.6 m interior drivable). (An earlier revision of this section pinned 3.0 m — superseded.)
 
-**Free divider**: the existing cobble center stripe (±1 voxel ≈ 0.1 m, dead-center of every corridor) sits exactly between the two opposing lanes at ±0.75 m offsets — it doubles as the painted center line for dual traffic. Lane-offset agents hug either side of it; no new geometry needed.
+**Free divider**: each tile paints a cobble stripe at its half-road's center (the quarter position, ±`roadWidth`/4 off the street centerline) — the pair across a seam reads as the dual-traffic divider and each stripe IS its lane's center line. Lane-offset agents hug it; no new geometry needed.
 
-Side effects of 1.6→3.0: spacing 13.2→14.6 m (~+10 % footprint), terrain voxels up per chunk, river geometry unchanged (only riverside streets widen — correct).
+Side effects of 1.6→4.5: spacing 13.2→16.1 m (`groundTile 11.6 + roadWidth`), terrain voxels up per chunk, river geometry unchanged (only riverside streets widen — correct).
 
 ## Lane model
 
@@ -75,7 +75,7 @@ GenerateFromLayout(layout, spacing,
 Ordered by what's needed for the 2-car test vs. the full system:
 
 **Phase A — needed for the F10 two-car test:**
-- **Lane offset**: agents drive `lerp(from,to,t) + right·laneOffset` (±`roadWidth`/4 = 0.75 m, right-hand side per direction) — IMPLEMENTED in `VehicleAgent` + `PathDebugRenderer.lateralOffset` (beam sits on the lane). Opposing directions offset to opposite sides automatically. Full *directed* links deferred — bidirectional links suffice for the slot-car phase (each agent picks its own right side regardless of which way it was routed).
+- **Lane offset**: agents drive `lerp(from,to,t) + right·laneOffset` (±`roadWidth`/4 = 1.125 m, right-hand side per direction) — IMPLEMENTED in `VehicleAgent` + `PathDebugRenderer.lateralOffset` (beam sits on the lane). Opposing directions offset to opposite sides automatically. Full *directed* links deferred — bidirectional links suffice for the slot-car phase (each agent picks its own right side regardless of which way it was routed).
 - **Intersection reservation**: nodes get a single-occupant reservation (timestamp + holder). An agent claims the next node before entering; on conflict, first-come wins, loser waits at the stop line. Prevents intersection collisions without full traffic rules.
 - **Car following**: raycast/sphere-check along the lane for a vehicle within `gap ≈ 1.2 m`; hold speed of the leader or stop. Prevents same-lane rear-ending.
 
@@ -107,11 +107,15 @@ Parking is **derived geometry**, not authored data. Every directed `RoadLink` (A
 
 ```
 keep-clear  ≈ 2.0 m from each intersection end   (nobody parks on the corner)
-usable      = linkLength − 2 × keep-clear        // ≈ 10.6 m @ 14.6 m spacing
-slot pitch  = carLength (1.5 m) + gap (0.5 m) = 2.0 m   // ~5 slots/corridor/side
-parkOffset  = roadWidth/2 − carWidth/2 ≈ 1.0 m   // right of the driving lane (0.75 m),
+usable      = linkLength − 2 × keep-clear        // ≈ 12.1 m @ 16.1 m spacing
+slot pitch  = carLength (1.5 m) + gap (0.5 m) = 2.0 m   // ~6 slots/corridor/side
+parkOffset  = roadWidth/2 − carWidth/2 ≈ 1.9 m   // right of the driving lane (1.125 m),
                                                   // hard against the curb — slight curb
                                                   // overlap acceptable at this stage
+parked pos  = station + side·(parkOffset + extraParkOffset)
+extraParkOffset = 0.25 m serialized default (slider 0–1.5, live-adjustable while
+              parked — `ParkingMap.SetExtraOffset` re-snaps occupants) — cars sit
+              ~.25 m PAST the curb face, wheels overhanging the sidewalk edge
 ```
 
 - `ParkingSpace { pos, heading, linkId, t, occupied, occupant }` — pos in lane space = point along link + `Cross(up, dir) × parkOffset`; heading = link direction (right-side parking only — parallel park on the driver's curb).
@@ -138,14 +142,14 @@ parkOffset  = roadWidth/2 − carWidth/2 ≈ 1.0 m   // right of the driving lan
 ## Open questions
 
 - **Overtaking** on 2-lane streets: disallow for now (one lane per direction, no oncoming-lane passing in city driving).
-- **Parking**: ~~defer~~ — computed-slot model spec'd above; parkOffset ≈ 1.0 m puts the car against/at the curb. If on-screen it crowds the sidewalk, options: widen `roadWidth` (spacing const — global) or treat curb overlap as era flavor.
+- **Parking**: ~~defer~~ — computed-slot model spec'd above; `parkOffset + extraParkOffset` ≈ 2.15 m puts the car's curb-side wheels .25 m *over* the curb face — confirmed intended, it's the serialized default (the "against/at the curb" guess here was pre-source-audit).
 - **Do river test bridges support 4-lane?** No — deck stays 2-lane; the replica's 4 `bridge` cells are the same recipe.
 - **Emergency/wrong-way driving**: out of scope for the test; the reservation system makes it survivable if ever needed.
 
 ## Implementation order
 
 ```
-0. Road width → 3.0 m                                           ✅ DONE (const, confirmed on-screen)
+0. Road width → 4.5 m                                           ✅ DONE (serialized default, verified 2026-11-13)
 1. RoadGraph terrain conditioning (links only over drivable seams)   ✅ DONE — see ROADGRAPH_IGNORES_TERRAIN.md
 2. Directed links + laneOffset at agent                              ✅ DONE (lane offset variant — see below)
 3. Intersection reservation + car following                          ← no crashes

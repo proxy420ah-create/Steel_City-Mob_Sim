@@ -7,25 +7,27 @@ multiple drafting tables are list entries, not new code.
 ## The table
 
 ```js
-{ id: 'primary', x: -4.6, z: -2.5, size: 1.2, top: .26, scale: 1 / 64, mv: 1,  // front-of-centre on the door axis
+{ id: 'primary', x: -4.1, z: -1.1, size: 1.2, top: .26, scale: 1 / 64, mv: 2,  // south flank of the door approach
   models: [{ name: 'tenement_block_0', fill: .75 }],      // mounted exhibit — one model at a time
   catalog: [{ name: 'tenement_block_0', fill: .75 },      // the swappable universe — the pad cycles it
             { name: 'barber_shop', fill: .75 }] },
-{ id: 'block', x: -6.4, z: -1.3, size: 1.2, top: .26, scale: 1 / 64, mv: 2,   // the Block Table — rear-left, .6m gap
+{ id: 'block', x: -4.1, z: -3.9, size: 1.2, top: .26, scale: 1 / 64, mv: 3,   // the Block Table — north flank of the approach
   models: [{ name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' } }],
   catalog: [{ name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' } },
             { name: 'block_41_barber',  fill: .75, slots: { 2: 'barber_shop' } }] },
-{ id: 'studio', x: -6.4, z: -3.7, size: 1.2, top: .26, scale: 1 / 64, mv: 1,  // rear-right — the zone tier (Battlefield 3×3)
-  models: [{ name: 'tenement_block_0', fill: .75 }],      // opens identical to the primary — role TBD
-  catalog: [singles + block specs] }                       // the union catalog — hosts either presentation
+{ id: 'studio', x: -6.5, z: -2.5, size: 2.4, top: .26, scale: 1 / 64, mv: 2,  // dead-centre — the ZONE tier centerpiece, 2× the others
+  models: [{ name: 'battlefield', fill: .75, zone: {...} }],                 // the Battlefield 3×3
+  catalog: [zone + singles + block specs] }                                  // the union catalog — hosts either presentation
 ```
 
-The **annex grew to fit the fan**: x[-8,-3] × z[-6,1] — +1m west (the rear
-tables no longer clip the wall) and +1m each z side, symmetric so the door
-axis stays the room's centreline. At that reach the annex spans the main
-room's full z extent, so the two "west edge above/below the annex" wall
-segments are absorbed — the shared wall is now only the two door stubs.
-The rear pair sit flanking the axis with a 1.2 m slot between them.
+The **annex grew to fit the centerpiece**: x[-10,-3] × z[-6,1] — +2m west so
+the **2.4m zone table** can sit dead-centre `(-6.5,-2.5)` with ~2.3m of
+inspection aisle on every side. The two 1.2m tables flank the door approach
+at x=-4.1 (primary south at z=-1.1, block north at z=-3.9) — a 1.3m channel
+on the door axis between them, so you enter *between* the satellites facing
+the big table dead ahead. The zone's `fill:.75` exhibit now spans 1.8m — the
+966-cell composite draws at ≈**1:27** (was ~1:54) — proper architectural
+model scale; same voxel count, only the cell size doubled.
 
 - `emitTable(spec)` builds it in the Construct's own language: dark furniture slab
   (`0x14161c`, same stock as consoles/kiosk) on four **piston legs** — a fixed
@@ -71,7 +73,8 @@ game file is the single source, edits to the building show up on reload).
   table share the table's `scale`**, buildings stay comparable. A model may instead
   declare **`fill`**: `vs = fill × table.size / max(W,D)` — the model's long edge spans
   exactly `fill` of the tabletop with a uniform margin (tenement `fill:.75` → .9m on
-  the 1.2m table, .15m margin all sides, ~1:21). For a single-model easel `fill` is the
+  the 1.2m table, .15m margin all sides, ~1:21; the 2.4m studio table doubles it —
+  zone `.75` → 1.8m ≈1:27). For a single-model easel `fill` is the
   honest contract — every model presents at its best size regardless of native dims.
 - **Unity truth — X-mirror**: `.stasset` grids are authored under the left-handed
   Unity render (`VoxelBuildingMeshifier` maps grid→world unmirrored; the editor's
@@ -100,25 +103,44 @@ was on the easel.
 
 ## Block composites — a whole city block on the table
 
-The **Block Table** (`id:'block'`, rear-left of the primary — the slabs stand
-in a fan: primary front-centre, block and studio flanking behind with a
-walkable .6 m gap between the rows) mounts
+The **Block Table** (`id:'block'`, north flank of the door approach — the
+slabs stand in a satellite arrangement: studio/zone dead-centre at 2.4m,
+primary + block flanking the door channel at 1.2m) mounts
 **block specs** — catalog entries that carry `slots: {i: asset}` instead
-of a lone `name`. `emitBlock` builds them: the spec's nine lots are a 3×3 grid
-of 64-voxel tiles (`slot i → (i%3, i/3)` — the same `c = i % cols, r = i / cols`
-law `CityMap3D` uses), stamped into ONE composite grid that mounts as an
-ordinary mini. Spin/slice/tops/lift/persistence need nothing new.
+of a lone `name`. On a `ring` table (the block table), the exhibit is TWO
+minis: **`emitRing`** paints the street diorama once — the BLKF ground
+(roads, curbs, sidewalks, the empty interior pad) with no lots — and
+**`emitCore`** stamps only the model's 3×3 lots into the 192-cell interior
+that seats inside the ring (same center; `_vs` pins the ring's voxel size
+so cells align 1:1). `mn.static` keeps the ring out of `mountModel`'s
+unmount sweep — **swaps replace only the core; roads and parked cars are
+table props, never re-emitted.** The ring carries `_road = {}` so every
+curb/lane/slot law runs the deterministic band constants — no per-model
+road scan, no model-dependent parking variance. (`emitBlock` — the
+single-composite path — survives for ring-less hosts: the studio catalog
+can still mount a block composite with its own streets.)
 
-**The composite IS a game terrain chunk** — `emitBlock` ports
+**The composite IS a game terrain chunk** — `emitBlock`/`emitRing` ports
 `VoxelTerrainBuilder.GeneratePerBlockTerrain` 1:1 at voxel truth, so the
 miniature carries its streets, not just its buildings:
 
-- **322×322 grid** = 192 interior + a **65 v margin per side**: 45 v road-half
-  + 20 v sidewalk ring — each block owns half its surrounding roads (the
-  game's shared-half law; two adjacent chunks' cobble stripes read as the
-  dual lane lines at the road's quarter points).
-- **Road-half ring**: asphalt (104) with a 1 v cobblestone (105) stripe
-  centered in each half — horizontal bands painted first, vertical strips own
+- **The seam law: each tile owns HALF its surrounding roads** (45 v band +
+  20 v sidewalk = 65 v margin → tile 322). Two adjacent chunks' stripes read
+  as the dual lane lines at the road's quarter points — that's how Unity's
+  streets get TWO lines and why `emitZone`'s interior seams already look right.
+- **…but a lone block exhibit has no neighbor — `emitBlock` paints the far
+  half itself** (`BLKF`: band 90 v, margin 110 v → **412×412**): far half +
+  seam + our half + far curb at the rim (no far sidewalk — that's the
+  neighbor's). `fillBlockGround`'s `B` param carries the constants; stripes
+  are `z===22 || z===ROAD−23` — each half-center. `emitZone` keeps strict seam
+  law (perimeter = the city cut). `mn._blkM` records the margin so
+  `roadProf`/`blockTrf`/`mountParked` read either geometry; `roadProf` scans
+  INWARD from the rim for the first raised run (the far half is flat — an
+  outward scan would never reach the curb). On the ring table the scan is
+  dormant — `_road = {}` is pinned and every consumer runs the band law; it
+  still serves a lone `emitBlock` composite on a ring-less host.
+- **Road band**: asphalt (104) with 1 v cobblestone (105) stripes at each
+  half's center — horizontal bands painted first, vertical strips own
   the corners, the builder's own order. `m.seams {n,e,s,w}` overrides an edge
   to `'mainstreet'` (plain asphalt boulevard, no stripe).
 - **Ground tile**: sidewalk ring (102) + stone plot (101), flat material
@@ -145,22 +167,28 @@ miniature carries its streets, not just its buildings:
 - **`parked` — the street scene is the TABLE's, not the model's.** Roads,
   sidewalks and parked cars are the block table's street furniture — swapping
   the lots (tenement ↔ barber) must not change the streets. So `parked` lives
-  on the table spec (`t.spec.parked`) and applies to *every* block composite
-  mounted there; a model spec can still add its own `m.parked` on top (the
-  lists union). Each `{edge,along,name?}` mounts `vehicle_490_touring` (the
+  on the table spec (`t.spec.parked`) and mounts **on the static ring once,
+  forever** — a swap can't remount, orphan, or re-seat them; the cruise even
+  laps through mid-cruise swaps (cars never leave `loop`). Each `{edge,along,name?}` mounts `vehicle_490_touring` (the
   game's touring car) as a **full-fidelity overlay** — `emitAsset` at
   `vs × voxelSize/BLDG_VS`, so every authored 1 cm voxel renders, just drawn
   at the composite's scale — never downsampled into the grid. Position law
   (`ParkingMap.Build` in composite cells): `parkOffset = roadWidth/2 − carW/2`
-  off the lane center + the curb-push extra lands the car center
-  `50v − carW/2` off the block boundary — flush to the lot line in these
-  composites (the road recipe is flat to the property edge; `roadProf` scans
+  off the lane center **plus the curb push — Unity's `extraParkOffset = 0.25f`**
+  (`PARK_PUSH`, 5 cells — `s.pos = station + side·(parkOffset + extraOffset)`)
+  lands the car center `50v − carW/2 + 5v` off the block boundary: curb-side
+  wheels **overhang the curb face onto the sidewalk edge**, the game's parked
+  stance — dead-flush reads as mid-lane (the road recipe is flat to the
+  property edge; `roadProf` scans
   each edge's property-line strip out of `localCols` tops and would park
   against a real curb's lane-side edge — an empty scan keeps the bare-band
   law). The real footprint comes from the vehicle manifest (`dims ×
   voxelSize / BLDG_VS`), so any named vehicle parks by its own size. Cars face
-  the legal heading (right side of travel, cell space — `fx` mirrors x so the
-  overlay's rotY mirrors with it) and clamp inside the `KeepClear` 40v
+  the **rendered-RHT heading** — `PARK_EDGE`/`blockTrf`'s law is authored as
+  the mirror-inverse of the raw cell legal set (the `fx` x-mirror flips
+  chirality: a mirrored right-hand law renders left-handed — the cell-space
+  headings are what *looks* legal on screen, not what reads legal in data) —
+  and clamp inside the `KeepClear` 40v
   no-park margin off the corner intersections. The seat is `2·vs + 1.5·vvs` —
   plate top plus **a car-voxel and a half**: flush reads as *sunk* (the road
   silhouette clips the lowest wheel row), and even half a voxel still merges —
@@ -182,17 +210,64 @@ miniature carries its streets, not just its buildings:
 - **`CARS` (MODEL page) — the curbside cruise.** `blockTrf` laps the table's
   parked cars around the block: pull out of the slot, circulate the
   right-of-travel lanes, pull back in and restore the exact `_slot` pose.
-  The circuit is the MEASURED street — `roadProf`'s per-edge lane centers
-  (`strip road-edge + carW + gap`, or band − 18 when no curb is stamped) plus
+  The circuit is the MEASURED street — `roadProf`'s per-edge band then the
+  lane at **half-road center** (`roadWidth/4` ≈ 22.5 v off the street
+  centerline — each tile paints its half's cobble stripe there, so the stripe
+  IS the lane line; fallback band − 18 when no curb is stamped) plus
   quarter-arc corners; the game's road files carry no lane or direction data,
-  so the lanes are the part we derive from the composite's own tops. Each car
-  keeps a `hook` (merge point ↔ slot) for the pull-out/pull-in; a gap clamp
-  holds .08 m spacing between cars on the loop. Cars stay miniG-parented —
+  so the lanes are the part we derive — on the ring table, off the band
+  constants (the ring's `_road = {}` → `margin − SIDE − HALF` lands on the
+  painted stripe); a lone composite scans its own tops via `roadProf`. Cruise
+  direction is **rendered right-hand traffic** — cell space circulates s→e→n→w
+  counterclockwise with `sgn:−1` arcs so the `fx` mirror draws it clockwise
+  with right turns (the naive RHT cell law rendered left-handed: cars faced
+  east/south on their curbs — the mirror flips the *chirality* of the rule,
+  not just its directions). Cruise
+  speed is the real `VehicleTestSpawner.driveSpeed` = **3.0 m/s** (60 cells/s,
+  scale-independent). Heading law: the touring's authored front is **+z**
+  (Unity `VehicleAgent` drives `Quaternion.LookRotation(dir)` with no axis
+  offset) — `rotY = atan2(worldHx, worldHz)`; the old −z law ran every car
+  tail-first, parked and cruising alike.
+  **The maneuvers are Unity's diagonal law** (`RequestDepart`/`TrySpliceParking`,
+  `lead = 1.2 m`): depart lerps slot → `lanePos + dir·lead` (a ~1.4 m diagonal
+  AHEAD of the slot); park splices at `lanePos − dir·lead` then diagonals into
+  the curb. Yaw chases the current leg's own direction at `Slerp ~6/s` — the
+  car visibly angles out/in, then `snap` squares it to the slot heading (same
+  as `FinishPark`). Maneuvers run at drive speed (`vc`, not a creep), and
+  **every car departs on the same tick — no stagger** (one keypress, same as
+  F10). The old hook (merge a car-length BEHIND the slot, slot heading held,
+  1.6 s serial delays) read as a slow sideways crab-walk. A gap clamp
+  holds .08 m spacing between cars on the loop.
+  **Parking is Unity's park-anywhere law** (`ParkingMap`/`NearestFreeAhead`,
+  not a return-to-origin): `slotInv` builds a fixed slot lattice per edge
+  curb — `carLength + .5` pitch (≈ 2.0 m) inside the keep-clear margins, curb
+  position off the same `curbC` law the mounts use — measured strip edge
+  when the model carries a raised sidewalk, else the band's inner boundary
+  (flat-ground composites like `block_41_barber` emit no raised cells for
+  `roadProf` to find — `st` missing is a model property, not an error, and
+  the lattice still exists). Toggling CARS
+  off doesn't send cars home — each cruising car CLAIMS the free lattice
+  slot whose pull-in approach is nearest ahead on its path (`claim` —
+  forward wrap distance; a claimed-by flag serializes same-tick picks, and
+  `held` counts physically-occupied slots: a mid pull-in rec holds its
+  destination, a departed slot is already free). On arrival the car splices
+  the diagonal into that slot and `snap` ADOPTS it — `_slot`/`_slotC` are
+  rewritten to the claimed pose, so a later re-arm departs from wherever it
+  actually parked, and scenery slots are just lattice members that happen
+  to be occupied. An all-full curb keeps the car cruising (it keeps seeking,
+  same as Unity); an empty/failed lattice falls back to the car's own origin
+  slot so a looping car ALWAYS has a legal target. **The CARS press is
+  global** — `toggle` finds whichever table's current mini actually parents
+  `_parked` recs and ignores the caller's table guess (`padTable()` nearest
+  can resolve a car-less table while you stand between them; a wrong-table
+  call used to rebuild the circuit on the wrong model and orphan the cars to
+  `gone`). Cars stay miniG-parented —
   spin/lift/swap ride free; a swapped model drops stale recs to `gone`.
   Toggling off mid-lap doesn't freeze cars — they finish the lap and park on
-  arrival. Probe: `__cars.toggle(i,on)`, `.state()` (per-car `{st,s,x,z,ry}`),
-  `.seek()` (jump a loop car to just before its merge — repark on the next
-  tick), `.lanes()`.
+  arrival. Probe: `__cars.toggle(i,on)`, `.state()` (per-car `{st,s,x,z,ry,tgt}` —
+  `tgt` is the claimed slot `edge@along` while seeking),
+  `.seek()` (jump a loop car to just before its claimed pull-in splice — park
+  on the next tick), `.lanes()`, `.inv()` (the lattice).
 - **Miniature voxels never raycast — but aim lands on their proxies.** Every
   mini `InstancedMesh` is flagged `userData.miniVox` — a mounted tenement is
   426K instances and three.js matrix-tests *each* one per ray, so the un-pruned
@@ -257,7 +332,7 @@ instead of `slots`/`name`; `mountModel` dispatches to `emitZone`.
 `emitPad()` builds `debug_pad` as a procedural `PLACED` rec (no voxel asset — the
 law is rec-driven): a `.18×.012×.12` slab, `EdgesGeometry` trim in `padEdgeMat`
 (hue-rides via `boundHue`), and a `CanvasTexture` screen on the +y face. It
-spawns on the Primary Table's north felt margin (`-4.6, -1.975`, `source:
+spawns on the Primary Table's felt margin (`-4.1, -.575`, `source:
 'manifest'` → position persists through `dvm_place` like any manifest item),
 `pickable` — E-takes, E-places, and all held-item rotation keys work on it.
 
@@ -310,7 +385,11 @@ padPage` — a page switch costs a `padDraw` and nothing else. New tools are a
   stop, press another to change. `RESET` (`miniRotReset`) homes it: spin 0,
   `rotation.y` 0, exact tops. The render loop integrates `rotation.y` and
   re-projects tops every ~.02 rad (centre columns hold through the spin); an
-  exact `miniSyncTops` runs on stop/reset.
+  exact `miniSyncTops` runs on stop/reset, then **`miniSettle` re-seats every
+  rider above the slab** — mid-spin drops seat on lagged tops, so on stop
+  anything inside the footprint re-derives under the true map (embedded items
+  pop out, floaters drop). The same settle runs after every slice op and at
+  mount completion.
 - **SLICE — the editor's xyz window, same contract.** `mn.slice` holds per-axis
   index ranges; `miniSyncSlice` writes `uVoxClipMin/Max` into the model's
   cloned materials (the editor's own shader patch — instance origins vs a
@@ -319,6 +398,12 @@ padPage` — a page switch costs a `padDraw` and nothing else. New tools are a
   Slicing is truth, not just draw: `miniSyncTops` re-derives each column's top
   as the tallest voxel inside the window (per-column `ys` lists captured at
   emit) — cut the roof off and measured seating drops to the exposed slab.
+  **`spec.noSlice` tables (`block`, `studio`) are locked:** the page shows
+  "LOCKED — STREET MODEL", its regions hide from draw + hit-test, and
+  `miniSliceStep`/`miniSliceReset`/`padAxisSet` guard on the flag — street
+  composites keep whole roads because `roadProf`'s measured lanes are a
+  whole-model law (a mid-session cut would orphan the cars' park/cruise
+  geometry with nothing re-deriving it).
 - **MODEL — the swap page.** `◀ MODEL ▶` cycles `catalog` (`padSwap` —
   persists `dvm_model:<id>`); `CARS` toggles `blockTrf` for tables whose
   mounted model carries a street scene (the block composites — parked recs

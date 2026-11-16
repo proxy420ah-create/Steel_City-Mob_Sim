@@ -1,8 +1,43 @@
 # CONSTRUCT — Probe & Shot Contract
 
-The headless-Chrome toolchain (`_place_probe.mjs`, `_shot.mjs`, `_fol_probe.mjs`) drives
-`construct.html` over CDP. Every rule below was paid for with a real debugging session —
+The headless-Chrome toolchain (`_place_probe.mjs`, `_shot.mjs`, `_fol_probe.mjs`,
+`_car_measure.mjs`, `_noslice_verify.mjs`, `_cars_verify.mjs`) drives `construct.html`
+over CDP. Every
+rule below was paid for with a real debugging session —
 they are contract traps, not code bugs, and they bite again the moment they're forgotten.
+
+- `_cars_verify.mjs` — the vehicle-facing regression: parked noses on each edge's
+  right-of-travel direction; departures together on an angled pull-out diagonal
+  (yaw swings ~0.7 rad off the lane heading, duration = len/v at drive speed);
+  cruise `dist/time` ≈ 3.0 m/s real (`driveSpeed`); nose on the path tangent;
+  park-anywhere claims (`tgt = edge@along` per car, distinct, lattice-member);
+  angled pull-in splice into the CLAIMED slot (`lenA`-paced); adoption
+  (`_slotC`/`_slot` rewritten to the claim, `inv` membership, no overlap);
+  re-depart from the adopted slot. Angle assertions
+  use wrapped angular distance — `−π` and `+π` are the same yaw. Chord-vs-heading
+  velocity checks only run when both samples share one straight leg (a corner
+  arc's chord is ~45° off its tangent by construction).
+- `_ring_verify.mjs` — the static-ring architecture: two minis on the block
+  table (`street_ring` static + 192-cell core), cars ring-parented and
+  surviving swaps, cruise continuing through a mid-cruise swap (never `gone`),
+  lattice claims + parking on both cores, ring uuid stable.
+- `_park_barber.mjs` — the flat-model parking repro: mounts `block_41_barber`
+  (no raised strips → `roadProf` legitimately `{}`), walks the real pad path
+  (hold pad at block → press CARS ×2), asserts `inv>0`, lattice claims, and
+  both cars `slot` afterward. Catches the "empty lattice → lap to origin"
+  regression.
+- `_roadprof_scan.mjs` — per-model road/lattice sanity dump: `roadProf` edge
+  hits + `slotInv` count for each block-catalog model (tenement finds strips,
+  barber returns `{}` → lattice must still build via the `curbC` band law).
+- `_noslice_verify.mjs` — the street-lock + settle regression: `noSlice` flags,
+  slice controls dead on `block` (fn guards + uv filter) and alive on `primary`,
+  `miniSettle` two-way (rider drops on cut, climbs on reset), and a seeded
+  `dvm_extra` → reload → seats on a parked car's ROOF (the `_mountP` await).
+
+> **File layout:** the page body is `docs/construct/01_shell.js` … `16_probe.js` —
+> classic `<script defer>` siblings sharing one page-wide scope, load order = old
+> top-down order (map in the `construct.html` comment). "Module state" below means
+> those top-level bindings; reload still kills them all.
 
 ## Shot flags — order of operations (`_shot.mjs`)
 
@@ -55,6 +90,36 @@ Live-light values (`spot.intensity`, `fill.intensity`) are rewritten by `aim()` 
 is pinned to a `d≥1` lane — or assert the law: `intensity ≈ cfg.i * scale(dist(camera))`.
 The same applies anywhere per-frame code owns a value a probe might read.
 
+## Coordinate law — derive positions; never bake room coordinates
+
+The failure mode that recurs every re-layout: asserts written against absolute
+`x,z` copied from the old floor plan go silently stale — `surfaceAt` returns 0
+on empty floor and the suite fails with `roof=0` twenty lines deep. Rules:
+
+- **Table-relative reads.** A point inside an exhibit is `spec.x + dx`,
+  `spec.z + dz` — write the offset, not the absolute. When the room re-lays,
+  the offsets still mean "the road strip" / "the roof center."
+- **Scale-aware internals.** Inside a composite, a world offset = cell offset ×
+  `size/cells`. Doubling a table doubles every internal offset AND every
+  height above the felt — assert heights relative (`roof > lane + .08`) or
+  against spec constants (felt `.26`), not `.5563`-style literals that only
+  exist at one scale.
+- **Layout-contract asserts are allowed literals** — but name them like one
+  (`studio centered in the annex at 2.4m`) so a deliberate re-layout knows the
+  failure is expected, and keep them few.
+- **Aim lanes must clear walls.** Annex-bound rays from the main room only
+  pass through the door channel (z∈[−3,−2]) or a free aisle — the x≈−3
+  interior wall and south stub intercept everything else. Verify the lane
+  against `WALL_BLOCKS` before writing the camera line.
+- **Sweep after every geometry change**:
+  `grep -nE -- "-[0-9]+\.[0-9]+" docs/_*.mjs` and reconcile EVERY literal —
+  they hide in `__cam` lanes, `walkOK` boxes, `surfaceAt` points, comments and
+  expected-value strings.
+- **Multi-coordinate rewrites ship as script files** — `_patch_<name>.py` with
+  a substitution table, run once, `node --check`, delete. `python - <<EOF`
+  heredocs truncate mid-script on this box (observed) and leave the probe half-
+  patched.
+
 ## Probe-hook API traps (learned the hard way)
 
 - `__pad.page()` **reads** the page; `__pad.tab(id)` **writes** it. `__pad.page('lamp')`
@@ -72,12 +137,20 @@ The same applies anywhere per-frame code owns a value a probe might read.
   both** — `__cam(...)` earlier in the suite keeps stomping the camera until
   `__cam(null)` releases it. Free-cam checks fail silently otherwise.
 - `__cars` drives the block table's curbside cruise: `toggle(ti, on)` on the TABLES
-  index (block = 1), `.state()` → per-car `{st, s, x, z, ry}` (`st` =
-  wait/leave/loop/park/slot), `.seek()` jumps a `loop` car to just before its merge
-  so repark fires within a tick — without it `toggle(false)` parks on the *next*
-  pass of the slot, up to a ~65 s lap. `.lanes()` reports the measured lane
-  centers. `x/z/ry` are miniG-LOCAL — compare reparked poses against a pre-drive
-  `g.position` capture, not world coords.
+  index (block = 1), `.state()` → per-car `{st, s, x, z, ry, tgt}` (`st` =
+  wait/leave/loop/park/slot; `tgt` = the claimed slot `edge@along` while seeking),
+  `.seek()` jumps a `loop` car to just before its merge so repark fires within a
+  tick — without it `toggle(false)` parks on the *next* pass of the slot, up to a
+  ~65 s lap. `.lanes()` reports the lane centers; `.inv()` lists the parking
+  lattice; `.diag()` returns `{on, len, inv, model, road, free, cars}` — the
+  one-line triage for "cars won't park" (`model` reads `street_ring` — the static
+  host mini — `road` lists which edges `roadProf` measured, `'none'` on the flat
+  ring is correct). `x/z/ry` are miniG-LOCAL — compare reparked poses against a
+  pre-drive `g.position` capture, not world coords.
+- `__construct.tables()[].models[]` lists EVERY mini on the table — on the block
+  table that's the static `street_ring` (emitted once, `static: true`) plus the
+  swappable 192-cell core. Read the mounted model as
+  `models.find(m => !m.static)`; `blockTrf.mn` is the ring (the street-law host).
 - Exclusion lists are law: `held`, `selfBody.CH`, followers' `CH`, `ghost`, `aimDot`, `marks`
   never participate in aim/torch rays — "can't aim at your own hand" (a held pad in your
   face would dim the LAMP page's own preview otherwise).
@@ -144,11 +217,14 @@ always a reload in flight or the zone emitting, not a hang: PASS lines resume wh
 the boot lands. Budget several minutes; treat "stopped waiting" as a reader timeout,
 not a probe result.
 
-**Run it to a file + a background watcher** (the same ear pattern the commission
-uses for seat relays): `node _place_probe.mjs > _probe_out.txt 2>&1`, then spawn a
-background subagent that polls the file every ~20 s for the `ALL PASS`/`FAILURES:`
-sentinel and reports the tail + counts. Blocking shell reads cap out well under the
-suite's runtime — the file is the record, the wake is the doorbell.
+**Run it through `docs/_run.mjs` — one call, one verdict.** `node _run.mjs
+_place_probe [--tail]` writes `_logs/<name>.log`, hard-caps at 15 min (kills the
+Chrome tree with it), and prints `VERDICT name: N pass / M FAIL` plus the failure
+names at exit. The log file is the record; nothing else needs polling. Workflow
+law: run once → triage the whole FAIL list → patch once → re-verify single asserts
+with a focused `_xxx_check.mjs` (CDP boot + one eval + the law, e.g.
+`_repark_check.mjs`) — full-suite re-runs are for pre-commit confidence, not for
+iterating on one assert.
 
 ## Heavy scenes — SwiftShader black frames
 

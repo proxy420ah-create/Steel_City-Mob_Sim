@@ -14,7 +14,8 @@ look. The one exception is the portal: a visible dark frame marking the opening.
 
 - **Main room** `x[-3,3] × z[-6,1]` — 6×7m. Rotator dead-centre `(0,-2.5)`,
   door+frame on the north edge `(0,.72)`, desk wall east, mannequin NW.
-- **West annex (board room)** `x[-7,-3] × z[-5,0]` — 4×5m, joined through a 1m
+- **West annex (board room)** `x[-10,-3] × z[-6,1]` — 7×7m (expanded 2m west for
+  the centered 2.4m zone table), joined through a 1m
   doorway in the shared edge `x=-3` at `z[-3,-2]` — centred on `z=-2.5`, dead on
   the rotator axis.
 
@@ -60,7 +61,7 @@ non-arch ends so seams wrap corners).
 - Both `step()` (player) and `followStep` (followers) move with **axis-slide**:
   try the full move, else each axis alone, else stay. Doors slide you through;
   walls stop you dead.
-- `flyStep` (place-mode camera) is clamped to `x[-7.5,3.4] z[-7.5,1.8]` — it may
+- `flyStep` (place-mode camera) is clamped to `x[-10.5,3.4] z[-7.5,1.8]` — it may
   pass through walls by design so the annex is fully inspectable.
 
 ## Expansion path (adding a room / doorway)
@@ -81,6 +82,6 @@ non-arch ends so seams wrap corners).
 - `walkOK(-3,-3.1)` / `(-3,-2.9)` / `(-3,-2.1)` are `false` — capsule edge
   respects the jamb margins (blocks end where the jamb faces stand).
 - `walkOK(-3,-2.8)` / `(-3,-2.2)` are `true` — you can hug the jamb through.
-- `boundsG.children.length === 36` — 10 slabs + 20 seam bands +
+- `boundsG.children.length === 30` — 8 slabs + 16 seam bands +
   6 portal meshes (4 posts, 2 lintels).
 - Followers obey the same `walkOK` — they can be led/`goto`'d through the door.

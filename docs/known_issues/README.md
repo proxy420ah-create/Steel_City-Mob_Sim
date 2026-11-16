@@ -75,3 +75,10 @@ Bug tracker per Development Guidelines Rule 13. Bugs are cataloged by category i
 | [Pad Wall-Mount Hijack at Annex Tables + Saved Seat Floored on Reload](runtime/CONSTRUCT_PAD_WALL_HIJACK_SEAT_FLOOR.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-11-15 |
 | [Boot Fixpoint Races Async Mini Mounts](runtime/CONSTRUCT_MOUNT_PROMISE_TOPS_RACE.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-11-16 |
 | [Name-Keyed Overrides Stamp Local Coords onto Shared Asset Names](runtime/PARKED_REC_NAME_OVERRIDE_DISPLACEMENT.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-11-15 |
+| [Parked Cars Dropped by World-Frame Re-Seat Sweeps](runtime/CONSTRUCT_PARKED_CAR_WORLD_SWEEP_DROP.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-11-16 |
+| [Mini Mounts Race Lift-Restore/Swap/Delete — Under-Table + Ghost Composite](runtime/CONSTRUCT_MINI_MOUNT_LIFECYCLE_RACES.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-11-16 |
+| [Construct Cars Tail-First — Authored Front Assumed −z, Really +z](runtime/CONSTRUCT_CARS_TAIL_FIRST.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-11-16 |
+| [Construct Block Table Showed Half-Streets — One Stripe Where Unity Shows Two](runtime/CONSTRUCT_BLOCK_HALF_ROAD.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-11-16 |
+| [Construct Park-Anywhere — Empty Lattice on Flat-Strip Models](runtime/CONSTRUCT_PARK_ANYWHERE_NO_LATTICE.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-11-16 |
+| [Construct Parked Cars Straddle the Curb on Tenement — Static Street Ring Fix](runtime/CONSTRUCT_TENEMENT_CURB_STRADDLE.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-11-16 |
+| [Construct Cars Drive/Park Left-Handed — the mirX Render Flips the Traffic Law's Chirality](runtime/CONSTRUCT_CARS_MIRRORED_TRAFFIC.md) | runtime | 🟢 FIXED | 🟡 HIGH | 2026-02-14 |

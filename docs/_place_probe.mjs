@@ -297,31 +297,31 @@ await evl('__cam(null); __pos.x = 0; __pos.z = 0');
 
 // 12.25 — aim ray surfaces: physical walls stop the dot; instanced minis hit via proxies (noAim helpers don't)
 await evl('window.dispatchEvent(new KeyboardEvent("keydown", { key: "f" }))');
-await evl('__cam(-4, .55, -4.6, -8, .55, -4.6)'); await sleep(350);                        // west along z=-4.6 — clear lane (minis own z -2.5/-3.7), annex wall face is x ≈ -7.93
+await evl('__cam(-4, .55, -4.6, -11, .55, -4.6)'); await sleep(350);                        // west along z=-4.6 — clear lane (minis own z -2.5/-3.7), annex wall face is x ≈ -9.93
 let aw = JSON.parse(await evl('JSON.stringify(__aim.world())'));
-check('aim stops at the west wall face', Math.abs(aw[0] + 7.93) < .15 && Math.abs(aw[2] + 4.6) < .05, 'aim=' + JSON.stringify(aw));
-await evl('__cam(-2.6, .55, -2.5, -4.6, .55, -2.5)'); await sleep(350);                    // east — tenement mini's proxy face
+check('aim stops at the west wall face', Math.abs(aw[0] + 9.93) < .15 && Math.abs(aw[2] + 4.6) < .05, 'aim=' + JSON.stringify(aw));
+await evl('__cam(-4.1, .55, -2.9, -4.1, .55, -1.1)'); await sleep(350);                    // north from the channel — primary mini's south proxy face
 aw = JSON.parse(await evl('JSON.stringify(__aim.world())'));
-check('aim lands on the miniature proxy face', Math.abs(aw[0] + 4.159) < .15 && Math.abs(aw[2] + 2.5) < .15, 'aim=' + JSON.stringify(aw));
+check('aim lands on the miniature proxy face', Math.abs(aw[0] + 4.1) < .15 && Math.abs(aw[2] + 1.55) < .15, 'aim=' + JSON.stringify(aw));
 await evl('window.dispatchEvent(new KeyboardEvent("keyup", { key: "f" }))'); await evl('__cam(null)');
 
 // 12.5 — west annex: doorway seam passable, wall stubs blocked, wire lifted into an arch
 check('walkOK centre of main room', await evl('__construct.walkOK(0, -2.5) === true'));
-check('walkOK inside the west annex', await evl('__construct.walkOK(-6.4, -2.5) === true && __construct.walkOK(-7.3, -2.5) === true'));
+check('walkOK inside the west annex', await evl('__construct.walkOK(-8.5, -2.5) === true && __construct.walkOK(-6.5, -5.0) === true'));
 check('walkOK at the door seam x=-3 z=-2.5', await evl('__construct.walkOK(-3, -2.5) === true'));
 check('walkOK door north half z=-2.2', await evl('__construct.walkOK(-3, -2.5) === true && __construct.walkOK(-3, -2.3) === true'));
 check('walkOK hugging the jamb face', await evl('__construct.walkOK(-3, -2.8) === true && __construct.walkOK(-3, -2.2) === true'));
 check('capsule held off the jamb', await evl('__construct.walkOK(-3, -2.9) === false && __construct.walkOK(-3, -2.1) === false'));
 check('wall stub south of door blocked', await evl('__construct.walkOK(-3, -4) === false'));
 check('wall stub north of door blocked', await evl('__construct.walkOK(-3, -1) === false'));
-check('annex floor edge blocked beyond wall', await evl('__construct.walkOK(-8.2, -2.5) === false'));
+check('annex floor edge blocked beyond wall', await evl('__construct.walkOK(-10.2, -2.5) === false && __construct.walkOK(-9.85, -2.5) === false'));
 check('door jamb margin — capsule edge held', await evl('__construct.walkOK(-3, -3.1) === false'));
 check('bounds = 8 slabs + 16 seams + 6 portal wires', await evl('__construct.bounds() === 30'), await evl('__construct.bounds()'));
 
 // 12.75 — drafting room: Primary Table centred in the annex, square + low, surf host, stasset miniatures
 { const tabs = await evl('__construct.tables()');
   check('primary table emitted', tabs.length === 3 && tabs[0].id === 'primary', JSON.stringify(tabs));
-  check('table front-of-centre on the door axis', tabs && tabs[0].x === -4.6 && tabs[0].z === -2.5);
+  check('table flanks the door approach — south side', tabs && tabs[0].x === -4.1 && tabs[0].z === -1.1);
   check('table square + low', tabs && tabs[0].size === 1.2 && tabs[0].top === .26);
   for (let i = 0; i < 40 && !(await evl('__construct.tables()[0].models.length === 1')); i++) await sleep(250);
   const tabs2 = await evl('__construct.tables()'), ten = tabs2[0].models.find(m => m.name === 'tenement_block_0');
@@ -330,16 +330,16 @@ check('bounds = 8 slabs + 16 seams + 6 portal wires', await evl('__construct.bou
   check('fill contract — .75 of the tabletop (1:10.67)', ten && ten.fill === .75 && Math.abs(ten.scale - .75 * 1.2 / 192 / .05) < 1e-6, JSON.stringify({ scale: ten && ten.scale, fill: ten && ten.fill }));
   const rec = await evl('(() => { const p = __construct.placed.find(p => p.name === "table:primary"); return p ? { surf: p.surf, x: p.x, z: p.z } : null; })()');
   check('table is a surf host', rec && rec.surf === true, JSON.stringify(rec));
-  check('table footprint blocks walk', await evl('__construct.walkOK(-4.6, -2.5) === false'));
-  check('walk ring around the table', await evl('__construct.walkOK(-3.7, -2.5) === true && __construct.walkOK(-4.6, -1.1) === true && __construct.walkOK(-4.6, -3.9) === true'));
-  check('the .6m gap between the tables is walkable', await evl('__construct.walkOK(-5.5, -2.5) === true && __construct.walkOK(-5.5, -2.0) === true && __construct.walkOK(-5.5, -3.0) === true'));
-  check('capsule held off the table edge', await evl('__construct.walkOK(-3.88, -2.5) === false && __construct.walkOK(-5.32, -2.5) === false'));
+  check('table footprint blocks walk', await evl('__construct.walkOK(-4.1, -1.1) === false'));
+  check('walk ring around the table', await evl('__construct.walkOK(-5.4, -1.1) === true && __construct.walkOK(-4.1, .3) === true && __construct.walkOK(-4.1, -2.0) === true'));
+  check('the 1.3m channel between the flank tables is walkable', await evl('__construct.walkOK(-4.1, -2.5) === true && __construct.walkOK(-4.1, -2.2) === true && __construct.walkOK(-4.1, -2.8) === true'));
+  check('capsule held off the table edge', await evl('__construct.walkOK(-4.85, -1.1) === false && __construct.walkOK(-5.15, -2.5) === false'));
   const sat = (x, z) => `__construct.surfaceAt(__construct.placed.find(p => p.name === "table:primary"), ${x}, ${z}, 0)`;
-  const roof = await evl(sat(-4.6, -2.5));
+  const roof = await evl(sat(-4.1, -1.1));
   check('measured top over tenement core = .7475', Math.abs(roof - .7475) < .008, 'roof=' + roof);
-  const yard = await evl(sat(-4.6, -2.0818));
+  const yard = await evl(sat(-4.1, -0.6818));
   check('open rear yard reads the felt .26', Math.abs(yard - .26) < .005, 'yard=' + yard);
-  const front = await evl(sat(-4.6, -2.5 + (14 - 96) * .0046875));
+  const front = await evl(sat(-4.1, -1.1 + (14 - 96) * .0046875));
   check('front parapet reads above felt, below core', front > .5 && front < .7, 'front=' + front); }
 
 // 12.9 — the catalog swap rides the pad's MODEL page (the wall panel prototype is retired)
@@ -352,18 +352,18 @@ check('bounds = 8 slabs + 16 seams + 6 portal wires', await evl('__construct.bou
   const bar = (await evl('__construct.tables()'))[0].models[0];
   check('swap still single-model — easel law', bar && (await evl('__construct.tables()'))[0].models.length === 1);
   check('barber mounted at its own fill', bar && bar.name === 'barber_shop' && bar.fill === .75 && bar.dims.join('x') === '64x36x64', JSON.stringify(bar));
-  await evl('__cam(-4.5, .6, -3.75, -4.6, .42, -2.4)'); await sleep(500);          // mid-swap visual — barber sign face on the easel
+  await evl('__cam(-3.6, .6, -2.3, -4.1, .42, -1.1)'); await sleep(500);          // mid-swap visual — barber sign face on the easel
   fs.writeFileSync(path.join(HERE, 'probe_barber_on_table.png'), Buffer.from((await cdp('Page.captureScreenshot', { format: 'png' })).result.data, 'base64'));
   check('swap persisted', await evl('localStorage.getItem("dvm_model:primary") === "barber_shop"'));
   await evl('__pad.press("prev")');                                               // ◀ — back to tenement
   for (let i = 0; i < 40 && !(await evl('__construct.tables()[0].models[0] && __construct.tables()[0].models[0].name === "tenement_block_0"')); i++) await sleep(250);
-  const roof2 = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:primary"), -4.6, -2.5, 0)');
+  const roof2 = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:primary"), -4.1, -1.1, 0)');
   check('unmount restored the measured tops — core reads .7475 again', Math.abs(roof2 - .7475) < .008, 'roof2=' + roof2);
   await evl('localStorage.removeItem("dvm_model:primary")'); }
 
 // 12.95 — debug pad: pickable touchscreen slab on the table margin; aim-press + region hit-test
 { const pr = JSON.parse(await evl('JSON.stringify((() => { const p = __pad.rec(); return p ? { isPad: p.isPad, pickable: p.pickable, x: p.x, z: p.z, y0: p.y0, source: p.source } : null; })())'));
-  check('debug pad emitted pickable on the table margin', pr && pr.isPad === true && pr.pickable === true && Math.abs(pr.x - -4.6) < .01 && Math.abs(pr.z - -1.975) < .01 && Math.abs(pr.y0 - .26) < .01, JSON.stringify(pr));
+  check('debug pad emitted pickable on the table margin', pr && pr.isPad === true && pr.pickable === true && Math.abs(pr.x - -4.1) < .01 && Math.abs(pr.z - -.575) < .01 && Math.abs(pr.y0 - .26) < .01, JSON.stringify(pr));
   check('pad is a manifest rec — position persists by name', pr && pr.source === 'manifest');
   check('uv hit-test maps regions', await evl('__pad.hit({x:.06,y:.85}) === "tab:model" && __pad.hit({x:.15,y:.45}) === "prev" && __pad.hit({x:.85,y:.45}) === "next"'),
         await evl('JSON.stringify([__pad.hit({x:.06,y:.85}), __pad.hit({x:.15,y:.45}), __pad.hit({x:.85,y:.45})])'));
@@ -397,9 +397,9 @@ check('bounds = 8 slabs + 16 seams + 6 portal wires', await evl('__construct.bou
   await evl('__pad.focus(true)');
   await evl('document.dispatchEvent(new MouseEvent("mousedown", { button: 2, bubbles: true })); document.dispatchEvent(new MouseEvent("mouseup", { button: 2, bubbles: true }))');
   check('RMB tap releases cursor mode to mouse look', await evl('__pad.isFocus() === false'));
-  await evl('__construct.place(-4.6, -1.975)');
+  await evl('__construct.place(-4.1, -.575)');
   check('pad re-homes after the cursor-mode checks', await evl('__pad.table() === "primary"'), await evl('__pad.table()'));
-  await evl('__cam(null); __pos.x = -4.6; __pos.z = -1.6'); }
+  await evl('__cam(null); __pos.x = -4.6; __pos.z = -4.8'); }
 
 // 12.96 — pad wall-mount: sticks to the invisible wall slabs, persists through dvm_place
 await evl('__cam(-4.6, .55, -5.2, -4.6, .55, -5.93)'); await sleep(400);      // face the annex south wall
@@ -416,7 +416,7 @@ await evl('location.reload()'); await sleep(1500);
 await connect(); await waitBoot(); await sleep(1500);
 check('pad re-hangs on reload — mount restored', await evl('!!(__pad.rec() && __pad.rec().mount && __pad.rec().mount.n[2] === 1)'));
 check('re-hung pad keeps its wall seat — fixpoint skipped it', await evl('Math.abs(__pad.rec().y0 - .6) < .01'), await evl('__pad.rec() && __pad.rec().y0'));
-await evl('__pad.drop(-4.6, .26, -1.975)');
+await evl('__pad.drop(-4.1, .26, -.575)');
 check('drop back on the table clears the mount', await evl('__pad.rec().mount === null && Math.abs(__pad.rec().y0 - .26) < .01'), await evl('JSON.stringify({m:__pad.rec().mount, y0:__pad.rec().y0})'));
 
 // grip memory — the pose you last held returns on the next take
@@ -424,17 +424,17 @@ await evl('__construct.take("debug_pad")');
 await evl('__construct.tumble(38, 0)'); await sleep(200);                            // pose it in hand — a frame writes the quat
 const gripQ = JSON.parse(await evl('JSON.stringify(__construct.heldQ())'));
 check('the pose registered in hand', JSON.stringify(gripQ) !== '[0,0,0,1]', JSON.stringify(gripQ));
-await evl('__construct.place(-4.6, -1.975)');                                        // set it down — the grip stashes onto the rec
+await evl('__construct.place(-4.1, -.575)');                                        // set it down — the grip stashes onto the rec
 await evl('__construct.take("debug_pad")'); await sleep(200);
 check('held pose preserved across place → take', JSON.stringify(await evl('__construct.heldQ()')) === JSON.stringify(gripQ),
   JSON.stringify({ before: gripQ, after: await evl('__construct.heldQ()') }));
-await evl('__construct.place(-4.6, -1.975)');                                        // back on the margin
+await evl('__construct.place(-4.1, -.575)');                                        // back on the margin
 
 // 12.96b — placed items seat FLAT; the grip's lean persists through dvm_place + reload (incl. wall mounts)
 await evl('__construct.take("debug_pad")');
 await evl('window.dispatchEvent(new KeyboardEvent("keydown",{key:"["}))');            // [ — +1 x-snap ≈ 15° lean (snaps before tumble — snap resets heldFree)
 await evl('__construct.tumble(0, -60)'); await sleep(200);                           // + free X tumble ≈ 29° — a real lean, not a yaw
-await evl('__construct.place(-4.6, -1.975)'); await sleep(250);
+await evl('__construct.place(-4.1, -.575)'); await sleep(250);
 const flQ = JSON.parse(await evl('JSON.stringify(__pad.rec().g.quaternion.toArray().map(v=>+v.toFixed(4)))'));
 check('placement seats flat — tilt is a grip state, not a pose', Math.abs(flQ[0]) < .01 && Math.abs(flQ[2]) < .01, flQ.join(','));
 check('the grip still saved — tilt field in dvm_place', await evl('!!(JSON.parse(localStorage.getItem("dvm_place"))["debug_pad"]||{}).tilt'));
@@ -450,7 +450,7 @@ await evl('__construct.take("debug_pad")'); await sleep(250);                   
 const wg = JSON.parse(await evl('JSON.stringify(__construct.heldQ())'));
 check('wall-mounted pad kept its saved grip', Math.abs(wg[0]) > .1 || Math.abs(wg[2]) > .1, wg.join(','));
 await evl('window.dispatchEvent(new KeyboardEvent("keydown",{key:"0"}))');            // 0 — LEVEL the grip
-await evl('__construct.place(-4.6, -1.975)'); await sleep(250);                       // home spot, flat
+await evl('__construct.place(-4.1, -.575)'); await sleep(250);                       // home spot, flat
 check('pad re-leveled home', await evl('Math.abs(__pad.rec().g.quaternion.x) < .01 && Math.abs(__pad.rec().g.quaternion.z) < .01'));
 check('leveled save drops the tilt field', await evl('!(JSON.parse(localStorage.getItem("dvm_place"))["debug_pad"]||{}).tilt'));
 
@@ -463,7 +463,7 @@ check('spin engaged — slow right', await evl('__construct.tables()[0].models[0
 await sleep(1400);
 const rotA = await evl('__construct.tables()[0].models[0].rotY');
 check('model actually turns on the table', rotA > .15, 'rotY=' + rotA);
-check('tops stay populated mid-spin — core still reads .7475', Math.abs(await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:primary"), -4.6, -2.5, 0)') - .7475) < .008);
+check('tops stay populated mid-spin — core still reads .7475', Math.abs(await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:primary"), -4.1, -1.1, 0)') - .7475) < .008);
 await evl('__pad.press("rr")');
 check('same speed toggles off — turntable law', await evl('__construct.tables()[0].models[0].spin === 0'));
 await evl('__pad.press("rres")');
@@ -472,12 +472,12 @@ await evl('__pad.tab("slice")');
 check('slice page — default axis y', await evl('__pad.page() === "slice" && __construct.tables()[0].models[0].axis === "y"'));
 await evl('__pad.press("max-"); __pad.press("max-"); __pad.press("max-")');
 check('max− lowered the y window', await evl('__construct.tables()[0].models[0].slice.y[1] === 98'), await evl('__construct.tables()[0].models[0].slice.y[1]'));
-const roofSliced = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:primary"), -4.6, -2.5, 0)');
+const roofSliced = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:primary"), -4.1, -1.1, 0)');
 check('sliced top dropped below .7475 — measured truth tracks the cut', roofSliced < .7475 && roofSliced > .3, 'roof=' + roofSliced);
 await evl('__cam(-4.15, .62, -3.55, -4.6, .5, -2.5)'); await sleep(400);    // oblique on the dollhouse cut
 fs.writeFileSync(path.join(HERE, 'probe_slice.png'), Buffer.from((await cdp('Page.captureScreenshot', { format: 'png' })).result.data, 'base64'));
 await evl('__pad.press("sres")');
-const roofReset = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:primary"), -4.6, -2.5, 0)');
+const roofReset = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:primary"), -4.1, -1.1, 0)');
 check('reset restores the roof', Math.abs(roofReset - .7475) < .008, 'roof=' + roofReset);
 await evl('__pad.tab("model")');
 
@@ -540,14 +540,14 @@ check('tune shape — retired keys (x/n/p/s) never reach storage', await evl(`((
 await evl('__torch.set(false)');
 await evl('__torch.set(false)');
 await evl('__pad.tab("model")');
-await evl('__cam(null); __pos.x = -4.6; __pos.z = -1.6');
+await evl('__cam(null); __pos.x = -4.6; __pos.z = -4.8');
 
 // 12.99 — piston lift: the table raises on telescoping legs, riders + tops follow
 await evl('__pad.tab("table")');
 check('tab switch → lift page', await evl('__pad.page() === "table"'));
 await evl('__pad.press("lRR")');                                                    // ▲▲ +.08
 check('lift engaged — +.08', await evl('Math.abs(__construct.tables()[0].lift - .08) < 1e-3'), await evl('__construct.tables()[0].lift'));
-const roofL = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:primary"), -4.6, -2.5, 0)');
+const roofL = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:primary"), -4.1, -1.1, 0)');
 check('measured roof rode the lift — .8275', Math.abs(roofL - .8275) < .008, 'roof=' + roofL);
 check('the pad rode the column', await evl('Math.abs(__pad.rec().y0 - .34) < .01'), await evl('__pad.rec() && __pad.rec().y0'));
 await evl('__pad.press("lres")');
@@ -566,7 +566,7 @@ await evl('location.reload()'); await sleep(1500);
 await connect(); await waitBoot(); await sleep(800);
 check('saved lift on a later table — module eval completes', await evl('__construct.tables().length === 3 && !!__construct.placed.find(p => p.name === "commission_desklamp")'), await evl('JSON.stringify({t:__construct.tables().length, lamp:!!__construct.placed.find(p => p.name === "commission_desklamp")})'));
 check('later-table lift restored at boot', await evl('Math.abs(__construct.tables()[1].lift - .06) < 1e-3'));
-await evl('__construct.take("debug_pad"); __construct.place(-6.4, -0.85); __pad.press("lres"); __construct.take("debug_pad"); __construct.place(-4.6, -1.975)');
+await evl('__construct.take("debug_pad"); __construct.place(-4.1, -3.9); __pad.press("lres"); __construct.take("debug_pad"); __construct.place(-4.1, -.575)');
 check('block lift re-homed after the regression', await evl('__construct.tables()[1].lift === 0'));
 await evl('__pad.press("lDD"); __pad.press("lDD"); __pad.press("lDD")');              // ▼▼×3 → bottomed out
 check('floor notch — lift −.22, top .04', await evl('Math.abs(__construct.tables()[0].lift + .22) < 1e-3 && Math.abs(__construct.tables()[0].top - .04) < 1e-3'), await evl('JSON.stringify({l:__construct.tables()[0].lift,t:__construct.tables()[0].top})'));
@@ -581,10 +581,10 @@ check('reset off the floor', await evl('__construct.tables()[0].lift === 0 && Ma
 // 12.99c — the BLOCK TABLE: a 3×3 city block, lots filled from city_layout slots
 const tabs2 = JSON.parse(await evl('JSON.stringify(__construct.tables())'));
 check('three tables — primary + block + studio', tabs2.length === 3 && tabs2[1].id === 'block' && tabs2[2].id === 'studio', JSON.stringify(tabs2.map(q => q.id)));
-check('block table emitted rear-left of the primary', tabs2[1] && Math.abs(tabs2[1].x + 6.4) < .01 && Math.abs(tabs2[1].z + 1.3) < .01);
-check('studio table emitted rear-right of the primary', tabs2[2] && Math.abs(tabs2[2].x + 6.4) < .01 && Math.abs(tabs2[2].z + 3.7) < .01);
+check('block table emitted as the north flank', tabs2[1] && Math.abs(tabs2[1].x + 4.1) < .01 && Math.abs(tabs2[1].z + 3.9) < .01);
+check('studio table centered in the annex at 2.4m', tabs2[2] && Math.abs(tabs2[2].x + 6.5) < .01 && Math.abs(tabs2[2].z + 2.5) < .01 && Math.abs(tabs2[2].size - 2.4) < .01);
 check('studio union catalog — zone + singles + blocks', JSON.stringify([...(tabs2[2].catalog || [])].sort()) === '["barber_shop","battlefield","block_26_tenement","block_41_barber","tenement_block_0"]', JSON.stringify(tabs2[2].catalog));
-check('the 1.2m slot between the rear tables is walkable', await evl('__construct.walkOK(-6.4, -2.5) === true && __construct.walkOK(-6.4, -2.4) === true'));
+check('the aisle west of the zone table is walkable', await evl('__construct.walkOK(-8.5, -2.5) === true && __construct.walkOK(-8.5, -2.0) === true'));
 // mv law: a stale dvm_place (pre-move coords, no rev) must NOT mask the authored spots
 await evl(`(() => { const p = JSON.parse(localStorage.getItem('dvm_place') || '{}');
   p['table:primary'] = { x: -5, z: -2.5, rotY: 0 };                              // the stale save — no mv field
@@ -594,13 +594,13 @@ await evl(`(() => { const p = JSON.parse(localStorage.getItem('dvm_place') || '{
   localStorage.setItem('dvm_place', JSON.stringify(p)); })()`);
 await evl('location.reload()'); await sleep(1500); await connect(); await waitBoot(); await sleep(900);
 const mvT = JSON.parse(await evl('JSON.stringify(__construct.tables())'));
-check('stale save rejected — tables hold the manifest row', mvT[0].x === -4.6 && mvT[1].x === -6.4 && mvT[1].z === -1.3 && mvT[2].x === -6.4 && mvT[2].z === -3.7, JSON.stringify(mvT.map(q => [q.id, q.x, q.z])));
+check('stale save rejected — tables hold the manifest row', mvT[0].x === -4.1 && mvT[0].z === -1.1 && mvT[1].x === -4.1 && mvT[1].z === -3.9 && mvT[2].x === -6.5 && mvT[2].z === -2.5, JSON.stringify(mvT.map(q => [q.id, q.x, q.z])));
 check('unversioned items still honor their save', await evl('Math.abs(__construct.placed.find(p => p.name === "commission_stamper").x + 1) < .01'));
-const bm = tabs2[1].models[0];
-check('block mount = the tenement composite — 322 chunk grid (streets included)', bm && bm.dims.join(',') === '322,122,322' && bm.vox === 480012, JSON.stringify(bm));
-const broof = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.4, -1.3, 0)');
-check('block table roof = .5563 — same fill span, streets share the footprint', Math.abs(broof - .5563) < .008, 'roof=' + broof);
-const sroad = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.4, -1.7, 0)');
+const bm = tabs2[1].models.find(m => !m.static);
+check('block core = the tenement lots — the static ring owns the streets', bm && bm.dims.join(',') === '192,122,192' && bm.vox === 426012, JSON.stringify(bm));
+const broof = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -4.1, -3.9, 0)');
+check('block table roof = .4916 — the core tops read inside the ring', Math.abs(broof - .4916) < .008, 'roof=' + broof);
+const sroad = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -4.1, -3.55, 0)');
 check('street ring is a measured surface — road top .2656', Math.abs(sroad - .2656) < .004, 'road=' + sroad);
 /* parked cars — the TABLE's street scene as full-fidelity overlays: vehicle_490_touring at its
    authored 1cm resolution, scaled to the composite (never downsampled). Mount is async after the
@@ -610,10 +610,10 @@ const cars = JSON.parse(await evl(`JSON.stringify((() => { const V = new __THREE
   return __construct.placed.filter(p => p._parked).map(c => { const w = c.g.getWorldPosition(V.set(0,0,0));
     return { x: w.x, z: w.z, y: w.y, roof: __construct.surfaceAt(c, w.x, w.z, 0) }; }); })())`));
 check('two parked cars mounted — the table owns the street scene', cars.length === 2, JSON.stringify(cars));
-const cS = cars.find(c => c.z > -1.2), cW = cars.find(c => c.z <= -1.2);
-check('car 1 — south street, curb-hard, seated on the road (.2656)', cS && Math.abs(cS.x + 6.397) < .01 && Math.abs(cS.z + .972) < .01 && Math.abs(cS.y - .2656) < .002, JSON.stringify(cS));
-check('car 2 — west street, different heading, same law', cW && Math.abs(cW.x + 6.070) < .01 && Math.abs(cW.z + 1.360) < .01 && Math.abs(cW.y - .2656) < .002, JSON.stringify(cW));
-check('car roofs read as measured surfaces — items can seat on them', cS && cW && Math.abs(cS.roof - .3058) < .004 && Math.abs(cW.roof - .3058) < .004, JSON.stringify([cS && cS.roof, cW && cW.roof]));
+const cS = cars.find(c => c.z > -3.9), cW = cars.find(c => c.z <= -3.9);
+check('car 1 — curb-hard, seated on the road (.2656)', cS && Math.abs(cS.x + 3.9995) < .01 && Math.abs(cS.z + 3.6433) < .01 && Math.abs(cS.y - .2656) < .002, JSON.stringify(cS));
+check('car 2 — different curb, different heading, same law', cW && Math.abs(cW.x + 3.8422) < .01 && Math.abs(cW.z + 4.0333) < .01 && Math.abs(cW.y - .2656) < .002, JSON.stringify(cW));
+check('car roofs read as measured surfaces — items can seat on them', cS && cW && Math.abs(cS.roof - .2965) < .005 && Math.abs(cW.roof - .2965) < .005, JSON.stringify([cS && cS.roof, cW && cW.roof]));
 /* parked-car seat — the wheels must stand PROUD of the road surface: flush reads as "sunk"
    and even half a car-voxel still merges at grazing angles (black tire into dark road top).
    The seat is plate top + 1.5 car-voxels — enough air that the full tire ring draws against
@@ -630,10 +630,10 @@ const seat = JSON.parse(await evl(`JSON.stringify((() => { const T = window.__TH
 check('parked cars sit proud of the road — 1.5 car-voxels proud, not flush-sunk', seat.length === 2 &&
   seat.every(s => s.n > 40 && s.top > .264 && s.top < .27 && s.bot - s.top > 5e-4 && s.bot - s.top < .0012), JSON.stringify(seat));
 /* curb cruise — __cars drives the parked cars: pull out of the slot, lap the measured lanes
-   (blockTrf derives the circuit from the composite's own road band), repark to the exact
-   slot pose. toggle(false) parks each car on its next pass of the merge — __cars.seek jumps
-   it to just before the merge so the probe doesn't wait a full lap. */
-const slotPose = JSON.parse(await evl(`JSON.stringify(__construct.placed.filter(p => p._parked).map(p => ({ x: +p.g.position.x.toFixed(4), z: +p.g.position.z.toFixed(4), ry: +p.g.rotation.y.toFixed(3) })))`));
+   (blockTrf derives the circuit from the composite's own road band), repark into the
+   lattice. toggle(false) + park-anywhere claims the next free curb slot ahead — cars do
+   NOT necessarily return to their origin pose. __cars.seek jumps each car near its merge
+   so the probe doesn't wait a full lap. */
 await evl('__cars.toggle(1, true)');
 let cruise = null;
 for (let i = 0; i < 40; i++) { cruise = JSON.parse(await evl('JSON.stringify(__cars.state())'));
@@ -647,8 +647,8 @@ await evl('__cars.toggle(1, false); __cars.seek()');
 let docked = null;
 for (let i = 0; i < 80; i++) { docked = JSON.parse(await evl('JSON.stringify(__cars.state())'));
   if (docked.every(c => c.st === 'slot')) break; await sleep(300); }
-check('cars repark into their exact slot pose', docked && docked.every(c => c.st === 'slot') &&
-  docked.every((c, i) => Math.abs(c.x - slotPose[i].x) < .001 && Math.abs(c.z - slotPose[i].z) < .001 && Math.abs(c.ry - slotPose[i].ry) < .01),
+check('cars repark into curb slots — curb band + axis-aligned heading', docked && docked.every(c => c.st === 'slot') &&
+  docked.every(c => (Math.abs(Math.abs(c.x) - .257) < .02 || Math.abs(Math.abs(c.z) - .257) < .02) && Math.abs(Math.sin(2 * c.ry)) < .001),
   JSON.stringify(docked));
 /* parked recs are scenery, not place citizens — their miniG-LOCAL coords must never land in
    name-keyed dvm_place (the class that once displaced the spinner: parked local (.33,-.06)
@@ -656,28 +656,28 @@ check('cars repark into their exact slot pose', docked && docked.every(c => c.st
 await evl('__place.save()');
 const tkey = JSON.parse(await evl('localStorage.getItem("dvm_place") || "{}"'))['vehicle_490_touring'];
 check('parked cars never write name-keyed overrides — the spinner keeps (0,0,mv:1)', !tkey || (tkey.x === 0 && tkey.z === 0 && tkey.mv === 1), JSON.stringify(tkey));
-const gap = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.4, -1.695, 0)');
+const gap = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -4.1, -4.25, 0)');
 check('the north road stays road — .2656', Math.abs(gap - .2656) < .004, 'gap=' + gap);
 check('pad still remote for primary — it sits on primary', await evl('__pad.table() === "primary"'), await evl('__pad.table()'));
-await evl('__construct.take("debug_pad"); __construct.place(-6.4, -0.775)');          // set the pad on the block's north margin
+await evl('__construct.take("debug_pad"); __construct.place(-4.1, -3.375)');          // set the pad on the block's north margin
 check('pad retargets — nearest table is the block', await evl('__pad.table() === "block"'), await evl('__pad.table()'));
 await evl('__pad.press("next")'); await sleep(3500);                                  // block swap → block_41_barber (322 composite builds ~2.5s)
-const bb = JSON.parse(await evl('JSON.stringify(__construct.tables()[1].models[0])'));
-check('block_41 mounted — 322 grid, land tiles + table\'s parked cars included', bb && bb.dims.join(',') === '322,38,322' && bb.vox === 119693, JSON.stringify({ d: bb && bb.dims, v: bb && bb.vox }));
-const btop = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.58, -1.48, 0)');
+const bb = JSON.parse(await evl('JSON.stringify(__construct.tables()[1].models.find(m => !m.static))'));
+check('block_41 core mounted on the ring — streets + cars never moved', bb && bb.name === 'block_41_barber' && bb.vox === 87689, JSON.stringify({ d: bb && bb.dims, v: bb && bb.vox }));
+const btop = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -4.28, -4.08, 0)');
 check('barber on its authored lot (slot 2) — roof field top .3355', Math.abs(btop - .3355) < .003, 'top=' + btop);
-const ltop = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.58, -1.12, 0)');
+const ltop = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -4.28, -3.72, 0)');
 check('vacant lot = empty land — fence-post top .2768', Math.abs(ltop - .2768) < .004, 'land=' + ltop);
-const ftop = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.58, -1.55, 0)');
-check('barber street parapet row — at its lot edge', ftop > .355 && ftop < .372, 'front=' + ftop);
+const ftop = await evl('Math.max(...[-4.18,-4.05,-3.92].map(z => __construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -4.28, z, 0)))');
+check('barber street parapet row — at its lot edge', ftop > .33 && ftop < .40, 'front=' + ftop);
 /* the street scene is the table's — swapping barber↔tenement changes the LOTS, not the roads:
    the same two cars re-mount (overlay recs die and respawn with the model) at the same spots */
 for (let i = 0; i < 40; i++) { if ((await evl('__construct.placed.filter(p => p._parked).length')) === 2) break; await sleep(500); }
 const cars2 = JSON.parse(await evl(`JSON.stringify((() => { const V = new __THREE.Vector3();
   return __construct.placed.filter(p => p._parked).map(c => c.g.getWorldPosition(V.set(0,0,0)).toArray().slice(0, 3)); })())`));
-check('street scene survives the swap — both cars re-parked on block_41', cars2.length === 2 &&
-  cars2.some(w => Math.abs(w[0] + 6.397) < .01 && Math.abs(w[2] + .972) < .01) &&
-  cars2.some(w => Math.abs(w[0] + 6.070) < .01 && Math.abs(w[2] + 1.360) < .01), JSON.stringify(cars2));
+check('street scene survives the swap — both cars parked on the ring', cars2.length === 2 &&
+  cars2.every(w => Math.abs(w[1] - .265) < .002) &&
+  cars2.every(w => w[0] > -4.7 && w[0] < -3.5 && w[2] > -4.5 && w[2] < -3.3), JSON.stringify(cars2));
 check('block swap persisted', await evl('localStorage.getItem("dvm_model:block") === "block_41_barber"'));
 await evl('__pad.press("lRR")');
 check('block lifts — primary untouched', await evl('Math.abs(__construct.tables()[1].lift - .08) < 1e-3 && __construct.tables()[0].lift === 0'), await evl('JSON.stringify([__construct.tables()[0].lift, __construct.tables()[1].lift])'));
@@ -685,55 +685,55 @@ check('pad rides the block column', await evl('Math.abs(__pad.rec().y0 - .34) < 
 await evl('__pad.press("lres")');
 check('block reset', await evl('__construct.tables()[1].lift === 0 && Math.abs(__pad.rec().y0 - .26) < .01'));
 await evl('__pad.press("prev")'); await sleep(3500);                                  // back to the tenement composite
-const bback = JSON.parse(await evl('JSON.stringify(__construct.tables()[1].models[0])'));
-check('re-mount tenement — whole block again', bback && bback.vox === 480012, JSON.stringify(bback && bback.vox));
-const broof2 = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -6.4, -1.3, 0)');
-check('roof restored at .5563', Math.abs(broof2 - .5563) < .008, 'roof=' + broof2);
-await evl('__construct.take("debug_pad"); __construct.place(-4.6, -1.975)');          // pad home to primary's margin
+const bback = JSON.parse(await evl('JSON.stringify(__construct.tables()[1].models.find(m => !m.static))'));
+check('re-mount tenement — the core swaps back, ring untouched', bback && bback.vox === 426012, JSON.stringify(bback && bback.vox));
+const broof2 = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:block"), -4.1, -3.9, 0)');
+check('roof restored at .4916', Math.abs(broof2 - .4916) < .008, 'roof=' + broof2);
+await evl('__construct.take("debug_pad"); __construct.place(-4.1, -.575)');          // pad home to primary's margin
 check('pad re-homes to primary', await evl('__pad.table() === "primary"'), await evl('__pad.table()'));
 
 // studio table — the ZONE tier: the Battlefield (city_layout r3-5 × c0-2) as one 966-voxel miniature
 for (let i = 0; i < 80 && !(await evl('__construct.tables()[2].models[0] && __construct.tables()[2].models[0].name === "battlefield"')); i++) await sleep(250);   // zone emit is ~seconds of chunked scan
 const sm = JSON.parse(await evl('JSON.stringify(__construct.tables()[2].models[0])'));
 check('studio mount = the battlefield zone — 966² composite', sm && sm.name === 'battlefield' && sm.dims.join(',') === '966,122,966', JSON.stringify(sm));
-check('zone scale — the whole field inside .75 fill', sm && Math.abs(sm.scale - .0186) < .002, 'scale=' + (sm && sm.scale));
+check('zone scale — 2x on the 2.4m table inside .75 fill', sm && Math.abs(sm.scale - .0373) < .002, 'scale=' + (sm && sm.scale));
 check('zone plate — ground is a flat tops plate, not 900k columns', sm && sm.plate === true && sm.cols < 500000, JSON.stringify({ cols: sm && sm.cols, plate: sm && sm.plate }));
 check('zone proxies — per-stamp boxes + the ground plate', sm && sm.prox > 50, 'prox=' + (sm && sm.prox));
-await evl('__construct.take("debug_pad"); __construct.place(-6.4, -4.375)');          // set the pad on the studio's south margin
+await evl('__construct.take("debug_pad"); __construct.place(-6.5, -1.37)');          // set the pad on the studio's south margin
 check('pad retargets — nearest table is the studio', await evl('__pad.table() === "studio"'), await evl('__pad.table()'));
-const sroof = await evl('(() => { const rec = __construct.placed.find(p => p.name === "table:studio"); let mx = 0; for (let x = -6.20; x <= -6.00; x += .02) for (let z = -3.50; z <= -3.30; z += .02) mx = Math.max(mx, __construct.surfaceAt(rec, x, z, 0)); return mx; })()');
-check('block_51 tenement reads inside the zone — tall roof field in its footprint', sroof > .34 && sroof < .375, 'roof=' + sroof);
-const salley = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:studio"), -6.4, -3.7, 0)');
-check('block_42 lane row is ground, not a building — flat slab ≈ .262', Math.abs(salley - .2619) < .003, 'alley=' + salley);
-const slotE = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:studio"), -6.4, -3.76, 0)');
+const sroof = await evl('(() => { const rec = __construct.placed.find(p => p.name === "table:studio"); let mx = 0; for (let x = -6.10; x <= -5.70; x += .02) for (let z = -2.10; z <= -1.70; z += .02) mx = Math.max(mx, __construct.surfaceAt(rec, x, z, 0)); return mx; })()');
+check('block_51 tenement reads inside the zone — tall roof field in its footprint', sroof > .34 && sroof < .52, 'roof=' + sroof);
+const salley = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:studio"), -6.5, -2.5, 0)');
+check('block_42 lane row is ground, not a building — flat slab ≈ .264', Math.abs(salley - .2637) < .003, 'alley=' + salley);
+const slotE = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:studio"), -6.5, -2.62, 0)');
 check('adjacent lot reads its land top — the lane row is a cut, not a lot', slotE > .264 && slotE < .285, 'lot=' + slotE);
-const sbbar = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:studio"), -6.16, -3.76, 0)');
-check('block_41 barber on its authored lot', sbbar > .28 && sbbar < .32, 'barber=' + sbbar);
-const sstreet = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:studio"), -6.25, -3.7, 0)');
-check('internal seam is road — slab top ≈ .262', Math.abs(sstreet - .2619) < .003, 'street=' + sstreet);
-await evl('__construct.take("debug_pad"); __construct.place(-4.6, -1.975)');          // pad back home
+const sbbar = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:studio"), -6.02, -2.62, 0)');
+check('block_41 barber on its authored lot', sbbar > .28 && sbbar < .38, 'barber=' + sbbar);
+const sstreet = await evl('__construct.surfaceAt(__construct.placed.find(p => p.name === "table:studio"), -6.2, -2.5, 0)');
+check('internal seam is road — slab top ≈ .264', Math.abs(sstreet - .2637) < .003, 'street=' + sstreet);
+await evl('__construct.take("debug_pad"); __construct.place(-4.1, -.575)');          // pad back home
 check('pad re-homes to primary again', await evl('__pad.table() === "primary"'), await evl('__pad.table()'));
 
 // 12.99c — annex E-drop law: the wall must OWN the ray — a nearer surface (felt/mini) is the drop, not a mount
 await evl('__construct.take("debug_pad")');
-await evl('__cam(-5.6, 1.2, -.9, -6.4, .26, -.9)'); await sleep(350);                 // stand east of the block table, aim at its felt
+await evl('__cam(-6.5, 1.2, -.9, -6.5, .26, -1.9)'); await sleep(350);                 // stand over the approach, aim down at the zone table's felt
 check('felt aim offers a drop — not a wall mount', await evl('!!__construct.dropTarget() && !__construct.dropTarget().wall'), await evl('JSON.stringify(__construct.dropTarget())'));
 check('wallTarget silent while the felt owns the ray', await evl('__pad.wallTarget() === null'));
-await evl('__cam(-6.4, .8, -2.5, -7.9, .8, -2.5)'); await sleep(350);               // aim square at the bare annex wall
+await evl('__cam(-9.3, .8, -5.0, -9.9, .8, -5.0)'); await sleep(350);               // aim square at the bare west wall (short lane)
 check('bare-wall aim still offers the mount', await evl('!!(__pad.wallTarget() && __pad.wallTarget().wall)'), await evl('JSON.stringify(__pad.wallTarget())'));
-await evl('__cam(null)'); await evl('__construct.place(-4.6, -1.975)'); await sleep(200);
+await evl('__cam(null)'); await evl('__construct.place(-4.1, -.575)'); await sleep(200);
 
 // 12.99d — placed seat persists through F5: a pad left on a composite roof must NOT sink to the felt
-await evl('__pad.drop(-6.4, .5563, -1.3)'); await sleep(300);                        // seat it on the block roof — seat .556, emit .26
-check('roof seat taken', await evl('Math.abs(__pad.rec().y0 - .5563) < .01'), await evl('__pad.rec().y0'));
+await evl('__pad.drop(-4.1, .4916, -3.9)'); await sleep(300);                        // seat it on the block roof — seat .556, emit .26
+check('roof seat taken', await evl('Math.abs(__pad.rec().y0 - .4916) < .01'), await evl('__pad.rec().y0'));
 await evl('location.reload()'); await sleep(1500); await connect(); await waitBoot(); await sleep(900);
-check('roof seat survives F5 — not re-seated to .26', await evl('Math.abs(__pad.rec().y0 - .5563) < .02'), await evl('__pad.rec() && __pad.rec().y0'));
-const zroofY = await evl('Math.max(...[-6.18,-6.10,-6.02].map(x => [-3.48,-3.40,-3.32].map(z => __construct.surfaceAt(__construct.placed.find(p => p.name === "table:studio"), x, z, 0))).flat())');
-await evl(`__pad.drop(-6.10, ${zroofY || .3737}, -3.40)`); await sleep(300);           // studio's zone roof — block_51's tenement top, same law
+check('roof seat survives F5 — not re-seated to .26', await evl('Math.abs(__pad.rec().y0 - .4916) < .02'), await evl('__pad.rec() && __pad.rec().y0'));
+const zroofY = await evl('Math.max(...[-6.06,-5.90,-5.74].map(x => [-2.06,-1.90,-1.74].map(z => __construct.surfaceAt(__construct.placed.find(p => p.name === "table:studio"), x, z, 0))).flat())');
+await evl(`__pad.drop(-5.90, ${zroofY || .49}, -1.90)`); await sleep(300);           // studio's zone roof — block_51's tenement top, same law
 await evl('location.reload()'); await sleep(1500); await connect(); await waitBoot(); await sleep(900);
 for (let i = 0; i < 80 && !(await evl('__construct.tables()[2].models[0] && __construct.tables()[2].models[0].name === "battlefield"')); i++) await sleep(250);   // F5 re-emits the zone (~7s headless) — the mount await must settle before the seat reads
 check('zone roof seat survives F5', await evl(`Math.abs(__pad.rec().y0 - ${zroofY || .3737}) < .02`), await evl('__pad.rec() && __pad.rec().y0'));
-await evl('__pad.drop(-4.6, .26, -1.975)'); await sleep(300);                        // home margin — baseline
+await evl('__pad.drop(-4.1, .26, -.575)'); await sleep(300);                        // home margin — baseline
 await evl('location.reload()'); await sleep(1500); await connect(); await waitBoot(); await sleep(900);
 check('home margin seat survives F5', await evl('Math.abs(__pad.rec().y0 - .26) < .01 && __pad.table() === "primary"'), await evl('JSON.stringify([__pad.rec().y0, __pad.table()])'));
 

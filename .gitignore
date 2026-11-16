@@ -118,3 +118,6 @@ docs/probe_*.png
 docs/_plan_*.png
 docs/_sec_*.png
 Assets/StreamingAssets/voxel_items/office_complex.snap-*.json
+
+# probe suite runner output (regenerable)
+docs/_logs/

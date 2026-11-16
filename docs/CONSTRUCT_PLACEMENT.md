@@ -6,6 +6,12 @@ The measured-surface contract for every asset placed in the Construct. This doc 
 the authority for how things sit on things — if placement code and this doc disagree,
 the doc wins and the code gets fixed.
 
+> **File layout (2026-11-15):** `construct.html` is now a shell — the body lives in
+> `docs/construct/01_shell.js` … `16_probe.js`, classic `<script defer>` files sharing
+> one page-wide scope in load order (= the old top-down eval order; map in the HTML
+> comment). Placement law lives mainly in `02_placed.js`, `03_tables.js`,
+> `12_carry.js`, `13_place.js`, `15_boot.js`.
+
 ---
 
 ## 1. The PLACED record
@@ -66,6 +72,13 @@ opt.cap        // tops above cap don't count — settle-only re-seat, nothing ev
 | `settleOrphans` | `surfOnly: q.surf` | orphan drop also can't land furniture on a rider |
 | `placeSpot` (drag ghost) | `surfOnly: sel.surf` | the preview obeys the same law |
 
+**Frame law**: every sweep above speaks world coords — a rec whose `g.parent !== scene`
+(parked cars ride `miniG`, the showroom car rides `carG`) stores parent-local `x/z/y0`, so
+subject-side sweeps skip it outright (boot fixpoint, `settleOrphans`). Host-side reads stay
+legal: `surfaceAt` uses the world transform, so riders still seat on a parked car's roof.
+(Skipping them was the `CONSTRUCT_PARKED_CAR_WORLD_SWEEP_DROP` fix — an unguarded sweep
+seated a parked car to `y0=0`, slab-floor = tabletop.)
+
 **The bug class this kills** (all observed live): a desk emitting onto a floating
 passenger's stale top; a desk re-seating onto the grounded passenger's own height;
 door↔frame leapfrogging +.85m per commit; any host ratcheting on its own cargo.
@@ -102,6 +115,12 @@ declaration, not by tuning.
    `Promise.all(TABLES.map(t => t._mountP))` before extras/fixpoint read `tops`.
    Un-awaited, a slow load lets a roof seat cap down to felt — the race that
    floored saved `.7475` pads to `.26` (CONSTRUCT_MOUNT_PROMISE_TOPS_RACE).
+   `_mountP` covers the whole street: on the block table the boot chain runs
+   `emitRing` → `mountParked` (cars on the static ring) → `mountModel`
+   (the interior core), and `emitBlock` still awaits `mountParked`'s
+   `Promise.all` of the per-car `vehFetch`+`emitAsset` chains on ring-less
+   hosts — so an extra saved on a parked car's roof reads the car, not the
+   road under it.
 5. **Extras** (`dvm_extra`) — emit with `seatY:'auto'` → conform onto the final
    (already-lifted, mounted) layout.
 6. **Fixpoint re-seat** (≤4 passes, descending y0) — every item settles:

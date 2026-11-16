@@ -1,4 +1,6 @@
-
+/* FROZEN SNAPSHOT — pre-annex single-table reconstruction kept for static greps.
+   Coordinates/geometry here are historical; the live page is docs/construct.html
+   + docs/construct/*.js, regression suite is docs/_place_probe.mjs et al. */
 import * as THREE from 'three';
 
 const VOID = 0xf4f1e8;
