@@ -180,7 +180,7 @@ const fillBlockGround = (set, X0, Z0, seams, lanes, B = BLK) => { const { ROAD, 
    composite grid; the composite stride is W2, slab offset +2). Each explicit slot stamps its
    asset at its 64-voxel offset; a multi-slot asset marks every lot it covers; the rest take
    empty_land — the game's own vacant-lot tile. Returns the per-stamp rects for aim proxies. */
-const stampSlots = (vox, W2, H, files, slots, X0, Z0, B = BLK, zFlip = false) => { const { S, BW, M } = B;
+const stampSlots = (vox, W2, H, files, slots, X0, Z0, B = BLK, zFlip = false, mir = false) => { const { S, BW, M } = B;
   const covered = new Set();                                          // which lots does explicit content already own?
   const rOf = (s, f) => zFlip ? 3 - (s / 3 | 0) - f.D / S : (s / 3 | 0);  // Unity's index-row0 sits on the block edge TOWARD row+1 — under our row↑→+z grid that's the z-max side, so zone lots flip their row (footprint-aware: a 3-row tenement still spans 0..2)
   Object.entries(slots).forEach(([s, n]) => { const f = files[n], sc = +s % 3, r0 = rOf(s, f);
@@ -189,7 +189,8 @@ const stampSlots = (vox, W2, H, files, slots, X0, Z0, B = BLK, zFlip = false) =>
     stamped.push({ x: X0 + M + sx, z: Z0 + M + sz, w: Math.min(f.W, BW - sx), d: Math.min(f.D, BW - sz), h: f.H });
     for (let z = 0; z < f.D && sz + z < BW; z++)
       for (let y = 0; y < f.H; y++) for (let x = 0; x < f.W && sx + x < BW; x++) {
-        const id = f.vox[x + f.W * (y + f.H * z)]; if (id) vox[(X0 + M + sx + x) + W2 * (y + 2 + H * (Z0 + M + sz + z))] = id; } };
+        const id = f.vox[x + f.W * (y + f.H * (mir ? f.D - 1 - z : z))];          // mir: stamp content z-mirrors inside its own footprint — the Unity L/R flip moves fronts to the lot's far edge and leaves text + door/pole x-positions reading correctly — while the lot's position stays raw (zone composite renders flip:false)
+        if (id) vox[(X0 + M + sx + x) + W2 * (y + 2 + H * (Z0 + M + sz + z))] = id; } };
   for (let s = 0; s < 9; s++) { const n = slots[s]; if (n) { const f = files[n]; stamp(f, (s % 3) * S, rOf(s, f) * S); } }
   for (let s = 0; s < 9; s++) if (!covered.has(s) && !slots[s]) stamp(files['empty_land'], (s % 3) * S, ((s / 3) | 0) * S);
   return stamped; };
@@ -469,7 +470,7 @@ const emitZone = (t, m) => { const { M, TILE } = BLK, z = m.zone;
           slots = {}, types = new Set(); b.buildings.forEach((s, i) => { slots[i] = stName(s); types.add(s.type); });   // Unity positions buildings by ARRAY INDEX (slot field is metadata)
         const lanes = (types.has('alley_lane') ? 10 : 0) | (types.has('alley_lane_ns') ? 5 : 0);   // a lane slot IS the cut — the stasset is an empty placeholder; the mouth+cross-section draw in the ground recipe
         fillBlockGround(set, X0, Z0, seams, lanes);
-        stamped.push(...stampSlots(vox, W2, H, files, slots, X0, Z0, BLK, true)); });   // zFlip — slot rows order toward row+1 (Unity's index-row0 side), which under row↑→+z is the z-max edge
+        stamped.push(...stampSlots(vox, W2, H, files, slots, X0, Z0, BLK, true, true)); });   // zFlip — slot rows order toward row+1 (Unity's index-row0 side), which under row↑→+z is the z-max edge; mir — stamp content x-mirrors in place (the Unity L/R flip) while lots stay raw
       return emitVox(t, m, W2, H, D2, vox).then(miniG => {
         if (miniG) { const mn = miniG.userData.mini, vs = mn.vs;
           miniG.add(hitProxy(W2 * vs, 2 * vs, D2 * vs, 0, vs, 0));               // ground plate — roads/lots aim at slab top
