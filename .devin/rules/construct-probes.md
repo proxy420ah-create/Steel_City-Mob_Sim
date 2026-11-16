@@ -1,8 +1,9 @@
-# Construct Probe Discipline — regression scripts under docs/
+# Construct Probe Discipline — regression scripts under docs/ + repo edit-law
 
 Standing law for writing/maintaining `docs/_*.mjs` probes (the CDP-over-Chrome
-regression suite). These recur — a room/table change that re-breaks the suite
-means one of these laws was ignored.
+regression suite) and for text edits across this repo. These recur — a
+room/table change that re-breaks the suite, or a patch that misfires, means
+one of these laws was ignored.
 
 ## 1. Derive coordinates, never bake them
 
@@ -50,6 +51,30 @@ means one of these laws was ignored.
   `_patch_<name>.py` with the substitution table, run it, syntax-check the
   result, then delete the script. >3 coordinate edits in one file = a patch
   script, per the self-scripting rule.
+- **`python -c "..."` is the same hazard.** Bash command-substitutes backticks
+  inside double quotes — any pattern containing `code spans`, `$()`, or
+  `$(())` gets eaten live (`command not found` spew + a mangled script). If the
+  text mentions identifiers in backticks (RECENT_CHANGES entries always do),
+  it goes in a patch FILE — or use the `edit` tool directly.
+
+## 6. Text-edit hazards — patterns, quotes, chains
+
+- **Unicode punctuation bites patterns.** Source files carry `−` (U+2212),
+  `—` (em dash), `’` — a pattern authored with ASCII `-`/`'`/`"` silently
+  misses. Anchor replacements on ASCII-only substrings; when a replace must
+  match punctuation, read the exact line first (or match a longer unique
+  ASCII span around it).
+- **Assert before writing.** A patch script that `assert`s each pattern
+  *before* any `open(w)` can't leave a partial patch — collect every
+  replacement, verify all matched, write once.
+- **Quote-type parity.** When authoring JS strings by hand, check the opener
+  matches the closer — `evl('...` + `` ` `` + `)` twice produced SyntaxError
+  this session. `node --check` every `.js`/`.mjs` immediately after writing,
+  before running anything.
+- **`;` breaks failure chains.** `cmd1 && cmd2 ; git add` runs the git even
+  when cmd1 died — and if cmd1 was a `cd`, git runs from the wrong dir
+  (pathspec error). Keep dependent steps in `&&` or use `git -C <repo>` /
+  the `workdir` param instead of `cd`.
 
 ## 5. After geometry changes: the sweep
 
@@ -57,4 +82,5 @@ means one of these laws was ignored.
   the new layout — misses hide in comments, `__cam` lanes, `surfaceAt` points,
   `walkOK` boxes, and expected-value strings.
 - Re-run: `_place_probe` (full), `_noslice_verify`, `_car_measure`,
-  `_ring_verify`, `_cars_verify`, `_room_verify`.
+  `_ring_verify`, `_cars_verify`, `_room_verify`, `_lamps_check`,
+  `_fly_check` — plus whatever focused check owns the touched law.
