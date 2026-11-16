@@ -71,13 +71,21 @@ function renderCtl() {
         (ord === 'goto' ? 'GO ▸ TAG' : ord.toUpperCase()) + '</button>').join('') + '</div>' +
       (f.possessed ? '<div style="color:#ff9d5c;font-size:10px;margin-bottom:6px;letter-spacing:.15em">◈ agent has the wheel — your keys reclaim</div>' : '')
     : '<div style="color:#9a9480;font-size:10px;margin-bottom:8px">none in room — door console spawns</div>') +
-    '<div style="color:#8a8474;font-size:10px;line-height:1.6">' +
+    (held ?
+      '<div style="letter-spacing:.2em;color:#35d5ff;border-top:1px solid #3a3a4a;margin:8px 0 4px;padding-top:6px">HELD — ' +
+        held.name.replace('commission_', '').replace(/_/g, ' ').toUpperCase() + '</div>' +
+      '<div style="color:#8a8474;font-size:10px;line-height:1.6">' +
+      'E place · wheel dolly · , . yaw<br>' +
+      '[ ] pitch · ; \' roll · G tumble · 0 level' +
+      (held.isPad ? ' · RMB tap — cursor' : '') + '</div>'
+    : '') +
+    '<div style="color:#8a8474;font-size:10px;line-height:1.6;margin-top:6px">' +
     'F/RMB aim · LMB tag · T go-tag · R clear<br>' +
     'H heel · P pov · Y live · K panel</div>';
   ctlEl.querySelectorAll('button[data-o]').forEach(b => b.onclick = () => { if (f) { f.possessed = false; f.setOrder(b.dataset.o); } ctlTick(); });
 }
 const ctlTick = () => {
-  const sig = followers.length + '|' + followers.map(f => f.order + (f.possessed ? '*' : '')).join() + '|' + ctlOn;
+  const sig = followers.length + '|' + followers.map(f => f.order + (f.possessed ? '*' : '')).join() + '|' + ctlOn + '|' + (held ? held.name + (held.isPad ? '#' : '') : '');   // held rides the sig — pickup/drop re-renders the HELD block
   if (sig !== ctlSig) { ctlSig = sig; renderCtl(); ctlEl.style.display = ctlOn ? 'block' : 'none'; }
   agentEl.style.display = followers.some(f => f.possessed) ? 'block' : 'none';
 };

@@ -61,8 +61,7 @@ const loop = now => {
   if (kioWire) kioWire.visible = !!(promptIt && promptIt.isBtn && !promptIt.panel && !promptIt.sw);   // ghost only on its own panel's button — not the switch's
   if (swWire) swWire.visible = !!(promptIt && promptIt.sw);                                    // the switch ghost rides the aimed rocker
   promptEl.style.display = (held || pickIt || promptIt) ? 'block' : 'none';
-  promptEl.textContent = held ? (held.isPad ? 'E — PLACE DEBUG PAD  ·  RMB tap — cursor  ·  wheel dolly  ·  , . yaw · [ ] pitch · ; \' roll · G tumble · 0 level'
-                              : 'E — PLACE ' + held.name.replace('commission_', '').toUpperCase() + '  ·  wheel dolly  ·  , . yaw · [ ] pitch · ; \' roll · G tumble · 0 level')
+  promptEl.textContent = held ? 'E — PLACE ' + held.name.replace('commission_', '').replace(/_/g, ' ').toUpperCase()   // the carry hotkeys live on the FOLLOWER panel (K-hidable), not the reticle
                      : pickIt ? 'E — TAKE ' + pickIt.name.replace('commission_', '').toUpperCase()
                      : promptIt ? promptIt.label() : '';
   window.__compass(camera);

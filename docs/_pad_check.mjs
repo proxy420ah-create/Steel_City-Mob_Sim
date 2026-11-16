@@ -98,6 +98,15 @@ check('held dolly — wheel zooms the carry distance', await evl(`(() => {
   localStorage.removeItem('dvm_holdd'); heldD = .38; __construct.place(-4.1, -.575);
   return near === d0 - .06 && far === d0 && lo === .18 && hi === 1.6 && pers === '1.600' && dist > 1.5;
 })()`));
+check('held hotkeys live on the K-hideable FOLLOWER panel — reticle keeps only the place verb', await evl(`(() => {
+  __construct.take('debug_pad'); ctlTick();
+  const r = { panel: ctlEl.textContent.includes('HELD — DEBUG PAD') && ctlEl.textContent.includes('wheel dolly') && ctlEl.textContent.includes('RMB tap'),
+    clean: !promptEl.textContent.includes('wheel dolly'), ctl: '' };
+  ctlOn = false; ctlTick(); r.hid = ctlEl.style.display === 'none'; ctlOn = true; ctlTick();
+  __construct.place(-4.1, -.575); ctlTick();
+  r.dropped = !ctlEl.textContent.includes('HELD — DEBUG PAD');
+  window.__heldDiag = JSON.stringify(r);
+  return r.panel && r.clean && r.hid && r.dropped; })()`), await evl('window.__heldDiag'));
 
 console.log(`\n${pass} passed, ${fails.length} failed`); if (fails.length) { console.log('FAILED:', fails.join(' | ')); process.exit(1); }
 try { chrome.kill(); } catch {}
