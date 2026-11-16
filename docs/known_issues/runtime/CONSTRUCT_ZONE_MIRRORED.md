@@ -33,11 +33,23 @@ composite:
   the fx mirror stays the law for lone authoring-view assets (BLDG/BLOCK).
 - Row direction `Z0=(row−r0)·TILE` retained — verified against the
   west-facing in-game compass shot (r5 tenement reads LEFT in both).
+- **Follow-up (same session)**: lot positions were verified but each
+  building's FRONT sat on the wrong edge — barber signs read backwards
+  and poles/doors faced away from the street Unity uses. Root cause:
+  stasset fronts are authored on the z-min face in +x order; under
+  `flip:false`+`zFlip` that face lands block-interior. `stampSlots`
+  gained a `mir` flag that z-mirrors each stamp's CONTENT inside its
+  footprint (`f.vox[x + W·(y + H·(D−1−z))]`) — fronts move to the row+1
+  edge, text stays legible (an x-mirror was tried first and produced
+  mirror-writing). Verified against the `barber_shop` stasset (sign
+  glyphs at z 3–5, mat 123) and `StAssetReader`'s raw x-major decode.
 
 ## Verification
 - `probe_zone_west2.png` (camera east of the table looking west, matching
   the in-game W 271° pose): tenement far-left, barbers adjacent across
   the block seam, alley lane mid-block — matches the in-game frame.
+- `probe_zone_zmir_b42xl.png` close-up: `BARBER` sign reads correctly,
+  awning/door/pole on the street-facing facade.
 - `_pad_check` 16/16, `_noslice_verify` ALL PASS.
 
 ## Related Files

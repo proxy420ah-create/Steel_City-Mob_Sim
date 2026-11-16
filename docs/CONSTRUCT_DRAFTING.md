@@ -312,8 +312,18 @@ instead of `slots`/`name`; `mountModel` dispatches to `emitZone`.
   TOWARD row+1; under our grid that's the z-max side, so `stampSlots`'s
   `zFlip` mirrors the lot row footprint-aware (a 3-row tenement still
   spans the full interior; a 1-cell barber lands at the far edge).
-- **`flip:false` on the composite** — Unity's map loads chunks raw; the
-  editor's fx mirror is a lone-asset-view law only (BLDG/BLOCK keep it).
+- **`flip:false` on the composite positions** — Unity's map loads chunks
+  raw; the editor's fx mirror is a lone-asset-view law only (BLDG/BLOCK
+  keep it). BUT positions and content are separate laws: the zone call
+  passes `stampSlots`'s `mir` flag, which **z-mirrors each stamp's
+  content inside its own footprint** (`f.vox[x + W·(y + H·(D−1−z))]`).
+  Stasset fronts are authored on the z-min face reading in +x order
+  (verified on `barber_shop`: sign glyphs at z 3–5, mat 123). Under
+  `flip:false` + `zFlip` a front lands on the block-interior edge and
+  reads backwards — the `mir` z-flip moves it to the row+1 side where
+  Unity puts index-row0's facade, while text order and door/pole x
+  positions stay correct. An x-mirror was tried first and produced
+  mirror-writing — the z-mirror is the one that keeps letters legible.
 - **Slots stamp the live layout's assets** — `stasset` fields are full
   paths (`voxel_buildings/empty_land.stasset`); the loader takes the
   basename. `block_41` barber@2, `block_42` barber@0 + lane, `block_51`
