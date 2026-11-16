@@ -16,30 +16,29 @@
 `emitZone` carried the EDITOR's single-asset conventions into a map
 composite:
 
-1. `Z0 = (b.row - z.r0) * TILE` placed increasing layout rows toward +z.
-   Unity's `CityMap3D.cs` anchors blocks at
-   `(col−centerCol)·spacing → +x`, `−(row−centerRow)·spacing → −z` —
-   rows march NORTH (−z). Ours marched south.
-2. The whole zone inherited `emitVox`'s default fx x-mirror — correct for
-   a lone authored asset shown in the editor view, wrong for a layout:
+1. The zone inherited `emitVox`'s default fx x-mirror — correct for a
+   lone authored asset shown in the editor view, wrong for a layout:
    Unity's `VoxelChunkManager.LoadChunkCentered` renders map chunks raw
    (no `scale.x = −1`).
-3. Slots keyed by `s.slot`; Unity's `SectorBaker` positions buildings by
+2. Slots keyed by `s.slot`; Unity's `SectorBaker` positions buildings by
    array index — the JSON `slot` field is metadata.
-4. Seam edges were assigned to the pre-flip z frame — `n`/`s` had to swap
-   (`n` = the seam shared with row+1 now faces the z-min edge).
+3. Slot rows ran index-0 at the block's z-min edge — Unity puts
+   index-row0 on the edge TOWARD row+1.
 
 ## Fix
-- `emitZone`: `Z0 = (z.r1 − b.row)·TILE` (row↑ → −z); seams `n`/`s` swapped
-  to follow; `slots` keyed by `buildings[i]` array index.
+- `emitZone`: `slots` keyed by `buildings[i]` array index; `stampSlots`
+  gains a footprint-aware `zFlip` (index-row0 lands on the row+1 side —
+  the z-max edge under the `row↑→+z` grid).
 - The battlefield spec carries `flip:false` — map composites render raw;
   the fx mirror stays the law for lone authoring-view assets (BLDG/BLOCK).
+- Row direction `Z0=(row−r0)·TILE` retained — verified against the
+  west-facing in-game compass shot (r5 tenement reads LEFT in both).
 
 ## Verification
-- `_shot.mjs` aerial: tenement at the composite's NW corner (r5,c0 →
-  local −x,−z), barbers adjacent across the block seam, alley lane E-W
-  through block_42's middle index-row.
-- `_pad_check` 15/15, `_noslice_verify` ALL PASS, no page errors.
+- `probe_zone_west2.png` (camera east of the table looking west, matching
+  the in-game W 271° pose): tenement far-left, barbers adjacent across
+  the block seam, alley lane mid-block — matches the in-game frame.
+- `_pad_check` 16/16, `_noslice_verify` ALL PASS.
 
 ## Related Files
 - `docs/construct/03_tables.js` — `emitZone` + battlefield spec

@@ -299,15 +299,21 @@ instead of `slots`/`name`; `mountModel` dispatches to `emitZone`.
   one law for road halves, sidewalk rings, lot stamping, and lanes). Seams
   read the layout's `hSeamRows`/`vSeamRows` cells per block edge, so each
   tile's road stripes and corner ownership match the live map.
-- **Unity map frame**: blocks lay out `col→+x`, `row→−z` — CityMap3D's
-  `(col−c0)·spacing, −(row−r0)·spacing` anchor law. `emitZone` stamps
-  `Z0=(r1−row)·TILE` so the row-5 blocks sit at the composite's −z edge,
-  and `n`/`s` seam edges swap to follow (`n` = the seam shared with
-  row+1). The composite carries `flip:false` — Unity's map loads chunks
-  raw; the editor's fx mirror is a lone-asset-view law only.
+- **Unity map frame**: Unity anchors blocks `col→+x`, `row→−z`
+  (`CityMap3D`/`SectorBaker`) — but the in-game compass reads that −z
+  direction as the side the river (row 6, `terrain:'water'`) occupies,
+  and the west-facing in-game shot puts the r5 tenement LEFT. The room's
+  matching edge is **+z**, so `emitZone` stamps `Z0=(row−r0)·TILE` —
+  layout rows grow toward the room's door-side. `col→+x` lands the W
+  Quarter at the west (low-x) edge where its name belongs.
 - **Buildings position by array index** — `SectorBaker` grids
   `buildings[i]` (the JSON `slot` field is metadata), so `emitZone` keys
-  `slots[i]` the same way.
+  `slots[i]` the same way. Unity's index-row0 sits on the block edge
+  TOWARD row+1; under our grid that's the z-max side, so `stampSlots`'s
+  `zFlip` mirrors the lot row footprint-aware (a 3-row tenement still
+  spans the full interior; a 1-cell barber lands at the far edge).
+- **`flip:false` on the composite** — Unity's map loads chunks raw; the
+  editor's fx mirror is a lone-asset-view law only (BLDG/BLOCK keep it).
 - **Slots stamp the live layout's assets** — `stasset` fields are full
   paths (`voxel_buildings/empty_land.stasset`); the loader takes the
   basename. `block_41` barber@2, `block_42` barber@0 + lane, `block_51`

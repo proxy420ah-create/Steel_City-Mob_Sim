@@ -180,16 +180,17 @@ const fillBlockGround = (set, X0, Z0, seams, lanes, B = BLK) => { const { ROAD, 
    composite grid; the composite stride is W2, slab offset +2). Each explicit slot stamps its
    asset at its 64-voxel offset; a multi-slot asset marks every lot it covers; the rest take
    empty_land — the game's own vacant-lot tile. Returns the per-stamp rects for aim proxies. */
-const stampSlots = (vox, W2, H, files, slots, X0, Z0, B = BLK) => { const { S, BW, M } = B;
+const stampSlots = (vox, W2, H, files, slots, X0, Z0, B = BLK, zFlip = false) => { const { S, BW, M } = B;
   const covered = new Set();                                          // which lots does explicit content already own?
-  Object.entries(slots).forEach(([s, n]) => { const f = files[n], sc = +s % 3, sr = (+s / 3) | 0;
-    for (let r = sr; r < sr + f.D / S; r++) for (let c = sc; c < sc + f.W / S; c++) covered.add(r * 3 + c); });
+  const rOf = (s, f) => zFlip ? 3 - (s / 3 | 0) - f.D / S : (s / 3 | 0);  // Unity's index-row0 sits on the block edge TOWARD row+1 — under our row↑→+z grid that's the z-max side, so zone lots flip their row (footprint-aware: a 3-row tenement still spans 0..2)
+  Object.entries(slots).forEach(([s, n]) => { const f = files[n], sc = +s % 3, r0 = rOf(s, f);
+    for (let r = r0; r < r0 + f.D / S; r++) for (let c = sc; c < sc + f.W / S; c++) covered.add(r * 3 + c); });
   const stamped = [], stamp = (f, sx, sz) => {
     stamped.push({ x: X0 + M + sx, z: Z0 + M + sz, w: Math.min(f.W, BW - sx), d: Math.min(f.D, BW - sz), h: f.H });
     for (let z = 0; z < f.D && sz + z < BW; z++)
       for (let y = 0; y < f.H; y++) for (let x = 0; x < f.W && sx + x < BW; x++) {
         const id = f.vox[x + f.W * (y + f.H * z)]; if (id) vox[(X0 + M + sx + x) + W2 * (y + 2 + H * (Z0 + M + sz + z))] = id; } };
-  for (let s = 0; s < 9; s++) { const n = slots[s]; if (n) stamp(files[n], (s % 3) * S, ((s / 3) | 0) * S); }
+  for (let s = 0; s < 9; s++) { const n = slots[s]; if (n) { const f = files[n]; stamp(f, (s % 3) * S, rOf(s, f) * S); } }
   for (let s = 0; s < 9; s++) if (!covered.has(s) && !slots[s]) stamp(files['empty_land'], (s % 3) * S, ((s / 3) | 0) * S);
   return stamped; };
 /* roadProf — the street's own geometry, measured off the composite's column tops: the
@@ -463,12 +464,12 @@ const emitZone = (t, m) => { const { M, TILE } = BLK, z = m.zone;
       const hAt = (r, c) => (r >= 0 && r < L.hSeamRows.length && c >= 0 && c < L.hSeamRows[r].cells.length) ? L.hSeamRows[r].cells[c] : 'road';
       const vAt = (r, c) => (r >= 0 && r < L.vSeamRows.length && c >= 0 && c < L.vSeamRows[r].cells.length) ? L.vSeamRows[r].cells[c] : 'road';
       const stamped = [];
-      blks.forEach(b => { const X0 = (b.col - z.c0) * TILE, Z0 = (z.r1 - b.row) * TILE;   // Unity city map: col→+x, row→−z (rows march NORTH) — z.r1 sits at the grid's low-z edge
-        const seams = { n: hAt(b.row, b.col), e: vAt(b.row, b.col), s: hAt(b.row - 1, b.col), w: vAt(b.row, b.col - 1) },
+      blks.forEach(b => { const X0 = (b.col - z.c0) * TILE, Z0 = (b.row - z.r0) * TILE;   // Unity anchors row→−z in ITS world — but the in-game compass reads that as SOUTH-ward: our room's +z is the matching edge (verified vs the west-facing in-game shot: r5 tenement sits LEFT)
+        const seams = { n: hAt(b.row - 1, b.col), e: vAt(b.row, b.col), s: hAt(b.row, b.col), w: vAt(b.row, b.col - 1) },
           slots = {}, types = new Set(); b.buildings.forEach((s, i) => { slots[i] = stName(s); types.add(s.type); });   // Unity positions buildings by ARRAY INDEX (slot field is metadata)
         const lanes = (types.has('alley_lane') ? 10 : 0) | (types.has('alley_lane_ns') ? 5 : 0);   // a lane slot IS the cut — the stasset is an empty placeholder; the mouth+cross-section draw in the ground recipe
         fillBlockGround(set, X0, Z0, seams, lanes);
-        stamped.push(...stampSlots(vox, W2, H, files, slots, X0, Z0)); });
+        stamped.push(...stampSlots(vox, W2, H, files, slots, X0, Z0, BLK, true)); });   // zFlip — slot rows order toward row+1 (Unity's index-row0 side), which under row↑→+z is the z-max edge
       return emitVox(t, m, W2, H, D2, vox).then(miniG => {
         if (miniG) { const mn = miniG.userData.mini, vs = mn.vs;
           miniG.add(hitProxy(W2 * vs, 2 * vs, D2 * vs, 0, vs, 0));               // ground plate — roads/lots aim at slab top
