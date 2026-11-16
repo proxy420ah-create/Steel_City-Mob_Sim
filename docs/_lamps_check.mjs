@@ -54,6 +54,17 @@ check('off — void restored to VOID cream', await evl('scene.background.getHex(
 check('state persisted — dvm_lights=0', await evl('localStorage.getItem("dvm_lights") === "0"'));
 await evl('__lamps.set(true)');
 check('back on — dvm_lights=1', await evl('localStorage.getItem("dvm_lights") === "1" && __lamps.on() === true'));
+
+/* shades — the fixture meshes hide alone; the light keeps pooling */
+await evl('__lamps.setShades(false)');
+await sleep(300);
+const shadesOff = JSON.parse(await evl('JSON.stringify({ v: __lamps.fixtureVisible(), spots: (() => { const s = []; scene.traverse(o => { if (o.isSpotLight && o.distance === 4) s.push(o.intensity); }); return s; })() })'));
+check('shades OFF — all four fixtures hidden, spots still lit', shadesOff.v.length === 4 && shadesOff.v.every(x => x === false) && shadesOff.spots.every(i => i > 0), JSON.stringify(shadesOff));
+check('room still dimmed with shades hidden', await evl('scene.background.getHex() === 0x13141c'));
+check('shades persisted — dvm_shades=0', await evl('localStorage.getItem("dvm_shades") === "0"'));
+await evl('__lamps.setShades(true)');
+check('shades back on — fixtures visible', await evl('__lamps.shades() === true && __lamps.fixtureVisible().every(x => x === true)'));
+check('two rockers — second INTERACT on the plate', await evl('INTERACT.filter(i => Math.abs(i.x + 3.04) < .01 && i.r <= .3).length === 2'));
 const errs = JSON.parse(await evl('JSON.stringify((window.__errs || []).slice(0, 5))'));
 check('no page errors', !(errs && errs.length), JSON.stringify(errs));
 console.log(fails.length ? 'FAILURES: ' + JSON.stringify(fails) : 'ALL PASS');

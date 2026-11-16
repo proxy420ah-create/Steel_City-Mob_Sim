@@ -474,14 +474,17 @@ main-room **rotator** — parented to `spinG` (`carG` is what spins; the
 lamp must not ride it), aim dropped to deck level so the touring turns
 inside a fixed museum pool like the tables' exhibits.
 
-**The switch.** A dark plate + proud rocker nub + tell-pip scenery group on
-the annex face of the interior wall at `(-3.04, .5, -1.6)`, just north of
-the door jamb — you flip it walking in. The `.03`-thick plate stands 1.5cm
-off the wall face (a coplanar back face z-fought and washed out against the
-cream); the nub protrudes ~15mm and rocks ±.4; the pip swaps
-`0x7fd4ff ↔ 0x3a3a4a`. Registered as an `INTERACT` entry `{isBtn:true, r:.8}`
-→ aim-**E** and LMB both fire it; the prompt reads `E — LIGHTS UP` /
-`E — EXHIBIT LIGHTS`.
+**The switch — a double rocker.** A wide dark plate on the annex face of
+the interior wall at `(-3.04, .5, -1.6)`, just north of the door jamb —
+you flip it walking in. The `.03`-thick plate stands 1.5cm off the wall
+face (a coplanar back face z-fought and washed out against the cream). TWO
+proud rockers side by side, each an `INTERACT` entry `{isBtn:true, r:.3}`
+±.07 in z — nearest-wins disambiguates which rocker your approach owns;
+aim-**E** and LMB both fire: **north rocker = LIGHTS** (the dim law, cyan
+pip `0x7fd4ff`), **south rocker = SHADES** (amber pip `0xffcf6a`) —
+shows/hides the pendant fixture meshes *only*. The two are independent:
+light on + shades off = dark room, warm pools on the exhibits, invisible
+sources. States persist separately (`dvm_lights`, `dvm_shades`).
 
 **The dim law — it dims the VOID, not just the lights.** The room's piercing
 wash was never the lamps: `scene.background`, `scene.fog`, and the shared
