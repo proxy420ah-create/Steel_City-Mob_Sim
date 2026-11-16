@@ -10,105 +10,87 @@
    center-aim + E/click rides the same promptIt machinery as the kiosk/wall panel. */
 /* Pad pages — a page is registry data {tab, draw}: the tab strip GENERATES itself from the
    registry, and the trailing ≡ opens the APPS menu — a tile per page, so overflow never crowds
-   the strip. New tools = a PAD_PAGES entry + optional page regions; the chrome never changes. */
+   the strip. v2 — per-table tabs (BLDG/BLOCK/ZONE) own every table-scoped control; the
+   proximity remote is gone — the tab IS the binding. Bands share a fixed grid:
+   captions at 100/156/212/268, button rows at 104/160/216/272. */
+const TAB_TABLE = { bldg: 'primary', block: 'block', zone: 'studio' };
+const PHOS = '#39ff8e', DIMTX = '#46525e', CREAM = '#d8d2c4', CYTX = '#35d5ff';      // Construct cyberdeck palette — phosphor readouts are the Matrix nod
+const drawTbl = (g, sid, tab) => {                                                 // shared per-table page: title + status + band captions
+  const t = TABLES.find(q => q.spec.id === sid); if (!t) return;
+  const cur = t.spec.models[0], mdl = t.g.children.find(c => c.userData.mini && !c.userData.mini.static),
+    mn = mdl && mdl.userData.mini;
+  g.fillStyle = CREAM; g.font = 'bold 15px monospace';
+  g.fillText(tab + ' — ' + t.spec.id.toUpperCase() + ' TABLE', 256, 52);
+  const st = [(cur ? cur.name.replace(/_/g, ' ') : '—').toUpperCase(),
+    'LIFT +' + t.lift.toFixed(2),
+    mn && mn.spin ? (mn.spin < 0 ? '◀' : '▶') + Math.round(Math.abs(mn.spin) * 180 / Math.PI) + '°/s' : null,
+    t.spec.noSlice ? 'SLICE LOCKED' : (mn ? 'SLICE ' + (mn.axis || 'y').toUpperCase() + ' ' + mn.slice[mn.axis || 'y'].join('–') : null)]
+    .filter(Boolean).join('  ·  ');
+  g.fillStyle = PHOS; g.font = '12px monospace'; g.fillText(st, 256, 74);
+  g.fillStyle = DIMTX; g.font = '10px monospace';
+  g.fillText('MODEL', 256, 100); g.fillText('SPIN', 256, 156);
+  g.fillText(t.spec.noSlice ? 'SLICE — STREET MODEL, ROADS STAY WHOLE' : 'SLICE', 256, 212); g.fillText('LIFT', 256, 268); };
 const PAD_PAGES = {
-  model: { tab: 'MODEL', draw: (g, { t, cat, cur, idx }) => {
-    g.fillStyle = '#cfc8b0'; g.font = '16px monospace';
-    g.fillText('MODEL — ' + (t ? t.spec.id.toUpperCase() : '—') + (idx >= 0 ? '   ' + (idx + 1) + '/' + cat.length : ''), 256, 96);
-    g.fillStyle = '#e8d9b0'; g.font = 'bold 24px monospace';
-    g.fillText(cur ? cur.name.replace(/_/g, ' ').toUpperCase() : '…', 256, 196);
-    g.fillStyle = '#5b5648'; g.font = '13px monospace'; g.fillText('RMB tap — cursor · E — place', 256, 312); } },
-  rot: { tab: 'ROT', draw: (g, { t, mn }) => {
-    g.fillStyle = '#cfc8b0'; g.font = '16px monospace'; g.fillText('TURNTABLE — ' + (t ? t.spec.id.toUpperCase() : '—'), 256, 96);
-    const degs = mn ? Math.round(Math.abs(mn.spin) * 180 / Math.PI) : 0;
-    g.fillStyle = '#e8d9b0'; g.font = 'bold 22px monospace';
-    g.fillText(mn && mn.spin ? (mn.spin < 0 ? '◀ ' : '▶ ') + degs + '°/s' : 'STOPPED', 256, 266); } },
-  slice: { tab: 'SLICE', draw: (g, { t, mn }) => {
-    if (t && t.spec.noSlice) {                                                   // street tables don't slice — the measured lane law needs whole roads
-      g.fillStyle = '#cfc8b0'; g.font = '16px monospace'; g.fillText('SLICE — ' + t.spec.id.toUpperCase(), 256, 146);
-      g.fillStyle = '#e8d9b0'; g.font = 'bold 20px monospace'; g.fillText('LOCKED — STREET MODEL', 256, 226);
-      g.fillStyle = '#5b5648'; g.font = '13px monospace'; g.fillText('roads must stay whole for the cars', 256, 266); return; }
-    const ax = mn ? (mn.axis || 'y') : 'y', s = mn ? mn.slice[ax] : [0, 0], dim = mn ? mn.dims['xyz'.indexOf(ax)] : 0;
-    g.fillStyle = '#cfc8b0'; g.font = '16px monospace';
-    g.fillText('SLICE — ' + (t ? t.spec.id.toUpperCase() : '—') + '   ' + ax.toUpperCase() + '   0–' + (dim - 1), 256, 146);
-    g.fillStyle = '#e8d9b0'; g.font = 'bold 20px monospace';
-    g.fillText('MIN   ' + s[0], 256, 186); g.fillText('MAX   ' + s[1], 256, 261); } },
-  table: { tab: 'LIFT', draw: (g, { t }) => {
-    g.fillStyle = '#cfc8b0'; g.font = '16px monospace'; g.fillText('PISTON LIFT — ' + (t ? t.spec.id.toUpperCase() : '—'), 256, 96);
-    g.fillStyle = '#e8d9b0'; g.font = 'bold 22px monospace';
-    g.fillText('TOP  ' + (t ? tableTop(t).toFixed(2) : '—') + 'm   ·   LIFT +' + (t ? t.lift.toFixed(2) : '0.00'), 256, 266);
-    g.fillStyle = '#5b5648'; g.font = '13px monospace'; g.fillText('eye .55 — raise past it to look up · drops to the floor', 256, 312); } },
+  bldg:  { tab: 'BLDG',  draw: g => drawTbl(g, 'primary', 'BLDG') },
+  block: { tab: 'BLOCK', draw: g => drawTbl(g, 'block', 'BLOCK') },
+  zone:  { tab: 'ZONE',  draw: g => drawTbl(g, 'studio', 'ZONE') },
   deck: { tab: 'DECK', draw: g => {
-    g.fillStyle = '#cfc8b0'; g.font = '16px monospace'; g.fillText('SHOP LIFT — ' + (spinning ? 'TURNING' : 'HELD'), 256, 96);
-    g.fillStyle = '#e8d9b0'; g.font = 'bold 22px monospace';
-    g.fillText('LIFT +' + spinG.position.y.toFixed(2) + 'm   ·   ' +
-      (spinning ? (SPIN_RATE < 0 ? '◀ ' : '▶ ') + Math.round(Math.abs(SPIN_RATE) * 180 / Math.PI) + '°/s' : 'HELD'), 256, 266);
-    g.fillStyle = '#5b5648'; g.font = '13px monospace'; g.fillText('raise it — work the car at eye level', 256, 312); } },
+    g.fillStyle = CREAM; g.font = 'bold 15px monospace'; g.fillText('SHOP LIFT — ' + (spinning ? 'TURNING' : 'HELD'), 256, 52);
+    g.fillStyle = PHOS; g.font = '12px monospace';
+    g.fillText('LIFT +' + spinG.position.y.toFixed(2) + 'm  ·  ' +
+      (spinning ? (SPIN_RATE < 0 ? '◀' : '▶') + Math.round(Math.abs(SPIN_RATE) * 180 / Math.PI) + '°/s' : 'HELD'), 256, 74);
+    g.fillStyle = DIMTX; g.font = '10px monospace'; g.fillText('SPIN', 256, 156); g.fillText('LIFT', 256, 212); g.fillText('QUICK', 256, 268); } },
   lamp: { tab: 'LAMP', draw: g => { const T = window.__torch;
-    g.fillStyle = '#cfc8b0'; g.font = '16px monospace'; g.fillText('INSPECTION TORCH — ' + (T.on ? 'ON' : 'OFF'), 256, 96);
-    g.fillStyle = '#e8d9b0'; g.font = 'bold 20px monospace';
-    g.fillText('PWR ' + TC.i.toFixed(1) + '   FILL ' + TC.f.toFixed(1) + '   ' + ['TIGHT', 'MID', 'WIDE'][TC.a], 256, 124);
-    TORCH_COLS.forEach((c, i) => { g.fillStyle = '#' + c.toString(16).padStart(6, '0');   // a chip of each swatch's true color
-      g.fillRect(22 + i * 100, 258, 78, 7); });
-    g.fillStyle = '#5b5648'; g.font = '13px monospace'; g.fillText('L — key toggle · the tune persists (dvm_torch)', 256, 312); } },
+    g.fillStyle = CREAM; g.font = 'bold 15px monospace'; g.fillText('INSPECTION TORCH — ' + (T.on ? 'ON' : 'OFF'), 256, 52);
+    g.fillStyle = PHOS; g.font = '12px monospace';
+    g.fillText('PWR ' + TC.i.toFixed(1) + '  FILL ' + TC.f.toFixed(1) + '  ' + ['TIGHT', 'MID', 'WIDE'][TC.a], 256, 74);
+    g.fillStyle = DIMTX; g.font = '10px monospace'; g.fillText('OUTPUT', 256, 156); g.fillText('TINT', 256, 212); g.fillText('CONFIG', 256, 268); } },
   apps: { tab: '≡', draw: g => {
-    g.fillStyle = '#cfc8b0'; g.font = '16px monospace'; g.fillText('ALL TOOLS', 256, 96);
-    g.fillStyle = '#5b5648'; g.font = '13px monospace'; g.fillText('tap a tile — pages keep their state', 256, 312); } },
+    g.fillStyle = CREAM; g.font = 'bold 15px monospace'; g.fillText('ALL TOOLS', 256, 52);
+    g.fillStyle = DIMTX; g.font = '10px monospace'; g.fillText('tap a tile — pages keep their state', 256, 312); } },
 };
-let padPage = 'model';
-const PAD_REGIONS = [
-  { id: 'prev', page: 'model', x: 30,  y: 140, w: 90, h: 96, label: '◀ MODEL', glyph: '◀', fn: () => padSwap(-1) },
-  { id: 'next', page: 'model', x: 392, y: 140, w: 90, h: 96, label: 'MODEL ▶', glyph: '▶', fn: () => padSwap(1) },
-  { id: 'cars', page: 'model', x: 16,  y: 284, w: 96, h: 42, label: 'CARS', glyph: 'CARS', fs: 18, lit: () => blockTrf.on, fn: () => blockTrf.toggle(padTable()) },
-  { id: 'rll', page: 'rot', x: 16,  y: 140, w: 110, h: 96, label: 'SPIN ◀◀', glyph: '◀◀', fs: 34, rate: -.9,  fn: () => miniSpinSet(-.9) },
-  { id: 'rl',  page: 'rot', x: 140, y: 140, w: 110, h: 96, label: 'SPIN ◀',  glyph: '◀',  fs: 40, rate: -.25, fn: () => miniSpinSet(-.25) },
-  { id: 'rr',  page: 'rot', x: 264, y: 140, w: 110, h: 96, label: 'SPIN ▶',  glyph: '▶',  fs: 40, rate: .25,  fn: () => miniSpinSet(.25) },
-  { id: 'rrr', page: 'rot', x: 388, y: 140, w: 110, h: 96, label: 'SPIN ▶▶', glyph: '▶▶', fs: 34, rate: .9,   fn: () => miniSpinSet(.9) },
-  { id: 'rres', page: 'rot', x: 196, y: 284, w: 120, h: 42, label: 'ROT RESET', glyph: 'RESET', fs: 20, fn: () => miniRotReset() },
-  { id: 'lDD', page: 'table', x: 16,  y: 140, w: 110, h: 96, label: 'LOWER ▼▼', glyph: '▼▼', fs: 34, fn: () => tableLift(padTable(), -.08) },
-  { id: 'lD',  page: 'table', x: 140, y: 140, w: 110, h: 96, label: 'LOWER ▼',  glyph: '▼',  fs: 40, fn: () => tableLift(padTable(), -.02) },
-  { id: 'lR',  page: 'table', x: 264, y: 140, w: 110, h: 96, label: 'RAISE ▲',  glyph: '▲',  fs: 40, fn: () => tableLift(padTable(), .02) },
-  { id: 'lRR', page: 'table', x: 388, y: 140, w: 110, h: 96, label: 'RAISE ▲▲', glyph: '▲▲', fs: 34, fn: () => tableLift(padTable(), .08) },
-  { id: 'lres', page: 'table', x: 196, y: 284, w: 120, h: 42, label: 'LIFT RESET', glyph: 'RESET', fs: 20, fn: () => tableLiftSet(padTable(), 0) },
-  { id: 'dsll', page: 'deck', x: 16,  y: 140, w: 110, h: 64, label: 'SPIN ◀◀', glyph: '◀◀', fs: 30, lit: () => spinning && SPIN_RATE === -.9,  fn: () => spinCtl(-.9) },
-  { id: 'dsl',  page: 'deck', x: 140, y: 140, w: 110, h: 64, label: 'SPIN ◀',  glyph: '◀',  fs: 34, lit: () => spinning && SPIN_RATE === -.25, fn: () => spinCtl(-.25) },
-  { id: 'dsr',  page: 'deck', x: 264, y: 140, w: 110, h: 64, label: 'SPIN ▶',  glyph: '▶',  fs: 34, lit: () => spinning && SPIN_RATE === .25,  fn: () => spinCtl(.25) },
-  { id: 'dsrr', page: 'deck', x: 388, y: 140, w: 110, h: 64, label: 'SPIN ▶▶', glyph: '▶▶', fs: 30, lit: () => spinning && SPIN_RATE === .9,   fn: () => spinCtl(.9) },
-  { id: 'dLD',  page: 'deck', x: 16,  y: 212, w: 110, h: 60, label: 'LOWER ▼▼', glyph: '▼▼', fs: 30, fn: () => spinLiftStep(-.08) },
-  { id: 'dLd',  page: 'deck', x: 140, y: 212, w: 110, h: 60, label: 'LOWER ▼',  glyph: '▼',  fs: 34, fn: () => spinLiftStep(-.02) },
-  { id: 'dLu',  page: 'deck', x: 264, y: 212, w: 110, h: 60, label: 'RAISE ▲',  glyph: '▲',  fs: 34, fn: () => spinLiftStep(.02) },
-  { id: 'dLU',  page: 'deck', x: 388, y: 212, w: 110, h: 60, label: 'RAISE ▲▲', glyph: '▲▲', fs: 30, fn: () => spinLiftStep(.08) },
-  { id: 'dstp', page: 'deck', x: 16,  y: 284, w: 150, h: 42, label: 'SPIN ON/OFF', glyph: '⏻ SPIN', fs: 18, lit: () => spinning, fn: () => { spinning = !spinning; } },
-  { id: 'dres', page: 'deck', x: 196, y: 284, w: 120, h: 42, label: 'LIFT 0', glyph: 'LIFT 0', fs: 18, fn: () => spinLiftSet(0) },
-  { id: 'deye', page: 'deck', x: 388, y: 284, w: 110, h: 42, label: 'EYE LVL', glyph: 'EYE', fs: 18, fn: () => spinLiftSet(.45) },
-  { id: 'ax:x', page: 'slice', x: 116, y: 76, w: 90, h: 50, label: 'SLICE X', glyph: 'X', fs: 26, axis: 'x', fn: () => padAxisSet('x') },
-  { id: 'ax:y', page: 'slice', x: 211, y: 76, w: 90, h: 50, label: 'SLICE Y', glyph: 'Y', fs: 26, axis: 'y', fn: () => padAxisSet('y') },
-  { id: 'ax:z', page: 'slice', x: 306, y: 76, w: 90, h: 50, label: 'SLICE Z', glyph: 'Z', fs: 26, axis: 'z', fn: () => padAxisSet('z') },
-  { id: 'min-', page: 'slice', x: 30,  y: 150, w: 70, h: 60, label: 'MIN −', glyph: '◀', fn: () => miniSliceStep('min', -1) },
-  { id: 'min+', page: 'slice', x: 412, y: 150, w: 70, h: 60, label: 'MIN +', glyph: '▶', fn: () => miniSliceStep('min', 1) },
-  { id: 'max-', page: 'slice', x: 30,  y: 225, w: 70, h: 60, label: 'MAX −', glyph: '◀', fn: () => miniSliceStep('max', -1) },
-  { id: 'max+', page: 'slice', x: 412, y: 225, w: 70, h: 60, label: 'MAX +', glyph: '▶', fn: () => miniSliceStep('max', 1) },
-  { id: 'sres', page: 'slice', x: 196, y: 292, w: 120, h: 38, label: 'SLICE RESET', glyph: 'RESET', fs: 20, fn: () => miniSliceReset() },
-  { id: 'br-', page: 'lamp', x: 16,  y: 140, w: 110, h: 70, label: 'PWR −', glyph: 'PWR−', fs: 22, fn: () => torchCfg('i', -1) },
-  { id: 'br+', page: 'lamp', x: 140, y: 140, w: 110, h: 70, label: 'PWR +', glyph: 'PWR+', fs: 22, fn: () => torchCfg('i', 1) },
-  { id: 'fl-', page: 'lamp', x: 264, y: 140, w: 110, h: 70, label: 'FILL −', glyph: 'FIL−', fs: 22, fn: () => torchCfg('f', -.2) },
-  { id: 'fl+', page: 'lamp', x: 388, y: 140, w: 110, h: 70, label: 'FILL +', glyph: 'FIL+', fs: 22, fn: () => torchCfg('f', .2) },
-  { id: 'c0', page: 'lamp', x: 16,  y: 222, w: 90, h: 50, label: 'WARM', glyph: 'WARM', fs: 15, lit: () => TC.c === 0, fn: () => torchCfg('c', 0) },
-  { id: 'c1', page: 'lamp', x: 116, y: 222, w: 90, h: 50, label: 'DAY',  glyph: 'DAY',  fs: 15, lit: () => TC.c === 1, fn: () => torchCfg('c', 1) },
-  { id: 'c2', page: 'lamp', x: 216, y: 222, w: 90, h: 50, label: 'COOL', glyph: 'COOL', fs: 15, lit: () => TC.c === 2, fn: () => torchCfg('c', 2) },
-  { id: 'c3', page: 'lamp', x: 316, y: 222, w: 90, h: 50, label: 'RED',  glyph: 'RED',  fs: 15, lit: () => TC.c === 3, fn: () => torchCfg('c', 3) },
-  { id: 'c4', page: 'lamp', x: 416, y: 222, w: 90, h: 50, label: 'GRN',  glyph: 'GRN',  fs: 15, lit: () => TC.c === 4, fn: () => torchCfg('c', 4) },
-  { id: 'beam', page: 'lamp', x: 16,  y: 284, w: 96,  h: 42, label: 'BEAM', glyph: '◀BEAM▶', fs: 18, fn: () => torchCfg('a') },
-  { id: 'tgl',  page: 'lamp', x: 120, y: 284, w: 112, h: 42, label: 'ON/OFF', glyph: '⏻ TORCH', fs: 16, lit: () => window.__torch.on, fn: () => window.__torch.setOn(!window.__torch.on) },
-  { id: 'tres', page: 'lamp', x: 416, y: 284, w: 80,  h: 42, label: 'RESET', glyph: 'RESET', fs: 16, fn: () => torchReset() },
-];
+let padPage = 'bldg';
+const PAD_REGIONS = [];
+const padR = o => PAD_REGIONS.push(o);
+Object.keys(TAB_TABLE).forEach(pid => {                                            // per-table bands — every control the table owns, no proximity
+  padR({ id: pid + ':prev', page: pid, x: 16,  y: 104, w: 48, h: 40, label: '◀', glyph: '◀', fs: 20, fn: () => padSwap(-1) });
+  padR({ id: pid + ':next', page: pid, x: 448, y: 104, w: 48, h: 40, label: '▶', glyph: '▶', fs: 20, fn: () => padSwap(1) });
+  if (pid === 'block') padR({ id: 'block:cars', page: 'block', x: 216, y: 104, w: 80, h: 40, label: 'CARS', glyph: 'CARS', fs: 12,
+    lit: () => blockTrf.on, fn: () => blockTrf.toggle(padTable()) });
+  [[-.9, '◀◀'], [-.25, '◀'], [.25, '▶'], [.9, '▶▶']].forEach(([v, gl], i) =>
+    padR({ id: pid + ':sp' + i, page: pid, x: 16 + i * 124, y: 160, w: 110, h: 40, label: 'SPIN ' + gl, glyph: gl, fs: 20,
+      lit: () => { const m = padMini(); return m && m.spin === v; }, fn: () => miniSpinSet(v) }));
+  ['x', 'y', 'z'].forEach((ax, i) =>
+    padR({ id: pid + ':ax' + ax, page: pid, slice: true, x: 16 + i * 48, y: 216, w: 40, h: 40, label: 'SLICE ' + ax.toUpperCase(), glyph: ax.toUpperCase(), fs: 16, axis: ax, fn: () => padAxisSet(ax) }));
+  [['MIN−', 'min', -1], ['MIN+', 'min', 1], ['MAX−', 'max', -1], ['MAX+', 'max', 1]].forEach(([gl, bd, d], i) =>
+    padR({ id: pid + ':sl' + i, page: pid, slice: true, x: 168 + i * 72, y: 216, w: 62, h: 40, label: 'SLICE ' + gl, glyph: gl, fs: 12, fn: () => miniSliceStep(bd, d) }));
+  padR({ id: pid + ':sres', page: pid, slice: true, x: 452, y: 216, w: 44, h: 40, label: 'RESET', glyph: 'RST', fs: 11, fn: () => miniSliceReset() });
+  [['▼▼', -.08], ['▼', -.02], ['▲', .02], ['▲▲', .08]].forEach(([gl, d], i) =>
+    padR({ id: pid + ':lf' + i, page: pid, x: 16 + i * 100, y: 272, w: 92, h: 40, label: 'LIFT ' + gl, glyph: gl, fs: 20, fn: () => tableLift(padTable(), d) }));
+  padR({ id: pid + ':lres', page: pid, x: 416, y: 272, w: 80, h: 40, label: 'RESET', glyph: 'RST', fs: 11, fn: () => tableLiftSet(padTable(), 0) });
+});
+[[-.9, '◀◀'], [-.25, '◀'], [.25, '▶'], [.9, '▶▶']].forEach(([v, gl], i) =>              // DECK — shop-lift spin
+  padR({ id: 'd:sp' + i, page: 'deck', x: 16 + i * 124, y: 160, w: 110, h: 40, label: 'SPIN ' + gl, glyph: gl, fs: 20,
+    lit: () => spinning && SPIN_RATE === v, fn: () => spinCtl(v) }));
+[['▼▼', -.08], ['▼', -.02], ['▲', .02], ['▲▲', .08]].forEach(([gl, d], i) =>           // DECK — shop-lift raise/lower
+  padR({ id: 'd:lf' + i, page: 'deck', x: 16 + i * 124, y: 216, w: 110, h: 40, label: 'LIFT ' + gl, glyph: gl, fs: 20, fn: () => spinLiftStep(d) }));
+padR({ id: 'd:stp', page: 'deck', x: 16,  y: 272, w: 150, h: 40, label: 'SPIN',   glyph: '⏻ SPIN', fs: 13, lit: () => spinning, fn: () => { spinning = !spinning; } });
+padR({ id: 'd:res', page: 'deck', x: 196, y: 272, w: 120, h: 40, label: 'LIFT 0', glyph: 'LIFT 0', fs: 13, fn: () => spinLiftSet(0) });
+padR({ id: 'd:eye', page: 'deck', x: 388, y: 272, w: 110, h: 40, label: 'EYE',    glyph: 'EYE',    fs: 13, fn: () => spinLiftSet(.45) });
+[['PWR−', 'i', -1], ['PWR+', 'i', 1], ['FIL−', 'f', -.2], ['FIL+', 'f', .2]].forEach(([gl, k, d], i) =>   // LAMP — output
+  padR({ id: 'l:o' + i, page: 'lamp', x: 16 + i * 124, y: 160, w: 110, h: 40, label: gl, glyph: gl, fs: 14, fn: () => torchCfg(k, d) }));
+TORCH_COLS.forEach((c, i) =>                                                        // LAMP — tint
+  padR({ id: 'l:c' + i, page: 'lamp', x: 16 + i * 96, y: 216, w: 88, h: 40, label: 'TINT', glyph: ['WARM', 'DAY', 'COOL', 'RED', 'GRN'][i], fs: 12, lit: () => TC.c === i, fn: () => torchCfg('c', i) }));
+padR({ id: 'l:beam', page: 'lamp', x: 16,  y: 272, w: 150, h: 40, label: 'BEAM',  glyph: '◀BEAM▶',  fs: 13, fn: () => torchCfg('a') });
+padR({ id: 'l:tgl',  page: 'lamp', x: 196, y: 272, w: 120, h: 40, label: 'TORCH', glyph: '⏻ TORCH', fs: 13, lit: () => window.__torch.on, fn: () => window.__torch.setOn(!window.__torch.on) });
+padR({ id: 'l:res',  page: 'lamp', x: 388, y: 272, w: 110, h: 40, label: 'RESET', glyph: 'RESET',   fs: 13, fn: () => torchReset() });
 const padTabIds = Object.keys(PAD_PAGES).filter(id => PAD_PAGES[id].tab);
-padTabIds.forEach((id, i) => { const w = 496 / padTabIds.length;                // the strip builds itself — a new page gets its tab for free
-  PAD_REGIONS.push({ id: 'tab:' + id, tab: id, x: 8 + i * w, y: 10, w: w - 5, h: 44,
-    label: PAD_PAGES[id].tab, glyph: PAD_PAGES[id].tab, fs: 20, fn: () => padPageSet(id) }); });
-padTabIds.forEach((id, i) => {                                                 // the APPS menu — a launch tile per page
-  PAD_REGIONS.push({ id: 'app:' + id, page: 'apps', x: 16 + (i % 3) * 166, y: 80 + ((i / 3) | 0) * 84, w: 150, h: 76,
-    label: 'OPEN ' + PAD_PAGES[id].tab, glyph: PAD_PAGES[id].tab, fs: 22, fn: () => padPageSet(id) }); });
+padTabIds.forEach((id, i) => { const w = 496 / padTabIds.length;                    // the strip builds itself — a new page gets its tab for free
+  padR({ id: 'tab:' + id, tab: id, x: 8 + i * w, y: 8, w: w - 5, h: 30,
+    label: PAD_PAGES[id].tab, glyph: PAD_PAGES[id].tab, fs: 13, fn: () => padPageSet(id) }); });
+padTabIds.forEach((id, i) => {                                                     // the APPS menu — a launch tile per page
+  padR({ id: 'app:' + id, page: 'apps', x: 16 + (i % 3) * 166, y: 80 + ((i / 3) | 0) * 84, w: 150, h: 76,
+    label: 'OPEN ' + PAD_PAGES[id].tab, glyph: PAD_PAGES[id].tab, fs: 16, fn: () => padPageSet(id) }); });
 const padSwap = dir => { const t = padTable(); if (!t) return;
   const cat = t.spec.catalog || t.spec.models, cur = t.spec.models[0],
     i = cat.findIndex(m => m.name === (cur && cur.name)), next = cat[(i + dir + cat.length) % cat.length];
@@ -120,34 +102,30 @@ let padRec = null, padScr = null, padEdgeMat = null, padFocus = false, padHover 
 const padPageSet = id => { padPage = id; padHover = null; padPressId = null; padDraw(); };
 const padAxisSet = ax => { const t = padTable(), mdl = t && t.g.children.find(c => c.userData.mini && !c.userData.mini.static);
   if (mdl && !(t && t.spec.noSlice)) mdl.userData.mini.axis = ax; padDraw(); };
-/* padTable — the pad is a remote for its NEAREST table: its own position is the truth
-   (held → follows your hand; placed → bound to the table it rests/hangs beside). */
-const padTable = () => { const pp = padRec ? padRec.g.position : pos;
-  let best = TABLES[0], bd = Infinity;
-  TABLES.forEach(t => { const d = Math.hypot(t.rec.x - pp.x, t.rec.z - pp.z); if (d < bd) { bd = d; best = t; } });
-  return best; };
+/* padTable — the pad's table is the TAB's table: BLDG/BLOCK/ZONE own their controls outright,
+   no proximity binding (the remote-for-nearest model died with the generic pages).
+   Non-table tabs (deck/lamp/apps) fall back to primary for harmless status reads. */
+const padTable = () => TABLES.find(t => t.spec.id === (TAB_TABLE[padPage] || 'primary')) || TABLES[0];
 const padMini = () => { const t = padTable(), mdl = t && t.g.children.find(c => c.userData.mini && !c.userData.mini.static);
   return mdl ? mdl.userData.mini : null; };
-const padDraw = () => { const g = padCv.getContext('2d'), t = padTable(),
-    cat = t ? (t.spec.catalog || t.spec.models) : [], cur = t && t.spec.models[0],
-    idx = cur ? cat.findIndex(m => m.name === cur.name) : -1, mn = padMini();
-  g.fillStyle = '#101218'; g.fillRect(0, 0, 512, 340);
-  g.strokeStyle = '#3a3a4a'; g.lineWidth = 6; g.strokeRect(3, 3, 506, 334);
+const padDraw = () => { const g = padCv.getContext('2d'), t = padTable(), mn = padMini();
+  g.fillStyle = '#07090c'; g.fillRect(0, 0, 512, 340);                              // cyberdeck — near-black glass, hairline frame
+  g.strokeStyle = '#22303a'; g.lineWidth = 2; g.strokeRect(2, 2, 508, 336);
   g.textAlign = 'center';
   const btn = r => { const hov = padHover === r.id, pr = padPressId === r.id,
-      on = (r.tab && r.tab === padPage) || (r.axis && mn && mn.axis === r.axis) || (r.rate !== undefined && mn && mn.spin === r.rate) || (r.lit && r.lit());
-    g.fillStyle = pr ? '#2a3d4a' : on ? '#1e2e38' : hov ? '#1d2733' : '#14161c'; g.fillRect(r.x, r.y, r.w, r.h);
-    g.strokeStyle = on || hov ? '#7fd4ff' : '#3a3a4a'; g.lineWidth = 4; g.strokeRect(r.x + 2, r.y + 2, r.w - 4, r.h - 4);
-    g.fillStyle = pr || on ? '#7fd4ff' : '#5b5648'; g.font = 'bold ' + (r.fs || 40) + 'px monospace';
-    g.fillText(r.glyph, r.x + r.w / 2, r.y + r.h / 2 + (r.fs ? r.fs * .36 : 14)); };
-  PAD_REGIONS.filter(r => r.tab || (r.page === padPage && !(t && t.spec.noSlice && r.page === 'slice'))).forEach(btn);
-  const pg = PAD_PAGES[padPage]; if (pg && pg.draw) pg.draw(g, { t, cat, cur, idx, mn });
+      on = (r.tab && r.tab === padPage) || (r.axis && mn && mn.axis === r.axis) || (r.lit && r.lit());
+    g.fillStyle = pr ? '#1b2f3c' : on ? '#12242e' : hov ? '#16212a' : '#0d1217'; g.fillRect(r.x, r.y, r.w, r.h);
+    g.strokeStyle = on || hov ? CYTX : '#22303a'; g.lineWidth = 2; g.strokeRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2);
+    g.fillStyle = pr || on ? CYTX : hov ? CREAM : '#5b6874'; g.font = 'bold ' + (r.fs || 16) + 'px monospace';
+    g.fillText(r.glyph, r.x + r.w / 2, r.y + r.h / 2 + (r.fs ? r.fs * .36 : 6)); };
+  PAD_REGIONS.filter(r => r.tab || (r.page === padPage && !(r.slice && t && t.spec.noSlice))).forEach(btn);
+  const pg = PAD_PAGES[padPage]; if (pg && pg.draw) pg.draw(g, { t, mn });
   padTex.needsUpdate = true; };
 const padPress = r => { padPressId = r.id; padDraw(); r.fn();
   setTimeout(() => { padPressId = null; padDraw(); }, 160); };
 const padUvRegion = uv => { if (!uv) return null;
   const px = uv.x * 512, py = (1 - uv.y) * 340, noSl = !!(padTable() && padTable().spec.noSlice);
-  return PAD_REGIONS.find(r => (r.tab || (r.page === padPage && !(noSl && r.page === 'slice')))
+  return PAD_REGIONS.find(r => (r.tab || (r.page === padPage && !(noSl && r.slice)))
     && px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) || null; };
 const padSetHover = r => { const id = r ? r.id : null; if (id !== padHover) { padHover = id; padDraw(); } };
 const padHudEl = document.createElement('div');

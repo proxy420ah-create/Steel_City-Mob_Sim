@@ -39,6 +39,14 @@ they are contract traps, not code bugs, and they bite again the moment they're f
   `VOID` cream + house intensities, and `dvm_lights` persists both ways.
 - `_lamps_shot.mjs` — visual capture: door-channel + wide annex shots with
   lamps on, and the restored bright void with lamps off (`probe_lamps_*.png`).
+- `_pad_check.mjs` — the pad-v2 law: BLDG/BLOCK/ZONE tabs exist and bind their
+  tables by TAB (not proximity — the eye can sit anywhere), generic pages gone,
+  every region inside 512×340 with zero pairwise overlap, slice band hidden on
+  street tabs (uv-filtered), CARS only on BLOCK, spin/lift/swap presses bind the
+  tab's table, DECK still owns the shop lift.
+- `_pad_shot.mjs` — visual capture: dumps the pad canvas per page
+  (`probe_pad_<page>.png`) — layout/overlap/font review without squinting at
+  the 3D slab.
 
 > **File layout:** the page body is `docs/construct/01_shell.js` … `17_lamps.js` —
 > classic `<script defer>` siblings sharing one page-wide scope, load order = old

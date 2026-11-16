@@ -207,7 +207,7 @@ miniature carries its streets, not just its buildings:
   coords once wrote a name-shared `dvm_place` override that stamped onto
   the spinner — `PARKED_REC_NAME_OVERRIDE_DISPLACEMENT.md`). The block
   table carries two — south street `along` 160, west street `along` 140.
-- **`CARS` (MODEL page) — the curbside cruise.** `blockTrf` laps the table's
+- **`CARS` (BLOCK tab) — the curbside cruise.** `blockTrf` laps the table's
   parked cars around the block: pull out of the slot, circulate the
   right-of-travel lanes, pull back in and restore the exact `_slot` pose.
   The circuit is the MEASURED street — `roadProf`'s per-edge band then the
@@ -356,58 +356,60 @@ input modes:
   Skipped while the pad is held — you can't aim at your own hand.
 
 Probes are unconditional (`kb || db`) so canvas hover state can't freeze;
-ghost wires gate per-panel (`btn.panel`). MODEL page drives `mountModel`.
+ghost wires gate per-panel (`btn.panel`). The table tabs drive `mountModel`.
 
-**The pad is a remote for its nearest table.** `padTable()` resolves the pad's
-position (held → your hand; placed → where it sits/hangs) to the closest table's
-rec — every MODEL/ROT/SLICE/LIFT verb drives THAT table. Each page title reads
-its target (`TURNTABLE — BLOCK`). Rest the pad on the block table's felt and it
-drives the block; carry it back to the primary and it drives the primary —
-the same pad is both tables' panel.
+**The tab is the binding — no proximity remote.** `TAB_TABLE` maps
+`bldg→primary`, `block→block`, `zone→studio`, and `padTable()` resolves THE
+ACTIVE TAB'S table. Every table-scoped verb (`padSwap`, `miniSpinSet`,
+`miniSliceStep`, `padAxisSet`, `tableLift`, `blockTrf.toggle`) reads
+`padTable()` — so a control can never ambush the wrong exhibit no matter where
+the pad rests or hangs. Where the pad sits is placement; what it drives is the
+tab you pressed.
 
-## Pad pages — the registry, tabs, and the ≡ menu
+## Pad pages — table tabs, the registry, and the ≡ menu
 
 The face is paged, and **a page is data**: `PAD_PAGES` is an ordered registry
-`{id: {tab, draw(g, ctx)}}`. The tab strip **generates itself** from the
-registry — `MODEL | ROT | SLICE | LIFT | ≡` — and the trailing `≡` opens the
-APPS menu, a launch tile per page so the strip never crowds as tools grow.
-`padPage` state + `padUvRegion`/`padDraw` scope regions to `r.tab || r.page ===
+`{id: {tab, draw}}`. The tab strip **generates itself** from the registry —
+`BLDG | BLOCK | ZONE | DECK | LAMP | ≡` — and the trailing `≡` opens the APPS
+menu, a launch tile per page so the strip never crowds as tools grow.
+`padPage` + `padUvRegion`/`padDraw` scope regions to `r.tab || r.page ===
 padPage` — a page switch costs a `padDraw` and nothing else. New tools are a
 `PAD_PAGES` entry + optional `{page: id}` regions; the chrome never changes.
 
-- **LIFT — the piston page.** Two speeds each way (`▼▼ ▼ ▲ ▲▲` = ∓.08/∓.02)
-  drive `tableLift(padTable(), dy)`; `RESET` homes `lift` to 0. The readout
-  shows `TOP …m · LIFT +…` live — raise the table past eye level (.55) to look
-  up at the exhibit. The pad itself rides the lift when it's standing on the
-  table — the remote travels with the machine it drives.
-- **ROT — the easel turntable.** Four speeds-as-buttons (`◀◀ ◀ ▶ ▶▶`, ±.9/±.25
+The deck is drawn as a **cyberdeck** — near-black glass `#07090c`, hairline
+strokes, cyan active/hover states, and a phosphor-green status line (the
+Construct's Matrix nod). All table pages share one band grid so muscle memory
+carries across tabs: `drawTbl` paints the title (`BLDG — PRIMARY TABLE`) and
+status (`MODEL · LIFT · SPIN · SLICE`), then four captioned bands at fixed y —
+captions `MODEL / SPIN / SLICE / LIFT`, button rows at 104/160/216/272.
+
+- **MODEL band** — `◀ ▶` edge arrows cycle `catalog` (`padSwap` — persists
+  `dvm_model:<id>`); the mounted name lives in the status line. The **BLOCK**
+  tab adds `CARS` — `blockTrf.toggle`, the curbside cruise (its model carries
+  the street scene — parked recs with `_slotC`).
+- **SPIN band** — the easel turntable, four rates (`◀◀ ◀ ▶ ▶▶`, ±.9/±.25
   rad/s): `miniSpinSet` toggles — press a rate to spin, press the lit rate to
-  stop, press another to change. `RESET` (`miniRotReset`) homes it: spin 0,
-  `rotation.y` 0, exact tops. The render loop integrates `rotation.y` and
-  re-projects tops every ~.02 rad (centre columns hold through the spin); an
-  exact `miniSyncTops` runs on stop/reset, then **`miniSettle` re-seats every
-  rider above the slab** — mid-spin drops seat on lagged tops, so on stop
-  anything inside the footprint re-derives under the true map (embedded items
-  pop out, floaters drop). The same settle runs after every slice op and at
-  mount completion.
-- **SLICE — the editor's xyz window, same contract.** `mn.slice` holds per-axis
-  index ranges; `miniSyncSlice` writes `uVoxClipMin/Max` into the model's
-  cloned materials (the editor's own shader patch — instance origins vs a
-  local-space box, mirrored-x handled through `fx`). `miniSliceStep` nudges the
-  active bound in `dim/16` steps, clamped against its twin; `RESET` restores.
+  stop, press another to change. The render loop integrates `rotation.y` and
+  re-projects tops every ~.02 rad; `miniSyncTops` + `miniSettle` re-seat every
+  rider on stop and after every slice op.
+- **SLICE band** — the editor's xyz window: `X Y Z` axis keys + `MIN− MIN+
+  MAX− MAX+` + `RST`. `mn.slice` holds per-axis index ranges; `miniSyncSlice`
+  writes `uVoxClipMin/Max` into the model's cloned materials; `miniSliceStep`
+  nudges the active bound in `dim/16` steps, `miniSliceReset` restores.
   Slicing is truth, not just draw: `miniSyncTops` re-derives each column's top
-  as the tallest voxel inside the window (per-column `ys` lists captured at
-  emit) — cut the roof off and measured seating drops to the exposed slab.
-  **`spec.noSlice` tables (`block`, `studio`) are locked:** the page shows
-  "LOCKED — STREET MODEL", its regions hide from draw + hit-test, and
-  `miniSliceStep`/`miniSliceReset`/`padAxisSet` guard on the flag — street
-  composites keep whole roads because `roadProf`'s measured lanes are a
-  whole-model law (a mid-session cut would orphan the cars' park/cruise
-  geometry with nothing re-deriving it).
-- **MODEL — the swap page.** `◀ MODEL ▶` cycles `catalog` (`padSwap` —
-  persists `dvm_model:<id>`); `CARS` toggles `blockTrf` for tables whose
-  mounted model carries a street scene (the block composites — parked recs
-  with `_slotC`); it lights off harmlessly on tables with no parked cars.
+  inside the window — cut the roof and measured seating drops to the slab.
+  **`spec.noSlice` tables (`block`, `studio`) are locked:** the band shows
+  "SLICE — STREET MODEL, ROADS STAY WHOLE", its `{slice:true}` regions hide
+  from draw + hit-test, and the verbs guard on the flag — street composites
+  keep whole roads because `roadProf`'s measured lanes are a whole-model law.
+- **LIFT band** — the pistons: `▼▼ ▼ ▲ ▲▲` (∓.08/∓.02) drive
+  `tableLift(padTable(), dy)`; `RST` homes `lift` to 0 (`dvm_lift:<id>`
+  persists). Raise the table past eye level (.55) to look up at the exhibit.
+- **DECK — the shop lift** (the rotator's own page): spin `◀◀ ◀ ▶ ▶▶`,
+  `⏻ SPIN` toggle, deck `▼▼/▼/▲/▲▲`, `LIFT 0` reset, `EYE` preset `.45` —
+  the car rises into its ceiling pendant on `dvm_spinlift`.
+- **LAMP — the inspection torch:** PWR/FILL, five tint keys, BEAM width,
+  `⏻ TORCH`, RESET (`dvm_torch` persists).
 - `padMini()` reads the mounted model's `userData.mini` — buttons draw `on`
   state (active tab / active axis / live spin rate) so the screen always shows
   what's true. Slice + spin are session-scoped, per model instance — a fresh

@@ -55,17 +55,16 @@ check('noSlice flags = [primary:false, block:true, studio:true]',
   JSON.stringify(flags) === '[["primary",false],["block",true],["studio",true]]', JSON.stringify(flags));
 
 // ── Phase 2: slice lock on the block table ──────────────────────────────────
-await evl(`__construct.take('debug_pad') && __construct.place(-4.1, -3.9)`);      // pad onto the block table → remote binds to it
+await evl(`__pad.tab('block')`);                                                  // the tab IS the binding now — no proximity placement needed
 check('pad bound to block', (await evl('__pad.table()')) === 'block', await evl('__pad.table()'));
 const sl0 = await evl('JSON.stringify(__construct.tables()[1].models.find(m => !m.static).slice)');   // models[0] is the static ring now — the core is the slice target
-await evl(`__pad.tab('slice')`);
-await evl(`__pad.press('max-'); __pad.press('min+'); __pad.press('ax:x'); __pad.press('sres')`);
+await evl(`__pad.press('block:sl2'); __pad.press('block:sl1'); __pad.press('block:axx'); __pad.press('block:sres')`);  // MAX− MIN+ axis-X RST — every verb is guarded
 const sl1 = await evl('JSON.stringify(__construct.tables()[1].models.find(m => !m.static).slice)');
 check('slice controls no-op on street table', sl0 === sl1, sl0 + ' → ' + sl1);
-check('slice region uv-filtered (hit → null)', (await evl('__pad.hit({x:.127,y:.25})')) === null, String(await evl('__pad.hit({x:.127,y:.25})')));
+check('slice band uv-filtered (hit → null)', (await evl('__pad.hit({x:.389,y:.306})')) === null, String(await evl('__pad.hit({x:.389,y:.306})')));
 
 // ── Phase 3: miniSettle — rider follows its top through a slice + reset ──────
-await evl(`__construct.take('debug_pad') && __construct.place(-4.1, -.575)`);    // pad back to the primary's north margin
+await evl(`__pad.tab('bldg')`);                                                  // BLDG owns the primary — slice alive here
 check('pad bound back to primary', (await evl('__pad.table()')) === 'primary', await evl('__pad.table()'));
 await evl(`__construct.take('commission_desklamp') && __construct.place(-4.1, -1.1)`);   // lamp onto the primary model's roof
 await sleep(300);
@@ -73,14 +72,13 @@ const lampY0 = await evl(`__construct.placed.find(p => p.name === 'commission_de
 check('lamp seated on the model', lampY0 > .35, 'y0=' + lampY0);
 const truth0 = await evl(`worldSurfaceAt(-4.1, -1.1, __construct.placed.find(p => p.name === 'commission_desklamp'))`);
 check('seat = measured truth', Math.abs(lampY0 - truth0) < 1e-4, lampY0 + ' vs ' + truth0);
-await evl(`__pad.tab('slice')`);                                                 // primary still slices
-await evl(`for (let i = 0; i < 6; i++) __pad.press('max-')`);                    // cut the y-window down
+await evl(`for (let i = 0; i < 6; i++) __pad.press('bldg:sl2')`);                // MAX− ×6 — cut the y-window down
 await sleep(300);
 const lampY1 = await evl(`__construct.placed.find(p => p.name === 'commission_desklamp').y0`);
 const truth1 = await evl(`worldSurfaceAt(-4.1, -1.1, __construct.placed.find(p => p.name === 'commission_desklamp'))`);
 check('lamp dropped with the cut (settle, not float)', lampY1 < lampY0 - .005 && Math.abs(lampY1 - truth1) < 1e-4,
   lampY0 + ' → ' + lampY1 + ' (truth ' + truth1 + ')');
-await evl(`__pad.press('sres')`);                                                // reset → tops restore → settle climbs back
+await evl(`__pad.press('bldg:sres')`);                                           // reset → tops restore → settle climbs back
 await sleep(300);
 const lampY2 = await evl(`__construct.placed.find(p => p.name === 'commission_desklamp').y0`);
 const truth2 = await evl(`worldSurfaceAt(-4.1, -1.1, __construct.placed.find(p => p.name === 'commission_desklamp'))`);
