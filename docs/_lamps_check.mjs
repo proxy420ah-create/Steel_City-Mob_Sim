@@ -34,7 +34,8 @@ await evl('__lamps.set(true)');
 const lampState = JSON.parse(await evl(`JSON.stringify((() => {
   const out = []; scene.traverse(o => { if (o.isSpotLight && o.distance === 4) out.push({ i: +o.intensity.toFixed(2), parented: !!o.parent }); });
   return out; })())`));
-check('three pendant spots live, all lit', lampState.length === 3 && lampState.every(l => l.i > 0), JSON.stringify(lampState));
+check('four pendant spots live, all lit', lampState.length === 4 && lampState.every(l => l.i > 0), JSON.stringify(lampState));
+check('rotator lamp hangs on spinG, not the spinning carG', await evl('(() => { let a = false, b = false; spinG.traverse(o => { if (o.isSpotLight && o.distance === 4) a = true; }); carG.traverse(o => { if (o.isSpotLight) b = true; }); return a && !b; })()'))
 const house = JSON.parse(await evl('JSON.stringify((() => { const h = []; scene.traverse(o => { if (o.isHemisphereLight || (o.isPointLight && o.distance === 6)) h.push(+o.intensity.toFixed(2)); }); return h; })())'));
 check('house dimmed — hemi .22 / key .5', house[0] === .22 && house[1] === .5, JSON.stringify(house));
 check('void dimmed — bg/fog/floor go dark', await evl('scene.background.getHex() === 0x13141c && scene.fog.color.getHex() === 0x13141c && floorMat.color.getHex() === 0x13141c'));

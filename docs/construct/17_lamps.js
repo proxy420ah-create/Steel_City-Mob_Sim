@@ -5,26 +5,28 @@
    out of PLACED so no bbox can poison the drop scanner). State persists in dvm_lights;
    probe hook __lamps (on/set). */
 
-const LAMPS = [];                                                        // { t, spot, glow } per table
+const LAMPS = [];                                                        // { spot, glow } per exhibit
 let lampsOn = localStorage.getItem('dvm_lights') === '1';                // default OFF — bright construct; the switch dims on demand
 
 /* pendant — commission_pendant (green-dome banker fixture), ~.30m tall, origin = dome bottom.
-   Local y .85 inside the table group: dome clearance ~.6 over the tabletop, canopy tops out
+   Local y .85 inside the host group: dome clearance ~.6 over the exhibit, canopy tops out
    ~1.15 — comfortably under the 1.55 cornice. The wider cone pools across the whole slab. */
 const PEND_Y = .85, SPOT_I = 16, GLOW_I = .5;
-TABLES.forEach(t => {
-  const pg = new THREE.Group(); pg.position.set(0, PEND_Y, 0); t.g.add(pg);
+const hangPendant = (parent, drop = -.4) => {
+  const pg = new THREE.Group(); pg.position.set(0, PEND_Y, 0); parent.add(pg);
   const spot = new THREE.SpotLight(0xffe2b0, 0, 4, .85, .65, 1);
-  spot.position.set(0, .27, 0); pg.add(spot); spot.target.position.set(0, -.4, 0); pg.add(spot.target);
+  spot.position.set(0, .27, 0); pg.add(spot); spot.target.position.set(0, drop, 0); pg.add(spot.target);
   const glow = new THREE.PointLight(0xcfffb0, 0, .8, 1);                 // the dome's own glass-glow
   glow.position.set(0, .08, 0); pg.add(glow);
-  LAMPS.push({ t, spot, glow });
+  LAMPS.push({ spot, glow });
   fetch('/voxel/commission_pendant').then(r => r.json()).then(m => {
     const vs = m.voxelSize || .012, dcx = m.dims[0] / 2 - .5, dcz = m.dims[2] / 2 - .5;
     window.voxEmit(m, (M, v) => M.makeScale(vs, vs, vs).setPosition(
       (v[0] - dcx) * vs, (v[1] + .5) * vs, (v[2] - dcz) * vs)).forEach(mm => pg.add(mm));
   }).catch(e => console.warn('CONSTRUCT — pendant emit failed:', e));
-});
+};
+TABLES.forEach(t => hangPendant(t.g));
+hangPendant(spinG, -.85);                                                // the rotator's museum spot — spinG stays put while carG turns under it
 
 /* the switch — a dark plate + proud rocker nub on the annex face of the interior wall, just
    north of the door jamb. 1.5cm standoff kills the coplanar-face washout; the dark plate reads
