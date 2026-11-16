@@ -637,11 +637,21 @@ answers `need-full` — the editor replies `vox-full`, self-healing resizes and
 re-keys without extra editor hooks. Opening construct *after* edits started is
 covered by `vox-hello` at boot.
 
+**The WIP-folder workflow** — `voxel_items/` carries a generated JSON twin of
+every `voxel_buildings/*.stasset` (`Tools/stasset_to_json.py`, `--type building
+--voxel-size 0.05`), so the editor's `/models` dropdown lists the same names
+the exhibits mount. A broadcast name absent from every catalog gets pushed
+into `primary`'s as `{name, fill:.75}` — never-shipped WIPs become
+swap-selectable, and `stassetFetch` returns the already-cached broadcast grid,
+so the mount needs no file on disk at all. If a mount died before its cache
+was primed (spec kept the name, no mini attached), the next message retries it.
+
 Persistence stays explicit: sync updates the in-memory model only — the file
-still changes when the editor's own save path writes it. Vehicle stassets in
-`mountParked` are not yet in `_deps` (parked cars won't live-update), and a
-Construct-side edit → file path (provenance-mapped composite cells back to
-source stassets) is the untaken reverse lane.
+still changes when the editor's own save path writes it (`voxel_items` JSON;
+`Tools/json_to_stasset.py` converts back to the shipped binary). Vehicle
+stassets in `mountParked` are not yet in `_deps` (parked cars won't
+live-update), and a Construct-side edit → file path (provenance-mapped
+composite cells back to source stassets) is the untaken reverse lane.
 
 ## Current status / next
 

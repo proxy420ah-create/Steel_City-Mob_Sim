@@ -53,4 +53,27 @@ const needFull = await evl(`(async () => { const got = new Promise(r => {
   return got; })()`);
 check('dims mismatch requests need-full', !!(needFull && needFull.name === 'tenement_block_0'));
 
+// ── the WIP-folder workflow: a never-shipped name arrives via vox-full →
+//    lands in primary's catalog → mounts file-free → deltas rebuild it ────
+const WIP = 'wiptest_probe';
+await evl(`(async () => { const v = new Uint16Array(8 * 8 * 8);
+    v[1 + 8 * (1 + 8 * 1)] = 42; v[2 + 8 * (1 + 8 * 1)] = 42;
+    new BroadcastChannel('scms-voxel').postMessage({ type:'vox-full', name:'${WIP}', dims:[8,8,8], vox: v.buffer }); })()`);
+await sleep(400);
+check('unknown name joins primary catalog', await evl(`(TABLES.find(t => t.spec.id === 'primary').spec.catalog || []).some(e => e.name === '${WIP}')`));
+const mountOk = await evl(`(async () => { const t = TABLES.find(t => t.spec.id === 'primary');
+    const g = await mountModel(t, { name:'${WIP}', fill:.75 });
+    return g && g.userData.mini._deps && g.userData.mini._deps.has('${WIP}'); })()`);
+check('WIP mounts file-free from the cached broadcast', !!mountOk);
+await evl(`(() => { const t = TABLES.find(t => t.spec.id === 'primary');
+    const m = t.g.children.find(c => c.userData.mini && !c.userData.mini.static);
+    if (m) m.userData._wipTag = true; })()`);                                  // tag the mount — remount swaps the group
+await evl(`new BroadcastChannel('scms-voxel').postMessage({ type:'vox-delta', name:'${WIP}', dims:[8,8,8], ops:[[3,1,1,7]] })`);
+let wipFresh = false;
+for (let i = 0; i < 20 && !wipFresh; i++) { await sleep(400);
+  wipFresh = await evl(`(() => { const t = TABLES.find(t => t.spec.id === 'primary');
+    const m = t.g.children.find(c => c.userData.mini && !c.userData.mini.static);
+    return !!m && !m.userData._wipTag; })()`); }                               // tag gone = fresh group = the delta remounted it
+check('WIP mini remounts on delta', wipFresh);
+
 finish();

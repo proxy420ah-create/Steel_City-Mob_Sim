@@ -664,9 +664,15 @@ const remountMini = t => { const mdl = t.g.children.find(c => c.userData.mini &&
 const _rebuildT = {};
 const rebuildDeps = name => TABLES.forEach(t => {                       // debounce per table — a paint session is many strokes
   const mdl = t.g && t.g.children.find(c => c.userData.mini && !c.userData.mini.static);
-  if (mdl && mdl.userData.mini._deps && mdl.userData.mini._deps.has(name)) {
-    clearTimeout(_rebuildT[t.spec.id]); _rebuildT[t.spec.id] = setTimeout(() => remountMini(t), 160); } });
+  const wants = mdl ? mdl.userData.mini._deps && mdl.userData.mini._deps.has(name)
+                  : t.spec.models[0] && t.spec.models[0].name === name; // mount died pre-sync (file 404'd) — the broadcast IS the grid; retry it
+  if (wants) { clearTimeout(_rebuildT[t.spec.id]); _rebuildT[t.spec.id] = setTimeout(() => remountMini(t), 160); } });
+const liveCatalog = name => { const t = TABLES.find(t => t.spec.id === 'primary');   // a WIP the studio never shipped is still exhibitable —
+  if (t && !(t.spec.catalog || []).some(e => e.name === name))                       // the broadcast primes _stCache, so mountModel works file-free
+    (t.spec.catalog = t.spec.catalog || []).push({ name, fill: .75 }); };
 if (voxChan) { voxChan.onmessage = e => { const m = e.data || {};
+  if (!m.name) return;
+  liveCatalog(m.name);
   if (m.type === 'vox-full') _stCache[m.name] = Promise.resolve({ W: m.dims[0], H: m.dims[1], D: m.dims[2], vox: new Uint16Array(m.vox) });
   else if (m.type === 'vox-delta') {
     if (!_stCache[m.name]) return void voxChan.postMessage({ type: 'need-full', name: m.name });
