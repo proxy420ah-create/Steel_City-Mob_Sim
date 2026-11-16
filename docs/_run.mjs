@@ -26,7 +26,7 @@ child.on('exit', code => {
   clearTimeout(cap); out.end();
   setTimeout(() => {                                                    // flush
     const txt = fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '';
-    const pass = (txt.match(/^PASS\b/gm) || []).length + (txt.match(/^ ok\b/gm) || []).length;
+    const pass = (txt.match(/^PASS\b/gm) || []).length + (txt.match(/^\s*ok\b/gm) || []).length;
     const fails = [...txt.matchAll(/^FAIL\s+(.*)/gm)].map(m => m[1].trim());
     const failuresJson = (txt.match(/^FAILURES: (\[.*)/m) || [])[1];
     if (process.argv.includes('--tail')) console.log(txt.trim().split('\n').slice(-25).join('\n'));

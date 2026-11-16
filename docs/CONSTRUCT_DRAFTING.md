@@ -451,6 +451,42 @@ stable pool. Git history (`ba74444` and ancestors) has the full law — if any
 piece is ever re-added, add ONE layer at a time and judge it on the wall, not
 in the numbers.
 
+## Exhibit lights — the wall switch and the table pendants
+
+`construct/17_lamps.js` gives the room its museum mode: **one wall switch
+dims the house and lights a pendant over every table.**
+
+**The pendants.** Each `TABLES` entry gets a scenery group at table-local
+`(0, .62, 0)` parented into `t.g` — the `commission_pendant` voxel fixture
+(the green-dome banker lamp, ~.30m tall, origin at dome bottom) plus a light
+rig: a warm `SpotLight 0xffe2b0` (i=14, dist 3.5, angle .78, penumbra .6)
+aimed straight down at the tabletop, and a small `PointLight 0xcfffb0` (i=.5)
+inside the dome for its own glass-glow. Scenery, not `PLACED` — no bbox, so
+nothing pollutes the drop scanner, and aim rays pass over the room. Because
+the group lives inside `t.g`, **the lamp follows its table everywhere** —
+⇧+LMB drags, lifts, even table deletion carry the fixture and its lights.
+Pendant fetch is async per table; lights exist immediately, the fixture
+mesh lands when `/voxel/commission_pendant` resolves.
+
+**The switch.** A plate + nub + tell-pip scenery group on the annex face of
+the interior wall at `(-3.06, .5, -1.6)`, just north of the door jamb — you
+flip it walking in. Registered as an `INTERACT` entry `{isBtn:true, r:.8}`
+→ aim-**E** and LMB both fire it. The nub rotates ±.55 and the pip swaps
+`0x7fd4ff ↔ 0x3a3a4a` as the state tell; the prompt reads `E — LIGHTS UP` /
+`E — EXHIBIT LIGHTS`.
+
+**The dim law — it dims the VOID, not just the lights.** The room's piercing
+wash was never the lamps: `scene.background`, `scene.fog`, and the shared
+void-colored `floorMat`/`wallMat` are all unlit `VOID 0xf4f1e8`. `lampsApply`
+drives the whole environment: background/fog/floor-walls drop to
+`VOID_DIM 0x13141c` (distant surfaces now fade to dark), hemi `1.2 → .22`,
+key `2.4 → .5` — navigable dusk. The pendant pools carry the exhibits.
+Lamps-off restores the full `VOID` flat.
+
+State persists in `dvm_lights` (default **on**). Probe hook `__lamps`
+(`on()`, `set(b)`). The L-key torch is untouched — it still layers its own
+aimed pool on top.
+
 ## The pad sticks to walls — the movable panel
 
 A held pad detects vertical faces: `dropTarget` asks `padWallTarget`, which

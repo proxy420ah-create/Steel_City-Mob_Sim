@@ -33,8 +33,14 @@ they are contract traps, not code bugs, and they bite again the moment they're f
   slice controls dead on `block` (fn guards + uv filter) and alive on `primary`,
   `miniSettle` two-way (rider drops on cut, climbs on reset), and a seeded
   `dvm_extra` → reload → seats on a parked car's ROOF (the `_mountP` await).
+- `_lamps_check.mjs` — the exhibit-lights law: three pendant spots lit, the
+  void dim applied (`background`/`fog`/`floorMat` → `0x13141c`), a pendant's
+  world position follows its table through `placeApply`, lamps-off restores
+  `VOID` cream + house intensities, and `dvm_lights` persists both ways.
+- `_lamps_shot.mjs` — visual capture: door-channel + wide annex shots with
+  lamps on, and the restored bright void with lamps off (`probe_lamps_*.png`).
 
-> **File layout:** the page body is `docs/construct/01_shell.js` … `16_probe.js` —
+> **File layout:** the page body is `docs/construct/01_shell.js` … `17_lamps.js` —
 > classic `<script defer>` siblings sharing one page-wide scope, load order = old
 > top-down order (map in the `construct.html` comment). "Module state" below means
 > those top-level bindings; reload still kills them all.
