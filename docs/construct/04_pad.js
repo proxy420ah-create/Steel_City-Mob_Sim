@@ -78,7 +78,9 @@ Object.keys(TAB_TABLE).forEach(pid => {
   if (pid === 'bldg') {                                                            // VARIANT controls — mid-row of the MODEL sub-page
     padR({ id: 'bldg:vprev', page: 'bldg:model', x: 112, y: 150, w: 64, h: 56, label: 'VARIANT ◀', glyph: 'V◀', fs: 16, fn: () => padVarSwap(-1) });
     padR({ id: 'bldg:vnext', page: 'bldg:model', x: 184, y: 150, w: 64, h: 56, label: 'VARIANT ▶', glyph: 'V▶', fs: 16, fn: () => padVarSwap(1) });
-    padR({ id: 'bldg:vlock', page: 'bldg:model', x: 288, y: 150, w: 116, h: 56, label: 'LOCK IN', glyph: 'LOCK', fs: 15,
+    padR({ id: 'bldg:vlock', page: 'bldg:model', x: 288, y: 150, w: 116, h: 56, label: 'LOCK IN', fs: 15,
+      glyph: () => { const m = padTable(), n = m && m.spec.models[0] && m.spec.models[0].name;   // armed = "press to commit
+        return n && n.includes('__') ? 'LOCK ' + n.split('__')[1].slice(0, 9).toUpperCase() : 'LOCK'; },   // <feat>" — the staged
       lit: () => { const m = padTable(); return m && m.spec.models[0] && m.spec.models[0].name.includes('__'); }, fn: () => padLock() }); }
   if (pid === 'block') padR({ id: 'block:cars', page: 'block:model', x: 216, y: 150, w: 80, h: 56, label: 'CARS', glyph: 'CARS', fs: 13,
     lit: () => blockTrf.on, fn: () => blockTrf.toggle(padTable()) });
@@ -175,7 +177,7 @@ const padDraw = () => { const g = padCv.getContext('2d'), t = padTable(), mn = p
     g.fillStyle = pr ? '#1b2f3c' : on ? '#12242e' : hov ? '#16212a' : '#0d1217'; g.fillRect(r.x, r.y, r.w, r.h);
     g.strokeStyle = on || hov ? CYTX : '#22303a'; g.lineWidth = 2; g.strokeRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2);
     g.fillStyle = pr || on ? CYTX : hov ? CREAM : '#5b6874'; g.font = 'bold ' + (r.fs || 16) + 'px monospace';
-    g.fillText(r.glyph, r.x + r.w / 2, r.y + r.h / 2 + (r.fs ? r.fs * .36 : 6)); };
+    g.fillText(typeof r.glyph === 'function' ? r.glyph() : r.glyph, r.x + r.w / 2, r.y + r.h / 2 + (r.fs ? r.fs * .36 : 6)); };
   PAD_REGIONS.filter(r => r.tab || (r.page === padPage && !(r.slice && t && t.spec.noSlice))).forEach(btn);
   const pg = PAD_PAGES[padPage]; if (pg && pg.draw) pg.draw(g, { t, mn });
   padTex.needsUpdate = true; };

@@ -698,6 +698,8 @@ const mountModel = (t, mspec) => {
       : (ch.dispose && ch.dispose(), ch.material && ch.material.dispose && ch.material.dispose()); }, 0)); });      // turn — a zone-sized dispose isn't one ~100ms block
   t.g.children.filter(c => c.userData.mini && c.userData.mini.static).forEach(c => miniSyncTops(t, c));   // the core's revert dropped overlapping keys to felt — restore the ring's tops underneath
   t.spec.models = [mspec];
+  const vb = mspec.name && mspec.name.split('__');                                 // mount-driven preview law — a `__`
+  if (vb && vb[1]) _previewOf[vb[0]] = mspec.name; else delete _previewOf[mspec.name];   // name staged on ANY mount path
   return (t._mountP = (mspec.zone ? emitZone : mspec.slots ? (t._ringG ? emitCore : emitBlock) : emitBldg)(t, mspec));   // tracked — boot awaits it before extras/fixpoint read tops
 };
 MANIFEST.tables.forEach(spec => { const t = emitTable(spec);

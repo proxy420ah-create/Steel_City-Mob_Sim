@@ -140,6 +140,11 @@ await evl(`(() => { const t = TABLES.find(t => t.spec.id === 'studio');
       .forEach(s => s.userData._pvTag = true); } })()`);                          // tag group + barber children — surgical swaps the children only
 await evl(`__pad.press('bldg:vnext')`); await sleep(1600);
 check('variant cycle sets the preview overlay', await evl(`!!_previewOf['barber_shop']`));
+check('mount-driven overlay — a direct __ mount sets _previewOf', await evl(`(async () => { const t = TABLES.find(t => t.spec.id === 'primary');
+  await mountModel(t, { name: 'barber_shop__roof_9', fill: .75 });            // mountModel (not padVarSwap) owns the overlay now — boot restore rides it too
+  return _previewOf['barber_shop'] === 'barber_shop__roof_9'; })()`));
+check('LOCK glyph names the staged variant', await evl(`(() => { const r = PAD_REGIONS.find(r => r.id === 'bldg:vlock');
+  return typeof r.glyph === 'function' && r.glyph().includes('ROOF'); })()`));
 let zoneFresh = false;                                                           // surgical restamp — poll the barber sub-minis
 for (let i = 0; i < 15 && !zoneFresh; i++) { await sleep(400);
   zoneFresh = await evl(`(() => { const t = TABLES.find(t => t.spec.id === 'studio');

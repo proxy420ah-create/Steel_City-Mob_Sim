@@ -692,8 +692,14 @@ nothing, so boot also merges `/models` — every `assetType:'building'` JSON
 joins `primary`'s catalog (props/vehicles stay out). On the pad's
 `bldg:model` sub-page the MODEL row carries `V◀`/`V▶` — they cycle only the
 mounted name's base group (`name.split('__')[0]` — model arrows never list
-`__` entries). **LOCK** (`bldg:vlock`, lit while a
-`__` name is mounted) copies the variant grid under the canonical name:
+`__` entries). **LOCK** (`bldg:vlock`) is the commit verb — it lights only
+while a `__` name is staged and its glyph reads `LOCK <FEAT>` so the armed
+state names what you're committing (`padDraw` evaluates function glyphs per
+redraw); it dims on canonical because there is nothing to lock. Mounts own
+the preview overlay: `mountModel` sets `_previewOf[base] = name` whenever a
+`__` name mounts (V▶, boot restore, direct mount) and deletes it on a
+canonical mount — `padVarSwap`/`padLock`'s manual overlay writes stay as
+idempotent belt-and-suspenders. LOCK copies the variant grid under the canonical name:
 `_stCache[base]` + `vox-full`/`vox-apply` broadcasts + `POST /save/voxel/base`
 + `rebuildDeps(base)` — one commit and every exhibit that depends on
 `barber_shop` (mini, block stamp, zone stamp) rebases at once. The editor's

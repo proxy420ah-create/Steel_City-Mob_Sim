@@ -72,7 +72,10 @@ they are contract traps, not code bugs, and they bite again the moment they're f
   a `restampZone` of `barber_shop` (≤1 per 5s — the surgical path is
   near-free). The dep-delta check itself asserts the surgical law: the zone
   group's `_probeTag` survives while its `tenement_block_0` children go
-  fresh. (23 checks.)
+  fresh. LOCK semantics are probed too — dim on canonical, lit while a
+  `__` variant is staged, dim after the commit, the glyph names the staged
+  feat, the mount-driven overlay sets on a direct `__` mount, and the
+  `/save/voxel` write preserves the file envelope. (29 checks.)
 
 > **File layout:** the page body is `docs/construct/01_shell.js` … `17_lamps.js` —
 > classic `<script defer>` siblings sharing one page-wide scope, load order = old
