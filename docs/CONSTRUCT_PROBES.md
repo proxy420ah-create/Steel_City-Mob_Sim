@@ -58,7 +58,10 @@ they are contract traps, not code bugs, and they bite again the moment they're f
   `wiptest_probe__roof_*` JSONs doorbell through `/events` into `primary`'s
   catalog, `bldg:vnext` mounts the variant, `bldg:vlock` rebases the table to
   canonical, the cache carries the variant grid, and `/save/voxel` persisted
-  the twin. (15 checks.)
+  the twin. Third half — the preview fanout: a deposited `barber_shop__roof_9`
+  cycles onto `primary`, `_previewOf['barber_shop']` sets, the studio zone's
+  mini remounts (tag-fresh, polled — the zone emit is the heavy mount), and
+  cycling back to canonical clears the overlay. (19 checks.)
 
 > **File layout:** the page body is `docs/construct/01_shell.js` … `17_lamps.js` —
 > classic `<script defer>` siblings sharing one page-wide scope, load order = old

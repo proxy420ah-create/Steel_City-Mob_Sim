@@ -681,6 +681,18 @@ mounted name's base group (`name.split('__')[0]` — model arrows never list
 history entry (Ctrl+Z reverts; dims must match or the apply is ignored — the
 file write still lands).
 
+**The preview fanout** — cycling a variant repaints every dependent live,
+not just the preview table. `_previewOf` maps canonical → mounted variant and
+`stassetFetch` resolves through it, so `padVarSwap` sets the overlay +
+`rebuildDeps(base)` and the zone's `barber_shop` stamp (plus any block slot)
+re-emits the variant grid in place; cycling back to the canonical entry
+deletes the overlay and the exhibits restore. The canonical cache and all
+files stay untouched — preview is in-memory only, LOCK is still the commit.
+`rebuildDeps` is overlay-aware (`_previewOf[d] === name` counts as a dep hit)
+so an editor stroke on the *variant* rebuilds its previewers too; LOCK
+deletes the entry since canonical becomes the variant. Caveat: variant dims
+should match canonical — a mis-sized grid stamps misaligned.
+
 ## Current status / next
 
 - One table, swappable exhibit — `emitTable`/`emitBldg`/`mountModel` + the wall

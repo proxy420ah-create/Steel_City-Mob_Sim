@@ -134,11 +134,15 @@ const padVarSwap = dir => { const t = padTable(); if (!t) return;
   const grp = variantGroup(t); if (grp.length < 2) return;
   const cur = t.spec.models[0], i = grp.findIndex(m => m.name === (cur && cur.name)),
     next = grp[(i + dir + grp.length) % grp.length];
-  if (next) { localStorage.setItem('dvm_model:' + t.spec.id, next.name);
+  if (next) { const base = varBase(next.name);
+    localStorage.setItem('dvm_model:' + t.spec.id, next.name);
+    if (next.name === base) delete _previewOf[base]; else _previewOf[base] = next.name;   // the whole city previews the pick —
+    rebuildDeps(base);                                                                   // zone + block stamps repaint live; file truth waits for LOCK
     mountModel(t, next).then(() => padDraw()); } };
 const padLock = () => { const t = padTable(), cur = t && t.spec.models[0], base = varBase(cur && cur.name);
   if (!cur || cur.name === base || !_stCache[cur.name]) return;              // nothing mounted / already canonical
   _stCache[cur.name].then(f => { const vox = f.vox.slice();                  // canonical gets its own copy — the variant stays a variant
+    delete _previewOf[base];                                                 // canonical IS the variant now — overlay redundant
     _stCache[base] = Promise.resolve({ W: f.W, H: f.H, D: f.D, vox });
     if (voxChan) voxChan.postMessage({ type: 'vox-full', name: base, dims: [f.W, f.H, f.D], vox: vox.buffer });
     if (voxChan) voxChan.postMessage({ type: 'vox-apply', name: base, dims: [f.W, f.H, f.D], vox: vox.buffer });   // editor adopts it as an undoable op

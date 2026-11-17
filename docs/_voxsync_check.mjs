@@ -89,8 +89,8 @@ check('WIP mini remounts on delta', wipFresh);
 //    liveCatalog → V◀V▶ cycles the base group → LOCK writes the canonical grid ─
 const VOX_ITEMS = '../Assets/StreamingAssets/voxel_items/';
 const v1 = 'wiptest_probe__roof_1', v2 = 'wiptest_probe__roof_2';
-const dep = (n, cells) => fs.writeFileSync(VOX_ITEMS + n + '.json',
-  JSON.stringify({ format: 'steelcity_stasset', name: n, dims: [8, 8, 8], voxels: cells }));
+const dep = (n, cells, dims = [8, 8, 8]) => fs.writeFileSync(VOX_ITEMS + n + '.json',
+  JSON.stringify({ format: 'steelcity_stasset', name: n, dims, voxels: cells }));
 dep(v1, [[1, 1, 1, 42], [4, 4, 4, 99]]);
 dep(v2, [[1, 1, 1, 42], [5, 5, 5, 77]]);
 let catOk = false;
@@ -106,5 +106,35 @@ check('canonical cache carries the variant grid', await evl(`_stCache['wiptest_p
 check('LOCK persisted the JSON twin', await evl(`fetch('/voxel/wiptest_probe').then(r => r.ok)`)
   && JSON.parse(fs.readFileSync(VOX_ITEMS + 'wiptest_probe.json')).voxels.length === 2);
 [v1, v2, 'wiptest_probe'].forEach(n => { try { fs.unlinkSync(VOX_ITEMS + n + '.json'); } catch {} });
+
+// ── preview fanout: cycling a variant repaints every dependent live (the zone's
+//    barber stamp is the stand-in for "a slice of the city") — canonical cache
+//    and file truth stay untouched until LOCK ─────────────────────────────────
+const v9 = 'barber_shop__roof_9';
+dep(v9, [[1, 1, 1, 42], [60, 30, 60, 99]], [64, 36, 64]);
+let catOk2 = false;
+for (let i = 0; i < 15 && !catOk2; i++) { await sleep(400);
+  catOk2 = await evl(`(TABLES.find(t => t.spec.id === 'primary').spec.catalog || []).some(e => e.name === '${v9}')`); }
+check('zone stamps barber_shop', await evl(`(() => { const t = TABLES.find(t => t.spec.id === 'studio');
+  const m = t.g.children.find(c => c.userData.mini && !c.userData.mini.static);
+  return !!m && m.userData.mini._deps && m.userData.mini._deps.has('barber_shop'); })()`));
+await evl(`mountModel(TABLES.find(t => t.spec.id === 'primary'), { name: 'barber_shop', fill: .75 })`); await sleep(1800);
+await evl(`(() => { const t = TABLES.find(t => t.spec.id === 'studio');
+  const m = t.g.children.find(c => c.userData.mini && !c.userData.mini.static);
+  if (m) m.userData._pvTag = true; })()`);                                       // tag the zone mount — a remount swaps the group
+await evl(`__pad.press('bldg:vnext')`); await sleep(1600);
+check('variant cycle sets the preview overlay', await evl(`!!_previewOf['barber_shop']`));
+let zoneFresh = false;                                                           // the zone emit is the heavy mount — poll, don't guess
+for (let i = 0; i < 15 && !zoneFresh; i++) { await sleep(400);
+  zoneFresh = await evl(`(() => { const t = TABLES.find(t => t.spec.id === 'studio');
+    const m = t.g.children.find(c => c.userData.mini && !c.userData.mini.static);
+    return !!m && !m.userData._pvTag; })()`); }
+check('zone mini restamped the preview live', zoneFresh);
+for (let i = 0; i < 6; i++) {                                                    // keep cycling until canonical returns
+  if (await evl(`TABLES.find(t => t.spec.id === 'primary').spec.models[0].name === 'barber_shop'`)) break;
+  await evl(`__pad.press('bldg:vnext')`); await sleep(900); }
+check('cycling back to canonical clears the preview',
+  await evl(`!_previewOf['barber_shop'] && TABLES.find(t => t.spec.id === 'primary').spec.models[0].name === 'barber_shop'`));
+try { fs.unlinkSync(VOX_ITEMS + v9 + '.json'); } catch {}
 
 finish();

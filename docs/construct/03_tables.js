@@ -134,13 +134,15 @@ const _stParse = buf => { const dv = new DataView(buf);
 const _jsonToVox = data => { const [W, H, D] = data.dims, vox = new Uint16Array(W * H * D);   // editor JSON → the same dense contract
   (data.voxels || []).forEach(([x, y, z, m]) => { if (x < W && y < H && z < D) vox[x + W * (y + H * z)] = m; });
   return { W, H, D, vox }; };
-const stassetFetch = name => _stCache[name] || (_stCache[name] =
+const _previewOf = {};                                                          // pad variant previews: canonical name → variant
+const stassetFetch = name => { name = _previewOf[name] || name;                 // every emit resolves through the overlay — cycling a
+  return _stCache[name] || (_stCache[name] =                                    // variant repaints all its dependents live; LOCK commits
   fetch('/Assets/StreamingAssets/voxel_buildings/' + name + '.stasset')
     .then(r => r.ok ? r.arrayBuffer().then(_stParse) :                                       // vehicles live one folder over —
       fetch('/Assets/StreamingAssets/voxel_vehicles/' + name + '.stasset')                   // baked 5cm derivatives (touring et al)
         .then(r2 => r2.ok ? r2.arrayBuffer().then(_stParse) :
           fetch('/voxel/' + name).then(r3 => r3.ok ? r3.json().then(_jsonToVox) :
-            Promise.reject(new Error('404: ' + name))))));
+            Promise.reject(new Error('404: ' + name)))))); };
 /* emitBldg — a .stasset volume as a tabletop maquette. Dense u16 grid (STAS: x-major), surface-only
    instancing, per-column max-height written back into the host's tops. All models on a table share
    the table's declared scale — buildings stay comparable, like a real architect's set. */
@@ -670,8 +672,8 @@ const remountMini = t => { const mdl = t.g.children.find(c => c.userData.mini &&
     return g; }); };
 const _rebuildT = {};
 const rebuildDeps = name => TABLES.forEach(t => {                       // debounce per table — a paint session is many strokes
-  const mdl = t.g && t.g.children.find(c => c.userData.mini && !c.userData.mini.static);
-  const wants = mdl ? mdl.userData.mini._deps && mdl.userData.mini._deps.has(name)
+  const mdl = t.g && t.g.children.find(c => c.userData.mini && !c.userData.mini.static), deps = mdl && mdl.userData.mini._deps;
+  const wants = mdl ? deps && (deps.has(name) || [...deps].some(d => _previewOf[d] === name))   // a variant rebuilds its previewers too
                   : t.spec.models[0] && t.spec.models[0].name === name; // mount died pre-sync (file 404'd) — the broadcast IS the grid; retry it
   if (wants) { clearTimeout(_rebuildT[t.spec.id]); _rebuildT[t.spec.id] = setTimeout(() => remountMini(t), 160); } });
 const liveCatalog = name => { const t = TABLES.find(t => t.spec.id === 'primary');   // a WIP the studio never shipped is still exhibitable —
