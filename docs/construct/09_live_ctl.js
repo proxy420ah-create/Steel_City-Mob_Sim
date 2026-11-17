@@ -81,7 +81,7 @@ function renderCtl() {
     : '') +
     '<div style="color:#8a8474;font-size:10px;line-height:1.6;margin-top:6px">' +
     'F/RMB aim · LMB tag · T go-tag · R clear<br>' +
-    'H heel · P pov · Y live · K panel</div>';
+    'H heel · P pov · Y live · K panel · hold-Z scope</div>';
   ctlEl.querySelectorAll('button[data-o]').forEach(b => b.onclick = () => { if (f) { f.possessed = false; f.setOrder(b.dataset.o); } ctlTick(); });
 }
 const ctlTick = () => {

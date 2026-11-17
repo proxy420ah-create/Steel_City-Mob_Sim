@@ -1,0 +1,10 @@
+import { bootCdp } from './_cdp.mjs';
+const { evl, sleep, errs, finish } = await bootCdp({ page: 'thecommission', settle: 6000, ready: '!!window.DVM_FEED || !!document.querySelector("script[src*=deliberation]")' });
+console.log('feed script tag present:', await evl('!!document.querySelector("script[src*=deliberation]")'));
+console.log('DVM_FEED defined:', await evl('typeof window.DVM_FEED'));
+console.log('chairbody root in scene:', await evl('window.__chairbody && window.__chairbody.root && !!window.__chairbody.root.parent'));
+console.log('chairbody pos:', await evl('window.__chairbody && window.__chairbody.root ? window.__chairbody.root.position.toArray().map(n=>n.toFixed(2)).join(",") : "n/a"'));
+console.log('chairbody order:', await evl('window.__chairbody ? window.__chairbody.order() : "n/a"'));
+console.log('mesh count voxels:', await evl('window.__chairbody && window.__chairbody.mesh ? window.__chairbody.mesh.count : "n/a"'));
+console.log('ERRS:', JSON.stringify(errs));
+finish();

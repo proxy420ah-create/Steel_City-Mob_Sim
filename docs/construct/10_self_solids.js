@@ -19,6 +19,7 @@ const emitSelf = () => fetch('/char/Civilian1').then(r => r.json()).then(rig => 
   rig.voxels.forEach((v, i) => parts[HEAD_REGS.has(reg[v[0] + ',' + v[1] + ',' + v[2]]) ? 1 : 0].push(i));
   const meshes = parts.map((list, pi) => {
     const im = new THREE.InstancedMesh(new THREE.BoxGeometry(VS, VS, VS), new THREE.MeshLambertMaterial(), list.length);
+    im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);                  // rewritten per posed frame — the walk/aim pipeline feeds it at 60Hz
     im.frustumCulled = false;
     if (pi) im.layers.set(1);                                                 // head — povCam layer 1 sees it, your camera doesn't
     list.forEach((i, j) => { const v = rig.voxels[i];
@@ -61,7 +62,8 @@ const selfStep = dt => {
     if (t >= 1) { s.transT = -1; s.blend = 1; s.dip = 0; } }
   let aim = null;                                                             // your laser is HIS arm — same IK channel the Commission's Vinny uses
   if (aimOn) { const lx = aimWorld.x - pos.x, ly = aimWorld.y, lz = aimWorld.z - pos.z, cy = Math.cos(s.yaw), sy = Math.sin(s.yaw);
-    aim = { T: [(lx * cy - lz * sy) / s.VS + s.d[0] / 2, ly / s.VS, (lx * sy + lz * cy) / s.VS + s.d[2] / 2], blend: 1, head: 1 }; }
+    aim = s._aim || (s._aim = { T: [0, 0, 0], blend: 1, head: 1 });
+    aim.T[0] = (lx * cy - lz * sy) / s.VS + s.d[0] / 2; aim.T[1] = ly / s.VS; aim.T[2] = (lx * sy + lz * cy) / s.VS + s.d[2] / 2; }
   if (was || s.state === 1 || s.transT >= 0 || aim) {
     s.E.evalPose(s.state, s.gaitTime, s.bufB, aim);
     if (s.transT >= 0) { s.E.evalPose(s.transFrom, s.gaitTime, s.bufA, aim); s.meshes.forEach(m => s.uploadMesh(m, s.bufA, s.bufB, s.blend, s.dip)); }

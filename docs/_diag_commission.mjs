@@ -1,0 +1,10 @@
+import { bootCdp } from './_cdp.mjs';
+const { evl, sleep, errs, finish } = await bootCdp({ page: 'thecommission', settle: 4000 });
+console.log('__chairbody:', await evl('typeof window.__chairbody'));
+console.log('__lastPartyErr:', await evl('window.__lastPartyErr||"none"'));
+console.log('DVM_FEED parsed:', await evl('!!window.DVM_FEED'));
+console.log('turn:', await evl('window.DVM_FEED && window.DVM_FEED.turn'));
+console.log('proposal:', await evl('JSON.stringify(window.DVM_FEED && window.DVM_FEED.proposal)'));
+console.log('phase:', await evl('window.DVM_FEED && window.DVM_FEED.phase'));
+console.log('ERRS:', JSON.stringify(errs, null, 1));
+finish();

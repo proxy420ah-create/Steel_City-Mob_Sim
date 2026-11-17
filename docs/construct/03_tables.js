@@ -303,7 +303,9 @@ const blockTrf = { on: false, mn: null, g: null, L: null, segs: [], len: 0, cars
      the smallest forward wrap distance. Overshot slots wrap to ~len and lose naturally; an
      all-held inventory returns null and the car keeps seeking — same as Unity. */
   claim(c, s) { const inv = this.inv || (this.inv = this.slotMap()); let best = null, bd = Infinity;
-    inv.forEach(sl => { if (sl.by || this.held(sl.sc)) return;
+    const heldAx = new Set();                                              // precompute held slots ONCE per claim — held() iterated PLACED+cars per slot (O(inv × PLACED × cars))
+    for (const sl of inv) if (this.held(sl.sc)) heldAx.add(sl);
+    inv.forEach(sl => { if (sl.by || heldAx.has(sl)) return;
       const dS = (sl.sA - s + this.len) % this.len;
       if (dS < bd) { bd = dS; best = sl; } });
     if (best) best.by = c.rec; return best; },
@@ -319,6 +321,7 @@ const blockTrf = { on: false, mn: null, g: null, L: null, segs: [], len: 0, cars
     const mn = this.mn, vs = mn.vs, vc = this.V / BLDG_VS, D2 = mn.dims[2], mir = mn.mirX ? -1 : 1,
       putY = (g, x, z, yaw) => { g.position.x = mn.fx(x) * vs; g.position.z = (z - D2 / 2) * vs; g.rotation.y = yaw; },
       put = (g, x, z, hx, hz) => putY(g, x, z, Math.atan2(hx * mir, hz));              // authored front = +z (Unity LookRotation drives +z onto dir) — the −z law ran cars tail-first
+    const loopCars = this.cars.filter(c => c.st === 'loop');                 // hoist the filter — was re-tested per car × per other car (O(n²) filter on the inner loop)
     this.cars.forEach(c => { const g = c.rec.g;
       if (!g || g.parent !== this.g) { c.st = 'gone'; return; }
       if (c.st === 'wait') { if (!this.on) { c.st = 'slot'; return; }
@@ -335,9 +338,9 @@ const blockTrf = { on: false, mn: null, g: null, L: null, segs: [], len: 0, cars
         c.yaw += wr * Math.min(1, 6 * dt);
         putY(g, x, z, c.yaw); return; }
       if (c.st === 'loop') { let v = vc;
-        this.cars.forEach(o => { if (o !== c && o.st === 'loop') {
+        for (const o of loopCars) { if (o === c) continue;                 // was this.cars.forEach + st==='loop' test per pair — hoisted filter cuts the inner work
           const d = ((o.s - c.s) % this.len + this.len) % this.len;
-          if (d > 0 && d < 30) v = Math.min(v, vc * Math.max(0, (d - 8) / 22)); } });
+          if (d > 0 && d < 30) v = Math.min(v, vc * Math.max(0, (d - 8) / 22)); }
         const prev = c.s, ns = prev + v * dt;
         if (!this.on) {
           if (!c.tgt) c.tgt = this.claim(c, ns) ||                                     // park-anywhere: claim the nearest free slot ahead —

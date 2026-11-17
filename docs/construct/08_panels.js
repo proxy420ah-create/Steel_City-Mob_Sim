@@ -17,13 +17,14 @@ const consEl = document.createElement('div');
 consEl.style.cssText = 'position:fixed;left:50%;top:46%;transform:translate(-50%,-50%);min-width:290px;background:rgba(12,12,18,.94);border:1px solid #34344a;padding:14px 16px;font:12px ui-monospace,Consolas,monospace;color:#cfc8b0;display:none;z-index:20';
 document.body.appendChild(consEl);
 let consOpen = false;
-const ROSTER = [{ char: 'CHAIR1', label: 'THE CHAIR', desc: 'civilian unit — commission seat' }];
+const ROSTER = [{ char: 'CHAIR1', label: 'THE CHAIR', accent: '#d29922', desc: 'civilian unit — commission seat' },
+                { char: 'DESIGNER1', label: 'THE DESIGNER', accent: '#bc8cff', desc: 'civilian unit — commission seat' }];
 function renderCons() {
   consEl.innerHTML = '<div style="letter-spacing:.25em;color:#8f87a0;margin-bottom:10px">DOOR CONSOLE — PERSONNEL</div>' +
     ROSTER.map((r, i) => {
       const on = followers.some(f => f.spec.char === r.char);
       return '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-top:1px solid #26242f">' +
-        '<div style="flex:1"><div>' + r.label + '</div><div style="color:#6f6a58;font-size:10px">' + r.desc + '</div></div>' +
+        '<div style="flex:1"><div style="color:' + (r.accent || '#cfc8b0') + '">' + r.label + '</div><div style="color:#6f6a58;font-size:10px">' + r.desc + '</div></div>' +
         '<button data-i="' + i + '" style="font:inherit;background:' + (on ? '#4a1f28' : '#1f3a2a') + ';color:#e8e0c8;border:1px solid ' + (on ? '#a33' : '#3a5') + ';padding:4px 10px;cursor:pointer">' + (on ? 'DISMISS' : 'SPAWN') + '</button></div>';
     }).join('') +
     '<div style="margin-top:10px;color:#5b5648;font-size:10px">E / Esc — close &nbsp;·&nbsp; click canvas to re-engage look</div>';
@@ -88,6 +89,7 @@ const recolorChar = (f, map) => { const reg = f.rig.regions || {}, dflt = new TH
 const MANN_POS = { x: -2.5, z: .48 }, MANN_YAW = -.69;                 // char rig fwd = (-sin,-cos) — faces SE into the room
 const KIOSK_POS = { x: -2.15, z: .06 }, KIOSK_YAW = 2.45;              // small floor stand dead ahead of him; +z screen faces the approach
 const BUTTONS = [];                                                  // pressable face targets — aim + E/LMB
+const _kioBtnMeshes = [];                                            // cached mesh list for kioskProbe — rebuilt only when BUTTONS grows (was .map per frame)
 let kioWire = null, kioWireMat = null;                               // wireframe ghost-frame — plate child, slips onto the aimed button
 let mannF = null;
 const kioG = new THREE.Group(); kioG.position.set(KIOSK_POS.x, 0, KIOSK_POS.z); kioG.rotation.y = KIOSK_YAW; scene.add(kioG);
@@ -127,7 +129,7 @@ const mannDraw = press => { const g = mannCv.getContext('2d');
         localStorage.setItem('dvm_outfit', mannOutfit);
         if (mannF) recolorChar(mannF, OUTFITS[mannOutfit].map);
         mannDraw(dir); setTimeout(() => mannDraw(0), 160); } };
-    b.userData.btn = bd; BUTTONS.push(bd); };
+    b.userData.btn = bd; BUTTONS.push(bd); _kioBtnMeshes.push(b); };
   mkBtn(-.14, -1); mkBtn(.14, 1);                                                 // ◀ ▶ flank the outfit name on the face
   mannDraw(0);
 }
@@ -135,7 +137,7 @@ emitChar({ char: 'Civilian1', static: true, x: MANN_POS.x, z: MANN_POS.z, yaw: M
   .then(f => { mannF = f; });
 const kioskProbe = () => { if (Math.hypot(pos.x - KIOSK_POS.x, pos.z - KIOSK_POS.z) > 1.8) return null;
   _ray.setFromCamera(_ctr, camera);
-  const h = _ray.intersectObjects(BUTTONS.map(b => b.m), false);
+  const h = _ray.intersectObjects(_kioBtnMeshes, false);   // cached mesh list — was BUTTONS.map(b => b.m) per frame (array alloc on every frame)
   if (h.length && kioWire) kioWire.position.copy(h[0].object.position);   // ghost slips onto the aimed button (same plate space)
   return h.length ? h[0].object.userData.btn : null; };
 window.__mann = { f: () => mannF, outfit: () => mannOutfit, buttons: BUTTONS, press: i => BUTTONS[i] && BUTTONS[i].fn(),

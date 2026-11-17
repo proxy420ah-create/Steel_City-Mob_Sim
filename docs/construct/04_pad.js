@@ -43,6 +43,8 @@ const PAD_PAGES = {
   bldg:  { tab: 'BLDG',  draw: g => drawHome(g, 'primary', 'BLDG') },
   block: { tab: 'BLOCK', draw: g => drawHome(g, 'block', 'BLOCK') },
   zone:  { tab: 'ZONE',  draw: g => drawHome(g, 'studio', 'ZONE') },
+  chat:  { tab: 'CHAT',  draw: g => drawChatTab(g) },                       // 19_chat.js — resolves at draw time (later script)
+
   deck: { tab: 'DECK', draw: g => {
     g.fillStyle = CREAM; g.font = 'bold 15px monospace'; g.fillText('SHOP LIFT — ' + (spinning ? 'TURNING' : 'HELD'), 256, 52);
     g.fillStyle = PHOS; g.font = '12px monospace';
@@ -190,6 +192,7 @@ const padUvRegion = uv => { if (!uv) return null;
 let _pdDrawQ = false;                                                        // hover sweeps coalesce — one canvas redraw per frame
 const padDrawSoon = () => { if (!_pdDrawQ) { _pdDrawQ = true; requestAnimationFrame(() => { _pdDrawQ = false; padDraw(); }); } };
 const padSetHover = r => { const id = r ? r.id : null; if (id !== padHover) { padHover = id; padDrawSoon(); } };
+let _padHoverDirty = false;                                                // cursor-mode hover — poll-rate packets fold to one raycast a frame
 const padHudEl = document.createElement('div');
 padHudEl.style.cssText = 'position:fixed;left:50%;bottom:14px;transform:translateX(-50%);background:rgba(8,8,14,.92);border:1px solid #6a6a92;color:#e2dbc2;padding:5px 12px;font:10px ui-monospace,Consolas,monospace;letter-spacing:.1em;display:none;z-index:8;pointer-events:none;white-space:nowrap';
 padHudEl.textContent = 'PAD — LMB press · RMB tap — mouse look';
@@ -223,6 +226,9 @@ const padScreenHit = () => { if (!padScr) return null;
   return h.length ? h[0] : null; };
 const padCursorHit = () => { const h = padScreenHit(); return h ? padUvRegion(h.uv) : null; };
 const padProbe = () => { if (!padRec || padRec === held) { padSetHover(null); return null; }   // can't aim at your own hand
+  padScr.getWorldPosition(tmpV);                                           // reach gate first — the ray's hit objects are GC feed;
+  const _dx = tmpV.x - camera.position.x, _dz = tmpV.z - camera.position.z;
+  if (_dx * _dx + _dz * _dz > 9) { padSetHover(null); return null; }       // farther than the 1.8m band could ever hit — skip it
   _ray.setFromCamera(_ctr, camera);
   const h = _ray.intersectObject(padScr, false);
   if (!h.length || h[0].distance > 1.8) { padSetHover(null); return null; }

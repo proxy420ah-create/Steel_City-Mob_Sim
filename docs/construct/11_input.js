@@ -7,16 +7,21 @@
    the .855m door towers correctly; showroom inspects at authored scale, no third person needed). */
 const pos = new THREE.Vector3(0, 0, 0); let yaw = 0, pitch = 0;          // yaw 0 faces -z — stepped out of the door-elevator, rotator dead ahead
 const EYE = .56, WALK = 1.4, SPRINT = 2.2, keys = {};    // Vinny's authored Eyes region (region id 10) — voxel centroid y56 × .01 pitch
-let zoomT = 0;                                                           // hold-Z scope — the loop eases 0↔1, FOV pulls 58→26
+let zoomT = 0, zoomKey = (localStorage.getItem('dvm_key_zoom') || 'z').toLowerCase(),
+    zoomFov = +(localStorage.getItem('dvm_zoom_fov') || 26);               // hold-scope — the loop eases 0↔1, FOV pulls 58→zoomFov; key + power tune in OPTIONS (O)
 const el = renderer.domElement;
 el.addEventListener('click', () => { if (!padFocus && document.pointerLockElement !== el) grabLook(); });
+let _mdx = 0, _mdy = 0;                                                   // accumulated deltas — poll-rate events fold into one per-frame apply
 addEventListener('mousemove', e => {
   if (padFocus) { mouseNDC.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
-    padSetHover(padCursorHit()); return; }                                    // pad mode — cursor hovers the screen, never looks
+    _padHoverDirty = true; return; }                                      // pad mode — hover raycast runs once a frame, not once a packet
   if (document.pointerLockElement !== el) return;
-  if (held && keys['g']) { heldTumble(e.movementX, e.movementY); return; }      // G+mouse tumbles the item, not the camera
-  const sens = .0022 * (camera.fov / 58);                                // sensitivity tracks the lens — scoped aim stays precise
-  yaw -= e.movementX * sens; pitch = Math.max(-1.45, Math.min(1.45, pitch - e.movementY * sens)); });
+  if (Math.abs(e.movementX) > 500 || Math.abs(e.movementY) > 500) return;   // pointer-lock spike guard — Chrome sporadically emits bogus multi-thousand-px deltas on fast flicks; legit per-event movement stays <~150px
+  if (held && keys['g']) { heldTumble(e.movementX, e.movementY); return; }  // G+mouse tumbles the item, not the camera
+  _mdx += e.movementX; _mdy += e.movementY; });                           // the math lands in the loop — poll-rate events just sum
+window.__lookStep = () => { if (!_mdx && !_mdy) return;                    // consumed once per frame by the loop
+  const sens = .0022 * (camera.fov / 58);                                  // sensitivity tracks the lens — scoped aim stays precise
+  yaw -= _mdx * sens; pitch = Math.max(-1.45, Math.min(1.45, pitch - _mdy * sens)); _mdx = _mdy = 0; };
 /* INTERACT registry — same contract as the Commission: promptIt caches what the HUD shows,
    E falls back to it (shown = pressable). New exhibits append, don't redesign. */
 const INTERACT = [
@@ -105,7 +110,8 @@ addEventListener('keydown', e => { keys[(e.key || '').toLowerCase()] = true;
   else if (k === 'h') { followers.forEach(f => { f.possessed = false; f.setOrder(f.order === 'follow' ? 'wait' : 'follow'); }); }   // HEEL ⇄ WAIT
   else if (k === 'l') window.__torch.set(!window.__torch.on);                     // inspection torch — light where you look
   else if (k === 'y') { LIVE.on ? window.__live.stop() : window.__live.start(); }   // live link — stream session to the agent
-  else if (k === 'k') { ctlOn = !ctlOn; ctlTick(); } });                      // control panel toggle
+  else if (k === 'k') { ctlOn = !ctlOn; ctlTick(); }                      // control panel toggle
+  else if (k === 'o' && window.__optToggle) window.__optToggle(); });     // O ↔ OPTIONS — while it's up, its capture-phase keydown swallows before this handler ever runs
 addEventListener('keyup', e => { keys[(e.key || '').toLowerCase()] = false; });
 const keysClear = () => { for (const k in keys) keys[k] = false; };                 // stuck-modifier guard —
 addEventListener('blur', keysClear);                                               // a lost keyup (Ctrl+W, Alt+Tab)

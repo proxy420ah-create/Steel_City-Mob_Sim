@@ -19,23 +19,27 @@ const step = dt => {
   }
 };
 
-let last = performance.now(), _dropT = 0, _dropCache = null;               // dropTarget marched 39 ray-steps at 60Hz —
+let last = performance.now(), _dropT = 0, _dropCache = null, _zf = -1, _pipT = 0, _ptLast = null,
+    _selBoxSig = null;     // dropTarget marched 39 ray-steps at 60Hz —
 const loop = now => {                                                       // the ghost only needs ~15Hz of freshness
   const dt = Math.min(.1, (now - last) / 1000); last = now;
+  if (window.__lookStep) window.__lookStep();                             // mouse deltas land once a frame — poll-rate packets fold into one apply
   placeOn ? flyStep(dt) : step(dt);
   placeStep();
-  if (placeSel) { selBox.box.setFromObject(placeSel.g); selBox.visible = true; }
-  const zt = (keys['z'] && !keys['control'] && !keys['meta']) ? 1 : 0;   // hold-Z scope — bare Z only;
-  if (zoomT !== zt) { zoomT += (zt - zoomT) * Math.min(1, dt * 9);         // Ctrl+Z is place-undo, never a zoom
+  if (placeSel) { const _sig = placeSel.x + ',' + placeSel.z + ',' + placeSel.y0 + ',' + placeSel.rotY;   // selBox only re-bounds when the selection moved — setFromObject traverses every instance each frame
+    if (_sig !== _selBoxSig) { _selBoxSig = _sig; selBox.box.setFromObject(placeSel.g); } selBox.visible = true; }
+  else { _selBoxSig = null; selBox.visible = false; }
+  const zt = (keys[zoomKey] && (zoomKey === 'control' || zoomKey === 'meta' || !keys['control'] && !keys['meta'])) ? 1 : 0;   // hold-scope — bare key only; a ctrl/meta BIND exempts itself from the modifier gate
+  if (zoomT !== zt || zoomFov !== _zf) { _zf = zoomFov; zoomT += (zt - zoomT) * Math.min(1, dt * 9);   // Ctrl+Z is place-undo, never a zoom; _zf — a slider move re-pulls the lens even mid-scope
     if (Math.abs(zt - zoomT) < 1e-3) zoomT = zt;
-    camera.fov = 58 - 32 * zoomT; camera.updateProjectionMatrix(); }
+    camera.fov = 58 - (58 - zoomFov) * zoomT; camera.updateProjectionMatrix(); }
   if (camLock) { camera.position.copy(camLock.p); camera.lookAt(camLock.t); }
   else { if (placeOn) camera.position.copy(flyPos); else camera.position.set(pos.x, EYE, pos.z);
     camera.rotation.set(0, 0, 0, 'YXZ'); camera.rotation.y = yaw; camera.rotation.x = pitch; }
   if (spinning) carG.rotation.y += SPIN_RATE * dt;
   TABLES.forEach(t => t.g.children.forEach(c => { const mn = c.userData.mini;          // the easel turntable —
-    if (mn && mn.spin) { c.rotation.y += mn.spin * dt;                                  // tops re-project every ~1.2° (~8.6° for heavy columns — a zone spins smooth, syncs exact on stop)
-      if (Math.abs(c.rotation.y - mn.topTheta) > (mn.localCols.length > 1e5 ? .15 : .02)) { mn.topTheta = c.rotation.y; miniSyncTops(t, c); } } }));
+    if (mn && mn.spin) { c.rotation.y += mn.spin * dt;                                  // tops re-project every ~2.9° (~8.6° for heavy columns — a zone spins smooth, syncs exact on stop). The light threshold was .02 rad (~1.1°) = ~6 syncs/sec at 0.9 rad/s; .05 keeps the visual smoothness at arm's length while cutting the ~700k-op sync by 2.5×.
+      if (Math.abs(c.rotation.y - mn.topTheta) > (mn.localCols.length > 1e5 ? .15 : .05)) { mn.topTheta = c.rotation.y; miniSyncTops(t, c); } } }));
   blockTrf.tick(dt);                                                                  // the block's curbside cruise — pull out, lap, repark
   followers.forEach(f => followStep(f, dt));
   selfStep(dt);
@@ -57,22 +61,28 @@ const loop = now => {                                                       // t
       else ghost.quaternion.identity(); }
   } else ghost.visible = false;
   pickIt = held || placeOn ? null : nearestPick();
+  if (_padHoverDirty) { _padHoverDirty = false; padSetHover(padCursorHit()); }   // cursor-mode hover — once a frame, not per packet
   const kb = kioskProbe(), db = padProbe(), sb = swProbe();                  // unconditional — hover state must not freeze
-  promptIt = document.pointerLockElement === el && !placeOn ? (kb || db || sb || INTERACT.reduce((b, it) => {
-    const d = Math.hypot(pos.x - it.x, pos.z - it.z); if (!(d < it.r)) return b;
-    if (it.aimDot) { const dx = (it.x - pos.x) / d, dz = (it.z - pos.z) / d;            // aimDot entries are cam-view offers —
-      if (-Math.sin(yaw) * dx + -Math.cos(yaw) * dz < it.aimDot) return b; }           // must face the point within the cone
-    return (!b || d < b.d) ? { it, d } : b; }, null)?.it || null) : null;
+  promptIt = null;
+  if (document.pointerLockElement === el && !placeOn) {
+    promptIt = kb || db || sb; let _id = Infinity;                                     // plain loop — a reduce closure per frame was GC feed
+    if (!promptIt) for (const it of INTERACT) {
+      const d = Math.hypot(pos.x - it.x, pos.z - it.z); if (!(d < it.r) || d >= _id) continue;
+      if (it.aimDot) { const dx = (it.x - pos.x) / d, dz = (it.z - pos.z) / d;           // aimDot entries are cam-view offers —
+        if (-Math.sin(yaw) * dx + -Math.cos(yaw) * dz < it.aimDot) continue; }          // must face the point within the cone
+      promptIt = it; _id = d;
+    }
+  }
   if (kioWire) kioWire.visible = !!(promptIt && promptIt.isBtn && !promptIt.panel && !promptIt.sw);   // ghost only on its own panel's button — not the switch's
   if (swWire) swWire.visible = !!(promptIt && promptIt.sw);                                    // the switch ghost rides the aimed rocker
-  promptEl.style.display = (held || pickIt || promptIt) ? 'block' : 'none';
-  promptEl.textContent = held ? 'E — PLACE ' + held.name.replace('commission_', '').replace(/_/g, ' ').toUpperCase()   // the carry hotkeys live on the FOLLOWER panel (K-hidable), not the reticle
-                     : pickIt ? 'E — TAKE ' + pickIt.name.replace('commission_', '').toUpperCase()
-                     : promptIt ? promptIt.label() : '';
+  const _pt = held ? 'E — PLACE ' + held.name.replace('commission_', '').replace(/_/g, ' ').toUpperCase()   // the carry hotkeys live on the FOLLOWER panel (K-hidable), not the reticle
+            : pickIt ? 'E — TAKE ' + pickIt.name.replace('commission_', '').toUpperCase()
+            : promptIt ? promptIt.label() : '';
+  if (_pt !== _ptLast) { _ptLast = _pt; promptEl.textContent = _pt; promptEl.style.display = _pt ? 'block' : 'none'; }   // DOM writes only on change — textContent churn was GC+layout feed
   window.__compass(camera);
   if (window.__torch.on) window.__torch.aim(camera);
   renderer.render(scene, camera);
-  if (povOn) window.__eyes.pip();
+  if (povOn) { _pipT -= dt; if (_pipT <= 0) { _pipT = .05; window.__eyes.pip(); } }   // 20Hz inset — a second full render is a luxury
   requestAnimationFrame(loop);
 };
 
@@ -84,9 +94,12 @@ _cp.style.cssText = 'position:fixed;top:44px;left:50%;transform:translateX(-50%)
 _cp.innerHTML = '<svg width="64" height="64" viewBox="-32 -32 64 64" style="display:block;margin:0 auto"><circle r="30" fill="rgba(10,8,6,.55)" stroke="#8a7a50"/><g id="cpRose"><path d="M0-26L5 0H-5Z" fill="#d94a3a"/><path d="M0 26L5 0H-5Z" fill="#6c6650"/><text y="-17" x="0" font-size="9" fill="#fff" text-anchor="middle" transform="translate(0,-4)">N</text><text x="21" y="3" font-size="9" fill="#e8d9b0" text-anchor="middle">E</text><text x="-21" y="3" font-size="9" fill="#e8d9b0" text-anchor="middle">W</text><text y="30" x="0" font-size="9" fill="#e8d9b0" text-anchor="middle" transform="translate(0,-3)">S</text></g></svg><div id="cpTxt" style="display:inline-block;background:rgba(8,8,14,.8);border:1px solid #3a3a4a;padding:2px 6px"></div>';
 document.body.appendChild(_cp);
 const _cpRose = _cp.querySelector('#cpRose'), _cpTxt = _cp.querySelector('#cpTxt'), _cpDir = new THREE.Vector3();
+let _cpLast = null;       // DOM writes only when the rounded bearing/position changes — toFixed+textContent churn was a per-frame layout feed
 window.__compass = cam => {
   cam.getWorldDirection(_cpDir);
   const brg = (Math.atan2(_cpDir.x, _cpDir.z) * 180 / Math.PI + 360) % 360;      // 0 = N(+z), 90 = E(+x)
-  _cpRose.setAttribute('transform', 'rotate(' + (-brg).toFixed(1) + ')');
-  _cpTxt.textContent = ['N','NE','E','SE','S','SW','W','NW'][Math.round(brg / 45) % 8] + ' ' + Math.round(brg) + '°  x ' + cam.position.x.toFixed(2) + '  z ' + cam.position.z.toFixed(2) + '  y ' + cam.position.y.toFixed(2);
+  const txt = ['N','NE','E','SE','S','SW','W','NW'][Math.round(brg / 45) % 8] + ' ' + Math.round(brg) + '°  x ' + cam.position.x.toFixed(2) + '  z ' + cam.position.z.toFixed(2) + '  y ' + cam.position.y.toFixed(2);
+  if (txt !== _cpLast) { _cpLast = txt;
+    _cpRose.setAttribute('transform', 'rotate(' + (-brg).toFixed(1) + ')');
+    _cpTxt.textContent = txt; }
 };

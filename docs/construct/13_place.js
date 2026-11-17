@@ -12,7 +12,7 @@ let placeOn = false, placeSel = null, placeClip = null;
 const flyPos = new THREE.Vector3(0, .6, -1), _fd = new THREE.Vector3();
 const placeEl = document.createElement('div');
 placeEl.style.cssText = 'position:fixed;left:50%;bottom:14px;transform:translateX(-50%);background:rgba(8,8,14,.92);border:1px solid #6a6a92;color:#e2dbc2;padding:5px 12px;font:10px ui-monospace,Consolas,monospace;letter-spacing:.1em;display:none;z-index:8;pointer-events:none;white-space:nowrap';
-const PLACE_LEGEND = 'PLACE — WASD/QE fly · ALT crawl · LMB select · SHIFT+LMB drag · ARROWS move (SHIFT coarse) · , . rotate · PgUp/Dn height · B re-seat · P pendant · ENTER confirm · ESC revert · C copy · V paste · DEL remove · ^Z undo · X exit';
+const PLACE_LEGEND = 'PLACE — WASD/QE fly · ALT crawl · LMB select · SHIFT+LMB drag · ARROWS move (SHIFT coarse) · , . rotate · PgUp/Dn height · B re-seat · P pendant · ENTER confirm · ESC revert · C copy · V paste · DEL remove · Z scope · ^Z undo · X exit';
 placeEl.textContent = PLACE_LEGEND;
 document.body.appendChild(placeEl);
 const placeStat = document.createElement('div');
@@ -191,8 +191,10 @@ const placeStep = () => {
       p.y0 = s.y;
       placeApply(p, sx - g.lx * cy - g.lz * sy, sz + g.lx * sy - g.lz * cy, p.rotY); } }
   carrySync(p);                                                                  // passengers ride regardless of what moved the host
-  placeStat.textContent = 'SEL ' + p.name + '  x ' + p.x.toFixed(3) + '  z ' + p.z.toFixed(3) +
-    '  y ' + p.y0.toFixed(3) + '  rotY ' + p.rotY.toFixed(3) + '  · ' + (p._carry || []).length + ' passengers' + (p._drag ? '  · DRAGGING' : '');
+  const _sig = p.x.toFixed(3) + '|' + p.z.toFixed(3) + '|' + p.y0.toFixed(3) + '|' + p.rotY.toFixed(3) + '|' + (p._carry || []).length + (p._drag ? '|D' : '');   // textContent churn was a per-frame layout feed — write only on change
+  if (_sig !== p._statSig) { p._statSig = _sig;
+    placeStat.textContent = 'SEL ' + p.name + '  x ' + p.x.toFixed(3) + '  z ' + p.z.toFixed(3) +
+      '  y ' + p.y0.toFixed(3) + '  rotY ' + p.rotY.toFixed(3) + '  · ' + (p._carry || []).length + ' passengers' + (p._drag ? '  · DRAGGING' : ''); }
 };
 window.__place = { on: () => placeOn, toggle: placeToggle, sel: () => placeSel && placeSel.name,
   fly: (x, y, z) => { if (x === undefined) return flyPos.toArray(); flyPos.set(x, y, z); return true; },   // pin the free cam — flyPos was module-scoped; free-cam probes couldn't reach it

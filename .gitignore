@@ -118,6 +118,8 @@ Assets/StreamingAssets/voxel_items/commission_lawdesk.json.bak
 
 # ── Agent vision-tool artifacts (regenerable) ──────────────────
 docs/_shotprof_*/
+docs/_cdpprof_*/
+docs/_padshot_*/
 docs/probe_*.png
 docs/_plan_*.png
 docs/_sec_*.png

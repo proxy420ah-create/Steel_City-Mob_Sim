@@ -8,6 +8,7 @@ const emitChar = spec => fetch('/char/' + spec.char).then(r => r.json()).then(ri
   if (!rig || !rig.voxels) return null;
   const E = poseEngine(rig), N = rig.voxels.length, VS = rig.voxelSize || .01, d = rig.dims || [96, 96, 96];
   const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(VS, VS, VS), new THREE.MeshLambertMaterial(), N);
+  inst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);                  // rewritten per posed frame — static buffers make the driver orphan/migrate on every upload
   inst.frustumCulled = false;                          // matrices rewrite per pose — load-time bounds go stale
   const pal = {}; (rig.materials || []).forEach(m => pal[m.id] = new THREE.Color(m.hex));
   const reg = rig.regions || {}, dflt = new THREE.Color(0x888888), out = spec.outfit || OUTFIT;    // spec.outfit = mannequin's wardrobe
@@ -50,7 +51,11 @@ const F_TURN = 10, F_WALK = 1.4, MOVE_EPS = .1, TRANS_DUR = .32, TRANS_DIP = .45
 const followStep = (f, dt) => {
   let moving = false;
   let tx = null, tz = 0, arrive = FOLLOW_D;                              // order → target: follow heels you, goto plants on the live mark
-  if (f.order === 'follow') { tx = pos.x + f.heelOff * Math.cos(yaw); tz = pos.z - f.heelOff * Math.sin(yaw); }   // heel slot fans out along your right axis
+  if (f.order === 'follow') {                                            // heel slot fans out along your right axis
+    tx = pos.x + f.heelOff * Math.cos(yaw); tz = pos.z - f.heelOff * Math.sin(yaw);
+    const h = f._heel || (f._heel = { x: 1e9, z: 0 });                     // deadband — a look-around turn swings the slot
+    if (Math.abs(tx - h.x) + Math.abs(tz - h.z) < .25) { tx = h.x; tz = h.z; } else { h.x = tx; h.z = tz; }   // on a .45m arm; re-heel only on real moves
+  }
   else if (f.order === 'goto' && marks.length) { tx = marks[0].position.x; tz = marks[0].position.z; arrive = .3; }
   if (tx !== null) {
     const dx = tx - f.pos.x, dz = tz - f.pos.z, d = Math.hypot(dx, dz);
@@ -85,9 +90,15 @@ const followStep = (f, dt) => {
   const gT = f.gazeT ? f.gazeT : (!moving && Math.hypot(pos.x - f.pos.x, pos.z - f.pos.z) < 2.2 ? _playerHead : null);
   if (gT) {
     const lx = gT.x - f.pos.x, lz = gT.z - f.pos.z, ly = gT.y, cy = Math.cos(f.yaw), sy = Math.sin(f.yaw);
-    gaze = { T: [(lx * cy - lz * sy) / f.VS + f.d[0] / 2, ly / f.VS, (lx * sy + lz * cy) / f.VS + f.d[2] / 2], blend: 0, head: 1 };
+    gaze = f._gaze || (f._gaze = { T: [0, 0, 0], blend: 0, head: 1 });    // reuse — per-frame objects were GC feed
+    gaze.T[0] = (lx * cy - lz * sy) / f.VS + f.d[0] / 2; gaze.T[1] = ly / f.VS; gaze.T[2] = (lx * sy + lz * cy) / f.VS + f.d[2] / 2;
   }
-  if (was || f.state === 1 || f.transT >= 0 || gaze) {
+  let dirty = was || f.state === 1 || f.transT >= 0;                       // motion/transition — repaint every frame
+  if (!dirty && gaze) {                                                  // idle head-track — repaint only when the aim moved (voxel eps)
+    const T = gaze.T, k = f._gk || (f._gk = [1e9, 1e9, 1e9]);
+    if (Math.abs(T[0] - k[0]) + Math.abs(T[1] - k[1]) + Math.abs(T[2] - k[2]) > .8) { dirty = true; k[0] = T[0]; k[1] = T[1]; k[2] = T[2]; }
+  }
+  if (dirty) {
     f.E.evalPose(f.state, f.gaitTime, f.bufB, gaze);
     if (f.transT >= 0) { f.E.evalPose(f.transFrom, f.gaitTime, f.bufA, gaze); f.upload(f.bufA, f.bufB, f.blend, f.dip); }
     else f.upload(null, f.bufB, 1, 0);

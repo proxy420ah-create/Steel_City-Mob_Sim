@@ -98,14 +98,16 @@ const tagAt = p => {
 const clearTags = () => { while (marks.length) scene.remove(marks.pop()); followers.forEach(f => { f.gazeT = null; }); };
 window.__aim = { on: () => aimOn, mark: tagAt, clear: clearTags, world: () => aimWorld.toArray() };
 
+let _aimExcl = null;                                                 // lazy — ghost/aimDot live in later-loaded siblings (12_carry.js); a module-level literal would hit TDZ at eval time
 const aimStep = () => {
   aimOn = !!(keys.f || rmbAim);
   _playerHead.set(pos.x, EYE, pos.z);
   if (aimOn) {
     aimRay.setFromCamera(_zv, camera);
-    const excl = [ghost, aimDot, camera];
-    followers.forEach(f => excl.push(f.CH)); if (selfBody) excl.push(selfBody.CH); if (held) excl.push(held.g); marks.forEach(m => excl.push(m));
-    const hits = rayPruned(aimRay, scene.children, excl, true);
+    if (!_aimExcl) _aimExcl = [ghost, aimDot, camera];                // first call materializes the fixed head; later calls reuse
+    _aimExcl.length = 3;                                              // truncate to the 3 fixed entries, append the live ones
+    followers.forEach(f => _aimExcl.push(f.CH)); if (selfBody) _aimExcl.push(selfBody.CH); if (held) _aimExcl.push(held.g); marks.forEach(m => _aimExcl.push(m));
+    const hits = rayPruned(aimRay, scene.children, _aimExcl, true);
     camera.getWorldDirection(fwdV);
     if (hits.length) aimWorld.copy(hits[0].point); else aimWorld.copy(camera.position).addScaledVector(fwdV, 4);
     aimDot.position.copy(aimWorld); aimDot.visible = true;
