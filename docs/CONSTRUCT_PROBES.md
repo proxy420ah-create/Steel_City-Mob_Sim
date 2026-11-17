@@ -60,15 +60,19 @@ they are contract traps, not code bugs, and they bite again the moment they're f
   catalog, `bldg:vnext` mounts the variant, `bldg:vlock` rebases the table to
   canonical, the cache carries the variant grid, and `/save/voxel` persisted
   the twin. Third half — the preview fanout: a deposited `barber_shop__roof_9`
-  cycles onto `primary`, `_previewOf['barber_shop']` sets, the studio zone's
-  mini remounts (tag-fresh, polled — the zone emit is the heavy mount), and
+  cycles onto `primary`, `_previewOf['barber_shop']` sets, and the zone
+  restamps *surgically* — the group keeps its `_pvTag` while only the
+  `barber_shop` sub-minis go fresh (`_byName` registry, `restampZone`);
   cycling back to canonical clears the overlay. Fourth half — bidirectional
   sync + remount responsiveness: a `window.open`'d editor tab receives an
   injected `vox-delta` and applies it to `voxelMap` (undoable entry, no
-  echo-back — `__room` exposes the map), and an rAF sampler counts >80ms
-  frames across a `remountMini` of the zone composite (≤5 per 8s — the floor
-  is GC + first-draw GPU upload; regression means a sync block crept back).
-  (21 checks.)
+  echo-back — `__room` exposes the map); an rAF sampler counts >80ms frames
+  across a `remountMini` of the zone composite (≤5 per 8s — the floor is GC +
+  first-draw GPU upload; regression means a sync block crept back) and across
+  a `restampZone` of `barber_shop` (≤1 per 5s — the surgical path is
+  near-free). The dep-delta check itself asserts the surgical law: the zone
+  group's `_probeTag` survives while its `tenement_block_0` children go
+  fresh. (23 checks.)
 
 > **File layout:** the page body is `docs/construct/01_shell.js` … `17_lamps.js` —
 > classic `<script defer>` siblings sharing one page-wide scope, load order = old

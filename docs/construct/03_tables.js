@@ -190,18 +190,20 @@ const fillBlockGround = (set, X0, Z0, seams, lanes, B = BLK) => { const { ROAD, 
    composite grid; the composite stride is W2, slab offset +2). Each explicit slot stamps its
    asset at its 64-voxel offset; a multi-slot asset marks every lot it covers; the rest take
    empty_land — the game's own vacant-lot tile. Returns the per-stamp rects for aim proxies. */
-const stampSlots = (vox, W2, H, files, slots, X0, Z0, B = BLK, zFlip = false, mir = false) => { const { S, BW, M } = B;
+const stampSlots = (vox, W2, H, files, slots, X0, Z0, B = BLK, zFlip = false, mir = false, collect = null) => { const { S, BW, M } = B;
   const covered = new Set();                                          // which lots does explicit content already own?
   const rOf = (s, f) => zFlip ? 3 - (s / 3 | 0) - f.D / S : (s / 3 | 0);  // Unity's index-row0 sits on the block edge TOWARD row+1 — under our row↑→+z grid that's the z-max side, so zone lots flip their row (footprint-aware: a 3-row tenement still spans 0..2)
   Object.entries(slots).forEach(([s, n]) => { const f = files[n], sc = +s % 3, r0 = rOf(s, f);
     for (let r = r0; r < r0 + f.D / S; r++) for (let c = sc; c < sc + f.W / S; c++) covered.add(r * 3 + c); });
-  const stamped = [], stamp = (f, sx, sz) => {
-    stamped.push({ x: X0 + M + sx, z: Z0 + M + sz, w: Math.min(f.W, BW - sx), d: Math.min(f.D, BW - sz), h: f.H });
+  const stamped = [], stamp = (f, sx, sz, n) => {
+    const rec = { x: X0 + M + sx, z: Z0 + M + sz, w: Math.min(f.W, BW - sx), d: Math.min(f.D, BW - sz), h: f.H, n };
+    if (collect && n) { collect.push(rec); return; }                    // surgical mode — positions only; the
+    stamped.push(rec);                                                  // building emits as its own sub-mini
     for (let z = 0; z < f.D && sz + z < BW; z++)
       for (let y = 0; y < f.H; y++) for (let x = 0; x < f.W && sx + x < BW; x++) {
         const id = f.vox[x + f.W * (y + f.H * (mir ? f.D - 1 - z : z))];          // mir: stamp content z-mirrors inside its own footprint — the Unity L/R flip moves fronts to the lot's far edge and leaves text + door/pole x-positions reading correctly — while the lot's position stays raw (zone composite renders flip:false)
         if (id) vox[(X0 + M + sx + x) + W2 * (y + 2 + H * (Z0 + M + sz + z))] = id; } };
-  for (let s = 0; s < 9; s++) { const n = slots[s]; if (n) { const f = files[n]; stamp(f, (s % 3) * S, rOf(s, f) * S); } }
+  for (let s = 0; s < 9; s++) { const n = slots[s]; if (n) { const f = files[n]; stamp(f, (s % 3) * S, rOf(s, f) * S, n); } }
   for (let s = 0; s < 9; s++) if (!covered.has(s) && !slots[s]) stamp(files['empty_land'], (s % 3) * S, ((s / 3) | 0) * S);
   return stamped; };
 /* roadProf — the street's own geometry, measured off the composite's column tops: the
@@ -457,11 +459,13 @@ const emitBlock = (t, m) => { const W2 = BLKF.TILE, slots = m.slots || {};
 const _layoutC = {};
 const layoutFetch = file => _layoutC[file] || (_layoutC[file] =
   fetch('/Assets/StreamingAssets/' + file).then(r => r.json()));
-/* emitZone — an r0..r1 × c0..c1 rectangle of city_layout blocks as ONE miniature ("a zone" —
-   the drafting room's third tier). Each block tiles its own ground (margins carry the roads —
-   interior seams are just two neighboring half-roads, the game's own chunk law) and stamps its
-   authored slots; the ground slab reads as a flat `plate` so the ~934k-column composite keeps a
-   building-only localCols. Aim proxies are per-stamp + one ground plate — the zone's own tops. */
+/* emitZone — an r0..r1 × c0..c1 rectangle of city_layout blocks ("a zone" — the drafting
+   room's third tier). Two-tier emit since the surgical restamp: the GROUND composite (roads,
+   curbs, sidewalks, empty lots — one emitVox) + each authored building as its own sub-mini
+   inside the zone group. rebuildDeps then re-emits only the changed name's children —
+   a barber stroke repaints ~150k cells, not the whole 37M-cell city. Ground deps = every
+   stamped name anyway (a dep hit on a stamped name goes surgical; ground-level names like
+   empty_land still full-remount). */
 const emitZone = (t, m) => { const { M, TILE } = BLK, z = m.zone;
   const R = z.r1 - z.r0 + 1, C = z.c1 - z.c0 + 1, W2 = C * TILE, D2 = R * TILE;
   return layoutFetch(z.src || 'city_layout.json').then(L => {
@@ -471,29 +475,36 @@ const emitZone = (t, m) => { const { M, TILE } = BLK, z = m.zone;
     blks.forEach(b => b.buildings.forEach(s => names.add(stName(s))));
     return Promise.all([...names].map(n => stassetFetch(n).then(f => [n, f]))).then(async es => {
       const files = Object.fromEntries(es);
-      const H = 2 + Math.max(...[...names].map(n => files[n].H));
-      const vox = (t._voxPool && t._voxPool.length === W2 * H * D2) ? t._voxPool.fill(0)   // 74MB composite — pooled across
-        : (t._voxPool = new Uint16Array(W2 * H * D2));                                     // remounts; fill beats alloc+GC
+      const H = 2 + files['empty_land'].H;                                   // buildings moved to sub-minis — the ground
+      const vox = (t._voxPool && t._voxPool.length === W2 * H * D2) ? t._voxPool.fill(0)   // composite only needs slab+empty_land rows
+        : (t._voxPool = new Uint16Array(W2 * H * D2));
       const set = (x, zz, id) => { vox[x + W2 * (H * zz)] = vox[x + W2 * (1 + H * zz)] = id; };
       const hAt = (r, c) => (r >= 0 && r < L.hSeamRows.length && c >= 0 && c < L.hSeamRows[r].cells.length) ? L.hSeamRows[r].cells[c] : 'road';
       const vAt = (r, c) => (r >= 0 && r < L.vSeamRows.length && c >= 0 && c < L.vSeamRows[r].cells.length) ? L.vSeamRows[r].cells[c] : 'road';
-      const stamped = [];
+      const collect = [];                                                  // occupied slots → positions only, no grid write
       let bi = 0;
       for (const b of blks) { const X0 = (b.col - z.c0) * TILE, Z0 = (b.row - z.r0) * TILE;   // Unity anchors row→−z in ITS world — but the in-game compass reads that as SOUTH-ward: our room's +z is the matching edge (verified vs the west-facing in-game shot: r5 tenement sits LEFT)
         const seams = { n: hAt(b.row - 1, b.col), e: vAt(b.row, b.col), s: hAt(b.row, b.col), w: vAt(b.row, b.col - 1) },
           slots = {}, types = new Set(); b.buildings.forEach((s, i) => { slots[i] = stName(s); types.add(s.type); });   // Unity positions buildings by ARRAY INDEX (slot field is metadata)
         const lanes = (types.has('alley_lane') ? 10 : 0) | (types.has('alley_lane_ns') ? 5 : 0);   // a lane slot IS the cut — the stasset is an empty placeholder; the mouth+cross-section draw in the ground recipe
         fillBlockGround(set, X0, Z0, seams, lanes);
-        stamped.push(...stampSlots(vox, W2, H, files, slots, X0, Z0, BLK, true, true));   // zFlip — slot rows order toward row+1 (Unity's index-row0 side), which under row↑→+z is the z-max edge; mir — stamp content x-mirrors in place (the Unity L/R flip) while lots stay raw
-        if (!(++bi & 3)) await new Promise(r => setTimeout(r)); }   // ~4 blocks per turn — the ground+stamp batch was one 40ms block before
-      return emitVox(t, m, W2, H, D2, vox).then(miniG => {
-        if (miniG) { const mn = miniG.userData.mini, vs = mn.vs;
-          mn._deps = names;                                                  // live-sync deps = every stamped stasset
-          miniG.add(hitProxy(W2 * vs, 2 * vs, D2 * vs, 0, vs, 0));               // ground plate — roads/lots aim at slab top
-          stamped.forEach(s => { const cx = (Math.min(mn.fx(s.x), mn.fx(s.x + s.w - 1)) + Math.max(mn.fx(s.x), mn.fx(s.x + s.w - 1))) / 2;
-            miniG.add(hitProxy(s.w * vs, (s.h + 2) * vs, s.d * vs, cx, (s.h + 2) * vs / 2, (s.z + s.d / 2 - D2 / 2) * vs)); }); }
+        stampSlots(vox, W2, H, files, slots, X0, Z0, BLK, true, true, collect);   // zFlip lots + z-mir content — the sub-minis reproduce it as flip:false + zflip
+        if (!(++bi & 3)) await new Promise(r => setTimeout(r)); }   // ~4 blocks per turn
+      return emitVox(t, m, W2, H, D2, vox).then(async miniG => {
+        if (!miniG) return miniG;
+        const mn = miniG.userData.mini, vs = mn.vs;
+        mn._deps = names;                                                  // live-sync deps = every stamped stasset
+        mn._subs = []; mn._byName = new Map();                             // surgical registry — rebuildDeps restamps per name
+        miniG.add(hitProxy(W2 * vs, 2 * vs, D2 * vs, 0, vs, 0));             // ground plate — roads/lots aim at slab top
+        for (const st of collect) { const f = files[st.n];
+          const g = await emitVox(t, { name: st.n, _vs: vs, flip: false, zflip: true, _parent: miniG, _py: 2 * vs, noProxy: true,
+            x: (st.x + st.w / 2 - W2 / 2) * vs, z: (st.z + st.d / 2 - D2 / 2) * vs }, f.W, f.H, f.D, f.vox);
+          if (!g) return miniG;                                            // a full remount landed mid-build — it owns the subs
+          g.userData.mini._deps = new Set([st.n]); g.userData.mini._stamp = st;
+          g.add(hitProxy(st.w * vs, st.h * vs, st.d * vs, 0, st.h * vs / 2, 0));   // the proxy rides the building — dies with it
+          mn._subs.push(g); (mn._byName.get(st.n) || mn._byName.set(st.n, []).get(st.n)).push(g); }
         return miniG; }); }); })
-    .catch(e => console.warn('CONSTRUCT — zone emit failed:', m.name, e)); };
+    .catch(e => { (window.__emitErr = window.__emitErr || []).push('zone:' + (e && e.stack || e)); console.warn('CONSTRUCT — zone emit failed:', m.name, e); }); };
 /* emitVox — one volume's instances + tops + mini rec. The shared body for single mounts,
    block composites, and zones: `m` supplies name/fill/x/z/flip; the grid is already assembled.
    Async — a zone's 100M-cell scan yields to the loop (chunked cooperative scan). Two culls:
@@ -505,6 +516,7 @@ const emitVox = async (t, m, W, H, D, vox) => {
     const mgen = t._mountGen, ox = m.x || 0, oz = m.z || 0;                          // mount generation at entry — staleness test for mid-emit swaps
     const mirX = m.flip !== false;                                       // .stasset grids are authored under Unity truth —
     const fx = x => mirX ? (W - 1 - x) - W / 2 + .5 : x - W / 2 + .5;      // the editor's UNITY VIEW is scale.x=-1, so a right-handed render mirrors x to match (opt out with flip:false)
+    const fz = z => m.zflip ? (D - 1 - z) - D / 2 + .5 : z - D / 2 + .5;   // zone sub-stamps: raw position + z-mirrored content (the Unity L/R flip, same as the old composite stamp)
     const at = (x, y, z) => (x < 0 || y < 0 || z < 0 || x >= W || y >= H || z >= D) ? 0 : vox[x + W * (y + H * z)];
     const surf = (x, y, z) => !(at(x-1,y,z) && at(x+1,y,z) && at(x,y-1,z) && at(x,y+1,z) && at(x,y,z-1) && at(x,y,z+1));
     const under = (x, z) => at(x-1,0,z) && at(x+1,0,z) && at(x,0,z-1) && at(x,0,z+1) && at(x,1,z);   // interior-bottom: exposed face is only the unseen underside
@@ -523,7 +535,7 @@ const emitVox = async (t, m, W, H, D, vox) => {
       if (surf(x, y, z) && !(y === 0 && under(x, z))) { ng++; if (BLDG_GLASS.has(id)) ngg++; }
       } if ((cellB += W) > 3e6) { cellB = 0; await tick(); } } }         // ~3M cells ≈ a frame's budget
     if (t._mountGen !== mgen) return null;                                         // swapped mid-scan — attaching now would ghost over the new model
-    const miniG = new THREE.Group(); miniG.position.set(ox, tableTop(t), oz); t.g.add(miniG);   // fresh top — the boot lift-restore may land mid-emit
+    const miniG = new THREE.Group(); miniG.position.set(ox, m._parent ? (m._py || 0) : tableTop(t), oz); (m._parent || t.g).add(miniG);   // _parent = a sub-mini inside a composite (zone stamps); fresh top otherwise — the boot lift-restore may land mid-emit
     const geo = new THREE.BoxGeometry(1, 1, 1);
     const clipMin = { value: new THREE.Vector3(-1e9, -1e9, -1e9) }, clipMax = { value: new THREE.Vector3(1e9, 1e9, 1e9) };
     const mkClipMat = base => { const m = base.clone();                  // per-model clone → own slice uniforms
@@ -546,7 +558,7 @@ const emitVox = async (t, m, W, H, D, vox) => {
       for (let z = 0; z < D; z++) { for (let x = 0; x < W; x++) {
       const id = at(x, y, z); if (!id) continue;
       if (!surf(x, y, z) || (y === 0 && under(x, z))) continue;
-      M.makeScale(vs, vs, vs).setPosition(fx(x) * vs, (y + .5) * vs, (z - D / 2 + .5) * vs);
+      M.makeScale(vs, vs, vs).setPosition(fx(x) * vs, (y + .5) * vs, fz(z) * vs);
       const col = BLDG_MAT[id]; C.setRGB(col ? col[0] : .55, col ? col[1] : .55, col ? col[2] : .55);
       if (BLDG_GLASS.has(id)) { imG.setMatrixAt(gi, M); imG.setColorAt(gi, C); gi++; }
       else { imO.setMatrixAt(no, M); imO.setColorAt(no, C); no++; }
@@ -554,7 +566,7 @@ const emitVox = async (t, m, W, H, D, vox) => {
     imO.count = no; imG.count = gi; imO.userData.miniVox = imG.userData.miniVox = true;   // flag the miniature's instanced walls — rayPruned skips them whole (426K matrix tests per ray)
     if (gi) miniG.add(imG); miniG.add(imO);
     const px0 = (Math.min(fx(gx0), fx(gx1)) - .5) * vs, px1 = (Math.max(fx(gx0), fx(gx1)) + .5) * vs,
-      pz0 = (gz0 - D / 2) * vs, pz1 = (gz1 + 1 - D / 2) * vs;
+      pz0 = (Math.min(fz(gz0), fz(gz1)) - .5) * vs, pz1 = (Math.max(fz(gz0), fz(gz1)) + .5) * vs;
     imO.boundingSphere = imG.boundingSphere = new THREE.Sphere(             // O(1) bounds — the lazy compute iterates
       new THREE.Vector3((px0 + px1) / 2, (gy1 + 1) * vs / 2, (pz0 + pz1) / 2),  // every instance on first frustum test
       Math.hypot(px1 - px0, (gy1 + 1) * vs, pz1 - pz0) / 2 + vs);           // (1.36M matrices = a guaranteed first-look hitch)
@@ -564,15 +576,15 @@ const emitVox = async (t, m, W, H, D, vox) => {
     for (let z = 0; z < D; z++) { for (let x = 0; x < W; x++) {
       const ys = colYs[x + W * z]; if (!ys) continue;
       if (m.plate && ys.length === 2 && ys[0] === 0 && ys[1] === 1) continue;   // flat ground — the plate writes these tops
-      localCols.push({ x, z, dx: fx(x) * vs, dz: (z - D / 2 + .5) * vs, ys }); }
+      localCols.push({ x, z, dx: fx(x) * vs, dz: fz(z) * vs, ys }); }
       if ((cellB += W) > 3e6) { cellB = 0; await tick(); } }
     miniG.userData.mini = { name: m.name, dims: [W, H, D], vox: ng, scale: vs / BLDG_VS, fill: m.fill, vs, _blkM: m._blkM, static: !!m.static,
       localCols, plate: m.plate ? { x0: px0, x1: px1, z0: pz0, z1: pz1, y: 1 } : null,
       written: new Set(), spin: 0, topTheta: 0, fx, mirX, axis: 'y',
       slice: { x: [0, W - 1], y: [0, H - 1], z: [0, D - 1] }, clipMin, clipMax };
-    if (t._mountGen !== mgen) { t.g.remove(miniG); return null; }                  // swapped mid-emit — the unflagged group survived mountModel's cleanup; detach before it flags + writes tops
-    miniSyncSlice(miniG); await miniSyncTopsQ(t, miniG);                 // the model joins the host's surface truth — chunked on big composites
-    miniG.position.y = tableTop(t);                                      // settle on the CURRENT top — entry's capture predates a mid-emit lift-restore; the mount lands on its pedestal's real height
+    if (t._mountGen !== mgen || (m._parent && m._parent.parent !== t.g)) { (m._parent || t.g).remove(miniG); return null; }   // swapped mid-emit — the unflagged group survived mountModel's cleanup (or its parent detached); bail before it writes tops
+    miniSyncSlice(miniG); await miniSyncTopsQ(t, miniG, m._parent ? _effOf(m._parent, miniG) : null);   // the model joins the host's surface truth — chunked; a sub-mini projects through its parent's transform
+    miniG.position.y = m._parent ? (m._py || 0) : tableTop(t);           // settle on the CURRENT top — entry's capture predates a mid-emit lift-restore; the mount lands on its pedestal's real height
     miniSettle(t);                                                       // tops are truth — guests re-derive under the new map (a mount/swap left them on the old)
     return miniG;
   };
@@ -586,20 +598,30 @@ const miniSyncSlice = mdl => { const mn = mdl.userData.mini, s = mn.slice, vs = 
    revert to felt, then surviving columns re-project (rotated offsets, top = tallest y in window).
    A `plate` model (zones/block composites — full-coverage ground slab) writes its flat top as a
    rotated rect of columns first; per-column localCols only carry the raised content above it. */
-const _miniTopsHead = (t, mdl) => { const mn = mdl.userData.mini;
+/* _effOf — a sub-mini's effective host-space transform: parent pos + child offset rotated by the
+   parent's rotation, base height = group's top + the child's own lift (zone stamps sit on the
+   ground slab's 2-cell top). Top-level callers pass null → the model's own transform. */
+const _effOf = (p, ch) => { const c = Math.cos(p.rotation.y), s = Math.sin(p.rotation.y);
+  return { th: p.rotation.y + ch.rotation.y,
+    ox: p.position.x + ch.position.x * c - ch.position.z * s,
+    oz: p.position.z + ch.position.x * s + ch.position.z * c,
+    by: p.position.y + ch.position.y }; };
+const _miniTopsHead = (t, mdl, eff) => { const mn = mdl.userData.mini;
   const wr = [...mn.written]; mn.written.clear();                                  // snapshot — callers chunk the revert
-  const th = mdl.rotation.y, c = Math.cos(th), sn = Math.sin(th), ox = mdl.position.x, oz = mdl.position.z;
-  return { mn, ox, oz, c, sn, wr }; };
+  const th = eff ? eff.th : mdl.rotation.y, c = Math.cos(th), sn = Math.sin(th),
+    ox = eff ? eff.ox : mdl.position.x, oz = eff ? eff.oz : mdl.position.z,
+    by = eff ? eff.by : mdl.position.y;                                            // host-local base y — a top mini's y IS tableTop
+  return { mn, ox, oz, c, sn, wr, by }; };
 const _miniTopsRevert = (t, wr, i0, i1) => { const v = tableTop(t);                // written keys drop back to felt
   for (let i = i0; i < i1; i++) t.rec.tops.set(wr[i], v); };                       // (~250k Map.set on a zone — chunkable)
-const _miniTopsPlateRect = (t, mn, ox, oz, c, sn) => { const s = mn.slice, D = mn.dims[2];
+const _miniTopsPlateRect = (t, mn, ox, oz, c, sn, by) => { const s = mn.slice, D = mn.dims[2];
   if (!(mn.plate && s.y[0] <= mn.plate.y && s.y[1] >= mn.plate.y)) return null;   // ground plate survives the y window → fill its rect
   const sx0 = Math.min(mn.fx(s.x[0]), mn.fx(s.x[1])) - .5, sx1 = Math.max(mn.fx(s.x[0]), mn.fx(s.x[1])) + .5,   // slice window, local
     rx0 = Math.max(mn.plate.x0, sx0 * mn.vs), rx1 = Math.min(mn.plate.x1, sx1 * mn.vs),
     rz0 = Math.max(mn.plate.z0, (s.z[0] - D / 2) * mn.vs), rz1 = Math.min(mn.plate.z1, (s.z[1] + 1 - D / 2) * mn.vs);
   if (!(rx0 < rx1 && rz0 < rz1)) return null;
   const cs = [[rx0, rz0], [rx1, rz0], [rx0, rz1], [rx1, rz1]].map(([dx, dz]) => [ox + dx * c - dz * sn, oz + dx * sn + dz * c]);
-  return { rx0, rx1, rz0, rz1, v: tableTop(t) + (mn.plate.y + 1) * mn.vs,
+  return { rx0, rx1, rz0, rz1, v: by + (mn.plate.y + 1) * mn.vs,
     ix0: Math.round(Math.min(...cs.map(p => p[0])) * 200), ix1: Math.round(Math.max(...cs.map(p => p[0])) * 200),
     iz0: Math.round(Math.min(...cs.map(p => p[1])) * 200), iz1: Math.round(Math.max(...cs.map(p => p[1])) * 200) }; };
 const _miniTopsPlateFill = (t, mn, ox, oz, c, sn, R, ix0, ix1) => {
@@ -608,28 +630,32 @@ const _miniTopsPlateFill = (t, mn, ox, oz, c, sn, R, ix0, ix1) => {
       const dx = (ix / 200 - ox) * c + (iz / 200 - oz) * sn, dz = -(ix / 200 - ox) * sn + (iz / 200 - oz) * c;   // world → local
       if (dx >= R.rx0 && dx <= R.rx1 && dz >= R.rz0 && dz <= R.rz1) {
         const k = TOPK(ix, iz); if (R.v > (t.rec.tops.get(k) ?? -1e9)) { t.rec.tops.set(k, R.v); mn.written.add(k); } } } };
-const _miniTopsCols = (t, mn, ox, oz, c, sn, i0, i1) => { const s = mn.slice;
+const _miniTopsCols = (t, mn, ox, oz, c, sn, i0, i1, by) => { const s = mn.slice;
   for (let i = i0; i < i1; i++) { const col = mn.localCols[i];
     if (col.x < s.x[0] || col.x > s.x[1] || col.z < s.z[0] || col.z > s.z[1]) continue;
     let ym = -1; for (const y of col.ys) if (y >= s.y[0] && y <= s.y[1] && y > ym) ym = y;
     if (ym < 0) continue;
     const lx = ox + col.dx * c - col.dz * sn, lz = oz + col.dx * sn + col.dz * c;
-    const k = TOPK(Math.round(lx * 200), Math.round(lz * 200)), v = tableTop(t) + (ym + 1) * mn.vs;
+    const k = TOPK(Math.round(lx * 200), Math.round(lz * 200)), v = by + (ym + 1) * mn.vs;
     if (v > (t.rec.tops.get(k) ?? -1e9)) t.rec.tops.set(k, v);           // several model cells share a 5mm column — keep the true max
     mn.written.add(k); } };
-const miniSyncTops = (t, mdl) => { const { mn, ox, oz, c, sn, wr } = _miniTopsHead(t, mdl);
+const _miniTopsOne = (t, mdl, eff) => { const { mn, ox, oz, c, sn, wr, by } = _miniTopsHead(t, mdl, eff);
   _miniTopsRevert(t, wr, 0, wr.length);
-  const R = _miniTopsPlateRect(t, mn, ox, oz, c, sn); if (R) _miniTopsPlateFill(t, mn, ox, oz, c, sn, R, -1e9, 1e9);
-  _miniTopsCols(t, mn, ox, oz, c, sn, 0, mn.localCols.length); };
+  const R = _miniTopsPlateRect(t, mn, ox, oz, c, sn, by); if (R) _miniTopsPlateFill(t, mn, ox, oz, c, sn, R, -1e9, 1e9);
+  _miniTopsCols(t, mn, ox, oz, c, sn, 0, mn.localCols.length, by); };
+const miniSyncTops = (t, mdl) => { _miniTopsOne(t, mdl, null);
+  (mdl.userData.mini._subs || []).forEach(sub => _miniTopsOne(t, sub, _effOf(mdl, sub))); };   // a composite's children re-project under the parent's spin too
 /* chunked twin for the remount path — the zone's revert + columns + ~440-col plate rect would
    otherwise freeze ~100ms behind a variant cycle; slice/spin callers keep the sync version. */
-const miniSyncTopsQ = async (t, mdl) => { const { mn, ox, oz, c, sn, wr } = _miniTopsHead(t, mdl);
+const _miniTopsOneQ = async (t, mdl, eff) => { const { mn, ox, oz, c, sn, wr, by } = _miniTopsHead(t, mdl, eff);
   for (let i = 0; i < wr.length; i += 16e3) { _miniTopsRevert(t, wr, i, Math.min(i + 16e3, wr.length)); await new Promise(r => setTimeout(r)); }
-  const R = _miniTopsPlateRect(t, mn, ox, oz, c, sn);
+  const R = _miniTopsPlateRect(t, mn, ox, oz, c, sn, by);
   if (R) for (let ix = R.ix0; ix <= R.ix1; ix += 48) { _miniTopsPlateFill(t, mn, ox, oz, c, sn, R, ix, ix + 47); await new Promise(r => setTimeout(r)); }
   for (let i = 0; i < mn.localCols.length; i += 8e3) {
-    _miniTopsCols(t, mn, ox, oz, c, sn, i, Math.min(i + 8e3, mn.localCols.length));
+    _miniTopsCols(t, mn, ox, oz, c, sn, i, Math.min(i + 8e3, mn.localCols.length), by);
     await new Promise(r => setTimeout(r)); } };
+const miniSyncTopsQ = async (t, mdl, eff) => { await _miniTopsOneQ(t, mdl, eff || null);
+  for (const sub of (mdl.userData.mini._subs || [])) await _miniTopsOneQ(t, sub, _effOf(mdl, sub)); };
 /* miniSpinSet — the turntable: rate in rad/s, toggling the active rate stops it. Tops re-project
    every >.02 rad during spin (the render loop owns the integration) and exactly on stop. */
 const miniSpinSet = rate => { const t = padTable(), mdl = t && t.g.children.find(c => c.userData.mini && !c.userData.mini.static);
@@ -664,6 +690,7 @@ const mountModel = (t, mspec) => {
   t._mountGen = (t._mountGen || 0) + 1;                                                // generation — an in-flight emit of a swapped-out model bails instead of ghosting a second composite
   t.g.children.filter(c => c.userData.mini && !c.userData.mini.static).forEach(c => {  // static minis (the street ring) survive every swap — cars stay parked through it
     const wr = [...(c.userData.mini.written || [])];
+    (c.userData.mini._subs || []).forEach(s => wr.push(...(s.userData.mini.written || [])));   // zone sub-minis own their own written sets — revert theirs too or they ghost on the felt
     setTimeout(async () => { for (let i = 0; i < wr.length; i += 16e3) { _miniTopsRevert(t, wr, i, Math.min(i + 16e3, wr.length)); await new Promise(r => setTimeout(r)); } });   // ~250k felt reverts on a zone — chunked across turns
     for (let i = PLACED.length - 1; i >= 0; i--) if (PLACED[i].g && PLACED[i].g.parent === c) PLACED.splice(i, 1);   // parked overlays die with their model — no ghost hosts
     const dead = c.children.slice(); t.g.remove(c);                          // detach now; each child's dispose frees on its own
@@ -701,13 +728,38 @@ const remountMini = t => { const mdl = t.g.children.find(c => c.userData.mini &&
       miniSyncSlice(g); return miniSyncTopsQ(t, g).then(() => { miniSettle(t); return g; }); }
     return g; }); };
 const _rebuildT = {};
+/* restampZone — surgical dep rebuild: a stamped name's sub-minis re-emit in place while the
+   ground composite and every other stamp hold. ~150k cells per stamp instead of the full
+   ~37M-cell re-bake — a single-building stroke lands in ~200ms. stassetFetch resolves
+   _previewOf, so variant cycles repaint the zone surgically too (canonical name → variant grid).
+   A full remount mid-emit kills the batch via emitVox's _mountGen/_parent checks. */
+const restampZone = async (t, zoneG, name) => { const mn = zoneG.userData.mini, vs = mn.vs,
+    W2 = mn.dims[0], D2 = mn.dims[2];
+  const f = await stassetFetch(name);
+  for (const child of (mn._byName.get(name) || []).slice()) { const cm = child.userData.mini, st = cm._stamp;
+    (cm.written || []).forEach(k => t.rec.tops.set(k, tableTop(t)));         // drop the old stamp's tops — a building's cols only
+    const si = mn._subs.indexOf(child); if (si >= 0) mn._subs.splice(si, 1);
+    const bl = mn._byName.get(name), bi = bl.indexOf(child); if (bi >= 0) bl.splice(bi, 1);
+    zoneG.remove(child);
+    setTimeout(() => child.traverse(o => { o.dispose && o.dispose(); o.material && o.material.dispose && o.material.dispose(); }));   // dispose off the hot turn
+    const g = await emitVox(t, { name, _vs: vs, flip: false, zflip: true, _parent: zoneG, _py: 2 * vs, noProxy: true,
+      x: (st.x + st.w / 2 - W2 / 2) * vs, z: (st.z + st.d / 2 - D2 / 2) * vs }, f.W, f.H, f.D, f.vox);
+    if (!g) return;                                                          // a full remount landed mid-emit — it owns the subs now
+    g.userData.mini._deps = new Set([name]); g.userData.mini._stamp = st;
+    g.add(hitProxy(st.w * vs, f.H * vs, st.d * vs, 0, f.H * vs / 2, 0));
+    mn._subs.push(g); (mn._byName.get(name) || mn._byName.set(name, []).get(name)).push(g); }
+  miniSettle(t); };
 const rebuildDeps = name => TABLES.forEach(t => {                       // debounce per table — a paint session is many strokes
   const mdl = t.g && t.g.children.find(c => c.userData.mini && !c.userData.mini.static), deps = mdl && mdl.userData.mini._deps;
   const wants = mdl ? deps && (deps.has(name) || [...deps].some(d => _previewOf[d] === name))   // a variant rebuilds its previewers too
                   : t.spec.models[0] && t.spec.models[0].name === name; // mount died pre-sync (file 404'd) — the broadcast IS the grid; retry it
   if (wants) { const heavy = mdl.userData.mini.dims[0] * mdl.userData.mini.dims[2] > 2e5;   // zone-scale composite — during a
-    clearTimeout(_rebuildT[t.spec.id]); _rebuildT[t.spec.id] = setTimeout(() => remountMini(t),   // stroke stream it waits for a
-      160 + TABLES.indexOf(t) * 140 + (heavy ? 420 : 0)); } });   // longer quiet instead of re-emitting ~1M cells every 160ms
+    clearTimeout(_rebuildT[t.spec.id]); _rebuildT[t.spec.id] = setTimeout(() => {
+      const mdl2 = t.g && t.g.children.find(c => c.userData.mini && !c.userData.mini.static), mn2 = mdl2 && mdl2.userData.mini;
+      const can = mn2 && mn2._byName && (mn2._byName.has(name) ? name          // surgical path — the changed building's
+        : [...mn2._byName.keys()].find(k => _previewOf[k] === name));          // sub-minis restamp alone (variant-name hits resolve to canonical)
+      if (can) restampZone(t, mdl2, can); else remountMini(t); },
+      160 + TABLES.indexOf(t) * 140 + (heavy ? 420 : 0)); } });   // longer quiet for heavy composites — a stroke stream waits it out
 const liveCatalog = name => { const t = TABLES.find(t => t.spec.id === 'primary');   // a WIP the studio never shipped is still exhibitable —
   if (t && !(t.spec.catalog || []).some(e => e.name === name))                       // the broadcast primes _stCache, so mountModel works file-free
     (t.spec.catalog = t.spec.catalog || []).push({ name, fill: .75 }); };

@@ -148,8 +148,10 @@ const padLock = () => { const t = padTable(), cur = t && t.spec.models[0], base 
     if (voxChan) voxChan.postMessage({ type: 'vox-apply', name: base, dims: [f.W, f.H, f.D], vox: vox.buffer });   // editor adopts it as an undoable op
     localStorage.setItem('dvm_model:' + t.spec.id, base);
     const list = []; vox.forEach((m, i) => { if (m) list.push([i % f.W, (i / f.W | 0) % f.H, (i / (f.W * f.H)) | 0, m]); });
-    fetch('/save/voxel/' + base, { method: 'POST', headers: { 'Content-Type': 'application/json' },   // file truth — the JSON twin updates; .stasset stays the export step
-      body: JSON.stringify({ format: 'steelcity_stasset', name: base, dims: [f.W, f.H, f.D], voxels: list }) });
+    fetch('/voxel/' + base).then(r => r.ok ? r.json() : null).then(env =>          // keep the file's envelope — a bare
+      fetch('/save/voxel/' + base, { method: 'POST', headers: { 'Content-Type': 'application/json' },   // {voxels} write strips assetType/voxelSize/
+        body: JSON.stringify({ ...(env || { format: 'steelcity_stasset', assetType: 'building', voxelSize: .05 }),   // truthView → /models untyped + wrong editor scale
+          name: base, dims: [f.W, f.H, f.D], voxels: list }) }));                  // .stasset stays the export step
     rebuildDeps(base);                                                     // own page — the channel doesn't echo the sender
     mountModel(t, { name: base, fill: cur.fill }).then(() => padDraw()); }); };
 const padCv = document.createElement('canvas'); padCv.width = 512; padCv.height = 340;

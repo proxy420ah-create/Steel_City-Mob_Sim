@@ -20,7 +20,9 @@ check('tenement_block_0 in every _deps set', deps.every(d => d.includes('tenemen
 const [W, H, D] = await evl(`_stCache['tenement_block_0'].then(f => [f.W, f.H, f.D])`);
 const before = await evl(`(() => { const gs = []; TABLES.forEach(t => {
     const m = t.g.children.find(c => c.userData.mini && !c.userData.mini.static);
-    if (m) { m.rotation.y = .7; m.userData._probeTag = Math.random(); gs.push(m.userData._probeTag); } });
+    if (m) { m.rotation.y = .7; m.userData._probeTag = Math.random(); gs.push(m.userData._probeTag);
+      ((m.userData.mini._byName && m.userData.mini._byName.get('tenement_block_0')) || [])
+        .forEach(s => s.userData._subTag = true); } });                       // zone children tag separately — surgical restamps swap THEM, not the group
   return gs; })()`);
 const [px, py, pz] = [1, H - 2, 1];                  // in-bounds cell → becomes sentinel 4242
 
@@ -35,15 +37,22 @@ for (let i = 0; i < 40 && !(res && res.tables && res.tables.every(r => r.fresh &
   res = await evl(`(async () => { try { const f = await _stCache['tenement_block_0'];
     const out = { cache: f.vox[${px} + f.W*(${py} + f.H*${pz})], tables: [] };
     TABLES.forEach((t, i) => { const m = t.g.children.find(c => c.userData.mini && !c.userData.mini.static);
-      out.tables.push(m ? { fresh: m.userData._probeTag !== ${JSON.stringify(before)}[i],
-                            rotY: Math.abs(m.rotation.y - .7) < .01,
-                            deps: (m.userData.mini._deps || new Set()).has('tenement_block_0') }
+      out.tables.push(m ? (() => { const mn = m.userData.mini;
+        if (mn._byName) { const subs = mn._byName.get('tenement_block_0') || [];
+          return { fresh: subs.length > 0 && subs.every(s => !s.userData._subTag),            // surgical: children fresh…
+                   surg: m.userData._probeTag === ${JSON.stringify(before)}[i],              // …while the group SURVIVES
+                   rotY: Math.abs(m.rotation.y - .7) < .01,
+                   deps: (mn._deps || new Set()).has('tenement_block_0') }; }
+        return { fresh: m.userData._probeTag !== ${JSON.stringify(before)}[i], surg: true,
+                 rotY: Math.abs(m.rotation.y - .7) < .01,
+                 deps: (mn._deps || new Set()).has('tenement_block_0') }; })()
                         : { fresh:false, rotY:false }); });
     return out; } catch (e) { return { err: String(e && e.stack || e) }; } })()`);
   if (res && res.err) { console.log('  poll', i, 'page err:', res.err.slice(0, 300)); break; }
 }
 check('stasset cache patched by delta', !!(res && res.cache === 4242));
 check('all dependent minis remounted (fresh group)', !!(res && res.tables && res.tables.every(r => r.fresh)), JSON.stringify(res));
+check('zone restamped surgically (group survived the delta)', !!(res && res.tables && res.tables.every(r => r.surg !== false)), JSON.stringify(res));
 check('rotY survives the remount', !!(res && res.tables && res.tables.every(r => r.rotY)), JSON.stringify(res));
 
 // ── dims-mismatch path: a delta under foreign dims must trigger need-full,
@@ -98,13 +107,18 @@ for (let i = 0; i < 15 && !catOk; i++) { await sleep(400);
   catOk = await evl(`(() => { const c = TABLES.find(t => t.spec.id === 'primary').spec.catalog;
     return ['${v1}', '${v2}'].every(n => c.some(e => e.name === n)); })()`); }
 check('deposited variants doorbell into the catalog', catOk);
+check('LOCK dim while canonical mounts', await evl(`PAD_REGIONS.find(r => r.id === 'bldg:vlock').lit() === false`));
 await evl(`__pad.press('bldg:vnext')`); await sleep(1400);                     // cycle [wip, v1, v2] → v1
 check('V▶ mounts the variant', await evl(`TABLES.find(t => t.spec.id === 'primary').spec.models[0].name === '${v1}'`));
+check('LOCK lights once a variant is staged', await evl(`PAD_REGIONS.find(r => r.id === 'bldg:vlock').lit() === true`));
 await evl(`__pad.press('bldg:vlock')`); await sleep(900);                      // LOCK → canonical write
 check('LOCK rebases the table to canonical', await evl(`TABLES.find(t => t.spec.id === 'primary').spec.models[0].name === 'wiptest_probe'`));
+check('LOCK dims after the commit lands', await evl(`PAD_REGIONS.find(r => r.id === 'bldg:vlock').lit() === false`));
 check('canonical cache carries the variant grid', await evl(`_stCache['wiptest_probe'].then(f => f.vox[4 + 8 * (4 + 8 * 4)] === 99)`));
+const lockj = JSON.parse(fs.readFileSync(VOX_ITEMS + 'wiptest_probe.json'));
 check('LOCK persisted the JSON twin', await evl(`fetch('/voxel/wiptest_probe').then(r => r.ok)`)
-  && JSON.parse(fs.readFileSync(VOX_ITEMS + 'wiptest_probe.json')).voxels.length === 2);
+  && lockj.voxels.length === 2);
+check('LOCK preserved the file envelope (format/name survive)', lockj.format === 'steelcity_stasset' && lockj.name === 'wiptest_probe');
 [v1, v2, 'wiptest_probe'].forEach(n => { try { fs.unlinkSync(VOX_ITEMS + n + '.json'); } catch {} });
 
 // ── preview fanout: cycling a variant repaints every dependent live (the zone's
@@ -121,15 +135,18 @@ check('zone stamps barber_shop', await evl(`(() => { const t = TABLES.find(t => 
 await evl(`mountModel(TABLES.find(t => t.spec.id === 'primary'), { name: 'barber_shop', fill: .75 })`); await sleep(1800);
 await evl(`(() => { const t = TABLES.find(t => t.spec.id === 'studio');
   const m = t.g.children.find(c => c.userData.mini && !c.userData.mini.static);
-  if (m) m.userData._pvTag = true; })()`);                                       // tag the zone mount — a remount swaps the group
+  if (m) { m.userData._pvTag = true;
+    ((m.userData.mini._byName && m.userData.mini._byName.get('barber_shop')) || [])
+      .forEach(s => s.userData._pvTag = true); } })()`);                          // tag group + barber children — surgical swaps the children only
 await evl(`__pad.press('bldg:vnext')`); await sleep(1600);
 check('variant cycle sets the preview overlay', await evl(`!!_previewOf['barber_shop']`));
-let zoneFresh = false;                                                           // the zone emit is the heavy mount — poll, don't guess
+let zoneFresh = false;                                                           // surgical restamp — poll the barber sub-minis
 for (let i = 0; i < 15 && !zoneFresh; i++) { await sleep(400);
   zoneFresh = await evl(`(() => { const t = TABLES.find(t => t.spec.id === 'studio');
     const m = t.g.children.find(c => c.userData.mini && !c.userData.mini.static);
-    return !!m && !m.userData._pvTag; })()`); }
-check('zone mini restamped the preview live', zoneFresh);
+    const subs = m && m.userData.mini._byName && m.userData.mini._byName.get('barber_shop');
+    return !!m && !!m.userData._pvTag && !!subs && subs.length > 0 && subs.every(s => !s.userData._pvTag); })()`); }
+check('zone restamped the preview surgically (group survived)', zoneFresh);
 for (let i = 0; i < 6; i++) {                                                    // keep cycling until canonical returns
   if (await evl(`TABLES.find(t => t.spec.id === 'primary').spec.models[0].name === 'barber_shop'`)) break;
   await evl(`__pad.press('bldg:vnext')`); await sleep(900); }
@@ -165,5 +182,17 @@ await evl(`(() => { const t = TABLES.find(t => t.spec.id === 'studio');
 await sleep(8500);
 const gaps = await evl('window.__gaps');
 check('zone remount stays responsive (≤5 frames >80ms)', gaps <= 5, gaps + ' gaps/8s');
+
+// ── …and the surgical path — the common case: a single-building restamp re-emits
+//    ~150k cells, not the 37M composite. >80ms frames capped at 1/5s ────────────
+await evl(`(() => { const t = TABLES.find(t => t.spec.id === 'studio');
+  const m = t.g.children.find(c => c.userData.mini && !c.userData.mini.static);
+  window.__gaps2 = 0; const prev0 = performance.now(); let prev = prev0;
+  const tick = () => { const n = performance.now(); if (n - prev > 80) window.__gaps2++; prev = n;
+    if (n - prev0 < 5000) requestAnimationFrame(tick); };
+  requestAnimationFrame(tick); if (m) restampZone(t, m, 'barber_shop'); })()`);
+await sleep(5500);
+const gaps2 = await evl('window.__gaps2');
+check('surgical restamp is near-free (≤1 frame >80ms)', gaps2 <= 1, gaps2 + ' gaps/5s');
 
 finish();

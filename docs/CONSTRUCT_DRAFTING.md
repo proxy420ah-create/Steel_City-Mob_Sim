@@ -643,6 +643,26 @@ answers `need-full` — the editor replies `vox-full`, self-healing resizes and
 re-keys without extra editor hooks. Opening construct *after* edits started is
 covered by `vox-hello` at boot.
 
+**The zone emits surgical.** `emitZone` is two-tier: the ground composite
+(roads, curbs, sidewalks, `empty_land` lots — one `emitVox`) plus each authored
+building as its own **sub-mini** inside the zone group (`emitVox` with
+`_parent`/`_py` — parented at the slab's 2-cell top — and `flip:false`+`zflip`
+reproducing the stamp's raw-position/z-mirrored-content law). The group keeps
+`_deps` = every stamped name + `empty_land`, plus a `_byName` registry of
+name → child groups. `rebuildDeps` resolves `name` through the registry
+(variant names resolve back to canonical via `_previewOf`) — a hit calls
+`restampZone`, which swaps only that name's children (~150k cells, ~0 dropped
+frames, measured vs the old ~37M-cell re-bake); a ground-level dep like
+`empty_land` or a missing registry entry still takes the full `remountMini`.
+Sub-minis own their tops (`written`, synced through `_effOf(parent, child)` —
+parent rotation × child offset + the slab lift — so spin/slice/settle all
+fan out correctly), their own hit proxies (they ride the child group and die
+with it), and their own `_deps`. `mountModel`'s unmount reverts the union of
+group + sub `written` sets so nothing ghosts on the felt, and emitVox's
+`_parent.parent === t.g` guard kills a surgical emit that races a full
+remount. The block table's `emitCore` is still single-composite — same
+treatment is the untaken follow-up.
+
 **The WIP-folder workflow** — `voxel_items/` carries a generated JSON twin of
 every `voxel_buildings/*.stasset` (`Tools/stasset_to_json.py`, `--type building
 --voxel-size 0.05`), so the editor's `/models` dropdown lists the same names
@@ -711,9 +731,11 @@ re-emits the variant grid in place; cycling back to the canonical entry
 deletes the overlay and the exhibits restore. The canonical cache and all
 files stay untouched — preview is in-memory only, LOCK is still the commit.
 `rebuildDeps` is overlay-aware (`_previewOf[d] === name` counts as a dep hit)
-so an editor stroke on the *variant* rebuilds its previewers too; LOCK
-deletes the entry since canonical becomes the variant. Caveat: variant dims
-should match canonical — a mis-sized grid stamps misaligned.
+so an editor stroke on the *variant` rebuilds its previewers too — and on the
+zone that hit restamps surgically, so a variant cycle repaints only the
+building, not the city. LOCK deletes the entry since canonical becomes the
+variant. Caveat: variant dims should match canonical — a mis-sized grid stamps
+misaligned.
 
 ## Current status / next
 
