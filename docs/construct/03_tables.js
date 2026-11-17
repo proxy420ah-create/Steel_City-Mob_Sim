@@ -421,7 +421,7 @@ const emitRing = (t, fill) => { const W2 = BLKF.TILE, H = 4;
   fillBlockGround(set, 0, 0, { n: 'road', e: 'road', s: 'road', w: 'road' }, 0, BLKF);
   return emitVox(t, { name: 'street_ring', fill, plate: true, _blkM: BLKF.M, static: true }, W2, H, W2, vox)
     .then(ringG => { if (ringG) { const mn = ringG.userData.mini; mn._road = {}; t._ringVs = mn.vs; } return ringG; })
-    .catch(e => console.warn('CONSTRUCT — ring emit failed:', e)); };
+    .catch(e => { (window.__emitErr = window.__emitErr || []).push('ring:' + (e && e.stack || e)); console.warn('CONSTRUCT — ring emit failed:', e); }); };
 /* emitCore — a block model's interior only: its 3×3 lots stamped into the 192-cell core that
    seats inside the table's static ring (same center; _vs pins the ring's voxel size so the
    two minis' cells align 1:1). The swap target — every block model shares the ring's roads. */
@@ -445,14 +445,14 @@ const emitBlock = (t, m) => { const W2 = BLKF.TILE, slots = m.slots || {};
   return Promise.all([...names].map(n => stassetFetch(n).then(f => [n, f]))).then(es => {
     const files = Object.fromEntries(es);
     const H = Math.max(2, Math.max(...[...names].map(n => files[n].H)) + 2);
-    const vox = new Uint16Array(W2 * H * W2);
+    const vox = (t._voxPool && t._voxPool.length === W2 * H * W2) ? t._voxPool.fill(0) : (t._voxPool = new Uint16Array(W2 * H * W2));
     const set = (x, z, id) => { vox[x + W2 * (H * z)] = vox[x + W2 * (1 + H * z)] = id; };
     fillBlockGround(set, 0, 0, { n: 'road', e: 'road', s: 'road', w: 'road', ...(m.seams || {}) }, m.lanes | 0, BLKF);
     stampSlots(vox, W2, H, files, slots, 0, 0, BLKF);
     return emitVox(t, { ...m, plate: true, _blkM: BLKF.M }, W2, H, W2, vox)   // composites have full-coverage ground — the flat tops path applies
       .then(miniG => { if (miniG) miniG.userData.mini._deps = names; return miniG; })   // live-sync deps
       .then(miniG => miniG ? mountParked(t, miniG, parked).then(() => miniG) : miniG); })   // cars overlay + AWAITED — authored fidelity, never downsampled
-    .catch(e => console.warn('CONSTRUCT — block emit failed:', m.name, e)); };
+    .catch(e => { (window.__emitErr = window.__emitErr || []).push('block:' + (e && e.stack || e)); console.warn('CONSTRUCT — block emit failed:', m.name, e); }); };
 /* layoutFetch — the live city layout (blocks+seams) is the zone's sole source of truth, cached. */
 const _layoutC = {};
 const layoutFetch = file => _layoutC[file] || (_layoutC[file] =
@@ -469,20 +469,23 @@ const emitZone = (t, m) => { const { M, TILE } = BLK, z = m.zone;
     const stName = s => (s.stasset || s.type + '.stasset').split('/').pop().replace(/\.stasset$/, '');   // layout stores paths — basename is the fetch name
     const names = new Set(['empty_land']);
     blks.forEach(b => b.buildings.forEach(s => names.add(stName(s))));
-    return Promise.all([...names].map(n => stassetFetch(n).then(f => [n, f]))).then(es => {
+    return Promise.all([...names].map(n => stassetFetch(n).then(f => [n, f]))).then(async es => {
       const files = Object.fromEntries(es);
       const H = 2 + Math.max(...[...names].map(n => files[n].H));
-      const vox = new Uint16Array(W2 * H * D2);
+      const vox = (t._voxPool && t._voxPool.length === W2 * H * D2) ? t._voxPool.fill(0)   // 74MB composite — pooled across
+        : (t._voxPool = new Uint16Array(W2 * H * D2));                                     // remounts; fill beats alloc+GC
       const set = (x, zz, id) => { vox[x + W2 * (H * zz)] = vox[x + W2 * (1 + H * zz)] = id; };
       const hAt = (r, c) => (r >= 0 && r < L.hSeamRows.length && c >= 0 && c < L.hSeamRows[r].cells.length) ? L.hSeamRows[r].cells[c] : 'road';
       const vAt = (r, c) => (r >= 0 && r < L.vSeamRows.length && c >= 0 && c < L.vSeamRows[r].cells.length) ? L.vSeamRows[r].cells[c] : 'road';
       const stamped = [];
-      blks.forEach(b => { const X0 = (b.col - z.c0) * TILE, Z0 = (b.row - z.r0) * TILE;   // Unity anchors row→−z in ITS world — but the in-game compass reads that as SOUTH-ward: our room's +z is the matching edge (verified vs the west-facing in-game shot: r5 tenement sits LEFT)
+      let bi = 0;
+      for (const b of blks) { const X0 = (b.col - z.c0) * TILE, Z0 = (b.row - z.r0) * TILE;   // Unity anchors row→−z in ITS world — but the in-game compass reads that as SOUTH-ward: our room's +z is the matching edge (verified vs the west-facing in-game shot: r5 tenement sits LEFT)
         const seams = { n: hAt(b.row - 1, b.col), e: vAt(b.row, b.col), s: hAt(b.row, b.col), w: vAt(b.row, b.col - 1) },
           slots = {}, types = new Set(); b.buildings.forEach((s, i) => { slots[i] = stName(s); types.add(s.type); });   // Unity positions buildings by ARRAY INDEX (slot field is metadata)
         const lanes = (types.has('alley_lane') ? 10 : 0) | (types.has('alley_lane_ns') ? 5 : 0);   // a lane slot IS the cut — the stasset is an empty placeholder; the mouth+cross-section draw in the ground recipe
         fillBlockGround(set, X0, Z0, seams, lanes);
-        stamped.push(...stampSlots(vox, W2, H, files, slots, X0, Z0, BLK, true, true)); });   // zFlip — slot rows order toward row+1 (Unity's index-row0 side), which under row↑→+z is the z-max edge; mir — stamp content x-mirrors in place (the Unity L/R flip) while lots stay raw
+        stamped.push(...stampSlots(vox, W2, H, files, slots, X0, Z0, BLK, true, true));   // zFlip — slot rows order toward row+1 (Unity's index-row0 side), which under row↑→+z is the z-max edge; mir — stamp content x-mirrors in place (the Unity L/R flip) while lots stay raw
+        if (!(++bi & 3)) await new Promise(r => setTimeout(r)); }   // ~4 blocks per turn — the ground+stamp batch was one 40ms block before
       return emitVox(t, m, W2, H, D2, vox).then(miniG => {
         if (miniG) { const mn = miniG.userData.mini, vs = mn.vs;
           mn._deps = names;                                                  // live-sync deps = every stamped stasset
@@ -506,15 +509,19 @@ const emitVox = async (t, m, W, H, D, vox) => {
     const surf = (x, y, z) => !(at(x-1,y,z) && at(x+1,y,z) && at(x,y-1,z) && at(x,y+1,z) && at(x,y,z-1) && at(x,y,z+1));
     const under = (x, z) => at(x-1,0,z) && at(x+1,0,z) && at(x,0,z-1) && at(x,0,z+1) && at(x,1,z);   // interior-bottom: exposed face is only the unseen underside
     const tick = () => new Promise(r => setTimeout(r));
-    let ng = 0, gx0 = W, gx1 = -1, gz0 = D, gz1 = -1, gy1 = -1;
+    await tick();                                                        // load-order law: boot emits run mid-script-eval —
+                                                                         // a macrotask defers the tail past ALL sibling files
+                                                                         // (miniSettle→inB lives in 13_place.js — a microtask tail hit TDZ)
+    let ng = 0, ngg = 0, gx0 = W, gx1 = -1, gz0 = D, gz1 = -1, gy1 = -1;
     const colYs = new Array(W * D);                                      // per-column voxel ys — slice/rotation-aware tops need the list
-    for (let y = 0; y < H; y++) { if (!(y & 15)) await tick();
-      for (let z = 0; z < D; z++) for (let x = 0; x < W; x++) {
+    let cellB = 0;                                                       // work-budget yields — fixed row counts either stall a
+    for (let y = 0; y < H; y++) {                                        // zone (~930k cells/row) or starve a building (~4k)
+      for (let z = 0; z < D; z++) { for (let x = 0; x < W; x++) {
       const id = at(x, y, z); if (!id) continue;
       if (x < gx0) gx0 = x; if (x > gx1) gx1 = x; if (z < gz0) gz0 = z; if (z > gz1) gz1 = z; if (y > gy1) gy1 = y;
       (colYs[x + W * z] = colYs[x + W * z] || []).push(y);
-      if (surf(x, y, z) && !(y === 0 && under(x, z))) ng++;
-    } }
+      if (surf(x, y, z) && !(y === 0 && under(x, z))) { ng++; if (BLDG_GLASS.has(id)) ngg++; }
+      } if ((cellB += W) > 3e6) { cellB = 0; await tick(); } } }         // ~3M cells ≈ a frame's budget
     if (t._mountGen !== mgen) return null;                                         // swapped mid-scan — attaching now would ghost over the new model
     const miniG = new THREE.Group(); miniG.position.set(ox, tableTop(t), oz); t.g.add(miniG);   // fresh top — the boot lift-restore may land mid-emit
     const geo = new THREE.BoxGeometry(1, 1, 1);
@@ -530,19 +537,20 @@ const emitVox = async (t, m, W, H, D, vox) => {
             if (vVoxOrigin.x < uVoxClipMin.x || vVoxOrigin.y < uVoxClipMin.y || vVoxOrigin.z < uVoxClipMin.z ||
                 vVoxOrigin.x >= uVoxClipMax.x || vVoxOrigin.y >= uVoxClipMax.y || vVoxOrigin.z >= uVoxClipMax.z) discard;`); };
       return m; };
-    const imO = new THREE.InstancedMesh(geo, mkClipMat(new THREE.MeshLambertMaterial()), ng);
-    const imG = new THREE.InstancedMesh(geo, mkClipMat(window.__glassMat), ng);
+    const imO = new THREE.InstancedMesh(geo, mkClipMat(new THREE.MeshLambertMaterial()), (ng - ngg) || 1);
+    const imG = new THREE.InstancedMesh(geo, mkClipMat(window.__glassMat), ngg || 1);   // glass capacity = glass count — a
+                                                                                     // zone's ng-size glass buffer wasted ~60MB
     const M = new THREE.Matrix4(), C = new THREE.Color(), dflt = new THREE.Color(.55, .55, .55);
     let no = 0, gi = 0;
-    for (let y = 0; y < H; y++) { if (!(y & 15)) await tick();
-      for (let z = 0; z < D; z++) for (let x = 0; x < W; x++) {
+    for (let y = 0; y < H; y++) {
+      for (let z = 0; z < D; z++) { for (let x = 0; x < W; x++) {
       const id = at(x, y, z); if (!id) continue;
       if (!surf(x, y, z) || (y === 0 && under(x, z))) continue;
       M.makeScale(vs, vs, vs).setPosition(fx(x) * vs, (y + .5) * vs, (z - D / 2 + .5) * vs);
       const col = BLDG_MAT[id]; C.setRGB(col ? col[0] : .55, col ? col[1] : .55, col ? col[2] : .55);
       if (BLDG_GLASS.has(id)) { imG.setMatrixAt(gi, M); imG.setColorAt(gi, C); gi++; }
       else { imO.setMatrixAt(no, M); imO.setColorAt(no, C); no++; }
-    } }
+      } if ((cellB += W) > 3e6) { cellB = 0; await tick(); } } }
     imO.count = no; imG.count = gi; imO.userData.miniVox = imG.userData.miniVox = true;   // flag the miniature's instanced walls — rayPruned skips them whole (426K matrix tests per ray)
     if (gi) miniG.add(imG); miniG.add(imO);
     const px0 = (Math.min(fx(gx0), fx(gx1)) - .5) * vs, px1 = (Math.max(fx(gx0), fx(gx1)) + .5) * vs,
@@ -553,16 +561,17 @@ const emitVox = async (t, m, W, H, D, vox) => {
     if (gy1 >= 0 && !m.noProxy) {                                         // aim proxy = occupied bounds — the dot rests ON the model
       miniG.add(hitProxy(px1 - px0, (gy1 + 1) * vs, pz1 - pz0, (px0 + px1) / 2, (gy1 + 1) * vs / 2, (pz0 + pz1) / 2)); }
     const localCols = [];                                                // grid columns → local offsets + the ys list
-    for (let z = 0; z < D; z++) for (let x = 0; x < W; x++) {
+    for (let z = 0; z < D; z++) { for (let x = 0; x < W; x++) {
       const ys = colYs[x + W * z]; if (!ys) continue;
       if (m.plate && ys.length === 2 && ys[0] === 0 && ys[1] === 1) continue;   // flat ground — the plate writes these tops
       localCols.push({ x, z, dx: fx(x) * vs, dz: (z - D / 2 + .5) * vs, ys }); }
+      if ((cellB += W) > 3e6) { cellB = 0; await tick(); } }
     miniG.userData.mini = { name: m.name, dims: [W, H, D], vox: ng, scale: vs / BLDG_VS, fill: m.fill, vs, _blkM: m._blkM, static: !!m.static,
       localCols, plate: m.plate ? { x0: px0, x1: px1, z0: pz0, z1: pz1, y: 1 } : null,
       written: new Set(), spin: 0, topTheta: 0, fx, mirX, axis: 'y',
       slice: { x: [0, W - 1], y: [0, H - 1], z: [0, D - 1] }, clipMin, clipMax };
     if (t._mountGen !== mgen) { t.g.remove(miniG); return null; }                  // swapped mid-emit — the unflagged group survived mountModel's cleanup; detach before it flags + writes tops
-    miniSyncSlice(miniG); miniSyncTops(t, miniG);                        // the model joins the host's surface truth
+    miniSyncSlice(miniG); await miniSyncTopsQ(t, miniG);                 // the model joins the host's surface truth — chunked on big composites
     miniG.position.y = tableTop(t);                                      // settle on the CURRENT top — entry's capture predates a mid-emit lift-restore; the mount lands on its pedestal's real height
     miniSettle(t);                                                       // tops are truth — guests re-derive under the new map (a mount/swap left them on the old)
     return miniG;
@@ -577,23 +586,28 @@ const miniSyncSlice = mdl => { const mn = mdl.userData.mini, s = mn.slice, vs = 
    revert to felt, then surviving columns re-project (rotated offsets, top = tallest y in window).
    A `plate` model (zones/block composites — full-coverage ground slab) writes its flat top as a
    rotated rect of columns first; per-column localCols only carry the raised content above it. */
-const _miniTopsHead = (t, mdl) => { const mn = mdl.userData.mini, s = mn.slice, D = mn.dims[2];
-  mn.written.forEach(k => t.rec.tops.set(k, tableTop(t))); mn.written.clear();
+const _miniTopsHead = (t, mdl) => { const mn = mdl.userData.mini;
+  const wr = [...mn.written]; mn.written.clear();                                  // snapshot — callers chunk the revert
   const th = mdl.rotation.y, c = Math.cos(th), sn = Math.sin(th), ox = mdl.position.x, oz = mdl.position.z;
-  if (mn.plate && s.y[0] <= mn.plate.y && s.y[1] >= mn.plate.y) {          // ground plate survives the y window → fill its rect
-    const sx0 = Math.min(mn.fx(s.x[0]), mn.fx(s.x[1])) - .5, sx1 = Math.max(mn.fx(s.x[0]), mn.fx(s.x[1])) + .5,   // slice window, local
-      rx0 = Math.max(mn.plate.x0, sx0 * mn.vs), rx1 = Math.min(mn.plate.x1, sx1 * mn.vs),
-      rz0 = Math.max(mn.plate.z0, (s.z[0] - D / 2) * mn.vs), rz1 = Math.min(mn.plate.z1, (s.z[1] + 1 - D / 2) * mn.vs);
-    if (rx0 < rx1 && rz0 < rz1) { const v = tableTop(t) + (mn.plate.y + 1) * mn.vs,
-      cs = [[rx0, rz0], [rx1, rz0], [rx0, rz1], [rx1, rz1]].map(([dx, dz]) => [ox + dx * c - dz * sn, oz + dx * sn + dz * c]),
-      bx0 = Math.min(...cs.map(p => p[0])), bx1 = Math.max(...cs.map(p => p[0])),
-      bz0 = Math.min(...cs.map(p => p[1])), bz1 = Math.max(...cs.map(p => p[1]));
-      for (let ix = Math.round(bx0 * 200); ix <= Math.round(bx1 * 200); ix++)
-        for (let iz = Math.round(bz0 * 200); iz <= Math.round(bz1 * 200); iz++) {
-          const dx = (ix / 200 - ox) * c + (iz / 200 - oz) * sn, dz = -(ix / 200 - ox) * sn + (iz / 200 - oz) * c;   // world → local
-          if (dx >= rx0 && dx <= rx1 && dz >= rz0 && dz <= rz1) {
-            const k = TOPK(ix, iz); if (v > (t.rec.tops.get(k) ?? -1e9)) { t.rec.tops.set(k, v); mn.written.add(k); } } } } }
-  return { mn, ox, oz, c, sn }; };
+  return { mn, ox, oz, c, sn, wr }; };
+const _miniTopsRevert = (t, wr, i0, i1) => { const v = tableTop(t);                // written keys drop back to felt
+  for (let i = i0; i < i1; i++) t.rec.tops.set(wr[i], v); };                       // (~250k Map.set on a zone — chunkable)
+const _miniTopsPlateRect = (t, mn, ox, oz, c, sn) => { const s = mn.slice, D = mn.dims[2];
+  if (!(mn.plate && s.y[0] <= mn.plate.y && s.y[1] >= mn.plate.y)) return null;   // ground plate survives the y window → fill its rect
+  const sx0 = Math.min(mn.fx(s.x[0]), mn.fx(s.x[1])) - .5, sx1 = Math.max(mn.fx(s.x[0]), mn.fx(s.x[1])) + .5,   // slice window, local
+    rx0 = Math.max(mn.plate.x0, sx0 * mn.vs), rx1 = Math.min(mn.plate.x1, sx1 * mn.vs),
+    rz0 = Math.max(mn.plate.z0, (s.z[0] - D / 2) * mn.vs), rz1 = Math.min(mn.plate.z1, (s.z[1] + 1 - D / 2) * mn.vs);
+  if (!(rx0 < rx1 && rz0 < rz1)) return null;
+  const cs = [[rx0, rz0], [rx1, rz0], [rx0, rz1], [rx1, rz1]].map(([dx, dz]) => [ox + dx * c - dz * sn, oz + dx * sn + dz * c]);
+  return { rx0, rx1, rz0, rz1, v: tableTop(t) + (mn.plate.y + 1) * mn.vs,
+    ix0: Math.round(Math.min(...cs.map(p => p[0])) * 200), ix1: Math.round(Math.max(...cs.map(p => p[0])) * 200),
+    iz0: Math.round(Math.min(...cs.map(p => p[1])) * 200), iz1: Math.round(Math.max(...cs.map(p => p[1])) * 200) }; };
+const _miniTopsPlateFill = (t, mn, ox, oz, c, sn, R, ix0, ix1) => {
+  for (let ix = Math.max(R.ix0, ix0); ix <= Math.min(R.ix1, ix1); ix++)
+    for (let iz = R.iz0; iz <= R.iz1; iz++) {
+      const dx = (ix / 200 - ox) * c + (iz / 200 - oz) * sn, dz = -(ix / 200 - ox) * sn + (iz / 200 - oz) * c;   // world → local
+      if (dx >= R.rx0 && dx <= R.rx1 && dz >= R.rz0 && dz <= R.rz1) {
+        const k = TOPK(ix, iz); if (R.v > (t.rec.tops.get(k) ?? -1e9)) { t.rec.tops.set(k, R.v); mn.written.add(k); } } } };
 const _miniTopsCols = (t, mn, ox, oz, c, sn, i0, i1) => { const s = mn.slice;
   for (let i = i0; i < i1; i++) { const col = mn.localCols[i];
     if (col.x < s.x[0] || col.x > s.x[1] || col.z < s.z[0] || col.z > s.z[1]) continue;
@@ -603,11 +617,16 @@ const _miniTopsCols = (t, mn, ox, oz, c, sn, i0, i1) => { const s = mn.slice;
     const k = TOPK(Math.round(lx * 200), Math.round(lz * 200)), v = tableTop(t) + (ym + 1) * mn.vs;
     if (v > (t.rec.tops.get(k) ?? -1e9)) t.rec.tops.set(k, v);           // several model cells share a 5mm column — keep the true max
     mn.written.add(k); } };
-const miniSyncTops = (t, mdl) => { const { mn, ox, oz, c, sn } = _miniTopsHead(t, mdl);
+const miniSyncTops = (t, mdl) => { const { mn, ox, oz, c, sn, wr } = _miniTopsHead(t, mdl);
+  _miniTopsRevert(t, wr, 0, wr.length);
+  const R = _miniTopsPlateRect(t, mn, ox, oz, c, sn); if (R) _miniTopsPlateFill(t, mn, ox, oz, c, sn, R, -1e9, 1e9);
   _miniTopsCols(t, mn, ox, oz, c, sn, 0, mn.localCols.length); };
-/* chunked twin for the remount path — the zone's columns would otherwise freeze ~40ms behind a
-   variant cycle; slice/spin callers keep the sync version (one-shot costs they can afford). */
-const miniSyncTopsQ = async (t, mdl) => { const { mn, ox, oz, c, sn } = _miniTopsHead(t, mdl);
+/* chunked twin for the remount path — the zone's revert + columns + ~440-col plate rect would
+   otherwise freeze ~100ms behind a variant cycle; slice/spin callers keep the sync version. */
+const miniSyncTopsQ = async (t, mdl) => { const { mn, ox, oz, c, sn, wr } = _miniTopsHead(t, mdl);
+  for (let i = 0; i < wr.length; i += 16e3) { _miniTopsRevert(t, wr, i, Math.min(i + 16e3, wr.length)); await new Promise(r => setTimeout(r)); }
+  const R = _miniTopsPlateRect(t, mn, ox, oz, c, sn);
+  if (R) for (let ix = R.ix0; ix <= R.ix1; ix += 48) { _miniTopsPlateFill(t, mn, ox, oz, c, sn, R, ix, ix + 47); await new Promise(r => setTimeout(r)); }
   for (let i = 0; i < mn.localCols.length; i += 8e3) {
     _miniTopsCols(t, mn, ox, oz, c, sn, i, Math.min(i + 8e3, mn.localCols.length));
     await new Promise(r => setTimeout(r)); } };
@@ -644,11 +663,12 @@ const miniSliceReset = () => { const t = padTable(), mdl = t && t.g.children.fin
 const mountModel = (t, mspec) => {
   t._mountGen = (t._mountGen || 0) + 1;                                                // generation — an in-flight emit of a swapped-out model bails instead of ghosting a second composite
   t.g.children.filter(c => c.userData.mini && !c.userData.mini.static).forEach(c => {  // static minis (the street ring) survive every swap — cars stay parked through it
-    (c.userData.mini.written || []).forEach(k => t.rec.tops.set(k, tableTop(t)));
+    const wr = [...(c.userData.mini.written || [])];
+    setTimeout(async () => { for (let i = 0; i < wr.length; i += 16e3) { _miniTopsRevert(t, wr, i, Math.min(i + 16e3, wr.length)); await new Promise(r => setTimeout(r)); } });   // ~250k felt reverts on a zone — chunked across turns
     for (let i = PLACED.length - 1; i >= 0; i--) if (PLACED[i].g && PLACED[i].g.parent === c) PLACED.splice(i, 1);   // parked overlays die with their model — no ghost hosts
-    c.children.forEach(ch => { ch.traverse ? ch.traverse(o => { o.dispose && o.dispose(); o.material && o.material.dispose && o.material.dispose(); })
-      : (ch.dispose && ch.dispose(), ch.material && ch.material.dispose && ch.material.dispose()); });              // traverse — overlay recs carry their own meshes
-    t.g.remove(c); });
+    const dead = c.children.slice(); t.g.remove(c);                          // detach now; each child's dispose frees on its own
+    dead.forEach(ch => setTimeout(() => { ch.traverse ? ch.traverse(o => { o.dispose && o.dispose(); o.material && o.material.dispose && o.material.dispose(); })
+      : (ch.dispose && ch.dispose(), ch.material && ch.material.dispose && ch.material.dispose()); }, 0)); });      // turn — a zone-sized dispose isn't one ~100ms block
   t.g.children.filter(c => c.userData.mini && c.userData.mini.static).forEach(c => miniSyncTops(t, c));   // the core's revert dropped overlapping keys to felt — restore the ring's tops underneath
   t.spec.models = [mspec];
   return (t._mountP = (mspec.zone ? emitZone : mspec.slots ? (t._ringG ? emitCore : emitBlock) : emitBldg)(t, mspec));   // tracked — boot awaits it before extras/fixpoint read tops
@@ -685,7 +705,9 @@ const rebuildDeps = name => TABLES.forEach(t => {                       // debou
   const mdl = t.g && t.g.children.find(c => c.userData.mini && !c.userData.mini.static), deps = mdl && mdl.userData.mini._deps;
   const wants = mdl ? deps && (deps.has(name) || [...deps].some(d => _previewOf[d] === name))   // a variant rebuilds its previewers too
                   : t.spec.models[0] && t.spec.models[0].name === name; // mount died pre-sync (file 404'd) — the broadcast IS the grid; retry it
-  if (wants) { clearTimeout(_rebuildT[t.spec.id]); _rebuildT[t.spec.id] = setTimeout(() => remountMini(t), 160 + TABLES.indexOf(t) * 140); } });   // staggered — tables' emits don't stack in one frame
+  if (wants) { const heavy = mdl.userData.mini.dims[0] * mdl.userData.mini.dims[2] > 2e5;   // zone-scale composite — during a
+    clearTimeout(_rebuildT[t.spec.id]); _rebuildT[t.spec.id] = setTimeout(() => remountMini(t),   // stroke stream it waits for a
+      160 + TABLES.indexOf(t) * 140 + (heavy ? 420 : 0)); } });   // longer quiet instead of re-emitting ~1M cells every 160ms
 const liveCatalog = name => { const t = TABLES.find(t => t.spec.id === 'primary');   // a WIP the studio never shipped is still exhibitable —
   if (t && !(t.spec.catalog || []).some(e => e.name === name))                       // the broadcast primes _stCache, so mountModel works file-free
     (t.spec.catalog = t.spec.catalog || []).push({ name, fill: .75 }); };

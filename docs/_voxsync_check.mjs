@@ -28,9 +28,9 @@ const [px, py, pz] = [1, H - 2, 1];                  // in-bounds cell → becom
 await evl(`new BroadcastChannel('scms-voxel').postMessage(
   { type:'vox-delta', name:'tenement_block_0', dims:[${W},${H},${D}], ops:[[${px},${py},${pz},4242]] })`);
 
-// poll — 160ms debounce + remount (the zone's merged emit is the long pole)
+// poll — debounce + remount; fresh = group attached mid-emit, so rotY+deps are the real completion marks
 let res = null;
-for (let i = 0; i < 40 && !(res && res.tables && res.tables.every(r => r.fresh)); i++) {
+for (let i = 0; i < 40 && !(res && res.tables && res.tables.every(r => r.fresh && r.rotY && r.deps)); i++) {
   await sleep(500);
   res = await evl(`(async () => { try { const f = await _stCache['tenement_block_0'];
     const out = { cache: f.vox[${px} + f.W*(${py} + f.H*${pz})], tables: [] };
@@ -136,5 +136,34 @@ for (let i = 0; i < 6; i++) {                                                   
 check('cycling back to canonical clears the preview',
   await evl(`!_previewOf['barber_shop'] && TABLES.find(t => t.spec.id === 'primary').spec.models[0].name === 'barber_shop'`));
 try { fs.unlinkSync(VOX_ITEMS + v9 + '.json'); } catch {}
+
+// ── Inbound delta — an agent/peer stroke lands in an open editor as an
+//    undoable entry (BroadcastChannel, no echo-back) ─────────────────────────
+await evl(`window.__ed = open('http://127.0.0.1:8723/studio/voxel_editor.html?model=barber_shop', '_blank');`);
+let edUp = false;
+for (let i = 0; i < 24 && !edUp; i++) { await sleep(500);
+  edUp = await evl(`!!(window.__ed && window.__ed.__room && window.__ed.__room.voxelMap && window.__ed.__room.voxelMap.size > 1000)`); }
+if (!edUp) check('editor tab booted with the model', false, 'window.__ed.__room never appeared');
+else {
+  const applied = await evl(`(() => {
+    const w = window.__ed; if (!w || !w.__room) return 'no-hook';
+    const ch = new BroadcastChannel('scms-voxel');
+    ch.postMessage({ type: 'vox-delta', name: 'barber_shop', seq: -1, dims: [64, 36, 64], ops: [[3, 33, 3, 118]] });
+    return new Promise(r => setTimeout(() => r(w.__room.voxelMap.get('3,33,3')), 900)); })()`);
+  check('editor applies inbound vox-delta (agent stroke lands undoable)', applied === 118, JSON.stringify(applied));
+  await evl(`window.__ed && window.__ed.close()`);
+}
+
+// ── Frame gaps during a zone remount — everything synchronous is chunked/pooled now;
+//    the floor is the retired composite's GC + the new instance buffers' first-draw
+//    GPU upload (a draw call can't yield). >80ms frames capped at 5/8s ──────────
+await evl(`(() => { const t = TABLES.find(t => t.spec.id === 'studio');
+  window.__gaps = 0; const prev0 = performance.now(); let prev = prev0;
+  const tick = () => { const n = performance.now(); if (n - prev > 80) window.__gaps++; prev = n;
+    if (n - prev0 < 8000) requestAnimationFrame(tick); };
+  requestAnimationFrame(tick); remountMini(t); })()`);
+await sleep(8500);
+const gaps = await evl('window.__gaps');
+check('zone remount stays responsive (≤5 frames >80ms)', gaps <= 5, gaps + ' gaps/8s');
 
 finish();

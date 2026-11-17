@@ -1842,6 +1842,7 @@ let _voxForceFull = false;
 // still clones them, tracking them only feeds the incremental mesh path.
 const ABSENT = Symbol('absent');
 let _suspendDelta = 0;
+let _voxMute = 0;                                                       // inbound deltas apply without echoing back to the channel
 let _deltaPending = new Map();
 class TrackedVoxelMap extends Map {
   set(k, v) {
@@ -1890,7 +1891,7 @@ const voxChan = ('BroadcastChannel' in window) ? new BroadcastChannel('scms-voxe
 const voxPack = () => { const vox = new Uint16Array(W * H * D);
   for (const [k, mid] of voxelMap) { const p = k.split(','); vox[+p[0] + W * (+p[1] + H * +p[2])] = mid; }
   return vox.buffer; };
-const voxPostDelta = (delta, dir = 1) => { if (!voxChan || !loadedModelName) return;
+const voxPostDelta = (delta, dir = 1) => { if (!voxChan || !loadedModelName || _voxMute) return;
   const ops = []; for (const [k, pair] of delta) { const p = k.split(',');
     ops.push([+p[0], +p[1], +p[2], pair[dir] === ABSENT ? 0 : pair[dir]]); }
   if (ops.length) voxChan.postMessage({ type: 'vox-delta', name: loadedModelName, seq: historyIndex, dims: [W, H, D], ops }); };
@@ -1903,6 +1904,12 @@ if (voxChan) voxChan.onmessage = e => { const m = e.data || {};
     voxelMap.clear();
     g.forEach((mid, i) => { if (mid) voxelMap.set(`${i % W},${(i / W | 0) % H},${(i / (W * H)) | 0}`, mid); });
     pushHistory(); rebuildMesh(); setStatus('Construct lock-in applied — Ctrl+Z reverts'); return; }
+  if (m.type === 'vox-delta' && m.name === loadedModelName && m.dims &&
+      m.dims[0] === W && m.dims[1] === H && m.dims[2] === D && m.ops) {   // an agent/peer stroke — lands as a normal undoable entry
+    for (const [x, y, z, mid] of m.ops) { const k = `${x},${y},${z}`;     // (BroadcastChannel never echoes to its own sender,
+      if (mid) voxelMap.set(k, mid); else voxelMap.delete(k); }           //  so writes track into _deltaPending → pushHistory
+    _voxMute++; try { pushHistory(); } finally { _voxMute--; }            //  builds the entry; _voxMute kills the echo-back)
+    rebuildMesh(); setStatus(`Remote stroke applied — ${m.ops.length} cells (Ctrl+Z reverts)`); return; }
   if (m.type === 'vox-hello' || (m.type === 'need-full' && m.name === loadedModelName)) voxPostFull(); };
 
 // === BODY PART GROUPS ===

@@ -679,7 +679,29 @@ mounted name's base group (`name.split('__')[0]` — model arrows never list
 `barber_shop` (mini, block stamp, zone stamp) rebases at once. The editor's
 `vox-apply` handler adopts an inbound grid into `voxelMap` as a normal
 history entry (Ctrl+Z reverts; dims must match or the apply is ignored — the
-file write still lands).
+file write still lands). The editor also applies inbound `vox-delta` ops —
+an agent/peer stroke writes through `voxelMap` (tracked → `_deltaPending`),
+`pushHistory` makes it a normal undoable entry, and `_voxMute` kills the
+echo-back (BroadcastChannel never re-delivers to the sender, but the apply
+itself would re-post without the mute). Watching an agent sculpt live *in
+the editor* works now; a `dims` gap or unknown name is ignored (it answers
+`need-full`/`vox-full` only on `vox-hello`).
+
+**Dispatch performance law** — heavy composites coalesce longer:
+`rebuildDeps` waits `160 + idx·140ms` per table plus `+420ms` when the
+mounted model's XZ footprint exceeds ~200k cells (a zone re-emitting ~1M
+cells per stroke would churn the whole exhibit; it waits for stroke quiet
+instead). `emitVox` yields on a ~3M-cell work budget (fixed row-counts
+either stall a zone or starve a building) and one `await tick()` at entry —
+the macrotask deferral is load-order load-bearing (boot emits run
+mid-script-eval; a microtask tail hits `inB`/`placeSurf` TDZ from later
+files). `miniSyncTopsQ` chunks the tops rewrite (revert + plate-rect +
+columns) for remounts, `mountModel` defers+chunks the old composite's
+tops-revert and disposes each child on its own turn, and the zone/block
+composite grids are pooled (`t._voxPool` — fill beats alloc+GC). The glass
+`InstancedMesh` allocates its counted size. Remaining >80ms frames during a
+zone remount are the retired composite's GC and the new instance buffers'
+first-draw GPU upload — inherent; measured ~4 per 8s window.
 
 **The preview fanout** — cycling a variant repaints every dependent live,
 not just the preview table. `_previewOf` maps canonical → mounted variant and

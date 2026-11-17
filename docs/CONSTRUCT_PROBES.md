@@ -62,7 +62,13 @@ they are contract traps, not code bugs, and they bite again the moment they're f
   the twin. Third half — the preview fanout: a deposited `barber_shop__roof_9`
   cycles onto `primary`, `_previewOf['barber_shop']` sets, the studio zone's
   mini remounts (tag-fresh, polled — the zone emit is the heavy mount), and
-  cycling back to canonical clears the overlay. (19 checks.)
+  cycling back to canonical clears the overlay. Fourth half — bidirectional
+  sync + remount responsiveness: a `window.open`'d editor tab receives an
+  injected `vox-delta` and applies it to `voxelMap` (undoable entry, no
+  echo-back — `__room` exposes the map), and an rAF sampler counts >80ms
+  frames across a `remountMini` of the zone composite (≤5 per 8s — the floor
+  is GC + first-draw GPU upload; regression means a sync block crept back).
+  (21 checks.)
 
 > **File layout:** the page body is `docs/construct/01_shell.js` … `17_lamps.js` —
 > classic `<script defer>` siblings sharing one page-wide scope, load order = old
@@ -200,6 +206,9 @@ on empty floor and the suite fails with `roof=0` twenty lines deep. Rules:
 - `__dropN` counts real `dropTarget()` calls — the march is throttled to ~15Hz
   while held (the ghost needs freshness, not per-frame rays), so ~30/2s of held
   time. A return to ~120/2s means the throttle regressed.
+- `__emitErr` collects emit `.catch` stacks (`ring:`/`block:` prefixes) — a
+  failed composite mount used to warn into the void; probes read the array to
+  see exactly where an emit died.
 
 ## Async boot — ordering, not timing
 

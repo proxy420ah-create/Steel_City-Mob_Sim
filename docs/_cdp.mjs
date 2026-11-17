@@ -31,7 +31,7 @@ export async function bootCdp(o = {}) {
   const PORT = 9333 + Math.floor(Math.random() * 400);
   const prof = path.join(HERE, `_cdpprof_${PORT}_${Date.now()}`);          // timestamped — leftover dirs from killed runs can never collide
   const chrome = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${PORT}`, `--user-data-dir=${prof}`,
-    '--no-first-run', '--disable-extensions', '--window-size=1400,900', url], { stdio: 'ignore' });
+    '--no-first-run', '--disable-extensions', '--disable-popup-blocking', '--window-size=1400,900', url], { stdio: 'ignore' });
   const kill = () => { try { chrome.kill(); } catch {} try { fs.rmSync(prof, { recursive: true, force: true }); } catch {} };
   process.on('exit', kill);
 
