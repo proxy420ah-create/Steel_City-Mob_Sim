@@ -25,6 +25,10 @@ const loop = now => {                                                       // t
   placeOn ? flyStep(dt) : step(dt);
   placeStep();
   if (placeSel) { selBox.box.setFromObject(placeSel.g); selBox.visible = true; }
+  const zt = (keys['z'] && !keys['control'] && !keys['meta']) ? 1 : 0;   // hold-Z scope — bare Z only;
+  if (zoomT !== zt) { zoomT += (zt - zoomT) * Math.min(1, dt * 9);         // Ctrl+Z is place-undo, never a zoom
+    if (Math.abs(zt - zoomT) < 1e-3) zoomT = zt;
+    camera.fov = 58 - 32 * zoomT; camera.updateProjectionMatrix(); }
   if (camLock) { camera.position.copy(camLock.p); camera.lookAt(camLock.t); }
   else { if (placeOn) camera.position.copy(flyPos); else camera.position.set(pos.x, EYE, pos.z);
     camera.rotation.set(0, 0, 0, 'YXZ'); camera.rotation.y = yaw; camera.rotation.x = pitch; }

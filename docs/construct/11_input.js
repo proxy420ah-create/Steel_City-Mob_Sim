@@ -7,6 +7,7 @@
    the .855m door towers correctly; showroom inspects at authored scale, no third person needed). */
 const pos = new THREE.Vector3(0, 0, 0); let yaw = 0, pitch = 0;          // yaw 0 faces -z — stepped out of the door-elevator, rotator dead ahead
 const EYE = .56, WALK = 1.4, SPRINT = 2.2, keys = {};    // Vinny's authored Eyes region (region id 10) — voxel centroid y56 × .01 pitch
+let zoomT = 0;                                                           // hold-Z scope — the loop eases 0↔1, FOV pulls 58→26
 const el = renderer.domElement;
 el.addEventListener('click', () => { if (!padFocus && document.pointerLockElement !== el) grabLook(); });
 addEventListener('mousemove', e => {
@@ -14,7 +15,8 @@ addEventListener('mousemove', e => {
     padSetHover(padCursorHit()); return; }                                    // pad mode — cursor hovers the screen, never looks
   if (document.pointerLockElement !== el) return;
   if (held && keys['g']) { heldTumble(e.movementX, e.movementY); return; }      // G+mouse tumbles the item, not the camera
-  yaw -= e.movementX * .0022; pitch = Math.max(-1.45, Math.min(1.45, pitch - e.movementY * .0022)); });
+  const sens = .0022 * (camera.fov / 58);                                // sensitivity tracks the lens — scoped aim stays precise
+  yaw -= e.movementX * sens; pitch = Math.max(-1.45, Math.min(1.45, pitch - e.movementY * sens)); });
 /* INTERACT registry — same contract as the Commission: promptIt caches what the HUD shows,
    E falls back to it (shown = pressable). New exhibits append, don't redesign. */
 const INTERACT = [
