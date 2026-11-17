@@ -41,9 +41,10 @@ they are contract traps, not code bugs, and they bite again the moment they're f
   lamps on, and the restored bright void with lamps off (`probe_lamps_*.png`).
 - `_pad_check.mjs` — the pad-v2 law: BLDG/BLOCK/ZONE tabs exist and bind their
   tables by TAB (not proximity — the eye can sit anywhere), generic pages gone,
-  every region inside 512×340 with zero pairwise overlap, slice band hidden on
-  street tabs (uv-filtered), CARS only on BLOCK, spin/lift/swap presses bind the
-  tab's table, DECK still owns the shop lift.
+  every region inside 512×340 with zero pairwise overlap, HOME tiles navigate
+  to `<tab>:<band>` sub-pages and `⌂` returns, slice band + slice tile hide on
+  street tabs (uv-filtered), CARS only on BLOCK's model sub, spin/lift/swap
+  presses bind the tab's table, DECK still owns the shop lift. (18 checks.)
 - `_pad_shot.mjs` — visual capture: dumps the pad canvas per page
   (`probe_pad_<page>.png`) — layout/overlap/font review without squinting at
   the 3D slab.
@@ -51,11 +52,13 @@ they are contract traps, not code bugs, and they bite again the moment they're f
   simulated editor `vox-delta` patches `_stCache` and remounts every dependent
   table (`tenement_block_0` rides all three — standalone, `block_26_tenement`
   stamp, battlefield zone stamp), `rotation.y` survives the remount, and a
-  `dims` mismatch answers `need-full` rather than corrupting the cache.
-  Second half — the variant carousel: `fs`-deposited `wiptest_probe__roof_*`
-  JSONs doorbell through `/events` into `primary`'s catalog, `bldg:vnext`
-  mounts the variant, `bldg:vlock` rebases the table to canonical, the cache
-  carries the variant grid, and `/save/voxel` persisted the twin. (14 checks.)
+  `dims` mismatch answers `need-full` rather than corrupting the cache, and the
+  cold-boot merge lands `/models` buildings (e.g. `empty_land`) in the catalog
+  without a doorbell. Second half — the variant carousel: `fs`-deposited
+  `wiptest_probe__roof_*` JSONs doorbell through `/events` into `primary`'s
+  catalog, `bldg:vnext` mounts the variant, `bldg:vlock` rebases the table to
+  canonical, the cache carries the variant grid, and `/save/voxel` persisted
+  the twin. (15 checks.)
 
 > **File layout:** the page body is `docs/construct/01_shell.js` … `17_lamps.js` —
 > classic `<script defer>` siblings sharing one page-wide scope, load order = old

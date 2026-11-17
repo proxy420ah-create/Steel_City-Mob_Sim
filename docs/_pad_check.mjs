@@ -27,10 +27,20 @@ const overlap = JSON.parse(await evl(`JSON.stringify((() => { const bad = [];
   return bad; })())`));
 check('no button overlap on any page', overlap.length === 0, overlap.join(', '));
 check('slice band hides on street tabs', await evl(`(() => {
-  const uv = { x: (168 + 31) / 512, y: 1 - (216 + 20) / 340 };
-  __pad.tab('block'); const b = __pad.hit(uv);
-  __pad.tab('bldg'); const g = __pad.hit(uv);
+  const uv = { x: (168 + 31) / 512, y: 1 - (150 + 28) / 340 };
+  __pad.tab('block:slice'); const b = __pad.hit(uv);
+  __pad.tab('bldg:slice'); const g = __pad.hit(uv);
   return b === null && g === 'bldg:sl0'; })()`));
+check('HOME tiles navigate to sub-pages and back', await evl(`(() => {
+  __pad.tab('bldg'); __pad.press('bldg:go:model');
+  const on = padPage === 'bldg:model';
+  __pad.press('bldg:model:back');
+  return on && padPage === 'bldg'; })()`));
+check('slice tile hides on street-table homes', await evl(`(() => {
+  const uv = { x: (56 + 95) / 512, y: 1 - (204 + 42) / 340 };
+  __pad.tab('bldg'); const g = __pad.hit(uv);
+  __pad.tab('block'); const b = __pad.hit(uv);
+  return g === 'bldg:go:slice' && b === null; })()`));
 check('CARS rides only the BLOCK tab', await evl(
   'PAD_REGIONS.filter(r => r.id === "block:cars").length === 1 && !PAD_REGIONS.some(r => /^(bldg|zone):cars/.test(r.id))'));
 check('spin press binds the tab\'s table', await evl(`(() => {

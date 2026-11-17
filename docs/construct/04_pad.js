@@ -15,25 +15,34 @@
    captions at 100/156/212/268, button rows at 104/160/216/272. */
 const TAB_TABLE = { bldg: 'primary', block: 'block', zone: 'studio' };
 const PHOS = '#39ff8e', DIMTX = '#46525e', CREAM = '#d8d2c4', CYTX = '#35d5ff';      // Construct cyberdeck palette — phosphor readouts are the Matrix nod
-const drawTbl = (g, sid, tab) => {                                                 // shared per-table page: title + status + band captions
-  const t = TABLES.find(q => q.spec.id === sid); if (!t) return;
+const statusLine = t => {                                                          // one phosphor readout shared by home + sub-pages
   const cur = t.spec.models[0], mdl = t.g.children.find(c => c.userData.mini && !c.userData.mini.static),
     mn = mdl && mdl.userData.mini;
-  g.fillStyle = CREAM; g.font = 'bold 15px monospace';
-  g.fillText(tab + ' — ' + t.spec.id.toUpperCase() + ' TABLE', 256, 52);
-  const st = [(cur ? cur.name.replace(/_/g, ' ') : '—').toUpperCase(),
+  return [(cur ? cur.name.replace(/_/g, ' ') : '—').toUpperCase(),
     'LIFT +' + t.lift.toFixed(2),
     mn && mn.spin ? (mn.spin < 0 ? '◀' : '▶') + Math.round(Math.abs(mn.spin) * 180 / Math.PI) + '°/s' : null,
     t.spec.noSlice ? 'SLICE LOCKED' : (mn ? 'SLICE ' + (mn.axis || 'y').toUpperCase() + ' ' + mn.slice[mn.axis || 'y'].join('–') : null)]
-    .filter(Boolean).join('  ·  ');
-  g.fillStyle = PHOS; g.font = '12px monospace'; g.fillText(st, 256, 74);
+    .filter(Boolean).join('  ·  '); };
+const drawHome = (g, sid, tab) => {                                                // a table tab's HOME — launcher tiles, status up top
+  const t = TABLES.find(q => q.spec.id === sid); if (!t) return;
+  g.fillStyle = CREAM; g.font = 'bold 15px monospace';
+  g.fillText(tab + ' — ' + t.spec.id.toUpperCase() + ' TABLE', 256, 52);
+  g.fillStyle = PHOS; g.font = '12px monospace'; g.fillText(statusLine(t), 256, 74);
   g.fillStyle = DIMTX; g.font = '10px monospace';
-  g.fillText('MODEL', 256, 100); g.fillText('SPIN', 256, 156);
-  g.fillText(t.spec.noSlice ? 'SLICE — STREET MODEL, ROADS STAY WHOLE' : 'SLICE', 256, 212); g.fillText('LIFT', 256, 268); };
+  const nv = Math.max(0, variantGroup(t).length - 1);
+  g.fillText('TAP A SECTION' + (nv ? '  ·  ' + nv + ' VARIANT' + (nv > 1 ? 'S' : '') + ' ON DECK' : ''), 256, 316); };
+const drawSub = (g, sid, tab, band) => {                                           // a section sub-page — its band owns the whole screen
+  const t = TABLES.find(q => q.spec.id === sid); if (!t) return;
+  g.fillStyle = CREAM; g.font = 'bold 15px monospace';
+  g.fillText(tab + ' — ' + t.spec.id.toUpperCase() + ' TABLE', 256, 52);
+  g.fillStyle = PHOS; g.font = '12px monospace'; g.fillText(statusLine(t), 256, 74);
+  g.fillStyle = DIMTX; g.font = '10px monospace';
+  g.fillText(band === 'SLICE' && t.spec.noSlice ? 'SLICE — STREET MODEL, ROADS STAY WHOLE' : band, 256, 136);
+  if (band === 'MODEL') g.fillText(tab === 'BLDG' ? '◀ ▶ MODEL · V◀ V▶ VARIANTS · LOCK COMMITS A VARIANT' : '◀ ▶ SWAP THE MOUNT', 256, 316); };
 const PAD_PAGES = {
-  bldg:  { tab: 'BLDG',  draw: g => drawTbl(g, 'primary', 'BLDG') },
-  block: { tab: 'BLOCK', draw: g => drawTbl(g, 'block', 'BLOCK') },
-  zone:  { tab: 'ZONE',  draw: g => drawTbl(g, 'studio', 'ZONE') },
+  bldg:  { tab: 'BLDG',  draw: g => drawHome(g, 'primary', 'BLDG') },
+  block: { tab: 'BLOCK', draw: g => drawHome(g, 'block', 'BLOCK') },
+  zone:  { tab: 'ZONE',  draw: g => drawHome(g, 'studio', 'ZONE') },
   deck: { tab: 'DECK', draw: g => {
     g.fillStyle = CREAM; g.font = 'bold 15px monospace'; g.fillText('SHOP LIFT — ' + (spinning ? 'TURNING' : 'HELD'), 256, 52);
     g.fillStyle = PHOS; g.font = '12px monospace';
@@ -49,30 +58,41 @@ const PAD_PAGES = {
     g.fillStyle = CREAM; g.font = 'bold 15px monospace'; g.fillText('ALL TOOLS', 256, 52);
     g.fillStyle = DIMTX; g.font = '10px monospace'; g.fillText('tap a tile — pages keep their state', 256, 312); } },
 };
+Object.keys(TAB_TABLE).forEach(pid => {                                            // each table tab's bands become sub-pages —
+  const sid = TAB_TABLE[pid], TAB = pid.toUpperCase();                             // the tab root is its HOME launcher
+  ['MODEL', 'SPIN', 'SLICE', 'LIFT'].forEach(band =>
+    PAD_PAGES[pid + ':' + band.toLowerCase()] = { draw: g => drawSub(g, sid, TAB, band) }); });
 let padPage = 'bldg';
 const PAD_REGIONS = [];
 const padR = o => PAD_REGIONS.push(o);
-Object.keys(TAB_TABLE).forEach(pid => {                                            // per-table bands — every control the table owns, no proximity
-  padR({ id: pid + ':prev', page: pid, x: 16,  y: 104, w: 48, h: 40, label: '◀', glyph: '◀', fs: 20, fn: () => padSwap(-1) });
-  padR({ id: pid + ':next', page: pid, x: 448, y: 104, w: 48, h: 40, label: '▶', glyph: '▶', fs: 20, fn: () => padSwap(1) });
-  if (pid === 'bldg') {                                                            // VARIANT band — mid-row of MODEL: ◀▶ cycle the
-    padR({ id: 'bldg:vprev', page: 'bldg', x: 100, y: 104, w: 44, h: 40, label: 'VARIANT ◀', glyph: 'V◀', fs: 14, fn: () => padVarSwap(-1) });   // mounted name's __ group,
-    padR({ id: 'bldg:vnext', page: 'bldg', x: 148, y: 104, w: 44, h: 40, label: 'VARIANT ▶', glyph: 'V▶', fs: 14, fn: () => padVarSwap(1) });    // LOCK canonicalizes it
-    padR({ id: 'bldg:vlock', page: 'bldg', x: 336, y: 104, w: 100, h: 40, label: 'LOCK IN',  glyph: 'LOCK',  fs: 14,
+Object.keys(TAB_TABLE).forEach(pid => {
+  const M = pid + ':model', S = pid + ':spin', SL = pid + ':slice', LF = pid + ':lift';
+  [['model', '◫ MODEL'], ['spin', '↻ SPIN'], ['slice', '▤ SLICE'], ['lift', '⬍ LIFT']].forEach(([s, gl], i) =>   // HOME tiles — 2×2 launcher
+    padR({ id: pid + ':go:' + s, page: pid, x: 56 + (i % 2) * 210, y: 104 + ((i / 2) | 0) * 100, w: 190, h: 84,
+      label: 'OPEN ' + s.toUpperCase(), glyph: gl, fs: 15, slice: s === 'slice', fn: () => padPageSet(pid + ':' + s) }));
+  ['model', 'spin', 'slice', 'lift'].forEach(s =>                                   // every sub-page gets a home key
+    padR({ id: pid + ':' + s + ':back', page: pid + ':' + s, x: 16, y: 56, w: 92, h: 32,
+      label: 'HOME', glyph: '⌂ ' + pid.toUpperCase(), fs: 11, fn: () => padPageSet(pid) }));
+  padR({ id: pid + ':prev', page: M, x: 16,  y: 150, w: 80, h: 56, label: '◀', glyph: '◀', fs: 22, fn: () => padSwap(-1) });
+  padR({ id: pid + ':next', page: M, x: 416, y: 150, w: 80, h: 56, label: '▶', glyph: '▶', fs: 22, fn: () => padSwap(1) });
+  if (pid === 'bldg') {                                                            // VARIANT controls — mid-row of the MODEL sub-page
+    padR({ id: 'bldg:vprev', page: 'bldg:model', x: 112, y: 150, w: 64, h: 56, label: 'VARIANT ◀', glyph: 'V◀', fs: 16, fn: () => padVarSwap(-1) });
+    padR({ id: 'bldg:vnext', page: 'bldg:model', x: 184, y: 150, w: 64, h: 56, label: 'VARIANT ▶', glyph: 'V▶', fs: 16, fn: () => padVarSwap(1) });
+    padR({ id: 'bldg:vlock', page: 'bldg:model', x: 288, y: 150, w: 116, h: 56, label: 'LOCK IN', glyph: 'LOCK', fs: 15,
       lit: () => { const m = padTable(); return m && m.spec.models[0] && m.spec.models[0].name.includes('__'); }, fn: () => padLock() }); }
-  if (pid === 'block') padR({ id: 'block:cars', page: 'block', x: 216, y: 104, w: 80, h: 40, label: 'CARS', glyph: 'CARS', fs: 12,
+  if (pid === 'block') padR({ id: 'block:cars', page: 'block:model', x: 216, y: 150, w: 80, h: 56, label: 'CARS', glyph: 'CARS', fs: 13,
     lit: () => blockTrf.on, fn: () => blockTrf.toggle(padTable()) });
   [[-.9, '◀◀'], [-.25, '◀'], [.25, '▶'], [.9, '▶▶']].forEach(([v, gl], i) =>
-    padR({ id: pid + ':sp' + i, page: pid, x: 16 + i * 124, y: 160, w: 110, h: 40, label: 'SPIN ' + gl, glyph: gl, fs: 20,
+    padR({ id: pid + ':sp' + i, page: S, x: 16 + i * 124, y: 150, w: 110, h: 56, label: 'SPIN ' + gl, glyph: gl, fs: 22,
       lit: () => { const m = padMini(); return m && m.spin === v; }, fn: () => miniSpinSet(v) }));
   ['x', 'y', 'z'].forEach((ax, i) =>
-    padR({ id: pid + ':ax' + ax, page: pid, slice: true, x: 16 + i * 48, y: 216, w: 40, h: 40, label: 'SLICE ' + ax.toUpperCase(), glyph: ax.toUpperCase(), fs: 16, axis: ax, fn: () => padAxisSet(ax) }));
+    padR({ id: pid + ':ax' + ax, page: SL, slice: true, x: 16 + i * 48, y: 150, w: 40, h: 56, label: 'SLICE ' + ax.toUpperCase(), glyph: ax.toUpperCase(), fs: 16, axis: ax, fn: () => padAxisSet(ax) }));
   [['MIN−', 'min', -1], ['MIN+', 'min', 1], ['MAX−', 'max', -1], ['MAX+', 'max', 1]].forEach(([gl, bd, d], i) =>
-    padR({ id: pid + ':sl' + i, page: pid, slice: true, x: 168 + i * 72, y: 216, w: 62, h: 40, label: 'SLICE ' + gl, glyph: gl, fs: 12, fn: () => miniSliceStep(bd, d) }));
-  padR({ id: pid + ':sres', page: pid, slice: true, x: 452, y: 216, w: 44, h: 40, label: 'RESET', glyph: 'RST', fs: 11, fn: () => miniSliceReset() });
+    padR({ id: pid + ':sl' + i, page: SL, slice: true, x: 168 + i * 72, y: 150, w: 62, h: 56, label: 'SLICE ' + gl, glyph: gl, fs: 12, fn: () => miniSliceStep(bd, d) }));
+  padR({ id: pid + ':sres', page: SL, slice: true, x: 452, y: 150, w: 44, h: 56, label: 'RESET', glyph: 'RST', fs: 11, fn: () => miniSliceReset() });
   [['▼▼', -.08], ['▼', -.02], ['▲', .02], ['▲▲', .08]].forEach(([gl, d], i) =>
-    padR({ id: pid + ':lf' + i, page: pid, x: 16 + i * 100, y: 272, w: 92, h: 40, label: 'LIFT ' + gl, glyph: gl, fs: 20, fn: () => tableLift(padTable(), d) }));
-  padR({ id: pid + ':lres', page: pid, x: 416, y: 272, w: 80, h: 40, label: 'RESET', glyph: 'RST', fs: 11, fn: () => tableLiftSet(padTable(), 0) });
+    padR({ id: pid + ':lf' + i, page: LF, x: 16 + i * 100, y: 150, w: 92, h: 56, label: 'LIFT ' + gl, glyph: gl, fs: 22, fn: () => tableLift(padTable(), d) }));
+  padR({ id: pid + ':lres', page: LF, x: 416, y: 150, w: 80, h: 56, label: 'RESET', glyph: 'RST', fs: 11, fn: () => tableLiftSet(padTable(), 0) });
 });
 [[-.9, '◀◀'], [-.25, '◀'], [.25, '▶'], [.9, '▶▶']].forEach(([v, gl], i) =>              // DECK — shop-lift spin
   padR({ id: 'd:sp' + i, page: 'deck', x: 16 + i * 124, y: 160, w: 110, h: 40, label: 'SPIN ' + gl, glyph: gl, fs: 20,
@@ -137,7 +157,7 @@ const padAxisSet = ax => { const t = padTable(), mdl = t && t.g.children.find(c 
 /* padTable — the pad's table is the TAB's table: BLDG/BLOCK/ZONE own their controls outright,
    no proximity binding (the remote-for-nearest model died with the generic pages).
    Non-table tabs (deck/lamp/apps) fall back to primary for harmless status reads. */
-const padTable = () => TABLES.find(t => t.spec.id === (TAB_TABLE[padPage] || 'primary')) || TABLES[0];
+const padTable = () => TABLES.find(t => t.spec.id === (TAB_TABLE[padPage.split(':')[0]] || 'primary')) || TABLES[0];
 const padMini = () => { const t = padTable(), mdl = t && t.g.children.find(c => c.userData.mini && !c.userData.mini.static);
   return mdl ? mdl.userData.mini : null; };
 const padDraw = () => { const g = padCv.getContext('2d'), t = padTable(), mn = padMini();
@@ -145,7 +165,7 @@ const padDraw = () => { const g = padCv.getContext('2d'), t = padTable(), mn = p
   g.strokeStyle = '#22303a'; g.lineWidth = 2; g.strokeRect(2, 2, 508, 336);
   g.textAlign = 'center';
   const btn = r => { const hov = padHover === r.id, pr = padPressId === r.id,
-      on = (r.tab && r.tab === padPage) || (r.axis && mn && mn.axis === r.axis) || (r.lit && r.lit());
+      on = (r.tab && (padPage === r.tab || padPage.startsWith(r.tab + ':'))) || (r.axis && mn && mn.axis === r.axis) || (r.lit && r.lit());   // a sub-page keeps its tab lit
     g.fillStyle = pr ? '#1b2f3c' : on ? '#12242e' : hov ? '#16212a' : '#0d1217'; g.fillRect(r.x, r.y, r.w, r.h);
     g.strokeStyle = on || hov ? CYTX : '#22303a'; g.lineWidth = 2; g.strokeRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2);
     g.fillStyle = pr || on ? CYTX : hov ? CREAM : '#5b6874'; g.font = 'bold ' + (r.fs || 16) + 'px monospace';

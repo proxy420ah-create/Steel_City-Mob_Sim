@@ -698,3 +698,8 @@ if ('EventSource' in window) { const es = new EventSource('/events');
     if (f && f.startsWith('vox:')) { const name = f.slice(4);
       _stCache[name] = fetch('/voxel/' + name).then(r => r.ok ? r.json().then(_jsonToVox) : Promise.reject(r.status));
       liveCatalog(name); rebuildDeps(name); } }; }
+/* cold-boot catalog — deposits made while the page was closed doorbell nothing, so the boot
+   merges the /models index itself. assetType 'building' only: props/vehicles/characters don't
+   belong in the exhibit cycle; __ variants land here too (V◀V▶ owns their row). */
+fetch('/models').then(r => r.ok ? r.json() : null).then(j => j &&
+  (j.models || []).forEach(m => { if (m && m.name && m.assetType === 'building') liveCatalog(m.name); }));

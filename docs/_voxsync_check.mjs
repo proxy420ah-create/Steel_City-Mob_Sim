@@ -55,6 +55,13 @@ const needFull = await evl(`(async () => { const got = new Promise(r => {
   return got; })()`);
 check('dims mismatch requests need-full', !!(needFull && needFull.name === 'tenement_block_0'));
 
+// ── cold-boot catalog: pre-deposited building JSONs (empty_land is committed but
+//    not in the static catalog) merge from /models without any doorbell ────────
+let bootOk = false;
+for (let i = 0; i < 15 && !bootOk; i++) { await sleep(400);
+  bootOk = await evl(`(TABLES.find(t => t.spec.id === 'primary').spec.catalog || []).some(e => e.name === 'empty_land')`); }
+check('cold-boot merges /models buildings into the catalog', bootOk);
+
 // ── the WIP-folder workflow: a never-shipped name arrives via vox-full →
 //    lands in primary's catalog → mounts file-free → deltas rebuild it ────
 const WIP = 'wiptest_probe';

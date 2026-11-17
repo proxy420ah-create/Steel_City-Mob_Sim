@@ -371,7 +371,13 @@ drop re-render the block immediately.
 
 **Regions are data.** `PAD_REGIONS` are `{rect(px), label, glyph, fn}` entries
 hit-tested through raycast `uv` on the screen plane — the face is software, so
-future tools are draw code, never new geometry. One region table feeds two
+future tools are draw code, never new geometry. **Table tabs are HOME
+screens:** BLDG/BLOCK/ZONE open on a 2×2 launcher (◫ MODEL / ↻ SPIN / ▤ SLICE /
+⬍ LIFT — the SLICE tile hides on street tables) and each tile navigates to a
+`<tab>:<band>` sub-page (`bldg:model`, …) where the band owns the whole screen
+with bigger controls and a `⌂` return; `padPage` ids carry the `:` form,
+`padTable()` resolves the tab root, and a sub-page keeps its tab lit. The
+variant row lives on `bldg:model` (`V◀`/`V▶`/`LOCK`). One region table feeds two
 input modes:
 
 - **Held → RMB tap frees the cursor** (`padFocus`: `exitPointerLock`,
@@ -661,9 +667,12 @@ editor broadcasts it like any WIP, or any process deposits
 `{"file":"vox:<name>"}` on the file's mtime (new files doorbell too — the first
 poll pass only seeds), the Construct's EventSource refetches through
 `/voxel/<name>` (stassetFetch's third fallback, after buildings then vehicles),
-and `liveCatalog` adds it. On the pad's BLDG page the MODEL row carries
-`V◀`/`V▶` — they cycle only the mounted name's base group (`name.split('__')[0]`
-— model arrows never list `__` entries). **LOCK** (`bldg:vlock`, lit while a
+and `liveCatalog` adds it. Files deposited while the page is closed doorbell
+nothing, so boot also merges `/models` — every `assetType:'building'` JSON
+joins `primary`'s catalog (props/vehicles stay out). On the pad's
+`bldg:model` sub-page the MODEL row carries `V◀`/`V▶` — they cycle only the
+mounted name's base group (`name.split('__')[0]` — model arrows never list
+`__` entries). **LOCK** (`bldg:vlock`, lit while a
 `__` name is mounted) copies the variant grid under the canonical name:
 `_stCache[base]` + `vox-full`/`vox-apply` broadcasts + `POST /save/voxel/base`
 + `rebuildDeps(base)` — one commit and every exhibit that depends on
