@@ -93,5 +93,9 @@ check('held hotkeys live on the K-hideable FOLLOWER panel — reticle keeps only
   r.dropped = !ctlEl.textContent.includes('HELD — DEBUG PAD');
   window.__heldDiag = JSON.stringify(r);
   return r.panel && r.clean && r.hid && r.dropped; })()`), await evl('window.__heldDiag'));
+await evl(`__construct.take('debug_pad'); window.__dropN = 0;`);           // the held marches at ~15Hz, not 60
+await sleep(2000);
+const dropN = await evl(`(() => { const n = window.__dropN; __construct.place(-4.1, -.575); return n; })()`);
+check('dropTarget throttled while held (~15Hz)', dropN > 5 && dropN <= 40, dropN + ' calls/2s');
 
 finish();

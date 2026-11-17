@@ -44,7 +44,8 @@ they are contract traps, not code bugs, and they bite again the moment they're f
   every region inside 512×340 with zero pairwise overlap, HOME tiles navigate
   to `<tab>:<band>` sub-pages and `⌂` returns, slice band + slice tile hide on
   street tabs (uv-filtered), CARS only on BLOCK's model sub, spin/lift/swap
-  presses bind the tab's table, DECK still owns the shop lift. (18 checks.)
+  presses bind the tab's table, DECK still owns the shop lift, and the held
+  drop-march stays throttled (`__dropN` ≈ 15Hz, not per-frame). (19 checks.)
 - `_pad_shot.mjs` — visual capture: dumps the pad canvas per page
   (`probe_pad_<page>.png`) — layout/overlap/font review without squinting at
   the 3D slab.
@@ -196,6 +197,9 @@ on empty floor and the suite fails with `roof=0` twenty lines deep. Rules:
   async mounts (`_parked` cars) register mid-run; parented recs reject by the
   parent's frame, so their count should hold near zero unless the march is
   actually over a miniature.
+- `__dropN` counts real `dropTarget()` calls — the march is throttled to ~15Hz
+  while held (the ghost needs freshness, not per-frame rays), so ~30/2s of held
+  time. A return to ~120/2s means the throttle regressed.
 
 ## Async boot — ordering, not timing
 

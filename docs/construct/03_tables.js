@@ -577,7 +577,7 @@ const miniSyncSlice = mdl => { const mn = mdl.userData.mini, s = mn.slice, vs = 
    revert to felt, then surviving columns re-project (rotated offsets, top = tallest y in window).
    A `plate` model (zones/block composites — full-coverage ground slab) writes its flat top as a
    rotated rect of columns first; per-column localCols only carry the raised content above it. */
-const miniSyncTops = (t, mdl) => { const mn = mdl.userData.mini, s = mn.slice, D = mn.dims[2];
+const _miniTopsHead = (t, mdl) => { const mn = mdl.userData.mini, s = mn.slice, D = mn.dims[2];
   mn.written.forEach(k => t.rec.tops.set(k, tableTop(t))); mn.written.clear();
   const th = mdl.rotation.y, c = Math.cos(th), sn = Math.sin(th), ox = mdl.position.x, oz = mdl.position.z;
   if (mn.plate && s.y[0] <= mn.plate.y && s.y[1] >= mn.plate.y) {          // ground plate survives the y window → fill its rect
@@ -593,7 +593,9 @@ const miniSyncTops = (t, mdl) => { const mn = mdl.userData.mini, s = mn.slice, D
           const dx = (ix / 200 - ox) * c + (iz / 200 - oz) * sn, dz = -(ix / 200 - ox) * sn + (iz / 200 - oz) * c;   // world → local
           if (dx >= rx0 && dx <= rx1 && dz >= rz0 && dz <= rz1) {
             const k = TOPK(ix, iz); if (v > (t.rec.tops.get(k) ?? -1e9)) { t.rec.tops.set(k, v); mn.written.add(k); } } } } }
-  for (const col of mn.localCols) {
+  return { mn, ox, oz, c, sn }; };
+const _miniTopsCols = (t, mn, ox, oz, c, sn, i0, i1) => { const s = mn.slice;
+  for (let i = i0; i < i1; i++) { const col = mn.localCols[i];
     if (col.x < s.x[0] || col.x > s.x[1] || col.z < s.z[0] || col.z > s.z[1]) continue;
     let ym = -1; for (const y of col.ys) if (y >= s.y[0] && y <= s.y[1] && y > ym) ym = y;
     if (ym < 0) continue;
@@ -601,6 +603,14 @@ const miniSyncTops = (t, mdl) => { const mn = mdl.userData.mini, s = mn.slice, D
     const k = TOPK(Math.round(lx * 200), Math.round(lz * 200)), v = tableTop(t) + (ym + 1) * mn.vs;
     if (v > (t.rec.tops.get(k) ?? -1e9)) t.rec.tops.set(k, v);           // several model cells share a 5mm column — keep the true max
     mn.written.add(k); } };
+const miniSyncTops = (t, mdl) => { const { mn, ox, oz, c, sn } = _miniTopsHead(t, mdl);
+  _miniTopsCols(t, mn, ox, oz, c, sn, 0, mn.localCols.length); };
+/* chunked twin for the remount path — the zone's columns would otherwise freeze ~40ms behind a
+   variant cycle; slice/spin callers keep the sync version (one-shot costs they can afford). */
+const miniSyncTopsQ = async (t, mdl) => { const { mn, ox, oz, c, sn } = _miniTopsHead(t, mdl);
+  for (let i = 0; i < mn.localCols.length; i += 8e3) {
+    _miniTopsCols(t, mn, ox, oz, c, sn, i, Math.min(i + 8e3, mn.localCols.length));
+    await new Promise(r => setTimeout(r)); } };
 /* miniSpinSet — the turntable: rate in rad/s, toggling the active rate stops it. Tops re-project
    every >.02 rad during spin (the render loop owns the integration) and exactly on stop. */
 const miniSpinSet = rate => { const t = padTable(), mdl = t && t.g.children.find(c => c.userData.mini && !c.userData.mini.static);
@@ -668,14 +678,14 @@ const remountMini = t => { const mdl = t.g.children.find(c => c.userData.mini &&
     if (g && keep) { const mn = g.userData.mini;
       if (keep.slice.x[1] < mn.dims[0] && keep.slice.y[1] < mn.dims[1] && keep.slice.z[1] < mn.dims[2]) mn.slice = keep.slice;
       mn.spin = keep.spin; g.rotation.y = keep.rotY;
-      miniSyncSlice(g); miniSyncTops(t, g); miniSettle(t); }
+      miniSyncSlice(g); return miniSyncTopsQ(t, g).then(() => { miniSettle(t); return g; }); }
     return g; }); };
 const _rebuildT = {};
 const rebuildDeps = name => TABLES.forEach(t => {                       // debounce per table — a paint session is many strokes
   const mdl = t.g && t.g.children.find(c => c.userData.mini && !c.userData.mini.static), deps = mdl && mdl.userData.mini._deps;
   const wants = mdl ? deps && (deps.has(name) || [...deps].some(d => _previewOf[d] === name))   // a variant rebuilds its previewers too
                   : t.spec.models[0] && t.spec.models[0].name === name; // mount died pre-sync (file 404'd) — the broadcast IS the grid; retry it
-  if (wants) { clearTimeout(_rebuildT[t.spec.id]); _rebuildT[t.spec.id] = setTimeout(() => remountMini(t), 160); } });
+  if (wants) { clearTimeout(_rebuildT[t.spec.id]); _rebuildT[t.spec.id] = setTimeout(() => remountMini(t), 160 + TABLES.indexOf(t) * 140); } });   // staggered — tables' emits don't stack in one frame
 const liveCatalog = name => { const t = TABLES.find(t => t.spec.id === 'primary');   // a WIP the studio never shipped is still exhibitable —
   if (t && !(t.spec.catalog || []).some(e => e.name === name))                       // the broadcast primes _stCache, so mountModel works file-free
     (t.spec.catalog = t.spec.catalog || []).push({ name, fill: .75 }); };

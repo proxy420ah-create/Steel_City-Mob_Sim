@@ -183,7 +183,9 @@ const padUvRegion = uv => { if (!uv) return null;
   const px = uv.x * 512, py = (1 - uv.y) * 340, noSl = !!(padTable() && padTable().spec.noSlice);
   return PAD_REGIONS.find(r => (r.tab || (r.page === padPage && !(noSl && r.slice)))
     && px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) || null; };
-const padSetHover = r => { const id = r ? r.id : null; if (id !== padHover) { padHover = id; padDraw(); } };
+let _pdDrawQ = false;                                                        // hover sweeps coalesce — one canvas redraw per frame
+const padDrawSoon = () => { if (!_pdDrawQ) { _pdDrawQ = true; requestAnimationFrame(() => { _pdDrawQ = false; padDraw(); }); } };
+const padSetHover = r => { const id = r ? r.id : null; if (id !== padHover) { padHover = id; padDrawSoon(); } };
 const padHudEl = document.createElement('div');
 padHudEl.style.cssText = 'position:fixed;left:50%;bottom:14px;transform:translateX(-50%);background:rgba(8,8,14,.92);border:1px solid #6a6a92;color:#e2dbc2;padding:5px 12px;font:10px ui-monospace,Consolas,monospace;letter-spacing:.1em;display:none;z-index:8;pointer-events:none;white-space:nowrap';
 padHudEl.textContent = 'PAD — LMB press · RMB tap — mouse look';

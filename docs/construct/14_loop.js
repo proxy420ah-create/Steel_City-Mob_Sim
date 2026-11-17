@@ -19,8 +19,8 @@ const step = dt => {
   }
 };
 
-let last = performance.now();
-const loop = now => {
+let last = performance.now(), _dropT = 0, _dropCache = null;               // dropTarget marched 39 ray-steps at 60Hz —
+const loop = now => {                                                       // the ghost only needs ~15Hz of freshness
   const dt = Math.min(.1, (now - last) / 1000); last = now;
   placeOn ? flyStep(dt) : step(dt);
   placeStep();
@@ -46,7 +46,8 @@ const loop = now => {
     _qYaw.setFromAxisAngle(AX_Y, yaw);
     _qSnap.setFromEuler(_eSnap.set(heldSnap.x * ROT_STEP, heldSnap.y * ROT_STEP, heldSnap.z * ROT_STEP, 'YXZ'));
     held.g.quaternion.copy(_qYaw).multiply(_qSnap).multiply(heldFree);                  // facing × axis-snaps × free tumble
-    const t = dropTarget(); ghost.visible = !!t;
+    if (now - _dropT > 66) { _dropT = now; _dropCache = dropTarget(); window.__dropN = (window.__dropN || 0) + 1; }
+    const t = _dropCache; ghost.visible = !!t;
     if (t) { ghost.position.set(t.x, t.y + .004, t.z);
       if (t.wall) ghost.quaternion.setFromUnitVectors(AX_Y, tmpV.set(t.n[0], t.n[1], t.n[2]));   // ring sticks to the face
       else ghost.quaternion.identity(); }
