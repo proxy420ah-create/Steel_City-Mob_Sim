@@ -1897,6 +1897,12 @@ const voxPostDelta = (delta, dir = 1) => { if (!voxChan || !loadedModelName) ret
 const voxPostFull = () => { if (voxChan && loadedModelName)
   voxChan.postMessage({ type: 'vox-full', name: loadedModelName, dims: [W, H, D], vox: voxPack() }); };
 if (voxChan) voxChan.onmessage = e => { const m = e.data || {};
+  if (m.type === 'vox-apply' && m.name === loadedModelName && m.dims &&
+      m.dims[0] === W && m.dims[1] === H && m.dims[2] === D) {              // a Construct lock-in: adopt the grid as an undoable history entry
+    const g = new Uint16Array(m.vox);
+    voxelMap.clear();
+    g.forEach((mid, i) => { if (mid) voxelMap.set(`${i % W},${(i / W | 0) % H},${(i / (W * H)) | 0}`, mid); });
+    pushHistory(); rebuildMesh(); setStatus('Construct lock-in applied — Ctrl+Z reverts'); return; }
   if (m.type === 'vox-hello' || (m.type === 'need-full' && m.name === loadedModelName)) voxPostFull(); };
 
 // === BODY PART GROUPS ===

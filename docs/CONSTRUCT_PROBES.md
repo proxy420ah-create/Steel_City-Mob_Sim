@@ -52,6 +52,10 @@ they are contract traps, not code bugs, and they bite again the moment they're f
   table (`tenement_block_0` rides all three — standalone, `block_26_tenement`
   stamp, battlefield zone stamp), `rotation.y` survives the remount, and a
   `dims` mismatch answers `need-full` rather than corrupting the cache.
+  Second half — the variant carousel: `fs`-deposited `wiptest_probe__roof_*`
+  JSONs doorbell through `/events` into `primary`'s catalog, `bldg:vnext`
+  mounts the variant, `bldg:vlock` rebases the table to canonical, the cache
+  carries the variant grid, and `/save/voxel` persisted the twin. (14 checks.)
 
 > **File layout:** the page body is `docs/construct/01_shell.js` … `17_lamps.js` —
 > classic `<script defer>` siblings sharing one page-wide scope, load order = old

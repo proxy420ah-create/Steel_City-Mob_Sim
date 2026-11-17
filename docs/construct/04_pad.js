@@ -55,6 +55,11 @@ const padR = o => PAD_REGIONS.push(o);
 Object.keys(TAB_TABLE).forEach(pid => {                                            // per-table bands — every control the table owns, no proximity
   padR({ id: pid + ':prev', page: pid, x: 16,  y: 104, w: 48, h: 40, label: '◀', glyph: '◀', fs: 20, fn: () => padSwap(-1) });
   padR({ id: pid + ':next', page: pid, x: 448, y: 104, w: 48, h: 40, label: '▶', glyph: '▶', fs: 20, fn: () => padSwap(1) });
+  if (pid === 'bldg') {                                                            // VARIANT band — mid-row of MODEL: ◀▶ cycle the
+    padR({ id: 'bldg:vprev', page: 'bldg', x: 100, y: 104, w: 44, h: 40, label: 'VARIANT ◀', glyph: 'V◀', fs: 14, fn: () => padVarSwap(-1) });   // mounted name's __ group,
+    padR({ id: 'bldg:vnext', page: 'bldg', x: 148, y: 104, w: 44, h: 40, label: 'VARIANT ▶', glyph: 'V▶', fs: 14, fn: () => padVarSwap(1) });    // LOCK canonicalizes it
+    padR({ id: 'bldg:vlock', page: 'bldg', x: 336, y: 104, w: 100, h: 40, label: 'LOCK IN',  glyph: 'LOCK',  fs: 14,
+      lit: () => { const m = padTable(); return m && m.spec.models[0] && m.spec.models[0].name.includes('__'); }, fn: () => padLock() }); }
   if (pid === 'block') padR({ id: 'block:cars', page: 'block', x: 216, y: 104, w: 80, h: 40, label: 'CARS', glyph: 'CARS', fs: 12,
     lit: () => blockTrf.on, fn: () => blockTrf.toggle(padTable()) });
   [[-.9, '◀◀'], [-.25, '◀'], [.25, '▶'], [.9, '▶▶']].forEach(([v, gl], i) =>
@@ -92,10 +97,37 @@ padTabIds.forEach((id, i) => {                                                  
   padR({ id: 'app:' + id, page: 'apps', x: 16 + (i % 3) * 166, y: 80 + ((i / 3) | 0) * 84, w: 150, h: 76,
     label: 'OPEN ' + PAD_PAGES[id].tab, glyph: PAD_PAGES[id].tab, fs: 16, fn: () => padPageSet(id) }); });
 const padSwap = dir => { const t = padTable(); if (!t) return;
-  const cat = t.spec.catalog || t.spec.models, cur = t.spec.models[0],
+  const cat = (t.spec.catalog || t.spec.models).filter(m => !m.name.includes('__')), // variants ride the V◀V▶ row — model arrows stay canonical
+    cur = t.spec.models[0],
     i = cat.findIndex(m => m.name === (cur && cur.name)), next = cat[(i + dir + cat.length) % cat.length];
   if (next) { localStorage.setItem('dvm_model:' + t.spec.id, next.name);
     mountModel(t, next).then(() => padDraw()); } };
+/* variants — `base__feat` entries in the catalog. V◀V▶ cycles only the mounted name's base group;
+   LOCK writes the variant grid under the canonical name: _stCache + broadcast (sibling tabs +
+   the editor's vox-apply) + /save/voxel file write + dependent rebuild — one commit, the whole
+   exhibit layer follows. Agents deposit variants via POST /save/voxel/<base>__<feat> — the
+   /events doorbell lands them in this catalog with no editor involved. */
+const varBase = n => n && n.split('__')[0];
+const variantGroup = t => { const cat = t.spec.catalog || t.spec.models, base = varBase(t.spec.models[0] && t.spec.models[0].name);
+  return cat.filter(m => varBase(m.name) === base); };
+const padVarSwap = dir => { const t = padTable(); if (!t) return;
+  const grp = variantGroup(t); if (grp.length < 2) return;
+  const cur = t.spec.models[0], i = grp.findIndex(m => m.name === (cur && cur.name)),
+    next = grp[(i + dir + grp.length) % grp.length];
+  if (next) { localStorage.setItem('dvm_model:' + t.spec.id, next.name);
+    mountModel(t, next).then(() => padDraw()); } };
+const padLock = () => { const t = padTable(), cur = t && t.spec.models[0], base = varBase(cur && cur.name);
+  if (!cur || cur.name === base || !_stCache[cur.name]) return;              // nothing mounted / already canonical
+  _stCache[cur.name].then(f => { const vox = f.vox.slice();                  // canonical gets its own copy — the variant stays a variant
+    _stCache[base] = Promise.resolve({ W: f.W, H: f.H, D: f.D, vox });
+    if (voxChan) voxChan.postMessage({ type: 'vox-full', name: base, dims: [f.W, f.H, f.D], vox: vox.buffer });
+    if (voxChan) voxChan.postMessage({ type: 'vox-apply', name: base, dims: [f.W, f.H, f.D], vox: vox.buffer });   // editor adopts it as an undoable op
+    localStorage.setItem('dvm_model:' + t.spec.id, base);
+    const list = []; vox.forEach((m, i) => { if (m) list.push([i % f.W, (i / f.W | 0) % f.H, (i / (f.W * f.H)) | 0, m]); });
+    fetch('/save/voxel/' + base, { method: 'POST', headers: { 'Content-Type': 'application/json' },   // file truth — the JSON twin updates; .stasset stays the export step
+      body: JSON.stringify({ format: 'steelcity_stasset', name: base, dims: [f.W, f.H, f.D], voxels: list }) });
+    rebuildDeps(base);                                                     // own page — the channel doesn't echo the sender
+    mountModel(t, { name: base, fill: cur.fill }).then(() => padDraw()); }); };
 const padCv = document.createElement('canvas'); padCv.width = 512; padCv.height = 340;
 const padTex = new THREE.CanvasTexture(padCv); padTex.colorSpace = THREE.SRGBColorSpace;
 let padRec = null, padScr = null, padEdgeMat = null, padFocus = false, padHover = null, padPressId = null;

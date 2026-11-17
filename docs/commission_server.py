@@ -388,17 +388,20 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header('Cache-Control', 'no-cache')
         self.send_header('Connection', 'keep-alive')
         self.end_headers()
-        mtimes, beat = {}, time.time()
+        mtimes, beat, primed = {}, time.time(), False   # first pass only seeds — a connect never storms every file; new files DO emit (a deposit is the event)
         try:
             while True:
                 files = [FILE] + glob.glob(os.path.join(HERE, 'presence_*.js')) + glob.glob(os.path.join(HERE, 'busy_*.js')) + glob.glob(os.path.join(HERE, 'office_evt.js'))
+                files += glob.glob(os.path.join(HERE, '..', 'Assets', 'StreamingAssets', 'voxel_items', '*.json'))
                 for f in files:
-                    name = os.path.basename(f)[:-3]      # deliberation_feed / presence_<SEAT>
+                    bn = os.path.basename(f)
+                    name = 'vox:' + bn[:-5] if bn.endswith('.json') else bn[:-3]      # voxel_items doorbells → construct/agents; the rest keep their js basenames
                     try: mt = os.stat(f).st_mtime
                     except OSError: mt = -1
-                    if name in mtimes and mt != mtimes[name]:
+                    if primed and mt >= 0 and mtimes.get(name) != mt:
                         self.wfile.write(b'data: {"file":"' + name.encode() + b'"}\n\n')
                     mtimes[name] = mt
+                primed = True
                 if time.time() - beat > 15:
                     self.wfile.write(b':\n\n'); beat = time.time()
                 self.wfile.flush()

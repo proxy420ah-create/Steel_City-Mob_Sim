@@ -123,17 +123,24 @@ const spinLiftStep = d => spinLiftSet(spinG.position.y + d);
 const spinCtl = v => { spinning = true; SPIN_RATE = v; };                // pad's deck spin: rate sign = direction
 spinLiftSet(+localStorage.getItem('dvm_spinlift') || 0);
 /* stassetFetch — one parsed volume per name, cached (a block's 9 slots share fetches:
-   empty_land arrives once and stamps every vacant lot). */
+   empty_land arrives once and stamps every vacant lot). Falls back through the
+   vehicle dir, then voxel_items/<name>.json — variants and WIP models mount
+   file-first without a stasset ever existing. */
 const _stCache = {};
+const _stParse = buf => { const dv = new DataView(buf);
+  if (dv.getUint32(0, false) !== 0x53544153) throw new Error('not a stasset');
+  const W = dv.getUint16(6, true), H = dv.getUint16(8, true), D = dv.getUint16(10, true);
+  return { W, H, D, vox: new Uint16Array(buf.slice(16, 16 + W * H * D * 2)) }; };
+const _jsonToVox = data => { const [W, H, D] = data.dims, vox = new Uint16Array(W * H * D);   // editor JSON → the same dense contract
+  (data.voxels || []).forEach(([x, y, z, m]) => { if (x < W && y < H && z < D) vox[x + W * (y + H * z)] = m; });
+  return { W, H, D, vox }; };
 const stassetFetch = name => _stCache[name] || (_stCache[name] =
   fetch('/Assets/StreamingAssets/voxel_buildings/' + name + '.stasset')
-    .then(r => r.ok ? r.arrayBuffer() :                                            // vehicles live one folder over —
-      fetch('/Assets/StreamingAssets/voxel_vehicles/' + name + '.stasset')         // baked 5cm derivatives (touring et al)
-        .then(r2 => r2.arrayBuffer())).then(buf => {
-      const dv = new DataView(buf);
-      if (dv.getUint32(0, false) !== 0x53544153) throw new Error('not a stasset: ' + name);
-      const W = dv.getUint16(6, true), H = dv.getUint16(8, true), D = dv.getUint16(10, true);
-      return { W, H, D, vox: new Uint16Array(buf.slice(16, 16 + W * H * D * 2)) }; }));
+    .then(r => r.ok ? r.arrayBuffer().then(_stParse) :                                       // vehicles live one folder over —
+      fetch('/Assets/StreamingAssets/voxel_vehicles/' + name + '.stasset')                   // baked 5cm derivatives (touring et al)
+        .then(r2 => r2.ok ? r2.arrayBuffer().then(_stParse) :
+          fetch('/voxel/' + name).then(r3 => r3.ok ? r3.json().then(_jsonToVox) :
+            Promise.reject(new Error('404: ' + name))))));
 /* emitBldg — a .stasset volume as a tabletop maquette. Dense u16 grid (STAS: x-major), surface-only
    instancing, per-column max-height written back into the host's tops. All models on a table share
    the table's declared scale — buildings stay comparable, like a real architect's set. */
@@ -683,3 +690,11 @@ if (voxChan) { voxChan.onmessage = e => { const m = e.data || {};
   else return;
   rebuildDeps(m.name); };
   voxChan.postMessage({ type: 'vox-hello' }); }                          // open-after-edits handshake — a live editor answers with vox-full
+/* file-deposited lane — the same doorbell the agent ears ride: /events emits {"file":"vox:<name>"}
+   whenever a voxel_items JSON changes, so a daemon's /save/voxel write lands here without the
+   editor open. Re-fetch the file → prime the cache → catalog entry + dependent rebuild. */
+if ('EventSource' in window) { const es = new EventSource('/events');
+  es.onmessage = e => { const f = (String(e.data).match(/"file":"(.*?)"/) || [])[1];
+    if (f && f.startsWith('vox:')) { const name = f.slice(4);
+      _stCache[name] = fetch('/voxel/' + name).then(r => r.ok ? r.json().then(_jsonToVox) : Promise.reject(r.status));
+      liveCatalog(name); rebuildDeps(name); } }; }

@@ -653,6 +653,25 @@ stassets in `mountParked` are not yet in `_deps` (parked cars won't
 live-update), and a Construct-side edit → file path (provenance-mapped
 composite cells back to source stassets) is the untaken reverse lane.
 
+**Variants — the `__` naming convention and the LOCK verb.** A variant of
+`barber_shop` is a sibling name `barber_shop__<feat>` carrying a **full grid**
+(the feature scoping is the producer's discipline). Two arrival lanes: the
+editor broadcasts it like any WIP, or any process deposits
+`voxel_items/<name>.json` via `POST /save/voxel/<name>` — `/events` emits
+`{"file":"vox:<name>"}` on the file's mtime (new files doorbell too — the first
+poll pass only seeds), the Construct's EventSource refetches through
+`/voxel/<name>` (stassetFetch's third fallback, after buildings then vehicles),
+and `liveCatalog` adds it. On the pad's BLDG page the MODEL row carries
+`V◀`/`V▶` — they cycle only the mounted name's base group (`name.split('__')[0]`
+— model arrows never list `__` entries). **LOCK** (`bldg:vlock`, lit while a
+`__` name is mounted) copies the variant grid under the canonical name:
+`_stCache[base]` + `vox-full`/`vox-apply` broadcasts + `POST /save/voxel/base`
++ `rebuildDeps(base)` — one commit and every exhibit that depends on
+`barber_shop` (mini, block stamp, zone stamp) rebases at once. The editor's
+`vox-apply` handler adopts an inbound grid into `voxelMap` as a normal
+history entry (Ctrl+Z reverts; dims must match or the apply is ignored — the
+file write still lands).
+
 ## Current status / next
 
 - One table, swappable exhibit — `emitTable`/`emitBldg`/`mountModel` + the wall

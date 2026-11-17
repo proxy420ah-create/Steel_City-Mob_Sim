@@ -2,8 +2,10 @@
 // on BroadcastChannel('scms-voxel') and asserts every dependent Construct mini
 // rebuilds in place. tenement_block_0 rides ALL THREE default tables (standalone
 // mini, block_26_tenement stamp, battlefield zone stamp) — one message must
-// trickle into all of them.
+// trickle into all of them. Second half: the variant carousel — file-deposited
+// `__` variants doorbell into the catalog, V◀V▶ cycles them, LOCK canonicalizes.
 import { bootCdp } from './_cdp.mjs';
+import fs from 'node:fs';
 
 const { evl, sleep, check, finish } = await bootCdp();
 await sleep(2500);                                   // boot mounts; zone emit is the slow one
@@ -75,5 +77,27 @@ for (let i = 0; i < 20 && !wipFresh; i++) { await sleep(400);
     const m = t.g.children.find(c => c.userData.mini && !c.userData.mini.static);
     return !!m && !m.userData._wipTag; })()`); }                               // tag gone = fresh group = the delta remounted it
 check('WIP mini remounts on delta', wipFresh);
+
+// ── variant carousel: file-deposited `base__feat` JSONs doorbell via /events →
+//    liveCatalog → V◀V▶ cycles the base group → LOCK writes the canonical grid ─
+const VOX_ITEMS = '../Assets/StreamingAssets/voxel_items/';
+const v1 = 'wiptest_probe__roof_1', v2 = 'wiptest_probe__roof_2';
+const dep = (n, cells) => fs.writeFileSync(VOX_ITEMS + n + '.json',
+  JSON.stringify({ format: 'steelcity_stasset', name: n, dims: [8, 8, 8], voxels: cells }));
+dep(v1, [[1, 1, 1, 42], [4, 4, 4, 99]]);
+dep(v2, [[1, 1, 1, 42], [5, 5, 5, 77]]);
+let catOk = false;
+for (let i = 0; i < 15 && !catOk; i++) { await sleep(400);
+  catOk = await evl(`(() => { const c = TABLES.find(t => t.spec.id === 'primary').spec.catalog;
+    return ['${v1}', '${v2}'].every(n => c.some(e => e.name === n)); })()`); }
+check('deposited variants doorbell into the catalog', catOk);
+await evl(`__pad.press('bldg:vnext')`); await sleep(1400);                     // cycle [wip, v1, v2] → v1
+check('V▶ mounts the variant', await evl(`TABLES.find(t => t.spec.id === 'primary').spec.models[0].name === '${v1}'`));
+await evl(`__pad.press('bldg:vlock')`); await sleep(900);                      // LOCK → canonical write
+check('LOCK rebases the table to canonical', await evl(`TABLES.find(t => t.spec.id === 'primary').spec.models[0].name === 'wiptest_probe'`));
+check('canonical cache carries the variant grid', await evl(`_stCache['wiptest_probe'].then(f => f.vox[4 + 8 * (4 + 8 * 4)] === 99)`));
+check('LOCK persisted the JSON twin', await evl(`fetch('/voxel/wiptest_probe').then(r => r.ok)`)
+  && JSON.parse(fs.readFileSync(VOX_ITEMS + 'wiptest_probe.json')).voxels.length === 2);
+[v1, v2, 'wiptest_probe'].forEach(n => { try { fs.unlinkSync(VOX_ITEMS + n + '.json'); } catch {} });
 
 finish();
