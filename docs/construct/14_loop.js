@@ -19,7 +19,7 @@ const step = dt => {
   }
 };
 
-let last = performance.now(), _dropT = 0, _dropCache = null, _zf = -1, _pipT = 0, _ptLast = null,
+let last = performance.now(), _dropT = 0, _dropCache = null, _zf = -1, _ptLast = null,
     _selBoxSig = null;     // dropTarget marched 39 ray-steps at 60Hz —
 const loop = now => {                                                       // the ghost only needs ~15Hz of freshness
   const dt = Math.min(.1, (now - last) / 1000); last = now;
@@ -82,7 +82,7 @@ const loop = now => {                                                       // t
   window.__compass(camera);
   if (window.__torch.on) window.__torch.aim(camera);
   renderer.render(scene, camera);
-  if (povOn) { _pipT -= dt; if (_pipT <= 0) { _pipT = .05; window.__eyes.pip(); } }   // 20Hz inset — a second full render is a luxury
+  if (povOn) window.__eyes.pip();   // every frame — the 20Hz-gated draw strobed POV-vs-main on a non-preserved buffer
   requestAnimationFrame(loop);
 };
 
