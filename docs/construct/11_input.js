@@ -36,7 +36,7 @@ addEventListener('mousedown', e => {
     if (e.button === 0) {
       const h = padScreenHit();
       if (!h) { padFocusToggle(); return; }                              // LMB off the screen — click-off releases to mouse look (a real gesture, so grabLook re-locks instantly — no Esc cooldown)
-      const r = padUvRegion(h.uv); if (r) padPress(r); }
+      const r = padUvRegion(h.uv); if (r) padPress(r, h.uv); }
     return; }
   if (placeOn) { if (e.button === 0) {
     const pk = placePick();
@@ -46,6 +46,7 @@ addEventListener('mousedown', e => {
       if (e.shiftKey) placeSel._drag = true; }                       // ⇧+LMB held = the ray owns it until mouseup
     else if (placeSel) placeDrop();                                  // click empty space = accept + deselect
     return; } }
+  if (e.button === 0 && held && held.isPad && !aimOn) { padFocusToggle(); return; }   // carrying the pad — LMB hands the cursor back to it (aiming still tags)
   if (e.button === 2) { rmbAim = true; rmbT0 = performance.now(); }
   if (e.button === 0) { if (promptIt && promptIt.isBtn) promptIt.fn(); else if (aimOn) tagAt(aimWorld); }   // face buttons press by click
 });

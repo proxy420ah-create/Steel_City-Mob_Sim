@@ -2,9 +2,10 @@
 /* construct/19_chat.js — pad CHAT tab (bench upgrade, BOSS decree via side table:
    "design and create this feature for us to use as a bench upgrade"). Side-table comms
    from inside the room — the pad face draws the transcript + target chips + entry band;
-   the entry band IS a real text input: a DOM <input> pinned over the band in screen
-   space (typing can't happen on a canvas face, so the field IS the band — click it,
-   or aim + E on it, and the keyboard is yours).
+   the entry band is a CANVAS-NATIVE field: typing mode captures keys at the window
+   and draws buffer + caret onto the pad face itself (BOSS decree — the DOM-input-on-
+   projection seam let the field overlap the follower PiP; a field drawn into the
+   texture lives in the world, rides every camera, and can't fight HUD layers).
      SEND: POST /boss {text:'/aside @TARGET msg'} — DVM-017 boss-aside grammar,
            attention-only to:, zero machinery, wakes the named seats.
      READ: /pulse/BOSS?mb=1 — the mailbox long-poll: ungated, no presence stamp. One held
@@ -17,9 +18,16 @@ const CHAT_TARGETS = [
   { tok: '@CHAIR',           lab: '@CHAIR' },
   { tok: '@DESIGNER',        lab: '@DESIGNER' }];
 const CHAT_COL = { YOU: '#e6d5b0', BOSS: '#e6d5b0', CHAIR: '#d29922', DESIGNER: '#bc8cff' };   // seat-hex tags — DESIGNER's catalog spec
-let chatTarget = CHAT_TARGETS[0].tok, chatN = -1, chatLog = [], chatDead = false, chatPollGen = 0;
+let chatTarget = CHAT_TARGETS[0].tok, chatN = -1, chatLog = [], chatDead = false, chatPollGen = 0, chatScrollN = 0;
+const CHAT_WRAP = 50;                                                        // transcript wraps narrow — the ▲▼ strip owns the right edge
+const chatLines = () => { const lines = [];
+  chatLog.forEach(e => { const txt = (e.text || '').replace(/\s+/g, ' ').replace(/<[^>]*>/g, '');
+    for (let i = 0; i < Math.max(1, txt.length); i += CHAT_WRAP) lines.push({ w: e.who, s: txt.substr(i, CHAT_WRAP), first: i === 0 }); });
+  return lines; };
 const chatTake = m => {                                                      // one feed msg → transcript row
   if (m.kind !== 'aside') return;                                            // side-table wire only — dm/main-table stay off it
+  const txt = (m.text || '').replace(/\s+/g, ' ').replace(/<[^>]*>/g, '');
+  if (chatScrollN > 0) chatScrollN += Math.max(1, Math.ceil(txt.length / CHAT_WRAP));   // scrolled up = hold the viewed window; tail stays pinned
   chatLog.push({ who: m.speaker === 'BOSS' ? 'YOU' : m.speaker, text: m.text });
   if (chatLog.length > 48) chatLog.shift();
   if (padPage.split(':')[0] === 'chat') padDrawSoon(); };
@@ -53,86 +61,85 @@ const chatSend = txt => fetch('/boss', {
   .then(r => r.json()).then(j => { chatTake({ kind: 'aside', speaker: 'BOSS', text: txt }); return j; })
   .catch(() => { chatTake({ kind: 'aside', speaker: 'SYS', text: '— send failed (server unreachable)' }); });
 
-/* ── the entry band IS the input — a DOM <input> pinned over the band in screen space.
-   Always rendered where the band is (chat page + pad on-screen): click it while the
-   cursor's free, or aim + E on the band while pointer-locked — either way the field
-   takes the keyboard. Enter sends and keeps focus (chat flow); Esc drops it. ── */
-const chatEl = document.createElement('input');
-chatEl.id = 'chatIn'; chatEl.maxLength = 240; chatEl.autocomplete = 'off'; chatEl.spellcheck = false;
-chatEl.style.cssText = 'position:fixed;left:0;top:0;display:none;z-index:22;box-sizing:border-box;background:rgba(13,18,23,.94);border:1px solid #35d5ff;color:#e6d5b0;font:12px ui-monospace,Consolas,monospace;padding:2px 8px;outline:none;box-shadow:0 0 8px rgba(53,213,255,.25) inset';
-document.body.appendChild(chatEl);
-const chatIn = chatEl;
-const chatOpen = () => document.activeElement === chatIn;
-const chatSyncTgt = () => { const t = CHAT_TARGETS.find(t => t.tok === chatTarget);
-  chatIn.placeholder = (t ? t.lab : chatTarget) + ' ▸  speak — Enter sends · Esc drops'; };
-chatIn.addEventListener('keydown', e => { e.stopPropagation();               // typing never reaches the game loop
-  if (e.key === 'Enter' && chatIn.value.trim()) { const t = chatIn.value.trim(); chatIn.value = ''; chatSend(t); }
-  if (e.key === 'Escape') { chatIn.blur(); grabLook(); } });
-chatIn.addEventListener('keyup', e => e.stopPropagation());
-const chatFocus = () => { if (document.exitPointerLock) document.exitPointerLock(); chatIn.focus(); chatIn.select(); };
-chatSyncTgt();
-
-/* pin the field onto the drawn band — the pad screen's bottom strip in local coords
-   (plane .15×.1; canvas band y292..330 → uv .03-.15 → local y -.047..-.035, x inset 3%→97%). */
-const _cq = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
-const chatBandRect = () => {
-  if (!padScr || padPage.split(':')[0] !== 'chat') return null;
-  const pt = (v, x, y) => v.set(x, y, 0).applyMatrix4(padScr.matrixWorld).project(camera);
-  pt(_cq[0], -.069, -.035); pt(_cq[1], .069, -.035); pt(_cq[2], -.069, -.047); pt(_cq[3], .069, -.047);
-  let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9, zok = false;
-  for (const v of _cq) {
-    if (v.z > -1 && v.z < 1) zok = true;
-    const sx = (v.x + 1) / 2 * innerWidth, sy = (1 - v.y) / 2 * innerHeight;
-    x0 = Math.min(x0, sx); x1 = Math.max(x1, sx); y0 = Math.min(y0, sy); y1 = Math.max(y1, sy);
-  }
-  if (!zok || x1 - x0 < 24 || y1 - y0 < 4) return null;                      // degenerate or behind — nothing to type into
-  if (x1 < 0 || x0 > innerWidth || y1 < 0 || y0 > innerHeight) return null;  // off-viewport — NDC still projects it, but no band is showing
-  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+/* ── the entry band is canvas-native — buffer + caret drawn on the pad face, keys
+   captured at the window while typing. Click the band (cursor mode) or aim + E
+   (locked) to take the keyboard; Enter sends and stays, Esc drops. Click places
+   the caret — monospace means px/char-width IS the index math. ── */
+let chatTyping = false, chatBuf = '', chatCaret = 0, chatBlink = 1;
+const CHAT_NCH = 48;                                                     // visible cells inside the 478px band @15px mono
+const chatOpen = () => chatTyping;
+const chatScroll = () => Math.max(0, Math.min(chatCaret - CHAT_NCH + 1, chatBuf.length - CHAT_NCH));   // keep the caret visible, tail-anchored
+const chatDrop = () => { chatTyping = false; padDrawSoon(); };
+const chatFocus = uv => {                                                // band press — uv → caret at the clicked cell (aim-E passes no uv → end)
+  chatTyping = true; chatBlink = 1;
+  chatCaret = uv ? Math.max(0, Math.min(chatBuf.length, chatScroll() + Math.round((uv.x * 512 - 24) / 9))) : chatBuf.length;
+  padDrawSoon();
 };
-let chatLast = null;
-const chatHide = () => {                                                 // hide + blur — Chrome keeps focus on display:none inputs, and a
-  chatEl.style.display = 'none'; chatLast = null;                        // focused chatIn stopPropagations EVERY key — a hidden focused field
-  if (document.activeElement === chatEl) chatEl.blur();                  // is a dead keyboard for the whole game
-};
-const chatPin = () => {                                                  // transform-only moves — compositor, zero layout churn
-  const r = chatBandRect();
-  if (!r) { chatHide(); return; }
-  chatEl.style.display = 'block';
-  const x = Math.round(r.x), y = Math.round(r.y), w = Math.round(r.w), h = Math.max(16, Math.round(r.h));
-  if (!chatLast || chatLast.x !== x || chatLast.y !== y) chatEl.style.transform = `translate3d(${x}px,${y}px,0)`;
-  if (!chatLast || chatLast.w !== w) chatEl.style.width = w + 'px';
-  if (!chatLast || chatLast.h !== h) { chatEl.style.height = h + 'px'; chatEl.style.fontSize = Math.max(10, Math.min(15, h * .55)) + 'px'; }
-  chatLast = { x, y, w, h };
-};
-setInterval(() => { if (padPage.split(':')[0] === 'chat' && padScr) chatPin();           // ~30fps track — cheap vector work, only while the chat tab is active
-  else if (chatLast || chatEl.style.display !== 'none') chatHide(); }, 33);               // off-tab cleanup — the field must die with the page, not linger focused
+addEventListener('keydown', e => {
+  if (!chatTyping) return;
+  e.stopPropagation();                                                   // capture phase — typing never reaches the game loop
+  const k = e.key;
+  if (k === 'Enter') { e.preventDefault(); const t = chatBuf.trim(); chatBuf = ''; chatCaret = 0; if (t) chatSend(t); }
+  else if (k === 'Escape') { e.preventDefault(); chatTyping = false; }
+  else if (k === 'Backspace') { e.preventDefault(); if (chatCaret) { chatBuf = chatBuf.slice(0, chatCaret - 1) + chatBuf.slice(chatCaret); chatCaret--; } }
+  else if (k === 'Delete') { e.preventDefault(); chatBuf = chatBuf.slice(0, chatCaret) + chatBuf.slice(chatCaret + 1); }
+  else if (k === 'ArrowLeft') { e.preventDefault(); chatCaret = Math.max(0, chatCaret - 1); }
+  else if (k === 'ArrowRight') { e.preventDefault(); chatCaret = Math.min(chatBuf.length, chatCaret + 1); }
+  else if (k === 'Home') { e.preventDefault(); chatCaret = 0; }
+  else if (k === 'End') { e.preventDefault(); chatCaret = chatBuf.length; }
+  else if (k.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && chatBuf.length < 240) {
+    e.preventDefault(); chatBuf = chatBuf.slice(0, chatCaret) + k + chatBuf.slice(chatCaret); chatCaret++; }
+  padDrawSoon();
+}, true);
+addEventListener('keyup', e => { if (chatTyping) e.stopPropagation(); }, true);
+document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement && chatTyping) chatDrop(); });   // locked Esc never keydowns — the unlock IS the drop
+setInterval(() => {                                                      // caret blink + the field dies with the page
+  if (chatTyping && padPage.split(':')[0] !== 'chat') chatTyping = false;
+  if (chatTyping) { chatBlink ^= 1; padDrawSoon(); }
+}, 450);
 
 /* ── the canvas face — chips mid-row, transcript above, entry band bottom ── */
 CHAT_TARGETS.forEach((t, i) => padR({ id: 'chat:t' + i, page: 'chat', x: 16 + i * 164, y: 66, w: 156, h: 32,
   label: t.lab, glyph: t.lab, fs: 13, lit: () => chatTarget === t.tok,
   fn: () => { chatTarget = t.tok; chatSyncTgt(); padDrawSoon(); } }));
 padR({ id: 'chat:entry', page: 'chat', x: 16, y: 290, w: 480, h: 40,        // the band itself presses — aim + E hands the field your keyboard
-  label: 'TYPE IN FIELD', glyph: '', fs: 15, fn: chatFocus });
+  label: 'TYPE IN FIELD', glyph: '', fs: 15, fn: uv => chatFocus(uv) });    // uv → caret at the clicked cell
+padR({ id: 'chat:up', page: 'chat', x: 468, y: 112, w: 36, h: 88,           // transcript scrollback — one line per press
+  label: 'SCROLL UP', glyph: '▲', fs: 20, lit: () => chatLines().length > 10 + chatScrollN,
+  fn: () => { chatScrollN++; padDrawSoon(); } });
+padR({ id: 'chat:dn', page: 'chat', x: 468, y: 202, w: 36, h: 88,
+  label: 'SCROLL DOWN', glyph: '▼', fs: 20, lit: () => chatScrollN > 0,
+  fn: () => { chatScrollN = Math.max(0, chatScrollN - 1); padDrawSoon(); } });
 function drawChatTab(g) {
   g.textAlign = 'left';
   g.fillStyle = '#8f87a0'; g.font = 'bold 15px monospace';
   g.fillText('SIDE TABLE — ' + (chatDead ? 'OFFLINE' : 'LIVE'), 20, 58);     // ear state rides the header — honest chrome
-  const lines = [];                                                        // wrap to pane width; who-tags on first slice only
-  chatLog.forEach(e => { const txt = (e.text || '').replace(/\s+/g, ' ').replace(/<[^>]*>/g, '');
-    for (let i = 0; i < Math.max(1, txt.length); i += 56) lines.push({ w: e.who, s: txt.substr(i, 56), first: i === 0 }); });
+  if (chatScrollN) { g.fillStyle = '#35d5ff'; g.fillText('▲ ' + chatScrollN + ' older', 350, 58); }   // scrollback marker — where you are vs the tail
+  const lines = chatLines();                                               // wrap to pane width; who-tags on first slice only
+  chatScrollN = Math.min(chatScrollN, Math.max(0, lines.length - 10));       // clamp — a trimmed log can't scroll past its head
+  const a0 = Math.max(0, lines.length - 10 - chatScrollN);                   // the viewed window — tail-anchored minus scrollback
   g.font = '12px monospace';
-  lines.slice(-10).forEach((L, i) => { const y = 116 + i * 17;
+  lines.slice(a0, a0 + 10).forEach((L, i) => { const y = 116 + i * 17;
     g.fillStyle = CHAT_COL[L.w] || '#8f87a0'; g.fillText(L.first ? L.w : '', 20, y);
     g.fillStyle = '#cfc8b0'; g.fillText(L.s, 20 + 82, y); });
   if (!chatLog.length) { g.fillStyle = '#5b5648';
     g.fillText('no traffic yet — pick a target and speak', 20, 120); }
-  g.strokeStyle = chatOpen() ? '#35d5ff' : '#22303a'; g.lineWidth = 2;       // the entry band — the DOM field rides it
+  g.strokeStyle = chatOpen() ? '#35d5ff' : '#22303a'; g.lineWidth = 2;       // the entry band — the canvas field lives here now
   g.strokeRect(16, 290, 480, 40);
   g.fillStyle = '#07090c'; g.fillRect(17, 291, 478, 38);
+  g.font = '15px monospace';
+  const i0 = chatScroll(), vis = chatBuf.slice(i0, i0 + CHAT_NCH);
+  if (vis || chatTyping) { g.fillStyle = '#e6d5b0'; g.fillText(vis, 24, 314);
+    if (chatTyping && chatBlink) { g.fillStyle = '#35d5ff';                 // the caret — a bright bar, blink rides the 450ms tick
+      g.fillRect(24 + g.measureText(chatBuf.slice(i0, chatCaret)).width, 297, 2, 24); } }
+  else { g.fillStyle = '#5b5648';                                          // idle hint — the chip owns the target name
+    const t = CHAT_TARGETS.find(t => t.tok === chatTarget);
+    g.fillText((t ? t.lab : chatTarget) + '  \u25b8  speak \u2014 Enter sends \u00b7 Esc drops', 24, 314); }
 }
 window.__chat = { send: chatSend, focus: chatFocus, open: () => padPageSet('chat'),
   log: () => chatLog.map(e => e.who + ': ' + e.text), target: () => chatTarget,
-  setTarget: t => { chatTarget = t; chatSyncTgt(); padDrawSoon(); },
-  on: chatOpen, dead: () => chatDead, n: () => chatN, band: chatBandRect, draw: drawChatTab };
+  setTarget: t => { chatTarget = t; padDrawSoon(); },
+  on: chatOpen, dead: () => chatDead, n: () => chatN, buf: () => chatBuf,
+  scroll: () => chatScrollN, draw: drawChatTab };
 
 setTimeout(() => { chatBackfill().then(chatPoll); }, 2500);                  // let the boot fetches land first — the ear is cheap but not in the way

@@ -183,7 +183,7 @@ const padDraw = () => { const g = padCv.getContext('2d'), t = padTable(), mn = p
   PAD_REGIONS.filter(r => r.tab || (r.page === padPage && !(r.slice && t && t.spec.noSlice))).forEach(btn);
   const pg = PAD_PAGES[padPage]; if (pg && pg.draw) pg.draw(g, { t, mn });
   padTex.needsUpdate = true; };
-const padPress = r => { padPressId = r.id; padDraw(); r.fn();
+const padPress = (r, uv) => { padPressId = r.id; padDraw(); r.fn(uv);
   setTimeout(() => { padPressId = null; padDraw(); }, 160); };
 const padUvRegion = uv => { if (!uv) return null;
   const px = uv.x * 512, py = (1 - uv.y) * 340, noSl = !!(padTable() && padTable().spec.noSlice);
@@ -201,6 +201,7 @@ const grabLook = () => { try { const r = el.requestPointerLock(); if (r && r.cat
 const padFocusToggle = () => { padFocus = !padFocus; padSetHover(null);
   if (padFocus && document.exitPointerLock) document.exitPointerLock();
   else if (!padFocus && document.pointerLockElement !== el) grabLook();
+  if (!padFocus && typeof chatDrop === 'function') chatDrop();            // leaving cursor mode frees the field too — one click restores look AND movement keys
   padHudEl.style.display = padFocus ? 'block' : 'none'; };
 const emitPad = () => {
   const PAD_W = .18, PAD_D = .12, PAD_H = .012, x = -4.1, z = -.575, rotY = .3;  // the Primary Table's north felt margin (rides the flank position)
@@ -233,7 +234,7 @@ const padProbe = () => { if (!padRec || padRec === held) { padSetHover(null); re
   const h = _ray.intersectObject(padScr, false);
   if (!h.length || h[0].distance > 1.8) { padSetHover(null); return null; }
   const r = padUvRegion(h[0].uv); padSetHover(r);
-  return r ? { isBtn: true, panel: 'pad', label: () => 'E — ' + r.label, fn: () => padPress(r) } : null; };
+  return r ? { isBtn: true, panel: 'pad', label: () => 'E — ' + r.label, fn: () => padPress(r, h[0].uv) } : null; };
 window.__pad = { rec: () => padRec, regions: PAD_REGIONS, scr: () => padScr, probe: padProbe,
   table: () => padTable() && padTable().spec.id,
   focus: on => { if (!!on !== padFocus) padFocusToggle(); }, isFocus: () => padFocus,

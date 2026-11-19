@@ -17,7 +17,7 @@ const livePost = () => fetch('/peek', { method: 'POST', headers: { 'Content-Type
   body: JSON.stringify({ t: Date.now(), pos: pos.toArray(), yaw, aimOn, aim: aimWorld.toArray(), held: held && held.name,
     marks: marks.map(m => m.position.toArray()), povOn, cmdAck, placeOn: !!placeOn,
     placed: PLACED.map(p => [p.name, +p.x.toFixed(2), +p.z.toFixed(2), +p.y0.toFixed(2), p.source]),
-    ls: { place: localStorage.getItem('dvm_place'), extra: localStorage.getItem('dvm_extra'), del: localStorage.getItem('dvm_del') },   // saved layout for restore-path debugging
+    ls: Object.fromEntries(Object.keys(localStorage).filter(k => k.startsWith('dvm_')).map(k => [k.slice(4), localStorage.getItem(k)])),   // full dvm_* dump — restore-path debugging + cross-browser layout sync
     followers: followers.map(f => ({ char: f.spec.char, order: f.order, pos: f.pos.toArray(), gaze: f.gazeT ? f.gazeT.toArray() : null, possessed: !!f.possessed })) }) })
   .then(r => r.json()).then(r => {
     if (r && r.cmd && r.cmd.seq > cmdAck) {                                    // agent command rode back on the stream

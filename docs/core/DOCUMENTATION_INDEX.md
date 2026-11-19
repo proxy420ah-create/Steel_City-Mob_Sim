@@ -79,6 +79,7 @@
 - **`docs/CONSTRUCT_ROOMS.md`** — room bounds: BOUND_WALL slab spec, arch/door portal, annex span, walk rects
 - **`docs/CONSTRUCT_MANNEQUIN.md`** — static mannequin (never a follower), outfit pager, `dvm_outfit` persistence
 - **`docs/CONSTRUCT_PROBES.md`** — 🔒 headless probe/shot contract: `--eval` is post-capture (scene changes go in `--pre`), `__cam` is async (pin-then-poll `__camera.position`), sparse headless rAF, eval raycasts need fresh `matrixWorld`, assert laws not values, probe-hook API traps, async boot order — read before adding probe/shot sections
+- **`docs/DOM_HUD_PROJECTION.md`** — retired-but-reusable technique: a real DOM `<input>` projected onto a 3D prop face (the pad chat field, pre-canvas-native) — projection math, pin loop, the hide+blur/tab-gate/pointer-lock guards, the DOM-over-canvas layering wall, DOM-pin vs canvas-native decision table
 - Probe suite: `docs/_place_probe.mjs` (ALL-PASS gate — placement/pad/lift/torch/follower regressions incl. page-error collector), `docs/_shot.mjs` (screenshots: `--cam/--look/--pre/--eval/--torch/--full`)
 
 **City Layout Pipeline:**

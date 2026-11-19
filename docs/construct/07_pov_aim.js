@@ -14,6 +14,13 @@ povEl.textContent = 'FOLLOWER POV'; document.body.appendChild(povEl);
 const sizePovEl = () => { const w = innerWidth, iw = Math.floor(w * .30), ih = Math.floor(iw * 9 / 16); povEl.style.width = iw + 'px'; povEl.style.height = ih + 'px'; povEl.style.padding = '0'; povEl.style.lineHeight = '1'; povEl.style.boxSizing = 'border-box'; povEl.style.textAlign = 'left'; povEl.style.verticalAlign = 'bottom'; povEl.innerHTML = '<span style="position:absolute;left:0;bottom:0;padding:3px 6px;background:rgba(0,0,0,.35)">FOLLOWER POV</span>'; };
 sizePovEl(); addEventListener('resize', sizePovEl);
 const _eyeL = [0, 0, 0], _eyeW = new THREE.Vector3(), _pfwd = new THREE.Vector3();
+const _povRender = () => {                                       // one POV pass — marks + laser dot hide: tags steer his eyes,
+  marks.forEach(m => m.visible = false); const ad = aimDot.visible; aimDot.visible = false;   // they don't need to sit in mine
+  if (window.__torch && window.__torch.on) window.__torch.aim(povCam);
+  povTorchAim();
+  renderer.render(scene, povCam);
+  marks.forEach(m => m.visible = true); aimDot.visible = ad;
+};
 /* ── the POV's own lamp — agent-only torch riding povCam; registered at init per the
    light law (a light added late recompiles every lit program). __torch stays the boss's. ── */
 const povTorch = new THREE.SpotLight(0xfff0d0, 0, 10, .45, .55, 1.2);
@@ -66,9 +73,7 @@ window.__eyes = {
     renderer.setScissorTest(true); renderer.setScissor(ix, iy, iw, ih); renderer.setViewport(ix, iy, iw, ih);
     renderer.clearDepth();
     const ac = renderer.autoClear; renderer.autoClear = false;
-    if (window.__torch && window.__torch.on) window.__torch.aim(povCam);
-    povTorchAim();
-    renderer.render(scene, povCam);
+    _povRender();
     renderer.autoClear = ac; renderer.setScissorTest(false); renderer.setViewport(0, 0, w, h); renderer.setScissor(0, 0, w, h);
   },
   shot: () => {                                                  // full-res POV frame → PNG data URL (same task render+read)
@@ -76,9 +81,7 @@ window.__eyes = {
     const cv = renderer.domElement, pr = renderer.getPixelRatio() || 1;
     povCam.aspect = cv.width / cv.height; povCam.updateProjectionMatrix();
     renderer.setViewport(0, 0, cv.width / pr, cv.height / pr);
-    if (window.__torch && window.__torch.on) window.__torch.aim(povCam);
-    povTorchAim();
-    renderer.render(scene, povCam);
+    _povRender();
     return cv.toDataURL('image/png');
   },
   snap: name => { const u = window.__eyes.shot(); if (!u) return Promise.resolve(false);
