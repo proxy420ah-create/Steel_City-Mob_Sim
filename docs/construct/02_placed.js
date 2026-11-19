@@ -15,6 +15,8 @@ const footB = (lb, x, z, rotY) => {                                            /
   return [Math.min(...cs.map(c => c[0])) - .05, Math.max(...cs.map(c => c[0])) + .05,
           Math.min(...cs.map(c => c[1])) - .05, Math.max(...cs.map(c => c[1])) + .05];
 };
+const topOf = p => { let t = -Infinity;                                       // spread-safe column-top max — Math.max(...tops.values())
+  p.tops.forEach(v => { if (v > t) t = v; }); return t; };                    // blows the call stack past ~125k columns (table:studio has 231k)
 const TOPK = (ix, iz) => (ix + 2048) * 4096 + (iz + 2048);                     // numeric tops key — string keys in the carry-frame hot loop were GC churn
 const SURF_TYPES = new Set(['furniture', 'vehicle', 'room', 'building']);     // department tag → surface role
 const emitAsset = (name, o = {}) => {

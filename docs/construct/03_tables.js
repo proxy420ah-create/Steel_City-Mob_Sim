@@ -520,23 +520,29 @@ const emitVox = async (t, m, W, H, D, vox) => {
     const mirX = m.flip !== false;                                       // .stasset grids are authored under Unity truth —
     const fx = x => mirX ? (W - 1 - x) - W / 2 + .5 : x - W / 2 + .5;      // the editor's UNITY VIEW is scale.x=-1, so a right-handed render mirrors x to match (opt out with flip:false)
     const fz = z => m.zflip ? (D - 1 - z) - D / 2 + .5 : z - D / 2 + .5;   // zone sub-stamps: raw position + z-mirrored content (the Unity L/R flip, same as the old composite stamp)
-    const at = (x, y, z) => (x < 0 || y < 0 || z < 0 || x >= W || y >= H || z >= D) ? 0 : vox[x + W * (y + H * z)];
-    const surf = (x, y, z) => !(at(x-1,y,z) && at(x+1,y,z) && at(x,y-1,z) && at(x,y+1,z) && at(x,y,z-1) && at(x,y,z+1));
-    const under = (x, z) => at(x-1,0,z) && at(x+1,0,z) && at(x,0,z-1) && at(x,0,z+1) && at(x,1,z);   // interior-bottom: exposed face is only the unseen underside
+    const WH = W * H;                                                      // hoisted stride — the trace showed ~370ms of self time
+    const surf = (x, y, z, b) =>                                           // inside the `at` closure alone (6 bounds checks + call cost
+      !((x > 0 ? vox[b - 1] : 0) && (x < W - 1 ? vox[b + 1] : 0) &&        //  per neighbor, ~7 calls/voxel). Direct row-index reads
+        (y > 0 ? vox[b - W] : 0) && (y < H - 1 ? vox[b + W] : 0) &&        //  with edge guards: OOB reads 0, same contract.
+        (z > 0 ? vox[b - WH] : 0) && (z < D - 1 ? vox[b + WH] : 0));
+    const under = (x, z, b0) =>                                            // interior-bottom: exposed face is only the unseen underside
+      (x > 0 ? vox[b0 - 1] : 0) && (x < W - 1 ? vox[b0 + 1] : 0) &&        // (b0 = the caller's y=0 index — same guards as surf)
+      (z > 0 ? vox[b0 - WH] : 0) && (z < D - 1 ? vox[b0 + WH] : 0) &&
+      (H > 1 ? vox[b0 + W] : 0);
     const tick = () => new Promise(r => setTimeout(r));
     await tick();                                                        // load-order law: boot emits run mid-script-eval —
                                                                          // a macrotask defers the tail past ALL sibling files
                                                                          // (miniSettle→inB lives in 13_place.js — a microtask tail hit TDZ)
     let ng = 0, ngg = 0, gx0 = W, gx1 = -1, gz0 = D, gz1 = -1, gy1 = -1;
     const colYs = new Array(W * D);                                      // per-column voxel ys — slice/rotation-aware tops need the list
-    let cellB = 0;                                                       // work-budget yields — fixed row counts either stall a
-    for (let y = 0; y < H; y++) {                                        // zone (~930k cells/row) or starve a building (~4k)
-      for (let z = 0; z < D; z++) { for (let x = 0; x < W; x++) {
-      const id = at(x, y, z); if (!id) continue;
+    let slot = performance.now();                                        // work-budget yields — ~8ms wall-clock slices self-size
+    for (let y = 0; y < H; y++) {                                        // to the machine (a fixed 3M-cell budget ran 30–150ms
+      for (let z = 0; z < D; z++) { const rb = W * (y + H * z); for (let x = 0; x < W; x++) {
+      const id = vox[rb + x]; if (!id) continue;                         // per chunk in the trace — past every frame budget)
       if (x < gx0) gx0 = x; if (x > gx1) gx1 = x; if (z < gz0) gz0 = z; if (z > gz1) gz1 = z; if (y > gy1) gy1 = y;
       (colYs[x + W * z] = colYs[x + W * z] || []).push(y);
-      if (surf(x, y, z) && !(y === 0 && under(x, z))) { ng++; if (BLDG_GLASS.has(id)) ngg++; }
-      } if ((cellB += W) > 3e6) { cellB = 0; await tick(); } } }         // ~3M cells ≈ a frame's budget
+      if (surf(x, y, z, rb + x) && !(y === 0 && under(x, z, rb + x))) { ng++; if (BLDG_GLASS.has(id)) ngg++; }
+      } const n = performance.now(); if (n - slot > 8) { slot = n; await tick(); } } }
     if (t._mountGen !== mgen) return null;                                         // swapped mid-scan — attaching now would ghost over the new model
     const miniG = new THREE.Group(); miniG.position.set(ox, m._parent ? (m._py || 0) : tableTop(t), oz); (m._parent || t.g).add(miniG);   // _parent = a sub-mini inside a composite (zone stamps); fresh top otherwise — the boot lift-restore may land mid-emit
     const geo = new THREE.BoxGeometry(1, 1, 1);
@@ -552,27 +558,35 @@ const emitVox = async (t, m, W, H, D, vox) => {
             if (vVoxOrigin.x < uVoxClipMin.x || vVoxOrigin.y < uVoxClipMin.y || vVoxOrigin.z < uVoxClipMin.z ||
                 vVoxOrigin.x >= uVoxClipMax.x || vVoxOrigin.y >= uVoxClipMax.y || vVoxOrigin.z >= uVoxClipMax.z) discard;`); };
       return m; };
-    const imO = new THREE.InstancedMesh(geo, mkClipMat(new THREE.MeshLambertMaterial()), (ng - ngg) || 1);
+    const opaque = (ng - ngg) || 1;
+    const imParts = Math.max(1, Math.min(8, Math.ceil(opaque / 120e3)));   // split big composites into ≤~120k-instance parts —
+    const imP = [];                                                        // a monolithic InstancedMesh uploads its whole matrix
+    for (let i = 0; i < imParts; i++) {                                    // buffer in one ~115ms createBuffer hit; the staggered
+      const pm = new THREE.InstancedMesh(geo, mkClipMat(new THREE.MeshLambertMaterial()), Math.ceil(opaque / imParts));
+      pm.count = 0; imP.push(pm); }                                        // reveal below lands each part's upload on its own frame
     const imG = new THREE.InstancedMesh(geo, mkClipMat(window.__glassMat), ngg || 1);   // glass capacity = glass count — a
                                                                                      // zone's ng-size glass buffer wasted ~60MB
     const M = new THREE.Matrix4(), C = new THREE.Color(), dflt = new THREE.Color(.55, .55, .55);
     let no = 0, gi = 0;
     for (let y = 0; y < H; y++) {
-      for (let z = 0; z < D; z++) { for (let x = 0; x < W; x++) {
-      const id = at(x, y, z); if (!id) continue;
-      if (!surf(x, y, z) || (y === 0 && under(x, z))) continue;
+      for (let z = 0; z < D; z++) { const rb = W * (y + H * z); for (let x = 0; x < W; x++) {
+      const id = vox[rb + x]; if (!id) continue;
+      if (!surf(x, y, z, rb + x) || (y === 0 && under(x, z, rb + x))) continue;
       M.makeScale(vs, vs, vs).setPosition(fx(x) * vs, (y + .5) * vs, fz(z) * vs);
       const col = BLDG_MAT[id]; C.setRGB(col ? col[0] : .55, col ? col[1] : .55, col ? col[2] : .55);
       if (BLDG_GLASS.has(id)) { imG.setMatrixAt(gi, M); imG.setColorAt(gi, C); gi++; }
-      else { imO.setMatrixAt(no, M); imO.setColorAt(no, C); no++; }
-      } if ((cellB += W) > 3e6) { cellB = 0; await tick(); } } }
-    imO.count = no; imG.count = gi; imO.userData.miniVox = imG.userData.miniVox = true;   // flag the miniature's instanced walls — rayPruned skips them whole (426K matrix tests per ray)
-    if (gi) miniG.add(imG); miniG.add(imO);
+      else { const pm = imP[Math.min(imParts - 1, (no * imParts / opaque) | 0)];
+        pm.setMatrixAt(pm.count, M); pm.setColorAt(pm.count, C); pm.count++; no++; }
+      } const n = performance.now(); if (n - slot > 8) { slot = n; await tick(); } } }
+    imG.count = gi; imP.forEach(p => p.userData.miniVox = true); imG.userData.miniVox = true;   // flag the miniature's instanced walls — rayPruned skips them whole (426K matrix tests per ray)
+    if (gi) miniG.add(imG);
+    imP.forEach((p, i) => { p.visible = !i; miniG.add(p); });              // part 0 pops with the mount; the rest reveal
     const px0 = (Math.min(fx(gx0), fx(gx1)) - .5) * vs, px1 = (Math.max(fx(gx0), fx(gx1)) + .5) * vs,
       pz0 = (Math.min(fz(gz0), fz(gz1)) - .5) * vs, pz1 = (Math.max(fz(gz0), fz(gz1)) + .5) * vs;
-    imO.boundingSphere = imG.boundingSphere = new THREE.Sphere(             // O(1) bounds — the lazy compute iterates
+    const _bsph = new THREE.Sphere(                                       // O(1) bounds — the lazy compute iterates
       new THREE.Vector3((px0 + px1) / 2, (gy1 + 1) * vs / 2, (pz0 + pz1) / 2),  // every instance on first frustum test
       Math.hypot(px1 - px0, (gy1 + 1) * vs, pz1 - pz0) / 2 + vs);           // (1.36M matrices = a guaranteed first-look hitch)
+    imP.forEach(p => p.boundingSphere = _bsph); imG.boundingSphere = _bsph;
     if (gy1 >= 0 && !m.noProxy) {                                         // aim proxy = occupied bounds — the dot rests ON the model
       miniG.add(hitProxy(px1 - px0, (gy1 + 1) * vs, pz1 - pz0, (px0 + px1) / 2, (gy1 + 1) * vs / 2, (pz0 + pz1) / 2)); }
     const localCols = [];                                                // grid columns → local offsets + the ys list
@@ -580,7 +594,7 @@ const emitVox = async (t, m, W, H, D, vox) => {
       const ys = colYs[x + W * z]; if (!ys) continue;
       if (m.plate && ys.length === 2 && ys[0] === 0 && ys[1] === 1) continue;   // flat ground — the plate writes these tops
       localCols.push({ x, z, dx: fx(x) * vs, dz: fz(z) * vs, ys }); }
-      if ((cellB += W) > 3e6) { cellB = 0; await tick(); } }
+      const n = performance.now(); if (n - slot > 8) { slot = n; await tick(); } }
     miniG.userData.mini = { name: m.name, dims: [W, H, D], vox: ng, scale: vs / BLDG_VS, fill: m.fill, vs, _blkM: m._blkM, static: !!m.static,
       localCols, plate: m.plate ? { x0: px0, x1: px1, z0: pz0, z1: pz1, y: 1 } : null,
       written: new Set(), spin: 0, topTheta: 0, fx, mirX, axis: 'y',
@@ -589,6 +603,8 @@ const emitVox = async (t, m, W, H, D, vox) => {
     miniSyncSlice(miniG); await miniSyncTopsQ(t, miniG, m._parent ? _effOf(m._parent, miniG) : null);   // the model joins the host's surface truth — chunked; a sub-mini projects through its parent's transform
     miniG.position.y = m._parent ? (m._py || 0) : tableTop(t);           // settle on the CURRENT top — entry's capture predates a mid-emit lift-restore; the mount lands on its pedestal's real height
     miniSettle(t);                                                       // tops are truth — guests re-derive under the new map (a mount/swap left them on the old)
+    for (let i = 1; i < imP.length && t._mountGen === mgen; i++) {       // staggered reveal — each part's first draw uploads
+      imP[i].visible = true; await tick(); }                               // only its own slice of the matrix buffer, one frame apart
     return miniG;
   };
 /* miniSyncSlice — the editor's xyz window, same contract: a per-axis index range shader-clips

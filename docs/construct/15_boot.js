@@ -5,6 +5,8 @@
 
 /* warm-up: compile every program + upload every buffer behind the veil — same law as the Commission */
 ready.then(async () => {
+  await new Promise(r => requestAnimationFrame(r));                        // let the HUD/veil paint before mount work begins —
+                                                                         // the LCP render delay was mostly script+emit wall time
   emitPad();                                                                  // the pad joins PLACED before overrides/tombstones — full citizen
   JSON.parse(localStorage.getItem('dvm_del') || '[]').forEach(n => {               // tombstones first — a deleted host must not seat anything
     const p = PLACED.find(q => q.name === n && q.source !== 'extra' && !q._parked);  // parked scenery isn't tombstone-able by name

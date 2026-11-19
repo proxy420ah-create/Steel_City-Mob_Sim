@@ -33,7 +33,7 @@ const livePost = () => fetch('/peek', { method: 'POST', headers: { 'Content-Type
         const p = PLACED.find(q => q.name === n && q.source === 'extra') || PLACED.find(q => q.name === n && !q._parked);
         if (p) { const ob = footB(p.lb, p.x, p.z, p.rotY); placeApply(p, +x || 0, +z || 0, ry === undefined ? p.rotY : +ry);
           p.y0 = placeSurf(p.x, p.z, new Set([p]), { surfOnly: p.surf }); p.g.position.y = p.y0;
-          settleOrphans(p, ob, p.bbox, p.y0 + Math.max(...p.tops.values())); refreshSolids(); placeSave(); } }
+          settleOrphans(p, ob, p.bbox, p.y0 + topOf(p)); refreshSolids(); placeSave(); } }
       else if (c.agent === 'del') { const p = PLACED.find(q => q.name === c.args[0] && q.source === 'extra') || PLACED.find(q => q.name === c.args[0] && !q._parked);
         if (p) { if (p.source !== 'extra') { const d = new Set(JSON.parse(localStorage.getItem('dvm_del') || '[]'));
             d.add(p.name); localStorage.setItem('dvm_del', JSON.stringify([...d])); }

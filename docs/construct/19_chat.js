@@ -90,9 +90,13 @@ const chatBandRect = () => {
   return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 };
 let chatLast = null;
+const chatHide = () => {                                                 // hide + blur — Chrome keeps focus on display:none inputs, and a
+  chatEl.style.display = 'none'; chatLast = null;                        // focused chatIn stopPropagations EVERY key — a hidden focused field
+  if (document.activeElement === chatEl) chatEl.blur();                  // is a dead keyboard for the whole game
+};
 const chatPin = () => {                                                  // transform-only moves — compositor, zero layout churn
   const r = chatBandRect();
-  if (!r) { chatEl.style.display = 'none'; chatLast = null; return; }
+  if (!r) { chatHide(); return; }
   chatEl.style.display = 'block';
   const x = Math.round(r.x), y = Math.round(r.y), w = Math.round(r.w), h = Math.max(16, Math.round(r.h));
   if (!chatLast || chatLast.x !== x || chatLast.y !== y) chatEl.style.transform = `translate3d(${x}px,${y}px,0)`;
@@ -100,7 +104,8 @@ const chatPin = () => {                                                  // tran
   if (!chatLast || chatLast.h !== h) { chatEl.style.height = h + 'px'; chatEl.style.fontSize = Math.max(10, Math.min(15, h * .55)) + 'px'; }
   chatLast = { x, y, w, h };
 };
-setInterval(() => { if (padPage.split(':')[0] === 'chat' && padScr) chatPin(); }, 33);   // ~30fps track — cheap vector work, only while the chat tab is active (was firing unconditionally)
+setInterval(() => { if (padPage.split(':')[0] === 'chat' && padScr) chatPin();           // ~30fps track — cheap vector work, only while the chat tab is active
+  else if (chatLast || chatEl.style.display !== 'none') chatHide(); }, 33);               // off-tab cleanup — the field must die with the page, not linger focused
 
 /* ── the canvas face — chips mid-row, transcript above, entry band bottom ── */
 CHAT_TARGETS.forEach((t, i) => padR({ id: 'chat:t' + i, page: 'chat', x: 16 + i * 164, y: 66, w: 156, h: 32,

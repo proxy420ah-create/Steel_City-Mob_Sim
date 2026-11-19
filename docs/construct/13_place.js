@@ -142,7 +142,7 @@ const placeDrop = () => {                                                       
   if (!placeSel) return; const moved = placeSel;
   moved.y0 = moved.g.position.y;
   const ob = moved._orig ? footB(moved.lb, moved._orig.x, moved._orig.z, moved._orig.rotY) : footB(moved.lb, moved.x, moved.z, moved.rotY);   // pre-move footprint — the orphans lived here
-  settleOrphans(moved, ob, moved.bbox, (moved._orig ? moved._orig.y0 : moved.y0) + Math.max(...moved.tops.values()));
+  settleOrphans(moved, ob, moved.bbox, (moved._orig ? moved._orig.y0 : moved.y0) + topOf(moved));
   const o = moved._orig || moved;
   if (o.x !== moved.x || o.z !== moved.z || o.rotY !== moved.rotY || o.y0 !== moved.y0)
     placeSnapOp({ t: 'move', p: moved, prev: { x: o.x, z: o.z, rotY: o.rotY, y0: o.y0,
