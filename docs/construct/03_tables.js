@@ -548,6 +548,7 @@ const emitVox = async (t, m, W, H, D, vox) => {
     const geo = new THREE.BoxGeometry(1, 1, 1);
     const clipMin = { value: new THREE.Vector3(-1e9, -1e9, -1e9) }, clipMax = { value: new THREE.Vector3(1e9, 1e9, 1e9) };
     const mkClipMat = base => { const m = base.clone();                  // per-model clone → own slice uniforms
+      m.customProgramCacheKey = () => 'voxclip';                         // identical shader across clones — static key kills the per-draw-call onBeforeCompile.toString() churn
       m.onBeforeCompile = sh => { sh.uniforms.uVoxClipMin = clipMin; sh.uniforms.uVoxClipMax = clipMax;
         sh.vertexShader = sh.vertexShader
           .replace('#include <common>', '#include <common>\nvarying vec3 vVoxOrigin;')
@@ -561,8 +562,9 @@ const emitVox = async (t, m, W, H, D, vox) => {
     const opaque = (ng - ngg) || 1;
     const imParts = Math.max(1, Math.min(8, Math.ceil(opaque / 120e3)));   // split big composites into ≤~120k-instance parts —
     const imP = [];                                                        // a monolithic InstancedMesh uploads its whole matrix
+    const opaqMat = mkClipMat(new THREE.MeshLambertMaterial());            // one material for every part — they share clipMin/clipMax,
     for (let i = 0; i < imParts; i++) {                                    // buffer in one ~115ms createBuffer hit; the staggered
-      const pm = new THREE.InstancedMesh(geo, mkClipMat(new THREE.MeshLambertMaterial()), Math.ceil(opaque / imParts));
+      const pm = new THREE.InstancedMesh(geo, opaqMat, Math.ceil(opaque / imParts));
       pm.count = 0; imP.push(pm); }                                        // reveal below lands each part's upload on its own frame
     const imG = new THREE.InstancedMesh(geo, mkClipMat(window.__glassMat), ngg || 1);   // glass capacity = glass count — a
                                                                                      // zone's ng-size glass buffer wasted ~60MB
