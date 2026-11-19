@@ -445,7 +445,7 @@ class Handler(SimpleHTTPRequestHandler):
                 obj = json.loads(self.rfile.read(n) or b'{}')
                 agent, args = obj.get('agent'), obj.get('args', [])
                 ORDER_NAMES = ('wait', 'goto', 'follow', 'post')
-                if agent not in ('gaze', 'go', 'heel', 'order', 'emit', 'move', 'del') + ORDER_NAMES:
+                if agent not in ('gaze', 'go', 'heel', 'order', 'emit', 'move', 'del', 'zoom', 'torch') + ORDER_NAMES:
                     raise ValueError('bad agent')
                 if agent == 'order':
                     if not args or args[0] not in ORDER_NAMES:

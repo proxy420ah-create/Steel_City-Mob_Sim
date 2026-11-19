@@ -6,13 +6,23 @@
 /* ── follower's eyes — region-10 posed centroid → POV cam; P toggles the inset, __eyes.shot captures.
    Gaze target is always the player's head — his POV watches you, like his head does. */
 const povCam = new THREE.PerspectiveCamera(72, 16 / 9, .005, 20); povCam.rotation.order = 'YXZ';
-let povOn = false, povYaw = Math.PI, povPitch = 0, povF = null;
+let povOn = false, povYaw = Math.PI, povPitch = 0, povF = null,
+    povZoomT = 0, povZt = 0, povZoomFov = +(localStorage.getItem('dvm_pov_zoom_fov') || 26);   // my own hold-scope — same ease as the main cam's
 const povEl = document.createElement('div');
 povEl.style.cssText = 'position:fixed;right:12px;bottom:12px;border:1px solid rgba(255,255,255,.35);box-shadow:0 0 0 1px rgba(0,0,0,.25);color:#b0a88f;font:10px ui-monospace,Consolas,monospace;letter-spacing:.2em;display:none;z-index:6;pointer-events:none;padding:4px 6px';
 povEl.textContent = 'FOLLOWER POV'; document.body.appendChild(povEl);
 const sizePovEl = () => { const w = innerWidth, iw = Math.floor(w * .30), ih = Math.floor(iw * 9 / 16); povEl.style.width = iw + 'px'; povEl.style.height = ih + 'px'; povEl.style.padding = '0'; povEl.style.lineHeight = '1'; povEl.style.boxSizing = 'border-box'; povEl.style.textAlign = 'left'; povEl.style.verticalAlign = 'bottom'; povEl.innerHTML = '<span style="position:absolute;left:0;bottom:0;padding:3px 6px;background:rgba(0,0,0,.35)">FOLLOWER POV</span>'; };
 sizePovEl(); addEventListener('resize', sizePovEl);
 const _eyeL = [0, 0, 0], _eyeW = new THREE.Vector3(), _pfwd = new THREE.Vector3();
+/* ── the POV's own lamp — agent-only torch riding povCam; registered at init per the
+   light law (a light added late recompiles every lit program). __torch stays the boss's. ── */
+const povTorch = new THREE.SpotLight(0xfff0d0, 0, 10, .45, .55, 1.2);
+const povTorchFill = new THREE.PointLight(0xfff0d0, 0, 3, 1.4);
+const povTorchTgt = new THREE.Object3D(); scene.add(povTorch, povTorchFill, povTorchTgt); povTorch.target = povTorchTgt;
+let povTorchOn = false;
+const povTorchAim = () => { if (!povTorchOn) return;
+  povTorch.position.copy(povCam.position); povTorchTgt.position.copy(povCam.position).addScaledVector(_pfwd, 2);
+  povTorchFill.position.copy(povCam.position); };
 function eyeWorld(f) {
   let x = 0, y = 0, z = 0;
   for (const i of f.eyeIdx) { x += f.bufB[3 * i]; y += f.bufB[3 * i + 1]; z += f.bufB[3 * i + 2]; }
@@ -37,11 +47,17 @@ function updatePov(dt) {
   _pfwd.set(-Math.sin(povYaw) * Math.cos(povPitch), Math.sin(povPitch), -Math.cos(povYaw) * Math.cos(povPitch));
   povCam.position.copy(e).addScaledVector(_pfwd, .075);         // push out of the skull
   povCam.rotation.set(povPitch, povYaw, 0);
+  if (povZoomT !== povZt) { povZoomT += (povZt - povZoomT) * Math.min(1, dt * 9);             // eased 0↔1 like the main cam's hold-scope
+    if (Math.abs(povZt - povZoomT) < 1e-3) povZoomT = povZt;
+    povCam.fov = 72 - (72 - povZoomFov) * povZoomT; povCam.updateProjectionMatrix(); }
 }
 window.__eyes = {
   on: () => povOn,
   show: () => { if (povF) { povOn = true; povEl.style.display = 'block'; } },
   hide: () => { povOn = false; povEl.style.display = 'none'; },
+  zoom: t => { povZt = Math.max(0, Math.min(1, +t || 0)); return povZt; },       // scope level 0..1 — rides pip() and shot() alike
+  torch: on => { povTorchOn = !!+on; povTorch.intensity = povTorchOn ? 5 : 0;    // my lamp, not the boss's — tune mirrors his rig's defaults
+    povTorchFill.intensity = povTorchOn ? .55 : 0; povTorchAim(); return povTorchOn; },
   pip: () => {                                                   // scissored second pass — same trick as the Commission's __eyes.pip
     if (!povOn || !povF) return;
     const cv = renderer.domElement, w = cv.width / (renderer.getPixelRatio() || 1), h = cv.height / (renderer.getPixelRatio() || 1);
@@ -51,6 +67,7 @@ window.__eyes = {
     renderer.clearDepth();
     const ac = renderer.autoClear; renderer.autoClear = false;
     if (window.__torch && window.__torch.on) window.__torch.aim(povCam);
+    povTorchAim();
     renderer.render(scene, povCam);
     renderer.autoClear = ac; renderer.setScissorTest(false); renderer.setViewport(0, 0, w, h); renderer.setScissor(0, 0, w, h);
   },
@@ -60,6 +77,7 @@ window.__eyes = {
     povCam.aspect = cv.width / cv.height; povCam.updateProjectionMatrix();
     renderer.setViewport(0, 0, cv.width / pr, cv.height / pr);
     if (window.__torch && window.__torch.on) window.__torch.aim(povCam);
+    povTorchAim();
     renderer.render(scene, povCam);
     return cv.toDataURL('image/png');
   },

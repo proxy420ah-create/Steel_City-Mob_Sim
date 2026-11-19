@@ -41,11 +41,15 @@ const livePost = () => fetch('/peek', { method: 'POST', headers: { 'Content-Type
           for (let i = PLACED.length - 1; i >= 0; i--) for (let n = PLACED[i].g; n && n !== scene; n = n.parent)
             if (n === p.g) { PLACED.splice(i, 1); break; }                       // descendant recs (parked cars) die with their table — no ghost hosts
           settleOrphans(p, p.bbox, null, Infinity); refreshSolids(); placeSave(); } }
+      else if (c.agent === 'zoom') A.zoom(...c.args);                            // agent POV scope — level 0..1
+      else if (c.agent === 'torch') A.torch(...c.args);                          // agent flips the inspection torch
       else A.order(c.agent);                                                   // bare order names: wait/goto/follow/post
       const released = c.agent === 'heel' || c.agent === 'follow' || (c.agent === 'order' && c.args[0] === 'follow');
-      if (!['emit', 'move', 'del'].includes(c.agent)) followers.forEach(f => f.possessed = !released);   // movement verbs hold the wheel; furniture ops don't
+      if (!['emit', 'move', 'del', 'zoom', 'torch'].includes(c.agent)) followers.forEach(f => f.possessed = !released);   // movement verbs hold the wheel; furniture + camera ops don't
     } }).catch(() => {});
-const liveShot = () => { const u = window.__eyes.shot(); renderer.render(scene, camera);
+const liveShot = () => { const u = window.__eyes.shot();
+  if (window.__torch && window.__torch.on) window.__torch.aim(camera);           // shot() aimed it at povCam — re-aim before the restore render or his light jumps ~1Hz
+  renderer.render(scene, camera);
   if (u) fetch('/shot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'probe_live_pov', png: u }) }).catch(() => {}); };
 const LIVE = { on: false, iv: 0, sv: 0 };
 window.__live = {

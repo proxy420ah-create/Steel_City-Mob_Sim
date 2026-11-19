@@ -37,6 +37,8 @@ window.__construct = { manifest: MANIFEST, pos, spin: () => spinning, held: () =
     heel: () => followers.forEach(f => f.setOrder('follow')),
     shot: () => window.__eyes.shot(),
     pos: () => followers.map(f => f.pos.toArray()),
+    zoom: t => window.__eyes.zoom(t),                                            // POV scope — level 0..1, eased
+    torch: on => __eyes.torch(on),                                               // the POV's own lamp — the boss's L-rig stays his
   },
   place: () => window.__place,
   take: n => { const p = PLACED.find(p => p.name === n && !p._parked); if (p) takeIt(p); return !!p; },
