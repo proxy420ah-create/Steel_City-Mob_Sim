@@ -37,9 +37,9 @@ function poseEngine(rig) {
      Scratch pool: every helper returns a pooled slot, never a fresh array — evalPose ran ~50
      allocations/call at 60Hz×bodies = the 2-second GC hitch the boss felt. _pi resets at the top
      of each evalPose, so slots are monotonic within a call and nothing aliases a live input. */
-  const _m9 = [], _v3 = []; for (let i = 0; i < 96; i++) _m9.push([0, 0, 0, 0, 0, 0, 0, 0, 0]);
-  for (let i = 0; i < 64; i++) _v3.push([0, 0, 0]);
-  let _pi = 0, _pw = 0; const nx9 = () => _m9[_pi++ % _m9.length], nx3 = () => _v3[_pi++ % _v3.length];
+  const _m9 = [], _v3 = []; for (let i = 0; i < 128; i++) _m9.push([0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  for (let i = 0; i < 128; i++) _v3.push([0, 0, 0]);                     // 128/128 — the aim+IK path measured _pi=75;
+  let _pi = 0, _pw = 0; const nx9 = () => _m9[_pi++ % _m9.length], nx3 = () => _v3[_pi++ % _v3.length];   // the old 64-slot _v3
   const _poolCheck = () => { if (_pi > Math.min(_m9.length, _v3.length) && !_pw) { _pw = 1; console.warn('POSE POOL OVERFLOW — _pi', _pi); } };   // DESIGNER's nit: wrap aliases silently — say so once (conservative: shared counter, smallest pool)
   const ID9 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
   const rX = (a, o = nx9()) => { const c = Math.cos(a), s = Math.sin(a); o[0] = 1; o[1] = 0; o[2] = 0; o[3] = 0; o[4] = c; o[5] = -s; o[6] = 0; o[7] = s; o[8] = c; return o; };
