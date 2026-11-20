@@ -12,7 +12,10 @@ const emitChar = spec => fetch('/char/' + spec.char).then(r => r.json()).then(ri
   inst.frustumCulled = false;                          // matrices rewrite per pose — load-time bounds go stale
   const pal = {}; (rig.materials || []).forEach(m => pal[m.id] = new THREE.Color(m.hex));
   const reg = rig.regions || {}, dflt = new THREE.Color(0x888888), out = spec.outfit || OUTFIT;    // spec.outfit = mannequin's wardrobe
-  rig.voxels.forEach((v, i) => inst.setColorAt(i, pal[out[reg[v[0] + ',' + v[1] + ',' + v[2]]] || v[3]] || dflt));
+  inst.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(N * 3), 3);   // pre-alloc — palette writes go raw
+  const CA = inst.instanceColor.array;
+  rig.voxels.forEach((v, i) => { const c = pal[out[reg[v[0] + ',' + v[1] + ',' + v[2]]] || v[3]] || dflt;
+    CA[i * 3] = c.r; CA[i * 3 + 1] = c.g; CA[i * 3 + 2] = c.b; });                        // setColorAt's toArray tax per rig voxel — gone
   inst.instanceColor.needsUpdate = true;
   const CH = new THREE.Group(); CH.add(inst); scene.add(CH);
   CH.add(hitProxy(d[0] * VS, d[1] * VS, d[2] * VS, 0, d[1] * VS / 2, 0));   // the aim lands on the body, not the wall behind
@@ -44,6 +47,26 @@ const emitChar = spec => fetch('/char/' + spec.char).then(r => r.json()).then(ri
   }
   return f;
 }).catch(e => { window.__lastPartyErr = String(e && e.stack || e); console.warn('CONSTRUCT — follower emit failed:', spec.char, e); });
+
+/* mannEmit — a placeable character prop: the rig's standing pose + wardrobe baked into a static
+   voxel model, then through emitModelData as a normal rec (pickable, tops-seated, persists via
+   dvm_extra). The raw /char/ file is the nude bind pose — mannequins want evalPose(0,0) + OUTFIT.
+   Height auto-calibrates: o.height metres is the target standing height (default .0266 —
+   a ~1.7m person at the block's 1/64 table scale) so the figure sizes true next to cars/doors. */
+const mannEmit = (name, o = {}) => fetch('/char/' + name).then(r => r.json()).then(rig => {
+  if (!rig || !rig.voxels) return null;
+  const E = poseEngine(rig), N = rig.voxels.length, B = new Float64Array(3 * N);
+  E.evalPose(0, 0, B);
+  const reg = rig.regions || {}, out = o.outfit ||
+    (typeof OUTFITS !== 'undefined' && OUTFITS[o.fit | 0] ? OUTFITS[o.fit | 0].map : null) || OUTFIT;
+  let mn9 = Infinity, mx9 = -Infinity;
+  for (let i = 0; i < N; i++) { const y = B[3 * i + 1]; if (y < mn9) mn9 = y; if (y > mx9) mx9 = y; }
+  const voxels = rig.voxels.map((v, i) => [Math.round(B[3 * i]), Math.round(B[3 * i + 1]), Math.round(B[3 * i + 2]),
+    out[reg[v[0] + ',' + v[1] + ',' + v[2]]] || v[3]]);
+  return emitModelData({ voxels, dims: rig.dims || [96, 96, 96], voxelSize: rig.voxelSize || .01,
+    materials: rig.materials, assetType: 'character' }, name,
+    { ...o, vsOverride: o.vsOverride || ((+o.height || .0266) / (mx9 - mn9 + 1)) });
+}).catch(e => console.warn('CONSTRUCT — mannequin emit failed:', name, e));
 
 /* follow-nav — the Construct's simpler world needs less than the Commission's ring choreography:
    seek the player at polite distance, SOLIDS pushout, walk-rect clamp, measured-speed gait */

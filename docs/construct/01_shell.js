@@ -173,9 +173,15 @@ window.voxEmit = (m, fillM) => {
   const mats = {}; MAT_LIB.forEach(mt => mats[mt.id] = new THREE.Color(mt.hex));
   (m.materials || []).forEach(mt => mats[mt.id] = new THREE.Color(mt.hex));          // file palette wins when it ships one
   const M = new THREE.Matrix4(), dflt = new THREE.Color(0x888888);
+  imO.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(m.voxels.length * 3), 3);   // pre-alloc — writes go raw
+  if (imG) imG.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(m.voxels.length * 3), 3);
+  const MAo = imO.instanceMatrix.array, CAo = imO.instanceColor.array,
+    MAg = imG && imG.instanceMatrix.array, CAg = imG && imG.instanceColor.array;
   let no = 0, ng = 0;
-  m.voxels.forEach(v => { fillM(M, v); const c = mats[v[3]] || dflt;
-    if (imG && gids.has(v[3])) { imG.setMatrixAt(ng, M); imG.setColorAt(ng, c); ng++; } else { imO.setMatrixAt(no, M); imO.setColorAt(no, c); no++; } });
+  for (let vi = 0; vi < m.voxels.length; vi++) { const v = m.voxels[vi];
+    fillM(M, v); const c = mats[v[3]] || dflt;
+    if (imG && gids.has(v[3])) { MAg.set(M.elements, ng * 16); CAg[ng * 3] = c.r; CAg[ng * 3 + 1] = c.g; CAg[ng * 3 + 2] = c.b; ng++; }
+    else { MAo.set(M.elements, no * 16); CAo[no * 3] = c.r; CAo[no * 3 + 1] = c.g; CAo[no * 3 + 2] = c.b; no++; } }
   imO.count = no; if (imG) imG.count = ng;                             // count = written — leftover capacity would draw unit boxes with black instance colors
   const out = [imO]; if (imG && ng) out.push(imG);
   return out;

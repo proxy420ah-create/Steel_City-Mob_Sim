@@ -22,8 +22,10 @@ const emitSelf = () => fetch('/char/Civilian1').then(r => r.json()).then(rig => 
     im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);                  // rewritten per posed frame — the walk/aim pipeline feeds it at 60Hz
     im.frustumCulled = false;
     if (pi) im.layers.set(1);                                                 // head — povCam layer 1 sees it, your camera doesn't
-    list.forEach((i, j) => { const v = rig.voxels[i];
-      im.setColorAt(j, pal[OUTFIT[reg[v[0] + ',' + v[1] + ',' + v[2]]] || v[3]] || dflt); });
+    im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(list.length * 3), 3);   // pre-alloc — raw palette writes
+    const CA = im.instanceColor.array;
+    list.forEach((i, j) => { const v = rig.voxels[i], c = pal[OUTFIT[reg[v[0] + ',' + v[1] + ',' + v[2]]] || v[3]] || dflt;
+      CA[j * 3] = c.r; CA[j * 3 + 1] = c.g; CA[j * 3 + 2] = c.b; });
     im.instanceColor.needsUpdate = true;
     const MA = im.instanceMatrix.array;
     for (let k = 0; k < list.length; k++) { const j = k * 16; MA[j] = MA[j + 5] = MA[j + 10] = MA[j + 15] = 1; }

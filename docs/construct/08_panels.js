@@ -83,8 +83,9 @@ const OUTFITS = [
   { name: 'WORK RED',   map: { 3: 120, 4: 120, 6: 109, 7: 118 } },
 ];
 let mannOutfit = Math.max(0, Math.min(OUTFITS.length - 1, +localStorage.getItem('dvm_outfit') || 0));
-const recolorChar = (f, map) => { const reg = f.rig.regions || {}, dflt = new THREE.Color(0x888888);
-  f.rig.voxels.forEach((v, i) => f.inst.setColorAt(i, f.pal[map[reg[v[0] + ',' + v[1] + ',' + v[2]]] || v[3]] || dflt));
+const recolorChar = (f, map) => { const reg = f.rig.regions || {}, dflt = new THREE.Color(0x888888), CA = f.inst.instanceColor.array;
+  f.rig.voxels.forEach((v, i) => { const c = f.pal[map[reg[v[0] + ',' + v[1] + ',' + v[2]]] || v[3]] || dflt;
+    CA[i * 3] = c.r; CA[i * 3 + 1] = c.g; CA[i * 3 + 2] = c.b; });
   f.inst.instanceColor.needsUpdate = true; };
 const MANN_POS = { x: -2.5, z: .48 }, MANN_YAW = -.69;                 // char rig fwd = (-sin,-cos) — faces SE into the room
 const KIOSK_POS = { x: -2.15, z: .06 }, KIOSK_YAW = 2.45;              // small floor stand dead ahead of him; +z screen faces the approach

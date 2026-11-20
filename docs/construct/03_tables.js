@@ -575,13 +575,14 @@ const emitVox = async (t, m, W, H, D, vox) => {
                                                                          // a macrotask defers the tail past ALL sibling files
                                                                          // (miniSettle→inB lives in 13_place.js — a microtask tail hit TDZ)
     let ng = 0, ngg = 0, gx0 = W, gx1 = -1, gz0 = D, gz1 = -1, gy1 = -1;
-    const colYs = new Array(W * D);                                      // per-column voxel ys — slice/rotation-aware tops need the list
+    const colN = new Uint16Array(W * D), colLast = new Int16Array(W * D).fill(-1);   // per-column voxel count + top y —
+                                                                                     // typed arrays kill the array-per-column GC feed
     let slot = performance.now();                                        // work-budget yields — ~8ms wall-clock slices self-size
     for (let y = 0; y < H; y++) {                                        // to the machine (a fixed 3M-cell budget ran 30–150ms
       for (let z = 0; z < D; z++) { const rb = W * (y + H * z); for (let x = 0; x < W; x++) {
       const id = vox[rb + x]; if (!id) continue;                         // per chunk in the trace — past every frame budget)
       if (x < gx0) gx0 = x; if (x > gx1) gx1 = x; if (z < gz0) gz0 = z; if (z > gz1) gz1 = z; if (y > gy1) gy1 = y;
-      (colYs[x + W * z] = colYs[x + W * z] || []).push(y);
+      const ck = x + W * z; colN[ck]++; colLast[ck] = y;                 // ys ascend — last IS the top; the ys list rebuilds below only for kept columns
       if (surf(x, y, z, rb + x) && !(y === 0 && under(x, z, rb + x))) { ng++; if (BLDG_GLASS.has(id)) ngg++; }
       } const n = performance.now(); if (n - slot > 8) { slot = n; await tick(); } } }
     if (t._mountGen !== mgen) return null;                                         // swapped mid-scan — attaching now would ghost over the new model
@@ -647,9 +648,12 @@ const emitVox = async (t, m, W, H, D, vox) => {
     const gT = m.grid ? new Int16Array(W * D).fill(-1) : null, gI = m.grid ? new Uint8Array(W * D) : null;   // the pad's voxel-grid view — per-column top height + top palette id
     const localCols = [];                                                // grid columns → local offsets + the ys list
     for (let z = 0; z < D; z++) { for (let x = 0; x < W; x++) {
-      const ys = colYs[x + W * z]; if (!ys) continue;
-      if (gT) { const k = x + W * z, ty = ys[ys.length - 1]; gT[k] = ty; gI[k] = vox[x + W * (ty + H * z)]; }   // ys ascend — last IS the top; flat cells included (the grid needs the roads)
-      if (m.plate && ys.length === 2 && ys[0] === 0 && ys[1] === 1) continue;   // flat ground — the plate writes these tops
+      const k = x + W * z, n = colN[k]; if (!n) continue;
+      const ty = colLast[k];
+      if (gT) { gT[k] = ty; gI[k] = vox[x + W * (ty + H * z)]; }         // flat cells included (the grid needs the roads)
+      if (m.plate && n === 2 && ty === 1) continue;                    // flat ground [0,1] — the plate writes these tops
+      const ys = new Array(n); let yi = 0; const cb = x + W * H * z;
+      for (let y = 0; y <= ty; y++) if (vox[cb + W * y]) ys[yi++] = y; // rebuild only the kept column's list — flat columns never paid an array
       localCols.push({ x, z, dx: fx(x) * vs, dz: fz(z) * vs, ys }); }
       const n = performance.now(); if (n - slot > 8) { slot = n; await tick(); } }
     miniG.userData.mini = { name: m.name, dims: [W, H, D], vox: ng, scale: vs / BLDG_VS, fill: m.fill, vs, _blkM: m._blkM, _blkA: m._blkA, static: !!m.static,
