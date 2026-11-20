@@ -62,7 +62,15 @@ window.__live = {
   on: () => LIVE.on,
   start: () => { if (LIVE.on) return; LIVE.on = true; livePost(); liveShot(); LIVE.iv = setInterval(livePost, 400); LIVE.sv = setInterval(liveShot, 900); liveEl.style.display = 'block'; localStorage.setItem('dvm_live', '1'); },
   stop: () => { LIVE.on = false; clearInterval(LIVE.iv); clearInterval(LIVE.sv); liveEl.style.display = 'none'; localStorage.setItem('dvm_live', '0'); },
+  lsPull: () => fetch('/peek').then(r => r.json()).then(d => {               // cross-browser scene mirror — localStorage is per-browser; the source browser's livePost already ships its dvm_* set
+    const ls = (d && d.ls) || {}; let n = 0; const skip = [];
+    for (const k in ls) { const v = ls[k];
+      if (v && typeof v === 'object') { skip.push(k); continue; }            // {len,head} stub — source overran the pack budget; mirroring it would write a truncated scene
+      localStorage.setItem('dvm_' + k, v); n++; }
+    console.log('[lsPull] mirrored ' + n + ' dvm_* keys' + (skip.length ? ' — SKIPPED over-budget stubs: ' + skip.join(', ') : '') + ' — reloading');
+    setTimeout(() => location.reload(), 400); }),
 };
+window.__lsPull = window.__live.lsPull;
 
 /* ── follower control — clickable orders + hotkey legend, bottom-left. Re-renders only when
    follower state actually changes (orders move via keys too), so button presses never get eaten. */
