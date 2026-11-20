@@ -430,6 +430,8 @@ class Handler(SimpleHTTPRequestHandler):
                         cmd = json.load(open(cp, encoding='utf-8'))
                         if cmd.get('seq', 0) > obj.get('cmdAck', 0):
                             out['cmd'] = cmd                                  # pending agent order rides the stream back
+                        else:
+                            os.remove(cp)                                     # acked — retire the order file or every fresh page (cmdAck resets per session) re-fires it forever
                 except Exception:
                     pass
                 return self._ok(out)

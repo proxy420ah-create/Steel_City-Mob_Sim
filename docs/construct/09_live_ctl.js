@@ -27,6 +27,9 @@ const livePost = () => fetch('/peek', { method: 'POST', headers: { 'Content-Type
     if (r && r.err && r.err !== _peekErr) { _peekErr = r.err; console.warn('[peek]', r.err); }   // server rejected — say why once, not per retry
     if (r && r.cmd && r.cmd.seq > cmdAck) {                                    // agent command rode back on the stream
       cmdAck = r.cmd.seq; const A = window.__construct.agent, c = r.cmd;
+      const _csig = c.seq + '|' + c.agent + '|' + JSON.stringify(c.args || []);
+      if (localStorage.getItem('dvm_cmdsig') === _csig) return;                // already executed this exact order — cmdAck resets per session, the sig survives reloads (was the Civilian1 totem)
+      localStorage.setItem('dvm_cmdsig', _csig);
       if (c.agent === 'gaze') A.gaze(...c.args);
       else if (c.agent === 'go') A.go(...c.args);
       else if (c.agent === 'heel') A.heel();
