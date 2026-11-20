@@ -315,7 +315,7 @@ class Handler(SimpleHTTPRequestHandler):
                     os.path.realpath(os.path.join(HERE, '..', 'Assets'))):
                 return self._ok({'err': 'not found'}, 404)
             try:
-                return self._ok(json.load(open(p, encoding='utf-8')))
+                return self._serve_gz(p)
             except Exception as e:
                 return self._ok({'err': str(e)}, 500)
         if self.path.startswith('/veh/'):
@@ -328,7 +328,7 @@ class Handler(SimpleHTTPRequestHandler):
                     os.path.realpath(os.path.join(HERE, '..', 'Assets'))):
                 return self._ok({'err': 'not found'}, 404)
             try:
-                return self._ok(json.load(open(p, encoding='utf-8')))
+                return self._serve_gz(p)
             except Exception as e:
                 return self._ok({'err': str(e)}, 500)
         if self.path.startswith('/char/'):
@@ -341,7 +341,7 @@ class Handler(SimpleHTTPRequestHandler):
                     os.path.realpath(os.path.join(HERE, '..', 'Assets'))):
                 return self._ok({'err': 'not found'}, 404)
             try:
-                return self._ok(json.load(open(p, encoding='utf-8')))
+                return self._serve_gz(p)
             except Exception as e:
                 return self._ok({'err': str(e)}, 500)
         # studio pages + asset files — read-only whitelist so voxel_editor.html
@@ -445,11 +445,15 @@ class Handler(SimpleHTTPRequestHandler):
                 obj = json.loads(self.rfile.read(n) or b'{}')
                 agent, args = obj.get('agent'), obj.get('args', [])
                 ORDER_NAMES = ('wait', 'goto', 'follow', 'post')
-                if agent not in ('gaze', 'go', 'heel', 'order', 'emit', 'move', 'del', 'zoom', 'torch') + ORDER_NAMES:
+                if agent not in ('gaze', 'go', 'heel', 'order', 'emit', 'move', 'del', 'zoom', 'torch', 'tune') + ORDER_NAMES:
                     raise ValueError('bad agent')
                 if agent == 'order':
                     if not args or args[0] not in ORDER_NAMES:
                         raise ValueError('bad order')
+                elif agent == 'tune':
+                    if len(args) != 3 or not re.fullmatch(r'[\w\-]+', str(args[0])) or \
+                       args[1] not in ('side', 'road', 'raise', 'apron') or not isinstance(args[2], (int, float)):
+                        raise ValueError('bad tune — args [table, key, cells]')
                 elif agent in ('emit', 'move', 'del'):
                     if not args or not isinstance(args[0], str) or not re.fullmatch(r'[\w\-]+', args[0]):
                         raise ValueError('bad item name')          # same whitelist shape as /voxel/ GET
@@ -980,16 +984,49 @@ class Handler(SimpleHTTPRequestHandler):
              '.map': 'application/json', '.bin': 'application/octet-stream',
              '.stasset': 'application/octet-stream'}
 
+    _GZ_EXT = {'.json', '.js', '.html', '.css', '.md', '.txt', '.map'}
+
+    def _serve_gz(self, p, ctype='application/json'):
+        # raw file → client, gzip'd when the client accepts; mtime-keyed cache.
+        # Voxel/stasset JSONs are mostly sparse arrays — ~6-8x smaller on the
+        # wire, and this route no longer json.loads + re-dumps the file.
+        try:
+            if 'gzip' in (self.headers.get('Accept-Encoding') or ''):
+                mt = os.path.getmtime(p)
+                with self._BAKE_LOCK:
+                    hit = self._BAKE_GZ.get(p)
+                    if not hit or hit[0] != mt:
+                        with open(p, 'rb') as f:
+                            hit = (mt, gzip.compress(f.read(), 6))
+                        self._BAKE_GZ[p] = hit
+                body, enc = hit[1], 'gzip'
+            else:
+                with open(p, 'rb') as f:
+                    body, enc = f.read(), None
+            self.send_response(200)
+            self.send_header('Content-Type', ctype)
+            if enc:
+                self.send_header('Content-Encoding', enc)
+            self.send_header('Content-Length', str(len(body)))
+            self.send_header('Cache-Control', 'no-cache')
+            self.end_headers()
+            self.wfile.write(body)
+        except Exception as e:
+            return self._ok({'err': str(e)}, 500)
+
     def _serve(self, path, okext):
         # scoped static file: extension whitelist + realpath must stay inside
         # the intended root (rejects ../ escapes).
         p = os.path.normpath(path)
         base = os.path.realpath(os.path.join(HERE, '..',
                 'VoxelAssetStudio' if self.path.startswith('/studio/') else 'Assets'))
-        if (os.path.splitext(p)[1].lower() not in okext
+        ext = os.path.splitext(p)[1].lower()
+        if (ext not in okext
                 or not os.path.isfile(p)
                 or not os.path.realpath(p).startswith(base)):
             return self._ok({'err': 'not found'}, 404)
+        if ext in self._GZ_EXT and 'gzip' in (self.headers.get('Accept-Encoding') or ''):
+            return self._serve_gz(p, self._MIME.get(ext, 'application/octet-stream'))
         try:
             self.send_response(200)
             self.send_header('Content-Type', self._MIME.get(
