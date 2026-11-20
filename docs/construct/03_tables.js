@@ -34,6 +34,14 @@ MANIFEST.tables = [                                                    // PRIMAR
     models: [{ name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' } }],   // every block composite carries the same roads + parked cars
     catalog: [{ name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' } },
               { name: 'block_41_barber', fill: .75, slots: { 2: 'barber_shop' } }] },       // block_41's authored lot — the rest = empty_land
+  { id: 'lab', x: -1.6, z: -3.9, size: 1.2, top: .26, scale: 1 / 64, mv: 3,   // LAB TABLE — the sterile twin: same exhibits as block, but metrics are FREE — tune them, canonical never follows
+    noSlice: true,                                                            // streets stay whole — same whole-road law
+    ring: true,                                                               // same two-tier architecture — learned metrics transfer to Unity honestly
+    metrics: { side: 20, road: 90, raise: 2, apron: 7 },                      // the tuning surface — B_of consumes it; canonical stays BLK/BLKF
+    parked: [{ edge: 's', along: 160 }, { edge: 'w', along: 140 }],
+    models: [{ name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' } }],
+    catalog: [{ name: 'block_26_tenement', fill: .75, slots: { 0: 'tenement_block_0' } },
+              { name: 'block_41_barber', fill: .75, slots: { 2: 'barber_shop' } }] },
   { id: 'studio', x: -6.5, z: -2.5, size: 2.4, top: .26, scale: 1 / 64, mv: 2,  // STUDIO TABLE — the ZONE tier centerpiece: 2.4m, dead-center of the expanded annex; a 3×3 rectangle of live city_layout blocks, "The Battlefield" (r3-5 × c0-2)
     noSlice: true,                                                            // zones + block composites are street models — same whole-road law
     models: [{ name: 'battlefield', fill: .75, plate: true, noProxy: true,      // plate: full-coverage ground → flat-tops path; noProxy: emitZone lays per-stamp proxies instead
@@ -147,27 +155,40 @@ const stassetFetch = name => { name = _previewOf[name] || name;                 
    instancing, per-column max-height written back into the host's tops. All models on a table share
    the table's declared scale — buildings stay comparable, like a real architect's set. */
 const emitBldg = (t, m) => stassetFetch(m.name)
-  .then(f => emitVox(t, m, f.W, f.H, f.D, f.vox))
+  .then(f => emitVox(t, { ...m, grid: true }, f.W, f.H, f.D, f.vox))
   .then(g => { if (g) g.userData.mini._deps = new Set([m.name]); return g; })   // live-sync: the editor's strokes rebuild any mini listing this file
   .catch(e => console.warn('CONSTRUCT — bldg emit failed:', m.name, e));
 /* BLK — the game's per-block terrain contract: slot 64, block interior 192 (3×3 lots),
    margin M = 65v (20v sidewalk + 45v half-road) → tile 322. emitBlock builds one tile;
    emitZone tiles them — the ground/lot recipe lives once in fillBlockGround/stampSlots. */
-const BLK = { S: 64, BW: 192, SIDE: 20, ROAD: 45 }; BLK.M = BLK.SIDE + BLK.ROAD; BLK.TILE = BLK.BW + 2 * BLK.M;
+/* B_of — the street-metric bundle: Unity's roadWidth/sidewalkWidth/curbRaise in composite cells.
+   Everything downstream (M, TILE, curbC, slotInv, mouths) derives — tune the inputs, never the
+   dependents. BLK/BLKF are canonical presets; a table's spec.metrics mints its own bundle. */
+const B_of = (side, road, raise, apron) => { const B = { S: 64, BW: 192, SIDE: side, ROAD: road, RAISE: raise, APRON: apron || 0 };
+  B.M = B.SIDE + B.ROAD; B.TILE = B.BW + 2 * B.M; return B; };
+const BLK = B_of(20, 45, 2, 7), BLKF = B_of(20, 90, 2, 7);                 // RAISE=2 — walk+interior stand 2v (10cm) proud; APRON=7 (= PARK_PUSH+2) — the curb cut runs the complete ring
+/* B_of_spec — a table's geometry truth: spec.metrics mints a lab bundle, everything else
+   gets canonical BLKF (the ring/composite path's full-road preset). Cached on t._B — tune
+   invalidates it. */
+const B_of_spec = t => t._B || (t._B = t.spec.metrics
+  ? B_of(t.spec.metrics.side ?? BLK.SIDE, t.spec.metrics.road ?? BLKF.ROAD, t.spec.metrics.raise ?? BLK.RAISE, t.spec.metrics.apron ?? BLK.APRON)
+  : BLKF);
 /* BLKF — the single-block diorama's "far" variant: a lone block exhibit has no neighbor tile to
    supply the other half-street, so it paints BOTH halves itself (band = 2×ROAD: far half + seam
    at 45 + our half; stripes at each half's center = the dual lane lines seen in-game). The rim
    is the far curb — no far sidewalk (that's the neighbor's, outside this model). emitZone keeps
    strict seam law: interior seams already read as full streets and the perimeter is the cut. */
-const BLKF = { S: BLK.S, BW: BLK.BW, SIDE: BLK.SIDE, ROAD: 2 * BLK.ROAD };
-BLKF.M = BLKF.SIDE + BLKF.ROAD; BLKF.TILE = BLKF.BW + 2 * BLKF.M;
+
 /* fillBlockGround — VoxelTerrainBuilder.GeneratePerBlockTerrain's recipe, one tile at (X0,Z0):
    each block owns its ground tile (20v sidewalk ring + stone plot) plus HALF the road on each
    side (45v asphalt, 1v cobble stripe centered in the half — two adjacent tiles' halves read as
    the dual lane lines). seams {n,e,s,w} = layout seam types ('road' stripes, anything else reads
    as a plain asphalt boulevard); lanes (bits N=1 E=2 S=4 W=8) cuts curb mouths + the interior
-   lane cross-section for alley catalogs. */
-const fillBlockGround = (set, X0, Z0, seams, lanes, B = BLK) => { const { ROAD, M, TILE } = B;
+   lane cross-section for alley catalogs. `notches` = curb cuts at the parked cars' pull-ins
+   (the walk's outer cells drop to gutter grade so the wheels' PARK_PUSH overhang gets an apron). */
+const inSpan = (ncs, e, a) => ncs.some(n => n.e === e && a >= n.a0 && a <= n.a1);
+const fillBlockGround = (set, X0, Z0, seams, lanes, B = BLK, notches = null) => { const { ROAD, M, TILE } = B;
+  const TALL = 2 + (B.RAISE || 0), APRON = B.APRON || 0;                 // curb delta — 101/102 cells stand RAISE proud; APRON = the cut run as a complete ring (0 = notch-only at pull-ins)
   for (let z = 0; z < ROAD; z++) for (let x = 0; x < TILE; x++) {          // FillCorridors — horizontal bands first…
     set(X0 + x, Z0 + z,           seams.n === 'road' && (z === 22 || z === ROAD - 23) ? 105 : 104);   // …cobble stripe centered in each half…
     set(X0 + x, Z0 + TILE - 1 - z, seams.s === 'road' && (z === 22 || z === ROAD - 23) ? 105 : 104); }
@@ -185,26 +206,38 @@ const fillBlockGround = (set, X0, Z0, seams, lanes, B = BLK) => { const { ROAD, 
     } else if (lanes) {                                                // interior lane cross-section
       if ((lanes & 10) && z >= L0 && z < L1) id = (z >= m0 && z < m1) ? 104 : 102;
       else if ((lanes & 5) && x >= L0 && x < L1) id = (x >= m0 && x < m1) ? 104 : 102; }
-    set(X0 + x, Z0 + z, id); } };
+    let h = id === 101 || id === 102 ? TALL : 2;
+    if (h === TALL) {
+      if (APRON && ((eW && x < ROAD + APRON) || (eE && x >= TILE - ROAD - APRON) ||   // the complete-ring apron — the walk's
+                    (eS && z < ROAD + APRON) || (eN && z >= TILE - ROAD - APRON))) h = 2;   // outer edge drops to gutter grade everywhere
+      else if (notches) { const K = PARK_PUSH + 2;                                    // pull-in cuts (apron=0 mode) — drop only
+        if      (eW && x < ROAD + K           && inSpan(notches, 'w', z)) h = 2;      // where the parked law hangs wheels over
+        else if (eE && x >= TILE - ROAD - K   && inSpan(notches, 'e', z)) h = 2;
+        else if (eS && z < ROAD + K           && inSpan(notches, 'n', x)) h = 2;
+        else if (eN && z >= TILE - ROAD - K   && inSpan(notches, 's', x)) h = 2; } }
+    set(X0 + x, Z0 + z, id, h); } };
 /* stampSlots — a block's 3×3 lots into its interior (origin X0,Z0 = the tile's corner in the
    composite grid; the composite stride is W2, slab offset +2). Each explicit slot stamps its
    asset at its 64-voxel offset; a multi-slot asset marks every lot it covers; the rest take
    empty_land — the game's own vacant-lot tile. Returns the per-stamp rects for aim proxies. */
-const stampSlots = (vox, W2, H, files, slots, X0, Z0, B = BLK, zFlip = false, mir = false, collect = null) => { const { S, BW, M } = B;
+const stampSlots = async (vox, W2, H, files, slots, X0, Z0, B = BLK, zFlip = false, mir = false, collect = null) => { const { S, BW, M } = B;
   const covered = new Set();                                          // which lots does explicit content already own?
   const rOf = (s, f) => zFlip ? 3 - (s / 3 | 0) - f.D / S : (s / 3 | 0);  // Unity's index-row0 sits on the block edge TOWARD row+1 — under our row↑→+z grid that's the z-max side, so zone lots flip their row (footprint-aware: a 3-row tenement still spans 0..2)
   Object.entries(slots).forEach(([s, n]) => { const f = files[n], sc = +s % 3, r0 = rOf(s, f);
     for (let r = r0; r < r0 + f.D / S; r++) for (let c = sc; c < sc + f.W / S; c++) covered.add(r * 3 + c); });
-  const stamped = [], stamp = (f, sx, sz, n) => {
+  const stamped = []; let _sl = performance.now();
+  const _yk = async () => { const n = performance.now(); if (n - _sl > 8) { _sl = n; await new Promise(r => setTimeout(r)); } };   // emitVox's 8ms wall-clock slice law — a 3-row tenement stamp is ~2M cell writes, was a 141ms block
+  const stamp = async (f, sx, sz, n) => {
     const rec = { x: X0 + M + sx, z: Z0 + M + sz, w: Math.min(f.W, BW - sx), d: Math.min(f.D, BW - sz), h: f.H, n };
     if (collect && n) { collect.push(rec); return; }                    // surgical mode — positions only; the
     stamped.push(rec);                                                  // building emits as its own sub-mini
-    for (let z = 0; z < f.D && sz + z < BW; z++)
+    for (let z = 0; z < f.D && sz + z < BW; z++) {
       for (let y = 0; y < f.H; y++) for (let x = 0; x < f.W && sx + x < BW; x++) {
         const id = f.vox[x + f.W * (y + f.H * (mir ? f.D - 1 - z : z))];          // mir: stamp content z-mirrors inside its own footprint — the Unity L/R flip moves fronts to the lot's far edge and leaves text + door/pole x-positions reading correctly — while the lot's position stays raw (zone composite renders flip:false)
-        if (id) vox[(X0 + M + sx + x) + W2 * (y + 2 + H * (Z0 + M + sz + z))] = id; } };
-  for (let s = 0; s < 9; s++) { const n = slots[s]; if (n) { const f = files[n]; stamp(f, (s % 3) * S, rOf(s, f) * S, n); } }
-  for (let s = 0; s < 9; s++) if (!covered.has(s) && !slots[s]) stamp(files['empty_land'], (s % 3) * S, ((s / 3) | 0) * S);
+        if (id) vox[(X0 + M + sx + x) + W2 * (y + 2 + (B.RAISE || 0) + H * (Z0 + M + sz + z))] = id; }   // stamps ride the raised pad — buildings flush on the new grade, nothing buries
+      await _yk(); } };
+  for (let s = 0; s < 9; s++) { const n = slots[s]; if (n) { const f = files[n]; await stamp(f, (s % 3) * S, rOf(s, f) * S, n); } }
+  for (let s = 0; s < 9; s++) if (!covered.has(s) && !slots[s]) await stamp(files['empty_land'], (s % 3) * S, ((s / 3) | 0) * S);
   return stamped; };
 /* roadProf — the street's own geometry, measured off the composite's column tops: the
    sidewalk is the raised run hugging the property line inside each road band (the plate's
@@ -212,7 +245,7 @@ const stampSlots = (vox, W2, H, files, slots, X0, Z0, B = BLK, zFlip = false, mi
    curb edge sits on (just lane-side of the strip); `dir` = which way the lane runs. The
    bare band law parked cars straddling the strip — wheels under the curb = sunken look. */
 const roadProf = mn => { if (mn._road) return mn._road;                            // cached for the mount's life — legal BECAUSE street tables are noSlice: a cut could never retire a lane
-  const W = mn.dims[0], D = mn.dims[2], CURB = 4;
+  const W = mn.dims[0], D = mn.dims[2], CURB = 2;                            // flat road/apron cells top at index 1 — the raised strip reads at any RAISE ≥ 2
   if (!mn._colTop) { const T = mn._colTop = new Int16Array(W * D).fill(-1);
     mn.localCols.forEach(c => { T[c.x + W * c.z] = Math.max.apply(null, c.ys); }); }
   const T = mn._colTop, R = {};
@@ -220,11 +253,11 @@ const roadProf = mn => { if (mn._road) return mn._road;                         
     const e = q[0], ax = q[1], t0 = q[2], rd = q[3], span = ax ? D : W,             // rd = rim direction; scan runs INWARD — the first raised run off the rim is our curb strip (a diorama's far half is flat and reads as nothing)
       probes = [.25, .375, .5, .625, .75].map(f => Math.round(span * f));
     let first = -1, last = -1, flat = 0;
-    for (let t = t0, i = 0; i < 140 && t >= 0 && t <= (ax ? W : D) - 1; t -= rd, i++) {
+    for (let t = t0, i = 0; i < 240 && t >= 0 && t <= (ax ? W : D) - 1; t -= rd, i++) {   // 240-cell cap — lab roads may run wider than canonical's 90
       const raised = probes.filter(u => (ax ? T[t + W * u] : T[u + W * t]) > CURB).length >= 3;
       if (raised) { if (first < 0) first = t; last = t; flat = 0; }
       else if (first >= 0 && ++flat > 4) break; }
-    if (first >= 0) R[e] = { road: first + rd, dir: rd }; });                      // road = our half's curb-side boundary cell
+    if (first >= 0) R[e] = { road: first + rd + rd * (mn._blkA || 0), dir: rd }; });   // road = the band's lane edge — the apron pushes the measured face back out to where cars parked before the cut
   return Object.keys(R).length ? mn._road = R : R; };                              // a found-nothing scan isn't worth caching — a fuller localCols may yet see strips
 /* blockTrf — a curbside cruise for the table's parked cars: pull out of the slot, lap the
    right-of-travel lanes, pull back in. The circuit is the MEASURED street (roadProf's lane
@@ -390,6 +423,13 @@ const slotInv = (mn, carW, carL) => { const W = mn.dims[0], D = mn.dims[2],
     return S; };
 const _vehC = {};
 const vehFetch = name => _vehC[name] || (_vehC[name] = fetch(ROUTES.vehicle + name).then(r => r.json()));
+/* notchSpans — the parked spec's curb cuts in composite cells: each programmed pull-in gets
+   a dropped apron spanning the car's length + margin on its edge (fillBlockGround consumes). */
+const notchSpans = parked => Promise.all((parked || []).map(p =>
+  vehFetch(p.name || 'vehicle_490_touring').then(veh => {
+    const carL = veh.dims[2] * (veh.voxelSize || .01) / BLDG_VS;
+    return { e: p.edge, a0: (p.along || 0) - carL / 2 - 2, a1: (p.along || 0) + carL / 2 + 2 }; })
+    .catch(() => null))).then(ns => { const ok = ns.filter(Boolean); return ok.length ? ok : null; });
 const mountParked = (t, miniG, parked) => { const mn = miniG.userData.mini, vs = mn.vs,
       W2 = mn.dims[0], D2 = mn.dims[2], MM = mn._blkM || BLK.M, ib = MM - BLK.SIDE;
   return Promise.all((parked || []).map(p => { const E = PARK_EDGE[p.edge]; if (!E) return null;   // AWAITED — _mountP covers the whole street, extras seat on car roofs at boot
@@ -418,45 +458,46 @@ const mountParked = (t, miniG, parked) => { const mn = miniG.userData.mini, vs =
 /* emitRing — the block table's STATIC street exhibit: the BLKF diorama ground (roads, curbs,
    sidewalks, the empty interior pad) with NO lot stamps. Emitted once for the table's life;
    parked cars mount on it and survive every model swap. `mn.static` keeps it out of the
-   unmount sweep; `_road = {}` pins the flat-scan truth (no raised strips exist) so curbC/
-   slotInv/blockTrf all run the deterministic band law — identical for every core. */
-const emitRing = (t, fill) => { const W2 = BLKF.TILE, H = 4;
+   unmount sweep; `_road = {}` pins the flat-scan truth ONLY when RAISE=0 (raised strips need
+   roadProf's live scan) so curbC/slotInv/blockTrf run the deterministic band law on flat tiles. */
+const emitRing = (t, fill) => { const B = B_of_spec(t), W2 = B.TILE, H = 2 + B.RAISE;
+  return notchSpans(t.spec.parked).then(ncs => {
   const vox = new Uint16Array(W2 * H * W2);
-  const set = (x, z, id) => { vox[x + W2 * (H * z)] = vox[x + W2 * (1 + H * z)] = id; };
-  fillBlockGround(set, 0, 0, { n: 'road', e: 'road', s: 'road', w: 'road' }, 0, BLKF);
-  return emitVox(t, { name: 'street_ring', fill, plate: true, _blkM: BLKF.M, static: true }, W2, H, W2, vox)
-    .then(ringG => { if (ringG) { const mn = ringG.userData.mini; mn._road = {}; t._ringVs = mn.vs; } return ringG; })
-    .catch(e => { (window.__emitErr = window.__emitErr || []).push('ring:' + (e && e.stack || e)); console.warn('CONSTRUCT — ring emit failed:', e); }); };
+  const set = (x, z, id, h = 2) => { for (let y = 0; y < h; y++) vox[x + W2 * (y + H * z)] = id; };
+  fillBlockGround(set, 0, 0, { n: 'road', e: 'road', s: 'road', w: 'road' }, 0, B, ncs);
+  return emitVox(t, { name: 'street_ring', fill, plate: true, _blkM: B.M, _blkA: B.APRON, static: true, grid: true }, W2, H, W2, vox)
+    .then(ringG => { if (ringG) { const mn = ringG.userData.mini; if (!B.RAISE) mn._road = {}; t._ringVs = mn.vs; } return ringG; })   // raised models need roadProf's live scan — the flat pin would lie about the strips
+    .catch(e => { (window.__emitErr = window.__emitErr || []).push('ring:' + (e && e.stack || e)); console.warn('CONSTRUCT — ring emit failed:', e); }); }); };
 /* emitCore — a block model's interior only: its 3×3 lots stamped into the 192-cell core that
    seats inside the table's static ring (same center; _vs pins the ring's voxel size so the
    two minis' cells align 1:1). The swap target — every block model shares the ring's roads. */
-const emitCore = (t, m) => { const BW2 = BLK.BW, slots = m.slots || {};
+const emitCore = (t, m) => { const BW2 = BLK.BW, B = B_of_spec(t), slots = m.slots || {};
   const names = new Set(['empty_land']); Object.values(slots).forEach(n => names.add(n));
-  return Promise.all([...names].map(n => stassetFetch(n).then(f => [n, f]))).then(es => {
+  return Promise.all([...names].map(n => stassetFetch(n).then(f => [n, f]))).then(async es => {
     const files = Object.fromEntries(es);
-    const H = Math.max(2, Math.max(...[...names].map(n => files[n].H)) + 2);             // +2: the slab pair — stamps sit at y+2 flush on the ring's pad
+    const H = Math.max(2, Math.max(...[...names].map(n => files[n].H)) + 2 + B.RAISE); // +2+RAISE: stamp base rides the ring's raised pad
     const vox = new Uint16Array(BW2 * H * BW2);
-    stampSlots(vox, BW2, H, files, slots, 0, 0, { S: BLK.S, BW: BW2, M: 0 });
-    return emitVox(t, { ...m, _vs: t._ringVs, plate: true }, BW2, H, BW2, vox)
+    await stampSlots(vox, BW2, H, files, slots, 0, 0, { S: B.S, BW: BW2, M: 0, RAISE: B.RAISE });
+    return emitVox(t, { ...m, _vs: t._ringVs, plate: true, grid: true }, BW2, H, BW2, vox)
       .then(g => { if (g) g.userData.mini._deps = names; return g; }); })       // live-sync deps = every stasset stamped into this core
     .catch(e => console.warn('CONSTRUCT — block core emit failed:', m.name, e)); };
 /* emitBlock — a 3×3 city block as ONE miniature: the tile recipe + lot stamps merged into a
    single composite at 1:1, tops written back into the host. ROT/SLICE/persistence unchanged.
    The non-ring path — a block composite mounted on a ring-less table (e.g. studio) still
    carries its own streets. */
-const emitBlock = (t, m) => { const W2 = BLKF.TILE, slots = m.slots || {};
+const emitBlock = (t, m) => { const B = B_of_spec(t), W2 = B.TILE, slots = m.slots || {};
   const parked = (t.spec.parked || []).concat(m.parked || []);                 // the street scene is the TABLE's — every block composite carries it; a spec can still add
   const names = new Set(['empty_land']); Object.values(slots).forEach(n => names.add(n));
-  return Promise.all([...names].map(n => stassetFetch(n).then(f => [n, f]))).then(es => {
+  return Promise.all([...names].map(n => stassetFetch(n).then(f => [n, f]))).then(es => notchSpans(parked).then(async ncs => {
     const files = Object.fromEntries(es);
-    const H = Math.max(2, Math.max(...[...names].map(n => files[n].H)) + 2);
+    const H = Math.max(2, Math.max(...[...names].map(n => files[n].H)) + 2 + B.RAISE);
     const vox = (t._voxPool && t._voxPool.length === W2 * H * W2) ? t._voxPool.fill(0) : (t._voxPool = new Uint16Array(W2 * H * W2));
-    const set = (x, z, id) => { vox[x + W2 * (H * z)] = vox[x + W2 * (1 + H * z)] = id; };
-    fillBlockGround(set, 0, 0, { n: 'road', e: 'road', s: 'road', w: 'road', ...(m.seams || {}) }, m.lanes | 0, BLKF);
-    stampSlots(vox, W2, H, files, slots, 0, 0, BLKF);
-    return emitVox(t, { ...m, plate: true, _blkM: BLKF.M }, W2, H, W2, vox)   // composites have full-coverage ground — the flat tops path applies
+    const set = (x, z, id, h = 2) => { for (let y = 0; y < h; y++) vox[x + W2 * (y + H * z)] = id; };
+    fillBlockGround(set, 0, 0, { n: 'road', e: 'road', s: 'road', w: 'road', ...(m.seams || {}) }, m.lanes | 0, B, ncs);
+    await stampSlots(vox, W2, H, files, slots, 0, 0, B);
+    return emitVox(t, { ...m, plate: true, _blkM: B.M, _blkA: B.APRON, grid: true }, W2, H, W2, vox)   // composites have full-coverage ground — the flat tops path applies
       .then(miniG => { if (miniG) miniG.userData.mini._deps = names; return miniG; })   // live-sync deps
-      .then(miniG => miniG ? mountParked(t, miniG, parked).then(() => miniG) : miniG); })   // cars overlay + AWAITED — authored fidelity, never downsampled
+      .then(miniG => miniG ? mountParked(t, miniG, parked).then(() => miniG) : miniG); }))   // cars overlay + AWAITED — authored fidelity, never downsampled
     .catch(e => { (window.__emitErr = window.__emitErr || []).push('block:' + (e && e.stack || e)); console.warn('CONSTRUCT — block emit failed:', m.name, e); }); };
 /* layoutFetch — the live city layout (blocks+seams) is the zone's sole source of truth, cached. */
 const _layoutC = {};
@@ -478,10 +519,10 @@ const emitZone = (t, m) => { const { M, TILE } = BLK, z = m.zone;
     blks.forEach(b => b.buildings.forEach(s => names.add(stName(s))));
     return Promise.all([...names].map(n => stassetFetch(n).then(f => [n, f]))).then(async es => {
       const files = Object.fromEntries(es);
-      const H = 2 + files['empty_land'].H;                                   // buildings moved to sub-minis — the ground
+      const H = 2 + BLK.RAISE + files['empty_land'].H;                       // buildings moved to sub-minis — the ground
       const vox = (t._voxPool && t._voxPool.length === W2 * H * D2) ? t._voxPool.fill(0)   // composite only needs slab+empty_land rows
         : (t._voxPool = new Uint16Array(W2 * H * D2));
-      const set = (x, zz, id) => { vox[x + W2 * (H * zz)] = vox[x + W2 * (1 + H * zz)] = id; };
+      const set = (x, zz, id, h = 2) => { for (let y = 0; y < h; y++) vox[x + W2 * (y + H * zz)] = id; };
       const hAt = (r, c) => (r >= 0 && r < L.hSeamRows.length && c >= 0 && c < L.hSeamRows[r].cells.length) ? L.hSeamRows[r].cells[c] : 'road';
       const vAt = (r, c) => (r >= 0 && r < L.vSeamRows.length && c >= 0 && c < L.vSeamRows[r].cells.length) ? L.vSeamRows[r].cells[c] : 'road';
       const collect = [];                                                  // occupied slots → positions only, no grid write
@@ -491,16 +532,16 @@ const emitZone = (t, m) => { const { M, TILE } = BLK, z = m.zone;
           slots = {}, types = new Set(); b.buildings.forEach((s, i) => { slots[i] = stName(s); types.add(s.type); });   // Unity positions buildings by ARRAY INDEX (slot field is metadata)
         const lanes = (types.has('alley_lane') ? 10 : 0) | (types.has('alley_lane_ns') ? 5 : 0);   // a lane slot IS the cut — the stasset is an empty placeholder; the mouth+cross-section draw in the ground recipe
         fillBlockGround(set, X0, Z0, seams, lanes);
-        stampSlots(vox, W2, H, files, slots, X0, Z0, BLK, true, true, collect);   // zFlip lots + z-mir content — the sub-minis reproduce it as flip:false + zflip
+        await stampSlots(vox, W2, H, files, slots, X0, Z0, BLK, true, true, collect);   // zFlip lots + z-mir content — the sub-minis reproduce it as flip:false + zflip
         if (!(++bi & 3)) await new Promise(r => setTimeout(r)); }   // ~4 blocks per turn
       return emitVox(t, m, W2, H, D2, vox).then(async miniG => {
         if (!miniG) return miniG;
         const mn = miniG.userData.mini, vs = mn.vs;
         mn._deps = names;                                                  // live-sync deps = every stamped stasset
         mn._subs = []; mn._byName = new Map();                             // surgical registry — rebuildDeps restamps per name
-        miniG.add(hitProxy(W2 * vs, 2 * vs, D2 * vs, 0, vs, 0));             // ground plate — roads/lots aim at slab top
+        miniG.add(hitProxy(W2 * vs, (2 + BLK.RAISE) * vs, D2 * vs, 0, (2 + BLK.RAISE) * vs / 2, 0));   // ground plate — spans road-to-lot grade now
         for (const st of collect) { const f = files[st.n];
-          const g = await emitVox(t, { name: st.n, _vs: vs, flip: false, zflip: true, _parent: miniG, _py: 2 * vs, noProxy: true,
+          const g = await emitVox(t, { name: st.n, _vs: vs, flip: false, zflip: true, _parent: miniG, _py: (2 + BLK.RAISE) * vs, noProxy: true,   // ride the raised pad — else foundations sink RAISE below grade
             x: (st.x + st.w / 2 - W2 / 2) * vs, z: (st.z + st.d / 2 - D2 / 2) * vs }, f.W, f.H, f.D, f.vox);
           if (!g) return miniG;                                            // a full remount landed mid-build — it owns the subs
           g.userData.mini._deps = new Set([st.n]); g.userData.mini._stamp = st;
@@ -546,18 +587,22 @@ const emitVox = async (t, m, W, H, D, vox) => {
     if (t._mountGen !== mgen) return null;                                         // swapped mid-scan — attaching now would ghost over the new model
     const miniG = new THREE.Group(); miniG.position.set(ox, m._parent ? (m._py || 0) : tableTop(t), oz); (m._parent || t.g).add(miniG);   // _parent = a sub-mini inside a composite (zone stamps); fresh top otherwise — the boot lift-restore may land mid-emit
     const geo = new THREE.BoxGeometry(1, 1, 1);
-    const clipMin = { value: new THREE.Vector3(-1e9, -1e9, -1e9) }, clipMax = { value: new THREE.Vector3(1e9, 1e9, 1e9) };
+    const clipMin = { value: new THREE.Vector3(-1e9, -1e9, -1e9) }, clipMax = { value: new THREE.Vector3(1e9, 1e9, 1e9) },
+      uVoxGrid = { value: 0 };                                           // the ON-MODEL voxel grid — pad toggles it; all the mini's clip mats share the one uniform
     const mkClipMat = base => { const m = base.clone();                  // per-model clone → own slice uniforms
       m.customProgramCacheKey = () => 'voxclip';                         // identical shader across clones — static key kills the per-draw-call onBeforeCompile.toString() churn
-      m.onBeforeCompile = sh => { sh.uniforms.uVoxClipMin = clipMin; sh.uniforms.uVoxClipMax = clipMax;
+      m.onBeforeCompile = sh => { sh.uniforms.uVoxClipMin = clipMin; sh.uniforms.uVoxClipMax = clipMax; sh.uniforms.uVoxGrid = uVoxGrid;
         sh.vertexShader = sh.vertexShader
-          .replace('#include <common>', '#include <common>\nvarying vec3 vVoxOrigin;')
-          .replace('#include <begin_vertex>', '#include <begin_vertex>\nvVoxOrigin = vec3(instanceMatrix[3]);');
+          .replace('#include <common>', '#include <common>\nvarying vec3 vVoxOrigin;\nvarying vec3 vVoxLocal;')
+          .replace('#include <begin_vertex>', '#include <begin_vertex>\nvVoxOrigin = vec3(instanceMatrix[3]);\nvVoxLocal = position;');
         sh.fragmentShader = sh.fragmentShader
-          .replace('#include <common>', '#include <common>\nvarying vec3 vVoxOrigin;\nuniform vec3 uVoxClipMin;\nuniform vec3 uVoxClipMax;')
+          .replace('#include <common>', '#include <common>\nvarying vec3 vVoxOrigin;\nvarying vec3 vVoxLocal;\nuniform vec3 uVoxClipMin;\nuniform vec3 uVoxClipMax;\nuniform float uVoxGrid;')
           .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
             if (vVoxOrigin.x < uVoxClipMin.x || vVoxOrigin.y < uVoxClipMin.y || vVoxOrigin.z < uVoxClipMin.z ||
-                vVoxOrigin.x >= uVoxClipMax.x || vVoxOrigin.y >= uVoxClipMax.y || vVoxOrigin.z >= uVoxClipMax.z) discard;`); };
+                vVoxOrigin.x >= uVoxClipMax.x || vVoxOrigin.y >= uVoxClipMax.y || vVoxOrigin.z >= uVoxClipMax.z) discard;`)
+          .replace('#include <fog_fragment>', `#include <fog_fragment>
+            if (uVoxGrid > .5) { vec3 ge = step(.42, abs(vVoxLocal));                    // a face-edge fragment has ≥2 local coords
+              if (ge.x + ge.y + ge.z > 1.5) gl_FragColor.rgb *= .55; }`); };             // at the boundary — dark seam per voxel
       return m; };
     const opaque = (ng - ngg) || 1;
     const imParts = Math.max(1, Math.min(8, Math.ceil(opaque / 120e3)));   // split big composites into ≤~120k-instance parts —
@@ -565,20 +610,28 @@ const emitVox = async (t, m, W, H, D, vox) => {
     const opaqMat = mkClipMat(new THREE.MeshLambertMaterial());            // one material for every part — they share clipMin/clipMax,
     for (let i = 0; i < imParts; i++) {                                    // buffer in one ~115ms createBuffer hit; the staggered
       const pm = new THREE.InstancedMesh(geo, opaqMat, Math.ceil(opaque / imParts));
-      pm.count = 0; imP.push(pm); }                                        // reveal below lands each part's upload on its own frame
+      pm.count = 0;
+      pm.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(pm.instanceMatrix.count * 3), 3);   // pre-alloc — the fill writes colors raw
+      imP.push(pm); }                                                      // reveal below lands each part's upload on its own frame
     const imG = new THREE.InstancedMesh(geo, mkClipMat(window.__glassMat), ngg || 1);   // glass capacity = glass count — a
                                                                                      // zone's ng-size glass buffer wasted ~60MB
-    const M = new THREE.Matrix4(), C = new THREE.Color(), dflt = new THREE.Color(.55, .55, .55);
+    imG.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(imG.instanceMatrix.count * 3), 3);
+    const C = new THREE.Color(), _matLin = new Map();                      // palette in working space — setRGB's sRGB→linear
+    const _dfltL = (C.setRGB(.55, .55, .55), [C.r, C.g, C.b]);             // conversion preserved but paid once per material
+    const linOf = id => { let l = _matLin.get(id); if (!l) { const c = BLDG_MAT[id];   // id, not per voxel
+      l = c ? (C.setRGB(c[0], c[1], c[2]), [C.r, C.g, C.b]) : _dfltL; _matLin.set(id, l); } return l; };
+    const wInst = (im, i, px, py, pz, l) => { const a = im.instanceMatrix.array, o = i * 16;   // scale+translate — 7 raw
+      a[o] = vs; a[o + 5] = vs; a[o + 10] = vs; a[o + 12] = px; a[o + 13] = py; a[o + 14] = pz; a[o + 15] = 1;   // writes beat
+      const c = im.instanceColor.array, o3 = i * 3; c[o3] = l[0]; c[o3 + 1] = l[1]; c[o3 + 2] = l[2]; };          // makeScale+2×toArray per voxel
     let no = 0, gi = 0;
     for (let y = 0; y < H; y++) {
       for (let z = 0; z < D; z++) { const rb = W * (y + H * z); for (let x = 0; x < W; x++) {
       const id = vox[rb + x]; if (!id) continue;
       if (!surf(x, y, z, rb + x) || (y === 0 && under(x, z, rb + x))) continue;
-      M.makeScale(vs, vs, vs).setPosition(fx(x) * vs, (y + .5) * vs, fz(z) * vs);
-      const col = BLDG_MAT[id]; C.setRGB(col ? col[0] : .55, col ? col[1] : .55, col ? col[2] : .55);
-      if (BLDG_GLASS.has(id)) { imG.setMatrixAt(gi, M); imG.setColorAt(gi, C); gi++; }
+      const px = fx(x) * vs, py = (y + .5) * vs, pz = fz(z) * vs, l = linOf(id);
+      if (BLDG_GLASS.has(id)) wInst(imG, gi++, px, py, pz, l);
       else { const pm = imP[Math.min(imParts - 1, (no * imParts / opaque) | 0)];
-        pm.setMatrixAt(pm.count, M); pm.setColorAt(pm.count, C); pm.count++; no++; }
+        wInst(pm, pm.count++, px, py, pz, l); no++; }
       } const n = performance.now(); if (n - slot > 8) { slot = n; await tick(); } } }
     imG.count = gi; imP.forEach(p => p.userData.miniVox = true); imG.userData.miniVox = true;   // flag the miniature's instanced walls — rayPruned skips them whole (426K matrix tests per ray)
     if (gi) miniG.add(imG);
@@ -591,14 +644,19 @@ const emitVox = async (t, m, W, H, D, vox) => {
     imP.forEach(p => p.boundingSphere = _bsph); imG.boundingSphere = _bsph;
     if (gy1 >= 0 && !m.noProxy) {                                         // aim proxy = occupied bounds — the dot rests ON the model
       miniG.add(hitProxy(px1 - px0, (gy1 + 1) * vs, pz1 - pz0, (px0 + px1) / 2, (gy1 + 1) * vs / 2, (pz0 + pz1) / 2)); }
+    const gT = m.grid ? new Int16Array(W * D).fill(-1) : null, gI = m.grid ? new Uint8Array(W * D) : null;   // the pad's voxel-grid view — per-column top height + top palette id
     const localCols = [];                                                // grid columns → local offsets + the ys list
     for (let z = 0; z < D; z++) { for (let x = 0; x < W; x++) {
       const ys = colYs[x + W * z]; if (!ys) continue;
+      if (gT) { const k = x + W * z, ty = ys[ys.length - 1]; gT[k] = ty; gI[k] = vox[x + W * (ty + H * z)]; }   // ys ascend — last IS the top; flat cells included (the grid needs the roads)
       if (m.plate && ys.length === 2 && ys[0] === 0 && ys[1] === 1) continue;   // flat ground — the plate writes these tops
       localCols.push({ x, z, dx: fx(x) * vs, dz: fz(z) * vs, ys }); }
       const n = performance.now(); if (n - slot > 8) { slot = n; await tick(); } }
-    miniG.userData.mini = { name: m.name, dims: [W, H, D], vox: ng, scale: vs / BLDG_VS, fill: m.fill, vs, _blkM: m._blkM, static: !!m.static,
-      localCols, plate: m.plate ? { x0: px0, x1: px1, z0: pz0, z1: pz1, y: 1 } : null,
+    miniG.userData.mini = { name: m.name, dims: [W, H, D], vox: ng, scale: vs / BLDG_VS, fill: m.fill, vs, _blkM: m._blkM, _blkA: m._blkA, static: !!m.static,
+      localCols, _grid: gT ? { tops: gT, ids: gI } : null, gridU: uVoxGrid,
+      cellOf: (lx, lz) => { const i = Math.floor(lx / vs + W / 2), j = Math.floor(lz / vs + D / 2);   // centred lattice → cell index (content mirrored by mirX/zflip)
+        return [mirX ? W - 1 - i : i, m.zflip ? D - 1 - j : j]; },
+      plate: m.plate ? { x0: px0, x1: px1, z0: pz0, z1: pz1, y: 1 } : null,
       written: new Set(), spin: 0, topTheta: 0, fx, mirX, axis: 'y',
       slice: { x: [0, W - 1], y: [0, H - 1], z: [0, D - 1] }, clipMin, clipMax };
     if (t._mountGen !== mgen || (m._parent && m._parent.parent !== t.g)) { (m._parent || t.g).remove(miniG); return null; }   // swapped mid-emit — the unflagged group survived mountModel's cleanup (or its parent detached); bail before it writes tops
@@ -705,35 +763,67 @@ const miniSliceReset = () => { const t = padTable(), mdl = t && t.g.children.fin
   if (!mdl || t.spec.noSlice) return; const mn = mdl.userData.mini;
   mn.slice = { x: [0, mn.dims[0] - 1], y: [0, mn.dims[1] - 1], z: [0, mn.dims[2] - 1] };
   miniSyncSlice(mdl); miniSyncTops(t, mdl); miniSettle(t); };
+/* killMini — one mini's full teardown: tops revert to felt (chunked), parked overlays die
+   with their host, the group detaches and its children dispose on the next turn. Shared by
+   mountModel's swap path and rebuildTable's all-in retune. */
+const killMini = (t, c) => {
+  const wr = [...(c.userData.mini.written || [])];
+  (c.userData.mini._subs || []).forEach(s => wr.push(...(s.userData.mini.written || [])));   // zone sub-minis own their own written sets — revert theirs too or they ghost on the felt
+  setTimeout(async () => { for (let i = 0; i < wr.length; i += 16e3) { _miniTopsRevert(t, wr, i, Math.min(i + 16e3, wr.length)); await new Promise(r => setTimeout(r)); } });   // ~250k felt reverts on a zone — chunked across turns
+  for (let i = PLACED.length - 1; i >= 0; i--) if (PLACED[i].g && PLACED[i].g.parent === c) PLACED.splice(i, 1);   // parked overlays die with their model — no ghost hosts
+  const dead = c.children.slice(); t.g.remove(c);                          // detach now; each child's dispose frees on its own
+  dead.forEach(ch => setTimeout(() => { ch.traverse ? ch.traverse(o => { o.dispose && o.dispose(); o.material && o.material.dispose && o.material.dispose(); })
+    : (ch.dispose && ch.dispose(), ch.material && ch.material.dispose && ch.material.dispose()); }, 0)); };      // turn — a zone-sized dispose isn't one ~100ms block
 /* mountModel — the easel's swap verb: unmount the old mini (its tops columns revert to felt),
    mount the catalog spec. models[] always reads as "what's on the table now". */
 const mountModel = (t, mspec) => {
   t._mountGen = (t._mountGen || 0) + 1;                                                // generation — an in-flight emit of a swapped-out model bails instead of ghosting a second composite
-  t.g.children.filter(c => c.userData.mini && !c.userData.mini.static).forEach(c => {  // static minis (the street ring) survive every swap — cars stay parked through it
-    const wr = [...(c.userData.mini.written || [])];
-    (c.userData.mini._subs || []).forEach(s => wr.push(...(s.userData.mini.written || [])));   // zone sub-minis own their own written sets — revert theirs too or they ghost on the felt
-    setTimeout(async () => { for (let i = 0; i < wr.length; i += 16e3) { _miniTopsRevert(t, wr, i, Math.min(i + 16e3, wr.length)); await new Promise(r => setTimeout(r)); } });   // ~250k felt reverts on a zone — chunked across turns
-    for (let i = PLACED.length - 1; i >= 0; i--) if (PLACED[i].g && PLACED[i].g.parent === c) PLACED.splice(i, 1);   // parked overlays die with their model — no ghost hosts
-    const dead = c.children.slice(); t.g.remove(c);                          // detach now; each child's dispose frees on its own
-    dead.forEach(ch => setTimeout(() => { ch.traverse ? ch.traverse(o => { o.dispose && o.dispose(); o.material && o.material.dispose && o.material.dispose(); })
-      : (ch.dispose && ch.dispose(), ch.material && ch.material.dispose && ch.material.dispose()); }, 0)); });      // turn — a zone-sized dispose isn't one ~100ms block
+  t.g.children.filter(c => c.userData.mini && !c.userData.mini.static).forEach(c => killMini(t, c));   // static minis (the street ring) survive every swap — cars stay parked through it
   t.g.children.filter(c => c.userData.mini && c.userData.mini.static).forEach(c => miniSyncTops(t, c));   // the core's revert dropped overlapping keys to felt — restore the ring's tops underneath
   t.spec.models = [mspec];
   const vb = mspec.name && mspec.name.split('__');                                 // mount-driven preview law — a `__`
   if (vb && vb[1]) _previewOf[vb[0]] = mspec.name; else delete _previewOf[mspec.name];   // name staged on ANY mount path
   return (t._mountP = (mspec.zone ? emitZone : mspec.slots ? (t._ringG ? emitCore : emitBlock) : emitBldg)(t, mspec));   // tracked — boot awaits it before extras/fixpoint read tops
 };
-MANIFEST.tables.forEach(spec => { const t = emitTable(spec);
-  const savedLift = +localStorage.getItem('dvm_lift:' + spec.id);           // the pistons remember their reach
-  if (savedLift) t._savedLift = savedLift;                                  // applied in boot AFTER overrides — a rider's saved seat precedes its ride (eval-time calls are still TDZ landmines: liftRiders reaches late-bound helpers)
-  const saved = localStorage.getItem('dvm_model:' + spec.id), cat = spec.catalog || spec.models,
+/* mountTable — the full mount chain: static ring first (streets + parked cars), then the
+   interior core via mountModel. Boot and rebuildTable both ride it — a metric retune IS a
+   re-mount; the saved-model override applies identically either way. */
+const mountTable = t => { const spec = t.spec,
+    saved = localStorage.getItem('dvm_model:' + spec.id), cat = spec.catalog || spec.models,
     pick = cat.find(m => m.name === saved) || spec.models[0];
   if (spec.ring) t._mountP = emitRing(t, pick.fill).then(ringG => {               // the street exhibit is the table's — ring first, cars on it, then the interior core
     if (!ringG) return null;
     t._ringG = ringG;
     return mountParked(t, ringG, spec.parked || [])
       .then(() => mountModel(t, pick)); });                                     // mountModel rewrites t._mountP to the core emit — still the last promise standing
-  else mountModel(t, pick); });
+  else mountModel(t, pick); };
+/* rebuildTable — kill EVERY mini (static ring included — a metric retune repaints streets,
+   not just interiors) then re-run the mount chain. The lab's retune verb; canonical tables
+   never call it (their metrics don't move). */
+const rebuildTable = t => {
+  t._mountGen = (t._mountGen || 0) + 1;
+  t.g.children.filter(c => c.userData.mini).forEach(c => killMini(t, c));
+  t._ringG = null; t._B = null;                                            // geometry bundle re-mints on the next emit
+  mountTable(t); };
+/* tuneTable — the lab's live retune: tune <table> <key> <cells> — writes spec.metrics and
+   rebuilds. Canonical tables refuse: their metrics are the catalog's, not a draft. */
+const tuneTable = (id, k, v) => { const t = TABLES.find(q => q.spec.id === id);
+  if (!t) return 'no table ' + id;
+  if (!t.spec.metrics) return id + ' is canonical — metrics are locked';
+  if (!['side', 'road', 'raise', 'apron'].includes(k)) return 'keys: side road raise apron';
+  t.spec.metrics[k] = +v; rebuildTable(t);
+  if (id === 'lab') try { localStorage.setItem('dvm_lab', JSON.stringify(t.spec.metrics)); } catch {}   // the lab's pin — tuned metrics survive F5
+  return id + ' ' + k + '=' + v + ' — rebuilding'; };
+window.__tune = tuneTable;
+{ const lab = MANIFEST.tables.find(q => q.id === 'lab');                        // dvm_lab — restore the pin at spec mint:
+  try { const s = JSON.parse(localStorage.getItem('dvm_lab') || 'null');        // tuneTable writes, the pad's RST clears it
+    if (s && lab) { const B = { side: [4, 60], road: [10, 200], raise: [0, 12], apron: [0, 20] };   // pad bounds — a corrupt key can't mint a runaway tile
+      for (const k in B) { const v = +s[k]; if (Number.isFinite(v)) lab.metrics[k] = Math.max(B[k][0], Math.min(B[k][1], v)); } }
+  } catch {} }
+MANIFEST.tables.forEach(spec => { const t = emitTable(spec);
+  const savedLift = +localStorage.getItem('dvm_lift:' + spec.id);           // the pistons remember their reach
+  if (savedLift) t._savedLift = savedLift;                                  // applied in boot AFTER overrides — a rider's saved seat precedes its ride (eval-time calls are still TDZ landmines: liftRiders reaches late-bound helpers)
+  mountTable(t); });
 /* ═══ LIVE SYNC — the voxel editor's strokes trickle in over BroadcastChannel('scms-voxel'):
    every pushHistory() posts a vox-delta ({name,dims,ops:[[x,y,z,mid]]}); loads/dim-changes/undo-
    recovery post vox-full ({name,dims,vox:ArrayBuffer}). Messages patch _stCache (the fetch
@@ -765,7 +855,7 @@ const restampZone = async (t, zoneG, name) => { const mn = zoneG.userData.mini, 
     const bl = mn._byName.get(name), bi = bl.indexOf(child); if (bi >= 0) bl.splice(bi, 1);
     zoneG.remove(child);
     setTimeout(() => child.traverse(o => { o.dispose && o.dispose(); o.material && o.material.dispose && o.material.dispose(); }));   // dispose off the hot turn
-    const g = await emitVox(t, { name, _vs: vs, flip: false, zflip: true, _parent: zoneG, _py: 2 * vs, noProxy: true,
+    const g = await emitVox(t, { name, _vs: vs, flip: false, zflip: true, _parent: zoneG, _py: (2 + BLK.RAISE) * vs, noProxy: true,   // same raised seat as the zone emit
       x: (st.x + st.w / 2 - W2 / 2) * vs, z: (st.z + st.d / 2 - D2 / 2) * vs }, f.W, f.H, f.D, f.vox);
     if (!g) return;                                                          // a full remount landed mid-emit — it owns the subs now
     g.userData.mini._deps = new Set([name]); g.userData.mini._stamp = st;
