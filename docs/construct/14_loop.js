@@ -21,11 +21,30 @@ const step = dt => {
 
 let last = performance.now(), _dropT = 0, _dropCache = null, _zf = -1, _ptLast = null,
     _selBoxSig = null;     // dropTarget marched 39 ray-steps at 60Hz —
+/* ── perf probe — `?perf` in the URL or `__perf(1)` samples every frame; `__perf()` dumps a
+   console.table of per-stage avg/max/outlier counts. 'frame' = start-to-start interval;
+   'idle' = browser/compositor time between the last loop marker and the next frame start.
+   ~10 performance.now() calls/frame when armed, one early-return per marker when off. */
+let _pfOn = /[?&]perf/.test(location.search), _pfT = performance.now(), _pfF0 = _pfT;
+const _pfStats = {};
+const _pfRec = (n, d) => { const s = _pfStats[n] || (_pfStats[n] = { n: 0, tot: 0, max: 0, o8: 0, o33: 0 });
+  s.n++; s.tot += d; if (d > s.max) s.max = d; if (d > 8) s.o8++; if (d > 33) s.o33++; };
+const _pfMark = n => { if (!_pfOn) return; const t = performance.now(); _pfRec(n, t - _pfT); _pfT = t; };
+window.__perfStats = _pfStats;
+window.__perf = on => { if (on) { for (const k in _pfStats) delete _pfStats[k];
+    _pfOn = true; _pfF0 = _pfT = performance.now(); return; }
+  _pfOn = false;
+  console.table(Object.keys(_pfStats).map(k => { const s = _pfStats[k];
+    return { stage: k, calls: s.n, avg: +(s.tot / s.n).toFixed(2), max: +s.max.toFixed(1), '>8ms': s.o8, '>33ms': s.o33 }; })); };
+
 const loop = now => {                                                       // the ghost only needs ~15Hz of freshness
   const dt = Math.min(.1, (now - last) / 1000); last = now;
+  if (_pfOn) { const t = performance.now(); _pfRec('idle', t - _pfT); _pfRec('frame', t - _pfF0); _pfF0 = _pfT = t; }
   if (window.__lookStep) window.__lookStep();                             // mouse deltas land once a frame — poll-rate packets fold into one apply
+  _pfMark('input');                                                      // __lookStep + any queued handler time
   placeOn ? flyStep(dt) : step(dt);
   placeStep();
+  _pfMark('move');
   if (placeSel) { const _sig = placeSel.x + ',' + placeSel.z + ',' + placeSel.y0 + ',' + placeSel.rotY;   // selBox only re-bounds when the selection moved — setFromObject traverses every instance each frame
     if (_sig !== _selBoxSig) { _selBoxSig = _sig; selBox.box.setFromObject(placeSel.g); } selBox.visible = true; }
   else { _selBoxSig = null; selBox.visible = false; }
@@ -37,18 +56,22 @@ const loop = now => {                                                       // t
   else { if (placeOn) camera.position.copy(flyPos); else camera.position.set(pos.x, EYE, pos.z);
     camera.rotation.set(0, 0, 0, 'YXZ'); camera.rotation.y = yaw; camera.rotation.x = pitch; }
   camera.updateMatrixWorld();                                            // else every setFromCamera raycast (aim/probes/ghost/hover) reads LAST frame's matrix — a one-frame swim while turning
+  _pfMark('cam');                          // selBox + zoom + camera write
   if (spinning) carG.rotation.y += SPIN_RATE * dt;
   TABLES.forEach(t => t.g.children.forEach(c => { const mn = c.userData.mini;          // the easel turntable —
     if (mn && mn.spin) { c.rotation.y += mn.spin * dt;                                  // tops re-project every ~2.9° (~8.6° for heavy columns — a zone spins smooth, syncs exact on stop). The light threshold was .02 rad (~1.1°) = ~6 syncs/sec at 0.9 rad/s; .05 keeps the visual smoothness at arm's length while cutting the ~700k-op sync by 2.5×.
       if (Math.abs(c.rotation.y - mn.topTheta) > (mn.localCols.length > 1e5 ? .15 : .05)) { mn.topTheta = c.rotation.y;
         if (mn.localCols.length > 1e5) { if (!mn._topsQ) { mn._topsQ = true; miniSyncTopsQ(t, c).finally(() => mn._topsQ = false); } }   // heavy composites sync chunked — a synchronous ~100ms rewrite mid-spin hitches mouse-look; exact tops still land on stop
         else miniSyncTops(t, c); } } }));
+  _pfMark('spin');             // turntable + tops sync
   blockTrf.tick(dt);                                                                  // the block's curbside cruise — pull out, lap, repark
   followers.forEach(f => followStep(f, dt));
   selfStep(dt);
+  _pfMark('npc');                                       // blockTrf + followers + selfStep
   aimStep();
   if (povF) updatePov(dt);                                    // the agent's eyes track whether or not the PiP inset is up
   boundHue(now / 1000);
+  _pfMark('aim');                               // aimStep + updatePov + boundHue
   if (held) {
     camera.getWorldDirection(fwdV);
     held.g.position.set(camera.position.x + fwdV.x * heldD - fwdV.z * .1,
@@ -64,7 +87,8 @@ const loop = now => {                                                       // t
       else ghost.quaternion.identity(); }
   } else ghost.visible = false;
   pickIt = held || placeOn ? null : nearestPick();
-  if (_padHoverDirty) { _padHoverDirty = false; padSetHover(padCursorHit()); }   // cursor-mode hover — once a frame, not per packet
+  if (_padHoverDirty) { _padHoverDirty = false; padSetHover(padCursorHit()); }
+  _pfMark('pick');                       // held + nearestPick + hover
   const kb = kioskProbe(), db = padProbe(), sb = swProbe();                  // unconditional — hover state must not freeze
   promptIt = null;
   if (document.pointerLockElement === el && !placeOn) {
@@ -84,8 +108,11 @@ const loop = now => {                                                       // t
   if (_pt !== _ptLast) { _ptLast = _pt; promptEl.textContent = _pt; promptEl.style.display = _pt ? 'block' : 'none'; }   // DOM writes only on change — textContent churn was GC+layout feed
   window.__compass(camera);
   if (window.__torch.on) window.__torch.aim(camera);
+  _pfMark('hud');   // probes + prompt DOM + compass + torch
   renderer.render(scene, camera);
+  _pfMark('render');
   if (povOn) window.__eyes.pip();   // every frame — the 20Hz-gated draw strobed POV-vs-main on a non-preserved buffer
+  _pfMark('pip');                      // unconditional — next frame's 'idle' measures from here
   requestAnimationFrame(loop);
 };
 
