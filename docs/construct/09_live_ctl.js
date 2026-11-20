@@ -12,23 +12,28 @@ liveEl.textContent = '◉ LIVE'; document.body.appendChild(liveEl);
 const agentEl = document.createElement('div');
 agentEl.style.cssText = 'position:fixed;right:12px;top:32px;color:#ff9d5c;background:rgba(8,8,14,.85);border:1px solid #3a3a4a;padding:3px 7px;font:10px ui-monospace,Consolas,monospace;letter-spacing:.25em;display:none;z-index:6;pointer-events:none';
 agentEl.textContent = '◈ AGENT'; document.body.appendChild(agentEl);
-let cmdAck = 0;
+let cmdAck = 0, _peekErr = null;
 const livePost = () => fetch('/peek', { method: 'POST', headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ t: Date.now(), pos: pos.toArray(), yaw, aimOn, aim: aimWorld.toArray(), held: held && held.name,
     marks: marks.map(m => m.position.toArray()), povOn, cmdAck, placeOn: !!placeOn,
     placed: PLACED.map(p => [p.name, +p.x.toFixed(2), +p.z.toFixed(2), +p.y0.toFixed(2), p.source]),
-    ls: Object.fromEntries(Object.keys(localStorage).filter(k => k.startsWith('dvm_')).map(k => [k.slice(4), localStorage.getItem(k)])),   // full dvm_* dump — restore-path debugging + cross-browser layout sync
+    ls: (() => { const o = {}; let n = 0;                                       // bounded dvm_* dump — a saved zone capture alone can top the server's 256KB peek limit
+      for (const k of Object.keys(localStorage)) { if (!k.startsWith('dvm_')) continue;
+        const v = localStorage.getItem(k); n += v.length;
+        o[k.slice(4)] = n < 200e3 ? v : { len: v.length, head: v.slice(0, 80) }; }   // over budget → size + head preview keeps the debugging info without the bulk
+      return o; })(),
     followers: followers.map(f => ({ char: f.spec.char, order: f.order, pos: f.pos.toArray(), gaze: f.gazeT ? f.gazeT.toArray() : null, possessed: !!f.possessed })) }) })
   .then(r => r.json()).then(r => {
+    if (r && r.err && r.err !== _peekErr) { _peekErr = r.err; console.warn('[peek]', r.err); }   // server rejected — say why once, not per retry
     if (r && r.cmd && r.cmd.seq > cmdAck) {                                    // agent command rode back on the stream
       cmdAck = r.cmd.seq; const A = window.__construct.agent, c = r.cmd;
       if (c.agent === 'gaze') A.gaze(...c.args);
       else if (c.agent === 'go') A.go(...c.args);
       else if (c.agent === 'heel') A.heel();
       else if (c.agent === 'order') A.order(c.args[0]);
-      else if (c.agent === 'emit') { const [n, x, z, ry] = c.args;               // agent-furnished asset — lands + persists like a paste
-        emitAsset(n, { kind: 'item', x: +x || 0, z: +z || 0, rotY: +ry || 0, pickable: true, source: 'extra',
-          seatY: 'auto' }).then(() => placeSave()); }
+      else if (c.agent === 'emit') { const [n, kind, x, z, ry, sc, fit] = c.args;   // agent-furnished asset — kind + scale + wardrobe ride args
+        emitAsset(n, { kind: kind || 'item', x: +x || 0, z: +z || 0, rotY: +ry || 0, pickable: true, source: 'extra',
+          seatY: 'auto', vsScale: +sc || 1, height: +sc || null, fit: fit === undefined ? null : +fit }).then(() => placeSave()); }   // char emits: sc = target height (m), fit = OUTFITS index
       else if (c.agent === 'move') { const [n, x, z, ry] = c.args;               // relocate an existing item — the surface law seats it
         const p = PLACED.find(q => q.name === n && q.source === 'extra') || PLACED.find(q => q.name === n && !q._parked);
         if (p) { const ob = footB(p.lb, p.x, p.z, p.rotY); placeApply(p, +x || 0, +z || 0, ry === undefined ? p.rotY : +ry);
@@ -43,9 +48,10 @@ const livePost = () => fetch('/peek', { method: 'POST', headers: { 'Content-Type
           settleOrphans(p, p.bbox, null, Infinity); refreshSolids(); placeSave(); } }
       else if (c.agent === 'zoom') A.zoom(...c.args);                            // agent POV scope — level 0..1
       else if (c.agent === 'torch') A.torch(...c.args);                          // agent flips the inspection torch
+      else if (c.agent === 'tune') window.__tune && window.__tune(...c.args);    // lab metric retune — side/road/raise in cells, rebuilds the table
       else A.order(c.agent);                                                   // bare order names: wait/goto/follow/post
       const released = c.agent === 'heel' || c.agent === 'follow' || (c.agent === 'order' && c.args[0] === 'follow');
-      if (!['emit', 'move', 'del', 'zoom', 'torch'].includes(c.agent)) followers.forEach(f => f.possessed = !released);   // movement verbs hold the wheel; furniture + camera ops don't
+      if (!['emit', 'move', 'del', 'zoom', 'torch', 'tune'].includes(c.agent)) followers.forEach(f => f.possessed = !released);   // movement verbs hold the wheel; furniture + camera ops don't
     } }).catch(() => {});
 const liveShot = () => { const u = window.__eyes.shot();
   if (window.__torch && window.__torch.on) window.__torch.aim(camera);           // shot() aimed it at povCam — re-aim before the restore render or his light jumps ~1Hz
