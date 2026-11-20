@@ -155,7 +155,7 @@ const stassetFetch = name => { name = _previewOf[name] || name;                 
    instancing, per-column max-height written back into the host's tops. All models on a table share
    the table's declared scale — buildings stay comparable, like a real architect's set. */
 const emitBldg = (t, m) => stassetFetch(m.name)
-  .then(f => emitVox(t, { ...m, grid: true }, f.W, f.H, f.D, f.vox))
+  .then(f => emitVox(t, { ...m, grid: true, _share: true }, f.W, f.H, f.D, f.vox))   // f.vox is cached — the worker gets a copy
   .then(g => { if (g) g.userData.mini._deps = new Set([m.name]); return g; })   // live-sync: the editor's strokes rebuild any mini listing this file
   .catch(e => console.warn('CONSTRUCT — bldg emit failed:', m.name, e));
 /* BLK — the game's per-block terrain contract: slot 64, block interior 192 (3×3 lots),
@@ -541,7 +541,7 @@ const emitZone = (t, m) => { const { M, TILE } = BLK, z = m.zone;
         mn._subs = []; mn._byName = new Map();                             // surgical registry — rebuildDeps restamps per name
         miniG.add(hitProxy(W2 * vs, (2 + BLK.RAISE) * vs, D2 * vs, 0, (2 + BLK.RAISE) * vs / 2, 0));   // ground plate — spans road-to-lot grade now
         for (const st of collect) { const f = files[st.n];
-          const g = await emitVox(t, { name: st.n, _vs: vs, flip: false, zflip: true, _parent: miniG, _py: (2 + BLK.RAISE) * vs, noProxy: true,   // ride the raised pad — else foundations sink RAISE below grade
+          const g = await emitVox(t, { name: st.n, _vs: vs, flip: false, zflip: true, _parent: miniG, _py: (2 + BLK.RAISE) * vs, noProxy: true, _share: true,   // ride the raised pad — else foundations sink RAISE below grade
             x: (st.x + st.w / 2 - W2 / 2) * vs, z: (st.z + st.d / 2 - D2 / 2) * vs }, f.W, f.H, f.D, f.vox);
           if (!g) return miniG;                                            // a full remount landed mid-build — it owns the subs
           g.userData.mini._deps = new Set([st.n]); g.userData.mini._stamp = st;
@@ -555,37 +555,46 @@ const emitZone = (t, m) => { const { M, TILE } = BLK, z = m.zone;
    interior-bottom voxels (y=0 under full cover — their only exposed face is the model's unseen
    underside) and, with m.plate, flat [0,1] columns skip localCols (the ground plate writes its
    own rotated-rect tops — building columns stay per-column for spin/slice fidelity). */
+/* _emitScanJob — one in-flight scan per table: a newer emit terminates the stale worker
+   rather than queueing behind it. Falls back to the same function inline when Worker
+   is unavailable (emit_worker.js dual-loads as a classic script → window.emitScan). */
+const _emitScanJob = (t, payload, xfer) => new Promise((res, rej) => {
+  if (t._emitW) { t._emitW.terminate(); t._emitW = null; }
+  let w = null;
+  try { w = t._emitW = new Worker('construct/emit_worker.js'); } catch (e) { w = null; }
+  if (!w) { try { res(emitScan(payload)); } catch (e) { rej(e); } return; }
+  w.onmessage = e => { if (t._emitW === w) t._emitW = null; w.terminate(); res(e.data); };
+  w.onerror = e => { if (t._emitW === w) t._emitW = null; w.terminate(); rej(e.error || new Error(e.message || 'emit worker failed')); };
+  try { w.postMessage(payload, xfer); } catch (e) { rej(e); }
+});
+let _LPK = null;
+const _linPalPack = () => _LPK || (_LPK = (() => {                        // worker payload: palette in working space — one
+  const pal = {}, C = new THREE.Color();                                  // setRGB per id, the same values the old linOf made
+  for (const id in BLDG_MAT) { const c = BLDG_MAT[id]; C.setRGB(c[0], c[1], c[2]); pal[id] = [C.r, C.g, C.b]; }
+  const glass = new Uint8Array(256); BLDG_GLASS.forEach(id => glass[id] = 1);
+  C.setRGB(.55, .55, .55); return { pal, dflt: [C.r, C.g, C.b], glass }; })());
 const emitVox = async (t, m, W, H, D, vox) => {
     const vs = m._vs || (m.fill ? (m.fill * t.spec.size) / Math.max(W, D) : BLDG_VS * t.spec.scale);   // fill: span = fill × table size (_vs pins a core to its ring's scale)
     const mgen = t._mountGen, ox = m.x || 0, oz = m.z || 0;                          // mount generation at entry — staleness test for mid-emit swaps
     const mirX = m.flip !== false;                                       // .stasset grids are authored under Unity truth —
     const fx = x => mirX ? (W - 1 - x) - W / 2 + .5 : x - W / 2 + .5;      // the editor's UNITY VIEW is scale.x=-1, so a right-handed render mirrors x to match (opt out with flip:false)
     const fz = z => m.zflip ? (D - 1 - z) - D / 2 + .5 : z - D / 2 + .5;   // zone sub-stamps: raw position + z-mirrored content (the Unity L/R flip, same as the old composite stamp)
-    const WH = W * H;                                                      // hoisted stride — the trace showed ~370ms of self time
-    const surf = (x, y, z, b) =>                                           // inside the `at` closure alone (6 bounds checks + call cost
-      !((x > 0 ? vox[b - 1] : 0) && (x < W - 1 ? vox[b + 1] : 0) &&        //  per neighbor, ~7 calls/voxel). Direct row-index reads
-        (y > 0 ? vox[b - W] : 0) && (y < H - 1 ? vox[b + W] : 0) &&        //  with edge guards: OOB reads 0, same contract.
-        (z > 0 ? vox[b - WH] : 0) && (z < D - 1 ? vox[b + WH] : 0));
-    const under = (x, z, b0) =>                                            // interior-bottom: exposed face is only the unseen underside
-      (x > 0 ? vox[b0 - 1] : 0) && (x < W - 1 ? vox[b0 + 1] : 0) &&        // (b0 = the caller's y=0 index — same guards as surf)
-      (z > 0 ? vox[b0 - WH] : 0) && (z < D - 1 ? vox[b0 + WH] : 0) &&
-      (H > 1 ? vox[b0 + W] : 0);
     const tick = () => new Promise(r => setTimeout(r));
     await tick();                                                        // load-order law: boot emits run mid-script-eval —
                                                                          // a macrotask defers the tail past ALL sibling files
                                                                          // (miniSettle→inB lives in 13_place.js — a microtask tail hit TDZ)
-    let ng = 0, ngg = 0, gx0 = W, gx1 = -1, gz0 = D, gz1 = -1, gy1 = -1;
-    const colN = new Uint16Array(W * D), colLast = new Int16Array(W * D).fill(-1);   // per-column voxel count + top y —
-                                                                                     // typed arrays kill the array-per-column GC feed
-    let slot = performance.now();                                        // work-budget yields — ~8ms wall-clock slices self-size
-    for (let y = 0; y < H; y++) {                                        // to the machine (a fixed 3M-cell budget ran 30–150ms
-      for (let z = 0; z < D; z++) { const rb = W * (y + H * z); for (let x = 0; x < W; x++) {
-      const id = vox[rb + x]; if (!id) continue;                         // per chunk in the trace — past every frame budget)
-      if (x < gx0) gx0 = x; if (x > gx1) gx1 = x; if (z < gz0) gz0 = z; if (z > gz1) gz1 = z; if (y > gy1) gy1 = y;
-      const ck = x + W * z; colN[ck]++; colLast[ck] = y;                 // ys ascend — last IS the top; the ys list rebuilds below only for kept columns
-      if (surf(x, y, z, rb + x) && !(y === 0 && under(x, z, rb + x))) { ng++; if (BLDG_GLASS.has(id)) ngg++; }
-      } const n = performance.now(); if (n - slot > 8) { slot = n; await tick(); } } }
+    /* the whole scan+fill+column pack runs in a Worker — surf/under tests, instance
+       buffers, grid tops, packed columns all return as transferable typed arrays.
+       vox transfers unless it is a shared stasset or pool buffer (m._share/pool get
+       a slice — the cache outlives the emit; a transferred pool just re-allocs). */
+    const _pk = _linPalPack();
+    const pkVox = m._share ? vox.slice() : vox;
+    if (!m._share && vox === t._voxPool) t._voxPool = null;                // handed to the worker — pool re-allocs next emit
+    const scan = await _emitScanJob(t, { vox: pkVox, W, H, D,
+      plate: !!m.plate, grid: !!m.grid, vs, mirX, zflip: !!m.zflip,
+      pal: _pk.pal, dflt: _pk.dflt, glassLUT: _pk.glass, maxPart: 120e3, maxParts: 8 }, [pkVox.buffer]);
     if (t._mountGen !== mgen) return null;                                         // swapped mid-scan — attaching now would ghost over the new model
+    const { ng, ngg, gx0, gx1, gz0, gz1, gy1, cap } = scan;
     const miniG = new THREE.Group(); miniG.position.set(ox, m._parent ? (m._py || 0) : tableTop(t), oz); (m._parent || t.g).add(miniG);   // _parent = a sub-mini inside a composite (zone stamps); fresh top otherwise — the boot lift-restore may land mid-emit
     const geo = new THREE.BoxGeometry(1, 1, 1);
     const clipMin = { value: new THREE.Vector3(-1e9, -1e9, -1e9) }, clipMax = { value: new THREE.Vector3(1e9, 1e9, 1e9) },
@@ -605,37 +614,17 @@ const emitVox = async (t, m, W, H, D, vox) => {
             if (uVoxGrid > .5) { vec3 ge = step(.42, abs(vVoxLocal));                    // a face-edge fragment has ≥2 local coords
               if (ge.x + ge.y + ge.z > 1.5) gl_FragColor.rgb *= .55; }`); };             // at the boundary — dark seam per voxel
       return m; };
-    const opaque = (ng - ngg) || 1;
-    const imParts = Math.max(1, Math.min(8, Math.ceil(opaque / 120e3)));   // split big composites into ≤~120k-instance parts —
-    const imP = [];                                                        // a monolithic InstancedMesh uploads its whole matrix
-    const opaqMat = mkClipMat(new THREE.MeshLambertMaterial());            // one material for every part — they share clipMin/clipMax,
-    for (let i = 0; i < imParts; i++) {                                    // buffer in one ~115ms createBuffer hit; the staggered
-      const pm = new THREE.InstancedMesh(geo, opaqMat, Math.ceil(opaque / imParts));
-      pm.count = 0;
-      pm.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(pm.instanceMatrix.count * 3), 3);   // pre-alloc — the fill writes colors raw
-      imP.push(pm); }                                                      // reveal below lands each part's upload on its own frame
-    const imG = new THREE.InstancedMesh(geo, mkClipMat(window.__glassMat), ngg || 1);   // glass capacity = glass count — a
+    const imP = [], opaqMat = mkClipMat(new THREE.MeshLambertMaterial());  // one material for every part — they share clipMin/clipMax,
+    scan.parts.forEach(p => { const pm = new THREE.InstancedMesh(geo, opaqMat, 1);
+      pm.instanceMatrix = new THREE.InstancedBufferAttribute(p.mat, 16);   // worker-filled — adopted zero-copy (transferred)
+      pm.instanceColor = new THREE.InstancedBufferAttribute(p.col, 3);
+      pm.count = p.n; pm.userData.miniVox = true; imP.push(pm); });
+    const imG = new THREE.InstancedMesh(geo, mkClipMat(window.__glassMat), 1);   // glass capacity = glass count — a
                                                                                      // zone's ng-size glass buffer wasted ~60MB
-    imG.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(imG.instanceMatrix.count * 3), 3);
-    const C = new THREE.Color(), _matLin = new Map();                      // palette in working space — setRGB's sRGB→linear
-    const _dfltL = (C.setRGB(.55, .55, .55), [C.r, C.g, C.b]);             // conversion preserved but paid once per material
-    const linOf = id => { let l = _matLin.get(id); if (!l) { const c = BLDG_MAT[id];   // id, not per voxel
-      l = c ? (C.setRGB(c[0], c[1], c[2]), [C.r, C.g, C.b]) : _dfltL; _matLin.set(id, l); } return l; };
-    const wInst = (im, i, px, py, pz, l) => { const a = im.instanceMatrix.array, o = i * 16;   // scale+translate — 7 raw
-      a[o] = vs; a[o + 5] = vs; a[o + 10] = vs; a[o + 12] = px; a[o + 13] = py; a[o + 14] = pz; a[o + 15] = 1;   // writes beat
-      const c = im.instanceColor.array, o3 = i * 3; c[o3] = l[0]; c[o3 + 1] = l[1]; c[o3 + 2] = l[2]; };          // makeScale+2×toArray per voxel
-    let no = 0, gi = 0;
-    for (let y = 0; y < H; y++) {
-      for (let z = 0; z < D; z++) { const rb = W * (y + H * z); for (let x = 0; x < W; x++) {
-      const id = vox[rb + x]; if (!id) continue;
-      if (!surf(x, y, z, rb + x) || (y === 0 && under(x, z, rb + x))) continue;
-      const px = fx(x) * vs, py = (y + .5) * vs, pz = fz(z) * vs, l = linOf(id);
-      if (BLDG_GLASS.has(id)) wInst(imG, gi++, px, py, pz, l);
-      else { const pm = imP[Math.min(imParts - 1, (no * imParts / opaque) | 0)];
-        wInst(pm, pm.count++, px, py, pz, l); no++; }
-      } const n = performance.now(); if (n - slot > 8) { slot = n; await tick(); } } }
-    imG.count = gi; imP.forEach(p => p.userData.miniVox = true); imG.userData.miniVox = true;   // flag the miniature's instanced walls — rayPruned skips them whole (426K matrix tests per ray)
-    if (gi) miniG.add(imG);
+    imG.instanceMatrix = new THREE.InstancedBufferAttribute(scan.gMat, 16);
+    imG.instanceColor = new THREE.InstancedBufferAttribute(scan.gCol, 3);
+    imG.count = ngg; imG.userData.miniVox = true;                          // flag the miniature's instanced walls — rayPruned skips them whole (426K matrix tests per ray)
+    if (ngg) miniG.add(imG);
     imP.forEach((p, i) => { p.visible = !i; miniG.add(p); });              // part 0 pops with the mount; the rest reveal
     const px0 = (Math.min(fx(gx0), fx(gx1)) - .5) * vs, px1 = (Math.max(fx(gx0), fx(gx1)) + .5) * vs,
       pz0 = (Math.min(fz(gz0), fz(gz1)) - .5) * vs, pz1 = (Math.max(fz(gz0), fz(gz1)) + .5) * vs;
@@ -645,19 +634,16 @@ const emitVox = async (t, m, W, H, D, vox) => {
     imP.forEach(p => p.boundingSphere = _bsph); imG.boundingSphere = _bsph;
     if (gy1 >= 0 && !m.noProxy) {                                         // aim proxy = occupied bounds — the dot rests ON the model
       miniG.add(hitProxy(px1 - px0, (gy1 + 1) * vs, pz1 - pz0, (px0 + px1) / 2, (gy1 + 1) * vs / 2, (pz0 + pz1) / 2)); }
-    const gT = m.grid ? new Int16Array(W * D).fill(-1) : null, gI = m.grid ? new Uint8Array(W * D) : null;   // the pad's voxel-grid view — per-column top height + top palette id
-    const localCols = [];                                                // grid columns → local offsets + the ys list
-    for (let z = 0; z < D; z++) { for (let x = 0; x < W; x++) {
-      const k = x + W * z, n = colN[k]; if (!n) continue;
-      const ty = colLast[k];
-      if (gT) { gT[k] = ty; gI[k] = vox[x + W * (ty + H * z)]; }         // flat cells included (the grid needs the roads)
-      if (m.plate && n === 2 && ty === 1) continue;                    // flat ground [0,1] — the plate writes these tops
-      const ys = new Array(n); let yi = 0; const cb = x + W * H * z;
-      for (let y = 0; y <= ty; y++) if (vox[cb + W * y]) ys[yi++] = y; // rebuild only the kept column's list — flat columns never paid an array
-      localCols.push({ x, z, dx: fx(x) * vs, dz: fz(z) * vs, ys }); }
-      const n = performance.now(); if (n - slot > 8) { slot = n; await tick(); } }
+    const localCols = [];                                                // grid columns → local offsets + packed ys views
+    const colIdx = scan.colIdx, colDx = scan.colDx, colDz = scan.colDz,
+      colCounts = scan.colCounts, colYsFlat = scan.colYsFlat;
+    let yo = 0, slot = performance.now();
+    for (let i = 0; i < colIdx.length; i++) { const k = colIdx[i], n = colCounts[i];
+      localCols.push({ x: k % W, z: (k / W) | 0, dx: colDx[i], dz: colDz[i],
+        ys: colYsFlat.subarray(yo, yo + n) }); yo += n;                  // Int16Array view — for..of/Math.max.apply both safe
+      if (!(i & 8191)) { const n2 = performance.now(); if (n2 - slot > 8) { slot = n2; await tick(); } } }
     miniG.userData.mini = { name: m.name, dims: [W, H, D], vox: ng, scale: vs / BLDG_VS, fill: m.fill, vs, _blkM: m._blkM, _blkA: m._blkA, static: !!m.static,
-      localCols, _grid: gT ? { tops: gT, ids: gI } : null, gridU: uVoxGrid,
+      localCols, _grid: scan.gT ? { tops: scan.gT, ids: scan.gI } : null, gridU: uVoxGrid,
       cellOf: (lx, lz) => { const i = Math.floor(lx / vs + W / 2), j = Math.floor(lz / vs + D / 2);   // centred lattice → cell index (content mirrored by mirX/zflip)
         return [mirX ? W - 1 - i : i, m.zflip ? D - 1 - j : j]; },
       plate: m.plate ? { x0: px0, x1: px1, z0: pz0, z1: pz1, y: 1 } : null,
@@ -859,7 +845,7 @@ const restampZone = async (t, zoneG, name) => { const mn = zoneG.userData.mini, 
     const bl = mn._byName.get(name), bi = bl.indexOf(child); if (bi >= 0) bl.splice(bi, 1);
     zoneG.remove(child);
     setTimeout(() => child.traverse(o => { o.dispose && o.dispose(); o.material && o.material.dispose && o.material.dispose(); }));   // dispose off the hot turn
-    const g = await emitVox(t, { name, _vs: vs, flip: false, zflip: true, _parent: zoneG, _py: (2 + BLK.RAISE) * vs, noProxy: true,   // same raised seat as the zone emit
+    const g = await emitVox(t, { name, _vs: vs, flip: false, zflip: true, _parent: zoneG, _py: (2 + BLK.RAISE) * vs, noProxy: true, _share: true,   // same raised seat as the zone emit
       x: (st.x + st.w / 2 - W2 / 2) * vs, z: (st.z + st.d / 2 - D2 / 2) * vs }, f.W, f.H, f.D, f.vox);
     if (!g) return;                                                          // a full remount landed mid-emit — it owns the subs now
     g.userData.mini._deps = new Set([name]); g.userData.mini._stamp = st;
