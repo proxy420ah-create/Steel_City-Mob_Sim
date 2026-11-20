@@ -1,35 +1,17 @@
-// _perf_check.mjs — work-per-frame instrumentation: wrap evalPose/upload/renderer.render
-// once, then zero counters per config and read calls+ms over a 3s window.
+// _perf_check.mjs — steady-state loop budget probe. Boots ?perf, then simulates
+// continuous mouse-look (yaw sweep) while a heavy mini spins — exactly the case
+// the user reports as stuttery. Dumps __perfStats after ~8s.
 import { bootCdp } from './_cdp.mjs';
-const { evl, sleep, check, finish } = await bootCdp();
-await evl(`localStorage.removeItem('dvm_followers'); sessionStorage.clear()`);
-
-const instrument = () => evl(`
-window.__perf = { evals: 0, evalMs: 0, uploads: 0, uploadMs: 0, renders: 0, renderMs: 0 };
-followers.forEach(f => { if (f.__wrapped) return; f.__wrapped = true;
-  const e = f.E.evalPose, u = f.upload;
-  f.E = { N: f.E.N, evalPose: (...a) => { const t = performance.now(); const r = e(...a); __perf.evalMs += performance.now() - t; __perf.evals++; return r; } };
-  f.upload = (...a) => { const t = performance.now(); const r = u(...a); __perf.uploadMs += performance.now() - t; __perf.uploads++; return r; }; });
-if (!window.__rWrapped) { window.__rWrapped = true; const R = renderer.render.bind(renderer);
-  renderer.render = (...a) => { const t = performance.now(); const r = R(...a); __perf.renderMs += performance.now() - t; __perf.renders++; return r; }; } true`);
-
-const read = async label => { await evl(`__perf = { evals: 0, evalMs: 0, uploads: 0, uploadMs: 0, renders: 0, renderMs: 0 }`);
-  await sleep(3000); const d = JSON.parse(await evl(`JSON.stringify(__perf)`)), s = 3;
-  console.log(label.padEnd(9), 'evalPose:', d.evals, `(${(d.evalMs / s).toFixed(0)}ms/s)`,
-    'uploads:', d.uploads, `(${(d.uploadMs / s).toFixed(0)}ms/s)`,
-    'renders:', d.renders, `(${(d.renderMs / s).toFixed(0)}ms/s)`); return d; };
-
-check('construct live', !!(await evl(`typeof emitChar === 'function'`)));
-await evl(`emitChar({ char: 'CHAIR1', order: 'follow', x: pos.x + .8, z: pos.z + .4, yaw: 0 })`);
-await evl(`emitChar({ char: 'DESIGNER1', order: 'follow', x: pos.x - .8, z: pos.z + .4, yaw: 0 })`);
-await sleep(1500);
-console.log('followers:', await evl(`followers.length`));
-await instrument(); await read('2 NEAR');
-
-await evl(`followers.forEach(f => { f.pos.x = pos.x + 12; f.pos.z = pos.z + 12; f.CH.position.set(f.pos.x, 0, f.pos.z); })`);
-await read('2 FAR');
-
-await evl(`followers.forEach(f => { f.pos.x = pos.x + .8; f.pos.z = pos.z + .4; f.CH.position.set(f.pos.x, 0, f.pos.z); }); window.__eyes.show()`);
-await read('2 + POV');
-await evl(`window.__eyes.hide(); localStorage.removeItem('dvm_followers')`);
+const { evl, sleep, check, finish } = await bootCdp({ q: 'perf' });
+await sleep(4000);                                        // boot mounts settle
+await evl(`__perf(1)`);                                   // reset counters post-boot
+await evl(`(() => { const m = TABLES.map(t => t.g.children.find(c => c.userData.mini && !c.userData.mini.static)).find(Boolean);
+  if (m) m.userData.mini.spin = .9;                       // spin the heaviest mounted composite
+  window.__simT = setInterval(() => { yaw += .015; }, 16);   // ~57°/s pan — continuous look-around
+  return m && m.userData.mini.localCols ? m.userData.mini.localCols.length : -1; })()`);
+await sleep(8000);
+const stats = await evl(`Object.fromEntries(Object.keys(__perfStats).map(k => { const s = __perfStats[k];
+  return [k, { calls: s.n, avg: +(s.tot / s.n).toFixed(2), max: +s.max.toFixed(1), '>8ms': s.o8, '>33ms': s.o33 }]; }))`);
+await evl(`clearInterval(__simT); TABLES.forEach(t => t.g.children.forEach(c => { if (c.userData.mini) c.userData.mini.spin = 0; }))`);
+console.table ? console.table(stats) : console.log(JSON.stringify(stats, null, 1));
 finish();
