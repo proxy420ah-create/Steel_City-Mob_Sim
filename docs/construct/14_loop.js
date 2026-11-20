@@ -36,10 +36,13 @@ const loop = now => {                                                       // t
   if (camLock) { camera.position.copy(camLock.p); camera.lookAt(camLock.t); }
   else { if (placeOn) camera.position.copy(flyPos); else camera.position.set(pos.x, EYE, pos.z);
     camera.rotation.set(0, 0, 0, 'YXZ'); camera.rotation.y = yaw; camera.rotation.x = pitch; }
+  camera.updateMatrixWorld();                                            // else every setFromCamera raycast (aim/probes/ghost/hover) reads LAST frame's matrix — a one-frame swim while turning
   if (spinning) carG.rotation.y += SPIN_RATE * dt;
   TABLES.forEach(t => t.g.children.forEach(c => { const mn = c.userData.mini;          // the easel turntable —
     if (mn && mn.spin) { c.rotation.y += mn.spin * dt;                                  // tops re-project every ~2.9° (~8.6° for heavy columns — a zone spins smooth, syncs exact on stop). The light threshold was .02 rad (~1.1°) = ~6 syncs/sec at 0.9 rad/s; .05 keeps the visual smoothness at arm's length while cutting the ~700k-op sync by 2.5×.
-      if (Math.abs(c.rotation.y - mn.topTheta) > (mn.localCols.length > 1e5 ? .15 : .05)) { mn.topTheta = c.rotation.y; miniSyncTops(t, c); } } }));
+      if (Math.abs(c.rotation.y - mn.topTheta) > (mn.localCols.length > 1e5 ? .15 : .05)) { mn.topTheta = c.rotation.y;
+        if (mn.localCols.length > 1e5) { if (!mn._topsQ) { mn._topsQ = true; miniSyncTopsQ(t, c).finally(() => mn._topsQ = false); } }   // heavy composites sync chunked — a synchronous ~100ms rewrite mid-spin hitches mouse-look; exact tops still land on stop
+        else miniSyncTops(t, c); } } }));
   blockTrf.tick(dt);                                                                  // the block's curbside cruise — pull out, lap, repark
   followers.forEach(f => followStep(f, dt));
   selfStep(dt);
