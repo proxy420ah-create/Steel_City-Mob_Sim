@@ -39,7 +39,7 @@ addEventListener('mousedown', e => {
       const r = padUvRegion(h.uv); if (r) padPress(r, h.uv); }
     return; }
   if (placeOn) { if (e.button === 0) {
-    const pk = placePick();
+    const pk = placePick(e.ctrlKey || e.metaKey);                             // CTRL+LMB opts into grabbing stage hosts (tables) — plain LMB treats them as backdrop
     if (pk) { if (placeSel !== pk.p) placeGrab(pk.p, pk);              // fresh pick — commits whatever was held
       else { const cy = Math.cos(pk.p.rotY), sy = Math.sin(pk.p.rotY); // re-grab the held item → move the anchor to THIS touch
         pk.p._grab = { lx: (pk.x - pk.p.x) * cy - (pk.z - pk.p.z) * sy, lz: (pk.x - pk.p.x) * sy + (pk.z - pk.p.z) * cy }; }
@@ -66,8 +66,19 @@ addEventListener('keydown', e => { keys[(e.key || '').toLowerCase()] = true;
   if (placeOn) {
     if ((e.ctrlKey || e.metaKey) && k === 'z') { placeUndoDo(); e.preventDefault(); return; }
     if (k === 'escape') { if (placeSel) placeRevert(); else placeToggle(false); return; }   // selection → back out; nothing → leave
-    const p = placeSel, st = e.shiftKey ? .05 : .005;                                      // the Commission's fine/coarse contract
-    if (k === 'arrowleft' && p) { placeApply(p, p.x - st, p.z, p.rotY); }
+    const p = placeSel;
+    const cell = p && placeCell ? cellHost(p) : null;
+    const st = e.altKey ? .001 : e.shiftKey ? .05 : (placeCell ? (cell ? cell.vs : .001) : .005);   // ALT = 1mm fine nudge; cell stage: host pitch (or 1mm off-lattice) — shift keeps the coarse contract
+    if (k === 'n') { placeCell = !placeCell;
+      placeSay(placeCell ? 'CELL-FINE — 1 cell · 1° · 1 vox per press' : 'CELL-FINE OFF'); }
+    else if (cell && 'arrowleft arrowright arrowup arrowdown'.includes(k)) {               // walk the host's own lattice — snap kills drift
+      const th = cellAxes(cell), c2 = Math.cos(th), s2 = Math.sin(th), vs = cell.vs;
+      const dx = (k === 'arrowright' ? c2 : k === 'arrowleft' ? -c2 : 0) + (k === 'arrowdown' ? s2 : k === 'arrowup' ? -s2 : 0);
+      const dz = (k === 'arrowright' ? -s2 : k === 'arrowleft' ? s2 : 0) + (k === 'arrowdown' ? c2 : k === 'arrowup' ? -c2 : 0);
+      const sn = cellSnap(cell, p.x + dx * vs, p.z + dz * vs), cs = cellSeat(cell, sn.x, sn.z);
+      if (cs != null) p.y0 = cs;
+      placeApply(p, sn.x, sn.z, p.rotY); }
+    else if (k === 'arrowleft' && p) { placeApply(p, p.x - st, p.z, p.rotY); }
     else if (k === 'arrowright' && p) { placeApply(p, p.x + st, p.z, p.rotY); }
     else if (k === 'arrowup' && p) { placeApply(p, p.x, p.z - st, p.rotY); }
     else if (k === 'arrowdown' && p) { placeApply(p, p.x, p.z + st, p.rotY); }
@@ -75,9 +86,10 @@ addEventListener('keydown', e => { keys[(e.key || '').toLowerCase()] = true;
     else if (k === 'pagedown' && p) { p.y0 -= st; p.g.position.y = p.y0; if (p.mount) p.mount.y = p.y0; }
     else if (k === 'b' && p) { const skip = new Set([p, ...(p._carry || []).map(c => c.q), held]);
       p.mount = null; p.g.rotation.set(0, p.rotY, 0);                                    // a re-seat unsticks a wall mount first
-      p.y0 = placeSurf(p.x, p.z, skip, { surfOnly: p.surf }); p.g.position.y = p.y0; }      // re-seat on the measured surface — furniture never lands on a rider
-    else if ((k === ',' || k === '[') && p) { placeApply(p, p.x, p.z, p.rotY + Math.PI / 12); }
-    else if ((k === '.' || k === ']') && p) { placeApply(p, p.x, p.z, p.rotY - Math.PI / 12); }
+      const cs = cell ? cellSeat(cell, p.x, p.z) : null;
+      p.y0 = cs != null ? cs : placeSurf(p.x, p.z, skip, { surfOnly: p.surf }); p.g.position.y = p.y0; }   // cell mode seats on the exact column top
+    else if ((k === ',' || k === '[') && p) { placeApply(p, p.x, p.z, p.rotY + ((e.altKey || placeCell) && !e.shiftKey ? Math.PI / 180 : Math.PI / 12)); }
+    else if ((k === '.' || k === ']') && p) { placeApply(p, p.x, p.z, p.rotY - ((e.altKey || placeCell) && !e.shiftKey ? Math.PI / 180 : Math.PI / 12)); }
     else if (k === 'enter' && p) { placeDrop(); }                                           // stage-1 accept — deselect, stay in free cam
     else if (k === 'c') { if (!window.__place.copy()) placeSay('SELECT AN ITEM FIRST'); }
     else if (k === 'v') { placePaste(); }

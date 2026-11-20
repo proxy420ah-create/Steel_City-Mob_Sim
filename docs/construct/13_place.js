@@ -12,7 +12,7 @@ let placeOn = false, placeSel = null, placeClip = null;
 const flyPos = new THREE.Vector3(0, .6, -1), _fd = new THREE.Vector3();
 const placeEl = document.createElement('div');
 placeEl.style.cssText = 'position:fixed;left:50%;bottom:14px;transform:translateX(-50%);background:rgba(8,8,14,.92);border:1px solid #6a6a92;color:#e2dbc2;padding:5px 12px;font:10px ui-monospace,Consolas,monospace;letter-spacing:.1em;display:none;z-index:8;pointer-events:none;white-space:nowrap';
-const PLACE_LEGEND = 'PLACE — WASD/QE fly · ALT crawl · LMB select · SHIFT+LMB drag · ARROWS move (SHIFT coarse) · , . rotate · PgUp/Dn height · B re-seat · P pendant · ENTER confirm · ESC revert · C copy · V paste · DEL remove · Z scope · ^Z undo · X exit';
+const PLACE_LEGEND = 'PLACE — WASD/QE fly · ALT crawl · LMB select · CTRL+LMB table · SHIFT+LMB drag · ARROWS move (SHIFT coarse · ALT 1mm) · , . rotate (ALT 1°) · PgUp/Dn height · B re-seat · N cell-fine · P pendant · ENTER confirm · ESC revert · C copy · V paste · DEL remove · Z scope · ^Z undo · X exit';
 placeEl.textContent = PLACE_LEGEND;
 document.body.appendChild(placeEl);
 const placeStat = document.createElement('div');
@@ -36,6 +36,8 @@ const placeSave = () => {                                                       
     if (!p.mount) o.y = +p.y0.toFixed(3);                                       // the placed seat height — the restore cap honors it (mounts carry their own y)
     const tl = tiltOf(p); if (tl) o.tilt = tl;
     if (p.mount) o.mount = { x: +p.mount.x.toFixed(3), y: +p.mount.y.toFixed(3), z: +p.mount.z.toFixed(3), n: p.mount.n };
+    if (p.vsScale && p.vsScale !== 1) o.vsScale = p.vsScale;                   // scaled miniatures keep their shrink across reloads
+    if (p.outfit != null) o.outfit = p.outfit;                                 // char wardrobe keeps its suit across reloads
     if (p.source === 'extra') extra.push({ name: p.name, kind: p.kind, pickable: p.pickable, solids: p.solids, ...o });
     else over[p.name] = o; });
   localStorage.setItem('dvm_place', JSON.stringify(over));
@@ -50,11 +52,12 @@ const placeApply = (p, x, z, rotY) => {                                         
     p._block.x0 = x - s2 - .15; p._block.x1 = x + s2 + .15; p._block.z0 = z - s2 - .15; p._block.z1 = z + s2 + .15; }
   refreshSolids();
 };
-const placePick = () => {                                                        // ray through screen centre → {p, x,y,z hit point}
+const placePick = allowHost => {                                                 // ray through screen centre → {p, x,y,z hit point}
   _ray.setFromCamera(_ctr, camera);
   const hits = rayPruned(_ray, PLACED.filter(p => p !== held && p.g.parent === scene).map(p => p.g)); // the selection stays pickable — ⇧+LMB re-grabs it into drag
   for (const h of hits) { let o = h.object; while (o && !o.userData.pRec) o = o.parent;
-    if (o) return { p: o.userData.pRec, x: h.point.x, y: h.point.y, z: h.point.z }; }
+    if (o && (allowHost || !o.userData.pRec.name.startsWith('table:')))            // stage hosts skip plain LMB — a stray click grabbed the whole table and nudged the set under the dolls; CTRL+LMB still grabs
+      return { p: o.userData.pRec, x: h.point.x, y: h.point.y, z: h.point.z }; }
   return null;
 };
 const placeGrab = (p, hit) => {                                                  // select — the Commission's stage-1: highlighted, keyboard-owned
@@ -128,16 +131,54 @@ const placeSurf = (wx, wz, skipSet, opt = {}) => { let t = 0, cap = opt.cap ?? I
     if (bx + .12 < p.bbox[0] || bx - .12 > p.bbox[1] || bz + .12 < p.bbox[2] || bz - .12 > p.bbox[3]) return;   // bbox reject — the drop-march ran every host's column scan every ray-step (the carry hitch)
     window.__scanN = (window.__scanN || 0) + 1;
     const s = surfaceAt(p, wx, wz); if (s > t && s <= cap) t = s; }); return t; };                  // cap = settle-only: nothing climbs at re-seat
+const _sn = new THREE.Vector3();
 const placeSpot = () => {                                                        // where the aim ray lands — the measured-surface law
   _ray.setFromCamera(_ctr, camera);
   const hits = rayPruned(_ray, PLACED.filter(p => p !== placeSel && p !== held && p.g.parent === scene).map(p => p.g));
-  let wx, wz;
-  if (hits.length) { wx = hits[0].point.x; wz = hits[0].point.z; }
-  else { const d = _ray.ray.direction; if (d.y > -.01) return null;                // level/up — no floor crossing
+  let wx, wz, landed = false;
+  for (const h of hits) { if (h.face) { _sn.copy(h.face.normal).transformDirection(h.object.matrixWorld);
+      if (_sn.y <= .5) continue; }                                               // wall/side faces are no landing — dragging across a facade used to teleport the item onto that column's roof
+    wx = h.point.x; wz = h.point.z; landed = true; break; }
+  if (!landed) { if (hits.length) return null;                                   // every hit was a wall — drag holds its last good spot
+    const d = _ray.ray.direction; if (d.y > -.01) return null;                     // level/up — no floor crossing
     const t = -_ray.ray.origin.y / d.y; wx = _ray.ray.origin.x + d.x * t; wz = _ray.ray.origin.z + d.z * t; }
   const skip = new Set([placeSel, ...((placeSel && placeSel._carry) || []).map(c => c.q)]);
   return { x: wx, y: placeSurf(wx, wz, skip, { surfOnly: placeSel && placeSel.surf }), z: wz };
 };
+/* ── CELL-FINE stage (N) — the second placement stage for work ON voxel models: once a
+   selection is held, N binds nudges to the lattice of the grid-bearing mini beneath it.
+   Arrows walk one model cell along the host's own axes, ,. rotate 1°, PgUp/Dn one voxel
+   of height, drag + nudges snap to cell centres, and the seat reads the exact column top
+   from mn._grid — no 5mm column quantisation, no drift. Off-lattice → 1mm fallback. */
+let placeCell = false;
+const _cv = new THREE.Vector3(), _cq = new THREE.Quaternion(), _ce = new THREE.Euler();
+const cellHost = p => {                                                          // grid mini beneath the selection → {o, mn, vs, W, D} | null
+  let best = null, bs = 1e9;
+  PLACED.forEach(h => { if (h === p || !h.g) return;
+    h.g.traverse(o => { const mn = o.userData && o.userData.mini;
+      if (!mn || !mn._grid) return;
+      _cv.set(p.x, p.y0 + .02, p.z); o.worldToLocal(_cv);
+      const vs = mn.vs, W = mn.dims[0], D = mn.dims[2];
+      const cx = Math.floor(_cv.x / vs + W / 2), cz = Math.floor(_cv.z / vs + D / 2);   // centred lattice — fx/fz place cell i at (i − W/2 + .5)·vs
+      if (cx < 0 || cx >= W || cz < 0 || cz >= D || !mn.cellOf) return;
+      const g = mn.cellOf(_cv.x, _cv.z), t = mn._grid.tops[g[0] + W * g[1]], d = Math.abs(_cv.y - (t + 1) * vs);
+      if (d < bs) { bs = d; best = { o, mn, vs, W, D }; } }); });
+  return best;                                                                  // x/z containment is the host test — y only ranks overlaps (measured seats quantize above the exact cell top)
+};
+const cellSnap = (host, wx, wz) => {                                             // world → host cell centres → world (x/z only)
+  _cv.set(wx, 0, wz); host.o.worldToLocal(_cv);
+  _cv.x = (Math.floor(_cv.x / host.vs + host.W / 2) - host.W / 2 + .5) * host.vs;
+  _cv.z = (Math.floor(_cv.z / host.vs + host.D / 2) - host.D / 2 + .5) * host.vs;
+  host.o.localToWorld(_cv); return { x: _cv.x, z: _cv.z }; };
+const cellSeat = (host, wx, wz) => {                                             // exact column-top world y at a point — null off-lattice
+  _cv.set(wx, 0, wz); host.o.worldToLocal(_cv);
+  const cx = Math.floor(_cv.x / host.vs + host.W / 2), cz = Math.floor(_cv.z / host.vs + host.D / 2);
+  if (cx < 0 || cx >= host.W || cz < 0 || cz >= host.D || !host.mn.cellOf) return null;
+  const g = host.mn.cellOf(_cv.x, _cv.z), t = host.mn._grid.tops[g[0] + host.W * g[1]]; if (t < 0) return null;
+  _cv.set(0, (t + 1) * host.vs, 0); host.o.localToWorld(_cv); return _cv.y; };
+const cellAxes = host => {                                                        // host lattice's world-frame yaw — arrows walk model axes
+  host.o.getWorldQuaternion(_cq); _ce.setFromQuaternion(_cq, 'YXZ'); return _ce.y; };
+
 const placeDrop = () => {                                                        // commit the drag — write the override
   if (!placeSel) return; const moved = placeSel;
   moved.y0 = moved.g.position.y;
@@ -157,7 +198,7 @@ const placePaste = () => {
   emitAsset(placeClip.name, { kind: placeClip.kind,
     x: Math.round(s.x / PLACE_SNAP) * PLACE_SNAP, z: Math.round(s.z / PLACE_SNAP) * PLACE_SNAP,
     rotY: placeClip.rotY, pickable: placeClip.pickable, solids: placeClip.solids, source: 'extra', seatY: s.y,
-    pendant: placeClip.pendant })
+    pendant: placeClip.pendant, vsScale: placeClip.vsScale, fit: placeClip.outfit })
     .then(r => { if (r) { if (placeSel) placeDrop();                             // the paste takes the selection — commit whatever was held
       placeSel = r; r._carry = []; r._drag = false; r._grab = { lx: 0, lz: 0 };
       r._orig = { x: r.x, z: r.z, rotY: r.rotY, y0: r.y0 };
@@ -187,14 +228,19 @@ const placeStep = () => {
   if (p._drag) {                                                                 // ⇧+LMB held — the ray owns it (anchor + grid snap)
     const s = placeSpot();
     if (s) { const cy = Math.cos(p.rotY), sy = Math.sin(p.rotY), g = p._grab || { lx: 0, lz: 0 };
-      const sx = Math.round(s.x / PLACE_SNAP) * PLACE_SNAP, sz = Math.round(s.z / PLACE_SNAP) * PLACE_SNAP;
-      p.y0 = s.y;
-      placeApply(p, sx - g.lx * cy - g.lz * sy, sz + g.lx * sy - g.lz * cy, p.rotY); } }
+      if (placeCell) { const h = cellHost(p), sn = h ? cellSnap(h, s.x, s.z) : s;  // cell stage rides the host's lattice
+        const seat = h ? cellSeat(h, sn.x, sn.z) : null;
+        p.y0 = seat != null ? seat : s.y;
+        placeApply(p, sn.x - g.lx * cy - g.lz * sy, sn.z + g.lx * sy - g.lz * cy, p.rotY); }
+      else { const sx = Math.round(s.x / PLACE_SNAP) * PLACE_SNAP, sz = Math.round(s.z / PLACE_SNAP) * PLACE_SNAP;
+        p.y0 = s.y;
+        placeApply(p, sx - g.lx * cy - g.lz * sy, sz + g.lx * sy - g.lz * cy, p.rotY); } } }
   carrySync(p);                                                                  // passengers ride regardless of what moved the host
-  const _sig = p.x.toFixed(3) + '|' + p.z.toFixed(3) + '|' + p.y0.toFixed(3) + '|' + p.rotY.toFixed(3) + '|' + (p._carry || []).length + (p._drag ? '|D' : '');   // textContent churn was a per-frame layout feed — write only on change
+  const _sig = p.x.toFixed(3) + '|' + p.z.toFixed(3) + '|' + p.y0.toFixed(3) + '|' + p.rotY.toFixed(3) + '|' + (p._carry || []).length + (p._drag ? '|D' : '') + '|' + placeCell;   // textContent churn was a per-frame layout feed — write only on change
   if (_sig !== p._statSig) { p._statSig = _sig;
     placeStat.textContent = 'SEL ' + p.name + '  x ' + p.x.toFixed(3) + '  z ' + p.z.toFixed(3) +
-      '  y ' + p.y0.toFixed(3) + '  rotY ' + p.rotY.toFixed(3) + '  · ' + (p._carry || []).length + ' passengers' + (p._drag ? '  · DRAGGING' : ''); }
+      '  y ' + p.y0.toFixed(3) + '  rotY ' + p.rotY.toFixed(3) + '  · ' + (p._carry || []).length + ' passengers' +
+      (p._drag ? '  · DRAGGING' : '') + (placeCell ? '  · CELL ' + ((cellHost(p) || {}).vs ? (cellHost(p).vs * 1000).toFixed(2) + 'mm' : '1mm') : ''); }
 };
 window.__place = { on: () => placeOn, toggle: placeToggle, sel: () => placeSel && placeSel.name,
   fly: (x, y, z) => { if (x === undefined) return flyPos.toArray(); flyPos.set(x, y, z); return true; },   // pin the free cam — flyPos was module-scoped; free-cam probes couldn't reach it
@@ -202,9 +248,11 @@ window.__place = { on: () => placeOn, toggle: placeToggle, sel: () => placeSel &
   grab: n => { const p = PLACED.find(p => p.name === n && !p._parked); return p ? placeGrab(p, null) : false; },
   grabIdx: i => { const p = PLACED[i]; return p ? placeGrab(p, null) : false; },
   drop: placeDrop, revert: placeRevert, spot: placeSpot, pick: () => { const p = placePick(); return p && p.p.name; },
-  copy: () => { if (!placeSel) return false; placeClip = { name: placeSel.name, kind: placeSel.kind, rotY: placeSel.rotY, pickable: placeSel.pickable, solids: placeSel.solids, pendant: placeSel.pendWant };
+  copy: () => { if (!placeSel) return false; placeClip = { name: placeSel.name, kind: placeSel.kind, rotY: placeSel.rotY, pickable: placeSel.pickable, solids: placeSel.solids, pendant: placeSel.pendWant, vsScale: placeSel.vsScale, outfit: placeSel.outfit };
     placeSay('COPIED ' + placeSel.name); return true; },
   paste: placePaste,
+  cell: v => { placeCell = v === undefined ? !placeCell : !!v; return placeCell; },
+  cellHost, cellSnap, cellSeat,
   del: () => { if (!placeSel) return false;
     placeSnapOp({ t: 'del', spec: { name: placeSel.name, kind: placeSel.kind, x: placeSel.x, z: placeSel.z,
       rotY: placeSel.rotY, pickable: placeSel.pickable, solids: placeSel.solids, source: placeSel.source,
