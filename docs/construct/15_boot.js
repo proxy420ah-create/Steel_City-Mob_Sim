@@ -25,7 +25,7 @@ ready.then(async () => {
   await Promise.all(TABLES.map(t => t._mountP));                                   // mini mounts are async — tops must be live before extras/fixpoint read them, or a roof seat caps down to felt on a slow stasset load
   const extras = JSON.parse(localStorage.getItem('dvm_extra') || '[]');            // extras emit LAST — they seat on the final layout, not manifest spots
   for (const e of extras) { const r = await emitAsset(e.name, { kind: e.kind, x: e.x, z: e.z, rotY: e.rotY, pickable: e.pickable, solids: e.solids,
-    pendant: e.pend, source: 'extra', seatY: 'auto' });
+    pendant: e.pend, source: 'extra', seatY: e.y ?? 'auto', vsScale: e.vsScale, fit: e.outfit });   // saved seat honored (same law manifest items ride) — 'auto' re-stacked co-located extras every reload
     if (r) gripRestore(r, e.tilt); }
   for (let pass = 0; pass < 4; pass++) {                                      // orphan-law re-seat to fixpoint: EVERY item re-derives height on the
     let changed = false;                                                      // final layout — saves carry no y0. Declared roles: surf items floor
@@ -34,7 +34,9 @@ ready.then(async () => {
                                                                               // parented scenery (parked cars ride miniG, the showroom car carG)
                                                                               // answers to its host's seat law — rec x/z are parent-local, a
                                                                               // world-coords sweep can't address them (it seats them to the slab floor)
-      const s = placeSurf(p.x, p.z, new Set([p]), { surfOnly: p.surf, cap: p.y0 + .01 });   // riders conform — but the cap makes re-seat settle-only,
+      const sDown = placeSurf(p.x, p.z, new Set([p]), { surfOnly: p.surf, cap: p.y0 + .01 });   // riders conform — the cap keeps re-seat settle-only,
+      const sUp = placeSurf(p.x, p.z, new Set([p]), { surfOnly: p.surf });                          // uncapped truth — a host that grew over the seat (reparked car, stale tops) used to drop the rider to the floor
+      const s = (sUp - p.y0 < p.y0 - sDown) ? sUp : sDown;                                          // nearest measured seat wins — roof-ride beats falling through the world
       if (Math.abs(s - p.y0) > 1e-4) { p.y0 = s; p.g.position.y = s; changed = true; } });  // so co-located siblings can't leapfrog. Highest first.
     if (!changed) break;
   }

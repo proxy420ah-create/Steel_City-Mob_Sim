@@ -650,6 +650,8 @@ const emitVox = async (t, m, W, H, D, vox) => {
       written: new Set(), spin: 0, topTheta: 0, fx, mirX, axis: 'y',
       slice: { x: [0, W - 1], y: [0, H - 1], z: [0, D - 1] }, clipMin, clipMax };
     if (t._mountGen !== mgen || (m._parent && m._parent.parent !== t.g)) { (m._parent || t.g).remove(miniG); return null; }   // swapped mid-emit — the unflagged group survived mountModel's cleanup (or its parent detached); bail before it writes tops
+    try { const mr = JSON.parse(localStorage.getItem('dvm_mrot:' + t.spec.id) || 'null');               // restore the easel's last angle before tops project — else F5 re-seats riders against a different column map
+      if (mr && mr.m === miniG.userData.mini.name) { miniG.rotation.y = mr.r; miniG.userData.mini.topTheta = mr.r; } } catch {}
     miniSyncSlice(miniG); await miniSyncTopsQ(t, miniG, m._parent ? _effOf(m._parent, miniG) : null);   // the model joins the host's surface truth — chunked; a sub-mini projects through its parent's transform
     miniG.position.y = m._parent ? (m._py || 0) : tableTop(t);           // settle on the CURRENT top — entry's capture predates a mid-emit lift-restore; the mount lands on its pedestal's real height
     miniSettle(t);                                                       // tops are truth — guests re-derive under the new map (a mount/swap left them on the old)
@@ -680,6 +682,7 @@ const _miniTopsHead = (t, mdl, eff) => { const mn = mdl.userData.mini;
   const th = eff ? eff.th : mdl.rotation.y, c = Math.cos(th), sn = Math.sin(th),
     ox = eff ? eff.ox : mdl.position.x, oz = eff ? eff.oz : mdl.position.z,
     by = eff ? eff.by : mdl.position.y;                                            // host-local base y — a top mini's y IS tableTop
+  try { if (!eff) localStorage.setItem('dvm_mrot:' + t.spec.id, JSON.stringify({ m: mn.name, r: +th.toFixed(5) })); } catch {}   // the easel's angle persists — F5 re-derives tops at this rotation so riders keep their columns
   return { mn, ox, oz, c, sn, wr, by }; };
 const _miniTopsRevert = (t, wr, i0, i1) => { const v = tableTop(t);                // written keys drop back to felt
   for (let i = i0; i < i1; i++) t.rec.tops.set(wr[i], v); };                       // (~250k Map.set on a zone — chunkable)
